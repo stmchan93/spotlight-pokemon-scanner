@@ -929,3 +929,11 @@ CREATE TABLE IF NOT EXISTS user_emails (
 -- fresh schema.sql database free to define `deal_alerts` for itself (which
 -- tests/test_watch_signals.py does, to prove the engine tolerates the table
 -- arriving late).
+
+-- Push delivery for that radar (transport lives in expo_push.py). The same
+-- patch creates `user_push_tokens` + `user_notification_prefs` and the additive
+-- ticket columns (`deal_alerts.push_ticket_id` / `push_tickets_json`,
+-- `ops_alerts.sent_ticket_id` / `sent_tickets_json`). Also deliberately NOT
+-- duplicated here. Contract worth repeating: an ABSENT `user_notification_prefs`
+-- row means ON, so nothing writes a row just to record the default and no read
+-- may turn a missing row into "off".

@@ -669,6 +669,43 @@ class DealAlertFeedTests(WatchWiringTestCase):
             ).fetchone()["tapped_at"]
         )
 
+    def test_alerts_are_self_describing(self) -> None:
+        """An alert carries its own name + thumbnail. The band must NOT have to
+        join it against the loaded watchlist: a deal on a card the user just
+        un-watched would then render as an invisible row."""
+        upsert_card(
+            self.connection,
+            card_id=CARD_ID,
+            name=CARD_NAME,
+            set_name=CARD_SET,
+            number=CARD_NUMBER,
+            rarity="Rare",
+            variant="Raw",
+            language="English",
+            game="pokemon",
+            source_provider="scrydex",
+            source_record_id=CARD_ID,
+            image_url="https://img.test/large.png",
+            image_small_url="https://img.test/small.png",
+        )
+        self.connection.commit()
+        self._alert("a1", "owner-a")
+        with self.service.request_identity_context(self._identity("owner-a")):
+            payload = self.service.deal_alerts()
+            marked = self.service.mark_deal_alert("a1", field="seen_at")
+        alert = payload["alerts"][0]
+        self.assertEqual(alert["cardName"], CARD_NAME)
+        # The thumbnail, not the full-size art: this renders in a compact row.
+        self.assertEqual(alert["imageUrl"], "https://img.test/small.png")
+        # Existing fields are untouched — the client normalizers tolerate
+        # additions, not removals.
+        self.assertEqual(alert["cardID"], CARD_ID)
+        self.assertEqual(alert["totalCents"], 7_000)
+        self.assertEqual(alert["listingID"], "listing-a1")
+        # The seen/tapped responses carry the same enriched shape.
+        self.assertEqual(marked["cardName"], CARD_NAME)
+        self.assertEqual(marked["imageUrl"], "https://img.test/small.png")
+
     def test_post_route_maps_suffix_to_column(self) -> None:
         identity = self._identity("owner-a")
         for suffix, field in (("/seen", "seen_at"), ("/tapped", "tapped_at")):

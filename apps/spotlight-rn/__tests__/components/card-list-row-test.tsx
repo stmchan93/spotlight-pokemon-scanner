@@ -233,6 +233,43 @@ describe('CardListRow', () => {
     expect(screen.getByTestId('row-price')).toBeTruthy();
   });
 
+  it('renders the footnote as its own line under number · set, leaving the grade line alone', () => {
+    renderRow({ footnote: 'Target $40.00' });
+
+    expect(screen.getByTestId('row-footnote')).toBeTruthy();
+    expect(screen.getByText('Target $40.00')).toBeTruthy();
+    // The condition/grade line is untouched — the whole point of the slot is
+    // that a target stops being crammed onto it as "PSA 10 · Target $40.00".
+    expect(screen.getByText('PSA 10')).toBeTruthy();
+    expect(screen.queryByText('PSA 10 · Target $40.00')).toBeNull();
+    // And the meta line it sits under is unchanged.
+    expect(screen.getByText('100/101 · Dragon Frontiers')).toBeTruthy();
+  });
+
+  it('renders nothing for an absent, null, or blank footnote (existing callers unaffected)', () => {
+    const bare = renderRow();
+    expect(screen.queryByTestId('row-footnote')).toBeNull();
+    bare.unmount();
+
+    const nulled = renderRow({ footnote: null });
+    expect(screen.queryByTestId('row-footnote')).toBeNull();
+    nulled.unmount();
+
+    // Whitespace is not content: a caller joining empty parts must not open a
+    // blank line under the meta.
+    renderRow({ footnote: '   ' });
+    expect(screen.queryByTestId('row-footnote')).toBeNull();
+  });
+
+  it('leaves every other line in place when a footnote is added', () => {
+    renderRow({ footnote: 'Target $40.00' });
+
+    expect(screen.getByText('Charizard ex')).toBeTruthy();
+    expect(screen.getByText('$129,198.30')).toBeTruthy();
+    expect(screen.getByText('Qty: 2')).toBeTruthy();
+    expect(screen.getByTestId('row-trend')).toBeTruthy();
+  });
+
   it('renders no sparkline when sparkPoints are absent or empty', () => {
     const bare = renderRow();
     expect(screen.queryByTestId('row-sparkline')).toBeNull();

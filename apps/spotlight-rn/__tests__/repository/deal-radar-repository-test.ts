@@ -28,6 +28,8 @@ function mockFetch(...responses: Response[]) {
 const alertPayload = {
   id: 'a1b2',
   cardID: 'gym1-60',
+  cardName: "Sabrina's Slowbro",
+  imageUrl: 'https://img.test/small.png',
   listingID: 'v1|1|0',
   kind: 'under_added',
   totalCents: 7000,
@@ -66,6 +68,8 @@ describe('HttpSpotlightRepository deal alerts', () => {
       {
         id: 'a1b2',
         cardId: 'gym1-60',
+        cardName: "Sabrina's Slowbro",
+        imageUrl: 'https://img.test/small.png',
         listingId: 'v1|1|0',
         kind: 'under_added',
         totalCents: 7000,
@@ -125,6 +129,9 @@ describe('HttpSpotlightRepository deal alerts', () => {
     expect(page.alerts[0]).toEqual({
       id: 'bare',
       cardId: '',
+      // Both nullable: an older server, or a card row the join could not resolve.
+      cardName: null,
+      imageUrl: null,
       listingId: '',
       kind: 'under_added',
       totalCents: 0,

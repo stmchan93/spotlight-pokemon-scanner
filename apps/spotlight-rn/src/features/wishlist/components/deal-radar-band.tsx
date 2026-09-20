@@ -23,17 +23,21 @@ import { buildDealHeadline, buildDiscountLabel } from '@/features/wishlist/deal-
 
 export type DealRadarBandProps = {
   alerts: readonly DealAlert[];
-  /** The watched cards, by id — the deal payload carries no name or art. */
+  /**
+   * The watched cards, by id. The alert carries its own name and art, so this
+   * only ENRICHES a row (set name, collector number, currency) — a deal whose
+   * card has left the watchlist still renders.
+   */
   cardsById: ReadonlyMap<string, CardFavoriteEntry>;
   onMarkSeen: (id: string) => void;
-  onOpenDeal: (alert: DealAlert, card: CardFavoriteEntry) => void;
-  onShareDeal: (alert: DealAlert, card: CardFavoriteEntry) => void;
+  onOpenDeal: (alert: DealAlert, card: CardFavoriteEntry | null) => void;
+  onShareDeal: (alert: DealAlert, card: CardFavoriteEntry | null) => void;
   /** Gutter/margin, owned by the caller — see the empty-state note below. */
   style?: StyleProp<ViewStyle>;
   unseenCount: number;
 };
 
-type ResolvedDeal = { alert: DealAlert; card: CardFavoriteEntry };
+type ResolvedDeal = { alert: DealAlert; card: CardFavoriteEntry | null; name: string };
 
 /**
  * The Deals band: the caught-listing surface that sits ABOVE the watchlist rows.
@@ -65,14 +69,15 @@ export function DealRadarBand({
 }: DealRadarBandProps) {
   const theme = useSpotlightTheme();
 
-  // A deal we cannot name is a row that says nothing: the payload carries only
-  // `cardId`, so a deal for a card that has left the watchlist is dropped
-  // rather than rendered as an anonymous price.
+  // The alert names itself, so the watchlist entry is enrichment, not a gate —
+  // un-watching a card must not silently delete the deal you were told about.
+  // Only a deal with no name anywhere is dropped, since that row says nothing.
   const resolved: ResolvedDeal[] = [];
   for (const alert of alerts) {
-    const card = cardsById.get(alert.cardId);
-    if (card) {
-      resolved.push({ alert, card });
+    const card = cardsById.get(alert.cardId) ?? null;
+    const name = (card?.name ?? alert.cardName ?? '').trim();
+    if (name) {
+      resolved.push({ alert, card, name });
     }
   }
 
@@ -99,11 +104,12 @@ export function DealRadarBand({
       </View>
 
       <View style={styles.rows}>
-        {resolved.map(({ alert, card }) => (
+        {resolved.map(({ alert, card, name }) => (
           <DealRadarRow
             alert={alert}
             card={card}
             key={alert.id}
+            name={name}
             onMarkSeen={onMarkSeen}
             onOpenDeal={onOpenDeal}
             onShareDeal={onShareDeal}
@@ -116,15 +122,20 @@ export function DealRadarBand({
 
 type DealRadarRowProps = {
   alert: DealAlert;
-  card: CardFavoriteEntry;
+  /** null once the card leaves the watchlist; the alert still names itself. */
+  card: CardFavoriteEntry | null;
+  name: string;
   onMarkSeen: (id: string) => void;
-  onOpenDeal: (alert: DealAlert, card: CardFavoriteEntry) => void;
-  onShareDeal: (alert: DealAlert, card: CardFavoriteEntry) => void;
+  onOpenDeal: (alert: DealAlert, card: CardFavoriteEntry | null) => void;
+  onShareDeal: (alert: DealAlert, card: CardFavoriteEntry | null) => void;
 };
 
-function DealRadarRow({ alert, card, onMarkSeen, onOpenDeal, onShareDeal }: DealRadarRowProps) {
+function DealRadarRow({ alert, card, name, onMarkSeen, onOpenDeal, onShareDeal }: DealRadarRowProps) {
   const theme = useSpotlightTheme();
-  const currencyCode = card.currencyCode ?? 'USD';
+  const currencyCode = card?.currencyCode ?? 'USD';
+  // Prefer the watchlist entry's art (already cached by the rows below); fall
+  // back to the thumbnail the alert carries for a card no longer watched.
+  const artSource = card ? getCardImageSource(card, 'small') : alert.imageUrl ? { uri: alert.imageUrl } : undefined;
   const headline = buildDealHeadline(alert, currencyCode);
   const discountLabel = buildDiscountLabel(alert);
   const alertId = alert.id;
@@ -141,7 +152,7 @@ function DealRadarRow({ alert, card, onMarkSeen, onOpenDeal, onShareDeal }: Deal
 
   return (
     <Pressable
-      accessibilityLabel={`${card.name} — ${headline}`}
+      accessibilityLabel={`${name} — ${headline}`}
       accessibilityRole="button"
       onPress={() => onOpenDeal(alert, card)}
       testID={`wishlist-deal-row-${alert.id}`}
@@ -160,7 +171,7 @@ function DealRadarRow({ alert, card, onMarkSeen, onOpenDeal, onShareDeal }: Deal
             <CachedImage
               cachePolicy={imageCachePolicy.thumbnail}
               contentFit="cover"
-              source={getCardImageSource(card, 'small')}
+              source={artSource}
               style={StyleSheet.absoluteFill}
               testID={`wishlist-deal-art-${alert.id}`}
             />
@@ -168,7 +179,7 @@ function DealRadarRow({ alert, card, onMarkSeen, onOpenDeal, onShareDeal }: Deal
 
           <View style={styles.copy}>
             <Text numberOfLines={1} style={theme.typography.bodyMedium}>
-              {card.name}
+              {name}
             </Text>
             <Text
               numberOfLines={2}
@@ -192,7 +203,7 @@ function DealRadarRow({ alert, card, onMarkSeen, onOpenDeal, onShareDeal }: Deal
           </View>
 
           <IconButton
-            accessibilityLabel={`Share this ${card.name} deal`}
+            accessibilityLabel={`Share this ${name} deal`}
             onPress={() => onShareDeal(alert, card)}
             size={34}
             testID={`wishlist-deal-share-${alert.id}`}

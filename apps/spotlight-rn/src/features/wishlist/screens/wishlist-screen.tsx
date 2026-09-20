@@ -323,9 +323,9 @@ export function WishlistScreen() {
     beat later, and a fire-and-forget request loses exactly the taps that matter
     most. The listing still opens if the write fails (see `markTapped`).
   */
-  const handleOpenDeal = useCallback(async (alert: DealAlert, card: CardFavoriteEntry) => {
+  const handleOpenDeal = useCallback(async (alert: DealAlert, card: CardFavoriteEntry | null) => {
     capturePostHogEvent('watch_deal_tapped', {
-      cardId: card.cardId,
+      cardId: alert.cardId,
       discountPct: alert.discountPct ?? null,
       kind: alert.kind,
     });
@@ -337,12 +337,14 @@ export function WishlistScreen() {
     }
   }, [markDealTapped]);
 
-  const handleShareDeal = useCallback((alert: DealAlert, card: CardFavoriteEntry) => {
-    const body = buildDealShareMessage(alert, card, card.currencyCode ?? 'USD');
+  const handleShareDeal = useCallback((alert: DealAlert, card: CardFavoriteEntry | null) => {
+    // An un-watched card still shares: the alert carries its own name.
+    const shareCard = card ?? (alert.cardName ? { name: alert.cardName } : null);
+    const body = buildDealShareMessage(alert, shareCard, card?.currencyCode ?? 'USD');
     if (!body) {
       return;
     }
-    capturePostHogEvent('watch_deal_shared', { cardId: card.cardId, kind: alert.kind });
+    capturePostHogEvent('watch_deal_shared', { cardId: alert.cardId, kind: alert.kind });
     setDealShareBody(body);
   }, []);
 
@@ -616,6 +618,7 @@ export function WishlistScreen() {
           <WishlistGridSingleRow
             editMode={editMode}
             entry={item.entry}
+            onEditTarget={setTargetEntry}
             onPress={handlePressEntry}
             selectedIds={selectedIds}
             theme={theme}
@@ -626,6 +629,7 @@ export function WishlistScreen() {
         <WishlistGridRow
           editMode={editMode}
           isFirstRow={item.rowIndex === 0}
+          onEditTarget={setTargetEntry}
           onPress={handlePressEntry}
           rowEntries={item.rowEntries}
           rowIndex={item.rowIndex}
@@ -977,9 +981,10 @@ function WishlistListRow({
   // activation range below so closed rows never claim rightward pans.
   const [deleteRailOpen, setDeleteRailOpen] = useState(false);
 
-  // The row's only free text line is the condition/grade one, so a set target
-  // rides there ("Near Mint · Target $40.00"). `CardListRow` has no footnote
-  // slot; adding one is the tidier fix if a second caller ever needs it.
+  // A set target is a fact about the WATCH, not about the copy, so it rides
+  // `CardListRow`'s `footnote` slot under number · set. It used to be appended
+  // to the condition/grade line ("Near Mint · Target $40.00"), which read as
+  // one claim about the copy instead of two unrelated ones.
   const targetCents = entry.targetPriceCents;
   const targetLabel = targetCents != null && targetCents > 0
     ? `Target ${centsToCurrency(targetCents, entry.currencyCode ?? 'USD')}`
@@ -994,12 +999,13 @@ function WishlistListRow({
       currencyCode={entry.currencyCode ?? 'USD'}
       delayLongPress={350}
       firstInSection={firstInSection}
+      footnote={targetLabel}
       // Condition/grade line per Figma 4173:82045 ("PSA 10" / "Near Mint").
       // The line labels the lane the row's PRICE resolved on: graded copies
       // their grade, owned raw copies their stored condition, and every other
       // raw row "Near Mint" — the default lane raw market prices resolve on —
       // so long as there is a price to label. No price → no line.
-      gradeLabel={[priceLaneLabel, targetLabel].filter(Boolean).join(' · ') || null}
+      gradeLabel={priceLaneLabel}
       // Slab-case frame on the thumbnail — keyed by THIS entry's grader; kept
       // so graded copies still read as slabs even without the text line.
       grader={entry.slabContext?.grader ?? null}
@@ -1079,6 +1085,8 @@ type WishlistGridRowProps = {
   isFirstRow: boolean;
   editMode?: boolean;
   selectedIds?: Set<string>;
+  /** Long-press opens the target-price sheet, same as the list row. */
+  onEditTarget: (entry: CardFavoriteEntry) => void;
   onPress: (entry: CardFavoriteEntry) => void;
   theme: ReturnType<typeof useSpotlightTheme>;
 };
@@ -1089,6 +1097,7 @@ function WishlistGridRow({
   isFirstRow,
   editMode = false,
   selectedIds,
+  onEditTarget,
   onPress,
   theme,
 }: WishlistGridRowProps) {
@@ -1126,7 +1135,9 @@ function WishlistGridRow({
           >
             {entry ? (
               <WishlistGridTile
+                editMode={editMode}
                 entry={entry}
+                onEditTarget={() => onEditTarget(entry)}
                 onPress={() => onPress(entry)}
                 selectable={editMode}
                 selected={editMode && !!selectedIds?.has(entry.cardId)}
@@ -1143,6 +1154,8 @@ type WishlistGridSingleRowProps = {
   entry: CardFavoriteEntry;
   editMode?: boolean;
   selectedIds?: Set<string>;
+  /** Long-press opens the target-price sheet, same as the list row. */
+  onEditTarget: (entry: CardFavoriteEntry) => void;
   onPress: (entry: CardFavoriteEntry) => void;
   theme: ReturnType<typeof useSpotlightTheme>;
 };
@@ -1150,12 +1163,21 @@ type WishlistGridSingleRowProps = {
 // A lone card shouldn't render as a full-bleed ruled row (a wide rectangle with
 // one tile in the corner). Box it at one column's width so the border hugs just
 // that card — matching the collection card view's single-item case.
-function WishlistGridSingleRow({ entry, editMode = false, selectedIds, onPress, theme }: WishlistGridSingleRowProps) {
+function WishlistGridSingleRow({
+  entry,
+  editMode = false,
+  selectedIds,
+  onEditTarget,
+  onPress,
+  theme,
+}: WishlistGridSingleRowProps) {
   return (
     <View style={styles.gridSingleRow}>
       <View style={[styles.gridSingleCell, { borderColor: cardGridRule.color }]}>
         <WishlistGridTile
+          editMode={editMode}
           entry={entry}
+          onEditTarget={() => onEditTarget(entry)}
           onPress={() => onPress(entry)}
           selectable={editMode}
           selected={editMode && !!selectedIds?.has(entry.cardId)}
@@ -1166,22 +1188,38 @@ function WishlistGridSingleRow({ entry, editMode = false, selectedIds, onPress, 
 }
 
 type WishlistGridTileProps = {
+  editMode?: boolean;
   entry: CardFavoriteEntry;
+  onEditTarget: () => void;
   onPress: () => void;
   selectable?: boolean;
   selected?: boolean;
 };
 
-function WishlistGridTile({ entry, onPress, selectable = false, selected = false }: WishlistGridTileProps) {
+function WishlistGridTile({
+  editMode = false,
+  entry,
+  onEditTarget,
+  onPress,
+  selectable = false,
+  selected = false,
+}: WishlistGridTileProps) {
   // Same shared tile + prop mapping as the Collection card view
   // (CollectionTileSlot in collection-masonry-grid.tsx). Wishlist has no
   // owned-quantity concept → hide the quantity readout; the star is hidden to
   // match Collection's card view; and the print variant is omitted (wishlist
   // tracks the card, not a specific printing).
   const tileKind = entry.slabContext ? 'slab' : 'raw';
+  // Same target copy the list row shows, in the tile's own footnote slot —
+  // otherwise a target set from card view would be invisible in card view.
+  const targetCents = entry.targetPriceCents;
+  const targetLabel = targetCents != null && targetCents > 0
+    ? `Target ${centsToCurrency(targetCents, entry.currencyCode ?? 'USD')}`
+    : null;
   return (
     <InventoryCardTile
       bordered={false}
+      footnote={targetLabel}
       imageUrl={entry.smallImageUrl ?? entry.imageUrl ?? null}
       name={entry.name}
       setName={entry.setName ?? ''}
@@ -1209,6 +1247,12 @@ function WishlistGridTile({ entry, onPress, selectable = false, selected = false
       showFavorite={false}
       selectable={selectable}
       selected={selected}
+      // Long-press opens the target-price sheet — the same gesture, delay and
+      // edit-mode suppression as the list row, so the two views teach one
+      // interaction rather than two. (The tile's own default delay is 220; 350
+      // is the watchlist's, matching `CardListRow`'s `delayLongPress`.)
+      delayLongPress={350}
+      onLongPress={editMode ? undefined : onEditTarget}
       onPress={onPress}
       testID={`wishlist-grid-tile-${entry.cardId}`}
     />

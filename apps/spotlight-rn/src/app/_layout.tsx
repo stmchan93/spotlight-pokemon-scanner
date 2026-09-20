@@ -41,6 +41,7 @@ import { StagingSmokeDiagnostics } from '@/components/staging-smoke-diagnostics'
 import { AccessGate } from '@/features/auth/components/access-gate';
 import { AuthGate } from '@/features/auth/components/auth-gate';
 import { HandleClaimGate } from '@/features/auth/components/handle-claim-gate';
+import { PushNotificationsBridge } from '@/features/notifications/push-notifications-bridge';
 import { AppErrorBoundary } from '@/lib/observability/app-error-boundary';
 import { PostHogAppProvider, identifyPostHogUser } from '@/lib/observability/posthog';
 import { PostHogScreenTracker } from '@/lib/observability/posthog-screen-tracker';
@@ -363,6 +364,14 @@ function RootLayout() {
                       <CircularTabAvatarProvider>
                         <View style={{ flex: 1, backgroundColor: navigationTheme.colors.background }}>
                           <RootNavigator />
+                          {/*
+                            Renderless, and it has to live HERE: inside
+                            `AuthenticatedAppProviders` (it reads the repository
+                            and the session) and beside the navigator (it routes
+                            a tapped notification). It never prompts for
+                            permission — see the hook.
+                          */}
+                          <PushNotificationsBridge />
                           <StagingSmokeDiagnostics />
                           <AppDrawer />
                         </View>

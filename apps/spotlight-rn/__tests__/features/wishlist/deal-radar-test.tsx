@@ -94,7 +94,9 @@ function buildDealAlert(overrides: Partial<DealAlert> = {}): DealAlert {
   return {
     baselineCents: 4600,
     cardId: 'charizard',
+    cardName: 'Charizard',
     createdAt: '2026-09-18T00:00:00.000Z',
+    imageUrl: null,
     discountPct: 26,
     id: 'deal-1',
     kind: 'under_added',
@@ -230,10 +232,32 @@ describe('Watchlist deal radar', () => {
       expect(screen.getByTestId('wishlist-deal-band-unseen-dot')).toBeTruthy();
     });
 
-    it('drops a deal whose card has left the watchlist rather than naming it nothing', async () => {
+    it('still renders a deal whose card has left the watchlist, naming it from the alert', async () => {
+      // Un-watching a card must not silently delete the deal you were already
+      // told about — the alert carries its own name and art for exactly this.
       const { repository } = buildRepository({
         favorites: [buildFavoriteEntry({ cardId: 'gengar', name: 'Gengar ex' })],
-        page: { alerts: [buildDealAlert({ cardId: 'charizard' })], limit: 5, unseenCount: 1 },
+        page: {
+          alerts: [buildDealAlert({ cardId: 'charizard', cardName: 'Charizard' })],
+          limit: 5,
+          unseenCount: 1,
+        },
+      });
+      renderScreen(repository);
+      await screen.findByText('Gengar ex');
+
+      expect(screen.queryByTestId('wishlist-deal-band')).toBeOnTheScreen();
+      expect(screen.getByText('Charizard')).toBeOnTheScreen();
+    });
+
+    it('drops only a deal with no name anywhere, since that row says nothing', async () => {
+      const { repository } = buildRepository({
+        favorites: [buildFavoriteEntry({ cardId: 'gengar', name: 'Gengar ex' })],
+        page: {
+          alerts: [buildDealAlert({ cardId: 'charizard', cardName: null })],
+          limit: 5,
+          unseenCount: 1,
+        },
       });
       renderScreen(repository);
       await screen.findByText('Gengar ex');
@@ -438,6 +462,80 @@ describe('Watchlist deal radar', () => {
       );
       // The sheet stays open on a failure, so the user sees why.
       expect(screen.getByTestId('wishlist-target-sheet')).toBeTruthy();
+    });
+
+    it('puts a set target on its own footnote line, not on the condition line', async () => {
+      const { repository } = buildRepository({
+        favorites: [buildFavoriteEntry({
+          cardId: 'charizard',
+          conditionLabel: 'Near Mint',
+          name: 'Charizard',
+          targetPriceCents: 4000,
+        })],
+      });
+      renderScreen(repository);
+
+      const footnote = await screen.findByTestId('wishlist-row-charizard-footnote');
+      expect(footnote).toHaveTextContent('Target $40.00');
+      // The condition line says only what lane the price resolved on. It used
+      // to carry both as "Near Mint · Target $40.00", which read as one claim
+      // about the copy instead of two unrelated facts.
+      expect(screen.getByText('Near Mint')).toBeTruthy();
+      expect(screen.queryByText('Near Mint · Target $40.00')).toBeNull();
+    });
+
+    it('opens the sheet from a long-press in GRID view too, and shows the target on the tile', async () => {
+      const { mocks, repository } = buildRepository({});
+      renderScreen(repository);
+      await screen.findByTestId('wishlist-row-charizard');
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('wishlist-view-toggle'));
+      });
+      const tile = await screen.findByTestId('wishlist-grid-tile-charizard');
+
+      // Same gesture as list view — card view had no way to reach the sheet at
+      // all, so a target could only be set from one of the two views.
+      await act(async () => {
+        fireEvent(tile, 'longPress');
+      });
+      fireEvent.changeText(await screen.findByTestId('wishlist-target-input'), '40');
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('wishlist-target-save'));
+      });
+
+      expect(mocks.setCardFavoriteTarget).toHaveBeenCalledWith('charizard', 4000);
+      // The tile shows the target it just set — otherwise card view would be
+      // write-only for targets.
+      const footnote = await screen.findByTestId('wishlist-grid-tile-charizard-footnote');
+      expect(footnote).toHaveTextContent('Target $40.00');
+    });
+
+    it('suppresses BOTH long-press entry points in multi-select edit mode', async () => {
+      const { mocks, repository } = buildRepository({});
+      renderScreen(repository);
+
+      // List view first: in edit mode the row is a selection target and the
+      // bottom edit bar owns the screen.
+      const row = await screen.findByTestId('wishlist-row-charizard');
+      await act(async () => {
+        fireEvent.press(await screen.findByTestId('wishlist-header-edit'));
+      });
+      await act(async () => {
+        fireEvent(row, 'longPress');
+      });
+      expect(screen.queryByTestId('wishlist-target-sheet')).not.toBeOnTheScreen();
+
+      // Grid view, still in edit mode: same answer.
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('wishlist-view-toggle'));
+      });
+      const tile = await screen.findByTestId('wishlist-grid-tile-charizard');
+      await act(async () => {
+        fireEvent(tile, 'longPress');
+      });
+      expect(screen.queryByTestId('wishlist-target-sheet')).not.toBeOnTheScreen();
+      expect(mocks.setCardFavoriteTarget).not.toHaveBeenCalled();
     });
 
     it('refuses a non-price instead of sending garbage cents', async () => {

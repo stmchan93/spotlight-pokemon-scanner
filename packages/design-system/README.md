@@ -453,6 +453,13 @@ Current API concepts:
   → no sparkline, layout identical to before
 - `quantity` (rendered as `"Qty: {n}"` at the bottom of the LEFT copy stack,
   under the grade/condition line; `showQuantity={false}` hides it)
+- optional `footnote` — a second meta line rendered directly UNDER
+  `"{cardNumber} · {setName}"`, in the same gray600 `label` role (the same slot
+  and naming as `InventoryCardTile`'s `footnote`). This is where a caller puts a
+  fact about the ROW rather than about the copy — the Watchlist's
+  `"Target $40.00"` — instead of appending it to `gradeLabel`, which describes
+  the condition/grade lane the price resolved on. Blank/whitespace/null renders
+  nothing and the row lays out exactly as before; `testID` suffix `-footnote`
 - optional `onPress` (whole row becomes a `Pressable` with button role)
 
 ### InventoryCardTile

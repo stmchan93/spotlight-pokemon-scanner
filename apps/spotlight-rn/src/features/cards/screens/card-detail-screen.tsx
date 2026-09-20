@@ -22,6 +22,7 @@ import {
   gameHasListingsData,
   gradersForGame,
   type CardDetailRecord,
+  type CardFavoriteEntry,
   type CardPriceTrendList as CardPriceTrendListRecord,
   type CardPriceTrendRow,
   type CardEbayListingsRecord,
@@ -80,6 +81,11 @@ import {
   saveCardDetailPreviewFromInventoryEntry,
 } from '@/features/cards/card-detail-preview-session';
 import { noteCardAdded } from '@/features/cards/card-added-notice';
+import {
+  TargetPriceSheet,
+  type TargetPriceSubmitResult,
+} from '@/features/wishlist/components/target-price-sheet';
+import { centsToCurrency } from '@/features/wishlist/deal-radar';
 import {
   defaultLaneFromPreview,
   getCardDetailCached,
@@ -223,6 +229,9 @@ export function CardDetailScreen({
   // language toggle repoints it to the other-language counterpart IN PLACE (no
   // navigation), so every card-derived fetch keys off this, not the route prop.
   const [activeCardId, setActiveCardId] = useState(cardId);
+  // Mirror of `activeCardId` for async callbacks that have to check whether the
+  // page moved on (an in-place EN/JP swap) before applying their answer.
+  const activeCardIdRef = useRef(activeCardId);
   // Optimistic chip highlight during a swap, before the counterpart detail (and
   // its real `language`) lands. Cleared once the new detail arrives.
   const [languageOverride, setLanguageOverride] = useState<string | null>(null);
@@ -236,6 +245,19 @@ export function CardDetailScreen({
   // Public wishlist count shown as social proof; mutates optimistically
   // alongside the favorite toggle.
   const [likeCount, setLikeCount] = useState(0);
+  /*
+    Watchlist target price for THIS card.
+
+    The card-detail payload carries no target (only the watchlist rows do), so
+    this is unknown — `undefined` — until the control is tapped and the
+    watchlist is read. That distinction matters: showing the sheet with an empty
+    field while a real target exists would turn the next Save into a silent
+    clear.
+  */
+  const [targetPriceCents, setTargetPriceCents] = useState<number | null | undefined>(undefined);
+  const [isTargetLoading, setIsTargetLoading] = useState(false);
+  // The entry handed to the target sheet, or null while it is shut.
+  const [targetSheetEntry, setTargetSheetEntry] = useState<CardFavoriteEntry | null>(null);
   // Configurator local state.
   const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
   const [selectedGrader, setSelectedGrader] = useState<string | null>(null);
@@ -447,6 +469,15 @@ export function CardDetailScreen({
     seededGradedFallbackCardIdRef.current = null;
     editVariantDirtyRef.current = false;
   }, [cardId]);
+
+  // A target belongs to the CARD, so an in-place EN/JP swap invalidates it —
+  // unlike the configurator state above, which the swap deliberately keeps.
+  useEffect(() => {
+    activeCardIdRef.current = activeCardId;
+    setTargetPriceCents(undefined);
+    setTargetSheetEntry(null);
+    setIsTargetLoading(false);
+  }, [activeCardId]);
 
   useEffect(() => {
     if (!detail) {
@@ -1292,6 +1323,107 @@ export function CardDetailScreen({
     ?? detailPreview?.largeImageUrl
     ?? detailPreview?.imageUrl
     ?? null;
+
+  /*
+    Open the target-price sheet for this card.
+
+    The current target rides on the card detail payload, so the sheet can open
+    on the real value immediately — opening on an empty field while a $40 target
+    exists would make the very next Save a silent clear. This used to fetch the
+    entire watchlist on every tap to learn one field.
+  */
+  const handleOpenTargetSheet = useCallback(() => {
+    const cardIdForTarget = activeCardId;
+    const fallbackEntry: CardFavoriteEntry = {
+      cardId: cardIdForTarget,
+      cardNumber: detail?.cardNumber ?? detailPreview?.cardNumber ?? '',
+      currencyCode: detail?.currencyCode ?? 'USD',
+      favoritedAt: favoriteState.favoritedAt,
+      imageUrl: displayImageUrl ?? '',
+      isOwned: inventoryEntries.length > 0,
+      largeImageUrl: detail?.largeImageUrl ?? null,
+      marketPrice: detail?.marketPrice ?? null,
+      name: displayName,
+      setName: detail?.setName ?? detailPreview?.setName ?? '',
+      smallImageUrl: detail?.imageUrl ?? null,
+      targetPriceCents: null,
+    };
+
+    // An unwatched card has no target by definition; a watched one carries it
+    // on the detail payload.
+    const cents = favoriteState.isFavorite ? detail?.targetPriceCents ?? null : null;
+    setTargetPriceCents(cents);
+    setTargetSheetEntry({ ...fallbackEntry, targetPriceCents: cents });
+  }, [
+    activeCardId,
+    detail,
+    detailPreview,
+    displayImageUrl,
+    displayName,
+    favoriteState.favoritedAt,
+    favoriteState.isFavorite,
+    inventoryEntries.length,
+  ]);
+
+  /*
+    Write (or clear) the target.
+
+    `setCardFavoriteTarget` never throws — `not_watchlisted` IS the server's 404
+    and means the card has to be watched first. Wanting a price alert on a card
+    IS wanting to watch it, so that case watches the card and retries once
+    rather than handing back a dead end; the control that opened this sheet says
+    "WATCH & SET TARGET" when the card is unwatched, so the follow-on watch is
+    what the user pressed, not a surprise.
+  */
+  const handleSubmitTarget = useCallback(async (
+    cents: number | null,
+  ): Promise<TargetPriceSubmitResult> => {
+    const cardIdForTarget = activeCardId;
+    const applySaved = (saved: number | null) => {
+      setTargetPriceCents(saved);
+      setTargetSheetEntry((current) => (
+        current && current.cardId === cardIdForTarget
+          ? { ...current, targetPriceCents: saved }
+          : current
+      ));
+    };
+
+    const result = await spotlightRepository.setCardFavoriteTarget(cardIdForTarget, cents);
+    if (result.status === 'ok') {
+      applySaved(result.target.targetPriceCents);
+      return 'saved';
+    }
+    if (result.status !== 'not_watchlisted') {
+      return 'error';
+    }
+
+    // Nothing to clear on a card that isn't watched — the state the user asked
+    // for already holds, so report it truthfully instead of watching the card
+    // as a side effect of turning an alert OFF.
+    if (cents === null) {
+      applySaved(null);
+      return 'saved';
+    }
+
+    const favorited = await spotlightRepository.setCardFavorite(cardIdForTarget, true)
+      .catch(() => null);
+    if (!favorited?.isFavorite) {
+      return 'error';
+    }
+    setFavoriteState({
+      favoritedAt: favorited.favoritedAt ?? null,
+      isFavorite: true,
+    });
+    invalidateCardDetailCache(cardIdForTarget);
+
+    const retry = await spotlightRepository.setCardFavoriteTarget(cardIdForTarget, cents);
+    if (retry.status !== 'ok') {
+      return 'error';
+    }
+    applySaved(retry.target.targetPriceCents);
+    return 'saved';
+  }, [activeCardId, spotlightRepository]);
+
   // Grading lanes come from the GAME, both in whether there are any and in
   // which. One Piece has none — Scrydex returns no graded prices for it — so a
   // PSA chip there would be a control leading to a permanently empty chart.
@@ -2053,6 +2185,24 @@ export function CardDetailScreen({
 
   const isFavorite = favoriteState.isFavorite;
 
+  /*
+    The target control's label carries the whole state, including the one it
+    does NOT know yet: `targetPriceCents` is `undefined` until the watchlist has
+    been read (see `handleOpenTargetSheet`), and a bare "SET TARGET PRICE" over
+    a card that already has one would be a lie. "TARGET PRICE" is the honest
+    label for "there may or may not be one — tap to see".
+  */
+  const targetAmountLabel = targetPriceCents != null && targetPriceCents > 0
+    ? centsToCurrency(targetPriceCents, detail?.currencyCode ?? 'USD')
+    : null;
+  const targetButtonLabel = targetAmountLabel
+    ? `TARGET ${targetAmountLabel}`
+    : !isFavorite
+      ? 'WATCH & SET TARGET'
+      : targetPriceCents === undefined
+        ? 'TARGET PRICE'
+        : 'SET TARGET PRICE';
+
   // Auto-hiding top/bottom bars (Reddit-style). All scroll logic stays on the UI
   // thread — the worklet only writes shared values / withTiming (never setState),
   // so there's no gesture/scroll worklet hazard.
@@ -2317,6 +2467,34 @@ export function CardDetailScreen({
           {/* Wishlist social-proof counter (heart + count, max 9999+). */}
           <CardWishlistCounter count={likeCount} testID="detail-wishlist-counter" />
         </View>
+
+        {/*
+          Target price, next to the watch heart and the price rather than only
+          behind a long-press on a watchlist row. This is the page where someone
+          decides they want a card, so it is where "tell me when it falls to X"
+          has to be reachable; the sheet itself is the watchlist's, unchanged.
+        */}
+        <Button
+          disabled={isTargetLoading || !hasDisplayContent}
+          label={targetButtonLabel}
+          labelStyleVariant="label"
+          onPress={gate(handleOpenTargetSheet)}
+          shape="rounded"
+          size="md"
+          testID="detail-target-price"
+          variant="outline"
+        />
+
+        {/*
+          Not watched yet → the control above says so and the write watches the
+          card before setting the target (see `handleSubmitTarget`), so the
+          server's `not_watchlisted` 404 is a race, not a dead end.
+        */}
+        <TargetPriceSheet
+          entry={targetSheetEntry}
+          onClose={() => setTargetSheetEntry(null)}
+          onSubmit={handleSubmitTarget}
+        />
 
         {/* Owned entries of this card, between identity and options (Figma
             2489:7581 vertical order). Catalog-only cards omit it. */}

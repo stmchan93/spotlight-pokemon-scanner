@@ -11,6 +11,9 @@
       "icon": "./assets/ekalight.icon",
       "bundleIdentifier": "com.ekalight.app.staging",
       "usesAppleSignIn": true,
+      "entitlements": {
+        "aps-environment": "production"
+      },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Allow Ekalight to use your camera to scan cards.",
@@ -110,7 +113,8 @@
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
-        "android.permission.CAMERA"
+        "android.permission.CAMERA",
+        "android.permission.POST_NOTIFICATIONS"
       ]
     },
     "web": {
@@ -139,6 +143,15 @@
           "photosPermission": "Allow Ekalight to use your photos so you can add them to a post.",
           "cameraPermission": "Allow Ekalight to use your camera to scan cards.",
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#7000FF",
+          "defaultChannel": "deals",
+          "mode": "production"
         }
       ]
     ],

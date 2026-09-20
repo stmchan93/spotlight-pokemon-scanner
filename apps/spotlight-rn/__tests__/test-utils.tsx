@@ -225,6 +225,22 @@ export function createTestSpotlightRepository(
       return overrides.markDealAlertTapped?.(...args)
         ?? baseRepository.markDealAlertTapped(...args);
     },
+    registerPushToken: (...args) => {
+      return overrides.registerPushToken?.(...args)
+        ?? baseRepository.registerPushToken(...args);
+    },
+    revokePushToken: (...args) => {
+      return overrides.revokePushToken?.(...args)
+        ?? baseRepository.revokePushToken(...args);
+    },
+    getNotificationPrefs: (...args) => {
+      return overrides.getNotificationPrefs?.(...args)
+        ?? baseRepository.getNotificationPrefs(...args);
+    },
+    setNotificationPrefs: (...args) => {
+      return overrides.setNotificationPrefs?.(...args)
+        ?? baseRepository.setNotificationPrefs(...args);
+    },
     getRawEbayListingCandidates: (...args) => {
       return overrides.getRawEbayListingCandidates?.(...args)
         ?? baseRepository.getRawEbayListingCandidates(...args);

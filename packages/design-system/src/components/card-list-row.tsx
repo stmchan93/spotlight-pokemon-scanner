@@ -21,6 +21,18 @@ export type CardListRowProps = {
    */
   grader?: string | null;
   grade?: string | null;
+  /**
+   * Secondary meta line rendered directly UNDER the `cardNumber · setName`
+   * line, in the same quiet gray600 label role (mirrors `InventoryCardTile`'s
+   * `footnote`).
+   *
+   * Its own slot so callers stop appending to a line that already means
+   * something else — a watchlist target used to ride the condition line as
+   * "Near Mint · Target $40.00", which read as one fact about the copy rather
+   * than two unrelated ones. Blank/whitespace/null renders nothing and the row
+   * lays out exactly as it did before.
+   */
+  footnote?: string | null;
   marketPrice: number | null;
   currencyCode?: string;
   /**
@@ -122,6 +134,7 @@ export function CardListRow({
   gradeLabel,
   grader,
   grade,
+  footnote,
   marketPrice,
   currencyCode = 'USD',
   trendChangePercent,
@@ -152,6 +165,7 @@ export function CardListRow({
 
   const metaLine = buildMetaLine(cardNumber, setName);
   const gradeText = (gradeLabel ?? '').trim();
+  const footnoteText = (footnote ?? '').trim();
   // Slab-case frame on the thumbnail — keyed by THIS entry's grader.
   const graderText = (grader ?? '').trim();
   const showSlabFrame = showThumbnail && graderText.length > 0;
@@ -295,6 +309,21 @@ export function CardListRow({
           {metaLine ? (
             <AppText color="gray600" numberOfLines={1} variant="label">
               {metaLine}
+            </AppText>
+          ) : null}
+          {/*
+            Secondary meta, under number · set. Same gray600 label role as the
+            line above it so it reads as more of the same quiet metadata, not a
+            second heading.
+          */}
+          {footnoteText ? (
+            <AppText
+              color="gray600"
+              numberOfLines={1}
+              testID={testID ? `${testID}-footnote` : undefined}
+              variant="label"
+            >
+              {footnoteText}
             </AppText>
           ) : null}
         </View>

@@ -1286,6 +1286,12 @@ export type CardDetailRecord = {
    * take precedence).
    */
   favoriteContext?: CardFavoriteContext | null;
+  /**
+   * The requester's watch target for this card in USD CENTS, or null when the
+   * card is unwatched or has no target. Rides on the detail payload so the PDP
+   * control can render its state without fetching the whole watchlist.
+   */
+  targetPriceCents?: number | null;
   /** Whether THIS user has liked the card (the PDP heart). Distinct from the
    *  wishlist (isFavorite). Absent on list/preview payloads. */
   isLiked?: boolean;
@@ -2080,6 +2086,13 @@ export type DealAlert = {
   /** Server alert id (hex). Pass this to `markDealAlertSeen` / `...Tapped`. */
   id: string;
   cardId: string;
+  /**
+   * Card name and thumbnail ride on the alert so it is self-describing — a deal
+   * for a card that has since left the watchlist still renders. Both are null
+   * when the server could not resolve them.
+   */
+  cardName: string | null;
+  imageUrl: string | null;
   /** The eBay listing this alert points at; opaque, for dedupe/analytics only. */
   listingId: string;
   kind: DealAlertKind;
@@ -2114,6 +2127,47 @@ export type DealAlertsPage = {
    */
   unseenCount: number;
 };
+
+/** Which store the Expo push token was minted against. */
+export type PushTokenPlatform = 'ios' | 'android' | 'web';
+
+/**
+ * One device's Expo push token, as handed to the backend.
+ *
+ * `expoPushToken` is the `ExponentPushToken[...]` string — never a raw APNs or
+ * FCM token. The backend fans out through Expo's push service, so that is the
+ * only form it can send to.
+ */
+export type PushTokenRegistration = {
+  expoPushToken: string;
+  platform: PushTokenPlatform;
+  /**
+   * A stable per-INSTALL id, so the backend can replace this device's previous
+   * token instead of accumulating dead ones. Not a hardware identifier.
+   */
+  deviceId?: string | null;
+  /** App version the token was minted under, for triaging delivery reports. */
+  appVersion?: string | null;
+};
+
+/**
+ * Per-owner push preferences. BOTH DEFAULT TRUE, on the server and here: a read
+ * that fails must not read as "the user turned notifications off", or a flaky
+ * request would silently opt someone out.
+ */
+export type NotificationPrefs = {
+  dealAlertsEnabled: boolean;
+  targetHitsEnabled: boolean;
+};
+
+/**
+ * Outcome of a prefs WRITE. Non-throwing, and deliberately not just
+ * `NotificationPrefs`: an optimistic toggle has to be able to tell "the server
+ * agreed" from "the request died", so it knows whether to revert.
+ */
+export type NotificationPrefsResult =
+  | { status: 'ok'; prefs: NotificationPrefs }
+  | { status: 'failed'; prefs: null };
 
 /** The watchlist target row for one card, as returned by the target write. */
 export type CardFavoriteTarget = {

@@ -83,6 +83,9 @@ import type {
   LabelingSessionRecord,
   NormalizedBox,
   NormalizedPoint,
+  NotificationPrefs,
+  NotificationPrefsResult,
+  PushTokenRegistration,
   PortfolioEntryBulkDeleteRequestPayload,
   PortfolioEntryBulkDeleteResponsePayload,
   PortfolioEntryDeleteRequestPayload,
@@ -348,6 +351,28 @@ export interface SpotlightRepository {
    * monetization read, so call it on every tap and let the server dedupe.
    */
   markDealAlertTapped(alertId: string): Promise<DealAlert | null>;
+  /**
+   * Hand this device's Expo push token to the backend. Returns whether the
+   * server took it; never throws, so a dead network is just `false` and the
+   * caller can try again on the next app open.
+   */
+  registerPushToken(registration: PushTokenRegistration): Promise<boolean>;
+  /**
+   * Retire one Expo push token — on sign-out, so the next account on this
+   * device cannot inherit the previous owner's alerts. Never throws.
+   */
+  revokePushToken(expoPushToken: string): Promise<boolean>;
+  /**
+   * The owner's push preferences. Never throws: an unreachable server reads as
+   * the server-side DEFAULTS (both true), not as "switched off" — a failed read
+   * must never be able to opt someone out on its own.
+   */
+  getNotificationPrefs(): Promise<NotificationPrefs>;
+  /**
+   * Partial write; the result carries the FULL object the server settled on.
+   * Non-throwing, and `status` is what an optimistic toggle reverts on.
+   */
+  setNotificationPrefs(patch: Partial<NotificationPrefs>): Promise<NotificationPrefsResult>;
   /**
    * Validated raw eBay listings for the "lowest listed" panel.
    *
@@ -820,6 +845,7 @@ type CardDetailDTO = {
   isFavorite?: boolean | null;
   favoritedAt?: string | null;
   favoriteContext?: CardDetailFavoriteContextDTO | null;
+  targetPriceCents?: number | null;
   isLiked?: boolean | null;
   likedAt?: string | null;
   likeCount?: number | null;
@@ -1500,6 +1526,8 @@ function buildDealAlert(value: unknown): DealAlert | null {
     id,
     // The wire says cardID/listingID; the client type says cardId/listingId.
     cardId: normalizeString(value.cardID) ?? normalizeString(value.cardId) ?? '',
+    cardName: normalizeString(value.cardName),
+    imageUrl: normalizeString(value.imageUrl),
     listingId: normalizeString(value.listingID) ?? normalizeString(value.listingId) ?? '',
     kind: normalizeDealAlertKind(value.kind),
     totalCents: normalizeCentsOrNull(value.totalCents) ?? 0,
@@ -1530,6 +1558,22 @@ function buildDealAlertsPage(value: unknown, requestedLimit: number): DealAlerts
     // ALL-TIME unseen count, straight from the server. Never recomputed from
     // `alerts` — the page is capped and the badge is not.
     unseenCount: normalizeInteger(value.unseenCount, 0),
+  };
+}
+
+/**
+ * Push prefs from the wire. A missing or malformed flag falls back to TRUE —
+ * the server's own default — so a partial payload can never be read as an
+ * opt-out. There is no null/failed shape here on purpose: the callers that need
+ * to distinguish a failed WRITE use `NotificationPrefsResult`.
+ */
+function buildNotificationPrefs(value: unknown): NotificationPrefs {
+  if (!isRecord(value)) {
+    return { dealAlertsEnabled: true, targetHitsEnabled: true };
+  }
+  return {
+    dealAlertsEnabled: normalizeBoolean(value.dealAlertsEnabled) ?? true,
+    targetHitsEnabled: normalizeBoolean(value.targetHitsEnabled) ?? true,
   };
 }
 
@@ -3251,6 +3295,8 @@ function seedMockDealAlerts(): DealAlert[] {
     {
       id: 'dealalert-mock-0001',
       cardId: 'mcdonalds25-21',
+      cardName: 'Pikachu',
+      imageUrl: 'https://images.pokemontcg.io/mcd25/21.png',
       listingId: 'v1|mock|0',
       kind: 'under_added',
       totalCents: 7000,
@@ -3267,6 +3313,8 @@ function seedMockDealAlerts(): DealAlert[] {
     {
       id: 'dealalert-mock-0002',
       cardId: 'xyp-111',
+      cardName: 'Charizard-EX',
+      imageUrl: 'https://images.pokemontcg.io/xyp/XY111.png',
       listingId: 'v1|mock|1',
       kind: 'target_hit',
       totalCents: 4250,
@@ -3303,6 +3351,13 @@ export class MockSpotlightRepository implements SpotlightRepository {
   >();
   // Seeded so the dev screens have a populated radar with nothing favorited.
   private dealAlerts: DealAlert[] = seedMockDealAlerts();
+
+  private pushTokens = new Set<string>();
+
+  private notificationPrefs: NotificationPrefs = {
+    dealAlertsEnabled: true,
+    targetHitsEnabled: true,
+  };
   private labelingSessions = new Map<string, LabelingSessionRecord>();
   private labelingSessionArtifacts = new Map<string, LabelingSessionArtifactRecord>();
   // Access gate is OPEN in mock/dev so local + test flows aren't gated.
@@ -4121,6 +4176,39 @@ export class MockSpotlightRepository implements SpotlightRepository {
 
   async markDealAlertTapped(alertId: string): Promise<DealAlert | null> {
     return this.stampMockDealAlert(alertId, 'tappedAt');
+  }
+
+  async registerPushToken(registration: PushTokenRegistration): Promise<boolean> {
+    const token = registration.expoPushToken.trim();
+    if (!token) {
+      return false;
+    }
+    this.pushTokens.add(token);
+    return true;
+  }
+
+  async revokePushToken(expoPushToken: string): Promise<boolean> {
+    const token = expoPushToken.trim();
+    if (!token) {
+      return false;
+    }
+    this.pushTokens.delete(token);
+    return true;
+  }
+
+  async getNotificationPrefs(): Promise<NotificationPrefs> {
+    return { ...this.notificationPrefs };
+  }
+
+  async setNotificationPrefs(patch: Partial<NotificationPrefs>): Promise<NotificationPrefsResult> {
+    // Partial, like the server: an absent key leaves that flag alone.
+    if (typeof patch.dealAlertsEnabled === 'boolean') {
+      this.notificationPrefs.dealAlertsEnabled = patch.dealAlertsEnabled;
+    }
+    if (typeof patch.targetHitsEnabled === 'boolean') {
+      this.notificationPrefs.targetHitsEnabled = patch.targetHitsEnabled;
+    }
+    return { status: 'ok', prefs: { ...this.notificationPrefs } };
   }
 
   async getRawEbayListingCandidates(query: RawEbayListingsQuery): Promise<RawEbayListingsResponse> {
@@ -6277,6 +6365,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       isFavorite: normalizeBoolean(detailResponse.data.isFavorite) ?? card.isFavorite,
       favoritedAt: normalizeString(detailResponse.data.favoritedAt),
       favoriteContext: buildFavoriteContext(detailResponse.data.favoriteContext),
+      targetPriceCents: normalizeCentsOrNull(detailResponse.data.targetPriceCents),
       isLiked: normalizeBoolean(detailResponse.data.isLiked) ?? false,
       likedAt: normalizeString(detailResponse.data.likedAt),
       likeCount: normalizeInteger(detailResponse.data.likeCount),
@@ -6636,6 +6725,87 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
   async markDealAlertTapped(alertId: string): Promise<DealAlert | null> {
     return this.markDealAlert(alertId, 'tapped');
+  }
+
+  async registerPushToken(registration: PushTokenRegistration): Promise<boolean> {
+    const expoPushToken = registration.expoPushToken.trim();
+    if (!expoPushToken) {
+      return false;
+    }
+    const body: Record<string, unknown> = {
+      expoPushToken,
+      platform: registration.platform,
+    };
+    // Omitted rather than sent as null: the backend treats an absent optional
+    // as "unchanged", and a null would blank a device id it already had.
+    const deviceId = normalizeString(registration.deviceId);
+    if (deviceId) {
+      body.deviceId = deviceId;
+    }
+    const appVersion = normalizeString(registration.appVersion);
+    if (appVersion) {
+      body.appVersion = appVersion;
+    }
+    const response = await this.requestJson<unknown>(
+      `${this.baseUrl}/api/v1/notifications/push-tokens`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    );
+    return response.kind === 'success';
+  }
+
+  async revokePushToken(expoPushToken: string): Promise<boolean> {
+    const token = expoPushToken.trim();
+    if (!token) {
+      return false;
+    }
+    const response = await this.requestJson<unknown>(
+      `${this.baseUrl}/api/v1/notifications/push-tokens/revoke`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expoPushToken: token }),
+      },
+      // An already-revoked token 404s, which is the same outcome as revoking it.
+      { allowNotFound: true },
+    );
+    return response.kind === 'success';
+  }
+
+  async getNotificationPrefs(): Promise<NotificationPrefs> {
+    const response = await this.requestJson<unknown>(
+      `${this.baseUrl}/api/v1/notifications/prefs`,
+    );
+    if (response.kind !== 'success') {
+      // Defaults, NOT "off" — see the interface note.
+      return { dealAlertsEnabled: true, targetHitsEnabled: true };
+    }
+    return buildNotificationPrefs(response.data);
+  }
+
+  async setNotificationPrefs(patch: Partial<NotificationPrefs>): Promise<NotificationPrefsResult> {
+    const body: Record<string, boolean> = {};
+    if (typeof patch.dealAlertsEnabled === 'boolean') {
+      body.dealAlertsEnabled = patch.dealAlertsEnabled;
+    }
+    if (typeof patch.targetHitsEnabled === 'boolean') {
+      body.targetHitsEnabled = patch.targetHitsEnabled;
+    }
+    const response = await this.requestJson<unknown>(
+      `${this.baseUrl}/api/v1/notifications/prefs`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    );
+    if (response.kind !== 'success' || response.data == null) {
+      return { status: 'failed', prefs: null };
+    }
+    return { status: 'ok', prefs: buildNotificationPrefs(response.data) };
   }
 
   async getRawEbayListingCandidates(query: RawEbayListingsQuery): Promise<RawEbayListingsResponse> {

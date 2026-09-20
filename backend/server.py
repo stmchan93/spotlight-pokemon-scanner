@@ -172,6 +172,7 @@ from ebay_comps import (
 # Module imports (not `from`): the watchlist wiring touches a wide slice of both
 # and the qualified names keep the seam visible at every call site.
 import ebay_listings
+import expo_push
 import watch_signals
 from anthropic_adapter import identify_pokemon_lookalike
 from pricecharting_adapter import PriceChartingProvider
@@ -325,6 +326,16 @@ WATCH_MONETIZATION_SETTING_KEY = "watch_monetization_thresholds"
 # Edge-trigger memory for the two tripwires: the LAST stage we alerted on. A
 # month parked at Amber emits one ops alert, not thirty.
 WATCH_TRIPWIRE_STAGE_SETTING_KEY = "watch_tripwire_stage"
+# Who the OPS push lane reaches. `{"userIds": [...]}`, with the
+# SPOTLIGHT_OPS_PUSH_USER_IDS env var as the fallback. Deliberately NOT a user
+# preference: an operator alarm is not something a user opts out of.
+OPS_PUSH_USER_IDS_SETTING_KEY = "ops_push_user_ids"
+# Human headlines for the ops push body. The stage rides in `stage`/`detail`,
+# so the headline must not repeat it.
+OPS_ALERT_HEADLINES = {
+    "watch_cost_stage": "eBay budget tripwire",
+    "watch_value_stage": "Watchlist value tripwire",
+}
 
 DEFAULT_WATCH_DAILY_BUDGET = 5000
 DEFAULT_WATCH_ON_DEMAND_RESERVE = 300
@@ -1253,6 +1264,15 @@ def _sqlite_add_column_if_missing(
     connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")
 
 
+def _sqlite_table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+    if not _sqlite_table_exists(connection, table_name):
+        return set()
+    return {
+        str(row["name"])
+        for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+
+
 def _apply_labeling_pipeline_schema_patch(connection: sqlite3.Connection) -> None:
     _sqlite_add_column_if_missing(connection, "labeling_sessions", "labeler_user_id", "TEXT")
     _sqlite_add_column_if_missing(connection, "labeling_sessions", "provider_card_id", "TEXT")
@@ -1622,6 +1642,56 @@ def _apply_watch_deal_radar_schema_patch(connection: sqlite3.Connection) -> None
         )
         """
     )
+
+    # --- push delivery -------------------------------------------------------
+    # One row per (owner, device token). A token is device-unique, so the PK is
+    # the natural identity; `revoked_at` is a SOFT delete because Expo can
+    # resurrect a token (a reinstall hands back the same one) and a re-register
+    # must revive the row rather than mint a duplicate.
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_push_tokens (
+            owner_user_id TEXT NOT NULL,
+            expo_push_token TEXT NOT NULL,
+            platform TEXT,
+            device_id TEXT,
+            app_version TEXT,
+            created_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            revoked_at TEXT,
+            PRIMARY KEY (owner_user_id, expo_push_token)
+        )
+        """
+    )
+    # The only read the scan job does: this owner's LIVE tokens.
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_user_push_tokens_live
+        ON user_push_tokens (owner_user_id, revoked_at)
+        """
+    )
+    # ABSENT ROW = ON. Nothing may write a row just to record the default, and
+    # no read may turn a missing row into "off" — `expo_push.prefs_allow_deal_push`
+    # encodes the same contract on the delivery side.
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_notification_prefs (
+            owner_user_id TEXT PRIMARY KEY,
+            deal_alerts_enabled INTEGER NOT NULL DEFAULT 1,
+            target_hits_enabled INTEGER NOT NULL DEFAULT 1,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    # Expo ticket ids from the send, read back by the NEXT run's receipt sweep:
+    # a ticket only means Expo accepted the message, so the receipt is where a
+    # token that died in between shows up. `*_ticket_id` is the first accepted
+    # ticket (the "did this row push" handle); `*_tickets_json` is the whole
+    # {ticketId: token} fan-out, used ONLY to revoke the exact dead token.
+    _sqlite_add_column_if_missing(connection, "deal_alerts", "push_ticket_id", "TEXT")
+    _sqlite_add_column_if_missing(connection, "deal_alerts", "push_tickets_json", "TEXT")
+    _sqlite_add_column_if_missing(connection, "ops_alerts", "sent_ticket_id", "TEXT")
+    _sqlite_add_column_if_missing(connection, "ops_alerts", "sent_tickets_json", "TEXT")
 
 
 def _apply_card_likes_schema_patch(connection: sqlite3.Connection) -> None:
@@ -2406,7 +2476,8 @@ class SpotlightScanService:
             return None
         return self.connection.execute(
             """
-            SELECT owner_user_id, card_id, created_at, added_market_price, added_market_date
+            SELECT owner_user_id, card_id, created_at, added_market_price, added_market_date,
+                   target_price_cents
             FROM card_favorites
             WHERE owner_user_id = ?
               AND card_id = ?
@@ -3854,11 +3925,38 @@ class SpotlightScanService:
 
     # --- the alert feed ------------------------------------------------------
 
+    # An alert has to be SELF-DESCRIBING: the band cannot join it against the
+    # loaded watchlist for a name and image, because a deal on a card the user
+    # just un-watched would then render as an invisible row.
+    DEAL_ALERT_CARD_COLUMNS = """
+                   cards.name AS card_name,
+                   cards.image_small_url AS card_image_small_url,
+                   cards.image_url AS card_image_url
+    """
+
     @staticmethod
-    def _deal_alert_payload(row: sqlite3.Row) -> dict[str, Any]:
+    def _row_value(row: sqlite3.Row, key: str) -> Any:
+        # mark_deal_alert and the feed both build this payload; only the joined
+        # queries carry the card columns.
+        return row[key] if key in row.keys() else None
+
+    @classmethod
+    def _deal_alert_payload(cls, row: sqlite3.Row) -> dict[str, Any]:
         return {
             "id": row["id"],
             "cardID": row["card_id"],
+            "cardName": (
+                str(cls._row_value(row, "card_name") or "").strip() or None
+            ),
+            # Thumbnail first: this renders in a compact band row.
+            "imageUrl": (
+                str(
+                    cls._row_value(row, "card_image_small_url")
+                    or cls._row_value(row, "card_image_url")
+                    or ""
+                ).strip()
+                or None
+            ),
             "listingID": row["listing_id"],
             "kind": row["kind"],
             "totalCents": int(row["total_cents"] or 0),
@@ -3889,10 +3987,13 @@ class SpotlightScanService:
         if not _sqlite_table_exists(self.connection, "deal_alerts"):
             return {"alerts": [], "limit": safe_limit, "unseenCount": 0}
         rows = self.connection.execute(
-            """
-            SELECT * FROM deal_alerts
-            WHERE owner_user_id = ?
-            ORDER BY created_at DESC, id ASC
+            f"""
+            SELECT deal_alerts.*,
+                   {self.DEAL_ALERT_CARD_COLUMNS}
+            FROM deal_alerts
+            LEFT JOIN cards ON cards.id = deal_alerts.card_id
+            WHERE deal_alerts.owner_user_id = ?
+            ORDER BY deal_alerts.created_at DESC, deal_alerts.id ASC
             LIMIT ?
             """,
             (owner_user_id, safe_limit),
@@ -3926,7 +4027,13 @@ class SpotlightScanService:
         if not _sqlite_table_exists(self.connection, "deal_alerts"):
             raise FileNotFoundError("alert not found")
         row = self.connection.execute(
-            "SELECT * FROM deal_alerts WHERE id = ? AND owner_user_id = ? LIMIT 1",
+            f"""
+            SELECT deal_alerts.*,
+                   {self.DEAL_ALERT_CARD_COLUMNS}
+            FROM deal_alerts
+            LEFT JOIN cards ON cards.id = deal_alerts.card_id
+            WHERE deal_alerts.id = ? AND deal_alerts.owner_user_id = ? LIMIT 1
+            """,
             (normalized_id, owner_user_id),
         ).fetchone()
         if row is None:
@@ -3938,7 +4045,13 @@ class SpotlightScanService:
             )
             self.connection.commit()
             row = self.connection.execute(
-                "SELECT * FROM deal_alerts WHERE id = ? AND owner_user_id = ? LIMIT 1",
+                f"""
+            SELECT deal_alerts.*,
+                   {self.DEAL_ALERT_CARD_COLUMNS}
+            FROM deal_alerts
+            LEFT JOIN cards ON cards.id = deal_alerts.card_id
+            WHERE deal_alerts.id = ? AND deal_alerts.owner_user_id = ? LIMIT 1
+            """,
                 (normalized_id, owner_user_id),
             ).fetchone()
         return self._deal_alert_payload(row)
@@ -4009,6 +4122,501 @@ class SpotlightScanService:
             "targetSetAt": now if target is not None else None,
             "targetTriggeredAt": None if changed else row["target_triggered_at"],
         }
+
+    # --- push notifications: tokens + prefs ---------------------------------
+    # `expo_push` owns DELIVERY and never touches sqlite. Everything below is
+    # the sqlite half of that seam: token registry, prefs, the claim, and the
+    # ticket ids the next run's receipt sweep reads back.
+
+    @staticmethod
+    def _push_token_payload(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "expoPushToken": row["expo_push_token"],
+            "platform": row["platform"],
+            "deviceId": row["device_id"],
+            "appVersion": row["app_version"],
+            "createdAt": row["created_at"],
+            "lastSeenAt": row["last_seen_at"],
+            "revokedAt": row["revoked_at"],
+        }
+
+    def register_push_token(
+        self,
+        *,
+        expo_push_token: Any,
+        platform: Any = None,
+        device_id: Any = None,
+        app_version: Any = None,
+    ) -> dict[str, Any]:
+        """Upsert one device token for THIS owner.
+
+        A re-register REVIVES a soft-revoked row (`revoked_at = NULL`): a
+        reinstall hands back the same token, and a dead-then-alive device must
+        not mint a second row under the same primary key.
+        """
+        owner_user_id = self._current_owner_user_id()
+        token = str(expo_push_token or "").strip()
+        # Validated HERE, not at send time: a malformed token stored today is a
+        # guaranteed failed push (and a revocation) on every future run.
+        if not expo_push.is_expo_push_token(token):
+            raise ValueError("expoPushToken must be an Expo push token")
+        connection = self.connection
+        now = utc_now()
+        values = (
+            str(platform or "").strip() or None,
+            str(device_id or "").strip() or None,
+            str(app_version or "").strip() or None,
+            now,
+            owner_user_id,
+            token,
+        )
+        cursor = connection.execute(
+            """
+            UPDATE user_push_tokens
+               SET platform = ?, device_id = ?, app_version = ?,
+                   last_seen_at = ?, revoked_at = NULL
+             WHERE owner_user_id = ? AND expo_push_token = ?
+            """,
+            values,
+        )
+        if int(cursor.rowcount or 0) == 0:
+            connection.execute(
+                """
+                INSERT INTO user_push_tokens
+                    (owner_user_id, expo_push_token, platform, device_id,
+                     app_version, created_at, last_seen_at, revoked_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                """,
+                (owner_user_id, token, values[0], values[1], values[2], now, now),
+            )
+        connection.commit()
+        row = connection.execute(
+            """
+            SELECT * FROM user_push_tokens
+            WHERE owner_user_id = ? AND expo_push_token = ? LIMIT 1
+            """,
+            (owner_user_id, token),
+        ).fetchone()
+        return self._push_token_payload(row)
+
+    def revoke_push_token(self, expo_push_token: Any) -> dict[str, Any]:
+        """Soft-delete one of THIS owner's tokens. Owner-scoped: another
+        account's token is indistinguishable from one that does not exist."""
+        owner_user_id = self._current_owner_user_id()
+        token = str(expo_push_token or "").strip()
+        if not token:
+            raise FileNotFoundError("push token not found")
+        connection = self.connection
+        row = connection.execute(
+            """
+            SELECT * FROM user_push_tokens
+            WHERE owner_user_id = ? AND expo_push_token = ? LIMIT 1
+            """,
+            (owner_user_id, token),
+        ).fetchone()
+        if row is None:
+            raise FileNotFoundError("push token not found")
+        if row["revoked_at"] is None:
+            connection.execute(
+                """
+                UPDATE user_push_tokens SET revoked_at = ?
+                WHERE owner_user_id = ? AND expo_push_token = ?
+                """,
+                (utc_now(), owner_user_id, token),
+            )
+            connection.commit()
+            row = connection.execute(
+                """
+                SELECT * FROM user_push_tokens
+                WHERE owner_user_id = ? AND expo_push_token = ? LIMIT 1
+                """,
+                (owner_user_id, token),
+            ).fetchone()
+        return self._push_token_payload(row)
+
+    def notification_prefs(self) -> dict[str, Any]:
+        """AN ABSENT ROW MEANS ON. Never let a missing row read as "off" — the
+        default has to survive a user who has never opened the settings screen.
+        """
+        owner_user_id = self._current_owner_user_id()
+        if not _sqlite_table_exists(self.connection, "user_notification_prefs"):
+            return {"dealAlertsEnabled": True, "targetHitsEnabled": True}
+        row = self.connection.execute(
+            "SELECT * FROM user_notification_prefs WHERE owner_user_id = ? LIMIT 1",
+            (owner_user_id,),
+        ).fetchone()
+        if row is None:
+            return {"dealAlertsEnabled": True, "targetHitsEnabled": True}
+        return {
+            "dealAlertsEnabled": bool(row["deal_alerts_enabled"]),
+            "targetHitsEnabled": bool(row["target_hits_enabled"]),
+        }
+
+    def set_notification_prefs(
+        self,
+        *,
+        deal_alerts_enabled: Any = None,
+        target_hits_enabled: Any = None,
+    ) -> dict[str, Any]:
+        """Partial upsert; returns the FULL object. The client Switch flips
+        optimistically and reverts on failure, so the response — not the request
+        — is what it settles on."""
+        owner_user_id = self._current_owner_user_id()
+        current = self.notification_prefs()
+
+        def _flag(value: Any, fallback: bool) -> bool:
+            if value is None:
+                return fallback
+            if not isinstance(value, bool):
+                raise ValueError("notification preferences must be booleans")
+            return value
+
+        deal = _flag(deal_alerts_enabled, bool(current["dealAlertsEnabled"]))
+        target = _flag(target_hits_enabled, bool(current["targetHitsEnabled"]))
+        self.connection.execute(
+            """
+            INSERT INTO user_notification_prefs
+                (owner_user_id, deal_alerts_enabled, target_hits_enabled, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(owner_user_id) DO UPDATE SET
+                deal_alerts_enabled = excluded.deal_alerts_enabled,
+                target_hits_enabled = excluded.target_hits_enabled,
+                updated_at = excluded.updated_at
+            """,
+            (owner_user_id, 1 if deal else 0, 1 if target else 0, utc_now()),
+        )
+        self.connection.commit()
+        return {"dealAlertsEnabled": deal, "targetHitsEnabled": target}
+
+    # --- push notifications: the job-side lookups ---------------------------
+
+    @staticmethod
+    def _live_push_tokens_by_owner(
+        connection: sqlite3.Connection, owner_user_ids: Iterable[str]
+    ) -> dict[str, list[str]]:
+        owners = [
+            str(owner)
+            for owner in dict.fromkeys(owner_user_ids)
+            if str(owner or "").strip()
+        ]
+        if not owners or not _sqlite_table_exists(connection, "user_push_tokens"):
+            return {}
+        tokens: dict[str, list[str]] = {}
+        for start in range(0, len(owners), 400):
+            chunk = owners[start : start + 400]
+            placeholders = ",".join("?" * len(chunk))
+            for row in connection.execute(
+                f"""
+                SELECT owner_user_id, expo_push_token
+                FROM user_push_tokens
+                WHERE revoked_at IS NULL AND owner_user_id IN ({placeholders})
+                ORDER BY last_seen_at DESC
+                """,
+                tuple(chunk),
+            ).fetchall():
+                tokens.setdefault(str(row["owner_user_id"]), []).append(
+                    str(row["expo_push_token"])
+                )
+        return tokens
+
+    @staticmethod
+    def _deal_push_prefs_by_owner(
+        connection: sqlite3.Connection, owner_user_ids: Iterable[str]
+    ) -> dict[str, bool]:
+        """ONLY owners with an EXPLICIT row appear here. An owner who is absent
+        stays absent, because `expo_push.prefs_allow_deal_push` reads a missing
+        key as ON — writing a default into this dict would invert the contract.
+        """
+        owners = [
+            str(owner)
+            for owner in dict.fromkeys(owner_user_ids)
+            if str(owner or "").strip()
+        ]
+        if not owners or not _sqlite_table_exists(connection, "user_notification_prefs"):
+            return {}
+        prefs: dict[str, bool] = {}
+        for start in range(0, len(owners), 400):
+            chunk = owners[start : start + 400]
+            placeholders = ",".join("?" * len(chunk))
+            for row in connection.execute(
+                f"""
+                SELECT owner_user_id, deal_alerts_enabled
+                FROM user_notification_prefs
+                WHERE owner_user_id IN ({placeholders})
+                """,
+                tuple(chunk),
+            ).fetchall():
+                prefs[str(row["owner_user_id"])] = bool(row["deal_alerts_enabled"])
+        return prefs
+
+    def _ops_push_user_ids(self, connection: sqlite3.Connection) -> tuple[str, ...]:
+        payload = self._runtime_settings_value(connection, OPS_PUSH_USER_IDS_SETTING_KEY)
+        raw = payload.get("userIds")
+        configured = (
+            [str(value).strip() for value in raw if str(value or "").strip()]
+            if isinstance(raw, list)
+            else []
+        )
+        if configured:
+            return tuple(dict.fromkeys(configured))
+        return expo_push.ops_admin_user_ids()
+
+    @staticmethod
+    def _revoke_push_tokens(
+        connection: sqlite3.Connection, tokens: Iterable[str]
+    ) -> int:
+        """Expo said DeviceNotRegistered (or the token is malformed): stop using
+        it. By TOKEN, not by owner — a token is device-unique, and the owner's
+        other devices are still alive."""
+        if not _sqlite_table_exists(connection, "user_push_tokens"):
+            return 0
+        now = utc_now()
+        revoked = 0
+        for token in dict.fromkeys(str(value or "").strip() for value in tokens):
+            if not token:
+                continue
+            cursor = connection.execute(
+                """
+                UPDATE user_push_tokens SET revoked_at = ?
+                WHERE expo_push_token = ? AND revoked_at IS NULL
+                """,
+                (now, token),
+            )
+            revoked += int(cursor.rowcount or 0)
+        if revoked:
+            connection.commit()
+        return revoked
+
+    @staticmethod
+    def _persist_push_tickets(
+        connection: sqlite3.Connection,
+        result: Any,
+        *,
+        table: str,
+        id_column: str,
+        json_column: str,
+    ) -> int:
+        by_reference: dict[str, dict[str, str]] = {}
+        for ticket in result.tickets:
+            if not (ticket.ok and ticket.ticket_id and ticket.reference_id):
+                continue
+            by_reference.setdefault(str(ticket.reference_id), {})[
+                str(ticket.ticket_id)
+            ] = ticket.token
+        for reference_id, tickets in by_reference.items():
+            connection.execute(
+                f"UPDATE {table} SET {id_column} = ?, {json_column} = ? WHERE id = ?",
+                (next(iter(tickets)), json.dumps(tickets), reference_id),
+            )
+        if by_reference:
+            connection.commit()
+        return len(by_reference)
+
+    # --- push notifications: the three send steps ---------------------------
+
+    def _check_previous_push_receipts(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        now: datetime,
+        transport: Any | None = None,
+    ) -> dict[str, Any]:
+        """Step 1, and it runs BEFORE this cycle fans out: a ticket only means
+        Expo accepted the message, so a token that died after the last run
+        surfaces here. Sweeping first means the dead tokens are already revoked
+        when today's sends pick their recipients."""
+        cutoff = (now - timedelta(days=2)).isoformat()
+        receipt_ids: list[str] = []
+        tokens_by_receipt_id: dict[str, str] = {}
+        for table, id_column, json_column in (
+            ("deal_alerts", "push_ticket_id", "push_tickets_json"),
+            ("ops_alerts", "sent_ticket_id", "sent_tickets_json"),
+        ):
+            columns = _sqlite_table_columns(connection, table)
+            if id_column not in columns or json_column not in columns:
+                continue
+            for row in connection.execute(
+                f"""
+                SELECT {id_column} AS ticket_id, {json_column} AS tickets_json
+                FROM {table}
+                WHERE {id_column} IS NOT NULL AND created_at >= ?
+                """,
+                (cutoff,),
+            ).fetchall():
+                mapping: dict[str, Any] = {}
+                try:
+                    decoded = json.loads(row["tickets_json"] or "{}")
+                    if isinstance(decoded, dict):
+                        mapping = decoded
+                except (TypeError, ValueError):
+                    mapping = {}
+                if not mapping and row["ticket_id"]:
+                    mapping = {str(row["ticket_id"]): ""}
+                for ticket_id, token in mapping.items():
+                    receipt_ids.append(str(ticket_id))
+                    if token:
+                        tokens_by_receipt_id[str(ticket_id)] = str(token)
+        if not receipt_ids:
+            return expo_push.ReceiptResult().as_dict()
+        result = expo_push.check_receipts(
+            list(dict.fromkeys(receipt_ids)),
+            tokens_by_receipt_id=tokens_by_receipt_id,
+            transport=transport,
+        )
+        revoked = self._revoke_push_tokens(connection, result.tokens_to_revoke)
+        payload = result.as_dict()
+        payload["tokensRevoked"] = revoked
+        return payload
+
+    def _send_deal_alert_pushes(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        created_at: str,
+        transport: Any | None = None,
+    ) -> dict[str, Any]:
+        """Step 2, after the per-owner loop AND its commit: every alert this
+        cycle sends is already durable before anything leaves the box."""
+        columns = _sqlite_table_columns(connection, "deal_alerts")
+        if "push_ticket_id" not in columns:
+            return {}
+        rows = connection.execute(
+            """
+            SELECT deal_alerts.id AS id,
+                   deal_alerts.owner_user_id AS owner_user_id,
+                   deal_alerts.card_id AS card_id,
+                   deal_alerts.total_cents AS total_cents,
+                   deal_alerts.discount_pct AS discount_pct,
+                   cards.name AS card_name
+            FROM deal_alerts
+            LEFT JOIN cards ON cards.id = deal_alerts.card_id
+            WHERE deal_alerts.push_sent_at IS NULL AND deal_alerts.created_at >= ?
+            ORDER BY deal_alerts.created_at ASC, deal_alerts.id ASC
+            """,
+            (created_at,),
+        ).fetchall()
+        pushes = [
+            expo_push.DealAlertPush(
+                alert_id=str(row["id"]),
+                owner_user_id=str(row["owner_user_id"]),
+                card_name=str(row["card_name"] or ""),
+                total_cents=int(row["total_cents"] or 0),
+                discount_pct=(
+                    float(row["discount_pct"])
+                    if row["discount_pct"] is not None
+                    else None
+                ),
+                card_id=str(row["card_id"] or "") or None,
+            )
+            for row in rows
+        ]
+        owners = [push.owner_user_id for push in pushes]
+        claimed_at = utc_now()
+
+        def _claim(alert_id: str) -> bool:
+            # THE at-most-once contract: stamp, COMMIT, and report whether this
+            # process won the row. expo_push dispatches nothing it has not
+            # claimed, so a crash after this loses a push instead of sending a
+            # second one.
+            cursor = connection.execute(
+                """
+                UPDATE deal_alerts SET push_sent_at = ?
+                WHERE id = ? AND push_sent_at IS NULL
+                """,
+                (claimed_at, alert_id),
+            )
+            connection.commit()
+            return int(cursor.rowcount or 0) == 1
+
+        result = expo_push.send_deal_alert_pushes(
+            pushes,
+            tokens_by_owner=self._live_push_tokens_by_owner(connection, owners),
+            prefs_by_owner=self._deal_push_prefs_by_owner(connection, owners),
+            claim=_claim,
+            transport=transport,
+        )
+        self._persist_push_tickets(
+            connection,
+            result,
+            table="deal_alerts",
+            id_column="push_ticket_id",
+            json_column="push_tickets_json",
+        )
+        payload = result.as_dict()
+        payload["tokensRevoked"] = self._revoke_push_tokens(
+            connection, result.tokens_to_revoke
+        )
+        return payload
+
+    def _send_ops_alert_pushes(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        transport: Any | None = None,
+    ) -> dict[str, Any]:
+        """Step 3, after the tripwire edge-trigger. NO PREFS ARE READ ON THIS
+        PATH, by design: an operator alarm is not a user preference, and these
+        rows never enter the user feed or the unread count."""
+        columns = _sqlite_table_columns(connection, "ops_alerts")
+        if "sent_ticket_id" not in columns:
+            return {}
+        rows = connection.execute(
+            """
+            SELECT id, kind, stage, payload_json FROM ops_alerts
+            WHERE sent_at IS NULL
+            ORDER BY created_at ASC, id ASC
+            """
+        ).fetchall()
+        alerts: list[Any] = []
+        for row in rows:
+            try:
+                detail = json.loads(row["payload_json"] or "{}")
+            except (TypeError, ValueError):
+                detail = {}
+            kind = str(row["kind"] or "")
+            alerts.append(
+                expo_push.OpsAlertPush(
+                    ops_alert_id=str(row["id"]),
+                    headline=OPS_ALERT_HEADLINES.get(kind, kind or "ops alert"),
+                    kind=kind or None,
+                    stage=str(row["stage"] or "") or None,
+                    detail=detail if isinstance(detail, dict) else None,
+                )
+            )
+        admin_user_ids = self._ops_push_user_ids(connection)
+        tokens_by_owner = self._live_push_tokens_by_owner(connection, admin_user_ids)
+        admin_tokens = [
+            token
+            for owner in admin_user_ids
+            for token in tokens_by_owner.get(owner, [])
+        ]
+
+        def _claim(ops_alert_id: str) -> bool:
+            cursor = connection.execute(
+                "UPDATE ops_alerts SET sent_at = ? WHERE id = ? AND sent_at IS NULL",
+                (utc_now(), ops_alert_id),
+            )
+            connection.commit()
+            return int(cursor.rowcount or 0) == 1
+
+        result = expo_push.send_ops_alert_pushes(
+            alerts,
+            admin_tokens=admin_tokens,
+            claim=_claim,
+            transport=transport,
+        )
+        self._persist_push_tickets(
+            connection,
+            result,
+            table="ops_alerts",
+            id_column="sent_ticket_id",
+            json_column="sent_tickets_json",
+        )
+        payload = result.as_dict()
+        payload["tokensRevoked"] = self._revoke_push_tokens(
+            connection, result.tokens_to_revoke
+        )
+        return payload
 
     # --- the daily scan job --------------------------------------------------
 
@@ -4143,6 +4751,7 @@ class SpotlightScanService:
         source: str = "ops",
         now: datetime | None = None,
         fetch_json: Any | None = None,
+        push_transport: Any | None = None,
     ) -> dict[str, Any]:
         """One scan cycle for EVERY watcher.
 
@@ -4334,7 +4943,29 @@ class SpotlightScanService:
                 f"wouldFetch={fetches_needed} wouldAlert={alerts_created} "
                 f"digest={digest_count} wouldRearm={rearmed} (nothing written)"
             )
+            # A dry run sends NOTHING: no receipt sweep, no user push, no ops
+            # push. Everything below this line is past the early-out.
             return summary
+
+        push: dict[str, Any] = {}
+        summary["push"] = push
+        # expo_push never raises, but the SQL wrapped around it can — and a push
+        # failure must never take down the scan that produced the alerts.
+        try:
+            # STEP 1: last run's receipts, BEFORE this run fans out, so a token
+            # that died since yesterday is already revoked when we pick tokens.
+            push["receipts"] = self._check_previous_push_receipts(
+                connection, now=moment, transport=push_transport
+            )
+            # STEP 2: the user lane, after the per-owner loop and its commit.
+            push["deals"] = self._send_deal_alert_pushes(
+                connection,
+                created_at=moment.isoformat(),
+                transport=push_transport,
+            )
+        except Exception as error:  # noqa: BLE001
+            traceback.print_exc()
+            push["error"] = f"{type(error).__name__}: {error}"
 
         self._flush_ebay_usage(connection, date=today_iso)
         actual_calls = self._ebay_api_calls_on(connection, today_iso)
@@ -4361,6 +4992,15 @@ class SpotlightScanService:
         summary["opsAlerts"] = self._record_tripwire_stage_change(
             connection, cost_stage=stage, value_stage=str(verdict["stage"])
         )
+        # STEP 3: the OPS lane. Picks up the rows the edge-trigger just wrote
+        # plus anything still unsent, and NEVER consults user_notification_prefs.
+        try:
+            push["ops"] = self._send_ops_alert_pushes(
+                connection, transport=push_transport
+            )
+        except Exception as error:  # noqa: BLE001
+            traceback.print_exc()
+            push["opsError"] = f"{type(error).__name__}: {error}"
         print(
             f"[watch] deal scan {today_iso}: owners={summary['owners']} "
             f"cards={summary['watchedCards']} calls={calls_made} "
@@ -15719,6 +16359,12 @@ class SpotlightScanService:
             # PDP can render "since wishlisted" for cards the viewer does not
             # own. Same serve-time arithmetic as the favorites list serializer.
             "favoriteContext": self._favorite_context_payload(favorite_row, pricing),
+            # The watch target rides on the detail payload so the PDP control can
+            # render its state without fetching the whole watchlist to read one
+            # field. Null when unwatched or when no target is set.
+            "targetPriceCents": (
+                favorite_row["target_price_cents"] if favorite_row is not None else None
+            ),
             "isLiked": like_row is not None,
             "likedAt": like_row["created_at"] if like_row is not None else None,
             "cardText": card_text_from_card(resolved_card),
@@ -23051,6 +23697,14 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, self.service.ebay_usage_summary(days=days))
             return
 
+        if parsed.path == "/api/v1/notifications/prefs":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            with self.service.request_identity_context(identity):
+                self._write_json(HTTPStatus.OK, self.service.notification_prefs())
+            return
+
         if parsed.path == "/api/v1/deal-alerts":
             identity = self._require_request_identity()
             if identity is None:
@@ -24079,6 +24733,56 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 daemon=True,
             ).start()
             self._write_json(HTTPStatus.OK, {"status": "started"})
+            return
+
+        if parsed.path in {
+            "/api/v1/notifications/push-tokens",
+            "/api/v1/notifications/push-tokens/revoke",
+            "/api/v1/notifications/prefs",
+        }:
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            payload = self._read_json_body()
+            if payload is None:
+                self._write_json(
+                    getattr(self, "_json_body_error_status", HTTPStatus.BAD_REQUEST)
+                    or HTTPStatus.BAD_REQUEST,
+                    {
+                        "error": getattr(self, "_json_body_error_message", None)
+                        or "Invalid JSON body"
+                    },
+                )
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    if parsed.path == "/api/v1/notifications/prefs":
+                        # Partial body; the response is the FULL authoritative
+                        # object the optimistic client Switch settles on.
+                        notification_payload = self.service.set_notification_prefs(
+                            deal_alerts_enabled=payload.get("dealAlertsEnabled"),
+                            target_hits_enabled=payload.get("targetHitsEnabled"),
+                        )
+                    elif parsed.path.endswith("/revoke"):
+                        notification_payload = self.service.revoke_push_token(
+                            payload.get("expoPushToken")
+                        )
+                    else:
+                        notification_payload = self.service.register_push_token(
+                            expo_push_token=payload.get("expoPushToken"),
+                            platform=payload.get("platform"),
+                            device_id=payload.get("deviceId"),
+                            app_version=payload.get("appVersion"),
+                        )
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError:
+                # Owner-scoped: another account's token is indistinguishable
+                # from one that does not exist.
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Push token not found"})
+                return
+            self._write_json(HTTPStatus.OK, notification_payload)
             return
 
         if parsed.path.startswith("/api/v1/deal-alerts/") and (

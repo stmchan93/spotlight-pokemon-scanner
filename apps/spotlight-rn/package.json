@@ -46,6 +46,7 @@
     "expo-keep-awake": "~55.0.6",
     "expo-linking": "~55.0.14",
     "expo-localization": "~55.0.13",
+    "expo-notifications": "~55.0.21",
     "expo-router": "~55.0.13",
     "expo-secure-store": "~55.0.13",
     "expo-sharing": "~55.0.22",

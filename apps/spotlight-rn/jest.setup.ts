@@ -328,6 +328,39 @@ jest.mock('expo-apple-authentication', () => {
   };
 });
 
+/*
+  expo-notifications is a NATIVE module with no jest presence. Default the mock
+  to the shape a real device gives AFTER permission has been granted, so screens
+  mount without a permission dance; tests that care flip
+  `getPermissionsAsync`/`requestPermissionsAsync` per case.
+
+  `addNotificationResponseReceivedListener` must return a subscription with
+  `remove()` — the tap router calls it on cleanup, and an undefined return there
+  takes out every test that mounts the root layout.
+*/
+jest.mock('expo-notifications', () => ({
+  AndroidImportance: { DEFAULT: 3, HIGH: 4, LOW: 2, MAX: 5, MIN: 1, NONE: 0 },
+  addNotificationReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+  addNotificationResponseReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+  getExpoPushTokenAsync: jest.fn(async () => ({
+    data: 'ExponentPushToken[mock-token]',
+    type: 'expo',
+  })),
+  getLastNotificationResponseAsync: jest.fn(async () => null),
+  getPermissionsAsync: jest.fn(async () => ({
+    canAskAgain: true,
+    granted: true,
+    status: 'granted',
+  })),
+  requestPermissionsAsync: jest.fn(async () => ({
+    canAskAgain: true,
+    granted: true,
+    status: 'granted',
+  })),
+  setNotificationChannelAsync: jest.fn(async () => null),
+  setNotificationHandler: jest.fn(),
+}));
+
 jest.mock('expo-secure-store', () => ({
   deleteItemAsync: jest.fn(async () => {}),
   getItemAsync: jest.fn(async () => null),
