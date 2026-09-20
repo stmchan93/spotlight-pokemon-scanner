@@ -1,4 +1,4 @@
-import * as Notifications from 'expo-notifications';
+import type { NotificationResponse } from 'expo-notifications';
 import { useRootNavigationState, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -8,6 +8,7 @@ import {
   parseNotificationRoute,
   type NotificationRoute,
 } from '@/features/notifications/notification-routing';
+import { loadNotificationsModule } from '@/features/notifications/notifications-module';
 
 /**
  * Routes a TAPPED notification, from the root layout.
@@ -45,7 +46,7 @@ export function useNotificationTapRouter(): void {
   // object would not retrigger it.
   const [pendingVersion, setPendingVersion] = useState(0);
 
-  const enqueueResponse = useCallback((response: Notifications.NotificationResponse | null) => {
+  const enqueueResponse = useCallback((response: NotificationResponse | null) => {
     if (!response) {
       return;
     }
@@ -65,6 +66,10 @@ export function useNotificationTapRouter(): void {
   }, []);
 
   useEffect(() => {
+    const Notifications = loadNotificationsModule();
+    if (!Notifications) {
+      return;
+    }
     let cancelled = false;
     void Notifications.getLastNotificationResponseAsync()
       .then((response) => {
@@ -81,6 +86,11 @@ export function useNotificationTapRouter(): void {
   }, [enqueueResponse]);
 
   useEffect(() => {
+    // A binary without the native module has no notifications to route.
+    const Notifications = loadNotificationsModule();
+    if (!Notifications) {
+      return;
+    }
     const subscription = Notifications.addNotificationResponseReceivedListener(enqueueResponse);
     return () => {
       subscription.remove();

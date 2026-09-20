@@ -2,10 +2,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Application from 'expo-application';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
-import * as Notifications from 'expo-notifications';
 import { Linking, Platform } from 'react-native';
 
 import type { PushTokenPlatform, SpotlightRepository } from '@spotlight/api-client';
+
+import { loadNotificationsModule } from '@/features/notifications/notifications-module';
 
 /**
  * Push registration, with no React in it.
@@ -38,7 +39,7 @@ export type PushRegistrationOutcome =
   /** Permission is not granted — the caller decides whether to prompt. */
   | { status: 'permission_missing'; permission: PushPermissionStatus }
   /** Simulator/emulator, or a build with no EAS project id. */
-  | { status: 'unsupported'; reason: 'not_a_device' | 'missing_project_id' }
+  | { status: 'unsupported'; reason: 'not_a_device' | 'missing_project_id' | 'no_native_module' }
   /** Permission was there; the token mint or the backend write failed. */
   | { status: 'failed' };
 
@@ -103,6 +104,10 @@ function toPermissionStatus(value: string | null | undefined): PushPermissionSta
 }
 
 export async function getPushPermissionStatus(): Promise<PushPermissionStatus> {
+  const Notifications = loadNotificationsModule();
+  if (!Notifications) {
+    return 'undetermined';
+  }
   try {
     const { status } = await Notifications.getPermissionsAsync();
     return toPermissionStatus(status);
@@ -118,6 +123,11 @@ export async function getPushPermissionStatus(): Promise<PushPermissionStatus> {
  * explicit user action.
  */
 export async function requestPushPermission(): Promise<PushPermissionStatus> {
+  const Notifications = loadNotificationsModule();
+  if (!Notifications) {
+    // Never asked, so "undetermined" is the honest answer — not "denied".
+    return 'undetermined';
+  }
   try {
     const { status } = await Notifications.requestPermissionsAsync({
       ios: {
@@ -142,6 +152,10 @@ export async function requestPushPermission(): Promise<PushPermissionStatus> {
  */
 export async function ensureAndroidNotificationChannels(): Promise<void> {
   if (Platform.OS !== 'android') {
+    return;
+  }
+  const Notifications = loadNotificationsModule();
+  if (!Notifications) {
     return;
   }
   try {
@@ -169,6 +183,10 @@ export async function ensureAndroidNotificationChannels(): Promise<void> {
  * whenever the app happens to be open.
  */
 export function configureForegroundNotificationHandler(): void {
+  const Notifications = loadNotificationsModule();
+  if (!Notifications) {
+    return;
+  }
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
       shouldPlaySound: false,
@@ -215,6 +233,11 @@ export async function registerPushToken(
   // Channels first: Android binds the token's default channel at mint time.
   await ensureAndroidNotificationChannels();
 
+  const Notifications = loadNotificationsModule();
+  if (!Notifications) {
+    return { status: 'unsupported', reason: 'no_native_module' };
+  }
+
   let token: string;
   try {
     const result = await Notifications.getExpoPushTokenAsync({ projectId });
@@ -252,6 +275,10 @@ export async function revokePushToken(repository: SpotlightRepository): Promise<
     return false;
   }
   if ((await getPushPermissionStatus()) !== 'granted') {
+    return false;
+  }
+  const Notifications = loadNotificationsModule();
+  if (!Notifications) {
     return false;
   }
   try {
