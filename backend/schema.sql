@@ -916,3 +916,16 @@ CREATE TABLE IF NOT EXISTS user_emails (
     email TEXT,
     updated_at TEXT
 );
+
+-- Watchlist deal radar. The signal engine lives in watch_signals.py and the
+-- eBay fetch/validation in ebay_listings.py. Its four tables — `deal_alerts`,
+-- `ebay_usage_daily`, `watch_budget_daily`, `ops_alerts` — and the additive
+-- `card_favorites` target columns (target_price_cents / target_currency /
+-- target_set_at / target_triggered_at / fast_lane) are created by
+-- `server._apply_watch_deal_radar_schema_patch`, which runs on EVERY service
+-- start and is idempotent (CREATE TABLE/INDEX IF NOT EXISTS + ALTER ADD COLUMN
+-- guarded by PRAGMA table_info). They are deliberately NOT duplicated here:
+-- the same arrangement as `card_favorites.added_market_price`, and it keeps a
+-- fresh schema.sql database free to define `deal_alerts` for itself (which
+-- tests/test_watch_signals.py does, to prove the engine tolerates the table
+-- arriving late).

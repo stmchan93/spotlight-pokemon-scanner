@@ -412,7 +412,7 @@ class PublicProfileRouteTests(unittest.TestCase):
             for name in dir(SpotlightRequestHandler)
             if name.startswith("do_") and name not in {"do_GET", "do_HEAD", "do_OPTIONS"}
         ]
-        self.assertEqual(sorted(write_verbs), ["do_DELETE", "do_POST"])
+        self.assertEqual(sorted(write_verbs), ["do_DELETE", "do_POST", "do_PUT"])
 
         forbidden = (
             "PUBLIC_PROFILE_PATH_PREFIX",

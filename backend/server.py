@@ -169,6 +169,10 @@ from ebay_comps import (
     fetch_ebay_items_by_legacy_ids,
     fetch_graded_card_ebay_comps,
 )
+# Module imports (not `from`): the watchlist wiring touches a wide slice of both
+# and the qualified names keep the seam visible at every call site.
+import ebay_listings
+import watch_signals
 from anthropic_adapter import identify_pokemon_lookalike
 from pricecharting_adapter import PriceChartingProvider
 from pricing_provider import PricingProviderRegistry
@@ -303,6 +307,47 @@ LIVE_PRICING_SETTING_KEY = "live_pricing"
 # fails OPEN (no gate) when this is absent/false, so the blocking screen can be
 # turned off instantly without an OTA if it ever misbehaves.
 HANDLE_CLAIM_REQUIRED_SETTING_KEY = "handle_claim_required"
+
+# --- Watchlist deal radar ----------------------------------------------------
+# Server-side switch for the whole watchlist deal-radar feature (daily scan,
+# alert feed, target prices). Modelled on HANDLE_CLAIM_REQUIRED above and, like
+# it, the CLIENT FAILS OPEN: an absent setting (and an absent response field on
+# an older backend) reads as ENABLED, so the feature is never dark just because
+# a row was never written. Flipping it off is an instant ops POST, no OTA.
+WATCH_DEAL_RADAR_SETTING_KEY = "watch_deal_radar"
+# Budget governor inputs. v1 has NO tiers, NO chase slots and NO admission
+# control — measured usage is 39 watchlist adds in 90 days against a 5,000/day
+# eBay allocation — so the ONLY rationing is this global daily cap, which logs
+# and stops.
+WATCH_BUDGET_SETTING_KEY = "watch_scan_budget"
+# Monetization/tripwire thresholds, overridable per environment.
+WATCH_MONETIZATION_SETTING_KEY = "watch_monetization_thresholds"
+# Edge-trigger memory for the two tripwires: the LAST stage we alerted on. A
+# month parked at Amber emits one ops alert, not thirty.
+WATCH_TRIPWIRE_STAGE_SETTING_KEY = "watch_tripwire_stage"
+
+DEFAULT_WATCH_DAILY_BUDGET = 5000
+DEFAULT_WATCH_ON_DEMAND_RESERVE = 300
+# 22, not 24: `run_deal_scan_vm_scheduled.sh` runs `50 0-17,20-23 * * *` PT —
+# hours 18-19 are blacked out for the long Scrydex sync. Keep in step with
+# SPOTLIGHT_VM_DEAL_SCAN_CRON or the governor under-projects actual spend.
+DEFAULT_WATCH_SCANS_PER_CARD_PER_DAY = 22
+# headroom = projected_daily_calls / (budget - reserve)
+WATCH_COST_STAGE_AMBER = 0.50
+WATCH_COST_STAGE_RED = 0.75
+WATCH_COST_STAGE_CAP = 1.00
+WATCH_VALUE_WINDOW_DAYS = 28
+DEFAULT_WATCH_ALERTS_PER_WATCHER_PER_WEEK = 1.0
+DEFAULT_WATCH_TAP_THROUGH_NOT_READY = 0.15
+DEFAULT_WATCH_TAP_THROUGH_READY = 0.25
+DEFAULT_WATCH_RELIANCE_USERS = 20
+DEFAULT_WATCH_CONCENTRATION_HIGH = 0.50
+# Serving cap for the alert feed.
+DEFAULT_DEAL_ALERT_LIMIT = 50
+MAX_DEAL_ALERT_LIMIT = 200
+# PDP "Lowest listed (raw)" page size.
+DEFAULT_RAW_LISTING_PANEL_LIMIT = 10
+MAX_RAW_LISTING_PANEL_LIMIT = 50
 
 # --- Public App Store ACCESS GATE -------------------------------------------
 # When the gate is CLOSED (card-show-mode inactive), only allowed users may use
@@ -1470,6 +1515,115 @@ def _apply_card_favorites_schema_patch(connection: sqlite3.Connection) -> None:
     _sqlite_add_column_if_missing(connection, "card_favorites", "added_market_date", "TEXT")
 
 
+def _apply_watch_deal_radar_schema_patch(connection: sqlite3.Connection) -> None:
+    """Watchlist deal-radar storage: target prices on ``card_favorites`` plus the
+    alert feed, the two usage/budget ledgers and the ops-alert lane.
+
+    CRASH-LOOP RULE (see ``_apply_price_history_cells_schema_patch``): never
+    build a large index at startup on a POPULATED table. Every table created
+    here starts empty and only ever holds one row per alert / per (day,
+    consumer) / per day, so plain CREATE + CREATE INDEX is safe. The
+    ``card_favorites`` additions are ALTER ADD COLUMN, which sqlite does without
+    rewriting the table.
+    """
+    # USD cents, NULL = no target. `target_triggered_at` is the 30-day re-arm
+    # clock read by watch_signals.target_hit_signal, NOT a display field.
+    _sqlite_add_column_if_missing(connection, "card_favorites", "target_price_cents", "INTEGER")
+    _sqlite_add_column_if_missing(connection, "card_favorites", "target_currency", "TEXT")
+    _sqlite_add_column_if_missing(connection, "card_favorites", "target_set_at", "TEXT")
+    _sqlite_add_column_if_missing(connection, "card_favorites", "target_triggered_at", "TEXT")
+    # Reserved seam for a future priority lane. v1 writes no slot accounting and
+    # never reads this: every watched card is scanned on one schedule, free.
+    _sqlite_add_column_if_missing(
+        connection, "card_favorites", "fast_lane", "INTEGER NOT NULL DEFAULT 0"
+    )
+
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS deal_alerts (
+            id TEXT PRIMARY KEY,
+            owner_user_id TEXT NOT NULL,
+            card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+            listing_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            total_cents INTEGER NOT NULL,
+            baseline_cents INTEGER NOT NULL,
+            market_cents INTEGER,
+            discount_pct REAL,
+            savings_cents INTEGER,
+            url TEXT,
+            verification_tier TEXT,
+            created_at TEXT NOT NULL,
+            push_sent_at TEXT,
+            seen_at TEXT,
+            tapped_at TEXT
+        )
+        """
+    )
+    # At-most-once per (user, listing): the INSERT is OR IGNORE, so a re-run of
+    # the daily job cannot duplicate an alert even if the re-arm state is stale.
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_deal_alerts_listing
+        ON deal_alerts (owner_user_id, listing_id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_deal_alerts_owner_created
+        ON deal_alerts (owner_user_id, created_at DESC)
+        """
+    )
+    # Per-day, per-consumer eBay call ledger. Written ADDITIVELY from
+    # ebay_listings.drain_ebay_usage_rows(), which snapshots AND resets, so each
+    # drain is a DELTA — never an absolute to overwrite with.
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ebay_usage_daily (
+            date TEXT NOT NULL,
+            consumer TEXT NOT NULL,
+            api_calls INTEGER NOT NULL DEFAULT 0,
+            cache_hits INTEGER NOT NULL DEFAULT 0,
+            errors INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (date, consumer)
+        )
+        """
+    )
+    # One row per day: what the governor projected, what it actually spent, and
+    # which cost stage that put us in. `distinct_watched_cards` week-over-week is
+    # the weeks-until-Red projection's only input.
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS watch_budget_daily (
+            date TEXT PRIMARY KEY,
+            distinct_watched_cards INTEGER NOT NULL,
+            scans_per_card INTEGER NOT NULL,
+            projected_calls INTEGER NOT NULL,
+            actual_calls INTEGER NOT NULL,
+            budget INTEGER NOT NULL,
+            stage TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    # OPS LANE, DELIBERATELY SEPARATE. A row here is an operator tripwire and
+    # must NEVER enter the user push path, the deal feed, unread counts or
+    # notification preferences. Nothing user-facing reads this table.
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ops_alerts (
+            id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            stage TEXT,
+            payload_json TEXT,
+            sent_at TEXT
+        )
+        """
+    )
+
+
 def _apply_card_likes_schema_patch(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
@@ -1973,6 +2127,7 @@ class SpotlightScanService:
         try:
             _apply_labeling_pipeline_schema_patch(bootstrap_connection)
             _apply_card_favorites_schema_patch(bootstrap_connection)
+            _apply_watch_deal_radar_schema_patch(bootstrap_connection)
             _apply_card_likes_schema_patch(bootstrap_connection)
             _apply_sale_payment_schema_patch(bootstrap_connection)
             _apply_collections_redesign_schema_patch(bootstrap_connection)
@@ -3027,6 +3182,1194 @@ class SpotlightScanService:
         self.connection.commit()
         return self._handle_claim_required_state()
 
+    # --- Watchlist deal radar ----------------------------------------------
+    # WIRING ONLY. "Is this listing this card" lives in ebay_listings.py and "is
+    # this a deal" lives in watch_signals.py; nothing below re-decides either.
+    #
+    # v1 has NO tiers, NO chase slots, NO paywall and NO admission control:
+    # measured usage is 39 watchlist adds in 90 days against a 5,000/day eBay
+    # allocation, so every watched card is scanned on one schedule, free, for
+    # everyone. The only rationing is the global daily budget cap, which logs
+    # and stops.
+
+    def _watch_deal_radar_state(self) -> dict[str, Any]:
+        """The feature flag, FAIL-OPEN. An absent runtime_settings row reads as
+        ENABLED — the client fails open too, so an older build that never sees
+        the field still shows the feature. Only an explicit `enabled: false`
+        turns it off, which an ops POST can do instantly without an OTA."""
+        record = runtime_setting(self.connection, WATCH_DEAL_RADAR_SETTING_KEY)
+        payload = (record or {}).get("value") if isinstance(record, dict) else {}
+        if not isinstance(payload, dict):
+            payload = {}
+        return {
+            "enabled": payload.get("enabled") is not False,
+            "setAt": str(payload.get("setAt") or "").strip() or None,
+            "note": str(payload.get("note") or "").strip() or None,
+        }
+
+    def watch_deal_radar_enabled(self) -> bool:
+        return bool(self._watch_deal_radar_state().get("enabled"))
+
+    def set_watch_deal_radar_mode(
+        self, *, enabled: bool, note: str | None = None
+    ) -> dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        upsert_runtime_setting(
+            self.connection,
+            key=WATCH_DEAL_RADAR_SETTING_KEY,
+            value={
+                "enabled": bool(enabled),
+                "setAt": now.isoformat(),
+                "note": str(note or "").strip() or None,
+            },
+        )
+        self.connection.commit()
+        return self._watch_deal_radar_state()
+
+    @staticmethod
+    def _setting_int(value: Any, fallback: int, *, minimum: int = 1) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return fallback
+        return parsed if parsed >= minimum else fallback
+
+    @staticmethod
+    def _setting_float(value: Any, fallback: float) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return fallback
+        return parsed if parsed >= 0 else fallback
+
+    def _runtime_settings_value(
+        self, connection: sqlite3.Connection, key: str
+    ) -> dict[str, Any]:
+        record = runtime_setting(connection, key)
+        payload = (record or {}).get("value") if isinstance(record, dict) else {}
+        return payload if isinstance(payload, dict) else {}
+
+    def _watch_budget_settings(
+        self, connection: sqlite3.Connection | None = None
+    ) -> dict[str, int]:
+        """Governor inputs. Defaults are deliberately generous — the quota is
+        barely touched — so the cap is a tripwire, not a throttle."""
+        payload = self._runtime_settings_value(
+            connection or self.connection, WATCH_BUDGET_SETTING_KEY
+        )
+        budget = self._setting_int(payload.get("dailyBudget"), DEFAULT_WATCH_DAILY_BUDGET)
+        reserve = self._setting_int(
+            payload.get("onDemandReserve"), DEFAULT_WATCH_ON_DEMAND_RESERVE, minimum=0
+        )
+        # The reserve is carved OUT of the budget: on-demand PDP opens must
+        # always have calls left. A reserve that swallowed the budget would make
+        # every cycle a silent no-op, so it can never reach the budget.
+        reserve = min(reserve, max(0, budget - 1))
+        return {
+            "dailyBudget": budget,
+            "onDemandReserve": reserve,
+            "scansPerCardPerDay": self._setting_int(
+                payload.get("scansPerCardPerDay"), DEFAULT_WATCH_SCANS_PER_CARD_PER_DAY
+            ),
+        }
+
+    def _watch_monetization_thresholds(
+        self, connection: sqlite3.Connection | None = None
+    ) -> dict[str, float]:
+        payload = self._runtime_settings_value(
+            connection or self.connection, WATCH_MONETIZATION_SETTING_KEY
+        )
+        return {
+            "alertsPerWatcherPerWeek": self._setting_float(
+                payload.get("alertsPerWatcherPerWeek"),
+                DEFAULT_WATCH_ALERTS_PER_WATCHER_PER_WEEK,
+            ),
+            "tapThroughNotReady": self._setting_float(
+                payload.get("tapThroughNotReady"), DEFAULT_WATCH_TAP_THROUGH_NOT_READY
+            ),
+            "tapThroughReady": self._setting_float(
+                payload.get("tapThroughReady"), DEFAULT_WATCH_TAP_THROUGH_READY
+            ),
+            "relianceUsers": self._setting_float(
+                payload.get("relianceUsers"), DEFAULT_WATCH_RELIANCE_USERS
+            ),
+            "concentrationHigh": self._setting_float(
+                payload.get("concentrationHigh"), DEFAULT_WATCH_CONCENTRATION_HIGH
+            ),
+            "valueWindowDays": self._setting_int(
+                payload.get("valueWindowDays"), WATCH_VALUE_WINDOW_DAYS
+            ),
+        }
+
+    # --- eBay usage persistence --------------------------------------------
+
+    @staticmethod
+    def _flush_ebay_usage(
+        connection: sqlite3.Connection, *, date: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Fold the in-process eBay counters into ``ebay_usage_daily``.
+
+        ``drain_ebay_usage_rows()`` snapshots AND resets atomically, so every row
+        it hands back is a DELTA since the last drain — the upsert therefore ADDS
+        and never overwrites, or two drains in one day would leave only the
+        second. Called at the start and end of a job run and on the ops readout;
+        never once per call.
+        """
+        if not _sqlite_table_exists(connection, "ebay_usage_daily"):
+            return []
+        rows = ebay_listings.drain_ebay_usage_rows(date=date)
+        if not rows:
+            return []
+        now = utc_now()
+        for row in rows:
+            connection.execute(
+                """
+                INSERT INTO ebay_usage_daily (
+                    date, consumer, api_calls, cache_hits, errors, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(date, consumer) DO UPDATE SET
+                    api_calls = api_calls + excluded.api_calls,
+                    cache_hits = cache_hits + excluded.cache_hits,
+                    errors = errors + excluded.errors,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    str(row.get("date") or ""),
+                    str(row.get("consumer") or ""),
+                    int(row.get("api_calls") or 0),
+                    int(row.get("cache_hits") or 0),
+                    int(row.get("errors") or 0),
+                    now,
+                ),
+            )
+        connection.commit()
+        return rows
+
+    @staticmethod
+    def _ebay_api_calls_on(connection: sqlite3.Connection, day: str) -> int:
+        if not _sqlite_table_exists(connection, "ebay_usage_daily"):
+            return 0
+        row = connection.execute(
+            "SELECT COALESCE(SUM(api_calls), 0) FROM ebay_usage_daily WHERE date = ?",
+            (day,),
+        ).fetchone()
+        return int(row[0] or 0) if row is not None else 0
+
+    # --- tripwire 1: cost ----------------------------------------------------
+
+    @staticmethod
+    def _watch_cost_stage(headroom: float) -> str:
+        if headroom >= WATCH_COST_STAGE_CAP:
+            return "Cap"
+        if headroom >= WATCH_COST_STAGE_RED:
+            return "Red"
+        if headroom >= WATCH_COST_STAGE_AMBER:
+            return "Amber"
+        return "Green"
+
+    @staticmethod
+    def _distinct_watched_cards(connection: sqlite3.Connection) -> int:
+        if not _sqlite_table_exists(connection, "card_favorites"):
+            return 0
+        row = connection.execute(
+            "SELECT COUNT(DISTINCT card_id) FROM card_favorites"
+        ).fetchone()
+        return int(row[0] or 0) if row is not None else 0
+
+    @staticmethod
+    def _distinct_watchers(connection: sqlite3.Connection) -> int:
+        if not _sqlite_table_exists(connection, "card_favorites"):
+            return 0
+        row = connection.execute(
+            "SELECT COUNT(DISTINCT owner_user_id) FROM card_favorites"
+        ).fetchone()
+        return int(row[0] or 0) if row is not None else 0
+
+    def _watch_weeks_to_red(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        distinct_watched_cards: int,
+        settings: dict[str, int],
+    ) -> float | None:
+        """Weeks until the projection crosses Red, from week-over-week growth in
+        ``distinct_watched_cards``.
+
+        None when there is no prior week to compare against or growth is flat or
+        negative — no date at all beats a fabricated one. The prior row is the
+        newest at least 7 days old, so a gap in the ledger stretches the window
+        rather than emptying it.
+        """
+        if not _sqlite_table_exists(connection, "watch_budget_daily"):
+            return None
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).date().isoformat()
+        row = connection.execute(
+            """
+            SELECT distinct_watched_cards
+            FROM watch_budget_daily
+            WHERE date <= ?
+            ORDER BY date DESC
+            LIMIT 1
+            """,
+            (cutoff,),
+        ).fetchone()
+        if row is None:
+            return None
+        growth = distinct_watched_cards - int(row[0] or 0)
+        if growth <= 0:
+            return None
+        spendable = max(1, settings["dailyBudget"] - settings["onDemandReserve"])
+        cards_at_red = (WATCH_COST_STAGE_RED * spendable) / max(
+            1, settings["scansPerCardPerDay"]
+        )
+        if distinct_watched_cards >= cards_at_red:
+            return 0.0
+        return round((cards_at_red - distinct_watched_cards) / growth, 1)
+
+    def _watch_cost_tripwire(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        distinct_watched_cards: int | None = None,
+    ) -> dict[str, Any]:
+        """headroom = projected_daily_calls / (budget - reserve).
+        Green < 50%, Amber >= 50%, Red >= 75%, Cap >= 100%."""
+        settings = self._watch_budget_settings(connection)
+        if distinct_watched_cards is None:
+            distinct_watched_cards = self._distinct_watched_cards(connection)
+        spendable = max(1, settings["dailyBudget"] - settings["onDemandReserve"])
+        projected = int(distinct_watched_cards) * settings["scansPerCardPerDay"]
+        headroom = projected / spendable
+        return {
+            "stage": self._watch_cost_stage(headroom),
+            "distinctWatchedCards": int(distinct_watched_cards),
+            "scansPerCardPerDay": settings["scansPerCardPerDay"],
+            "projectedDailyCalls": projected,
+            "dailyBudget": settings["dailyBudget"],
+            "onDemandReserve": settings["onDemandReserve"],
+            "spendableCalls": spendable,
+            "headroom": round(headroom, 4),
+            "weeksToRed": self._watch_weeks_to_red(
+                connection,
+                distinct_watched_cards=int(distinct_watched_cards),
+                settings=settings,
+            ),
+        }
+
+    # --- tripwire 2: value ---------------------------------------------------
+
+    def _watch_value_tripwire(
+        self, connection: sqlite3.Connection, *, days: int = WATCH_VALUE_WINDOW_DAYS
+    ) -> dict[str, Any]:
+        """Trailing-window engagement, read entirely off ``deal_alerts``.
+
+        ``tapped_at`` is the load-bearing column: tap-through, reliance
+        (distinct users with >= 2 taps) and concentration all derive from it, and
+        the monetization verdict derives from them.
+        """
+        window_days = max(1, int(days))
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=window_days)
+        ).isoformat()
+        alerts_sent = 0
+        taps_by_owner: dict[str, int] = {}
+        if _sqlite_table_exists(connection, "deal_alerts"):
+            row = connection.execute(
+                "SELECT COUNT(*) FROM deal_alerts WHERE created_at >= ?", (cutoff,)
+            ).fetchone()
+            alerts_sent = int(row[0] or 0) if row is not None else 0
+            for tap_row in connection.execute(
+                """
+                SELECT owner_user_id, COUNT(*) AS taps
+                FROM deal_alerts
+                WHERE created_at >= ? AND tapped_at IS NOT NULL
+                GROUP BY owner_user_id
+                """,
+                (cutoff,),
+            ).fetchall():
+                taps_by_owner[str(tap_row["owner_user_id"])] = int(tap_row["taps"] or 0)
+
+        taps = sum(taps_by_owner.values())
+        counts = sorted(taps_by_owner.values(), reverse=True)
+        # Top decile of TAPPERS, rounded up, so a handful of users never reads as
+        # 0% concentration just because 10% of 7 is less than one person.
+        top_decile = -(-len(counts) // 10) if counts else 0
+        watchers = self._distinct_watchers(connection)
+        weeks = window_days / 7.0
+        return {
+            "windowDays": window_days,
+            "alertsSent": alerts_sent,
+            "watchers": watchers,
+            "alertsPerWatcherPerWeek": (
+                round(alerts_sent / watchers / weeks, 3) if watchers else 0.0
+            ),
+            "taps": taps,
+            "tapThroughRate": round(taps / alerts_sent, 4) if alerts_sent else 0.0,
+            "usersWithTap": len(counts),
+            # RELIANCE: one tap is curiosity, two is a habit.
+            "relianceUsers": sum(1 for count in counts if count >= 2),
+            "tapConcentrationTop10Pct": (
+                round(sum(counts[:top_decile]) / taps, 4) if taps and top_decile else 0.0
+            ),
+        }
+
+    def _watch_monetization_verdict(
+        self,
+        *,
+        cost: dict[str, Any],
+        value: dict[str, Any],
+        thresholds: dict[str, float],
+    ) -> dict[str, Any]:
+        """``{stage, reasons[], recommendedLever}``.
+
+        ``must_ration`` takes precedence over every value stage: once the cost
+        tripwire is at Red the lever has to move whatever the engagement says.
+        """
+        headroom = float(cost.get("headroom") or 0.0)
+        tap_through = float(value.get("tapThroughRate") or 0.0)
+        reliance = float(value.get("relianceUsers") or 0)
+        per_week = float(value.get("alertsPerWatcherPerWeek") or 0.0)
+        concentration = float(value.get("tapConcentrationTop10Pct") or 0.0)
+        reasons: list[str] = []
+
+        if headroom >= WATCH_COST_STAGE_RED:
+            stage = "must_ration"
+            reasons.append(
+                f"cost headroom {headroom:.0%} is at or past Red "
+                f"({WATCH_COST_STAGE_RED:.0%})"
+            )
+        elif (
+            reliance >= thresholds["relianceUsers"]
+            and tap_through >= thresholds["tapThroughReady"]
+        ):
+            stage = "ready_to_charge"
+            reasons.append(
+                f"{int(reliance)} users rely on it (>= {int(thresholds['relianceUsers'])}) "
+                f"and tap-through is {tap_through:.0%} "
+                f"(>= {thresholds['tapThroughReady']:.0%})"
+            )
+        elif (
+            per_week < thresholds["alertsPerWatcherPerWeek"]
+            or tap_through < thresholds["tapThroughNotReady"]
+        ):
+            stage = "not_ready"
+            if per_week < thresholds["alertsPerWatcherPerWeek"]:
+                reasons.append(
+                    f"{per_week:.2f} alerts per watcher per week "
+                    f"(< {thresholds['alertsPerWatcherPerWeek']:.2f})"
+                )
+            if tap_through < thresholds["tapThroughNotReady"]:
+                reasons.append(
+                    f"tap-through {tap_through:.0%} "
+                    f"(< {thresholds['tapThroughNotReady']:.0%})"
+                )
+        else:
+            stage = "prove_value"
+            reasons.append(
+                f"firing and tapped ({tap_through:.0%}) but only {int(reliance)} "
+                f"users rely on it (< {int(thresholds['relianceUsers'])})"
+            )
+
+        return {
+            "stage": stage,
+            "reasons": reasons,
+            # Concentrated taps mean a few people want MORE cards watched -> sell
+            # slots. Spread taps mean everyone wants the same cards sooner ->
+            # sell speed.
+            "recommendedLever": (
+                "slots" if concentration >= thresholds["concentrationHigh"] else "speed"
+            ),
+        }
+
+    def _record_tripwire_stage_change(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        cost_stage: str,
+        value_stage: str,
+    ) -> list[dict[str, Any]]:
+        """EDGE-TRIGGERED ops alerts: a row (and a WARN log) only when a stage
+        CHANGES, so a month parked at Amber emits one alert, not thirty.
+
+        OPS LANE ONLY. An ``ops_alerts`` row must never enter the user push path,
+        the deal feed, unread counts or notification preferences — nothing
+        user-facing reads this table.
+        """
+        if not _sqlite_table_exists(connection, "ops_alerts"):
+            return []
+        previous = self._runtime_settings_value(
+            connection, WATCH_TRIPWIRE_STAGE_SETTING_KEY
+        )
+        emitted: list[dict[str, Any]] = []
+        now = utc_now()
+        for field, kind, stage in (
+            ("cost", "watch_cost_stage", str(cost_stage)),
+            ("value", "watch_value_stage", str(value_stage)),
+        ):
+            if str(previous.get(field) or "") == stage:
+                continue
+            payload = {"from": previous.get(field), "to": stage}
+            connection.execute(
+                """
+                INSERT INTO ops_alerts (id, created_at, kind, stage, payload_json, sent_at)
+                VALUES (?, ?, ?, ?, ?, NULL)
+                """,
+                (uuid.uuid4().hex, now, kind, stage, json.dumps(payload)),
+            )
+            print(f"[watch][WARN] {kind}: {previous.get(field)} -> {stage}")
+            emitted.append({"kind": kind, "stage": stage, **payload})
+        if emitted:
+            upsert_runtime_setting(
+                connection,
+                key=WATCH_TRIPWIRE_STAGE_SETTING_KEY,
+                value={"cost": str(cost_stage), "value": str(value_stage)},
+            )
+            connection.commit()
+        return emitted
+
+    def ebay_usage_summary(self, *, days: int = 7) -> dict[str, Any]:
+        """The ops readout: per-consumer eBay spend, both tripwires,
+        weeks-to-Red and the monetization verdict. Mirrors
+        /api/v1/ops/scrydex-usage in shape and is gated by the same ops token.
+        """
+        connection = self.connection
+        window_days = max(1, min(int(days or 7), 90))
+        # Fold in anything the request lanes have counted since the last drain,
+        # or today's row reads low on a quiet box.
+        self._flush_ebay_usage(connection)
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=window_days - 1)
+        ).date().isoformat()
+        by_consumer: list[dict[str, Any]] = []
+        daily: list[dict[str, Any]] = []
+        if _sqlite_table_exists(connection, "ebay_usage_daily"):
+            for row in connection.execute(
+                """
+                SELECT consumer,
+                       SUM(api_calls) AS api_calls,
+                       SUM(cache_hits) AS cache_hits,
+                       SUM(errors) AS errors
+                FROM ebay_usage_daily
+                WHERE date >= ?
+                GROUP BY consumer
+                ORDER BY api_calls DESC
+                """,
+                (cutoff,),
+            ).fetchall():
+                api_calls = int(row["api_calls"] or 0)
+                cache_hits = int(row["cache_hits"] or 0)
+                requests = api_calls + cache_hits
+                by_consumer.append(
+                    {
+                        "consumer": row["consumer"],
+                        "apiCalls": api_calls,
+                        "cacheHits": cache_hits,
+                        "errors": int(row["errors"] or 0),
+                        "requests": requests,
+                        "cacheHitRate": (
+                            round(cache_hits / requests, 4) if requests else 0.0
+                        ),
+                    }
+                )
+            daily = [
+                {
+                    "date": row["date"],
+                    "apiCalls": int(row["api_calls"] or 0),
+                    "cacheHits": int(row["cache_hits"] or 0),
+                    "errors": int(row["errors"] or 0),
+                }
+                for row in connection.execute(
+                    """
+                    SELECT date,
+                           SUM(api_calls) AS api_calls,
+                           SUM(cache_hits) AS cache_hits,
+                           SUM(errors) AS errors
+                    FROM ebay_usage_daily
+                    WHERE date >= ?
+                    GROUP BY date
+                    ORDER BY date DESC
+                    """,
+                    (cutoff,),
+                ).fetchall()
+            ]
+
+        thresholds = self._watch_monetization_thresholds(connection)
+        cost = self._watch_cost_tripwire(connection)
+        value = self._watch_value_tripwire(
+            connection, days=int(thresholds["valueWindowDays"])
+        )
+        return {
+            "windowDays": window_days,
+            "since": cutoff,
+            "featureEnabled": self.watch_deal_radar_enabled(),
+            "byConsumer": by_consumer,
+            "daily": daily,
+            "cost": cost,
+            "value": value,
+            "monetization": self._watch_monetization_verdict(
+                cost=cost, value=value, thresholds=thresholds
+            ),
+            "thresholds": thresholds,
+        }
+
+    # --- the raw-listing cache seam -----------------------------------------
+
+    @staticmethod
+    def _cached_raw_listings(
+        connection: sqlite3.Connection, card_id: str
+    ) -> list[dict[str, Any]] | None:
+        """The still-fresh cached raw-lane listing page for a card, else None.
+
+        Reuses ``card_ebay_listings_cache`` through
+        ``ebay_listings.raw_listings_cache_key``, which pins grader/grade/variant
+        to constants: ONE row, and therefore one eBay call, per card no matter
+        how many printings, conditions or watchers are interested. `[]` (a fresh
+        empty page) is a hit; `None` is a miss.
+        """
+        _, grader, grade, variant = ebay_listings.raw_listings_cache_key(card_id)
+        cached = card_ebay_listings_cache(
+            connection, card_id=card_id, grader=grader, grade=grade, variant=variant
+        )
+        if cached is None:
+            return None
+        refresh_after_hours = (
+            EBAY_LISTINGS_EMPTY_REFRESH_HOURS
+            if str(cached.get("statusReason") or "").strip() == "no_results"
+            else EBAY_LISTINGS_FRESHNESS_HOURS
+        )
+        age_hours = _recent_sales_age_hours(cached.get("fetchedAt"))
+        if age_hours is None or age_hours >= refresh_after_hours:
+            return None
+        payload = cached.get("payload")
+        if not isinstance(payload, dict) or not payload:
+            return None
+        listings = payload.get("listings")
+        return listings if isinstance(listings, list) else []
+
+    @staticmethod
+    def _cache_raw_listings(
+        connection: sqlite3.Connection, card_id: str, payload: dict[str, Any]
+    ) -> None:
+        """Cache ONLY a successful fetch, and only the normalized listing page.
+
+        `candidates`/`rejected` are dropped: they are re-derived on read so the
+        auction final-window guardrail is judged against the CURRENT clock, not
+        against whenever the blob was written.
+        """
+        _, grader, grade, variant = ebay_listings.raw_listings_cache_key(card_id)
+        blob = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"candidates", "candidateCount", "rejected"}
+        }
+        try:
+            replace_card_ebay_listings_cache(
+                connection,
+                card_id=card_id,
+                grader=grader,
+                grade=grade,
+                variant=variant,
+                status=str(payload.get("status") or "available"),
+                status_reason=(
+                    str(payload.get("statusReason"))
+                    if payload.get("statusReason") is not None
+                    else None
+                ),
+                result_count=int(payload.get("listingCount") or 0),
+                payload=blob,
+                fetched_at=utc_now(),
+            )
+            connection.commit()
+        except Exception:  # noqa: BLE001 - a cache miss costs one call, never a response
+            traceback.print_exc()
+
+    def card_raw_ebay_listings(
+        self,
+        card_id: str,
+        *,
+        limit: int = DEFAULT_RAW_LISTING_PANEL_LIMIT,
+        variant: str | None = None,
+        fetch_json: Any | None = None,
+    ) -> dict[str, Any] | None:
+        """PDP "Lowest listed (raw)": cache-first, one call per CARD.
+
+        `variant` shapes the RESPONSE only. It is applied to the single cached
+        page on the way out and never reaches the cache key or the query — a
+        printing filter that triggered a second fetch is exactly the cost this
+        lane exists to avoid.
+        """
+        normalized_card_id = str(card_id or "").strip()
+        card = card_by_id(self.connection, normalized_card_id)
+        if card is None:
+            return None
+        try:
+            normalized_limit = int(limit)
+        except (TypeError, ValueError):
+            normalized_limit = DEFAULT_RAW_LISTING_PANEL_LIMIT
+        normalized_limit = max(1, min(normalized_limit, MAX_RAW_LISTING_PANEL_LIMIT))
+        selected_variant = str(variant or "").strip() or None
+
+        connection = self.connection
+        listings = self._cached_raw_listings(connection, normalized_card_id)
+        payload: dict[str, Any]
+        if listings is not None:
+            ebay_listings.record_ebay_cache_hit(
+                ebay_listings.EBAY_CONSUMER_PDP_LOWEST_LISTED
+            )
+            payload = {
+                "cardID": normalized_card_id,
+                "source": "ebay",
+                "lane": "raw",
+                "status": "available",
+                "statusReason": None if listings else "no_results",
+                "listings": listings,
+                "listingCount": len(listings),
+                "currencyCode": "USD",
+                "cached": True,
+                "consumer": ebay_listings.EBAY_CONSUMER_PDP_LOWEST_LISTED,
+            }
+        else:
+            payload = ebay_listings.fetch_validated_raw_listing_candidates(
+                card,
+                fetch_json=fetch_json,
+                consumer=ebay_listings.EBAY_CONSUMER_PDP_LOWEST_LISTED,
+            )
+            if str(payload.get("status") or "") == "available":
+                self._cache_raw_listings(connection, normalized_card_id, payload)
+            payload = dict(payload)
+            payload["cached"] = False
+            listings = payload.get("listings") or []
+
+        filtered = ebay_listings.filter_listings_by_variant(listings, selected_variant)
+        candidates = ebay_listings.validate_listing_candidates(
+            filtered, card=card, limit=normalized_limit
+        )
+        payload["variant"] = selected_variant
+        payload["listings"] = filtered
+        payload["listingCount"] = len(filtered)
+        payload["candidates"] = candidates
+        payload["candidateCount"] = len(candidates)
+        return payload
+
+    # --- the alert feed ------------------------------------------------------
+
+    @staticmethod
+    def _deal_alert_payload(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "cardID": row["card_id"],
+            "listingID": row["listing_id"],
+            "kind": row["kind"],
+            "totalCents": int(row["total_cents"] or 0),
+            "baselineCents": int(row["baseline_cents"] or 0),
+            "marketCents": (
+                int(row["market_cents"]) if row["market_cents"] is not None else None
+            ),
+            "discountPct": (
+                float(row["discount_pct"]) if row["discount_pct"] is not None else None
+            ),
+            "savingsCents": (
+                int(row["savings_cents"]) if row["savings_cents"] is not None else None
+            ),
+            "url": row["url"],
+            "verificationTier": row["verification_tier"],
+            "createdAt": row["created_at"],
+            "seenAt": row["seen_at"],
+            "tappedAt": row["tapped_at"],
+        }
+
+    def deal_alerts(self, *, limit: int = DEFAULT_DEAL_ALERT_LIMIT) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        try:
+            safe_limit = int(limit)
+        except (TypeError, ValueError):
+            safe_limit = DEFAULT_DEAL_ALERT_LIMIT
+        safe_limit = max(1, min(safe_limit, MAX_DEAL_ALERT_LIMIT))
+        if not _sqlite_table_exists(self.connection, "deal_alerts"):
+            return {"alerts": [], "limit": safe_limit, "unseenCount": 0}
+        rows = self.connection.execute(
+            """
+            SELECT * FROM deal_alerts
+            WHERE owner_user_id = ?
+            ORDER BY created_at DESC, id ASC
+            LIMIT ?
+            """,
+            (owner_user_id, safe_limit),
+        ).fetchall()
+        unseen = self.connection.execute(
+            "SELECT COUNT(*) FROM deal_alerts WHERE owner_user_id = ? AND seen_at IS NULL",
+            (owner_user_id,),
+        ).fetchone()
+        return {
+            "alerts": [self._deal_alert_payload(row) for row in rows],
+            "limit": safe_limit,
+            # DEAL alerts only. `ops_alerts` is a separate lane and never counted
+            # here or anywhere else a user can see.
+            "unseenCount": int(unseen[0] or 0) if unseen is not None else 0,
+        }
+
+    def mark_deal_alert(self, alert_id: str, *, field: str) -> dict[str, Any]:
+        """Stamp ``seen_at`` or ``tapped_at``. Owner-scoped: another user's alert
+        id is indistinguishable from one that does not exist.
+
+        ``tapped_at`` is load-bearing — the whole monetization verdict
+        (engagement, reliance, concentration) derives from it — so it is stamped
+        once and never overwritten by a second tap.
+        """
+        if field not in {"seen_at", "tapped_at"}:
+            raise ValueError("field must be seen_at or tapped_at")
+        owner_user_id = self._current_owner_user_id()
+        normalized_id = str(alert_id or "").strip()
+        if not normalized_id:
+            raise FileNotFoundError("alert not found")
+        if not _sqlite_table_exists(self.connection, "deal_alerts"):
+            raise FileNotFoundError("alert not found")
+        row = self.connection.execute(
+            "SELECT * FROM deal_alerts WHERE id = ? AND owner_user_id = ? LIMIT 1",
+            (normalized_id, owner_user_id),
+        ).fetchone()
+        if row is None:
+            raise FileNotFoundError("alert not found")
+        if row[field] is None:
+            self.connection.execute(
+                f"UPDATE deal_alerts SET {field} = ? WHERE id = ? AND owner_user_id = ?",
+                (utc_now(), normalized_id, owner_user_id),
+            )
+            self.connection.commit()
+            row = self.connection.execute(
+                "SELECT * FROM deal_alerts WHERE id = ? AND owner_user_id = ? LIMIT 1",
+                (normalized_id, owner_user_id),
+            ).fetchone()
+        return self._deal_alert_payload(row)
+
+    def set_card_favorite_target(
+        self, card_id: str, *, target_price_cents: int | None
+    ) -> dict[str, Any]:
+        """Set/clear the watchlist target for one of THIS owner's cards.
+
+        A changed target clears ``target_triggered_at``: the 30-day re-arm clock
+        belongs to the old price, and keeping it would mute the first crossing of
+        the new one.
+        """
+        owner_user_id = self._current_owner_user_id()
+        normalized_card_id = str(card_id or "").strip()
+        if not normalized_card_id:
+            raise ValueError("cardID is required")
+        target: int | None = None
+        if target_price_cents is not None:
+            try:
+                target = int(target_price_cents)
+            except (TypeError, ValueError):
+                raise ValueError("targetPriceCents must be an integer") from None
+            if target <= 0:
+                raise ValueError("targetPriceCents must be a positive integer")
+        row = self.connection.execute(
+            """
+            SELECT target_price_cents, target_set_at, target_triggered_at
+            FROM card_favorites
+            WHERE owner_user_id = ? AND card_id = ?
+            LIMIT 1
+            """,
+            (owner_user_id, normalized_card_id),
+        ).fetchone()
+        if row is None:
+            raise FileNotFoundError("card is not on this watchlist")
+        existing = (
+            int(row["target_price_cents"])
+            if row["target_price_cents"] is not None
+            else None
+        )
+        changed = existing != target
+        now = utc_now()
+        self.connection.execute(
+            """
+            UPDATE card_favorites
+               SET target_price_cents = ?,
+                   target_currency = ?,
+                   target_set_at = ?,
+                   target_triggered_at = CASE WHEN ? = 1 THEN NULL ELSE target_triggered_at END
+             WHERE owner_user_id = ? AND card_id = ?
+            """,
+            (
+                target,
+                # Reserved: every price in this lane is USD cents today.
+                "USD" if target is not None else None,
+                now if target is not None else None,
+                1 if changed else 0,
+                owner_user_id,
+                normalized_card_id,
+            ),
+        )
+        self.connection.commit()
+        return {
+            "cardID": normalized_card_id,
+            "targetPriceCents": target,
+            "targetCurrency": "USD" if target is not None else None,
+            "targetSetAt": now if target is not None else None,
+            "targetTriggeredAt": None if changed else row["target_triggered_at"],
+        }
+
+    # --- the daily scan job --------------------------------------------------
+
+    @staticmethod
+    def _deal_alerts_created_on(
+        connection: sqlite3.Connection, owner_user_id: str, day: str
+    ) -> int:
+        if not _sqlite_table_exists(connection, "deal_alerts"):
+            return 0
+        row = connection.execute(
+            """
+            SELECT COUNT(*) FROM deal_alerts
+            WHERE owner_user_id = ? AND substr(created_at, 1, 10) = ?
+            """,
+            (owner_user_id, day),
+        ).fetchone()
+        return int(row[0] or 0) if row is not None else 0
+
+    @staticmethod
+    def _insert_deal_alerts(
+        connection: sqlite3.Connection,
+        signals: list[Any],
+        *,
+        created_at: str,
+    ) -> int:
+        """Persist alerts BEFORE anything is dispatched.
+
+        At-most-once beats at-least-once here: a duplicate push is the failure
+        the user notices. `INSERT OR IGNORE` against the
+        (owner_user_id, listing_id) unique index makes a re-run of the job a
+        no-op even if the re-arm state is stale.
+        """
+        created = 0
+        for signal in signals:
+            cursor = connection.execute(
+                """
+                INSERT OR IGNORE INTO deal_alerts (
+                    id, owner_user_id, card_id, listing_id, kind, total_cents,
+                    baseline_cents, market_cents, discount_pct, savings_cents,
+                    url, verification_tier, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    uuid.uuid4().hex,
+                    signal.owner_user_id,
+                    signal.card_id,
+                    signal.listing_id,
+                    signal.kind,
+                    int(signal.total_cents),
+                    int(signal.baseline_cents),
+                    int(signal.market_cents),
+                    float(signal.discount_pct),
+                    int(signal.savings_cents),
+                    signal.url,
+                    signal.verification_tier,
+                    created_at,
+                ),
+            )
+            created += int(cursor.rowcount or 0)
+        return created
+
+    @staticmethod
+    def _record_watch_budget_day(
+        connection: sqlite3.Connection,
+        *,
+        date: str,
+        distinct_watched_cards: int,
+        scans_per_card: int,
+        projected_calls: int,
+        actual_calls: int,
+        budget: int,
+        stage: str,
+    ) -> None:
+        # One row per day, OVERWRITTEN (not accumulated): actual_calls is already
+        # the day's running total out of ebay_usage_daily.
+        connection.execute(
+            """
+            INSERT INTO watch_budget_daily (
+                date, distinct_watched_cards, scans_per_card, projected_calls,
+                actual_calls, budget, stage, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(date) DO UPDATE SET
+                distinct_watched_cards = excluded.distinct_watched_cards,
+                scans_per_card = excluded.scans_per_card,
+                projected_calls = excluded.projected_calls,
+                actual_calls = excluded.actual_calls,
+                budget = excluded.budget,
+                stage = excluded.stage,
+                updated_at = excluded.updated_at
+            """,
+            (
+                date,
+                int(distinct_watched_cards),
+                int(scans_per_card),
+                int(projected_calls),
+                int(actual_calls),
+                int(budget),
+                str(stage),
+                utc_now(),
+            ),
+        )
+        connection.commit()
+
+    def run_deal_scan_worker(self, *, dry_run: bool = False, source: str = "ops") -> None:
+        """Thread entry point for the ops route.
+
+        Runs one cycle, swallows anything it throws (a background job must never
+        take the process down), and hands this thread's sqlite connection back.
+        The job runs once per thread, so the thread-local connection would
+        otherwise outlive the thread that opened it — one leaked handle per cron
+        invocation.
+        """
+        try:
+            self.run_deal_scan(dry_run=dry_run, source=source)
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+        finally:
+            connection = getattr(self._thread_local, "connection", None)
+            if connection is not None:
+                try:
+                    connection.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                del self._thread_local.connection
+
+    def run_deal_scan(
+        self,
+        *,
+        dry_run: bool = False,
+        source: str = "ops",
+        now: datetime | None = None,
+        fetch_json: Any | None = None,
+    ) -> dict[str, Any]:
+        """One scan cycle for EVERY watcher.
+
+        Shape, in order:
+          1. ONE batched history read for every watched (owner, card).
+          2. ONE eBay fetch per DISTINCT card_id, cached and fanned out to every
+             watcher. Per-user fetching is the single thing that breaks the
+             5k/day budget, so the dedupe happens before any fetch, not inside
+             the per-owner loop.
+          3. Per owner: evaluate, INSERT the alerts, then (and only then) would
+             anything be dispatched.
+          4. Digest signals, and the target_hit re-arm write.
+
+        `dry_run` logs counts and writes NOTHING — no eBay call, no cache write,
+        no alert row, no ledger row.
+        """
+        started_at = perf_counter()
+        moment = now or datetime.now(timezone.utc)
+        today = moment.date()
+        today_iso = today.isoformat()
+        summary: dict[str, Any] = {
+            "status": "ok",
+            "dryRun": bool(dry_run),
+            "source": source,
+            "date": today_iso,
+            "owners": 0,
+            "watchedCards": 0,
+            "ebayCalls": 0,
+            "cacheHits": 0,
+            "fetchesNeeded": 0,
+            "alertsCreated": 0,
+            "digestSignals": 0,
+            "targetsRearmed": 0,
+            "budgetExhausted": False,
+        }
+        if not self.watch_deal_radar_enabled():
+            summary["status"] = "disabled"
+            print("[watch] deal scan skipped: feature flag is off")
+            return summary
+
+        connection = self.connection
+        if not dry_run:
+            # Fold in whatever the request lanes have spent since the last drain
+            # BEFORE the governor reads today's total, or the cap reads low.
+            self._flush_ebay_usage(connection, date=today_iso)
+
+        baselines = watch_signals.watched_card_baselines(connection)
+        by_owner: dict[str, list[Any]] = {}
+        for baseline in baselines:
+            by_owner.setdefault(baseline.owner_user_id, []).append(baseline)
+        distinct_card_ids = sorted({baseline.card_id for baseline in baselines})
+        summary["owners"] = len(by_owner)
+        summary["watchedCards"] = len(distinct_card_ids)
+
+        budget_settings = self._watch_budget_settings(connection)
+        cost = self._watch_cost_tripwire(
+            connection, distinct_watched_cards=len(distinct_card_ids)
+        )
+        spent_today = self._ebay_api_calls_on(connection, today_iso)
+        remaining = max(
+            0,
+            budget_settings["dailyBudget"]
+            - budget_settings["onDemandReserve"]
+            - spent_today,
+        )
+        summary["budget"] = {
+            **cost,
+            "spentToday": spent_today,
+            "remainingCalls": remaining,
+        }
+
+        candidates_by_card: dict[str, list[dict[str, Any]]] = {}
+        calls_made = 0
+        cache_hits = 0
+        fetches_needed = 0
+        for card_id in distinct_card_ids:
+            card = card_by_id(connection, card_id)
+            if card is None:
+                continue
+            cached_listings = self._cached_raw_listings(connection, card_id)
+            if cached_listings is not None:
+                if not dry_run:
+                    # Without this the hit-rate readout reads as zero and the
+                    # dedupe looks like it is not working.
+                    ebay_listings.record_ebay_cache_hit(
+                        ebay_listings.EBAY_CONSUMER_WATCH_SCAN
+                    )
+                cache_hits += 1
+                candidates_by_card[card_id] = ebay_listings.validate_listing_candidates(
+                    cached_listings, card=card, now=moment
+                )
+                continue
+
+            fetches_needed += 1
+            if dry_run:
+                continue
+            if calls_made >= remaining:
+                # THE governor: log and stop. No queue, no partial-credit retry —
+                # the next cycle picks up where this one left off.
+                summary["budgetExhausted"] = True
+                print(
+                    f"[watch][WARN] daily eBay budget exhausted on {today_iso}: "
+                    f"spent {spent_today + calls_made} of "
+                    f"{budget_settings['dailyBudget']} "
+                    f"(reserve {budget_settings['onDemandReserve']}); "
+                    f"{len(distinct_card_ids) - len(candidates_by_card)} cards unscanned"
+                )
+                break
+            payload = ebay_listings.fetch_validated_raw_listing_candidates(
+                card,
+                now=moment,
+                fetch_json=fetch_json,
+                consumer=ebay_listings.EBAY_CONSUMER_WATCH_SCAN,
+            )
+            calls_made += 1
+            if str(payload.get("status") or "") == "available":
+                self._cache_raw_listings(connection, card_id, payload)
+            candidates_by_card[card_id] = list(payload.get("candidates") or [])
+
+        alerts_created = 0
+        digest_count = 0
+        rearmed = 0
+        for owner_user_id, rows in by_owner.items():
+            prior_alerts = watch_signals.recent_alerts_for_owner(
+                connection, owner_user_id
+            )
+            baselines_by_card = {row.card_id: row for row in rows}
+            candidates = []
+            for baseline in rows:
+                for validated in candidates_by_card.get(baseline.card_id, []):
+                    candidate = watch_signals.listing_candidate_from_validated(validated)
+                    if candidate is not None:
+                        candidates.append(candidate)
+            already_today = self._deal_alerts_created_on(
+                connection, owner_user_id, today_iso
+            )
+            signals = watch_signals.evaluate_under_added_batch(
+                candidates,
+                baselines_by_card,
+                prior_alerts=prior_alerts,
+                already_sent_today=already_today,
+                now=moment,
+            )
+            if dry_run:
+                alerts_created += len(signals)
+            else:
+                alerts_created += self._insert_deal_alerts(
+                    connection, signals, created_at=moment.isoformat()
+                )
+
+            digest = [
+                signal
+                for baseline in rows
+                for signal in watch_signals.evaluate_history_signals(
+                    baseline, today=today
+                )
+            ]
+            digest_count += len(digest)
+            for signal in digest:
+                if signal.kind != watch_signals.KIND_TARGET_HIT:
+                    continue
+                rearmed += 1
+                if dry_run:
+                    continue
+                # THIS WRITE IS THE RE-ARM: target_hit_signal reads
+                # target_triggered_at back as its 30-day cooldown.
+                connection.execute(
+                    """
+                    UPDATE card_favorites SET target_triggered_at = ?
+                    WHERE owner_user_id = ? AND card_id = ?
+                    """,
+                    (utc_now(), owner_user_id, signal.card_id),
+                )
+            if not dry_run:
+                connection.commit()
+
+        summary["ebayCalls"] = calls_made
+        summary["cacheHits"] = cache_hits
+        summary["fetchesNeeded"] = fetches_needed
+        summary["alertsCreated"] = alerts_created
+        summary["digestSignals"] = digest_count
+        summary["targetsRearmed"] = rearmed
+        summary["durationSeconds"] = round(perf_counter() - started_at, 3)
+
+        if dry_run:
+            print(
+                f"[watch] DRY RUN {today_iso}: owners={summary['owners']} "
+                f"cards={summary['watchedCards']} cacheHits={cache_hits} "
+                f"wouldFetch={fetches_needed} wouldAlert={alerts_created} "
+                f"digest={digest_count} wouldRearm={rearmed} (nothing written)"
+            )
+            return summary
+
+        self._flush_ebay_usage(connection, date=today_iso)
+        actual_calls = self._ebay_api_calls_on(connection, today_iso)
+        stage = "Cap" if summary["budgetExhausted"] else str(cost["stage"])
+        self._record_watch_budget_day(
+            connection,
+            date=today_iso,
+            distinct_watched_cards=len(distinct_card_ids),
+            scans_per_card=budget_settings["scansPerCardPerDay"],
+            projected_calls=int(cost["projectedDailyCalls"]),
+            actual_calls=actual_calls,
+            budget=budget_settings["dailyBudget"],
+            stage=stage,
+        )
+        thresholds = self._watch_monetization_thresholds(connection)
+        value = self._watch_value_tripwire(
+            connection, days=int(thresholds["valueWindowDays"])
+        )
+        verdict = self._watch_monetization_verdict(
+            cost={**cost, "stage": stage}, value=value, thresholds=thresholds
+        )
+        summary["costStage"] = stage
+        summary["monetization"] = verdict
+        summary["opsAlerts"] = self._record_tripwire_stage_change(
+            connection, cost_stage=stage, value_stage=str(verdict["stage"])
+        )
+        print(
+            f"[watch] deal scan {today_iso}: owners={summary['owners']} "
+            f"cards={summary['watchedCards']} calls={calls_made} "
+            f"cacheHits={cache_hits} alerts={alerts_created} "
+            f"digest={digest_count} stage={stage} "
+            f"verdict={verdict['stage']} in {summary['durationSeconds']}s"
+        )
+        return summary
+
     # --- Public App Store ACCESS GATE --------------------------------------
     def _access_whitelist_emails(self) -> set[str]:
         record = runtime_setting(self.connection, ACCESS_WHITELIST_SETTING_KEY)
@@ -3112,6 +4455,9 @@ class SpotlightScanService:
             "isAdmin": self._is_admin_email(getattr(identity, "email", "")),
             "showMode": self._card_show_mode_state(),
             "handleClaimRequired": self._handle_claim_required(),
+            # Watchlist deal radar. FAIL OPEN on the client: an older build that
+            # never sees this field must behave as if it were true.
+            "watchDealRadarEnabled": self.watch_deal_radar_enabled(),
         }
 
     def redeem_invite_code(self, identity: RequestIdentity, code: str) -> dict[str, Any]:
@@ -19166,11 +20512,18 @@ class SpotlightScanService:
         """The dashboard version token (deck mutations + events + sales + latest
         price date) plus the owner's wishlist state — deck_entries payloads carry
         favorite flags/filters, so a favorite add/remove must invalidate too.
-        MAX(created_at) catches adds; COUNT(*) catches removals."""
+        MAX(created_at) catches adds; COUNT(*) catches removals; the two target
+        aggregates catch a target price set, changed or cleared (the wishlist
+        payload carries targetPriceCents, and neither of the first two moves
+        when only a target changes — including the disk-mirrored copy, which is
+        keyed by this same version)."""
         base = self._portfolio_dashboard_version_token(owner_user_id, "America/Los_Angeles")
         row = self.connection.execute(
             """
-            SELECT MAX(created_at) AS fav_created, COUNT(*) AS fav_count
+            SELECT MAX(created_at) AS fav_created,
+                   COUNT(*) AS fav_count,
+                   MAX(target_set_at) AS fav_target_set,
+                   COALESCE(SUM(COALESCE(target_price_cents, 0)), 0) AS fav_target_sum
             FROM card_favorites
             WHERE owner_user_id = ?
             """,
@@ -20055,7 +21408,8 @@ class SpotlightScanService:
         safe_offset = max(0, int(offset))
         rows = self.connection.execute(
             """
-            SELECT card_id, created_at, added_market_price, added_market_date
+            SELECT card_id, created_at, added_market_price, added_market_date,
+                   target_price_cents
             FROM card_favorites
             WHERE owner_user_id = ?
             ORDER BY created_at DESC, card_id ASC
@@ -20197,6 +21551,13 @@ class SpotlightScanService:
                     "sinceAddedChangeAmount": since_added_amount,
                     "sinceAddedChangePercent": since_added_percent,
                     "sinceAddedBaselineDate": since_added_baseline_date,
+                    # USD cents, null = no target. The deal radar's target_hit
+                    # signal reads the same column; this is the display copy.
+                    "targetPriceCents": (
+                        int(row["target_price_cents"])
+                        if row["target_price_cents"] is not None
+                        else None
+                    ),
                 }
             )
 
@@ -21675,6 +23036,34 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if parsed.path == "/api/v1/ops/ebay-usage":
+            # Ops-token gated (the Scrydex twin next to it predates the gate).
+            expected_token = str(os.environ.get("SPOTLIGHT_OPS_REFRESH_TOKEN") or "").strip()
+            provided_token = query.get("token", [""])[0].strip()
+            if expected_token and provided_token != expected_token:
+                self._write_json(HTTPStatus.UNAUTHORIZED, {"error": "invalid ops token"})
+                return
+            try:
+                days = int(query.get("days", ["7"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "days must be an integer"})
+                return
+            self._write_json(HTTPStatus.OK, self.service.ebay_usage_summary(days=days))
+            return
+
+        if parsed.path == "/api/v1/deal-alerts":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                limit = int(query.get("limit", [str(DEFAULT_DEAL_ALERT_LIMIT)])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+            with self.service.request_identity_context(identity):
+                self._write_json(HTTPStatus.OK, self.service.deal_alerts(limit=limit))
+            return
+
         if parsed.path == "/api/v1/ops/scan-artifact-status":
             self._write_json(HTTPStatus.OK, self.service.scan_artifact_status())
             return
@@ -22286,6 +23675,43 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith("/ebay/raw-listings"):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            card_id = unquote(
+                parsed.path.removeprefix("/api/v1/cards/")
+                .removesuffix("/ebay/raw-listings")
+                .rstrip("/")
+            )
+            if not card_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            query = parse_qs(parsed.query)
+            # `variant` shapes the RESPONSE only — it never reaches the cache key
+            # and never triggers a second fetch.
+            variant = query.get("variant", [""])[0].strip() or None
+            try:
+                limit = int(query.get("limit", [str(DEFAULT_RAW_LISTING_PANEL_LIMIT)])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+            try:
+                payload = self.service.card_raw_ebay_listings(
+                    card_id, limit=limit, variant=variant
+                )
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.BAD_GATEWAY, {"error": f"eBay raw listings failed: {error}"}
+                )
+                return
+            if payload is None:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Card not found"})
+                return
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
         ebay_listings_suffixes = ("/graded-comps", "/ebay-comps", "/comps", "/ebay-listings")
         matched_ebay_suffix = next(
             (suffix for suffix in ebay_listings_suffixes if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith(suffix)),
@@ -22633,6 +24059,55 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 daemon=True,
             ).start()
             self._write_json(HTTPStatus.OK, {"status": "started"})
+            return
+
+        if parsed.path == "/api/v1/ops/run-deal-scan":
+            query = parse_qs(parsed.query)
+            expected_token = str(os.environ.get("SPOTLIGHT_OPS_REFRESH_TOKEN") or "").strip()
+            provided_token = query.get("token", [""])[0].strip()
+            if expected_token and provided_token != expected_token:
+                self._write_json(HTTPStatus.UNAUTHORIZED, {"error": "invalid ops token"})
+                return
+            dry_run = query.get("dryRun", ["0"])[0].lower() in {"1", "true", "yes"}
+            # Fire-and-forget (same shape as prewarm-portfolio): a full cycle
+            # walks every watched card, so the cron wrapper gets an immediate
+            # ack instead of holding the connection open for minutes.
+            threading.Thread(
+                target=self.service.run_deal_scan_worker,
+                kwargs={"dry_run": dry_run, "source": "ops"},
+                name="watch-deal-scan-ops",
+                daemon=True,
+            ).start()
+            self._write_json(HTTPStatus.OK, {"status": "started"})
+            return
+
+        if parsed.path.startswith("/api/v1/deal-alerts/") and (
+            parsed.path.endswith("/seen") or parsed.path.endswith("/tapped")
+        ):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            suffix = "/seen" if parsed.path.endswith("/seen") else "/tapped"
+            alert_id = unquote(
+                parsed.path.removeprefix("/api/v1/deal-alerts/").removesuffix(suffix).rstrip("/")
+            )
+            if not alert_id or "/" in alert_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            # tapped_at is load-bearing: the monetization verdict (engagement,
+            # reliance, concentration) is derived entirely from it.
+            field = "seen_at" if suffix == "/seen" else "tapped_at"
+            try:
+                with self.service.request_identity_context(identity):
+                    alert_payload = self.service.mark_deal_alert(alert_id, field=field)
+            except FileNotFoundError:
+                # Another owner's alert is indistinguishable from a missing one.
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Alert not found"})
+                return
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            self._write_json(HTTPStatus.OK, alert_payload)
             return
 
         if parsed.path == "/api/v1/ops/backfill-added-baselines":
@@ -23357,6 +24832,25 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, summary)
             return
 
+        if parsed.path == "/api/v1/admin/watch-deal-radar":
+            # Kill switch for the whole watchlist deal radar. Ops-token gated,
+            # same as handle-claim-required above. The flag FAILS OPEN, so this
+            # route exists to turn the feature OFF, not on.
+            query = parse_qs(parsed.query)
+            expected_token = str(os.environ.get("SPOTLIGHT_OPS_REFRESH_TOKEN") or "").strip()
+            provided_token = query.get("token", [""])[0].strip()
+            if expected_token and provided_token != expected_token:
+                self._write_json(HTTPStatus.UNAUTHORIZED, {"error": "invalid ops token"})
+                return
+            enabled = payload.get("enabled")
+            if not isinstance(enabled, bool):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "enabled must be a boolean"})
+                return
+            note = str(payload.get("note") or "").strip() or None
+            summary = self.service.set_watch_deal_radar_mode(enabled=enabled, note=note)
+            self._write_json(HTTPStatus.OK, summary)
+            return
+
         if parsed.path == "/api/v1/admin/scan-artifact-uploads":
             enabled = payload.get("enabled")
             if not isinstance(enabled, bool):
@@ -24076,6 +25570,57 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Listing update failed: {error}"})
                 return
             self._write_json(HTTPStatus.OK, update_payload)
+            return
+
+        self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+
+    def do_PUT(self) -> None:
+        parsed = urlparse(self.path)
+
+        if parsed.path.startswith("/api/v1/card-favorites/") and parsed.path.endswith("/target"):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            card_id = unquote(
+                parsed.path.removeprefix("/api/v1/card-favorites/")
+                .removesuffix("/target")
+                .rstrip("/")
+            )
+            if not card_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            payload = self._read_json_body()
+            if payload is None:
+                self._write_json(
+                    getattr(self, "_json_body_error_status", HTTPStatus.BAD_REQUEST)
+                    or HTTPStatus.BAD_REQUEST,
+                    {
+                        "error": getattr(self, "_json_body_error_message", None)
+                        or "Invalid JSON body"
+                    },
+                )
+                return
+            target = payload.get("targetPriceCents")
+            # `isinstance(True, int)` is True in Python; a bool is not a price.
+            if target is not None and (isinstance(target, bool) or not isinstance(target, int)):
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": "targetPriceCents must be an integer or null"},
+                )
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    target_payload = self.service.set_card_favorite_target(
+                        card_id, target_price_cents=target
+                    )
+            except FileNotFoundError:
+                # Owner-scoped: another user's watchlist row is a 404, not a 403.
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Watchlist card not found"})
+                return
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            self._write_json(HTTPStatus.OK, target_payload)
             return
 
         self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})

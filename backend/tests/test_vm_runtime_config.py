@@ -151,6 +151,7 @@ class ModerationCronScheduleTests(unittest.TestCase):
                 "TCGCSV_SYNC_CRON_SCHEDULE='5 13 * * *'",
                 "HEALTH_CRON_SCHEDULE='*/5 * * * *'",
                 "RESOURCE_CRON_SCHEDULE='*/15 * * * *'",
+                "DEAL_SCAN_CRON_SCHEDULE='50 0-17,20-23 * * *'",
                 'MODERATION_CRON_SCHEDULE="$1"',
                 block,
                 "echo VALIDATED",

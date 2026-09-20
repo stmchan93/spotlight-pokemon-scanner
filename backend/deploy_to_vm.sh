@@ -324,6 +324,7 @@ FLOCK_BIN="$(command -v flock)"
 SYNC_LOCK_FILE="$DATA_DIR/scrydex-sync.lock"
 TCGCSV_SYNC_LOCK_FILE="$DATA_DIR/tcgcsv-sync.lock"
 SOCIAL_MODERATION_LOCK_FILE="$DATA_DIR/social-moderation.lock"
+DEAL_SCAN_LOCK_FILE="$DATA_DIR/deal-scan.lock"
 SYNC_LOG_FILE="$LOG_DIR/scrydex_sync.log"
 TCGCSV_SYNC_LOG_FILE="$LOG_DIR/tcgcsv_sync.log"
 HEALTH_MONITOR_LOG_FILE="$LOG_DIR/health_monitor.log"
@@ -331,6 +332,7 @@ RESOURCE_MONITOR_LOG_FILE="$LOG_DIR/resource_monitor.log"
 PPT_POPULATION_LOG_FILE="$LOG_DIR/ppt_population.log"
 SOCIAL_MODERATION_LOG_FILE="$LOG_DIR/social_moderation.log"
 POST_MEDIA_PURGE_LOG_FILE="$LOG_DIR/post_media_purge.log"
+DEAL_SCAN_LOG_FILE="$LOG_DIR/deal_scan.log"
 TORCH_CPU_INDEX_URL="${SPOTLIGHT_VM_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}"
 TORCH_PACKAGE_SPEC="${SPOTLIGHT_VM_TORCH_PACKAGE_SPEC:-torch==2.11.0+cpu}"
 SYNC_CRON_SCHEDULE="${SPOTLIGHT_VM_SYNC_CRON:-0 18 * * *}"
@@ -347,6 +349,19 @@ PUBLIC_BASE_URL="${SPOTLIGHT_VM_PUBLIC_BASE_URL:-}"
 HEALTH_CRON_SCHEDULE="${SPOTLIGHT_VM_HEALTH_CRON:-*/5 * * * *}"
 RESOURCE_CRON_SCHEDULE="${SPOTLIGHT_VM_RESOURCE_CRON:-*/15 * * * *}"
 MODERATION_CRON_SCHEDULE="${SPOTLIGHT_VM_MODERATION_CRON:-*/2 * * * *}"
+# Watchlist deal scan — hourly at :50 PT, evaluated by the wrapper (vixie cron
+# has no CRON_TZ). The minute and the hour list are both collision avoidance
+# against the price syncs, because a scan reads the same price tables the syncs
+# are rewriting:
+#   :50 is the midpoint of the only clear half-hour in a TCGCSV hour — its
+#   attempts start at :05 and :35, so :50 is 15 min clear of the :35 attempt and
+#   45 min clear of the heavy :05 crawl, and still 15 min ahead of the next
+#   hour's :05.
+#   18-19h PT are skipped for the same reason the TCGCSV schedule above skips
+#   them: the 18:00 Scrydex sync runs long (catalog + a visual-index refresh
+#   allowed up to 15 min + a portfolio prewarm), so every minute of those two
+#   hours is inside its write window.
+DEAL_SCAN_CRON_SCHEDULE="${SPOTLIGHT_VM_DEAL_SCAN_CRON:-50 0-17,20-23 * * *}"
 VISUAL_INDEX_NPZ_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_INDEX_NPZ_PATH")")"
 VISUAL_INDEX_MANIFEST_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_INDEX_MANIFEST_PATH")")"
 VISUAL_ADAPTER_CHECKPOINT_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_ADAPTER_CHECKPOINT_PATH")")"
@@ -385,7 +400,7 @@ if [[ "$PUBLIC_BASE_URL" == *$'\n'* ]]; then
   exit 1
 fi
 
-for schedule_var in SYNC_CRON_SCHEDULE TCGCSV_SYNC_CRON_SCHEDULE HEALTH_CRON_SCHEDULE RESOURCE_CRON_SCHEDULE MODERATION_CRON_SCHEDULE; do
+for schedule_var in SYNC_CRON_SCHEDULE TCGCSV_SYNC_CRON_SCHEDULE HEALTH_CRON_SCHEDULE RESOURCE_CRON_SCHEDULE MODERATION_CRON_SCHEDULE DEAL_SCAN_CRON_SCHEDULE; do
   schedule_value="${!schedule_var}"
   if [ -z "$schedule_value" ] || [[ "$schedule_value" == *$'\n'* ]]; then
     echo "$schedule_var must be a single non-empty cron schedule line." >&2
@@ -477,6 +492,11 @@ write_runtime_override "SPOTLIGHT_TCGCSV_SYNC_LOG_FILE" "$TCGCSV_SYNC_LOG_FILE"
 # run_social_moderation_vm.sh.
 write_runtime_override "SPOTLIGHT_VM_MODERATION_CRON" "$MODERATION_CRON_SCHEDULE"
 write_runtime_override "SPOTLIGHT_SOCIAL_MODERATION_LOCK_FILE" "$SOCIAL_MODERATION_LOCK_FILE"
+# Load-bearing, unlike the moderation line above: the deal-scan crontab entry is
+# minute-level, so the wrapper — not cron — evaluates this expression.
+write_runtime_override "SPOTLIGHT_VM_DEAL_SCAN_CRON" "$DEAL_SCAN_CRON_SCHEDULE"
+write_runtime_override "SPOTLIGHT_DEAL_SCAN_LOCK_FILE" "$DEAL_SCAN_LOCK_FILE"
+write_runtime_override "SPOTLIGHT_DEAL_SCAN_LOG_FILE" "$DEAL_SCAN_LOG_FILE"
 
 chmod 600 "$RUNTIME_CONFIG_FILE"
 chmod +x \
@@ -490,7 +510,9 @@ chmod +x \
   "$SCRIPT_DIR/run_vm_health_check.sh" \
   "$SCRIPT_DIR/run_vm_resource_snapshot.sh" \
   "$SCRIPT_DIR/run_social_moderation_vm.sh" \
-  "$SCRIPT_DIR/run_post_media_purge_vm.sh"
+  "$SCRIPT_DIR/run_post_media_purge_vm.sh" \
+  "$SCRIPT_DIR/run_deal_scan_vm.sh" \
+  "$SCRIPT_DIR/run_deal_scan_vm_scheduled.sh"
 
 sudo tee "$SERVICE_PATH" >/dev/null <<EOF
 [Unit]
@@ -588,6 +610,13 @@ SOCIAL_MODERATION_LINE="$MODERATION_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/r
 # is explicitly truthy, so scheduling it here arms nothing: read a few days of
 # post_media_purge.log first, then set the flag.
 POST_MEDIA_PURGE_LINE="15 8 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_post_media_purge_vm.sh >> $POST_MEDIA_PURGE_LOG_FILE 2>&1"
+# Watchlist deal scan — minute-level wrapper like the Scrydex and TCGCSV lines,
+# because the real cadence is PT and vixie cron has no CRON_TZ. The wrapper
+# evaluates SPOTLIGHT_VM_DEAL_SCAN_CRON itself and flocks its own lock, so a
+# scan that outlives its hour cannot stack with the next tick. Output goes to
+# $DEAL_SCAN_LOG_FILE from inside the wrapper, which is why this line has no
+# redirect of its own.
+DEAL_SCAN_LINE="* * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_deal_scan_vm_scheduled.sh"
 
 CURRENT_CRONTAB="$(mktemp "${TMPDIR:-/tmp}/spotlight-crontab.XXXXXX")"
 trap 'rm -f "$CURRENT_CRONTAB"' EXIT
@@ -634,6 +663,12 @@ PY
   echo "$RESOURCE_LINE"
   echo "$SOCIAL_MODERATION_LINE"
   echo "$POST_MEDIA_PURGE_LINE"
+  # Deal scan burns no Scrydex credits — it reads price snapshots already in the
+  # local DB and, for the eBay lane, an API that is gated separately by
+  # SPOTLIGHT_EBAY_BROWSE_ENABLED plus credentials in the env/secrets files. So
+  # it installs on BOTH environments and stays dark where that lane is off;
+  # staging is where it needs to run first anyway.
+  echo "$DEAL_SCAN_LINE"
   echo "$CRON_END"
 } | crontab -
 
@@ -681,10 +716,12 @@ echo "  Health monitor log: $HEALTH_MONITOR_LOG_FILE"
 echo "  Resource monitor log: $RESOURCE_MONITOR_LOG_FILE"
 echo "  Social moderation log: $SOCIAL_MODERATION_LOG_FILE"
 echo "  Post media purge log: $POST_MEDIA_PURGE_LOG_FILE"
+echo "  Deal scan log: $DEAL_SCAN_LOG_FILE"
 echo "  Sync schedule: $SYNC_CRON_SCHEDULE timezone=$SYNC_CRON_TIMEZONE (minute scheduler wrapper)"
 echo "  Health cron: $HEALTH_CRON_SCHEDULE"
 echo "  Resource cron: $RESOURCE_CRON_SCHEDULE"
 echo "  Social moderation cron: $MODERATION_CRON_SCHEDULE (lock: $SOCIAL_MODERATION_LOCK_FILE)"
+echo "  Deal scan schedule: $DEAL_SCAN_CRON_SCHEDULE timezone=$SYNC_CRON_TIMEZONE (minute scheduler wrapper, lock: $DEAL_SCAN_LOCK_FILE)"
 # Post images are hidden by RLS until this worker approves them, so a silently
 # disabled moderation pass reads to users as "image posting is broken". Point the
 # operator at the one grep that distinguishes the two.
