@@ -468,10 +468,20 @@ def default_backend_secrets_file(repo_root: Path, environment: str) -> Path:
 
 
 def resolve_backend_dir(repo_root: Path) -> Path:
+    """The directory that actually HOLDS the backend env files.
+
+    The VM bundle unpacks `backend/` contents at the root, so `repo_root/backend`
+    is usually absent there. Existence alone is the wrong test: an empty leftover
+    `backend/` directory (staging grew one on 2026-09-18) wins the old check and
+    then fails the audit with "Missing env file", blocking every deploy. Pick the
+    candidate that carries a `.env.*`, and only fall back to the name.
+    """
     candidate = repo_root / "backend"
-    if candidate.exists():
+    if any(candidate.glob(".env.*")):
         return candidate
-    return repo_root
+    if any(repo_root.glob(".env.*")):
+        return repo_root
+    return candidate if candidate.exists() else repo_root
 
 
 def main() -> int:
