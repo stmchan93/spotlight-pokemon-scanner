@@ -187,6 +187,33 @@ describe('AppDrawer', () => {
     }
   });
 
+  it('opens feedback with the current route, even for a guest', () => {
+    jest.useFakeTimers();
+    try {
+      (useAuth as jest.Mock).mockReturnValue({ currentUser: null, currentSession: null, signOut, state: 'guest' });
+      renderWithProviders(
+        <>
+          <DrawerController />
+          <AppDrawer />
+        </>,
+      );
+
+      act(() => {
+        drawerHandleRef.current?.open();
+      });
+
+      fireEvent.press(screen.getByTestId('app-drawer-nav-feedback'));
+
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
+
+      expect(push).toHaveBeenCalledWith({ pathname: '/feedback', params: { from: '/portfolio' } });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('renders the display name and Member since line from auth + session', () => {
     renderWithProviders(
       <>

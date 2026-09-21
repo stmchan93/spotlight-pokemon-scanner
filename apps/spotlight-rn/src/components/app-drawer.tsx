@@ -6,6 +6,7 @@ import {
   LogOut,
   MagicWand,
   Menu as MenuIcon,
+  MessageText,
   Settings,
   ViewGrid,
 } from 'iconoir-react-native';
@@ -382,6 +383,20 @@ export function AppDrawer() {
           <View style={styles.spacer} />
 
           <View style={styles.navSection}>
+            <DrawerNavItem
+              icon={MessageText}
+              label="Send Feedback"
+              // Not gated: guests hit problems too, and asking them to sign in
+              // first loses the report.
+              onPress={() => {
+                closeDrawer();
+                setTimeout(
+                  () => router.push({ pathname: '/feedback', params: { from: normalizedPathname } } as never),
+                  ANIM_DURATION_MS / 2,
+                );
+              }}
+              testID="app-drawer-nav-feedback"
+            />
             <DrawerNavItem
               icon={Settings}
               label="Account Settings"
