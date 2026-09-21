@@ -13,10 +13,18 @@
  * reports itself unavailable and the rest of the app is untouched — so the
  * feature can ride an OTA and simply switch on when a native build lands.
  *
- * Jest mocks the module, so tests never exercise the missing-native path; the
- * guard exists for the runtime case the test suite cannot reach.
+ * A try/catch around `require` is NOT enough on its own: babel-preset-expo
+ * lazy-loads a package's re-exports, so `require('expo-notifications')`
+ * succeeds and the throw is deferred to the first member access — inside a
+ * React effect, where it crashed staging 1.2.0 (11) on 2026-09-21. So probe the
+ * native side directly first.
  */
+import { requireOptionalNativeModule } from 'expo-modules-core';
+
 export type NotificationsModule = typeof import('expo-notifications');
+
+// Any expo-notifications native module works as the probe: they ship together.
+const PROBE_NATIVE_MODULE = 'ExpoPushTokenManager';
 
 // `undefined` = not tried yet, `null` = tried and unavailable.
 let cachedModule: NotificationsModule | null | undefined;
@@ -24,6 +32,10 @@ let cachedModule: NotificationsModule | null | undefined;
 /** The native module, or null when this binary does not carry it. */
 export function loadNotificationsModule(): NotificationsModule | null {
   if (cachedModule === undefined) {
+    if (requireOptionalNativeModule(PROBE_NATIVE_MODULE) == null) {
+      cachedModule = null;
+      return cachedModule;
+    }
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       cachedModule = require('expo-notifications') as NotificationsModule;

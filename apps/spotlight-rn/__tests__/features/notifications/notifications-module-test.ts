@@ -39,6 +39,27 @@ describe('notifications native-module guard', () => {
     });
   });
 
+  it('reports unavailable without loading the package when the native probe is missing', () => {
+    // The staging crash: the package itself required fine (lazy re-exports),
+    // and the missing native module only threw on first member access.
+    jest.isolateModules(() => {
+      jest.doMock('expo-modules-core', () => ({
+        ...jest.requireActual('expo-modules-core'),
+        requireOptionalNativeModule: jest.fn(() => null),
+      }));
+      const factory = jest.fn(() => ({}));
+      jest.doMock('expo-notifications', factory);
+      const mod = require('@/features/notifications/notifications-module');
+      mod.resetNotificationsModuleCache();
+
+      expect(mod.loadNotificationsModule()).toBeNull();
+      expect(mod.isPushNativeModuleAvailable()).toBe(false);
+      expect(factory).not.toHaveBeenCalled();
+    });
+    // doMock outlives resetModules; don't let the missing probe leak onward.
+    jest.dontMock('expo-modules-core');
+  });
+
   it('only attempts the load once, so a missing module is not retried per call', () => {
     jest.isolateModules(() => {
       const factory = jest.fn(() => {
