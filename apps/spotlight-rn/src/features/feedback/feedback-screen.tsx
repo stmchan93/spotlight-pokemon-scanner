@@ -15,7 +15,7 @@ import { ChromeBackButton } from '@/components/chrome-back-button';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 
 // Long enough for a real report, short enough that one event can't carry an essay.
-const MAX_MESSAGE_LENGTH = 2000;
+const MAX_MESSAGE_LENGTH = 1000;
 
 /**
  * Free-text feedback, sent as a `feedback_submitted` PostHog event so it sits
@@ -66,7 +66,7 @@ export function FeedbackScreen() {
           </View>
 
           <View style={styles.headerCopy}>
-            <Text style={theme.typography.display}>Send feedback</Text>
+            <Text style={theme.typography.display}>Give us feedback</Text>
           </View>
 
           {sent ? (
@@ -76,16 +76,25 @@ export function FeedbackScreen() {
             </View>
           ) : (
             <View style={styles.form}>
-              <TextField
-                inputStyle={styles.messageInput}
-                maxLength={MAX_MESSAGE_LENGTH}
-                multiline
-                onChangeText={setMessage}
-                placeholder="Leave comments, questions or concerns for Ekalight and the team will get back to you as soon as possible."
-                testID="feedback-message"
-                textAlignVertical="top"
-                value={message}
-              />
+              <View style={styles.fieldWithCount}>
+                <TextField
+                  containerStyle={styles.messageContainer}
+                  inputStyle={styles.messageInput}
+                  maxLength={MAX_MESSAGE_LENGTH}
+                  multiline
+                  onChangeText={setMessage}
+                  placeholder="Tell us anything. Every piece of feedback goes directly back to the team"
+                  testID="feedback-message"
+                  textAlignVertical="top"
+                  value={message}
+                />
+                <Text
+                  style={[theme.typography.caption, styles.count, { color: theme.colors.textSecondary }]}
+                  testID="feedback-count"
+                >
+                  {`${message.length}/${MAX_MESSAGE_LENGTH}`}
+                </Text>
+              </View>
               <Button
                 disabled={!trimmed}
                 label="Send"
@@ -111,14 +120,26 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
+  count: {
+    alignSelf: 'flex-end',
+  },
+  fieldWithCount: {
+    gap: 6,
+  },
   form: {
     gap: 16,
   },
   headerCopy: {
     gap: 4,
   },
+  // Multiline text starts at the top, not centred in the row the field lays out.
+  messageContainer: {
+    alignItems: 'flex-start',
+  },
   messageInput: {
     minHeight: 140,
+    paddingBottom: 12,
+    paddingTop: 12,
   },
   safeArea: {
     backgroundColor: colors.gray0,

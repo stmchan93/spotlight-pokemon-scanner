@@ -33,6 +33,15 @@ describe('FeedbackScreen', () => {
     expect(capturePostHogEvent).not.toHaveBeenCalled();
   });
 
+  it('counts characters against the 1000 limit', () => {
+    renderWithProviders(<FeedbackScreen />);
+
+    expect(screen.getByTestId('feedback-count').props.children).toBe('0/1000');
+    fireEvent.changeText(screen.getByTestId('feedback-message'), 'hello');
+    expect(screen.getByTestId('feedback-count').props.children).toBe('5/1000');
+    expect(screen.getByTestId('feedback-message').props.maxLength).toBe(1000);
+  });
+
   it('sends the trimmed message and origin screen, then thanks the user', () => {
     renderWithProviders(<FeedbackScreen />);
 

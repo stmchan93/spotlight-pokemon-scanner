@@ -51,8 +51,12 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
     token's 20pt box against a 15pt font leaves the descenders of "g", "y" and
     "p" clipped off at the bottom of the field. `Text` is unaffected and keeps
     the token as written — only an input needs the platform's own line box.
+
+    Multiline keeps the token: the clip is a single-line problem, and without a
+    lineHeight each wrapped line falls back to the font's loose default leading.
   */
-  const { lineHeight: _lineHeight, ...inputTypography } = theme.typography.body;
+  const { lineHeight: _lineHeight, ...singleLineTypography } = theme.typography.body;
+  const inputTypography = inputProps.multiline ? theme.typography.body : singleLineTypography;
 
   return (
     <View style={styles.fieldWrap}>
