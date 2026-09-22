@@ -5,7 +5,6 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import {
   Button,
-  SegmentedControl,
   Text,
   TextField,
   colors,
@@ -14,14 +13,6 @@ import {
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
-
-type FeedbackCategory = 'bug' | 'idea' | 'other';
-
-const CATEGORY_ITEMS = [
-  { label: 'Something broke', value: 'bug' },
-  { label: 'Idea', value: 'idea' },
-  { label: 'Other', value: 'other' },
-] as const;
 
 // Long enough for a real report, short enough that one event can't carry an essay.
 const MAX_MESSAGE_LENGTH = 2000;
@@ -36,7 +27,6 @@ export function FeedbackScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { from } = useLocalSearchParams<{ from?: string }>();
-  const [category, setCategory] = useState<FeedbackCategory>('bug');
   const [message, setMessage] = useState('');
   const [sent, setSent] = useState(false);
 
@@ -47,7 +37,6 @@ export function FeedbackScreen() {
       return;
     }
     capturePostHogEvent('feedback_submitted', {
-      category,
       message: trimmed,
       from_screen: typeof from === 'string' ? from : null,
     });
@@ -78,9 +67,6 @@ export function FeedbackScreen() {
 
           <View style={styles.headerCopy}>
             <Text style={theme.typography.display}>Send feedback</Text>
-            <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
-              {"Tell us what's broken, confusing, or missing. We read every one."}
-            </Text>
           </View>
 
           {sent ? (
@@ -90,18 +76,12 @@ export function FeedbackScreen() {
             </View>
           ) : (
             <View style={styles.form}>
-              <SegmentedControl
-                items={CATEGORY_ITEMS}
-                onChange={setCategory}
-                testID="feedback-category"
-                value={category}
-              />
               <TextField
                 inputStyle={styles.messageInput}
                 maxLength={MAX_MESSAGE_LENGTH}
                 multiline
                 onChangeText={setMessage}
-                placeholder="What happened? What were you trying to do?"
+                placeholder="Leave comments, questions or concerns for Ekalight and the team will get back to you as soon as possible."
                 testID="feedback-message"
                 textAlignVertical="top"
                 value={message}

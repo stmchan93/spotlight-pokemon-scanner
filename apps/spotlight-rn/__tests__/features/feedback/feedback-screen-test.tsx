@@ -33,14 +33,13 @@ describe('FeedbackScreen', () => {
     expect(capturePostHogEvent).not.toHaveBeenCalled();
   });
 
-  it('sends the trimmed message, category and origin screen, then thanks the user', () => {
+  it('sends the trimmed message and origin screen, then thanks the user', () => {
     renderWithProviders(<FeedbackScreen />);
 
     fireEvent.changeText(screen.getByTestId('feedback-message'), '  Salamence keeps scanning as the GX  ');
     fireEvent.press(screen.getByTestId('feedback-send'));
 
     expect(capturePostHogEvent).toHaveBeenCalledWith('feedback_submitted', {
-      category: 'bug',
       message: 'Salamence keeps scanning as the GX',
       from_screen: '/scan',
     });
