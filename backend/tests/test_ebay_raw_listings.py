@@ -44,8 +44,11 @@ from ebay_listings import (  # noqa: E402
     record_ebay_cache_hit,
     reset_ebay_usage,
     set_ebay_usage_sink,
+    seller_rejection_reason,
     shipping_inclusive_total,
     title_denylist_reason,
+    title_not_a_card_reason,
+    title_worn_condition_reason,
     validate_listing_candidates,
 )
 
@@ -313,6 +316,76 @@ class TitleDenylistTests(RawListingTestCase):
         self.assertFalse(verdict["ok"])
         self.assertEqual(verdict["reason"], "denylist:lot")
 
+    # Titles below are verbatim from the 2026-09-21 staging first run, where
+    # 11 of 17 alerts were worn copies, thin sellers, or merch.
+    def test_worn_copies_are_named_by_their_condition(self) -> None:
+        cases = {
+            "Raichu Base Set Holo Rare 14/102 English 1999 Wizards (HP)": "hp",
+            "Raichu 14/102 Base Set Unlimited Holo Rare Pokemon WOTC 1999 Played": "played",
+            "Blaine's Charizard Holo English Gym Challenge 2/132 DMG": "dmg",
+            "Pokémon TCG Rayquaza v Evolving Skies Card 194/203 LP": "lp",
+            "Umbreon VMAX (Alternate Art Secret, #215/203) - SWSH - Evolving Skies MP Pokemon": "mp",
+            "M Charizard EX (Full Art) 101/108 Evolutions HP+": "hp",
+            "Sabrina's Slowbro Gym Heroes 60/132 Lightly Played": "lightly played",
+        }
+        for title, expected in cases.items():
+            with self.subTest(title=title):
+                self.assertEqual(title_worn_condition_reason(title), expected)
+
+    def test_clean_titles_are_not_mistaken_for_worn_ones(self) -> None:
+        for title in (
+            "Charizard 136/135 Holo Secret Rare Plasma Storm Pokemon",
+            "Sabrina's Slowbro Gym Heroes 60/132 Never Played Pack Fresh",
+            "Charizard 120 HP Base Set 4/102 Holo",
+            "Alakazam 1/102 Base Set Holo",
+        ):
+            with self.subTest(title=title):
+                self.assertIsNone(title_worn_condition_reason(title))
+
+    def test_merch_is_not_a_card(self) -> None:
+        self.assertEqual(
+            title_not_a_card_reason("Pokémon Plasma Storm Charizard 136/135 2012 Secret Rare Card Novelty Keychain"),
+            "keychain",
+        )
+        self.assertEqual(title_not_a_card_reason("Charizard 136/135 sticker"), "sticker")
+        # Real singles are routinely described like this.
+        for title in (
+            "Charizard 4/102 Unlimited Print Holo",
+            "Pinsir 9/64 Jungle Holo shipped in sleeve",
+            "Blastoise 2/102 straight from binder",
+        ):
+            with self.subTest(title=title):
+                self.assertIsNone(title_not_a_card_reason(title))
+
+    def test_thin_sellers_are_rejected_and_unknown_sellers_pass(self) -> None:
+        self.assertEqual(
+            seller_rejection_reason({"sellerFeedbackPercentage": 0.0}), "low_feedback_percentage"
+        )
+        self.assertEqual(
+            seller_rejection_reason({"sellerFeedbackPercentage": 100.0, "sellerFeedbackScore": 3}),
+            "low_feedback_score",
+        )
+        self.assertIsNone(seller_rejection_reason({"sellerFeedbackPercentage": 99.4, "sellerFeedbackScore": 812}))
+        self.assertIsNone(seller_rejection_reason({}))
+
+    def test_worn_listing_is_rejected_with_its_reason(self) -> None:
+        verdict = evaluate_raw_listing(
+            listing(title="Sabrina's Slowbro Gym Heroes 60/132 DMG"),
+            card=CARD,
+            now=NOW,
+        )
+        self.assertFalse(verdict["ok"])
+        self.assertEqual(verdict["reason"], "worn_condition:dmg")
+
+    def test_zero_feedback_seller_listing_is_rejected(self) -> None:
+        verdict = evaluate_raw_listing(
+            listing(sellerFeedbackPercentage=0.0),
+            card=CARD,
+            now=NOW,
+        )
+        self.assertFalse(verdict["ok"])
+        self.assertEqual(verdict["reason"], "seller:low_feedback_percentage")
+
     def test_graded_slabs_do_not_belong_to_the_raw_lane(self) -> None:
         by_title = listing(title="PSA 9 Sabrina's Slowbro Gym Heroes 60/132")
         by_condition = listing(condition="Graded", conditionID="2750")
@@ -431,6 +504,7 @@ class CandidateShapeTests(RawListingTestCase):
                     "currencyCode", "buyingOption", "auctionEndAt", "auctionMinutesRemaining",
                     "bidCount", "listedAt", "condition", "conditionID", "conditionVerified",
                     "verification", "isGraded", "sellerFeedbackPercentage",
+                    "sellerFeedbackScore",
                 ]
             ),
         )

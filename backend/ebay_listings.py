@@ -97,7 +97,10 @@ __all__ = [
     "reset_ebay_usage",
     "set_ebay_usage_sink",
     "shipping_inclusive_total",
+    "seller_rejection_reason",
     "title_denylist_reason",
+    "title_not_a_card_reason",
+    "title_worn_condition_reason",
     "validate_listing_candidates",
     "verify_raw_aspects",
     "verify_raw_title",
@@ -139,6 +142,31 @@ RAW_TITLE_DENYLIST_PHRASES: tuple[str, ...] = (
     "elite trainer", "etb", "collection box", "tin", "bulk",
     "you pick", "u pick", "pick your", "choose your", "your choice", "set of",
 )
+# Not a playable card at all: merch built on the card's art. The 2026-09-21
+# staging review saw a $7 "Charizard 136/135 ... Novelty Keychain".
+RAW_TITLE_NOT_A_CARD_PHRASES: tuple[str, ...] = (
+    "keychain", "key chain", "keyring", "novelty", "sticker", "stickers",
+    "magnet", "pin", "coin", "poster", "art print", "figure", "plush",
+    "acrylic", "jumbo", "oversized", "oversize", "metal card", "gold plated",
+    "orica", "fan art", "digital", "code card", "online code", "playmat",
+)
+# Deliberately absent: "print", "sleeve", "binder", "display" — real singles say
+# "Unlimited print", "shipped in sleeve", "straight from binder".
+
+# Worn copies. Every deal is judged against the near-mint market price, so in
+# the first staging run 9 of 17 "deals" were HP/MP/LP/DMG copies.
+RAW_TITLE_WORN_CONDITION_PHRASES: tuple[str, ...] = (
+    "heavily played", "moderately played", "lightly played", "played",
+    "hp", "mp", "lp", "dmg", "poor", "worn", "bent", "torn", "tear",
+)
+# "Never played" / "not played" describe a CLEAN card.
+_CONDITION_NEGATIONS: tuple[str, ...] = ("never", "not", "no", "un")
+
+# A listing from a seller below either bar is not worth pinging anyone about:
+# brand-new accounts and 0% feedback were behind the $1,700+ Umbreon "deals".
+MIN_SELLER_FEEDBACK_PERCENTAGE = 95.0
+MIN_SELLER_FEEDBACK_SCORE = 10
+
 # "3x", "x 4", "12x" — a quantity, so not a single card. "1x" is fine.
 _MULTIPLIER_RE = re.compile(r"\b(?:[2-9]|\d{2,})\s*x\b|\bx\s*(?:[2-9]|\d{2,})\b")
 
@@ -253,6 +281,11 @@ def normalize_raw_listing(item: dict[str, Any]) -> dict[str, Any] | None:
             if isinstance(item.get("seller"), dict)
             else None
         ),
+        "sellerFeedbackScore": _to_float(
+            (item.get("seller") or {}).get("feedbackScore")
+            if isinstance(item.get("seller"), dict)
+            else None
+        ),
     }
 
 
@@ -298,6 +331,46 @@ def title_denylist_reason(title: object) -> str | None:
     match = _MULTIPLIER_RE.search(text)
     if match:
         return f"quantity:{match.group(0).strip()}"
+    return None
+
+
+def title_not_a_card_reason(title: object) -> str | None:
+    """The merch phrase a title trips ("keychain", "sticker"…), or None."""
+    padded = f" {_fold(title)} "
+    for phrase in RAW_TITLE_NOT_A_CARD_PHRASES:
+        if f" {phrase} " in padded:
+            return phrase
+    return None
+
+
+def title_worn_condition_reason(title: object) -> str | None:
+    """The worn-condition phrase a title states ("hp", "dmg", "played"…), or
+    None. A phrase right after a negation ("never played") does not count."""
+    words = _fold(title).split()
+    text = f" {' '.join(words)} "
+    for phrase in RAW_TITLE_WORN_CONDITION_PHRASES:
+        needle = f" {phrase} "
+        start = text.find(needle)
+        while start != -1:
+            preceding = text[:start].split()
+            previous = preceding[-1] if preceding else ""
+            # "120 HP" is the card's hit points, not Heavily Played.
+            is_hit_points = phrase == "hp" and previous.isdigit()
+            if previous not in _CONDITION_NEGATIONS and not is_hit_points:
+                return phrase
+            start = text.find(needle, start + 1)
+    return None
+
+
+def seller_rejection_reason(listing: dict[str, Any]) -> str | None:
+    """Why this listing's seller is too thin to trust, or None. Unknown values
+    pass: eBay omits them sometimes, and the cache predates the score field."""
+    percentage = _to_float(listing.get("sellerFeedbackPercentage"))
+    if percentage is not None and percentage < MIN_SELLER_FEEDBACK_PERCENTAGE:
+        return "low_feedback_percentage"
+    score = _to_float(listing.get("sellerFeedbackScore"))
+    if score is not None and score < MIN_SELLER_FEEDBACK_SCORE:
+        return "low_feedback_score"
     return None
 
 
@@ -442,6 +515,15 @@ def evaluate_raw_listing(
     denylisted = title_denylist_reason(title)
     if denylisted:
         return {"ok": False, "reason": f"denylist:{denylisted}", "candidate": None}
+    not_a_card = title_not_a_card_reason(title)
+    if not_a_card:
+        return {"ok": False, "reason": f"not_a_card:{not_a_card}", "candidate": None}
+    worn = title_worn_condition_reason(title)
+    if worn:
+        return {"ok": False, "reason": f"worn_condition:{worn}", "candidate": None}
+    seller = seller_rejection_reason(listing)
+    if seller:
+        return {"ok": False, "reason": f"seller:{seller}", "candidate": None}
     if listing_is_graded(listing):
         return {"ok": False, "reason": "graded_listing", "candidate": None}
 
@@ -479,6 +561,7 @@ def evaluate_raw_listing(
         "verification": tier,
         "isGraded": False,
         "sellerFeedbackPercentage": listing.get("sellerFeedbackPercentage"),
+        "sellerFeedbackScore": listing.get("sellerFeedbackScore"),
     }
     return {"ok": True, "reason": None, "candidate": candidate}
 
