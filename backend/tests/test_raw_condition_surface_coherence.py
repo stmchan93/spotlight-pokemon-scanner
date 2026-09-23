@@ -387,6 +387,30 @@ class RawConditionSurfaceCoherenceTests(unittest.TestCase):
                         self._condition_row(added, "NM")["market"], 80.0, places=2
                     )
 
+    def test_main_printing_without_scrydex_nm_gets_one(self):
+        """Espeon ex ex10-102: Scrydex prices the Holofoil only LP/MP/DM and the
+        $39 World Championship Deck reprint at NM, so the NM-first default
+        resolved to the reprint and the card page's NM row read $39.69 under a
+        $362.62 headline (user, 2026-09-23). The quoted printing gets its NM."""
+        self._seed_raw(variant="Holofoil", condition="LP", market=50000.0)
+        self._seed_raw(variant="Holofoil", condition="MP", market=45000.0)
+        self._seed_raw(variant="Jimmy Ballard", condition="NM", market=5000.0)
+        upsert_fx_rate_snapshot(
+            self.connection, base_currency="JPY", quote_currency="USD",
+            rate=JPY_USD_RATE, source="test",
+        )
+        self.connection.commit()
+        for source in HISTORY_SOURCES:
+            with self.subTest(history_source=source), self._env(
+                source, {"RAW_MAIN_PRICE_SOURCE": "tcgcsv"}
+            ):
+                self._set_main(market=362.62, variant="Holofoil")
+                default_trends = self.shim.card_price_trends("c1", mode="raw", variant=None)
+                self.assertAlmostEqual(self._trend_row(default_trends, "NM")["currentPrice"], 362.62, places=2)
+                holo = self._matrix_variant(self.shim.raw_pricing_matrix("c1"), "Holofoil")
+                self.assertAlmostEqual(self._condition_row(holo, "NM")["market"], 362.62, places=2)
+                self.assertIsNotNone(self._condition_row(holo, "LP"))
+
     # --- graded lane is never touched ---------------------------------------
 
     def test_graded_trend_rows_untouched(self):

@@ -8117,7 +8117,8 @@ def slab_recent_sales_cache(
 
 def with_served_main_printing(row: Any, raw_contexts: dict[str, Any]) -> dict[str, Any]:
     """Add the main lane's own printing to `raw_contexts` as an NM-only entry
-    when Scrydex has no printing under that label.
+    when Scrydex has no printing under that label, or add its NM when Scrydex
+    lists the printing without one.
 
     Scrydex decides which printings a card HAS, and it is sometimes missing one
     TCGplayer sells: One Piece P-043 is a single product carrying a Normal
@@ -8127,7 +8128,7 @@ def with_served_main_printing(row: Any, raw_contexts: dict[str, Any]) -> dict[st
     under a "Normal" label (user, 2026-09-16).
 
     Returns the input unchanged on every other path — flag off, main
-    absent/stale, or the label already present — so a Scrydex-only read stays
+    absent/stale, or the label already present with an NM — so a Scrydex-only read stays
     byte-identical. Lives here, not on the service, because three separate
     surfaces load raw contexts from a snapshot row and all three must agree.
     """
@@ -8140,9 +8141,20 @@ def with_served_main_printing(row: Any, raw_contexts: dict[str, Any]) -> dict[st
     variants = raw_contexts.get("variants")
     variants = variants if isinstance(variants, dict) else {}
     match = _variant_match_key(label)
-    if any(_variant_match_key(existing) == match for existing in variants):
-        return raw_contexts
-    variant_key = match or label.lower().replace(" ", "")
+    existing_label = next((existing for existing in variants if _variant_match_key(existing) == match), None)
+    if existing_label is not None:
+        # Scrydex lists the printing but may not price its NM (Espeon ex
+        # ex10-102: Holofoil LP/MP/DM only), and the NM-first default would
+        # then land on a cheap sibling printing. Give it the quoted NM.
+        existing = variants[existing_label]
+        conditions = existing.get("conditions") if isinstance(existing, dict) else None
+        if not isinstance(conditions, dict) or DEFAULT_RAW_CONDITION in conditions:
+            return raw_contexts
+        variant_key = str(existing.get("variantKey") or match or existing_label.lower().replace(" ", ""))
+        label = existing_label
+    else:
+        conditions = {}
+        variant_key = match or label.lower().replace(" ", "")
     entry = {
         "variant": label,
         "variantKey": variant_key,
@@ -8168,7 +8180,7 @@ def with_served_main_printing(row: Any, raw_contexts: dict[str, Any]) -> dict[st
         label: {
             "variant": label,
             "variantKey": variant_key,
-            "conditions": {DEFAULT_RAW_CONDITION: entry},
+            "conditions": {DEFAULT_RAW_CONDITION: entry, **conditions},
         },
     }
     return updated
