@@ -91,6 +91,16 @@ class _EbayTransport:
             return {"access_token": "token-value", "expires_in": 7200}
         if "buy/browse/v1/item_summary/search" in url:
             return {"itemSummaries": [_summary()]}
+        if "get_item_by_legacy_id" in url:
+            legacy_id = url.split("legacy_item_id=")[1]
+            return {
+                "itemId": f"v1|{legacy_id}|0",
+                "legacyItemId": legacy_id,
+                "itemLocation": {"country": "US"},
+                "conditionDescriptors": [
+                    {"name": "Card Condition", "values": [{"content": "Near mint or better"}]}
+                ],
+            }
         raise AssertionError(f"Unexpected URL: {url}")
 
 
