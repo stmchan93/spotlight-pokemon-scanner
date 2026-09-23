@@ -79,6 +79,8 @@ export type InventoryCardTileProps = {
    * Callers pass the window-scoped percent (since-added or 30d).
    */
   trendChangePercent?: number | null;
+  /** Words after the percent, e.g. "since watched" → "▲ +18.00% since watched". */
+  trendSuffix?: string | null;
   /**
    * Day-over-day DOLLAR move, rendered as a tinted pill beside the price
    * (Figma 1263:3132 / 1263:3381): an arrow plus the absolute amount, on the
@@ -202,6 +204,7 @@ export function InventoryCardTile({
   footnote = null,
   marketPrice,
   trendChangePercent,
+  trendSuffix,
   dayChangeAmount,
   formatDayChange,
   isFavorite,
@@ -259,7 +262,7 @@ export function InventoryCardTile({
         : theme.colors.green400
       : theme.colors.gray600;
   const trendLabel = trendPercent !== null
-    ? `${trendPercent > 0 ? '+' : ''}${trendPercent.toFixed(2)}%`
+    ? `${trendPercent > 0 ? '+' : ''}${trendPercent.toFixed(2)}%${trendSuffix ? ` ${trendSuffix}` : ''}`
     : '';
   // The day-move pill. Shares the penny guard with the percent above for the
   // same reason: a few cents on a $0.04 card is noise wearing a badge.

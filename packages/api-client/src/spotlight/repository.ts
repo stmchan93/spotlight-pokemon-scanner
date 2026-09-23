@@ -6649,6 +6649,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           sinceAddedBaselineDate: normalizeString(entry.sinceAddedBaselineDate) ?? null,
           sparkPoints: normalizeSparkPoints(entry.sparkPoints),
           sparkTrendPct: normalizeNumber(entry.sparkTrendPct) ?? null,
+          sinceWatchedPoints: normalizeSparkPoints(entry.sinceWatchedPoints),
+          sinceAddedBaselinePrice: normalizeNumber(entry.sinceAddedBaselinePrice) ?? null,
           // USD CENTS (the rest of this row is dollars). null = no target set.
           targetPriceCents: normalizeCentsOrNull(entry.targetPriceCents),
         };

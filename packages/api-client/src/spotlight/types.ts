@@ -1653,6 +1653,10 @@ export type CardFavoriteEntry = {
   sparkPoints?: number[] | null;
   /** Percent change across `sparkPoints`; drives the sparkline tint. */
   sparkTrendPct?: number | null;
+  /** Market series from the watch date to today (oldest → newest). */
+  sinceWatchedPoints?: number[] | null;
+  /** The price `sinceAddedChange*` is measured from (the dashed baseline). */
+  sinceAddedBaselinePrice?: number | null;
   /**
    * The watchlist target price, in USD CENTS (not the dollars used by
    * `marketPrice`). null/undefined = no target set. Written through

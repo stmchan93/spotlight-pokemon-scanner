@@ -339,10 +339,9 @@ OPS_ALERT_HEADLINES = {
 
 DEFAULT_WATCH_DAILY_BUDGET = 5000
 DEFAULT_WATCH_ON_DEMAND_RESERVE = 300
-# 22, not 24: `run_deal_scan_vm_scheduled.sh` runs `50 0-17,20-23 * * *` PT —
-# hours 18-19 are blacked out for the long Scrydex sync. Keep in step with
-# SPOTLIGHT_VM_DEAL_SCAN_CRON or the governor under-projects actual spend.
-DEFAULT_WATCH_SCANS_PER_CARD_PER_DAY = 22
+# `run_deal_scan_vm_scheduled.sh` runs `50 2,8,14,21 * * *` PT. Keep in step
+# with SPOTLIGHT_VM_DEAL_SCAN_CRON or the governor mis-projects actual spend.
+DEFAULT_WATCH_SCANS_PER_CARD_PER_DAY = 4
 # headroom = projected_daily_calls / (budget - reserve)
 WATCH_COST_STAGE_AMBER = 0.50
 WATCH_COST_STAGE_RED = 0.75
@@ -1979,6 +1978,10 @@ SCAN_KEEP_CROSSLANG_CANDIDATES_MAX = 2
 SINCE_ADDED_SPARK_DAYS = 30
 SINCE_ADDED_SPARK_POINTS = 20
 SINCE_ADDED_SPARK_MAX_CONTEXTS = 800
+# Watchlist "since watched" series: from the watch date to today, thinned to
+# this many points, reading at most this many days back.
+SINCE_WATCHED_SPARK_POINTS = 30
+SINCE_WATCHED_MAX_DAYS = 365
 # One-shot guard flag for /api/v1/ops/backfill-added-baselines (mirrors
 # access_existing_users_backfilled).
 ADDED_BASELINE_BACKFILL_FLAG = "added_baseline_backfilled"
@@ -21588,6 +21591,59 @@ class SpotlightScanService:
             result[str(key)] = (points, trend_pct)
         return result
 
+    def _since_watched_series_for_requests(
+        self, spark_requests: list[dict[str, Any]]
+    ) -> dict[str, list[float]]:
+        """Per-row market series from the baseline ("since") date to today,
+        oldest->newest, in ONE batched history read sized to the oldest baseline.
+        Only days priced on the row's CURRENT printing are kept, so a printing
+        switch in the history (Espeon ex ex10-102's WCD reprint -> Holofoil on
+        2026-09-14) can't draw a fake jump. Rows without a baseline date or with
+        fewer than two points are omitted. Best-effort, like the 30d sparkline."""
+        dated = [req for req in spark_requests if req.get("since")]
+        if not dated:
+            return {}
+        today = datetime.now(timezone.utc).date()
+        oldest_days = 2
+        for req in dated:
+            try:
+                age = (today - date.fromisoformat(str(req["since"])[:10])).days + 1
+            except ValueError:
+                continue
+            oldest_days = max(oldest_days, age)
+        try:
+            history_rows_by_key = price_history_rows_for_cards_batched(
+                self.connection,
+                dated,
+                provider=pricing_provider(),
+                days=min(oldest_days, SINCE_WATCHED_MAX_DAYS),
+            )
+        except Exception:  # noqa: BLE001 - sparklines are decorative
+            traceback.print_exc()
+            return {}
+        since_by_key = {str(req["key"]): str(req["since"])[:10] for req in dated}
+        result: dict[str, list[float]] = {}
+        for key, resolved_rows in history_rows_by_key.items():
+            since = since_by_key.get(str(key))
+            if not since or not resolved_rows:
+                continue
+            # Newest-first: the first row's printing is the one priced today.
+            current_variant = resolved_rows[0].get("variant")
+            values: list[float] = []
+            for resolved_row in reversed(resolved_rows):
+                if str(resolved_row.get("date") or "")[:10] < since:
+                    continue
+                if resolved_row.get("variant") != current_variant:
+                    continue
+                value = self._history_primary_price_value(resolved_row)
+                if value is not None:
+                    values.append(float(value))
+            if len(values) >= 2:
+                result[str(key)] = self._downsample_sparkline(
+                    values, target=SINCE_WATCHED_SPARK_POINTS
+                )
+        return result
+
     @staticmethod
     def _downsample_sparkline(values: list[float], target: int = 24) -> list[float]:
         """Pick ~``target`` evenly-spaced values (oldest->newest) from ``values``.
@@ -22179,6 +22235,7 @@ class SpotlightScanService:
                         "condition": None if is_graded_entry else condition,
                         "grader": grader if is_graded_entry else None,
                         "grade": grade if is_graded_entry else None,
+                        "since": since_added_baseline_date,
                     }
                 )
 
@@ -22197,6 +22254,13 @@ class SpotlightScanService:
                     "sinceAddedChangeAmount": since_added_amount,
                     "sinceAddedChangePercent": since_added_percent,
                     "sinceAddedBaselineDate": since_added_baseline_date,
+                    # The price the since-added change is measured from — the
+                    # dashed "when you watched it" line on the row sparkline.
+                    "sinceAddedBaselinePrice": (
+                        round(float(baseline_price), 2)
+                        if since_added_percent is not None and baseline_price is not None
+                        else None
+                    ),
                     # USD cents, null = no target. The deal radar's target_hit
                     # signal reads the same column; this is the display copy.
                     "targetPriceCents": (
@@ -22210,10 +22274,13 @@ class SpotlightScanService:
         # Rows past the spark budget (or with no resolvable history) keep null
         # spark fields — the sinceAdded fields above are never truncated.
         spark_by_key = self._sparklines_for_requests(spark_requests)
+        since_watched_by_key = self._since_watched_series_for_requests(spark_requests)
         for entry in entries:
-            spark = spark_by_key.get(str(entry["card"].get("id") or ""))
+            key = str(entry["card"].get("id") or "")
+            spark = spark_by_key.get(key)
             entry["sparkPoints"] = spark[0] if spark else None
             entry["sparkTrendPct"] = spark[1] if spark else None
+            entry["sinceWatchedPoints"] = since_watched_by_key.get(key)
 
         return {"entries": entries, "limit": safe_limit, "offset": safe_offset}
 

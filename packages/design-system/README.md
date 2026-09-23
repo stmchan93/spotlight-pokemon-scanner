@@ -451,6 +451,13 @@ Current API concepts:
   (`[thumb][name/set][sparkline][price + %]`); the sparkline tints by its
   OWN `sparkTrendPct` direction, independent of the percent line. Absent/empty
   → no sparkline, layout identical to before
+- optional `sparkBaseline` — a reference price drawn dashed across the
+  sparkline (the Watchlist's price-when-watched); `testID` suffix
+  `-sparkline-baseline`
+- optional `trendSuffix` — words after the percent (`"+18.10% since
+  watched"`). A suffixed label hangs left from the price column's bottom edge
+  (absolute, 220 wide, right-aligned) so it never widens the column and
+  squeezes the name/set copy
 - `quantity` (rendered as `"Qty: {n}"` at the bottom of the LEFT copy stack,
   under the grade/condition line; `showQuantity={false}` hides it)
 - optional `footnote` — a second meta line rendered directly UNDER
@@ -500,6 +507,8 @@ Current API concepts:
   `0.00%` with NO arrow ("tracked but flat" ≠ "no data"); null/non-finite
   hides the line. Callers pass the shared trend-window expression (since-added
   or 30d)
+- optional `trendSuffix` — words after the percent, e.g. `"since watched"`
+  (Watchlist card view)
 - optional `marketPrice` — numeric price backing `priceLabel`, used only for
   the penny guard: `< 1` suppresses the trend line AND the day-change pill
   entirely (a −50% on $0.04 misleads; pennies aren't investment content)
@@ -544,6 +553,8 @@ Current API concepts:
 - `points` — market-price series, oldest → newest (a single point or flat
   series draws a centered horizontal line; empty → an empty box of the same
   size so rows stay aligned)
+- optional `baseline` — reference price drawn as a gray400 dashed line and
+  included in the vertical range so it stays in frame
 - optional `trendPct` — percent change across the series; `>= 0` tints
   `green400`, `< 0` tints `red400` (defaults to green when omitted)
 - optional `width`/`height` — defaults 62×22 (the list-row size)

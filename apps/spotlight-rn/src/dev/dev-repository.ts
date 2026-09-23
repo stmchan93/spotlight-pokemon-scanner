@@ -41,6 +41,23 @@ const devFavoriteOverrides: Record<string, Partial<CardFavoriteEntry>> = {
     kind: 'graded',
     marketPrice: 1100,
     slabContext: { grade: '10', grader: 'PSA' },
+    sinceAddedBaselinePrice: 1240.5,
+    sinceAddedChangePercent: -11.33,
+    sinceWatchedPoints: [1240.5, 1225, 1210, 1180.25, 1165, 1150, 1120, 1100],
+  },
+  // Since-watched shapes: a climb above the watched price, and a near-flat
+  // wobble around it.
+  'sm7-1': {
+    marketPrice: 12.4,
+    sinceAddedBaselinePrice: 10.5,
+    sinceAddedChangePercent: 18.1,
+    sinceWatchedPoints: [10.5, 10.2, 9.9, 10.4, 11.1, 11.6, 12.0, 12.4],
+  },
+  'xyp-111': {
+    marketPrice: 37.54,
+    sinceAddedBaselinePrice: 37.2,
+    sinceAddedChangePercent: 0.91,
+    sinceWatchedPoints: [37.2, 36.8, 37.9, 36.9, 37.3, 37.1, 37.54],
   },
 };
 

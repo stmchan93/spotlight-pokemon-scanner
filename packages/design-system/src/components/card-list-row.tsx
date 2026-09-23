@@ -58,6 +58,10 @@ export type CardListRowProps = {
    * direction.
    */
   sparkTrendPct?: number | null;
+  /** Reference price drawn as a dashed line across the sparkline. */
+  sparkBaseline?: number | null;
+  /** Words after the percent, e.g. "since watched" → "+18.00% since watched". */
+  trendSuffix?: string | null;
   quantity: number;
   /**
    * When false, the "Qty: N" line (bottom of the left copy stack, under the
@@ -140,6 +144,8 @@ export function CardListRow({
   trendChangePercent,
   sparkPoints,
   sparkTrendPct,
+  sparkBaseline,
+  trendSuffix,
   quantity,
   showQuantity = true,
   showThumbnail = true,
@@ -189,7 +195,7 @@ export function CardListRow({
         : theme.colors.green400
       : theme.colors.gray600;
   const trendLabel = trendPercent !== null
-    ? `${trendPercent > 0 ? '+' : ''}${trendPercent.toFixed(2)}%`
+    ? `${trendPercent > 0 ? '+' : ''}${trendPercent.toFixed(2)}%${trendSuffix ? ` ${trendSuffix}` : ''}`
     : '';
   const showSparkline = Array.isArray(sparkPoints) && sparkPoints.length > 0;
 
@@ -350,6 +356,7 @@ export function CardListRow({
 
       {showSparkline ? (
         <PriceSparkline
+          baseline={sparkBaseline}
           points={sparkPoints ?? []}
           testID={testID ? `${testID}-sparkline` : undefined}
           trendPct={sparkTrendPct}
@@ -372,7 +379,10 @@ export function CardListRow({
         {showTrend ? (
           <AppText
             numberOfLines={1}
-            style={[styles.trendLabel, { color: trendColor }]}
+            // A suffixed label ("since watched") hangs left from the column's
+            // bottom edge instead of widening it, so it never squeezes the
+            // name/set copy.
+            style={[styles.trendLabel, trendSuffix ? styles.trendLabelHanging : null, { color: trendColor }]}
             testID={testID ? `${testID}-trend` : undefined}
             variant="label"
           >
@@ -447,6 +457,14 @@ const styles = StyleSheet.create({
   },
   // Signed since-added percent under the price: 14 SemiBold, green400/red400
   // inline (Robinhood-style stacked value + return).
+  // Fixed width so the absolute label measures past the price column; the
+  // text is right-aligned, so only its own glyphs cover the row.
+  trendLabelHanging: {
+    bottom: 0,
+    position: 'absolute',
+    right: 0,
+    width: 220,
+  },
   trendLabel: {
     fontFamily: 'SpotlightBodySemiBold',
     fontSize: 14,

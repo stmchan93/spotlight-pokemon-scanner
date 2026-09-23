@@ -57,6 +57,10 @@ import {
 import { buildDealShareMessage, centsToCurrency } from '@/features/wishlist/deal-radar';
 import { useDealAlerts } from '@/features/wishlist/use-deal-alerts';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
+import {
+  SINCE_WATCHED_SUFFIX,
+  WATCHLIST_TREND_ACCESS,
+} from '@/features/wishlist/watchlist-trend-access';
 import { buildWishlistShareMessage } from '@/features/wishlist/wishlist-share';
 import { buildProfileDeepLink } from '@/features/profile/profile-link';
 import { SharePostSheet } from '@/features/social/components/share-post-sheet';
@@ -1022,9 +1026,14 @@ function WishlistListRow({
       selected={editMode && selected}
       setName={entry.setName}
       showQuantity={false}
-      // No sparkline / trend pill — the since-added and 30d trend UI moved off
-      // this screen (headed for the PDP), same as the Collection rows.
+      // Since watched: the % under the price, and a sparkline from the watch
+      // date with the watched-at price dashed across it.
+      sparkBaseline={WATCHLIST_TREND_ACCESS === 'full' ? entry.sinceAddedBaselinePrice ?? null : null}
+      sparkPoints={WATCHLIST_TREND_ACCESS === 'full' ? entry.sinceWatchedPoints ?? undefined : undefined}
+      sparkTrendPct={entry.sinceAddedChangePercent ?? null}
       testID={`wishlist-row-${entry.cardId}`}
+      trendChangePercent={WATCHLIST_TREND_ACCESS === 'hidden' ? null : entry.sinceAddedChangePercent ?? null}
+      trendSuffix={SINCE_WATCHED_SUFFIX}
     />
   );
 
@@ -1240,9 +1249,9 @@ function WishlistGridTile({
       priceLabel={formatOptionalCurrency(entry.marketPrice, entry.currencyCode)}
       // Numeric price feeds the tile's penny guard (sub-$1 → no trend line).
       marketPrice={entry.marketPrice ?? null}
-      // No trend percent under the price — the trend UI moved off this screen
-      // (headed for the PDP), same as the Collection tiles.
-      trendChangePercent={null}
+      // Card view gets the arrow + "since watched" percent, no sparkline.
+      trendChangePercent={WATCHLIST_TREND_ACCESS === 'hidden' ? null : entry.sinceAddedChangePercent ?? null}
+      trendSuffix={SINCE_WATCHED_SUFFIX}
       isFavorite
       showFavorite={false}
       selectable={selectable}

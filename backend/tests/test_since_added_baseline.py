@@ -14,7 +14,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -92,7 +92,9 @@ class SinceAddedBaselineTests(unittest.TestCase):
         )
         self.service.connection.commit()
 
-    def _seed_history(self, card_id: str, price_date: str, market: float) -> None:
+    def _seed_history(
+        self, card_id: str, price_date: str, market: float, variant: str = "Normal"
+    ) -> None:
         upsert_price_history_daily(
             self.service.connection,
             card_id=card_id,
@@ -100,7 +102,7 @@ class SinceAddedBaselineTests(unittest.TestCase):
             provider=SCRYDEX,
             price_date=price_date,
             currency_code="USD",
-            variant="Normal",
+            variant=variant,
             condition="NM",
             low_price=market - 1,
             market_price=market,
@@ -301,6 +303,36 @@ class SinceAddedBaselineTests(unittest.TestCase):
         self.assertIsNone(unpriced["sinceAddedBaselineDate"])
         self.assertIsNone(unpriced["sparkPoints"])
         self.assertIsNone(unpriced["sparkTrendPct"])
+
+    def test_card_favorites_since_watched_series_starts_at_the_watch_date(self) -> None:
+        self._insert_card("watched-1")
+        self._seed_snapshot("watched-1", market=10.0)
+        with self.service.request_identity_context(self._identity("user-a")):
+            self.service.set_card_favorite("watched-1", is_favorite=True)
+        today = datetime.now(timezone.utc).date()
+
+        def day(offset: int) -> str:
+            return (today - timedelta(days=offset)).isoformat()
+
+        self.service.connection.execute(
+            "UPDATE card_favorites SET added_market_price = 10.0, added_market_date = ? "
+            "WHERE card_id = 'watched-1'",
+            (day(10),),
+        )
+        self._seed_history("watched-1", day(20), market=8.0)   # before watching
+        self._seed_history("watched-1", day(10), market=10.0)
+        self._seed_history("watched-1", day(7), market=90.0, variant="Holofoil")
+        self._seed_history("watched-1", day(5), market=12.0)
+        self._seed_history("watched-1", day(0), market=15.0)
+        self._seed_snapshot("watched-1", market=15.0)
+
+        with self.service.request_identity_context(self._identity("user-a")):
+            payload = self.service.card_favorites()
+
+        entry = payload["entries"][0]
+        self.assertEqual(entry["sinceWatchedPoints"], [10.0, 12.0, 15.0])
+        self.assertEqual(entry["sinceAddedBaselinePrice"], 10.0)
+        self.assertEqual(entry["sinceAddedChangePercent"], 50.0)
 
     def test_owned_favorite_row_uses_owned_entry_baseline(self) -> None:
         # Lane/precedence rule (2026-07-16 +116% bug): when a favorited card is

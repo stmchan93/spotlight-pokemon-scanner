@@ -271,10 +271,10 @@ describe('WishlistScreen', () => {
     });
   });
 
-  // The since-added/30d trend UI was removed from the wishlist (2026-07-18,
-  // same as Collection; it is moving to the PDP): no header tag, no row/tile
-  // percents, no row sparklines — even when entries carry the trend data.
-  it('renders no trend tag, row/tile percents, or row sparklines', async () => {
+  // Since watched: list rows carry the % and a sparkline from the watch date
+  // with the watched-at price dashed across it; card view carries the arrow +
+  // % only. The old 30d `sparkPoints` never feed either.
+  it('shows since-watched percent and sparkline in list view, percent only in card view', async () => {
     const favorites = [
       buildFavoriteEntry({
         cardId: 'window-1',
@@ -283,6 +283,8 @@ describe('WishlistScreen', () => {
         sinceAddedChangeAmount: 142,
         sinceAddedChangePercent: 31,
         sinceAddedBaselineDate: '2026-03-12',
+        sinceAddedBaselinePrice: 458,
+        sinceWatchedPoints: [458, 470, 520, 600],
         sparkPoints: [500, 520, 480, 600],
         sparkTrendPct: 12,
       }),
@@ -293,26 +295,23 @@ describe('WishlistScreen', () => {
 
     renderWishlistScreen(repository);
 
-    // List view: row renders without tag, percent, or sparkline.
     await screen.findByTestId('wishlist-header-title');
     await waitFor(() => {
       expect(screen.getByTestId('wishlist-row-window-1')).toBeTruthy();
     });
-    expect(screen.queryByTestId('wishlist-trend-window-tag')).toBeNull();
-    expect(screen.queryByTestId('wishlist-row-window-1-trend')).toBeNull();
-    expect(screen.queryByTestId('wishlist-row-window-1-sparkline')).toBeNull();
-    expect(screen.queryByText('+31.00%')).toBeNull();
+    expect(screen.getByText('+31.00% since watched')).toBeTruthy();
+    expect(screen.getByTestId('wishlist-row-window-1-sparkline')).toBeTruthy();
+    expect(screen.getByTestId('wishlist-row-window-1-sparkline-baseline')).toBeTruthy();
 
-    // Grid view: tile renders without tag or percent.
     await act(async () => {
       fireEvent.press(screen.getByTestId('wishlist-view-toggle'));
     });
     await waitFor(() => {
       expect(screen.getByTestId('wishlist-grid-tile-window-1')).toBeTruthy();
     });
-    expect(screen.queryByTestId('wishlist-trend-window-tag')).toBeNull();
-    expect(screen.queryByTestId('wishlist-grid-tile-window-1-trend')).toBeNull();
-    expect(screen.queryByText('+31.00%')).toBeNull();
+    expect(screen.getByTestId('wishlist-grid-tile-window-1-trend-arrow-up')).toBeTruthy();
+    expect(screen.getByText('+31.00% since watched')).toBeTruthy();
+    expect(screen.queryByTestId('wishlist-row-window-1-sparkline')).toBeNull();
   });
 
   it('list rows hide the pill and sparkline when the since-added fields are null', async () => {

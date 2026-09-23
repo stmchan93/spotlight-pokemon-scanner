@@ -19,6 +19,11 @@ export type PriceSparklineProps = {
    * card (e.g. `gray50` inside `TopMoverTile`).
    */
   backgroundColor?: string;
+  /**
+   * Optional reference price (e.g. the price when a card was watched), drawn
+   * as a dashed line and included in the vertical range so it stays in frame.
+   */
+  baseline?: number | null;
   testID?: string;
 };
 
@@ -29,15 +34,24 @@ const PADDING_Y = 2;
 
 type Plotted = { x: number; y: number };
 
-function plotPoints(values: number[], width: number, height: number): Plotted[] {
+type Scale = { min: number; range: number; usableHeight: number };
+
+function scaleFor(values: number[], height: number, baseline?: number | null): Scale {
+  const bounded = typeof baseline === 'number' && Number.isFinite(baseline) ? [...values, baseline] : values;
+  const min = Math.min(...bounded);
+  return {
+    min,
+    range: Math.max(...bounded) - min,
+    usableHeight: Math.max(height - PADDING_Y * 2, 1),
+  };
+}
+
+function plotPoints(values: number[], width: number, height: number, scale: Scale): Plotted[] {
   if (values.length === 0) {
     return [];
   }
 
-  const usableHeight = Math.max(height - PADDING_Y * 2, 1);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min;
+  const { min, range, usableHeight } = scale;
 
   // Single point or a flat series → draw a centered horizontal line.
   if (values.length === 1 || range === 0) {
@@ -80,12 +94,17 @@ export function PriceSparkline({
   width = DEFAULT_WIDTH,
   height = DEFAULT_HEIGHT,
   backgroundColor = colors.gray0,
+  baseline,
   testID,
 }: PriceSparklineProps) {
   const theme = useSpotlightTheme();
   const gradientId = useId();
 
-  const plotted = plotPoints(points, width, height);
+  const scale = points.length > 0 ? scaleFor(points, height, baseline) : null;
+  const plotted = scale ? plotPoints(points, width, height, scale) : [];
+  const baselineY = scale && typeof baseline === 'number' && Number.isFinite(baseline) && scale.range > 0
+    ? PADDING_Y + (1 - (baseline - scale.min) / scale.range) * scale.usableHeight
+    : null;
   const isUp = (trendPct ?? 0) >= 0;
   const tint = isUp ? theme.colors.green500 : theme.colors.red500;
 
@@ -106,6 +125,15 @@ export function PriceSparkline({
           </LinearGradient>
         </Defs>
         <Path d={areaPath} fill={`url(#${gradientId})`} />
+        {baselineY !== null ? (
+          <Path
+            d={`M 0 ${baselineY} L ${width} ${baselineY}`}
+            stroke={theme.colors.gray400}
+            strokeDasharray="2 2"
+            strokeWidth={1}
+            testID={testID ? `${testID}-baseline` : undefined}
+          />
+        ) : null}
         <Path
           d={linePath}
           fill="none"
