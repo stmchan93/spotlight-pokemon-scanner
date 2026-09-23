@@ -239,6 +239,36 @@ class SinceAddedBaselineTests(unittest.TestCase):
         self.assertEqual(entry["sparkTrendPct"], 50.0)
         self.assertLessEqual(len(entry["sparkPoints"]), 20)
 
+    def test_deck_entries_since_added_series_starts_at_the_add_date(self) -> None:
+        self._insert_card("added-1")
+        self._seed_snapshot("added-1", market=10.0)
+        with self.service.request_identity_context(self._identity("user-a")):
+            self.service.record_buy(
+                {"cardID": "added-1", "quantity": 1, "unitPrice": 8.0, "currencyCode": "USD"}
+            )
+        today = datetime.now(timezone.utc).date()
+
+        def day(offset: int) -> str:
+            return (today - timedelta(days=offset)).isoformat()
+
+        self.service.connection.execute(
+            "UPDATE deck_entries SET added_market_price = 10.0, added_market_date = ? "
+            "WHERE card_id = 'added-1'",
+            (day(10),),
+        )
+        self._seed_history("added-1", day(20), market=8.0)  # before the add
+        self._seed_history("added-1", day(10), market=10.0)
+        self._seed_history("added-1", day(5), market=12.0)
+        self._seed_history("added-1", day(0), market=15.0)
+        self._seed_snapshot("added-1", market=15.0)
+
+        with self.service.request_identity_context(self._identity("user-a")):
+            payload = self.service.deck_entries(limit=10, include_inactive=True)
+
+        entry = payload["entries"][0]
+        self.assertEqual(entry["sinceAddedPoints"], [10.0, 12.0, 15.0])
+        self.assertEqual(entry["sinceAddedBaselinePrice"], 10.0)
+
     def test_deck_entries_serializer_null_passthrough(self) -> None:
         self._insert_card("null-1")
         self._insert_card("dated-1")

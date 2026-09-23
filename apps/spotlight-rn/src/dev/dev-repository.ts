@@ -61,6 +61,46 @@ const devFavoriteOverrides: Record<string, Partial<CardFavoriteEntry>> = {
   },
 };
 
+// Collection since-added shapes, applied by position: a climb, a slide, and a
+// near-flat wobble around the added-at price.
+const devSinceAddedShapes: Record<string, unknown>[] = [
+  { sinceAddedBaselinePrice: 0.8, sinceAddedChangePercent: 42.5, sinceAddedPoints: [0.8, 0.82, 0.79, 0.9, 1.02, 1.1, 1.14] },
+  { sinceAddedBaselinePrice: 1240.5, sinceAddedChangePercent: -11.33, sinceAddedPoints: [1240.5, 1225, 1210, 1180.25, 1150, 1120, 1100] },
+  { sinceAddedBaselinePrice: 37.2, sinceAddedChangePercent: 0.91, sinceAddedPoints: [37.2, 36.8, 37.9, 36.9, 37.3, 37.54] },
+];
+
+function withDevSinceAdded(value: unknown): unknown {
+  const shape = (entries: unknown[]) =>
+    entries.map((entry, index) => {
+      const override = devSinceAddedShapes[index % devSinceAddedShapes.length];
+      if (!entry || typeof entry !== 'object') {
+        return entry;
+      }
+      const price = (entry as { marketPrice?: number | null }).marketPrice;
+      // Scale the shape onto the entry's own price so the numbers read true.
+      const points = override.sinceAddedPoints as number[];
+      const scale = typeof price === 'number' && price > 0 ? price / points[points.length - 1] : 1;
+      return {
+        ...entry,
+        ...override,
+        sinceAddedBaselinePrice: Number(((override.sinceAddedBaselinePrice as number) * scale).toFixed(2)),
+        sinceAddedPoints: points.map((point) => Number((point * scale).toFixed(2))),
+      };
+    });
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  const record = value as Record<string, unknown>;
+  if (Array.isArray(record.data)) {
+    return { ...record, data: shape(record.data) };
+  }
+  if (record.data && typeof record.data === 'object' && Array.isArray((record.data as Record<string, unknown>).inventoryItems)) {
+    const data = record.data as Record<string, unknown>;
+    return { ...record, data: { ...data, inventoryItems: shape(data.inventoryItems as unknown[]) } };
+  }
+  return value;
+}
+
 // PDP detail overrides: the browse-state PDP renders a release/illustrator
 // line and a like count that the base mock never populates — cover those
 // content shapes so screenshots exercise them (same lesson as the favorites
@@ -278,6 +318,9 @@ function withLocalImages(repository: SpotlightRepository): SpotlightRepository {
         ) {
           const override = devCardDetailOverrides[String((rewritten as { cardId: unknown }).cardId)];
           return override ? { ...rewritten, ...override } : rewritten;
+        }
+        if (property === 'loadInventoryEntries' || property === 'loadPortfolioDashboard') {
+          return withDevSinceAdded(rewritten);
         }
         if (
           property === 'getPortfolioPerformance' &&

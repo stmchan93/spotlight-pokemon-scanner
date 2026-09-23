@@ -643,6 +643,8 @@ type DeckEntryDTO = {
   sinceAddedBaselineDate?: string | null;
   sparkPoints?: Array<number | null> | null;
   sparkTrendPct?: number | null;
+  sinceAddedPoints?: Array<number | null> | null;
+  sinceAddedBaselinePrice?: number | null;
 };
 
 type PortfolioHistoryDTO = {
@@ -2313,6 +2315,8 @@ function mapDeckEntry(entry: DeckEntryDTO, baseUrl?: string): InventoryCardEntry
     sinceAddedChangePercent: normalizeNumber(entry.sinceAddedChangePercent) ?? null,
     sinceAddedBaselineDate: normalizeString(entry.sinceAddedBaselineDate) ?? null,
     sparkPoints: normalizeSparkPoints(entry.sparkPoints),
+    sinceAddedPoints: normalizeSparkPoints(entry.sinceAddedPoints),
+    sinceAddedBaselinePrice: normalizeNumber(entry.sinceAddedBaselinePrice) ?? null,
     sparkTrendPct: normalizeNumber(entry.sparkTrendPct) ?? null,
     listingUrl: normalizeString(entry.listingUrl) ?? null,
     listingPriceCents: normalizeNumber(entry.listingPriceCents) ?? null,

@@ -5,6 +5,10 @@ import type { InventoryCardEntry } from '@spotlight/api-client';
 
 import { getCardImageUrl } from '@/lib/card-images';
 import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import {
+  COLLECTION_TREND_ACCESS,
+  SINCE_ADDED_SUFFIX,
+} from '@/features/portfolio/collection-trend-access';
 
 type CollectionMasonryGridProps = {
   entries: InventoryCardEntry[];
@@ -301,7 +305,9 @@ function CollectionTileSlot({
       // Same currency as the price above it, or a JPY card's move reads in the
       // wrong unit right next to its own price.
       formatDayChange={(value) => formatOptionalCurrency(value, entry.currencyCode) ?? `$${value.toFixed(2)}`}
-      trendChangePercent={null}
+      // Arrow + "since added" percent under the price; no sparkline in card view.
+      trendChangePercent={COLLECTION_TREND_ACCESS === 'hidden' ? null : entry.sinceAddedChangePercent ?? null}
+      trendSuffix={SINCE_ADDED_SUFFIX}
       isFavorite={entry.isFavorite === true}
       showFavorite={false}
       selectable={selectable}

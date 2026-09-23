@@ -21537,6 +21537,7 @@ class SpotlightScanService:
                         "condition": None if is_graded_entry else condition,
                         "grader": grader if is_graded_entry else None,
                         "grade": grade if is_graded_entry else None,
+                        "since": since_added_baseline_date,
                     }
                 )
 
@@ -21595,16 +21596,24 @@ class SpotlightScanService:
                     "sinceAddedChangeAmount": since_added_amount,
                     "sinceAddedChangePercent": since_added_percent,
                     "sinceAddedBaselineDate": since_added_baseline_date,
+                    # The price since-added is measured from (the dashed line).
+                    "sinceAddedBaselinePrice": (
+                        round(float(row["added_market_price"]), 2)
+                        if since_added_percent is not None and row["added_market_price"] is not None
+                        else None
+                    ),
                 }
             )
 
         # Rows past the spark budget (or with no resolvable history) keep null
         # spark fields — the sinceAdded fields above are never truncated.
         spark_by_key = self._sparklines_for_requests(spark_requests)
+        since_added_by_key = self._since_baseline_series_for_requests(spark_requests)
         for entry in entries:
             spark = spark_by_key.get(str(entry["id"]))
             entry["sparkPoints"] = spark[0] if spark else None
             entry["sparkTrendPct"] = spark[1] if spark else None
+            entry["sinceAddedPoints"] = since_added_by_key.get(str(entry["id"]))
 
         return {
             "entries": entries,
@@ -21661,7 +21670,7 @@ class SpotlightScanService:
             result[str(key)] = (points, trend_pct)
         return result
 
-    def _since_watched_series_for_requests(
+    def _since_baseline_series_for_requests(
         self, spark_requests: list[dict[str, Any]]
     ) -> dict[str, list[float]]:
         """Per-row market series from the baseline ("since") date to today,
@@ -22344,7 +22353,7 @@ class SpotlightScanService:
         # Rows past the spark budget (or with no resolvable history) keep null
         # spark fields — the sinceAdded fields above are never truncated.
         spark_by_key = self._sparklines_for_requests(spark_requests)
-        since_watched_by_key = self._since_watched_series_for_requests(spark_requests)
+        since_watched_by_key = self._since_baseline_series_for_requests(spark_requests)
         for entry in entries:
             key = str(entry["card"].get("id") or "")
             spark = spark_by_key.get(key)

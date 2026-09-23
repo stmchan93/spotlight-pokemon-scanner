@@ -2,6 +2,10 @@ import { CardListRow } from '@spotlight/design-system';
 import type { InventoryCardEntry } from '@spotlight/api-client';
 
 import { getCardImageUrl } from '@/lib/card-images';
+import {
+  COLLECTION_TREND_ACCESS,
+  SINCE_ADDED_SUFFIX,
+} from '@/features/portfolio/collection-trend-access';
 
 // "Variant · Condition" for raw ("Holofoil · NM") and "Variant · Grader Grade"
 // for slabs — the variant leads, then the dot, then the quality (user ask; the
@@ -69,10 +73,14 @@ export function CollectionListRow({
       selectable={selectable}
       selected={selected}
       setName={entry.setName}
-      // No sparkline / trend pill on Collection rows — the since-added and 30d
-      // trend UI moved off this screen (headed for the PDP); the data plumbing
-      // (entry.sparkPoints / sinceAddedChangePercent) is still served.
+      // Since added: the % under the price, and a sparkline from the add date
+      // with the added-at price dashed across it (same as the Watchlist).
+      sparkBaseline={COLLECTION_TREND_ACCESS === 'full' ? entry.sinceAddedBaselinePrice ?? null : null}
+      sparkPoints={COLLECTION_TREND_ACCESS === 'full' ? entry.sinceAddedPoints ?? undefined : undefined}
+      sparkTrendPct={entry.sinceAddedChangePercent ?? null}
       testID={`card-list-row-${entry.cardId}`}
+      trendChangePercent={COLLECTION_TREND_ACCESS === 'hidden' ? null : entry.sinceAddedChangePercent ?? null}
+      trendSuffix={SINCE_ADDED_SUFFIX}
     />
   );
 }

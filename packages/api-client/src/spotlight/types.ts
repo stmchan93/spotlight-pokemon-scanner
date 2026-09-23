@@ -541,6 +541,10 @@ export type InventoryCardEntry = {
   // backend omits or truncates sparklines for the page.
   sparkPoints?: number[] | null;
   sparkTrendPct?: number | null;
+  /** Market series from the add date to today (oldest → newest). */
+  sinceAddedPoints?: number[] | null;
+  /** The price `sinceAddedChange*` is measured from (the dashed baseline). */
+  sinceAddedBaselinePrice?: number | null;
   // Listing fields — populated when the user has marked the entry as listed
   // on an external marketplace (eBay). Drives the "Live on eBay" tile footer.
   listingUrl?: string | null;

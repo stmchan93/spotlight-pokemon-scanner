@@ -1320,10 +1320,10 @@ describe('PortfolioScreen', () => {
     expect(screen.queryByTestId('collection-masonry-grid-tile-fav-3')).toBeNull();
   });
 
-  // The since-added/30d trend UI was removed from the Collection screen
-  // (2026-07-18; it is moving to the PDP): no header tag, no tile/row percents,
-  // no row sparklines — even when the entries carry the trend data.
-  it('renders no trend tag, tile/row percents, or row sparklines', async () => {
+  // Since added (same as the Watchlist): card view shows the arrow + percent;
+  // list view adds a sparkline from the add date with the added-at price
+  // dashed across it. The old 30d `sparkPoints` feed neither.
+  it('shows since-added percent in card view and adds the sparkline in list view', async () => {
     const inventory = [
       buildInventoryEntry({
         id: 'trend-1',
@@ -1331,6 +1331,8 @@ describe('PortfolioScreen', () => {
         cardId: 'card-trend-1',
         marketPrice: 600,
         sinceAddedChangePercent: 31,
+        sinceAddedBaselinePrice: 458,
+        sinceAddedPoints: [458, 470, 520, 600],
         sparkTrendPct: 12,
         sparkPoints: [500, 520, 600],
       }),
@@ -1343,26 +1345,22 @@ describe('PortfolioScreen', () => {
 
     renderPortfolioScreen({ repository });
 
-    // Card (grid) view: tile renders, but no tag and no trend percent.
     await screen.findByTestId('portfolio-header-title');
     await waitFor(() => {
       expect(screen.getByTestId('collection-masonry-grid-tile-trend-1')).toBeTruthy();
     });
-    expect(screen.queryByTestId('trend-window-tag')).toBeNull();
-    expect(screen.queryByTestId('collection-masonry-grid-tile-trend-1-trend')).toBeNull();
-    expect(screen.queryByText('+31.00%')).toBeNull();
+    expect(screen.getByTestId('collection-masonry-grid-tile-trend-1-trend-arrow-up')).toBeTruthy();
+    expect(screen.getByText('+31.00% since added')).toBeTruthy();
 
-    // List view: row renders without the trend percent or sparkline.
     await act(async () => {
       fireEvent.press(screen.getByTestId('collection-search-row-view-toggle'));
     });
     await waitFor(() => {
       expect(screen.getByTestId('card-list-row-card-trend-1')).toBeTruthy();
     });
-    expect(screen.queryByTestId('trend-window-tag')).toBeNull();
-    expect(screen.queryByTestId('card-list-row-card-trend-1-trend')).toBeNull();
-    expect(screen.queryByTestId('card-list-row-card-trend-1-sparkline')).toBeNull();
-    expect(screen.queryByText('+31.00%')).toBeNull();
+    expect(screen.getByText('+31.00% since added')).toBeTruthy();
+    expect(screen.getByTestId('card-list-row-card-trend-1-sparkline')).toBeTruthy();
+    expect(screen.getByTestId('card-list-row-card-trend-1-sparkline-baseline')).toBeTruthy();
   });
 
   it('long-pressing a card opens the actions menu; Wishlist toggles the favorite', async () => {
