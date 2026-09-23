@@ -14,6 +14,7 @@ import { TopTrendsBlock } from '@/features/social/components/top-trends-block';
 import { FeedScreen } from '@/features/social/screens/feed-screen';
 import { setDevFeedItemsOverride } from '@/features/social/social-service';
 import { useTopMovers } from '@/features/social/use-top-movers';
+import { TargetPriceSheet } from '@/features/wishlist/components/target-price-sheet';
 import { WishlistScreen } from '@/features/wishlist/screens/wishlist-screen';
 import { createDevRepository } from '@/dev/dev-repository';
 import { devFeedItems } from '@/dev/dev-feed-data';
@@ -51,7 +52,38 @@ const devScreens: Record<string, () => ReactElement> = {
   // isolates the block for a tight diff against the "Title content" frame.
   'top-trends': () => <DevTopTrendsScreen />,
   wishlist: () => <WishlistScreen />,
+  // The watchlist target sheet over the PDP: the optional post-Watch prompt
+  // and the edit sheet a Watchlist long-press opens.
+  'target-sheet': () => <DevTargetSheetScreen mode="afterWatch" />,
+  'target-sheet-edit': () => <DevTargetSheetScreen mode="edit" />,
 };
+
+function DevTargetSheetScreen({ mode }: { mode: 'afterWatch' | 'edit' }) {
+  return (
+    <>
+      <CardDetailScreen cardId="sm7-1" onBack={() => undefined} />
+      <TargetPriceSheet
+        entry={{
+          cardId: 'sm7-1',
+          cardNumber: '001/096',
+          currencyCode: 'USD',
+          favoritedAt: '2026-09-23T00:00:00.000Z',
+          imageUrl: 'https://images.scrydex.com/pokemon/sm7-1/small',
+          isOwned: false,
+          largeImageUrl: null,
+          marketPrice: 12.4,
+          name: 'Treecko',
+          setName: 'Celestial Storm',
+          smallImageUrl: null,
+          targetPriceCents: mode === 'edit' ? 1000 : null,
+        }}
+        mode={mode}
+        onClose={() => undefined}
+        onSubmit={async () => 'saved'}
+      />
+    </>
+  );
+}
 
 function DevTopTrendsScreen() {
   const { movers, loading } = useTopMovers();

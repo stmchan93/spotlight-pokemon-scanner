@@ -1,7 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Animated,
+  Dimensions,
+  Easing,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
@@ -12,9 +16,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { CardFavoriteEntry } from '@spotlight/api-client';
 import {
   Button,
-  IconButton,
-  SheetHeader,
-  SurfaceCard,
   Text,
   TextField,
   radii,
@@ -32,7 +33,14 @@ type TargetPriceSheetProps = {
   entry: CardFavoriteEntry | null;
   onClose: () => void;
   onSubmit: (targetPriceCents: number | null) => Promise<TargetPriceSubmitResult>;
+  /**
+   * `afterWatch` is the prompt shown right after a card is watched: the
+   * secondary action dismisses instead of clearing.
+   */
+  mode?: 'edit' | 'afterWatch';
 };
+
+const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 function initialPriceText(cents: number | null | undefined): string {
   if (cents == null || !Number.isFinite(cents) || cents <= 0) {
@@ -43,44 +51,108 @@ function initialPriceText(cents: number | null | undefined): string {
 
 /**
  * Set or clear the price you want to be told about for one watched card.
+ * Same bottom-sheet system as ConfirmDeleteSheet / AddToCollectionSheet: spring
+ * in, handle + centered title as the drag-to-dismiss zone, rounded md actions.
  *
- * An EMPTY field is the clear action, not an error — "stop telling me" needs to
- * be as cheap as "tell me", and a separate Clear button that only sometimes
- * applies is worse. The Clear button is there for discoverability and just
- * empties the field's intent.
- *
- * A 404 means the card is not on the watchlist any more (removed on another
- * device, or while this sheet was open). That is a real outcome with a plain
- * sentence, not a transport failure to dump on the user.
+ * An EMPTY field is the clear action, not an error. A 404 means the card left
+ * the watchlist (another device, or while this sheet was open) and gets a plain
+ * sentence rather than a transport error.
  */
-export function TargetPriceSheet({ entry, onClose, onSubmit }: TargetPriceSheetProps) {
+export function TargetPriceSheet({ entry, onClose, onSubmit, mode = 'edit' }: TargetPriceSheetProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const [priceText, setPriceText] = useState('');
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  const visible = entry !== null;
+  // Keep drawing the last entry through the slide-down after `entry` clears.
+  const [shownEntry, setShownEntry] = useState<CardFavoriteEntry | null>(entry);
+  const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+
   const entryId = entry?.cardId ?? null;
   const currentTarget = entry?.targetPriceCents ?? null;
 
-  // Re-seed whenever a different card opens the sheet.
   useEffect(() => {
     setPriceText(initialPriceText(currentTarget));
     setMessage(null);
     setPending(false);
   }, [currentTarget, entryId]);
 
-  if (!entry) {
+  useEffect(() => {
+    if (entry) {
+      setShownEntry(entry);
+    }
+  }, [entry]);
+
+  useEffect(() => {
+    if (visible) {
+      const animation = Animated.spring(translateY, {
+        toValue: 0,
+        damping: 34,
+        mass: 1,
+        stiffness: 320,
+        useNativeDriver: false,
+      });
+      animation.start();
+      return () => animation.stop();
+    }
+    const animation = Animated.timing(translateY, {
+      toValue: SCREEN_HEIGHT,
+      duration: 200,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: false,
+    });
+    animation.start(({ finished }) => {
+      if (finished) {
+        setShownEntry(null);
+      }
+    });
+    return () => animation.stop();
+  }, [translateY, visible]);
+
+  const dragResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gesture) =>
+          gesture.dy > 4 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+        onPanResponderMove: (_event, gesture) => {
+          translateY.setValue(Math.max(0, gesture.dy));
+        },
+        onPanResponderRelease: (_event, gesture) => {
+          if (gesture.dy > 80 || gesture.vy > 0.5) {
+            onClose();
+            return;
+          }
+          Animated.spring(translateY, {
+            toValue: 0,
+            damping: 34,
+            mass: 1,
+            stiffness: 320,
+            useNativeDriver: false,
+          }).start();
+        },
+      }),
+    [onClose, translateY],
+  );
+
+  const sheetEntry = entry ?? shownEntry;
+  if (!sheetEntry) {
     return null;
   }
 
-  const currencyCode = entry.currencyCode ?? 'USD';
-  const marketLabel = entry.marketPrice != null
-    ? centsToCurrency(Math.round(entry.marketPrice * 100), currencyCode)
+  const afterWatch = mode === 'afterWatch';
+  const currencyCode = sheetEntry.currencyCode ?? 'USD';
+  const marketLabel = sheetEntry.marketPrice != null
+    ? centsToCurrency(Math.round(sheetEntry.marketPrice * 100), currencyCode)
     : null;
 
   const submit = async (rawText: string) => {
     const parsed = parseTargetPriceCents(rawText);
+    if (afterWatch && parsed === null) {
+      onClose();
+      return;
+    }
     if (parsed === undefined) {
       setMessage('Enter a price above zero, or clear the field to turn the target off.');
       return;
@@ -95,14 +167,14 @@ export function TargetPriceSheet({ entry, onClose, onSubmit }: TargetPriceSheetP
     }
     setMessage(
       result === 'not_found'
-        ? `${entry.name} isn't on your watchlist any more, so there's nothing to set a target on.`
+        ? `${sheetEntry.name} isn't on your watchlist any more, so there's nothing to set a target on.`
         : "Couldn't save that target. Try again in a moment.",
     );
   };
 
   return (
     <Modal
-      animationType="fade"
+      animationType="none"
       onRequestClose={onClose}
       presentationStyle="overFullScreen"
       statusBarTranslucent
@@ -110,10 +182,9 @@ export function TargetPriceSheet({ entry, onClose, onSubmit }: TargetPriceSheetP
       visible
     >
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Math.max(insets.bottom, 12)}
-        pointerEvents="box-none"
-        style={styles.overlay}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        pointerEvents={visible ? 'auto' : 'none'}
+        style={styles.root}
       >
         <Pressable
           accessibilityLabel="Close target price"
@@ -122,98 +193,119 @@ export function TargetPriceSheet({ entry, onClose, onSubmit }: TargetPriceSheetP
           style={styles.backdrop}
           testID="wishlist-target-sheet-backdrop"
         />
-
-        <View
-          pointerEvents="box-none"
-          style={[styles.sheetWrap, { paddingBottom: Math.max(insets.bottom, 8) }]}
+        <Animated.View
+          style={[
+            styles.sheet,
+            {
+              backgroundColor: theme.colors.gray0,
+              paddingBottom: Math.max(insets.bottom, 16) + 8,
+              transform: [{ translateY }],
+            },
+          ]}
+          testID={visible ? 'wishlist-target-sheet' : undefined}
         >
-          <SurfaceCard padding={18} radius={0} style={styles.sheet} testID="wishlist-target-sheet">
-            <SheetHeader
-              leadingAccessory={(
-                <View
-                  style={[
-                    styles.art,
-                    {
-                      backgroundColor: theme.colors.field,
-                      borderColor: theme.colors.outlineSubtle,
-                    },
-                  ]}
-                >
-                  <CachedImage
-                    cachePolicy={imageCachePolicy.thumbnail}
-                    contentFit="cover"
-                    source={getCardImageSource(entry, 'small')}
-                    style={StyleSheet.absoluteFill}
-                  />
-                </View>
-              )}
-              rightAccessory={(
-                <IconButton
-                  accessibilityLabel="Close target price"
-                  onPress={onClose}
-                  size={36}
-                  testID="wishlist-target-sheet-close"
-                >
-                  <Text
-                    style={[theme.typography.headline, styles.closeGlyph, { color: theme.colors.textPrimary }]}
-                  >
-                    ×
-                  </Text>
-                </IconButton>
-              )}
-              showHandle
-              subtitle={entry.name}
-              title="Target price"
-              titleStyleVariant="title"
-            />
+          <View style={styles.header} {...dragResponder.panHandlers}>
+            <Pressable
+              accessibilityLabel="Close target price"
+              accessibilityRole="button"
+              hitSlop={16}
+              onPress={onClose}
+              style={styles.handleHit}
+              testID="wishlist-target-sheet-handle"
+            >
+              <View style={[styles.handleBar, { backgroundColor: theme.colors.gray200 }]} />
+            </Pressable>
+            <Text style={[theme.typography.bodyMedium, styles.title, { color: theme.colors.gray600 }]}>
+              {afterWatch ? 'Set a target price?' : 'Target price'}
+            </Text>
+          </View>
 
-            <View style={styles.content}>
-              <TextField
-                helperText={
-                  marketLabel
-                    ? `Tell me when it drops below this. Market is ${marketLabel}.`
-                    : 'Tell me when it drops below this.'
-                }
-                keyboardType="decimal-pad"
-                label="Target"
-                onChangeText={setPriceText}
-                placeholder="$0.00"
-                testID="wishlist-target-input"
-                value={priceText}
-              />
-
-              {message ? (
-                <Text
-                  style={[theme.typography.caption, { color: theme.colors.dangerStrong }]}
-                  testID="wishlist-target-message"
-                >
-                  {message}
+          <View style={styles.body}>
+            <View style={styles.cardRow}>
+              <View
+                style={[
+                  styles.art,
+                  { backgroundColor: theme.colors.gray50, borderColor: theme.colors.gray200 },
+                ]}
+              >
+                <CachedImage
+                  cachePolicy={imageCachePolicy.thumbnail}
+                  contentFit="cover"
+                  source={getCardImageSource(sheetEntry, 'small')}
+                  style={StyleSheet.absoluteFill}
+                />
+              </View>
+              <View style={styles.cardText}>
+                <Text numberOfLines={2} style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
+                  {sheetEntry.name}
                 </Text>
-              ) : null}
+                {marketLabel ? (
+                  <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
+                    {`Market ${marketLabel}`}
+                  </Text>
+                ) : null}
+              </View>
             </View>
 
-            <View style={styles.actions}>
+            <TextField
+              helperText="We'll notify you when a listing drops below this price."
+              keyboardType="decimal-pad"
+              label="Target"
+              onChangeText={setPriceText}
+              placeholder="$0.00"
+              testID="wishlist-target-input"
+              value={priceText}
+            />
+
+            {message ? (
+              <Text
+                style={[theme.typography.caption, { color: theme.colors.dangerStrong }]}
+                testID="wishlist-target-message"
+              >
+                {message}
+              </Text>
+            ) : null}
+          </View>
+
+          <View style={styles.actions}>
+            <Button
+              disabled={pending}
+              label={afterWatch ? 'Set target' : 'Save target'}
+              labelStyleVariant="label"
+              onPress={() => void submit(priceText)}
+              shape="rounded"
+              size="md"
+              testID="wishlist-target-save"
+              variant="dark"
+            />
+            {afterWatch ? (
               <Button
                 disabled={pending}
-                label="Save target"
-                onPress={() => void submit(priceText)}
-                size="lg"
-                testID="wishlist-target-save"
+                label="Not now"
+                labelStyleVariant="label"
+                onPress={onClose}
+                shape="rounded"
+                size="md"
+                testID="wishlist-target-skip"
+                variant="outline"
               />
+            ) : (
               <Button
                 disabled={pending}
                 label="Clear target"
+                labelStyleVariant="label"
                 onPress={() => {
                   setPriceText('');
                   void submit('');
                 }}
-                size="lg"
+                shape="rounded"
+                size="md"
                 testID="wishlist-target-clear"
                 variant="outline"
               />
-            </View>
-          </SurfaceCard>
-        </View>
+            )}
+          </View>
+        </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -221,8 +313,9 @@ export function TargetPriceSheet({ entry, onClose, onSubmit }: TargetPriceSheetP
 
 const styles = StyleSheet.create({
   actions: {
-    gap: 10,
-    marginTop: 20,
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 24,
   },
   art: {
     borderCurve: 'continuous',
@@ -234,24 +327,50 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(15, 15, 18, 0.32)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
-  closeGlyph: {
-    lineHeight: 20,
+  body: {
+    gap: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
   },
-  content: {
-    gap: 10,
-    marginTop: 18,
+  cardRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
   },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
+  cardText: {
+    flex: 1,
+    gap: 4,
+  },
+  handleBar: {
+    borderCurve: 'continuous',
+    borderRadius: 2,
+    height: 4,
+    width: 36,
+  },
+  handleHit: {
+    alignItems: 'center',
+    paddingBottom: 6,
+    paddingTop: 4,
+  },
+  header: {
+    width: '100%',
+  },
+  root: {
+    flex: 1,
     justifyContent: 'flex-end',
   },
   sheet: {
-    marginBottom: 24,
-    marginHorizontal: 16,
+    borderCurve: 'continuous',
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    paddingTop: 10,
   },
-  sheetWrap: {
-    justifyContent: 'flex-end',
+  title: {
+    paddingBottom: 4,
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    textAlign: 'center',
   },
 });

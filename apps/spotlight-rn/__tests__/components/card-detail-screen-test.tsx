@@ -1462,6 +1462,77 @@ describe('CardDetailScreen', () => {
     });
   });
 
+  describe('optional target prompt after watching', () => {
+    function repositoryWith(setCardFavoriteTarget = jest.fn(async (cardId: string, cents: number | null) => ({
+      status: 'ok' as const,
+      target: {
+        cardId,
+        targetCurrency: cents === null ? null : 'USD',
+        targetPriceCents: cents,
+        targetSetAt: cents === null ? null : '2026-09-23T00:00:00.000Z',
+        targetTriggeredAt: null,
+      },
+    }))) {
+      let isFavorite = false;
+      const setCardFavorite = jest.fn(async (cardId: string, next?: boolean | null) => {
+        isFavorite = next ?? !isFavorite;
+        return { cardId, favoritedAt: isFavorite ? '2026-09-23T00:00:00.000Z' : null, isFavorite };
+      });
+      return {
+        setCardFavorite,
+        setCardFavoriteTarget,
+        repository: createTestSpotlightRepository({ setCardFavorite, setCardFavoriteTarget }),
+      };
+    }
+
+    it('opens after a watch; Not now dismisses without writing a target', async () => {
+      const { repository, setCardFavoriteTarget } = repositoryWith();
+      renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+        spotlightRepository: repository,
+      });
+
+      fireEvent.press(await screen.findByTestId('detail-hero-card-favorite'));
+      expect(await screen.findByText('Set a target price?')).toBeTruthy();
+
+      fireEvent.press(screen.getByTestId('wishlist-target-skip'));
+      await waitFor(() => {
+        expect(screen.queryByTestId('wishlist-target-sheet')).not.toBeOnTheScreen();
+      });
+      expect(setCardFavoriteTarget).not.toHaveBeenCalled();
+    });
+
+    it('saves a typed target', async () => {
+      const { repository, setCardFavoriteTarget } = repositoryWith();
+      renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+        spotlightRepository: repository,
+      });
+
+      fireEvent.press(await screen.findByTestId('detail-hero-card-favorite'));
+      fireEvent.changeText(await screen.findByTestId('wishlist-target-input'), '40');
+      fireEvent.press(screen.getByTestId('wishlist-target-save'));
+
+      await waitFor(() => {
+        expect(setCardFavoriteTarget).toHaveBeenCalledWith('sm7-1', 4000);
+        expect(screen.queryByTestId('wishlist-target-sheet')).not.toBeOnTheScreen();
+      });
+    });
+
+    it('does not open when un-watching', async () => {
+      const { repository, setCardFavorite } = repositoryWith();
+      renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+        spotlightRepository: repository,
+      });
+
+      fireEvent.press(await screen.findByTestId('detail-hero-card-favorite'));
+      fireEvent.press(await screen.findByTestId('wishlist-target-skip'));
+      await waitFor(() => expect(screen.queryByTestId('wishlist-target-sheet')).not.toBeOnTheScreen());
+
+      fireEvent.press(screen.getByTestId('detail-hero-card-favorite'));
+      await waitFor(() => expect(setCardFavorite).toHaveBeenLastCalledWith('sm7-1', false));
+      expect(screen.queryByTestId('wishlist-target-sheet')).toBeNull();
+    });
+  });
+
   it('drops the cached card detail when favoriting so reopening shows the true heart state', async () => {
     const setCardFavorite = jest.fn(async (cardId: string, isFavorite?: boolean | null) => ({
       cardId,
@@ -2443,234 +2514,6 @@ describe('CardDetailScreen', () => {
     ).toBe(restingPadding);
 
     addListener.mockRestore();
-  });
-
-  describe('watchlist target price', () => {
-    /*
-      The PDP is where someone decides they want a card, so the target control
-      lives here too — it used to be reachable ONLY from a long-press on a
-      watchlist list row.
-
-      The card-detail payload carries no target, so the screen reads it off the
-      watchlist when the control is tapped. That read is the load-bearing part:
-      opening the sheet on an empty field while a real target exists would turn
-      the next Save into a silent clear.
-    */
-    function watchedRepository(options: {
-      getCardFavorites?: jest.Mock;
-      setCardFavorite?: jest.Mock;
-      setCardFavoriteTarget?: jest.Mock;
-      isFavorite?: boolean;
-      targetPriceCents?: number | null;
-    } = {}) {
-      const base = createTestSpotlightRepository();
-      const isFavorite = options.isFavorite ?? true;
-      const getCardDetail = jest.fn(async (query: { cardId: string }) => {
-        const detail = await base.getCardDetail({ ...query, cardId: 'sm7-1' });
-        return detail
-          ? {
-              ...detail,
-              isFavorite,
-              favoritedAt: '2026-05-15T00:00:00.000Z',
-              targetPriceCents: options.targetPriceCents ?? null,
-            }
-          : null;
-      });
-      const getCardFavorites = options.getCardFavorites ?? jest.fn(async () => ([{
-        cardId: 'sm7-1',
-        cardNumber: '001/096',
-        currencyCode: 'USD',
-        favoritedAt: '2026-05-15T00:00:00.000Z',
-        imageUrl: 'https://cdn.spotlight.test/sm7/treecko.png',
-        isOwned: false,
-        largeImageUrl: null,
-        marketPrice: 12,
-        name: 'Treecko',
-        setName: 'Celestial Storm',
-        smallImageUrl: null,
-        targetPriceCents: options.targetPriceCents ?? null,
-      }]));
-      const setCardFavoriteTarget = options.setCardFavoriteTarget
-        ?? jest.fn(async (cardId: string, targetPriceCents: number | null) => ({
-          status: 'ok' as const,
-          target: {
-            cardId,
-            targetCurrency: targetPriceCents === null ? null : 'USD',
-            targetPriceCents,
-            targetSetAt: targetPriceCents === null ? null : '2026-09-19T00:00:00.000Z',
-            targetTriggeredAt: null,
-          },
-        }));
-      const setCardFavorite = options.setCardFavorite
-        ?? jest.fn(async (cardId: string, next?: boolean | null) => ({
-          cardId,
-          favoritedAt: (next ?? true) ? '2026-09-19T00:00:00.000Z' : null,
-          isFavorite: next ?? true,
-        }));
-
-      return {
-        getCardFavorites,
-        repository: createTestSpotlightRepository({
-          getCardDetail,
-          getCardFavorites,
-          setCardFavorite,
-          setCardFavoriteTarget,
-        }),
-        setCardFavorite,
-        setCardFavoriteTarget,
-      };
-    }
-
-    it('seeds the sheet from the card detail without fetching the watchlist', async () => {
-      const { getCardFavorites, repository } = watchedRepository({ targetPriceCents: 4000 });
-
-      renderWithProviders(
-        <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
-        { spotlightRepository: repository },
-      );
-
-      const control = await screen.findByTestId('detail-target-price');
-      await act(async () => {
-        fireEvent.press(control);
-      });
-
-      // The target rides on the detail payload, so reading one field no longer
-      // costs a full-watchlist GET per tap.
-      expect(getCardFavorites).not.toHaveBeenCalled();
-      // Seeded from the server's cents, in dollars. An empty field here would
-      // make the next Save a silent clear.
-      expect((await screen.findByTestId('wishlist-target-input')).props.value).toBe('40.00');
-    });
-
-    it('saves a new target in cents and shows it on the control', async () => {
-      const { repository, setCardFavoriteTarget } = watchedRepository({ targetPriceCents: null });
-
-      renderWithProviders(
-        <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
-        { spotlightRepository: repository },
-      );
-
-      const control = await screen.findByTestId('detail-target-price');
-      await act(async () => {
-        fireEvent.press(control);
-      });
-      fireEvent.changeText(await screen.findByTestId('wishlist-target-input'), '55');
-      await act(async () => {
-        fireEvent.press(screen.getByTestId('wishlist-target-save'));
-      });
-
-      // CENTS over the wire, not the dollars the field is in.
-      expect(setCardFavoriteTarget).toHaveBeenCalledWith('sm7-1', 5500);
-      await waitFor(() => {
-        expect(screen.queryByTestId('wishlist-target-sheet')).not.toBeOnTheScreen();
-      });
-      expect(screen.getByText('TARGET $55.00')).toBeTruthy();
-    });
-
-    it('clears a target by sending null, and the control goes back to offering one', async () => {
-      const { repository, setCardFavoriteTarget } = watchedRepository({ targetPriceCents: 4000 });
-
-      renderWithProviders(
-        <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
-        { spotlightRepository: repository },
-      );
-
-      const control = await screen.findByTestId('detail-target-price');
-      await act(async () => {
-        fireEvent.press(control);
-      });
-      const clearButton = await screen.findByTestId('wishlist-target-clear');
-      await act(async () => {
-        fireEvent.press(clearButton);
-      });
-
-      expect(setCardFavoriteTarget).toHaveBeenCalledWith('sm7-1', null);
-      await waitFor(() => {
-        expect(screen.getByText('SET TARGET PRICE')).toBeTruthy();
-      });
-    });
-
-    it('offers to watch an unwatched card, and a 404 watches it then retries instead of erroring', async () => {
-      const setCardFavoriteTarget = jest.fn()
-        // The server's 404: the card is not on the watchlist yet.
-        .mockResolvedValueOnce({ status: 'not_watchlisted', target: null })
-        .mockResolvedValueOnce({
-          status: 'ok',
-          target: {
-            cardId: 'sm7-1',
-            targetCurrency: 'USD',
-            targetPriceCents: 4000,
-            targetSetAt: '2026-09-19T00:00:00.000Z',
-            targetTriggeredAt: null,
-          },
-        });
-      const { repository, setCardFavorite } = watchedRepository({
-        isFavorite: false,
-        setCardFavoriteTarget,
-      });
-
-      renderWithProviders(
-        <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
-        { spotlightRepository: repository },
-      );
-
-      // The control SAYS the watch will happen, so the follow-on write is what
-      // the user pressed rather than a surprise.
-      const control = await screen.findByTestId('detail-target-price');
-      expect(screen.getByText('WATCH & SET TARGET')).toBeTruthy();
-
-      await act(async () => {
-        fireEvent.press(control);
-      });
-      fireEvent.changeText(await screen.findByTestId('wishlist-target-input'), '40');
-      await act(async () => {
-        fireEvent.press(screen.getByTestId('wishlist-target-save'));
-      });
-
-      expect(setCardFavorite).toHaveBeenCalledWith('sm7-1', true);
-      expect(setCardFavoriteTarget).toHaveBeenCalledTimes(2);
-      expect(setCardFavoriteTarget).toHaveBeenLastCalledWith('sm7-1', 4000);
-      // A dead end would be the sheet sitting open on "isn't on your watchlist".
-      await waitFor(() => {
-        expect(screen.queryByTestId('wishlist-target-sheet')).not.toBeOnTheScreen();
-      });
-      expect(screen.getByText('TARGET $40.00')).toBeTruthy();
-      // And the heart now reflects the watch the save performed.
-      expect(screen.getByTestId('detail-hero-card-favorite').props.accessibilityLabel)
-        .toBe('Remove from watchlist');
-    });
-
-    it('never watches a card just to turn an alert OFF', async () => {
-      const setCardFavoriteTarget = jest.fn(async () => ({
-        status: 'not_watchlisted',
-        target: null,
-      }));
-      const { repository, setCardFavorite } = watchedRepository({
-        isFavorite: false,
-        setCardFavoriteTarget,
-      });
-
-      renderWithProviders(
-        <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
-        { spotlightRepository: repository },
-      );
-
-      const control = await screen.findByTestId('detail-target-price');
-      await act(async () => {
-        fireEvent.press(control);
-      });
-      const clearButton = await screen.findByTestId('wishlist-target-clear');
-      await act(async () => {
-        fireEvent.press(clearButton);
-      });
-
-      // "No target" already holds for a card nobody is watching, so the clear
-      // succeeds without adding it to the watchlist as a side effect.
-      expect(setCardFavorite).not.toHaveBeenCalled();
-      await waitFor(() => {
-        expect(screen.queryByTestId('wishlist-target-sheet')).not.toBeOnTheScreen();
-      });
-    });
   });
 
   it('renders an unavailable state when the repository returns no local card detail', async () => {
