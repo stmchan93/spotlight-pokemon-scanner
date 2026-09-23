@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Iterable
 
 from ebay_comps import (
+    DEFAULT_BROWSE_FILTER,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
     EBAY_CONSUMER_OAUTH,
     EBAY_CONSUMER_PDP_LOWEST_LISTED,
@@ -127,6 +128,9 @@ SERVABLE_VERIFICATION_TIERS: frozenset[str] = frozenset({"scrydex", "aspects", "
 # (card_id, grader, grade, variant). Raw rows pin the three non-card columns to
 # constants so there is exactly ONE cache row per card — the dedupe, expressed in
 # the key. `variant` stays '' because the single response covers every printing.
+# US-located items only; see foreign_listing_reason for why.
+RAW_BROWSE_FILTER = f"{DEFAULT_BROWSE_FILTER},itemLocationCountry:US"
+
 RAW_CACHE_GRADER = "RAW"
 RAW_CACHE_GRADE = "RAW"
 
@@ -149,6 +153,8 @@ RAW_TITLE_NOT_A_CARD_PHRASES: tuple[str, ...] = (
     "magnet", "pin", "coin", "poster", "art print", "figure", "plush",
     "acrylic", "jumbo", "oversized", "oversize", "metal card", "gold plated",
     "orica", "fan art", "digital", "code card", "online code", "playmat",
+    # 2026-09-23: an "Oshawott 105/086 ... Extended Art Display Case" alert.
+    "display case", "extended art", "custom",
 )
 # Deliberately absent: "print", "sleeve", "binder", "display" — real singles say
 # "Unlimited print", "shipped in sleeve", "straight from binder".
@@ -262,6 +268,10 @@ def normalize_raw_listing(item: dict[str, Any]) -> dict[str, Any] | None:
         "shippingKnown": shipping_amount is not None,
         "totalAmount": total_amount,
         "currencyCode": (currency_code or "USD").upper(),
+        # Where the item ships from, and the currency eBay converted the price
+        # from (None when the listing is natively USD).
+        "itemLocationCountry": _item_location_country(item),
+        "convertedFromCurrency": _converted_from_currency(item),
         # eBay's own condition label, verbatim. Its trading-card taxonomy
         # separates graded from ungraded but has no NM/LP/MP, so we never claim
         # a raw condition match we cannot support.
@@ -331,6 +341,33 @@ def title_denylist_reason(title: object) -> str | None:
     match = _MULTIPLIER_RE.search(text)
     if match:
         return f"quantity:{match.group(0).strip()}"
+    return None
+
+
+def _item_location_country(item: dict[str, Any]) -> str | None:
+    location = item.get("itemLocation")
+    country = location.get("country") if isinstance(location, dict) else None
+    return str(country).strip().upper() or None if country else None
+
+
+def _converted_from_currency(item: dict[str, Any]) -> str | None:
+    price = item.get("price")
+    currency = price.get("convertedFromCurrency") if isinstance(price, dict) else None
+    return str(currency).strip().upper() or None if currency else None
+
+
+def foreign_listing_reason(listing: dict[str, Any]) -> str | None:
+    """Why a listing is not a US listing, or None. eBay's US marketplace shows
+    foreign items with the price converted to USD, so a 2026-09-22 Italian
+    Blaine's Charizard read as 58% under market: exchange rate, import fees and
+    a non-English condition ("Non gradata") the worn filter can't read. Unknown
+    values pass (older cached pages carry neither field)."""
+    country = str(listing.get("itemLocationCountry") or "").strip().upper()
+    if country and country != "US":
+        return f"location:{country}"
+    converted = str(listing.get("convertedFromCurrency") or "").strip().upper()
+    if converted and converted != "USD":
+        return f"currency:{converted}"
     return None
 
 
@@ -524,6 +561,9 @@ def evaluate_raw_listing(
     seller = seller_rejection_reason(listing)
     if seller:
         return {"ok": False, "reason": f"seller:{seller}", "candidate": None}
+    foreign = foreign_listing_reason(listing)
+    if foreign:
+        return {"ok": False, "reason": f"foreign_listing:{foreign}", "candidate": None}
     if listing_is_graded(listing):
         return {"ok": False, "reason": "graded_listing", "candidate": None}
 
@@ -746,6 +786,7 @@ def fetch_raw_card_ebay_listings(
         limit=RAW_FETCH_PAGE_SIZE,
         marketplace_id=marketplace_id,
         max_page_size=RAW_FETCH_PAGE_SIZE,
+        filter_expression=RAW_BROWSE_FILTER,
     )
     headers = {
         "Authorization": f"Bearer {access_token}",

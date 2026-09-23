@@ -181,6 +181,7 @@ class RawQueryTests(RawListingTestCase):
         self.assertIn(f"limit={RAW_FETCH_PAGE_SIZE}", search_url)
         self.assertIn("sort=price", search_url)
         self.assertIn("priceCurrency%3AUSD", search_url)
+        self.assertIn("itemLocationCountry%3AUS", search_url)
 
     def test_limit_returns_lowest_n_by_shipping_inclusive_total(self) -> None:
         transport = _Transport(
@@ -356,6 +357,38 @@ class TitleDenylistTests(RawListingTestCase):
         ):
             with self.subTest(title=title):
                 self.assertIsNone(title_not_a_card_reason(title))
+
+    def test_display_cases_and_customs_are_not_cards(self) -> None:
+        self.assertEqual(
+            title_not_a_card_reason("Oshawott 105/086 Pokémon Card Extended Art Display Case White Flare"),
+            "display case",
+        )
+        self.assertEqual(title_not_a_card_reason("Umbreon VMAX custom card"), "custom")
+        self.assertIsNone(title_not_a_card_reason("Umbreon VMAX 215/203 no customs fees"))
+
+    def test_foreign_listings_are_rejected_and_unknown_location_passes(self) -> None:
+        # 2026-09-22: an Italian Blaine's Charizard, priced in EUR and shown
+        # converted, read as 58% under market.
+        italian = summary(item_id="v1|137060657229|0")
+        italian["itemLocation"] = {"country": "IT"}
+        italian["price"] = {
+            "value": "227.84", "currency": "USD",
+            "convertedFromValue": "194.00", "convertedFromCurrency": "EUR",
+        }
+        row = normalize_raw_listing(italian)
+        self.assertEqual((row["itemLocationCountry"], row["convertedFromCurrency"]), ("IT", "EUR"))
+        self.assertEqual(
+            evaluate_raw_listing(row, card=CARD, now=NOW)["reason"], "foreign_listing:location:IT"
+        )
+        self.assertEqual(
+            evaluate_raw_listing(listing(convertedFromCurrency="GBP"), card=CARD, now=NOW)["reason"],
+            "foreign_listing:currency:GBP",
+        )
+        self.assertTrue(evaluate_raw_listing(listing(itemLocationCountry="US"), card=CARD, now=NOW)["ok"])
+        cached = listing()
+        cached.pop("itemLocationCountry", None)
+        cached.pop("convertedFromCurrency", None)
+        self.assertTrue(evaluate_raw_listing(cached, card=CARD, now=NOW)["ok"])
 
     def test_thin_sellers_are_rejected_and_unknown_sellers_pass(self) -> None:
         self.assertEqual(
