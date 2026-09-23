@@ -20199,7 +20199,9 @@ class SpotlightScanService:
     #
     # It rides in the digest, so bumping it orphans every existing file at once
     # and the next read recomputes. The orphans are pruned at startup.
-    PAYLOAD_CACHE_GENERATION = 2
+    # 3: deck entries / favorites gained sinceAddedPoints / sinceWatchedPoints
+    # (2026-09-23 — the Collection list sparkline never showed until this).
+    PAYLOAD_CACHE_GENERATION = 3
 
     def _payload_cache_path(self, namespace: str, cache_key: Any, version: str) -> Path | None:
         root = getattr(self, "_payload_cache_root", None)

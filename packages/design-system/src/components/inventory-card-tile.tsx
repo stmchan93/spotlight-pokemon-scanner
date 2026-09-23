@@ -638,10 +638,13 @@ const styles = StyleSheet.create({
   imageFrameCard: {
     aspectRatio: CARD_FRAME_ASPECT,
   },
+  // Pinned to the PRICE line (the row is top-aligned), matching its 21pt line
+  // height, so a trend or day-change line under the price doesn't pull it down.
   quantityGroup: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 2,
+    minHeight: 21,
   },
   imagePlaceholder: {
     alignItems: 'center',
@@ -668,7 +671,7 @@ const styles = StyleSheet.create({
     lineHeight: 21,
   },
   priceRow: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     alignSelf: 'stretch',
     flexDirection: 'row',
     gap: 8,
