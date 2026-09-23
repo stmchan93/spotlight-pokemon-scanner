@@ -706,6 +706,18 @@ class DealAlertFeedTests(WatchWiringTestCase):
             again = self.service.mark_deal_alert("a1", field="tapped_at")
         self.assertEqual(again["tappedAt"], tapped["tappedAt"])
 
+    def test_dismissed_alerts_leave_the_feed_and_the_unseen_count(self) -> None:
+        self._card()
+        self._alert("a1", "owner-a", created_at="2026-09-17T00:00:00+00:00")
+        self._alert("a2", "owner-a", created_at="2026-09-18T00:00:00+00:00")
+        with self.service.request_identity_context(self._identity("owner-a")):
+            self.service.mark_deal_alert("a2", field="dismissed_at")
+            payload = self.service.deal_alerts()
+        self.assertEqual([alert["id"] for alert in payload["alerts"]], ["a1"])
+        self.assertEqual(payload["unseenCount"], 1)
+        # The row stays: it still blocks a re-alert on the same listing.
+        self.assertEqual(self._count("deal_alerts"), 2)
+
     def test_other_owners_alert_is_a_404(self) -> None:
         self._card()
         self._alert("a1", "owner-a")
@@ -757,7 +769,9 @@ class DealAlertFeedTests(WatchWiringTestCase):
 
     def test_post_route_maps_suffix_to_column(self) -> None:
         identity = self._identity("owner-a")
-        for suffix, field in (("/seen", "seen_at"), ("/tapped", "tapped_at")):
+        for suffix, field in (
+            ("/seen", "seen_at"), ("/tapped", "tapped_at"), ("/dismiss", "dismissed_at"),
+        ):
             handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
             handler.path = f"/api/v1/deal-alerts/a1{suffix}"
             handler.service = Mock()

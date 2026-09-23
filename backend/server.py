@@ -1579,6 +1579,9 @@ def _apply_watch_deal_radar_schema_patch(connection: sqlite3.Connection) -> None
         )
         """
     )
+    # Swiped away in the Deals band. The row stays (it still re-arms the
+    # listing and still counts for the value tripwire); it just stops showing.
+    _sqlite_add_column_if_missing(connection, "deal_alerts", "dismissed_at", "TEXT")
     # At-most-once per (user, listing): the INSERT is OR IGNORE, so a re-run of
     # the daily job cannot duplicate an alert even if the re-arm state is stale.
     connection.execute(
@@ -4013,13 +4016,15 @@ class SpotlightScanService:
             FROM deal_alerts
             LEFT JOIN cards ON cards.id = deal_alerts.card_id
             WHERE deal_alerts.owner_user_id = ?
+              AND deal_alerts.dismissed_at IS NULL
             ORDER BY deal_alerts.created_at DESC, deal_alerts.id ASC
             LIMIT ?
             """,
             (owner_user_id, safe_limit),
         ).fetchall()
         unseen = self.connection.execute(
-            "SELECT COUNT(*) FROM deal_alerts WHERE owner_user_id = ? AND seen_at IS NULL",
+            "SELECT COUNT(*) FROM deal_alerts "
+            "WHERE owner_user_id = ? AND seen_at IS NULL AND dismissed_at IS NULL",
             (owner_user_id,),
         ).fetchone()
         return {
@@ -4031,15 +4036,15 @@ class SpotlightScanService:
         }
 
     def mark_deal_alert(self, alert_id: str, *, field: str) -> dict[str, Any]:
-        """Stamp ``seen_at`` or ``tapped_at``. Owner-scoped: another user's alert
+        """Stamp ``seen_at``, ``tapped_at`` or ``dismissed_at``. Owner-scoped: another user's alert
         id is indistinguishable from one that does not exist.
 
         ``tapped_at`` is load-bearing — the whole monetization verdict
         (engagement, reliance, concentration) derives from it — so it is stamped
         once and never overwritten by a second tap.
         """
-        if field not in {"seen_at", "tapped_at"}:
-            raise ValueError("field must be seen_at or tapped_at")
+        if field not in {"seen_at", "tapped_at", "dismissed_at"}:
+            raise ValueError("field must be seen_at, tapped_at or dismissed_at")
         owner_user_id = self._current_owner_user_id()
         normalized_id = str(alert_id or "").strip()
         if not normalized_id:
@@ -24917,13 +24922,19 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, notification_payload)
             return
 
-        if parsed.path.startswith("/api/v1/deal-alerts/") and (
-            parsed.path.endswith("/seen") or parsed.path.endswith("/tapped")
-        ):
+        deal_alert_suffix = next(
+            (
+                suffix
+                for suffix in ("/seen", "/tapped", "/dismiss")
+                if parsed.path.startswith("/api/v1/deal-alerts/") and parsed.path.endswith(suffix)
+            ),
+            None,
+        )
+        if deal_alert_suffix is not None:
             identity = self._require_request_identity()
             if identity is None:
                 return
-            suffix = "/seen" if parsed.path.endswith("/seen") else "/tapped"
+            suffix = deal_alert_suffix
             alert_id = unquote(
                 parsed.path.removeprefix("/api/v1/deal-alerts/").removesuffix(suffix).rstrip("/")
             )
@@ -24932,7 +24943,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 return
             # tapped_at is load-bearing: the monetization verdict (engagement,
             # reliance, concentration) is derived entirely from it.
-            field = "seen_at" if suffix == "/seen" else "tapped_at"
+            field = {"/seen": "seen_at", "/tapped": "tapped_at", "/dismiss": "dismissed_at"}[suffix]
             try:
                 with self.service.request_identity_context(identity):
                     alert_payload = self.service.mark_deal_alert(alert_id, field=field)

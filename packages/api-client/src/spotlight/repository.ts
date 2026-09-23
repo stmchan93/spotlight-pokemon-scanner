@@ -352,6 +352,11 @@ export interface SpotlightRepository {
    */
   markDealAlertTapped(alertId: string): Promise<DealAlert | null>;
   /**
+   * Hide one alert from the Deals band (swipe to dismiss). The server keeps
+   * the row so the listing can't re-alert. Returns whether it took.
+   */
+  dismissDealAlert(alertId: string): Promise<boolean>;
+  /**
    * Hand this device's Expo push token to the backend. Returns whether the
    * server took it; never throws, so a dead network is just `false` and the
    * caller can try again on the next app open.
@@ -4178,6 +4183,12 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return this.stampMockDealAlert(alertId, 'tappedAt');
   }
 
+  async dismissDealAlert(alertId: string): Promise<boolean> {
+    const before = this.dealAlerts.length;
+    this.dealAlerts = this.dealAlerts.filter((row) => row.id !== alertId.trim());
+    return this.dealAlerts.length < before;
+  }
+
   async registerPushToken(registration: PushTokenRegistration): Promise<boolean> {
     const token = registration.expoPushToken.trim();
     if (!token) {
@@ -6704,7 +6715,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return buildDealAlertsPage(response.data, safeLimit);
   }
 
-  private async markDealAlert(alertId: string, stamp: 'seen' | 'tapped'): Promise<DealAlert | null> {
+  private async markDealAlert(
+    alertId: string,
+    stamp: 'seen' | 'tapped' | 'dismiss',
+  ): Promise<DealAlert | null> {
     const normalizedId = alertId.trim();
     if (!normalizedId) {
       return null;
@@ -6727,6 +6741,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
   async markDealAlertTapped(alertId: string): Promise<DealAlert | null> {
     return this.markDealAlert(alertId, 'tapped');
+  }
+
+  async dismissDealAlert(alertId: string): Promise<boolean> {
+    return (await this.markDealAlert(alertId, 'dismiss')) !== null;
   }
 
   async registerPushToken(registration: PushTokenRegistration): Promise<boolean> {

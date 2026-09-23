@@ -225,6 +225,10 @@ export function createTestSpotlightRepository(
       return overrides.markDealAlertTapped?.(...args)
         ?? baseRepository.markDealAlertTapped(...args);
     },
+    dismissDealAlert: (...args) => {
+      return overrides.dismissDealAlert?.(...args)
+        ?? baseRepository.dismissDealAlert(...args);
+    },
     registerPushToken: (...args) => {
       return overrides.registerPushToken?.(...args)
         ?? baseRepository.registerPushToken(...args);

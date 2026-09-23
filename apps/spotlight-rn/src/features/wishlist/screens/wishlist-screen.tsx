@@ -230,6 +230,7 @@ export function WishlistScreen() {
     markTapped: markDealTapped,
     refresh: refreshDealAlerts,
     unseenCount: dealUnseenCount,
+    dismiss: dismissDeal,
   } = useDealAlerts();
 
   const loadFavorites = useCallback(async () => {
@@ -661,6 +662,7 @@ export function WishlistScreen() {
       <DealRadarBand
         alerts={dealAlerts}
         cardsById={favoritesById}
+        onDismissDeal={dismissDeal}
         onMarkSeen={markDealSeen}
         onOpenDeal={(alert, card) => void handleOpenDeal(alert, card)}
         onShareDeal={handleShareDeal}

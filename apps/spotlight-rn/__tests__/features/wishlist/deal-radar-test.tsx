@@ -116,6 +116,7 @@ type DealRadarMocks = {
   listDealAlerts: jest.Mock;
   markDealAlertSeen: jest.Mock;
   markDealAlertTapped: jest.Mock;
+  dismissDealAlert: jest.Mock;
   setCardFavoriteTarget: jest.Mock;
 };
 
@@ -145,6 +146,7 @@ function buildRepository(options: {
       ...(page.alerts.find((alert) => alert.id === id) ?? buildDealAlert({ id })),
       tappedAt: '2026-09-19T00:00:00.000Z',
     })),
+    dismissDealAlert: jest.fn(async () => true),
     setCardFavoriteTarget: options.setCardFavoriteTarget
       ?? jest.fn(async (cardId: string, targetPriceCents: number | null) => ({
         status: 'ok',
@@ -163,6 +165,7 @@ function buildRepository(options: {
     listDealAlerts: mocks.listDealAlerts,
     markDealAlertSeen: mocks.markDealAlertSeen,
     markDealAlertTapped: mocks.markDealAlertTapped,
+    dismissDealAlert: mocks.dismissDealAlert,
     setCardFavoriteTarget: mocks.setCardFavoriteTarget,
   });
 
@@ -275,6 +278,25 @@ describe('Watchlist deal radar', () => {
       renderScreen(repository);
       await screen.findByText('Charizard');
 
+      expect(screen.queryByTestId('wishlist-deal-band')).not.toBeOnTheScreen();
+    });
+  });
+
+  describe('dismissing a deal', () => {
+    it('swipe-left Dismiss removes the deal and tells the server', async () => {
+      const { mocks, repository } = buildRepository({
+        page: { alerts: [buildDealAlert()], limit: 5, unseenCount: 1 },
+      });
+      renderScreen(repository);
+
+      const dismiss = await screen.findByTestId('wishlist-deal-dismiss-deal-1', {
+        includeHiddenElements: true,
+      });
+      await act(async () => {
+        fireEvent.press(dismiss);
+      });
+
+      expect(mocks.dismissDealAlert).toHaveBeenCalledWith('deal-1');
       expect(screen.queryByTestId('wishlist-deal-band')).not.toBeOnTheScreen();
     });
   });

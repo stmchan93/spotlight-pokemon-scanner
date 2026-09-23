@@ -175,6 +175,19 @@ describe('HttpSpotlightRepository deal alerts', () => {
     expect(tapped?.tappedAt).toBe('2026-09-18T02:00:00.000Z');
   });
 
+  it('dismisses on the dismiss route and reports whether it took', async () => {
+    const fetchMock = mockFetch(
+      jsonResponse(200, { ...alertPayload, dismissedAt: '2026-09-23T01:00:00.000Z' }),
+      jsonResponse(404, { error: 'Alert not found' }),
+    );
+    const repository = new HttpSpotlightRepository('http://example.test');
+
+    await expect(repository.dismissDealAlert('a1b2')).resolves.toBe(true);
+    expect(fetchMock.mock.calls[0][0]).toContain('/api/v1/deal-alerts/a1b2/dismiss');
+    expect(fetchMock.mock.calls[0][1].method).toBe('POST');
+    await expect(repository.dismissDealAlert('nope')).resolves.toBe(false);
+  });
+
   it('returns null for an unknown (or another owner\'s) alert id', async () => {
     mockFetch(jsonResponse(404, { error: 'Alert not found' }));
     const repository = new HttpSpotlightRepository('http://example.test');

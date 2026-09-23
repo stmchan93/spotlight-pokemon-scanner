@@ -13,6 +13,7 @@ export const DEAL_ALERT_LIMIT = 5;
 
 type DealAlertsState = {
   alerts: DealAlert[];
+  dismiss: (id: string) => void;
   markSeen: (id: string) => void;
   markTapped: (id: string) => Promise<void>;
   refresh: () => Promise<void>;
@@ -91,8 +92,19 @@ export function useDealAlerts(): DealAlertsState {
     setAlerts((current) => current.map((alert) => (alert.id === id ? stamped : alert)));
   }, [spotlightRepository]);
 
+  // Swipe to dismiss: gone at once; a refused write reloads the band.
+  const dismiss = useCallback((id: string) => {
+    setAlerts((current) => current.filter((alert) => alert.id !== id));
+    void spotlightRepository.dismissDealAlert(id).then((ok) => {
+      if (!ok) {
+        void refresh();
+      }
+    });
+  }, [refresh, spotlightRepository]);
+
   return {
     alerts: flagEnabled ? alerts : [],
+    dismiss,
     markSeen,
     markTapped,
     refresh,
