@@ -12,6 +12,10 @@ Guardrails, all deliberate:
   a Scrydex-JPY→USD "then" with a TCGCSV "now" manufactures phantom moves.
 - price NOW must be >= ``min_price_usd`` (penny cards produce absurd %).
 - gainers only; a change above ``max_change_pct`` is treated as a data glitch.
+- a main-lane pair must also be the SAME printing (``main_raw_variant``): a
+  variant-default fix that re-points a card from a cheap reprint to the real
+  holo is a correction, not a gain (Espeon ex ex10-102, 2026-09-14: $39.69
+  World Championship Deck → $362.62 Holofoil read as +812%).
 - the 30-day series must contain >= ``min_distinct_prices`` distinct values —
   Scrydex's raw-JP anchors are flat single values that occasionally jump, and
   this is what keeps them out of the list without any per-card denylist.
@@ -62,6 +66,7 @@ class _DailyRow:
     currency: str
     default_raw: float | None
     main_raw: float | None
+    main_variant: str | None = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +80,7 @@ class Candidate:
     then_date: str
     now_date: str
     change_pct: float = 0.0
+    main_variant: str | None = None
 
 
 def market_movers_version_token(
@@ -119,6 +125,7 @@ def _latest_row_per_card(
     start: str,
     end: str,
     has_main_column: bool,
+    has_main_variant_column: bool = False,
     expected_cards: int | None = None,
 ) -> dict[str, _DailyRow]:
     """Newest daily row per card within [start, end]. Reads one price_date at a
@@ -126,11 +133,12 @@ def _latest_row_per_card(
     expected card is resolved — the sync writes nearly every card every day,
     so this is usually a single date's worth of rows."""
     main_col = "main_raw_market_price" if has_main_column else "NULL"
+    variant_col = "main_raw_variant" if has_main_variant_column else "NULL"
     out: dict[str, _DailyRow] = {}
     for price_date in _dates_in_window(connection, start, end):
         rows = connection.execute(
             "SELECT card_id, price_date, display_currency_code, "
-            f"default_raw_market_price, {main_col} "
+            f"default_raw_market_price, {main_col}, {variant_col} "
             "FROM card_price_history_daily WHERE price_date = ?",
             (price_date,),
         ).fetchall()
@@ -144,6 +152,7 @@ def _latest_row_per_card(
                 currency=str(row[2] or "USD").upper(),
                 default_raw=_as_float(row[3]),
                 main_raw=_as_float(row[4]),
+                main_variant=row[5],
             )
         if expected_cards is not None and len(out) >= expected_cards:
             break
@@ -175,7 +184,11 @@ def _same_source_pair(
 ) -> tuple[str, str, float, float] | None:
     """(source, currency, price_then_usd, price_now_usd) or None when the two
     ends can't be compared like-for-like."""
-    if then_row.main_raw is not None and now_row.main_raw is not None:
+    if (
+        then_row.main_raw is not None
+        and now_row.main_raw is not None
+        and then_row.main_variant == now_row.main_variant
+    ):
         return SOURCE_MAIN_RAW, "USD", then_row.main_raw, now_row.main_raw
     if (
         then_row.default_raw is not None
@@ -233,6 +246,7 @@ def _series_for_candidates(
     start: str,
     end: str,
     has_main_column: bool,
+    has_main_variant_column: bool = False,
     jpy_usd: Decimal | None,
 ) -> dict[str, list[float]]:
     """USD daily series (oldest→newest) per candidate, read from the SAME
@@ -242,9 +256,10 @@ def _series_for_candidates(
     by_id = {c.card_id: c for c in candidates}
     placeholders = ",".join("?" for _ in by_id)
     main_col = "main_raw_market_price" if has_main_column else "NULL"
+    variant_col = "main_raw_variant" if has_main_variant_column else "NULL"
     rows = connection.execute(
         "SELECT card_id, price_date, display_currency_code, "
-        f"default_raw_market_price, {main_col} "
+        f"default_raw_market_price, {main_col}, {variant_col} "
         "FROM card_price_history_daily "
         f"WHERE card_id IN ({placeholders}) AND price_date BETWEEN ? AND ? "
         "ORDER BY card_id, price_date ASC",
@@ -255,6 +270,8 @@ def _series_for_candidates(
         card_id = str(row[0])
         candidate = by_id[card_id]
         if candidate.source == SOURCE_MAIN_RAW:
+            if row[5] != candidate.main_variant:
+                continue
             value = _as_float(row[4])
         else:
             if str(row[2] or "USD").upper() != candidate.currency:
@@ -340,7 +357,9 @@ def compute_top_movers(
         # The sync is stale; a "now" that is a week old is not a trend.
         return empty
 
-    has_main_column = "main_raw_market_price" in _table_columns(connection, "card_price_history_daily")
+    history_columns = _table_columns(connection, "card_price_history_daily")
+    has_main_column = "main_raw_market_price" in history_columns
+    has_main_variant_column = "main_raw_variant" in history_columns
     jpy_usd = _jpy_usd_rate(connection)
 
     # Bound the "now" read too: once every catalog card has a row there is
@@ -351,6 +370,7 @@ def compute_top_movers(
         start=_iso(ref_date - timedelta(days=NOW_TOLERANCE_DAYS)),
         end=_iso(ref_date),
         has_main_column=has_main_column,
+        has_main_variant_column=has_main_variant_column,
         expected_cards=card_count or None,
     )
     then_end = ref_date - timedelta(days=window_days)
@@ -359,6 +379,7 @@ def compute_top_movers(
         start=_iso(then_end - timedelta(days=THEN_TOLERANCE_DAYS)),
         end=_iso(then_end),
         has_main_column=has_main_column,
+        has_main_variant_column=has_main_variant_column,
         expected_cards=len(now_rows),
     )
     games = _card_games(connection, list(now_rows.keys()))
@@ -382,6 +403,7 @@ def compute_top_movers(
                 price_now=price_now,
                 then_date=then_row.price_date,
                 now_date=now_row.price_date,
+                main_variant=now_row.main_variant if source == SOURCE_MAIN_RAW else None,
             )
         )
 
@@ -396,7 +418,8 @@ def compute_top_movers(
             series.update(
                 _series_for_candidates(
                     connection, batch, start=series_start, end=_iso(ref_date),
-                    has_main_column=has_main_column, jpy_usd=jpy_usd,
+                    has_main_column=has_main_column,
+                    has_main_variant_column=has_main_variant_column, jpy_usd=jpy_usd,
                 )
             )
             for candidate in batch:

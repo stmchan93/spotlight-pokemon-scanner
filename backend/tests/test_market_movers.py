@@ -70,16 +70,19 @@ class MarketMoversTests(unittest.TestCase):
         )
 
     def _daily(self, card_id: str, days_ago: int, *, default: float | None = None,
-               main: float | None = None, currency: str = "USD") -> None:
+               main: float | None = None, currency: str = "USD",
+               main_variant: str | None = None) -> None:
         self.connection.execute(
             "INSERT INTO card_price_history_daily (card_id, provider, price_date, "
-            "display_currency_code, default_raw_market_price, main_raw_market_price, updated_at) "
-            "VALUES (?, 'scrydex', ?, ?, ?, ?, ?) "
+            "display_currency_code, default_raw_market_price, main_raw_market_price, "
+            "main_raw_variant, updated_at) "
+            "VALUES (?, 'scrydex', ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(card_id, price_date) DO UPDATE SET "
             "display_currency_code=excluded.display_currency_code, "
             "default_raw_market_price=excluded.default_raw_market_price, "
-            "main_raw_market_price=excluded.main_raw_market_price",
-            (card_id, _d(days_ago), currency, default, main, utc_now()),
+            "main_raw_market_price=excluded.main_raw_market_price, "
+            "main_raw_variant=excluded.main_raw_variant",
+            (card_id, _d(days_ago), currency, default, main, main_variant, utc_now()),
         )
 
     def _series(self, card_id: str, then: float, now: float, *, main: bool = False,
@@ -125,6 +128,23 @@ class MarketMoversTests(unittest.TestCase):
         self.assertEqual(by_id["a"]["changePercent"], 50.0)
         self.assertEqual(by_id["c"]["source"], "main_raw")
         self.assertEqual((by_id["c"]["priceThen"], by_id["c"]["priceNow"]), (20.0, 30.0))
+
+    def test_main_lane_printing_switch_is_not_a_gain(self) -> None:
+        # Espeon ex shape: the main lane tracked a cheap reprint, then the
+        # variant-default fix re-pointed it at the real holo mid-window.
+        self._card("espeon")
+        for days_ago, price in ((30, 39.75), (20, 39.70), (16, 39.69)):
+            self._daily("espeon", days_ago, main=price, main_variant="Normal")
+        for days_ago, price in ((9, 360.0), (4, 361.0), (0, 362.62)):
+            self._daily("espeon", days_ago, main=price, main_variant="Holofoil")
+        # Same printing end to end, and only that printing's rows feed the series.
+        self._card("steady")
+        for days_ago, price in ((30, 10.0), (20, 11.0), (10, 12.0), (0, 13.0)):
+            self._daily("steady", days_ago, main=price, main_variant="Holofoil")
+        self._daily("steady", 25, main=900.0, main_variant="Normal")
+        items = self._items(self._compute())
+        self.assertEqual([item["cardId"] for item in items], ["steady"])
+        self.assertEqual(items[0]["sparkPoints"], [10.0, 11.0, 12.0, 13.0])
 
     def test_five_dollar_floor_applies_to_price_now(self) -> None:
         self._card("cheap")
