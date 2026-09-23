@@ -26,10 +26,10 @@ fi
 set +a
 
 PYTHON_BIN="${SPOTLIGHT_VM_PYTHON:-$SCRIPT_DIR/.venv/bin/python}"
-# Hourly at :50, PT, skipping the 18-19 Scrydex window. See the schedule comment
+# Four times a day at :50 PT, clear of the 18-19 Scrydex window. See the schedule comment
 # in deploy_to_vm.sh for why those minutes/hours; this default must stay in sync
 # with SPOTLIGHT_VM_DEAL_SCAN_CRON there.
-DEAL_SCAN_CRON_SCHEDULE="${SPOTLIGHT_VM_DEAL_SCAN_CRON:-50 0-17,20-23 * * *}"
+DEAL_SCAN_CRON_SCHEDULE="${SPOTLIGHT_VM_DEAL_SCAN_CRON:-50 2,8,14,21 * * *}"
 SYNC_CRON_TIMEZONE="${SPOTLIGHT_VM_SYNC_CRON_TZ:-America/Los_Angeles}"
 DEAL_SCAN_LOCK_FILE="${SPOTLIGHT_DEAL_SCAN_LOCK_FILE:-$SCRIPT_DIR/data/deal-scan.lock}"
 DEAL_SCAN_LOG_FILE="${SPOTLIGHT_DEAL_SCAN_LOG_FILE:-$SCRIPT_DIR/logs/deal_scan.log}"

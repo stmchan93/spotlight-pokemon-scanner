@@ -349,8 +349,8 @@ PUBLIC_BASE_URL="${SPOTLIGHT_VM_PUBLIC_BASE_URL:-}"
 HEALTH_CRON_SCHEDULE="${SPOTLIGHT_VM_HEALTH_CRON:-*/5 * * * *}"
 RESOURCE_CRON_SCHEDULE="${SPOTLIGHT_VM_RESOURCE_CRON:-*/15 * * * *}"
 MODERATION_CRON_SCHEDULE="${SPOTLIGHT_VM_MODERATION_CRON:-*/2 * * * *}"
-# Watchlist deal scan — hourly at :50 PT, evaluated by the wrapper (vixie cron
-# has no CRON_TZ). The minute and the hour list are both collision avoidance
+# Watchlist deal scan — four times a day (~6h apart) at :50 PT, evaluated by
+# the wrapper (vixie cron has no CRON_TZ). The minute and the hour list are both collision avoidance
 # against the price syncs, because a scan reads the same price tables the syncs
 # are rewriting:
 #   :50 is the midpoint of the only clear half-hour in a TCGCSV hour — its
@@ -361,7 +361,7 @@ MODERATION_CRON_SCHEDULE="${SPOTLIGHT_VM_MODERATION_CRON:-*/2 * * * *}"
 #   them: the 18:00 Scrydex sync runs long (catalog + a visual-index refresh
 #   allowed up to 15 min + a portfolio prewarm), so every minute of those two
 #   hours is inside its write window.
-DEAL_SCAN_CRON_SCHEDULE="${SPOTLIGHT_VM_DEAL_SCAN_CRON:-50 0-17,20-23 * * *}"
+DEAL_SCAN_CRON_SCHEDULE="${SPOTLIGHT_VM_DEAL_SCAN_CRON:-50 2,8,14,21 * * *}"
 VISUAL_INDEX_NPZ_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_INDEX_NPZ_PATH")")"
 VISUAL_INDEX_MANIFEST_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_INDEX_MANIFEST_PATH")")"
 VISUAL_ADAPTER_CHECKPOINT_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_ADAPTER_CHECKPOINT_PATH")")"
