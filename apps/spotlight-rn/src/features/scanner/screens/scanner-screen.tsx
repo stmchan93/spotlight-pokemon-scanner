@@ -4459,6 +4459,20 @@ export function ScannerScreen({
           user about. This is the way out.
         */}
         {!hasPermission ? (
+          // Centred in the empty reticle: flowing from the top of the surface
+          // put the card under the header row, which covered OPEN SETTINGS.
+          <View
+            pointerEvents="box-none"
+            style={[
+              styles.cameraDeniedWrap,
+              {
+                height: captureSurfaceLayout.reticle.height,
+                left: captureSurfaceLayout.reticle.x,
+                top: captureSurfaceLayout.reticle.y,
+                width: captureSurfaceLayout.reticle.width,
+              },
+            ]}
+          >
           <View style={styles.cameraDeniedCard} testID="scanner-camera-denied">
             <Text style={styles.cameraDeniedTitle}>Camera access is off</Text>
             <Text style={styles.cameraDeniedBody}>
@@ -4479,6 +4493,7 @@ export function ScannerScreen({
             >
               <Text style={styles.cameraDeniedButtonLabel}>OPEN SETTINGS</Text>
             </ArenaPressable>
+          </View>
           </View>
         ) : null}
         {isTrayExpanded ? (
@@ -5586,14 +5601,18 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 4,
   },
+  cameraDeniedWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'absolute',
+  },
   cameraDeniedCard: {
     alignItems: 'center',
-    alignSelf: 'center',
     backgroundColor: colors.gray900,
     borderCurve: 'continuous',
     borderRadius: radii.lg,
     gap: 8,
-    marginHorizontal: 32,
+    marginHorizontal: 16,
     maxWidth: 320,
     paddingHorizontal: 20,
     paddingVertical: 20,
