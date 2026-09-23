@@ -28,7 +28,7 @@ describe('TermsFooter', () => {
 
     fireEvent.press(screen.getByTestId('auth-terms-link'));
     expect(mockOpenURL).toHaveBeenCalledWith(TERMS_OF_USE_URL);
-    expect(TERMS_OF_USE_URL).toBe('https://stmchan93.github.io/ekalight-legal/terms/');
+    expect(TERMS_OF_USE_URL).toBe('https://ekalight.com/terms/');
   });
 
   it('opens the hosted Privacy Policy when tapped', () => {
@@ -37,6 +37,6 @@ describe('TermsFooter', () => {
     fireEvent.press(screen.getByTestId('auth-privacy-link'));
     expect(mockOpenURL).toHaveBeenCalledWith(PRIVACY_POLICY_URL);
     // The ROOT of the legal site is the privacy policy — /privacy/ is a 404.
-    expect(PRIVACY_POLICY_URL).toBe('https://stmchan93.github.io/ekalight-legal/');
+    expect(PRIVACY_POLICY_URL).toBe('https://ekalight.com/privacy/');
   });
 });

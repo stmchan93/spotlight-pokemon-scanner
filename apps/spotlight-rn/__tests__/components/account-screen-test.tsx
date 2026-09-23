@@ -180,11 +180,11 @@ describe('AccountScreen', () => {
 
     fireEvent.press(screen.getByTestId('account-terms'));
     expect(mockOpenURL).toHaveBeenCalledWith(
-      'https://stmchan93.github.io/ekalight-legal/terms/',
+      'https://ekalight.com/terms/',
     );
 
     fireEvent.press(screen.getByTestId('account-privacy'));
-    expect(mockOpenURL).toHaveBeenCalledWith('https://stmchan93.github.io/ekalight-legal/');
+    expect(mockOpenURL).toHaveBeenCalledWith('https://ekalight.com/privacy/');
   });
 
   it('uses the shared left-aligned back button chrome', () => {
