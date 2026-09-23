@@ -154,7 +154,7 @@ RAW_TITLE_NOT_A_CARD_PHRASES: tuple[str, ...] = (
     "acrylic", "jumbo", "oversized", "oversize", "metal card", "gold plated",
     "orica", "fan art", "digital", "code card", "online code", "playmat",
     # 2026-09-23: an "Oshawott 105/086 ... Extended Art Display Case" alert.
-    "display case", "extended art", "custom",
+    "display case", "extended art", "custom", "binder insert", "insert",
 )
 # Deliberately absent: "print", "sleeve", "binder", "display" — real singles say
 # "Unlimited print", "shipped in sleeve", "straight from binder".
@@ -383,7 +383,8 @@ def title_not_a_card_reason(title: object) -> str | None:
 def title_worn_condition_reason(title: object) -> str | None:
     """The worn-condition phrase a title states ("hp", "dmg", "played"…), or
     None. A phrase right after a negation ("never played") does not count."""
-    words = _fold(title).split()
+    # "/" splits too: a Copycat "... Full Art Ultra Rare MP/HP" read as one word.
+    words = _fold(title).replace("/", " ").split()
     text = f" {' '.join(words)} "
     for phrase in RAW_TITLE_WORN_CONDITION_PHRASES:
         needle = f" {phrase} "

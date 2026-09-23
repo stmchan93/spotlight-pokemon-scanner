@@ -1981,6 +1981,8 @@ SINCE_ADDED_SPARK_MAX_CONTEXTS = 800
 # Watchlist "since watched" series: from the watch date to today, thinned to
 # this many points, reading at most this many days back.
 SINCE_WATCHED_SPARK_POINTS = 30
+# eBay's "Card Condition" descriptor value a deal listing must carry.
+DEAL_REQUIRED_CARD_CONDITION = "near mint or better"
 SINCE_WATCHED_MAX_DAYS = 365
 # One-shot guard flag for /api/v1/ops/backfill-added-baselines (mirrors
 # access_existing_users_backfilled).
@@ -2171,6 +2173,21 @@ class AccountStorageTarget:
     def label(self) -> str:
         """``store:path`` — the form used in reports and cleanup logs."""
         return f"{self.store}:{self.object_path}"
+
+
+def _deal_item_rejection_reason(item: dict[str, Any] | None) -> str | None:
+    if not item:
+        return "item_lookup_failed"
+    condition = str(item.get("cardCondition") or "").strip()
+    if condition.lower() != DEAL_REQUIRED_CARD_CONDITION:
+        return f"card_condition:{condition or 'missing'}"
+    country = str(item.get("itemLocationCountry") or "").strip().upper()
+    if country and country != "US":
+        return f"location:{country}"
+    converted = str(item.get("convertedFromCurrency") or "").strip().upper()
+    if converted and converted != "USD":
+        return f"currency:{converted}"
+    return None
 
 
 class SpotlightScanService:
@@ -4747,6 +4764,37 @@ class SpotlightScanService:
                     pass
                 del self._thread_local.connection
 
+    def _deal_listings_failing_item_check(
+        self,
+        listing_ids: list[str],
+        item_checks: dict[str, str | None],
+        *,
+        fetch_json: Any | None = None,
+        budget_exhausted: bool = False,
+    ) -> set[str]:
+        """The listing ids whose eBay item page rules them out. Search results
+        carry no card condition, so a clean title can hide "Card Condition:
+        Heavily Played (Poor)" (Plasma Storm Charizard, 2026-09-22); only
+        getItem's condition descriptor says. Deals must be "Near Mint or
+        Better", from a US seller, priced natively in USD. A lookup that fails,
+        or can't run because the day's eBay budget is spent, counts as a
+        rejection: no alert beats a wrong one."""
+        pending = [lid for lid in dict.fromkeys(listing_ids) if lid not in item_checks]
+        if budget_exhausted:
+            return {lid for lid in listing_ids if item_checks.get(lid) or lid in pending}
+        legacy_by_listing = {lid: (lid.split("|")[1] if "|" in lid else lid) for lid in pending}
+        if pending:
+            items = fetch_ebay_items_by_legacy_ids(
+                list(legacy_by_listing.values()),
+                fetch_json=fetch_json,
+                consumer=ebay_listings.EBAY_CONSUMER_WATCH_SCAN,
+            )
+            for lid, legacy_id in legacy_by_listing.items():
+                item_checks[lid] = _deal_item_rejection_reason(items.get(legacy_id))
+                if item_checks[lid]:
+                    print(f"[watch] dropped deal listing {lid}: {item_checks[lid]}")
+        return {lid for lid in listing_ids if item_checks.get(lid)}
+
     def run_deal_scan(
         self,
         *,
@@ -4877,6 +4925,8 @@ class SpotlightScanService:
         alerts_created = 0
         digest_count = 0
         rearmed = 0
+        # listing_id -> rejection reason (None = passed), shared across owners.
+        item_checks: dict[str, str | None] = {}
         for owner_user_id, rows in by_owner.items():
             prior_alerts = watch_signals.recent_alerts_for_owner(
                 connection, owner_user_id
@@ -4891,13 +4941,28 @@ class SpotlightScanService:
             already_today = self._deal_alerts_created_on(
                 connection, owner_user_id, today_iso
             )
-            signals = watch_signals.evaluate_under_added_batch(
-                candidates,
-                baselines_by_card,
-                prior_alerts=prior_alerts,
-                already_sent_today=already_today,
-                now=moment,
-            )
+            # Rank, then check the winners' eBay item pages; a listing that is
+            # not Near Mint (or not a US listing) is dropped and the ranking
+            # re-runs, so a rejection frees its daily-cap slot for the next.
+            while True:
+                signals = watch_signals.evaluate_under_added_batch(
+                    candidates,
+                    baselines_by_card,
+                    prior_alerts=prior_alerts,
+                    already_sent_today=already_today,
+                    now=moment,
+                )
+                if dry_run or not signals:
+                    break
+                rejected = self._deal_listings_failing_item_check(
+                    [signal.listing_id for signal in signals],
+                    item_checks,
+                    fetch_json=fetch_json,
+                    budget_exhausted=bool(summary["budgetExhausted"]),
+                )
+                if not rejected:
+                    break
+                candidates = [c for c in candidates if c.listing_id not in rejected]
             if dry_run:
                 alerts_created += len(signals)
             else:

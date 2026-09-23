@@ -358,6 +358,24 @@ class TitleDenylistTests(RawListingTestCase):
             with self.subTest(title=title):
                 self.assertIsNone(title_not_a_card_reason(title))
 
+    def test_slash_joined_conditions_are_read_word_by_word(self) -> None:
+        self.assertEqual(
+            title_worn_condition_reason(
+                "Pokemon Sun & Moon Celestial Storm Copycat 163/168 Full Art Ultra Rare MP/HP"
+            ),
+            "hp",
+        )
+        self.assertIsNone(title_worn_condition_reason("Copycat 163/168 Full Art NM/M"))
+
+    def test_binder_inserts_are_not_cards(self) -> None:
+        self.assertEqual(
+            title_not_a_card_reason(
+                "Pokemon Origin Forme Dialga V 177/189 Astral Radiance Extended Art Binder Insert"
+            ),
+            "extended art",
+        )
+        self.assertEqual(title_not_a_card_reason("Dialga V 177/189 binder insert"), "binder insert")
+
     def test_display_cases_and_customs_are_not_cards(self) -> None:
         self.assertEqual(
             title_not_a_card_reason("Oshawott 105/086 Pokémon Card Extended Art Display Case White Flare"),

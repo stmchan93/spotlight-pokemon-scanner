@@ -89,13 +89,25 @@ class _Transport:
     """Injected mock transport. Counts search calls and refuses any URL the raw
     lane is not supposed to hit."""
 
-    def __init__(self, summaries: list[dict[str, object]] | None = None) -> None:
+    def __init__(
+        self,
+        summaries: list[dict[str, object]] | None = None,
+        *,
+        card_condition: str = "Near Mint or Better",
+        country: str = "US",
+    ) -> None:
         self.summaries = summaries if summaries is not None else [_summary()]
+        self.card_condition = card_condition
+        self.country = country
         self.urls: list[str] = []
 
     @property
     def search_calls(self) -> int:
         return sum(1 for url in self.urls if "buy/browse/v1/item_summary/search" in url)
+
+    @property
+    def item_calls(self) -> int:
+        return sum(1 for url in self.urls if "get_item_by_legacy_id" in url)
 
     def __call__(self, url: str, **kwargs: object) -> dict[str, object]:
         self.urls.append(url)
@@ -103,6 +115,18 @@ class _Transport:
             return {"access_token": "token-value", "expires_in": 7200}
         if "buy/browse/v1/item_summary/search" in url:
             return {"itemSummaries": self.summaries}
+        if "get_item_by_legacy_id" in url:
+            legacy_id = url.split("legacy_item_id=")[1]
+            return {
+                "itemId": f"v1|{legacy_id}|0",
+                "legacyItemId": legacy_id,
+                "title": f"{CARD_NAME} {CARD_NUMBER}",
+                "price": {"value": "70.00", "currency": "USD"},
+                "itemLocation": {"country": self.country},
+                "conditionDescriptors": [
+                    {"name": "Card Condition", "values": [{"content": self.card_condition}]}
+                ],
+            }
         raise AssertionError(f"Unexpected URL: {url}")
 
 
@@ -357,8 +381,30 @@ class DealScanJobTests(WatchWiringTestCase):
             "SELECT api_calls, cache_hits FROM ebay_usage_daily WHERE consumer = 'watch_scan'"
         ).fetchone()
         self.assertIsNotNone(row)
-        self.assertEqual(int(row["api_calls"]), 1)
+        # The first scan's search + its alert's item-condition check; the
+        # second scan is a cache hit and raises nothing new to check.
+        self.assertEqual(int(row["api_calls"]), 2)
         self.assertEqual(int(row["cache_hits"]), 1)
+
+    def test_deal_needs_a_near_mint_us_item_page(self) -> None:
+        # Plasma Storm Charizard, 2026-09-22: a clean title over "Card
+        # Condition: Heavily Played (Poor)" in the item specifics.
+        for kwargs, expected in (
+            ({"card_condition": "Heavily Played (Poor)"}, 0),
+            ({"country": "GB"}, 0),
+            ({}, 1),
+        ):
+            with self.subTest(**kwargs):
+                self.connection.execute("DELETE FROM deal_alerts")
+                self.connection.execute("DELETE FROM card_ebay_listings_cache")
+                self.connection.commit()
+                self._card()
+                self._history()
+                self._watch("owner-a")
+                transport = _Transport(**kwargs)
+                summary = self._run_scan(transport)
+                self.assertEqual(summary["alertsCreated"], expected)
+                self.assertEqual(transport.item_calls, 1)
 
     def test_dry_run_writes_nothing(self) -> None:
         self._card()
@@ -405,8 +451,11 @@ class DealScanJobTests(WatchWiringTestCase):
         self.assertEqual(int(row["scans_per_card"]), 18)
         # 1 search + 1 OAuth token fetch. The ledger counts EVERY consumer,
         # oauth included: it is a real HTTP call against the allocation, and the
-        # token cache amortizes it to a handful a day.
+        # token cache amortizes it to a handful a day. No item-condition check:
+        # the budget is spent, so the would-be alert is dropped instead.
         self.assertEqual(int(row["actual_calls"]), 2)
+        self.assertEqual(transport.item_calls, 0)
+        self.assertEqual(summary["alertsCreated"], 0)
         self.assertEqual(
             int(
                 self.connection.execute(

@@ -649,6 +649,19 @@ def _browse_item_image_url(item: dict[str, Any]) -> str | None:
     return None
 
 
+def _card_condition_descriptor(item: dict[str, Any]) -> str | None:
+    for descriptor in item.get("conditionDescriptors") or []:
+        if not isinstance(descriptor, dict):
+            continue
+        if str(descriptor.get("name") or "").strip().lower() != "card condition":
+            continue
+        for value in descriptor.get("values") or []:
+            content = str((value or {}).get("content") or "").strip() if isinstance(value, dict) else ""
+            if content:
+                return content
+    return None
+
+
 def _normalize_browse_item(item: dict[str, Any]) -> dict[str, Any]:
     """The slice of a Browse `getItem` response the sold-comps lane uses.
 
@@ -680,6 +693,9 @@ def _normalize_browse_item(item: dict[str, Any]) -> dict[str, Any]:
         "itemID": str(item.get("legacyItemId") or "").strip() or None,
         "title": str(item.get("title") or "").strip() or None,
         "aspects": aspects,
+        # The seller's "Card Condition" descriptor for ungraded singles, e.g.
+        # "Near Mint or Better" / "Heavily Played (Poor)". Only getItem has it.
+        "cardCondition": _card_condition_descriptor(item),
         "imageURL": _browse_item_image_url(item),
         "priceAmount": price_amount,
         "priceCurrency": (price_currency_code or "").upper() or None,
