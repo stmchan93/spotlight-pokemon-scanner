@@ -43,6 +43,8 @@ const EXPO_EXTRA_ENV_MAPPINGS = [
   // byte-identical to before — so omitting these is silent, not loud.
   ['EXPO_PUBLIC_EBAY_EPN_CAMPAIGN_ID', 'ebayEpnCampaignId'],
   ['EXPO_PUBLIC_EBAY_EPN_ROTATION_ID', 'ebayEpnRotationId'],
+  // TCGplayer affiliate (Impact) tracking-link base. Absent = untagged links.
+  ['EXPO_PUBLIC_TCGPLAYER_AFFILIATE_BASE_URL', 'tcgPlayerAffiliateBaseUrl'],
 ];
 
 const PLACEHOLDER_ENV_VALUES = new Set([

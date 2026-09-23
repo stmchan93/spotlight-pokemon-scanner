@@ -124,6 +124,28 @@ function normalizeTcgPlayerPrinting(value: string | null | undefined) {
   }
 }
 
+/*
+  TCGplayer affiliate (Impact) tagging.
+
+  Same switch as EPN below: the tracking-link base is account-specific (copied
+  from the Impact dashboard, e.g. https://tcgplayer.pxf.io/c/<id>/<ad>/<program>),
+  and with it absent/blank we wrap NOTHING — the URL stays byte-identical.
+  Anything that isn't an https URL is treated as absent rather than trusted.
+*/
+function resolveTcgPlayerAffiliateBase() {
+  const base = resolveRuntimeValue(
+    ['EXPO_PUBLIC_TCGPLAYER_AFFILIATE_BASE_URL'],
+    ['tcgPlayerAffiliateBaseUrl'],
+  ).trim();
+  return /^https:\/\/[^\s?#]+$/.test(base) ? base.replace(/\/+$/, '') : null;
+}
+
+// Impact redirects to `u` after recording the click.
+function withTcgPlayerAffiliate(url: string): string {
+  const base = resolveTcgPlayerAffiliateBase();
+  return base ? `${base}?u=${encodeURIComponent(url)}` : url;
+}
+
 /**
  * Keyword search on TCGplayer, scoped to the card's game.
  *
@@ -175,7 +197,9 @@ export function buildTcgPlayerSearchUrl(params: {
   if (printing) filterParts.push(`Printing=${encodeURIComponent(printing).replace(/%20/g, '+')}`);
   const filterSuffix = filterParts.length > 0 ? `&${filterParts.join('&')}` : '';
 
-  return `https://www.tcgplayer.com/search/all/product?q=${encodedQ}&view=grid${filterSuffix}`;
+  return withTcgPlayerAffiliate(
+    `https://www.tcgplayer.com/search/all/product?q=${encodedQ}&view=grid${filterSuffix}`,
+  );
 }
 
 // Minimal shape of a Scrydex sourcePayload variant as exposed to the client.
@@ -302,7 +326,9 @@ export function buildTcgPlayerProductUrl(params: {
     ? `?Condition=${encodeURIComponent(condition).replace(/%20/g, '+')}`
     : '';
 
-  return `https://www.tcgplayer.com/product/${encodeURIComponent(productId)}${conditionSuffix}`;
+  return withTcgPlayerAffiliate(
+    `https://www.tcgplayer.com/product/${encodeURIComponent(productId)}${conditionSuffix}`,
+  );
 }
 
 // True when the variant is a vintage-style edition split (1st Edition / Unlimited).

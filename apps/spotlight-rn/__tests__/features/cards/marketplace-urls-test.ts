@@ -862,3 +862,41 @@ describe('eBay Partner Network tagging', () => {
     expect(new URL(url).searchParams.get('customid')).toBe('pdp-recent-sales');
   });
 });
+
+/**
+ * TCGplayer affiliate (Impact) tagging. Same contract as EPN: no configured
+ * tracking base means the exact URL the app has always opened.
+ */
+describe('TCGplayer affiliate tagging', () => {
+  const KEY = 'EXPO_PUBLIC_TCGPLAYER_AFFILIATE_BASE_URL';
+  const BASE = 'https://tcgplayer.pxf.io/c/1234567/1780961/21018';
+  const SEARCH = { setName: 'Base Set', name: 'Charizard', cardNumber: '4/102' };
+
+  beforeEach(() => delete process.env[KEY]);
+  afterEach(() => delete process.env[KEY]);
+
+  it('leaves both link kinds untouched when no base is configured', () => {
+    expect(buildTcgPlayerProductUrl({ productId: '42382' })).toBe('https://www.tcgplayer.com/product/42382');
+    expect(buildTcgPlayerSearchUrl(SEARCH)).toMatch(/^https:\/\/www\.tcgplayer\.com\/search\//);
+  });
+
+  it('treats a blank or non-https base as absent', () => {
+    const untagged = buildTcgPlayerProductUrl({ productId: '42382' });
+    for (const value of ['   ', 'http://tcgplayer.pxf.io/c/1/2/3', 'not a url']) {
+      process.env[KEY] = value;
+      expect(buildTcgPlayerProductUrl({ productId: '42382' })).toBe(untagged);
+    }
+  });
+
+  it('wraps the destination in the Impact tracking link when configured', () => {
+    const untaggedSearch = buildTcgPlayerSearchUrl(SEARCH)!;
+    process.env[KEY] = `${BASE}/`;
+
+    const product = new URL(buildTcgPlayerProductUrl({ productId: '42382', condition: 'NM' })!);
+    expect(product.origin + product.pathname).toBe(BASE);
+    expect(product.searchParams.get('u')).toBe('https://www.tcgplayer.com/product/42382?Condition=Near+Mint');
+
+    const search = new URL(buildTcgPlayerSearchUrl(SEARCH)!);
+    expect(search.searchParams.get('u')).toBe(untaggedSearch);
+  });
+});
