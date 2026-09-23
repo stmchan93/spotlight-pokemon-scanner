@@ -1,9 +1,10 @@
 import * as Linking from 'expo-linking';
 
 /*
-  The hosted legal site (GitHub Pages). Discovered layout as of 2026-08-12:
+  The hosted legal site (GitHub Pages, served from ekalight.com since 2026-09-22):
 
-    /            → the Privacy Policy (the ROOT page is the policy; /privacy/ 404s)
+    /            → the marketing home page
+    /privacy/    → the Privacy Policy (was the root page before the domain move)
     /terms/      → the Terms of Service
     /delete-account/ → account-deletion instructions (Play data-deletion URL)
 
@@ -11,10 +12,10 @@ import * as Linking from 'expo-linking';
   in-app to actually open these pages, so every mention routes through here —
   one module to update when the documents move to ekalight.com.
 */
-const LEGAL_SITE_BASE_URL = 'https://stmchan93.github.io/ekalight-legal';
+const LEGAL_SITE_BASE_URL = 'https://ekalight.com';
 
 export const TERMS_OF_USE_URL = `${LEGAL_SITE_BASE_URL}/terms/`;
-export const PRIVACY_POLICY_URL = `${LEGAL_SITE_BASE_URL}/`;
+export const PRIVACY_POLICY_URL = `${LEGAL_SITE_BASE_URL}/privacy/`;
 
 /**
  * Open a known-good https legal URL. No `canOpenURL` gate: on Android 11+ that
