@@ -15,7 +15,7 @@ type CardDetailHeroProps = {
   imageUrl: string | null;
   name: string;
   isFavorite: boolean;
-  /** Omit to hide the watch toggle (sealed product can't be watched yet). */
+  /** Omit to hide the watch toggle. */
   onToggleFavorite?: () => void;
   /**
    * `card` frames portrait 5:7 art; `product` frames a sealed product shot

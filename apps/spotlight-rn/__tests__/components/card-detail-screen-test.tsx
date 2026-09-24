@@ -2579,7 +2579,7 @@ describe('CardDetailScreen', () => {
         ...overrides,
       });
 
-    it('shows the product type, set and market price; hides card-only controls', async () => {
+    it('shows the product type, set and market price; hides card-only pickers', async () => {
       renderWithProviders(
         <CardDetailScreen cardId={sealedId} onBack={jest.fn()} />,
         { spotlightRepository: sealedRepository() },
@@ -2605,14 +2605,93 @@ describe('CardDetailScreen', () => {
       // Card-only surfaces are gone.
       expect(screen.queryByTestId('detail-configurator')).toBeNull();
       expect(screen.queryByTestId('detail-configurator-grader-PSA')).toBeNull();
-      expect(screen.queryByTestId('detail-add-item')).toBeNull();
-      expect(screen.queryByTestId('detail-hero-card-favorite')).toBeNull();
       expect(screen.queryByTestId('detail-population-report')).toBeNull();
       expect(screen.queryByTestId('detail-owned-edit')).toBeNull();
 
-      // TCGplayer + share take the add bar's place.
-      expect(screen.getByTestId('detail-tcgplayer-button')).toBeTruthy();
+      // Same actions as a card: add + share in the bar, watch on the hero.
+      expect(screen.getByTestId('detail-add-item')).toBeTruthy();
       expect(screen.getByTestId('detail-share-button')).toBeTruthy();
+      expect(screen.getByTestId('detail-hero-card-favorite')).toBeTruthy();
+      expect(screen.queryByTestId('detail-tcgplayer-button')).toBeNull();
+    });
+
+    it('keeps a long header title on one truncated line between the bubbles', async () => {
+      renderWithProviders(
+        <CardDetailScreen cardId={sealedId} onBack={jest.fn()} />,
+        { spotlightRepository: sealedRepository() },
+      );
+
+      await screen.findByTestId('detail-name');
+      const title = screen.getByTestId('detail-header-title');
+      expect(title.props.numberOfLines).toBe(1);
+      expect(title.props.ellipsizeMode).toBe('tail');
+      // The title takes the middle; the flanks are fixed-width so a long name
+      // can't squeeze them under the back/share bubbles.
+      expect(StyleSheet.flatten(title.props.style).flex).toBe(1);
+      const leading = StyleSheet.flatten(screen.getByTestId('detail-header-leading').props.style);
+      const trailing = StyleSheet.flatten(screen.getByTestId('detail-header-trailing').props.style);
+      expect(leading.flexShrink).toBe(0);
+      expect(trailing.flexShrink).toBe(0);
+      // Equal flanks keep the title centered; wide enough for the share capsule.
+      expect(leading.width).toBe(trailing.width);
+      expect(leading.width).toBeGreaterThanOrEqual(44);
+    });
+
+    it('adds a sealed product as one condition-less entry from a quantity-only sheet', async () => {
+      const createInventoryEntry = jest.fn(async () => ({
+        deckEntryID: 'sealed-entry',
+        cardID: sealedId,
+        addedAt: '2026-09-23T00:00:00.000Z',
+      }));
+      renderWithProviders(
+        <CardDetailScreen cardId={sealedId} onBack={jest.fn()} />,
+        { spotlightRepository: sealedRepository({ createInventoryEntry }) },
+      );
+
+      await screen.findByTestId('detail-name');
+      await waitFor(() => {
+        expect(screen.getByTestId('detail-add-item')).not.toBeDisabled();
+      });
+      fireEvent.press(screen.getByTestId('detail-add-item'));
+      await screen.findByTestId('detail-add-sheet-confirm');
+      // No language/variant/grader chips and no condition picker for sealed.
+      expect(screen.queryByTestId('detail-add-sheet-configurator')).toBeNull();
+      expect(screen.queryByTestId('detail-add-sheet-grade-trigger')).toBeNull();
+      fireEvent.press(screen.getByTestId('detail-add-sheet-quantity-increment'));
+      fireEvent.press(screen.getByTestId('detail-add-sheet-confirm'));
+
+      await waitFor(() => {
+        expect(createInventoryEntry).toHaveBeenCalledWith(expect.objectContaining({
+          cardID: sealedId,
+          slabContext: null,
+          variantName: null,
+          condition: null,
+          quantity: 2,
+        }));
+      });
+      expect(capturePostHogEvent).toHaveBeenCalledWith(
+        'card_detail_add_item_succeeded',
+        expect.objectContaining({ kind: 'sealed' }),
+      );
+    });
+
+    it('watches a sealed product from the hero toggle', async () => {
+      const setCardFavorite = jest.fn(async (_cardId: string, isFavorite?: boolean | null) => ({
+        cardId: sealedId,
+        favoritedAt: isFavorite ? '2026-09-23T00:00:00.000Z' : null,
+        isFavorite: Boolean(isFavorite),
+      }));
+      renderWithProviders(
+        <CardDetailScreen cardId={sealedId} onBack={jest.fn()} />,
+        { spotlightRepository: sealedRepository({ setCardFavorite }) },
+      );
+
+      fireEvent.press(await screen.findByTestId('detail-hero-card-favorite'));
+      await waitFor(() => {
+        expect(setCardFavorite).toHaveBeenLastCalledWith(sealedId, true);
+        expect(screen.getByTestId('detail-hero-card-favorite').props.accessibilityLabel)
+          .toBe('Remove from watchlist');
+      });
     });
 
     it('links to the exact TCGplayer product page with no condition filter', async () => {
@@ -2624,13 +2703,14 @@ describe('CardDetailScreen', () => {
       );
 
       await screen.findByTestId('detail-price-trends');
+      // The Market Price row keeps its chevron and is the TCGplayer link.
+      expect(screen.getAllByTestId('detail-price-trends-row-NM-chevron-link').length).toBeGreaterThan(0);
       await waitFor(() => {
-        expect(screen.getByTestId('detail-tcgplayer-button')).not.toBeDisabled();
+        fireEvent.press(screen.getByTestId('detail-price-trends-row-NM'));
+        expect(openURL).toHaveBeenCalled();
       });
-      fireEvent.press(screen.getByTestId('detail-tcgplayer-button'));
-      fireEvent.press(screen.getByTestId('detail-price-trends-row-NM'));
 
-      expect(openURL).toHaveBeenCalledTimes(2);
+      expect(openURL).toHaveBeenCalledTimes(1);
       for (const [url] of openURL.mock.calls) {
         expect(url).toContain('tcgplayer.com/product/593355');
         expect(url).not.toContain('Condition=');
