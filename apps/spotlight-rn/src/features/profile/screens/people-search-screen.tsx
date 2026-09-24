@@ -9,7 +9,8 @@ import { Avatar, SearchField, StateCard, Text, useSpotlightTheme } from '@spotli
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import type { UserProfile } from '@/features/auth/auth-models';
-import { searchUsers } from '@/features/profile/profile-service';
+import { fetchSuggestedUsers, searchUsers } from '@/features/profile/profile-service';
+import { useAuth } from '@/providers/auth-provider';
 import {
   getProfileDisplayName,
   getProfileInitials,
@@ -19,17 +20,21 @@ const SEARCH_DEBOUNCE_MS = 250;
 
 /**
  * People search — the profile top bar's magnifier. Searches USERS (handle or
- * display name, prefix-style, via `searchUsers` / public_profiles), not the
+ * display name, matched anywhere, via `searchUsers` / public_profiles), not the
  * card catalog: card search already lives on Home's bar and the scanner. Rows
  * route to the person's public profile. Same debounce + stale-response token
- * discipline as the DM inbox's people search.
+ * discipline as the DM inbox's people search. Before anything is typed it
+ * lists popular collectors, so the screen is never a blank box.
  */
 export function PeopleSearchScreen({ testID = 'people-search' }: { testID?: string }) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const auth = useAuth();
+  const viewerId = auth.currentUser?.id ?? null;
 
   const [query, setQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<UserProfile[]>([]);
   const [results, setResults] = useState<UserProfile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const searchTokenRef = useRef(0);
@@ -55,6 +60,18 @@ export function PeopleSearchScreen({ testID = 'people-search' }: { testID?: stri
     });
     return unsubscribe;
   }, [navigation]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchSuggestedUsers(viewerId).then((rows) => {
+      if (!cancelled) {
+        setSuggestions(rows);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [viewerId]);
 
   const trimmedQuery = query.trim();
   const isSearching = trimmedQuery.length > 0;
@@ -162,9 +179,20 @@ export function PeopleSearchScreen({ testID = 'people-search' }: { testID?: stri
           paddingBottom: insets.bottom + 24,
           paddingHorizontal: theme.layout.pageGutter,
         }}
-        data={results}
+        data={isSearching ? results : suggestions}
         keyboardShouldPersistTaps="handled"
         keyExtractor={(person) => person.userID}
+        ListHeaderComponent={
+          !isSearching && suggestions.length > 0 ? (
+            <Text
+              accessibilityRole="header"
+              style={[theme.typography.titleXsmall, styles.sectionTitle]}
+              testID={`${testID}-suggested-title`}
+            >
+              Popular collectors
+            </Text>
+          ) : null
+        }
         ListEmptyComponent={
           isSearching ? (
             <StateCard
@@ -185,6 +213,10 @@ export function PeopleSearchScreen({ testID = 'people-search' }: { testID?: stri
 }
 
 const styles = StyleSheet.create({
+  sectionTitle: {
+    paddingBottom: 4,
+    paddingTop: 12,
+  },
   header: {
     alignItems: 'center',
     flexDirection: 'row',

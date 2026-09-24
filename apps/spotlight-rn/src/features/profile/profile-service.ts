@@ -310,36 +310,81 @@ export function fetchFollowing(userID: string, limit = 100): Promise<UserProfile
 // ---------------------------------------------------------------------------
 
 /**
- * Prefix-search public profiles by @handle or display name. Reads the
- * moderation-filtered view, so hidden users never surface. Returns [] for a blank
- * query or any failure. The query is sanitized to the handle/name character set
- * before it is interpolated into the PostgREST `or` filter, so it cannot break the
- * filter grammar.
+ * Search public profiles by @handle or display name, matching anywhere in either
+ * ("chan" finds "Stephen Chan", "vault" finds @vintagevault). Names that START
+ * with the query rank first, then by followers. Reads the moderation-filtered
+ * view, so hidden users never surface. Returns [] for a blank query or any
+ * failure. The query is reduced to letters (any script), digits, underscore and
+ * spaces before it is interpolated into the PostgREST `or` filter, so it cannot
+ * break the filter grammar.
  */
 export async function searchUsers(query: string, limit = 20): Promise<UserProfile[]> {
   const cleaned = (query ?? '')
     .trim()
     .replace(/^@+/, '')
-    // Keep only characters that appear in handles/names; this also neutralizes the
-    // comma/paren/dot that PostgREST's or() grammar treats as syntax.
-    .replace(/[^a-zA-Z0-9_ ]/g, '')
+    .replace(/[^\p{L}\p{N}_ ]/gu, '')
+    .replace(/\s+/g, ' ')
     .trim();
   if (!supabase || cleaned.length === 0) {
     return [];
   }
 
   try {
-    const pattern = `${cleaned}%`;
+    // Handles have no spaces, so "stephen chan" should still find @stephenchan.
+    const handleNeedle = cleaned.replace(/ /g, '');
     const { data, error } = await supabase
       .from(PUBLIC_PROFILES_VIEW)
       .select(publicProfileSelect)
-      .or(`handle.ilike.${pattern},display_name.ilike.${pattern}`)
+      .or(`handle.ilike.%${handleNeedle}%,display_name.ilike.%${cleaned}%`)
       .order('follower_count', { ascending: false })
-      .limit(limit);
+      .limit(limit * 2);
     if (error || !data) {
       return [];
     }
-    return (data as PublicProfileRow[]).map(mapPublicProfile);
+    return rankSearchMatches((data as PublicProfileRow[]).map(mapPublicProfile), cleaned).slice(0, limit);
+  } catch {
+    return [];
+  }
+}
+
+/** Prefix matches on handle or any word of the name first; the server's follower order breaks ties. */
+export function rankSearchMatches(profiles: UserProfile[], query: string): UserProfile[] {
+  const needle = query.toLowerCase();
+  const score = (profile: UserProfile) => {
+    const handle = (profile.handle ?? '').toLowerCase();
+    const name = (profile.displayName ?? '').toLowerCase();
+    if (handle.startsWith(needle.replace(/ /g, '')) || name.startsWith(needle)) {
+      return 0;
+    }
+    return name.split(/\s+/).some((word) => word.startsWith(needle)) ? 1 : 2;
+  };
+  return profiles
+    .map((profile, index) => ({ index, profile, rank: score(profile) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((entry) => entry.profile);
+}
+
+/**
+ * Collectors to show before anything is typed: the most-followed public
+ * profiles. Excludes `excludeUserID` (the viewer). [] on any failure.
+ */
+export async function fetchSuggestedUsers(excludeUserID: string | null, limit = 20): Promise<UserProfile[]> {
+  if (!supabase) {
+    return [];
+  }
+  try {
+    const { data, error } = await supabase
+      .from(PUBLIC_PROFILES_VIEW)
+      .select(publicProfileSelect)
+      .order('follower_count', { ascending: false })
+      .limit(limit + 1);
+    if (error || !data) {
+      return [];
+    }
+    return (data as PublicProfileRow[])
+      .map(mapPublicProfile)
+      .filter((profile) => profile.userID !== excludeUserID)
+      .slice(0, limit);
   } catch {
     return [];
   }
