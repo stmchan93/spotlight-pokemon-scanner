@@ -4,6 +4,7 @@ import { gameDisplayName, type NewsFeed, type NewsItem } from '@spotlight/api-cl
 import { NewsRow, useSpotlightTheme } from '@spotlight/design-system';
 
 import { MetaBlockHeader } from '@/features/meta-feed/components/meta-block-header';
+import { trackNewsItemOpened } from '@/features/meta-feed/meta-analytics';
 import { NEWS_FEED_BLOCK_LIMIT } from '@/features/meta-feed/hooks/use-meta-feed';
 import {
   newsSourceLine,
@@ -68,7 +69,10 @@ export function NewsBlock({
             divider={index < items.length - 1}
             imageUrl={item.imageUrl}
             key={item.id}
-            onPress={() => onOpenLink(item.url)}
+            onPress={() => {
+              trackNewsItemOpened(item, 'feed');
+              onOpenLink(item.url);
+            }}
             sourceLabel={newsSourceLine(item)}
             tags={newsItemChips(item)}
             testID={`${testID}-row-${item.id}`}

@@ -1,10 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppText, CardRailTile, spacing } from '@spotlight/design-system';
 import type { SimilarCard, SimilarCards, SpotlightRepository } from '@spotlight/api-client';
 
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import { AnalyticsEvent } from '@/lib/observability/analytics-events';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
+
+type SimilarRow = 'goes_with' | 'same_name' | 'cheaper';
+
+/** Non-empty rows in a payload — the section renders exactly these. */
+export function similarRowCount(similar: SimilarCards): number {
+  return (similar.goesWith ? 1 : 0)
+    + (similar.sameName.length > 0 ? 1 : 0)
+    + (similar.sameLookCheaper.length > 0 ? 1 : 0);
+}
 
 type CardSimilarSectionProps = {
   cardId: string;
@@ -60,6 +71,23 @@ export function CardSimilarSection({ cardId, enabled, repository, onPressCard, t
     };
   }, [cardId, enabled, repository]);
 
+  // Once per card page, and only when the section actually has content.
+  const reportedShownForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!similar || similar.cardId !== cardId || reportedShownForRef.current === cardId) {
+      return;
+    }
+    const rows = similarRowCount(similar);
+    if (rows === 0) {
+      return;
+    }
+    reportedShownForRef.current = cardId;
+    capturePostHogEvent(AnalyticsEvent.similarCardsShown, {
+      rows,
+      has_goes_with: similar.goesWith != null,
+    });
+  }, [cardId, similar]);
+
   if (!similar || similar.cardId !== cardId) {
     return null;
   }
@@ -67,8 +95,18 @@ export function CardSimilarSection({ cardId, enabled, repository, onPressCard, t
   if (!goesWith && sameName.length === 0 && sameLookCheaper.length === 0) {
     return null;
   }
+  const openCard = (card: SimilarCard, row: SimilarRow, rank: number) => {
+    capturePostHogEvent(AnalyticsEvent.similarCardOpened, { row, rank });
+    onPressCard(card);
+  };
   // A null title renders the rail bare, directly under the section title.
-  const renderRail = (key: string, title: string | null, caption: string | null, cards: SimilarCard[]) =>
+  const renderRail = (
+    key: string,
+    row: SimilarRow,
+    title: string | null,
+    caption: string | null,
+    cards: SimilarCard[],
+  ) =>
     cards.length === 0 ? null : (
       <View style={styles.row} testID={testID ? `${testID}-${key}` : undefined}>
         {title ? (
@@ -83,12 +121,12 @@ export function CardSimilarSection({ cardId, enabled, repository, onPressCard, t
           showsHorizontalScrollIndicator={false}
           style={styles.rail}
         >
-          {cards.map((card) => (
+          {cards.map((card, index) => (
             <CardRailTile
               imageUrl={card.imageUrl}
               key={card.cardId}
               name={card.name}
-              onPress={() => onPressCard(card)}
+              onPress={() => openCard(card, row, index + 1)}
               priceLabel={priceLabel(card)}
               subtitle={subtitle(card)}
               testID={testID ? `${testID}-${key}-${card.cardId}` : undefined}
@@ -113,7 +151,7 @@ export function CardSimilarSection({ cardId, enabled, repository, onPressCard, t
             imageUrl={goesWith.imageUrl}
             layout="feature"
             name={goesWith.name}
-            onPress={() => onPressCard(goesWith)}
+            onPress={() => openCard(goesWith, 'goes_with', 1)}
             priceLabel={priceLabel(goesWith)}
             subtitle={[goesWith.setName, goesWith.number].filter(Boolean).join(' · ')}
             testID={testID ? `${testID}-goes-with-${goesWith.cardId}` : undefined}
@@ -121,8 +159,8 @@ export function CardSimilarSection({ cardId, enabled, repository, onPressCard, t
         </View>
       ) : null}
 
-      {renderRail('same-name', null, null, sameName)}
-      {renderRail('cheaper', 'Same look, lower price', null, sameLookCheaper)}
+      {renderRail('same-name', 'same_name', null, null, sameName)}
+      {renderRail('cheaper', 'cheaper', 'Same look, lower price', null, sameLookCheaper)}
     </View>
   );
 }

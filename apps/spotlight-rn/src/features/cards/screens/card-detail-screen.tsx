@@ -104,6 +104,7 @@ import {
 } from '@/features/scanner/scan-candidate-review-session';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { keyboardClearance } from '@/lib/keyboard-insets';
+import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
 
@@ -1311,11 +1312,9 @@ export function CardDetailScreen({
       .then((result) => {
         // Reported off the SERVER's answer, not the optimistic flip above, so a
         // write that silently disagreed with the UI is not counted as a save.
-        // The wishlist looked near-dead in PostHog because only the scanner's
-        // add was instrumented — this path, the main one, sent nothing at all.
         capturePostHogEvent(
-          result.isFavorite ? 'wishlist_item_added' : 'wishlist_item_removed',
-          { source: 'card_detail' },
+          result.isFavorite ? AnalyticsEvent.watchlistItemAdded : AnalyticsEvent.watchlistItemRemoved,
+          { source: 'card_detail', kind: isSealed ? 'sealed' : 'card' },
         );
         setFavoriteState({
           favoritedAt: result.favoritedAt ?? null,
@@ -1336,7 +1335,7 @@ export function CardDetailScreen({
         setErrorMessage('Could not update watchlist right now.');
         setIsFavoritePending(false);
       });
-  }, [activeCardId, favoriteState, isFavoritePending, spotlightRepository]);
+  }, [activeCardId, favoriteState, isFavoritePending, isSealed, spotlightRepository]);
 
   // EN/JP toggle: derived from the loaded card's language + its other-language
   // counterpart. Shown only when a confident counterpart link exists. Switching
@@ -1449,9 +1448,18 @@ export function CardDetailScreen({
       ));
     };
 
+    const kind = isSealed ? 'sealed' : 'card';
+    const reportTargetSet = () => {
+      capturePostHogEvent(AnalyticsEvent.watchTargetSet, {
+        source: 'card_detail',
+        cleared: cents === null,
+      });
+    };
+
     const result = await spotlightRepository.setCardFavoriteTarget(cardIdForTarget, cents);
     if (result.status === 'ok') {
       applySaved(result.target.targetPriceCents);
+      reportTargetSet();
       return 'saved';
     }
     if (result.status !== 'not_watchlisted') {
@@ -1463,6 +1471,7 @@ export function CardDetailScreen({
     // as a side effect of turning an alert OFF.
     if (cents === null) {
       applySaved(null);
+      reportTargetSet();
       return 'saved';
     }
 
@@ -1471,6 +1480,8 @@ export function CardDetailScreen({
     if (!favorited?.isFavorite) {
       return 'error';
     }
+    // Setting a target on an unwatched card watches it — that IS an add.
+    capturePostHogEvent(AnalyticsEvent.watchlistItemAdded, { source: 'target_price', kind });
     setFavoriteState({
       favoritedAt: favorited.favoritedAt ?? null,
       isFavorite: true,
@@ -1482,8 +1493,9 @@ export function CardDetailScreen({
       return 'error';
     }
     applySaved(retry.target.targetPriceCents);
+    reportTargetSet();
     return 'saved';
-  }, [activeCardId, spotlightRepository]);
+  }, [activeCardId, isSealed, spotlightRepository]);
 
   useEffect(() => {
     if (!promptTargetAfterWatch) {

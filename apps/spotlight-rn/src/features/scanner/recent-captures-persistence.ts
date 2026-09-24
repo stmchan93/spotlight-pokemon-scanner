@@ -1,7 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
-import { capturePostHogEvent } from '@/lib/observability/posthog';
 
 import type { ScanPriceSheetSelection } from './screens/scan-price-sheet';
 import type { RecentCapture } from './screens/scanner-screen-types';
@@ -156,11 +155,6 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
-function reportError(kind: 'write' | 'read' | 'copy' | 'delete' | 'sweep', error: unknown) {
-  const message = error instanceof Error ? error.message : String(error ?? 'unknown');
-  capturePostHogEvent('scan_tray_persist_error', { kind, message });
-}
-
 export async function ensureScansDir(): Promise<void> {
   if (scansDirReady) {
     return;
@@ -173,8 +167,8 @@ export async function ensureScansDir(): Promise<void> {
           await FileSystem.makeDirectoryAsync(RECENT_CAPTURES_DIR, { intermediates: true });
         }
         scansDirReady = true;
-      } catch (error) {
-        reportError('write', error);
+      } catch {
+        // Best-effort: persistence failures never block the tray.
       } finally {
         scansDirPromise = null;
       }
@@ -209,8 +203,8 @@ export async function copyToScansDir(
     const destination = scanFilePath(id, source);
     await FileSystem.copyAsync({ from: srcUri, to: destination });
     return destination;
-  } catch (error) {
-    reportError('copy', error);
+  } catch {
+    // Best-effort: persistence failures never block the tray.
     return null;
   }
 }
@@ -224,8 +218,8 @@ export async function deleteScanFile(
   }
   try {
     await FileSystem.deleteAsync(uri, { idempotent: true });
-  } catch (error) {
-    reportError('delete', error);
+  } catch {
+    // Best-effort: persistence failures never block the tray.
   }
 }
 
@@ -332,14 +326,14 @@ async function performTrayWrite(snapshot: PersistedTraySnapshot): Promise<void> 
       priceSelections,
     };
     serialized = JSON.stringify(envelope);
-  } catch (error) {
-    reportError('write', error);
+  } catch {
+    // Best-effort: persistence failures never block the tray.
     return;
   }
   try {
     await AsyncStorage.setItem(RECENT_CAPTURES_STORAGE_KEY, serialized);
-  } catch (error) {
-    reportError('write', error);
+  } catch {
+    // Best-effort: persistence failures never block the tray.
   }
 }
 
@@ -491,8 +485,8 @@ export async function loadPersistedTraySnapshot(): Promise<PersistedTraySnapshot
   let raw: string | null = null;
   try {
     raw = await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY);
-  } catch (error) {
-    reportError('read', error);
+  } catch {
+    // Best-effort: persistence failures never block the tray.
     return emptySnapshot();
   }
   if (!raw) {
@@ -504,16 +498,16 @@ export async function loadPersistedTraySnapshot(): Promise<PersistedTraySnapshot
     if (parsed && parsed.version === PERSIST_ENVELOPE_VERSION && Array.isArray(parsed.items)) {
       envelope = parsed;
     }
-  } catch (error) {
-    reportError('read', error);
+  } catch {
+    // Best-effort: persistence failures never block the tray.
   }
   if (!envelope) {
     // Version mismatch or corrupt JSON — drop everything cleanly so we don't
     // keep retrying to parse broken data forever.
     try {
       await AsyncStorage.removeItem(RECENT_CAPTURES_STORAGE_KEY);
-    } catch (error) {
-      reportError('write', error);
+    } catch {
+      // Best-effort: persistence failures never block the tray.
     }
     return emptySnapshot();
   }
@@ -525,8 +519,8 @@ export async function loadPersistedTraySnapshot(): Promise<PersistedTraySnapshot
   if (envelope.ownerKey !== undefined && normalizeOwnerKey(envelope.ownerKey) !== currentOwnerKey) {
     try {
       await AsyncStorage.removeItem(RECENT_CAPTURES_STORAGE_KEY);
-    } catch (error) {
-      reportError('write', error);
+    } catch {
+      // Best-effort: persistence failures never block the tray.
     }
     await sweepOrphanScans(new Set());
     return emptySnapshot();
@@ -582,12 +576,12 @@ export async function sweepOrphanScans(keepIds: Set<string>): Promise<void> {
       }
       try {
         await FileSystem.deleteAsync(`${RECENT_CAPTURES_DIR}${name}`, { idempotent: true });
-      } catch (error) {
-        reportError('sweep', error);
+      } catch {
+        // Best-effort: persistence failures never block the tray.
       }
     });
-  } catch (error) {
-    reportError('sweep', error);
+  } catch {
+    // Best-effort: persistence failures never block the tray.
   }
 }
 

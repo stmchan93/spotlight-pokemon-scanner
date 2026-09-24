@@ -6,9 +6,12 @@ import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 import {
   parseNotificationRoute,
+  pushOpenedAnalyticsProps,
   type NotificationRoute,
 } from '@/features/notifications/notification-routing';
 import { loadNotificationsModule } from '@/features/notifications/notifications-module';
+import { AnalyticsEvent } from '@/lib/observability/analytics-events';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 
 /**
  * Routes a TAPPED notification, from the root layout.
@@ -57,10 +60,12 @@ export function useNotificationTapRouter(): void {
       }
       handledIdsRef.current.add(identifier);
     }
-    const route = parseNotificationRoute(response.notification?.request?.content?.data);
+    const data = response.notification?.request?.content?.data;
+    const route = parseNotificationRoute(data);
     if (!route) {
       return;
     }
+    capturePostHogEvent(AnalyticsEvent.pushOpened, pushOpenedAnalyticsProps(data));
     pendingRef.current = route;
     setPendingVersion((version) => version + 1);
   }, []);

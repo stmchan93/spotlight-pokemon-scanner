@@ -9,6 +9,7 @@ import {
 } from '@spotlight/design-system';
 
 import { MetaBlockHeader } from '@/features/meta-feed/components/meta-block-header';
+import { trackHotCardOpened } from '@/features/meta-feed/meta-analytics';
 import { formatSignedPercent } from '@/features/meta-feed/screens/components/meta-format';
 import { formatCompactCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
@@ -83,7 +84,12 @@ export function HotCardsBlock({
           <HotCardTile
             card={card}
             key={card.cardId}
-            onPress={onPressCard ? () => onPressCard(card.cardId) : undefined}
+            onPress={onPressCard
+              ? () => {
+                  trackHotCardOpened(index + 1);
+                  onPressCard(card.cardId);
+                }
+              : undefined}
             rank={index + 1}
             testID={`${testID}-tile-${card.cardId}`}
           />

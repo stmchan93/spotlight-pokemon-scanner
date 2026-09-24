@@ -1,6 +1,6 @@
 import { render, waitFor } from '@testing-library/react-native';
 
-import { PostHogScreenTracker } from '@/lib/observability/posthog-screen-tracker';
+import { PostHogScreenTracker, resolveScreenName } from '@/lib/observability/posthog-screen-tracker';
 
 const mockCapturePostHogScreen = jest.fn();
 let mockedPathname = '/';
@@ -93,5 +93,29 @@ describe('PostHogScreenTracker', () => {
     await waitFor(() => {
       expect(mockCapturePostHogScreen).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it.each([
+    ['/wishlist', 'watchlist'],
+    ['/meta', 'meta'],
+    ['/meta/group/vintage:raw:nm', 'meta_group'],
+    ['/news', 'news'],
+    ['/calendar', 'calendar'],
+    ['/set-spotlight/sv8', 'set_spotlight'],
+    ['/search/people', 'people_search'],
+    ['/u/ash', 'profile'],
+    ['/u/ash/followers', 'profile'],
+    ['/post/abc', 'post'],
+    ['/messages', 'messages'],
+    ['/messages/conv-1', 'messages'],
+    ['/notifications', 'notifications'],
+    ['/insights', 'insights'],
+    ['/account/alerts', 'alerts'],
+    ['/account', 'account'],
+    ['/account/blocked', 'account'],
+    ['/catalog/game/pokemon', 'catalog_game'],
+    ['/catalog/search', 'catalog_search'],
+  ])('maps %s to %s', (pathname, name) => {
+    expect(resolveScreenName(pathname)).toBe(name);
   });
 });

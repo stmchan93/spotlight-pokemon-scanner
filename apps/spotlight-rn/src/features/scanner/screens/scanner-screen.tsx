@@ -128,6 +128,7 @@ import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { prefetchImageUrls } from '@/lib/card-images';
 import { useAuth } from '@/providers/auth-provider';
+import { AnalyticsEvent, watchlistKindForCardId } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { resolveRuntimeBoolean, resolveStagingSmokeModeEnabled } from '@/lib/runtime-config';
 import { useAppServices } from '@/providers/app-providers';
@@ -184,7 +185,6 @@ import {
   scannerSlabInlineLabel,
   slabContextFromAnalysis,
   summarizeTrayPrices,
-  supportedTrayCurrencyCode,
   triggerScannerHaptic,
   triggerScannerProcessedHaptic,
   withOptimisticInventoryAdd,
@@ -1703,26 +1703,6 @@ export function ScannerScreen({
     [priceSelection, recentCaptures],
   );
 
-  // A candidate priced in something other than USD is dropped from the TOTAL
-  // rather than summed into it (see `summarizeTrayPrices`). That drop is
-  // invisible on screen by design — no UI for a case the product doesn't
-  // support yet — so report it instead of letting it disappear. Deduped per
-  // currency for the session: this recomputes on every tray mutation, and we
-  // want to learn THAT it happens, not one event per re-render.
-  const reportedUnsupportedCurrenciesRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    trayPriceSummary.unsupportedCurrencyCodes.forEach((currencyCode) => {
-      if (reportedUnsupportedCurrenciesRef.current.has(currencyCode)) {
-        return;
-      }
-      reportedUnsupportedCurrenciesRef.current.add(currencyCode);
-      capturePostHogEvent('scan_tray_unsupported_currency', {
-        currency_code: currencyCode,
-        supported_currency_code: supportedTrayCurrencyCode,
-      });
-    });
-  }, [trayPriceSummary]);
-
   // The two removal paths above run BEFORE trackRowResolved is defined, and both
   // must keep empty dep lists (the memoized swipe rows depend on it). A ref lets
   // them reach the live callback without taking it as a dependency.
@@ -2162,18 +2142,11 @@ export function ScannerScreen({
           if (!artifactUpload) {
             return;
           }
-          // Success stays unreported (pruned 2026-08-11 for volume). The two
-          // loss paths do not: a failed upload and a server-disabled one both
-          // mean no training artifact, and `skipped` was previously silent —
-          // kill-switch on meant zero artifacts AND zero signal.
+          // Only failures are reported; success and server-disabled skips are
+          // not (pruned for volume).
           if (artifactUpload.status === 'failed') {
             capturePostHogEvent('scan_artifact_upload_failed', {
               error_kind: artifactUpload.errorKind ?? 'request_failed',
-              mode,
-            });
-          } else if (artifactUpload.status === 'skipped') {
-            capturePostHogEvent('scan_artifact_upload_skipped', {
-              reason: artifactUpload.reason ?? 'unknown',
               mode,
             });
           }
@@ -2528,12 +2501,6 @@ export function ScannerScreen({
             if (artifactUpload?.status === 'failed') {
               capturePostHogEvent('scan_artifact_upload_failed', {
                 error_kind: artifactUpload.errorKind ?? 'request_failed',
-                mode: 'raw',
-                pocket_index: pocketIndex,
-              });
-            } else if (artifactUpload?.status === 'skipped') {
-              capturePostHogEvent('scan_artifact_upload_skipped', {
-                reason: artifactUpload.reason ?? 'unknown',
                 mode: 'raw',
                 pocket_index: pocketIndex,
               });
@@ -3062,9 +3029,6 @@ export function ScannerScreen({
 
       let slabContext: SlabContext | null = null;
       if (isSlab) {
-        capturePostHogEvent('scan_slab_analysis_requested', {
-          mode: 'slabs',
-        });
         const analysisStartedAt = Date.now();
         const slabAnalysis = await analyzeSlabCapture(normalizedTarget.normalizedImageUri);
         slabAnalysisMsForAnalytics = Date.now() - analysisStartedAt;
@@ -3445,7 +3409,11 @@ export function ScannerScreen({
       setInventoryEntries((current) => withUpdatedInventoryFavoriteState(current, cardId, true));
       refreshData();
       didSucceed = true;
-      capturePostHogEvent('scan_wishlist_added', { mode: capture.mode });
+      capturePostHogEvent(AnalyticsEvent.watchlistItemAdded, {
+        source: 'scanner',
+        kind: watchlistKindForCardId(cardId),
+        mode: capture.mode,
+      });
     } catch (error) {
       logScannerDiagnostic(
         `[SCANNER] wishlist add failed cardID=${cardId} message=${scannerErrorMessage(error)}`,
@@ -3633,7 +3601,8 @@ export function ScannerScreen({
           logScannerDiagnostic(`[SCANNER] addAll wishlist failed: ${scannerErrorMessage(error)}`, error);
         }
       }
-      capturePostHogEvent('scan_add_all', {
+      capturePostHogEvent(AnalyticsEvent.watchlistBulkAdded, {
+        source: 'scanner',
         attempted: cardIds.length,
         succeeded,
         failed: cardIds.length - succeeded,

@@ -34,6 +34,7 @@ import {
 } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
+import { trackNewsItemOpened } from '@/features/meta-feed/meta-analytics';
 import {
   formatDuration,
   newsSourceLine,
@@ -104,6 +105,11 @@ export type NewsScreenProps = {
   onBack: () => void;
   onOpenCard: (cardId: string) => void;
 };
+
+function openNewsItem(item: NewsItem) {
+  trackNewsItemOpened(item, 'news_page');
+  void openLinkOut(item.url);
+}
 
 /**
  * News & videos page (docs/meta-feed-mockup/News.dc.html): headlines and
@@ -201,7 +207,7 @@ export function NewsScreen({ initialGame = null, initialKind = null, onBack, onO
               durationLabel={item.video?.durationSeconds != null ? formatDuration(item.video.durationSeconds) : null}
               imageUrl={item.imageUrl}
               metaLabel={videoMetaLine(item)}
-              onPress={() => void openLinkOut(item.url)}
+              onPress={() => openNewsItem(item)}
               testID={`news-item-${item.id}`}
               layout="row"
               title={item.title}
@@ -209,7 +215,7 @@ export function NewsScreen({ initialGame = null, initialKind = null, onBack, onO
           ) : (
             <NewsRow
               imageUrl={item.imageUrl}
-              onPress={() => void openLinkOut(item.url)}
+              onPress={() => openNewsItem(item)}
               sourceLabel={newsSourceLine(item)}
               tags={itemTags(item)}
               testID={`news-item-${item.id}`}
@@ -370,7 +376,7 @@ function LeadStory({
         accessibilityHint="Opens the article"
         accessibilityLabel={`${item.title}, ${item.source}`}
         accessibilityRole="link"
-        onPress={() => void openLinkOut(item.url)}
+        onPress={() => openNewsItem(item)}
         style={({ pressed }) => ({ opacity: pressed ? 0.86 : 1 })}
         testID={`news-item-${item.id}`}
       >

@@ -1,4 +1,3 @@
-import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { isMissingFunctionError } from '@/lib/postgrest-errors';
 import { supabase } from '@/lib/supabase';
 
@@ -684,21 +683,6 @@ export async function fetchLikedPostIds(postIds: string[]): Promise<Set<string>>
   const me = await currentUserId();
   const ids = Array.from(new Set(postIds.filter(Boolean)));
   if (!supabase || !me || ids.length === 0) {
-    /*
-      An empty set here is INDISTINGUISHABLE from "you have liked nothing", and
-      that is the whole problem with this function: every failure mode — no
-      session, a permissions error, a network blip — renders as an unliked
-      thumb inviting you to like something you already liked. Reported as
-      "my likes don't persist", and unreadable from the code because the
-      evidence was being thrown away.
-
-      So say when the read did not actually happen. Only the shape of the
-      failure is reported (was there a session? how many ids?) — never a post
-      id or anything about its content.
-    */
-    if (supabase && !me && ids.length > 0) {
-      capturePostHogEvent('social_like_read_skipped', { reason: 'no_session', idCount: ids.length });
-    }
     return new Set();
   }
   try {
@@ -708,18 +692,10 @@ export async function fetchLikedPostIds(postIds: string[]): Promise<Set<string>>
       .eq('user_id', me)
       .in('post_id', ids);
     if (error || !data) {
-      capturePostHogEvent('social_like_read_failed', {
-        reason: error?.message ?? 'no_data',
-        idCount: ids.length,
-      });
       return new Set();
     }
     return new Set((data as { post_id: string }[]).map((row) => row.post_id));
-  } catch (error) {
-    capturePostHogEvent('social_like_read_failed', {
-      reason: error instanceof Error ? error.message : 'threw',
-      idCount: ids.length,
-    });
+  } catch {
     return new Set();
   }
 }
@@ -755,26 +731,14 @@ export async function fetchLikedCommentIds(commentIds: string[]): Promise<Set<st
 export async function likePost(postId: string): Promise<boolean> {
   const me = await currentUserId();
   if (!supabase || !me || !postId) {
-    // Reported the same way as the read above, so the two halves of "my likes
-    // don't persist" can be told apart: a write that never ran versus a read
-    // that never ran.
-    if (supabase && !me && postId) {
-      capturePostHogEvent('social_like_write_skipped', { reason: 'no_session' });
-    }
     return false;
   }
   try {
     const { error } = await supabase
       .from(POST_LIKES_TABLE)
       .upsert({ post_id: postId, user_id: me }, { onConflict: 'post_id,user_id', ignoreDuplicates: true });
-    if (error) {
-      capturePostHogEvent('social_like_write_failed', { reason: error.message });
-    }
     return !error;
-  } catch (error) {
-    capturePostHogEvent('social_like_write_failed', {
-      reason: error instanceof Error ? error.message : 'threw',
-    });
+  } catch {
     return false;
   }
 }
@@ -823,15 +787,6 @@ export async function fetchRepostedPostIds(postIds: string[]): Promise<Set<strin
   const me = await currentUserId();
   const ids = Array.from(new Set(postIds.filter(Boolean)));
   if (!supabase || !me || ids.length === 0) {
-    // Same reporting split as the like read: an empty set is indistinguishable
-    // from "you have reposted nothing", so say when the read did not happen.
-    // Only the SHAPE of the failure — never a post id.
-    if (supabase && !me && ids.length > 0) {
-      capturePostHogEvent('social_repost_read_skipped', {
-        reason: 'no_session',
-        idCount: ids.length,
-      });
-    }
     return new Set();
   }
   try {
@@ -841,18 +796,10 @@ export async function fetchRepostedPostIds(postIds: string[]): Promise<Set<strin
       .eq('user_id', me)
       .in('post_id', ids);
     if (error || !data) {
-      capturePostHogEvent('social_repost_read_failed', {
-        reason: error?.message ?? 'no_data',
-        idCount: ids.length,
-      });
       return new Set();
     }
     return new Set((data as { post_id: string }[]).map((row) => row.post_id));
-  } catch (error) {
-    capturePostHogEvent('social_repost_read_failed', {
-      reason: error instanceof Error ? error.message : 'threw',
-      idCount: ids.length,
-    });
+  } catch {
     return new Set();
   }
 }
@@ -861,26 +808,17 @@ export async function fetchRepostedPostIds(postIds: string[]): Promise<Set<strin
 export async function repostPost(postId: string): Promise<boolean> {
   const me = await currentUserId();
   if (!supabase || !me || !postId) {
-    if (supabase && !me && postId) {
-      capturePostHogEvent('social_repost_write_skipped', { reason: 'no_session' });
-    }
     return false;
   }
   try {
     // Idempotent: a double-tap that beats the optimistic guard must not error.
+    // Fails closed: the insert policy's `exists` runs under `posts_select`, so
+    // reposting a post you cannot read is rejected here.
     const { error } = await supabase
       .from(POST_REPOSTS_TABLE)
       .upsert({ post_id: postId, user_id: me }, { onConflict: 'post_id,user_id', ignoreDuplicates: true });
-    if (error) {
-      // Includes the fail-closed case: the insert policy's `exists` runs under
-      // `posts_select`, so reposting a post you cannot read is rejected here.
-      capturePostHogEvent('social_repost_write_failed', { reason: error.message });
-    }
     return !error;
-  } catch (error) {
-    capturePostHogEvent('social_repost_write_failed', {
-      reason: error instanceof Error ? error.message : 'threw',
-    });
+  } catch {
     return false;
   }
 }

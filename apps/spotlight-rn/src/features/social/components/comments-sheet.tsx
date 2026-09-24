@@ -1858,19 +1858,6 @@ export function CommentsSheet({
           bounced. Only if the composer is still empty: if they started writing
           something else while the write was in flight, that is theirs.
         */
-        // The twin that matters. This whole failure branch exists because a
-        // silently-lost write is indistinguishable from a dead button, and it
-        // stayed invisible for five attempted fixes. Now it is visible from the
-        // outside too, without waiting for someone to report it.
-        //
-        // `reason` is the database's own message, truncated: it names a policy
-        // rejection or a missing migration exactly, but a constraint violation
-        // can echo part of the submitted text, and none of that is worth
-        // shipping past the first line.
-        capturePostHogEvent('comment_failed', {
-          is_reply: parent != null,
-          reason: result.reason.slice(0, 200),
-        });
         setDraft((current) => (current.length === 0 ? submitted : current));
         Alert.alert("Couldn't post comment", result.reason);
       }

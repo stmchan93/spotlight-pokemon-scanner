@@ -9,6 +9,7 @@ import { CardSimilarSection } from '@/features/cards/components/card-similar-sec
 import { CardDetailScreen } from '@/features/cards/screens/card-detail-screen';
 import { clearCardDetailCache } from '@/features/cards/card-detail-prefetch';
 import { clearCardDetailPreviewSessions } from '@/features/cards/card-detail-preview-session';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
 
@@ -163,5 +164,55 @@ describe('CardDetailScreen "Similar cards"', () => {
       pathname: '/cards/[cardId]',
       params: expect.objectContaining({ cardId: 'sv8-1', previewId: expect.any(String) }),
     });
+  });
+});
+
+describe('CardSimilarSection analytics', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('reports the section once with its row count, and a tap with row + rank only', async () => {
+    const { onPressCard, rerender } = renderSection(async () => FULL);
+
+    await screen.findByText('Similar cards');
+    await waitFor(() => {
+      expect(capturePostHogEvent).toHaveBeenCalledWith('similar_cards_shown', {
+        has_goes_with: true,
+        rows: 3,
+      });
+    });
+
+    fireEvent.press(screen.getByTestId('similar-same-name-ex3-94'));
+    expect(capturePostHogEvent).toHaveBeenCalledWith('similar_card_opened', { rank: 2, row: 'same_name' });
+    fireEvent.press(screen.getByTestId('similar-goes-with-ex8-105'));
+    expect(capturePostHogEvent).toHaveBeenCalledWith('similar_card_opened', { rank: 1, row: 'goes_with' });
+    fireEvent.press(screen.getByTestId('similar-cheaper-sv8-1'));
+    expect(capturePostHogEvent).toHaveBeenCalledWith('similar_card_opened', { rank: 1, row: 'cheaper' });
+    expect(onPressCard).toHaveBeenCalledTimes(3);
+
+    rerender(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <SpotlightThemeProvider>
+          <CardSimilarSection
+            cardId="ex8-106"
+            enabled
+            onPressCard={onPressCard}
+            repository={{ fetchSimilarCards: jest.fn(async () => FULL) }}
+            testID="similar"
+          />
+        </SpotlightThemeProvider>
+      </SafeAreaProvider>,
+    );
+    await screen.findByText('Similar cards');
+    const shownCalls = (capturePostHogEvent as jest.Mock).mock.calls
+      .filter(([event]) => event === 'similar_cards_shown');
+    expect(shownCalls).toHaveLength(1);
+  });
+
+  it('does not report an empty section', async () => {
+    renderSection(async () => EMPTY);
+    await act(async () => {});
+    expect(capturePostHogEvent).not.toHaveBeenCalledWith('similar_cards_shown', expect.anything());
   });
 });

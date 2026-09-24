@@ -22,6 +22,7 @@ import {
 } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
+import { trackNewsItemOpened } from '@/features/meta-feed/meta-analytics';
 import {
   formatCount,
   formatReleaseMonth,
@@ -190,7 +191,10 @@ function SetSpotlightBody({
   ].filter((section): section is string => section !== null);
   const lastSection = sections[sections.length - 1];
 
-  const openItem = (item: NewsItem) => void openLinkOut(item.url);
+  const openItem = (item: NewsItem) => {
+    trackNewsItemOpened(item, 'set_page');
+    void openLinkOut(item.url);
+  };
 
   return (
     <View style={loading ? styles.stale : null} testID="set-spotlight-content">

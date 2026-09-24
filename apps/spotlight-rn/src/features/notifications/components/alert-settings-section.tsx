@@ -6,9 +6,17 @@ import { Text, borderWidths, useSpotlightTheme } from '@spotlight/design-system'
 
 import { resolveDeviceTimeZone } from '@/features/notifications/push-notifications';
 import { usePushPermissionPrompt } from '@/features/notifications/use-push-registration';
+import { AnalyticsEvent } from '@/lib/observability/analytics-events';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
 
 type AlertKey = keyof AlertPreferences;
+
+const PREF_ANALYTICS_NAME: Record<AlertKey, 'price_moves' | 'weekly_summary' | 'deals'> = {
+  dealAlertsEnabled: 'deals',
+  priceMovesEnabled: 'price_moves',
+  weeklySummaryEnabled: 'weekly_summary',
+};
 
 const ROWS: { key: AlertKey; title: string; description: string; testID: string }[] = [
   {
@@ -106,6 +114,10 @@ export function AlertSettingsSection({ testID = 'alert-settings' }: AlertSetting
           return;
         }
         setPrefs(result.prefs);
+        capturePostHogEvent(AnalyticsEvent.alertPrefChanged, {
+          pref: PREF_ANALYTICS_NAME[key],
+          enabled: nextEnabled,
+        });
       } finally {
         setBusyKey(null);
         void refreshPermission();

@@ -14,6 +14,7 @@ import {
 } from '@spotlight/design-system';
 
 import { isCalendarEventActionable } from '@/features/meta-feed/components/coming-up-block';
+import { trackComingUpEventOpened } from '@/features/meta-feed/meta-analytics';
 import { calendarDateParts, calendarKindLabel } from '@/features/meta-feed/screens/components/meta-format';
 import { MetaPageHeader } from '@/features/meta-feed/screens/components/meta-page-chrome';
 import { useCalendarPageData } from '@/features/meta-feed/screens/components/meta-page-data';
@@ -86,7 +87,12 @@ export function CalendarScreen({ onBack, onOpenEvent }: CalendarScreenProps) {
                   kindLabel={calendarKindLabel(event.kind)}
                   kindTone={event.kind}
                   monthLabel={monthLabel}
-                  onPress={isCalendarEventActionable(event) ? () => onOpenEvent(event) : undefined}
+                  onPress={isCalendarEventActionable(event)
+                    ? () => {
+                        trackComingUpEventOpened(event, 'calendar');
+                        onOpenEvent(event);
+                      }
+                    : undefined}
                   subtitle={event.subtitle}
                   testID={`calendar-event-${event.id}`}
                   title={event.title}

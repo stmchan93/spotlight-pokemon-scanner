@@ -1460,6 +1460,17 @@ describe('CardDetailScreen', () => {
       expect(screen.getByTestId('detail-hero-card-favorite').props.accessibilityLabel)
         .toBe('Add to watchlist');
     });
+
+    // Watchlist naming, with the product kind and no card id.
+    expect(capturePostHogEvent).toHaveBeenCalledWith('watchlist_item_added', {
+      kind: 'card',
+      source: 'card_detail',
+    });
+    expect(capturePostHogEvent).toHaveBeenCalledWith('watchlist_item_removed', {
+      kind: 'card',
+      source: 'card_detail',
+    });
+    expect(capturePostHogEvent).not.toHaveBeenCalledWith('wishlist_item_added', expect.anything());
   });
 
   describe('optional target prompt after watching', () => {
@@ -1514,6 +1525,55 @@ describe('CardDetailScreen', () => {
       await waitFor(() => {
         expect(setCardFavoriteTarget).toHaveBeenCalledWith('sm7-1', 4000);
         expect(screen.queryByTestId('wishlist-target-sheet')).not.toBeOnTheScreen();
+      });
+      expect(capturePostHogEvent).toHaveBeenCalledWith('watch_target_set', {
+        cleared: false,
+        source: 'card_detail',
+      });
+    });
+
+    it('a target on an unwatched card watches it and reports the add as target_price', async () => {
+      let watched = false;
+      const setCardFavoriteTarget = jest.fn(async (cardId: string, cents: number | null) => (
+        watched
+          ? {
+              status: 'ok' as const,
+              target: {
+                cardId,
+                targetCurrency: 'USD',
+                targetPriceCents: cents,
+                targetSetAt: '2026-09-23T00:00:00.000Z',
+                targetTriggeredAt: null,
+              },
+            }
+          : { status: 'not_watchlisted' as const, target: null }
+      ));
+      const { repository, setCardFavorite } = repositoryWith(setCardFavoriteTarget as never);
+      setCardFavorite.mockImplementation(async (cardId: string) => {
+        watched = true;
+        return { cardId, favoritedAt: '2026-09-23T00:00:00.000Z', isFavorite: true };
+      });
+      renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+        spotlightRepository: repository,
+      });
+
+      fireEvent.press(await screen.findByTestId('detail-hero-card-favorite'));
+      await screen.findByTestId('wishlist-target-input');
+      // Simulate the card leaving the watchlist before the target is saved.
+      watched = false;
+      (capturePostHogEvent as jest.Mock).mockClear();
+      fireEvent.changeText(screen.getByTestId('wishlist-target-input'), '25');
+      fireEvent.press(screen.getByTestId('wishlist-target-save'));
+
+      await waitFor(() => {
+        expect(capturePostHogEvent).toHaveBeenCalledWith('watch_target_set', {
+          cleared: false,
+          source: 'card_detail',
+        });
+      });
+      expect(capturePostHogEvent).toHaveBeenCalledWith('watchlist_item_added', {
+        kind: 'card',
+        source: 'target_price',
       });
     });
 

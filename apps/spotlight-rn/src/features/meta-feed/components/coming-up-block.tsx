@@ -4,6 +4,7 @@ import type { CalendarEvent, CalendarFeed } from '@spotlight/api-client';
 import { CalendarEventRow, useSpotlightTheme } from '@spotlight/design-system';
 
 import { MetaBlockHeader } from '@/features/meta-feed/components/meta-block-header';
+import { trackComingUpEventOpened } from '@/features/meta-feed/meta-analytics';
 import { calendarDateParts, calendarKindLabel } from '@/features/meta-feed/screens/components/meta-format';
 
 /** Dates the feed block shows; "All dates ›" opens the rest. */
@@ -71,7 +72,12 @@ export function ComingUpBlock({
               kindLabel={calendarKindLabel(event.kind)}
               kindTone={event.kind}
               monthLabel={month}
-              onPress={onOpenEvent && isCalendarEventActionable(event) ? () => onOpenEvent(event) : undefined}
+              onPress={onOpenEvent && isCalendarEventActionable(event)
+                ? () => {
+                    trackComingUpEventOpened(event, 'feed');
+                    onOpenEvent(event);
+                  }
+                : undefined}
               testID={`${testID}-event-${event.id}`}
               title={event.title}
             />
