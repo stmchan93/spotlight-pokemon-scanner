@@ -235,6 +235,10 @@ export function identifyPostHogUser(user: AppUser | null) {
       return;
     }
     hasIdentifiedUser = false;
+    // TEMPORARY staging breadcrumb (push-tap flicker); captured before reset so it shares the session.
+    if (posthogAppContext.appEnv === 'staging') {
+      client.capture('debug_trace', { step: 'posthog_reset' });
+    }
     client.reset();
     registerBaseProperties(client);
     return;

@@ -592,6 +592,12 @@ if (supabase && typeof supabase.auth.onAuthStateChange === 'function' && !hasReg
 if (supabase && Platform.OS !== 'web' && !hasRegisteredAutoRefreshListener) {
   hasRegisteredAutoRefreshListener = true;
   AppState.addEventListener('change', (state) => {
+    // TEMPORARY staging breadcrumb (push-tap flicker). Lazy require: this module loads before observability.
+    try {
+      require('@/lib/observability/debug-trace').debugTrace('app_state', { state });
+    } catch {
+      // Observability not ready; the breadcrumb is best-effort.
+    }
     if (state === 'active') {
       void supabase.auth.startAutoRefresh();
       // iOS tears down backgrounded sockets and they do not come back on their

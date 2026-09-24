@@ -56,6 +56,7 @@ import {
   resolveSessionOwnerKey,
   useAuth,
 } from '@/providers/auth-provider';
+import { debugTrace } from '@/lib/observability/debug-trace';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -304,6 +305,10 @@ function ObservabilityAuthSync() {
   const currentUser = auth.currentUser;
 
   useEffect(() => {
+    debugTrace('auth_state', { state: auth.state, has_user: Boolean(currentUser), has_session: Boolean(auth.currentSession), guest: auth.isGuest });
+  }, [auth.state, auth.currentSession, auth.isGuest, currentUser]);
+
+  useEffect(() => {
     // A PENDING guest has no Supabase user yet — its id is a shared placeholder,
     // so identifying it would merge every device's pending guest into one
     // PostHog person and wreck the counts. Stay on the anonymous distinct_id and
@@ -331,6 +336,9 @@ function AuthenticatedAppProviders({
   // doesn't tear the tree down and discard the capture. See
   // resolveProviderRemountKey for why this can't leak data across accounts.
   const providerRemountKey = resolveProviderRemountKey(sessionOwnerKey, auth.isGuest);
+  useEffect(() => {
+    debugTrace('providers_key', { has_owner: Boolean(sessionOwnerKey), guest: auth.isGuest, key_kind: !providerRemountKey ? 'none' : providerRemountKey === sessionOwnerKey ? 'owner' : 'guest' });
+  }, [auth.isGuest, providerRemountKey, sessionOwnerKey]);
   return (
     <AppProviders
       key={providerRemountKey}

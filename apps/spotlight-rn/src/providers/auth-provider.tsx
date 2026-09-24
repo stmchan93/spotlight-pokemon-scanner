@@ -49,6 +49,7 @@ import { hasEverSignedIn, markHasSignedIn } from '@/features/auth/guest-first-la
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { resolveRuntimeBoolean } from '@/lib/runtime-config';
 import { supabase } from '@/lib/supabase';
+import { debugTrace } from '@/lib/observability/debug-trace';
 
 type EmailAuthActions = {
   checkEmail: (email: string) => Promise<boolean>;
@@ -438,6 +439,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const getCurrentAccessToken = useCallback(() => accessTokenRef.current, []);
 
   const updateFromSession = useCallback(async (session: Session | null) => {
+    debugTrace('update_from_session', {
+      has_session: Boolean(session),
+      recovering: recoveryInProgressRef.current,
+      pending_guest: isPendingGuestRef.current,
+      anonymous: session ? isAnonymousSession(session) : null,
+    });
     accessTokenRef.current = getAccessToken(session);
     setCurrentSession(session);
 
@@ -590,6 +597,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [isBusy]);
 
   const handleIncomingURL = useCallback(async (url: string) => {
+    debugTrace('incoming_url', { has_code: url.includes('code='), has_token: url.includes('access_token'), length: url.length });
     try {
       const restoredSession = await restoreSessionFromUrl(url);
       if (restoredSession) {
@@ -765,6 +773,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     });
 
     const authSubscription = supabase?.auth.onAuthStateChange((event, session) => {
+      debugTrace('auth_event', { event, has_session: Boolean(session) });
       if (
         event === 'INITIAL_SESSION'
         || event === 'SIGNED_IN'

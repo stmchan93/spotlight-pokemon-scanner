@@ -12,6 +12,7 @@ import {
 import { loadNotificationsModule } from '@/features/notifications/notifications-module';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
+import { debugTrace } from '@/lib/observability/debug-trace';
 
 /**
  * Routes a TAPPED notification, from the root layout.
@@ -54,6 +55,7 @@ export function useNotificationTapRouter(): void {
       return;
     }
     const identifier = response.notification?.request?.identifier ?? null;
+    debugTrace('push_enqueue', { has_identifier: Boolean(identifier), seen: identifier ? handledIdsRef.current.has(identifier) : false, handled_count: handledIdsRef.current.size });
     if (identifier) {
       if (handledIdsRef.current.has(identifier)) {
         return;
@@ -71,6 +73,7 @@ export function useNotificationTapRouter(): void {
   }, []);
 
   useEffect(() => {
+    debugTrace('push_router_mounted');
     const Notifications = loadNotificationsModule();
     if (!Notifications) {
       return;
@@ -108,6 +111,7 @@ export function useNotificationTapRouter(): void {
       return;
     }
     pendingRef.current = null;
+    debugTrace('push_flush', { url_length: route.url.length });
     // `as never`: the payload's url is a runtime string, so it cannot satisfy
     // typed routes' literal union. It is validated in `parseNotificationRoute`.
     router.push(route.url as never);
