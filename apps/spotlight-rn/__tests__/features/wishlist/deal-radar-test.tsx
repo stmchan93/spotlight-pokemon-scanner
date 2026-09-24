@@ -1,5 +1,6 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { Linking } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 
 import type { CardFavoriteEntry, DealAlert, DealAlertsPage } from '@spotlight/api-client';
@@ -7,6 +8,12 @@ import type { CardFavoriteEntry, DealAlert, DealAlertsPage } from '@spotlight/ap
 import { WishlistScreen } from '@/features/wishlist/screens/wishlist-screen';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../../test-utils';
+
+// These tests are written against LIST view; the screen now opens in card view
+// unless the user chose list, so serve that saved choice (as wishlist-screen-test does).
+jest.spyOn(AsyncStorage, 'getItem').mockImplementation(async (key: string) =>
+  key === '@spotlight/wishlist/view-mode' ? 'list' : null,
+);
 
 jest.mock('expo-router', () => ({
   useRouter: jest.fn(),
