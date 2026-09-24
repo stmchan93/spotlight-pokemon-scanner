@@ -1,3 +1,4 @@
+import { AppState } from 'react-native';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { Alert, Linking } from 'react-native';
 import Constants from 'expo-constants';
@@ -86,8 +87,41 @@ describe('usePushRegistration', () => {
     expect(notifications.requestPermissionsAsync).not.toHaveBeenCalled();
   });
 
-  it('never prompts on app open when permission is undetermined', async () => {
+  it('asks once right after sign-in when permission was never asked', async () => {
     setPermission('undetermined');
+    AppState.currentState = 'active';
+
+    renderHook(() => usePushRegistration());
+
+    await waitFor(() => {
+      expect(notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(mockServices.spotlightRepository.registerPushToken).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('never re-asks on a later foreground in the same process', async () => {
+    setPermission('undetermined');
+    AppState.currentState = 'active';
+    notifications.requestPermissionsAsync.mockResolvedValue({
+      canAskAgain: true,
+      granted: false,
+      status: 'undetermined',
+    });
+
+    const { rerender } = renderHook(() => usePushRegistration());
+    await waitFor(() => {
+      expect(notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+    });
+    rerender({});
+
+    expect(notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not ask when the user already said no', async () => {
+    setPermission('denied');
+    AppState.currentState = 'active';
 
     renderHook(() => usePushRegistration());
 
@@ -95,7 +129,17 @@ describe('usePushRegistration', () => {
       expect(notifications.getPermissionsAsync).toHaveBeenCalled();
     });
     expect(notifications.requestPermissionsAsync).not.toHaveBeenCalled();
-    expect(mockServices.spotlightRepository.registerPushToken).not.toHaveBeenCalled();
+  });
+
+  it('does not ask a guest', async () => {
+    setPermission('undetermined');
+    AppState.currentState = 'active';
+    mockAuth = { currentUser: { id: 'guest-1' }, isGuest: true };
+
+    renderHook(() => usePushRegistration());
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(notifications.requestPermissionsAsync).not.toHaveBeenCalled();
   });
 
   it('does not register for a guest', async () => {

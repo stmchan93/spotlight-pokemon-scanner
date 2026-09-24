@@ -22,9 +22,12 @@ import {
  * signed-out tree can still see that a token is outstanding and retire it.
  */
 let registeredOwnerKey: string | null = null;
+// One sign-in prompt per process; the foreground re-sync must never re-ask.
+let hasPromptedThisProcess = false;
 
 /** Test seam: the module-level key above outlives `jest.resetModules()` sparingly. */
 export function __resetPushRegistrationForTests(): void {
+  hasPromptedThisProcess = false;
   registeredOwnerKey = null;
 }
 
@@ -33,10 +36,11 @@ export function __resetPushRegistrationForTests(): void {
  * in step with who is signed in.
  *
  * NEVER PROMPTS. `registerPushToken` is called without `promptIfNeeded`, so a
- * user who has not been asked yet stays un-asked: iOS spends its one and only
- * permission dialog the first time it is requested, and burning that on app
- * launch — before anyone has seen a deal — is unrecoverable. The prompt belongs
- * to `usePushPermissionPrompt`, behind a deliberate tap.
+ * signed-in user who has never been asked IS asked once, right after sign-in
+ * (product decision 2026-09-24: alerts are on by default, and a Settings-only
+ * prompt meant nobody ever enabled them). iOS shows that dialog once per
+ * install, so an "undetermined" status is what gates it; a denial is left
+ * alone and only the Account switch can route to OS settings.
  */
 export function usePushRegistration(): void {
   const { sessionOwnerKey, spotlightRepository } = useAppServices();
@@ -59,7 +63,13 @@ export function usePushRegistration(): void {
       }
       return;
     }
-    const outcome = await registerPushToken(spotlightRepository);
+    const promptIfNeeded = !hasPromptedThisProcess
+      && AppState.currentState === 'active'
+      && (await getPushPermissionStatus()) === 'undetermined';
+    if (promptIfNeeded) {
+      hasPromptedThisProcess = true;
+    }
+    const outcome = await registerPushToken(spotlightRepository, { promptIfNeeded });
     registeredOwnerKey = outcome.status === 'registered' ? sessionOwnerKey : null;
   }, [isSignedIn, sessionOwnerKey, spotlightRepository]);
 
