@@ -417,6 +417,8 @@ describe('CatalogSearchScreen', () => {
       expect(await screen.findByTestId('catalog-sealed-section')).toBeTruthy();
       expect(screen.getByText('Sealed products')).toBeTruthy();
       expect(screen.getByTestId(`catalog-sealed-row-${etb.id}`)).toBeTruthy();
+      // A "Cards" heading separates the row from the card grid.
+      expect(screen.getByTestId('catalog-cards-heading')).toBeTruthy();
       // Cards stay in the grid, and sealed stays out of it.
       expect(screen.getByTestId('catalog-result-sm7-1')).toBeTruthy();
       const rows = screen.getByTestId('catalog-results-list').props.data as { id: string }[][];

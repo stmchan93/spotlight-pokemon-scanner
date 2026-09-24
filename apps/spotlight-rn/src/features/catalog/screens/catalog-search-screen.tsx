@@ -215,6 +215,7 @@ export function CatalogSearchScreen({
       onSeeAll={() => setActiveFilter(SEALED_FILTER)}
       openingResultId={openingResultId}
       results={sealedRowResults}
+      showCardsHeading={results.length > 0}
     />
   ) : null;
   // Cards came back empty but the sealed lookup hasn't — wait for it rather

@@ -17,6 +17,8 @@ export type SealedResultsRowProps = {
   onOpenResult: (result: CatalogSearchResult) => void;
   openingResultId?: string | null;
   onSeeAll: () => void;
+  /** Title the card grid under the row, when there are cards too. */
+  showCardsHeading?: boolean;
 };
 
 export function SealedResultsRow({
@@ -24,6 +26,7 @@ export function SealedResultsRow({
   onOpenResult,
   openingResultId = null,
   onSeeAll,
+  showCardsHeading = false,
 }: SealedResultsRowProps) {
   return (
     <View style={styles.section} testID="catalog-sealed-section">
@@ -57,6 +60,11 @@ export function SealedResultsRow({
         style={styles.row}
         testID="catalog-sealed-row"
       />
+      {showCardsHeading ? (
+        <View style={styles.cardsHeading}>
+          <SectionHeader testID="catalog-cards-heading" title="Cards" />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -69,6 +77,10 @@ const styles = StyleSheet.create({
   rowContent: {
     gap: 12,
     paddingHorizontal: 16,
+  },
+  // Separates the sealed row from the card grid below it.
+  cardsHeading: {
+    paddingTop: 12,
   },
   section: {
     gap: 12,
