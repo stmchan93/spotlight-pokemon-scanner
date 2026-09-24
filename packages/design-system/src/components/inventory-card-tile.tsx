@@ -475,40 +475,6 @@ export function InventoryCardTile({
                   </AppText>
                 </View>
               ) : null}
-              {showTrend ? (
-                <View
-                  style={styles.trendGroup}
-                  testID={testID ? `${testID}-trend` : undefined}
-                >
-                  {/* Same outlined-triangle glyph as the balance header and
-                      PDP position line — one arrow language app-wide. */}
-                  {trendPercent !== null && trendPercent > 0 ? (
-                    <TrendTriangle
-                      color={trendColor}
-                      direction="up"
-                      testID={testID ? `${testID}-trend-arrow-up` : undefined}
-                    />
-                  ) : trendPercent !== null && trendPercent < 0 ? (
-                    <TrendTriangle
-                      color={trendColor}
-                      direction="down"
-                      testID={testID ? `${testID}-trend-arrow-down` : undefined}
-                    />
-                  ) : null}
-                  <AppText
-                    // Two lines: at 14pt a big change + suffix can outrun a
-                    // half-width tile, and wrapping beats an ellipsis.
-                    numberOfLines={2}
-                    style={[styles.trendText, { color: trendColor }]}
-                  >
-                    {trendLabel}
-                    {trendSuffix ? (
-                      // Condition-line type (label), in the percent's color.
-                      <Text style={styles.trendSuffix}>{` ${trendSuffix}`}</Text>
-                    ) : null}
-                  </AppText>
-                </View>
-              ) : null}
             </View>
             {/* Quantity sits at the price row's right edge (Figma 2489:6459):
                 count + box icon, replacing the old top-left overlay chip. */}
@@ -524,6 +490,45 @@ export function InventoryCardTile({
               </View>
             ) : null}
           </View>
+
+          {/* Below the price row, not beside the quantity, so it gets the
+              tile's full width. */}
+          {showTrend ? (
+            <View
+              style={styles.trendGroup}
+              testID={testID ? `${testID}-trend` : undefined}
+            >
+              {/* Same outlined-triangle glyph as the balance header and
+                  PDP position line — one arrow language app-wide. */}
+              {trendPercent !== null && trendPercent > 0 ? (
+                <TrendTriangle
+                  color={trendColor}
+                  direction="up"
+                  testID={testID ? `${testID}-trend-arrow-up` : undefined}
+                />
+              ) : trendPercent !== null && trendPercent < 0 ? (
+                <TrendTriangle
+                  color={trendColor}
+                  direction="down"
+                  testID={testID ? `${testID}-trend-arrow-down` : undefined}
+                />
+              ) : null}
+              <AppText
+                // One line across the full tile width; a big change + suffix
+                // shrinks a little rather than wrapping.
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
+                numberOfLines={1}
+                style={[styles.trendText, { color: trendColor }]}
+              >
+                {trendLabel}
+                {trendSuffix ? (
+                  // Condition-line type (label), in the percent's color.
+                  <Text style={styles.trendSuffix}>{` ${trendSuffix}`}</Text>
+                ) : null}
+              </AppText>
+            </View>
+          ) : null}
 
           {footnote?.trim() ? (
             <AppText
@@ -704,8 +709,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     width: '100%',
   },
-  // Left column of the price row: price on top, trend (arrow + percent)
-  // directly under it.
+  // Left column of the price row: price on top, day-change pill under it.
   priceStack: {
     alignItems: 'flex-start',
     flexShrink: 1,
@@ -729,6 +733,7 @@ const styles = StyleSheet.create({
   },
   trendGroup: {
     alignItems: 'center',
+    alignSelf: 'stretch',
     flexDirection: 'row',
     gap: 2,
   },
