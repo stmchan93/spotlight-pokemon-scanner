@@ -3,6 +3,7 @@ import type {
   CardGame,
   CatalogSearchResult,
   InventoryCardEntry,
+  ProductKind,
 } from '@spotlight/api-client';
 
 export type CardDetailPreview = {
@@ -18,6 +19,8 @@ export type CardDetailPreview = {
   marketPrice?: number | null;
   name: string;
   ownedEntry?: InventoryCardEntry | null;
+  /** `'sealed'` paints the sealed layout before the detail request lands. */
+  productKind?: ProductKind;
   setName: string;
 };
 
@@ -71,6 +74,7 @@ export function cardDetailPreviewFromCatalogResult(result: CatalogSearchResult):
     imageUrl: result.imageUrl,
     marketPrice: result.marketPrice ?? null,
     name: result.name,
+    productKind: result.productKind,
     setName: result.setName,
   };
 }

@@ -389,6 +389,27 @@ export function CardDetailScreen({
   // multi-game carry no game) and every reader must treat it as Pokémon — which
   // is exactly what the capability helpers do.
   const cardGame = detail?.game ?? detailPreview?.game;
+  // Sealed product (booster box, ETB, tin…): no number, condition, grade,
+  // printing or language, and not addable/watchable yet. Declared up here for
+  // the same dependency-array reason as `cardGame`.
+  const isSealed = (detail?.productKind ?? detailPreview?.productKind) === 'sealed';
+  // Sealed has one TCGplayer product and no condition facet (TCGplayer lists
+  // sealed as "Unopened", so a Near Mint filter would zero the page).
+  const sealedMarketplaceUrl = useMemo(() => {
+    if (!isSealed) {
+      return null;
+    }
+    const productId = resolveTcgPlayerProductId(detail?.tcgPlayerVariants, null);
+    return (
+      (productId ? buildTcgPlayerProductUrl({ productId }) : null) ??
+      buildTcgPlayerSearchUrl({
+        cardNumber: '',
+        name: detail?.name ?? detailPreview?.name ?? '',
+        setName: detail?.setName ?? detailPreview?.setName ?? '',
+        game: cardGame,
+      })
+    );
+  }, [cardGame, detail, detailPreview?.name, detailPreview?.setName, isSealed]);
 
   useEffect(() => {
     let cancelled = false;
@@ -847,6 +868,29 @@ export function CardDetailScreen({
   // loaded (Scrydex's graded figure until then). Display only: collection
   // totals and history keep the provider price.
   const displayedPriceTrends = useMemo<CardPriceTrendListRecord | null>(() => {
+    if (isSealed) {
+      // One "Market Price" row: sealed has no conditions, so a "Near Mint" label
+      // would be wrong. Falls back to the detail's price when trends are empty.
+      const row = priceTrends?.rows[0];
+      if (row) {
+        return { mode: 'raw', provider: 'tcgplayer', rows: [{ ...row, label: 'Market Price' }] };
+      }
+      if (priceTrendsLoading || detail?.marketPrice == null) {
+        return priceTrends;
+      }
+      return {
+        mode: 'raw',
+        provider: 'tcgplayer',
+        rows: [{
+          label: 'Market Price',
+          key: 'market',
+          currentPrice: detail.marketPrice,
+          currencyCode: detail.currencyCode,
+          points: detail.marketHistory?.points?.map((point) => point.value) ?? [],
+          trendPct: null,
+        }],
+      };
+    }
     if (!priceTrends || priceTrends.mode !== 'graded') {
       return priceTrends;
     }
@@ -860,9 +904,16 @@ export function CardDetailScreen({
       return { ...row, currentPrice: average.amount, currencyCode: average.currencyCode };
     });
     return changed ? { ...priceTrends, rows } : priceTrends;
-  }, [priceTrends, recentSalesByRowKey]);
+  }, [detail, isSealed, priceTrends, priceTrendsLoading, recentSalesByRowKey]);
 
   const handleTrendRowPress = useCallback((row: CardPriceTrendRow) => {
+    if (isSealed) {
+      if (sealedMarketplaceUrl) {
+        capturePostHogEvent('pricing_link_opened', { marketplace: 'tcgplayer', lane: 'sealed' });
+        void Linking.openURL(sealedMarketplaceUrl);
+      }
+      return;
+    }
     if (!detail || !priceTrends) {
       return;
     }
@@ -989,9 +1040,11 @@ export function CardDetailScreen({
     cardGame,
     detail,
     expandedTrendRowKey,
+    isSealed,
     priceTrends,
     lowestListedByRowKey,
     recentSalesByRowKey,
+    sealedMarketplaceUrl,
     selectedVariantLabel,
     spotlightRepository,
   ]);
@@ -1161,6 +1214,13 @@ export function CardDetailScreen({
   //   graded lane → eBay sold + completed listings for the selected grader + grade
   // so switching the dropdown to "CGC 9.5" makes the eBay link land on CGC 9.5.
   const handleProviderPress = useCallback(() => {
+    if (isSealed) {
+      if (sealedMarketplaceUrl) {
+        capturePostHogEvent('pricing_link_opened', { marketplace: 'tcgplayer', lane: 'sealed' });
+        void Linking.openURL(sealedMarketplaceUrl);
+      }
+      return;
+    }
     if (!detail || !priceTrends) {
       return;
     }
@@ -1218,7 +1278,16 @@ export function CardDetailScreen({
       capturePostHogEvent('pricing_link_opened', { marketplace: 'tcgplayer', lane: 'raw' });
       void Linking.openURL(url);
     }
-  }, [cardGame, detail, priceTrends, selectedGrade, selectedGrader, selectedVariantLabel]);
+  }, [
+    cardGame,
+    detail,
+    isSealed,
+    priceTrends,
+    sealedMarketplaceUrl,
+    selectedGrade,
+    selectedGrader,
+    selectedVariantLabel,
+  ]);
 
   const handleToggleFavorite = useCallback(() => {
     if (isFavoritePending) {
@@ -1431,8 +1500,12 @@ export function CardDetailScreen({
   const displaySetName = detail?.setName ?? detailPreview?.setName ?? '';
   // Card number + set name share one line, dot-separated ("052 · Scarlet &
   // Violet Black Star Promos"). Either part may be missing.
-  const identityNumberSetLine =
-    [
+  // Sealed shows its product type where a card shows its number
+  // ("Elite Trainer Box · SV: Prismatic Evolutions").
+  const displaySealedType = detail?.sealedProductType?.trim() || null;
+  const identityNumberSetLine = isSealed
+    ? [displaySealedType, displaySetName.trim() || null].filter(Boolean).join(' · ')
+    : [
       displayCardNumber.trim() ? displayNumber(displayCardNumber) : null,
       displaySetName.trim() || null,
     ]
@@ -1515,6 +1588,9 @@ export function CardDetailScreen({
     .join(' · ');
 
   const marketplaceUrl = useMemo(() => {
+    if (sealedMarketplaceUrl) {
+      return sealedMarketplaceUrl;
+    }
     const condition = deckConditionLabel(selectedCondition);
     // Exact product page for the selected printing when the detail payload
     // carries product ids; otherwise the keyword search (also the path before
@@ -1537,6 +1613,7 @@ export function CardDetailScreen({
     displayCardNumber,
     displayName,
     displaySetName,
+    sealedMarketplaceUrl,
     selectedCondition,
     selectedVariantLabel,
   ]);
@@ -2394,8 +2471,9 @@ export function CardDetailScreen({
           imageUrl={displayImageUrl}
           isFavorite={isFavorite}
           name={displayName}
-          onToggleFavorite={gate(handleToggleFavorite)}
+          onToggleFavorite={isSealed ? undefined : gate(handleToggleFavorite)}
           testID="detail-hero-card"
+          variant={isSealed ? 'product' : 'card'}
         />
 
         <View style={styles.identityRow}>
@@ -2403,12 +2481,14 @@ export function CardDetailScreen({
             <Text style={theme.typography.titleLarge} testID="detail-name">
               {displayName}
             </Text>
-            <Text
-              style={[theme.typography.bodyMedium, styles.identityMeta]}
-              testID="detail-identity-number-set"
-            >
-              {identityNumberSetLine}
-            </Text>
+            {identityNumberSetLine ? (
+              <Text
+                style={[theme.typography.bodyMedium, styles.identityMeta]}
+                testID="detail-identity-number-set"
+              >
+                {identityNumberSetLine}
+              </Text>
+            ) : null}
             {identityDetailLine ? (
               <Text
                 style={[theme.typography.bodyMedium, styles.identityMeta]}
@@ -2454,7 +2534,7 @@ export function CardDetailScreen({
 
         {/* Owned entries of this card, between identity and options (Figma
             2489:7581 vertical order). Catalog-only cards omit it. */}
-        {inventoryEntries.length > 0 ? (
+        {inventoryEntries.length > 0 && !isSealed ? (
           <InventoryDropdown
             entries={inventoryEntries}
             language={selectedLanguageChip}
@@ -2464,46 +2544,48 @@ export function CardDetailScreen({
           />
         ) : null}
 
-        <View
-          onLayout={(event) => {
-            const { y, height } = event.nativeEvent.layout;
-            editSectionRectRef.current = { y, height };
-          }}
-          style={styles.optionsGroup}
-        >
-          <CardConfigurator
-            graders={availableGraders}
-            languages={languageToggleOptions}
-            onSelectGrader={handleSelectGrader}
-            onSelectLanguage={handleSwitchLanguage}
-            onSelectVariant={handleSelectVariant}
-            selectedGrader={selectedGrader}
-            selectedLanguage={selectedLanguageChip}
-            selectedVariant={selectedVariant}
-            testID="detail-configurator"
-            variants={variantOptions}
-            variantsLoading={detail == null && errorMessage == null}
-          />
-
-          {isOwnedEdit ? (
-            <OwnedEntryEditFields
-              costBasisText={editCostBasisText}
-              gainLabel={editGainLabel}
-              gainPerUnit={editGainPerUnit}
-              gradeLabel={editGradeLabel}
-              gradeTitle={editGradeTitle}
-              onChangeCostBasisText={handleChangeEditCostBasisText}
-              onCostBasisBlur={handleCostBasisBlur}
-              onCostBasisFocus={handleCostBasisFocus}
-              onDecrement={() => setEditQuantity((current) => Math.max(1, current - 1))}
-              onIncrement={() => setEditQuantity((current) => current + 1)}
-              onOpenGradePicker={() => setEditGradePickerOpen(true)}
-              quantity={editQuantity}
-              testID="detail-owned-edit"
-              updatedLabel={editUpdatedLabel}
+        {isSealed ? null : (
+          <View
+            onLayout={(event) => {
+              const { y, height } = event.nativeEvent.layout;
+              editSectionRectRef.current = { y, height };
+            }}
+            style={styles.optionsGroup}
+          >
+            <CardConfigurator
+              graders={availableGraders}
+              languages={languageToggleOptions}
+              onSelectGrader={handleSelectGrader}
+              onSelectLanguage={handleSwitchLanguage}
+              onSelectVariant={handleSelectVariant}
+              selectedGrader={selectedGrader}
+              selectedLanguage={selectedLanguageChip}
+              selectedVariant={selectedVariant}
+              testID="detail-configurator"
+              variants={variantOptions}
+              variantsLoading={detail == null && errorMessage == null}
             />
-          ) : null}
-        </View>
+
+            {isOwnedEdit ? (
+              <OwnedEntryEditFields
+                costBasisText={editCostBasisText}
+                gainLabel={editGainLabel}
+                gainPerUnit={editGainPerUnit}
+                gradeLabel={editGradeLabel}
+                gradeTitle={editGradeTitle}
+                onChangeCostBasisText={handleChangeEditCostBasisText}
+                onCostBasisBlur={handleCostBasisBlur}
+                onCostBasisFocus={handleCostBasisFocus}
+                onDecrement={() => setEditQuantity((current) => Math.max(1, current - 1))}
+                onIncrement={() => setEditQuantity((current) => current + 1)}
+                onOpenGradePicker={() => setEditGradePickerOpen(true)}
+                quantity={editQuantity}
+                testID="detail-owned-edit"
+                updatedLabel={editUpdatedLabel}
+              />
+            ) : null}
+          </View>
+        )}
 
         <AddToCollectionSheet
           confirmDisabled={isAddPending || !addDetail}
@@ -2565,16 +2647,16 @@ export function CardDetailScreen({
           visible={editGradePickerOpen}
         />
 
-        {priceTrends && priceTrends.rows.length > 0 ? (
+        {displayedPriceTrends && displayedPriceTrends.rows.length > 0 ? (
           <View style={styles.trendBlock}>
             <CardPriceTrendList
               expandedContent={expandedTrendContent}
-              expandedRowKey={priceTrends.mode === 'graded' ? expandedTrendRowKey : null}
-              list={displayedPriceTrends ?? priceTrends}
+              expandedRowKey={displayedPriceTrends.mode === 'graded' ? expandedTrendRowKey : null}
+              list={displayedPriceTrends}
               // Raw lane only: the TCGplayer logo opens the EXACT product page
               // (accurate). The graded lane's eBay logo opened a broad eBay
               // SEARCH (inaccurate), so its logo is now a static image — no link.
-              onProviderPress={priceTrends.mode === 'graded' ? undefined : handleProviderPress}
+              onProviderPress={displayedPriceTrends.mode === 'graded' ? undefined : handleProviderPress}
               onRowPress={handleTrendRowPress}
               testID="detail-price-trends"
             />
@@ -2587,11 +2669,13 @@ export function CardDetailScreen({
 
         {/* Pop report sits BELOW Price Trend (designer annotation, Figma
             2489:7581); it renders nothing on the raw lane / without population. */}
-        <CardPopulationReport
-          grader={selectedGrader}
-          population={detail?.population}
-          testID="detail-population-report"
-        />
+        {isSealed ? null : (
+          <CardPopulationReport
+            grader={selectedGrader}
+            population={detail?.population}
+            testID="detail-population-report"
+          />
+        )}
 
         {detail?.cardText ? (
           <CardProductDetails cardText={detail.cardText} testID="detail-product-details" />
@@ -2681,7 +2765,32 @@ export function CardDetailScreen({
           stickyFooterStyle,
         ]}
       >
-        {isOwnedEdit ? (
+        {isSealed ? (
+          // Collection/watchlist add is parked for sealed: TCGplayer + share.
+          <View style={styles.actionBar}>
+            <Button
+              disabled={!sealedMarketplaceUrl}
+              label="VIEW ON TCGPLAYER"
+              labelStyleVariant="label"
+              onPress={handleProviderPress}
+              shape="rounded"
+              size="md"
+              style={styles.actionButton}
+              testID="detail-tcgplayer-button"
+              variant="accent"
+            />
+            <Button
+              label="SHARE"
+              labelStyleVariant="label"
+              onPress={gate(handleShare)}
+              shape="rounded"
+              size="md"
+              style={styles.actionButton}
+              testID="detail-share-button"
+              variant="outline"
+            />
+          </View>
+        ) : isOwnedEdit ? (
           <View style={styles.actionBar}>
             <Button
               disabled={isSavingEdit || !detail}

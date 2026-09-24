@@ -15,7 +15,13 @@ type CardDetailHeroProps = {
   imageUrl: string | null;
   name: string;
   isFavorite: boolean;
-  onToggleFavorite: () => void;
+  /** Omit to hide the watch toggle (sealed product can't be watched yet). */
+  onToggleFavorite?: () => void;
+  /**
+   * `card` frames portrait 5:7 art; `product` frames a sealed product shot
+   * (square-ish, any aspect) contain-fit on a white square tile.
+   */
+  variant?: 'card' | 'product';
   testID?: string;
 };
 
@@ -24,6 +30,10 @@ const CARD_ASPECT = 5 / 7;
 // Card occupies ~49% of the panel width (Figma 4211:86063 — 194pt card art in
 // a 393pt frame), centered inside the gray backdrop.
 const CARD_WIDTH_RATIO = 0.49;
+// Sealed product tile: square, a little wider than the card, with the shot
+// inset so odd aspects (tins, packs, long boxes) letterbox cleanly.
+const PRODUCT_WIDTH_RATIO = 0.6;
+const PRODUCT_INSET = 12;
 // Pinch-to-zoom ceiling for inspecting foil / text / centering.
 const MAX_ZOOM = 4;
 
@@ -32,9 +42,11 @@ export function CardDetailHero({
   name,
   isFavorite,
   onToggleFavorite,
+  variant = 'card',
   testID,
 }: CardDetailHeroProps) {
   const theme = useSpotlightTheme();
+  const isProduct = variant === 'product';
 
   // Focal-point pinch: zoom toward the pinch midpoint and let the user drag that
   // midpoint to move AROUND the magnified card (inspect a corner/edge), not just a
@@ -87,43 +99,52 @@ export function CardDetailHero({
             frameW.value = event.nativeEvent.layout.width;
             frameH.value = event.nativeEvent.layout.height;
           }}
-          style={[styles.imageWrapper, { borderCurve: 'continuous', borderRadius: theme.layout.heroArtRadius }, animatedStyle]}
+          style={[
+            styles.imageWrapper,
+            { borderCurve: 'continuous', borderRadius: theme.layout.heroArtRadius },
+            isProduct ? styles.productWrapper : null,
+            isProduct ? { backgroundColor: theme.colors.canvasElevated } : null,
+            animatedStyle,
+          ]}
+          testID={testID ? `${testID}-frame` : undefined}
         >
           <CachedImage
             accessibilityLabel={name}
             cachePolicy={imageCachePolicy.hero}
             contentFit="contain"
-            style={[styles.image, { borderRadius: theme.layout.heroArtRadius }]}
+            style={[styles.image, isProduct ? null : { borderRadius: theme.layout.heroArtRadius }]}
             uri={imageUrl}
           />
         </Animated.View>
       </GestureDetector>
 
-      <Pressable
-        accessibilityLabel={isFavorite ? 'Remove from watchlist' : 'Add to watchlist'}
-        accessibilityRole="button"
-        accessibilityState={{ selected: isFavorite }}
-        hitSlop={8}
-        onPress={onToggleFavorite}
-        style={({ pressed }) => [
-          styles.favorite,
-          {
-            backgroundColor: theme.colors.canvasElevated,
-            borderColor: theme.colors.outlineSubtle,
-            opacity: pressed ? 0.82 : 1,
-          },
-        ]}
-        testID={testID ? `${testID}-favorite` : undefined}
-      >
-        <WatchToggle
-          bounce="lively"
-          burst
-          filled={isFavorite}
-          fill={theme.colors.brandStrong}
-          size={20}
-          stroke={theme.colors.gray600}
-        />
-      </Pressable>
+      {onToggleFavorite ? (
+        <Pressable
+          accessibilityLabel={isFavorite ? 'Remove from watchlist' : 'Add to watchlist'}
+          accessibilityRole="button"
+          accessibilityState={{ selected: isFavorite }}
+          hitSlop={8}
+          onPress={onToggleFavorite}
+          style={({ pressed }) => [
+            styles.favorite,
+            {
+              backgroundColor: theme.colors.canvasElevated,
+              borderColor: theme.colors.outlineSubtle,
+              opacity: pressed ? 0.82 : 1,
+            },
+          ]}
+          testID={testID ? `${testID}-favorite` : undefined}
+        >
+          <WatchToggle
+            bounce="lively"
+            burst
+            filled={isFavorite}
+            fill={theme.colors.brandStrong}
+            size={20}
+            stroke={theme.colors.gray600}
+          />
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -156,6 +177,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 20,
     width: `${CARD_WIDTH_RATIO * 100}%`,
+  },
+  productWrapper: {
+    aspectRatio: 1,
+    padding: PRODUCT_INSET,
+    width: `${PRODUCT_WIDTH_RATIO * 100}%`,
   },
   root: {
     alignItems: 'center',

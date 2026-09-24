@@ -1068,9 +1068,15 @@ export const RARITY_BUCKET_LABELS: Record<RarityFilterBucket, string> = {
   shiny: 'Shiny',
 };
 
+export type ProductKind = 'card' | 'sealed';
+
 export type CatalogSearchResult = {
   id: string;
   cardId: string;
+  /** `'sealed'` for sealed product results (`kind: 'sealed'` searches). */
+  productKind?: ProductKind;
+  /** Sealed product type ("Elite Trainer Box", …); null for cards. */
+  sealedProductType?: string | null;
   name: string;
   cardNumber: string;
   setName: string;
@@ -1268,6 +1274,13 @@ export type CardDetailRecord = {
   cardId: string;
   /** Which TCG this card is from; undefined on older payloads means Pokémon. */
   game?: CardGame;
+  /**
+   * `'sealed'` for sealed product (booster box, ETB, tin…): the card page shows
+   * no number, condition, grade or printing. Undefined on older payloads = card.
+   */
+  productKind?: ProductKind;
+  /** Sealed product type ("Elite Trainer Box", "Booster Box", …); null for cards. */
+  sealedProductType?: string | null;
   name: string;
   cardNumber: string;
   setName: string;

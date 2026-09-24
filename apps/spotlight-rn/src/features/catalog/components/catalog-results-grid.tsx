@@ -60,7 +60,8 @@ function SearchResultTile({
     <View style={styles.gridCell} testID={`catalog-result-${result.id}`}>
       <InventoryCardTile
         artAspect="card"
-        cardNumber={result.cardNumber}
+        // Sealed product has no number; its type ("Elite Trainer Box") takes the slot.
+        cardNumber={result.productKind === 'sealed' ? result.sealedProductType ?? null : result.cardNumber}
         /*
           Game UNDER THE PRICE, inside the tile's caption — it used to render
           after the tile entirely, which put it past the tile's padding where it

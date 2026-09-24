@@ -7,6 +7,7 @@ import {
   seedMockCardTransactions,
   seedMockCatalogResults,
   seedMockInventoryEntries,
+  seedMockSealedCatalogResults,
   seedMockRecentSales,
   seedMockScannerCandidates,
   updateInventoryForSale,
@@ -111,6 +112,7 @@ import type {
   PortfolioSaleRequestPayload,
   PortfolioSaleResponsePayload,
   ProfileAvatarUploadResult,
+  ProductKind,
   ProfileCoverUploadResult,
   PostMediaUploadResult,
   ProfileDeckEntriesQuery,
@@ -183,6 +185,11 @@ export type CatalogSearchOptions = {
    * picking a set by game is the whole point there.
    */
   game?: CardGame | 'all';
+  /**
+   * `'sealed'` searches sealed product (booster boxes, ETBs, tins…) instead of
+   * cards — sent as `kind=sealed`. Omitted or `'cards'` sends nothing.
+   */
+  kind?: 'cards' | 'sealed';
 };
 
 export interface SpotlightRepository {
@@ -598,6 +605,12 @@ type CardCandidateDTO = {
   // Server-computed rarity bucket; validated client-side against the known
   // bucket keys (the client never re-implements the rarity→bucket mapping).
   rarityBucket?: string | null;
+  // Sealed search results carry supertype "Sealed" and the product type as the
+  // first subtype; the card-detail payload says it directly via productKind.
+  supertype?: string | null;
+  subtypes?: Array<string | null> | null;
+  productKind?: string | null;
+  sealedProductType?: string | null;
   // Raw Scrydex catalog payload; we only read `variants[].marketplaces` to
   // surface per-printing TCGplayer product ids for deep links.
   sourcePayload?: {
@@ -1043,6 +1056,8 @@ type NormalizedCardCandidate = {
   isFavorite: boolean;
   rarityBucket?: RarityBucket;
   game?: CardGame;
+  productKind: ProductKind;
+  sealedProductType: string | null;
   pricing: {
     currencyCode: string;
     market: number | null;
@@ -1874,6 +1889,28 @@ function normalizeCardGame(value: unknown): CardGame | undefined {
     : undefined;
 }
 
+// Search results say "sealed" via supertype/subtypes; card detail says it via
+// productKind/sealedProductType. Anything else is a card.
+function normalizeProductKind(candidate: CardCandidateDTO | null | undefined): {
+  productKind: ProductKind;
+  sealedProductType: string | null;
+} {
+  const explicitKind = normalizeString(candidate?.productKind)?.toLowerCase();
+  const isSealed = explicitKind
+    ? explicitKind === 'sealed'
+    : normalizeString(candidate?.supertype)?.toLowerCase() === 'sealed';
+  if (!isSealed) {
+    return { productKind: 'card', sealedProductType: null };
+  }
+  const firstSubtype = Array.isArray(candidate?.subtypes)
+    ? candidate.subtypes.map((subtype) => normalizeString(subtype)).find(Boolean) ?? null
+    : null;
+  return {
+    productKind: 'sealed',
+    sealedProductType: normalizeString(candidate?.sealedProductType) ?? firstSubtype,
+  };
+}
+
 function normalizeCardCandidate(candidate: CardCandidateDTO | null | undefined, baseUrl?: string) {
   const id = normalizeString(candidate?.id);
   const name = normalizeString(candidate?.name);
@@ -1902,6 +1939,7 @@ function normalizeCardCandidate(candidate: CardCandidateDTO | null | undefined, 
     // from this normalizer. Dropping it here is what would leave the capability
     // helpers permanently answering "Pokémon" for a One Piece card.
     game: normalizeCardGame(candidate?.game),
+    ...normalizeProductKind(candidate),
     pricing: {
       currencyCode: normalizeCurrencyCode(candidate?.pricing?.currencyCode),
       market: normalizeNumber(candidate?.pricing?.market),
@@ -3349,6 +3387,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
   private recentSales = seedMockRecentSales();
   private cardTransactions: CardTransactionRecord[] = seedMockCardTransactions();
   private catalogResults = seedMockCatalogResults();
+  private sealedCatalogResults = seedMockSealedCatalogResults();
   private cardDetails = seedMockCardDetails();
   private favoriteCardTimestamps = new Map<string, string>();
   private likeCardTimestamps = new Map<string, string>();
@@ -3653,14 +3692,16 @@ export class MockSpotlightRepository implements SpotlightRepository {
   async loadCatalogCards(query: string, limit = 20, offset = 0, options?: CatalogSearchOptions): Promise<CatalogSearchLoadResult> {
     const normalized = query.trim().toLowerCase();
     const rarityBucket = options?.rarityBucket;
-    // Mirrors the HTTP repository: a rarity chip alone is a valid search.
-    if (normalized.length < 2 && !rarityBucket) {
+    const sealed = options?.kind === 'sealed';
+    // Mirrors the HTTP repository: a rarity or Sealed chip alone is a valid search.
+    if (normalized.length < 2 && !rarityBucket && !sealed) {
       return { ...buildLoadResult('empty', []), hasMore: false };
     }
 
     const start = Math.max(0, offset);
     const game = options?.game;
-    const matched = this.catalogResults.filter((result) => {
+    const source = sealed ? this.sealedCatalogResults : this.catalogResults;
+    const matched = source.filter((result) => {
       if (rarityBucket && result.rarityBucket !== rarityBucket) {
         return false;
       }
@@ -3673,7 +3714,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
       if (normalized.length === 0) {
         return true;
       }
-      return [result.name, result.setName, result.cardNumber, result.subtitle]
+      return [result.name, result.setName, result.cardNumber, result.subtitle, result.sealedProductType]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
@@ -5457,9 +5498,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   async loadCatalogCards(query: string, limit = 20, offset = 0, options?: CatalogSearchOptions): Promise<CatalogSearchLoadResult> {
     const normalized = query.trim();
     const rarityBucket = options?.rarityBucket;
-    // A rarity chip alone is a valid search (browse-by-rarity with no text);
+    const sealed = options?.kind === 'sealed';
+    // A rarity or Sealed chip alone is a valid search (browse with no text);
     // text-only searches keep the existing 2-character minimum.
-    if (normalized.length < 2 && !rarityBucket) {
+    if (normalized.length < 2 && !rarityBucket && !sealed) {
       return { ...buildLoadResult('empty', []), hasMore: false };
     }
 
@@ -5478,6 +5520,9 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     // callers, so nothing about the Pokémon lane changes.
     if (options?.game) {
       queryParams.set('game', options.game);
+    }
+    if (sealed) {
+      queryParams.set('kind', 'sealed');
     }
     const [searchResponse, inventoryResult] = await Promise.all([
       this.requestJson<SearchResultsDTO>(`${this.baseUrl}/api/v1/cards/search?${queryParams.toString()}`),
@@ -5499,11 +5544,15 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           return [];
         }
 
+        const isSealed = card.productKind === 'sealed';
         return [{
           id: card.id,
           cardId: card.id,
+          productKind: card.productKind,
+          sealedProductType: card.sealedProductType,
           name: card.name,
-          cardNumber: withCardNumberPrefix(card.number),
+          // Sealed product has no collector number.
+          cardNumber: isSealed ? '' : withCardNumberPrefix(card.number),
           setName: card.setName,
           subtitle: null,
           imageUrl: pickImageUrl([card.imageLargeURL, card.imageSmallURL], this.baseUrl),
@@ -6344,8 +6393,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
     const detail: CardDetailRecord = {
       cardId: card.id,
+      productKind: card.productKind,
+      sealedProductType: card.sealedProductType,
       name: card.name,
-      cardNumber: withCardNumberPrefix(card.number),
+      cardNumber: card.productKind === 'sealed' ? '' : withCardNumberPrefix(card.number),
       setName: card.setName,
       // The authoritative game for the PDP. A preview (scan/collection/search
       // row) usually carries one too, but a deep link into a card has no

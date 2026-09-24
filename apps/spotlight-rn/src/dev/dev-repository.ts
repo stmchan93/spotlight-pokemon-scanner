@@ -1,6 +1,8 @@
 import {
   MockSpotlightRepository,
+  type CardDetailRecord,
   type CardFavoriteEntry,
+  type CardPriceTrendList,
   type PortfolioPerformance,
   type PortfolioPerformanceRow,
   type SpotlightRepository,
@@ -116,6 +118,65 @@ const devCardDetailOverrides: Record<string, Record<string, unknown>> = {
     likeCount: 10100,
     releaseDate: '2018-09-07',
   },
+};
+
+// Sealed product PDP (`card-detail-sealed`). The mock catalog has no sealed
+// rows, so this id is served whole. The image stays on TCGplayer's CDN on
+// purpose: the bundled placeholders are card-shaped, and the point of this
+// route is the square product framing.
+export const DEV_SEALED_CARD_ID = 'tcgp-sealed-593355';
+
+const devSealedPricePoints = [54.1, 55.8, 57.2, 56.4, 58.9, 61.3, 60.2, 62.75];
+
+const devSealedDetail: CardDetailRecord = {
+  cardId: DEV_SEALED_CARD_ID,
+  game: 'pokemon',
+  productKind: 'sealed',
+  sealedProductType: 'Elite Trainer Box',
+  name: 'Prismatic Evolutions Elite Trainer Box',
+  cardNumber: '',
+  setName: 'SV: Prismatic Evolutions',
+  imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/593355_200w.jpg',
+  largeImageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/593355_in_1000x1000.jpg',
+  marketPrice: 62.75,
+  currencyCode: 'USD',
+  marketplaceLabel: 'TCGplayer',
+  marketHistory: {
+    currencyCode: 'USD',
+    currentPrice: 62.75,
+    points: devSealedPricePoints.map((value, index) => ({
+      isoDate: `2026-04-${String(14 + index).padStart(2, '0')}`,
+      shortLabel: `Apr ${14 + index}`,
+      value,
+    })),
+    availableVariants: [{ id: 'sealed', label: 'Sealed' }],
+    availableConditions: [],
+    insights: [],
+  },
+  ownedEntries: [],
+  variantOptions: [{ id: 'sealed', label: 'Sealed' }],
+  isFavorite: false,
+  likeCount: 0,
+  language: 'english',
+  counterpartCardId: null,
+  counterpartLanguage: null,
+  releaseDate: '2025-01-17',
+  tcgPlayerVariants: [
+    { name: 'Sealed', marketplaces: [{ name: 'tcgplayer', product_id: 593355 }] },
+  ],
+};
+
+const devSealedPriceTrends: CardPriceTrendList = {
+  mode: 'raw',
+  provider: 'tcgplayer',
+  rows: [{
+    label: 'Near Mint',
+    key: 'NM',
+    currentPrice: 62.75,
+    currencyCode: 'USD',
+    points: devSealedPricePoints,
+    trendPct: 16,
+  }],
 };
 
 // Insights overrides: the mock's derived rows are all raw/NM with empty
@@ -345,6 +406,14 @@ function withLocalImages(repository: SpotlightRepository): SpotlightRepository {
         return rewritten;
       };
       return (...args: unknown[]) => {
+        // The sealed PDP is served before the image rewrite (see devSealedDetail).
+        const sealedQuery = (args[0] as { cardId?: string } | undefined)?.cardId === DEV_SEALED_CARD_ID;
+        if (sealedQuery && property === 'getCardDetail') {
+          return Promise.resolve(devSealedDetail);
+        }
+        if (sealedQuery && property === 'getCardPriceTrends') {
+          return Promise.resolve(devSealedPriceTrends);
+        }
         const result = original.apply(target, args);
         if (result instanceof Promise) {
           return result.then(applyOverrides);

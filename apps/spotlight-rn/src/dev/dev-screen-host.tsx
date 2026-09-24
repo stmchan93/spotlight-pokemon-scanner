@@ -16,7 +16,7 @@ import { setDevFeedItemsOverride } from '@/features/social/social-service';
 import { useTopMovers } from '@/features/social/use-top-movers';
 import { TargetPriceSheet } from '@/features/wishlist/components/target-price-sheet';
 import { WishlistScreen } from '@/features/wishlist/screens/wishlist-screen';
-import { createDevRepository } from '@/dev/dev-repository';
+import { createDevRepository, DEV_SEALED_CARD_ID } from '@/dev/dev-repository';
 import { devFeedItems } from '@/dev/dev-feed-data';
 import { AppProviders } from '@/providers/app-providers';
 
@@ -40,6 +40,11 @@ const devScreens: Record<string, () => ReactElement> = {
   'card-detail': () => <CardDetailScreen cardId="sm7-1" onBack={() => undefined} />,
   'card-detail-owned': () => (
     <CardDetailScreen cardId="mcdonalds25-21" onBack={() => undefined} />
+  ),
+  // Sealed product PDP (ETB): no number/configurator/add/watch; served by the
+  // dev repository's sealed override, not mock-data.
+  'card-detail-sealed': () => (
+    <CardDetailScreen cardId={DEV_SEALED_CARD_ID} onBack={() => undefined} />
   ),
   // Feed data comes from the social-service override installed on mount below,
   // not the mock repository — the feed reads Supabase-direct.

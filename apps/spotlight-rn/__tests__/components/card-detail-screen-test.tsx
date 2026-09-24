@@ -2527,4 +2527,153 @@ describe('CardDetailScreen', () => {
     expect(await screen.findByText('Card unavailable')).toBeTruthy();
     expect(screen.getByText('We could not find this card in the local catalog.')).toBeTruthy();
   });
+
+  describe('sealed product', () => {
+    const sealedId = 'tcgp-sealed-593355';
+    const sealedDetail: CardDetailRecord = {
+      cardId: sealedId,
+      game: 'pokemon',
+      productKind: 'sealed',
+      sealedProductType: 'Elite Trainer Box',
+      name: 'Prismatic Evolutions Elite Trainer Box',
+      cardNumber: '',
+      setName: 'SV: Prismatic Evolutions',
+      imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/593355_200w.jpg',
+      largeImageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/593355_in_1000x1000.jpg',
+      marketPrice: 62.75,
+      currencyCode: 'USD',
+      marketplaceLabel: 'TCGplayer',
+      marketHistory: {
+        currencyCode: 'USD',
+        currentPrice: 62.75,
+        points: [],
+        availableVariants: [],
+        availableConditions: [],
+        insights: [],
+      },
+      ownedEntries: [],
+      variantOptions: [{ id: 'sealed', label: 'Sealed' }],
+      counterpartCardId: null,
+      tcgPlayerVariants: [
+        { name: 'Sealed', marketplaces: [{ name: 'tcgplayer', product_id: 593355 }] },
+      ],
+      // Graded data a card would render — sealed must still hide it.
+      population: { PSA: { total: 10, grades: { '10': 4 } } } as unknown as CardDetailRecord['population'],
+    };
+    const sealedTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: 'tcgplayer' as const,
+      rows: [{
+        label: 'Near Mint',
+        key: 'NM',
+        currentPrice: 62.75,
+        currencyCode: 'USD',
+        points: [55, 58, 62.75],
+        trendPct: 14,
+      }],
+    }));
+    const sealedRepository = (overrides: Parameters<typeof createTestSpotlightRepository>[0] = {}) =>
+      createTestSpotlightRepository({
+        getCardDetail: async (query) => (query.cardId === sealedId ? sealedDetail : null),
+        getCardPriceTrends: sealedTrends,
+        ...overrides,
+      });
+
+    it('shows the product type, set and market price; hides card-only controls', async () => {
+      renderWithProviders(
+        <CardDetailScreen cardId={sealedId} onBack={jest.fn()} />,
+        { spotlightRepository: sealedRepository() },
+      );
+
+      expect(await screen.findByTestId('detail-name')).toBeTruthy();
+      await waitFor(() => {
+        expect(screen.getByTestId('detail-identity-number-set').props.children).toBe(
+          'Elite Trainer Box · SV: Prismatic Evolutions',
+        );
+      });
+
+      // One "Market Price" row (no condition label) carrying the price.
+      expect(await screen.findByTestId('detail-price-trends')).toBeTruthy();
+      expect(screen.getByText('Market Price')).toBeTruthy();
+      expect(screen.queryByText('Near Mint')).toBeNull();
+      expect(screen.getByTestId('detail-price-trends-price-NM').props.children).toBe('$62.75');
+
+      // Square product framing, not the 5:7 card frame.
+      const frameStyle = StyleSheet.flatten(screen.getByTestId('detail-hero-card-frame').props.style);
+      expect(frameStyle.aspectRatio).toBe(1);
+
+      // Card-only surfaces are gone.
+      expect(screen.queryByTestId('detail-configurator')).toBeNull();
+      expect(screen.queryByTestId('detail-configurator-grader-PSA')).toBeNull();
+      expect(screen.queryByTestId('detail-add-item')).toBeNull();
+      expect(screen.queryByTestId('detail-hero-card-favorite')).toBeNull();
+      expect(screen.queryByTestId('detail-population-report')).toBeNull();
+      expect(screen.queryByTestId('detail-owned-edit')).toBeNull();
+
+      // TCGplayer + share take the add bar's place.
+      expect(screen.getByTestId('detail-tcgplayer-button')).toBeTruthy();
+      expect(screen.getByTestId('detail-share-button')).toBeTruthy();
+    });
+
+    it('links to the exact TCGplayer product page with no condition filter', async () => {
+      const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
+
+      renderWithProviders(
+        <CardDetailScreen cardId={sealedId} onBack={jest.fn()} />,
+        { spotlightRepository: sealedRepository() },
+      );
+
+      await screen.findByTestId('detail-price-trends');
+      await waitFor(() => {
+        expect(screen.getByTestId('detail-tcgplayer-button')).not.toBeDisabled();
+      });
+      fireEvent.press(screen.getByTestId('detail-tcgplayer-button'));
+      fireEvent.press(screen.getByTestId('detail-price-trends-row-NM'));
+
+      expect(openURL).toHaveBeenCalledTimes(2);
+      for (const [url] of openURL.mock.calls) {
+        expect(url).toContain('tcgplayer.com/product/593355');
+        expect(url).not.toContain('Condition=');
+      }
+      openURL.mockRestore();
+    });
+
+    it('falls back to the detail price when the trends come back empty', async () => {
+      renderWithProviders(
+        <CardDetailScreen cardId={sealedId} onBack={jest.fn()} />,
+        {
+          spotlightRepository: sealedRepository({
+            getCardPriceTrends: async () => ({ mode: 'raw', provider: 'tcgplayer', rows: [] }),
+          }),
+        },
+      );
+
+      expect(await screen.findByText('Market Price')).toBeTruthy();
+      expect(screen.getByTestId('detail-price-trends-price-market').props.children).toBe('$62.75');
+    });
+  });
+
+  it('a card (productKind "card") keeps its number line, configurator, add and watch', async () => {
+    const baseRepository = createTestSpotlightRepository();
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail ? { ...detail, productKind: 'card', sealedProductType: null } : null;
+          },
+        }),
+      },
+    );
+
+    expect(await screen.findByTestId('detail-configurator')).toBeTruthy();
+    expect(screen.getByTestId('detail-add-item')).toBeTruthy();
+    expect(screen.getByTestId('detail-hero-card-favorite')).toBeTruthy();
+    expect(screen.queryByTestId('detail-tcgplayer-button')).toBeNull();
+    expect(screen.getByTestId('detail-identity-number-set').props.children).toContain('001/096');
+    const frameStyle = StyleSheet.flatten(screen.getByTestId('detail-hero-card-frame').props.style);
+    expect(frameStyle.aspectRatio).toBe(5 / 7);
+  });
 });

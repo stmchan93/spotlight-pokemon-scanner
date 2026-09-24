@@ -53,6 +53,9 @@ import { capturePostHogEvent } from '@/lib/observability/posthog';
   this one.
 */
 
+const SEALED_FILTER = 'sealed';
+type CatalogSearchFilter = RarityFilterBucket | typeof SEALED_FILTER;
+
 type CatalogSearchScreenProps = {
   initialQuery?: string;
   /**
@@ -82,9 +85,13 @@ export function CatalogSearchScreen({
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
 
-  // Single-select rarity chip; tap again to clear. Sent to the backend as the
-  // `rarityBucket` search param (a chip alone is a valid browse-by-rarity).
-  const [activeRarity, setActiveRarity] = useState<RarityFilterBucket | null>(null);
+  // One active chip at a time — Sealed or a rarity; tap again to clear. A chip
+  // alone is a valid search (browse with no text).
+  const [activeFilter, setActiveFilter] = useState<CatalogSearchFilter | null>(null);
+  const toggleFilter = (filter: CatalogSearchFilter) =>
+    setActiveFilter((current) => (current === filter ? null : filter));
+  const sealedActive = activeFilter === SEALED_FILTER;
+  const activeRarity = activeFilter && activeFilter !== SEALED_FILTER ? activeFilter : null;
   /*
     EVERY GAME. Typed queries were scoped to the SCANNER's lane, so searching
     "Darkrai" with the lane on One Piece returned "No matching cards" — with
@@ -98,6 +105,7 @@ export function CatalogSearchScreen({
     initialQuery,
     rarityBucket: activeRarity,
     scope: 'all',
+    sealed: sealedActive,
   });
   const { query, setQuery, results } = search;
   const [openingResultId, setOpeningResultId] = useState<string | null>(null);
@@ -164,6 +172,7 @@ export function CatalogSearchScreen({
     // how you tell a working search from one nobody trusts the results of.
     capturePostHogEvent('catalog_search_result_opened', {
       has_rarity_filter: activeRarity != null,
+      is_sealed: sealedActive,
       result_count: results.length,
     });
 
@@ -202,7 +211,9 @@ export function CatalogSearchScreen({
             <StateCard
               centered
               loading
-              message="Looking up matching cards and inventory quantities."
+              message={sealedActive
+                ? 'Looking up matching sealed products.'
+                : 'Looking up matching cards and inventory quantities.'}
               style={styles.stateCard}
               title="Searching catalog"
             />
@@ -229,9 +240,11 @@ export function CatalogSearchScreen({
           <View style={styles.bodyStateWrap}>
             <StateCard
               centered
-              message="Try a shorter query, a different set name, or just the collector number."
+              message={sealedActive
+                ? 'Try a set name or a product type like "Elite Trainer Box".'
+                : 'Try a shorter query, a different set name, or just the collector number.'}
               style={styles.stateCard}
-              title="No matching cards"
+              title={sealedActive ? 'No matching sealed products' : 'No matching cards'}
             />
           </View>
         );
@@ -345,11 +358,9 @@ export function CatalogSearchScreen({
 
       </View>
 
-        {/* Rarity chips (same PillButton tone="filter" pattern as the
+        {/* Sealed + rarity chips (same PillButton tone="filter" pattern as the
             Collection filter row). Single-select; tapping the active chip
-            clears it. A chip alone searches with no text (browse-by-rarity).
-            They used to be hidden whenever the People tab was showing; with
-            that tab gone they are simply always present. */}
+            clears it. A chip alone searches with no text (browse). */}
         <ScrollView
           contentContainerStyle={styles.rarityChipRow}
           horizontal
@@ -357,11 +368,18 @@ export function CatalogSearchScreen({
           style={styles.rarityChipScroller}
           testID="catalog-rarity-chip-row"
         >
+          <PillButton
+            label="Sealed"
+            onPress={() => toggleFilter(SEALED_FILTER)}
+            selected={sealedActive}
+            testID="catalog-sealed-chip"
+            tone="filter"
+          />
           {RARITY_FILTER_BUCKETS.map((key) => (
             <PillButton
               key={key}
               label={RARITY_BUCKET_LABELS[key]}
-              onPress={() => setActiveRarity((current) => (current === key ? null : key))}
+              onPress={() => toggleFilter(key)}
               selected={activeRarity === key}
               testID={`catalog-rarity-chip-${key}`}
               tone="filter"

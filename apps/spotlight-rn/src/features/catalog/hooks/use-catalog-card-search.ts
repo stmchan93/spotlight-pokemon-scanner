@@ -28,7 +28,7 @@ export type CatalogSearchScope = CardGame | 'all';
 export type CatalogCardSearch = {
   query: string;
   setQuery: (value: string) => void;
-  /** True when the box (or a rarity chip) holds enough to be a real search. */
+  /** True when the box (or a rarity/Sealed chip) holds enough to be a real search. */
   hasActiveQuery: boolean;
   results: CatalogSearchResult[];
   /** First page in flight. */
@@ -54,14 +54,19 @@ export type UseCatalogCardSearchOptions = {
   scope: CatalogSearchScope;
   /** Single-select rarity chip, when the surface offers one. */
   rarityBucket?: RarityFilterBucket | null;
+  /** Search sealed product instead of cards; ignores `rarityBucket`. */
+  sealed?: boolean;
   initialQuery?: string;
 };
 
 export function useCatalogCardSearch({
   scope,
-  rarityBucket = null,
+  rarityBucket: requestedRarityBucket = null,
+  sealed = false,
   initialQuery = '',
 }: UseCatalogCardSearchOptions): CatalogCardSearch {
+  // Sealed product has no rarity, so the two never combine.
+  const rarityBucket = sealed ? null : requestedRarityBucket;
   const { spotlightRepository } = useAppServices();
 
   const [query, setQuery] = useState(initialQuery);
@@ -81,11 +86,11 @@ export function useCatalogCardSearch({
   }, [initialQuery]);
 
   const trimmed = query.trim();
-  // A rarity chip alone is a valid search (browse-by-rarity, no text).
-  const hasActiveQuery = trimmed.length >= MIN_QUERY_LENGTH || rarityBucket != null;
+  // A rarity or Sealed chip alone is a valid search (browse, no text).
+  const hasActiveQuery = trimmed.length >= MIN_QUERY_LENGTH || rarityBucket != null || sealed;
   // Text and chip form ONE logical search; the key is what a late page is
   // checked against.
-  const searchKey = `${scope}::${trimmed}::${rarityBucket ?? ''}`;
+  const searchKey = `${scope}::${trimmed}::${sealed ? 'sealed' : rarityBucket ?? ''}`;
 
   useEffect(() => {
     if (!hasActiveQuery) {
@@ -109,6 +114,7 @@ export function useCatalogCardSearch({
         .searchCatalogCardsPage(trimmed, PAGE_SIZE, 0, {
           game: scope,
           ...(rarityBucket ? { rarityBucket } : {}),
+          ...(sealed ? { kind: 'sealed' as const } : {}),
         })
         .then((page) => {
           if (isCancelled) {
@@ -124,6 +130,7 @@ export function useCatalogCardSearch({
           */
           capturePostHogEvent('catalog_search_performed', {
             has_rarity_filter: rarityBucket != null,
+            is_sealed: sealed,
             query_length: trimmed.length,
             result_count: page.cards.length,
             scope,
@@ -152,7 +159,7 @@ export function useCatalogCardSearch({
       clearTimeout(timeout);
     };
     // `searchKey` already folds in scope, text and chip.
-  }, [hasActiveQuery, revision, searchKey, rarityBucket, scope, spotlightRepository, trimmed]);
+  }, [hasActiveQuery, revision, searchKey, rarityBucket, scope, sealed, spotlightRepository, trimmed]);
 
   const loadMore = useCallback(() => {
     if (!hasActiveQuery || isLoading || isLoadingMore || !hasMore) {
@@ -164,6 +171,7 @@ export function useCatalogCardSearch({
       .searchCatalogCardsPage(trimmed, PAGE_SIZE, offset, {
         game: scope,
         ...(rarityBucket ? { rarityBucket } : {}),
+        ...(sealed ? { kind: 'sealed' as const } : {}),
       })
       .then((page) => {
         // Drop the page if the query, chip or scope changed while it flew.
@@ -193,6 +201,7 @@ export function useCatalogCardSearch({
     rarityBucket,
     results.length,
     scope,
+    sealed,
     searchKey,
     spotlightRepository,
     trimmed,

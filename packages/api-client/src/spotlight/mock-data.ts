@@ -497,6 +497,37 @@ export const mockCatalogResults: CatalogSearchResult[] = [
   },
 ];
 
+// Sealed products only surface through `kind: 'sealed'` searches, matching the
+// backend (a plain search never returns sealed).
+export const mockSealedCatalogResults: CatalogSearchResult[] = [
+  {
+    id: 'tcgp-sealed-593355',
+    cardId: 'tcgp-sealed-593355',
+    productKind: 'sealed',
+    sealedProductType: 'Elite Trainer Box',
+    name: 'Prismatic Evolutions Elite Trainer Box',
+    cardNumber: '',
+    setName: 'SV: Prismatic Evolutions',
+    imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/593355_in_1000x1000.jpg',
+    marketPrice: 89.99,
+    currencyCode: 'USD',
+    game: 'pokemon',
+  },
+  {
+    id: 'tcgp-sealed-565606',
+    cardId: 'tcgp-sealed-565606',
+    productKind: 'sealed',
+    sealedProductType: 'Booster Box',
+    name: 'Surging Sparks Booster Box',
+    cardNumber: '',
+    setName: 'SV08: Surging Sparks',
+    imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/565606_in_1000x1000.jpg',
+    marketPrice: 214.5,
+    currencyCode: 'USD',
+    game: 'pokemon',
+  },
+];
+
 const mockScannerCandidates: CatalogSearchResult[] = [
   {
     id: 'mcdonalds25-21-candidate',
@@ -824,6 +855,35 @@ export const mockCardDetails: Record<string, CardDetailRecord> = {
       currentPrice: 37.54,
     }))],
   },
+  // Sealed product: no number, conditions or printings.
+  'tcgp-sealed-593355': {
+    cardId: 'tcgp-sealed-593355',
+    productKind: 'sealed',
+    sealedProductType: 'Elite Trainer Box',
+    name: 'Prismatic Evolutions Elite Trainer Box',
+    cardNumber: '',
+    setName: 'SV: Prismatic Evolutions',
+    game: 'pokemon',
+    imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/593355_in_1000x1000.jpg',
+    largeImageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/593355_in_1000x1000.jpg',
+    marketPrice: 89.99,
+    currencyCode: 'USD',
+    marketplaceLabel: 'TCGPLAYER BUYING OPTIONS',
+    marketplaceUrl: 'https://www.tcgplayer.com/product/593355',
+    marketHistory: {
+      currencyCode: 'USD',
+      currentPrice: 89.99,
+      points: historyPoints(89.99),
+      availableVariants: [],
+      availableConditions: [],
+      selectedVariant: null,
+      selectedCondition: null,
+      insights: [...defaultInsights(89.99)],
+    },
+    ebayListings: null,
+    ownedEntries: [],
+    variantOptions: [],
+  },
 };
 
 const dashboardRanges = {
@@ -979,6 +1039,10 @@ export function seedMockCardTransactions() {
 
 export function seedMockCatalogResults() {
   return mockCatalogResults.map((result) => ({ ...result }));
+}
+
+export function seedMockSealedCatalogResults() {
+  return mockSealedCatalogResults.map((result) => ({ ...result }));
 }
 
 export function seedMockScannerCandidates(mode: ScannerMode = 'raw') {

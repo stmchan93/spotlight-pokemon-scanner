@@ -4,6 +4,7 @@ import { Keyboard, StyleSheet } from 'react-native';
 import {
   MockSpotlightRepository,
   mockCatalogResults,
+  mockSealedCatalogResults,
 } from '@spotlight/api-client';
 
 import { CatalogSearchScreen } from '@/features/catalog/screens/catalog-search-screen';
@@ -297,6 +298,77 @@ describe('CatalogSearchScreen', () => {
     fireEvent.press(screen.getByTestId('catalog-rarity-chip-sir'));
     await advanceDebounce();
     expect(searchSpy).toHaveBeenCalledWith('tree', expect.any(Number), 0, { game: 'all' });
+  });
+
+  describe('the Sealed chip', () => {
+    it('is the first chip in the row', () => {
+      renderWithProviders(
+        <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
+      );
+
+      type Node = { props: { testID?: unknown } };
+      const row = screen.getByTestId('catalog-rarity-chip-row');
+      const chipIds = row.findAll(
+        (node: Node) => typeof node.props.testID === 'string'
+          && /^catalog-(sealed-chip|rarity-chip-[a-z]+)$/.test(node.props.testID)
+          && node.props.testID !== 'catalog-rarity-chip-row',
+      ).map((node: Node) => node.props.testID as string);
+      expect(chipIds[0]).toBe('catalog-sealed-chip');
+    });
+
+    it('alone browses sealed product across every game, and shows the product type on the tile', async () => {
+      const onOpenCard = jest.fn();
+      const searchSpy = jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
+        .mockResolvedValue({ cards: mockSealedCatalogResults, hasMore: false });
+
+      renderWithProviders(
+        <CatalogSearchScreen game="onepiece" onClose={jest.fn()} onOpenCard={onOpenCard} />,
+      );
+
+      fireEvent.press(screen.getByTestId('catalog-sealed-chip'));
+      await advanceDebounce();
+
+      expect(searchSpy).toHaveBeenCalledWith('', expect.any(Number), 0, { game: 'all', kind: 'sealed' });
+      const etb = mockSealedCatalogResults[0];
+      expect(await screen.findByTestId(`catalog-result-${etb.id}`)).toBeTruthy();
+      // The product type takes the collector number's slot.
+      expect(screen.getByText('Elite Trainer Box · SV: Prismatic Evolutions')).toBeTruthy();
+
+      // Same card page route as a card.
+      fireEvent.press(screen.getByTestId(`catalog-result-smoke-${etb.cardId}`));
+      expect(onOpenCard).toHaveBeenCalledWith(expect.objectContaining({ cardId: etb.cardId, productKind: 'sealed' }));
+    });
+
+    it('is mutually exclusive with the rarity chips, and clears on a second tap', async () => {
+      const searchSpy = jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
+        .mockResolvedValue({ cards: [], hasMore: false });
+
+      renderWithProviders(
+        <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
+      );
+
+      fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'prismatic');
+      fireEvent.press(screen.getByTestId('catalog-rarity-chip-sir'));
+      await advanceDebounce();
+      expect(searchSpy).toHaveBeenLastCalledWith('prismatic', expect.any(Number), 0, { game: 'all', rarityBucket: 'sir' });
+
+      // Sealed replaces the rarity chip — never both.
+      fireEvent.press(screen.getByTestId('catalog-sealed-chip'));
+      await advanceDebounce();
+      expect(searchSpy).toHaveBeenLastCalledWith('prismatic', expect.any(Number), 0, { game: 'all', kind: 'sealed' });
+
+      // A rarity chip replaces Sealed.
+      fireEvent.press(screen.getByTestId('catalog-rarity-chip-secret'));
+      await advanceDebounce();
+      expect(searchSpy).toHaveBeenLastCalledWith('prismatic', expect.any(Number), 0, { game: 'all', rarityBucket: 'secret' });
+
+      // Back to Sealed, then tap it again: plain card search.
+      fireEvent.press(screen.getByTestId('catalog-sealed-chip'));
+      await advanceDebounce();
+      fireEvent.press(screen.getByTestId('catalog-sealed-chip'));
+      await advanceDebounce();
+      expect(searchSpy).toHaveBeenLastCalledWith('prismatic', expect.any(Number), 0, { game: 'all' });
+    });
   });
 
   it('searches every game, whatever lane it was opened in', async () => {
