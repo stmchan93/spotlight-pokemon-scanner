@@ -77,11 +77,14 @@ describe('CardSimilarSection', () => {
   it('renders the three rows with titles, sub lines and prices', async () => {
     renderSection(async () => FULL);
 
-    expect(await screen.findByText('More like this')).toBeTruthy();
+    expect(await screen.findByText('Similar cards')).toBeTruthy();
     expect(screen.getByTestId('similar-goes-with')).toBeTruthy();
     expect(screen.getByText('Goes with')).toBeTruthy();
     expect(screen.getByText('Complete the pair')).toBeTruthy();
-    expect(screen.getByText('Other Latios cards')).toBeTruthy();
+    // The same-name rail sits bare under "Similar cards".
+    expect(screen.getByTestId('similar-same-name')).toBeTruthy();
+    expect(screen.queryByText('Other Latios cards')).toBeNull();
+    expect(screen.queryByText('Other sets and languages')).toBeNull();
     expect(screen.getByText('Same look, lower price')).toBeTruthy();
     expect(screen.getByText('Japanese · Clash of the Blue Sky · 105/107')).toBeTruthy();
     expect(screen.getByTestId('similar-cheaper-sv8-1-price').props.children).toBe('$165.00');
@@ -112,7 +115,7 @@ describe('CardSimilarSection', () => {
         await Promise.resolve();
       });
       expect(screen.queryByTestId('similar')).toBeNull();
-      expect(screen.queryByText('More like this')).toBeNull();
+      expect(screen.queryByText('Similar cards')).toBeNull();
       unmount();
     }
   });
@@ -133,7 +136,7 @@ describe('CardSimilarSection', () => {
   });
 });
 
-describe('CardDetailScreen "More like this"', () => {
+describe('CardDetailScreen "Similar cards"', () => {
   const push = jest.fn();
 
   beforeEach(() => {

@@ -1968,7 +1968,7 @@ export function CardDetailScreen({
     [router, selectedEntry?.id, spotlightRepository],
   );
 
-  // "More like this" tile tap: push that card's PDP (raw lane) with a preview so
+  // "Similar cards" tile tap: push that card's PDP (raw lane) with a preview so
   // its art and name paint before the detail request lands.
   const handlePressSimilarCard = useCallback(
     (card: SimilarCard) => {
@@ -2719,7 +2719,7 @@ export function CardDetailScreen({
           />
         )}
 
-        {/* "More like this" sits directly under the pop report and fetches only
+        {/* "Similar cards" sits directly under the pop report and fetches only
             after the main detail lands, so it never delays first paint. */}
         {isSealed ? null : (
           <CardSimilarSection

@@ -75,6 +75,12 @@ MIN_PRICE_USD = 2.0
 # Outside this band a single pair is treated as a data glitch, not a move.
 MAX_CHANGE_PCT = 1000.0
 MIN_CHANGE_PCT = -90.0
+# A big raw move must show at least this many distinct TCGplayer market prices
+# across the window. Thin cards hold one last-sale value and then jump when a
+# single sale lands (Pikachu ☆ ex13-104, 2026-09-23: flat $1,899.99 → flat $900
+# read as −52.6%). Same idea as Top Trends' MIN_DISTINCT_PRICES.
+STEP_MOVE_PCT = 25.0
+MIN_DISTINCT_RAW_PRICES = 3
 # Medians inside +/- this band count as flat (neither rising nor cooling).
 FLAT_BAND_PCT = 0.5
 SPARK_POINTS = 30
@@ -599,6 +605,39 @@ def _load_cards(connection: sqlite3.Connection, games: tuple[str, ...]) -> dict[
     return out
 
 
+def raw_distinct_price_counts(
+    connection: sqlite3.Connection, card_ids: Iterable[str], *, start: date, end: date
+) -> dict[str, int]:
+    """Distinct main-lane prices per card over [start, end]."""
+    ids = sorted(set(card_ids))
+    seen: dict[str, set[float]] = {}
+    for offset in range(0, len(ids), 500):
+        chunk = ids[offset:offset + 500]
+        rows = connection.execute(
+            f"SELECT card_id, main_raw_market_price FROM card_price_history_daily "
+            f"WHERE card_id IN ({','.join('?' * len(chunk))}) AND price_date BETWEEN ? AND ? "
+            "AND main_raw_market_price > 0",
+            (*chunk, start.isoformat(), end.isoformat()),
+        ).fetchall()
+        for card_id, price in rows:
+            seen.setdefault(str(card_id), set()).add(round(float(price), 2))
+    return {card_id: len(prices) for card_id, prices in seen.items()}
+
+
+def drop_step_moves(
+    connection: sqlite3.Connection, pairs: list[PricePair], *, start: date, end: date
+) -> list[PricePair]:
+    """Drops big raw moves that are a single price step (see STEP_MOVE_PCT)."""
+    suspects = [p for p in pairs if p.lane == LANE_RAW and abs(p.change_pct) >= STEP_MOVE_PCT]
+    if not suspects:
+        return pairs
+    counts = raw_distinct_price_counts(connection, (p.card_id for p in suspects), start=start, end=end)
+    dropped = {
+        p.card_id for p in suspects if counts.get(p.card_id, 0) < MIN_DISTINCT_RAW_PRICES
+    }
+    return [p for p in pairs if not (p.lane == LANE_RAW and p.card_id in dropped)]
+
+
 def _raw_rows_for_date(
     connection: sqlite3.Connection, price_date: str, *, has_variant: bool = True
 ) -> dict[str, tuple[float, str | None]]:
@@ -868,7 +907,10 @@ def compute_meta_pulse(
                 has_main_column=True, has_main_variant_column=has_main_variant,
                 expected_cards=len(raw_now),
             )
-            pairs.extend(raw_pairs(raw_now, raw_then, cards))
+            pairs.extend(drop_step_moves(
+                connection, raw_pairs(raw_now, raw_then, cards),
+                start=then_end - timedelta(days=THEN_TOLERANCE_DAYS), end=ref_date,
+            ))
         if graded_now:
             graded_then = _latest_graded_items(
                 connection, start=then_end - timedelta(days=THEN_TOLERANCE_DAYS), end=then_end,
@@ -1560,6 +1602,13 @@ def build_meta_exposure_payload(
                 price_then=then_row[0], price_now=now_row[0], variant=now_row[1],
             )
             holding.pair = pair if pair_is_eligible(pair) else None
+        # The same single-step filter the nightly groups use, so "your cards"
+        # never shows a move the group page left out.
+        priced = [h.pair for h in holdings if not h.is_slab and h.pair is not None]
+        kept = {id(p) for p in drop_step_moves(connection, priced, start=then_start, end=now_end)}
+        for holding in holdings:
+            if not holding.is_slab and holding.pair is not None and id(holding.pair) not in kept:
+                holding.pair = None
 
     slab_ids = sorted({h.card_id for h in holdings if h.is_slab})
     populations: dict[str, dict[str, dict[str, int]]] = {}

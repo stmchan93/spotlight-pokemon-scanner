@@ -28,7 +28,7 @@ function subtitle(card: SimilarCard): string {
 }
 
 /**
- * "More like this" (docs/meta-feed-mockup/v2/SimilarV7): up to three rows from
+ * "Similar cards" (docs/meta-feed-mockup/v2/SimilarV7): up to three rows from
  * the art-embedding neighbours — the same-set pair, other cards of the same
  * base name, and look-alikes that cost less. Empty rows hide; the whole
  * section hides when every row is empty, the feature is off (null), or the
@@ -67,15 +67,16 @@ export function CardSimilarSection({ cardId, enabled, repository, onPressCard, t
   if (!goesWith && sameName.length === 0 && sameLookCheaper.length === 0) {
     return null;
   }
-  const baseName = similar.baseName?.trim();
-
-  const renderRail = (key: string, title: string, caption: string, cards: SimilarCard[]) =>
+  // A null title renders the rail bare, directly under the section title.
+  const renderRail = (key: string, title: string | null, caption: string | null, cards: SimilarCard[]) =>
     cards.length === 0 ? null : (
       <View style={styles.row} testID={testID ? `${testID}-${key}` : undefined}>
-        <View style={styles.rowHeader}>
-          <AppText color="gray900" variant="titleSmall">{title}</AppText>
-          <AppText color="gray600" variant="captionMedium">{caption}</AppText>
-        </View>
+        {title ? (
+          <View style={styles.rowHeader}>
+            <AppText color="gray900" variant="titleSmall">{title}</AppText>
+            {caption ? <AppText color="gray600" variant="captionMedium">{caption}</AppText> : null}
+          </View>
+        ) : null}
         <ScrollView
           contentContainerStyle={styles.railContent}
           horizontal
@@ -99,7 +100,7 @@ export function CardSimilarSection({ cardId, enabled, repository, onPressCard, t
 
   return (
     <View style={styles.container} testID={testID}>
-      <AppText color="gray900" variant="titleMedium">More like this</AppText>
+      <AppText color="gray900" variant="titleMedium">Similar cards</AppText>
 
       {goesWith ? (
         <View style={styles.row} testID={testID ? `${testID}-goes-with` : undefined}>
@@ -120,12 +121,7 @@ export function CardSimilarSection({ cardId, enabled, repository, onPressCard, t
         </View>
       ) : null}
 
-      {renderRail(
-        'same-name',
-        baseName ? `Other ${baseName} cards` : 'Other printings',
-        'Other sets and languages',
-        sameName,
-      )}
+      {renderRail('same-name', null, null, sameName)}
       {renderRail('cheaper', 'Same look, lower price', 'Similar art for less', sameLookCheaper)}
     </View>
   );

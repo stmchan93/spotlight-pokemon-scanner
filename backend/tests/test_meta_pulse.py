@@ -36,6 +36,7 @@ from meta_pulse import (  # noqa: E402
     build_meta_group_detail_payload,
     build_meta_pulse_payload,
     compute_meta_pulse,
+    drop_step_moves,
     ensure_schema,
     era_for_release_date,
     group_defs_for,
@@ -459,7 +460,9 @@ class ComputeTests(unittest.TestCase):
             card_id = f"c{i}"
             self._card(card_id)
             for days_ago in range(10, -1, -1):
-                self._raw(card_id, days_ago, 20.0 if days_ago > 3 else 20.0 - (i + 1))
+                # A traded slide (three prices), not a single-sale step.
+                price = 20.0 if days_ago > 3 else 20.0 - (i + 1) / 2 if days_ago == 3 else 20.0 - (i + 1)
+                self._raw(card_id, days_ago, price)
         self._compute(games=["pokemon"], windows=[7])
         detail = build_meta_group_detail_payload(self.connection, game="pokemon", window_days=7,
                                                  group_key="vintage:raw")
@@ -467,6 +470,21 @@ class ComputeTests(unittest.TestCase):
         pcts = [c["changePercent"] for c in detail["group"]["topCards"]]
         self.assertEqual(pcts, sorted(pcts))
         self.assertEqual(detail["group"]["topCards"][0]["cardId"], "c9")
+
+    def test_single_step_big_raw_move_is_not_a_move(self) -> None:
+        # Pikachu ☆ ex13-104: flat $1,899.99, then flat $900 after one sale.
+        for i in range(10):
+            card_id = f"s{i}"
+            self._card(card_id)
+            for days_ago in range(10, -1, -1):
+                self._raw(card_id, days_ago, 40.0 if days_ago > 1 else 19.0)
+        pairs = [PricePair(card_id=f"s{i}", game="pokemon", lane=LANE_RAW, price_then=40.0, price_now=19.0)
+                 for i in range(10)]
+        today = TODAY
+        self.assertEqual(drop_step_moves(self.connection, pairs, start=today - timedelta(days=14), end=today), [])
+        # A small two-price move is still a move.
+        small = [PricePair(card_id="s0", game="pokemon", lane=LANE_RAW, price_then=40.0, price_now=36.0)]
+        self.assertEqual(drop_step_moves(self.connection, small, start=today - timedelta(days=14), end=today), small)
 
     # --- exposure (v4) --------------------------------------------------------
 
