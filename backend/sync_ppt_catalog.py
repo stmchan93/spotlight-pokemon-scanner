@@ -171,6 +171,92 @@ def _annotate_existing_graded_signals(
     return {"annotated": annotated, "skipped_ppt_only": 0}
 
 
+PPT_UNGRADED_GRADE_KEY = "ungraded"
+
+
+def ensure_ppt_ungraded_signals_schema(connection) -> None:
+    """Small per-card table (one row per card); safe to create at startup."""
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ppt_ungraded_signals (
+            card_id TEXT PRIMARY KEY,
+            tcgplayer_id TEXT,
+            sales_count INTEGER,
+            median_price REAL,
+            sales_velocity_weekly REAL,
+            smart_market_price REAL,
+            smart_market_confidence TEXT,
+            market_price_7day REAL,
+            price_date TEXT,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+
+def ppt_ungraded_entry(ppt_card: dict[str, Any]) -> dict[str, Any] | None:
+    """The eBay export's ``ungraded`` row for a PPT card, or None."""
+    ebay = ppt_card.get("ebay") if isinstance(ppt_card, dict) else None
+    sales = (ebay or {}).get("salesByGrade") if isinstance(ebay, dict) else None
+    if not isinstance(sales, dict):
+        return None
+    entry = sales.get(PPT_UNGRADED_GRADE_KEY)
+    return entry if isinstance(entry, dict) else None
+
+
+def upsert_ppt_ungraded_signals(
+    connection,
+    card_ids: Iterable[str],
+    entry: dict[str, Any],
+    *,
+    tcgplayer_id: str | None = None,
+    price_date: str | None = None,
+) -> int:
+    """Persist PPT's eBay "ungraded" sales signals for every local card on this
+    TCGplayer product. PER CARD, not per printing (PPT keys eBay sales by
+    product id; a Pokémon product carries all its printings). Metadata only —
+    never a displayed price. Does not commit."""
+    ensure_ppt_ungraded_signals_schema(connection)
+    confidence = entry.get("smartMarketConfidence")
+    confidence = str(confidence).strip().lower() if confidence is not None and str(confidence).strip() else None
+    values = (
+        tcgplayer_id,
+        _coerce_signal_count(entry.get("count", entry.get("salesCount"))),
+        _coerce_signal_float(entry.get("medianPrice")),
+        _coerce_signal_float(entry.get("salesVelocityWeekly")),
+        _coerce_signal_float(entry.get("smartMarketPrice")),
+        confidence,
+        _coerce_signal_float(entry.get("marketPrice7Day")),
+        price_date,
+        utc_now(),
+    )
+    written = 0
+    for card_id in card_ids:
+        connection.execute(
+            """
+            INSERT INTO ppt_ungraded_signals (
+                card_id, tcgplayer_id, sales_count, median_price, sales_velocity_weekly,
+                smart_market_price, smart_market_confidence, market_price_7day,
+                price_date, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(card_id) DO UPDATE SET
+                tcgplayer_id = excluded.tcgplayer_id,
+                sales_count = excluded.sales_count,
+                median_price = excluded.median_price,
+                sales_velocity_weekly = excluded.sales_velocity_weekly,
+                smart_market_price = excluded.smart_market_price,
+                smart_market_confidence = excluded.smart_market_confidence,
+                market_price_7day = excluded.market_price_7day,
+                price_date = excluded.price_date,
+                updated_at = excluded.updated_at
+            """,
+            (str(card_id), *values),
+        )
+        written += 1
+    return written
+
+
 def upsert_ppt_card_pricing(
     connection,
     ppt_card: dict[str, Any],
@@ -198,6 +284,13 @@ def upsert_ppt_card_pricing(
     card_ids = card_ids_for_tcgplayer_id(connection, tcgplayer_id)
     if not card_ids:
         return {"matched": 0, "reason": "no_local_card", "tcgplayerId": tcgplayer_id}
+
+    # Both modes: the ungraded eBay row is a liquidity signal, never a price.
+    ungraded = ppt_ungraded_entry(ppt_card)
+    if ungraded is not None:
+        upsert_ppt_ungraded_signals(
+            connection, card_ids, ungraded, tcgplayer_id=tcgplayer_id, price_date=price_date
+        )
 
     if signals_only:
         ppt_graded_contexts = build_ppt_graded_contexts(ppt_card)
@@ -443,8 +536,9 @@ def fetch_ppt_population(
 #                  marketPrice,lowPrice,sellers,lastPriceUpdate
 # ebay  dump cols: tcgPlayerId,grade,salesCount,averagePrice,medianPrice,
 #                  smartMarketPrice,smartMarketConfidence,marketPrice7Day,marketTrend,
-#                  salesVelocityWeekly   (grade e.g. psa10/cgc9_5; "ungraded" is skipped
-#                  downstream by parse_ppt_grade_key)
+#                  salesVelocityWeekly   (grade e.g. psa10/cgc9_5; the "ungraded" row is
+#                  skipped by parse_ppt_grade_key for graded pricing but persisted by
+#                  upsert_ppt_ungraded_signals as a per-card liquidity signal)
 import csv as _csv
 
 
@@ -485,6 +579,7 @@ def parse_export_ebay(path: str) -> dict[str, dict[str, Any]]:
                 "smartMarketPrice": row.get("smartMarketPrice"),
                 "smartMarketConfidence": row.get("smartMarketConfidence"),
                 "marketPrice7Day": row.get("marketPrice7Day"),
+                "salesVelocityWeekly": row.get("salesVelocityWeekly"),
                 "count": row.get("salesCount"),
             }
     return by_id

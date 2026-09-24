@@ -16,6 +16,19 @@ export function centsToCurrency(cents: number | null | undefined, currencyCode =
   return formatCurrency(cents / 100, currencyCode);
 }
 
+/** "$95" for whole dollars, "$95.50" otherwise — for short, spoken-style copy. */
+function compactCurrency(cents: number | null | undefined, currencyCode: string): string | null {
+  if (cents == null || !Number.isFinite(cents)) {
+    return null;
+  }
+  return new Intl.NumberFormat('en-US', {
+    currency: currencyCode,
+    maximumFractionDigits: 2,
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+    style: 'currency',
+  }).format(cents / 100);
+}
+
 /**
  * The one line a deal row says out loud: "$34.00 listed — you added it at
  * $46.00".
@@ -27,6 +40,9 @@ export function centsToCurrency(cents: number | null | undefined, currencyCode =
  */
 export function buildDealHeadline(alert: DealAlert, currencyCode = 'USD'): string {
   const total = centsToCurrency(alert.totalCents, currencyCode) ?? '';
+  if (alert.kind === 'new_low') {
+    return buildNewLowLabel(alert, currencyCode);
+  }
   const baseline = centsToCurrency(alert.baselineCents, currencyCode);
   if (baseline) {
     return `${total} listed — you added it at ${baseline}`;
@@ -38,12 +54,40 @@ export function buildDealHeadline(alert: DealAlert, currencyCode = 'USD'): strin
   return `${total} listed`;
 }
 
-/** "26% off" for the chip, or null when the backend scored no discount. */
+/**
+ * "Lowest we've seen · $95 (usually $129+)". A new low makes no percent claim —
+ * it is the honest thing to say about a thin market with no reliable yardstick.
+ */
+export function buildNewLowLabel(alert: DealAlert, currencyCode = 'USD'): string {
+  const total = compactCurrency(alert.totalCents, currencyCode) ?? '';
+  // "usually $129+" is a floor, so whole dollars rounded down.
+  const usual = alert.lowestSeenCents != null
+    ? compactCurrency(Math.floor(alert.lowestSeenCents / 100) * 100, currencyCode)
+    : null;
+  return usual ? `Lowest we've seen · ${total} (usually ${usual}+)` : `Lowest we've seen · ${total}`;
+}
+
+/**
+ * "26% off" for the chip, or null when there is no percent to claim: no score,
+ * a `new_low` (never a percent), or a `none`-tier market too thin to judge.
+ */
 export function buildDiscountLabel(alert: DealAlert): string | null {
+  if (alert.kind === 'new_low' || alert.tier === 'none') {
+    return null;
+  }
   if (alert.discountPct == null || !Number.isFinite(alert.discountPct) || alert.discountPct <= 0) {
     return null;
   }
   return `${Math.round(alert.discountPct)}% off`;
+}
+
+/** The muted liquidity chip ("Few sales"), only for the thin-but-judged tiers. */
+export function buildTierLabel(alert: DealAlert): string | null {
+  if (alert.tier !== 'fewer' && alert.tier !== 'rarely') {
+    return null;
+  }
+  const label = (alert.tierLabel ?? '').trim();
+  return label.length > 0 ? label : null;
 }
 
 /**
@@ -63,11 +107,25 @@ export function buildDealShareMessage(
     return null;
   }
 
-  const title = [card?.name, card?.cardNumber, card?.setName]
+  const title = [card?.name, card?.cardNumber, card?.setName, alert.variantKey]
     .map((part) => (part ?? '').trim())
     .filter((part) => part.length > 0)
     .join(' · ');
   const subject = title.length > 0 ? title : 'A card on my watchlist';
+
+  if (alert.kind === 'new_low') {
+    const usual = alert.lowestSeenCents != null
+      ? compactCurrency(Math.floor(alert.lowestSeenCents / 100) * 100, currencyCode)
+      : null;
+    const lowLine = `${subject} just listed at ${total} — the lowest we've seen${usual ? ` (usually ${usual}+)` : ''}.`;
+    return alert.url ? `${lowLine}\n\n${alert.url}` : lowLine;
+  }
+
+  // Too thin to judge: say the price, claim nothing.
+  if (alert.tier === 'none') {
+    const plain = `${subject} just listed at ${total}.`;
+    return alert.url ? `${plain}\n\n${alert.url}` : plain;
+  }
 
   const savings = centsToCurrency(alert.savingsCents, currencyCode);
   const discount = buildDiscountLabel(alert);

@@ -1,5 +1,6 @@
 import {
   MockSpotlightRepository,
+  buildWatchKey,
   type CardDetailRecord,
   type CardFavoriteEntry,
   type CardPriceTrendList,
@@ -26,10 +27,13 @@ import { devImageUriForUrl } from '@/dev/dev-fixtures';
 // between reloads and breaks pixel reproducibility. Only cards present in
 // mock-data's `mockCardDetails` resolve into favorite rows — others are
 // silently dropped by the mock's getCardFavorites.
-const seededFavorites: readonly [cardId: string, favoritedAt: string][] = [
-  ['mcdonalds25-21', '2026-04-21T18:12:00.000Z'],
-  ['xyp-111', '2026-04-21T18:11:00.000Z'],
-  ['sm7-1', '2026-04-21T18:10:00.000Z'],
+// Keyed by printing too: xyp-111 is watched twice (Holofoil + Reverse Holofoil)
+// so the two-rows-for-one-card shape is on screen; null = main printing.
+const seededFavorites: readonly [cardId: string, variant: string | null, favoritedAt: string][] = [
+  ['mcdonalds25-21', null, '2026-04-21T18:12:00.000Z'],
+  ['xyp-111', 'Holofoil', '2026-04-21T18:11:00.000Z'],
+  ['xyp-111', 'Reverse Holofoil', '2026-04-21T18:10:30.000Z'],
+  ['sm7-1', null, '2026-04-21T18:10:00.000Z'],
 ];
 
 // Per-card favorite overrides so dev screenshots exercise every content SHAPE
@@ -37,6 +41,7 @@ const seededFavorites: readonly [cardId: string, favoritedAt: string][] = [
 // price (formatter drops the ".00") — not just the raw/cents happy path. That
 // gap is exactly how the missing grade line and "$1,100.00" both slipped past
 // the first sync.
+// Keyed by watchKey first, then card id.
 const devFavoriteOverrides: Record<string, Partial<CardFavoriteEntry>> = {
   'mcdonalds25-21': {
     conditionLabel: null,
@@ -57,7 +62,7 @@ const devFavoriteOverrides: Record<string, Partial<CardFavoriteEntry>> = {
     sinceAddedChangePercent: 18.1,
     sinceWatchedPoints: [10.5, 10.2, 9.9, 10.4, 11.1, 11.6, 12.0, 12.4],
   },
-  'xyp-111': {
+  'xyp-111|Holofoil': {
     marketPrice: 37.54,
     sinceAddedBaselinePrice: 37.2,
     sinceAddedChangeAmount: 0.34,
@@ -372,7 +377,8 @@ function withLocalImages(repository: SpotlightRepository): SpotlightRepository {
         const rewritten = rewriteImageUrls(resolved);
         if (property === 'getCardFavorites' && Array.isArray(rewritten)) {
           return rewritten.map((entry) => {
-            const override = devFavoriteOverrides[(entry as CardFavoriteEntry).cardId];
+            const favorite = entry as CardFavoriteEntry;
+            const override = devFavoriteOverrides[favorite.watchKey] ?? devFavoriteOverrides[favorite.cardId];
             return override ? { ...(entry as CardFavoriteEntry), ...override } : entry;
           });
         }
@@ -431,8 +437,8 @@ export async function createDevRepository(): Promise<SpotlightRepository> {
   const favoriteTimestamps = (
     mock as unknown as { favoriteCardTimestamps: Map<string, string> }
   ).favoriteCardTimestamps;
-  for (const [cardId, favoritedAt] of seededFavorites) {
-    favoriteTimestamps.set(cardId, favoritedAt);
+  for (const [cardId, variant, favoritedAt] of seededFavorites) {
+    favoriteTimestamps.set(buildWatchKey(cardId, variant), favoritedAt);
   }
   return withLocalImages(mock);
 }

@@ -53,6 +53,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import expo_push
+import watch_printings
 from catalog_tools import _table_columns
 from feed_prices import RawPrice, _resolve, latest_price_date, raw_price_changes
 from market_movers import DEFAULT_MAX_CHANGE_PCT, _as_float, _DailyRow, _jpy_usd_rate
@@ -162,7 +163,8 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
         ON market_alert_pushes (created_at)
         """
     )
-    # Per-card cooldown memory: when and at what price we last pushed it.
+    # Per-watch cooldown memory: when and at what price we last pushed it.
+    # Keyed per printing ('' = the card's main printing / owned raw holdings).
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS market_alert_card_state (
@@ -170,10 +172,50 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
             card_id TEXT NOT NULL,
             last_alerted_at TEXT NOT NULL,
             last_price_usd REAL NOT NULL,
-            PRIMARY KEY (owner_user_id, card_id)
+            variant_key TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (owner_user_id, card_id, variant_key)
         )
         """
     )
+    _migrate_card_state_per_printing(connection)
+
+
+def _migrate_card_state_per_printing(connection: sqlite3.Connection) -> None:
+    """One-time rebuild of the (small) cooldown table onto the per-printing key.
+    Idempotent: a table already keyed by variant_key is left alone."""
+    pk = [
+        str(row[1])
+        for row in sorted(
+            (r for r in connection.execute("PRAGMA table_info(market_alert_card_state)").fetchall() if int(r[5] or 0) > 0),
+            key=lambda r: int(r[5]),
+        )
+    ]
+    if pk == ["owner_user_id", "card_id", "variant_key"]:
+        return
+    connection.execute("DROP TABLE IF EXISTS market_alert_card_state__rebuild")
+    connection.execute(
+        """
+        CREATE TABLE market_alert_card_state__rebuild (
+            owner_user_id TEXT NOT NULL,
+            card_id TEXT NOT NULL,
+            last_alerted_at TEXT NOT NULL,
+            last_price_usd REAL NOT NULL,
+            variant_key TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (owner_user_id, card_id, variant_key)
+        )
+        """
+    )
+    variant = "COALESCE(variant_key, '')" if "variant_key" in _columns(connection, "market_alert_card_state") else "''"
+    connection.execute(
+        f"""
+        INSERT OR IGNORE INTO market_alert_card_state__rebuild
+            (owner_user_id, card_id, last_alerted_at, last_price_usd, variant_key)
+        SELECT owner_user_id, card_id, last_alerted_at, last_price_usd, {variant}
+        FROM market_alert_card_state
+        """
+    )
+    connection.execute("DROP TABLE market_alert_card_state")
+    connection.execute("ALTER TABLE market_alert_card_state__rebuild RENAME TO market_alert_card_state")
 
 
 # --- timezone + prefs ----------------------------------------------------------
@@ -342,6 +384,12 @@ class PriceMove:
     price_then: float
     change_pct: float
     owned: bool
+    variant_key: str = ""  # a printing watch's printing; '' = card level
+
+    @property
+    def display_name(self) -> str:
+        name = _name(self.card_name)
+        return f"{name} · {self.variant_key}" if self.variant_key else name
 
 
 @dataclass(frozen=True)
@@ -351,6 +399,9 @@ class PendingDeal:
     card_name: str
     total_cents: int
     discount_pct: float | None
+    kind: str = "under_added"
+    printing: str | None = None  # the watched (or main) printing, for copy
+    baseline_cents: int | None = None  # new_low: the "usually $X+" number
 
 
 @dataclass(frozen=True)
@@ -370,7 +421,7 @@ class PlannedPush:
     channel_id: str
     card_ids: tuple[str, ...] = ()
     deal_alert_ids: tuple[str, ...] = ()
-    move_prices: dict[str, float] = field(default_factory=dict)
+    move_prices: dict[Any, float] = field(default_factory=dict)  # (card_id, variant_key) -> USD
 
 
 def format_pct(pct: float) -> str:
@@ -390,11 +441,12 @@ def _name(value: str | None, fallback: str = "A card") -> str:
 def build_price_move_push(moves: Sequence[PriceMove]) -> PlannedPush | None:
     if not moves:
         return None
-    ranked = sorted(moves, key=lambda m: (-abs(m.change_pct), m.card_id))
+    ranked = sorted(moves, key=lambda m: (-abs(m.change_pct), m.card_id, m.variant_key))
     lead = ranked[0]
-    headline = f"{_name(lead.card_name)} {format_pct(lead.change_pct)}"
-    card_ids = tuple(m.card_id for m in ranked)
-    prices = {m.card_id: m.price_now for m in ranked}
+    headline = f"{lead.display_name} {format_pct(lead.change_pct)}"
+    card_ids = tuple(dict.fromkeys(m.card_id for m in ranked))
+    # Cooldown memory is per (card, printing).
+    prices = {(m.card_id, m.variant_key): m.price_now for m in ranked}
     data: dict[str, Any] = {"type": DATA_TYPE_PRICE_MOVE, "cardIds": list(card_ids)}
     if len(ranked) == 1:
         direction = "up" if lead.change_pct >= 0 else "down"
@@ -412,6 +464,25 @@ def build_price_move_push(moves: Sequence[PriceMove]) -> PlannedPush | None:
     return PlannedPush(KIND_PRICE_MOVE, title, body, data, MARKET_CHANNEL_ID, card_ids, (), prices)
 
 
+KIND_NEW_LOW = "new_low"
+
+
+def new_low_copy(deal: PendingDeal) -> tuple[str, str]:
+    """(title, body) for a new_low: no % claim, just the price and the bar."""
+    name = _name(deal.card_name, "A watched card")
+    who = f"Your {name} · {deal.printing}" if deal.printing else f"Your {name}"
+    typical = (
+        f" (usually {expo_push.format_usd_cents(deal.baseline_cents)}+)"
+        if deal.baseline_cents
+        else ""
+    )
+    body = (
+        f"{who} is listed at {expo_push.format_usd_cents(deal.total_cents)}"
+        f" — the lowest we've seen{typical}"
+    )
+    return f"{name} — lowest price we've seen", body
+
+
 def build_deal_push(deals: Sequence[PendingDeal]) -> PlannedPush | None:
     if not deals:
         return None
@@ -419,9 +490,12 @@ def build_deal_push(deals: Sequence[PendingDeal]) -> PlannedPush | None:
     lead = ranked[0]
     pct = int(round(lead.discount_pct or 0))
     name = _name(lead.card_name, "A watched card")
-    headline = f"{name} listed {pct}% under market" if pct > 0 else f"{name} listed under market"
+    if lead.kind == KIND_NEW_LOW:
+        headline, body = new_low_copy(lead)
+    else:
+        headline = f"{name} listed {pct}% under market" if pct > 0 else f"{name} listed under market"
+        body = f"{expo_push.format_usd_cents(lead.total_cents)} on eBay, a card you watch."
     title = headline if len(ranked) == 1 else f"{headline} and {len(ranked) - 1} more"
-    body = f"{expo_push.format_usd_cents(lead.total_cents)} on eBay, a card you watch."
     data = {
         "type": expo_push.DATA_TYPE_DEAL_ALERT,
         "url": WATCHLIST_DEEP_LINK,
@@ -539,20 +613,29 @@ def pending_deals(
     if not _table_exists(connection, "deal_alerts"):
         return []
     cutoff = (now_utc - timedelta(hours=PENDING_DEAL_MAX_AGE_HOURS)).isoformat()
-    dismissed = "AND d.dismissed_at IS NULL" if "dismissed_at" in _columns(connection, "deal_alerts") else ""
+    deal_columns = _columns(connection, "deal_alerts")
+    dismissed = "AND d.dismissed_at IS NULL" if "dismissed_at" in deal_columns else ""
+    variant = "d.variant_key" if "variant_key" in deal_columns else "''"
     rows = connection.execute(
         f"""
-        SELECT d.id, d.card_id, d.total_cents, d.discount_pct, c.name
+        SELECT d.id, d.card_id, d.total_cents, d.discount_pct, c.name, d.kind,
+               {variant} AS variant_key, d.baseline_cents
         FROM deal_alerts d LEFT JOIN cards c ON c.id = d.card_id
         WHERE d.owner_user_id = ? AND d.push_sent_at IS NULL AND d.created_at >= ? {dismissed}
         ORDER BY d.created_at ASC, d.id ASC
         """,
         (owner, cutoff),
     ).fetchall()
+    mains = watch_printings.main_printing_keys(
+        connection, [str(r[1]) for r in rows if not str(r[6] or "")]
+    )
     return [
         PendingDeal(
             alert_id=str(r[0]), card_id=str(r[1]), total_cents=int(r[2] or 0),
             discount_pct=float(r[3]) if r[3] is not None else None, card_name=str(r[4] or ""),
+            kind=str(r[5] or "under_added"),
+            printing=str(r[6] or "") or mains.get(str(r[1])) or None,
+            baseline_cents=int(r[7]) if r[7] is not None else None,
         )
         for r in rows
     ]
@@ -574,12 +657,69 @@ def owned_raw_quantities(connection: sqlite3.Connection, owner: str) -> dict[str
 
 
 def watched_card_ids(connection: sqlite3.Connection, owner: str) -> list[str]:
+    """Main-printing watches ('' — card-level price, as before)."""
     if not _table_exists(connection, "card_favorites"):
         return []
+    where = " AND variant_key = ''" if "variant_key" in _columns(connection, "card_favorites") else ""
     rows = connection.execute(
-        "SELECT card_id FROM card_favorites WHERE owner_user_id = ? ORDER BY card_id", (owner,)
+        f"SELECT card_id FROM card_favorites WHERE owner_user_id = ?{where} ORDER BY card_id", (owner,)
     ).fetchall()
     return [str(r[0]) for r in rows]
+
+
+def watched_printings(connection: sqlite3.Connection, owner: str) -> list[tuple[str, str]]:
+    """Printing watches: [(card_id, variant_key)] with variant_key != ''."""
+    if not _table_exists(connection, "card_favorites"):
+        return []
+    if "variant_key" not in _columns(connection, "card_favorites"):
+        return []
+    rows = connection.execute(
+        "SELECT card_id, variant_key FROM card_favorites "
+        "WHERE owner_user_id = ? AND variant_key != '' ORDER BY card_id, variant_key",
+        (owner,),
+    ).fetchall()
+    return [(str(r[0]), str(r[1])) for r in rows]
+
+
+def printing_day_over_day(
+    connection: sqlite3.Connection,
+    watches: Sequence[tuple[str, str]],
+    *,
+    ref_date: date,
+) -> dict[tuple[str, str], RawPrice]:
+    """Each printing's newest raw_main cell (<= ref_date) vs its previous cell
+    within PREVIOUS_DAY_MAX_GAP_DAYS — the SAME printing at both ends, USD
+    (TCGplayer), glitch-sized jumps dropped (change_pct None)."""
+    if not watches:
+        return {}
+    start = (ref_date - timedelta(days=MOVE_MAX_STALENESS_DAYS + PREVIOUS_DAY_MAX_GAP_DAYS)).isoformat()
+    cells = watch_printings.raw_main_cells_by_card(
+        connection, [card_id for card_id, _ in watches], since=start
+    )
+    out: dict[tuple[str, str], RawPrice] = {}
+    for card_id, variant_key in watches:
+        points = [
+            p
+            for p in watch_printings.cells_for_printing(cells.get(card_id) or {}, variant_key)
+            if p.market_cents and p.price_date <= ref_date.isoformat()
+        ]
+        if not points:
+            continue
+        now_point = points[-1]
+        then_point = points[-2] if len(points) > 1 else None
+        if then_point is not None:
+            gap = (date.fromisoformat(now_point.price_date) - date.fromisoformat(then_point.price_date)).days
+            if gap > PREVIOUS_DAY_MAX_GAP_DAYS:
+                then_point = None
+        price_now = now_point.market_cents / 100.0
+        price_then = then_point.market_cents / 100.0 if then_point is not None else None
+        pct = None
+        if price_then:
+            pct = (price_now - price_then) / price_then * 100.0
+            if abs(pct) > DEFAULT_MAX_CHANGE_PCT:
+                pct = None
+        out[(card_id, variant_key)] = RawPrice(card_id, price_now, price_then, pct, now_point.price_date)
+    return out
 
 
 def _card_names(connection: sqlite3.Connection, card_ids: Sequence[str]) -> dict[str, str]:
@@ -593,12 +733,14 @@ def _card_names(connection: sqlite3.Connection, card_ids: Sequence[str]) -> dict
     return out
 
 
-def _card_states(connection: sqlite3.Connection, owner: str) -> dict[str, CardAlertState]:
+def _card_states(connection: sqlite3.Connection, owner: str) -> dict[tuple[str, str], CardAlertState]:
+    """{(card_id, variant_key): state}; '' = card level."""
     rows = connection.execute(
-        "SELECT card_id, last_alerted_at, last_price_usd FROM market_alert_card_state WHERE owner_user_id = ?",
+        "SELECT card_id, last_alerted_at, last_price_usd, variant_key "
+        "FROM market_alert_card_state WHERE owner_user_id = ?",
         (owner,),
     ).fetchall()
-    out: dict[str, CardAlertState] = {}
+    out: dict[tuple[str, str], CardAlertState] = {}
     for row in rows:
         try:
             at = datetime.fromisoformat(str(row[1]))
@@ -606,7 +748,7 @@ def _card_states(connection: sqlite3.Connection, owner: str) -> dict[str, CardAl
             continue
         if at.tzinfo is None:
             at = at.replace(tzinfo=timezone.utc)
-        out[str(row[0])] = CardAlertState(at, float(row[2] or 0.0))
+        out[(str(row[0]), str(row[3] or ""))] = CardAlertState(at, float(row[2] or 0.0))
     return out
 
 
@@ -666,23 +808,35 @@ def price_moves_for_owner(
 ) -> list[PriceMove]:
     owned = owned_raw_quantities(connection, owner)
     card_ids = list(dict.fromkeys([*owned.keys(), *watched_card_ids(connection, owner)]))
-    if not card_ids or ref_date is None:
+    printing_watches = watched_printings(connection, owner)
+    if (not card_ids and not printing_watches) or ref_date is None:
         return []
-    changes = day_over_day_changes(connection, card_ids, ref_date=ref_date)
+    # Card level (owned raw + main-printing watches) and, separately, each
+    # printing watch on ITS printing's TCGplayer price.
+    changes: dict[tuple[str, str], RawPrice] = {
+        (card_id, ""): price
+        for card_id, price in day_over_day_changes(connection, card_ids, ref_date=ref_date).items()
+    }
+    changes.update(printing_day_over_day(connection, printing_watches, ref_date=ref_date))
     states = _card_states(connection, owner)
     stale_before = (local_date - timedelta(days=MOVE_MAX_STALENESS_DAYS)).isoformat()
-    candidates: list[tuple[str, float, float, float]] = []
-    for card_id, price in changes.items():
+    candidates: list[tuple[str, str, float, float, float]] = []
+    for (card_id, variant_key), price in sorted(changes.items()):
         if price.change_pct is None or price.now_date < stale_before:
             continue  # no like-for-like pair, a glitch-sized jump, or old news
         pct = move_pct(price.price_now, price.price_then)
-        if pct is None or not cooldown_allows(states.get(card_id), price.price_now, now_utc):
+        if pct is None or not cooldown_allows(
+            states.get((card_id, variant_key)), price.price_now, now_utc
+        ):
             continue
-        candidates.append((card_id, price.price_now, float(price.price_then or 0.0), pct))
+        candidates.append((card_id, variant_key, price.price_now, float(price.price_then or 0.0), pct))
     names = _card_names(connection, [c[0] for c in candidates])
     return [
-        PriceMove(card_id, names.get(card_id, ""), now, then, pct, card_id in owned)
-        for card_id, now, then, pct in candidates
+        PriceMove(
+            card_id, names.get(card_id, ""), now, then, pct,
+            card_id in owned and not variant_key, variant_key,
+        )
+        for card_id, variant_key, now, then, pct in candidates
     ]
 
 
@@ -752,16 +906,18 @@ def _claim(
                 (stamp, alert_id, owner),
             )
     if plan.kind == KIND_PRICE_MOVE:
-        for card_id, price in plan.move_prices.items():
+        for key, price in plan.move_prices.items():
+            card_id, variant_key = key if isinstance(key, tuple) else (key, "")
             connection.execute(
                 """
-                INSERT INTO market_alert_card_state (owner_user_id, card_id, last_alerted_at, last_price_usd)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(owner_user_id, card_id) DO UPDATE SET
+                INSERT INTO market_alert_card_state
+                    (owner_user_id, card_id, variant_key, last_alerted_at, last_price_usd)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(owner_user_id, card_id, variant_key) DO UPDATE SET
                     last_alerted_at = excluded.last_alerted_at,
                     last_price_usd = excluded.last_price_usd
                 """,
-                (owner, card_id, stamp, float(price)),
+                (owner, card_id, variant_key, stamp, float(price)),
             )
     connection.commit()
     return push_id

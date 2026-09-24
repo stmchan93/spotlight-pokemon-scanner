@@ -1166,6 +1166,17 @@ export function ScannerScreen({
     [],
   );
 
+  // The printing a tray watch targets: a slab's print variant, else the raw
+  // row's selected/priced printing. null = main printing.
+  const watchVariantForCapture = useCallback(
+    (capture: RecentCapture, candidate: CatalogSearchResult | null): string | null => (
+      capture.mode === 'slabs'
+        ? capture.slabContext?.variantName?.trim() || null
+        : rawVariantLabelFor(capture, candidate)
+    ),
+    [rawVariantLabelFor],
+  );
+
   // Flush the live tray on unmount so navigating away (which tears this screen
   // down) persists the most recent state. We pass the current tray explicitly:
   // an argument-less flush would write [] whenever the debounce had already
@@ -3399,13 +3410,15 @@ export function ScannerScreen({
       return;
     }
     const { cardId } = candidate;
+    // Watch the printing the row shows (same field a Collection add sends).
+    const variant = watchVariantForCapture(capture, candidate);
 
     // Instant feedback: flip the pill to WISHLISTED before the network settles.
     setRecentCaptures((current) => withUpdatedCaptureFavoriteState(current, cardId, true));
 
     let didSucceed = false;
     try {
-      await spotlightRepository.setCardFavorite(cardId, true);
+      await spotlightRepository.setCardFavorite(cardId, true, { variant });
       setInventoryEntries((current) => withUpdatedInventoryFavoriteState(current, cardId, true));
       refreshData();
       didSucceed = true;
@@ -3413,6 +3426,7 @@ export function ScannerScreen({
         source: 'scanner',
         kind: watchlistKindForCardId(cardId),
         mode: capture.mode,
+        has_printing: variant != null,
       });
     } catch (error) {
       logScannerDiagnostic(
@@ -3436,7 +3450,7 @@ export function ScannerScreen({
       }, addedConfirmationDurationMs);
       recentlyAddedTimersRef.current.set(captureId, timerId);
     }
-  }, [recentCaptures, refreshData, removeCaptureAfterAdd, spotlightRepository]);
+  }, [recentCaptures, refreshData, removeCaptureAfterAdd, spotlightRepository, watchVariantForCapture]);
 
   const handleAddToInventory = useCallback(async (captureId: string) => {
     const capture = recentCaptures.find((candidate) => candidate.id === captureId);
@@ -3573,16 +3587,21 @@ export function ScannerScreen({
   //     tray LayoutAnimation while N rows are removed in the same frame.
   // Wishlist the good ones, drop failures, clear everything regardless.
   const handleBulkAddToWishlist = useCallback(() => {
-    // Snapshot the resolved cardIds BEFORE clearing the tray; de-dupe so repeat
-    // scans of the same card only favorite it once.
-    const cardIds = Array.from(
-      new Set(
-        recentCaptures
-          .filter((capture) => !capture.isLoadingCandidates && !capture.recentlyAdded)
-          .map((capture) => activeCandidateForCapture(capture)?.cardId)
-          .filter((cardId): cardId is string => cardId != null),
-      ),
-    );
+    // Snapshot the resolved watches BEFORE clearing the tray; de-dupe by card +
+    // printing so repeat scans of the same printing only watch it once.
+    const watches = new Map<string, { cardId: string; variant: string | null }>();
+    for (const capture of recentCaptures) {
+      if (capture.isLoadingCandidates || capture.recentlyAdded) {
+        continue;
+      }
+      const candidate = activeCandidateForCapture(capture);
+      if (!candidate) {
+        continue;
+      }
+      const variant = watchVariantForCapture(capture, candidate);
+      watches.set(`${candidate.cardId}|${variant ?? ''}`, { cardId: candidate.cardId, variant });
+    }
+    const cardIds = Array.from(watches.values());
 
     performClearAllCaptures();
 
@@ -3593,9 +3612,9 @@ export function ScannerScreen({
     void (async () => {
       let succeeded = 0;
       // Sequential — concurrent writes contend on the backend's SQLite store.
-      for (const cardId of cardIds) {
+      for (const { cardId, variant } of cardIds) {
         try {
-          await spotlightRepository.setCardFavorite(cardId, true);
+          await spotlightRepository.setCardFavorite(cardId, true, { variant });
           succeeded += 1;
         } catch (error) {
           logScannerDiagnostic(`[SCANNER] addAll wishlist failed: ${scannerErrorMessage(error)}`, error);
@@ -3614,6 +3633,7 @@ export function ScannerScreen({
     recentCaptures,
     refreshData,
     spotlightRepository,
+    watchVariantForCapture,
   ]);
 
   // Bulk "Add to Collection": one inventory entry PER resolved scan (two scans of

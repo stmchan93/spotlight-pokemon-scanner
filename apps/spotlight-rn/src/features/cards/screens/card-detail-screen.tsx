@@ -18,6 +18,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router';
 
 import {
+  buildWatchKey,
   deckConditionOptions,
   gameHasListingsData,
   gradersForGame,
@@ -86,6 +87,12 @@ import {
   saveCardDetailPreviewFromInventoryEntry,
 } from '@/features/cards/card-detail-preview-session';
 import { noteCardAdded } from '@/features/cards/card-added-notice';
+import {
+  matchWatchedPrinting,
+  otherWatchedPrintingLabels,
+  resolveMainPrintingLabel,
+  watchVariantForKey,
+} from '@/features/cards/watch-printings';
 import {
   TargetPriceSheet,
   type TargetPriceSubmitResult,
@@ -197,6 +204,8 @@ type DropdownOption = {
 type CardDetailScreenProps = {
   cardId: string;
   entryId?: string;
+  /** Printing label to open on (e.g. a watchlist row's printing). */
+  initialVariant?: string;
   onBack: () => void;
   previewId?: string;
   scanReviewId?: string;
@@ -212,6 +221,7 @@ function deckConditionLabel(code: string | null): string | null {
 export function CardDetailScreen({
   cardId,
   entryId,
+  initialVariant,
   onBack,
   previewId,
   scanReviewId,
@@ -243,9 +253,16 @@ export function CardDetailScreen({
   const [detail, setDetail] = useState<CardDetailRecord | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isFavoritePending, setIsFavoritePending] = useState(false);
-  const [favoriteState, setFavoriteState] = useState<{ isFavorite: boolean; favoritedAt: string | null }>({
+  // Watches are per PRINTING: which printings of this card are watched ('' =
+  // main printing) and each one's target. The Watch icon reads the selected one.
+  const [watchState, setWatchState] = useState<{
+    favoritedAt: string | null;
+    targets: Record<string, number | null>;
+    watchedVariants: string[];
+  }>({
     favoritedAt: null,
-    isFavorite: false,
+    targets: {},
+    watchedVariants: [],
   });
   // Public wishlist count shown as social proof; mutates optimistically
   // alongside the favorite toggle.
@@ -466,7 +483,7 @@ export function CardDetailScreen({
   // fires only on a real navigation/remount — never on an in-place EN/JP swap,
   // which must preserve the user's grade/grader/condition/variant.
   useEffect(() => {
-    setFavoriteState({ favoritedAt: null, isFavorite: false });
+    setWatchState({ favoritedAt: null, targets: {}, watchedVariants: [] });
     setLikeCount(0);
     setSelectedVariant(null);
     setSelectedGrader(null);
@@ -499,9 +516,13 @@ export function CardDetailScreen({
     if (!detail) {
       return;
     }
-    setFavoriteState({
+    // Older servers send no printings: a watch there is the main printing's.
+    const watchedVariants = detail.watchedVariants ?? (detail.isFavorite ? [''] : []);
+    setWatchState({
       favoritedAt: detail.favoritedAt ?? null,
-      isFavorite: detail.isFavorite ?? false,
+      targets: detail.watchTargetsCents
+        ?? (detail.targetPriceCents != null ? { '': detail.targetPriceCents } : {}),
+      watchedVariants,
     });
     setLikeCount(detail.likeCount ?? 0);
     // The counterpart detail (real `language`) is in — drop the optimistic chip
@@ -659,6 +680,7 @@ export function CardDetailScreen({
   // holofoil and the catalog's first option isn't always Normal), then the
   // first available option.
   const seededVariantCardIdRef = useRef<string | null>(null);
+  const routeVariantLabelRef = useRef<string | null>(initialVariant?.trim() || null);
   useEffect(() => {
     // Wait until the ACTIVE card's own detail (hence its variant list) has loaded,
     // so an EN/JP swap re-resolves against the counterpart's options — not the
@@ -674,8 +696,10 @@ export function CardDetailScreen({
 
     // Preference order: the variant carried over from an EN/JP swap (matched by
     // NAME), then the owned variant, then "Normal", then the first option.
-    const carriedLabel = pendingVariantLabelRef.current;
+    // A routed printing (watchlist row) is honored on the first seed only.
+    const carriedLabel = pendingVariantLabelRef.current ?? routeVariantLabelRef.current;
     pendingVariantLabelRef.current = null;
+    routeVariantLabelRef.current = null;
     const carriedMatch = carriedLabel
       ? variantOptions.find((option) => option.label.toLowerCase() === carriedLabel.toLowerCase())
       : null;
@@ -768,6 +792,31 @@ export function CardDetailScreen({
     }
     return variantOptions.find((option) => option.id === selectedVariant)?.label ?? null;
   }, [selectedVariant, variantOptions]);
+
+  // The printing a watch acts on: the picker's, or none for sealed/no printings.
+  const watchPrintingLabel = isSealed ? null : selectedVariantLabel;
+  const mainPrintingLabel = useMemo(
+    () => (isSealed ? null : resolveMainPrintingLabel(variantOptions, detail?.marketHistory?.selectedVariant)),
+    [detail?.marketHistory?.selectedVariant, isSealed, variantOptions],
+  );
+  const selectedWatchKey = matchWatchedPrinting(
+    watchPrintingLabel,
+    watchState.watchedVariants,
+    mainPrintingLabel,
+  );
+  const otherWatchedPrintings = useMemo(
+    () => (isSealed
+      ? []
+      : otherWatchedPrintingLabels(watchPrintingLabel, watchState.watchedVariants, variantOptions, mainPrintingLabel)),
+    [isSealed, mainPrintingLabel, variantOptions, watchPrintingLabel, watchState.watchedVariants],
+  );
+  const handleSelectWatchedPrinting = useCallback((label: string) => {
+    const option = variantOptions.find((candidate) => candidate.label === label);
+    if (option) {
+      editVariantDirtyRef.current = true;
+      setSelectedVariant(option.id);
+    }
+  }, [variantOptions]);
 
   // Monotonic request token. Each fetch claims the next token; only the most
   // recent token's result is applied. This survives benign effect re-runs (e.g.
@@ -1300,26 +1349,47 @@ export function CardDetailScreen({
       return;
     }
 
-    const previousFavoriteState = favoriteState;
-    const nextIsFavorite = !favoriteState.isFavorite;
-    setFavoriteState((current) => ({ ...current, isFavorite: nextIsFavorite }));
+    const previousWatchState = watchState;
+    const nextIsFavorite = selectedWatchKey === undefined;
+    // Watch the selected printing; unwatch exactly the stored key covering it
+    // (a legacy '' watch leaves as "no variant").
+    const variant = nextIsFavorite
+      ? watchPrintingLabel
+      : watchVariantForKey(selectedWatchKey ?? '');
+    const storedKey = variant ?? '';
+    const applyWatched = (watched: boolean) => {
+      setWatchState((current) => {
+        const others = current.watchedVariants.filter((key) => key !== storedKey);
+        const targets = { ...current.targets };
+        if (!watched) {
+          delete targets[storedKey];
+        }
+        return {
+          ...current,
+          targets,
+          watchedVariants: watched ? [...others, storedKey] : others,
+        };
+      });
+    };
+    applyWatched(nextIsFavorite);
     setIsFavoritePending(true);
     // NOTE: likeCount is the public "like" (card_likes), NOT the wishlist, so the
     // wishlist heart must NOT touch it. (Earlier it optimistically bumped likeCount
     // back when likes reused favorites; the separate card_likes feature ended that.)
 
-    void spotlightRepository.setCardFavorite(activeCardId, nextIsFavorite)
+    void spotlightRepository.setCardFavorite(activeCardId, nextIsFavorite, { variant })
       .then((result) => {
         // Reported off the SERVER's answer, not the optimistic flip above, so a
         // write that silently disagreed with the UI is not counted as a save.
         capturePostHogEvent(
           result.isFavorite ? AnalyticsEvent.watchlistItemAdded : AnalyticsEvent.watchlistItemRemoved,
-          { source: 'card_detail', kind: isSealed ? 'sealed' : 'card' },
+          { source: 'card_detail', kind: isSealed ? 'sealed' : 'card', has_printing: variant != null },
         );
-        setFavoriteState({
-          favoritedAt: result.favoritedAt ?? null,
-          isFavorite: result.isFavorite,
-        });
+        applyWatched(result.isFavorite);
+        setWatchState((current) => ({
+          ...current,
+          favoritedAt: current.favoritedAt ?? result.favoritedAt ?? null,
+        }));
         setIsFavoritePending(false);
         if (nextIsFavorite && result.isFavorite) {
           setPromptTargetAfterWatch(true);
@@ -1331,11 +1401,19 @@ export function CardDetailScreen({
         invalidateCardDetailCache(activeCardId);
       })
       .catch(() => {
-        setFavoriteState(previousFavoriteState);
+        setWatchState(previousWatchState);
         setErrorMessage('Could not update watchlist right now.');
         setIsFavoritePending(false);
       });
-  }, [activeCardId, favoriteState, isFavoritePending, isSealed, spotlightRepository]);
+  }, [
+    activeCardId,
+    isFavoritePending,
+    isSealed,
+    selectedWatchKey,
+    spotlightRepository,
+    watchPrintingLabel,
+    watchState,
+  ]);
 
   // EN/JP toggle: derived from the loaded card's language + its other-language
   // counterpart. Shown only when a confident counterpart link exists. Switching
@@ -1398,11 +1476,18 @@ export function CardDetailScreen({
   */
   const handleOpenTargetSheet = useCallback(() => {
     const cardIdForTarget = activeCardId;
+    // The sheet is pinned to the printing selected NOW (a legacy '' watch keeps
+    // its key), so switching the picker underneath it can't retarget the write.
+    const watchVariant = selectedWatchKey !== undefined
+      ? watchVariantForKey(selectedWatchKey)
+      : watchPrintingLabel;
     const fallbackEntry: CardFavoriteEntry = {
       cardId: cardIdForTarget,
+      watchVariant,
+      watchKey: buildWatchKey(cardIdForTarget, watchVariant),
       cardNumber: detail?.cardNumber ?? detailPreview?.cardNumber ?? '',
       currencyCode: detail?.currencyCode ?? 'USD',
-      favoritedAt: favoriteState.favoritedAt,
+      favoritedAt: watchState.favoritedAt,
       imageUrl: displayImageUrl ?? '',
       isOwned: inventoryEntries.length > 0,
       largeImageUrl: detail?.largeImageUrl ?? null,
@@ -1413,9 +1498,9 @@ export function CardDetailScreen({
       targetPriceCents: null,
     };
 
-    // An unwatched card has no target by definition; a watched one carries it
-    // on the detail payload.
-    const cents = favoriteState.isFavorite ? detail?.targetPriceCents ?? null : null;
+    // An unwatched printing has no target by definition; a watched one carries
+    // it on the detail payload.
+    const cents = selectedWatchKey !== undefined ? watchState.targets[selectedWatchKey] ?? null : null;
     setTargetSheetEntry({ ...fallbackEntry, targetPriceCents: cents });
   }, [
     activeCardId,
@@ -1423,9 +1508,11 @@ export function CardDetailScreen({
     detailPreview,
     displayImageUrl,
     displayName,
-    favoriteState.favoritedAt,
-    favoriteState.isFavorite,
     inventoryEntries.length,
+    selectedWatchKey,
+    watchPrintingLabel,
+    watchState.favoritedAt,
+    watchState.targets,
   ]);
 
   /*
@@ -1440,12 +1527,18 @@ export function CardDetailScreen({
     cents: number | null,
   ): Promise<TargetPriceSubmitResult> => {
     const cardIdForTarget = activeCardId;
+    // The printing the sheet was opened for, not whatever the picker shows now.
+    const variant = targetSheetEntry?.cardId === cardIdForTarget ? targetSheetEntry.watchVariant : null;
+    const storedKey = variant ?? '';
     const applySaved = (saved: number | null) => {
       setTargetSheetEntry((current) => (
         current && current.cardId === cardIdForTarget
           ? { ...current, targetPriceCents: saved }
           : current
       ));
+      if (activeCardIdRef.current === cardIdForTarget) {
+        setWatchState((current) => ({ ...current, targets: { ...current.targets, [storedKey]: saved } }));
+      }
     };
 
     const kind = isSealed ? 'sealed' : 'card';
@@ -1456,7 +1549,7 @@ export function CardDetailScreen({
       });
     };
 
-    const result = await spotlightRepository.setCardFavoriteTarget(cardIdForTarget, cents);
+    const result = await spotlightRepository.setCardFavoriteTarget(cardIdForTarget, cents, { variant });
     if (result.status === 'ok') {
       applySaved(result.target.targetPriceCents);
       reportTargetSet();
@@ -1475,27 +1568,36 @@ export function CardDetailScreen({
       return 'saved';
     }
 
-    const favorited = await spotlightRepository.setCardFavorite(cardIdForTarget, true)
+    const favorited = await spotlightRepository.setCardFavorite(cardIdForTarget, true, { variant })
       .catch(() => null);
     if (!favorited?.isFavorite) {
       return 'error';
     }
-    // Setting a target on an unwatched card watches it — that IS an add.
-    capturePostHogEvent(AnalyticsEvent.watchlistItemAdded, { source: 'target_price', kind });
-    setFavoriteState({
-      favoritedAt: favorited.favoritedAt ?? null,
-      isFavorite: true,
+    // Setting a target on an unwatched printing watches it — that IS an add.
+    capturePostHogEvent(AnalyticsEvent.watchlistItemAdded, {
+      source: 'target_price',
+      kind,
+      has_printing: variant != null,
     });
+    if (activeCardIdRef.current === cardIdForTarget) {
+      setWatchState((current) => ({
+        ...current,
+        favoritedAt: current.favoritedAt ?? favorited.favoritedAt ?? null,
+        watchedVariants: current.watchedVariants.includes(storedKey)
+          ? current.watchedVariants
+          : [...current.watchedVariants, storedKey],
+      }));
+    }
     invalidateCardDetailCache(cardIdForTarget);
 
-    const retry = await spotlightRepository.setCardFavoriteTarget(cardIdForTarget, cents);
+    const retry = await spotlightRepository.setCardFavoriteTarget(cardIdForTarget, cents, { variant });
     if (retry.status !== 'ok') {
       return 'error';
     }
     applySaved(retry.target.targetPriceCents);
     reportTargetSet();
     return 'saved';
-  }, [activeCardId, isSealed, spotlightRepository]);
+  }, [activeCardId, isSealed, spotlightRepository, targetSheetEntry]);
 
   useEffect(() => {
     if (!promptTargetAfterWatch) {
@@ -2308,7 +2410,7 @@ export function CardDetailScreen({
     spotlightRepository,
   ]);
 
-  const isFavorite = favoriteState.isFavorite;
+  const isFavorite = selectedWatchKey !== undefined;
 
   // Auto-hiding top/bottom bars (Reddit-style). All scroll logic stays on the UI
   // thread — the worklet only writes shared values / withTiming (never setState),
@@ -2572,6 +2674,29 @@ export function CardDetailScreen({
                   {sinceAddedDisplay.caption}
                 </Text>
               </View>
+            ) : null}
+            {otherWatchedPrintings.length > 0 ? (
+              // Other printings of this card on the watchlist; each name jumps
+              // the picker there so its Watch state is one tap away.
+              <Text
+                style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}
+                testID="detail-watching-other-printings"
+              >
+                {"You're watching the "}
+                {otherWatchedPrintings.map((label, index) => (
+                  <Text key={label}>
+                    {index === 0 ? '' : index === otherWatchedPrintings.length - 1 ? ' and ' : ', '}
+                    <Text
+                      accessibilityRole="button"
+                      onPress={() => handleSelectWatchedPrinting(label)}
+                      style={[styles.watchingPrintingLink, { color: theme.colors.gray900 }]}
+                      testID={`detail-watching-printing-${label}`}
+                    >
+                      {label}
+                    </Text>
+                  </Text>
+                ))}
+              </Text>
             ) : null}
           </View>
           {/* Wishlist social-proof counter (heart + count, max 9999+). */}
@@ -3013,6 +3138,9 @@ const styles = StyleSheet.create({
     fontFamily: fontFamilies.bodySemiBold,
     fontSize: 14,
     lineHeight: 21,
+  },
+  watchingPrintingLink: {
+    textDecorationLine: 'underline',
   },
   sinceAddedRow: {
     alignItems: 'center',

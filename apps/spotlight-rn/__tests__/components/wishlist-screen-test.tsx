@@ -104,7 +104,10 @@ jest.mock('iconoir-react-native', () => {
 function buildFavoriteEntry(
   overrides: Partial<CardFavoriteEntry> & Pick<CardFavoriteEntry, 'cardId' | 'name'>,
 ): CardFavoriteEntry {
+  const watchVariant = overrides.watchVariant ?? null;
   return {
+    watchVariant,
+    watchKey: `${overrides.cardId}|${watchVariant ?? ''}`,
     cardNumber: '#001/100',
     setName: 'Test Set',
     imageUrl: 'https://example.com/card.png',
@@ -497,7 +500,97 @@ describe('WishlistScreen', () => {
       fireEvent.press(deleteAction);
     });
 
-    expect(setCardFavorite).toHaveBeenCalledWith('charizard', false);
+    expect(setCardFavorite).toHaveBeenCalledWith('charizard', false, { variant: null });
+  });
+
+  describe('watches per printing', () => {
+    const twoPrintings = () => [
+      buildFavoriteEntry({ cardId: 'charizard', name: 'Charizard', watchVariant: 'Holofoil' }),
+      buildFavoriteEntry({ cardId: 'charizard', name: 'Charizard', watchVariant: 'Reverse Holofoil' }),
+    ];
+
+    it('renders one row per watched printing, each naming its printing', async () => {
+      const repository = createTestSpotlightRepository({ getCardFavorites: async () => twoPrintings() });
+
+      renderWishlistScreen(repository);
+
+      const holo = await screen.findByTestId('wishlist-row-charizard:Holofoil');
+      const reverse = screen.getByTestId('wishlist-row-charizard:Reverse Holofoil');
+      // The printing leads the existing condition line.
+      expect(within(holo).getByText('Holofoil · Near Mint')).toBeOnTheScreen();
+      expect(within(reverse).getByText('Reverse Holofoil · Near Mint')).toBeOnTheScreen();
+    });
+
+    it('shows the printing on grid tiles too', async () => {
+      savedViewMode = 'grid';
+      const repository = createTestSpotlightRepository({ getCardFavorites: async () => twoPrintings() });
+
+      renderWishlistScreen(repository);
+
+      const tile = await screen.findByTestId('wishlist-grid-tile-charizard:Reverse Holofoil');
+      expect(within(tile).getByText('Reverse Holofoil')).toBeOnTheScreen();
+      savedViewMode = 'list';
+    });
+
+    it('swipe-removes only that printing, leaving the other row', async () => {
+      const setCardFavorite = jest.fn().mockResolvedValue({ cardId: 'charizard', isFavorite: false });
+      const repository = createTestSpotlightRepository({
+        getCardFavorites: async () => twoPrintings(),
+        setCardFavorite,
+      });
+
+      renderWishlistScreen(repository);
+
+      const deleteAction = await screen.findByTestId('wishlist-row-delete-charizard:Reverse Holofoil', {
+        includeHiddenElements: true,
+      });
+      await act(async () => {
+        fireEvent.press(deleteAction);
+      });
+
+      expect(setCardFavorite).toHaveBeenCalledTimes(1);
+      expect(setCardFavorite).toHaveBeenCalledWith('charizard', false, { variant: 'Reverse Holofoil' });
+      expect(screen.queryByTestId('wishlist-row-charizard:Reverse Holofoil')).toBeNull();
+      expect(screen.getByTestId('wishlist-row-charizard:Holofoil')).toBeOnTheScreen();
+    });
+
+    it('opens the card page on the row\'s printing', async () => {
+      const repository = createTestSpotlightRepository({ getCardFavorites: async () => twoPrintings() });
+
+      renderWishlistScreen(repository);
+
+      const row = await screen.findByTestId('wishlist-row-charizard:Reverse Holofoil');
+      await act(async () => {
+        fireEvent.press(row);
+      });
+
+      expect(push).toHaveBeenCalledWith(
+        expect.objectContaining({
+          params: expect.objectContaining({ cardId: 'charizard', variant: 'Reverse Holofoil' }),
+        }),
+      );
+    });
+
+    it('sets a target on the row\'s printing', async () => {
+      const setCardFavoriteTarget = jest.fn().mockResolvedValue({
+        status: 'ok',
+        target: { cardId: 'charizard', targetPriceCents: 9000, targetCurrency: 'USD', targetSetAt: null, targetTriggeredAt: null },
+      });
+      const repository = createTestSpotlightRepository({
+        getCardFavorites: async () => twoPrintings(),
+        setCardFavoriteTarget,
+      });
+
+      renderWishlistScreen(repository);
+
+      fireEvent(await screen.findByTestId('wishlist-row-charizard:Reverse Holofoil'), 'longPress');
+      fireEvent.changeText(await screen.findByTestId('wishlist-target-input'), '90');
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('wishlist-target-save'));
+      });
+
+      expect(setCardFavoriteTarget).toHaveBeenCalledWith('charizard', 9000, { variant: 'Reverse Holofoil' });
+    });
   });
 
   // The "hides the tab bar" half of this test is gone: that was the JS
@@ -724,8 +817,8 @@ describe('WishlistScreen', () => {
       fireEvent.press(screen.getByTestId('wishlist-bulk-remove-sheet-confirm'));
     });
 
-    expect(setCardFavorite).toHaveBeenCalledWith('charizard', false);
-    expect(setCardFavorite).toHaveBeenCalledWith('gengar', false);
+    expect(setCardFavorite).toHaveBeenCalledWith('charizard', false, { variant: null });
+    expect(setCardFavorite).toHaveBeenCalledWith('gengar', false, { variant: null });
 
     await waitFor(() => {
       expect(screen.queryByTestId('wishlist-row-charizard')).not.toBeOnTheScreen();

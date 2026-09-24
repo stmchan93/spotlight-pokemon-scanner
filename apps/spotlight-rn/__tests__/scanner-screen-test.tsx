@@ -1865,7 +1865,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(await screen.findByTestId('scanner-row-add-menu-wishlist'));
 
     await waitFor(() => {
-      expect(setCardFavorite).toHaveBeenCalledWith('mcdonalds25-22', true);
+      expect(setCardFavorite).toHaveBeenCalledWith('mcdonalds25-22', true, { variant: null });
     });
 
     // After wishlisting, the row slides out of the tray (same exit as a

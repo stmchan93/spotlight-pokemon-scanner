@@ -850,10 +850,11 @@ export const mockCardDetails: Record<string, CardDetailRecord> = {
       ],
     },
     ownedEntries: [],
-    variantOptions: [...defaultVariantOptions.map((option) => ({
-      ...option,
-      currentPrice: 37.54,
-    }))],
+    // Two printings, so dev screens can show one card watched twice.
+    variantOptions: [
+      { id: 'Holofoil', label: 'Holofoil', currentPrice: 37.54 },
+      { id: 'Reverse Holofoil', label: 'Reverse Holofoil', currentPrice: 29.1 },
+    ],
   },
   // Sealed product: no number, conditions or printings.
   'tcgp-sealed-593355': {

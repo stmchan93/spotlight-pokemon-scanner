@@ -71,7 +71,11 @@ describe('HttpSpotlightRepository deal alerts', () => {
         cardName: "Sabrina's Slowbro",
         imageUrl: 'https://img.test/small.png',
         listingId: 'v1|1|0',
+        variantKey: null,
         kind: 'under_added',
+        tier: 'often',
+        tierLabel: null,
+        lowestSeenCents: null,
         totalCents: 7000,
         baselineCents: 9000,
         marketCents: 9000,
@@ -133,7 +137,12 @@ describe('HttpSpotlightRepository deal alerts', () => {
       cardName: null,
       imageUrl: null,
       listingId: '',
+      variantKey: null,
       kind: 'under_added',
+      // No tier = an older server, which only alerted liquid cards.
+      tier: 'often',
+      tierLabel: null,
+      lowestSeenCents: null,
       totalCents: 0,
       baselineCents: 0,
       marketCents: null,
@@ -235,6 +244,7 @@ describe('HttpSpotlightRepository watchlist target', () => {
       status: 'ok',
       target: {
         cardId: 'gym1-60',
+        watchVariant: null,
         targetPriceCents: 8000,
         targetCurrency: 'USD',
         targetSetAt: '2026-09-18T00:00:00.000Z',
@@ -545,7 +555,7 @@ describe('MockSpotlightRepository deal radar', () => {
 
     expect(page.alerts.length).toBeGreaterThan(1);
     expect(page.alerts[0].createdAt! >= page.alerts[1].createdAt!).toBe(true);
-    expect(page.unseenCount).toBe(1);
+    expect(page.unseenCount).toBe(2);
   });
 
   it('counts unseen across ALL alerts, not just the returned page', async () => {
@@ -555,7 +565,7 @@ describe('MockSpotlightRepository deal radar', () => {
 
     expect(page.alerts).toHaveLength(1);
     expect(page.limit).toBe(1);
-    expect(page.unseenCount).toBe(1);
+    expect(page.unseenCount).toBe(2);
   });
 
   it('stamps seen/tapped once and never moves the first timestamp', async () => {
@@ -570,7 +580,8 @@ describe('MockSpotlightRepository deal radar', () => {
     expect(first?.seenAt).not.toBeNull();
     expect(second?.seenAt).toBe(first?.seenAt);
     expect(tappedSecond?.tappedAt).toBe(tappedFirst?.tappedAt);
-    expect((await repository.listDealAlerts()).unseenCount).toBe(0);
+    // The seeded new_low alert is still unseen.
+    expect((await repository.listDealAlerts()).unseenCount).toBe(1);
   });
 
   it('returns null for an unknown alert id', async () => {
@@ -606,6 +617,7 @@ describe('MockSpotlightRepository deal radar', () => {
     const cleared = await repository.setCardFavoriteTarget('mcdonalds25-21', null);
     expect(cleared.target).toEqual({
       cardId: 'mcdonalds25-21',
+      watchVariant: null,
       targetPriceCents: null,
       targetCurrency: null,
       targetSetAt: null,
@@ -651,5 +663,133 @@ describe('MockSpotlightRepository deal radar', () => {
     await expect(repository.getAccessStatus()).resolves.toMatchObject({
       watchDealRadarEnabled: true,
     });
+  });
+});
+
+describe('watch per printing', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
+  });
+
+  it('HTTP: sends the printing on watch, unwatch and target writes; omits it for the main printing', async () => {
+    const fetchMock = mockFetch(
+      jsonResponse(200, { cardID: 'gym1-60', isFavorite: true, favoritedAt: '2026-09-24T00:00:00.000Z' }),
+      jsonResponse(200, { cardID: 'gym1-60', isFavorite: false }),
+      jsonResponse(200, { cardID: 'gym1-60', targetPriceCents: 9000, targetCurrency: 'USD' }),
+      jsonResponse(200, { cardID: 'gym1-60', isFavorite: true }),
+    );
+    const repository = new HttpSpotlightRepository('http://example.test');
+
+    const watched = await repository.setCardFavorite('gym1-60', true, { variant: 'Reverse Holofoil' });
+    await repository.setCardFavorite('gym1-60', false, { variant: 'Reverse Holofoil' });
+    const target = await repository.setCardFavoriteTarget('gym1-60', 9000, { variant: 'Reverse Holofoil' });
+    await repository.setCardFavorite('gym1-60', true, { variant: null });
+
+    const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String((init as RequestInit).body)));
+    expect(bodies[0]).toEqual({ isFavorite: true, variant: 'Reverse Holofoil' });
+    expect(bodies[1]).toEqual({ isFavorite: false, variant: 'Reverse Holofoil' });
+    expect(bodies[2]).toEqual({ targetPriceCents: 9000, variant: 'Reverse Holofoil' });
+    // Main printing: no field at all, so older servers see the old body.
+    expect(bodies[3]).toEqual({ isFavorite: true });
+    // The server didn't echo the printing; the request's stands in.
+    expect(watched.watchVariant).toBe('Reverse Holofoil');
+    expect(target.target?.watchVariant).toBe('Reverse Holofoil');
+  });
+
+  it('HTTP: one favorites entry per printing, keyed by watchKey', async () => {
+    const card = { id: 'base1-4', name: 'Charizard', number: '4', setName: 'Base', pricing: { market: 400 } };
+    mockFetch(
+      jsonResponse(200, {
+        entries: [
+          { card, favoritedAt: '2026-09-01T00:00:00.000Z', watchVariant: 'Holofoil' },
+          { card, favoritedAt: '2026-09-02T00:00:00.000Z', watchVariant: '1st Edition Holofoil' },
+          { card: { ...card, id: 'sealed-1' }, favoritedAt: null, watchVariant: '' },
+        ],
+      }),
+    );
+    const repository = new HttpSpotlightRepository('http://example.test');
+
+    const entries = await repository.getCardFavorites();
+
+    expect(entries.map((entry) => [entry.watchKey, entry.watchVariant])).toEqual([
+      ['base1-4|Holofoil', 'Holofoil'],
+      ['base1-4|1st Edition Holofoil', '1st Edition Holofoil'],
+      // '' on the wire = the main printing = null here.
+      ['sealed-1|', null],
+    ]);
+  });
+
+  it('HTTP: parses deal tiers and new_low alerts', async () => {
+    mockFetch(
+      jsonResponse(200, {
+        alerts: [
+          {
+            ...alertPayload,
+            kind: 'new_low',
+            discountPct: null,
+            lowestSeenCents: 12900,
+            tier: 'rarely',
+            tierLabel: 'Few sales',
+            variantKey: 'Reverse Holofoil',
+          },
+        ],
+        limit: 50,
+        unseenCount: 1,
+      }),
+    );
+    const repository = new HttpSpotlightRepository('http://example.test');
+
+    const [alert] = (await repository.listDealAlerts()).alerts;
+
+    expect(alert).toMatchObject({
+      kind: 'new_low',
+      discountPct: null,
+      lowestSeenCents: 12900,
+      tier: 'rarely',
+      tierLabel: 'Few sales',
+      variantKey: 'Reverse Holofoil',
+    });
+  });
+
+  it('mock: two printings are two watches; removing one leaves the other', async () => {
+    const repository = new MockSpotlightRepository();
+    await repository.setCardFavorite('xyp-111', true, { variant: 'Holofoil' });
+    await repository.setCardFavorite('xyp-111', true, { variant: 'Reverse Holofoil' });
+
+    let entries = await repository.getCardFavorites();
+    expect(entries.map((entry) => entry.watchKey).sort()).toEqual([
+      'xyp-111|Holofoil',
+      'xyp-111|Reverse Holofoil',
+    ]);
+    // Priced per printing.
+    expect(entries.find((entry) => entry.watchVariant === 'Reverse Holofoil')?.marketPrice).toBe(29.1);
+
+    const set = await repository.setCardFavoriteTarget('xyp-111', 2500, { variant: 'Reverse Holofoil' });
+    expect(set.target?.watchVariant).toBe('Reverse Holofoil');
+    // The Holofoil watch has no target; the main (unwatched) printing 404s.
+    await expect(repository.setCardFavoriteTarget('xyp-111', 2500)).resolves.toMatchObject({
+      status: 'not_watchlisted',
+    });
+
+    await repository.setCardFavorite('xyp-111', false, { variant: 'Holofoil' });
+    entries = await repository.getCardFavorites();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ watchVariant: 'Reverse Holofoil', targetPriceCents: 2500 });
+
+    const detail = await repository.getCardDetail({ cardId: 'xyp-111' });
+    expect(detail?.watchedVariants).toEqual(['Reverse Holofoil']);
+    expect(detail?.watchTargetsCents).toEqual({ 'Reverse Holofoil': 2500 });
+  });
+
+  it('mock: seeds a new_low deal with no percent', async () => {
+    const repository = new MockSpotlightRepository();
+
+    const { alerts } = await repository.listDealAlerts();
+    const newLow = alerts.find((alert) => alert.kind === 'new_low');
+
+    expect(newLow).toMatchObject({ discountPct: null, lowestSeenCents: 12900, tier: 'rarely' });
   });
 });

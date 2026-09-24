@@ -87,6 +87,9 @@ __all__ = [
     "fetch_validated_raw_listing_candidates",
     "filter_listings_by_variant",
     "listing_is_graded",
+    "listing_matches_printing",
+    "printing_kind",
+    "printing_query_token",
     "listing_shipping_total",
     "listing_verification_tier",
     "normalize_ebay_consumer",
@@ -101,6 +104,7 @@ __all__ = [
     "seller_rejection_reason",
     "title_denylist_reason",
     "title_not_a_card_reason",
+    "title_printing_flags",
     "title_worn_condition_reason",
     "validate_listing_candidates",
     "verify_raw_aspects",
@@ -671,11 +675,128 @@ def filter_listings_by_variant(
     return [row for row in rows if not says_first_edition(row)]
 
 
-def raw_listings_cache_key(card_id: str) -> tuple[str, str, str, str]:
-    """The `card_ebay_listings_cache` PK for the raw lane. Grader/grade/variant
-    are pinned constants so there is ONE row — and therefore one call — per card,
-    no matter how many printings, conditions or users are interested."""
-    return (str(card_id or "").strip(), RAW_CACHE_GRADER, RAW_CACHE_GRADE, "")
+def raw_listings_cache_key(
+    card_id: str, query_variant: str | None = None
+) -> tuple[str, str, str, str]:
+    """The `card_ebay_listings_cache` PK for the raw lane. Grader/grade are
+    pinned constants so there is ONE row — and therefore one call — per card,
+    no matter how many printings, conditions or users are interested.
+
+    `query_variant` is only set by the watch scan when EVERY watcher of the card
+    watches a printing that has its own query word (Reverse Holofoil): that page
+    was searched with "reverse" and is NOT the whole card, so it lives under its
+    own key and the PDP (key "") never reads it."""
+    token = printing_query_token(query_variant)
+    return (
+        str(card_id or "").strip(),
+        RAW_CACHE_GRADER,
+        RAW_CACHE_GRADE,
+        f"q:{token}" if token else "",
+    )
+
+
+# --------------------------------------------------------------------------
+# Printing match (watch per printing)
+# --------------------------------------------------------------------------
+
+# "Reverse" is the discriminator. "Holo" alone is weak: sellers of a reverse
+# holo often write only "Holo", and holo sellers write it too.
+_REVERSE_TITLE_RE = re.compile(
+    r"\b(?:rev(?:erse)?\.?\s*(?:holofoil|holo|foil)|reverse|revholo)\b"
+)
+_FIRST_EDITION_TITLE_RE = re.compile(r"\b(?:1st|first)\s*(?:edition|ed\.?)(?:\s|$)|\b1st\s*ed\b")
+_NON_HOLO_TITLE_RE = re.compile(r"\bnon\s*holo\b")
+_HOLO_TITLE_RE = re.compile(r"\bholo(?:foil|graphic)?\b")
+
+PRINTING_KIND_REVERSE = "reverse"
+PRINTING_KIND_FIRST_EDITION = "first_edition"
+PRINTING_KIND_UNLIMITED = "unlimited"
+PRINTING_KIND_HOLOFOIL = "holofoil"
+PRINTING_KIND_NORMAL = "normal"
+PRINTING_KIND_OTHER = "other"
+
+
+def printing_kind(printing: object) -> str:
+    """Coarse class of a printing label ("Reverse Holofoil", "1st Edition
+    Holofoil", "Unlimited", "Holofoil", "Normal", ...). "" for no printing."""
+    key = re.sub(r"[^a-z0-9]+", "", str(printing or "").lower())
+    if not key:
+        return ""
+    if "reverse" in key:
+        return PRINTING_KIND_REVERSE
+    if "1stedition" in key or "firstedition" in key:
+        return PRINTING_KIND_FIRST_EDITION
+    if "unlimited" in key:
+        return PRINTING_KIND_UNLIMITED
+    if key in {"holofoil", "holo"}:
+        return PRINTING_KIND_HOLOFOIL
+    if key in {"normal", "raw", "standard", "nonholo"}:
+        return PRINTING_KIND_NORMAL
+    return PRINTING_KIND_OTHER
+
+
+def printing_query_token(printing: object) -> str | None:
+    """The eBay keyword that narrows a search to this printing, when one is
+    cheap and safe. Only Reverse Holofoil: sellers reliably write "Reverse";
+    "reverse holo" would drop "Reverse Holofoil"/"Reverse Foil" titles because
+    eBay AND-requires every keyword."""
+    return "reverse" if printing_kind(printing) == PRINTING_KIND_REVERSE else None
+
+
+def title_printing_flags(title: object) -> dict[str, bool]:
+    text = _fold(title)
+    reverse = bool(_REVERSE_TITLE_RE.search(text))
+    non_holo = bool(_NON_HOLO_TITLE_RE.search(text))
+    # A "holo" that only appears inside "reverse holo" / "non holo" is not a
+    # holofoil claim.
+    stripped = _NON_HOLO_TITLE_RE.sub(" ", _REVERSE_TITLE_RE.sub(" ", text))
+    holo = bool(_HOLO_TITLE_RE.search(stripped))
+    first_edition = bool(_FIRST_EDITION_TITLE_RE.search(text))
+    return {
+        "reverse": reverse,
+        "first_edition": first_edition,
+        "holo": holo,
+        "non_holo": non_holo,
+        "any": reverse or first_edition or holo or non_holo,
+    }
+
+
+def listing_matches_printing(
+    title: object,
+    printing: object,
+    card_printings: Iterable[object] = (),
+) -> bool:
+    """May a listing with this title be compared against a watch on `printing`?
+
+    - A title that says Reverse only ever compares to a Reverse Holofoil watch.
+    - A Reverse Holofoil watch only takes Reverse titles — unless the title names
+      no printing at all AND the card has a single printing.
+    - 1st Edition / Unlimited: the existing edition rule.
+    - Holofoil vs Normal is split on "holo" only when the card has BOTH.
+    `printing` "" (unknown main printing) behaves like a non-reverse watch.
+    """
+    flags = title_printing_flags(title)
+    kind = printing_kind(printing)
+    known = {printing_kind(p) for p in card_printings if printing_kind(p)}
+    distinct = {re.sub(r"[^a-z0-9]+", "", str(p or "").lower()) for p in card_printings}
+    distinct.discard("")
+    single_printing = len(distinct) <= 1
+    if kind == PRINTING_KIND_REVERSE:
+        if flags["reverse"]:
+            return True
+        return single_printing and not flags["any"]
+    if flags["reverse"]:
+        return False
+    if kind == PRINTING_KIND_FIRST_EDITION:
+        return flags["first_edition"]
+    if kind == PRINTING_KIND_UNLIMITED:
+        return not flags["first_edition"]
+    says_holo = flags["holo"] and not flags["non_holo"]
+    if kind == PRINTING_KIND_HOLOFOIL and PRINTING_KIND_NORMAL in known:
+        return says_holo
+    if kind == PRINTING_KIND_NORMAL and PRINTING_KIND_HOLOFOIL in known:
+        return not says_holo
+    return True
 
 
 # --------------------------------------------------------------------------
@@ -726,6 +847,7 @@ def fetch_raw_card_ebay_listings(
     fetch_json: Callable[..., dict[str, Any]] | None = None,
     timeout_seconds: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
     consumer: str = EBAY_CONSUMER_WATCH_SCAN,
+    query_variant: str | None = None,
 ) -> dict[str, Any]:
     """The raw (ungraded) counterpart to `fetch_graded_card_ebay_comps`.
 
@@ -745,6 +867,11 @@ def fetch_raw_card_ebay_listings(
     # No grader/grade/variant: this is the per-CARD query, shared by every
     # printing and condition, which is what makes one call enough.
     search_query = _build_search_query(card, grader="", selected_grade=None, variant=None)
+    # Still ONE call: the watch scan narrows the query only when every watcher
+    # of this card watches a printing with its own keyword (Reverse Holofoil).
+    query_token = printing_query_token(query_variant)
+    if query_token:
+        search_query = f"{search_query} {query_token}"
     search_url = _build_live_search_url(search_query, limit=min(normalized_limit, 100))
 
     ready_reason = _browse_search_ready_reason()
@@ -871,15 +998,18 @@ def fetch_validated_raw_listing_candidates(
     fetch_json: Callable[..., dict[str, Any]] | None = None,
     timeout_seconds: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
     consumer: str = EBAY_CONSUMER_WATCH_SCAN,
+    query_variant: str | None = None,
 ) -> dict[str, Any]:
     """Fetch once, then validate — the shape the signal lane consumes. `variant`
     filters the SINGLE response locally; it never changes the query or the call
-    count."""
+    count. `query_variant` (watch scan only) adds the printing's keyword to the
+    one query — see `raw_listings_cache_key`."""
     payload = fetch_raw_card_ebay_listings(
         card,
         fetch_json=fetch_json,
         timeout_seconds=timeout_seconds,
         consumer=consumer,
+        query_variant=query_variant,
     )
     listings = payload.get("listings") if payload.get("status") == "available" else []
     listings = filter_listings_by_variant(listings or [], variant)

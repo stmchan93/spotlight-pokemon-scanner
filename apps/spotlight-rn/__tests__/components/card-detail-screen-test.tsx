@@ -1449,24 +1449,26 @@ describe('CardDetailScreen', () => {
 
     fireEvent.press(heart);
     await waitFor(() => {
-      expect(setCardFavorite).toHaveBeenLastCalledWith('sm7-1', true);
+      expect(setCardFavorite).toHaveBeenLastCalledWith('sm7-1', true, { variant: 'Normal' });
       expect(screen.getByTestId('detail-hero-card-favorite').props.accessibilityLabel)
         .toBe('Remove from watchlist');
     });
 
     fireEvent.press(screen.getByTestId('detail-hero-card-favorite'));
     await waitFor(() => {
-      expect(setCardFavorite).toHaveBeenLastCalledWith('sm7-1', false);
+      expect(setCardFavorite).toHaveBeenLastCalledWith('sm7-1', false, { variant: 'Normal' });
       expect(screen.getByTestId('detail-hero-card-favorite').props.accessibilityLabel)
         .toBe('Add to watchlist');
     });
 
     // Watchlist naming, with the product kind and no card id.
     expect(capturePostHogEvent).toHaveBeenCalledWith('watchlist_item_added', {
+      has_printing: true,
       kind: 'card',
       source: 'card_detail',
     });
     expect(capturePostHogEvent).toHaveBeenCalledWith('watchlist_item_removed', {
+      has_printing: true,
       kind: 'card',
       source: 'card_detail',
     });
@@ -1523,7 +1525,7 @@ describe('CardDetailScreen', () => {
       fireEvent.press(screen.getByTestId('wishlist-target-save'));
 
       await waitFor(() => {
-        expect(setCardFavoriteTarget).toHaveBeenCalledWith('sm7-1', 4000);
+        expect(setCardFavoriteTarget).toHaveBeenCalledWith('sm7-1', 4000, { variant: 'Normal' });
         expect(screen.queryByTestId('wishlist-target-sheet')).not.toBeOnTheScreen();
       });
       expect(capturePostHogEvent).toHaveBeenCalledWith('watch_target_set', {
@@ -1572,6 +1574,7 @@ describe('CardDetailScreen', () => {
         });
       });
       expect(capturePostHogEvent).toHaveBeenCalledWith('watchlist_item_added', {
+        has_printing: true,
         kind: 'card',
         source: 'target_price',
       });
@@ -1588,8 +1591,144 @@ describe('CardDetailScreen', () => {
       await waitFor(() => expect(screen.queryByTestId('wishlist-target-sheet')).not.toBeOnTheScreen());
 
       fireEvent.press(screen.getByTestId('detail-hero-card-favorite'));
-      await waitFor(() => expect(setCardFavorite).toHaveBeenLastCalledWith('sm7-1', false));
+      await waitFor(() => expect(setCardFavorite).toHaveBeenLastCalledWith('sm7-1', false, { variant: 'Normal' }));
       expect(screen.queryByTestId('wishlist-target-sheet')).toBeNull();
+    });
+  });
+
+  describe('watch per printing', () => {
+    // sm7-1 re-dressed with two printings; the server's default lane is Holofoil.
+    function printingRepository(
+      watch: Pick<CardDetailRecord, 'watchedVariants' | 'watchTargetsCents'>,
+      overrides: Parameters<typeof createTestSpotlightRepository>[0] = {},
+    ) {
+      const baseRepository = createTestSpotlightRepository();
+      return createTestSpotlightRepository({
+        getCardDetail: async (query) => {
+          const detail = await baseRepository.getCardDetail(query);
+          return detail
+            ? ({
+                ...detail,
+                marketHistory: { ...detail.marketHistory, selectedVariant: 'Holofoil' },
+                variantOptions: [
+                  { id: 'Holofoil', label: 'Holofoil', currentPrice: 217.25 },
+                  { id: 'Reverse Holofoil', label: 'Reverse Holofoil', currentPrice: 184.1 },
+                ],
+                isFavorite: (watch.watchedVariants ?? []).length > 0,
+                ...watch,
+              } satisfies CardDetailRecord)
+            : null;
+        },
+        ...overrides,
+      });
+    }
+
+    const heartLabel = () => screen.getByTestId('detail-hero-card-favorite').props.accessibilityLabel;
+
+    it('reads the selected printing, and "You\'re watching…" switches the picker to the watched one', async () => {
+      renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+        spotlightRepository: printingRepository({ watchedVariants: ['Reverse Holofoil'] }),
+      });
+
+      const line = await screen.findByTestId('detail-watching-other-printings');
+      expect(line).toHaveTextContent("You're watching the Reverse Holofoil");
+      // Holofoil is selected and NOT watched.
+      expect(heartLabel()).toBe('Add to watchlist');
+
+      fireEvent.press(screen.getByTestId('detail-watching-printing-Reverse Holofoil'));
+
+      await waitFor(() => expect(heartLabel()).toBe('Remove from watchlist'));
+      expect(screen.queryByTestId('detail-watching-other-printings')).toBeNull();
+    });
+
+    it('watches only the selected printing, targets it, and keeps the other one', async () => {
+      const setCardFavorite = jest.fn(async (cardId: string, isFavorite?: boolean | null) => ({
+        cardId,
+        favoritedAt: '2026-09-24T00:00:00.000Z',
+        isFavorite: Boolean(isFavorite),
+      }));
+      const setCardFavoriteTarget = jest.fn(async (cardId: string, cents: number | null) => ({
+        status: 'ok' as const,
+        target: { cardId, targetCurrency: 'USD', targetPriceCents: cents, targetSetAt: null, targetTriggeredAt: null },
+      }));
+      renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+        spotlightRepository: printingRepository(
+          { watchedVariants: ['Reverse Holofoil'] },
+          { setCardFavorite, setCardFavoriteTarget },
+        ),
+      });
+
+      await screen.findByTestId('detail-watching-other-printings');
+      fireEvent.press(screen.getByTestId('detail-hero-card-favorite'));
+
+      await waitFor(() => {
+        expect(setCardFavorite).toHaveBeenLastCalledWith('sm7-1', true, { variant: 'Holofoil' });
+        expect(heartLabel()).toBe('Remove from watchlist');
+      });
+      // The other printing is still watched and still named.
+      expect(screen.getByTestId('detail-watching-other-printings'))
+        .toHaveTextContent("You're watching the Reverse Holofoil");
+
+      // The after-watch target prompt acts on the printing just watched.
+      fireEvent.changeText(await screen.findByTestId('wishlist-target-input'), '200');
+      fireEvent.press(screen.getByTestId('wishlist-target-save'));
+      await waitFor(() => {
+        expect(setCardFavoriteTarget).toHaveBeenCalledWith('sm7-1', 20000, { variant: 'Holofoil' });
+      });
+    });
+
+    it('names every other watched printing', async () => {
+      renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} initialVariant="Reverse Holofoil" />, {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await createTestSpotlightRepository().getCardDetail(query);
+            return detail
+              ? ({
+                  ...detail,
+                  variantOptions: [
+                    { id: 'Holofoil', label: 'Holofoil' },
+                    { id: '1st Edition Holofoil', label: '1st Edition Holofoil' },
+                    { id: 'Reverse Holofoil', label: 'Reverse Holofoil' },
+                  ],
+                  watchedVariants: ['Holofoil', '1st Edition Holofoil'],
+                } satisfies CardDetailRecord)
+              : null;
+          },
+        }),
+      });
+
+      expect(await screen.findByTestId('detail-watching-other-printings'))
+        .toHaveTextContent("You're watching the Holofoil and 1st Edition Holofoil");
+      expect(heartLabel()).toBe('Add to watchlist');
+    });
+
+    it('opens on a routed printing', async () => {
+      renderWithProviders(
+        <CardDetailScreen cardId="sm7-1" initialVariant="Reverse Holofoil" onBack={jest.fn()} />,
+        { spotlightRepository: printingRepository({ watchedVariants: ['Reverse Holofoil'] }) },
+      );
+
+      await waitFor(() => expect(heartLabel()).toBe('Remove from watchlist'));
+      expect(screen.queryByTestId('detail-watching-other-printings')).toBeNull();
+    });
+
+    it('a legacy main-printing watch covers the default printing and unwatches with no variant', async () => {
+      const setCardFavorite = jest.fn(async (cardId: string, isFavorite?: boolean | null) => ({
+        cardId,
+        favoritedAt: null,
+        isFavorite: Boolean(isFavorite),
+      }));
+      renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+        spotlightRepository: printingRepository({ watchedVariants: [''] }, { setCardFavorite }),
+      });
+
+      await waitFor(() => expect(heartLabel()).toBe('Remove from watchlist'));
+      fireEvent.press(screen.getByTestId('detail-hero-card-favorite'));
+
+      await waitFor(() => {
+        expect(setCardFavorite).toHaveBeenLastCalledWith('sm7-1', false, { variant: null });
+        expect(heartLabel()).toBe('Add to watchlist');
+      });
     });
   });
 
@@ -1620,7 +1759,7 @@ describe('CardDetailScreen', () => {
     // wrong heart even though the favorite persisted to the wishlist.
     fireEvent.press(await screen.findByTestId('detail-hero-card-favorite'));
     await waitFor(() => {
-      expect(setCardFavorite).toHaveBeenCalledWith('sm7-1', true);
+      expect(setCardFavorite).toHaveBeenCalledWith('sm7-1', true, { variant: 'Normal' });
       expect(hasFreshCardDetail('sm7-1')).toBe(false);
     });
   });
@@ -2748,7 +2887,7 @@ describe('CardDetailScreen', () => {
 
       fireEvent.press(await screen.findByTestId('detail-hero-card-favorite'));
       await waitFor(() => {
-        expect(setCardFavorite).toHaveBeenLastCalledWith(sealedId, true);
+        expect(setCardFavorite).toHaveBeenLastCalledWith(sealedId, true, { variant: null });
         expect(screen.getByTestId('detail-hero-card-favorite').props.accessibilityLabel)
           .toBe('Remove from watchlist');
       });

@@ -153,7 +153,7 @@ USER_TABLES = {
     "deck_entry_events":    {"owner": "owner_user_id", "pk": ["id"], "ts": "created_at"},
     "collections":          {"owner": "owner_user_id", "pk": ["id"], "ts": "created_at"},
     "card_transactions":    {"owner": "owner_user_id", "pk": ["id"], "ts": "created_at"},
-    "card_favorites":       {"owner": "owner_user_id", "pk": ["owner_user_id", "card_id"], "ts": "created_at"},
+    "card_favorites":       {"owner": "owner_user_id", "pk": ["owner_user_id", "card_id", "variant_key"], "ts": "created_at"},
     "card_likes":           {"owner": "owner_user_id", "pk": ["owner_user_id", "card_id"], "ts": "created_at"},
     "card_views":           {"owner": "owner_user_id", "pk": ["owner_user_id", "card_id", "viewed_on"], "ts": "viewed_at"},
     "vendor_wallet_handles": {"owner": "owner_user_id", "pk": ["owner_user_id"], "ts": "updated_at"},

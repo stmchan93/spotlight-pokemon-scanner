@@ -160,7 +160,9 @@ class CardFavoritesTests(unittest.TestCase):
         handler.do_POST()
 
         handler.service.request_identity_context.assert_called_once_with(identity)
-        handler.service.set_card_favorite.assert_called_once_with("base-pikachu-58", is_favorite=True)
+        handler.service.set_card_favorite.assert_called_once_with(
+            "base-pikachu-58", is_favorite=True, variant=None
+        )
         self.assertEqual(writes, [(HTTPStatus.OK, handler.service.set_card_favorite.return_value)])
 
     def test_deck_entries_get_route_passes_favorites_filter(self) -> None:

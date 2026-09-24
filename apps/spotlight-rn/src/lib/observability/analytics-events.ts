@@ -38,6 +38,9 @@ export type AnalyticsEventName = (typeof AnalyticsEvent)[keyof typeof AnalyticsE
 
 export type WatchlistItemKind = 'sealed' | 'card';
 
+// watchlist_item_added/removed also carry `has_printing: boolean` — whether the
+// watch named a specific printing. Never the printing label or a card id.
+
 // Sealed products carry a backend-minted id prefix
 // (`backend/catalog_tools.py` SEALED_CARD_ID_PREFIX); watchlist rows don't carry
 // `productKind`, so this is the only signal available there.

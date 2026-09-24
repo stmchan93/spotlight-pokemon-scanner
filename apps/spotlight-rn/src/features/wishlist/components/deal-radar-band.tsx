@@ -9,7 +9,7 @@ import {
 import { Swipeable } from 'react-native-gesture-handler';
 import { ShareIos, Xmark } from 'iconoir-react-native';
 
-import type { CardFavoriteEntry, DealAlert } from '@spotlight/api-client';
+import { buildWatchKey, type CardFavoriteEntry, type DealAlert } from '@spotlight/api-client';
 import {
   IconButton,
   SurfaceCard,
@@ -20,14 +20,19 @@ import {
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { getCardImageSource } from '@/lib/card-images';
-import { buildDealHeadline, buildDiscountLabel } from '@/features/wishlist/deal-radar';
+import {
+  buildDealHeadline,
+  buildDiscountLabel,
+  buildTierLabel,
+} from '@/features/wishlist/deal-radar';
 
 export type DealRadarBandProps = {
   alerts: readonly DealAlert[];
   /**
-   * The watched cards, by id. The alert carries its own name and art, so this
-   * only ENRICHES a row (set name, collector number, currency) — a deal whose
-   * card has left the watchlist still renders.
+   * The watched cards, by `watchKey` (card + printing) and by bare card id as a
+   * fallback. The alert carries its own name and art, so this only ENRICHES a
+   * row (set name, collector number, currency) — a deal whose card has left the
+   * watchlist still renders.
    */
   cardsById: ReadonlyMap<string, CardFavoriteEntry>;
   /** Swipe left → Dismiss hides the deal for good. */
@@ -78,7 +83,9 @@ export function DealRadarBand({
   // Only a deal with no name anywhere is dropped, since that row says nothing.
   const resolved: ResolvedDeal[] = [];
   for (const alert of alerts) {
-    const card = cardsById.get(alert.cardId) ?? null;
+    const card = cardsById.get(buildWatchKey(alert.cardId, alert.variantKey))
+      ?? cardsById.get(alert.cardId)
+      ?? null;
     const name = (card?.name ?? alert.cardName ?? '').trim();
     if (name) {
       resolved.push({ alert, card, name });
@@ -153,6 +160,8 @@ function DealRadarRow({
   const artSource = card ? getCardImageSource(card, 'small') : alert.imageUrl ? { uri: alert.imageUrl } : undefined;
   const headline = buildDealHeadline(alert, currencyCode);
   const discountLabel = buildDiscountLabel(alert);
+  const tierLabel = buildTierLabel(alert);
+  const printing = (alert.variantKey ?? '').trim() || null;
   const alertId = alert.id;
   const alreadySeen = alert.seenAt != null;
 
@@ -224,6 +233,15 @@ function DealRadarRow({
               <Text numberOfLines={1} style={theme.typography.bodyMedium}>
                 {name}
               </Text>
+              {printing ? (
+                <Text
+                  numberOfLines={1}
+                  style={[theme.typography.caption, { color: theme.colors.gray600 }]}
+                  testID={`wishlist-deal-printing-${alert.id}`}
+                >
+                  {printing}
+                </Text>
+              ) : null}
               <Text
                 numberOfLines={2}
                 style={[theme.typography.caption, { color: theme.colors.gray600 }]}
@@ -231,16 +249,31 @@ function DealRadarRow({
               >
                 {headline}
               </Text>
-              {discountLabel ? (
-                <View
-                  style={[styles.discountChip, { backgroundColor: theme.colors.deltaUpSurface }]}
-                >
-                  <Text
-                    style={[theme.typography.deltaPill, { color: theme.colors.deltaUpText }]}
-                    testID={`wishlist-deal-discount-${alert.id}`}
-                  >
-                    {discountLabel}
-                  </Text>
+              {discountLabel || tierLabel ? (
+                <View style={styles.chips}>
+                  {discountLabel ? (
+                    <View
+                      style={[styles.discountChip, { backgroundColor: theme.colors.deltaUpSurface }]}
+                    >
+                      <Text
+                        style={[theme.typography.deltaPill, { color: theme.colors.deltaUpText }]}
+                        testID={`wishlist-deal-discount-${alert.id}`}
+                      >
+                        {discountLabel}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {tierLabel ? (
+                    // Muted on purpose: a caveat on the claim, not a second claim.
+                    <View style={[styles.discountChip, { backgroundColor: theme.colors.field }]}>
+                      <Text
+                        style={[theme.typography.deltaPill, { color: theme.colors.gray600 }]}
+                        testID={`wishlist-deal-tier-${alert.id}`}
+                      >
+                        {tierLabel}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
               ) : null}
             </View>
@@ -275,6 +308,11 @@ const styles = StyleSheet.create({
   },
   band: {
     gap: 12,
+  },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
   },
   copy: {
     alignItems: 'flex-start',

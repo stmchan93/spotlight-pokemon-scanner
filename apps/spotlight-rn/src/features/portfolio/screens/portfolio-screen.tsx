@@ -1199,13 +1199,19 @@ export function PortfolioScreen({
       return;
     }
     const nextIsFavorite = !entry.isFavorite;
+    // Watch the printing this copy is (slabs keep theirs on the slab context).
+    const variant = (entry.variantName ?? entry.slabContext?.variantName ?? '').trim() || null;
     void spotlightRepository
-      .setCardFavorite(entry.cardId, nextIsFavorite)
+      .setCardFavorite(entry.cardId, nextIsFavorite, { variant })
       .then((record) => {
         const savedIsFavorite = record?.isFavorite ?? nextIsFavorite;
         capturePostHogEvent(
           savedIsFavorite ? AnalyticsEvent.watchlistItemAdded : AnalyticsEvent.watchlistItemRemoved,
-          { source: 'collection_menu', kind: watchlistKindForCardId(entry.cardId) },
+          {
+            source: 'collection_menu',
+            kind: watchlistKindForCardId(entry.cardId),
+            has_printing: variant != null,
+          },
         );
         setWishlistToast(savedIsFavorite ? 'Added to Watchlist' : 'Removed from Watchlist');
         refreshData();

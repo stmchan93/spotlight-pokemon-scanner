@@ -203,6 +203,20 @@ class PushWiringTestCase(unittest.TestCase):
         self.connection.commit()
 
     def _history(self, prices: tuple[float, ...] = (100.0, 95.0, 90.0)) -> None:
+        # The printing's TCGplayer (raw_main) cells: 12 daily market changes read
+        # as an `often` liquidity tier, lowest current listing $85. Without them
+        # the watch's tier is `none`, which never makes a % deal.
+        for offset in range(12):
+            self.connection.execute(
+                """
+                INSERT OR REPLACE INTO card_price_history_cell
+                    (card_id, provider, price_date, lane, cell_key, variant_key, condition,
+                     currency_code, low, market, updated_at)
+                VALUES (?, 'tcgcsv', ?, 'raw_main', 'raw_main|Normal|NM', 'Normal', 'NM',
+                        'USD', 85.0, ?, ?)
+                """,
+                (CARD_ID, self._day(11 - offset), 101.0 - offset, utc_now()),
+            )
         for offset, market in enumerate(prices):
             contexts = {
                 "variants": {

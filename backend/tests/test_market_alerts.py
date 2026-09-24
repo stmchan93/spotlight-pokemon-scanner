@@ -253,7 +253,8 @@ class PriceMoveTests(MarketAlertsTestCase):
         self.own("u1", "mew")
         self.token("u1")
         self.connection.execute(
-            "INSERT INTO market_alert_card_state VALUES ('u1', 'mew', ?, 115.0)",
+            "INSERT INTO market_alert_card_state (owner_user_id, card_id, last_alerted_at, last_price_usd) "
+            "VALUES ('u1', 'mew', ?, 115.0)",
             ((NOW - timedelta(days=1)).isoformat(),),
         )
         self.connection.commit()

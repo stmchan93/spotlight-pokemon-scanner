@@ -109,6 +109,8 @@ function DevTargetSheetScreen({ mode }: { mode: 'afterWatch' | 'edit' }) {
       <TargetPriceSheet
         entry={{
           cardId: 'sm7-1',
+          watchVariant: null,
+          watchKey: 'sm7-1|',
           cardNumber: '001/096',
           currencyCode: 'USD',
           favoritedAt: '2026-09-23T00:00:00.000Z',

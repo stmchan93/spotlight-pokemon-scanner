@@ -58,6 +58,8 @@ import type {
   CardFavoriteContext,
   CardFavoriteTarget,
   CardFavoriteTargetResult,
+  CardWatchOptions,
+  DealLiquidityTier,
   CardGame,
   CardPopulation,
   TcgPlayerVariantMarketplace,
@@ -390,7 +392,15 @@ export interface SpotlightRepository {
     limit?: number;
   }): Promise<CardEbayListingsRecord | null>;
   getCardRecentSales(query: CardRecentSalesQuery): Promise<CardRecentSalesRecord | null>;
-  setCardFavorite(cardId: string, isFavorite?: boolean | null): Promise<CardFavoriteRecord>;
+  /**
+   * Watch/unwatch ONE printing of a card. `options.variant` omitted/null = the
+   * card's main printing (sealed, legacy watches) — older servers ignore it.
+   */
+  setCardFavorite(
+    cardId: string,
+    isFavorite?: boolean | null,
+    options?: CardWatchOptions,
+  ): Promise<CardFavoriteRecord>;
   setCardLike(cardId: string, isLiked?: boolean | null): Promise<CardLikeRecord>;
   getCardFavorites(query?: CardFavoritesQuery): Promise<CardFavoriteEntry[]>;
   /**
@@ -402,6 +412,7 @@ export interface SpotlightRepository {
   setCardFavoriteTarget(
     cardId: string,
     targetPriceCents: number | null,
+    options?: CardWatchOptions,
   ): Promise<CardFavoriteTargetResult>;
   /**
    * The owner's deal-radar alerts, newest first. Never throws — a failure is an
@@ -936,6 +947,8 @@ type CardDetailDTO = {
   favoritedAt?: string | null;
   favoriteContext?: CardDetailFavoriteContextDTO | null;
   targetPriceCents?: number | null;
+  watchedVariants?: unknown;
+  watchTargetsCents?: unknown;
   isLiked?: boolean | null;
   likedAt?: string | null;
   likeCount?: number | null;
@@ -995,6 +1008,7 @@ type CardFavoriteDTO = {
   cardId?: string | null;
   isFavorite?: boolean | null;
   favoritedAt?: string | null;
+  watchVariant?: string | null;
 };
 
 type CardLikeDTO = {
@@ -1575,7 +1589,54 @@ const DEAL_ALERT_KIND_VALUES: readonly DealAlertKind[] = [
   'drawdown_30d',
   'since_watched',
   'target_hit',
+  'new_low',
 ];
+
+const DEAL_LIQUIDITY_TIERS: readonly DealLiquidityTier[] = ['often', 'fewer', 'rarely', 'none'];
+
+// A missing tier is an older server, which only ever alerted liquid cards.
+function normalizeDealLiquidityTier(value: unknown): DealLiquidityTier {
+  const tier = normalizeString(value)?.toLowerCase();
+  return DEAL_LIQUIDITY_TIERS.includes(tier as DealLiquidityTier)
+    ? (tier as DealLiquidityTier)
+    : 'often';
+}
+
+/** The watch's list key: one row per (card, printing); '' = main printing. */
+export function buildWatchKey(cardId: string, watchVariant: string | null | undefined): string {
+  return `${cardId}|${watchVariant ?? ''}`;
+}
+
+/** Wire printing → client: '' (main printing) and blanks become null. */
+function normalizeWatchVariant(value: unknown): string | null {
+  return normalizeString(value) ?? null;
+}
+
+/** The request field for a printing; main printing sends nothing (old-server safe). */
+function watchVariantParam(options: CardWatchOptions | undefined): string | null {
+  const variant = options?.variant?.trim();
+  return variant ? variant : null;
+}
+
+function normalizeWatchedVariants(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  // '' is meaningful here (the main printing), so strings are kept verbatim.
+  return Array.from(new Set(value.filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())));
+}
+
+function normalizeWatchTargets(value: unknown): Record<string, number | null> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const targets: Record<string, number | null> = {};
+  for (const [key, cents] of Object.entries(value)) {
+    targets[key.trim()] = normalizeCentsOrNull(cents);
+  }
+  return targets;
+}
 
 /**
  * An unknown kind falls back to `under_added` rather than dropping the alert: a
@@ -1621,7 +1682,11 @@ function buildDealAlert(value: unknown): DealAlert | null {
     cardName: normalizeString(value.cardName),
     imageUrl: normalizeString(value.imageUrl),
     listingId: normalizeString(value.listingID) ?? normalizeString(value.listingId) ?? '',
+    variantKey: normalizeWatchVariant(value.variantKey),
     kind: normalizeDealAlertKind(value.kind),
+    tier: normalizeDealLiquidityTier(value.tier),
+    tierLabel: normalizeString(value.tierLabel),
+    lowestSeenCents: normalizeCentsOrNull(value.lowestSeenCents),
     totalCents: normalizeCentsOrNull(value.totalCents) ?? 0,
     baselineCents: normalizeCentsOrNull(value.baselineCents) ?? 0,
     marketCents: normalizeCentsOrNull(value.marketCents),
@@ -1686,6 +1751,7 @@ function buildCardFavoriteTarget(value: unknown, fallbackCardId: string): CardFa
   return {
     cardId:
       normalizeString(value.cardID) ?? normalizeString(value.cardId) ?? fallbackCardId,
+    watchVariant: normalizeWatchVariant(value.watchVariant ?? value.variant),
     targetPriceCents: normalizeCentsOrNull(value.targetPriceCents),
     targetCurrency: normalizeString(value.targetCurrency),
     targetSetAt: normalizeString(value.targetSetAt),
@@ -3425,7 +3491,11 @@ function seedMockDealAlerts(): DealAlert[] {
       cardName: 'Pikachu',
       imageUrl: 'https://images.pokemontcg.io/mcd25/21.png',
       listingId: 'v1|mock|0',
+      variantKey: null,
       kind: 'under_added',
+      tier: 'fewer',
+      tierLabel: 'Fewer sales',
+      lowestSeenCents: null,
       totalCents: 7000,
       baselineCents: 9000,
       marketCents: 9000,
@@ -3443,7 +3513,11 @@ function seedMockDealAlerts(): DealAlert[] {
       cardName: 'Charizard-EX',
       imageUrl: 'https://images.pokemontcg.io/xyp/XY111.png',
       listingId: 'v1|mock|1',
+      variantKey: 'Holofoil',
       kind: 'target_hit',
+      tier: 'often',
+      tierLabel: null,
+      lowestSeenCents: null,
       totalCents: 4250,
       baselineCents: 5000,
       marketCents: 5200,
@@ -3453,6 +3527,29 @@ function seedMockDealAlerts(): DealAlert[] {
       verificationTier: 'aspects',
       createdAt: '2026-09-17T09:12:00.000Z',
       seenAt: '2026-09-17T09:40:00.000Z',
+      tappedAt: null,
+    },
+    {
+      // A thin market: no percent claim, just "lowest we've seen".
+      id: 'dealalert-mock-0003',
+      cardId: 'xyp-111',
+      cardName: 'Charizard-EX',
+      imageUrl: 'https://images.pokemontcg.io/xyp/XY111.png',
+      listingId: 'v1|mock|2',
+      variantKey: 'Reverse Holofoil',
+      kind: 'new_low',
+      tier: 'rarely',
+      tierLabel: 'Few sales',
+      lowestSeenCents: 12900,
+      totalCents: 9500,
+      baselineCents: 12900,
+      marketCents: 18410,
+      discountPct: null,
+      savingsCents: null,
+      url: 'https://www.ebay.com/itm/mock-0003',
+      verificationTier: 'title',
+      createdAt: '2026-09-16T12:00:00.000Z',
+      seenAt: null,
       tappedAt: null,
     },
   ];
@@ -3469,9 +3566,11 @@ export class MockSpotlightRepository implements SpotlightRepository {
   private catalogResults = seedMockCatalogResults();
   private sealedCatalogResults = seedMockSealedCatalogResults();
   private cardDetails = seedMockCardDetails();
+  // Keyed by WATCH (`buildWatchKey`: card + printing, '' = main printing), so
+  // one card can sit on the watchlist once per printing, like the server.
   private favoriteCardTimestamps = new Map<string, string>();
   private likeCardTimestamps = new Map<string, string>();
-  // Watchlist targets, USD CENTS, keyed by card id. Only cards present in
+  // Watchlist targets, USD CENTS, keyed by watch key. Only watches present in
   // `favoriteCardTimestamps` may have one — the real route 404s otherwise.
   private favoriteTargetCents = new Map<
     string,
@@ -3492,14 +3591,28 @@ export class MockSpotlightRepository implements SpotlightRepository {
   private accessShowModeActive = true;
   private accessWhitelist: string[] = [];
 
+  /** Printings of `cardId` on the watchlist, oldest watch first ('' = main). */
+  private watchedVariantsForCard(cardId: string): string[] {
+    const prefix = `${cardId}|`;
+    return Array.from(this.favoriteCardTimestamps.entries())
+      .filter(([key]) => key.startsWith(prefix))
+      .sort(([, left], [, right]) => left.localeCompare(right))
+      .map(([key]) => key.slice(prefix.length));
+  }
+
+  private isCardWatched(cardId: string) {
+    return this.watchedVariantsForCard(cardId).length > 0;
+  }
+
   private favoriteTimestampForCard(cardId: string) {
-    return this.favoriteCardTimestamps.get(cardId) ?? null;
+    const [first] = this.watchedVariantsForCard(cardId);
+    return first === undefined ? null : this.favoriteCardTimestamps.get(buildWatchKey(cardId, first)) ?? null;
   }
 
   private annotateInventoryEntry(entry: InventoryCardEntry): InventoryCardEntry {
     return {
       ...entry,
-      isFavorite: this.favoriteCardTimestamps.has(entry.cardId),
+      isFavorite: this.isCardWatched(entry.cardId),
     };
   }
 
@@ -3514,7 +3627,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
   private annotateCatalogResult(result: CatalogSearchResult): CatalogSearchResult {
     return {
       ...result,
-      isFavorite: this.favoriteCardTimestamps.has(result.cardId),
+      isFavorite: this.isCardWatched(result.cardId),
     };
   }
 
@@ -4102,8 +4215,16 @@ export class MockSpotlightRepository implements SpotlightRepository {
         ownedEntries: includeOwnedEntries
           ? detail.ownedEntries.map((entry) => this.annotateInventoryEntry(entry))
           : [],
-        isFavorite: this.favoriteCardTimestamps.has(query.cardId),
+        isFavorite: this.isCardWatched(query.cardId),
         favoritedAt: this.favoriteTimestampForCard(query.cardId),
+        watchedVariants: this.watchedVariantsForCard(query.cardId),
+        targetPriceCents: this.favoriteTargetCents.get(buildWatchKey(query.cardId, null))?.cents ?? null,
+        watchTargetsCents: Object.fromEntries(
+          this.watchedVariantsForCard(query.cardId).map((variant) => [
+            variant,
+            this.favoriteTargetCents.get(buildWatchKey(query.cardId, variant))?.cents ?? null,
+          ]),
+        ),
         isLiked: this.likeCardTimestamps.has(query.cardId),
         likedAt: this.likeCardTimestamps.get(query.cardId) ?? null,
         likeCount: detail.likeCount ?? (this.likeCardTimestamps.has(query.cardId) ? 1 : 0),
@@ -4261,20 +4382,25 @@ export class MockSpotlightRepository implements SpotlightRepository {
     } satisfies CardRecentSalesRecord;
   }
 
-  async setCardFavorite(cardId: string, isFavorite?: boolean | null) {
-    const currentlyFavorite = this.favoriteCardTimestamps.has(cardId);
+  async setCardFavorite(cardId: string, isFavorite?: boolean | null, options?: CardWatchOptions) {
+    const variant = watchVariantParam(options);
+    const key = buildWatchKey(cardId, variant);
+    const currentlyFavorite = this.favoriteCardTimestamps.has(key);
     const nextIsFavorite = isFavorite == null ? !currentlyFavorite : isFavorite;
     if (nextIsFavorite) {
       if (!currentlyFavorite) {
-        this.favoriteCardTimestamps.set(cardId, new Date().toISOString());
+        this.favoriteCardTimestamps.set(key, new Date().toISOString());
       }
     } else {
-      this.favoriteCardTimestamps.delete(cardId);
+      // Only THIS printing leaves; other printings of the card stay watched.
+      this.favoriteCardTimestamps.delete(key);
+      this.favoriteTargetCents.delete(key);
     }
     return {
       cardId,
       isFavorite: nextIsFavorite,
-      favoritedAt: this.favoriteTimestampForCard(cardId),
+      favoritedAt: this.favoriteCardTimestamps.get(key) ?? null,
+      watchVariant: variant,
     } satisfies CardFavoriteRecord;
   }
 
@@ -4302,21 +4428,30 @@ export class MockSpotlightRepository implements SpotlightRepository {
     const entries: CardFavoriteEntry[] = [];
     const sortedFavorites = Array.from(this.favoriteCardTimestamps.entries())
       .sort(([, leftTs], [, rightTs]) => (leftTs < rightTs ? 1 : leftTs > rightTs ? -1 : 0));
-    for (const [cardId, favoritedAt] of sortedFavorites) {
+    for (const [watchKey, favoritedAt] of sortedFavorites) {
+      const separator = watchKey.lastIndexOf('|');
+      const cardId = separator >= 0 ? watchKey.slice(0, separator) : watchKey;
+      const watchVariant = separator >= 0 ? watchKey.slice(separator + 1) || null : null;
       const detail = getMockCardDetail(this.cardDetails, this.inventoryEntries, { cardId });
       if (!detail) {
         continue;
       }
       const ownedEntry = ownedEntryByCardId.get(cardId) ?? null;
+      // Priced per watched printing, like the server; unknown label → card price.
+      const printingPrice = watchVariant
+        ? detail.variantOptions.find((option) => option.label === watchVariant)?.currentPrice ?? null
+        : null;
       entries.push({
         cardId,
+        watchVariant,
+        watchKey: buildWatchKey(cardId, watchVariant),
         name: detail.name,
         cardNumber: detail.cardNumber,
         setName: detail.setName,
         imageUrl: detail.imageUrl,
         smallImageUrl: detail.imageUrl,
         largeImageUrl: detail.largeImageUrl ?? null,
-        marketPrice: detail.marketPrice ?? null,
+        marketPrice: printingPrice ?? detail.marketPrice ?? null,
         currencyCode: detail.currencyCode ?? 'USD',
         favoritedAt,
         isOwned: ownedEntry != null,
@@ -4327,7 +4462,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
         slabContext: ownedEntry?.slabContext ?? null,
         dayChangeAmount: ownedEntry?.dayChangeAmount ?? null,
         dayChangePercent: ownedEntry?.dayChangePercent ?? null,
-        targetPriceCents: this.favoriteTargetCents.get(cardId)?.cents ?? null,
+        targetPriceCents: this.favoriteTargetCents.get(watchKey)?.cents ?? null,
       });
     }
     return entries;
@@ -4336,9 +4471,12 @@ export class MockSpotlightRepository implements SpotlightRepository {
   async setCardFavoriteTarget(
     cardId: string,
     targetPriceCents: number | null,
+    options?: CardWatchOptions,
   ): Promise<CardFavoriteTargetResult> {
-    // Mirrors the route's 404: a target can only exist on a watchlisted card.
-    if (!this.favoriteCardTimestamps.has(cardId)) {
+    const variant = watchVariantParam(options);
+    const key = buildWatchKey(cardId, variant);
+    // Mirrors the route's 404: a target can only exist on a watched printing.
+    if (!this.favoriteCardTimestamps.has(key)) {
       return { status: 'not_watchlisted', target: null };
     }
     const target =
@@ -4348,7 +4486,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
     if (target !== null && target <= 0) {
       return { status: 'failed', target: null };
     }
-    const existing = this.favoriteTargetCents.get(cardId) ?? null;
+    const existing = this.favoriteTargetCents.get(key) ?? null;
     // A CHANGED target clears the re-arm clock; re-sending the same one keeps it.
     const changed = (existing?.cents ?? null) !== target;
     const now = new Date().toISOString();
@@ -4357,11 +4495,12 @@ export class MockSpotlightRepository implements SpotlightRepository {
       setAt: target === null ? null : now,
       triggeredAt: changed ? null : existing?.triggeredAt ?? null,
     };
-    this.favoriteTargetCents.set(cardId, next);
+    this.favoriteTargetCents.set(key, next);
     return {
       status: 'ok',
       target: {
         cardId,
+        watchVariant: variant,
         targetPriceCents: next.cents,
         targetCurrency: next.cents === null ? null : 'USD',
         targetSetAt: next.setAt,
@@ -6628,6 +6767,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       favoritedAt: normalizeString(detailResponse.data.favoritedAt),
       favoriteContext: buildFavoriteContext(detailResponse.data.favoriteContext),
       targetPriceCents: normalizeCentsOrNull(detailResponse.data.targetPriceCents),
+      watchedVariants: normalizeWatchedVariants(detailResponse.data.watchedVariants),
+      watchTargetsCents: normalizeWatchTargets(detailResponse.data.watchTargetsCents),
       isLiked: normalizeBoolean(detailResponse.data.isLiked) ?? false,
       likedAt: normalizeString(detailResponse.data.likedAt),
       likeCount: normalizeInteger(detailResponse.data.likeCount),
@@ -6809,19 +6950,26 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return buildCardRecentSalesRecord(response.data, 'USD');
   }
 
-  async setCardFavorite(cardId: string, isFavorite?: boolean | null) {
+  async setCardFavorite(cardId: string, isFavorite?: boolean | null, options?: CardWatchOptions) {
     const encodedCardID = encodeURIComponent(cardId);
+    const variant = watchVariantParam(options);
+    const body: Record<string, unknown> = isFavorite == null ? {} : { isFavorite };
+    if (variant) {
+      body.variant = variant;
+    }
     const response = await this.requestJsonOrThrow<CardFavoriteDTO>(`${this.baseUrl}/api/v1/cards/${encodedCardID}/favorite`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(isFavorite == null ? {} : { isFavorite }),
+      body: JSON.stringify(body),
     });
     return {
       cardId: normalizeString(response.cardId) ?? normalizeString(response.cardID) ?? cardId,
       isFavorite: normalizeBoolean(response.isFavorite) ?? false,
       favoritedAt: normalizeString(response.favoritedAt),
+      // An older server echoes no printing; it acted on the main one.
+      watchVariant: response.watchVariant === undefined ? variant : normalizeWatchVariant(response.watchVariant),
     };
   }
 
@@ -6884,8 +7032,11 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           isRecord(entry.slabContext) ? (entry.slabContext as DeckEntryDTO['slabContext']) : null,
         );
         const conditionCopy = mapDeckCondition(normalizeString(entry.condition));
+        const watchVariant = normalizeWatchVariant(entry.watchVariant);
         return {
           cardId,
+          watchVariant,
+          watchKey: buildWatchKey(cardId, watchVariant),
           name: normalizeString(card.name) ?? '',
           cardNumber: normalizeString(card.number) ?? '',
           setName: normalizeString(card.setName) ?? '',
@@ -6923,8 +7074,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   async setCardFavoriteTarget(
     cardId: string,
     targetPriceCents: number | null,
+    options?: CardWatchOptions,
   ): Promise<CardFavoriteTargetResult> {
     const encodedCardID = encodeURIComponent(cardId);
+    const variant = watchVariantParam(options);
     // The server rejects a JSON bool outright (`isinstance(True, int)` is True
     // in Python), so only an integer or null ever goes on the wire.
     const target =
@@ -6936,7 +7089,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetPriceCents: target }),
+        body: JSON.stringify(variant ? { targetPriceCents: target, variant } : { targetPriceCents: target }),
       },
       { allowNotFound: true },
     );
@@ -6950,7 +7103,9 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       return { status: 'failed', target: null };
     }
     const built = buildCardFavoriteTarget(response.data, cardId);
-    return built ? { status: 'ok', target: built } : { status: 'failed', target: null };
+    return built
+      ? { status: 'ok', target: { ...built, watchVariant: built.watchVariant ?? variant } }
+      : { status: 'failed', target: null };
   }
 
   async listDealAlerts(limit?: number): Promise<DealAlertsPage> {

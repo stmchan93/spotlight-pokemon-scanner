@@ -177,6 +177,8 @@ import calendar_feed
 import expo_push
 import hot_cards
 import market_alerts
+import watch_printings
+from sync_ppt_catalog import ensure_ppt_ungraded_signals_schema
 import meta_pulse
 import news_feed
 import set_spotlight
@@ -1518,8 +1520,9 @@ def _apply_card_favorites_schema_patch(connection: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS card_favorites (
             owner_user_id TEXT NOT NULL,
             card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+            variant_key TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL,
-            PRIMARY KEY (owner_user_id, card_id)
+            PRIMARY KEY (owner_user_id, card_id, variant_key)
         )
         """
     )
@@ -1701,8 +1704,25 @@ def _apply_watch_deal_radar_schema_patch(connection: sqlite3.Connection) -> None
     # {ticketId: token} fan-out, used ONLY to revoke the exact dead token.
     _sqlite_add_column_if_missing(connection, "deal_alerts", "push_ticket_id", "TEXT")
     _sqlite_add_column_if_missing(connection, "deal_alerts", "push_tickets_json", "TEXT")
+    # Watch per printing (2026-09-24): the alert's printing ('' = main), its
+    # liquidity tier, and for kind 'new_low' the bar it beat.
+    _sqlite_add_column_if_missing(
+        connection, "deal_alerts", "variant_key", "TEXT NOT NULL DEFAULT ''"
+    )
+    _sqlite_add_column_if_missing(connection, "deal_alerts", "tier", "TEXT")
+    _sqlite_add_column_if_missing(connection, "deal_alerts", "tier_label", "TEXT")
+    _sqlite_add_column_if_missing(connection, "deal_alerts", "lowest_seen_cents", "INTEGER")
     _sqlite_add_column_if_missing(connection, "ops_alerts", "sent_ticket_id", "TEXT")
     _sqlite_add_column_if_missing(connection, "ops_alerts", "sent_tickets_json", "TEXT")
+
+
+def _apply_watch_printings_schema_patch(connection: sqlite3.Connection) -> None:
+    """Watch per printing. Runs AFTER the favorites + deal-radar patches so every
+    card_favorites column exists before the (one-time, small-table) rebuild onto
+    the (owner_user_id, card_id, variant_key) key. Idempotent: a table already on
+    that key is untouched. Also the per-card PPT eBay-ungraded signal table."""
+    watch_printings.migrate_card_favorites_per_printing(connection)
+    ensure_ppt_ungraded_signals_schema(connection)
 
 
 def _apply_card_likes_schema_patch(connection: sqlite3.Connection) -> None:
@@ -2250,6 +2270,7 @@ class SpotlightScanService:
             _apply_labeling_pipeline_schema_patch(bootstrap_connection)
             _apply_card_favorites_schema_patch(bootstrap_connection)
             _apply_watch_deal_radar_schema_patch(bootstrap_connection)
+            _apply_watch_printings_schema_patch(bootstrap_connection)
             _apply_card_likes_schema_patch(bootstrap_connection)
             _apply_sale_payment_schema_patch(bootstrap_connection)
             _apply_collections_redesign_schema_patch(bootstrap_connection)
@@ -2541,22 +2562,106 @@ class SpotlightScanService:
         except RequestAuthError:
             return None
 
-    def _favorite_row(self, card_id: str, *, owner_user_id: str | None) -> sqlite3.Row | None:
+    def _favorite_rows_for_card(
+        self, card_id: str, *, owner_user_id: str | None
+    ) -> list[sqlite3.Row]:
+        """Every watch (one per printing) this owner has on the card, main
+        printing ('') first, then oldest first."""
         normalized_owner_user_id = str(owner_user_id or "").strip()
         normalized_card_id = str(card_id or "").strip()
         if not normalized_owner_user_id or not normalized_card_id:
-            return None
+            return []
         return self.connection.execute(
             """
-            SELECT owner_user_id, card_id, created_at, added_market_price, added_market_date,
-                   target_price_cents
+            SELECT owner_user_id, card_id, variant_key, created_at, added_market_price,
+                   added_market_date, target_price_cents
             FROM card_favorites
             WHERE owner_user_id = ?
               AND card_id = ?
-            LIMIT 1
+            ORDER BY CASE WHEN variant_key = '' THEN 0 ELSE 1 END, created_at ASC, variant_key ASC
             """,
             (normalized_owner_user_id, normalized_card_id),
-        ).fetchone()
+        ).fetchall()
+
+    def _favorite_row(
+        self,
+        card_id: str,
+        *,
+        owner_user_id: str | None,
+        variant_key: str | None = None,
+    ) -> sqlite3.Row | None:
+        """One watch row. ``variant_key`` None = "any watch on this card" (main
+        printing preferred) — the card-level reads (isFavorite, the PDP
+        baseline); a string selects that exact printing's watch."""
+        rows = self._favorite_rows_for_card(card_id, owner_user_id=owner_user_id)
+        if variant_key is None:
+            return rows[0] if rows else None
+        wanted = watch_printings.normalize_variant_key(variant_key)
+        return next(
+            (row for row in rows if str(row["variant_key"] or "") == wanted), None
+        )
+
+    def _resolve_watch_variant(
+        self,
+        card_id: str,
+        variant: Any,
+        *,
+        existing_rows: list[sqlite3.Row] | None = None,
+    ) -> str:
+        """Client ``variant`` -> stored ``variant_key``. Omitted/blank -> ''
+        (main printing). Otherwise it must name one of the card's known
+        printings (raw_main cells / TCGCSV printings; the PDP's Scrydex label
+        is accepted and mapped) or this raises ValueError (-> 400). A request
+        for the card's CURRENT main printing lands on an existing '' watch, so
+        a legacy row and the picker's default never become two watches."""
+        if variant is None:
+            return watch_printings.MAIN_PRINTING
+        if not isinstance(variant, str):
+            raise ValueError("variant must be a string or null")
+        if not variant.strip():
+            return watch_printings.MAIN_PRINTING
+        printings = watch_printings.known_printings(self.connection, card_id)
+        canonical = watch_printings.canonical_printing(variant, printings)
+        if canonical is None:
+            raise ValueError(f"unknown printing for this card: {variant.strip()}")
+        rows = existing_rows or []
+        if not any(str(row["variant_key"] or "") == canonical for row in rows):
+            main = watch_printings.main_printing_key(self.connection, card_id)
+            if main and main == canonical and any(
+                str(row["variant_key"] or "") == "" for row in rows
+            ):
+                return watch_printings.MAIN_PRINTING
+        return canonical
+
+    def _watch_printing_baseline(
+        self, card_id: str, variant_key: str
+    ) -> tuple[float | None, str | None]:
+        """The add-time market for a PRINTING watch: that printing's newest
+        raw_main cell, else the Scrydex context for the same printing. Never
+        another printing's price (the default-lane fallback would hand a
+        Reverse Holofoil watch the Holofoil number)."""
+        cell = watch_printings.latest_printing_price(self.connection, card_id, variant_key)
+        if cell is not None:
+            return round(float(cell["market"]), 2), utc_now()[:10]
+        label = scrydex_variant_label_for_subtype(variant_key) or variant_key
+        try:
+            pricing = self._display_pricing_summary_for_context(
+                card_id,
+                pricing_context=self._raw_pricing_context(preferred_variant=label),
+            )
+        except Exception:  # noqa: BLE001 - a missing baseline never blocks the add
+            traceback.print_exc()
+            return None, None
+        if not isinstance(pricing, dict) or not self._raw_pricing_matches_context(
+            pricing, preferred_variant=label, preferred_condition=None
+        ):
+            return None, None
+        price = self._history_primary_price_value(pricing)
+        return (price, utc_now()[:10]) if price is not None else (None, None)
+
+    def _watch_printing_market(self, card_id: str, variant_key: str) -> float | None:
+        cell = watch_printings.latest_printing_price(self.connection, card_id, variant_key)
+        return round(float(cell["market"]), 2) if cell is not None else None
 
     def _favorite_rows_by_card_id(
         self,
@@ -2585,11 +2690,22 @@ class SpotlightScanService:
         }
 
     @staticmethod
-    def _favorite_state_payload(card_id: str, favorite_row: sqlite3.Row | None) -> dict[str, Any]:
+    def _favorite_state_payload(
+        card_id: str,
+        favorite_row: sqlite3.Row | None,
+        *,
+        variant_key: str = "",
+        watched_variants: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """``isFavorite`` is THIS printing's watch (older clients never send a
+        variant, so for them it is the main-printing watch, as before)."""
         return {
             "cardID": card_id,
             "isFavorite": favorite_row is not None,
             "favoritedAt": favorite_row["created_at"] if favorite_row is not None else None,
+            "watchVariant": watch_printings.watch_variant_payload(variant_key),
+            "watchKey": watch_printings.watch_key(card_id, variant_key),
+            "watchedVariants": list(watched_variants or []),
         }
 
     @classmethod
@@ -3860,7 +3976,7 @@ class SpotlightScanService:
 
     @staticmethod
     def _cached_raw_listings(
-        connection: sqlite3.Connection, card_id: str
+        connection: sqlite3.Connection, card_id: str, *, query_variant: str | None = None
     ) -> list[dict[str, Any]] | None:
         """The still-fresh cached raw-lane listing page for a card, else None.
 
@@ -3870,7 +3986,7 @@ class SpotlightScanService:
         how many printings, conditions or watchers are interested. `[]` (a fresh
         empty page) is a hit; `None` is a miss.
         """
-        _, grader, grade, variant = ebay_listings.raw_listings_cache_key(card_id)
+        _, grader, grade, variant = ebay_listings.raw_listings_cache_key(card_id, query_variant)
         cached = card_ebay_listings_cache(
             connection, card_id=card_id, grader=grader, grade=grade, variant=variant
         )
@@ -3892,7 +4008,11 @@ class SpotlightScanService:
 
     @staticmethod
     def _cache_raw_listings(
-        connection: sqlite3.Connection, card_id: str, payload: dict[str, Any]
+        connection: sqlite3.Connection,
+        card_id: str,
+        payload: dict[str, Any],
+        *,
+        query_variant: str | None = None,
     ) -> None:
         """Cache ONLY a successful fetch, and only the normalized listing page.
 
@@ -3900,7 +4020,7 @@ class SpotlightScanService:
         auction final-window guardrail is judged against the CURRENT clock, not
         against whenever the blob was written.
         """
-        _, grader, grade, variant = ebay_listings.raw_listings_cache_key(card_id)
+        _, grader, grade, variant = ebay_listings.raw_listings_cache_key(card_id, query_variant)
         blob = {
             key: value
             for key, value in payload.items()
@@ -4044,6 +4164,18 @@ class SpotlightScanService:
             ),
             "url": row["url"],
             "verificationTier": row["verification_tier"],
+            # Watch per printing: null = the card's main printing.
+            "variantKey": watch_printings.watch_variant_payload(
+                cls._row_value(row, "variant_key")
+            ),
+            "tier": cls._row_value(row, "tier"),
+            "tierLabel": cls._row_value(row, "tier_label"),
+            # kind 'new_low' only: the lowest price it beat (no discountPct).
+            "lowestSeenCents": (
+                int(cls._row_value(row, "lowest_seen_cents"))
+                if cls._row_value(row, "lowest_seen_cents") is not None
+                else None
+            ),
             "createdAt": row["created_at"],
             "seenAt": row["seen_at"],
             "tappedAt": row["tapped_at"],
@@ -4131,7 +4263,7 @@ class SpotlightScanService:
         return self._deal_alert_payload(row)
 
     def set_card_favorite_target(
-        self, card_id: str, *, target_price_cents: int | None
+        self, card_id: str, *, target_price_cents: int | None, variant: Any = None
     ) -> dict[str, Any]:
         """Set/clear the watchlist target for one of THIS owner's cards.
 
@@ -4151,14 +4283,22 @@ class SpotlightScanService:
                 raise ValueError("targetPriceCents must be an integer") from None
             if target <= 0:
                 raise ValueError("targetPriceCents must be a positive integer")
+        # Owner-scoped first: another user's card reads as "not on this
+        # watchlist" (404) before any printing validation can answer.
+        watch_rows = self._favorite_rows_for_card(normalized_card_id, owner_user_id=owner_user_id)
+        if not watch_rows:
+            raise FileNotFoundError("card is not on this watchlist")
+        variant_key = self._resolve_watch_variant(
+            normalized_card_id, variant, existing_rows=watch_rows
+        )
         row = self.connection.execute(
             """
             SELECT target_price_cents, target_set_at, target_triggered_at
             FROM card_favorites
-            WHERE owner_user_id = ? AND card_id = ?
+            WHERE owner_user_id = ? AND card_id = ? AND variant_key = ?
             LIMIT 1
             """,
-            (owner_user_id, normalized_card_id),
+            (owner_user_id, normalized_card_id, variant_key),
         ).fetchone()
         if row is None:
             raise FileNotFoundError("card is not on this watchlist")
@@ -4176,7 +4316,7 @@ class SpotlightScanService:
                    target_currency = ?,
                    target_set_at = ?,
                    target_triggered_at = CASE WHEN ? = 1 THEN NULL ELSE target_triggered_at END
-             WHERE owner_user_id = ? AND card_id = ?
+             WHERE owner_user_id = ? AND card_id = ? AND variant_key = ?
             """,
             (
                 target,
@@ -4186,11 +4326,14 @@ class SpotlightScanService:
                 1 if changed else 0,
                 owner_user_id,
                 normalized_card_id,
+                variant_key,
             ),
         )
         self.connection.commit()
         return {
             "cardID": normalized_card_id,
+            "watchVariant": watch_printings.watch_variant_payload(variant_key),
+            "watchKey": watch_printings.watch_key(normalized_card_id, variant_key),
             "targetPriceCents": target,
             "targetCurrency": "USD" if target is not None else None,
             "targetSetAt": now if target is not None else None,
@@ -4596,6 +4739,9 @@ class SpotlightScanService:
             FROM deal_alerts
             LEFT JOIN cards ON cards.id = deal_alerts.card_id
             WHERE deal_alerts.push_sent_at IS NULL AND deal_alerts.created_at >= ?
+              -- new_low carries no % and its copy lives in the market-alerts
+              -- limiter; without that job it stays an in-app alert only.
+              AND deal_alerts.kind != 'new_low'
             ORDER BY deal_alerts.created_at ASC, deal_alerts.id ASC
             """,
             (created_at,),
@@ -4761,9 +4907,10 @@ class SpotlightScanService:
                 INSERT OR IGNORE INTO deal_alerts (
                     id, owner_user_id, card_id, listing_id, kind, total_cents,
                     baseline_cents, market_cents, discount_pct, savings_cents,
-                    url, verification_tier, created_at
+                    url, verification_tier, created_at,
+                    variant_key, tier, tier_label, lowest_seen_cents
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     uuid.uuid4().hex,
@@ -4773,12 +4920,16 @@ class SpotlightScanService:
                     signal.kind,
                     int(signal.total_cents),
                     int(signal.baseline_cents),
-                    int(signal.market_cents),
-                    float(signal.discount_pct),
+                    int(signal.market_cents) if signal.market_cents is not None else None,
+                    float(signal.discount_pct) if signal.discount_pct is not None else None,
                     int(signal.savings_cents),
                     signal.url,
                     signal.verification_tier,
                     created_at,
+                    str(getattr(signal, "variant_key", "") or ""),
+                    getattr(signal, "tier", None),
+                    getattr(signal, "tier_label", None),
+                    getattr(signal, "lowest_seen_cents", None),
                 ),
             )
             created += int(cursor.rowcount or 0)
@@ -4934,11 +5085,24 @@ class SpotlightScanService:
             # BEFORE the governor reads today's total, or the cap reads low.
             self._flush_ebay_usage(connection, date=today_iso)
 
-        baselines = watch_signals.watched_card_baselines(connection)
+        baselines = watch_signals.watched_card_baselines(connection, today=today)
         by_owner: dict[str, list[Any]] = {}
         for baseline in baselines:
             by_owner.setdefault(baseline.owner_user_id, []).append(baseline)
         distinct_card_ids = sorted({baseline.card_id for baseline in baselines})
+        # The one query per card may carry a printing keyword only when EVERY
+        # watch on the card (all owners) is on that printing (Reverse Holofoil).
+        printings_by_card: dict[str, set[str]] = {}
+        for baseline in baselines:
+            printings_by_card.setdefault(baseline.card_id, set()).add(
+                str(baseline.printing or "")
+            )
+        query_variant_by_card: dict[str, str | None] = {}
+        for card_id, printings in printings_by_card.items():
+            tokens = {ebay_listings.printing_query_token(printing) for printing in printings}
+            query_variant_by_card[card_id] = (
+                next(iter(printings)) if len(tokens) == 1 and None not in tokens else None
+            )
         summary["owners"] = len(by_owner)
         summary["watchedCards"] = len(distinct_card_ids)
 
@@ -4972,7 +5136,10 @@ class SpotlightScanService:
             # listing — skip it rather than spend budget on unmatchable fetches.
             if is_sealed_card(card):
                 continue
-            cached_listings = self._cached_raw_listings(connection, card_id)
+            query_variant = query_variant_by_card.get(card_id)
+            cached_listings = self._cached_raw_listings(
+                connection, card_id, query_variant=query_variant
+            )
             if cached_listings is not None:
                 if not dry_run:
                     # Without this the hit-rate readout reads as zero and the
@@ -5006,10 +5173,13 @@ class SpotlightScanService:
                 now=moment,
                 fetch_json=fetch_json,
                 consumer=ebay_listings.EBAY_CONSUMER_WATCH_SCAN,
+                query_variant=query_variant,
             )
             calls_made += 1
             if str(payload.get("status") or "") == "available":
-                self._cache_raw_listings(connection, card_id, payload)
+                self._cache_raw_listings(
+                    connection, card_id, payload, query_variant=query_variant
+                )
             candidates_by_card[card_id] = list(payload.get("candidates") or [])
 
         alerts_created = 0
@@ -5021,13 +5191,21 @@ class SpotlightScanService:
             prior_alerts = watch_signals.recent_alerts_for_owner(
                 connection, owner_user_id
             )
-            baselines_by_card = {row.card_id: row for row in rows}
-            candidates = []
+            # (listing, watch) pairs: a listing only meets the watches whose
+            # printing its title matches (a "Reverse Holo" title never meets a
+            # Holofoil watch, and vice versa).
+            pairs: list[tuple[Any, Any]] = []
             for baseline in rows:
                 for validated in candidates_by_card.get(baseline.card_id, []):
+                    if not ebay_listings.listing_matches_printing(
+                        validated.get("title"),
+                        baseline.printing or "",
+                        baseline.card_printings,
+                    ):
+                        continue
                     candidate = watch_signals.listing_candidate_from_validated(validated)
                     if candidate is not None:
-                        candidates.append(candidate)
+                        pairs.append((candidate, baseline))
             already_today = self._deal_alerts_created_on(
                 connection, owner_user_id, today_iso
             )
@@ -5035,9 +5213,8 @@ class SpotlightScanService:
             # not Near Mint (or not a US listing) is dropped and the ranking
             # re-runs, so a rejection frees its daily-cap slot for the next.
             while True:
-                signals = watch_signals.evaluate_under_added_batch(
-                    candidates,
-                    baselines_by_card,
+                signals = watch_signals.evaluate_watch_batch(
+                    pairs,
                     prior_alerts=prior_alerts,
                     already_sent_today=already_today,
                     now=moment,
@@ -5052,7 +5229,7 @@ class SpotlightScanService:
                 )
                 if not rejected:
                     break
-                candidates = [c for c in candidates if c.listing_id not in rejected]
+                pairs = [pair for pair in pairs if pair[0].listing_id not in rejected]
             if dry_run:
                 alerts_created += len(signals)
             else:
@@ -5061,27 +5238,28 @@ class SpotlightScanService:
                 )
 
             digest = [
-                signal
+                (baseline, signal)
                 for baseline in rows
                 for signal in watch_signals.evaluate_history_signals(
                     baseline, today=today
                 )
             ]
             digest_count += len(digest)
-            for signal in digest:
+            for baseline, signal in digest:
                 if signal.kind != watch_signals.KIND_TARGET_HIT:
                     continue
                 rearmed += 1
                 if dry_run:
                     continue
                 # THIS WRITE IS THE RE-ARM: target_hit_signal reads
-                # target_triggered_at back as its 30-day cooldown.
+                # target_triggered_at back as its 30-day cooldown. Per printing:
+                # the target belongs to one watch.
                 connection.execute(
                     """
                     UPDATE card_favorites SET target_triggered_at = ?
-                    WHERE owner_user_id = ? AND card_id = ?
+                    WHERE owner_user_id = ? AND card_id = ? AND variant_key = ?
                     """,
-                    (utc_now(), owner_user_id, signal.card_id),
+                    (utc_now(), owner_user_id, signal.card_id, baseline.variant_key),
                 )
             if not dry_run:
                 connection.commit()
@@ -16473,7 +16651,8 @@ class SpotlightScanService:
             snapshot_row=snapshot_row,
             day_cells=day_cells,
         )
-        favorite_row = self._favorite_row(card_id, owner_user_id=owner_user_id)
+        favorite_rows = self._favorite_rows_for_card(card_id, owner_user_id=owner_user_id)
+        favorite_row = favorite_rows[0] if favorite_rows else None
         like_row = self._like_row(card_id, owner_user_id=owner_user_id)
         resolved_variant = pricing_context.preferred_variant or (str((pricing or {}).get("variant") or "").strip() or None)
         # Graded-only grails have no raw price, so the raw-lane PDP would be blank.
@@ -16545,6 +16724,16 @@ class SpotlightScanService:
             "targetPriceCents": (
                 favorite_row["target_price_cents"] if favorite_row is not None else None
             ),
+            # Watch per printing: every printing of this card the viewer watches
+            # ('' = the main printing). The PDP's Watch icon follows the picker's
+            # printing; `watchTargetsCents` ({variant_key: cents|null}, '' = main)
+            # carries each watch's target for that control.
+            "watchedVariants": [str(row["variant_key"] or "") for row in favorite_rows],
+            "watchTargetsCents": {
+                str(row["variant_key"] or ""): row["target_price_cents"] for row in favorite_rows
+            },
+            # The printing a '' (main-printing) watch is on, or null when unknown.
+            "mainPrinting": watch_printings.main_printing_key(self.connection, card_id),
             "isLiked": like_row is not None,
             "likedAt": like_row["created_at"] if like_row is not None else None,
             "cardText": card_text_from_card(resolved_card),
@@ -16614,7 +16803,16 @@ class SpotlightScanService:
             day_cells=self._latest_day_cells_by_card_id([card_id]).get(card_id),
         )
 
-    def set_card_favorite(self, card_id: str, *, is_favorite: bool | None = None) -> dict[str, Any]:
+    def set_card_favorite(
+        self,
+        card_id: str,
+        *,
+        is_favorite: bool | None = None,
+        variant: Any = None,
+    ) -> dict[str, Any]:
+        """Add/remove/toggle ONE watch = (owner, card, printing). ``variant``
+        omitted = the main printing (''), so older app builds behave exactly as
+        before. Watching one printing never touches another printing's watch."""
         owner_user_id = self._current_owner_user_id()
         normalized_card_id = str(card_id or "").strip()
         if not normalized_card_id:
@@ -16622,58 +16820,84 @@ class SpotlightScanService:
         if not self._card_exists(normalized_card_id):
             raise FileNotFoundError("card not found")
 
-        existing_row = self._favorite_row(normalized_card_id, owner_user_id=owner_user_id)
+        rows = self._favorite_rows_for_card(normalized_card_id, owner_user_id=owner_user_id)
+        variant_key = self._resolve_watch_variant(
+            normalized_card_id, variant, existing_rows=rows
+        )
+        existing_row = next(
+            (row for row in rows if str(row["variant_key"] or "") == variant_key), None
+        )
         next_is_favorite = (existing_row is None) if is_favorite is None else bool(is_favorite)
 
         if next_is_favorite:
             if existing_row is None:
-                # "Since wishlisted" baseline: ALWAYS the default raw lane. The
-                # favorite's own baseline is only ever displayed for UNOWNED
-                # rows (which price raw); owned rows use the owned deck entry's
-                # baseline instead (see card_favorites serializer). Capturing on
-                # the owned lane here would mismatch if the copy is later sold
-                # and the row reverts to raw pricing.
-                added_market_price, added_market_date = self._added_baseline_now(
-                    normalized_card_id,
-                    grader=None,
-                    grade=None,
-                    cert_number=None,
-                    variant_name=None,
-                    condition=None,
-                )
+                if variant_key:
+                    # A printing watch captures THAT printing's market.
+                    added_market_price, added_market_date = self._watch_printing_baseline(
+                        normalized_card_id, variant_key
+                    )
+                else:
+                    # "Since wishlisted" baseline: ALWAYS the default raw lane. The
+                    # favorite's own baseline is only ever displayed for UNOWNED
+                    # rows (which price raw); owned rows use the owned deck entry's
+                    # baseline instead (see card_favorites serializer). Capturing on
+                    # the owned lane here would mismatch if the copy is later sold
+                    # and the row reverts to raw pricing.
+                    added_market_price, added_market_date = self._added_baseline_now(
+                        normalized_card_id,
+                        grader=None,
+                        grade=None,
+                        cert_number=None,
+                        variant_name=None,
+                        condition=None,
+                    )
                 self.connection.execute(
                     """
                     INSERT INTO card_favorites (
                         owner_user_id,
                         card_id,
+                        variant_key,
                         created_at,
                         added_market_price,
                         added_market_date
                     )
-                    VALUES (?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (
                         owner_user_id,
                         normalized_card_id,
+                        variant_key,
                         utc_now(),
                         added_market_price,
                         added_market_date,
                     ),
                 )
-                existing_row = self._favorite_row(normalized_card_id, owner_user_id=owner_user_id)
+                existing_row = self._favorite_row(
+                    normalized_card_id, owner_user_id=owner_user_id, variant_key=variant_key
+                )
         else:
             self.connection.execute(
                 """
                 DELETE FROM card_favorites
                 WHERE owner_user_id = ?
                   AND card_id = ?
+                  AND variant_key = ?
                 """,
-                (owner_user_id, normalized_card_id),
+                (owner_user_id, normalized_card_id, variant_key),
             )
             existing_row = None
 
         self.connection.commit()
-        return self._favorite_state_payload(normalized_card_id, existing_row)
+        watched = [
+            str(row["variant_key"] or "")
+            for row in self._favorite_rows_for_card(normalized_card_id, owner_user_id=owner_user_id)
+        ]
+        return self._favorite_state_payload(
+            normalized_card_id,
+            existing_row,
+            variant_key=variant_key,
+            watched_variants=watched,
+        )
 
     def set_card_like(self, card_id: str, *, is_liked: bool | None = None) -> dict[str, Any]:
         """Toggle/set the PDP heart "like" (card_likes) — the public social signal,
@@ -19782,8 +20006,11 @@ class SpotlightScanService:
                 """
                 SELECT owner_user_id, card_id, created_at
                 FROM card_favorites
+                WHERE variant_key = ''
                 """
-                + ("" if repair_favorites_raw_lane else "WHERE added_market_price IS NULL")
+                # Printing watches capture their own printing's price at add
+                # time; this default-raw-lane backfill must never overwrite them.
+                + ("" if repair_favorites_raw_lane else "AND added_market_price IS NULL")
             ).fetchall() if not repair_graded_variantless else []
             for row in favorite_rows:
                 # Favorites carry no grade/condition of their own; backfill on the
@@ -19914,6 +20141,7 @@ class SpotlightScanService:
                             SET added_market_price = ?, added_market_date = ?
                             WHERE owner_user_id = ?
                               AND card_id = ?
+                              AND variant_key = ''
                             """,
                             (price, price_date, owner_user_id, card_id),
                         )
@@ -19924,6 +20152,7 @@ class SpotlightScanService:
                             SET added_market_price = ?, added_market_date = ?
                             WHERE owner_user_id = ?
                               AND card_id = ?
+                              AND variant_key = ''
                               AND added_market_price IS NULL
                             """,
                             (price, price_date, owner_user_id, card_id),
@@ -22424,17 +22653,19 @@ class SpotlightScanService:
         safe_offset = max(0, int(offset))
         rows = self.connection.execute(
             """
-            SELECT card_id, created_at, added_market_price, added_market_date,
+            SELECT card_id, variant_key, created_at, added_market_price, added_market_date,
                    target_price_cents
             FROM card_favorites
             WHERE owner_user_id = ?
-            ORDER BY created_at DESC, card_id ASC
+            ORDER BY created_at DESC, card_id ASC, variant_key ASC
             LIMIT ? OFFSET ?
             """,
             (owner_user_id, safe_limit, safe_offset),
         ).fetchall()
 
-        card_ids_in_order = [str(row["card_id"] or "").strip() for row in rows if row["card_id"]]
+        card_ids_in_order = list(
+            dict.fromkeys(str(row["card_id"] or "").strip() for row in rows if row["card_id"])
+        )
         if not card_ids_in_order:
             return {"entries": [], "limit": safe_limit, "offset": safe_offset}
 
@@ -22460,6 +22691,8 @@ class SpotlightScanService:
             card = cards_by_id_map.get(card_id)
             if card is None:
                 continue
+            watch_variant = watch_printings.normalize_variant_key(row["variant_key"])
+            entry_key = watch_printings.watch_key(card_id, watch_variant)
             owned = owned_summary.get(card_id)
             grader = owned["grader"] if owned else None
             grade = owned["grade"] if owned else None
@@ -22467,8 +22700,15 @@ class SpotlightScanService:
             variant_name = owned["variant_name"] if owned else None
             condition = owned["condition"] if owned else None
             item_kind = owned["item_kind"] if owned else None
+            if watch_variant:
+                # A PRINTING watch prices on that printing's raw lane whatever
+                # the owned copy is: the row is "this printing", not "my copy".
+                grader = grade = cert_number = None
+                variant_name = scrydex_variant_label_for_subtype(watch_variant) or watch_variant
+                condition = None
+                item_kind = None
 
-            if owned and (grader or grade):
+            if not watch_variant and owned and (grader or grade):
                 pricing_context = self._slab_pricing_context(
                     grader=grader,
                     grade=grade,
@@ -22516,17 +22756,24 @@ class SpotlightScanService:
             # Collection row and PDP). Only UNOWNED favorites use the
             # favorite-day baseline — both sides raw-lane there. Mixing lanes
             # showed a PSA-10 current vs a raw baseline as +116% (2026-07-16).
-            if owned is not None:
+            if owned is not None and not watch_variant:
                 baseline_price = owned.get("added_market_price")
                 baseline_date = owned.get("added_market_date")
             else:
                 baseline_price = row["added_market_price"]
                 baseline_date = row["added_market_date"]
+            # The watched printing's own TCGplayer market; '' keeps the card's
+            # main price exactly as before.
+            market_price = (
+                self._watch_printing_market(card_id, watch_variant) if watch_variant else None
+            )
+            if market_price is None:
+                market_price = self._history_primary_price_value(pricing)
             since_added_amount, since_added_percent, since_added_baseline_date = (
                 self._since_added_change(
                     baseline_price=baseline_price,
                     baseline_date=baseline_date,
-                    current_price=self._history_primary_price_value(pricing),
+                    current_price=market_price,
                 )
             )
 
@@ -22539,8 +22786,8 @@ class SpotlightScanService:
                 )
                 spark_requests.append(
                     {
-                        # Favorites are unique per card for an owner.
-                        "key": card_id,
+                        # One watch per (card, printing) for an owner.
+                        "key": entry_key,
                         "card_id": card_id,
                         "pricing_mode": (
                             PSA_GRADE_PRICING_MODE if is_graded_entry else RAW_PRICING_MODE
@@ -22557,6 +22804,10 @@ class SpotlightScanService:
                 {
                     "card": card_payload,
                     "favoritedAt": row["created_at"],
+                    # Watch per printing: null = the card's main printing.
+                    "watchVariant": watch_printings.watch_variant_payload(watch_variant),
+                    "watchKey": entry_key,
+                    "marketPrice": market_price,
                     "isOwned": owned is not None,
                     "slabContext": slab_context,
                     "condition": condition,
@@ -22590,7 +22841,7 @@ class SpotlightScanService:
         spark_by_key = self._sparklines_for_requests(spark_requests)
         since_watched_by_key = self._since_baseline_series_for_requests(spark_requests)
         for entry in entries:
-            key = str(entry["card"].get("id") or "")
+            key = str(entry.get("watchKey") or "")
             spark = spark_by_key.get(key)
             entry["sparkPoints"] = spark[0] if spark else None
             entry["sparkTrendPct"] = spark[1] if spark else None
@@ -25842,9 +26093,15 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             if raw_is_favorite is not None and not isinstance(raw_is_favorite, bool):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "isFavorite must be a boolean or null"})
                 return
+            # Watch per printing: optional; omitted = the card's main printing.
+            raw_variant = payload.get("variant")
+            if raw_variant is None:
+                raw_variant = parse_qs(parsed.query).get("variant", [None])[0]
             try:
                 with self.service.request_identity_context(identity):
-                    favorite_payload = self.service.set_card_favorite(card_id, is_favorite=raw_is_favorite)
+                    favorite_payload = self.service.set_card_favorite(
+                        card_id, is_favorite=raw_is_favorite, variant=raw_variant
+                    )
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -26951,10 +27208,13 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     {"error": "targetPriceCents must be an integer or null"},
                 )
                 return
+            raw_variant = payload.get("variant")
+            if raw_variant is None:
+                raw_variant = parse_qs(parsed.query).get("variant", [None])[0]
             try:
                 with self.service.request_identity_context(identity):
                     target_payload = self.service.set_card_favorite_target(
-                        card_id, target_price_cents=target
+                        card_id, target_price_cents=target, variant=raw_variant
                     )
             except FileNotFoundError:
                 # Owner-scoped: another user's watchlist row is a 404, not a 403.

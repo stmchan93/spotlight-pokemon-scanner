@@ -83,7 +83,10 @@ jest.mock('iconoir-react-native', () => {
 function buildFavoriteEntry(
   overrides: Partial<CardFavoriteEntry> & Pick<CardFavoriteEntry, 'cardId' | 'name'>,
 ): CardFavoriteEntry {
+  const watchVariant = overrides.watchVariant ?? null;
   return {
+    watchVariant,
+    watchKey: `${overrides.cardId}|${watchVariant ?? ''}`,
     cardNumber: '#004/102',
     currencyCode: 'USD',
     favoritedAt: '2026-05-01T00:00:00.000Z',
@@ -108,6 +111,10 @@ function buildDealAlert(overrides: Partial<DealAlert> = {}): DealAlert {
     id: 'deal-1',
     kind: 'under_added',
     listingId: 'listing-1',
+    lowestSeenCents: null,
+    tier: 'often',
+    tierLabel: null,
+    variantKey: null,
     marketCents: 4600,
     savingsCents: 1200,
     seenAt: null,
@@ -289,6 +296,76 @@ describe('Watchlist deal radar', () => {
     });
   });
 
+  describe('honest deals (printing + liquidity tier)', () => {
+    it('shows a new_low as "lowest we\'ve seen" with no percent, plus the printing and tier', async () => {
+      const { repository } = buildRepository({
+        page: {
+          alerts: [
+            buildDealAlert({
+              discountPct: null,
+              kind: 'new_low',
+              lowestSeenCents: 12900,
+              savingsCents: null,
+              tier: 'rarely',
+              tierLabel: 'Few sales',
+              totalCents: 9500,
+              variantKey: 'Reverse Holofoil',
+            }),
+          ],
+          limit: 5,
+          unseenCount: 1,
+        },
+      });
+      renderScreen(repository);
+
+      const headline = await screen.findByTestId('wishlist-deal-headline-deal-1');
+      expect(headline).toHaveTextContent("Lowest we've seen · $95 (usually $129+)");
+      expect(screen.queryByTestId('wishlist-deal-discount-deal-1')).not.toBeOnTheScreen();
+      expect(screen.getByTestId('wishlist-deal-printing-deal-1')).toHaveTextContent('Reverse Holofoil');
+      expect(screen.getByTestId('wishlist-deal-tier-deal-1')).toHaveTextContent('Few sales');
+    });
+
+    it('shows the tier label next to the percent for a thinner market', async () => {
+      const { repository } = buildRepository({
+        page: {
+          alerts: [buildDealAlert({ tier: 'fewer', tierLabel: 'Fewer sales' })],
+          limit: 5,
+          unseenCount: 1,
+        },
+      });
+      renderScreen(repository);
+
+      expect(await screen.findByTestId('wishlist-deal-discount-deal-1')).toHaveTextContent('26% off');
+      expect(screen.getByTestId('wishlist-deal-tier-deal-1')).toHaveTextContent('Fewer sales');
+    });
+
+    it('never shows a percent (or a tier chip) for tier none', async () => {
+      const { repository } = buildRepository({
+        page: {
+          alerts: [buildDealAlert({ tier: 'none', tierLabel: 'Not enough sales to judge' })],
+          limit: 5,
+          unseenCount: 1,
+        },
+      });
+      renderScreen(repository);
+
+      await screen.findByTestId('wishlist-deal-headline-deal-1');
+      expect(screen.queryByTestId('wishlist-deal-discount-deal-1')).not.toBeOnTheScreen();
+      expect(screen.queryByTestId('wishlist-deal-tier-deal-1')).not.toBeOnTheScreen();
+    });
+
+    it('no tier chip for a liquid market', async () => {
+      const { repository } = buildRepository({
+        page: { alerts: [buildDealAlert()], limit: 5, unseenCount: 1 },
+      });
+      renderScreen(repository);
+
+      await screen.findByTestId('wishlist-deal-discount-deal-1');
+      expect(screen.queryByTestId('wishlist-deal-tier-deal-1')).not.toBeOnTheScreen();
+      expect(screen.queryByTestId('wishlist-deal-printing-deal-1')).not.toBeOnTheScreen();
+    });
+  });
+
   describe('dismissing a deal', () => {
     it('swipe-left Dismiss removes the deal and tells the server', async () => {
       const { mocks, repository } = buildRepository({
@@ -443,7 +520,7 @@ describe('Watchlist deal radar', () => {
 
       // Whole cents over the wire — `targetPriceCents`, not the dollars the
       // row's market price is in.
-      expect(mocks.setCardFavoriteTarget).toHaveBeenCalledWith('charizard', 4000);
+      expect(mocks.setCardFavoriteTarget).toHaveBeenCalledWith('charizard', 4000, { variant: null });
       // Sheet closes, and the row now carries the target.
       await waitFor(() => {
         expect(screen.queryByTestId('wishlist-target-sheet')).not.toBeOnTheScreen();
@@ -464,7 +541,7 @@ describe('Watchlist deal radar', () => {
         fireEvent.press(clearButton);
       });
 
-      expect(mocks.setCardFavoriteTarget).toHaveBeenCalledWith('charizard', null);
+      expect(mocks.setCardFavoriteTarget).toHaveBeenCalledWith('charizard', null, { variant: null });
     });
 
     it('explains the server 404 as "not on your watchlist", never as an error', async () => {
@@ -533,7 +610,7 @@ describe('Watchlist deal radar', () => {
         fireEvent.press(screen.getByTestId('wishlist-target-save'));
       });
 
-      expect(mocks.setCardFavoriteTarget).toHaveBeenCalledWith('charizard', 4000);
+      expect(mocks.setCardFavoriteTarget).toHaveBeenCalledWith('charizard', 4000, { variant: null });
       // The tile shows the target it just set — otherwise card view would be
       // write-only for targets.
       const footnote = await screen.findByTestId('wishlist-grid-tile-charizard-footnote');

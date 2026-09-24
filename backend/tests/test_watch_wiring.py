@@ -198,9 +198,46 @@ class WatchWiringTestCase(unittest.TestCase):
     def _day(days_ago: int) -> str:
         return (NOW.date() - timedelta(days=days_ago)).isoformat()
 
-    def _history(self, card_id: str = CARD_ID, *, prices: tuple[float, ...] = (100.0, 95.0, 90.0)) -> None:
+    def _tcg_cells(
+        self,
+        card_id: str = CARD_ID,
+        *,
+        variant: str = "Normal",
+        markets: tuple[float, ...] | None = None,
+        low: float = 85.0,
+        lows: tuple[float, ...] | None = None,
+    ) -> None:
+        """raw_main (TCGplayer) cells for one printing, newest last. The default
+        12 daily market changes read as an `often` liquidity tier, and the
+        newest low ($85) is the printing's lowest current listing."""
+        markets = markets or tuple(101.0 - index for index in range(12))
+        for offset, market in enumerate(markets):
+            day = self._day(len(markets) - 1 - offset)
+            cell_low = lows[offset] if lows is not None else low
+            self.connection.execute(
+                """
+                INSERT OR REPLACE INTO card_price_history_cell
+                    (card_id, provider, price_date, lane, cell_key, variant_key, condition,
+                     currency_code, low, market, updated_at)
+                VALUES (?, 'tcgcsv', ?, 'raw_main', ?, ?, 'NM', 'USD', ?, ?, ?)
+                """,
+                (card_id, day, f"raw_main|{variant}|NM", variant, cell_low, market, utc_now()),
+            )
+        self.connection.commit()
+
+    def _history(
+        self,
+        card_id: str = CARD_ID,
+        *,
+        prices: tuple[float, ...] = (100.0, 95.0, 90.0),
+        tcg_cells: bool = True,
+    ) -> None:
         """One daily row per price, newest last. Three distinct USD prices clear
-        the engine's `distinct_prices` guardrail."""
+        the engine's `distinct_prices` guardrail. `tcg_cells` also writes the
+        printing's TCGplayer cells, without which the watch has no liquidity
+        tier (tier `none` never makes a % deal)."""
+        if tcg_cells:
+            self._tcg_cells(card_id)
         for offset, market in enumerate(prices):
             contexts = {
                 "variants": {
@@ -674,7 +711,7 @@ class TargetEndpointTests(WatchWiringTestCase):
 
         handler.service.request_identity_context.assert_called_once_with(identity)
         handler.service.set_card_favorite_target.assert_called_once_with(
-            CARD_ID, target_price_cents=8000
+            CARD_ID, target_price_cents=8000, variant=None
         )
         self.assertEqual(writes[0][0], HTTPStatus.OK)
 

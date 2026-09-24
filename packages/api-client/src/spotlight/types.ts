@@ -1307,8 +1307,21 @@ export type CardDetailRecord = {
    * The requester's watch target for this card in USD CENTS, or null when the
    * card is unwatched or has no target. Rides on the detail payload so the PDP
    * control can render its state without fetching the whole watchlist.
+   * With per-printing watches this is the MAIN printing's target; see
+   * `watchTargetsCents` for the rest.
    */
   targetPriceCents?: number | null;
+  /**
+   * The printings of this card the requester watches ('' = the card's main
+   * printing, i.e. a legacy/sealed watch). Undefined on older payloads — the
+   * PDP then falls back to `isFavorite` as a main-printing watch.
+   */
+  watchedVariants?: string[];
+  /**
+   * Target per watched printing, USD CENTS, keyed like `watchedVariants`.
+   * Optional: absent → only `targetPriceCents` (main printing) is known.
+   */
+  watchTargetsCents?: Record<string, number | null>;
   /** Whether THIS user has liked the card (the PDP heart). Distinct from the
    *  wishlist (isFavorite). Absent on list/preview payloads. */
   isLiked?: boolean;
@@ -1867,6 +1880,13 @@ export type CardFavoriteRecord = {
   cardId: string;
   isFavorite: boolean;
   favoritedAt?: string | null;
+  /** The printing this write acted on; null = the card's main printing. */
+  watchVariant?: string | null;
+};
+
+/** Which printing a watch write targets. Omitted/null = the main printing. */
+export type CardWatchOptions = {
+  variant?: string | null;
 };
 
 export type CardLikeRecord = {
@@ -1877,6 +1897,13 @@ export type CardLikeRecord = {
 
 export type CardFavoriteEntry = {
   cardId: string;
+  /**
+   * The watched printing (TCGplayer label, e.g. 'Reverse Holofoil'); null =
+   * the card's main printing (sealed products and pre-printing watches).
+   */
+  watchVariant: string | null;
+  /** `${cardId}|${watchVariant ?? ''}` — one watchlist row per watch. */
+  watchKey: string;
   name: string;
   cardNumber: string;
   setName: string;
@@ -2337,7 +2364,15 @@ export type DealAlertKind =
   | 'trailing_low'
   | 'drawdown_30d'
   | 'since_watched'
-  | 'target_hit';
+  | 'target_hit'
+  | 'new_low';
+
+/**
+ * How liquid the watched printing's market is. Drives how loud a deal may be:
+ * `none` never carries a percent, `fewer`/`rarely` show `tierLabel`.
+ * Older payloads (no tier) normalize to `often`.
+ */
+export type DealLiquidityTier = 'often' | 'fewer' | 'rarely' | 'none';
 
 /**
  * How confidently a raw eBay listing was matched to the card. Only these three
@@ -2361,7 +2396,17 @@ export type DealAlert = {
   imageUrl: string | null;
   /** The eBay listing this alert points at; opaque, for dedupe/analytics only. */
   listingId: string;
+  /** The watched printing this deal was judged against; null = main printing. */
+  variantKey: string | null;
   kind: DealAlertKind;
+  tier: DealLiquidityTier;
+  /** Server copy for the tier ("Few sales"); null for `often`. */
+  tierLabel: string | null;
+  /**
+   * `new_low` only: the lowest price seen before this listing, USD CENTS
+   * ("usually $129+"). null elsewhere.
+   */
+  lowestSeenCents: number | null;
   /** Shipping-inclusive listing total, USD CENTS. */
   totalCents: number;
   /** What `totalCents` was judged against, USD CENTS. */
@@ -2457,6 +2502,8 @@ export type AlertPreferencesResult =
 /** The watchlist target row for one card, as returned by the target write. */
 export type CardFavoriteTarget = {
   cardId: string;
+  /** The printing the target belongs to; null = the main printing. */
+  watchVariant?: string | null;
   /** USD CENTS, or null when the target was cleared. */
   targetPriceCents: number | null;
   /** 'USD' while a target is set; null once it is cleared. */

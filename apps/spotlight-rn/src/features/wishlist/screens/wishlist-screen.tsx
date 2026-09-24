@@ -75,6 +75,9 @@ import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAppServices } from '@/providers/app-providers';
 
+// A watch is a (card, printing): one card watched in two printings is two rows,
+// keyed by `watchKey`. The printing leads the row's condition line.
+//
 // A wishlist tracks the CARD, not a specific copy. Condition/grade only ever
 // populate for cards the user also owns; per Figma 4173:82045 owned favorites
 // show that line ("PSA 10" / "Near Mint") and unowned ones stay two-line —
@@ -129,6 +132,14 @@ const LIST_REST_OFFSET = 0;
 
 const WISHLIST_VIEW_MODE_STORAGE_KEY = '@spotlight/wishlist/view-mode';
 const DEFAULT_VIEW_MODE: WishlistViewMode = 'grid';
+
+/**
+ * testID suffix for a row: the bare card id for a main-printing watch (what the
+ * tests and Maestro flows have always used), card id + printing otherwise.
+ */
+function rowTestKey(entry: CardFavoriteEntry): string {
+  return entry.watchVariant ? `${entry.cardId}:${entry.watchVariant}` : entry.cardId;
+}
 
 function chunkWishlistGridRows(entries: CardFavoriteEntry[]): CardFavoriteEntry[][] {
   const rows: CardFavoriteEntry[][] = [];
@@ -332,12 +343,19 @@ export function WishlistScreen() {
     setIsRefreshing(false);
   }, [loadFavorites, refreshDealAlerts]);
 
-  // The deal payload carries only a card id, so the band is joined against the
-  // watchlist for the name and art.
-  const favoritesById = useMemo(
-    () => new Map(favorites.map((entry) => [entry.cardId, entry])),
-    [favorites],
-  );
+  // The deal payload carries only a card id (+ printing), so the band is joined
+  // against the watchlist for the name and art: by watch key first, then by
+  // card id for a deal whose printing isn't (or is no longer) watched.
+  const favoritesById = useMemo(() => {
+    const byKey = new Map<string, CardFavoriteEntry>();
+    for (const entry of favorites) {
+      byKey.set(entry.watchKey, entry);
+      if (!byKey.has(entry.cardId)) {
+        byKey.set(entry.cardId, entry);
+      }
+    }
+    return byKey;
+  }, [favorites]);
 
   /*
     Opening a deal WRITES `tappedAt` first, and waits for it.
@@ -389,7 +407,10 @@ export function WishlistScreen() {
     if (!cardId) {
       return 'error';
     }
-    const result = await spotlightRepository.setCardFavoriteTarget(cardId, targetPriceCents);
+    const watchKey = targetEntry.watchKey;
+    const result = await spotlightRepository.setCardFavoriteTarget(cardId, targetPriceCents, {
+      variant: targetEntry.watchVariant,
+    });
     if (result.status === 'not_watchlisted') {
       void loadFavorites();
       return 'not_found';
@@ -402,13 +423,13 @@ export function WishlistScreen() {
       cleared: targetPriceCents === null,
     });
     setFavorites((current) => current.map((entry) => (
-      entry.cardId === cardId
+      entry.watchKey === watchKey
         ? { ...entry, targetPriceCents: result.target.targetPriceCents }
         : entry
     )));
     void refreshDealAlerts();
     return 'saved';
-  }, [loadFavorites, refreshDealAlerts, spotlightRepository, targetEntry?.cardId]);
+  }, [loadFavorites, refreshDealAlerts, spotlightRepository, targetEntry]);
 
   const visibleEntries = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -496,17 +517,20 @@ export function WishlistScreen() {
       params: {
         cardId: entry.cardId,
         previewId,
+        // Open on the watched printing so the Watch icon reads as on.
+        ...(entry.watchVariant ? { variant: entry.watchVariant } : {}),
       },
     });
   }, [router, spotlightRepository]);
 
-  const toggleSelected = useCallback((cardId: string) => {
+  // Selection is per watch (card + printing), keyed by `watchKey`.
+  const toggleSelected = useCallback((watchKey: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(cardId)) {
-        next.delete(cardId);
+      if (next.has(watchKey)) {
+        next.delete(watchKey);
       } else {
-        next.add(cardId);
+        next.add(watchKey);
       }
       return next;
     });
@@ -522,7 +546,7 @@ export function WishlistScreen() {
   // page.
   const handlePressEntry = useCallback((entry: CardFavoriteEntry) => {
     if (editMode) {
-      toggleSelected(entry.cardId);
+      toggleSelected(entry.watchKey);
       return;
     }
     handleOpenDetail(entry);
@@ -531,14 +555,17 @@ export function WishlistScreen() {
   // Swipe-to-delete on a row removes it from the wishlist. Drop it optimistically,
   // then persist; re-sync from the backend if the unfavorite didn't stick. The
   // event fires only once the write lands.
-  const handleRemoveEntry = useCallback((cardId: string) => {
-    setFavorites((current) => current.filter((favorite) => favorite.cardId !== cardId));
-    void spotlightRepository.setCardFavorite(cardId, false)
+  // Only THIS printing leaves; another printing of the same card stays.
+  const handleRemoveEntry = useCallback((entry: CardFavoriteEntry) => {
+    const { cardId, watchKey, watchVariant } = entry;
+    setFavorites((current) => current.filter((favorite) => favorite.watchKey !== watchKey));
+    void spotlightRepository.setCardFavorite(cardId, false, { variant: watchVariant })
       .then(() => {
         capturePostHogEvent(AnalyticsEvent.watchlistItemRemoved, {
           count: 1,
           kind: watchlistKindForCardId(cardId),
           source: 'watchlist_swipe',
+          has_printing: watchVariant != null,
         });
       })
       .catch(() => {
@@ -547,12 +574,12 @@ export function WishlistScreen() {
   }, [loadFavorites, spotlightRepository]);
 
   const allVisibleSelected = visibleEntries.length > 0
-    && visibleEntries.every((entry) => selectedIds.has(entry.cardId));
+    && visibleEntries.every((entry) => selectedIds.has(entry.watchKey));
 
   const handleToggleSelectAll = useCallback(() => {
     setSelectedIds(allVisibleSelected
       ? new Set()
-      : new Set(visibleEntries.map((entry) => entry.cardId)));
+      : new Set(visibleEntries.map((entry) => entry.watchKey)));
   }, [allVisibleSelected, visibleEntries]);
 
   const selectedCount = selectedIds.size;
@@ -564,27 +591,35 @@ export function WishlistScreen() {
     if (selectedIds.size === 0 || isDeleting) {
       return;
     }
-    const ids = [...selectedIds];
+    const removed = favorites.filter((favorite) => selectedIds.has(favorite.watchKey));
     setIsDeleting(true);
     setDeleteError(null);
-    setFavorites((current) => current.filter((favorite) => !selectedIds.has(favorite.cardId)));
-    void Promise.allSettled(ids.map((id) => spotlightRepository.setCardFavorite(id, false)))
+    setFavorites((current) => current.filter((favorite) => !selectedIds.has(favorite.watchKey)));
+    void Promise.allSettled(removed.map((entry) => (
+      spotlightRepository.setCardFavorite(entry.cardId, false, { variant: entry.watchVariant })
+    )))
       .then((results) => {
-        // One event per kind carrying the count of writes that landed, not one
-        // per card — clearing a long watchlist should not cost more than
-        // building it did.
-        const removedByKind = new Map<WatchlistItemKind, number>();
+        // One event per (kind, has_printing) carrying the count of writes that
+        // landed, not one per card — clearing a long watchlist should not cost
+        // more than building it did.
+        const removedByGroup = new Map<string, { count: number; hasPrinting: boolean; kind: WatchlistItemKind }>();
         results.forEach((result, index) => {
           if (result.status === 'fulfilled') {
-            const kind = watchlistKindForCardId(ids[index]);
-            removedByKind.set(kind, (removedByKind.get(kind) ?? 0) + 1);
+            const entry = removed[index];
+            const kind = watchlistKindForCardId(entry.cardId);
+            const hasPrinting = entry.watchVariant != null;
+            const groupKey = `${kind}:${hasPrinting}`;
+            const group = removedByGroup.get(groupKey) ?? { count: 0, hasPrinting, kind };
+            group.count += 1;
+            removedByGroup.set(groupKey, group);
           }
         });
-        removedByKind.forEach((count, kind) => {
+        removedByGroup.forEach(({ count, hasPrinting, kind }) => {
           capturePostHogEvent(AnalyticsEvent.watchlistItemRemoved, {
             count,
             kind,
             source: 'watchlist_bulk',
+            has_printing: hasPrinting,
           });
         });
         setDeleteConfirmOpen(false);
@@ -598,7 +633,7 @@ export function WishlistScreen() {
       .finally(() => {
         setIsDeleting(false);
       });
-  }, [isDeleting, loadFavorites, selectedIds, spotlightRepository]);
+  }, [favorites, isDeleting, loadFavorites, selectedIds, spotlightRepository]);
 
   // Catalog search. Same destination the floating magnifier FAB had; it is a
   // bubble in the top bar now (see `WishlistHeader`), which also keeps it
@@ -629,17 +664,17 @@ export function WishlistScreen() {
     if (viewMode === 'list') {
       return visibleEntries.map((entry, index) => ({
         kind: 'list',
-        key: entry.cardId,
+        key: entry.watchKey,
         entry,
         firstInSection: index === 0,
       }));
     }
     if (visibleEntries.length === 1) {
-      return [{ kind: 'grid-single', key: visibleEntries[0].cardId, entry: visibleEntries[0] }];
+      return [{ kind: 'grid-single', key: visibleEntries[0].watchKey, entry: visibleEntries[0] }];
     }
     return chunkWishlistGridRows(visibleEntries).map((rowEntries, rowIndex) => ({
       kind: 'grid',
-      key: rowEntries[0]?.cardId ?? `wishlist-grid-row-${rowIndex}`,
+      key: rowEntries[0]?.watchKey ?? `wishlist-grid-row-${rowIndex}`,
       rowEntries,
       rowIndex,
     }));
@@ -656,7 +691,7 @@ export function WishlistScreen() {
             onDelete={handleRemoveEntry}
             onEditTarget={setTargetEntry}
             onPress={handlePressEntry}
-            selected={editMode && selectedIds.has(item.entry.cardId)}
+            selected={editMode && selectedIds.has(item.entry.watchKey)}
             theme={theme}
           />
         );
@@ -1007,7 +1042,7 @@ type WishlistListRowProps = {
   editMode?: boolean;
   entry: CardFavoriteEntry;
   firstInSection: boolean;
-  onDelete: (cardId: string) => void;
+  onDelete: (entry: CardFavoriteEntry) => void;
   /** Long-press opens the target-price sheet for this card. */
   onEditTarget: (entry: CardFavoriteEntry) => void;
   onPress: (entry: CardFavoriteEntry) => void;
@@ -1041,6 +1076,8 @@ function WishlistListRow({
   const priceLaneLabel = entry.slabContext?.grader
     ? [entry.slabContext.grader, entry.slabContext.grade].filter(Boolean).join(' ')
     : entry.conditionLabel ?? (entry.marketPrice != null ? 'Near Mint' : null);
+  // The watched printing leads the line: "Reverse Holofoil · Near Mint".
+  const gradeLine = [entry.watchVariant, priceLaneLabel].filter(Boolean).join(' · ') || null;
 
   const row = (
     <CardListRow
@@ -1054,7 +1091,7 @@ function WishlistListRow({
       // their grade, owned raw copies their stored condition, and every other
       // raw row "Near Mint" — the default lane raw market prices resolve on —
       // so long as there is a price to label. No price → no line.
-      gradeLabel={priceLaneLabel}
+      gradeLabel={gradeLine}
       // Slab-case frame on the thumbnail — keyed by THIS entry's grader; kept
       // so graded copies still read as slabs even without the text line.
       grader={entry.slabContext?.grader ?? null}
@@ -1076,7 +1113,7 @@ function WishlistListRow({
       sparkBaseline={WATCHLIST_TREND_ACCESS === 'full' ? entry.sinceAddedBaselinePrice ?? null : null}
       sparkPoints={WATCHLIST_TREND_ACCESS === 'full' ? entry.sinceWatchedPoints ?? undefined : undefined}
       sparkTrendPct={entry.sinceAddedChangePercent ?? null}
-      testID={`wishlist-row-${entry.cardId}`}
+      testID={`wishlist-row-${rowTestKey(entry)}`}
       trendChangeAmount={WATCHLIST_TREND_ACCESS === 'hidden' ? null : entry.sinceAddedChangeAmount ?? null}
       trendSuffix={SINCE_WATCHED_SUFFIX}
     />
@@ -1097,10 +1134,10 @@ function WishlistListRow({
       accessibilityRole="button"
       onPress={() => {
         swipeableRef.current?.close();
-        onDelete(entry.cardId);
+        onDelete(entry);
       }}
       style={[styles.rowDeleteAction, { backgroundColor: theme.colors.dangerStrong }]}
-      testID={`wishlist-row-delete-${entry.cardId}`}
+      testID={`wishlist-row-delete-${rowTestKey(entry)}`}
     >
       <Trash color={theme.colors.gray0} height={20} width={20} />
       <Text style={[styles.rowDeleteLabel, { color: theme.colors.gray0 }]}>Delete</Text>
@@ -1174,7 +1211,7 @@ function WishlistGridRow({
         const entry = rowEntries[colIndex];
         return (
           <View
-            key={entry?.cardId ?? `wishlist-grid-row-${rowIndex}-col-${colIndex}`}
+            key={entry?.watchKey ?? `wishlist-grid-row-${rowIndex}-col-${colIndex}`}
             style={[
               styles.gridCell,
               // Middle vertical divider between the two columns. NOT gated on
@@ -1194,7 +1231,7 @@ function WishlistGridRow({
                 onEditTarget={() => onEditTarget(entry)}
                 onPress={() => onPress(entry)}
                 selectable={editMode}
-                selected={editMode && !!selectedIds?.has(entry.cardId)}
+                selected={editMode && !!selectedIds?.has(entry.watchKey)}
               />
             ) : null}
           </View>
@@ -1234,7 +1271,7 @@ function WishlistGridSingleRow({
           onEditTarget={() => onEditTarget(entry)}
           onPress={() => onPress(entry)}
           selectable={editMode}
-          selected={editMode && !!selectedIds?.has(entry.cardId)}
+          selected={editMode && !!selectedIds?.has(entry.watchKey)}
         />
       </View>
     </View>
@@ -1261,8 +1298,8 @@ function WishlistGridTile({
   // Same shared tile + prop mapping as the Collection card view
   // (CollectionTileSlot in collection-masonry-grid.tsx). Wishlist has no
   // owned-quantity concept → hide the quantity readout; the star is hidden to
-  // match Collection's card view; and the print variant is omitted (wishlist
-  // tracks the card, not a specific printing).
+  // match Collection's card view; the print variant line shows the WATCHED
+  // printing (null for a main-printing watch, as before).
   const tileKind = entry.slabContext ? 'slab' : 'raw';
   // Same target copy the list row shows, in the tile's own footnote slot —
   // otherwise a target set from card view would be invisible in card view.
@@ -1279,7 +1316,7 @@ function WishlistGridTile({
       setName={entry.setName ?? ''}
       cardNumber={entry.cardNumber ?? null}
       kind={tileKind}
-      variantName={null}
+      variantName={entry.watchVariant}
       // Quality line per Figma 2609:14262 — "PSA 10" for slabs, otherwise the
       // condition lane of the shown price: the owned copy's condition when
       // stored, else "Near Mint" (the default raw pricing lane) when a price
@@ -1309,7 +1346,7 @@ function WishlistGridTile({
       delayLongPress={350}
       onLongPress={editMode ? undefined : onEditTarget}
       onPress={onPress}
-      testID={`wishlist-grid-tile-${entry.cardId}`}
+      testID={`wishlist-grid-tile-${rowTestKey(entry)}`}
     />
   );
 }

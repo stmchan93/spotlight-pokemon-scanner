@@ -193,6 +193,24 @@ CREATE TABLE IF NOT EXISTS ppt_graded_signals (
     PRIMARY KEY (card_id, grader, grade)
 );
 
+-- PPT eBay "ungraded" sales signals (the per-grade eBay export's `ungraded`
+-- row). PER CARD, NOT per printing: PPT keys eBay sales by TCGplayer product id
+-- and one product carries every printing as a subtype. Liquidity-tier input for
+-- the watchlist deal radar; never a displayed price. Written by
+-- sync_ppt_catalog.upsert_ppt_ungraded_signals.
+CREATE TABLE IF NOT EXISTS ppt_ungraded_signals (
+    card_id TEXT PRIMARY KEY,
+    tcgplayer_id TEXT,
+    sales_count INTEGER,
+    median_price REAL,
+    sales_velocity_weekly REAL,
+    smart_market_price REAL,
+    smart_market_confidence TEXT,
+    market_price_7day REAL,
+    price_date TEXT,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS scan_events (
     scan_id TEXT PRIMARY KEY,
     owner_user_id TEXT,
@@ -325,11 +343,17 @@ CREATE TABLE IF NOT EXISTS scan_confirmations (
     created_at TEXT NOT NULL
 );
 
+-- The watchlist. One row per WATCH = (user, card, printing). `variant_key` is
+-- the TCGplayer printing label used by card_price_history_cell lane 'raw_main'
+-- ("Holofoil", "Reverse Holofoil", ...); '' = the card's main printing (sealed
+-- product and every pre-2026-09-24 row). Older databases are rebuilt onto this
+-- key by watch_printings.migrate_card_favorites_per_printing at startup.
 CREATE TABLE IF NOT EXISTS card_favorites (
     owner_user_id TEXT NOT NULL,
     card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    variant_key TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
-    PRIMARY KEY (owner_user_id, card_id)
+    PRIMARY KEY (owner_user_id, card_id, variant_key)
 );
 
 -- "Like" (PDP heart) — a public social signal, DISTINCT from the wishlist

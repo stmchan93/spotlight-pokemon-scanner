@@ -1363,7 +1363,13 @@ describe('PortfolioScreen', () => {
       favoritedAt: '2026-06-29T00:00:00.000Z',
     }));
     const inventory = [
-      buildInventoryEntry({ id: 'lp-1', name: 'Gengar VMAX', cardId: 'card-lp-1', isFavorite: false }),
+      buildInventoryEntry({
+        id: 'lp-1',
+        name: 'Gengar VMAX',
+        cardId: 'card-lp-1',
+        isFavorite: false,
+        variantName: 'Reverse Holofoil',
+      }),
       buildInventoryEntry({ id: 'lp-2', name: 'Pikachu', cardId: 'card-lp-2' }),
     ];
     const dashboard = buildDashboardWithInventory(inventory);
@@ -1390,7 +1396,8 @@ describe('PortfolioScreen', () => {
     await act(async () => {
       fireEvent.press(screen.getByTestId('collection-card-actions-wishlist'));
     });
-    expect(setCardFavorite).toHaveBeenCalledWith('card-lp-1', true);
+    // Watches the printing this copy is.
+    expect(setCardFavorite).toHaveBeenCalledWith('card-lp-1', true, { variant: 'Reverse Holofoil' });
     // The write is invisible on the Collection row itself, so it has to say so.
     expect(await screen.findByText('Added to Watchlist')).toBeTruthy();
   });
@@ -1441,7 +1448,7 @@ describe('PortfolioScreen', () => {
       fireEvent.press(screen.getByTestId('collection-card-actions-wishlist'));
     });
 
-    expect(setCardFavorite).toHaveBeenCalledWith('card-lp-1', false);
+    expect(setCardFavorite).toHaveBeenCalledWith('card-lp-1', false, { variant: null });
     expect(await screen.findByText('Removed from Watchlist')).toBeTruthy();
   });
 
@@ -1469,7 +1476,7 @@ describe('PortfolioScreen', () => {
       fireEvent.press(screen.getByTestId('collection-card-actions-wishlist'));
     });
 
-    expect(setCardFavorite).toHaveBeenCalledWith('card-lp-1', true);
+    expect(setCardFavorite).toHaveBeenCalledWith('card-lp-1', true, { variant: null });
     expect(
       await screen.findByText("Couldn't add that card to your Watchlist. Please try again."),
     ).toBeTruthy();
