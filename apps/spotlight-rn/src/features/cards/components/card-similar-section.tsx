@@ -122,7 +122,7 @@ export function CardSimilarSection({ cardId, enabled, repository, onPressCard, t
       ) : null}
 
       {renderRail('same-name', null, null, sameName)}
-      {renderRail('cheaper', 'Same look, lower price', 'Similar art for less', sameLookCheaper)}
+      {renderRail('cheaper', 'Same look, lower price', null, sameLookCheaper)}
     </View>
   );
 }

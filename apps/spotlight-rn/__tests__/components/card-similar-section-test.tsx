@@ -86,6 +86,7 @@ describe('CardSimilarSection', () => {
     expect(screen.queryByText('Other Latios cards')).toBeNull();
     expect(screen.queryByText('Other sets and languages')).toBeNull();
     expect(screen.getByText('Same look, lower price')).toBeTruthy();
+    expect(screen.queryByText('Similar art for less')).toBeNull();
     expect(screen.getByText('Japanese · Clash of the Blue Sky · 105/107')).toBeTruthy();
     expect(screen.getByTestId('similar-cheaper-sv8-1-price').props.children).toBe('$165.00');
     // Unpriced tiles simply drop the price line.
