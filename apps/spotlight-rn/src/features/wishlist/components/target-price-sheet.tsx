@@ -216,11 +216,19 @@ export function TargetPriceSheet({ entry, onClose, onSubmit, mode = 'edit' }: Ta
               <View style={[styles.handleBar, { backgroundColor: theme.colors.gray200 }]} />
             </Pressable>
             <Text style={[theme.typography.bodyMedium, styles.title, { color: theme.colors.gray600 }]}>
-              {afterWatch ? 'Set a target price?' : 'Target price'}
+              {afterWatch ? 'Watching for deals' : 'Target price'}
             </Text>
           </View>
 
           <View style={styles.body}>
+            {afterWatch ? (
+              <Text
+                style={[theme.typography.body, { color: theme.colors.gray700 }]}
+                testID="wishlist-target-explainer"
+              >
+                {"We'll check eBay throughout the day and alert you when a listing comes up under market."}
+              </Text>
+            ) : null}
             <View style={styles.cardRow}>
               <View
                 style={[
@@ -248,7 +256,7 @@ export function TargetPriceSheet({ entry, onClose, onSubmit, mode = 'edit' }: Ta
             </View>
 
             <TextField
-              helperText="We'll notify you when a listing drops below this price."
+              helperText="Optional. Name your price and we'll also alert you when it drops below it."
               keyboardType="decimal-pad"
               label="Target"
               onChangeText={setPriceText}

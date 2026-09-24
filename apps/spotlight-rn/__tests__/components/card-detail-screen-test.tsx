@@ -1492,7 +1492,7 @@ describe('CardDetailScreen', () => {
       });
 
       fireEvent.press(await screen.findByTestId('detail-hero-card-favorite'));
-      expect(await screen.findByText('Set a target price?')).toBeTruthy();
+      expect(await screen.findByText('Watching for deals')).toBeTruthy();
 
       fireEvent.press(screen.getByTestId('wishlist-target-skip'));
       await waitFor(() => {
