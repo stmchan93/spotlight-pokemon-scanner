@@ -35,7 +35,9 @@ import {
   resultsSpanMultipleGames,
 } from '@/features/catalog/components/catalog-results-grid';
 import { GameMosaicTile } from '@/features/catalog/components/game-mosaic-tile';
+import { SealedResultsRow } from '@/features/catalog/components/sealed-results-row';
 import { useCatalogCardSearch } from '@/features/catalog/hooks/use-catalog-card-search';
+import { useSealedSearchPreview } from '@/features/catalog/hooks/use-sealed-search-preview';
 import { useGameExpansions } from '@/features/catalog/hooks/use-game-expansions';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 
@@ -108,6 +110,10 @@ export function CatalogSearchScreen({
     sealed: sealedActive,
   });
   const { query, setQuery, results } = search;
+  // With no chip, a typed query also asks for sealed product — shown as its
+  // own row, never mixed into the cards. Any chip turns the row off.
+  const sealedPreview = useSealedSearchPreview({ enabled: activeFilter == null, query });
+  const sealedRowResults = activeFilter == null ? sealedPreview.results : [];
   const [openingResultId, setOpeningResultId] = useState<string | null>(null);
   /*
     On FOCUS, not mount: this screen stays mounted under the card page, so a
@@ -167,13 +173,14 @@ export function CatalogSearchScreen({
   const { errorMessage, hasActiveQuery, hasSearched, isLoading, isLoadingMore, loadMore } = search;
   const hasVisibleResults = hasActiveQuery && !errorMessage && results.length > 0;
 
-  const openResult = (result: CatalogSearchResult) => {
+  const openResult = (result: CatalogSearchResult, fromSealedRow = false) => {
     // Paired with `catalog_search_performed`: searches that open nothing are
     // how you tell a working search from one nobody trusts the results of.
     capturePostHogEvent('catalog_search_result_opened', {
       has_rarity_filter: activeRarity != null,
-      is_sealed: sealedActive,
-      result_count: results.length,
+      is_sealed: sealedActive || fromSealedRow,
+      result_count: fromSealedRow ? sealedRowResults.length : results.length,
+      ...(fromSealedRow ? { from_sealed_row: true } : {}),
     });
 
     if (openingResetTimerRef.current) {
@@ -202,10 +209,25 @@ export function CatalogSearchScreen({
   // the tags on for the whole list rather than only the new rows.
   const showGameTags = resultsSpanMultipleGames(results);
 
+  const sealedRow = sealedRowResults.length > 0 ? (
+    <SealedResultsRow
+      onOpenResult={(result) => openResult(result, true)}
+      onSeeAll={() => setActiveFilter(SEALED_FILTER)}
+      openingResultId={openingResultId}
+      results={sealedRowResults}
+    />
+  ) : null;
+  // Cards came back empty but the sealed lookup hasn't — wait for it rather
+  // than flashing "No matching cards" before the row lands.
+  const awaitingSealedRow = hasSearched
+    && results.length === 0
+    && activeFilter == null
+    && sealedPreview.isLoading;
+
   const renderBody = () => {
     // Search mode: the box has a real query, so show card matches / states.
     if (hasActiveQuery) {
-      if (isLoading && results.length === 0) {
+      if ((isLoading && results.length === 0) || (awaitingSealedRow && !errorMessage)) {
         return (
           <View style={styles.bodyStateWrap}>
             <StateCard
@@ -235,6 +257,16 @@ export function CatalogSearchScreen({
           </View>
         );
       }
+      if (hasSearched && results.length === 0 && sealedRow) {
+        // No cards, but sealed matches: the row stands in for the empty state.
+        return (
+          <CatalogResultsGrid
+            header={sealedRow}
+            onOpenResult={(result) => openResult(result)}
+            results={[]}
+          />
+        );
+      }
       if (hasSearched && results.length === 0) {
         return (
           <View style={styles.bodyStateWrap}>
@@ -252,9 +284,10 @@ export function CatalogSearchScreen({
       if (hasVisibleResults) {
         return (
           <CatalogResultsGrid
+            header={sealedRow}
             isLoadingMore={isLoadingMore}
             onEndReached={loadMore}
-            onOpenResult={openResult}
+            onOpenResult={(result) => openResult(result)}
             openingResultId={openingResultId}
             results={results}
             showGameTags={showGameTags}

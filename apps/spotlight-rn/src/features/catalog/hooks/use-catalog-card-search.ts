@@ -19,9 +19,9 @@ import { useAppServices } from '@/providers/app-providers';
 // surfaces ALL of a prolific illustrator's cards, not just the first page.
 const PAGE_SIZE = 30;
 /** Long enough that typing "charizard" costs one request, not nine. */
-const DEBOUNCE_MS = 275;
+export const DEBOUNCE_MS = 275;
 /** One letter matches most of the catalog; two is where a query means something. */
-const MIN_QUERY_LENGTH = 2;
+export const MIN_QUERY_LENGTH = 2;
 
 export type CatalogSearchScope = CardGame | 'all';
 

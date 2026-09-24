@@ -8,6 +8,7 @@ import {
 } from '@spotlight/api-client';
 
 import { CatalogSearchScreen } from '@/features/catalog/screens/catalog-search-screen';
+import * as posthog from '@/lib/observability/posthog';
 
 import { noteCardAdded, clearCardAddedNotice } from '@/features/cards/card-added-notice';
 
@@ -32,6 +33,23 @@ async function advanceDebounce() {
   });
 }
 
+type SearchPage = Awaited<ReturnType<MockSpotlightRepository['searchCatalogCardsPage']>>;
+type SearchOptions = Parameters<MockSpotlightRepository['searchCatalogCardsPage']>[3];
+
+/**
+ * A typed query with no chip ALSO asks for sealed product (the row above the
+ * cards). Routes that side call separately so card-page mocks stay in order.
+ */
+function mockSearchByKind(
+  cards: (query: string, options: SearchOptions) => Promise<SearchPage>,
+  sealed: SearchPage | Promise<SearchPage> = { cards: [], hasMore: false },
+) {
+  return jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
+    .mockImplementation((query, _limit, _offset, options) => (
+      options?.kind === 'sealed' ? Promise.resolve(sealed) : cards(query, options)
+    ));
+}
+
 const ownedCatalogResults = mockCatalogResults.map((result) => ({
   ...result,
   ownedQuantity: result.ownedQuantity ?? 0,
@@ -52,13 +70,11 @@ describe('CatalogSearchScreen', () => {
   it('renders the modal chrome, lists card matches directly, then opens a card', async () => {
     const onOpenCard = jest.fn();
     const onClose = jest.fn();
-    let resolveSearch: ((page: Awaited<ReturnType<MockSpotlightRepository['searchCatalogCardsPage']>>) => void) | null = null;
+    let resolveSearch: ((page: SearchPage) => void) | null = null;
 
-    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage').mockImplementation(() => {
-      return new Promise((resolve) => {
-        resolveSearch = resolve;
-      });
-    });
+    mockSearchByKind(() => new Promise((resolve) => {
+      resolveSearch = resolve;
+    }));
 
     renderWithProviders(
       <CatalogSearchScreen onClose={onClose} onOpenCard={onOpenCard} />,
@@ -216,9 +232,10 @@ describe('CatalogSearchScreen', () => {
   it('appends the next page of results on scroll-to-end (infinite scroll)', async () => {
     const page1 = ownedCatalogResults.slice(0, 2);
     const page2 = ownedCatalogResults.slice(2, 4);
-    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
+    const cardPages = jest.fn<Promise<SearchPage>, []>()
       .mockResolvedValueOnce({ cards: page1, hasMore: true })
       .mockResolvedValueOnce({ cards: page2, hasMore: false });
+    mockSearchByKind(() => cardPages());
 
     renderWithProviders(
       <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
@@ -362,12 +379,142 @@ describe('CatalogSearchScreen', () => {
       await advanceDebounce();
       expect(searchSpy).toHaveBeenLastCalledWith('prismatic', expect.any(Number), 0, { game: 'all', rarityBucket: 'secret' });
 
-      // Back to Sealed, then tap it again: plain card search.
+      // Back to Sealed, then tap it again: plain card search (plus the sealed
+      // row's own lookup, which only runs with no chip).
       fireEvent.press(screen.getByTestId('catalog-sealed-chip'));
       await advanceDebounce();
+      searchSpy.mockClear();
       fireEvent.press(screen.getByTestId('catalog-sealed-chip'));
       await advanceDebounce();
-      expect(searchSpy).toHaveBeenLastCalledWith('prismatic', expect.any(Number), 0, { game: 'all' });
+      expect(searchSpy).toHaveBeenCalledWith('prismatic', expect.any(Number), 0, { game: 'all' });
+      expect(searchSpy).toHaveBeenCalledWith('prismatic', 10, 0, { game: 'all', kind: 'sealed' });
+    });
+  });
+
+  /*
+    "I searched ascended heroes and nothing came back" — sealed product only
+    showed behind the Sealed chip. A typed query with no chip now also asks for
+    sealed and shows it as its own row ABOVE the cards, never inside the grid.
+  */
+  describe('the sealed row on a typed query', () => {
+    const etb = mockSealedCatalogResults[0];
+    const sealedPage = { cards: mockSealedCatalogResults, hasMore: false };
+
+    function typeQuery(value: string) {
+      fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), value);
+    }
+
+    it('shows sealed matches in a row above the card grid', async () => {
+      const searchSpy = mockSearchByKind(async () => ({ cards: ownedCatalogResults, hasMore: false }), sealedPage);
+
+      renderWithProviders(<CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />);
+      typeQuery('prismatic');
+      await advanceDebounce();
+
+      expect(searchSpy).toHaveBeenCalledWith('prismatic', expect.any(Number), 0, { game: 'all' });
+      expect(searchSpy).toHaveBeenCalledWith('prismatic', 10, 0, { game: 'all', kind: 'sealed' });
+
+      expect(await screen.findByTestId('catalog-sealed-section')).toBeTruthy();
+      expect(screen.getByText('Sealed products')).toBeTruthy();
+      expect(screen.getByTestId(`catalog-sealed-row-${etb.id}`)).toBeTruthy();
+      // Cards stay in the grid, and sealed stays out of it.
+      expect(screen.getByTestId('catalog-result-sm7-1')).toBeTruthy();
+      const rows = screen.getByTestId('catalog-results-list').props.data as { id: string }[][];
+      expect(rows.flat().some((result) => result.id === etb.id)).toBe(false);
+    });
+
+    it('opens a sealed row item like any result, tagged is_sealed', async () => {
+      const onOpenCard = jest.fn();
+      const capture = jest.spyOn(posthog, 'capturePostHogEvent');
+      mockSearchByKind(async () => ({ cards: ownedCatalogResults, hasMore: false }), sealedPage);
+
+      renderWithProviders(<CatalogSearchScreen onClose={jest.fn()} onOpenCard={onOpenCard} />);
+      typeQuery('prismatic');
+      await advanceDebounce();
+
+      fireEvent.press(await screen.findByTestId(`catalog-sealed-row-smoke-${etb.cardId}`));
+      expect(onOpenCard).toHaveBeenCalledWith(expect.objectContaining({ cardId: etb.cardId, productKind: 'sealed' }));
+      expect(capture).toHaveBeenCalledWith('catalog_search_result_opened', expect.objectContaining({ is_sealed: true }));
+    });
+
+    it('"See all" switches to the Sealed chip for the same query', async () => {
+      const searchSpy = mockSearchByKind(async () => ({ cards: ownedCatalogResults, hasMore: false }), sealedPage);
+
+      renderWithProviders(<CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />);
+      typeQuery('prismatic');
+      await advanceDebounce();
+
+      fireEvent.press(await screen.findByTestId('catalog-sealed-see-all'));
+      await advanceDebounce();
+
+      expect(screen.getByTestId('catalog-sealed-chip').props.accessibilityState).toEqual(
+        expect.objectContaining({ selected: true }),
+      );
+      expect(searchSpy).toHaveBeenLastCalledWith('prismatic', 30, 0, { game: 'all', kind: 'sealed' });
+      // The chip's grid replaces the row.
+      expect(screen.queryByTestId('catalog-sealed-section')).toBeNull();
+      expect(await screen.findByTestId(`catalog-result-${etb.id}`)).toBeTruthy();
+    });
+
+    it('shows no row when nothing sealed matches', async () => {
+      mockSearchByKind(async () => ({ cards: ownedCatalogResults, hasMore: false }));
+
+      renderWithProviders(<CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />);
+      typeQuery('umbreon');
+      await advanceDebounce();
+
+      expect(await screen.findByTestId('catalog-result-sm7-1')).toBeTruthy();
+      expect(screen.queryByTestId('catalog-sealed-section')).toBeNull();
+    });
+
+    it('shows no row, and asks for no sealed, while a rarity chip is on', async () => {
+      const searchSpy = mockSearchByKind(async () => ({ cards: ownedCatalogResults, hasMore: false }), sealedPage);
+
+      renderWithProviders(<CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />);
+      fireEvent.press(screen.getByTestId('catalog-rarity-chip-sir'));
+      typeQuery('prismatic');
+      await advanceDebounce();
+
+      expect(await screen.findByTestId('catalog-result-sm7-1')).toBeTruthy();
+      expect(screen.queryByTestId('catalog-sealed-section')).toBeNull();
+      expect(searchSpy).not.toHaveBeenCalledWith(expect.anything(), 10, 0, { game: 'all', kind: 'sealed' });
+    });
+
+    it('shows the row instead of "No matching cards" when only sealed matches', async () => {
+      mockSearchByKind(async () => ({ cards: [], hasMore: false }), sealedPage);
+
+      renderWithProviders(<CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />);
+      typeQuery('ascended heroes');
+      await advanceDebounce();
+
+      expect(await screen.findByTestId(`catalog-sealed-row-${etb.id}`)).toBeTruthy();
+      expect(screen.queryByText('No matching cards')).toBeNull();
+    });
+
+    it('drops a sealed response that lands after the query changed', async () => {
+      const pending: ((page: SearchPage) => void)[] = [];
+      jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
+        .mockImplementation((_query, _limit, _offset, options) => (
+          options?.kind === 'sealed'
+            ? new Promise((resolve) => { pending.push(resolve); })
+            : Promise.resolve({ cards: ownedCatalogResults, hasMore: false })
+        ));
+
+      renderWithProviders(<CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />);
+      typeQuery('prismatic');
+      await advanceDebounce();
+      typeQuery('umbreon');
+      await advanceDebounce();
+
+      // The first (stale) lookup answers late; the current one finds nothing.
+      await act(async () => {
+        pending[0]?.(sealedPage);
+        pending[1]?.({ cards: [], hasMore: false });
+        await Promise.resolve();
+      });
+
+      expect(screen.getByTestId('catalog-result-sm7-1')).toBeTruthy();
+      expect(screen.queryByTestId('catalog-sealed-section')).toBeNull();
     });
   });
 
@@ -476,9 +623,10 @@ describe('CatalogSearchScreen', () => {
   });
 
   it('surfaces the retry action after a failed search', async () => {
-    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
+    const cardPages = jest.fn<Promise<SearchPage>, []>()
       .mockRejectedValueOnce(new Error('offline'))
       .mockResolvedValueOnce({ cards: ownedCatalogResults.slice(0, 1), hasMore: false });
+    mockSearchByKind(() => cardPages());
 
     renderWithProviders(
       <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,

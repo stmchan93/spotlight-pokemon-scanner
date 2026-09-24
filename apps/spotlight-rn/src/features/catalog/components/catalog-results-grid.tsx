@@ -1,4 +1,12 @@
-import { ActivityIndicator, FlatList, StyleSheet, View } from 'react-native';
+import type { ReactElement } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  StyleSheet,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 
 import {
   DEFAULT_CARD_GAME,
@@ -47,19 +55,27 @@ export function resultsSpanMultipleGames(results: CatalogSearchResult[]): boolea
   return false;
 }
 
-function SearchResultTile({
+/** One result tile — the grid's cell, and the sealed row's item on the search screen. */
+export function SearchResultTile({
   result,
   onPress,
   showGameTag = false,
+  artAspect = 'card',
+  style = styles.gridCell,
+  testIDPrefix = 'catalog-result',
 }: {
   result: CatalogSearchResult;
   onPress: () => void;
   showGameTag?: boolean;
+  artAspect?: 'square' | 'card';
+  style?: StyleProp<ViewStyle>;
+  /** Wrapper is `${prefix}-${id}`, the tile `${prefix}-smoke-${cardId}`. */
+  testIDPrefix?: string;
 }) {
   return (
-    <View style={styles.gridCell} testID={`catalog-result-${result.id}`}>
+    <View style={style} testID={`${testIDPrefix}-${result.id}`}>
       <InventoryCardTile
-        artAspect="card"
+        artAspect={artAspect}
         // Sealed product has no number; its type ("Elite Trainer Box") takes the slot.
         cardNumber={result.productKind === 'sealed' ? result.sealedProductType ?? null : result.cardNumber}
         /*
@@ -85,7 +101,7 @@ function SearchResultTile({
         showQualityLine={false}
         // The tile's quantity readout IS the "Owned N" signal; hidden when 0.
         showQuantity={Boolean(result.ownedQuantity)}
-        testID={`catalog-result-smoke-${result.cardId}`}
+        testID={`${testIDPrefix}-smoke-${result.cardId}`}
       />
     </View>
   );
@@ -104,6 +120,8 @@ export type CatalogResultsGridProps = {
    * whole list rather than only the new rows.
    */
   showGameTags?: boolean;
+  /** Scrolls with the rows, above the first one (the sealed row on search). */
+  header?: ReactElement | null;
   testID?: string;
 };
 
@@ -114,6 +132,7 @@ export function CatalogResultsGrid({
   isLoadingMore = false,
   onEndReached,
   showGameTags = false,
+  header = null,
   testID = 'catalog-results-list',
 }: CatalogResultsGridProps) {
   return (
@@ -123,6 +142,7 @@ export function CatalogResultsGrid({
       key="results"
       keyExtractor={(row) => row[0].id}
       keyboardShouldPersistTaps="handled"
+      ListHeaderComponent={header}
       ListFooterComponent={isLoadingMore ? (
         <View style={styles.loadMoreFooter} testID="catalog-load-more-spinner">
           <ActivityIndicator color={colors.gray400} />
