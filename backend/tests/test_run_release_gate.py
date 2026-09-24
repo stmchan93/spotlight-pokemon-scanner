@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import unittest
+from pathlib import Path
 
 from tools.run_release_gate import (
     build_deploy_command,
@@ -11,11 +13,23 @@ from tools.run_release_gate import (
     candidate_matches_truth,
     deck_quantity_for,
     extract_deck_entries,
+    post_deploy_todo,
     resolve_smoke_env_value,
 )
 
 
 class RunReleaseGateTests(unittest.TestCase):
+    def test_post_deploy_todo_reads_the_queued_file_or_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertIsNone(post_deploy_todo(root))
+            (root / "docs").mkdir()
+            todo = root / "docs" / "production-post-deploy-todo.md"
+            todo.write_text("  \n", encoding="utf-8")
+            self.assertIsNone(post_deploy_todo(root))
+            todo.write_text("# TODO\n\n- sealed backfill\n", encoding="utf-8")
+            self.assertEqual(post_deploy_todo(root), "# TODO\n\n- sealed backfill")
+
     def test_build_deploy_command_includes_optional_secrets_file(self) -> None:
         self.assertEqual(
             build_deploy_command("staging", "backend/.env.staging.secrets"),

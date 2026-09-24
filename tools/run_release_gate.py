@@ -641,6 +641,29 @@ def write_summary(summary: ReleaseGateSummary, target_dir: Path) -> Path:
     return summary_path
 
 
+POST_DEPLOY_TODO = Path("docs/production-post-deploy-todo.md")
+
+
+def post_deploy_todo(root: Path) -> str | None:
+    """Follow-ups queued for the next production deploy (e.g. a data backfill
+    that needs code only that deploy brings). None when nothing is queued."""
+    path = root / POST_DEPLOY_TODO
+    if not path.is_file():
+        return None
+    text = path.read_text(encoding="utf-8").strip()
+    return text or None
+
+
+def print_post_deploy_todo(root: Path) -> None:
+    text = post_deploy_todo(root)
+    if text is None:
+        return
+    bar = "!" * 72
+    print(f"\n{bar}\nPRODUCTION POST-DEPLOY TODO ({POST_DEPLOY_TODO}) — do these now:\n{bar}\n")
+    print(text)
+    print(f"\n{bar}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     root = repo_root()
@@ -733,6 +756,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
         summary.status = "passed"
+        if args.environment == "production" and not args.skip_deploy:
+            print_post_deploy_todo(root)
         return 0
     except ReleaseGateError as error:
         summary.status = "failed"

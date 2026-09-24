@@ -3,7 +3,11 @@ raw_main cells) for past dates — never the current snapshot.
 
     .venv/bin/python backfill_tcgcsv_history.py \
         --database-path data/spotlight_scanner.sqlite \
-        --prices-dir /home/stephenchan/tcgcsv-history [--dates 2026-08-07,...] [--dry-run]
+        --prices-dir /home/stephenchan/tcgcsv-history [--dates 2026-08-07,...] [--dry-run] [--sealed-only]
+
+`--sealed-only` replays sealed products (booster boxes, ETBs, …) and leaves
+every card's history untouched: prices for other products are dropped from
+each day before the sync, so cards simply find no match and write nothing.
 
 Input is what tools/extract_tcgcsv_archives.py produces: `prices-<date>.json.gz`
 per day and one `products.json.gz` (group + number per product). Each day runs
@@ -33,6 +37,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from env_loader import load_backend_env_file  # noqa: E402
+from catalog_tools import SEALED_CARD_ID_PREFIX, SEALED_SUPERTYPE  # noqa: E402
 from sync_tcgcsv_prices import (  # noqa: E402
     _bump_pricing_sync_generation,
     run_tcgcsv_price_sync,
@@ -46,12 +51,18 @@ def _load_gz(path: Path) -> dict:
         return json.load(handle)
 
 
+def sealed_product_ids(connection: sqlite3.Connection) -> set[str]:
+    rows = connection.execute("SELECT id FROM cards WHERE supertype = ?", (SEALED_SUPERTYPE,)).fetchall()
+    return {str(row[0])[len(SEALED_CARD_ID_PREFIX):] for row in rows if str(row[0]).startswith(SEALED_CARD_ID_PREFIX)}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--database-path", required=True)
     parser.add_argument("--prices-dir", required=True)
     parser.add_argument("--dates", help="comma-separated YYYY-MM-DD subset (default: every prices-*.json.gz)")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--sealed-only", action="store_true", help="replay sealed products only; cards untouched")
     args = parser.parse_args(argv)
 
     prices_dir = Path(args.prices_dir)
@@ -78,10 +89,21 @@ def main(argv: list[str] | None = None) -> int:
     connection.execute("PRAGMA synchronous=NORMAL")
     connection.execute("PRAGMA cache_size=-262144")  # 256 MB
     connection.execute("PRAGMA temp_store=MEMORY")
+    only_pids: set[str] | None = None
+    if args.sealed_only:
+        only_pids = sealed_product_ids(connection)
+        if not only_pids:
+            print("[backfill] --sealed-only: no sealed products in this database (import the catalog first)",
+                  file=sys.stderr)
+            connection.close()
+            return 1
+        print(f"[backfill] --sealed-only: {len(only_pids)} sealed products", flush=True)
     started = perf_counter()
     try:
         for price_date in dates:
             product_price_map = _load_gz(prices_dir / f"prices-{price_date}.json.gz")
+            if only_pids is not None:
+                product_price_map = {pid: v for pid, v in product_price_map.items() if str(pid) in only_pids}
             day_started = perf_counter()
             stats = run_tcgcsv_price_sync(
                 connection,

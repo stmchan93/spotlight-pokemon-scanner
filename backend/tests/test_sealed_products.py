@@ -147,6 +147,59 @@ class SealedCatalogTests(unittest.TestCase):
         ).fetchone()
         self.assertEqual(row[0], 139.43)
 
+    def test_backfill_sealed_only_replays_sealed_history_and_nothing_else(self):
+        import gzip
+        import json
+
+        import backfill_tcgcsv_history
+
+        self._ingest()
+        prices_dir = Path(self.tempdir.name) / "history"
+        prices_dir.mkdir()
+        etb_price = {"Normal": {"productId": 593355, "subTypeName": "Normal", "marketPrice": 131.0}}
+        card_price = {"Holofoil": {"productId": 610000, "subTypeName": "Holofoil", "marketPrice": 999.0}}
+        with gzip.open(prices_dir / "prices-2026-09-01.json.gz", "wt") as handle:
+            json.dump({"593355": etb_price, "610000": card_price}, handle)
+        with gzip.open(prices_dir / "products.json.gz", "wt") as handle:
+            json.dump({"groupByProduct": {}, "productNumbers": {}}, handle)
+        database = str(Path(self.tempdir.name) / "sealed.sqlite")
+
+        seen: list[set[str]] = []
+        real_sync = backfill_tcgcsv_history.run_tcgcsv_price_sync
+
+        def spy(connection, **kwargs):
+            seen.append(set(kwargs["product_price_map"]))
+            return real_sync(connection, **kwargs)
+
+        with mock.patch.object(backfill_tcgcsv_history, "run_tcgcsv_price_sync", side_effect=spy):
+            code = backfill_tcgcsv_history.main(
+                ["--database-path", database, "--prices-dir", str(prices_dir), "--sealed-only"]
+            )
+        self.assertEqual(code, 0)
+        self.assertEqual(seen, [{"593355"}])  # the card's product never reaches the sync
+        row = self.connection.execute(
+            "SELECT main_raw_market_price FROM card_price_history_daily WHERE card_id = ? AND price_date = ?",
+            (sealed_card_id(593355), "2026-09-01"),
+        ).fetchone()
+        self.assertEqual(row[0], 131.0)
+
+    def test_backfill_sealed_only_refuses_without_a_sealed_catalog(self):
+        import backfill_tcgcsv_history
+
+        prices_dir = Path(self.tempdir.name) / "history"
+        prices_dir.mkdir()
+        import gzip
+        import json
+        with gzip.open(prices_dir / "products.json.gz", "wt") as handle:
+            json.dump({"groupByProduct": {}, "productNumbers": {}}, handle)
+        with gzip.open(prices_dir / "prices-2026-09-01.json.gz", "wt") as handle:
+            json.dump({}, handle)
+        code = backfill_tcgcsv_history.main([
+            "--database-path", str(Path(self.tempdir.name) / "sealed.sqlite"),
+            "--prices-dir", str(prices_dir), "--sealed-only",
+        ])
+        self.assertEqual(code, 1)
+
     def test_the_sync_ingests_sealed_from_its_own_crawl(self):
         def fake_build(categories, group_by_product=None, failed_groups=None, product_rows_out=None):
             product_rows_out.extend([(3, PRE_GROUP, ETB), (3, PRE_GROUP, CARD)])
