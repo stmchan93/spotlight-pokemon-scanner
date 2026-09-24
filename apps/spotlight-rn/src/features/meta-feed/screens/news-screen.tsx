@@ -263,11 +263,6 @@ export function NewsScreen({ initialGame = null, initialKind = null, onBack, onO
           ))}
         </ScrollView>
       ) : null}
-      {games.length > 0 ? (
-        <Text style={[theme.typography.captionMedium, styles.gamesCaption]} testID="news-games-caption">
-          {`Games in your collection · ${games.map(gameDisplayName).join(', ')}`}
-        </Text>
-      ) : null}
     </View>
   );
 
@@ -425,10 +420,6 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
-  },
-  gamesCaption: {
-    paddingBottom: spacing.xxs,
-    paddingHorizontal: spacing.sm,
   },
   item: {
     gap: spacing.xxs,

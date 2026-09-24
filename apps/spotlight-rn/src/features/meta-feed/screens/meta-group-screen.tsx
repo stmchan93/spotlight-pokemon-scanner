@@ -228,8 +228,7 @@ function GroupBody({
           Biggest movers
         </Text>
         {group.topCards.length > 0 ? (
-          <>
-            {group.topCards.map((card) => (
+          group.topCards.map((card) => (
               <MetaCardRow
                 changeAmount={card.priceNow - card.priceThen}
                 changePercent={card.changePercent}
@@ -243,9 +242,7 @@ function GroupBody({
                 price={card.priceNow}
                 testID={`meta-group-mover-${card.cardId}`}
               />
-            ))}
-            <Text style={[theme.typography.captionMedium, styles.footnote]}>Tap any card to open its card page.</Text>
-          </>
+            ))
         ) : (
           <Text style={[theme.typography.captionMedium, styles.footnote]} testID="meta-group-movers-empty">
             No single card is driving this group yet.
