@@ -210,6 +210,22 @@ export function createTestSpotlightRepository(
       return overrides.fetchNewsFeed?.(...args)
         ?? baseRepository.fetchNewsFeed(...args);
     },
+    fetchSimilarCards: (...args) => {
+      return overrides.fetchSimilarCards?.(...args)
+        ?? baseRepository.fetchSimilarCards(...args);
+    },
+    fetchMetaGroupDetail: (...args) => {
+      return overrides.fetchMetaGroupDetail?.(...args)
+        ?? baseRepository.fetchMetaGroupDetail(...args);
+    },
+    fetchMetaExposure: (...args) => {
+      return overrides.fetchMetaExposure?.(...args)
+        ?? baseRepository.fetchMetaExposure(...args);
+    },
+    fetchCalendar: (...args) => {
+      return overrides.fetchCalendar?.(...args)
+        ?? baseRepository.fetchCalendar(...args);
+    },
     getCardConditionHistory: (...args) => {
       return overrides.getCardConditionHistory?.(...args)
         ?? baseRepository.getCardConditionHistory(...args);
@@ -260,6 +276,14 @@ export function createTestSpotlightRepository(
     setNotificationPrefs: (...args) => {
       return overrides.setNotificationPrefs?.(...args)
         ?? baseRepository.setNotificationPrefs(...args);
+    },
+    fetchAlertPreferences: (...args) => {
+      return overrides.fetchAlertPreferences?.(...args)
+        ?? baseRepository.fetchAlertPreferences(...args);
+    },
+    updateAlertPreferences: (...args) => {
+      return overrides.updateAlertPreferences?.(...args)
+        ?? baseRepository.updateAlertPreferences(...args);
     },
     getRawEbayListingCandidates: (...args) => {
       return overrides.getRawEbayListingCandidates?.(...args)

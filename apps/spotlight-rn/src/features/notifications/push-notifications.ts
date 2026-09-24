@@ -22,6 +22,18 @@ import { loadNotificationsModule } from '@/features/notifications/notifications-
 /** Android channel ids. Mirrors what the backend puts in the push envelope. */
 export const DEALS_NOTIFICATION_CHANNEL_ID = 'deals';
 export const OPS_NOTIFICATION_CHANNEL_ID = 'ops';
+/** Price moves + the weekly summary (backend `market_alerts.MARKET_CHANNEL_ID`). */
+export const MARKET_NOTIFICATION_CHANNEL_ID = 'market';
+
+/** The device's IANA zone, for the backend's local-time alert windows. */
+export function resolveDeviceTimeZone(): string | null {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return typeof zone === 'string' && zone.trim() ? zone.trim() : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * A stable per-INSTALL id so the backend can replace this device's previous
@@ -166,6 +178,12 @@ export async function ensureAndroidNotificationChannels(): Promise<void> {
       lightColor: '#7000FF',
       vibrationPattern: [0, 250, 250, 250],
     });
+    await Notifications.setNotificationChannelAsync(MARKET_NOTIFICATION_CHANNEL_ID, {
+      name: 'Price alerts',
+      description: 'Big moves on cards you own or watch, and your weekly summary.',
+      importance: Notifications.AndroidImportance.DEFAULT,
+      lightColor: '#7000FF',
+    });
     await Notifications.setNotificationChannelAsync(OPS_NOTIFICATION_CHANNEL_ID, {
       name: 'Account & service',
       description: 'Sign-in, billing and service notices.',
@@ -254,6 +272,7 @@ export async function registerPushToken(
     deviceId: await getPushDeviceId(),
     expoPushToken: token,
     platform: resolvePushTokenPlatform(),
+    timezone: resolveDeviceTimeZone(),
   });
   return accepted ? { status: 'registered', token } : { status: 'failed' };
 }

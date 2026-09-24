@@ -3,7 +3,13 @@ import { Text } from 'react-native';
 
 import { mockHotCards } from '@spotlight/api-client';
 
-import { metaFeedCacheKey, useHotCards } from '@/features/meta-feed/hooks/use-meta-feed';
+import {
+  metaExposureCacheKey,
+  metaFeedCacheKey,
+  useHotCards,
+  useMetaExposure,
+} from '@/features/meta-feed/hooks/use-meta-feed';
+import { useAppServices } from '@/providers/app-providers';
 import type { UseMetaFeedReadResult } from '@/features/meta-feed/hooks/use-meta-feed-read';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../../test-utils';
@@ -57,5 +63,31 @@ describe('meta feed hooks', () => {
 
     await waitFor(() => expect(fetchHotCards).toHaveBeenCalled());
     expect(screen.getByTestId('probe').props.children).toBe('none');
+  });
+
+  it('scopes the exposure cache to the session owner', () => {
+    const a = metaExposureCacheKey('user-a', { game: 'pokemon', windowDays: 7 });
+    const b = metaExposureCacheKey('user-b', { game: 'pokemon', windowDays: 7 });
+    expect(a).toBe('metaExposure?game=pokemon&owner=user-a&windowDays=7');
+    expect(a).not.toBe(b);
+  });
+
+  it('writes exposure under the owner key, and waits while disabled', async () => {
+    const fetchMetaExposure = jest.fn().mockResolvedValue(null);
+    let cacheKeys: string[] = [];
+    function ExposureProbe({ enabled }: { enabled: boolean }) {
+      useMetaExposure({ game: 'pokemon', windowDays: 7 }, { enabled });
+      cacheKeys = Object.keys(useAppServices().metaFeedCache);
+      return null;
+    }
+    const { rerender } = renderWithProviders(<ExposureProbe enabled={false} />, {
+      spotlightRepository: createTestSpotlightRepository({ fetchMetaExposure }),
+    });
+    await act(async () => {});
+    expect(fetchMetaExposure).not.toHaveBeenCalled();
+
+    rerender(<ExposureProbe enabled />);
+    await waitFor(() => expect(fetchMetaExposure).toHaveBeenCalledWith({ game: 'pokemon', windowDays: 7 }));
+    await waitFor(() => expect(cacheKeys).toContain('metaExposure?game=pokemon&owner=anonymous&windowDays=7'));
   });
 });

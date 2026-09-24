@@ -1665,6 +1665,84 @@ export type NewsFeedQuery = {
   cursor?: string | null;
 };
 
+// PDP "More like this" — GET /api/v1/cards/{cardId}/similar (backend/similar_cards.py).
+export type SimilarCard = {
+  cardId: string;
+  name: string;
+  setName: string | null;
+  number: string | null;
+  language: string | null;
+  imageUrl: string | null;
+  priceNow: number | null;      // raw NM main price; null = unpriced
+  currencyCode: string;
+};
+
+export type SimilarCards = {
+  cardId: string;
+  /** Normalised base name ("Latios" for "Latios ☆"); null when no rows. */
+  baseName: string | null;
+  goesWith: SimilarCard | null;       // its same-set pair, e.g. Latias ☆
+  sameName: SimilarCard[];            // ≤ 10, other printings of the same base name
+  sameLookCheaper: SimilarCard[];     // ≤ 10, visually close and cheaper
+};
+
+// Meta feed v2 — contract in docs/meta-feed-v2-contracts-2026-09-24.md.
+export type MetaGroupDetail = {
+  game: CardGame;
+  windowDays: number;
+  group: MetaGroup;              // same shape, topCards up to 20, sorted by changePercent (desc for risers, asc for coolers)
+  asOfDate: string | null;
+};
+
+// Computed on request from the caller's collection (deck_entries) — never global.
+export type MetaExposure = {
+  game: CardGame;
+  windowDays: number;
+  callout: {                     // null when the user owns nothing in a group that moved
+    title: string;               // "Your vintage is up +$312 this week"
+    body: string;                // "4 PSA 10s and 11 raw cards in rising groups"
+    valueChangeUsd: number;
+    imageUrls: string[];         // ≤ 2 of the user's cards, for the fanned thumbnails
+  } | null;
+  groups: Record<string, {       // keyed by groupKey; only groups where the user owns ≥ 1 card
+    ownedCount: number;
+    valueChangeUsd: number;      // change in the user's holdings in this group over the window
+    ownedCards: MetaCard[];      // ≤ 20, for "Your cards in this group" on the group page
+  }>;
+};
+
+export type CalendarEventKind = 'release' | 'ban_list' | 'reveal' | 'event';
+export type CalendarEvent = {
+  id: string;
+  date: string;                  // YYYY-MM-DD
+  kind: CalendarEventKind;
+  game: CardGame;
+  title: string;                 // "Delta Reign (English)"
+  subtitle: string | null;       // one short line
+  setId: string | null;
+  url: string | null;            // official source, link-out
+};
+export type CalendarFeed = { items: CalendarEvent[] };   // upcoming only (date >= today), ascending
+
+// Repository query shapes for the meta feed v2 reads.
+export type MetaGroupDetailQuery = {
+  groupKey: string;
+  game?: CardGame;
+  windowDays?: number;
+  lane?: MetaLaneFilter;
+};
+
+export type MetaExposureQuery = {
+  game?: CardGame;
+  windowDays?: number;
+};
+
+export type CalendarQuery = {
+  /** Omitted = all games. */
+  game?: CardGame | null;
+  limit?: number;
+};
+
 export type CardPriceTrendsQuery = {
   cardId: string;
   mode: CardPriceTrendMode;
@@ -2335,6 +2413,8 @@ export type PushTokenRegistration = {
   deviceId?: string | null;
   /** App version the token was minted under, for triaging delivery reports. */
   appVersion?: string | null;
+  /** Device IANA timezone, so market alerts respect local quiet hours. */
+  timezone?: string | null;
 };
 
 /**
@@ -2354,6 +2434,23 @@ export type NotificationPrefs = {
  */
 export type NotificationPrefsResult =
   | { status: 'ok'; prefs: NotificationPrefs }
+  | { status: 'failed'; prefs: null };
+
+/**
+ * The Alerts screen's three switches. ALL DEFAULT TRUE (server + here).
+ * `dealAlertsEnabled` is the same server flag as `NotificationPrefs`'.
+ */
+export type AlertPreferences = {
+  priceMovesEnabled: boolean;
+  weeklySummaryEnabled: boolean;
+  dealAlertsEnabled: boolean;
+};
+
+/** A partial write; `timezone` (IANA) rides along so local-time windows work. */
+export type AlertPreferencesPatch = Partial<AlertPreferences> & { timezone?: string | null };
+
+export type AlertPreferencesResult =
+  | { status: 'ok'; prefs: AlertPreferences }
   | { status: 'failed'; prefs: null };
 
 /** The watchlist target row for one card, as returned by the target write. */

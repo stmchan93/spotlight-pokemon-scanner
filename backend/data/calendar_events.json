@@ -1,0 +1,75 @@
+{
+  "_comment": "Hand-maintained 'Coming up' dates (backend/calendar_feed.py). ONLY add a row when an official or reputable source states the date; put that page in `url`. Fields: id (unique), date (YYYY-MM-DD, first day for multi-day events), kind (release|ban_list|reveal|event), game (pokemon|onepiece|lorcana|riftbound|gundam), title, subtitle (one short line or null), setId (or null), url. Invalid rows are skipped and logged. Past rows drop out automatically. Releases also come from the expansions table automatically; a hand release on the same day as a catalog set merges into it.",
+  "events": [
+    {
+      "id": "pokemon-2027-louisville-regionals",
+      "date": "2026-10-09",
+      "kind": "event",
+      "game": "pokemon",
+      "title": "Louisville Regional Championships",
+      "subtitle": "Oct 9–11 · Louisville, KY",
+      "setId": null,
+      "url": "https://championships.pokemon.com/en-us/events/regionals/2027/louisville"
+    },
+    {
+      "id": "lorcana-hyperia-city-release",
+      "date": "2026-10-23",
+      "kind": "release",
+      "game": "lorcana",
+      "title": "Hyperia City",
+      "subtitle": "New set · prerelease Oct 16",
+      "setId": null,
+      "url": "https://www.disneylorcana.com/en-US/news/2026/09/hyp-press-release"
+    },
+    {
+      "id": "riftbound-radiance-release",
+      "date": "2026-10-23",
+      "kind": "release",
+      "game": "riftbound",
+      "title": "Radiance",
+      "subtitle": "New set · Pre-Rift Oct 16–18",
+      "setId": null,
+      "url": "https://playriftbound.com/en-us/news/announcements/riftbounds-latest-2026-roadmap/"
+    },
+    {
+      "id": "gundam-wcs-26-27-store-championships-s2",
+      "date": "2026-11-01",
+      "kind": "event",
+      "game": "gundam",
+      "title": "Store Championships Season 2",
+      "subtitle": "Nov 1–30 · local stores",
+      "setId": null,
+      "url": "https://www.gundam-gcg.com/en/events/StoreCS26-27_November.html"
+    },
+    {
+      "id": "pokemon-delta-reign-release",
+      "date": "2026-11-06",
+      "kind": "release",
+      "game": "pokemon",
+      "title": "Mega Evolution—Delta Reign",
+      "subtitle": "New set",
+      "setId": null,
+      "url": "https://www.pokemon.com/us/news/the-pokemon-tcg-mega-evolution-delta-reign-expansion-arrives-november-6-2026"
+    },
+    {
+      "id": "onepiece-bcg-fest-26-27-orlando",
+      "date": "2027-01-07",
+      "kind": "event",
+      "game": "onepiece",
+      "title": "Bandai Card Games Fest Orlando",
+      "subtitle": "Jan 7–10 · Championship finals",
+      "setId": null,
+      "url": "https://en.onepiece-cardgame.com/events/bcgfest25-26-orlando.html"
+    },
+    {
+      "id": "gundam-bcg-fest-26-27-orlando",
+      "date": "2027-01-07",
+      "kind": "event",
+      "game": "gundam",
+      "title": "Bandai Card Games Fest Orlando",
+      "subtitle": "Jan 7–10 · Championship finals",
+      "setId": null,
+      "url": "https://www.gundam-gcg.com/en/events/bcgfest_26-27_orlando.html"
+    }
+  ]
+}

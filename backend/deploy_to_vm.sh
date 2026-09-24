@@ -337,6 +337,8 @@ META_PULSE_LOG_FILE="$LOG_DIR/meta_pulse.log"
 HOT_CARDS_LOG_FILE="$LOG_DIR/hot_cards.log"
 SET_SPOTLIGHT_LOG_FILE="$LOG_DIR/set_spotlight.log"
 NEWS_FEED_LOG_FILE="$LOG_DIR/news_feed.log"
+SIMILAR_CARDS_LOG_FILE="$LOG_DIR/similar_cards.log"
+MARKET_ALERTS_LOG_FILE="$LOG_DIR/market_alerts.log"
 TORCH_CPU_INDEX_URL="${SPOTLIGHT_VM_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}"
 TORCH_PACKAGE_SPEC="${SPOTLIGHT_VM_TORCH_PACKAGE_SPEC:-torch==2.11.0+cpu}"
 SYNC_CRON_SCHEDULE="${SPOTLIGHT_VM_SYNC_CRON:-0 18 * * *}"
@@ -520,7 +522,9 @@ chmod +x \
   "$SCRIPT_DIR/run_meta_pulse_vm.sh" \
   "$SCRIPT_DIR/run_hot_cards_vm.sh" \
   "$SCRIPT_DIR/run_set_spotlight_vm.sh" \
-  "$SCRIPT_DIR/run_news_feed_vm.sh"
+  "$SCRIPT_DIR/run_news_feed_vm.sh" \
+  "$SCRIPT_DIR/run_market_alerts_vm.sh" \
+  "$SCRIPT_DIR/run_similar_cards_vm.sh"
 
 sudo tee "$SERVICE_PATH" >/dev/null <<EOF
 [Unit]
@@ -637,6 +641,15 @@ META_PULSE_LINE="10 7 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_meta_pulse_vm.sh >>
 SET_SPOTLIGHT_LINE="25 7 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_set_spotlight_vm.sh >> $SET_SPOTLIGHT_LOG_FILE 2>&1"
 HOT_CARDS_LINE="41 * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_hot_cards_vm.sh >> $HOT_CARDS_LOG_FILE 2>&1"
 NEWS_FEED_LINE="17 * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_news_feed_vm.sh >> $NEWS_FEED_LOG_FILE 2>&1"
+# Market-alert pushes: HOURLY because quiet hours and the Sunday summary are in
+# each user's local time. :03 so a user's 09:00 deferral flush lands early in
+# the hour; clear of every other job minute. No-ops unless MARKET_ALERTS_ENABLED.
+MARKET_ALERTS_LINE="3 * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_market_alerts_vm.sh >> $MARKET_ALERTS_LOG_FILE 2>&1"
+# PDP "More like this" neighbours — daily at 07:40 UTC (~00:40 PT), after the
+# feed jobs, in its own process (~15s, ~0.8GB peak on the Pokémon index). Free
+# (reads the on-disk visual indexes), so both envs; no-op unless
+# SIMILAR_CARDS_ENABLED is truthy.
+SIMILAR_CARDS_LINE="40 7 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_similar_cards_vm.sh >> $SIMILAR_CARDS_LOG_FILE 2>&1"
 
 CURRENT_CRONTAB="$(mktemp "${TMPDIR:-/tmp}/spotlight-crontab.XXXXXX")"
 trap 'rm -f "$CURRENT_CRONTAB"' EXIT
@@ -693,6 +706,8 @@ PY
   echo "$SET_SPOTLIGHT_LINE"
   echo "$HOT_CARDS_LINE"
   echo "$NEWS_FEED_LINE"
+  echo "$MARKET_ALERTS_LINE"
+  echo "$SIMILAR_CARDS_LINE"
   echo "$CRON_END"
 } | crontab -
 

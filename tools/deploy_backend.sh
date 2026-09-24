@@ -252,6 +252,11 @@ if [ -f "$BACKEND_DIR/data/slab_set_aliases.json" ]; then
   mkdir -p "$BUNDLE_ROOT/data"
   cp "$BACKEND_DIR/data/slab_set_aliases.json" "$BUNDLE_ROOT/data/slab_set_aliases.json"
 fi
+# Hand-maintained "Coming up" dates (calendar_feed.py); optional at runtime.
+if [ -f "$BACKEND_DIR/data/calendar_events.json" ]; then
+  mkdir -p "$BUNDLE_ROOT/data"
+  cp "$BACKEND_DIR/data/calendar_events.json" "$BUNDLE_ROOT/data/calendar_events.json"
+fi
 # --------------------------------------------------------------------------
 # Rerank-pool / adapter embedding-space preflight guard.
 #

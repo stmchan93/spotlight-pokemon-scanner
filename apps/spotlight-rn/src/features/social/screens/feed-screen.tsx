@@ -20,7 +20,7 @@ import {
 import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { MetaPulse } from '@spotlight/api-client';
+import type { MetaGroup, MetaPulse } from '@spotlight/api-client';
 import {
   Avatar,
   StateCard,
@@ -33,6 +33,7 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { HOME_HEADER_BAR_HEIGHT, HomeHeader } from '@/components/home-header';
 import { tabBarBottomFadeHeight } from '@/lib/tab-bar-insets';
+import { ComingUpBlock, hasComingUpContent } from '@/features/meta-feed/components/coming-up-block';
 import { HotCardsBlock, hasHotCardsContent } from '@/features/meta-feed/components/hot-cards-block';
 import { MetaPulseBlock, hasMetaPulseContent } from '@/features/meta-feed/components/meta-pulse-block';
 import { NewsBlock, hasNewsContent } from '@/features/meta-feed/components/news-block';
@@ -41,12 +42,16 @@ import {
   hasSetSpotlightContent,
 } from '@/features/meta-feed/components/set-spotlight-block';
 import {
+  CALENDAR_BLOCK_LIMIT,
   NEWS_FEED_BLOCK_LIMIT,
+  useCalendar,
   useHotCards,
+  useMetaExposure,
   useMetaPulse,
   useNewsFeed,
   useSetSpotlight,
 } from '@/features/meta-feed/hooks/use-meta-feed';
+import { useMetaFeedNavigation } from '@/features/meta-feed/hooks/use-meta-feed-navigation';
 import { PostCard } from '@/features/social/components/post-card';
 import { RepostAttribution } from '@/features/social/components/repost-attribution';
 import {
@@ -181,13 +186,22 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const topTrendsVisible = hasTopTrendsContent(topMovers, topMoversLoading);
   // The meta feed blocks: same shared-cache pattern, each with its own window.
   const metaPulse = useMetaPulse();
+  // The viewer's own groups, for the pulse's callout + "You own N" tags. Waits
+  // for the pulse so it is read for the same game/window.
+  const metaExposure = useMetaExposure(
+    metaPulse.data ? { game: metaPulse.data.game, windowDays: metaPulse.data.windowDays } : undefined,
+    { enabled: metaPulse.data != null },
+  );
   const hotCards = useHotCards();
   const setSpotlight = useSetSpotlight();
+  const calendar = useCalendar({ limit: CALENDAR_BLOCK_LIMIT });
   const newsFeed = useNewsFeed({ limit: NEWS_FEED_BLOCK_LIMIT });
   const {
     refresh: refreshMetaPulse,
     refreshIfStale: refreshMetaPulseIfStale,
   } = metaPulse;
+  const { refresh: refreshMetaExposure, refreshIfStale: refreshMetaExposureIfStale } = metaExposure;
+  const { refresh: refreshCalendar, refreshIfStale: refreshCalendarIfStale } = calendar;
   const { refresh: refreshHotCards, refreshIfStale: refreshHotCardsIfStale } = hotCards;
   const {
     refresh: refreshSetSpotlight,
@@ -196,7 +210,8 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const { refresh: refreshNewsFeed, refreshIfStale: refreshNewsFeedIfStale } = newsFeed;
   /*
     The header's sections in feed order (Meta pulse → Hot on Ekalight → Set
-    spotlight → Top Trends → Card news), each present only with content. The
+    spotlight → Coming up → Top Trends → Card news), each present only with
+    content. The
     LAST visible one is the section that meets the first post, so it hands its
     closing band to the first cell once posts exist (see renderItem); every
     other section closes itself.
@@ -205,6 +220,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     hasMetaPulseContent(metaPulse.data) ? 'metaPulse' : null,
     hasHotCardsContent(hotCards.data) ? 'hotCards' : null,
     hasSetSpotlightContent(setSpotlight.data) ? 'setSpotlight' : null,
+    hasComingUpContent(calendar.data) ? 'comingUp' : null,
     topTrendsVisible ? 'topTrends' : null,
     hasNewsContent(newsFeed.data) ? 'news' : null,
   ].filter((block): block is string => block != null);
@@ -466,8 +482,10 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       // is checked on every focus regardless of which branch the feed takes.
       refreshTopMoversIfStale();
       refreshMetaPulseIfStale();
+      refreshMetaExposureIfStale();
       refreshHotCardsIfStale();
       refreshSetSpotlightIfStale();
+      refreshCalendarIfStale();
       refreshNewsFeedIfStale();
       // Compare-and-record rather than read-and-clear: the owner's Activity tab
       // watches the same counter and must see this signal too.
@@ -482,7 +500,9 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     }, [
       loadFeed,
       refetchFeedQuietly,
+      refreshCalendarIfStale,
       refreshHotCardsIfStale,
+      refreshMetaExposureIfStale,
       refreshMetaPulseIfStale,
       refreshNewsFeedIfStale,
       refreshSetSpotlightIfStale,
@@ -499,8 +519,10 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     // keeps the cached rail up rather than holding the control open.
     void refreshTopMovers();
     void refreshMetaPulse();
+    void refreshMetaExposure();
     void refreshHotCards();
     void refreshSetSpotlight();
+    void refreshCalendar();
     void refreshNewsFeed();
     void (async () => {
       try {
@@ -521,7 +543,15 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         }
       }
     })();
-  }, [refreshHotCards, refreshMetaPulse, refreshNewsFeed, refreshSetSpotlight, refreshTopMovers]);
+  }, [
+    refreshCalendar,
+    refreshHotCards,
+    refreshMetaExposure,
+    refreshMetaPulse,
+    refreshNewsFeed,
+    refreshSetSpotlight,
+    refreshTopMovers,
+  ]);
 
   const handleLoadMore = useCallback(() => {
     if (!hasMore || loadingMoreRef.current || status !== 'ready' || items.length === 0) {
@@ -582,6 +612,15 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       router.push({ pathname: '/set-spotlight/[setId]', params: { setId } } as never);
     },
     [router],
+  );
+
+  const metaNavigation = useMetaFeedNavigation();
+  const { openMetaGroup } = metaNavigation;
+  const openMetaGroupRow = useCallback(
+    (group: MetaGroup, pulse: MetaPulse) => {
+      openMetaGroup({ game: pulse.game, groupKey: group.groupKey, lane: pulse.lane, windowDays: pulse.windowDays });
+    },
+    [openMetaGroup],
   );
 
   const openNews = useCallback(() => {
@@ -807,6 +846,8 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
           <>
             {composePrompt}
             <MetaPulseBlock
+              exposure={metaExposure.data}
+              onOpenGroup={openMetaGroupRow}
               onOpenMeta={openMeta}
               pulse={metaPulse.data}
               showBand={showBlockBand('metaPulse')}
@@ -824,6 +865,13 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
               showBand={showBlockBand('setSpotlight')}
               spotlight={setSpotlight.data}
               testID={`${testID}-set-spotlight`}
+            />
+            <ComingUpBlock
+              feed={calendar.data}
+              onOpenCalendar={metaNavigation.openCalendar}
+              onOpenEvent={metaNavigation.openCalendarEvent}
+              showBand={showBlockBand('comingUp')}
+              testID={`${testID}-coming-up`}
             />
             {topTrendsBlock}
             <NewsBlock

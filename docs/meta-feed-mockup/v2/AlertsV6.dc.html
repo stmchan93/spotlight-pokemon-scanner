@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Alerts with limits</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#FFFFFF;font-family:'Plus Jakarta Sans',system-ui,sans-serif;color:#1A1A1A}
+a{color:#7000FF;text-decoration:none}a:hover{color:#4B3FD8}
+.h2{font-size:20px;line-height:26px;font-weight:800;letter-spacing:-0.3px;color:#1A1A1A}
+.sub{font-size:12px;line-height:16px;font-weight:500;color:#717171}
+.link{font-size:13px;font-weight:700;color:#7000FF}
+.nm{font-size:14px;line-height:19px;font-weight:600;color:#1A1A1A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pr{font-size:14px;line-height:19px;font-weight:700;color:#1A1A1A}
+.card{display:block;object-fit:cover;border-radius:6px;background:#E8E8E8;box-shadow:0 6px 16px rgba(0,0,0,.14)}
+.pill{position:absolute;display:inline-flex;align-items:center;gap:2px;padding:4px 8px;border-radius:999px;font-size:13px;font-weight:800;box-shadow:0 2px 6px rgba(0,0,0,.18)}
+.up{background:#E2F4E8;color:#1E7A3C}.dn{background:#FFE9E9;color:#B22416}
+.row{display:flex;align-items:center;gap:12px;padding:10px 0}
+.thumb{width:34px;height:47px;border-radius:3px;object-fit:cover;flex-shrink:0;background:#E8E8E8}
+.gname{font-size:15px;line-height:20px;font-weight:700;color:#1A1A1A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.track{height:8px;border-radius:999px;background:#F2F2F2;margin-top:7px;position:relative;overflow:hidden}
+.pct{font-size:18px;line-height:22px;font-weight:800;text-align:right}
+.usd{font-size:12px;line-height:16px;font-weight:600;color:#717171;text-align:right}
+.own{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:999px;background:#F7EEFF;color:#7000FF;font-size:11px;font-weight:800;margin-left:6px;vertical-align:2px}
+.divlabel{font-size:12px;font-weight:800;letter-spacing:.6px;padding:14px 0 2px}
+.chip{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 10px;border-radius:999px;background:#F2F2F2;font-size:12px;font-weight:700;color:#1A1A1A;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:44px;padding:0 18px;border-radius:999px;border:0;font-family:inherit;font-size:15px;font-weight:700}
+.h3{font-size:17px;line-height:22px;font-weight:800;color:#1A1A1A}
+.post{display:flex;gap:10px;padding:12px 0;border-bottom:0.5px solid #D4D4D4}
+.av{width:32px;height:32px;border-radius:999px;flex-shrink:0}
+.tag{color:#7000FF;font-weight:700}
+.notif{display:flex;gap:10px;padding:12px;border-radius:18px;background:rgba(255,255,255,.14);color:#FFFFFF}
+.band{height:8px;background:#F2F2F2;flex-shrink:0}
+.rail{display:flex;gap:14px;padding:0 16px;overflow:hidden}
+.rank{font-size:96px;line-height:80px;font-weight:800;color:#FFFFFF;-webkit-text-stroke:3px #1A1A1A;letter-spacing:-6px}
+.bubble{width:44px;height:44px;border-radius:999px;background:#F3F3F3;display:flex;align-items:center;justify-content:center;border:0;padding:0}
+</style>
+</helmet>
+<div style="width: 390px; height: 960px; box-sizing: border-box; background: #FFFFFF; display: flex; flex-direction: column; overflow: hidden">
+  <div style="padding: 28px 14px 22px; background: #1B1036; display: flex; flex-direction: column; gap: 10px">
+    <div style="text-align: center; color: #FFFFFF; font-size: 13px; font-weight: 700; opacity: .7; margin-bottom: 6px">MOST DAYS: NOTHING. A BIG DAY: ONE PUSH.</div>
+    <div class="notif"><img src="/_blob/c20580a6c78480ca0c21293990cdf627" alt="" style="width: 38px; height: 53px; border-radius: 4px; object-fit: cover; flex-shrink: 0"><div style="flex-grow: 1"><div style="display: flex; justify-content: space-between"><div style="font-size: 13px; font-weight: 800">EKALIGHT</div><div style="font-size: 12px; opacity: .7">11:30 AM</div></div><div style="font-size: 15px; font-weight: 700; margin-top: 2px">Latios ☆ +12% and 2 more</div><div style="font-size: 14px; line-height: 19px; opacity: .85">Cards you watch moved today. Tap to see all three.</div></div></div>
+    <div class="notif"><img src="/_blob/dd826e449aacb7afbb44247082e7fd58" alt="" style="width: 38px; height: 53px; border-radius: 4px; object-fit: cover; flex-shrink: 0"><div style="flex-grow: 1"><div style="display: flex; justify-content: space-between"><div style="font-size: 13px; font-weight: 800">EKALIGHT</div><div style="font-size: 12px; opacity: .7">Sun 10 AM</div></div><div style="font-size: 15px; font-weight: 700; margin-top: 2px">Your collection +$312 this week</div><div style="font-size: 14px; line-height: 19px; opacity: .85">Sunday summary. Vintage PSA 10s led it.</div></div></div>
+    <div class="notif"><img src="/_blob/b8ef4fca49d6ba44b61881380742ff7d" alt="" style="width: 38px; height: 53px; border-radius: 4px; object-fit: cover; flex-shrink: 0"><div style="flex-grow: 1"><div style="display: flex; justify-content: space-between"><div style="font-size: 13px; font-weight: 800">EKALIGHT</div><div style="font-size: 12px; opacity: .7">Tue</div></div><div style="font-size: 15px; font-weight: 700; margin-top: 2px">Umbreon ex listed 18% under market</div><div style="font-size: 14px; line-height: 19px; opacity: .85">On eBay, a card you watch. Deal alert.</div></div></div>
+  </div>
+  <div style="display: flex; align-items: center; gap: 12px; padding: 16px 16px 0"><button class="bubble" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"></path></svg></button><div style="font-size: 22px; font-weight: 800">Alerts</div></div>
+  <div style="padding: 4px 16px 0">
+    <div style="display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 0.5px solid #D4D4D4"><div style="flex-grow: 1"><div style="font-size: 15px; font-weight: 700">Price moves</div><div class="sub" style="margin-top: 2px">Cards you own or watch, when they move 10%+ and $5+</div></div><div role="switch" aria-checked="true" style="position: relative; width: 50px; height: 30px; border-radius: 999px; background: #7000FF; flex-shrink: 0"><div style="position: absolute; top: 3px; right: 3px; width: 24px; height: 24px; border-radius: 999px; background: #FFFFFF"></div></div></div>
+    <div style="display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 0.5px solid #D4D4D4"><div style="flex-grow: 1"><div style="font-size: 15px; font-weight: 700">Weekly summary</div><div class="sub" style="margin-top: 2px">Sunday morning: how your collection did</div></div><div role="switch" aria-checked="true" style="position: relative; width: 50px; height: 30px; border-radius: 999px; background: #7000FF; flex-shrink: 0"><div style="position: absolute; top: 3px; right: 3px; width: 24px; height: 24px; border-radius: 999px; background: #FFFFFF"></div></div></div>
+    <div style="display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 0.5px solid #D4D4D4"><div style="flex-grow: 1"><div style="font-size: 15px; font-weight: 700">Deals under market</div><div class="sub" style="margin-top: 2px">Watched cards listed well below market</div></div><div role="switch" aria-checked="true" style="position: relative; width: 50px; height: 30px; border-radius: 999px; background: #7000FF; flex-shrink: 0"><div style="position: absolute; top: 3px; right: 3px; width: 24px; height: 24px; border-radius: 999px; background: #FFFFFF"></div></div></div>
+  </div>
+  <div style="margin: 16px; padding: 14px 16px; border-radius: 14px; background: #F7F7F7; font-size: 13px; line-height: 20px; color: #4A4A4A">
+    <b style="color: #1A1A1A">Built-in limits</b><br>At most 1 push a day, bundled · same card waits 3 days unless it moves another 10% · nothing 9 PM – 9 AM · only your cards, never “the market”.
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":960}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

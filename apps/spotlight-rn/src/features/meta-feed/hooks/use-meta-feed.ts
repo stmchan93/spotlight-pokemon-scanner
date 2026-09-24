@@ -1,6 +1,12 @@
 import type {
+  CalendarFeed,
+  CalendarQuery,
   HotCards,
   HotCardsQuery,
+  MetaExposure,
+  MetaExposureQuery,
+  MetaGroupDetail,
+  MetaGroupDetailQuery,
   MetaPulse,
   MetaPulseQuery,
   NewsFeed,
@@ -8,6 +14,8 @@ import type {
   SetSpotlight,
   SetSpotlightQuery,
 } from '@spotlight/api-client';
+
+import { useAppServices } from '@/providers/app-providers';
 
 import { useMetaFeedRead, type UseMetaFeedReadResult } from './use-meta-feed-read';
 
@@ -20,6 +28,13 @@ export const META_PULSE_STALE_AFTER_MS = 30 * 60_000;
 export const HOT_CARDS_STALE_AFTER_MS = 10 * 60_000;
 export const SET_SPOTLIGHT_STALE_AFTER_MS = 30 * 60_000;
 export const NEWS_FEED_STALE_AFTER_MS = 15 * 60_000;
+// Exposure follows the viewer's collection, so it goes stale faster than the
+// nightly market payloads it is joined to.
+export const META_EXPOSURE_STALE_AFTER_MS = 5 * 60_000;
+export const CALENDAR_STALE_AFTER_MS = 60 * 60_000;
+
+/** How many dates the feed's Coming up block shows. */
+export const CALENDAR_BLOCK_LIMIT = 3;
 
 /** How many headlines the feed's Card news block shows. */
 export const NEWS_FEED_BLOCK_LIMIT = 3;
@@ -69,5 +84,43 @@ export function useNewsFeed(query?: NewsFeedQuery): UseMetaFeedReadResult<NewsFe
     metaFeedCacheKey('newsFeed', query),
     (repository) => repository.fetchNewsFeed(query),
     NEWS_FEED_STALE_AFTER_MS,
+  );
+}
+
+export function useMetaGroupDetail(query: MetaGroupDetailQuery): UseMetaFeedReadResult<MetaGroupDetail> {
+  return useMetaFeedRead(
+    metaFeedCacheKey('metaGroup', query),
+    (repository) => repository.fetchMetaGroupDetail(query),
+    META_PULSE_STALE_AFTER_MS,
+  );
+}
+
+/**
+ * The viewer's own exposure is ACCOUNT data: its cache key carries the session
+ * owner, so one account's holdings can never paint for another (the same rule
+ * as every other owner-scoped cache — see `sessionOwnerKey`).
+ */
+export function metaExposureCacheKey(ownerKey: string, query?: MetaExposureQuery): string {
+  return metaFeedCacheKey('metaExposure', { ...query, owner: ownerKey });
+}
+
+export function useMetaExposure(
+  query?: MetaExposureQuery,
+  options?: { enabled?: boolean },
+): UseMetaFeedReadResult<MetaExposure> {
+  const { sessionOwnerKey } = useAppServices();
+  return useMetaFeedRead(
+    metaExposureCacheKey(sessionOwnerKey, query),
+    (repository) => repository.fetchMetaExposure(query),
+    META_EXPOSURE_STALE_AFTER_MS,
+    options?.enabled ?? true,
+  );
+}
+
+export function useCalendar(query?: CalendarQuery): UseMetaFeedReadResult<CalendarFeed> {
+  return useMetaFeedRead(
+    metaFeedCacheKey('calendar', query),
+    (repository) => repository.fetchCalendar(query),
+    CALENDAR_STALE_AFTER_MS,
   );
 }

@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type {
+  CalendarFeed,
+  CalendarQuery,
+  MetaGroupDetail,
+  MetaGroupDetailQuery,
   MetaPulse,
   MetaPulseQuery,
   NewsFeed,
@@ -11,6 +15,8 @@ import type {
 
 import {
   metaFeedCacheKey,
+  useCalendar,
+  useMetaGroupDetail,
   useMetaPulse,
   useNewsFeed,
   useSetSpotlight,
@@ -79,4 +85,12 @@ export function useSetSpotlightPageData(query: SetSpotlightQuery): MetaPageData<
 
 export function useNewsPageData(query: NewsFeedQuery): MetaPageData<NewsFeed> {
   return usePageStatus('newsFeed', query, useNewsFeed(query));
+}
+
+export function useMetaGroupPageData(query: MetaGroupDetailQuery): MetaPageData<MetaGroupDetail> {
+  return usePageStatus('metaGroup', query, useMetaGroupDetail(query));
+}
+
+export function useCalendarPageData(query: CalendarQuery): MetaPageData<CalendarFeed> {
+  return usePageStatus('calendar', query, useCalendar(query));
 }

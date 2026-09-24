@@ -12,7 +12,9 @@ import { FeedScreen } from '@/features/social/screens/feed-screen';
 import { getFeedRefreshVersion, signalFeedNeedsRefresh } from '@/features/social/screens/new-post-screen';
 
 import {
+  mockCalendarFeed,
   mockHotCards,
+  mockMetaExposure,
   mockMetaPulse,
   mockNewsFeed,
   mockSetSpotlight,
@@ -126,7 +128,8 @@ function buildMovers() {
 }
 
 /**
- * The meta feed reads (Meta pulse, Hot on Ekalight, Set spotlight, Card news),
+ * The meta feed reads (Meta pulse + exposure, Hot on Ekalight, Set spotlight,
+ * Coming up, Card news),
  * controlled per test. They resolve NULL (feature off) by default for the same
  * reason the movers reject: the stock mock repository serves full payloads,
  * which would put four more sections into every layout assertion below.
@@ -135,6 +138,8 @@ const fetchMetaPulse = jest.fn();
 const fetchHotCards = jest.fn();
 const fetchSetSpotlight = jest.fn();
 const fetchNewsFeed = jest.fn();
+const fetchMetaExposure = jest.fn();
+const fetchCalendar = jest.fn();
 
 function renderFeed() {
   return renderWithProviders(<FeedScreen />, {
@@ -144,6 +149,8 @@ function renderFeed() {
       fetchHotCards,
       fetchSetSpotlight,
       fetchNewsFeed,
+      fetchMetaExposure,
+      fetchCalendar,
     }),
   });
 }
@@ -160,6 +167,8 @@ describe('FeedScreen', () => {
     fetchHotCards.mockResolvedValue(null);
     fetchSetSpotlight.mockResolvedValue(null);
     fetchNewsFeed.mockResolvedValue(null);
+    fetchMetaExposure.mockResolvedValue(null);
+    fetchCalendar.mockResolvedValue(null);
     // The hook logs the rejection; keep the default-rejecting reads quiet.
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
   });
@@ -420,8 +429,8 @@ describe('FeedScreen', () => {
   });
 
   /*
-    THE META FEED BLOCKS: Meta pulse → Hot on Ekalight → Set spotlight → Top
-    Trends → Card news, all list-header sections above the first post. Each is
+    THE META FEED BLOCKS: Meta pulse → Hot on Ekalight → Set spotlight → Coming
+    up → Top Trends → Card news, all list-header sections above the first post. Each is
     absent on a disabled (null) read, and the last visible one hands its band
     to the first cell once posts exist.
   */
@@ -431,6 +440,8 @@ describe('FeedScreen', () => {
       fetchHotCards.mockResolvedValue(mockHotCards);
       fetchSetSpotlight.mockResolvedValue(mockSetSpotlight);
       fetchNewsFeed.mockResolvedValue(mockNewsFeed);
+      fetchMetaExposure.mockResolvedValue(mockMetaExposure);
+      fetchCalendar.mockResolvedValue(mockCalendarFeed);
       getTopMovers.mockResolvedValue(buildMovers());
     }
 
@@ -443,19 +454,25 @@ describe('FeedScreen', () => {
       await waitFor(() => expect(screen.getByTestId('feed-top-trends')).toBeTruthy());
 
       const sections = screen.getAllByTestId(
-        /^feed-(compose-prompt|meta-pulse|hot-cards|set-spotlight|top-trends|card-news|post-body)$/,
+        /^feed-(compose-prompt|meta-pulse|hot-cards|set-spotlight|coming-up|top-trends|card-news|post-body)$/,
       );
       expect(sections.map((row) => row.props.testID)).toEqual([
         'feed-compose-prompt',
         'feed-meta-pulse',
         'feed-hot-cards',
         'feed-set-spotlight',
+        'feed-coming-up',
         'feed-top-trends',
         'feed-card-news',
         'feed-post-body',
       ]);
       // The block feed only asks for the three headlines it shows.
       expect(fetchNewsFeed).toHaveBeenCalledWith({ limit: 3 });
+      expect(fetchCalendar).toHaveBeenCalledWith({ limit: 3 });
+      // Exposure waits for the pulse and is read for the same game + window.
+      await waitFor(() => expect(fetchMetaExposure).toHaveBeenCalledWith({ game: 'pokemon', windowDays: 7 }));
+      expect(fetchMetaExposure).toHaveBeenCalledTimes(1);
+      expect(await screen.findByTestId('feed-meta-pulse-callout')).toBeTruthy();
 
       // Every block but the last closes itself; the last hands its band to
       // the first cell, which then carries no extra margin.
@@ -464,6 +481,7 @@ describe('FeedScreen', () => {
       expect(band('feed-meta-pulse')).toBe(4);
       expect(band('feed-hot-cards')).toBe(4);
       expect(band('feed-set-spotlight')).toBe(4);
+      expect(band('feed-coming-up')).toBe(4);
       expect(band('feed-top-trends')).toBe(4);
       expect(band('feed-card-news')).toBe(0);
       const firstCell = StyleSheet.flatten(screen.getByTestId('feed-first-cell-rule').props.style);
@@ -495,6 +513,30 @@ describe('FeedScreen', () => {
       expect(StyleSheet.flatten(screen.getByTestId('feed-card-news').props.style).borderBottomWidth).toBe(4);
     });
 
+    it('slots Coming up between Set spotlight and Top Trends, and hands it the seam when last', async () => {
+      fetchSetSpotlight.mockResolvedValue(mockSetSpotlight);
+      fetchCalendar.mockResolvedValue(mockCalendarFeed);
+
+      renderFeed();
+      await waitFor(() => expect(screen.getByTestId('feed-coming-up')).toBeTruthy());
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+
+      const sections = screen.getAllByTestId(/^feed-(set-spotlight|coming-up)$/);
+      expect(sections.map((row) => row.props.testID)).toEqual(['feed-set-spotlight', 'feed-coming-up']);
+      expect(StyleSheet.flatten(screen.getByTestId('feed-set-spotlight').props.style).borderBottomWidth).toBe(4);
+      expect(StyleSheet.flatten(screen.getByTestId('feed-coming-up').props.style).borderBottomWidth).toBe(0);
+      expect(StyleSheet.flatten(screen.getByTestId('feed-first-cell-rule').props.style).marginBottom).toBe(0);
+    });
+
+    it('hides Coming up when the calendar is empty', async () => {
+      fetchCalendar.mockResolvedValue({ items: [] });
+
+      renderFeed();
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+      await waitFor(() => expect(fetchCalendar).toHaveBeenCalled());
+      expect(screen.queryByTestId('feed-coming-up')).toBeNull();
+    });
+
     it('routes the block links to the meta, set and news pages', async () => {
       resolveAll();
 
@@ -503,6 +545,13 @@ describe('FeedScreen', () => {
 
       fireEvent.press(screen.getByTestId('feed-meta-pulse-header-action'));
       expect(push).toHaveBeenLastCalledWith({ pathname: '/meta', params: { game: 'pokemon' } });
+      fireEvent.press(screen.getByTestId('feed-meta-pulse-down-row-modern:raw:sir'));
+      expect(push).toHaveBeenLastCalledWith({
+        pathname: '/meta/group/[groupKey]',
+        params: { game: 'pokemon', groupKey: 'modern:raw:sir', window: '7' },
+      });
+      fireEvent.press(screen.getByTestId('feed-coming-up-header-action'));
+      expect(push).toHaveBeenLastCalledWith('/calendar');
       fireEvent.press(screen.getByTestId('feed-set-spotlight-header-action'));
       expect(push).toHaveBeenLastCalledWith({
         pathname: '/set-spotlight/[setId]',
@@ -522,14 +571,16 @@ describe('FeedScreen', () => {
 
       renderFeed();
       await waitFor(() => expect(screen.getByTestId('feed-card-news')).toBeTruthy());
-      for (const read of [fetchMetaPulse, fetchHotCards, fetchSetSpotlight, fetchNewsFeed]) {
+      await waitFor(() => expect(fetchMetaExposure).toHaveBeenCalledTimes(1));
+      const reads = [fetchMetaPulse, fetchMetaExposure, fetchHotCards, fetchSetSpotlight, fetchCalendar, fetchNewsFeed];
+      for (const read of reads) {
         expect(read).toHaveBeenCalledTimes(1);
       }
 
       await act(async () => {
         screen.getByTestId('feed-list').props.refreshControl.props.onRefresh();
       });
-      for (const read of [fetchMetaPulse, fetchHotCards, fetchSetSpotlight, fetchNewsFeed]) {
+      for (const read of reads) {
         await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
       }
     });

@@ -72,6 +72,11 @@ Current typography roles:
 - `cardMetaStrong` — 11/600, a news row's "Source · 2h", a hot tile's "4.2× usual checks"
 - `chipLabel` — 11/600, `DeltaPill`, `RankBadge` and outlined tag chips
 - `tag` — 10/700, `LaneTag` and the video duration badge
+- Meta feed v2 scale (`docs/meta-feed-mockup/v2`): `feedTitle` 20/800 (block
+  titles, Meta headline), `feedPageTitle` 24/800, `feedSectionTitle` 17/800,
+  `feedDeltaLarge` 34/800, `feedDelta` 18/800 (bar-row %, date-tile day),
+  `feedRowTitle` 15/700, `feedEyebrow` 12/800 tracked ("ON THE WAY UP"),
+  `feedTag` 11/800 (`OwnedTag`, kind chips)
 
 Current scanner surface tokens:
 
@@ -477,6 +482,35 @@ Current API concepts:
   nothing and the row lays out exactly as before; `testID` suffix `-footnote`
 - optional `onPress` (whole row becomes a `Pressable` with button role)
 
+### CardRailTile
+
+File: `src/components/card-rail-tile.tsx`
+
+A card in a horizontal rail — the PDP "More like this" rows
+(docs/meta-feed-mockup/v2/SimilarV7). Presentation only; strings arrive
+preformatted.
+
+- `layout="rail"` (default): fixed `CARD_RAIL_TILE_WIDTH` (128) column —
+  portrait art (card aspect, radius 6, `gray200` fill without an image), then
+  name (`titleXsmall`), subtitle (`captionMedium` gray-600) and price
+  (`bodyStrong`), each one line
+- `layout="feature"`: one full-width `purple50` row at `radii.lg` with 86-wide
+  art on the left, name (`titleSmall`), subtitle, price (`titleMedium`) and an
+  optional `accentLabel` in `brandStrong` ("Complete the pair")
+
+| Prop | Type | Notes |
+| --- | --- | --- |
+| `imageUrl` | `string \| null` | Card art |
+| `name` | `string` | Required |
+| `subtitle` | `string \| null` | Optional second line |
+| `priceLabel` | `string \| null` | Hidden when empty |
+| `layout` | `'rail' \| 'feature'` | Default `'rail'` |
+| `accentLabel` | `string \| null` | `feature` only |
+| `onPress` | `() => void` | Pressed state is opacity 0.7 |
+| `testID` | `string` | Derives `-art`, `-image`, `-price` |
+
+Use `InventoryCardTile` for grids and `TopMoverTile` for the Top trends rail.
+
 ### InventoryCardTile
 
 File: `src/components/inventory-card-tile.tsx`
@@ -675,23 +709,66 @@ File: `src/components/rank-badge.tsx`.
 | `variant` | `'badge' \| 'plain'` | `badge` (default): 22pt gray900 circle, white number — over card art. `plain`: 14pt-wide bold number column for list rows |
 | `style`, `testID` | | Position the badge from the host (e.g. absolute top/left 6) |
 
-#### MetaGroupRow
+#### MetaBarRow
 
-File: `src/components/meta-group-row.tsx`. One rising/cooling card group: 32pt
-tinted trend icon (GraphUp / GraphDown), name + `LaneTag` over a description,
-`DeltaPill` over the $ value line. Rows sit in a host container (1pt gray200
-border, `radii.md`, `overflow: hidden`).
+File: `src/components/meta-bar-row.tsx`. One rising/cooling group as a bar row
+(Meta pulse v4, Meta page v4): 34×47 lead-card thumb, `feedRowTitle` name +
+optional `OwnedTag` over an 8pt `gray100` track whose `green500` / `red500`
+fill the HOST scales, a 48×16 `PriceSparkline`, then a 74pt column with the
+`feedDelta` % (`deltaUpText` / `deltaDownText`) over the signed $ line. Rows
+are unframed (10pt vertical padding); the host stacks them under a
+`feedEyebrow` label.
 
 | Prop | Type | Notes |
 | --- | --- | --- |
-| `label` | `string` | `Vintage PSA 10 · pop ≤ 50` |
-| `lane` | `'raw' \| 'graded'` | Feeds the `LaneTag` |
-| `description` | `string` | `pre-2003 · 1,840 cards` |
-| `changeLabel` | `string` | Preformatted median change |
-| `changePercent` | `number` | `>= 0` rising (green icon), `< 0` cooling (red) |
-| `valueLabel` | `string` | Optional, `+$412k value` |
-| `divider` | `boolean` | 1pt gray200 rule ABOVE the row (all but the first) |
-| `onPress`, `testID` | | Derives `-icon-up`/`-icon-down`, `-lane`, `-change` |
+| `label` | `string` | `Vintage PSA 10 · low pop` |
+| `imageUrl` | `string \| null` | Lead card; null = gray200 slot |
+| `ownedLabel` | `string \| null` | `You own 4`; null = no tag |
+| `barFraction` | `number` | 0…1, clamped. Scale by \|%\| over the largest \|%\| the host shows |
+| `changePercent` | `number` | `>= 0` green, `< 0` red (bar, sparkline, %) |
+| `changeLabel` | `string` | Preformatted, `+18.4%` |
+| `valueLabel` | `string \| null` | Preformatted, `+$412k` |
+| `sparkPoints` | `number[]` | Oldest → newest; empty = blank slot |
+| `onPress`, `testID` | | Derives `-art`, `-owned`, `-bar`, `-spark`, `-change` |
+
+#### MetaCalloutCard
+
+File: `src/components/meta-callout-card.tsx`. The viewer's personal line in the
+Meta pulse: `purple50` card (`radii.lg`, 14pt padding), two fanned 36×50 card
+thumbs (−8° / +6°), `feedRowTitle` title with one tinted substring, and a
+`captionMedium` body.
+
+| Prop | Type | Notes |
+| --- | --- | --- |
+| `title` | `string` | `Your vintage is up +$312 this week` |
+| `highlight` | `string \| null` | Substring tinted by `highlightTone` (`+$312`); ignored if absent |
+| `highlightTone` | `'up' \| 'down'` | Default `up` |
+| `body` | `string \| null` | |
+| `imageUrls` | `string[]` | First two are drawn; empty = no art |
+| `onPress`, `testID` | | Derives `-art`, `-title` |
+
+#### OwnedTag
+
+File: `src/components/owned-tag.tsx`. 20pt `purple50` pill with a `brandStrong`
+`feedTag` label — `You own 4` on bar rows, `In your collection` on card rows.
+Props: `label`, `style`, `testID`.
+
+#### CalendarEventRow
+
+File: `src/components/calendar-event-row.tsx`. One upcoming date ("Coming up"
+block and page): a `gray50` date tile (`feedTag` month over the day), the title,
+and a kind chip tinted by `kindTone` (release `deltaUpSurface`, ban list
+`deltaDownSurface`, reveal `purple50`, event `gray100`).
+
+| Prop | Type | Notes |
+| --- | --- | --- |
+| `monthLabel`, `dayLabel` | `string` | `SEP`, `26` |
+| `title`, `kindLabel` | `string` | |
+| `kindTone` | `'release' \| 'ban_list' \| 'reveal' \| 'event'` | |
+| `subtitle` | `string \| null` | `full` only |
+| `variant` | `'compact' \| 'full'` | `compact` (feed): 44pt tile, title, chip right. `full` (page): 50pt tile, chip over title over subtitle |
+| `divider` | `boolean` | 0.5pt gray300 rule UNDER the row |
+| `onPress`, `testID` | | Derives `-date`, `-kind` |
 
 #### RankedCardRow
 

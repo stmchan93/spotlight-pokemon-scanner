@@ -173,11 +173,14 @@ from ebay_comps import (
 # and the qualified names keep the seam visible at every call site.
 import ebay_listings
 from sealed_products import is_sealed_card, search_sealed_products
+import calendar_feed
 import expo_push
 import hot_cards
+import market_alerts
 import meta_pulse
 import news_feed
 import set_spotlight
+import similar_cards
 import watch_signals
 import youtube_feed
 from anthropic_adapter import identify_pokemon_lookalike
@@ -2009,10 +2012,18 @@ META_PULSE_ENABLED_ENV = "META_PULSE_ENABLED"
 HOT_CARDS_ENABLED_ENV = "HOT_CARDS_ENABLED"
 SET_SPOTLIGHT_ENABLED_ENV = "SET_SPOTLIGHT_ENABLED"
 NEWS_FEED_ENABLED_ENV = "NEWS_FEED_ENABLED"
+CALENDAR_ENABLED_ENV = "CALENDAR_ENABLED"
 META_PULSE_WINDOWS = (7, 30, 90)
+META_GROUP_CACHE_MAX_ENTRIES = 512
+# "You own N" is computed per request from the caller's holdings; a short TTL
+# keeps a freshly added card from being missing for long.
+META_EXPOSURE_CACHE_TTL_SECONDS = 60.0
+META_EXPOSURE_CACHE_MAX_ENTRIES = 2048
 # Set pages other than this week's pick are built on demand from history reads.
 SET_SPOTLIGHT_CACHE_TTL_SECONDS = 3600.0
 SET_SPOTLIGHT_CACHE_MAX_ENTRIES = 256
+# PDP "More like this" (similar_cards.py; rows written by run_similar_cards_vm.sh).
+SIMILAR_CARDS_ENABLED_ENV = "SIMILAR_CARDS_ENABLED"
 
 
 def _market_movers_window_days() -> int:
@@ -2253,6 +2264,8 @@ class SpotlightScanService:
             hot_cards.ensure_schema(bootstrap_connection)
             set_spotlight.ensure_schema(bootstrap_connection)
             youtube_feed.ensure_schema(bootstrap_connection)  # includes news_feed's tables
+            # Alert prefs/timezone columns + the market-alert ledger (after the deal-radar patch).
+            market_alerts.ensure_schema(bootstrap_connection)
             bootstrap_connection.commit()
             self.index = load_index(bootstrap_connection)
         finally:
@@ -2303,6 +2316,11 @@ class SpotlightScanService:
         # cards by game on the newest run, set spotlight by set id (pick on its
         # stored row, other sets on a TTL).
         self._meta_pulse_cache: dict[tuple[str, int, str], tuple[str, dict[str, Any]]] = {}
+        # Meta group pages: (game, window, groupKey) on the same version token.
+        # Per-user exposure: (owner, game, window) on the token + a short TTL,
+        # since holdings change between job runs.
+        self._meta_group_cache: dict[tuple[str, int, str], tuple[str, dict[str, Any] | None]] = {}
+        self._meta_exposure_cache: dict[tuple[str, str, int], tuple[str, float, dict[str, Any]]] = {}
         self._hot_cards_cache: dict[str, tuple[str, dict[str, Any]]] = {}
         self._set_spotlight_cache: dict[str, tuple[str, float, dict[str, Any]]] = {}
         self._feed_cache_lock = threading.Lock()
@@ -4203,6 +4221,7 @@ class SpotlightScanService:
         platform: Any = None,
         device_id: Any = None,
         app_version: Any = None,
+        time_zone: Any = None,
     ) -> dict[str, Any]:
         """Upsert one device token for THIS owner.
 
@@ -4244,6 +4263,14 @@ class SpotlightScanService:
                 VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
                 """,
                 (owner_user_id, token, values[0], values[1], values[2], now, now),
+            )
+        # Device IANA zone for market-alert local-time windows. An invalid zone
+        # is ignored rather than failing the registration.
+        device_zone = market_alerts.normalize_timezone(time_zone)
+        if device_zone:
+            connection.execute(
+                "UPDATE user_push_tokens SET timezone = ? WHERE owner_user_id = ? AND expo_push_token = ?",
+                (device_zone, owner_user_id, token),
             )
         connection.commit()
         row = connection.execute(
@@ -4343,6 +4370,18 @@ class SpotlightScanService:
         )
         self.connection.commit()
         return {"dealAlertsEnabled": deal, "targetHitsEnabled": target}
+
+    def alert_prefs(self) -> dict[str, Any]:
+        """The three Alerts switches (+ stored zone) for THIS owner. Absent row = all on."""
+        return market_alerts.public_prefs(
+            market_alerts.get_alert_prefs(self.connection, self._current_owner_user_id())
+        )
+
+    def set_alert_prefs(self, patch: dict[str, Any]) -> dict[str, Any]:
+        """Partial write of THIS owner's Alerts switches; returns the full object."""
+        return market_alerts.public_prefs(
+            market_alerts.set_alert_prefs(self.connection, self._current_owner_user_id(), patch)
+        )
 
     # --- push notifications: the job-side lookups ---------------------------
 
@@ -4536,6 +4575,16 @@ class SpotlightScanService:
         columns = _sqlite_table_columns(connection, "deal_alerts")
         if "push_ticket_id" not in columns:
             return {}
+        if market_alerts.is_enabled():
+            # Deals share the market-alert limiter (1/day, quiet hours). Unsent
+            # rows stay pending; the hourly market-alerts job sends them later.
+            moment = datetime.fromisoformat(created_at)
+            return market_alerts.run_market_alerts(
+                connection,
+                now=moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc),
+                kinds=(market_alerts.KIND_DEAL,),
+                transport=transport,
+            )
         rows = connection.execute(
             """
             SELECT deal_alerts.id AS id,
@@ -21875,6 +21924,56 @@ class SpotlightScanService:
                 self._meta_pulse_cache[key] = (version, payload)
         return payload
 
+    def _meta_pulse_version(self) -> str | None:
+        try:
+            return meta_pulse.meta_pulse_version_token(self.connection)
+        except Exception:  # noqa: BLE001 - cache bookkeeping must never break the feed
+            traceback.print_exc()
+            return None
+
+    def market_meta_group(self, *, game: str, window_days: int, lane: str, group_key: str) -> dict[str, Any] | None:
+        """Meta group page (MetaGroupDetail); None = key not in the newest run."""
+        key = (game, window_days, group_key)
+        version = self._meta_pulse_version()
+        cached = self._meta_group_cache.get(key)
+        if version is not None and cached is not None and cached[0] == version:
+            return cached[1]
+        payload = meta_pulse.build_meta_group_detail_payload(
+            self.connection, game=game, window_days=window_days, lane=lane, group_key=group_key
+        )
+        if version is not None:
+            with self._feed_cache_lock:
+                if len(self._meta_group_cache) >= META_GROUP_CACHE_MAX_ENTRIES:
+                    self._meta_group_cache.clear()
+                self._meta_group_cache[key] = (version, payload)
+        return payload
+
+    def market_meta_exposure(self, *, owner_user_id: str, game: str, window_days: int) -> dict[str, Any]:
+        """The caller's MetaExposure. Owner-scoped: the cache key leads with the owner."""
+        owner = str(owner_user_id or "").strip()
+        if not owner:
+            raise ValueError("owner_user_id is required")
+        key = (owner, game, window_days)
+        version = self._meta_pulse_version()
+        cached = self._meta_exposure_cache.get(key)
+        now = monotonic()
+        if (
+            version is not None
+            and cached is not None
+            and cached[0] == version
+            and now - cached[1] < META_EXPOSURE_CACHE_TTL_SECONDS
+        ):
+            return cached[2]
+        payload = meta_pulse.build_meta_exposure_payload(
+            self.connection, owner_user_id=owner, game=game, window_days=window_days
+        )
+        if version is not None:
+            with self._feed_cache_lock:
+                if len(self._meta_exposure_cache) >= META_EXPOSURE_CACHE_MAX_ENTRIES:
+                    self._meta_exposure_cache.clear()
+                self._meta_exposure_cache[key] = (version, now, payload)
+        return payload
+
     def market_hot_cards(self, *, game: str | None) -> dict[str, Any]:
         """Hot on Ekalight, keyed on the newest hot_cards run."""
         key = game or ""
@@ -21891,6 +21990,10 @@ class SpotlightScanService:
             with self._feed_cache_lock:
                 self._hot_cards_cache[key] = (version, payload)
         return payload
+
+    def card_similar_cards(self, card_id: str) -> dict[str, Any]:
+        """PDP "More like this": stored neighbours + ~20 indexed card/price reads."""
+        return similar_cards.build_similar_cards_payload(self.connection, card_id)
 
     def market_set_spotlight(self, *, set_id: str | None) -> dict[str, Any] | None:
         """This week's pick (set_id None) or any set. None → unknown set / no pick.
@@ -23978,6 +24081,14 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.OK, self.service.notification_prefs())
             return
 
+        if parsed.path == "/api/v1/notifications/alert-prefs":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            with self.service.request_identity_context(identity):
+                self._write_json(HTTPStatus.OK, self.service.alert_prefs())
+            return
+
         if parsed.path == "/api/v1/deal-alerts":
             identity = self._require_request_identity()
             if identity is None:
@@ -24532,6 +24643,62 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, payload)
             return
 
+        # --- Meta pulse v4: group page (public) + the caller's exposure (authed) ---
+        if parsed.path == "/api/v1/market/meta/me" or parsed.path.startswith("/api/v1/market/meta/groups/"):
+            if not _env_flag(META_PULSE_ENABLED_ENV):
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "disabled"})
+                return
+            query_params = parse_qs(parsed.query)
+            game = query_params.get("game", ["pokemon"])[0].strip().lower() or "pokemon"
+            lane = query_params.get("lane", ["all"])[0].strip().lower() or "all"
+            try:
+                window_days = int(query_params.get("window", ["7"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "window must be an integer"})
+                return
+            if window_days not in META_PULSE_WINDOWS:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "window must be 7, 30 or 90"})
+                return
+            if lane not in meta_pulse.LANE_FILTERS:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "lane must be all, raw or graded"})
+                return
+            if game not in SUPPORTED_GAMES:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": f"unknown game: {game}"})
+                return
+            if parsed.path == "/api/v1/market/meta/me":
+                identity = self._require_request_identity()
+                if identity is None:
+                    return
+                if not self._require_access(identity):
+                    return
+                try:
+                    payload = self.service.market_meta_exposure(
+                        owner_user_id=identity.user_id, game=game, window_days=window_days
+                    )
+                except Exception as error:  # noqa: BLE001
+                    traceback.print_exc()
+                    self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Meta exposure failed: {error}"})
+                    return
+                self._write_json(HTTPStatus.OK, payload)
+                return
+            group_key = unquote(parsed.path[len("/api/v1/market/meta/groups/"):]).strip()
+            if not group_key or "/" in group_key:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+                return
+            try:
+                payload = self.service.market_meta_group(
+                    game=game, window_days=window_days, lane=lane, group_key=group_key
+                )
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Meta group failed: {error}"})
+                return
+            if payload is None:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+                return
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
         # --- Social-feed market blocks: public market data, like top-movers ---
         if parsed.path == "/api/v1/market/meta":
             if not _env_flag(META_PULSE_ENABLED_ENV):
@@ -24609,6 +24776,34 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 _heavy_read_semaphore.release()
             if payload is None:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+                return
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        if parsed.path == "/api/v1/market/calendar":
+            if not _env_flag(CALENDAR_ENABLED_ENV):
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "disabled"})
+                return
+            query_params = parse_qs(parsed.query)
+            game = query_params.get("game", [""])[0].strip().lower() or None
+            if game is not None and game not in SUPPORTED_GAMES:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": f"unknown game: {game}"})
+                return
+            try:
+                limit = int(query_params.get("limit", [""])[0].strip() or calendar_feed.DEFAULT_LIMIT)
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+            if not 1 <= limit <= calendar_feed.MAX_LIMIT:
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST, {"error": f"limit must be between 1 and {calendar_feed.MAX_LIMIT}"}
+                )
+                return
+            try:
+                payload = calendar_feed.cached_calendar_payload(self.service.connection, game=game, limit=limit)
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Calendar failed: {error}"})
                 return
             self._write_json(HTTPStatus.OK, payload)
             return
@@ -24862,6 +25057,23 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Raw pricing matrix failed: {error}"})
                 return
 
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith("/similar"):
+            if not _env_flag(SIMILAR_CARDS_ENABLED_ENV):
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "disabled"})
+                return
+            card_id = unquote(parsed.path.removeprefix("/api/v1/cards/").removesuffix("/similar").rstrip("/"))
+            if not card_id or "/" in card_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+                return
+            try:
+                payload = self.service.card_similar_cards(card_id)
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Similar cards failed: {error}"})
+                return
             self._write_json(HTTPStatus.OK, payload)
             return
 
@@ -25169,6 +25381,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                             platform=payload.get("platform"),
                             device_id=payload.get("deviceId"),
                             app_version=payload.get("appVersion"),
+                            time_zone=payload.get("timezone"),
                         )
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
@@ -26682,6 +26895,25 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self) -> None:
         parsed = urlparse(self.path)
+
+        if parsed.path == "/api/v1/notifications/alert-prefs":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            payload = self._read_json_body()
+            if payload is None:
+                self._write_json(
+                    getattr(self, "_json_body_error_status", HTTPStatus.BAD_REQUEST)
+                    or HTTPStatus.BAD_REQUEST,
+                    {"error": getattr(self, "_json_body_error_message", None) or "Invalid JSON body"},
+                )
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    self._write_json(HTTPStatus.OK, self.service.set_alert_prefs(payload))
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
 
         if parsed.path.startswith("/api/v1/card-favorites/") and parsed.path.endswith("/target"):
             identity = self._require_request_identity()

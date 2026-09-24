@@ -89,6 +89,10 @@ class FeedJobCronTests(unittest.TestCase):
                                "SET_SPOTLIGHT_ENABLED"),
         "HOT_CARDS_LINE": ("41 * * * * ", "run_hot_cards_vm.sh", "$HOT_CARDS_LOG_FILE", "HOT_CARDS_ENABLED"),
         "NEWS_FEED_LINE": ("17 * * * * ", "run_news_feed_vm.sh", "$NEWS_FEED_LOG_FILE", "NEWS_FEED_ENABLED"),
+        "MARKET_ALERTS_LINE": ("3 * * * * ", "run_market_alerts_vm.sh", "$MARKET_ALERTS_LOG_FILE",
+                               "MARKET_ALERTS_ENABLED"),
+        "SIMILAR_CARDS_LINE": ("40 7 * * * ", "run_similar_cards_vm.sh", "$SIMILAR_CARDS_LOG_FILE",
+                               "SIMILAR_CARDS_ENABLED"),
     }
 
     def setUp(self) -> None:

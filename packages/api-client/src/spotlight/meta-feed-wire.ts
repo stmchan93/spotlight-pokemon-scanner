@@ -1,11 +1,16 @@
 import {
   CARD_GAMES,
   DEFAULT_CARD_GAME,
+  type CalendarEvent,
+  type CalendarEventKind,
+  type CalendarFeed,
   type CardGame,
   type HotCard,
   type HotCards,
   type MetaCard,
+  type MetaExposure,
   type MetaGroup,
+  type MetaGroupDetail,
   type MetaLadder,
   type MetaLane,
   type MetaLaneFilter,
@@ -260,5 +265,80 @@ export function parseNewsFeedPayload(value: unknown): NewsFeed {
   return {
     items: asArray(raw.items).map(parseNewsItem),
     nextCursor: str(raw.nextCursor),
+  };
+}
+
+// Meta feed v2 (docs/meta-feed-v2-contracts-2026-09-24.md).
+
+export function parseMetaGroupDetailPayload(value: unknown, requested?: { windowDays?: number }): MetaGroupDetail {
+  const raw = asRecord(value);
+  const payloadGame = game(raw.game);
+  return {
+    game: payloadGame,
+    windowDays: num(raw.windowDays) || requested?.windowDays || 7,
+    group: parseMetaGroup(asRecord(raw.group), payloadGame),
+    asOfDate: str(raw.asOfDate),
+  };
+}
+
+export function parseMetaExposurePayload(value: unknown, requested?: { windowDays?: number }): MetaExposure {
+  const raw = asRecord(value);
+  const payloadGame = game(raw.game);
+  const callout = raw.callout && typeof raw.callout === 'object' ? asRecord(raw.callout) : null;
+  const groups: MetaExposure['groups'] = {};
+  for (const [groupKey, entry] of Object.entries(asRecord(raw.groups))) {
+    const group = asRecord(entry);
+    const ownedCount = num(group.ownedCount);
+    if (!groupKey || ownedCount <= 0) {
+      continue;
+    }
+    groups[groupKey] = {
+      ownedCount,
+      valueChangeUsd: num(group.valueChangeUsd),
+      ownedCards: asArray(group.ownedCards).map((card) => parseMetaCard(card, payloadGame)),
+    };
+  }
+  return {
+    game: payloadGame,
+    windowDays: num(raw.windowDays) || requested?.windowDays || 7,
+    callout: callout && str(callout.title)
+      ? {
+        title: String(callout.title),
+        body: String(callout.body ?? ''),
+        valueChangeUsd: num(callout.valueChangeUsd),
+        imageUrls: strings(callout.imageUrls).slice(0, 2),
+      }
+      : null,
+    groups,
+  };
+}
+
+const CALENDAR_KINDS: readonly CalendarEventKind[] = ['release', 'ban_list', 'reveal', 'event'];
+
+function parseCalendarEvent(raw: Raw): CalendarEvent | null {
+  const date = str(raw.date);
+  const title = str(raw.title);
+  // A row without a real date or title can't be placed on the list.
+  if (!date || !/^\d{4}-\d{2}-\d{2}/.test(date) || !title) {
+    return null;
+  }
+  return {
+    id: String(raw.id ?? `${date}:${title}`),
+    date: date.slice(0, 10),
+    kind: CALENDAR_KINDS.includes(raw.kind as CalendarEventKind) ? (raw.kind as CalendarEventKind) : 'event',
+    game: game(raw.game),
+    title,
+    subtitle: str(raw.subtitle),
+    setId: str(raw.setId),
+    url: str(raw.url),
+  };
+}
+
+export function parseCalendarPayload(value: unknown): CalendarFeed {
+  const raw = asRecord(value);
+  return {
+    items: asArray(raw.items)
+      .map(parseCalendarEvent)
+      .filter((item): item is CalendarEvent => item != null),
   };
 }

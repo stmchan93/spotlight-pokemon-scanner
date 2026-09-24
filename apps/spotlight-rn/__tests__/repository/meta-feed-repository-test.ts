@@ -3,6 +3,9 @@ import {
   MockSpotlightRepository,
 } from '../../../../packages/api-client/src/spotlight/repository';
 import {
+  mockCalendarFeed,
+  mockMetaExposure,
+  mockMetaGroupDetail,
   mockMetaPulse,
   mockSetSpotlight,
 } from '../../../../packages/api-client/src/spotlight/meta-feed-mock-data';
@@ -118,6 +121,98 @@ describe('HttpSpotlightRepository meta feed reads', () => {
   });
 });
 
+describe('HttpSpotlightRepository meta feed v2 reads', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
+  });
+
+  it('builds the group, exposure and calendar routes', async () => {
+    const fetchMock = mockFetch(
+      jsonResponse(200, mockMetaGroupDetail('vintage:graded:psa10:pop_le_50')),
+      jsonResponse(200, mockMetaExposure),
+      jsonResponse(200, mockCalendarFeed),
+      jsonResponse(200, mockCalendarFeed),
+    );
+    const repository = new HttpSpotlightRepository('http://example.test');
+
+    const detail = await repository.fetchMetaGroupDetail({
+      groupKey: 'vintage:graded:psa10:pop_le_50',
+      game: 'pokemon',
+      windowDays: 7,
+      lane: 'graded',
+    });
+    const exposure = await repository.fetchMetaExposure({ game: 'pokemon', windowDays: 30 });
+    const calendar = await repository.fetchCalendar({ game: 'onepiece', limit: 3 });
+    await repository.fetchCalendar();
+
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls[0]).toBe(
+      'http://example.test/api/v1/market/meta/groups/vintage%3Agraded%3Apsa10%3Apop_le_50?game=pokemon&window=7&lane=graded',
+    );
+    expect(urls[1]).toBe('http://example.test/api/v1/market/meta/me?game=pokemon&window=30');
+    expect(urls[2]).toBe('http://example.test/api/v1/market/calendar?game=onepiece&limit=3');
+    expect(urls[3]).toBe('http://example.test/api/v1/market/calendar');
+
+    expect(detail?.group.topCards).toHaveLength(5);
+    expect(exposure?.callout?.title).toBe('Your vintage is up +$312 this week');
+    expect(exposure?.groups['vintage:graded:psa10:pop_le_50'].ownedCount).toBe(4);
+    expect(calendar?.items.map((item) => item.kind)).toEqual(['release', 'ban_list', 'reveal', 'event']);
+  });
+
+  it('resolves null on disabled, null exposure on 401, and throws otherwise', async () => {
+    mockFetch(
+      jsonResponse(404, { error: 'disabled' }),
+      jsonResponse(404, { error: 'disabled' }),
+      jsonResponse(401, { error: 'unauthorized' }),
+      jsonResponse(401, { error: 'unauthorized' }),
+      jsonResponse(500, { error: 'boom' }),
+    );
+    const repository = new HttpSpotlightRepository('http://example.test');
+
+    await expect(repository.fetchMetaGroupDetail({ groupKey: 'nope' })).resolves.toBeNull();
+    await expect(repository.fetchCalendar()).resolves.toBeNull();
+    await expect(repository.fetchMetaExposure()).resolves.toBeNull();
+    // Only the authed exposure read treats 401 as "nothing to show".
+    await expect(repository.fetchCalendar()).rejects.toThrow('meta feed read failed');
+    await expect(repository.fetchMetaExposure()).rejects.toThrow('meta feed read failed');
+  });
+
+  it('maps v2 payloads defensively', async () => {
+    mockFetch(
+      jsonResponse(200, {
+        game: 'pokemon',
+        callout: { title: '', body: 'x' },
+        groups: {
+          g1: { ownedCount: '2', valueChangeUsd: 'NaN', ownedCards: [{ cardId: 'a', lane: 'graded' }] },
+          g2: { ownedCount: 0 },
+        },
+      }),
+      jsonResponse(200, {
+        items: [
+          { id: 'ok', date: '2026-10-01', kind: 'mystery', game: 'pokemon', title: 'A' },
+          { id: 'no-date', title: 'B' },
+          { id: 'no-title', date: '2026-10-02' },
+        ],
+      }),
+    );
+    const repository = new HttpSpotlightRepository('http://example.test');
+
+    const exposure = await repository.fetchMetaExposure();
+    expect(exposure?.callout).toBeNull();
+    expect(Object.keys(exposure?.groups ?? {})).toEqual(['g1']);
+    expect(exposure?.groups.g1).toMatchObject({ ownedCount: 2, valueChangeUsd: 0 });
+    expect(exposure?.groups.g1.ownedCards[0]).toMatchObject({ cardId: 'a', lane: 'graded', game: 'pokemon' });
+
+    const calendar = await repository.fetchCalendar();
+    expect(calendar?.items).toEqual([
+      { id: 'ok', date: '2026-10-01', kind: 'event', game: 'pokemon', title: 'A', subtitle: null, setId: null, url: null },
+    ]);
+  });
+});
+
 describe('MockSpotlightRepository meta feed reads', () => {
   it('narrows the fixed payloads by query', async () => {
     const repository = new MockSpotlightRepository();
@@ -136,5 +231,11 @@ describe('MockSpotlightRepository meta feed reads', () => {
     expect(page?.nextCursor).toBe('2');
     const videos = await repository.fetchNewsFeed({ kind: 'video' });
     expect(videos?.items.every((item) => item.kind === 'video')).toBe(true);
+
+    expect(await repository.fetchMetaGroupDetail({ groupKey: 'unknown' })).toBeNull();
+    expect((await repository.fetchMetaGroupDetail({ groupKey: 'modern:raw:sir', windowDays: 30 }))?.windowDays).toBe(30);
+    expect((await repository.fetchMetaExposure({ game: 'onepiece' }))?.callout).toBeNull();
+    expect((await repository.fetchCalendar({ game: 'onepiece' }))?.items).toHaveLength(1);
+    expect((await repository.fetchCalendar({ limit: 2 }))?.items).toHaveLength(2);
   });
 });

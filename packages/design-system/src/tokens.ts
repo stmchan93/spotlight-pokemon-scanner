@@ -499,6 +499,70 @@ export const textStyles = {
     fontSize: 10,
     lineHeight: 13,
   } satisfies TextStyle,
+  /*
+    Meta feed v2 scale (docs/meta-feed-mockup/v2/*.dc.html): ExtraBold display
+    titles and numbers, a Bold row title, and ExtraBold eyebrows/tags. Color is
+    applied by the host.
+  */
+  // Feed block title + Meta headline — 20/800 ("Meta pulse", "Coming up").
+  feedTitle: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.display,
+    fontSize: 20,
+    lineHeight: 26,
+    letterSpacing: -0.3,
+  } satisfies TextStyle,
+  // Page title of the group page — 24/800.
+  feedPageTitle: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.display,
+    fontSize: 24,
+    lineHeight: 30,
+    letterSpacing: -0.3,
+  } satisfies TextStyle,
+  // Section title on the group page — 17/800 ("Biggest movers").
+  feedSectionTitle: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.display,
+    fontSize: 17,
+    lineHeight: 22,
+  } satisfies TextStyle,
+  // Hero change on the group page — 34/800.
+  feedDeltaLarge: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.display,
+    fontSize: 34,
+    lineHeight: 40,
+  } satisfies TextStyle,
+  // Bar-row change + date-tile day — 18/800.
+  feedDelta: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.display,
+    fontSize: 18,
+    lineHeight: 22,
+  } satisfies TextStyle,
+  // Group / card / event name in feed rows — 15/700.
+  feedRowTitle: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyBold,
+    fontSize: 15,
+    lineHeight: 20,
+  } satisfies TextStyle,
+  // Uppercase list eyebrow — 12/800, tracked ("ON THE WAY UP").
+  feedEyebrow: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.display,
+    fontSize: 12,
+    lineHeight: 16,
+    letterSpacing: 0.6,
+  } satisfies TextStyle,
+  // Pill tags and kind chips — 11/800 ("You own 4", "Release").
+  feedTag: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.display,
+    fontSize: 11,
+    lineHeight: 14,
+  } satisfies TextStyle,
   // Search field placeholder + input — 13/500/140% gray-400 per Figma "Label"
   label: {
     ...numericFontVariant,

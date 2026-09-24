@@ -30,6 +30,7 @@ import {
   type DeckConditionCode,
   type InventoryCardEntry,
   type MarketHistoryOption,
+  type SimilarCard,
   type SlabContext,
 } from '@spotlight/api-client';
 import {
@@ -66,6 +67,7 @@ import { CardWishlistCounter } from '@/features/cards/components/card-wishlist-c
 import { CardPriceTrendList } from '@/features/cards/components/card-price-trend-list';
 import { CardPriceTrendSkeleton } from '@/features/cards/components/card-price-trend-skeleton';
 import { CardProductDetails } from '@/features/cards/components/card-product-details';
+import { CardSimilarSection } from '@/features/cards/components/card-similar-section';
 import { CardRecentSalesPanel } from '@/features/cards/components/card-recent-sales-panel';
 import { CardLowestListedPanel } from '@/features/cards/components/card-lowest-listed-panel';
 import {
@@ -78,6 +80,7 @@ import {
   cardDetailPreviewFromCatalogResult,
   cardDetailPreviewFromInventoryEntry,
   getCardDetailPreview,
+  saveCardDetailPreviewFromCatalogResult,
   saveCardDetailPreviewFromInventoryEntry,
 } from '@/features/cards/card-detail-preview-session';
 import { noteCardAdded } from '@/features/cards/card-added-notice';
@@ -1958,6 +1961,31 @@ export function CardDetailScreen({
     [router, selectedEntry?.id, spotlightRepository],
   );
 
+  // "More like this" tile tap: push that card's PDP (raw lane) with a preview so
+  // its art and name paint before the detail request lands.
+  const handlePressSimilarCard = useCallback(
+    (card: SimilarCard) => {
+      prefetchCardDetail(spotlightRepository, card.cardId, undefined, card.imageUrl);
+      router.push({
+        pathname: '/cards/[cardId]',
+        params: {
+          cardId: card.cardId,
+          previewId: saveCardDetailPreviewFromCatalogResult({
+            cardId: card.cardId,
+            cardNumber: card.number ?? '',
+            currencyCode: card.currencyCode,
+            id: card.cardId,
+            imageUrl: card.imageUrl ?? '',
+            marketPrice: card.priceNow,
+            name: card.name,
+            setName: card.setName ?? '',
+          }),
+        },
+      });
+    },
+    [router, spotlightRepository],
+  );
+
   // Inventory dropdown "...": open the per-entry actions popover (Add another /
   // Delete), anchored to the tapped "..." trigger.
   const handlePressInventoryEntryMenu = useCallback(
@@ -2674,6 +2702,18 @@ export function CardDetailScreen({
             grader={selectedGrader}
             population={detail?.population}
             testID="detail-population-report"
+          />
+        )}
+
+        {/* "More like this" sits directly under the pop report and fetches only
+            after the main detail lands, so it never delays first paint. */}
+        {isSealed ? null : (
+          <CardSimilarSection
+            cardId={activeCardId}
+            enabled={detail != null}
+            onPressCard={handlePressSimilarCard}
+            repository={spotlightRepository}
+            testID="detail-similar"
           />
         )}
 

@@ -9,17 +9,23 @@ import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
 import { clearCardDetailCache } from '@/features/cards/card-detail-prefetch';
 import { CardDetailScreen } from '@/features/cards/screens/card-detail-screen';
 import { InsightsScreen } from '@/features/insights/screens/insights-screen';
+import { ComingUpBlock } from '@/features/meta-feed/components/coming-up-block';
 import { HotCardsBlock } from '@/features/meta-feed/components/hot-cards-block';
 import { MetaPulseBlock } from '@/features/meta-feed/components/meta-pulse-block';
 import { NewsBlock } from '@/features/meta-feed/components/news-block';
 import { SetSpotlightBlock } from '@/features/meta-feed/components/set-spotlight-block';
 import {
+  CALENDAR_BLOCK_LIMIT,
   NEWS_FEED_BLOCK_LIMIT,
+  useCalendar,
   useHotCards,
+  useMetaExposure,
   useMetaPulse,
   useNewsFeed,
   useSetSpotlight,
 } from '@/features/meta-feed/hooks/use-meta-feed';
+import { CalendarScreen } from '@/features/meta-feed/screens/calendar-screen';
+import { MetaGroupScreen } from '@/features/meta-feed/screens/meta-group-screen';
 import { MetaScreen } from '@/features/meta-feed/screens/meta-screen';
 import { NewsScreen } from '@/features/meta-feed/screens/news-screen';
 import { SetSpotlightScreen } from '@/features/meta-feed/screens/set-spotlight-screen';
@@ -70,12 +76,21 @@ const devScreens: Record<string, () => ReactElement> = {
   // repository's `getTopMovers` — the feed route also carries it, but this
   // isolates the block for a tight diff against the "Title content" frame.
   'top-trends': () => <DevTopTrendsScreen />,
-  // The four meta feed blocks alone, in feed order, fed by the mock
+  // The meta feed blocks alone, in feed order, fed by the mock
   // repository's meta feed reads (docs/meta-feed-mockup/Main.dc.html). The
   // feed route carries them too, around Top Trends.
   'meta-blocks': () => <DevMetaBlocksScreen />,
-  // The pages those blocks open (docs/meta-feed-mockup/Meta, Set, News.dc.html).
-  meta: () => <MetaScreen onBack={() => undefined} onOpenCard={() => undefined} />,
+  // The pages those blocks open (docs/meta-feed-mockup/Meta, Set, News.dc.html;
+  // v2/MetaV4, GroupV6, CalendarV5.dc.html).
+  meta: () => <MetaScreen onBack={() => undefined} onOpenGroup={() => undefined} />,
+  'meta-group': () => (
+    <MetaGroupScreen
+      groupKey="vintage:graded:psa10:pop_le_50"
+      onBack={() => undefined}
+      onOpenCard={() => undefined}
+    />
+  ),
+  calendar: () => <CalendarScreen onBack={() => undefined} onOpenEvent={() => undefined} />,
   'set-spotlight': () => (
     <SetSpotlightScreen onBack={() => undefined} onOpenCard={() => undefined} setId="cel25" />
   ),
@@ -129,8 +144,10 @@ function DevTopTrendsScreen() {
 
 function DevMetaBlocksScreen() {
   const pulse = useMetaPulse();
+  const exposure = useMetaExposure();
   const hot = useHotCards();
   const spotlight = useSetSpotlight();
+  const calendar = useCalendar({ limit: CALENDAR_BLOCK_LIMIT });
   const news = useNewsFeed({ limit: NEWS_FEED_BLOCK_LIMIT });
   const noop = () => undefined;
   return (
@@ -139,9 +156,10 @@ function DevMetaBlocksScreen() {
       style={styles.topTrends}
       testID="dev-meta-blocks"
     >
-      <MetaPulseBlock onOpenMeta={noop} pulse={pulse.data} />
+      <MetaPulseBlock exposure={exposure.data} onOpenGroup={noop} onOpenMeta={noop} pulse={pulse.data} />
       <HotCardsBlock hot={hot.data} onPressCard={noop} />
       <SetSpotlightBlock onOpenLink={noop} onOpenSet={noop} onPressCard={noop} spotlight={spotlight.data} />
+      <ComingUpBlock feed={calendar.data} onOpenCalendar={noop} onOpenEvent={noop} />
       <NewsBlock feed={news.data} onOpenLink={noop} onOpenNews={noop} />
     </ScrollView>
   );

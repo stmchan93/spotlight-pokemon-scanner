@@ -1,4 +1,4 @@
-import type { MetaLane, NewsItem } from '@spotlight/api-client';
+import type { CalendarEventKind, MetaExposure, MetaGroup, MetaLane, NewsItem } from '@spotlight/api-client';
 
 import { formatAbbreviatedCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
@@ -109,4 +109,80 @@ export function videoMetaLine(item: NewsItem, now = Date.now()): string {
   const channel = item.video?.channelTitle ?? item.source;
   const views = item.video?.viewCount != null ? `${formatCompactCount(item.video.viewCount)} views` : null;
   return [channel, views, formatAge(item.publishedAt, now) || null].filter(Boolean).join(' · ');
+}
+
+/**
+ * Risers (median > 0, biggest first) and coolers (median < 0, biggest drop
+ * first). A flat group is neither. `limit` caps each list (the feed shows 3).
+ */
+export function splitMetaGroups(groups: MetaGroup[], limit?: number): { risers: MetaGroup[]; coolers: MetaGroup[] } {
+  const risers = groups
+    .filter((group) => group.medianChangePercent > 0)
+    .sort((a, b) => b.medianChangePercent - a.medianChangePercent);
+  const coolers = groups
+    .filter((group) => group.medianChangePercent < 0)
+    .sort((a, b) => a.medianChangePercent - b.medianChangePercent);
+  return limit == null
+    ? { risers, coolers }
+    : { risers: risers.slice(0, limit), coolers: coolers.slice(0, limit) };
+}
+
+/** Largest |median %| across the rows on screen — the full-width bar. */
+export function maxGroupMagnitude(groups: MetaGroup[]): number {
+  return groups.reduce((max, group) => Math.max(max, Math.abs(group.medianChangePercent)), 0);
+}
+
+/** Bar length for one row, 0…1, relative to the largest shown. */
+export function groupBarFraction(changePercent: number, maxMagnitude: number): number {
+  return maxMagnitude > 0 ? Math.min(1, Math.abs(changePercent) / maxMagnitude) : 0;
+}
+
+/** "You own 4" when the viewer's exposure has cards in the group. */
+export function ownedGroupLabel(exposure: MetaExposure | null | undefined, groupKey: string): string | null {
+  const count = exposure?.groups[groupKey]?.ownedCount ?? 0;
+  return count > 0 ? `You own ${formatCount(count)}` : null;
+}
+
+/** The "+$312" inside a callout title, tinted by the card. Null if none. */
+export function calloutHighlight(title: string): string | null {
+  // The server writes "up +$312" but "down $85" (no sign), so the sign is optional.
+  const match = /[+\u2212-]?\$[\d,.]+[kKmMbB]?/.exec(title);
+  return match ? match[0] : null;
+}
+
+const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/**
+ * "SEP" / "26" from a YYYY-MM-DD date. Parsed from the string, not through
+ * `Date`, so a calendar day never shifts with the device's time zone.
+ */
+export function calendarDateParts(date: string): { month: string; day: string; monthKey: string; monthTitle: string } {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);
+  if (!match) {
+    return { month: '', day: '', monthKey: '', monthTitle: '' };
+  }
+  const monthIndex = Math.min(11, Math.max(0, Number(match[2]) - 1));
+  return {
+    month: MONTHS[monthIndex],
+    day: match[3],
+    monthKey: `${match[1]}-${match[2]}`,
+    monthTitle: `${MONTH_NAMES[monthIndex]} ${match[1]}`,
+  };
+}
+
+export function calendarKindLabel(kind: CalendarEventKind): string {
+  switch (kind) {
+    case 'release':
+      return 'Release';
+    case 'ban_list':
+      return 'Ban list';
+    case 'reveal':
+      return 'Reveal';
+    default:
+      return 'Event';
+  }
 }

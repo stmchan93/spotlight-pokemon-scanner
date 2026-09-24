@@ -30,6 +30,8 @@ export function useMetaFeedRead<T>(
   cacheKey: string,
   read: (repository: SpotlightRepository) => Promise<T | null>,
   staleAfterMs: number,
+  /** False = never fetch (e.g. waiting on another read for the query). */
+  enabled = true,
 ): UseMetaFeedReadResult<T> {
   const { spotlightRepository, metaFeedCache, setMetaFeedCacheEntry } = useAppServices();
   const [loading, setLoading] = useState(false);
@@ -72,10 +74,10 @@ export function useMetaFeedRead<T>(
   }, [cacheKey, setMetaFeedCacheEntry, spotlightRepository]);
 
   const refreshIfStale = useCallback(() => {
-    if (Date.now() - lastFetchedAtRef.current >= staleAfterMs) {
+    if (enabled && Date.now() - lastFetchedAtRef.current >= staleAfterMs) {
       void refresh();
     }
-  }, [refresh, staleAfterMs]);
+  }, [enabled, refresh, staleAfterMs]);
 
   useEffect(() => {
     refreshIfStale();

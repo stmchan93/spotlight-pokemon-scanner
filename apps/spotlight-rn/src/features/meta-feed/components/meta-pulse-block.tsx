@@ -1,31 +1,19 @@
 import { StyleSheet, View } from 'react-native';
 
-import { gameDisplayName, type MetaGroup, type MetaPulse } from '@spotlight/api-client';
-import { AppText, MetaGroupRow, useSpotlightTheme } from '@spotlight/design-system';
+import { gameDisplayName, type MetaExposure, type MetaGroup, type MetaPulse } from '@spotlight/api-client';
+import { AppText, useSpotlightTheme } from '@spotlight/design-system';
 
+import { MetaBarList } from '@/features/meta-feed/components/meta-bar-list';
 import { MetaBlockHeader } from '@/features/meta-feed/components/meta-block-header';
-import {
-  formatSignedCompactUsd,
-  formatSignedPercent,
-} from '@/features/meta-feed/screens/components/meta-format';
+import { MetaExposureCallout } from '@/features/meta-feed/components/meta-exposure-callout';
+import { maxGroupMagnitude, splitMetaGroups } from '@/features/meta-feed/screens/components/meta-format';
 
-/** Groups the feed block shows; the Meta page shows the rest. */
-export const META_PULSE_BLOCK_GROUPS = 3;
+/** Rows per direction in the feed block; the Meta page shows every group. */
+export const META_PULSE_BLOCK_ROWS = 3;
 
-/**
- * The block's rows: the top risers plus the biggest cooler, so a mixed week
- * reads as mixed (mockup: two up, one down). Payload order is kept — it is
- * already sorted risers first — and an all-rising or all-cooling week simply
- * shows its first three.
- */
-export function metaPulseFeedGroups(groups: MetaGroup[], count = META_PULSE_BLOCK_GROUPS): MetaGroup[] {
-  const coolers = groups.filter((group) => group.medianChangePercent < 0);
-  const risers = groups.filter((group) => group.medianChangePercent >= 0);
-  if (coolers.length === 0 || risers.length === 0 || count < 2) {
-    return groups.slice(0, count);
-  }
-  const biggestCooler = coolers[coolers.length - 1];
-  return [...risers.slice(0, count - 1), biggestCooler];
+/** The feed block's rows: up to three risers and up to three coolers. */
+export function metaPulseFeedGroups(groups: MetaGroup[], count = META_PULSE_BLOCK_ROWS) {
+  return splitMetaGroups(groups, count);
 }
 
 /** "Pokémon · past 7 days". */
@@ -35,26 +23,37 @@ export function metaPulseCaption(pulse: MetaPulse): string {
 
 /** Same rule the block renders by, so the feed can lay out seams from it. */
 export function hasMetaPulseContent(pulse: MetaPulse | null): boolean {
-  return pulse != null && pulse.groups.length > 0;
+  if (pulse == null) {
+    return false;
+  }
+  const { risers, coolers } = splitMetaGroups(pulse.groups, 1);
+  return risers.length + coolers.length > 0;
 }
 
 export type MetaPulseBlockProps = {
   pulse: MetaPulse | null;
-  /** "See the meta ›" and group taps; the feed pushes `/meta`. */
+  /** The viewer's exposure; null (signed out / owns nothing) hides the callout and tags. */
+  exposure?: MetaExposure | null;
+  /** "See all ›"; the feed pushes `/meta`. */
   onOpenMeta?: (pulse: MetaPulse) => void;
+  /** Row taps; the feed pushes `/meta/group/[groupKey]`. */
+  onOpenGroup?: (group: MetaGroup, pulse: MetaPulse) => void;
   /** Draw the closing 4pt band (off when the feed's first cell owns it). */
   showBand?: boolean;
   testID?: string;
 };
 
 /**
- * Social feed "Meta pulse" (docs/meta-feed-mockup/Main.dc.html): which card
- * groups are rising or cooling in price, with a templated headline. Renders
- * nothing until there is a group to show — no placeholder flash.
+ * Social feed "Meta pulse" v4 (docs/meta-feed-mockup/v2/MetaPulseV4.dc.html):
+ * the templated headline, the viewer's callout, then three risers and three
+ * coolers as bar rows scaled against the biggest move shown. Renders nothing
+ * until there is a row to show — no placeholder flash.
  */
 export function MetaPulseBlock({
   pulse,
+  exposure = null,
   onOpenMeta,
+  onOpenGroup,
   showBand = true,
   testID = 'meta-pulse',
 }: MetaPulseBlockProps) {
@@ -62,8 +61,11 @@ export function MetaPulseBlock({
   if (!pulse || !hasMetaPulseContent(pulse)) {
     return null;
   }
-  const groups = metaPulseFeedGroups(pulse.groups);
-  const open = onOpenMeta ? () => onOpenMeta(pulse) : undefined;
+  const { risers, coolers } = metaPulseFeedGroups(pulse.groups);
+  const maxMagnitude = maxGroupMagnitude([...risers, ...coolers]);
+  // Exposure for another game would tag the wrong groups.
+  const viewerExposure = exposure && exposure.game === pulse.game ? exposure : null;
+  const openGroup = onOpenGroup ? (group: MetaGroup) => onOpenGroup(group, pulse) : undefined;
 
   return (
     <View
@@ -74,65 +76,58 @@ export function MetaPulseBlock({
       testID={testID}
     >
       <MetaBlockHeader
-        actionLabel="See the meta ›"
-        onPressAction={open}
+        actionLabel="See all ›"
+        onPressAction={onOpenMeta ? () => onOpenMeta(pulse) : undefined}
+        size="large"
         testID={`${testID}-header`}
         title="Meta pulse"
       />
+      <AppText color="gray600" style={styles.caption} testID={`${testID}-caption`} variant="captionMedium">
+        {metaPulseCaption(pulse)}
+      </AppText>
       {pulse.headline.title ? (
-        <AppText color="gray900" style={styles.headline} testID={`${testID}-headline`} variant="titleSmall">
+        <AppText color="gray900" style={styles.headline} testID={`${testID}-headline`} variant="feedTitle">
           {pulse.headline.title}
         </AppText>
       ) : null}
-      <AppText color="gray600" style={styles.caption} variant="captionMedium">
-        {metaPulseCaption(pulse)}
-      </AppText>
-      <View
-        style={[
-          styles.groups,
-          {
-            borderColor: theme.colors.gray200,
-            borderCurve: 'continuous',
-            borderRadius: theme.radii.md,
-            borderWidth: theme.borderWidths.containerRule,
-          },
-        ]}
-      >
-        {groups.map((group, index) => (
-          <MetaGroupRow
-            changeLabel={formatSignedPercent(group.medianChangePercent)}
-            changePercent={group.medianChangePercent}
-            description={group.description}
-            divider={index > 0}
-            imageUrl={group.topCards[0]?.imageUrl ?? null}
-            key={group.groupKey}
-            label={group.label}
-            lane={group.lane}
-            onPress={open}
-            testID={`${testID}-group-${group.groupKey}`}
-            valueLabel={`${formatSignedCompactUsd(group.valueChangeUsd)} value`}
-          />
-        ))}
-      </View>
+      <MetaExposureCallout exposure={viewerExposure} style={styles.callout} testID={`${testID}-callout`} />
+      <MetaBarList
+        direction="up"
+        exposure={viewerExposure}
+        groups={risers}
+        maxMagnitude={maxMagnitude}
+        onOpenGroup={openGroup}
+        testID={`${testID}-up`}
+      />
+      <MetaBarList
+        direction="down"
+        exposure={viewerExposure}
+        groups={coolers}
+        maxMagnitude={maxMagnitude}
+        onOpenGroup={openGroup}
+        testID={`${testID}-down`}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // 16 all round; the band is a BORDER, same reason as the Top Trends block.
+  // Mockup: 20 top / 18 bottom / 16 sides. The band is a BORDER, same reason
+  // as the Top Trends block.
   section: {
     alignSelf: 'stretch',
-    padding: 16,
+    paddingBottom: 18,
+    paddingHorizontal: 16,
+    paddingTop: 20,
     width: '100%',
   },
-  headline: {
-    marginTop: 8,
-  },
   caption: {
-    marginTop: 4,
+    marginTop: 2,
   },
-  groups: {
-    marginTop: 12,
-    overflow: 'hidden',
+  headline: {
+    marginTop: 14,
+  },
+  callout: {
+    marginTop: 14,
   },
 });

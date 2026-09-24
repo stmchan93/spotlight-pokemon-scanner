@@ -24,10 +24,7 @@ import {
   openLegalUrl,
 } from '@/features/auth/legal-links';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
-import {
-  revokePushToken,
-  usePushPermissionPrompt,
-} from '@/features/notifications';
+import { revokePushToken } from '@/features/notifications';
 import { useScannerMacroLensLock } from '@/features/scanner/scanner-camera-lens';
 import { exportCollectionCsv } from '@/features/portfolio/export-collection';
 import { useAuth } from '@/providers/auth-provider';
@@ -106,14 +103,6 @@ export function AccountScreen() {
     if (isGuest) openLogin();
   }, [isGuest, openLogin]);
 
-  const {
-    enablePushNotifications,
-    isBusy: pushPermissionBusy,
-    isEnabled: pushPermissionGranted,
-    refresh: refreshPushPermission,
-  } = usePushPermissionPrompt();
-  const [dealAlertsEnabled, setDealAlertsEnabled] = useState(false);
-  const [dealAlertsBusy, setDealAlertsBusy] = useState(false);
 
   const [isDeleting, setIsDeleting] = useState(false);
   const [collectionDataBusy, setCollectionDataBusy] = useState(false);
@@ -216,83 +205,6 @@ export function AccountScreen() {
       }
     },
     [showModeActive, showModeBusy, spotlightRepository],
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    void spotlightRepository
-      .getNotificationPrefs()
-      .then((prefs) => {
-        if (!cancelled) {
-          setDealAlertsEnabled(prefs.dealAlertsEnabled);
-        }
-      })
-      .catch(() => {
-        // The repository already degrades to the server defaults; nothing else
-        // to do if even that throws.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [spotlightRepository]);
-
-  /*
-    The switch is the AND of two independent things: the OS permission and the
-    server-side preference. Shown that way on purpose — a switch that reads ON
-    while iOS is silently dropping every push is a lie.
-
-    Turning ON therefore has to satisfy both, and the permission half is where
-    the one-shot iOS dialog gets spent. That is legitimate here: this row is a
-    deliberate tap on a control that says what it does.
-
-    Turning OFF only writes the preference. Revoking the OS permission is not
-    ours to do, and the user can always come back here.
-  */
-  const handleToggleDealAlerts = useCallback(
-    async (nextEnabled: boolean) => {
-      if (dealAlertsBusy || pushPermissionBusy) {
-        return;
-      }
-      const previousEnabled = dealAlertsEnabled;
-      setDealAlertsEnabled(nextEnabled);
-      setDealAlertsBusy(true);
-      try {
-        if (nextEnabled && !pushPermissionGranted) {
-          const granted = await enablePushNotifications();
-          if (!granted) {
-            // `enablePushNotifications` has already explained itself (system
-            // dialog, Settings deep link, or its own alert) — don't stack a
-            // second one on top.
-            setDealAlertsEnabled(previousEnabled);
-            return;
-          }
-        }
-        const result = await spotlightRepository.setNotificationPrefs({
-          dealAlertsEnabled: nextEnabled,
-        });
-        if (result.status !== 'ok') {
-          setDealAlertsEnabled(previousEnabled);
-          Alert.alert(
-            'Could not update deal alerts',
-            'Something went wrong updating deal alerts. Please try again.',
-          );
-          return;
-        }
-        setDealAlertsEnabled(result.prefs.dealAlertsEnabled);
-      } finally {
-        setDealAlertsBusy(false);
-        void refreshPushPermission();
-      }
-    },
-    [
-      dealAlertsBusy,
-      dealAlertsEnabled,
-      enablePushNotifications,
-      pushPermissionBusy,
-      pushPermissionGranted,
-      refreshPushPermission,
-      spotlightRepository,
-    ],
   );
 
   /*
@@ -547,24 +459,28 @@ export function AccountScreen() {
           </View>
         </SurfaceCard>
 
+        {/* Push alert switches live on their own screen (price moves, weekly summary, deals). */}
         <SurfaceCard padding={20} radius={28}>
-          <View style={styles.showModeRow}>
+          <View style={styles.collectionDataCard}>
             <View style={styles.showModeCopy}>
               <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
-                Deal alerts
+                Alerts
               </Text>
               <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
-                Get a push when a listing is caught under your watchlist baselines.
+                Price moves, a weekly summary and deals on cards you watch.
               </Text>
             </View>
-            <Switch
-              disabled={dealAlertsBusy || pushPermissionBusy}
-              onValueChange={(nextEnabled) => {
-                void handleToggleDealAlerts(nextEnabled);
-              }}
-              testID="account-deal-alerts-toggle"
-              value={dealAlertsEnabled && pushPermissionGranted}
-            />
+            <View style={styles.collectionDataButtons}>
+              <Button
+                label="Alert settings"
+                onPress={() => {
+                  router.push('/account/alerts' as never);
+                }}
+                size="lg"
+                testID="account-alert-settings"
+                variant="outline"
+              />
+            </View>
           </View>
         </SurfaceCard>
 

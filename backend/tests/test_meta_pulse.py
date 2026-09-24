@@ -30,6 +30,10 @@ from meta_pulse import (  # noqa: E402
     PricePair,
     aggregate_groups,
     build_headline,
+    _exposure_callout,
+    _Holding,
+    build_meta_exposure_payload,
+    build_meta_group_detail_payload,
     build_meta_pulse_payload,
     compute_meta_pulse,
     ensure_schema,
@@ -409,12 +413,190 @@ class ComputeTests(unittest.TestCase):
         )
         self.assertEqual(len(uncapped["groups"]), 25)
 
+    # --- group detail (v4) --------------------------------------------------
+
+    def test_group_detail_keeps_twenty_cards_feed_keeps_five(self) -> None:
+        for i in range(25):
+            card_id = f"g{i:02d}"
+            self._card(card_id)
+            then = 10.0 + i
+            # Bigger $ movers are not the bigger % movers, so the two sorts differ.
+            pct = 0.05 + (24 - i) * 0.01
+            for days_ago in range(10, -1, -1):
+                self._raw(card_id, days_ago, then if days_ago > 3 else round(then * (1 + pct), 2))
+        self._compute(games=["pokemon"], windows=[7])
+        stored = self.connection.execute(
+            "SELECT COUNT(*) FROM meta_pulse_cards WHERE group_key = 'vintage:raw' AND window_days = 7"
+        ).fetchone()[0]
+        self.assertEqual(stored, 20)
+        feed = build_meta_pulse_payload(self.connection, game="pokemon", window_days=7)
+        feed_group = next(g for g in feed["groups"] if g["groupKey"] == "vintage:raw")
+        self.assertEqual(len(feed_group["topCards"]), 5)
+        everything = build_meta_pulse_payload(self.connection, game="pokemon", window_days=7, top_cards_limit=None)
+        self.assertEqual(len(next(g for g in everything["groups"] if g["groupKey"] == "vintage:raw")["topCards"]), 20)
+
+        detail = build_meta_group_detail_payload(
+            self.connection, game="pokemon", window_days=7, lane="raw", group_key="vintage:raw"
+        )
+        self.assertEqual(set(detail), {"game", "windowDays", "group", "asOfDate"})
+        self.assertEqual((detail["game"], detail["windowDays"], detail["asOfDate"]), ("pokemon", 7, TODAY.isoformat()))
+        self.assertEqual(set(detail["group"]), GROUP_KEYS)
+        cards = detail["group"]["topCards"]
+        self.assertEqual(len(cards), 20)
+        pcts = [c["changePercent"] for c in cards]
+        self.assertEqual(pcts, sorted(pcts, reverse=True))  # riser → desc
+        self.assertEqual(set(cards[0]), CARD_KEYS)
+        # The lane the user came from never hides a group; unknown keys → None.
+        self.assertIsNotNone(build_meta_group_detail_payload(
+            self.connection, game="pokemon", window_days=7, lane="graded", group_key="vintage:raw"))
+        self.assertIsNone(build_meta_group_detail_payload(
+            self.connection, game="pokemon", window_days=7, group_key="nope:raw"))
+        self.assertIsNone(build_meta_group_detail_payload(
+            self.connection, game="pokemon", window_days=30, group_key="vintage:raw"))
+
+    def test_group_detail_cooler_cards_ascending(self) -> None:
+        for i in range(10):
+            card_id = f"c{i}"
+            self._card(card_id)
+            for days_ago in range(10, -1, -1):
+                self._raw(card_id, days_ago, 20.0 if days_ago > 3 else 20.0 - (i + 1))
+        self._compute(games=["pokemon"], windows=[7])
+        detail = build_meta_group_detail_payload(self.connection, game="pokemon", window_days=7,
+                                                 group_key="vintage:raw")
+        self.assertLess(detail["group"]["medianChangePercent"], 0)
+        pcts = [c["changePercent"] for c in detail["group"]["topCards"]]
+        self.assertEqual(pcts, sorted(pcts))
+        self.assertEqual(detail["group"]["topCards"][0]["cardId"], "c9")
+
+    # --- exposure (v4) --------------------------------------------------------
+
+    def _own(self, owner: str, card_id: str, *, quantity: int = 1, grader: str | None = None,
+             grade: str | None = None, collection_id: str | None = None) -> None:
+        self.connection.execute(
+            "INSERT INTO deck_entries (id, owner_user_id, identity_key, item_kind, card_id, grader, grade, "
+            "quantity, added_at, updated_at, collection_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (f"{owner}-{card_id}-{grader}-{collection_id}", owner, f"{card_id}|{grader}|{grade}|{collection_id}",
+             "slab" if grader else "raw", card_id, grader, grade, quantity, utc_now(), utc_now(), collection_id),
+        )
+
+    def _seed_exposure_market(self) -> None:
+        self._seed_vintage_raw()
+        for i in range(10):
+            card_id = f"v{i}"
+            self._population(card_id, 30 if i < 8 else 500)
+            then = 100.0 + i * 10
+            for days_ago in range(0, 11):
+                self._graded(card_id, days_ago, then if days_ago > 3 else then * 1.2)
+        self._graded("v4", 0, 9000.0, signed=1)  # signed slab never prices a holding
+        self._compute(games=["pokemon"], windows=[7])
+
+    def test_exposure_math_and_owner_scoping(self) -> None:
+        self._seed_exposure_market()
+        # v0: 10 → 11 (x2), v2: 12 → 13.2, v1 flat 11; v4 PSA 10: 140 → 168.
+        self._own("alice", "v0", quantity=2)
+        self._own("alice", "v2")
+        self._own("alice", "v1")
+        self._own("alice", "v4", grader="psa", grade="10.0")
+        self._own("alice", "v9", quantity=0)  # sold out → not a holding
+        # Another user's holdings must never leak into alice's numbers.
+        self._own("bob", "v6", quantity=5)
+        self._own("bob", "v4", grader="PSA", grade="10", quantity=3)
+        self.connection.commit()
+
+        payload = build_meta_exposure_payload(self.connection, owner_user_id="alice", game="pokemon", window_days=7)
+        self.assertEqual(set(payload), {"game", "windowDays", "callout", "groups"})
+        groups = payload["groups"]
+        self.assertEqual(
+            set(groups),
+            {"vintage:raw", "vintage:graded:psa10", "vintage:graded:psa10:pop_le_200",
+             "vintage:graded:psa10:pop_le_50"},
+        )
+        raw = groups["vintage:raw"]
+        self.assertEqual(set(raw), {"ownedCount", "valueChangeUsd", "ownedCards"})
+        self.assertEqual(raw["ownedCount"], 4)
+        self.assertAlmostEqual(raw["valueChangeUsd"], 2 * 1.0 + 1.2)
+        self.assertEqual([c["cardId"] for c in raw["ownedCards"]], ["v0", "v2", "v1"])
+        self.assertEqual(set(raw["ownedCards"][0]), CARD_KEYS)
+        slab = groups["vintage:graded:psa10"]
+        self.assertEqual((slab["ownedCount"], slab["valueChangeUsd"]), (1, 28.0))
+        card = slab["ownedCards"][0]
+        self.assertEqual((card["grader"], card["grade"], card["population"], card["priceNow"]), ("PSA", "10", 30, 168.0))
+
+        callout = payload["callout"]
+        self.assertEqual(set(callout), {"title", "body", "valueChangeUsd", "imageUrls"})
+        self.assertEqual(callout["title"], "Your vintage is up +$28 this week")
+        self.assertEqual(callout["body"], "1 PSA 10 and 4 raw cards in rising groups")
+        self.assertEqual(callout["valueChangeUsd"], 28.0)
+        self.assertEqual(callout["imageUrls"], ["https://img/v4.png"])
+
+        bob = build_meta_exposure_payload(self.connection, owner_user_id="bob", game="pokemon", window_days=7)
+        self.assertEqual(bob["groups"]["vintage:raw"]["ownedCount"], 5)
+        self.assertEqual(bob["groups"]["vintage:graded:psa10"]["ownedCount"], 3)
+        self.assertAlmostEqual(bob["groups"]["vintage:graded:psa10"]["valueChangeUsd"], 84.0)
+        nobody = build_meta_exposure_payload(self.connection, owner_user_id="carol", game="pokemon", window_days=7)
+        self.assertEqual((nobody["groups"], nobody["callout"]), ({}, None))
+        with self.assertRaises(ValueError):
+            build_meta_exposure_payload(self.connection, owner_user_id=" ", game="pokemon", window_days=7)
+
+    def test_exposure_skips_hidden_collections_and_other_games(self) -> None:
+        self._seed_exposure_market()
+        columns = {r[1] for r in self.connection.execute("PRAGMA table_info(collections)")}
+        if "hidden" not in columns:
+            self.connection.execute("ALTER TABLE collections ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
+        self.connection.execute(
+            "INSERT INTO collections (id, owner_user_id, name, sort_order, created_at, hidden) "
+            "VALUES ('vault', 'alice', 'Vault', 1, ?, 1)", (utc_now(),),
+        )
+        self._own("alice", "v0", collection_id="vault")
+        self.connection.commit()
+        payload = build_meta_exposure_payload(self.connection, owner_user_id="alice", game="pokemon", window_days=7)
+        self.assertEqual(payload["groups"], {})
+        other = build_meta_exposure_payload(self.connection, owner_user_id="alice", game="onepiece", window_days=7)
+        self.assertEqual((other["groups"], other["callout"]), ({}, None))
+
+    def test_exposure_without_movement_has_no_callout(self) -> None:
+        self._seed_exposure_market()
+        self._own("alice", "v1")  # flat card: owned, but nothing moved
+        self.connection.commit()
+        payload = build_meta_exposure_payload(self.connection, owner_user_id="alice", game="pokemon", window_days=7)
+        self.assertEqual(payload["groups"]["vintage:raw"]["valueChangeUsd"], 0.0)
+        self.assertIsNone(payload["callout"])
+
+
     def test_empty_database(self) -> None:
         self.assertEqual(self._compute()["status"], "no_history")
         payload = build_meta_pulse_payload(self.connection, game="onepiece", window_days=30, lane="bogus")
         self.assertEqual(set(payload), META_PULSE_KEYS)
         self.assertEqual((payload["game"], payload["lane"], payload["groups"]), ("onepiece", "all", []))
         self.assertIsNone(payload["asOfDate"])
+
+
+class ExposureCalloutTests(unittest.TestCase):
+    def test_cooling_callout_wording(self) -> None:
+        slab = _Holding("a", "PSA", "10", None, quantity=2)
+        slab2 = _Holding("b", "CGC", "10", None, quantity=1)
+        raw = _Holding("c", None, None, None, quantity=1)
+        groups = {
+            "sir:raw": {"ownedCount": 1, "valueChangeUsd": -1234.5, "ownedCards": [
+                {"imageUrl": "https://img/c.png"}, {"imageUrl": None}, {"imageUrl": "https://img/d.png"},
+                {"imageUrl": "https://img/e.png"}]},
+            "sir:graded:psa10": {"ownedCount": 2, "valueChangeUsd": -40.0, "ownedCards": []},
+            "vintage:raw": {"ownedCount": 1, "valueChangeUsd": 5000.0, "ownedCards": []},  # flat group
+        }
+        run_groups = {
+            "sir:raw": ("Special Illustration Rare", "sir", -6.0),
+            "sir:graded:psa10": ("Special Illustration Rare PSA 10", "sir", -3.0),
+            "vintage:raw": ("Vintage", "vintage", 0.2),
+        }
+        members = {"sir:raw": [raw], "sir:graded:psa10": [slab, slab2], "vintage:raw": [raw]}
+        callout = _exposure_callout(groups, run_groups, members, 30)
+        self.assertEqual(callout["title"], "Your SIRs are down $1,234 this month")
+        self.assertEqual(callout["body"], "3 graded cards and 1 raw card in cooling groups")
+        self.assertEqual(callout["imageUrls"], ["https://img/c.png", "https://img/d.png"])
+        # A group whose median runs against the user's change is not a callout.
+        run_groups["sir:raw"] = ("Special Illustration Rare", "sir", 6.0)
+        run_groups["sir:graded:psa10"] = ("Special Illustration Rare PSA 10", "sir", 3.0)
+        self.assertIsNone(_exposure_callout(groups, run_groups, members, 7))
 
 
 if __name__ == "__main__":

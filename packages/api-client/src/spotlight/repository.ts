@@ -13,17 +13,24 @@ import {
   updateInventoryForSale,
 } from './mock-data';
 import {
+  mockCalendarFeed,
   mockHotCards,
+  mockMetaExposure,
+  mockMetaGroupDetail,
   mockMetaPulse,
   mockNewsFeed,
   mockSetSpotlight,
 } from './meta-feed-mock-data';
 import {
+  parseCalendarPayload,
   parseHotCardsPayload,
+  parseMetaExposurePayload,
+  parseMetaGroupDetailPayload,
   parseMetaPulsePayload,
   parseNewsFeedPayload,
   parseSetSpotlightPayload,
 } from './meta-feed-wire';
+import { parseSimilarCardsPayload } from './similar-cards-wire';
 import {
   ALL_COLLECTIONS_ID,
   CARD_GAMES,
@@ -98,6 +105,9 @@ import type {
   NormalizedPoint,
   NotificationPrefs,
   NotificationPrefsResult,
+  AlertPreferences,
+  AlertPreferencesPatch,
+  AlertPreferencesResult,
   PushTokenRegistration,
   PortfolioEntryBulkDeleteRequestPayload,
   PortfolioEntryBulkDeleteResponsePayload,
@@ -123,10 +133,18 @@ import type {
   HotCardsQuery,
   MetaPulse,
   MetaPulseQuery,
+  MetaGroupDetail,
+  MetaGroupDetailQuery,
+  MetaExposure,
+  MetaExposureQuery,
+  CalendarFeed,
+  CalendarQuery,
   NewsFeed,
   NewsFeedQuery,
   SetSpotlight,
   SetSpotlightQuery,
+  SimilarCard,
+  SimilarCards,
   PortfolioPerformanceRow,
   TransactionInsights,
   PortfolioSaleRequestPayload,
@@ -352,6 +370,20 @@ export interface SpotlightRepository {
   /** This week's pick when `setId` is omitted. */
   fetchSetSpotlight(query?: SetSpotlightQuery): Promise<SetSpotlight | null>;
   fetchNewsFeed(query?: NewsFeedQuery): Promise<NewsFeed | null>;
+  /**
+   * PDP "More like this" rows. NULL when the server reports the feature
+   * disabled (404); an unknown card is an empty payload, not null. Throws on
+   * other transport/HTTP failures.
+   */
+  fetchSimilarCards(cardId: string): Promise<SimilarCards | null>;
+  /*
+    Meta feed v2 (docs/meta-feed-v2-contracts-2026-09-24.md), same null/throw
+    contract. `fetchMetaExposure` is AUTHED and owner-scoped: it also resolves
+    null on 401 (signed out), so callers must scope its cache by owner.
+  */
+  fetchMetaGroupDetail(query: MetaGroupDetailQuery): Promise<MetaGroupDetail | null>;
+  fetchMetaExposure(query?: MetaExposureQuery): Promise<MetaExposure | null>;
+  fetchCalendar(query?: CalendarQuery): Promise<CalendarFeed | null>;
   getCardConditionHistory(query: CardConditionHistoryQuery): Promise<CardConditionHistory | null>;
   getRawPricingMatrix(cardId: string): Promise<RawPricingMatrix>;
   getCardEbayListings(query: CardDetailQuery & {
@@ -416,6 +448,13 @@ export interface SpotlightRepository {
    * Non-throwing, and `status` is what an optimistic toggle reverts on.
    */
   setNotificationPrefs(patch: Partial<NotificationPrefs>): Promise<NotificationPrefsResult>;
+  /**
+   * The Alerts screen's three switches. Never throws: a failed read is the
+   * server defaults (all on), never "off".
+   */
+  fetchAlertPreferences(): Promise<AlertPreferences>;
+  /** Partial write (+ optional IANA timezone); non-throwing, revert on `failed`. */
+  updateAlertPreferences(patch: AlertPreferencesPatch): Promise<AlertPreferencesResult>;
   /**
    * Validated raw eBay listings for the "lowest listed" panel.
    *
@@ -1627,6 +1666,16 @@ function buildNotificationPrefs(value: unknown): NotificationPrefs {
   return {
     dealAlertsEnabled: normalizeBoolean(value.dealAlertsEnabled) ?? true,
     targetHitsEnabled: normalizeBoolean(value.targetHitsEnabled) ?? true,
+  };
+}
+
+/** Alert switches from the wire; a missing/malformed flag reads as ON (the server default). */
+function buildAlertPreferences(value: unknown): AlertPreferences {
+  const record = isRecord(value) ? value : {};
+  return {
+    dealAlertsEnabled: normalizeBoolean(record.dealAlertsEnabled) ?? true,
+    priceMovesEnabled: normalizeBoolean(record.priceMovesEnabled) ?? true,
+    weeklySummaryEnabled: normalizeBoolean(record.weeklySummaryEnabled) ?? true,
   };
 }
 
@@ -3696,6 +3745,58 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return { items: page, nextCursor: next < items.length ? String(next) : null };
   }
 
+  async fetchSimilarCards(cardId: string): Promise<SimilarCards | null> {
+    const cards = this.catalogResults.filter((result) => result.productKind !== 'sealed');
+    const self = cards.find((result) => result.cardId === cardId);
+    if (!self) {
+      return { cardId, baseName: null, goesWith: null, sameName: [], sameLookCheaper: [] };
+    }
+    const toSimilar = (result: CatalogSearchResult): SimilarCard => ({
+      cardId: result.cardId,
+      name: result.name,
+      setName: result.setName,
+      number: result.cardNumber.replace(/^#/, ''),
+      language: null,
+      imageUrl: result.imageUrl,
+      priceNow: result.marketPrice ?? null,
+      currencyCode: result.currencyCode ?? 'USD',
+    });
+    const others = cards.filter((result) => result.cardId !== cardId);
+    const ownPrice = self.marketPrice ?? null;
+    return {
+      cardId,
+      baseName: self.name,
+      goesWith: null,
+      sameName: others.filter((result) => result.name === self.name).slice(0, 10).map(toSimilar),
+      sameLookCheaper: ownPrice == null
+        ? []
+        : others
+          .filter((result) => result.name !== self.name && result.marketPrice != null && result.marketPrice < ownPrice)
+          .slice(0, 10)
+          .map(toSimilar),
+    };
+  }
+
+  async fetchMetaGroupDetail(query: MetaGroupDetailQuery): Promise<MetaGroupDetail | null> {
+    const detail = mockMetaGroupDetail(query.groupKey);
+    return detail ? { ...detail, windowDays: query.windowDays ?? detail.windowDays } : null;
+  }
+
+  // The mock viewer owns cards only in the Pokémon mock groups.
+  async fetchMetaExposure(query?: MetaExposureQuery): Promise<MetaExposure | null> {
+    const game = query?.game ?? mockMetaExposure.game;
+    const windowDays = query?.windowDays ?? mockMetaExposure.windowDays;
+    return game === mockMetaExposure.game
+      ? { ...mockMetaExposure, windowDays }
+      : { game, windowDays, callout: null, groups: {} };
+  }
+
+  async fetchCalendar(query?: CalendarQuery): Promise<CalendarFeed | null> {
+    const limit = Math.max(1, Math.min(50, Math.trunc(query?.limit ?? 20)));
+    const items = mockCalendarFeed.items.filter((item) => !query?.game || item.game === query.game);
+    return { items: items.slice(0, limit) };
+  }
+
   async loadInventoryEntries(query?: InventoryEntriesQuery) {
     const entries = this.inventoryEntriesForQuery(query);
     return buildLoadResult(entries.length > 0 ? 'success' : 'empty', entries);
@@ -4340,6 +4441,26 @@ export class MockSpotlightRepository implements SpotlightRepository {
       this.notificationPrefs.targetHitsEnabled = patch.targetHitsEnabled;
     }
     return { status: 'ok', prefs: { ...this.notificationPrefs } };
+  }
+
+  private marketAlertSwitches = { priceMovesEnabled: true, weeklySummaryEnabled: true };
+
+  async fetchAlertPreferences(): Promise<AlertPreferences> {
+    // Deals share the notification-prefs flag, exactly like the server.
+    return { ...this.marketAlertSwitches, dealAlertsEnabled: this.notificationPrefs.dealAlertsEnabled };
+  }
+
+  async updateAlertPreferences(patch: AlertPreferencesPatch): Promise<AlertPreferencesResult> {
+    if (typeof patch.priceMovesEnabled === 'boolean') {
+      this.marketAlertSwitches.priceMovesEnabled = patch.priceMovesEnabled;
+    }
+    if (typeof patch.weeklySummaryEnabled === 'boolean') {
+      this.marketAlertSwitches.weeklySummaryEnabled = patch.weeklySummaryEnabled;
+    }
+    if (typeof patch.dealAlertsEnabled === 'boolean') {
+      this.notificationPrefs.dealAlertsEnabled = patch.dealAlertsEnabled;
+    }
+    return { status: 'ok', prefs: await this.fetchAlertPreferences() };
   }
 
   async getRawEbayListingCandidates(query: RawEbayListingsQuery): Promise<RawEbayListingsResponse> {
@@ -6896,6 +7017,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     if (appVersion) {
       body.appVersion = appVersion;
     }
+    const timezone = normalizeString(registration.timezone);
+    if (timezone) {
+      body.timezone = timezone;
+    }
     const response = await this.requestJson<unknown>(
       `${this.baseUrl}/api/v1/notifications/push-tokens`,
       {
@@ -6956,6 +7081,39 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       return { status: 'failed', prefs: null };
     }
     return { status: 'ok', prefs: buildNotificationPrefs(response.data) };
+  }
+
+  async fetchAlertPreferences(): Promise<AlertPreferences> {
+    const response = await this.requestJson<unknown>(
+      `${this.baseUrl}/api/v1/notifications/alert-prefs`,
+    );
+    // Defaults (all on), NOT "off", when the read fails.
+    return buildAlertPreferences(response.kind === 'success' ? response.data : null);
+  }
+
+  async updateAlertPreferences(patch: AlertPreferencesPatch): Promise<AlertPreferencesResult> {
+    const body: Record<string, boolean | string> = {};
+    for (const key of ['priceMovesEnabled', 'weeklySummaryEnabled', 'dealAlertsEnabled'] as const) {
+      if (typeof patch[key] === 'boolean') {
+        body[key] = patch[key];
+      }
+    }
+    const timezone = normalizeString(patch.timezone);
+    if (timezone) {
+      body.timezone = timezone;
+    }
+    const response = await this.requestJson<unknown>(
+      `${this.baseUrl}/api/v1/notifications/alert-prefs`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    );
+    if (response.kind !== 'success' || response.data == null) {
+      return { status: 'failed', prefs: null };
+    }
+    return { status: 'ok', prefs: buildAlertPreferences(response.data) };
   }
 
   async getRawEbayListingCandidates(query: RawEbayListingsQuery): Promise<RawEbayListingsResponse> {
@@ -7634,8 +7792,13 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
   // Meta feed reads. `allowNotFound` turns the flag-off 404 into a `null`
   // (block hidden); anything else throws so the caller keeps its last-good
-  // payload, same as getTopMovers.
-  private async requestMetaFeedRead(path: string, params: Record<string, string | number | null | undefined>) {
+  // payload, same as getTopMovers. `unauthorizedAsDisabled` does the same for
+  // a 401 on the authed reads (signed out → nothing to show).
+  private async requestMetaFeedRead(
+    path: string,
+    params: Record<string, string | number | null | undefined>,
+    options?: { unauthorizedAsDisabled?: boolean },
+  ) {
     const search = Object.entries(params)
       .filter((entry): entry is [string, string | number] => entry[1] != null && entry[1] !== '')
       .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
@@ -7646,6 +7809,9 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       { allowNotFound: true },
     );
     if (response.kind === 'not_found') {
+      return { disabled: true as const };
+    }
+    if (options?.unauthorizedAsDisabled && response.kind === 'error' && response.error.status === 401) {
       return { disabled: true as const };
     }
     if (response.kind !== 'success' || response.data == null) {
@@ -7686,6 +7852,36 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       cursor: query?.cursor,
     });
     return result.disabled ? null : parseNewsFeedPayload(result.data);
+  }
+
+  async fetchSimilarCards(cardId: string): Promise<SimilarCards | null> {
+    const result = await this.requestMetaFeedRead(`/api/v1/cards/${encodeURIComponent(cardId)}/similar`, {});
+    return result.disabled ? null : parseSimilarCardsPayload(result.data, cardId);
+  }
+
+  async fetchMetaGroupDetail(query: MetaGroupDetailQuery): Promise<MetaGroupDetail | null> {
+    const result = await this.requestMetaFeedRead(
+      `/api/v1/market/meta/groups/${encodeURIComponent(query.groupKey)}`,
+      { game: query.game, window: query.windowDays, lane: query.lane },
+    );
+    return result.disabled ? null : parseMetaGroupDetailPayload(result.data, query);
+  }
+
+  async fetchMetaExposure(query?: MetaExposureQuery): Promise<MetaExposure | null> {
+    const result = await this.requestMetaFeedRead(
+      '/api/v1/market/meta/me',
+      { game: query?.game, window: query?.windowDays },
+      { unauthorizedAsDisabled: true },
+    );
+    return result.disabled ? null : parseMetaExposurePayload(result.data, query);
+  }
+
+  async fetchCalendar(query?: CalendarQuery): Promise<CalendarFeed | null> {
+    const result = await this.requestMetaFeedRead('/api/v1/market/calendar', {
+      game: query?.game,
+      limit: query?.limit,
+    });
+    return result.disabled ? null : parseCalendarPayload(result.data);
   }
 
   /**

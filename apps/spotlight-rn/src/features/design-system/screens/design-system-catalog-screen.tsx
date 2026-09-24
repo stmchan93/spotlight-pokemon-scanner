@@ -8,6 +8,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import {
   Button,
+  CardRailTile,
   colors,
   DeltaPill,
   EmptyStatePrompt,
@@ -20,8 +21,11 @@ import {
   InventoryCardTile,
   LaneTag,
   ListPaginationFooter,
-  MetaGroupRow,
+  CalendarEventRow,
+  MetaBarRow,
+  MetaCalloutCard,
   NewsRow,
+  OwnedTag,
   RankBadge,
   RankedCardRow,
   PillButton,
@@ -230,14 +234,49 @@ export function DesignSystemCatalogScreen({
               <DeltaPill changePercent={-4.1} label="−4.1%" testID="catalog-delta-pill-down" />
               <RankBadge rank={1} testID="catalog-rank-badge" />
             </View>
-            <MetaGroupRow
+            <MetaCalloutCard
+              body="4 PSA 10s and 11 raw cards in rising groups"
+              highlight="+$312"
+              testID="catalog-meta-callout-card"
+              title="Your vintage is up +$312 this week"
+            />
+            <MetaBarRow
+              barFraction={1}
               changeLabel="+18.4%"
               changePercent={18.4}
-              description="pre-2003 · 1,840 cards"
-              label="Vintage PSA 10 · pop ≤ 50"
-              lane="graded"
-              testID="catalog-meta-group-row"
-              valueLabel="+$412k value"
+              label="Vintage PSA 10 · low pop"
+              ownedLabel="You own 4"
+              sparkPoints={[100, 101, 101, 103, 104, 107, 112, 118.4]}
+              testID="catalog-meta-bar-row"
+              valueLabel="+$412k"
+            />
+            <MetaBarRow
+              barFraction={0.22}
+              changeLabel="−4.1%"
+              changePercent={-4.1}
+              label="Special Illustration Rare"
+              sparkPoints={[100, 99.6, 99, 98.1, 97.2, 96.4, 95.9]}
+              testID="catalog-meta-bar-row-down"
+              valueLabel="−$188k"
+            />
+            <OwnedTag label="In your collection" testID="catalog-owned-tag" />
+            <CalendarEventRow
+              dayLabel="26"
+              kindLabel="Release"
+              kindTone="release"
+              monthLabel="SEP"
+              testID="catalog-calendar-event-row"
+              title="Delta Reign (English)"
+            />
+            <CalendarEventRow
+              dayLabel="30"
+              kindLabel="Ban list"
+              kindTone="ban_list"
+              monthLabel="SEP"
+              subtitle="Staples on the list tend to drop the same day"
+              testID="catalog-calendar-event-row-full"
+              title="One Piece ban & restriction update"
+              variant="full"
             />
             <RankedCardRow
               changeLabel="+3.2%"
@@ -262,6 +301,22 @@ export function DesignSystemCatalogScreen({
               metaLabel="PokeRev · 212K views · 3d"
               testID="catalog-video-tile"
               title="Opening Celebrations five years later"
+            />
+            <CardRailTile
+              accentLabel="Complete the pair"
+              imageUrl={null}
+              layout="feature"
+              name="Latias ☆"
+              priceLabel="$1,700.00"
+              subtitle="Deoxys · 105/107"
+              testID="catalog-card-rail-tile-feature"
+            />
+            <CardRailTile
+              imageUrl={null}
+              name="Latios ☆"
+              priceLabel="$1,150.00"
+              subtitle="Japanese · Clash of the Blue Sky"
+              testID="catalog-card-rail-tile"
             />
 
             <SearchField

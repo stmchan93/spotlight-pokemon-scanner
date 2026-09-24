@@ -44,6 +44,7 @@ from typing import Any, Callable, Iterable
 
 from catalog_tools import (
     SUPPORTED_GAMES,
+    _pick_graded_item,
     _table_columns,
     _table_exists,
     normalize_game,
@@ -77,7 +78,10 @@ MIN_CHANGE_PCT = -90.0
 # Medians inside +/- this band count as flat (neither rising nor cooling).
 FLAT_BAND_PCT = 0.5
 SPARK_POINTS = 30
-TOP_CARDS = 5
+TOP_CARDS = 20  # stored per group; the group page lists them all
+FEED_TOP_CARDS = 5  # the public /market/meta payload only needs the lead card
+EXPOSURE_OWNED_CARDS = 20
+EXPOSURE_CALLOUT_IMAGES = 2
 RETENTION_DAYS = 14
 RUN_SETTING_KEY = "meta_pulse_last_run"
 SQL_CHUNK = 900  # under SQLite's default variable limit
@@ -623,19 +627,29 @@ def _graded_rows_for_date(
     ).fetchall()
     out: dict[GradedKey, tuple[float, str]] = {}
     for card_id, grader, grade, variant, currency, market in rows:
-        currency = str(currency or "USD").upper()
-        if currency == "USD":
-            usd = float(market)
-        elif currency == "JPY" and jpy_usd is not None:
-            converted = convert_price(float(market), rate=jpy_usd)
-            if converted is None:
-                continue
-            usd = float(converted)
-        else:
-            continue
-        key = (str(card_id), normalize_grader(grader), normalize_grade(grade), str(variant or ""))
-        out[key] = (usd, currency)
+        converted = _graded_cell_value(card_id, grader, grade, variant, currency, market, jpy_usd=jpy_usd)
+        if converted is not None:
+            out[converted[0]] = converted[1]
     return out
+
+
+def _graded_cell_value(
+    card_id: Any, grader: Any, grade: Any, variant: Any, currency: Any, market: Any, *, jpy_usd: Decimal | None
+) -> tuple[GradedKey, tuple[float, str]] | None:
+    """One plain graded cell → (item key, (usd, source currency)); None when it
+    can't be expressed in USD."""
+    currency = str(currency or "USD").upper()
+    if currency == "USD":
+        usd = float(market)
+    elif currency == "JPY" and jpy_usd is not None:
+        converted = convert_price(float(market), rate=jpy_usd)
+        if converted is None:
+            return None
+        usd = float(converted)
+    else:
+        return None
+    key = (str(card_id), normalize_grader(grader), normalize_grade(grade), str(variant or ""))
+    return key, (usd, currency)
 
 
 def _latest_graded_items(
@@ -1067,6 +1081,83 @@ def _pct_change(now: float, then: float) -> float | None:
     return round((now - then) / then * 100.0, 1) if then else None
 
 
+def _latest_as_of(connection: sqlite3.Connection, game: str) -> str | None:
+    row = connection.execute("SELECT MAX(as_of_date) FROM meta_pulse_runs WHERE game = ?", (game,)).fetchone()
+    return str(row[0]) if row is not None and row[0] else None
+
+
+def _meta_card_dict(game: str, c: Any) -> dict[str, Any]:
+    return {
+        "cardId": c[2], "game": game, "name": c[3], "number": c[4], "setName": c[5],
+        "imageUrl": c[6], "lane": c[0], "grader": c[7], "grade": c[8], "population": c[9],
+        "priceNow": c[10], "priceThen": c[11], "changePercent": c[12], "currencyCode": "USD",
+    }
+
+
+def _load_group_dicts(
+    connection: sqlite3.Connection,
+    *,
+    game: str,
+    as_of: str,
+    window_days: int,
+    lane: str = "all",
+    group_key: str | None = None,
+    top_cards_limit: int | None = FEED_TOP_CARDS,
+) -> list[dict[str, Any]]:
+    """Payload-shaped ``MetaGroup`` dicts for one run (topCards in stored $ rank)."""
+    where = "game = ? AND as_of_date = ? AND window_days = ?"
+    params: list[Any] = [game, as_of, window_days]
+    if lane != "all":
+        where += " AND lane = ?"
+        params.append(lane)
+    if group_key is not None:
+        where += " AND group_key = ?"
+        params.append(group_key)
+    group_rows = connection.execute(
+        "SELECT lane, group_key, label, description, median_change_percent, value_now, value_then, "
+        "value_change_usd, card_count, moved_card_count, spark_points_json "
+        f"FROM meta_pulse_groups WHERE {where}",
+        tuple(params),
+    ).fetchall()
+    if not group_rows:
+        return []
+    card_where, card_params = where, list(params)
+    if top_cards_limit is not None:
+        card_where += " AND rank <= ?"
+        card_params.append(max(0, int(top_cards_limit)))
+    card_rows = connection.execute(
+        "SELECT lane, group_key, card_id, name, number, set_name, image_url, grader, grade, population, "
+        f"price_now, price_then, change_percent FROM meta_pulse_cards WHERE {card_where} ORDER BY rank",
+        tuple(card_params),
+    ).fetchall()
+    cards_by_group: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for c in card_rows:
+        cards_by_group.setdefault((str(c[0]), str(c[1])), []).append(_meta_card_dict(game, c))
+    groups: list[dict[str, Any]] = []
+    for g in group_rows:
+        try:
+            spark = [float(p) for p in json.loads(g[10] or "[]")]
+        except (TypeError, ValueError):
+            spark = []
+        groups.append(
+            {
+                "groupKey": g[1],
+                "label": g[2],
+                "lane": g[0],
+                "description": g[3],
+                "medianChangePercent": round(float(g[4]), 1),
+                "valueNow": round(float(g[5]), 2),
+                "valueThen": round(float(g[6]), 2),
+                "valueChangeUsd": round(float(g[7]), 2),
+                "cardCount": int(g[8]),
+                "movedCardCount": int(g[9]),
+                "sparkPoints": spark,
+                "topCards": cards_by_group.get((str(g[0]), str(g[1])), []),
+            }
+        )
+    return groups
+
+
 def build_meta_pulse_payload(
     connection: sqlite3.Connection,
     *,
@@ -1074,11 +1165,14 @@ def build_meta_pulse_payload(
     window_days: int = 7,
     lane: str = "all",
     max_groups_per_direction: int | None = 10,
+    top_cards_limit: int | None = FEED_TOP_CARDS,
 ) -> dict[str, Any]:
     """``MetaPulse`` for one (game, window, lane) from the precomputed tables.
 
     ``groups`` keeps the top ``max_groups_per_direction`` risers (>= 0%) and
-    coolers (< 0%); counts, headline and ladders use every group."""
+    coolers (< 0%); counts, headline and ladders use every group. Each group's
+    ``topCards`` keeps the first ``top_cards_limit`` stored cards (by $ rank;
+    None = all stored); the group page reads the full list."""
     if not _table_exists(connection, "meta_pulse_runs"):
         ensure_schema(connection)
     game = normalize_game(game)
@@ -1091,8 +1185,7 @@ def build_meta_pulse_payload(
     present = {str(r[0]) for r in rows}
     available_games = [g for g in SUPPORTED_GAMES if g in present]
 
-    row = connection.execute("SELECT MAX(as_of_date) FROM meta_pulse_runs WHERE game = ?", (game,)).fetchone()
-    as_of = row[0] if row is not None else None
+    as_of = _latest_as_of(connection, game)
     runs = (
         connection.execute(
             "SELECT window_days, lane, paired_card_count, value_now, value_then, computed_at "
@@ -1119,49 +1212,10 @@ def build_meta_pulse_payload(
 
     groups: list[dict[str, Any]] = []
     if as_of:
-        lane_sql, lane_params = ("", ()) if lane == "all" else (" AND lane = ?", (lane,))
-        group_rows = connection.execute(
-            "SELECT lane, group_key, label, description, median_change_percent, value_now, value_then, "
-            "value_change_usd, card_count, moved_card_count, spark_points_json "
-            "FROM meta_pulse_groups WHERE game = ? AND as_of_date = ? AND window_days = ?" + lane_sql,
-            (game, as_of, window_days, *lane_params),
-        ).fetchall()
-        card_rows = connection.execute(
-            "SELECT lane, group_key, card_id, name, number, set_name, image_url, grader, grade, population, "
-            "price_now, price_then, change_percent FROM meta_pulse_cards "
-            "WHERE game = ? AND as_of_date = ? AND window_days = ?" + lane_sql + " ORDER BY rank",
-            (game, as_of, window_days, *lane_params),
-        ).fetchall()
-        cards_by_group: dict[tuple[str, str], list[dict[str, Any]]] = {}
-        for c in card_rows:
-            cards_by_group.setdefault((str(c[0]), str(c[1])), []).append(
-                {
-                    "cardId": c[2], "game": game, "name": c[3], "number": c[4], "setName": c[5],
-                    "imageUrl": c[6], "lane": c[0], "grader": c[7], "grade": c[8], "population": c[9],
-                    "priceNow": c[10], "priceThen": c[11], "changePercent": c[12], "currencyCode": "USD",
-                }
-            )
-        for g in group_rows:
-            try:
-                spark = [float(p) for p in json.loads(g[10] or "[]")]
-            except (TypeError, ValueError):
-                spark = []
-            groups.append(
-                {
-                    "groupKey": g[1],
-                    "label": g[2],
-                    "lane": g[0],
-                    "description": g[3],
-                    "medianChangePercent": round(float(g[4]), 1),
-                    "valueNow": round(float(g[5]), 2),
-                    "valueThen": round(float(g[6]), 2),
-                    "valueChangeUsd": round(float(g[7]), 2),
-                    "cardCount": int(g[8]),
-                    "movedCardCount": int(g[9]),
-                    "sparkPoints": spark,
-                    "topCards": cards_by_group.get((str(g[0]), str(g[1])), []),
-                }
-            )
+        groups = _load_group_dicts(
+            connection, game=game, as_of=as_of, window_days=window_days, lane=lane,
+            top_cards_limit=top_cards_limit,
+        )
         groups.sort(key=lambda g: (-g["medianChangePercent"], g["groupKey"]))
 
     summary = {
@@ -1192,6 +1246,396 @@ def build_meta_pulse_payload(
         "groups": shown,
         "ladders": build_ladders(groups),
     }
+
+
+# --- group detail -------------------------------------------------------------
+
+
+def build_meta_group_detail_payload(
+    connection: sqlite3.Connection,
+    *,
+    game: str = DEFAULT_GAME,
+    window_days: int = 7,
+    lane: str = "all",
+    group_key: str,
+) -> dict[str, Any] | None:
+    """``MetaGroupDetail`` for one group of the newest run; None when the key is
+    not in it. ``group_key`` already names the lane, so ``lane`` (the list the
+    user tapped from) never hides a group."""
+    if not _table_exists(connection, "meta_pulse_runs"):
+        ensure_schema(connection)
+    game = normalize_game(game)
+    window_days = int(window_days)
+    as_of = _latest_as_of(connection, game)
+    if not as_of or not group_key:
+        return None
+    groups = _load_group_dicts(
+        connection, game=game, as_of=as_of, window_days=window_days, group_key=group_key,
+        top_cards_limit=TOP_CARDS,
+    )
+    if not groups:
+        return None
+    group = groups[0]
+    rising = group["medianChangePercent"] >= 0
+    group["topCards"].sort(
+        key=lambda c: ((-c["changePercent"]) if rising else c["changePercent"], str(c["cardId"]))
+    )
+    return {"game": game, "windowDays": window_days, "group": group, "asOfDate": as_of}
+
+
+# --- per-user exposure --------------------------------------------------------
+
+# "Your {short} is up +$312 this week": (short label, plural?) per segment.
+SHORT_LABELS: dict[str, tuple[str, bool]] = {
+    "vintage": ("vintage", False),
+    "ex_era": ("EX era cards", True),
+    "gold_star": ("Gold Stars", True),
+    "sir": ("SIRs", True),
+    "illustration": ("illustration rares", True),
+    "ultra": ("ultra rares", True),
+    "secret": ("secret rares", True),
+    "promo": ("promos", True),
+    "jp_promo": ("Japanese promos", True),
+    "japanese": ("Japanese cards", True),
+}
+
+
+@dataclass
+class _Holding:
+    card_id: str
+    grader: str | None  # normalized; None for raw
+    grade: str | None
+    variant: str | None
+    quantity: int = 0
+    pair: PricePair | None = None
+
+    @property
+    def is_slab(self) -> bool:
+        return bool(self.grader and self.grade)
+
+    @property
+    def value_change(self) -> float:
+        return self.pair.delta * self.quantity if self.pair is not None else 0.0
+
+
+def _owner_holdings(connection: sqlite3.Connection, owner_user_id: str) -> list[_Holding]:
+    """The owner's active holdings (hidden collections excluded, like every
+    un-scoped portfolio read), merged across collections."""
+    if not _table_exists(connection, "deck_entries"):
+        return []
+    columns = _table_columns(connection, "deck_entries")
+    where = ["owner_user_id = ?", "quantity > 0"]
+    params: list[Any] = [owner_user_id]
+    if (
+        "collection_id" in columns
+        and _table_exists(connection, "collections")
+        and "hidden" in _table_columns(connection, "collections")
+    ):
+        where.append(
+            "(collection_id IS NULL OR collection_id NOT IN "
+            "(SELECT id FROM collections WHERE owner_user_id = ? AND hidden = 1))"
+        )
+        params.append(owner_user_id)
+    variant_col = "variant_name" if "variant_name" in columns else "NULL"
+    rows = connection.execute(
+        f"SELECT card_id, grader, grade, {variant_col}, quantity FROM deck_entries WHERE {' AND '.join(where)}",
+        tuple(params),
+    ).fetchall()
+    merged: dict[tuple[str, str | None, str | None, str | None], _Holding] = {}
+    for card_id, grader, grade, variant, quantity in rows:
+        grader_key = normalize_grader(grader) or None
+        grade_key = normalize_grade(grade) or None
+        if not (grader_key and grade_key):
+            grader_key = grade_key = None
+        variant_key = str(variant or "").strip() or None
+        key = (str(card_id), grader_key, grade_key, variant_key)
+        holding = merged.setdefault(key, _Holding(str(card_id), grader_key, grade_key, variant_key))
+        holding.quantity += int(quantity or 0)
+    return [h for h in merged.values() if h.quantity > 0]
+
+
+def _cards_by_ids(connection: sqlite3.Connection, card_ids: Iterable[str], game: str) -> dict[str, CardInfo]:
+    ids = sorted(set(card_ids))
+    if not ids:
+        return {}
+    game_col = "c.game" if "game" in _table_columns(connection, "cards") else "'pokemon'"
+    out: dict[str, CardInfo] = {}
+    for offset in range(0, len(ids), SQL_CHUNK):
+        chunk = ids[offset : offset + SQL_CHUNK]
+        rows = connection.execute(
+            f"SELECT c.id, {game_col}, c.name, c.number, c.set_name, c.image_small_url, c.rarity, "
+            "c.language, COALESCE(NULLIF(c.set_release_date, ''), e.release_date) "
+            "FROM cards c LEFT JOIN expansions e ON e.id = c.set_id "
+            f"WHERE c.id IN ({','.join('?' for _ in chunk)})",
+            tuple(chunk),
+        ).fetchall()
+        for row in rows:
+            if str(row[1] or "pokemon") != game:
+                continue
+            out[str(row[0])] = CardInfo(
+                card_id=str(row[0]), game=game, name=str(row[2] or ""), number=row[3], set_name=row[4],
+                image_url=row[5], rarity=row[6], language=row[7], release_date=row[8],
+            )
+    return out
+
+
+def _raw_latest_for_cards(
+    connection: sqlite3.Connection, card_ids: list[str], *, start: date, end: date, has_variant: bool
+) -> dict[str, tuple[float | None, str | None]]:
+    """Newest daily row per card in [start, end] (the job's ``_latest_row_per_card``
+    rule, index-probed by card id): {card_id: (main raw usd | None, main variant)}."""
+    variant_col = "main_raw_variant" if has_variant else "NULL"
+    newest: dict[str, tuple[str, float | None, str | None]] = {}
+    for offset in range(0, len(card_ids), SQL_CHUNK):
+        chunk = card_ids[offset : offset + SQL_CHUNK]
+        rows = connection.execute(
+            f"SELECT card_id, price_date, main_raw_market_price, {variant_col} FROM card_price_history_daily "
+            f"WHERE card_id IN ({','.join('?' for _ in chunk)}) AND price_date >= ? AND price_date <= ?",
+            (*chunk, start.isoformat(), end.isoformat()),
+        ).fetchall()
+        for card_id, price_date, price, variant in rows:
+            price_value = float(price) if price is not None and float(price) > 0 else None
+            current = newest.get(str(card_id))
+            day = str(price_date)[:10]
+            if current is None or day > current[0] or (day == current[0] and current[1] is None and price_value):
+                newest[str(card_id)] = (day, price_value, variant)
+    return {card_id: (price, variant) for card_id, (_, price, variant) in newest.items()}
+
+
+def _graded_latest_for_cards(
+    connection: sqlite3.Connection, card_ids: list[str], *, start: date, end: date, jpy_usd: Decimal | None
+) -> dict[GradedKey, tuple[float, str]]:
+    """Newest plain graded cell per item in [start, end] for these cards
+    (``idx_cell_identity`` serves the card_id + date range)."""
+    newest: dict[GradedKey, tuple[str, tuple[float, str]]] = {}
+    for offset in range(0, len(card_ids), SQL_CHUNK):
+        chunk = card_ids[offset : offset + SQL_CHUNK]
+        rows = connection.execute(
+            "SELECT card_id, price_date, grader, grade, variant_key, currency_code, market "
+            "FROM card_price_history_cell "
+            f"WHERE card_id IN ({','.join('?' for _ in chunk)}) AND price_date >= ? AND price_date <= ? "
+            "AND lane = 'graded' AND is_perfect = 0 AND is_signed = 0 AND is_error = 0 AND market > 0",
+            (*chunk, start.isoformat(), end.isoformat()),
+        ).fetchall()
+        for card_id, price_date, grader, grade, variant, currency, market in rows:
+            converted = _graded_cell_value(card_id, grader, grade, variant, currency, market, jpy_usd=jpy_usd)
+            if converted is None:
+                continue
+            key, value = converted
+            day = str(price_date)[:10]
+            current = newest.get(key)
+            if current is None or day > current[0]:
+                newest[key] = (day, value)
+    return {key: value for key, (_, value) in newest.items()}
+
+
+def _usd_text(value: float) -> str:
+    amount = abs(value)
+    return f"${amount:,.0f}" if amount >= 10 else f"${amount:,.2f}"
+
+
+def _count_phrase(count: int, singular: str, plural: str) -> str:
+    return f"{count:,} {singular if count == 1 else plural}"
+
+
+def _exposure_callout(
+    groups: dict[str, dict[str, Any]],
+    run_groups: dict[str, tuple[str, str, float]],
+    members: dict[str, list[_Holding]],
+    window_days: int,
+) -> dict[str, Any] | None:
+    """The owned group whose holdings moved most in $ (in the group's own
+    direction), plus holding counts across every group moving that way."""
+    candidates = []
+    for key, entry in groups.items():
+        median = run_groups[key][2]
+        change = entry["valueChangeUsd"]
+        if abs(median) < FLAT_BAND_PCT or change == 0 or (change > 0) != (median > 0):
+            continue
+        candidates.append((abs(change), key))
+    if not candidates:
+        return None
+    _, lead_key = max(candidates, key=lambda c: (c[0], c[1]))
+    lead = groups[lead_key]
+    change = lead["valueChangeUsd"]
+    rising = change > 0
+    segment_key = run_groups[lead_key][1]
+    short, plural = SHORT_LABELS.get(segment_key, (run_groups[lead_key][0], False))
+    verb = ("are" if plural else "is") + (" up +" if rising else " down ")
+    title = f"Your {short} {verb}{_usd_text(change)} {_window_phrase(window_days)}"
+
+    same_way: dict[int, _Holding] = {}
+    for key, holdings in members.items():
+        median = run_groups[key][2]
+        if (median >= FLAT_BAND_PCT) if rising else (median <= -FLAT_BAND_PCT):
+            for holding in holdings:
+                same_way[id(holding)] = holding
+    slab_tiers: dict[str, int] = {}
+    raw_count = 0
+    for holding in same_way.values():
+        if holding.is_slab:
+            label = f"{holding.grader} {holding.grade}"
+            slab_tiers[label] = slab_tiers.get(label, 0) + holding.quantity
+        else:
+            raw_count += holding.quantity
+    parts: list[str] = []
+    if len(slab_tiers) == 1:
+        label, count = next(iter(slab_tiers.items()))
+        parts.append(_count_phrase(count, label, f"{label}s"))
+    elif slab_tiers:
+        parts.append(_count_phrase(sum(slab_tiers.values()), "graded card", "graded cards"))
+    if raw_count:
+        parts.append(_count_phrase(raw_count, "raw card", "raw cards"))
+    body = f"{' and '.join(parts)} in {'rising' if rising else 'cooling'} groups"
+    images: list[str] = []
+    for card in lead["ownedCards"]:
+        url = card.get("imageUrl")
+        if url and url not in images:
+            images.append(url)
+        if len(images) >= EXPOSURE_CALLOUT_IMAGES:
+            break
+    return {"title": title, "body": body, "valueChangeUsd": change, "imageUrls": images}
+
+
+def build_meta_exposure_payload(
+    connection: sqlite3.Connection,
+    *,
+    owner_user_id: str,
+    game: str = DEFAULT_GAME,
+    window_days: int = 7,
+) -> dict[str, Any]:
+    """``MetaExposure``: the caller's holdings (``deck_entries`` of THIS owner
+    only) tagged into the newest run's groups, each priced with the job's
+    pairing rules (TCGCSV main lane for raw, plain graded cells for slabs)."""
+    owner = str(owner_user_id or "").strip()
+    if not owner:
+        raise ValueError("owner_user_id is required")
+    if not _table_exists(connection, "meta_pulse_runs"):
+        ensure_schema(connection)
+    game = normalize_game(game)
+    window_days = int(window_days)
+    payload: dict[str, Any] = {"game": game, "windowDays": window_days, "callout": None, "groups": {}}
+
+    as_of = _latest_as_of(connection, game)
+    if not as_of:
+        return payload
+    run_groups = {
+        str(r[1]): (str(r[2]), str(r[3]), float(r[4]))
+        for r in connection.execute(
+            "SELECT lane, group_key, label, segment_key, median_change_percent FROM meta_pulse_groups "
+            "WHERE game = ? AND as_of_date = ? AND window_days = ?",
+            (game, as_of, window_days),
+        ).fetchall()
+    }
+    if not run_groups:
+        return payload
+    holdings = _owner_holdings(connection, owner)
+    cards = _cards_by_ids(connection, (h.card_id for h in holdings), game)
+    holdings = [h for h in holdings if h.card_id in cards]
+    if not holdings:
+        return payload
+
+    ref_date = date.fromisoformat(as_of[:10])
+    now_start, now_end = ref_date - timedelta(days=NOW_TOLERANCE_DAYS), ref_date
+    then_end = ref_date - timedelta(days=window_days)
+    then_start = then_end - timedelta(days=THEN_TOLERANCE_DAYS)
+
+    raw_ids = sorted({h.card_id for h in holdings if not h.is_slab})
+    if raw_ids and "main_raw_market_price" in _table_columns(connection, "card_price_history_daily"):
+        has_variant = "main_raw_variant" in _table_columns(connection, "card_price_history_daily")
+        now_rows = _raw_latest_for_cards(connection, raw_ids, start=now_start, end=now_end, has_variant=has_variant)
+        then_rows = _raw_latest_for_cards(
+            connection, raw_ids, start=then_start, end=then_end, has_variant=has_variant
+        )
+        for holding in holdings:
+            if holding.is_slab:
+                continue
+            now_row, then_row = now_rows.get(holding.card_id), then_rows.get(holding.card_id)
+            if now_row is None or then_row is None or now_row[0] is None or then_row[0] is None:
+                continue
+            if now_row[1] != then_row[1]:
+                continue
+            pair = PricePair(
+                card_id=holding.card_id, game=game, lane=LANE_RAW,
+                price_then=then_row[0], price_now=now_row[0], variant=now_row[1],
+            )
+            holding.pair = pair if pair_is_eligible(pair) else None
+
+    slab_ids = sorted({h.card_id for h in holdings if h.is_slab})
+    populations: dict[str, dict[str, dict[str, int]]] = {}
+    if slab_ids:
+        populations = _populations(connection, slab_ids) if game == "pokemon" else {}
+    if slab_ids and _table_exists(connection, "card_price_history_cell"):
+        jpy_usd = _jpy_usd_rate(connection)
+        graded_now = _graded_latest_for_cards(connection, slab_ids, start=now_start, end=now_end, jpy_usd=jpy_usd)
+        graded_then = _graded_latest_for_cards(
+            connection, slab_ids, start=then_start, end=then_end, jpy_usd=jpy_usd
+        )
+        by_tier: dict[tuple[str, str, str], list[tuple[GradedKey, tuple[float, str]]]] = {}
+        for key, value in graded_now.items():
+            by_tier.setdefault(key[:3], []).append((key, value))
+        for holding in holdings:
+            if not holding.is_slab:
+                continue
+            options = by_tier.get((holding.card_id, holding.grader or "", holding.grade or ""))
+            if not options:
+                continue
+            chosen = _pick_graded_item(
+                options, variant=holding.variant,
+                get_variant=lambda item: item[0][3], get_market=lambda item: item[1][0],
+                is_special=lambda item: False,
+            )
+            if chosen is None:
+                continue
+            key, (now_usd, now_currency) = chosen
+            then = graded_then.get(key)
+            if then is None or then[1] != now_currency:
+                continue
+            pair = PricePair(
+                card_id=holding.card_id, game=game, lane=LANE_GRADED, price_then=then[0], price_now=now_usd,
+                variant=key[3], grader=key[1], grade=key[2], currency=now_currency,
+                population=populations.get(holding.card_id, {}).get(key[1], {}).get(key[2]),
+            )
+            holding.pair = pair if pair_is_eligible(pair) else None
+
+    members: dict[str, list[_Holding]] = {}
+    for holding in holdings:
+        tags = tag_card(cards[holding.card_id])
+        population = None
+        if holding.is_slab:
+            population = populations.get(holding.card_id, {}).get(holding.grader or "", {}).get(holding.grade or "")
+        for group in group_defs_for(
+            tags, lane=LANE_GRADED if holding.is_slab else LANE_RAW,
+            grader=holding.grader, grade=holding.grade, population=population,
+        ):
+            if group.key in run_groups:
+                members.setdefault(group.key, []).append(holding)
+
+    groups: dict[str, dict[str, Any]] = {}
+    for key, owned in members.items():
+        priced = sorted(
+            (h for h in owned if h.pair is not None),
+            key=lambda h: (-abs(h.value_change), h.card_id, h.grader or "", h.grade or ""),
+        )
+        owned_cards = []
+        for holding in priced[:EXPOSURE_OWNED_CARDS]:
+            info, pair = cards[holding.card_id], holding.pair
+            assert pair is not None
+            owned_cards.append({
+                "cardId": holding.card_id, "game": game, "name": info.name, "number": info.number,
+                "setName": info.set_name, "imageUrl": info.image_url, "lane": pair.lane,
+                "grader": pair.grader, "grade": pair.grade, "population": pair.population,
+                "priceNow": round(pair.price_now, 2), "priceThen": round(pair.price_then, 2),
+                "changePercent": round(pair.change_pct, 1), "currencyCode": "USD",
+            })
+        groups[key] = {
+            "ownedCount": sum(h.quantity for h in owned),
+            "valueChangeUsd": round(sum(h.value_change for h in owned), 2),
+            "ownedCards": owned_cards,
+        }
+    payload["groups"] = groups
+    payload["callout"] = _exposure_callout(groups, run_groups, members, window_days)
+    return payload
 
 
 # --- CLI ----------------------------------------------------------------------

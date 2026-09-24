@@ -1,9 +1,9 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 
-import type { MetaPulse, MetaPulseQuery } from '@spotlight/api-client';
+import type { MetaExposure, MetaExposureQuery, MetaPulse, MetaPulseQuery } from '@spotlight/api-client';
 import { MetaScreen } from '@/features/meta-feed/screens/meta-screen';
 
-import { mockMetaPulse } from '../mock-api-client';
+import { mockMetaExposure, mockMetaPulse } from '../mock-api-client';
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
 
 jest.mock('@/providers/auth-provider', () => ({
@@ -11,13 +11,16 @@ jest.mock('@/providers/auth-provider', () => ({
   useAuth: () => ({ accessToken: null }),
 }));
 
-function renderMeta(fetchMetaPulse: (query?: MetaPulseQuery) => Promise<MetaPulse | null>) {
+function renderMeta(
+  fetchMetaPulse: (query?: MetaPulseQuery) => Promise<MetaPulse | null>,
+  fetchMetaExposure: (query?: MetaExposureQuery) => Promise<MetaExposure | null> = async () => mockMetaExposure,
+) {
   const onBack = jest.fn();
-  const onOpenCard = jest.fn();
-  renderWithProviders(<MetaScreen onBack={onBack} onOpenCard={onOpenCard} />, {
-    spotlightRepository: createTestSpotlightRepository({ fetchMetaPulse }),
+  const onOpenGroup = jest.fn();
+  renderWithProviders(<MetaScreen onBack={onBack} onOpenGroup={onOpenGroup} />, {
+    spotlightRepository: createTestSpotlightRepository({ fetchMetaExposure, fetchMetaPulse }),
   });
-  return { onBack, onOpenCard };
+  return { onBack, onOpenGroup };
 }
 
 describe('MetaScreen', () => {
@@ -35,56 +38,48 @@ describe('MetaScreen', () => {
     expect(screen.getByText('Meta')).toBeTruthy();
   });
 
-  it('renders the headline, groups table, ladder and driving cards', async () => {
-    const { onBack, onOpenCard } = renderMeta(async () => mockMetaPulse);
+  it("renders this week's read with two value tiles only", async () => {
+    renderMeta(async () => mockMetaPulse);
 
     expect(await screen.findByText(mockMetaPulse.headline.title)).toBeTruthy();
     expect(screen.getByText("This week's read")).toBeTruthy();
+    expect(screen.getByTestId('meta-stat-graded')).toBeTruthy();
+    expect(screen.getByTestId('meta-stat-raw')).toBeTruthy();
     expect(screen.getByText('+6.8%')).toBeTruthy();
-    expect(screen.getAllByText('+$412k')).toHaveLength(2);
-    expect(screen.getByText('4 ▲ 2 ▼')).toBeTruthy();
+    expect(screen.getByText('+1.2%')).toBeTruthy();
+    // No rising/cooling tile, no "written from" line, no groups table or ladder.
+    expect(screen.queryByTestId('meta-stat-groups')).toBeNull();
+    expect(screen.queryByText(/Written from/)).toBeNull();
+    expect(screen.queryByTestId('meta-groups')).toBeNull();
+    expect(screen.queryByText('Vintage: raw vs graded')).toBeNull();
+  });
 
-    // Groups: median pill, value change and card count per row.
-    expect(screen.getByTestId('meta-group-vintage:graded:psa10:pop_le_50')).toBeTruthy();
-    expect(screen.getAllByText('+18.4%').length).toBeGreaterThan(0);
-    expect(screen.getByText('−$188k')).toBeTruthy();
-    expect(screen.getByText('9,600')).toBeTruthy();
-    expect(screen.getByText(/one odd sale can't swing it/)).toBeTruthy();
+  it('lists every riser and cooler as bar rows, with the callout, and opens the group page', async () => {
+    const { onBack, onOpenGroup } = renderMeta(async () => mockMetaPulse);
+    await screen.findByTestId('meta-content');
 
-    // Ladder with its window caption.
-    expect(screen.getByText('Vintage: raw vs graded')).toBeTruthy();
-    expect(screen.getByText('past 7 days')).toBeTruthy();
+    expect(await screen.findByTestId('meta-callout')).toBeTruthy();
+    expect(screen.getAllByTestId(/^meta-up-row-[^-]+$/)).toHaveLength(5);
+    expect(screen.getAllByTestId(/^meta-down-row-[^-]+$/)).toHaveLength(3);
+    expect(screen.getByText('You own 11')).toBeTruthy();
 
-    // Cards driving the top group; tapping opens the card.
-    expect(screen.getByText('Cards driving Vintage PSA 10 · pop ≤ 50')).toBeTruthy();
-    fireEvent.press(screen.getByTestId('meta-driving-card-ecard3-149'));
-    expect(onOpenCard).toHaveBeenCalledWith('ecard3-149');
+    fireEvent.press(screen.getByTestId('meta-up-row-vintage:raw:nm'));
+    expect(onOpenGroup).toHaveBeenCalledWith({
+      game: 'pokemon',
+      groupKey: 'vintage:raw:nm',
+      lane: 'all',
+      windowDays: 7,
+    });
 
     fireEvent.press(screen.getByTestId('meta-header-back'));
     expect(onBack).toHaveBeenCalled();
   });
 
-  it('switches the driving list when another group is tapped', async () => {
-    renderMeta(async () => mockMetaPulse);
-    await screen.findByTestId('meta-driving');
-
-    // The raw vintage group has no top cards, so the section drops out.
-    fireEvent.press(screen.getByTestId('meta-group-vintage:raw:nm'));
-    expect(screen.queryByTestId('meta-driving')).toBeNull();
-  });
-
-  it('flips the groups between rising first and falling first', async () => {
-    renderMeta(async () => mockMetaPulse);
-    await screen.findByTestId('meta-groups-sort');
-    const firstGroupId = () =>
-      screen.getAllByTestId(/^meta-group-[^-]+:[^-]+(:[^-]+)*$/)[0].props.testID as string;
-
-    expect(screen.getByText('Rising first')).toBeTruthy();
-    expect(firstGroupId()).toBe('meta-group-vintage:graded:psa10:pop_le_50');
-
-    fireEvent.press(screen.getByTestId('meta-groups-sort'));
-    expect(screen.getByText('Falling first')).toBeTruthy();
-    expect(firstGroupId()).toBe('meta-group-modern:raw:sir');
+  it('hides the callout when signed out', async () => {
+    renderMeta(async () => mockMetaPulse, async () => null);
+    await screen.findByTestId('meta-content');
+    expect(screen.queryByTestId('meta-callout')).toBeNull();
+    expect(screen.queryByText(/^You own/)).toBeNull();
   });
 
   it('disables windows the server has no history for', async () => {
@@ -106,9 +101,11 @@ describe('MetaScreen', () => {
       lane: query?.lane ?? 'all',
       windowDays: query?.windowDays ?? 7,
     }));
-    renderMeta(fetchMetaPulse);
+    const fetchMetaExposure = jest.fn(async () => mockMetaExposure);
+    renderMeta(fetchMetaPulse, fetchMetaExposure);
     await screen.findByTestId('meta-content');
     expect(fetchMetaPulse).toHaveBeenLastCalledWith({ game: 'pokemon', lane: 'all', windowDays: 7 });
+    expect(fetchMetaExposure).toHaveBeenLastCalledWith({ game: 'pokemon', windowDays: 7 });
 
     fireEvent.press(screen.getByTestId('meta-lane-raw'));
     await waitFor(() =>
@@ -119,7 +116,8 @@ describe('MetaScreen', () => {
     await waitFor(() =>
       expect(fetchMetaPulse).toHaveBeenLastCalledWith({ game: 'pokemon', lane: 'raw', windowDays: 30 }),
     );
-    await screen.findByText('past 30 days');
+    await screen.findByText("This month's read");
+    await waitFor(() => expect(fetchMetaExposure).toHaveBeenLastCalledWith({ game: 'pokemon', windowDays: 30 }));
 
     fireEvent.press(screen.getByTestId('meta-game-onepiece'));
     await waitFor(() =>

@@ -9,6 +9,8 @@ export type MetaBlockHeaderProps = {
   onPressAction?: () => void;
   /** Right-side gray caption when there is no link, e.g. "most checked · 24h". */
   caption?: string;
+  /** `large` = the v2 blocks' 20/800 `feedTitle` (Meta pulse, Coming up). */
+  size?: 'default' | 'large';
   testID?: string;
 };
 
@@ -22,11 +24,12 @@ export function MetaBlockHeader({
   actionLabel,
   onPressAction,
   caption,
+  size = 'default',
   testID,
 }: MetaBlockHeaderProps) {
   return (
     <View style={styles.row}>
-      <AppText color="gray900" variant="titleXsmall">
+      <AppText accessibilityRole="header" color="gray900" variant={size === 'large' ? 'feedTitle' : 'titleXsmall'}>
         {title}
       </AppText>
       {actionLabel ? (

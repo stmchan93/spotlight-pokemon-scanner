@@ -30,6 +30,7 @@ from catalog_tools import (  # noqa: E402
     upsert_runtime_setting,
     utc_now,
 )
+from request_auth import RequestAuthError, RequestIdentity  # noqa: E402
 from server import SpotlightRequestHandler, SpotlightScanService  # noqa: E402
 
 FLAGS = ("META_PULSE_ENABLED", "HOT_CARDS_ENABLED", "SET_SPOTLIGHT_ENABLED", "NEWS_FEED_ENABLED")
@@ -72,6 +73,7 @@ class MetaFeedRoutesTests(unittest.TestCase):
     def _get(self, path: str, *, flags: tuple[str, ...] = FLAGS) -> tuple[HTTPStatus, dict[str, Any]]:
         handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
         handler.path = path
+        handler.headers = {}
         handler.service = self.service
         writes: list[tuple[HTTPStatus, dict[str, Any]]] = []
         handler._write_json = lambda status, payload: writes.append((status, payload))  # type: ignore[method-assign]
@@ -195,6 +197,103 @@ class MetaFeedRoutesTests(unittest.TestCase):
         self._seed_meta(computed_at="2026-09-24T07:10:00+00:00")
         self.assertIsNot(self.service.market_meta_pulse(game="pokemon", window_days=7, lane="all"), first)
 
+    # --- meta v4: group page + exposure --------------------------------------
+
+    def _seed_meta_v4(self) -> None:
+        self._seed_meta()
+        as_of, computed_at = "2026-09-22", "2026-09-23T07:10:00+00:00"
+        rows = [
+            ("pokemon", as_of, 7, "raw", "vintage:raw", rank, f"old-{rank}", f"Old {rank}", None, None, None,
+             None, None, None, 10.0 + rank, 10.0, float(rank) * 10.0)
+            for rank in range(1, 21)
+        ]
+        self.conn.executemany(
+            "INSERT INTO meta_pulse_cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows
+        )
+        upsert_card(
+            self.conn, card_id="base-4", name="Charizard", set_name="Base Set", number="4/102",
+            rarity="Rare Holo", variant="Raw", language="English", game="pokemon",
+            source_provider="scrydex", source_record_id="base-4", set_release_date="1999/01/09",
+            image_small_url="https://img/base-4.png",
+        )
+        for price_date, price in (("2026-09-15", 300.0), ("2026-09-22", 330.0)):
+            self.conn.execute(
+                "INSERT INTO card_price_history_daily (card_id, provider, price_date, display_currency_code, "
+                "main_raw_market_price, main_raw_variant, updated_at) VALUES ('base-4', 'scrydex', ?, 'USD', ?, "
+                "'Holofoil', ?)",
+                (price_date, price, utc_now()),
+            )
+        self.conn.execute(
+            "INSERT INTO deck_entries (id, owner_user_id, identity_key, item_kind, card_id, quantity, "
+            "added_at, updated_at) VALUES ('e1', 'alice', 'base-4|raw', 'raw', 'base-4', 1, ?, ?)",
+            (utc_now(), utc_now()),
+        )
+        self.conn.commit()
+
+    def _get_as(self, path: str, user_id: str | None) -> tuple[HTTPStatus, dict[str, Any]]:
+        auth = self.service.authenticator
+        if user_id is None:
+            side_effect: Any = RequestAuthError("Authentication required.")
+            resolver = mock.patch.object(auth, "resolve_identity", side_effect=side_effect)
+        else:
+            resolver = mock.patch.object(
+                auth, "resolve_identity",
+                return_value=RequestIdentity(user_id=user_id, auth_source="test", email=""),
+            )
+        with resolver, mock.patch.object(self.service, "access_allowed", return_value=True):
+            return self._get(path)
+
+    def test_meta_v4_routes_are_404_disabled_when_flag_off(self) -> None:
+        others = tuple(f for f in FLAGS if f != "META_PULSE_ENABLED")
+        for path in ("/api/v1/market/meta/groups/vintage:raw", "/api/v1/market/meta/me"):
+            with self.subTest(path=path):
+                self.assertEqual(self._get(path, flags=others), (HTTPStatus.NOT_FOUND, {"error": "disabled"}))
+
+    def test_meta_group_detail_route(self) -> None:
+        self._seed_meta_v4()
+        status, payload = self._get("/api/v1/market/meta/groups/vintage%3Araw?game=pokemon&window=7&lane=raw")
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertEqual(set(payload), {"game", "windowDays", "group", "asOfDate"})
+        self.assertEqual(payload["group"]["groupKey"], "vintage:raw")
+        cards = payload["group"]["topCards"]
+        self.assertEqual(len(cards), 20)
+        self.assertEqual(cards[0]["cardId"], "old-20")  # riser: changePercent desc
+        # The feed keeps only the first five stored cards.
+        status, feed = self._get("/api/v1/market/meta")
+        self.assertEqual([c["cardId"] for c in feed["groups"][0]["topCards"]], [f"old-{r}" for r in range(1, 6)])
+        self.assertEqual(self._get("/api/v1/market/meta/groups/nope:raw"), (HTTPStatus.NOT_FOUND, {"error": "not_found"}))
+        self.assertEqual(self._get("/api/v1/market/meta/groups/"), (HTTPStatus.NOT_FOUND, {"error": "not_found"}))
+        self.assertEqual(self._get("/api/v1/market/meta/groups/vintage:raw?window=14")[0], HTTPStatus.BAD_REQUEST)
+
+    def test_meta_group_cache_follows_the_version_token(self) -> None:
+        self._seed_meta_v4()
+        first = self.service.market_meta_group(game="pokemon", window_days=7, lane="all", group_key="vintage:raw")
+        self.assertIs(
+            self.service.market_meta_group(game="pokemon", window_days=7, lane="all", group_key="vintage:raw"), first
+        )
+        self._seed_meta(computed_at="2026-09-24T07:10:00+00:00")
+        self.assertIsNot(
+            self.service.market_meta_group(game="pokemon", window_days=7, lane="all", group_key="vintage:raw"), first
+        )
+
+    def test_meta_exposure_requires_auth_and_is_owner_scoped(self) -> None:
+        self._seed_meta_v4()
+        status, payload = self._get_as("/api/v1/market/meta/me", None)
+        self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
+        status, payload = self._get_as("/api/v1/market/meta/me?game=pokemon&window=7", "alice")
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertEqual(set(payload), {"game", "windowDays", "callout", "groups"})
+        owned = payload["groups"]["vintage:raw"]
+        self.assertEqual((owned["ownedCount"], owned["valueChangeUsd"]), (1, 30.0))
+        self.assertEqual(payload["callout"]["title"], "Your vintage is up +$30 this week")
+        # bob owns nothing: alice's card never shows up for him (and the cache is per owner).
+        status, payload = self._get_as("/api/v1/market/meta/me", "bob")
+        self.assertEqual((status, payload["groups"], payload["callout"]), (HTTPStatus.OK, {}, None))
+        self.assertEqual(self._get_as("/api/v1/market/meta/me?window=5", "alice")[0], HTTPStatus.BAD_REQUEST)
+        with self.assertRaises(ValueError):
+            self.service.market_meta_exposure(owner_user_id="", game="pokemon", window_days=7)
+
+
     # --- hot ----------------------------------------------------------------
 
     def test_hot_empty_is_ineligible(self) -> None:
@@ -275,6 +374,34 @@ class MetaFeedRoutesTests(unittest.TestCase):
                 status, payload = self._get(f"/api/v1/feed/news?{query}")
                 self.assertEqual(status, HTTPStatus.BAD_REQUEST)
                 self.assertIn("error", payload)
+
+    # --- calendar -----------------------------------------------------------
+
+    def test_calendar_flag_params_and_contract_shape(self) -> None:
+        import calendar_feed
+
+        calendar_feed.clear_cache()
+        self.addCleanup(calendar_feed.clear_cache)
+        path = "/api/v1/market/calendar"
+        self.assertEqual(self._get(path, flags=FLAGS), (HTTPStatus.NOT_FOUND, {"error": "disabled"}))
+        on = ("CALENDAR_ENABLED",)
+        for query in ("game=bogus", "limit=abc", "limit=0", "limit=101"):
+            with self.subTest(query=query):
+                status, payload = self._get(f"{path}?{query}", flags=on)
+                self.assertEqual(status, HTTPStatus.BAD_REQUEST)
+                self.assertIn("error", payload)
+        upsert_expansion(self.conn, expansion_id="far", name="Far Set", release_date="2099/01/02", game="pokemon")
+        upsert_expansion(self.conn, expansion_id="gone", name="Gone Set", release_date="2001/01/02", game="pokemon")
+        self.conn.commit()
+        with mock.patch.object(calendar_feed, "load_events", return_value=[]):
+            status, payload = self._get(f"{path}?game=pokemon&limit=5", flags=on)
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertEqual(set(payload), {"items"})
+        self.assertEqual([i["id"] for i in payload["items"]], ["release:far"])
+        self.assertEqual(
+            set(payload["items"][0]), {"id", "date", "kind", "game", "title", "subtitle", "setId", "url"}
+        )
+        self.assertEqual(payload["items"][0]["date"], "2099-01-02")
 
 
 if __name__ == "__main__":
