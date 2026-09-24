@@ -119,7 +119,7 @@ describe('MetaScreen', () => {
     expect(screen.getByTestId('meta-game-onepiece')).toBeTruthy();
   });
 
-  it('refetches with the new query on every filter change', async () => {
+  it('always reads all lanes over 7 days and refetches on a game change', async () => {
     const fetchMetaPulse = jest.fn(async (query?: MetaPulseQuery) => ({
       ...mockMetaPulse,
       game: query?.game ?? 'pokemon',
@@ -132,14 +132,11 @@ describe('MetaScreen', () => {
     expect(fetchMetaPulse).toHaveBeenLastCalledWith({ game: 'pokemon', lane: 'all', windowDays: 7 });
     expect(fetchMetaExposure).toHaveBeenLastCalledWith({ game: 'pokemon', windowDays: 7 });
 
-    fireEvent.press(screen.getByTestId('meta-lane-raw'));
-    await waitFor(() =>
-      expect(fetchMetaPulse).toHaveBeenLastCalledWith({ game: 'pokemon', lane: 'raw', windowDays: 7 }),
-    );
+    expect(screen.queryByTestId('meta-lane')).toBeNull();
 
     fireEvent.press(screen.getByTestId('meta-game-onepiece'));
     await waitFor(() =>
-      expect(fetchMetaPulse).toHaveBeenLastCalledWith({ game: 'onepiece', lane: 'raw', windowDays: 7 }),
+      expect(fetchMetaPulse).toHaveBeenLastCalledWith({ game: 'onepiece', lane: 'all', windowDays: 7 }),
     );
     await waitFor(() => expect(fetchMetaExposure).toHaveBeenLastCalledWith({ game: 'onepiece', windowDays: 7 }));
   });

@@ -8,12 +8,10 @@ import {
   type CardGame,
   type MetaExposure,
   type MetaGroup,
-  type MetaLaneFilter,
   type MetaPulse,
 } from '@spotlight/api-client';
 import {
   PillButton,
-  SegmentedControl,
   SkeletonBlock,
   StateCard,
   Text,
@@ -35,14 +33,9 @@ import {
 import { MetaPageHeader, useSignedColor } from '@/features/meta-feed/screens/components/meta-page-chrome';
 import { useMetaPageData, type MetaPageStatus } from '@/features/meta-feed/screens/components/meta-page-data';
 
-export const META_LANE_ITEMS = [
-  { label: 'All', value: 'all' },
-  { label: 'Raw', value: 'raw' },
-  { label: 'Graded', value: 'graded' },
-] as const satisfies readonly { label: string; value: MetaLaneFilter }[];
-
-/** The Meta page always reads the past week (the window toggle was removed). */
+/** The Meta page always reads the past week across raw and graded (no toggles). */
 export const META_WINDOW_DAYS = 7;
+const META_LANE = 'all';
 
 function readLabel(windowDays: number): string {
   if (windowDays <= 7) return "This week's read";
@@ -56,7 +49,6 @@ export function windowCaption(windowDays: number): string {
 
 export type MetaScreenProps = {
   initialGame?: CardGame;
-  initialLane?: MetaLaneFilter;
   onBack: () => void;
   /** Row taps; the route pushes `/meta/group/[groupKey]`. */
   onOpenGroup: (target: MetaGroupRouteTarget) => void;
@@ -65,25 +57,24 @@ export type MetaScreenProps = {
 /**
  * Meta page v4 (docs/meta-feed-mockup/v2/MetaV4.dc.html): this week's read,
  * the viewer's callout, then every rising and cooling group as bar rows, per
- * game and lane, over the past week. Every filter change refetches — the
- * payload is computed server-side per (game, window, lane). Rows open the
+ * game, over the past week across raw and graded. A game change refetches —
+ * the payload is computed server-side per (game, window, lane). Rows open the
  * group page.
  */
 export function MetaScreen({
   initialGame = DEFAULT_CARD_GAME,
-  initialLane = 'all',
   onBack,
   onOpenGroup,
 }: MetaScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const [game, setGame] = useState<CardGame>(initialGame);
-  const [lane, setLane] = useState<MetaLaneFilter>(initialLane);
+  const lane = META_LANE;
   const windowDays = META_WINDOW_DAYS;
   const [refreshing, setRefreshing] = useState(false);
 
   const { data: freshPulse, loading, refresh, status } = useMetaPageData({ game, lane, windowDays });
-  // Switching game or lane keeps the last read on screen (dimmed) until the new
+  // Switching game keeps the last read on screen (dimmed) until the new
   // one lands, instead of dropping to a skeleton and losing the game chips.
   const lastPulseRef = useRef<MetaPulse | null>(null);
   if (freshPulse) {
@@ -142,15 +133,6 @@ export function MetaScreen({
             />
           ))}
         </ScrollView>
-        <View style={styles.segments}>
-          <SegmentedControl
-            items={META_LANE_ITEMS}
-            onChange={setLane}
-            testID="meta-lane"
-            tone="inverted"
-            value={lane}
-          />
-        </View>
 
         <MetaPageBody
           exposure={exposure}
@@ -369,11 +351,6 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-  },
-  segments: {
-    gap: spacing.xxs,
-    paddingBottom: spacing.xs,
-    paddingHorizontal: spacing.sm,
   },
   skeleton: {
     gap: spacing.xs,
