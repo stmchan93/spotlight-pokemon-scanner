@@ -8,6 +8,7 @@ import {
   SkeletonBlock,
   StateCard,
   Text,
+  layout,
   radii,
   spacing,
   useSpotlightTheme,
@@ -163,7 +164,7 @@ export function CalendarScreen({ onBack, onOpenEvent }: CalendarScreenProps) {
 
 const styles = StyleSheet.create({
   list: {
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
   },
   monthTitle: {
     paddingTop: spacing.sm,
@@ -173,13 +174,13 @@ const styles = StyleSheet.create({
   },
   skeleton: {
     gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
     paddingTop: spacing.xs,
   },
   stale: {
     opacity: 0.6,
   },
   stateWrap: {
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
   },
 });

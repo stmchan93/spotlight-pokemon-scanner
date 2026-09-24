@@ -7,8 +7,10 @@ import {
   Text,
   glassNavBubbleGlyphSize,
   glassNavBubbleGlyphStrokeWidth,
+  layout,
   spacing,
   useSpotlightTheme,
+  borderWidths,
 } from '@spotlight/design-system';
 
 type MetaPageHeaderProps = {
@@ -76,7 +78,7 @@ export function MetaSection({ accessory, caption, children, description, showBan
     <View
       style={[
         styles.section,
-        showBand ? { borderBottomColor: theme.colors.gray100, borderBottomWidth: spacing.xxxs } : null,
+        showBand ? { borderBottomColor: theme.colors.gray100, borderBottomWidth: borderWidths.sectionBand } : null,
       ]}
       testID={testID}
     >
@@ -111,18 +113,19 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   description: {
-    marginTop: 2,
+    marginTop: spacing.xxxs,
   },
   header: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.xs,
     paddingBottom: spacing.xxs,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
     paddingTop: spacing.xs,
   },
   section: {
-    padding: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
+    paddingVertical: spacing.sm,
   },
   titleRow: {
     alignItems: 'baseline',

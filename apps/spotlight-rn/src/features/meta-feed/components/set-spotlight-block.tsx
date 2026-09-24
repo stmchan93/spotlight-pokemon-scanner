@@ -6,7 +6,10 @@ import {
   DeltaPill,
   RankedCardRow,
   VideoTile,
+  layout,
+  spacing,
   useSpotlightTheme,
+  borderWidths,
 } from '@spotlight/design-system';
 
 import { MetaBlockHeader } from '@/features/meta-feed/components/meta-block-header';
@@ -74,7 +77,7 @@ export function SetSpotlightBlock({
     <View
       style={[
         styles.section,
-        { borderBottomColor: theme.colors.gray100, borderBottomWidth: showBand ? 4 : 0 },
+        { borderBottomColor: theme.colors.gray100, borderBottomWidth: showBand ? borderWidths.sectionBand : 0 },
       ]}
       testID={testID}
     >
@@ -181,19 +184,19 @@ export function SetSpotlightBlock({
 const styles = StyleSheet.create({
   section: {
     alignSelf: 'stretch',
-    paddingVertical: 16,
+    paddingVertical: spacing.sm,
     width: '100%',
   },
   gutter: {
-    paddingHorizontal: 16,
+    paddingHorizontal: layout.pageGutter,
   },
   setRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 12,
-    paddingBottom: 4,
-    paddingHorizontal: 16,
-    paddingTop: 10,
+    gap: spacing.xs,
+    paddingBottom: spacing.xxxs,
+    paddingHorizontal: layout.pageGutter,
+    paddingTop: spacing.xs,
   },
   setBadge: {
     alignItems: 'center',
@@ -210,16 +213,16 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   rows: {
-    paddingHorizontal: 16,
-    paddingTop: 4,
+    paddingHorizontal: layout.pageGutter,
+    paddingTop: spacing.xxxs,
   },
   watchLabel: {
-    paddingBottom: 8,
-    paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingBottom: spacing.xxs,
+    paddingHorizontal: layout.pageGutter,
+    paddingTop: spacing.xs,
   },
   videoRail: {
-    gap: 12,
-    paddingHorizontal: 16,
+    gap: spacing.xs,
+    paddingHorizontal: layout.pageGutter,
   },
 });

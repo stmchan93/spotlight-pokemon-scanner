@@ -129,7 +129,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.xs,
     minHeight: 44,
-    paddingVertical: 10,
+    paddingVertical: spacing.xs,
   },
   tag: {
     marginTop: spacing.xxxs,

@@ -15,9 +15,11 @@ import {
   SkeletonBlock,
   StateCard,
   Text,
+  layout,
   radii,
   spacing,
   useSpotlightTheme,
+  borderWidths,
 } from '@spotlight/design-system';
 
 import { META_DIRECTION_LABEL } from '@/features/meta-feed/components/meta-bar-list';
@@ -277,7 +279,7 @@ function OwnedSection({
 
   return (
     <View
-      style={[styles.section, { borderBottomColor: theme.colors.gray100, borderBottomWidth: spacing.xxxs }]}
+      style={[styles.section, { borderBottomColor: theme.colors.gray100, borderBottomWidth: borderWidths.sectionBand }]}
       testID="meta-group-owned"
     >
       <Text accessibilityRole="header" style={[theme.typography.feedSectionTitle, { color: theme.colors.gray900 }]}>
@@ -324,44 +326,44 @@ function OwnedSection({
 const styles = StyleSheet.create({
   chart: {
     height: CHART_HEIGHT,
-    marginTop: 6,
+    marginTop: spacing.xxs,
   },
   description: {
-    marginTop: 2,
+    marginTop: spacing.xxxs,
   },
   footnote: {
     paddingVertical: spacing.xs,
   },
   hero: {
-    borderBottomWidth: spacing.xxxs,
-    paddingBottom: 14,
-    paddingHorizontal: spacing.sm,
+    borderBottomWidth: borderWidths.sectionBand,
+    paddingBottom: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
     paddingTop: spacing.xxs,
   },
   moveRow: {
     alignItems: 'baseline',
     flexDirection: 'row',
-    gap: 10,
+    gap: spacing.xs,
     marginTop: spacing.xs,
   },
   safeArea: {
     flex: 1,
   },
   section: {
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
     paddingTop: spacing.sm,
   },
   seeAll: {
     alignSelf: 'flex-start',
-    paddingVertical: 10,
+    paddingVertical: spacing.xs,
   },
   skeleton: {
     gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
     paddingTop: spacing.xxs,
   },
   stateWrap: {
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
   },
   title: {
     marginTop: spacing.xxxs,

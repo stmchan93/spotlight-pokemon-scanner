@@ -204,6 +204,9 @@ export const borderWidths = {
   rule: 0.5,
   // Standard 1pt container stroke (inventory dropdown shell, pop-report cells).
   containerRule: 1,
+  // Thick gray-100 band between Social feed blocks and between sections of
+  // the pages they open (Meta, News, Set spotlight).
+  sectionBand: 4,
 } as const;
 
 /**

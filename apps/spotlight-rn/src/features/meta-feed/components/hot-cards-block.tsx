@@ -5,7 +5,10 @@ import {
   AppText,
   DeltaPill,
   RankBadge,
+  layout,
+  spacing,
   useSpotlightTheme,
+  borderWidths,
 } from '@spotlight/design-system';
 
 import { MetaBlockHeader } from '@/features/meta-feed/components/meta-block-header';
@@ -60,7 +63,7 @@ export function HotCardsBlock({
     <View
       style={[
         styles.section,
-        { borderBottomColor: theme.colors.gray100, borderBottomWidth: showBand ? 4 : 0 },
+        { borderBottomColor: theme.colors.gray100, borderBottomWidth: showBand ? borderWidths.sectionBand : 0 },
       ]}
       testID={testID}
     >
@@ -172,24 +175,24 @@ const TILE_WIDTH = 112;
 const styles = StyleSheet.create({
   section: {
     alignSelf: 'stretch',
-    paddingVertical: 16,
+    paddingVertical: spacing.sm,
     width: '100%',
   },
   gutter: {
-    paddingHorizontal: 16,
+    paddingHorizontal: layout.pageGutter,
   },
   subtitle: {
-    paddingBottom: 12,
-    paddingHorizontal: 16,
-    paddingTop: 2,
+    paddingBottom: spacing.xs,
+    paddingHorizontal: layout.pageGutter,
+    paddingTop: spacing.xxxs,
   },
   // The list is unpadded; the rail bleeds to the edge and insets its tiles.
   rail: {
-    gap: 12,
-    paddingHorizontal: 16,
+    gap: spacing.xs,
+    paddingHorizontal: layout.pageGutter,
   },
   tile: {
-    gap: 6,
+    gap: spacing.xxs,
     width: TILE_WIDTH,
   },
   art: {
@@ -198,13 +201,13 @@ const styles = StyleSheet.create({
     width: TILE_WIDTH,
   },
   rank: {
-    left: 6,
+    left: spacing.xxs,
     position: 'absolute',
-    top: 6,
+    top: spacing.xxs,
   },
   priceRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 6,
+    gap: spacing.xxs,
   },
 });

@@ -1,7 +1,7 @@
 import { StyleSheet, View } from 'react-native';
 
 import type { CalendarEvent, CalendarFeed } from '@spotlight/api-client';
-import { CalendarEventRow, useSpotlightTheme } from '@spotlight/design-system';
+import { CalendarEventRow, layout, spacing, useSpotlightTheme, borderWidths } from '@spotlight/design-system';
 
 import { MetaBlockHeader } from '@/features/meta-feed/components/meta-block-header';
 import { trackComingUpEventOpened } from '@/features/meta-feed/meta-analytics';
@@ -51,7 +51,7 @@ export function ComingUpBlock({
     <View
       style={[
         styles.section,
-        { borderBottomColor: theme.colors.gray100, borderBottomWidth: showBand ? 4 : 0 },
+        { borderBottomColor: theme.colors.gray100, borderBottomWidth: showBand ? borderWidths.sectionBand : 0 },
       ]}
       testID={testID}
     >
@@ -89,15 +89,15 @@ export function ComingUpBlock({
 }
 
 const styles = StyleSheet.create({
-  // Mockup: 20 top / 14 bottom / 16 sides; band as a BORDER like the others.
+  // Band as a BORDER like the others.
   section: {
     alignSelf: 'stretch',
-    paddingBottom: 14,
-    paddingHorizontal: 16,
-    paddingTop: 20,
+    paddingBottom: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
+    paddingTop: spacing.md,
     width: '100%',
   },
   list: {
-    marginTop: 4,
+    marginTop: spacing.xxxs,
   },
 });

@@ -28,6 +28,7 @@ import {
   Text,
   VideoTile,
   borderWidths,
+  layout,
   radii,
   spacing,
   useSpotlightTheme,
@@ -243,7 +244,6 @@ export function NewsScreen({ initialGame = null, initialKind = null, onBack, onO
             label={chip.label}
             onPress={() => setKind(chip.value)}
             selected={chip.value === kind}
-            style={styles.chip}
             testID={`news-kind-${chip.value ?? 'all'}`}
             tone="filter"
           />
@@ -262,7 +262,6 @@ export function NewsScreen({ initialGame = null, initialKind = null, onBack, onO
               label={candidate ? gameDisplayName(candidate) : 'All games'}
               onPress={() => setGame(candidate)}
               selected={candidate === game}
-              style={styles.chip}
               testID={`news-game-${candidate ?? 'all'}`}
               tone="filter"
             />
@@ -368,7 +367,7 @@ function LeadStory({
     <View
       style={[
         styles.lead,
-        showBand ? { borderBottomColor: theme.colors.gray100, borderBottomWidth: spacing.xxxs } : null,
+        showBand ? { borderBottomColor: theme.colors.gray100, borderBottomWidth: borderWidths.sectionBand } : null,
       ]}
       testID="news-lead"
     >
@@ -409,12 +408,9 @@ function LeadStory({
 }
 
 const styles = StyleSheet.create({
-  chip: {
-    borderRadius: radii.pill,
-  },
   chipRow: {
     gap: spacing.xxs,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
     paddingVertical: spacing.xxs,
   },
   fill: {
@@ -424,18 +420,18 @@ const styles = StyleSheet.create({
   footer: {
     alignItems: 'center',
     gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
     paddingVertical: spacing.xs,
   },
   item: {
     gap: spacing.xxs,
-    marginHorizontal: spacing.sm,
+    marginHorizontal: layout.pageGutter,
     paddingVertical: spacing.xxxs,
   },
   lead: {
     gap: spacing.xxs,
     paddingBottom: spacing.sm,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
     paddingTop: spacing.xxs,
   },
   leadImage: {
@@ -445,28 +441,28 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   leadSource: {
-    marginTop: 10,
+    marginTop: spacing.xs,
   },
   leadTags: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: spacing.xxs,
   },
   leadTitle: {
-    marginTop: 2,
+    marginTop: spacing.xxxs,
   },
   safeArea: {
     flex: 1,
   },
   skeleton: {
     gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
   },
   stale: {
     opacity: 0.6,
   },
   stateWrap: {
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
     paddingTop: spacing.xxs,
   },
   tag: {

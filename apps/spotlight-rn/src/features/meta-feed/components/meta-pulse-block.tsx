@@ -1,7 +1,7 @@
 import { StyleSheet, View } from 'react-native';
 
 import { gameDisplayName, type MetaExposure, type MetaGroup, type MetaPulse } from '@spotlight/api-client';
-import { AppText, useSpotlightTheme } from '@spotlight/design-system';
+import { AppText, layout, spacing, useSpotlightTheme, borderWidths } from '@spotlight/design-system';
 
 import { MetaBarList } from '@/features/meta-feed/components/meta-bar-list';
 import { MetaBlockHeader } from '@/features/meta-feed/components/meta-block-header';
@@ -72,7 +72,7 @@ export function MetaPulseBlock({
     <View
       style={[
         styles.section,
-        { borderBottomColor: theme.colors.gray100, borderBottomWidth: showBand ? 4 : 0 },
+        { borderBottomColor: theme.colors.gray100, borderBottomWidth: showBand ? borderWidths.sectionBand : 0 },
       ]}
       testID={testID}
     >
@@ -123,22 +123,21 @@ export function MetaPulseBlock({
 }
 
 const styles = StyleSheet.create({
-  // Mockup: 20 top / 18 bottom / 16 sides. The band is a BORDER, same reason
-  // as the Top Trends block.
+  // The band is a BORDER, same reason as the Top Trends block.
   section: {
     alignSelf: 'stretch',
-    paddingBottom: 18,
-    paddingHorizontal: 16,
-    paddingTop: 20,
+    paddingBottom: spacing.md,
+    paddingHorizontal: layout.pageGutter,
+    paddingTop: spacing.md,
     width: '100%',
   },
   caption: {
-    marginTop: 2,
+    marginTop: spacing.xxxs,
   },
   headline: {
-    marginTop: 14,
+    marginTop: spacing.sm,
   },
   callout: {
-    marginTop: 14,
+    marginTop: spacing.sm,
   },
 });

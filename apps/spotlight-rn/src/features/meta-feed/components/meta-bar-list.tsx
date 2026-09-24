@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import type { MetaExposure, MetaGroup, MetaLaneFilter } from '@spotlight/api-client';
-import { AppText, MetaBarRow } from '@spotlight/design-system';
+import { AppText, MetaBarRow, spacing } from '@spotlight/design-system';
 
 import {
   formatSignedCompactUsd,
@@ -91,7 +91,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingBottom: 2,
-    paddingTop: 14,
+    paddingBottom: spacing.xxxs,
+    paddingTop: spacing.sm,
   },
 });

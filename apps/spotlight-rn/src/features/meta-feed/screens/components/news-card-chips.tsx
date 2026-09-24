@@ -63,7 +63,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.xxxs,
     height: CHIP_HEIGHT,
-    paddingLeft: 3,
+    paddingLeft: spacing.xxxs,
     paddingRight: spacing.xxs,
   },
   dot: {
@@ -75,6 +75,6 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: spacing.xxs,
   },
 });

@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { AppText } from '@spotlight/design-system';
+import { AppText, spacing } from '@spotlight/design-system';
 
 export type MetaBlockHeaderProps = {
   title: string;
@@ -35,7 +35,7 @@ export function MetaBlockHeader({
       {actionLabel ? (
         <Pressable
           accessibilityRole="link"
-          hitSlop={8}
+          hitSlop={spacing.xxs}
           onPress={onPressAction}
           style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
           testID={testID ? `${testID}-action` : undefined}

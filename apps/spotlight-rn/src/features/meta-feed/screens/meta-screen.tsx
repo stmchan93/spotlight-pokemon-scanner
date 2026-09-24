@@ -14,6 +14,7 @@ import {
   SkeletonBlock,
   StateCard,
   Text,
+  layout,
   radii,
   spacing,
   useSpotlightTheme,
@@ -126,7 +127,6 @@ export function MetaScreen({
               label={gameDisplayName(candidate)}
               onPress={() => setGame(candidate)}
               selected={candidate === game}
-              style={styles.chip}
               testID={`meta-game-${candidate}`}
               tone="filter"
             />
@@ -246,7 +246,7 @@ function HeadlineCard({ pulse }: { pulse: MetaPulse }) {
       style={[styles.headlineCard, { backgroundColor: theme.colors.purple50 }]}
       testID="meta-headline"
     >
-      <Text style={[theme.typography.feedTag, styles.overline, { color: theme.colors.brandStrong }]}>
+      <Text style={[theme.typography.feedEyebrow, styles.overline, { color: theme.colors.brandStrong }]}>
         {readLabel(pulse.windowDays)}
       </Text>
       <Text style={[theme.typography.feedTitle, styles.headlineTitle, { color: theme.colors.gray900 }]}>
@@ -319,33 +319,28 @@ function MetaSkeleton() {
 
 const styles = StyleSheet.create({
   callout: {
-    marginBottom: 6,
-  },
-  chip: {
-    borderCurve: 'continuous',
-    borderRadius: radii.pill,
+    marginBottom: spacing.xxs,
   },
   gameChips: {
     gap: spacing.xxs,
     paddingBottom: spacing.xs,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
     paddingTop: spacing.sm,
   },
   headlineCard: {
     borderCurve: 'continuous',
     borderRadius: radii.lg,
-    marginHorizontal: spacing.sm,
+    marginHorizontal: layout.pageGutter,
     padding: spacing.sm,
   },
   headlineTitle: {
-    marginTop: 6,
+    marginTop: spacing.xxs,
   },
   lists: {
-    paddingHorizontal: spacing.sm,
-    paddingTop: 18,
+    paddingHorizontal: layout.pageGutter,
+    paddingTop: spacing.md,
   },
   overline: {
-    letterSpacing: 0.6,
     textTransform: 'uppercase',
   },
   safeArea: {
@@ -353,25 +348,24 @@ const styles = StyleSheet.create({
   },
   skeleton: {
     gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
   },
   stale: {
     opacity: 0.6,
   },
   stateWrap: {
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
   },
   statRow: {
     flexDirection: 'row',
     gap: spacing.xxs,
-    marginTop: 14,
+    marginTop: layout.titleBodyGap,
   },
   statTile: {
     borderCurve: 'continuous',
     borderRadius: radii.md,
     flex: 1,
     minWidth: 0,
-    paddingHorizontal: spacing.xs,
-    paddingVertical: 10,
+    padding: spacing.xs,
   },
 });

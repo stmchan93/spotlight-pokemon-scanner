@@ -15,10 +15,12 @@ import {
   Text,
   glassNavBubbleGlyphSize,
   glassNavBubbleGlyphStrokeWidth,
+  layout,
   radii,
   spacing,
   useSpotlightTheme,
   VideoTile,
+  borderWidths,
 } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
@@ -207,7 +209,7 @@ function SetSpotlightBody({
           <Text style={theme.typography.captionMedium}>{setMetaLine(set)}</Text>
         </View>
       </View>
-      <View style={[styles.statRow, sections.length > 0 ? { borderBottomColor: theme.colors.gray100, borderBottomWidth: spacing.xxxs } : null]}>
+      <View style={[styles.statRow, sections.length > 0 ? { borderBottomColor: theme.colors.gray100, borderBottomWidth: borderWidths.sectionBand } : null]}>
         <StatTile
           change={set.valueChangePercent7d}
           label="Set value"
@@ -270,7 +272,7 @@ function SetSpotlightBody({
               style={styles.showAll}
               testID="set-top-toggle"
             >
-              <Text style={[theme.typography.titleXsmall, { color: theme.colors.brandStrong }]}>
+              <Text style={[theme.typography.control, { color: theme.colors.brandStrong }]}>
                 {expanded ? 'Show fewer' : `Show all ${cards.length}`}
               </Text>
             </Pressable>
@@ -414,12 +416,12 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     flexDirection: 'row',
     gap: spacing.xs,
-    marginTop: 10,
+    marginTop: spacing.xs,
     padding: spacing.xs,
   },
   calloutArt: {
     borderCurve: 'continuous',
-    borderRadius: spacing.xxxs,
+    borderRadius: layout.inventoryArtRadiusRaw,
     height: CALLOUT_ART.height,
     overflow: 'hidden',
     width: CALLOUT_ART.width,
@@ -446,15 +448,15 @@ const styles = StyleSheet.create({
   },
   setCopy: {
     flex: 1,
-    gap: 2,
+    gap: spacing.xxxs,
     minWidth: 0,
   },
   setHeader: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 14,
+    gap: spacing.sm,
     paddingBottom: spacing.sm,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
     paddingTop: spacing.xxxs,
   },
   showAll: {
@@ -465,39 +467,39 @@ const styles = StyleSheet.create({
   },
   skeleton: {
     gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
   },
   stale: {
     opacity: 0.6,
   },
   stateWrap: {
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
   },
   statChange: {
     alignItems: 'flex-start',
-    marginTop: 2,
+    marginTop: spacing.xxxs,
   },
   statRow: {
     flexDirection: 'row',
     gap: spacing.xxs,
     paddingBottom: spacing.sm,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
   },
   statTile: {
     borderCurve: 'continuous',
     borderRadius: radii.md,
     flex: 1,
     minWidth: 0,
-    padding: 10,
+    padding: spacing.xs,
   },
   videoRail: {
     gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
   },
   // The rail scrolls edge to edge while its first tile lines up with the gutter.
   videoRailBleed: {
-    marginHorizontal: -spacing.sm,
-    marginTop: 10,
+    marginHorizontal: -layout.pageGutter,
+    marginTop: spacing.xs,
   },
   tabs: {
     marginBottom: spacing.xxxs,

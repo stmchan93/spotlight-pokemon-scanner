@@ -1,7 +1,7 @@
 import { StyleSheet, View } from 'react-native';
 
 import { gameDisplayName, type NewsFeed, type NewsItem } from '@spotlight/api-client';
-import { NewsRow, useSpotlightTheme } from '@spotlight/design-system';
+import { layout, NewsRow, spacing, useSpotlightTheme, borderWidths } from '@spotlight/design-system';
 
 import { MetaBlockHeader } from '@/features/meta-feed/components/meta-block-header';
 import { trackNewsItemOpened } from '@/features/meta-feed/meta-analytics';
@@ -53,7 +53,7 @@ export function NewsBlock({
     <View
       style={[
         styles.section,
-        { borderBottomColor: theme.colors.gray100, borderBottomWidth: showBand ? 4 : 0 },
+        { borderBottomColor: theme.colors.gray100, borderBottomWidth: showBand ? borderWidths.sectionBand : 0 },
       ]}
       testID={testID}
     >
@@ -87,10 +87,11 @@ export function NewsBlock({
 const styles = StyleSheet.create({
   section: {
     alignSelf: 'stretch',
-    padding: 16,
+    paddingHorizontal: layout.pageGutter,
+    paddingVertical: spacing.sm,
     width: '100%',
   },
   rows: {
-    marginTop: 8,
+    marginTop: spacing.xxs,
   },
 });
