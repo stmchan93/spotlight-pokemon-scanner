@@ -143,7 +143,6 @@ import {
   scanTargetPillLabel,
   useScannerTargetConfig,
 } from '@/features/scanner/use-scanner-target-config';
-import { useScannerMacroLensLock } from '@/features/scanner/scanner-camera-lens';
 
 import { BinderPageReview } from './binder-page-review';
 import { BinderLayoutMenu, type BinderLayoutMenuSelection } from '@/features/scanner/components/binder-layout-menu';
@@ -1056,7 +1055,6 @@ export function ScannerScreen({
   );
   const { lane: scanLane, setLane: setScanLane } = useScannerTargetConfig();
   const [zoomFactor, setZoomFactor, zoomHydrated] = useScannerZoomFactor();
-  const [macroLensLock] = useScannerMacroLensLock();
   const [isScanTargetSheetOpen, setIsScanTargetSheetOpen] = useState(false);
   const [ebayTrayState, setEbayTrayState] = useState<Map<string, { loading: boolean; url: string | null }>>(new Map());
   const [priceSelection, setPriceSelection] = useState<Map<string, ScanPriceSheetSelection>>(new Map());
@@ -4445,7 +4443,6 @@ export function ScannerScreen({
         prompt={promptCopy}
         shouldMountCamera={shouldMountCamera}
         suspendPreview={activeBinderPageId != null}
-        lockMacroLens={macroLensLock}
         showSlabGuide={false}
         testIDPrefix="scanner"
         zoomFactor={zoomFactor}
