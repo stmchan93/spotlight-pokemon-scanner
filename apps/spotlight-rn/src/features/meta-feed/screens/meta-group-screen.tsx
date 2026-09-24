@@ -62,6 +62,8 @@ export type MetaGroupScreenProps = {
   game?: CardGame;
   windowDays?: number;
   lane?: MetaLaneFilter;
+  /** Only the viewer's cards (all of them), no "Biggest movers". */
+  mineOnly?: boolean;
   onBack: () => void;
   onOpenCard: (cardId: string) => void;
 };
@@ -76,6 +78,7 @@ export function MetaGroupScreen({
   game = DEFAULT_CARD_GAME,
   windowDays = 7,
   lane,
+  mineOnly = false,
   onBack,
   onOpenCard,
 }: MetaGroupScreenProps) {
@@ -96,7 +99,7 @@ export function MetaGroupScreen({
 
   let body;
   if (detail) {
-    body = <GroupBody detail={detail} exposure={exposure} onOpenCard={onOpenCard} />;
+    body = <GroupBody detail={detail} exposure={exposure} mineOnly={mineOnly} onOpenCard={onOpenCard} />;
   } else if (status === 'loading') {
     body = (
       <View style={styles.skeleton} testID="meta-group-loading">
@@ -149,10 +152,12 @@ export function MetaGroupScreen({
 function GroupBody({
   detail,
   exposure,
+  mineOnly,
   onOpenCard,
 }: {
   detail: MetaGroupDetail;
   exposure: MetaExposure | null;
+  mineOnly: boolean;
   onOpenCard: (cardId: string) => void;
 }) {
   const theme = useSpotlightTheme();
@@ -162,6 +167,10 @@ function GroupBody({
   const [chartWidth, setChartWidth] = useState(0);
   const owned = exposure && exposure.game === detail.game ? exposure.groups[group.groupKey] ?? null : null;
   const ownedKeys = new Set((owned?.ownedCards ?? []).map(metaCardKey));
+  const hasOwned = Boolean(owned && owned.ownedCards.length > 0);
+  // Falls back to the movers if the viewer's cards aren't there (signed out,
+  // or sold since), so the page is never empty.
+  const showMovers = !(mineOnly && hasOwned);
 
   return (
     <View testID="meta-group-content">
@@ -202,8 +211,9 @@ function GroupBody({
         </View>
       </View>
 
-      {owned && owned.ownedCards.length > 0 ? (
+      {owned && hasOwned ? (
         <OwnedSection
+          initiallyExpanded={mineOnly}
           onOpenCard={onOpenCard}
           ownedCards={owned.ownedCards}
           ownedCount={owned.ownedCount}
@@ -212,6 +222,7 @@ function GroupBody({
         />
       ) : null}
 
+      {showMovers ? (
       <View style={styles.section} testID="meta-group-movers">
         <Text accessibilityRole="header" style={[theme.typography.feedSectionTitle, { color: theme.colors.gray900 }]}>
           Biggest movers
@@ -241,17 +252,20 @@ function GroupBody({
           </Text>
         )}
       </View>
+      ) : null}
     </View>
   );
 }
 
 function OwnedSection({
+  initiallyExpanded = false,
   onOpenCard,
   ownedCards,
   ownedCount,
   valueChangeUsd,
   windowDays,
 }: {
+  initiallyExpanded?: boolean;
   onOpenCard: (cardId: string) => void;
   ownedCards: MetaCard[];
   ownedCount: number;
@@ -260,7 +274,7 @@ function OwnedSection({
 }) {
   const theme = useSpotlightTheme();
   const valueColor = useSignedColor(valueChangeUsd);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   const shown = expanded ? ownedCards : ownedCards.slice(0, GROUP_OWNED_PREVIEW);
   const period = windowDays <= 7 ? 'this week' : `past ${windowDays} days`;
 

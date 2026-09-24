@@ -20,7 +20,7 @@ import {
 import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { MetaGroup, MetaPulse } from '@spotlight/api-client';
+import type { MetaPulse } from '@spotlight/api-client';
 import {
   Avatar,
   StateCard,
@@ -46,7 +46,7 @@ import {
   useMetaPulse,
   useNewsFeed,
 } from '@/features/meta-feed/hooks/use-meta-feed';
-import { useMetaFeedNavigation } from '@/features/meta-feed/hooks/use-meta-feed-navigation';
+import { useMetaFeedNavigation, type MetaGroupOpen } from '@/features/meta-feed/hooks/use-meta-feed-navigation';
 import { PostCard } from '@/features/social/components/post-card';
 import { RepostAttribution } from '@/features/social/components/repost-attribution';
 import {
@@ -595,8 +595,14 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const metaNavigation = useMetaFeedNavigation();
   const { openMetaGroup } = metaNavigation;
   const openMetaGroupRow = useCallback(
-    (group: Pick<MetaGroup, 'groupKey'>, pulse: MetaPulse) => {
-      openMetaGroup({ game: pulse.game, groupKey: group.groupKey, lane: pulse.lane, windowDays: pulse.windowDays });
+    (group: MetaGroupOpen, pulse: MetaPulse) => {
+      openMetaGroup({
+        game: pulse.game,
+        groupKey: group.groupKey,
+        lane: pulse.lane,
+        mine: group.mine,
+        windowDays: pulse.windowDays,
+      });
     },
     [openMetaGroup],
   );

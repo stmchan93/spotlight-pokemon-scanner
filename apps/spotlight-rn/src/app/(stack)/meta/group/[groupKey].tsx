@@ -11,7 +11,8 @@ import {
 
 /**
  * `/meta/group/<groupKey>?game=pokemon&window=7&lane=graded` — one group's
- * page, pushed from any Meta pulse / Meta page bar row.
+ * page, pushed from any Meta pulse / Meta page bar row. `&mine=1` (from the
+ * "Your SIRs are down…" callout) shows only the viewer's cards.
  */
 export default function MetaGroupRoute() {
   const router = useRouter();
@@ -20,6 +21,7 @@ export default function MetaGroupRoute() {
     game?: string | string[];
     groupKey?: string | string[];
     lane?: string | string[];
+    mine?: string | string[];
     window?: string | string[];
   }>();
   const groupKey = firstParam(params.groupKey);
@@ -30,6 +32,7 @@ export default function MetaGroupRoute() {
       game={parseGameParam(params.game)}
       groupKey={groupKey}
       lane={parseLaneParam(params.lane)}
+      mineOnly={firstParam(params.mine) === '1'}
       onBack={() => router.back()}
       onOpenCard={navigation.openCard}
       windowDays={parseWindowParam(params.window)}

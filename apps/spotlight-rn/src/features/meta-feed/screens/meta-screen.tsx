@@ -7,7 +7,6 @@ import {
   gameDisplayName,
   type CardGame,
   type MetaExposure,
-  type MetaGroup,
   type MetaPulse,
 } from '@spotlight/api-client';
 import {
@@ -23,7 +22,7 @@ import {
 import { MetaBarList } from '@/features/meta-feed/components/meta-bar-list';
 import { MetaExposureCallout } from '@/features/meta-feed/components/meta-exposure-callout';
 import { useMetaExposure } from '@/features/meta-feed/hooks/use-meta-feed';
-import type { MetaGroupRouteTarget } from '@/features/meta-feed/hooks/use-meta-feed-navigation';
+import type { MetaGroupOpen, MetaGroupRouteTarget } from '@/features/meta-feed/hooks/use-meta-feed-navigation';
 import {
   formatSignedCompactUsd,
   formatSignedPercent,
@@ -93,7 +92,7 @@ export function MetaScreen({
   }, [refresh, refreshExposure]);
 
   const openGroup = useCallback(
-    (group: Pick<MetaGroup, 'groupKey'>) => onOpenGroup({ game, groupKey: group.groupKey, lane, windowDays }),
+    (group: MetaGroupOpen) => onOpenGroup({ game, groupKey: group.groupKey, lane, mine: group.mine, windowDays }),
     [game, lane, onOpenGroup, windowDays],
   );
 
@@ -150,14 +149,13 @@ export function MetaScreen({
 type MetaPageBodyProps = {
   exposure: MetaExposure | null;
   loading: boolean;
-  onOpenGroup: (group: Pick<MetaGroup, 'groupKey'>) => void;
+  onOpenGroup: (group: MetaGroupOpen) => void;
   onRetry: () => void;
   pulse: MetaPulse | null;
   status: MetaPageStatus;
 };
 
 function MetaPageBody({ exposure, loading, onOpenGroup, onRetry, pulse, status }: MetaPageBodyProps) {
-  const theme = useSpotlightTheme();
   const lists = useMemo(() => splitMetaGroups(pulse?.groups ?? []), [pulse]);
   if (!pulse) {
     if (status === 'loading') {
@@ -209,7 +207,7 @@ function MetaPageBody({ exposure, loading, onOpenGroup, onRetry, pulse, status }
       <View style={styles.lists}>
         <MetaExposureCallout
           exposure={viewerExposure}
-          onOpenGroup={(groupKey) => onOpenGroup({ groupKey })}
+          onOpenGroup={(groupKey) => onOpenGroup({ groupKey, mine: true })}
           style={styles.callout}
           testID="meta-callout"
         />
@@ -229,7 +227,6 @@ function MetaPageBody({ exposure, loading, onOpenGroup, onRetry, pulse, status }
           onOpenGroup={onOpenGroup}
           testID="meta-down"
         />
-        <Text style={[theme.typography.captionMedium, styles.footnote]}>Tap a group to see the cards driving it.</Text>
       </View>
     </View>
   );
@@ -322,9 +319,6 @@ const styles = StyleSheet.create({
   chip: {
     borderCurve: 'continuous',
     borderRadius: radii.pill,
-  },
-  footnote: {
-    paddingVertical: spacing.xs,
   },
   gameChips: {
     gap: spacing.xxs,

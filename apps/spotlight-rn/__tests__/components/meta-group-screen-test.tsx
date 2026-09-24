@@ -22,15 +22,24 @@ function renderGroup({
   fetchMetaGroupDetail = async (query) => mockMetaGroupDetail(query.groupKey),
   fetchMetaExposure = async () => mockMetaExposure,
   groupKey = GROUP_KEY,
+  mineOnly = false,
 }: {
   fetchMetaGroupDetail?: (query: MetaGroupDetailQuery) => Promise<MetaGroupDetail | null>;
   fetchMetaExposure?: (query?: MetaExposureQuery) => Promise<MetaExposure | null>;
   groupKey?: string;
+  mineOnly?: boolean;
 } = {}) {
   const onBack = jest.fn();
   const onOpenCard = jest.fn();
   renderWithProviders(
-    <MetaGroupScreen game="pokemon" groupKey={groupKey} onBack={onBack} onOpenCard={onOpenCard} windowDays={7} />,
+    <MetaGroupScreen
+      game="pokemon"
+      groupKey={groupKey}
+      mineOnly={mineOnly}
+      onBack={onBack}
+      onOpenCard={onOpenCard}
+      windowDays={7}
+    />,
     { spotlightRepository: createTestSpotlightRepository({ fetchMetaExposure, fetchMetaGroupDetail }) },
   );
   return { onBack, onOpenCard };
@@ -90,6 +99,19 @@ describe('MetaGroupScreen', () => {
 
     fireEvent.press(screen.getByTestId('meta-group-mover-ex8-106'));
     expect(onOpenCard).toHaveBeenCalledWith('ex8-106');
+  });
+
+  it('from the callout: every one of your cards, and no biggest movers', async () => {
+    renderGroup({ mineOnly: true });
+    await screen.findByTestId('meta-group-owned');
+    expect(screen.getAllByTestId(/^meta-group-owned-[a-z0-9]+-\d+$/)).toHaveLength(4);
+    expect(screen.queryByTestId('meta-group-owned-see-all')).toBeNull();
+    expect(screen.queryByTestId('meta-group-movers')).toBeNull();
+  });
+
+  it('from the callout but owning none of it: falls back to the movers', async () => {
+    renderGroup({ mineOnly: true, fetchMetaExposure: async () => null });
+    expect(await screen.findByTestId('meta-group-movers')).toBeTruthy();
   });
 
   it('hides "Your cards" when you own none of the group (or are signed out)', async () => {

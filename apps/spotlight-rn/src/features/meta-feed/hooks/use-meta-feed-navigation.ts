@@ -10,7 +10,12 @@ export type MetaGroupRouteTarget = {
   game: CardGame;
   windowDays: number;
   lane?: MetaLaneFilter;
+  /** Opened from "Your SIRs are down $36": show only the viewer's cards. */
+  mine?: boolean;
 };
+
+/** What a group tap carries: a bar row sends the key; the callout adds `mine`. */
+export type MetaGroupOpen = { groupKey: string; mine?: boolean };
 
 /** Params for `/meta/group/[groupKey]`; the lane drops out when it is `all`. */
 export function metaGroupRouteParams(target: MetaGroupRouteTarget): Record<string, string> {
@@ -21,6 +26,9 @@ export function metaGroupRouteParams(target: MetaGroupRouteTarget): Record<strin
   };
   if (target.lane && target.lane !== 'all') {
     params.lane = target.lane;
+  }
+  if (target.mine) {
+    params.mine = '1';
   }
   return params;
 }

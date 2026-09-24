@@ -96,6 +96,7 @@ describe('MetaScreen', () => {
       game: 'pokemon',
       groupKey: 'vintage:graded:psa10:pop_le_50',
       lane: 'all',
+      mine: true,
       windowDays: 7,
     });
   });

@@ -33,7 +33,10 @@ export function MetaExposureCallout({
   return (
     <View style={style}>
       <MetaCalloutCard
-        body={callout.body || null}
+        // Title only: the server's body counts cards across EVERY group moving
+        // the same way ("2 cards in cooling groups"), which read as wrong next to
+        // the one group the tap opens.
+        body={null}
         highlight={calloutHighlight(callout.title)}
         highlightTone={callout.valueChangeUsd < 0 ? 'down' : 'up'}
         imageUrls={callout.imageUrls}

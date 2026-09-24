@@ -78,7 +78,9 @@ describe('meta feed routes', () => {
   it('/meta/group/[groupKey] parses the group, game, window and lane, and opens cards', () => {
     mockUseLocalSearchParams.mockReturnValue({ game: 'pokemon', groupKey: 'modern:raw:sir', lane: 'graded', window: '7' });
     render(<MetaGroupRoute />);
-    expect(propsOf('group')).toEqual({ game: 'pokemon', groupKey: 'modern:raw:sir', lane: 'graded', windowDays: 7 });
+    expect(propsOf('group')).toEqual({
+      game: 'pokemon', groupKey: 'modern:raw:sir', lane: 'graded', mineOnly: false, windowDays: 7,
+    });
 
     fireEvent.press(screen.getByTestId('group-card'));
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/cards/[cardId]', params: { cardId: 'sm7-1' } });

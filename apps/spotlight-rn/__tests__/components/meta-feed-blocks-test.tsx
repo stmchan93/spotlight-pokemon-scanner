@@ -108,7 +108,13 @@ describe('MetaPulseBlock', () => {
     // Callout with the fanned art.
     expect(screen.getByTestId('meta-pulse-callout')).toBeTruthy();
     expect(screen.getByTestId('meta-pulse-callout-art')).toBeTruthy();
-    expect(screen.getByText('4 PSA 10s and 11 raw cards in rising groups')).toBeTruthy();
+    // Title only: the cross-group count line confused people.
+    expect(screen.queryByText('4 PSA 10s and 11 raw cards in rising groups')).toBeNull();
+    fireEvent.press(screen.getByTestId('meta-pulse-callout'));
+    expect(onOpenGroup).toHaveBeenLastCalledWith(
+      { groupKey: 'vintage:graded:psa10:pop_le_50', mine: true },
+      mockMetaPulse,
+    );
 
     fireEvent.press(screen.getByTestId('meta-pulse-header-action'));
     expect(onOpenMeta).toHaveBeenCalledWith(mockMetaPulse);

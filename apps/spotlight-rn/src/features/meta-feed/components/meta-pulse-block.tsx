@@ -6,6 +6,7 @@ import { AppText, useSpotlightTheme } from '@spotlight/design-system';
 import { MetaBarList } from '@/features/meta-feed/components/meta-bar-list';
 import { MetaBlockHeader } from '@/features/meta-feed/components/meta-block-header';
 import { MetaExposureCallout } from '@/features/meta-feed/components/meta-exposure-callout';
+import type { MetaGroupOpen } from '@/features/meta-feed/hooks/use-meta-feed-navigation';
 import { maxGroupMagnitude, splitMetaGroups } from '@/features/meta-feed/screens/components/meta-format';
 
 /** Rows per direction in the feed block; the Meta page shows every group. */
@@ -37,7 +38,7 @@ export type MetaPulseBlockProps = {
   /** "See all ›"; the feed pushes `/meta`. */
   onOpenMeta?: (pulse: MetaPulse) => void;
   /** Row taps; the feed pushes `/meta/group/[groupKey]`. */
-  onOpenGroup?: (group: Pick<MetaGroup, 'groupKey'>, pulse: MetaPulse) => void;
+  onOpenGroup?: (group: MetaGroupOpen, pulse: MetaPulse) => void;
   /** Draw the closing 4pt band (off when the feed's first cell owns it). */
   showBand?: boolean;
   testID?: string;
@@ -65,7 +66,7 @@ export function MetaPulseBlock({
   const maxMagnitude = maxGroupMagnitude([...risers, ...coolers]);
   // Exposure for another game would tag the wrong groups.
   const viewerExposure = exposure && exposure.game === pulse.game ? exposure : null;
-  const openGroup = onOpenGroup ? (group: Pick<MetaGroup, 'groupKey'>) => onOpenGroup(group, pulse) : undefined;
+  const openGroup = onOpenGroup ? (group: MetaGroupOpen) => onOpenGroup(group, pulse) : undefined;
 
   return (
     <View
@@ -92,7 +93,7 @@ export function MetaPulseBlock({
       ) : null}
       <MetaExposureCallout
         exposure={viewerExposure}
-        onOpenGroup={openGroup ? (groupKey) => openGroup({ groupKey }) : undefined}
+        onOpenGroup={openGroup ? (groupKey) => openGroup({ groupKey, mine: true }) : undefined}
         style={styles.callout}
         testID={`${testID}-callout`}
       />
