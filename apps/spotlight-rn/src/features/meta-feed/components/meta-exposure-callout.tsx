@@ -16,10 +16,13 @@ export function hasExposureCallout(exposure: MetaExposure | null | undefined): b
  */
 export function MetaExposureCallout({
   exposure,
+  onOpenGroup,
   style,
   testID,
 }: {
   exposure: MetaExposure | null | undefined;
+  /** Opens the group the title is about (the callout's `groupKey`). */
+  onOpenGroup?: (groupKey: string) => void;
   style?: StyleProp<ViewStyle>;
   testID: string;
 }) {
@@ -34,6 +37,7 @@ export function MetaExposureCallout({
         highlight={calloutHighlight(callout.title)}
         highlightTone={callout.valueChangeUsd < 0 ? 'down' : 'up'}
         imageUrls={callout.imageUrls}
+        onPress={onOpenGroup && callout.groupKey ? () => onOpenGroup(callout.groupKey as string) : undefined}
         testID={testID}
         title={callout.title}
       />

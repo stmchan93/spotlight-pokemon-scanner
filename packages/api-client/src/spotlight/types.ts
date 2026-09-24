@@ -1703,6 +1703,7 @@ export type MetaExposure = {
     body: string;                // "4 PSA 10s and 11 raw cards in rising groups"
     valueChangeUsd: number;
     imageUrls: string[];         // ≤ 2 of the user's cards, for the fanned thumbnails
+    groupKey: string | null;     // the group the title is about; tapping opens it
   } | null;
   groups: Record<string, {       // keyed by groupKey; only groups where the user owns ≥ 1 card
     ownedCount: number;          // distinct priced cards: ownedCards.length unless over the cap

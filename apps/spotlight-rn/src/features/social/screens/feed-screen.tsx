@@ -595,7 +595,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const metaNavigation = useMetaFeedNavigation();
   const { openMetaGroup } = metaNavigation;
   const openMetaGroupRow = useCallback(
-    (group: MetaGroup, pulse: MetaPulse) => {
+    (group: Pick<MetaGroup, 'groupKey'>, pulse: MetaPulse) => {
       openMetaGroup({ game: pulse.game, groupKey: group.groupKey, lane: pulse.lane, windowDays: pulse.windowDays });
     },
     [openMetaGroup],

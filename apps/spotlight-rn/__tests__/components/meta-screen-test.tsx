@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 
 import type { MetaExposure, MetaExposureQuery, MetaPulse, MetaPulseQuery } from '@spotlight/api-client';
 import { MetaScreen } from '@/features/meta-feed/screens/meta-screen';
@@ -82,16 +82,41 @@ describe('MetaScreen', () => {
     expect(screen.queryByText(/^You own/)).toBeNull();
   });
 
-  it('disables windows the server has no history for', async () => {
+  it('always reads the past week, with no window toggle', async () => {
     renderMeta(async () => mockMetaPulse);
     await screen.findByTestId('meta-content');
+    expect(screen.queryByTestId('meta-window')).toBeNull();
+    expect(screen.queryByTestId('meta-window-30')).toBeNull();
+  });
 
-    expect(screen.getByTestId('meta-window-90').props.accessibilityState).toEqual(
-      expect.objectContaining({ disabled: true }),
-    );
-    expect(screen.getByTestId('meta-window-30').props.accessibilityState).toEqual(
-      expect.objectContaining({ disabled: false }),
-    );
+  it('opens the group the callout is about', async () => {
+    const { onOpenGroup } = renderMeta(async () => mockMetaPulse, async () => mockMetaExposure);
+    fireEvent.press(await screen.findByTestId('meta-callout'));
+    expect(onOpenGroup).toHaveBeenCalledWith({
+      game: 'pokemon',
+      groupKey: 'vintage:graded:psa10:pop_le_50',
+      lane: 'all',
+      windowDays: 7,
+    });
+  });
+
+  it('keeps the game chips and last read on screen while another game loads', async () => {
+    let release: (pulse: MetaPulse) => void = () => undefined;
+    const fetchMetaPulse = jest.fn((query?: MetaPulseQuery) =>
+      query?.game === 'onepiece'
+        ? new Promise<MetaPulse>((resolve) => { release = resolve; })
+        : Promise.resolve(mockMetaPulse));
+    renderMeta(fetchMetaPulse);
+    await screen.findByTestId('meta-content');
+
+    fireEvent.press(screen.getByTestId('meta-game-onepiece'));
+    await waitFor(() => expect(fetchMetaPulse).toHaveBeenLastCalledWith(expect.objectContaining({ game: 'onepiece' })));
+    expect(screen.queryByTestId('meta-loading')).toBeNull();
+    expect(screen.getByTestId('meta-content')).toBeTruthy();
+    expect(screen.getByTestId('meta-game-pokemon')).toBeTruthy();
+
+    await act(async () => release({ ...mockMetaPulse, game: 'onepiece' }));
+    expect(screen.getByTestId('meta-game-onepiece')).toBeTruthy();
   });
 
   it('refetches with the new query on every filter change', async () => {
@@ -112,17 +137,11 @@ describe('MetaScreen', () => {
       expect(fetchMetaPulse).toHaveBeenLastCalledWith({ game: 'pokemon', lane: 'raw', windowDays: 7 }),
     );
 
-    fireEvent.press(screen.getByTestId('meta-window-30'));
-    await waitFor(() =>
-      expect(fetchMetaPulse).toHaveBeenLastCalledWith({ game: 'pokemon', lane: 'raw', windowDays: 30 }),
-    );
-    await screen.findByText("This month's read");
-    await waitFor(() => expect(fetchMetaExposure).toHaveBeenLastCalledWith({ game: 'pokemon', windowDays: 30 }));
-
     fireEvent.press(screen.getByTestId('meta-game-onepiece'));
     await waitFor(() =>
-      expect(fetchMetaPulse).toHaveBeenLastCalledWith({ game: 'onepiece', lane: 'raw', windowDays: 30 }),
+      expect(fetchMetaPulse).toHaveBeenLastCalledWith({ game: 'onepiece', lane: 'raw', windowDays: 7 }),
     );
+    await waitFor(() => expect(fetchMetaExposure).toHaveBeenLastCalledWith({ game: 'onepiece', windowDays: 7 }));
   });
 
   it('shows an empty state when no group moved', async () => {

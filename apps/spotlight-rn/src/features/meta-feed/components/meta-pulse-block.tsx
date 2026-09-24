@@ -37,7 +37,7 @@ export type MetaPulseBlockProps = {
   /** "See all ›"; the feed pushes `/meta`. */
   onOpenMeta?: (pulse: MetaPulse) => void;
   /** Row taps; the feed pushes `/meta/group/[groupKey]`. */
-  onOpenGroup?: (group: MetaGroup, pulse: MetaPulse) => void;
+  onOpenGroup?: (group: Pick<MetaGroup, 'groupKey'>, pulse: MetaPulse) => void;
   /** Draw the closing 4pt band (off when the feed's first cell owns it). */
   showBand?: boolean;
   testID?: string;
@@ -65,7 +65,7 @@ export function MetaPulseBlock({
   const maxMagnitude = maxGroupMagnitude([...risers, ...coolers]);
   // Exposure for another game would tag the wrong groups.
   const viewerExposure = exposure && exposure.game === pulse.game ? exposure : null;
-  const openGroup = onOpenGroup ? (group: MetaGroup) => onOpenGroup(group, pulse) : undefined;
+  const openGroup = onOpenGroup ? (group: Pick<MetaGroup, 'groupKey'>) => onOpenGroup(group, pulse) : undefined;
 
   return (
     <View
@@ -90,7 +90,12 @@ export function MetaPulseBlock({
           {pulse.headline.title}
         </AppText>
       ) : null}
-      <MetaExposureCallout exposure={viewerExposure} style={styles.callout} testID={`${testID}-callout`} />
+      <MetaExposureCallout
+        exposure={viewerExposure}
+        onOpenGroup={openGroup ? (groupKey) => openGroup({ groupKey }) : undefined}
+        style={styles.callout}
+        testID={`${testID}-callout`}
+      />
       <MetaBarList
         direction="up"
         exposure={viewerExposure}

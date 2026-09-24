@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -41,13 +41,8 @@ export const META_LANE_ITEMS = [
   { label: 'Graded', value: 'graded' },
 ] as const satisfies readonly { label: string; value: MetaLaneFilter }[];
 
-export const META_WINDOW_ITEMS = [
-  { label: '7D', value: '7' },
-  { label: '30D', value: '30' },
-  { label: '90D', value: '90' },
-] as const;
-
-type WindowValue = (typeof META_WINDOW_ITEMS)[number]['value'];
+/** The Meta page always reads the past week (the window toggle was removed). */
+export const META_WINDOW_DAYS = 7;
 
 function readLabel(windowDays: number): string {
   if (windowDays <= 7) return "This week's read";
@@ -62,7 +57,6 @@ export function windowCaption(windowDays: number): string {
 export type MetaScreenProps = {
   initialGame?: CardGame;
   initialLane?: MetaLaneFilter;
-  initialWindowDays?: number;
   onBack: () => void;
   /** Row taps; the route pushes `/meta/group/[groupKey]`. */
   onOpenGroup: (target: MetaGroupRouteTarget) => void;
@@ -71,13 +65,13 @@ export type MetaScreenProps = {
 /**
  * Meta page v4 (docs/meta-feed-mockup/v2/MetaV4.dc.html): this week's read,
  * the viewer's callout, then every rising and cooling group as bar rows, per
- * game, lane and window. Every filter change refetches — the payload is
- * computed server-side per (game, window, lane). Rows open the group page.
+ * game and lane, over the past week. Every filter change refetches — the
+ * payload is computed server-side per (game, window, lane). Rows open the
+ * group page.
  */
 export function MetaScreen({
   initialGame = DEFAULT_CARD_GAME,
   initialLane = 'all',
-  initialWindowDays = 7,
   onBack,
   onOpenGroup,
 }: MetaScreenProps) {
@@ -85,10 +79,17 @@ export function MetaScreen({
   const insets = useSafeAreaInsets();
   const [game, setGame] = useState<CardGame>(initialGame);
   const [lane, setLane] = useState<MetaLaneFilter>(initialLane);
-  const [windowDays, setWindowDays] = useState<number>(initialWindowDays);
+  const windowDays = META_WINDOW_DAYS;
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: pulse, loading, refresh, status } = useMetaPageData({ game, lane, windowDays });
+  const { data: freshPulse, loading, refresh, status } = useMetaPageData({ game, lane, windowDays });
+  // Switching game or lane keeps the last read on screen (dimmed) until the new
+  // one lands, instead of dropping to a skeleton and losing the game chips.
+  const lastPulseRef = useRef<MetaPulse | null>(null);
+  if (freshPulse) {
+    lastPulseRef.current = freshPulse;
+  }
+  const pulse = freshPulse ?? (status === 'loading' ? lastPulseRef.current : null);
   const { data: exposure, refresh: refreshExposure } = useMetaExposure({ game, windowDays });
 
   const handleRefresh = useCallback(async () => {
@@ -101,7 +102,7 @@ export function MetaScreen({
   }, [refresh, refreshExposure]);
 
   const openGroup = useCallback(
-    (group: MetaGroup) => onOpenGroup({ game, groupKey: group.groupKey, lane, windowDays }),
+    (group: Pick<MetaGroup, 'groupKey'>) => onOpenGroup({ game, groupKey: group.groupKey, lane, windowDays }),
     [game, lane, onOpenGroup, windowDays],
   );
 
@@ -109,16 +110,6 @@ export function MetaScreen({
     const available = pulse?.availableGames ?? [];
     return available.includes(game) ? available : [game, ...available];
   }, [game, pulse?.availableGames]);
-
-  const disabledWindows = useMemo<WindowValue[]>(() => {
-    const available = pulse?.availableWindows;
-    if (!available || available.length === 0) {
-      return [];
-    }
-    return META_WINDOW_ITEMS.map((item) => item.value).filter(
-      (value) => !available.includes(Number(value)) && Number(value) !== windowDays,
-    );
-  }, [pulse?.availableWindows, windowDays]);
 
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}>
@@ -152,30 +143,18 @@ export function MetaScreen({
           ))}
         </ScrollView>
         <View style={styles.segments}>
-          <View style={styles.laneSegment}>
-            <SegmentedControl
-              items={META_LANE_ITEMS}
-              onChange={setLane}
-              testID="meta-lane"
-              tone="inverted"
-              value={lane}
-            />
-          </View>
-          <View style={styles.windowSegment}>
-            <SegmentedControl
-              disabledValues={disabledWindows}
-              items={META_WINDOW_ITEMS}
-              onChange={(next) => setWindowDays(Number(next))}
-              testID="meta-window"
-              tone="inverted"
-              value={String(windowDays) as WindowValue}
-            />
-          </View>
+          <SegmentedControl
+            items={META_LANE_ITEMS}
+            onChange={setLane}
+            testID="meta-lane"
+            tone="inverted"
+            value={lane}
+          />
         </View>
 
         <MetaPageBody
           exposure={exposure}
-          loading={loading}
+          loading={loading || pulse !== freshPulse}
           onOpenGroup={openGroup}
           onRetry={() => void refresh()}
           pulse={pulse}
@@ -189,7 +168,7 @@ export function MetaScreen({
 type MetaPageBodyProps = {
   exposure: MetaExposure | null;
   loading: boolean;
-  onOpenGroup: (group: MetaGroup) => void;
+  onOpenGroup: (group: Pick<MetaGroup, 'groupKey'>) => void;
   onRetry: () => void;
   pulse: MetaPulse | null;
   status: MetaPageStatus;
@@ -243,10 +222,15 @@ function MetaPageBody({ exposure, loading, onOpenGroup, onRetry, pulse, status }
   const viewerExposure = exposure && exposure.game === pulse.game ? exposure : null;
 
   return (
-    <View style={loading ? styles.stale : null} testID="meta-content">
+    <View pointerEvents={loading ? 'none' : 'auto'} style={loading ? styles.stale : null} testID="meta-content">
       <HeadlineCard pulse={pulse} />
       <View style={styles.lists}>
-        <MetaExposureCallout exposure={viewerExposure} style={styles.callout} testID="meta-callout" />
+        <MetaExposureCallout
+          exposure={viewerExposure}
+          onOpenGroup={(groupKey) => onOpenGroup({ groupKey })}
+          style={styles.callout}
+          testID="meta-callout"
+        />
         <MetaBarList
           direction="up"
           exposure={viewerExposure}
@@ -375,7 +359,6 @@ const styles = StyleSheet.create({
   headlineTitle: {
     marginTop: 6,
   },
-  laneSegment: {},
   lists: {
     paddingHorizontal: spacing.sm,
     paddingTop: 18,
@@ -415,5 +398,4 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xs,
     paddingVertical: 10,
   },
-  windowSegment: {},
 });

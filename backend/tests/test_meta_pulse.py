@@ -523,7 +523,8 @@ class ComputeTests(unittest.TestCase):
         self.assertEqual((card["grader"], card["grade"], card["population"], card["priceNow"]), ("PSA", "10", 30, 168.0))
 
         callout = payload["callout"]
-        self.assertEqual(set(callout), {"title", "body", "valueChangeUsd", "imageUrls"})
+        self.assertEqual(set(callout), {"title", "body", "valueChangeUsd", "imageUrls", "groupKey"})
+        self.assertEqual(callout["groupKey"], "vintage:graded:psa10:pop_le_50")
         self.assertEqual(callout["title"], "Your vintage is up +$28 this week")
         self.assertEqual(callout["body"], "1 PSA 10 and 4 raw cards in rising groups")
         self.assertEqual(callout["valueChangeUsd"], 28.0)

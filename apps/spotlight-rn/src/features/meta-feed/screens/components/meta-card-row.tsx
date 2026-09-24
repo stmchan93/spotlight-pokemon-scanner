@@ -11,6 +11,8 @@ import { formatCurrency } from '@/features/portfolio/components/portfolio-format
 const ART = { height: 67, width: 48 } as const;
 
 export type MetaCardRowProps = {
+  /** Price change in `currencyCode` over the window, shown before the percent. */
+  changeAmount?: number | null;
   changePercent: number | null;
   currencyCode: string;
   imageUrl: string | null;
@@ -30,6 +32,7 @@ export type MetaCardRowProps = {
  * card page.
  */
 export function MetaCardRow({
+  changeAmount = null,
   changePercent,
   currencyCode,
   imageUrl,
@@ -44,7 +47,13 @@ export function MetaCardRow({
   const theme = useSpotlightTheme();
   const changeColor = useSignedColor(changePercent);
   const priceLabel = price == null ? '—' : formatCurrency(price, currencyCode);
-  const changeLabel = changePercent == null ? null : formatSignedPercent(changePercent);
+  const percentLabel = changePercent == null ? null : formatSignedPercent(changePercent);
+  const amountLabel = changeAmount == null || Math.abs(changeAmount) < 0.005
+    ? null
+    : `${changeAmount > 0 ? '+' : '−'}${formatCurrency(Math.abs(changeAmount), currencyCode)}`;
+  const changeLabel = amountLabel && percentLabel
+    ? `${amountLabel} (${percentLabel})`
+    : percentLabel ?? amountLabel;
 
   return (
     <Pressable

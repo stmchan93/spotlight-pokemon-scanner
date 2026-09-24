@@ -83,6 +83,8 @@ describe('MetaGroupScreen', () => {
     expect(screen.getByText('Latios ☆ · PSA 10')).toBeTruthy();
     expect(screen.getByText('Deoxys · pop 27')).toBeTruthy();
     expect(screen.getByText('$11,800.00')).toBeTruthy();
+    // Dollar move over the window, then the percent.
+    expect(screen.getByTestId('meta-group-mover-ex8-106-change').props.children).toBe('+$2,792.00 (+31.0%)');
     expect(screen.getByTestId('meta-group-mover-ecard3-146-owned')).toBeTruthy();
     expect(screen.queryByTestId('meta-group-mover-ex8-106-owned')).toBeNull();
 

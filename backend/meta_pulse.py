@@ -1494,7 +1494,7 @@ def _exposure_callout(
             images.append(url)
         if len(images) >= EXPOSURE_CALLOUT_IMAGES:
             break
-    return {"title": title, "body": body, "valueChangeUsd": change, "imageUrls": images}
+    return {"title": title, "body": body, "valueChangeUsd": change, "imageUrls": images, "groupKey": lead_key}
 
 
 def build_meta_exposure_payload(

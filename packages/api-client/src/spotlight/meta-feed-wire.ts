@@ -307,6 +307,7 @@ export function parseMetaExposurePayload(value: unknown, requested?: { windowDay
         body: String(callout.body ?? ''),
         valueChangeUsd: num(callout.valueChangeUsd),
         imageUrls: strings(callout.imageUrls).slice(0, 2),
+        groupKey: str(callout.groupKey),
       }
       : null,
     groups,

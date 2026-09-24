@@ -64,7 +64,7 @@ describe('meta feed routes', () => {
   it('/meta parses filters, ignores junk, and wires back + group pushes', () => {
     mockUseLocalSearchParams.mockReturnValue({ game: 'onepiece', lane: 'bogus', window: '30' });
     render(<MetaRoute />);
-    expect(propsOf('meta')).toEqual({ initialGame: 'onepiece', initialWindowDays: 30 });
+    expect(propsOf('meta')).toEqual({ initialGame: 'onepiece' });
 
     fireEvent.press(screen.getByTestId('meta-group'));
     expect(mockPush).toHaveBeenCalledWith({

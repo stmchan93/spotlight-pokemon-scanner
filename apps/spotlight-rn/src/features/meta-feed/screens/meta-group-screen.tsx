@@ -220,6 +220,7 @@ function GroupBody({
           <>
             {group.topCards.map((card) => (
               <MetaCardRow
+                changeAmount={card.priceNow - card.priceThen}
                 changePercent={card.changePercent}
                 currencyCode={card.currencyCode}
                 imageUrl={card.imageUrl}
@@ -278,6 +279,7 @@ function OwnedSection({
       </Text>
       {shown.map((card, index) => (
         <MetaCardRow
+          changeAmount={card.priceNow - card.priceThen}
           changePercent={card.changePercent}
           currencyCode={card.currencyCode}
           imageUrl={card.imageUrl}

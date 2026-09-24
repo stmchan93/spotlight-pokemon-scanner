@@ -260,6 +260,7 @@ export const mockMetaExposure: MetaExposure = {
     body: '4 PSA 10s and 11 raw cards in rising groups',
     valueChangeUsd: 312,
     imageUrls: [hoOh.imageUrl, mortysGengar.imageUrl].filter((url): url is string => url != null),
+    groupKey: 'vintage:graded:psa10:pop_le_50',
   },
   groups: {
     'vintage:graded:psa10:pop_le_50': {
