@@ -4,7 +4,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import type { AlertPreferences } from '@spotlight/api-client';
 
 import { AccountScreen } from '@/features/auth/screens/account-screen';
-import { AlertSettingsScreen } from '@/features/notifications/screens/alert-settings-screen';
+import { AlertSettingsSection } from '@/features/notifications/components/alert-settings-section';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../../test-utils';
 
@@ -53,7 +53,7 @@ const ALL_ON: AlertPreferences = {
 
 function renderAlerts(overrides: Parameters<typeof createTestSpotlightRepository>[0] = {}) {
   const repository = createTestSpotlightRepository(overrides);
-  renderWithProviders(<AlertSettingsScreen />, { spotlightRepository: repository });
+  renderWithProviders(<AlertSettingsSection />, { spotlightRepository: repository });
   return repository;
 }
 
@@ -136,10 +136,10 @@ describe('Alert settings screen', () => {
     expect(updateAlertPreferences).not.toHaveBeenCalled();
   });
 
-  it('is reached from the Account screen', async () => {
+  it('shows the switches inline on the Account screen', async () => {
     renderWithProviders(<AccountScreen />, { spotlightRepository: createTestSpotlightRepository() });
 
-    fireEvent.press(await screen.findByTestId('account-alert-settings'));
-    expect(mockPush).toHaveBeenCalledWith('/account/alerts');
+    expect(await screen.findByTestId('alert-settings-price-moves')).toBeTruthy();
+    expect(screen.queryByTestId('account-alert-settings')).toBeNull();
   });
 });

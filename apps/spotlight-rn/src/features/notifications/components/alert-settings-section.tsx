@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Switch, View } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Alert, StyleSheet, Switch, View } from 'react-native';
 
 import type { AlertPreferences } from '@spotlight/api-client';
-import { ScreenHeader, Text, borderWidths, useSpotlightTheme } from '@spotlight/design-system';
+import { Text, borderWidths, useSpotlightTheme } from '@spotlight/design-system';
 
-import { ChromeBackButton } from '@/components/chrome-back-button';
 import { resolveDeviceTimeZone } from '@/features/notifications/push-notifications';
 import { usePushPermissionPrompt } from '@/features/notifications/use-push-registration';
 import { useAppServices } from '@/providers/app-providers';
@@ -39,22 +37,20 @@ const DEFAULT_PREFS: AlertPreferences = {
   weeklySummaryEnabled: true,
 };
 
-export type AlertSettingsScreenProps = {
-  onBack?: () => void;
+export type AlertSettingsSectionProps = {
   testID?: string;
 };
 
 /**
- * Alerts — three switches, nothing else. The anti-spam limits (1 push a day,
+ * Alert switches, shown inline on the Account screen. Three switches, nothing else. The anti-spam limits (1 push a day,
  * quiet hours, per-card cooldown) are enforced server-side and silently.
  *
  * Each switch shows pref AND OS permission, like the Account deal toggle did:
  * a switch that reads ON while iOS drops every push would be a lie. Turning one
  * ON without permission is the deliberate tap that may spend the iOS prompt.
  */
-export function AlertSettingsScreen({ onBack, testID = 'alert-settings' }: AlertSettingsScreenProps) {
+export function AlertSettingsSection({ testID = 'alert-settings' }: AlertSettingsSectionProps) {
   const theme = useSpotlightTheme();
-  const insets = useSafeAreaInsets();
   const { spotlightRepository } = useAppServices();
   const {
     enablePushNotifications,
@@ -119,56 +115,40 @@ export function AlertSettingsScreen({ onBack, testID = 'alert-settings' }: Alert
   );
 
   return (
-    <SafeAreaView
-      edges={['top', 'left', 'right']}
-      style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
-      testID={testID}
-    >
-      <ScrollView
-        contentContainerStyle={{
-          paddingBottom: insets.bottom + theme.spacing.lg,
-          paddingHorizontal: theme.layout.pageGutter,
-        }}
-      >
-        <ScreenHeader
-          layout="stacked"
-          leftAccessory={onBack ? <ChromeBackButton onPress={onBack} testID={`${testID}-back`} /> : undefined}
-          style={{ paddingBottom: theme.spacing.xxxs, paddingTop: theme.spacing.xxs }}
-          title="Alerts"
-        />
-        {ROWS.map((row) => (
-          <View
-            key={row.key}
-            style={[
-              styles.row,
-              {
-                borderBottomColor: theme.colors.gray300,
-                gap: theme.spacing.xs,
-                paddingVertical: theme.spacing.sm,
-              },
-            ]}
-          >
-            <View style={styles.copy}>
-              <Text style={[theme.typography.bodyStrong, { color: theme.colors.textPrimary }]}>
-                {row.title}
-              </Text>
-              <Text style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}>
-                {row.description}
-              </Text>
-            </View>
-            <Switch
-              accessibilityLabel={row.title}
-              disabled={busyKey !== null || permissionBusy}
-              onValueChange={(next) => {
-                void handleToggle(row.key, next);
-              }}
-              testID={row.testID}
-              value={prefs[row.key] && permissionGranted}
-            />
+    <View testID={testID}>
+      {ROWS.map((row, index) => (
+        <View
+          key={row.key}
+          style={[
+            styles.row,
+            {
+              borderBottomColor: theme.colors.gray300,
+              borderBottomWidth: index === ROWS.length - 1 ? 0 : borderWidths.rule,
+              gap: theme.spacing.xs,
+              paddingVertical: theme.spacing.sm,
+            },
+          ]}
+        >
+          <View style={styles.copy}>
+            <Text style={[theme.typography.bodyStrong, { color: theme.colors.textPrimary }]}>
+              {row.title}
+            </Text>
+            <Text style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}>
+              {row.description}
+            </Text>
           </View>
-        ))}
-      </ScrollView>
-    </SafeAreaView>
+          <Switch
+            accessibilityLabel={row.title}
+            disabled={busyKey !== null || permissionBusy}
+            onValueChange={(next) => {
+              void handleToggle(row.key, next);
+            }}
+            testID={row.testID}
+            value={prefs[row.key] && permissionGranted}
+          />
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -180,12 +160,6 @@ const styles = StyleSheet.create({
   },
   row: {
     alignItems: 'center',
-    borderBottomWidth: borderWidths.rule,
     flexDirection: 'row',
   },
-  safeArea: {
-    flex: 1,
-  },
 });
-
-export default AlertSettingsScreen;

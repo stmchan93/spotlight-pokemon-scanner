@@ -3,7 +3,7 @@ import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -25,7 +25,7 @@ import {
 } from '@/features/auth/legal-links';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { revokePushToken } from '@/features/notifications';
-import { useScannerMacroLensLock } from '@/features/scanner/scanner-camera-lens';
+import { AlertSettingsSection } from '@/features/notifications/components/alert-settings-section';
 import { exportCollectionCsv } from '@/features/portfolio/export-collection';
 import { useAuth } from '@/providers/auth-provider';
 import { useAppServices } from '@/providers/app-providers';
@@ -94,7 +94,6 @@ export function AccountScreen() {
   const auth = useAuth();
   const user = auth.currentUser;
   const { isGuest, openLogin } = useGuestGate();
-  const [macroLensLock, setMacroLensLock] = useScannerMacroLensLock();
   const { spotlightRepository } = useAppServices();
 
   // Belt-and-suspenders: every entry point here is already guest-gated, but if a
@@ -459,50 +458,14 @@ export function AccountScreen() {
           </View>
         </SurfaceCard>
 
-        {/* Push alert switches live on their own screen (price moves, weekly summary, deals). */}
         <SurfaceCard padding={20} radius={28}>
-          <View style={styles.collectionDataCard}>
-            <View style={styles.showModeCopy}>
-              <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
-                Alerts
-              </Text>
-              <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
-                Price moves, a weekly summary and deals on cards you watch.
-              </Text>
-            </View>
-            <View style={styles.collectionDataButtons}>
-              <Button
-                label="Alert settings"
-                onPress={() => {
-                  router.push('/account/alerts' as never);
-                }}
-                size="lg"
-                testID="account-alert-settings"
-                variant="outline"
-              />
-            </View>
+          <View style={styles.showModeCopy}>
+            <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
+              Alerts
+            </Text>
           </View>
+          <AlertSettingsSection />
         </SurfaceCard>
-
-        {Platform.OS === 'ios' ? (
-          <SurfaceCard padding={20} radius={28}>
-            <View style={styles.showModeRow}>
-              <View style={styles.showModeCopy}>
-                <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
-                  Macro lens lock
-                </Text>
-                <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
-                  Scan from the close-focus lens only. Stops the preview jumping when a card comes in close on Pro iPhones.
-                </Text>
-              </View>
-              <Switch
-                onValueChange={setMacroLensLock}
-                testID="account-macro-lens-lock-toggle"
-                value={macroLensLock}
-              />
-            </View>
-          </SurfaceCard>
-        ) : null}
 
         {/*
           Legal sits with Safety and Contact & support: App Review (Guideline
