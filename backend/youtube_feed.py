@@ -66,10 +66,15 @@ CHANNELS: tuple[YouTubeChannel, ...] = (
     YouTubeChannel("UCtX7lsVa4nZnyCLCgDJg6pw", "ThePokeCapital", "pokemon"),
     YouTubeChannel("UCBHD6Yg8R1yS9akfGm4mecQ", "Leonhart", "pokemon"),
     YouTubeChannel("UC35KRaWGA7hQ5De40GG_7Fw", "Tricky Gym", "pokemon"),
-    YouTubeChannel("UCpnU-sJoltf4bbTGesV7xow", "Pokémon TCG", "pokemon"),
+    YouTubeChannel("UCimuIKQp7_Wlk9lcoSgtaFA", "Play Pokémon", "pokemon"),
+    # Vendor / collector POV.
+    YouTubeChannel("UCYV0dRTChi7F4hqX5NUiPow", "PokeSean151", "pokemon"),
+    YouTubeChannel("UCC6R9ruZXagDJVwNyAL3UqA", "PLUSHAH TCG", "pokemon"),
     YouTubeChannel("UCd7dQLqtmngtF-6cir27PtA", "Disney Lorcana", "lorcana"),
     YouTubeChannel("UCQErN2YGMuB385NlJoCRUkw", "Lorcana Academy", "lorcana"),
-    YouTubeChannel("UCzWFUefhg1opYUDv6YndmYw", "Gundam Card Game", "gundam"),
+    YouTubeChannel("UCYtcT9WKxzkS97fkWWsXD_Q", "Gundam Card Game", "gundam"),
+    # Bandai's own channel is mostly One Piece; the title decides per video.
+    YouTubeChannel("UCT5u6XqA2oaSqxsXKp3zubw", "Bandai Card Games", None),
     # Covers more than one game; let the title decide.
     YouTubeChannel("UCm5dQhtBpw1S3ajLVPKWs0A", "Wossy Plays", None),
 )
