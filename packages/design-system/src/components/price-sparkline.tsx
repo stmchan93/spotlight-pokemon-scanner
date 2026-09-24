@@ -9,7 +9,7 @@ import { colors } from '../tokens';
 export type PriceSparklineProps = {
   /** Market-price series, oldest → newest. */
   points: number[];
-  /** Percent change across the series; >= 0 tints green, < 0 tints red. */
+  /** Percent change across the series; > 0 tints green, < 0 red, exactly 0 (or a flat series) gray. */
   trendPct?: number | null;
   width?: number;
   height?: number;
@@ -105,8 +105,12 @@ export function PriceSparkline({
   const baselineY = scale && typeof baseline === 'number' && Number.isFinite(baseline) && scale.range > 0
     ? PADDING_Y + (1 - (baseline - scale.min) / scale.range) * scale.usableHeight
     : null;
-  const isUp = (trendPct ?? 0) >= 0;
-  const tint = isUp ? theme.colors.green500 : theme.colors.red500;
+  // A flat series is "no change", not "up": green on a $0.00 move read as a gain.
+  const isFlat = points.length > 0 && points.every((point) => point === points[0]);
+  const pct = trendPct ?? 0;
+  const tint = isFlat || pct === 0
+    ? theme.colors.gray400
+    : pct > 0 ? theme.colors.green500 : theme.colors.red500;
 
   if (plotted.length === 0) {
     return <View style={{ width, height }} testID={testID} />;

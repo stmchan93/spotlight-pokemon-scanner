@@ -183,6 +183,20 @@ function useWishlistViewMode(): [WishlistViewMode, (next: WishlistViewMode) => v
   return [viewMode, setViewMode];
 }
 
+/**
+ * A watch younger than a day has one price at most, so "$0.00 since watched"
+ * and a one-point chart read as broken. Show "Tracking starts tomorrow" instead.
+ */
+const NEW_WATCH_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const NEW_WATCH_LABEL = 'Tracking starts tomorrow';
+
+export function isNewWatch(entry: Pick<CardFavoriteEntry, 'favoritedAt' | 'sinceWatchedPoints'>, now = Date.now()): boolean {
+  const points = entry.sinceWatchedPoints ?? [];
+  const watchedAt = entry.favoritedAt ? Date.parse(entry.favoritedAt) : Number.NaN;
+  const youngerThanADay = Number.isFinite(watchedAt) && now - watchedAt < NEW_WATCH_WINDOW_MS;
+  return youngerThanADay || points.length < 2;
+}
+
 export function WishlistScreen() {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
@@ -1078,6 +1092,7 @@ function WishlistListRow({
     : entry.conditionLabel ?? (entry.marketPrice != null ? 'Near Mint' : null);
   // The watched printing leads the line: "Reverse Holofoil · Near Mint".
   const gradeLine = [entry.watchVariant, priceLaneLabel].filter(Boolean).join(' · ') || null;
+  const newWatch = isNewWatch(entry);
 
   const row = (
     <CardListRow
@@ -1085,7 +1100,7 @@ function WishlistListRow({
       currencyCode={entry.currencyCode ?? 'USD'}
       delayLongPress={350}
       firstInSection={firstInSection}
-      footnote={targetLabel}
+      footnote={targetLabel ?? (newWatch && WATCHLIST_TREND_ACCESS !== 'hidden' ? NEW_WATCH_LABEL : null)}
       // Condition/grade line per Figma 4173:82045 ("PSA 10" / "Near Mint").
       // The line labels the lane the row's PRICE resolved on: graded copies
       // their grade, owned raw copies their stored condition, and every other
@@ -1111,10 +1126,10 @@ function WishlistListRow({
       // Since watched: the change under the price, and a sparkline from the watch
       // date with the watched-at price dashed across it.
       sparkBaseline={WATCHLIST_TREND_ACCESS === 'full' ? entry.sinceAddedBaselinePrice ?? null : null}
-      sparkPoints={WATCHLIST_TREND_ACCESS === 'full' ? entry.sinceWatchedPoints ?? undefined : undefined}
+      sparkPoints={WATCHLIST_TREND_ACCESS === 'full' && !newWatch ? entry.sinceWatchedPoints ?? undefined : undefined}
       sparkTrendPct={entry.sinceAddedChangePercent ?? null}
       testID={`wishlist-row-${rowTestKey(entry)}`}
-      trendChangeAmount={WATCHLIST_TREND_ACCESS === 'hidden' ? null : entry.sinceAddedChangeAmount ?? null}
+      trendChangeAmount={WATCHLIST_TREND_ACCESS === 'hidden' || newWatch ? null : entry.sinceAddedChangeAmount ?? null}
       trendSuffix={SINCE_WATCHED_SUFFIX}
     />
   );
@@ -1307,10 +1322,11 @@ function WishlistGridTile({
   const targetLabel = targetCents != null && targetCents > 0
     ? `Target ${centsToCurrency(targetCents, entry.currencyCode ?? 'USD')}`
     : null;
+  const newWatch = isNewWatch(entry);
   return (
     <InventoryCardTile
       bordered={false}
-      footnote={targetLabel}
+      footnote={targetLabel ?? (newWatch && WATCHLIST_TREND_ACCESS !== 'hidden' ? NEW_WATCH_LABEL : null)}
       imageUrl={entry.smallImageUrl ?? entry.imageUrl ?? null}
       name={entry.name}
       setName={entry.setName ?? ''}
@@ -1332,7 +1348,7 @@ function WishlistGridTile({
       // Numeric price feeds the tile's penny guard (sub-$1 → no trend line).
       marketPrice={entry.marketPrice ?? null}
       // Card view gets the arrow + "since watched" change, no sparkline.
-      trendChangeAmount={WATCHLIST_TREND_ACCESS === 'hidden' ? null : entry.sinceAddedChangeAmount ?? null}
+      trendChangeAmount={WATCHLIST_TREND_ACCESS === 'hidden' || newWatch ? null : entry.sinceAddedChangeAmount ?? null}
       formatTrendAmount={(value) => formatOptionalCurrency(value, entry.currencyCode ?? 'USD') ?? `$${value.toFixed(2)}`}
       trendSuffix={SINCE_WATCHED_SUFFIX}
       isFavorite
