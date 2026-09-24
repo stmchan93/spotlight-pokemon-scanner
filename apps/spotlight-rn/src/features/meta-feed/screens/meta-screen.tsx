@@ -207,11 +207,14 @@ function MetaPageBody({ exposure, loading, onOpenGroup, onRetry, pulse, status }
       <View style={styles.lists}>
         <MetaExposureCallout
           exposure={viewerExposure}
+          lane={pulse.lane}
           onOpenGroup={(groupKey) => onOpenGroup({ groupKey, mine: true })}
           style={styles.callout}
           testID="meta-callout"
         />
         <MetaBarList
+          analyticsSource="meta_page"
+          lane={pulse.lane}
           direction="up"
           exposure={viewerExposure}
           groups={lists.risers}
@@ -220,6 +223,8 @@ function MetaPageBody({ exposure, loading, onOpenGroup, onRetry, pulse, status }
           testID="meta-up"
         />
         <MetaBarList
+          analyticsSource="meta_page"
+          lane={pulse.lane}
           direction="down"
           exposure={viewerExposure}
           groups={lists.coolers}

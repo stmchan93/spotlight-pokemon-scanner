@@ -93,11 +93,14 @@ export function MetaPulseBlock({
       ) : null}
       <MetaExposureCallout
         exposure={viewerExposure}
+        lane={pulse.lane}
         onOpenGroup={openGroup ? (groupKey) => openGroup({ groupKey, mine: true }) : undefined}
         style={styles.callout}
         testID={`${testID}-callout`}
       />
       <MetaBarList
+        analyticsSource="feed"
+        lane={pulse.lane}
         direction="up"
         exposure={viewerExposure}
         groups={risers}
@@ -106,6 +109,8 @@ export function MetaPulseBlock({
         testID={`${testID}-up`}
       />
       <MetaBarList
+        analyticsSource="feed"
+        lane={pulse.lane}
         direction="down"
         exposure={viewerExposure}
         groups={coolers}

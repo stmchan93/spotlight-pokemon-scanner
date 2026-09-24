@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import type { MetaExposure, MetaGroup } from '@spotlight/api-client';
+import type { MetaExposure, MetaGroup, MetaLaneFilter } from '@spotlight/api-client';
 import { AppText, MetaBarRow } from '@spotlight/design-system';
 
 import {
@@ -10,6 +10,7 @@ import {
   groupBarFraction,
   ownedGroupLabel,
 } from '@/features/meta-feed/screens/components/meta-format';
+import { trackMetaGroupOpened } from '@/features/meta-feed/meta-analytics';
 
 export type MetaBarListProps = {
   /** `up` = "ON THE WAY UP" in green, `down` = "COOLING OFF" in red. */
@@ -19,6 +20,10 @@ export type MetaBarListProps = {
   maxMagnitude: number;
   exposure?: MetaExposure | null;
   onOpenGroup?: (group: MetaGroup) => void;
+  /** Which surface hosts the list, for the `meta_group_opened` event. */
+  analyticsSource: 'feed' | 'meta_page';
+  /** The lane the list was read for (analytics only). */
+  lane: MetaLaneFilter;
   /** Right side of the eyebrow row (the Meta page's lane control). */
   accessory?: ReactNode;
   testID: string;
@@ -37,6 +42,8 @@ export function MetaBarList({
   maxMagnitude,
   exposure = null,
   onOpenGroup,
+  analyticsSource,
+  lane,
   accessory,
   testID,
 }: MetaBarListProps) {
@@ -63,7 +70,12 @@ export function MetaBarList({
           imageUrl={group.topCards[0]?.imageUrl ?? null}
           key={group.groupKey}
           label={group.label}
-          onPress={onOpenGroup ? () => onOpenGroup(group) : undefined}
+          onPress={onOpenGroup
+            ? () => {
+                trackMetaGroupOpened({ direction, groupKey: group.groupKey, lane, source: analyticsSource });
+                onOpenGroup(group);
+              }
+            : undefined}
           ownedLabel={ownedGroupLabel(exposure, group.groupKey)}
           sparkPoints={group.sparkPoints}
           testID={`${testID}-row-${group.groupKey}`}

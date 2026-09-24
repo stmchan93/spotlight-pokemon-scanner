@@ -56,6 +56,11 @@ import {
 } from '@/features/wishlist/components/target-price-sheet';
 import { buildDealShareMessage, centsToCurrency } from '@/features/wishlist/deal-radar';
 import { useDealAlerts } from '@/features/wishlist/use-deal-alerts';
+import {
+  AnalyticsEvent,
+  watchlistKindForCardId,
+  type WatchlistItemKind,
+} from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import {
   SINCE_WATCHED_SUFFIX,
@@ -392,6 +397,10 @@ export function WishlistScreen() {
     if (result.status !== 'ok') {
       return 'error';
     }
+    capturePostHogEvent(AnalyticsEvent.watchTargetSet, {
+      source: 'watchlist',
+      cleared: targetPriceCents === null,
+    });
     setFavorites((current) => current.map((entry) => (
       entry.cardId === cardId
         ? { ...entry, targetPriceCents: result.target.targetPriceCents }
@@ -520,13 +529,21 @@ export function WishlistScreen() {
   }, [editMode, handleOpenDetail, toggleSelected]);
 
   // Swipe-to-delete on a row removes it from the wishlist. Drop it optimistically,
-  // then persist; re-sync from the backend if the unfavorite didn't stick.
+  // then persist; re-sync from the backend if the unfavorite didn't stick. The
+  // event fires only once the write lands.
   const handleRemoveEntry = useCallback((cardId: string) => {
-    capturePostHogEvent('wishlist_item_removed', { count: 1, source: 'wishlist_swipe' });
     setFavorites((current) => current.filter((favorite) => favorite.cardId !== cardId));
-    void spotlightRepository.setCardFavorite(cardId, false).catch(() => {
-      void loadFavorites();
-    });
+    void spotlightRepository.setCardFavorite(cardId, false)
+      .then(() => {
+        capturePostHogEvent(AnalyticsEvent.watchlistItemRemoved, {
+          count: 1,
+          kind: watchlistKindForCardId(cardId),
+          source: 'watchlist_swipe',
+        });
+      })
+      .catch(() => {
+        void loadFavorites();
+      });
   }, [loadFavorites, spotlightRepository]);
 
   const allVisibleSelected = visibleEntries.length > 0
@@ -548,17 +565,28 @@ export function WishlistScreen() {
       return;
     }
     const ids = [...selectedIds];
-    // One event carrying the count, not one per card — clearing a long wishlist
-    // should not cost more than building it did.
-    capturePostHogEvent('wishlist_item_removed', {
-      count: ids.length,
-      source: 'wishlist_bulk',
-    });
     setIsDeleting(true);
     setDeleteError(null);
     setFavorites((current) => current.filter((favorite) => !selectedIds.has(favorite.cardId)));
     void Promise.allSettled(ids.map((id) => spotlightRepository.setCardFavorite(id, false)))
       .then((results) => {
+        // One event per kind carrying the count of writes that landed, not one
+        // per card — clearing a long watchlist should not cost more than
+        // building it did.
+        const removedByKind = new Map<WatchlistItemKind, number>();
+        results.forEach((result, index) => {
+          if (result.status === 'fulfilled') {
+            const kind = watchlistKindForCardId(ids[index]);
+            removedByKind.set(kind, (removedByKind.get(kind) ?? 0) + 1);
+          }
+        });
+        removedByKind.forEach((count, kind) => {
+          capturePostHogEvent(AnalyticsEvent.watchlistItemRemoved, {
+            count,
+            kind,
+            source: 'watchlist_bulk',
+          });
+        });
         setDeleteConfirmOpen(false);
         setEditMode(false);
         setSelectedIds(new Set());

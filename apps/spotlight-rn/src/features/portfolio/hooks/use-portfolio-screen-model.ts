@@ -20,7 +20,6 @@ import { useTabsPage } from '@/contexts/tabs-page-context';
 import { reflectInventoryCacheIntoDashboard } from '@/features/portfolio/optimistic-inventory';
 import { persistDashboard, readPersistedDashboard } from '@/features/portfolio/persisted-dashboard';
 import { prefetchCardImages } from '@/lib/card-images';
-import { capturePostHogEvent } from '@/lib/observability/posthog';
 import {
   formatEditableSellPrice,
   parseSellPrice,
@@ -430,10 +429,6 @@ export function usePortfolioScreenModel({
       // Keep what is on screen and let the next read revalidate. Deliberately
       // does NOT set `loadError`: nothing failed as far as the user is
       // concerned, and an error card over a correct collection is its own lie.
-      capturePostHogEvent('portfolio_inventory_suspicious_empty', {
-        collectionScoped: requestedCollectionID !== null,
-        previousCount: inventoryEntriesCacheRef.current?.length ?? 0,
-      });
     } else {
       setLoadError(loadResult.errorMessage);
     }

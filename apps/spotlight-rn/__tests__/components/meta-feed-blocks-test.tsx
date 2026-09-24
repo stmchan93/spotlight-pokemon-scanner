@@ -37,6 +37,7 @@ import {
   calloutHighlight,
   groupBarFraction,
 } from '@/features/meta-feed/screens/components/meta-format';
+import * as posthogObservability from '@/lib/observability/posthog';
 
 function renderThemed(node: React.ReactElement) {
   return render(<SpotlightThemeProvider>{node}</SpotlightThemeProvider>);
@@ -384,5 +385,59 @@ describe('meta feed v2 primitives', () => {
     expect(StyleSheet.flatten(screen.getByTestId('r-kind').props.style).backgroundColor).toBe('#E2F4E8');
     expect(StyleSheet.flatten(screen.getByTestId('b-kind').props.style).backgroundColor).toBe('#FFE9E9');
     expect(screen.getByText('Sub')).toBeTruthy();
+  });
+});
+
+describe('meta feed analytics', () => {
+  let capture: jest.SpyInstance;
+
+  beforeEach(() => {
+    capture = jest.spyOn(posthogObservability, 'capturePostHogEvent').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    capture.mockRestore();
+  });
+
+  it('reports a feed group tap and a callout tap with key, lane and direction only', () => {
+    renderThemed(
+      <MetaPulseBlock exposure={mockMetaExposure} onOpenGroup={jest.fn()} onOpenMeta={jest.fn()} pulse={mockMetaPulse} />,
+    );
+
+    fireEvent.press(screen.getByTestId('meta-pulse-down-row-modern:raw:sir'));
+    expect(capture).toHaveBeenLastCalledWith('meta_group_opened', {
+      direction: 'down',
+      group_key: 'modern:raw:sir',
+      lane: 'all',
+      source: 'feed',
+    });
+
+    capture.mockClear();
+    fireEvent.press(screen.getByTestId('meta-pulse-callout'));
+    expect(capture).toHaveBeenCalledWith('meta_callout_tapped', { direction: 'up' });
+    expect(capture).toHaveBeenCalledWith('meta_group_opened', {
+      direction: 'up',
+      group_key: 'vintage:graded:psa10:pop_le_50',
+      lane: 'all',
+      source: 'callout',
+    });
+  });
+
+  it('reports a hot card tap by rank, never by card', () => {
+    renderThemed(<HotCardsBlock hot={mockHotCards} onPressCard={jest.fn()} />);
+    const secondTile = mockHotCards.items[1];
+    fireEvent.press(screen.getByTestId(`hot-cards-tile-${secondTile.cardId}`));
+    expect(capture).toHaveBeenCalledWith('hot_card_opened', { rank: 2 });
+  });
+
+  it('reports a feed news tap with kind, surface and publisher', () => {
+    renderThemed(<NewsBlock feed={mockNewsFeed} onOpenLink={jest.fn()} onOpenNews={jest.fn()} />);
+    const first = mockNewsFeed.items[0];
+    fireEvent.press(screen.getByTestId(`card-news-row-${first.id}`));
+    expect(capture).toHaveBeenCalledWith('news_item_opened', {
+      kind: first.kind,
+      publisher: first.source,
+      surface: 'feed',
+    });
   });
 });

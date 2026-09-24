@@ -2,6 +2,7 @@ import {
   DEAL_NOTIFICATION_FALLBACK_URL,
   normalizeNotificationUrl,
   parseNotificationRoute,
+  pushOpenedAnalyticsProps,
 } from '@/features/notifications/notification-routing';
 
 describe('normalizeNotificationUrl', () => {
@@ -56,5 +57,18 @@ describe('parseNotificationRoute', () => {
     expect(parseNotificationRoute(undefined)).toBeNull();
     expect(parseNotificationRoute(null)).toBeNull();
     expect(parseNotificationRoute('deal')).toBeNull();
+  });
+});
+
+describe('pushOpenedAnalyticsProps', () => {
+  it('maps the backend data type to a kind and flags bundled price moves', () => {
+    expect(pushOpenedAnalyticsProps({ type: 'price_move', cardIds: ['a'], cardId: 'a', url: '/cards/a' }))
+      .toEqual({ bundled: false, kind: 'price_move' });
+    expect(pushOpenedAnalyticsProps({ type: 'price_move', cardIds: ['a', 'b'], url: '/' }))
+      .toEqual({ bundled: true, kind: 'price_move' });
+    expect(pushOpenedAnalyticsProps({ type: 'weekly_summary', url: '/' })).toEqual({ kind: 'weekly_summary' });
+    expect(pushOpenedAnalyticsProps({ type: 'deal_alert', alertId: 'x', url: '/wishlist' })).toEqual({ kind: 'deal' });
+    expect(pushOpenedAnalyticsProps({ type: 'ops_alert' })).toEqual({ kind: 'other' });
+    expect(pushOpenedAnalyticsProps(null)).toEqual({ kind: 'other' });
   });
 });

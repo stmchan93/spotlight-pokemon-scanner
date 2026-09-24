@@ -3,7 +3,11 @@ import { useEffect, useRef } from 'react';
 
 import { capturePostHogScreen } from './posthog';
 
-function resolveScreenName(pathname: string) {
+function isPathOrChild(pathname: string, root: string) {
+  return pathname === root || pathname.startsWith(`${root}/`);
+}
+
+export function resolveScreenName(pathname: string) {
   if (pathname === '/scan' || pathname.startsWith('/scan/')) {
     return 'scan';
   }
@@ -37,8 +41,69 @@ function resolveScreenName(pathname: string) {
     return 'sales_history';
   }
 
+  // Before the generic `/account` rule: Alerts is its own screen.
+  if (isPathOrChild(pathname, '/account/alerts')) {
+    return 'alerts';
+  }
+
   if (pathname === '/account' || pathname.startsWith('/account/')) {
     return 'account';
+  }
+
+  // The route is still `/wishlist`; users (and these names) call it Watchlist.
+  if (isPathOrChild(pathname, '/wishlist')) {
+    return 'watchlist';
+  }
+
+  // Meta: the group page before the page itself. "Mine" is a query param on
+  // the group route (`?mine=1`), not a path, so it reports as `meta_group`.
+  if (pathname.startsWith('/meta/group/')) {
+    return 'meta_group';
+  }
+
+  if (pathname === '/meta') {
+    return 'meta';
+  }
+
+  if (isPathOrChild(pathname, '/news')) {
+    return 'news';
+  }
+
+  if (isPathOrChild(pathname, '/calendar')) {
+    return 'calendar';
+  }
+
+  if (pathname.startsWith('/set-spotlight/')) {
+    return 'set_spotlight';
+  }
+
+  if (isPathOrChild(pathname, '/search/people')) {
+    return 'people_search';
+  }
+
+  // Includes a profile's followers/following lists.
+  if (pathname.startsWith('/u/')) {
+    return 'profile';
+  }
+
+  if (pathname.startsWith('/post/')) {
+    return 'post';
+  }
+
+  if (isPathOrChild(pathname, '/messages')) {
+    return 'messages';
+  }
+
+  if (isPathOrChild(pathname, '/notifications')) {
+    return 'notifications';
+  }
+
+  if (isPathOrChild(pathname, '/insights')) {
+    return 'insights';
+  }
+
+  if (pathname.startsWith('/catalog/game/')) {
+    return 'catalog_game';
   }
 
   if (pathname === '/catalog/search' || pathname.startsWith('/catalog/search/')) {

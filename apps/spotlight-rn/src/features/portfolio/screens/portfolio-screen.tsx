@@ -110,6 +110,7 @@ import {
 } from '@/features/social/social-service';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
 import { getFeedRefreshVersion } from '@/features/social/screens/new-post-screen';
+import { AnalyticsEvent, watchlistKindForCardId } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { normalizeSocialLink } from '@/features/profile/social-link';
 import { ProfileHeader } from '@/features/profile/components/profile-header';
@@ -710,11 +711,6 @@ export function PortfolioScreen({
       collections.find(
         (collection) => collection.id === collectionsSnapshot?.defaultCollectionID,
       ) ?? collections[0];
-    if (activeCollectionID !== ALL_COLLECTIONS_ID) {
-      capturePostHogEvent('portfolio_active_collection_reset', {
-        knownCollections: collections.length,
-      });
-    }
     setActiveCollectionID(fallback.id);
   }, [activeCollectionID, collectionsSnapshot, isActiveCollectionRestored, setActiveCollectionID]);
 
@@ -1208,8 +1204,8 @@ export function PortfolioScreen({
       .then((record) => {
         const savedIsFavorite = record?.isFavorite ?? nextIsFavorite;
         capturePostHogEvent(
-          savedIsFavorite ? 'wishlist_item_added' : 'wishlist_item_removed',
-          { source: 'collection_menu' },
+          savedIsFavorite ? AnalyticsEvent.watchlistItemAdded : AnalyticsEvent.watchlistItemRemoved,
+          { source: 'collection_menu', kind: watchlistKindForCardId(entry.cardId) },
         );
         setWishlistToast(savedIsFavorite ? 'Added to Watchlist' : 'Removed from Watchlist');
         refreshData();

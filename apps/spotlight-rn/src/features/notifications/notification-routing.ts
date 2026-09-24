@@ -62,3 +62,26 @@ export function parseNotificationRoute(data: unknown): NotificationRoute | null 
     url: normalizeNotificationUrl(record.url) ?? DEAL_NOTIFICATION_FALLBACK_URL,
   };
 }
+
+export type PushOpenedKind = 'price_move' | 'weekly_summary' | 'deal' | 'other';
+
+const PUSH_KIND_BY_DATA_TYPE: Record<string, PushOpenedKind> = {
+  deal_alert: 'deal',
+  price_move: 'price_move',
+  weekly_summary: 'weekly_summary',
+};
+
+/**
+ * Non-identifying analytics props for a tapped push, from the `data` bag the
+ * backend sends (`type` in backend/market_alerts.py + expo_push.py). `bundled`
+ * is only knowable for price moves, which list every card in `cardIds`.
+ */
+export function pushOpenedAnalyticsProps(data: unknown): { kind: PushOpenedKind; bundled?: boolean } {
+  const record = typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : {};
+  const type = readString(record.type);
+  const kind = (type && PUSH_KIND_BY_DATA_TYPE[type]) || 'other';
+  if (Array.isArray(record.cardIds)) {
+    return { kind, bundled: record.cardIds.length > 1 };
+  }
+  return { kind };
+}

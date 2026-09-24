@@ -561,8 +561,6 @@ export function DmThreadScreen({
       if (saved) {
         // A bare count, deliberately. DMs are private, so nothing about the
         // message travels — not the text, not its length, not who it went to.
-        // A retry that succeeds counts once here and once as a failure above,
-        // which is the honest reading: one delivery, one lost attempt.
         capturePostHogEvent('dm_message_sent');
         setMessages((current) =>
           mergeMessages(
@@ -572,9 +570,6 @@ export function DmThreadScreen({
         );
         return;
       }
-      // The twin. A DM that never lands looks identical to one nobody replied
-      // to, so without this the failure rate is unobservable from the outside.
-      capturePostHogEvent('dm_message_failed');
       markFailed(localId);
       // A send can fail because the thread was blocked WHILE it was open — the
       // other side blocking is invisible until something is attempted, and

@@ -10,6 +10,8 @@ import { Avatar, SearchField, StateCard, Text, useSpotlightTheme } from '@spotli
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import type { UserProfile } from '@/features/auth/auth-models';
 import { fetchSuggestedUsers, searchUsers } from '@/features/profile/profile-service';
+import { AnalyticsEvent } from '@/lib/observability/analytics-events';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAuth } from '@/providers/auth-provider';
 import {
   getProfileDisplayName,
@@ -89,6 +91,11 @@ export function PeopleSearchScreen({ testID = 'people-search' }: { testID?: stri
         if (token === searchTokenRef.current) {
           setResults(rows);
           setIsLoading(false);
+          // Once per settled query; the text itself never leaves the device.
+          capturePostHogEvent(AnalyticsEvent.peopleSearchPerformed, {
+            query_length: trimmedQuery.length,
+            result_count: rows.length,
+          });
         }
       });
     }, SEARCH_DEBOUNCE_MS);
@@ -97,6 +104,9 @@ export function PeopleSearchScreen({ testID = 'people-search' }: { testID?: stri
 
   const handlePressRow = useCallback(
     (profile: UserProfile) => {
+      capturePostHogEvent(AnalyticsEvent.peopleProfileOpened, {
+        source: isSearching ? 'search' : 'suggested',
+      });
       const handle = profile.handle?.trim();
       router.push({
         pathname: '/u/[handle]',
@@ -106,7 +116,7 @@ export function PeopleSearchScreen({ testID = 'people-search' }: { testID?: stri
         },
       });
     },
-    [router],
+    [isSearching, router],
   );
 
   const renderItem = useCallback(

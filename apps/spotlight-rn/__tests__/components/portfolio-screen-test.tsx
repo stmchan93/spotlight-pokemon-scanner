@@ -19,7 +19,6 @@ import {
 } from '@/features/portfolio/use-portfolio-summary-visibility';
 import { __resetPortfolioViewModeForTests } from '@/features/portfolio/hooks/use-portfolio-view-mode';
 import { deletePost, fetchAuthorActivity } from '@/features/social/social-service';
-import * as posthogObservability from '@/lib/observability/posthog';
 
 import * as mockApiClient from '../mock-api-client';
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
@@ -553,9 +552,7 @@ describe('PortfolioScreen', () => {
       // 'all' was the pre-migration default (and what a fresh install starts
       // on). The aggregate is a readout, not a scope, so the reconcile effect
       // must land on the server's DEFAULT collection — not the first in the
-      // list, and not stay on 'all'. It is a migration, not a reset, so the
-      // reset telemetry must stay quiet.
-      const capture = jest.spyOn(posthogObservability, 'capturePostHogEvent');
+      // list, and not stay on 'all'.
       // Nothing persists under jest (the AsyncStorage native module is absent
       // and every caller catches), so the scope genuinely begins at 'all'.
       const snapshot: CollectionsSnapshot = {
@@ -575,11 +572,6 @@ describe('PortfolioScreen', () => {
         expect(screen.getByTestId('portfolio-summary-value')).toHaveTextContent('$42.00');
       });
       expect(screen.getByText('Grails')).toBeTruthy();
-      expect(capture).not.toHaveBeenCalledWith(
-        'portfolio_active_collection_reset',
-        expect.anything(),
-      );
-      capture.mockRestore();
     });
 
     it('fetches the dashboard ONCE on a cold start, under the resolved collection', async () => {
