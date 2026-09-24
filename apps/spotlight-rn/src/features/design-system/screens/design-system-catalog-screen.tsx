@@ -9,6 +9,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
   Button,
   colors,
+  DeltaPill,
   EmptyStatePrompt,
   fontFamilies,
   GlassButtonGroup,
@@ -17,7 +18,12 @@ import {
   GraderWordmark,
   IconButton,
   InventoryCardTile,
+  LaneTag,
   ListPaginationFooter,
+  MetaGroupRow,
+  NewsRow,
+  RankBadge,
+  RankedCardRow,
   PillButton,
   ScreenHeader,
   SearchEntryPill,
@@ -31,6 +37,7 @@ import {
   Text,
   TextField,
   useSpotlightTheme,
+  VideoTile,
 } from '@spotlight/design-system';
 
 import { ShareIos, Trash } from 'iconoir-react-native';
@@ -214,6 +221,48 @@ export function DesignSystemCatalogScreen({
               <GraderWordmark grader="TAG" testID="catalog-grader-tag" />
               <GraderWordmark grader="ACE" testID="catalog-grader-fallback" />
             </View>
+
+            {/* Meta feed primitives (Social feed blocks + Meta/Set/News pages). */}
+            <View style={styles.iconRow}>
+              <LaneTag lane="raw" testID="catalog-lane-tag-raw" />
+              <LaneTag lane="graded" testID="catalog-lane-tag-graded" />
+              <DeltaPill changePercent={18.4} label="+18.4%" testID="catalog-delta-pill-up" />
+              <DeltaPill changePercent={-4.1} label="−4.1%" testID="catalog-delta-pill-down" />
+              <RankBadge rank={1} testID="catalog-rank-badge" />
+            </View>
+            <MetaGroupRow
+              changeLabel="+18.4%"
+              changePercent={18.4}
+              description="pre-2003 · 1,840 cards"
+              label="Vintage PSA 10 · pop ≤ 50"
+              lane="graded"
+              testID="catalog-meta-group-row"
+              valueLabel="+$412k value"
+            />
+            <RankedCardRow
+              changeLabel="+3.2%"
+              changePercent={3.2}
+              imageUrl={null}
+              name="Charizard"
+              priceLabel="$168.40"
+              rank={1}
+              subtitle="Celebrations · 4/102"
+              testID="catalog-ranked-card-row"
+            />
+            <NewsRow
+              imageUrl={null}
+              sourceLabel="PokéBeach · 2h"
+              tags={['Pokémon', 'Set reveal']}
+              testID="catalog-news-row"
+              title="Next English set revealed, first cards shown"
+            />
+            <VideoTile
+              durationLabel="18:42"
+              imageUrl={null}
+              metaLabel="PokeRev · 212K views · 3d"
+              testID="catalog-video-tile"
+              title="Opening Celebrations five years later"
+            />
 
             <SearchField
               placeholder="Search by name, set, or number"

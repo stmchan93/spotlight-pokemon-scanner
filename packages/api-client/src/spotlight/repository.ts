@@ -12,6 +12,18 @@ import {
   updateInventoryForSale,
 } from './mock-data';
 import {
+  mockHotCards,
+  mockMetaPulse,
+  mockNewsFeed,
+  mockSetSpotlight,
+} from './meta-feed-mock-data';
+import {
+  parseHotCardsPayload,
+  parseMetaPulsePayload,
+  parseNewsFeedPayload,
+  parseSetSpotlightPayload,
+} from './meta-feed-wire';
+import {
   ALL_COLLECTIONS_ID,
   CARD_GAMES,
   DEFAULT_CARD_GAME,
@@ -106,6 +118,14 @@ import type {
   TopMovers,
   TopMoversGame,
   TopMoverItem,
+  HotCards,
+  HotCardsQuery,
+  MetaPulse,
+  MetaPulseQuery,
+  NewsFeed,
+  NewsFeedQuery,
+  SetSpotlight,
+  SetSpotlightQuery,
   PortfolioPerformanceRow,
   TransactionInsights,
   PortfolioSaleRequestPayload,
@@ -314,6 +334,17 @@ export interface SpotlightRepository {
    * last-good cache instead of flashing an empty rail.
    */
   getTopMovers(windowDays?: number): Promise<TopMovers>;
+  /*
+    Social feed "meta" blocks (docs/meta-feed-api-contracts-2026-09-23.md).
+    Each resolves NULL when the server reports the feature disabled (404) so
+    the block hides, and THROWS on any other transport/HTTP failure so callers
+    keep a last-good cache — the getTopMovers contract.
+  */
+  fetchMetaPulse(query?: MetaPulseQuery): Promise<MetaPulse | null>;
+  fetchHotCards(query?: HotCardsQuery): Promise<HotCards | null>;
+  /** This week's pick when `setId` is omitted. */
+  fetchSetSpotlight(query?: SetSpotlightQuery): Promise<SetSpotlight | null>;
+  fetchNewsFeed(query?: NewsFeedQuery): Promise<NewsFeed | null>;
   getCardConditionHistory(query: CardConditionHistoryQuery): Promise<CardConditionHistory | null>;
   getRawPricingMatrix(cardId: string): Promise<RawPricingMatrix>;
   getCardEbayListings(query: CardDetailQuery & {
@@ -3580,6 +3611,50 @@ export class MockSpotlightRepository implements SpotlightRepository {
       asOfDate: null,
       games: [...games.entries()].map(([game, items]): TopMoversGame => ({ game, items })),
     };
+  }
+
+  // Meta feed blocks: fixed payloads shaped like the Social feed mockup,
+  // narrowed by the query so filters behave in dev and tests.
+  async fetchMetaPulse(query?: MetaPulseQuery): Promise<MetaPulse | null> {
+    const lane = query?.lane ?? 'all';
+    return {
+      ...mockMetaPulse,
+      game: query?.game ?? mockMetaPulse.game,
+      windowDays: query?.windowDays ?? mockMetaPulse.windowDays,
+      lane,
+      groups: lane === 'all'
+        ? mockMetaPulse.groups
+        : mockMetaPulse.groups.filter((group) => group.lane === lane),
+    };
+  }
+
+  async fetchHotCards(query?: HotCardsQuery): Promise<HotCards | null> {
+    const game = query?.game ?? null;
+    return {
+      ...mockHotCards,
+      items: game ? mockHotCards.items.filter((item) => item.game === game) : mockHotCards.items,
+    };
+  }
+
+  async fetchSetSpotlight(query?: SetSpotlightQuery): Promise<SetSpotlight | null> {
+    const setId = query?.setId ?? null;
+    if (setId && setId !== mockSetSpotlight.set.setId) {
+      return null;
+    }
+    return mockSetSpotlight;
+  }
+
+  async fetchNewsFeed(query?: NewsFeedQuery): Promise<NewsFeed | null> {
+    const limit = Math.max(1, Math.min(50, Math.trunc(query?.limit ?? 20)));
+    const items = mockNewsFeed.items.filter((item) =>
+      (!query?.game || item.game === query.game)
+      && (!query?.kind || item.kind === query.kind)
+      && (!query?.setId || item.setId === query.setId)
+      && (!query?.cardId || item.cardIds.includes(query.cardId)));
+    const offset = query?.cursor ? Math.max(0, Number.parseInt(query.cursor, 10) || 0) : 0;
+    const page = items.slice(offset, offset + limit);
+    const next = offset + limit;
+    return { items: page, nextCursor: next < items.length ? String(next) : null };
   }
 
   async loadInventoryEntries(query?: InventoryEntriesQuery) {
@@ -7504,6 +7579,62 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       asOfDate: str(raw.asOfDate),
       games,
     };
+  }
+
+  // Meta feed reads. `allowNotFound` turns the flag-off 404 into a `null`
+  // (block hidden); anything else throws so the caller keeps its last-good
+  // payload, same as getTopMovers.
+  private async requestMetaFeedRead(path: string, params: Record<string, string | number | null | undefined>) {
+    const search = Object.entries(params)
+      .filter((entry): entry is [string, string | number] => entry[1] != null && entry[1] !== '')
+      .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+      .join('&');
+    const response = await this.requestJsonRead<unknown>(
+      `${this.baseUrl}${path}${search ? `?${search}` : ''}`,
+      undefined,
+      { allowNotFound: true },
+    );
+    if (response.kind === 'not_found') {
+      return { disabled: true as const };
+    }
+    if (response.kind !== 'success' || response.data == null) {
+      throw new Error(`meta feed read failed: ${path}`);
+    }
+    return { disabled: false as const, data: response.data };
+  }
+
+  async fetchMetaPulse(query?: MetaPulseQuery): Promise<MetaPulse | null> {
+    const result = await this.requestMetaFeedRead('/api/v1/market/meta', {
+      game: query?.game,
+      window: query?.windowDays,
+      lane: query?.lane,
+    });
+    return result.disabled ? null : parseMetaPulsePayload(result.data, query);
+  }
+
+  async fetchHotCards(query?: HotCardsQuery): Promise<HotCards | null> {
+    const result = await this.requestMetaFeedRead('/api/v1/market/hot', { game: query?.game });
+    return result.disabled ? null : parseHotCardsPayload(result.data);
+  }
+
+  async fetchSetSpotlight(query?: SetSpotlightQuery): Promise<SetSpotlight | null> {
+    const path = query?.setId
+      ? `/api/v1/market/sets/${encodeURIComponent(query.setId)}/spotlight`
+      : '/api/v1/market/set-spotlight';
+    const result = await this.requestMetaFeedRead(path, {});
+    return result.disabled ? null : parseSetSpotlightPayload(result.data);
+  }
+
+  async fetchNewsFeed(query?: NewsFeedQuery): Promise<NewsFeed | null> {
+    const result = await this.requestMetaFeedRead('/api/v1/feed/news', {
+      game: query?.game,
+      kind: query?.kind,
+      setId: query?.setId,
+      cardId: query?.cardId,
+      limit: query?.limit,
+      cursor: query?.cursor,
+    });
+    return result.disabled ? null : parseNewsFeedPayload(result.data);
   }
 
   /**

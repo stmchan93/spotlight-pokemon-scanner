@@ -80,6 +80,51 @@ class VMRuntimeConfigTests(unittest.TestCase):
         )
 
 
+class FeedJobCronTests(unittest.TestCase):
+    """Social-feed market jobs (meta pulse, set spotlight, hot cards, news)."""
+
+    JOBS = {
+        "META_PULSE_LINE": ("10 7 * * * ", "run_meta_pulse_vm.sh", "$META_PULSE_LOG_FILE", "META_PULSE_ENABLED"),
+        "SET_SPOTLIGHT_LINE": ("25 7 * * * ", "run_set_spotlight_vm.sh", "$SET_SPOTLIGHT_LOG_FILE",
+                               "SET_SPOTLIGHT_ENABLED"),
+        "HOT_CARDS_LINE": ("41 * * * * ", "run_hot_cards_vm.sh", "$HOT_CARDS_LOG_FILE", "HOT_CARDS_ENABLED"),
+        "NEWS_FEED_LINE": ("17 * * * * ", "run_news_feed_vm.sh", "$NEWS_FEED_LOG_FILE", "NEWS_FEED_ENABLED"),
+    }
+
+    def setUp(self) -> None:
+        self.source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+
+    def test_lines_are_defined_logged_and_installed_on_both_environments(self) -> None:
+        production_only = _extract_shell_block(
+            self.source, '  if [ "$ENVIRONMENT" = "production" ]; then', "  fi"
+        )
+        for var, (schedule, runner, log_var, _flag) in self.JOBS.items():
+            with self.subTest(job=var):
+                (line,) = [line for line in self.source.splitlines() if line.startswith(f"{var}=")]
+                self.assertTrue(line.startswith(f'{var}="{schedule}'), line)
+                self.assertIn(runner, line)
+                self.assertIn(f">> {log_var} 2>&1", line)
+                self.assertIn(f'  echo "${var}"', self.source)
+                self.assertNotIn(f"${var}", production_only)
+                self.assertIn(f'"$SCRIPT_DIR/{runner}"', self.source)  # chmod +x list
+
+    def test_each_runner_no_ops_when_its_flag_is_off(self) -> None:
+        for _var, (_schedule, runner, _log, flag) in self.JOBS.items():
+            with self.subTest(runner=runner), tempfile.TemporaryDirectory() as tempdir:
+                config = Path(tempdir) / "runtime.conf"
+                config.write_text("", encoding="utf-8")
+                env = {k: v for k, v in os.environ.items() if k not in {flag}}
+                env["SPOTLIGHT_VM_RUNTIME_CONFIG"] = str(config)
+                # A python that would fail loudly if the runner got past its gate.
+                env["SPOTLIGHT_VM_PYTHON"] = "/bin/false"
+                env["FLOCK_BIN_OVERRIDE"] = "/bin/false"
+                result = subprocess.run(
+                    ["bash", str(BACKEND_ROOT / runner)], capture_output=True, text=True, env=env
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("off", result.stdout.lower())
+
+
 class ModerationCronScheduleTests(unittest.TestCase):
     """The social-moderation cron entry in deploy_to_vm.sh.
 

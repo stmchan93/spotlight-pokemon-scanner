@@ -9,6 +9,20 @@ import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
 import { clearCardDetailCache } from '@/features/cards/card-detail-prefetch';
 import { CardDetailScreen } from '@/features/cards/screens/card-detail-screen';
 import { InsightsScreen } from '@/features/insights/screens/insights-screen';
+import { HotCardsBlock } from '@/features/meta-feed/components/hot-cards-block';
+import { MetaPulseBlock } from '@/features/meta-feed/components/meta-pulse-block';
+import { NewsBlock } from '@/features/meta-feed/components/news-block';
+import { SetSpotlightBlock } from '@/features/meta-feed/components/set-spotlight-block';
+import {
+  NEWS_FEED_BLOCK_LIMIT,
+  useHotCards,
+  useMetaPulse,
+  useNewsFeed,
+  useSetSpotlight,
+} from '@/features/meta-feed/hooks/use-meta-feed';
+import { MetaScreen } from '@/features/meta-feed/screens/meta-screen';
+import { NewsScreen } from '@/features/meta-feed/screens/news-screen';
+import { SetSpotlightScreen } from '@/features/meta-feed/screens/set-spotlight-screen';
 import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
 import { TopTrendsBlock } from '@/features/social/components/top-trends-block';
 import { FeedScreen } from '@/features/social/screens/feed-screen';
@@ -51,6 +65,16 @@ const devScreens: Record<string, () => ReactElement> = {
   // repository's `getTopMovers` — the feed route also carries it, but this
   // isolates the block for a tight diff against the "Title content" frame.
   'top-trends': () => <DevTopTrendsScreen />,
+  // The four meta feed blocks alone, in feed order, fed by the mock
+  // repository's meta feed reads (docs/meta-feed-mockup/Main.dc.html). The
+  // feed route carries them too, around Top Trends.
+  'meta-blocks': () => <DevMetaBlocksScreen />,
+  // The pages those blocks open (docs/meta-feed-mockup/Meta, Set, News.dc.html).
+  meta: () => <MetaScreen onBack={() => undefined} onOpenCard={() => undefined} />,
+  'set-spotlight': () => (
+    <SetSpotlightScreen onBack={() => undefined} onOpenCard={() => undefined} setId="cel25" />
+  ),
+  news: () => <NewsScreen onBack={() => undefined} onOpenCard={() => undefined} />,
   wishlist: () => <WishlistScreen />,
   // The watchlist target sheet over the PDP: the optional post-Watch prompt
   // and the edit sheet a Watchlist long-press opens.
@@ -94,6 +118,26 @@ function DevTopTrendsScreen() {
       testID="dev-top-trends"
     >
       <TopTrendsBlock loading={loading} movers={movers} onPressCard={() => undefined} />
+    </ScrollView>
+  );
+}
+
+function DevMetaBlocksScreen() {
+  const pulse = useMetaPulse();
+  const hot = useHotCards();
+  const spotlight = useSetSpotlight();
+  const news = useNewsFeed({ limit: NEWS_FEED_BLOCK_LIMIT });
+  const noop = () => undefined;
+  return (
+    <ScrollView
+      contentContainerStyle={styles.topTrendsContent}
+      style={styles.topTrends}
+      testID="dev-meta-blocks"
+    >
+      <MetaPulseBlock onOpenMeta={noop} pulse={pulse.data} />
+      <HotCardsBlock hot={hot.data} onPressCard={noop} />
+      <SetSpotlightBlock onOpenLink={noop} onOpenSet={noop} onPressCard={noop} spotlight={spotlight.data} />
+      <NewsBlock feed={news.data} onOpenLink={noop} onOpenNews={noop} />
     </ScrollView>
   );
 }

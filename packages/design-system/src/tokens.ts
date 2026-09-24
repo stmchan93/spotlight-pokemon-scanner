@@ -151,6 +151,10 @@ export const colors = {
   frostTint: 'rgba(255, 255, 255, 0.72)',
   // Tappable link text over dark/photo backgrounds (profile header cover).
   linkOnDark: '#D6E8FF',
+  // Chrome drawn over video thumbnails (VideoTile): the duration badge's
+  // scrim and the round play button.
+  mediaScrim: 'rgba(0, 0, 0, 0.75)',
+  mediaPlayButton: 'rgba(255, 255, 255, 0.9)',
 } as const;
 
 /**
@@ -365,6 +369,14 @@ export const textStyles = {
     lineHeight: 16.8,
     color: colors.gray600,
   } satisfies TextStyle,
+  // SemiBold sibling of `captionMedium` — 12/600, color applied separately.
+  // Section links on the feed blocks ("See the meta ›").
+  captionStrong: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 12,
+    lineHeight: 16.8,
+  } satisfies TextStyle,
   title: {
     ...numericFontVariant,
     fontFamily: fontFamilies.display,
@@ -457,12 +469,35 @@ export const textStyles = {
     lineHeight: 14.3,
     color: colors.textMuted,
   } satisfies TextStyle,
+  // SemiBold sibling of `cardMeta` — a news row's "Source · 2h" line, a hot
+  // tile's "4.2× usual checks". Color applied separately.
+  cardMetaStrong: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 11,
+    lineHeight: 14.3,
+  } satisfies TextStyle,
   deltaPill: {
     ...numericFontVariant,
     fontFamily: fontFamilies.bodySemiBold,
     fontSize: 9.76,
     letterSpacing: 0,
     color: colors.textPrimary,
+  } satisfies TextStyle,
+  // Delta pills and outlined chips — 11/600, color applied separately
+  // (DeltaPill, NewsRow tag chips).
+  chipLabel: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 11,
+    lineHeight: 14,
+  } satisfies TextStyle,
+  // Uppercase status tag — 10/700 (LaneTag RAW / GRADED).
+  tag: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyBold,
+    fontSize: 10,
+    lineHeight: 13,
   } satisfies TextStyle,
   // Search field placeholder + input — 13/500/140% gray-400 per Figma "Label"
   label: {

@@ -9,6 +9,8 @@ export type SegmentedControlItem<T extends string> = {
 };
 
 type SegmentedControlProps<T extends string> = {
+  /** Segments that render dimmed and ignore presses (e.g. a window with no history yet). */
+  disabledValues?: readonly T[];
   items: readonly SegmentedControlItem<T>[];
   onChange: (value: T) => void;
   size?: 'md' | 'lg' | 'scanner';
@@ -42,6 +44,7 @@ const sizeMetrics = {
 } as const;
 
 export function SegmentedControl<T extends string>({
+  disabledValues,
   items,
   onChange,
   size = 'md',
@@ -95,10 +98,13 @@ export function SegmentedControl<T extends string>({
     >
       {items.map((item) => {
         const selected = item.value === value;
+        const disabled = disabledValues?.includes(item.value) ?? false;
         return (
           <Pressable
             key={item.value}
             accessibilityRole="button"
+            accessibilityState={{ disabled, selected }}
+            disabled={disabled}
             onPress={() => onChange(item.value)}
             testID={testID ? `${testID}-${String(item.value).toLowerCase()}` : undefined}
             style={({ pressed }) => [
@@ -107,7 +113,7 @@ export function SegmentedControl<T extends string>({
                 backgroundColor: selected ? shell.selectedBackgroundColor : 'transparent',
                 borderCurve: 'continuous',
                 borderRadius: shell.segmentBorderRadius,
-                opacity: pressed ? 0.86 : 1,
+                opacity: disabled ? 0.4 : pressed ? 0.86 : 1,
                 paddingHorizontal: metrics.paddingHorizontal,
                 paddingVertical: metrics.paddingVertical,
                 ...(metrics.minHeight != null ? { minHeight: metrics.minHeight } : {}),

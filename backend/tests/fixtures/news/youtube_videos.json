@@ -1,0 +1,39 @@
+{
+  "kind": "youtube#videoListResponse",
+  "etag": "v1",
+  "items": [
+    {
+      "kind": "youtube#video",
+      "etag": "ve1",
+      "id": "aBcDeFgHiJ1",
+      "snippet": {
+        "publishedAt": "2026-09-22T19:00:07Z",
+        "channelId": "UCUHYM7gs-GZpRGEsskTEqzQ",
+        "title": "Opening a 30th Celebration Booster Box! (Mew RGB hunt)",
+        "description": "We rip a full box of 30th Celebration looking for the Mew RGB secret rares.",
+        "thumbnails": {"high": {"url": "https://i.ytimg.com/vi/aBcDeFgHiJ1/hqdefault.jpg", "width": 480, "height": 360}},
+        "channelTitle": "PokeRev",
+        "liveBroadcastContent": "none"
+      },
+      "contentDetails": {"duration": "PT1H2M5S", "dimension": "2d", "definition": "hd", "caption": "false"},
+      "statistics": {"viewCount": "184230", "likeCount": "9120", "favoriteCount": "0", "commentCount": "812"}
+    },
+    {
+      "kind": "youtube#video",
+      "etag": "ve2",
+      "id": "kLmNoPqRsT2",
+      "snippet": {
+        "publishedAt": "2026-09-20T18:30:00Z",
+        "channelId": "UCUHYM7gs-GZpRGEsskTEqzQ",
+        "title": "Vintage market update - is Base Set cooling off?",
+        "description": "Prices on WOTC vintage over the last 30 days.",
+        "thumbnails": {"high": {"url": "https://i.ytimg.com/vi/kLmNoPqRsT2/hqdefault.jpg", "width": 480, "height": 360}},
+        "channelTitle": "PokeRev",
+        "liveBroadcastContent": "none"
+      },
+      "contentDetails": {"duration": "PT14M31S"},
+      "statistics": {"viewCount": "40211"}
+    }
+  ],
+  "pageInfo": {"totalResults": 2, "resultsPerPage": 2}
+}
