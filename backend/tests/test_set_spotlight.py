@@ -17,6 +17,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 import news_feed  # noqa: E402
+import set_spotlight  # noqa: E402
 from catalog_tools import apply_schema, connect, upsert_card, upsert_expansion, utc_now  # noqa: E402
 from server import _apply_price_history_cells_schema_patch  # noqa: E402
 from set_spotlight import (  # noqa: E402
@@ -269,6 +270,18 @@ class SetSpotlightTests(unittest.TestCase):
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'news_items'"
         ).fetchone()
         self.assertIsNone(exists)
+
+
+class FallbackLogoUrlTests(unittest.TestCase):
+    def test_pokemon_set_without_expansion_row_gets_scrydex_logo(self) -> None:
+        self.assertEqual(
+            set_spotlight._fallback_logo_url("ex8", "pokemon"),
+            "https://images.scrydex.com/pokemon/ex8-logo/logo",
+        )
+
+    def test_other_games_and_odd_ids_get_no_guess(self) -> None:
+        self.assertIsNone(set_spotlight._fallback_logo_url("onepiece~OP01", "onepiece"))
+        self.assertIsNone(set_spotlight._fallback_logo_url("../x", "pokemon"))
 
 if __name__ == "__main__":
     unittest.main()

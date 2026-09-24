@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
@@ -247,7 +248,15 @@ def _expansion(connection: sqlite3.Connection, set_id: str) -> dict[str, Any] | 
     if row is None:
         return None
     return {"setId": str(row[0]), "game": str(row[1] or "pokemon"), "name": row[2], "code": row[3],
-            "series": row[4], "releaseDate": row[5], "logoUrl": row[6]}
+            "series": row[4], "releaseDate": row[5], "logoUrl": row[6] or _fallback_logo_url(str(row[0]), row[1])}
+
+
+def _fallback_logo_url(set_id: str, game: str | None) -> str | None:
+    # Staging's frozen catalog lacks expansion rows for older sets; Scrydex serves
+    # Pokémon logos at a stable path keyed by the same set id (no API credits).
+    if (game or "pokemon") != "pokemon" or not re.fullmatch(r"[a-z0-9_.]+", set_id):
+        return None
+    return f"https://images.scrydex.com/pokemon/{set_id}-logo/logo"
 
 
 def _set_cards(connection: sqlite3.Connection, set_id: str) -> list[dict[str, Any]]:
@@ -475,7 +484,8 @@ def _build_payload(
         first = cards[0]
         header = {"setId": set_id, "game": first["game"] or "pokemon", "name": first["setName"],
                   "code": first["code"], "series": first["series"],
-                  "releaseDate": first["releaseDate"], "logoUrl": None}
+                  "releaseDate": first["releaseDate"],
+                  "logoUrl": _fallback_logo_url(set_id, first["game"])}
     by_id = {c["cardId"]: c for c in cards}
     card_ids = list(by_id)
 

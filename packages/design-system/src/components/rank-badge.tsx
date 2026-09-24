@@ -10,7 +10,7 @@ export type RankBadgeProps = {
   rank: number;
   /**
    * `badge` — 22pt gray900 circle with a white number, laid over card art
-   * (Hot on Ekalight tiles). `plain` — a 14pt-wide bold number column for
+   * (Hot on Ekalight tiles). `plain` — a 20pt-wide bold number column (fits "10" on one line) for
    * ranked list rows (Set spotlight top 10).
    */
   variant?: RankBadgeVariant;
@@ -23,7 +23,7 @@ export function RankBadge({ rank, variant = 'badge', style, testID }: RankBadgeP
   if (variant === 'plain') {
     return (
       <View style={[styles.plain, style]} testID={testID}>
-        <AppText color="gray900" variant="priceCaption">
+        <AppText color="gray900" numberOfLines={1} variant="priceCaption">
           {rank}
         </AppText>
       </View>
@@ -61,6 +61,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   plain: {
-    width: 14,
+    width: 20,
   },
 });
