@@ -506,7 +506,7 @@ Current API concepts:
   coming back
 - optional `trendChangePercent` — window-scoped percent stacked directly under
   the price in the price row's left stack: a 12px `ArrowUp`/`ArrowDown` icon +
-  `+10.46%` (12 SemiBold) in green400/red400. Exactly 0 renders a gray600
+  `+10.46%` (14 SemiBold, matching `CardListRow`) in green400/red400. Exactly 0 renders a gray600
   `0.00%` with NO arrow ("tracked but flat" ≠ "no data"); null/non-finite
   hides the line. Callers pass the shared trend-window expression (since-added
   or 30d)

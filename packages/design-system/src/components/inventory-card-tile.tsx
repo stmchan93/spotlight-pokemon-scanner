@@ -74,7 +74,7 @@ export type InventoryCardTileProps = {
    * Signed percent rendered directly under the price in the price row's left
    * stack: a small outlined triangle (the same glyph as the balance header and
    * PDP; 180°-flipped for down) + `+10.46%` in green400 /
-   * red400 (12 SemiBold). Exactly 0 renders as gray600 `0.00%` with NO arrow
+   * red400 (14 SemiBold). Exactly 0 renders as gray600 `0.00%` with NO arrow
    * ("tracked but flat" reads differently from "no data"); null/non-finite
    * hides the line; a sub-$1 `marketPrice` suppresses it (penny guard).
    * Callers pass the window-scoped percent (since-added or 30d).
@@ -496,7 +496,9 @@ export function InventoryCardTile({
                     />
                   ) : null}
                   <AppText
-                    numberOfLines={1}
+                    // Two lines: at 14pt a big change + suffix can outrun a
+                    // half-width tile, and wrapping beats an ellipsis.
+                    numberOfLines={2}
                     style={[styles.trendText, { color: trendColor }]}
                   >
                     {trendLabel}
@@ -730,12 +732,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 2,
   },
-  // Signed window-scoped percent under the price: 12 SemiBold, green400/
-  // red400 (gray600 when exactly flat).
+  // Signed change under the price: 14 SemiBold (same as CardListRow's trend
+  // line, so card and list views match), green400/red400, gray600 when flat.
   trendText: {
+    flexShrink: 1,
     fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 14,
+    lineHeight: 21,
   },
   starBadge: {
     // Padding moved off the Pressable, so bake it into the offset (16 + 8) to
