@@ -1,5 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import {Animated, Share, StyleSheet} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 
 import type { CardFavoriteEntry } from '@spotlight/api-client';
@@ -121,11 +122,20 @@ function renderWishlistScreen(repository?: ReturnType<typeof createTestSpotlight
   return renderWithProviders(<WishlistScreen />, { spotlightRepository: repository });
 }
 
+// No native storage in jest: serve the saved wishlist view choice directly.
+let savedViewMode: string | null = 'list';
+jest.spyOn(AsyncStorage, 'getItem').mockImplementation(async (key: string) =>
+  key === '@spotlight/wishlist/view-mode' ? savedViewMode : null,
+);
+
 describe('WishlistScreen', () => {
   const push = jest.fn();
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Card view is the default; most tests here exercise list rows, so start
+    // them from a saved list choice.
+    savedViewMode = 'list';
     (useRouter as jest.Mock).mockReturnValue({
       push,
       back: jest.fn(),
@@ -343,6 +353,20 @@ describe('WishlistScreen', () => {
     expect(screen.queryByTestId('wishlist-row-since-none-sparkline')).toBeNull();
   });
 
+  it('opens in card view when no view choice is saved', async () => {
+    savedViewMode = null;
+    const repository = createTestSpotlightRepository({
+      getCardFavorites: async () => [buildFavoriteEntry({ cardId: 'default-1', name: 'Pikachu' })],
+    });
+
+    renderWishlistScreen(repository);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('wishlist-grid-tile-default-1')).toBeTruthy();
+    });
+    expect(screen.queryByTestId('wishlist-row-default-1')).toBeNull();
+  });
+
   it('renders the whole grid view virtualized, with no View More gate', async () => {
     const favorites = Array.from({ length: 12 }, (_, index) =>
       buildFavoriteEntry({
@@ -361,7 +385,7 @@ describe('WishlistScreen', () => {
       expect(screen.getByTestId('wishlist-row-page-0')).toBeTruthy();
     });
 
-    // Default view is list — switch to grid (card) view via the toggle.
+    // Saved choice is list — switch to grid (card) view via the toggle.
     await act(async () => {
       fireEvent.press(screen.getByTestId('wishlist-view-toggle'));
     });

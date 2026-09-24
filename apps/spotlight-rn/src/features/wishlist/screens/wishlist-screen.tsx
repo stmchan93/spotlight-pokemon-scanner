@@ -123,7 +123,7 @@ const GRID_COLUMNS = 2;
 const LIST_REST_OFFSET = 0;
 
 const WISHLIST_VIEW_MODE_STORAGE_KEY = '@spotlight/wishlist/view-mode';
-const DEFAULT_VIEW_MODE: WishlistViewMode = 'list';
+const DEFAULT_VIEW_MODE: WishlistViewMode = 'grid';
 
 function chunkWishlistGridRows(entries: CardFavoriteEntry[]): CardFavoriteEntry[][] {
   const rows: CardFavoriteEntry[][] = [];
