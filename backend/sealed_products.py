@@ -22,6 +22,7 @@ from catalog_tools import (
     GAME_ONE_PIECE,
     GAME_POKEMON,
     GAME_RIFTBOUND,
+    SEALED_CARD_ID_PREFIX,
     SEALED_SUPERTYPE,
     cards_by_ids,
     normalize_game,
@@ -29,7 +30,6 @@ from catalog_tools import (
 )
 
 SEALED_VARIANT = "Sealed"
-SEALED_CARD_ID_PREFIX = "tcgp-sealed-"
 TCGCSV_SEALED_SOURCE = "tcgcsv"
 
 # TCGplayer category -> (game, language). Mirrors tcgcsv_adapter.TCGCSV_CATEGORY_IDS.

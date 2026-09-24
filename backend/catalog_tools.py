@@ -1059,10 +1059,21 @@ def _backfill_missing_card_artist_aliases(connection: sqlite3.Connection) -> Non
         )
 
 
+def _delete_card_title_aliases(connection: sqlite3.Connection, card_id: str) -> None:
+    if _table_exists(connection, "card_name_aliases"):
+        connection.execute("DELETE FROM card_name_aliases WHERE card_id = ?", (card_id,))
+
+
 def _backfill_missing_card_title_aliases(connection: sqlite3.Connection) -> None:
     if not _table_exists(connection, "card_name_aliases"):
         return
 
+    # Sealed rows never carry name aliases (see upsert_card). Purge any written
+    # before that rule: one index range scan on card_id, a no-op once clean.
+    connection.execute(
+        "DELETE FROM card_name_aliases WHERE card_id >= ? AND card_id < ?",
+        (SEALED_CARD_ID_PREFIX, f"{SEALED_CARD_ID_PREFIX}\U0010ffff"),
+    )
     rows = connection.execute(
         """
         SELECT c.id, c.name, c.language, c.source_payload_json
@@ -1073,7 +1084,9 @@ def _backfill_missing_card_title_aliases(connection: sqlite3.Connection) -> None
         ) aliases
           ON aliases.card_id = c.id
         WHERE aliases.card_id IS NULL
-        """
+          AND c.supertype IS NOT ?
+        """,
+        (SEALED_SUPERTYPE,),
     ).fetchall()
 
     for row in rows:
@@ -1758,6 +1771,8 @@ DEFAULT_GAME = GAME_POKEMON
 # `cards.supertype` of sealed product rows (booster boxes, ETBs, …; see
 # sealed_products.py). Card-only features skip these rows.
 SEALED_SUPERTYPE = "Sealed"
+# Every sealed row's id starts with this (sealed_products.sealed_card_id).
+SEALED_CARD_ID_PREFIX = "tcgp-sealed-"
 
 # Coarse server-side grouping of the raw catalog rarity label ("Special
 # Illustration Rare", "Rare Holo GX", …) into a small stable key set the app can
@@ -3869,13 +3884,19 @@ def upsert_card(
             now,
         ),
     )
-    _replace_card_title_aliases(
-        connection,
-        card_id=card_id,
-        name=name,
-        language=language,
-        source_payload=source_payload or {},
-    )
+    if supertype == SEALED_SUPERTYPE:
+        # Name aliases feed CARD search retrieval only; sealed product has its
+        # own search. With aliases, a set-name query retrieved the set's boxes
+        # and tins instead of its cards, and the sealed gate then dropped them.
+        _delete_card_title_aliases(connection, card_id)
+    else:
+        _replace_card_title_aliases(
+            connection,
+            card_id=card_id,
+            name=name,
+            language=language,
+            source_payload=source_payload or {},
+        )
     _replace_card_artist_aliases(
         connection,
         card_id=card_id,
@@ -4387,11 +4408,10 @@ def _manual_search_candidate_rows_for_phrase(
             "SELECT id AS id, 420.0 AS score FROM cards WHERE name >= ? AND name < ? LIMIT ?",
             _manual_search_prefix_bounds(normalized_phrase),
         ),
-        (
-            "SELECT id AS id, 380.0 AS score FROM cards WHERE set_name >= ? AND set_name < ? LIMIT ?",
-            _manual_search_prefix_bounds(normalized_phrase),
-        ),
     ]
+    # Set NAMES are retrieved by _manual_search_candidate_rows_for_set_names: a
+    # range on the stored set_name cannot match a lowercased, punctuation-free
+    # phrase ("prismatic evolutions" vs "Prismatic Evolutions").
 
     # Substring match on the alias text. Every branch above is exact-or-prefix, so
     # a word that is not at the START of the name is unreachable: "nidoking" never
@@ -4487,6 +4507,123 @@ def _manual_search_candidate_rows_for_phrase(
 
     ordered_ids.sort(key=lambda card_id: (-best_scores.get(card_id, 0.0), card_id))
     return [(card_id, best_scores[card_id]) for card_id in ordered_ids[:clause_limit]]
+
+
+# Distinct `cards.set_name` values per database, as (normalized, stored) pairs.
+# Keyed on MAX(rowid): a new set only arrives as new card rows, and reading the
+# stamp is one index probe. Rebuilding reads the covering idx_cards_set_name.
+_MANUAL_SEARCH_SET_NAMES_CACHE: dict[str, tuple[int, tuple[tuple[str, str], ...]]] = {}
+# More set names than this matching one query is a vague query, not a set search.
+_MANUAL_SEARCH_MAX_MATCHED_SETS = 8
+
+
+def _manual_search_set_names(connection: sqlite3.Connection) -> tuple[tuple[str, str], ...]:
+    database_file = ""
+    for row in connection.execute("PRAGMA database_list"):
+        if row[1] == "main":
+            database_file = str(row[2] or "")
+    cache_key = database_file or f"memory:{id(connection)}"
+    stamp = int(connection.execute("SELECT MAX(rowid) FROM cards").fetchone()[0] or 0)
+    cached = _MANUAL_SEARCH_SET_NAMES_CACHE.get(cache_key)
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
+    names: list[tuple[str, str]] = []
+    for row in connection.execute("SELECT DISTINCT set_name FROM cards"):
+        stored = str(row[0] or "")
+        normalized = _normalized_alias_text(stored)
+        if normalized:
+            names.append((normalized, stored))
+    _MANUAL_SEARCH_SET_NAMES_CACHE[cache_key] = (stamp, tuple(names))
+    return _MANUAL_SEARCH_SET_NAMES_CACHE[cache_key][1]
+
+
+def _manual_search_candidate_rows_for_set_names(
+    connection: sqlite3.Connection,
+    tokens: list[str],
+    *,
+    limit: int,
+) -> list[tuple[str, float, tuple[str, ...]]]:
+    """Cards of every set whose name the query spells out, as
+    (card_id, retrieval score, query tokens the hit accounts for).
+
+    A run of typed words matches a set when it equals the set's normalized name
+    (400) or is a prefix of it (380), so "prismatic evol" finds Prismatic
+    Evolutions mid-typing. A single word must equal the whole set name, or be a
+    whole-word prefix that no card name starts with: "fossil" / "evolutions" are
+    sets, but "dragon" is someone typing Dragonite, not Dragon Majesty.
+
+    The query's other words then pick cards INSIDE the set (540, above every
+    name-only tier): "ascended heroes dragonite" → Mega Dragonite ex from
+    Ascended Heroes, not every Dragonite ever printed.
+
+    Lookups are `set_name = ?` equality on idx_cards_set_name. Sealed rows are
+    filtered in SQL (a residual predicate, the plan is unchanged) so they never
+    spend a LIMIT slot."""
+    if not tokens:
+        return []
+    set_names = _manual_search_set_names(connection)
+    if not set_names:
+        return []
+    word_tokens = tokens[:12]
+    matched: dict[str, tuple[float, int, int]] = {}  # stored → (score, start, end)
+    for size in range(len(word_tokens), 0, -1):
+        for start in range(0, len(word_tokens) - size + 1):
+            phrase = " ".join(word_tokens[start:start + size])
+            if len(phrase) < 3:
+                continue
+            names_a_card: bool | None = None
+            for normalized, stored in set_names:
+                if normalized == phrase:
+                    score = 400.0
+                elif normalized.startswith(phrase if size > 1 else f"{phrase} "):
+                    if size == 1:
+                        if names_a_card is None:
+                            names_a_card = connection.execute(
+                                "SELECT 1 FROM card_name_aliases WHERE normalized_alias >= ? AND normalized_alias < ? LIMIT 1",
+                                _manual_search_prefix_bounds(phrase),
+                            ).fetchone() is not None
+                        if names_a_card:
+                            continue
+                    score = 380.0
+                else:
+                    continue
+                # Longest spelled-out run wins; it is found first.
+                if stored not in matched:
+                    matched[stored] = (score, start, start + size)
+    if not matched or len(matched) > _MANUAL_SEARCH_MAX_MATCHED_SETS:
+        return []
+
+    clause_limit = max(1, min(int(limit), _MANUAL_SEARCH_POOL_CEILING))
+    results: dict[str, tuple[float, tuple[str, ...]]] = {}
+
+    def record(card_id: object, score: float, hit_tokens: tuple[str, ...]) -> None:
+        normalized_id = str(card_id or "").strip()
+        if not normalized_id:
+            return
+        previous = results.get(normalized_id)
+        if previous is None or score > previous[0]:
+            results[normalized_id] = (score, hit_tokens)
+
+    for stored, (score, start, end) in matched.items():
+        set_tokens = tuple(word_tokens[start:end])
+        for row in connection.execute(
+            "SELECT id FROM cards WHERE set_name = ? AND supertype IS NOT ? LIMIT ?",
+            (stored, SEALED_SUPERTYPE, clause_limit),
+        ):
+            record(row["id"], score, set_tokens)
+        other_words = [
+            token
+            for index, token in enumerate(word_tokens)
+            if not start <= index < end and len(token) >= 3 and not any(ch.isdigit() for ch in token)
+        ]
+        for token in other_words:
+            # tokenize() already stripped LIKE's `%` and `_`.
+            for row in connection.execute(
+                "SELECT id FROM cards WHERE set_name = ? AND name LIKE ? AND supertype IS NOT ? LIMIT ?",
+                (stored, f"%{token}%", SEALED_SUPERTYPE, clause_limit),
+            ):
+                record(row["id"], 540.0, set_tokens + (token,))
+    return [(card_id, score, hit_tokens) for card_id, (score, hit_tokens) in results.items()]
 
 
 def _manual_search_candidate_rows_for_artist(
@@ -5173,6 +5310,13 @@ def _search_cards_attempt(
             limit=per_phrase_limit,
         ):
             add_candidate(card_id, score, phrase_tokens)
+
+    for card_id, score, hit_tokens in _manual_search_candidate_rows_for_set_names(
+        connection,
+        tokens,
+        limit=per_phrase_limit,
+    ):
+        add_candidate(card_id, score, hit_tokens)
 
     # Name + set/code intersection (e.g. "pikachu sun moon promos", "pikachu
     # sm-p"). Pulls in prints that the per-phrase retrieval misses because a
