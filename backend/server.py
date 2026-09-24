@@ -4967,6 +4967,11 @@ class SpotlightScanService:
             card = card_by_id(connection, card_id)
             if card is None:
                 continue
+            # Sealed product has no collector number or card condition, so the
+            # raw eBay search and Near Mint item-page gates can't validate a
+            # listing — skip it rather than spend budget on unmatchable fetches.
+            if is_sealed_card(card):
+                continue
             cached_listings = self._cached_raw_listings(connection, card_id)
             if cached_listings is not None:
                 if not dry_run:

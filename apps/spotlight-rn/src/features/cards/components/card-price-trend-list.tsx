@@ -151,7 +151,12 @@ export function CardPriceTrendList({
                   testID={rowTestID ? `${rowTestID}-chevron-closed` : undefined}
                 />
               ) : (
-                <IconChevronRight color={theme.colors.gray600} size={20} strokeWidth={2} />
+                <IconChevronRight
+                  color={theme.colors.gray600}
+                  size={20}
+                  strokeWidth={2}
+                  testID={rowTestID ? `${rowTestID}-chevron-link` : undefined}
+                />
               )
             ) : null}
           </>

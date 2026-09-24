@@ -58,6 +58,9 @@ type AddToCollectionSheetProps = {
   confirmLabel: string;
   onConfirm: () => void;
   confirmDisabled?: boolean;
+  /** Hide the card options (language/variant/grader + condition) and show only
+   *  Quantity — sealed product has none of those facets. */
+  quantityOnly?: boolean;
   testID?: string;
 };
 
@@ -98,6 +101,7 @@ export function AddToCollectionSheet({
   confirmLabel,
   onConfirm,
   confirmDisabled = false,
+  quantityOnly = false,
   testID = 'add-to-collection-sheet',
 }: AddToCollectionSheetProps) {
   const theme = useSpotlightTheme();
@@ -231,40 +235,44 @@ export function AddToCollectionSheet({
             showsVerticalScrollIndicator={false}
             style={styles.scroll}
           >
-            <CardConfigurator
-              graders={graders}
-              languages={languages}
-              onSelectGrader={onSelectGrader}
-              onSelectLanguage={onSelectLanguage}
-              onSelectVariant={onSelectVariant}
-              selectedGrader={selectedGrader}
-              selectedLanguage={selectedLanguage}
-              selectedVariant={selectedVariant}
-              testID={`${testID}-configurator`}
-              variants={variants}
-              variantsLoading={variantsLoading}
-            />
+            {quantityOnly ? null : (
+              <>
+                <CardConfigurator
+                  graders={graders}
+                  languages={languages}
+                  onSelectGrader={onSelectGrader}
+                  onSelectLanguage={onSelectLanguage}
+                  onSelectVariant={onSelectVariant}
+                  selectedGrader={selectedGrader}
+                  selectedLanguage={selectedLanguage}
+                  selectedVariant={selectedVariant}
+                  testID={`${testID}-configurator`}
+                  variants={variants}
+                  variantsLoading={variantsLoading}
+                />
 
-            <View style={styles.group}>
-              <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
-                {gradeTitle}
-              </Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`${gradeTitle}: ${gradeLabel ?? 'Select'}`}
-                onPress={() => setPickerOpen(true)}
-                style={({ pressed }) => [
-                  styles.selector,
-                  { backgroundColor: theme.colors.gray50, opacity: pressed ? 0.9 : 1 },
-                ]}
-                testID={`${testID}-grade-trigger`}
-              >
-                <Text style={[theme.typography.label, { color: theme.colors.gray700 }]}>
-                  {gradeLabel ?? 'Select'}
-                </Text>
-                <NavArrowDown color={theme.colors.gray700} height={24} width={24} />
-              </Pressable>
-            </View>
+                <View style={styles.group}>
+                  <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
+                    {gradeTitle}
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`${gradeTitle}: ${gradeLabel ?? 'Select'}`}
+                    onPress={() => setPickerOpen(true)}
+                    style={({ pressed }) => [
+                      styles.selector,
+                      { backgroundColor: theme.colors.gray50, opacity: pressed ? 0.9 : 1 },
+                    ]}
+                    testID={`${testID}-grade-trigger`}
+                  >
+                    <Text style={[theme.typography.label, { color: theme.colors.gray700 }]}>
+                      {gradeLabel ?? 'Select'}
+                    </Text>
+                    <NavArrowDown color={theme.colors.gray700} height={24} width={24} />
+                  </Pressable>
+                </View>
+              </>
+            )}
 
             <View style={styles.group}>
               <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>

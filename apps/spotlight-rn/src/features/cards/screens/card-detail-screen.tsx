@@ -39,6 +39,8 @@ import {
   GlassNavBubbleGroup,
   glassNavBubbleGlyphSize,
   glassNavBubbleGlyphStrokeWidth,
+  glassNavBubbleGroupWidth,
+  glassNavBubbleSizes,
   Text,
   TrendTriangle,
   colors,
@@ -393,8 +395,8 @@ export function CardDetailScreen({
   // is exactly what the capability helpers do.
   const cardGame = detail?.game ?? detailPreview?.game;
   // Sealed product (booster box, ETB, tin…): no number, condition, grade,
-  // printing or language, and not addable/watchable yet. Declared up here for
-  // the same dependency-array reason as `cardGame`.
+  // printing or language. Added as one condition-less entry and watched like a
+  // card. Declared up here for the same dependency-array reason as `cardGame`.
   const isSealed = (detail?.productKind ?? detailPreview?.productKind) === 'sealed';
   // Sealed has one TCGplayer product and no condition facet (TCGplayer lists
   // sealed as "Unopened", so a Near Mint filter would zero the page).
@@ -1778,8 +1780,12 @@ export function CardDetailScreen({
     setIsAddPending(true);
     const addedAt = new Date().toISOString();
     const addedQuantity = Math.max(1, quantity);
-    const addedCondition = addIsRaw ? addCondition : null;
-    const addedVariantName = addIsRaw ? (addVariantLabel ?? null) : addConfiguredSlabContext?.variantName ?? null;
+    // Sealed is one unopened line: no condition or printing, priced at the
+    // product's market price (the backend's default raw read).
+    const addedCondition = addIsRaw && !isSealed ? addCondition : null;
+    const addedVariantName = isSealed
+      ? null
+      : addIsRaw ? (addVariantLabel ?? null) : addConfiguredSlabContext?.variantName ?? null;
     // An add that came from a scan carries the scan id, so the confirmation
     // lands on the scan row and becomes a training label. Only when the card
     // being added is one the scan actually proposed: the sheet's EN/JP toggle
@@ -1791,7 +1797,7 @@ export function CardDetailScreen({
     void spotlightRepository.createInventoryEntry({
       cardID: addDetail.cardId,
       slabContext: addConfiguredSlabContext,
-      variantName: addIsRaw ? (addVariantLabel ?? null) : null,
+      variantName: addIsRaw ? addedVariantName : null,
       condition: addedCondition,
       quantity: addedQuantity,
       sourceScanID: addSourceScanID,
@@ -1830,7 +1836,7 @@ export function CardDetailScreen({
           isFavorite: addDetail.isFavorite ?? false,
         });
         capturePostHogEvent('card_detail_add_item_succeeded', {
-          kind: addIsRaw ? 'raw' : 'graded',
+          kind: isSealed ? 'sealed' : addIsRaw ? 'raw' : 'graded',
           quantity: Math.max(1, quantity),
         });
         setAddSheetOpen(false);
@@ -1868,6 +1874,7 @@ export function CardDetailScreen({
     addIsRaw,
     addVariantLabel,
     isAddPending,
+    isSealed,
     prependOptimisticInventoryEntry,
     quantity,
     refreshData,
@@ -2018,6 +2025,12 @@ export function CardDetailScreen({
   // / Grade / Condition reuse the page configurator state (already seeded from
   // the owned entry); we only add Quantity + Cost Basis here.
   const isOwnedEdit = selectedEntry != null;
+  // Both header flanks take the wider of the back bubble and the trailing
+  // capsule (share, plus delete when an owned line is pinned).
+  const headerSideWidth = Math.max(
+    glassNavBubbleSizes.medium,
+    glassNavBubbleGroupWidth(selectedEntry ? 2 : 1, 'medium'),
+  );
 
   /*
     SEEDS ON A NEW ENTRY, AND AGAIN WHEN THE STORED BASIS ITSELF CHANGES.
@@ -2499,7 +2512,7 @@ export function CardDetailScreen({
           imageUrl={displayImageUrl}
           isFavorite={isFavorite}
           name={displayName}
-          onToggleFavorite={isSealed ? undefined : gate(handleToggleFavorite)}
+          onToggleFavorite={gate(handleToggleFavorite)}
           testID="detail-hero-card"
           variant={isSealed ? 'product' : 'card'}
         />
@@ -2625,6 +2638,7 @@ export function CardDetailScreen({
           onClose={() => setAddSheetOpen(false)}
           onConfirm={handleAddItem}
           onDecrement={() => setQuantity((current) => Math.max(1, current - 1))}
+          quantityOnly={isSealed}
           onIncrement={() => setQuantity((current) => current + 1)}
           gradeOptions={addGradePickerOptions}
           gradeSelectedId={addGradePickerSelectedId}
@@ -2735,8 +2749,10 @@ export function CardDetailScreen({
         <View style={styles.headerRow}>
           {/* Equal-width side zones flank the title so it's anchored to the true
               header center (Figma 1874:13992), regardless of how many icons sit
-              on the right (the extra Delete icon used to shove it left). */}
-          <View style={styles.headerSide}>
+              on the right (the extra Delete icon used to shove it left). They're
+              sized to the widest control rather than flexed: a flex-basis-0 side
+              collapses under a long title and the title slides over the bubbles. */}
+          <View style={[styles.headerSide, { width: headerSideWidth }]} testID="detail-header-leading">
             {/*
               The SAME chrome as Home's top bar (Figma 4299:94902): a 44pt
               frosted glass bubble leading and one frosted capsule trailing.
@@ -2754,13 +2770,17 @@ export function CardDetailScreen({
             </GlassNavBubble>
           </View>
           <Text
+            ellipsizeMode="tail"
             numberOfLines={1}
             style={[theme.typography.titleMedium, styles.headerTitle]}
             testID="detail-header-title"
           >
             {displayName}
           </Text>
-          <View style={[styles.headerSide, styles.headerSideRight]}>
+          <View
+            style={[styles.headerSide, styles.headerSideRight, { width: headerSideWidth }]}
+            testID="detail-header-trailing"
+          >
             {/* Delete and share share ONE capsule, as Home's edit/share do. */}
             <GlassNavBubbleGroup
               items={[
@@ -2805,32 +2825,8 @@ export function CardDetailScreen({
           stickyFooterStyle,
         ]}
       >
-        {isSealed ? (
-          // Collection/watchlist add is parked for sealed: TCGplayer + share.
-          <View style={styles.actionBar}>
-            <Button
-              disabled={!sealedMarketplaceUrl}
-              label="VIEW ON TCGPLAYER"
-              labelStyleVariant="label"
-              onPress={handleProviderPress}
-              shape="rounded"
-              size="md"
-              style={styles.actionButton}
-              testID="detail-tcgplayer-button"
-              variant="accent"
-            />
-            <Button
-              label="SHARE"
-              labelStyleVariant="label"
-              onPress={gate(handleShare)}
-              shape="rounded"
-              size="md"
-              style={styles.actionButton}
-              testID="detail-share-button"
-              variant="outline"
-            />
-          </View>
-        ) : isOwnedEdit ? (
+        {/* Sealed has no owned-edit fields, so it always offers another add. */}
+        {isOwnedEdit && !isSealed ? (
           <View style={styles.actionBar}>
             <Button
               disabled={isSavingEdit || !detail}
@@ -2932,8 +2928,8 @@ const styles = StyleSheet.create({
   headerSide: {
     alignItems: 'center',
     flexDirection: 'row',
-    // Equal-width flanks → the title between them lands on the true center.
-    flex: 1,
+    // Fixed equal-width flanks (width set inline) → the title lands on the true center.
+    flexShrink: 0,
     gap: 8,
   },
   headerSideRight: {
@@ -2962,7 +2958,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   headerTitle: {
-    flexShrink: 1,
+    flex: 1,
     marginHorizontal: 8,
     textAlign: 'center',
   },

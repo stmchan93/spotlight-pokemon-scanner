@@ -406,6 +406,32 @@ class DealScanJobTests(WatchWiringTestCase):
                 self.assertEqual(summary["alertsCreated"], expected)
                 self.assertEqual(transport.item_calls, 1)
 
+    def test_watched_sealed_product_is_not_searched_on_ebay(self) -> None:
+        upsert_card(
+            self.connection,
+            card_id="tcgp-sealed-593355",
+            name="Prismatic Evolutions Elite Trainer Box",
+            set_name="SV: Prismatic Evolutions",
+            number="",
+            rarity="",
+            variant="Sealed",
+            language="English",
+            game="pokemon",
+            source_provider="tcgcsv",
+            source_record_id="593355",
+            supertype="Sealed",
+        )
+        self.connection.commit()
+        self._watch("owner-a", "tcgp-sealed-593355")
+        transport = _Transport()
+
+        summary = self._run_scan(transport)
+
+        self.assertEqual(summary["watchedCards"], 1)
+        self.assertEqual(transport.search_calls, 0)
+        self.assertEqual(summary["ebayCalls"], 0)
+        self.assertEqual(self._count("deal_alerts"), 0)
+
     def test_dry_run_writes_nothing(self) -> None:
         self._card()
         self._history()
