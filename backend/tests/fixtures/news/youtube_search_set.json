@@ -1,0 +1,38 @@
+{
+  "kind": "youtube#searchListResponse",
+  "etag": "s1",
+  "regionCode": "US",
+  "pageInfo": {"totalResults": 1000000, "resultsPerPage": 2},
+  "items": [
+    {
+      "kind": "youtube#searchResult",
+      "etag": "se1",
+      "id": {"kind": "youtube#video", "videoId": "sUrGiNg0001"},
+      "snippet": {
+        "publishedAt": "2024-11-08T16:00:00Z",
+        "channelId": "UCtX7lsVa4nZnyCLCgDJg6pw",
+        "title": "Surging Sparks Booster Box Opening - Pikachu ex hunt!",
+        "description": "Opening Surging Sparks.",
+        "thumbnails": {"high": {"url": "https://i.ytimg.com/vi/sUrGiNg0001/hqdefault.jpg"}},
+        "channelTitle": "ThePokeCapital",
+        "liveBroadcastContent": "none",
+        "publishTime": "2024-11-08T16:00:00Z"
+      }
+    },
+    {
+      "kind": "youtube#searchResult",
+      "etag": "se2",
+      "id": {"kind": "youtube#video", "videoId": "sUrGiNg0002"},
+      "snippet": {
+        "publishedAt": "2024-11-10T12:00:00Z",
+        "channelId": "UC35KRaWGA7hQ5De40GG_7Fw",
+        "title": "Is Surging Sparks worth opening?",
+        "description": "Pull rates and value.",
+        "thumbnails": {"medium": {"url": "https://i.ytimg.com/vi/sUrGiNg0002/mqdefault.jpg"}},
+        "channelTitle": "Tricky Gym",
+        "liveBroadcastContent": "none",
+        "publishTime": "2024-11-10T12:00:00Z"
+      }
+    }
+  ]
+}

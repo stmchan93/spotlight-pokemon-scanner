@@ -174,7 +174,12 @@ from ebay_comps import (
 import ebay_listings
 from sealed_products import is_sealed_card, search_sealed_products
 import expo_push
+import hot_cards
+import meta_pulse
+import news_feed
+import set_spotlight
 import watch_signals
+import youtube_feed
 from anthropic_adapter import identify_pokemon_lookalike
 from pricecharting_adapter import PriceChartingProvider
 from pricing_provider import PricingProviderRegistry
@@ -1998,6 +2003,18 @@ PORTFOLIO_DASHBOARD_PREWARM_ENV = "PORTFOLIO_DASHBOARD_PREWARM"
 MARKET_MOVERS_WINDOW_DAYS_ENV = "MARKET_MOVERS_WINDOW_DAYS"
 
 
+# Social-feed market blocks (docs/meta-feed-api-contracts-2026-09-23.md). Each
+# route answers 404 {"error": "disabled"} until its flag is on for the env.
+META_PULSE_ENABLED_ENV = "META_PULSE_ENABLED"
+HOT_CARDS_ENABLED_ENV = "HOT_CARDS_ENABLED"
+SET_SPOTLIGHT_ENABLED_ENV = "SET_SPOTLIGHT_ENABLED"
+NEWS_FEED_ENABLED_ENV = "NEWS_FEED_ENABLED"
+META_PULSE_WINDOWS = (7, 30, 90)
+# Set pages other than this week's pick are built on demand from history reads.
+SET_SPOTLIGHT_CACHE_TTL_SECONDS = 3600.0
+SET_SPOTLIGHT_CACHE_MAX_ENTRIES = 256
+
+
 def _market_movers_window_days() -> int:
     raw = os.environ.get(MARKET_MOVERS_WINDOW_DAYS_ENV)
     try:
@@ -2231,6 +2248,11 @@ class SpotlightScanService:
             _apply_scan_labeling_reviews_schema_patch(bootstrap_connection)
             _apply_price_history_cells_schema_patch(bootstrap_connection)
             _apply_access_gate_schema_patch(bootstrap_connection)
+            # Small result tables for the feed jobs; no big-table indexes here.
+            meta_pulse.ensure_schema(bootstrap_connection)
+            hot_cards.ensure_schema(bootstrap_connection)
+            set_spotlight.ensure_schema(bootstrap_connection)
+            youtube_feed.ensure_schema(bootstrap_connection)  # includes news_feed's tables
             bootstrap_connection.commit()
             self.index = load_index(bootstrap_connection)
         finally:
@@ -2276,6 +2298,14 @@ class SpotlightScanService:
         # there is exactly one payload to compute.
         self._market_movers_cache: dict[int, tuple[str, dict[str, Any]]] = {}
         self._market_movers_lock = threading.Lock()
+        # Feed market blocks read small precomputed tables, so no dogpile locks:
+        # meta keyed by (game, window, lane) on the job's version token, hot
+        # cards by game on the newest run, set spotlight by set id (pick on its
+        # stored row, other sets on a TTL).
+        self._meta_pulse_cache: dict[tuple[str, int, str], tuple[str, dict[str, Any]]] = {}
+        self._hot_cards_cache: dict[str, tuple[str, dict[str, Any]]] = {}
+        self._set_spotlight_cache: dict[str, tuple[str, float, dict[str, Any]]] = {}
+        self._feed_cache_lock = threading.Lock()
         self.artifact_store = build_scan_artifact_store(
             repo_root=repo_root,
             storage_override=os.environ.get(SCAN_ARTIFACTS_STORAGE_ENV),
@@ -21826,6 +21856,78 @@ class SpotlightScanService:
         self._emit_structured_log(result)
         return result
 
+    def market_meta_pulse(self, *, game: str, window_days: int, lane: str) -> dict[str, Any]:
+        """Meta pulse block/page. The version token changes on every job write."""
+        key = (game, window_days, lane)
+        try:
+            version = meta_pulse.meta_pulse_version_token(self.connection)
+        except Exception:  # noqa: BLE001 - cache bookkeeping must never break the feed
+            traceback.print_exc()
+            version = None
+        cached = self._meta_pulse_cache.get(key)
+        if version is not None and cached is not None and cached[0] == version:
+            return cached[1]
+        payload = meta_pulse.build_meta_pulse_payload(
+            self.connection, game=game, window_days=window_days, lane=lane
+        )
+        if version is not None:
+            with self._feed_cache_lock:
+                self._meta_pulse_cache[key] = (version, payload)
+        return payload
+
+    def market_hot_cards(self, *, game: str | None) -> dict[str, Any]:
+        """Hot on Ekalight, keyed on the newest hot_cards run."""
+        key = game or ""
+        try:
+            row = self.connection.execute("SELECT MAX(computed_at) FROM hot_cards_runs").fetchone()
+            version = str(row[0]) if row and row[0] else None
+        except sqlite3.Error:
+            version = None
+        cached = self._hot_cards_cache.get(key)
+        if version is not None and cached is not None and cached[0] == version:
+            return cached[1]
+        payload = hot_cards.build_hot_cards_payload(self.connection, game=game)
+        if version is not None:
+            with self._feed_cache_lock:
+                self._hot_cards_cache[key] = (version, payload)
+        return payload
+
+    def market_set_spotlight(self, *, set_id: str | None) -> dict[str, Any] | None:
+        """This week's pick (set_id None) or any set. None → unknown set / no pick.
+
+        The pick is a stored row, keyed on its week + computed_at; other sets are
+        built from history reads and cached for SET_SPOTLIGHT_CACHE_TTL_SECONDS."""
+        try:
+            row = self.connection.execute(
+                "SELECT set_id, week_start, computed_at FROM set_spotlight_picks "
+                "ORDER BY week_start DESC LIMIT 1"
+            ).fetchone()
+        except sqlite3.Error:
+            row = None
+        pick_set_id = str(row[0]) if row else None
+        pick_version = f"{row[1]}|{row[2]}" if row else None
+        target = set_id or pick_set_id
+        if target is None:
+            return None
+        is_pick = target == pick_set_id
+        now = monotonic()
+        cached = self._set_spotlight_cache.get(target)
+        if cached is not None:
+            version, stored_at, payload = cached
+            if (is_pick and version == pick_version) or (
+                not is_pick and version == "" and now - stored_at < SET_SPOTLIGHT_CACHE_TTL_SECONDS
+            ):
+                return payload
+        payload = set_spotlight.build_set_spotlight_payload(self.connection, set_id=target)
+        if payload is None:
+            return None
+        with self._feed_cache_lock:
+            if len(self._set_spotlight_cache) >= SET_SPOTLIGHT_CACHE_MAX_ENTRIES:
+                oldest = min(self._set_spotlight_cache, key=lambda k: self._set_spotlight_cache[k][1])
+                self._set_spotlight_cache.pop(oldest, None)
+            self._set_spotlight_cache[target] = ((pick_version or "") if is_pick else "", now, payload)
+        return payload
+
     def portfolio_performance(self) -> dict[str, Any]:
         """Cache-and-dogpile wrapper over the heavy performance-table compute,
         the same pattern as portfolio_dashboard / transaction_insights /
@@ -24427,6 +24529,125 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 return
             finally:
                 _heavy_read_semaphore.release()
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        # --- Social-feed market blocks: public market data, like top-movers ---
+        if parsed.path == "/api/v1/market/meta":
+            if not _env_flag(META_PULSE_ENABLED_ENV):
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "disabled"})
+                return
+            query_params = parse_qs(parsed.query)
+            game = query_params.get("game", ["pokemon"])[0].strip().lower() or "pokemon"
+            lane = query_params.get("lane", ["all"])[0].strip().lower() or "all"
+            try:
+                window_days = int(query_params.get("window", ["7"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "window must be an integer"})
+                return
+            if window_days not in META_PULSE_WINDOWS:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "window must be 7, 30 or 90"})
+                return
+            if lane not in meta_pulse.LANE_FILTERS:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "lane must be all, raw or graded"})
+                return
+            if game not in SUPPORTED_GAMES:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": f"unknown game: {game}"})
+                return
+            try:
+                payload = self.service.market_meta_pulse(game=game, window_days=window_days, lane=lane)
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Meta pulse failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        if parsed.path == "/api/v1/market/hot":
+            if not _env_flag(HOT_CARDS_ENABLED_ENV):
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "disabled"})
+                return
+            game = parse_qs(parsed.query).get("game", [""])[0].strip().lower() or None
+            if game is not None and game not in SUPPORTED_GAMES:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": f"unknown game: {game}"})
+                return
+            try:
+                payload = self.service.market_hot_cards(game=game)
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Hot cards failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        if parsed.path == "/api/v1/market/set-spotlight" or (
+            parsed.path.startswith("/api/v1/market/sets/") and parsed.path.endswith("/spotlight")
+        ):
+            if not _env_flag(SET_SPOTLIGHT_ENABLED_ENV):
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "disabled"})
+                return
+            set_id: str | None = None
+            if parsed.path != "/api/v1/market/set-spotlight":
+                set_id = unquote(
+                    parsed.path[len("/api/v1/market/sets/"):-len("/spotlight")]
+                ).strip()
+                if not set_id or "/" in set_id:
+                    self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+                    return
+            # Only a cache miss on a non-pick set reads price history.
+            if not self._acquire_heavy_read_slot():
+                return
+            try:
+                payload = self.service.market_set_spotlight(set_id=set_id)
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Set spotlight failed: {error}"}
+                )
+                return
+            finally:
+                _heavy_read_semaphore.release()
+            if payload is None:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+                return
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        if parsed.path == "/api/v1/feed/news":
+            if not _env_flag(NEWS_FEED_ENABLED_ENV):
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "disabled"})
+                return
+            query_params = parse_qs(parsed.query)
+
+            def _param(name: str) -> str | None:
+                return query_params.get(name, [""])[0].strip() or None
+
+            game = (_param("game") or "").lower() or None
+            if game is not None and game not in SUPPORTED_GAMES:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": f"unknown game: {game}"})
+                return
+            try:
+                limit = int(_param("limit") or news_feed.DEFAULT_PAGE_LIMIT)
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+            try:
+                payload = news_feed.build_news_payload(
+                    self.service.connection,
+                    game=game,
+                    kind=_param("kind"),
+                    set_id=_param("setId"),
+                    card_id=_param("cardId"),
+                    limit=limit,
+                    cursor=_param("cursor"),
+                )
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"News feed failed: {error}"})
+                return
             self._write_json(HTTPStatus.OK, payload)
             return
 

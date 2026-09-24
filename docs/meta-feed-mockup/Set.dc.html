@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Set spotlight</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#FFFFFF;font-family:'Plus Jakarta Sans',system-ui,sans-serif;color:#1A1A1A}
+a{color:#7000FF;text-decoration:none}a:hover{color:#4B3FD8}
+.tx{font-size:14px;line-height:21px;font-weight:600;color:#1A1A1A}
+.ts{font-size:17px;line-height:23px;font-weight:600;color:#1A1A1A}
+.bm{font-size:14px;line-height:21px;font-weight:500;color:#1A1A1A}
+.bs{font-size:14px;line-height:21px;font-weight:400;color:#1A1A1A}
+.cm{font-size:12px;line-height:16.8px;font-weight:500;color:#717171}
+.meta{font-size:11px;line-height:14.3px;font-weight:400;color:#4A4A4A}
+.pc{font-size:12px;line-height:16.8px;font-weight:700;color:#1A1A1A}
+.up{display:inline-flex;align-items:center;background:#E2F4E8;color:#1E7A3C;font-size:11px;line-height:14px;font-weight:600;padding:2px 6px;border-radius:4px}
+.dn{display:inline-flex;align-items:center;background:#FFE9E9;color:#B22416;font-size:11px;line-height:14px;font-weight:600;padding:2px 6px;border-radius:4px}
+.band{height:4px;background:#F2F2F2;flex-shrink:0}
+.art{background:#E8E8E8;border-radius:2px;flex-shrink:0}
+.bubble{width:44px;height:44px;border-radius:999px;background:#F3F3F3;display:flex;align-items:center;justify-content:center;border:0;padding:0;box-shadow:0 8px 20px rgba(0,0,0,.08)}
+.seg{flex-grow:1;border:0;background:transparent;font-family:inherit;font-size:13px;font-weight:600;color:#4A4A4A;border-radius:8px;height:30px}
+.seg.on{background:#FFFFFF;color:#1A1A1A;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.row{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:0.5px solid #D4D4D4}
+.rk{width:18px;font-size:12px;font-weight:700;color:#1A1A1A}
+</style>
+</helmet>
+<div style="width: 390px; height: 1500px; box-sizing: border-box; background: #FFFFFF; display: flex; flex-direction: column; overflow: hidden">
+
+  <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px">
+    <button class="bubble" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"></path></svg></button>
+    <button class="bubble" aria-label="Share"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M8 7l4-4 4 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"></path></svg></button>
+  </div>
+
+  <!-- Set header -->
+  <div style="display: flex; align-items: center; gap: 14px; padding: 4px 16px 16px">
+    <div style="width: 64px; height: 64px; border-radius: 16px; background: #F7EEFF; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; color: #7000FF">CEL</div>
+    <div style="flex-grow: 1">
+      <div style="font-size: 22px; line-height: 27.5px; font-weight: 700">Celebrations</div>
+      <div class="cm">Sword &amp; Shield · Oct 2021 · 50 + 25 cards</div>
+    </div>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 0 16px 16px">
+    <div style="background: #F7F7F7; border-radius: 12px; padding: 10px"><div class="meta">Set value</div><div class="ts">$1,412</div><div class="up" style="margin-top: 2px">+5.2%</div></div>
+    <div style="background: #F7F7F7; border-radius: 12px; padding: 10px"><div class="meta">PSA 10 value</div><div class="ts">$9,870</div><div class="up" style="margin-top: 2px">+8.9%</div></div>
+    <div style="background: #F7F7F7; border-radius: 12px; padding: 10px"><div class="meta">In collections</div><div class="ts">864</div><div class="meta" style="margin-top: 4px">on Ekalight</div></div>
+  </div>
+  <div class="band"></div>
+
+  <!-- Top 10 -->
+  <div style="padding: 16px">
+    <div style="display: flex; justify-content: space-between; align-items: baseline">
+      <div class="tx">Top 10 cards</div><div class="cm">7-day change</div>
+    </div>
+    <div style="display: flex; gap: 2px; padding: 2px; background: #F2F2F2; border-radius: 10px; margin: 12px 0 4px">
+      <button class="seg on">By price</button><button class="seg">Biggest movers</button><button class="seg">PSA 10</button>
+    </div>
+    <div style="display: flex; flex-direction: column">
+      <div class="row"><div class="rk">1</div><div class="art" style="width: 36px; height: 50px"></div><div style="flex-grow: 1"><div class="bm">Charizard</div><div class="meta">Classic Collection · 4/102</div></div><div style="text-align: right"><div class="pc">$168.40</div><div class="up" style="margin-top: 2px">+3.2%</div></div></div>
+      <div class="row"><div class="rk">2</div><div class="art" style="width: 36px; height: 50px"></div><div style="flex-grow: 1"><div class="bm">Umbreon ☆</div><div class="meta">Classic Collection · 17/17</div></div><div style="text-align: right"><div class="pc">$112.90</div><div class="up" style="margin-top: 2px">+9.4%</div></div></div>
+      <div class="row"><div class="rk">3</div><div class="art" style="width: 36px; height: 50px"></div><div style="flex-grow: 1"><div class="bm">Shining Magikarp</div><div class="meta">Classic Collection · 66/64</div></div><div style="text-align: right"><div class="pc">$41.75</div><div class="dn" style="margin-top: 2px">−1.8%</div></div></div>
+      <div class="row"><div class="rk">4</div><div class="art" style="width: 36px; height: 50px"></div><div style="flex-grow: 1"><div class="bm">Mew ex</div><div class="meta">Classic Collection · 88/92</div></div><div style="text-align: right"><div class="pc">$38.10</div><div class="up" style="margin-top: 2px">+0.6%</div></div></div>
+      <div class="row"><div class="rk">5</div><div class="art" style="width: 36px; height: 50px"></div><div style="flex-grow: 1"><div class="bm">Rocket's Zapdos</div><div class="meta">Classic Collection · 15/132</div></div><div style="text-align: right"><div class="pc">$27.30</div><div class="up" style="margin-top: 2px">+2.1%</div></div></div>
+      <div style="display: flex; justify-content: center; padding: 12px 0 0"><a href="#" class="bm" style="color: #7000FF; font-weight: 600">Show all 10</a></div>
+    </div>
+    <div class="meta" style="margin-top: 6px">Prices shown are sample values for the mockup.</div>
+  </div>
+  <div class="band"></div>
+
+  <!-- Viral in set -->
+  <div style="padding: 16px">
+    <div class="tx">What's moving in this set</div>
+    <div style="display: flex; gap: 12px; align-items: center; margin-top: 10px; padding: 12px; border-radius: 12px; background: #F7EEFF">
+      <div class="art" style="width: 56px; height: 78px; border-radius: 4px"></div>
+      <div style="flex-grow: 1">
+        <div class="bm">Umbreon ☆ PSA 10 is up 14% this week</div>
+        <div class="meta" style="margin-top: 2px">Raw copies +9.4%. Gold Star cards are rising across every set, graded most of all.</div>
+        <a href="Meta.dc.html" class="meta" style="color: #7000FF; font-weight: 600; display: inline-block; margin-top: 6px">See the Gold Star segment ›</a>
+      </div>
+    </div>
+  </div>
+  <div class="band"></div>
+
+  <!-- Videos -->
+  <div style="padding: 16px">
+    <div style="display: flex; justify-content: space-between; align-items: baseline">
+      <div class="tx">Top videos</div><div class="cm">from YouTube channels we follow</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 10px">
+      <div style="display: flex; gap: 12px">
+        <div style="position: relative; width: 150px; height: 84px; border-radius: 8px; background: #2E2E2E; flex-shrink: 0; display: flex; align-items: center; justify-content: center"><div style="width: 30px; height: 30px; border-radius: 999px; background: rgba(255,255,255,.9); display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="#1A1A1A"><path d="M7 4l13 8-13 8z"></path></svg></div></div>
+        <div><div class="bm">[Video title mentioning Celebrations]</div><div class="meta" style="margin-top: 4px">[Channel] · 212K views · 3d</div></div>
+      </div>
+      <div style="display: flex; gap: 12px">
+        <div style="position: relative; width: 150px; height: 84px; border-radius: 8px; background: #2E2E2E; flex-shrink: 0; display: flex; align-items: center; justify-content: center"><div style="width: 30px; height: 30px; border-radius: 999px; background: rgba(255,255,255,.9); display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="#1A1A1A"><path d="M7 4l13 8-13 8z"></path></svg></div></div>
+        <div><div class="bm">[Video title]</div><div class="meta" style="margin-top: 4px">[Channel] · 88K views · 1w</div></div>
+      </div>
+      <div style="display: flex; gap: 12px">
+        <div style="position: relative; width: 150px; height: 84px; border-radius: 8px; background: #2E2E2E; flex-shrink: 0; display: flex; align-items: center; justify-content: center"><div style="width: 30px; height: 30px; border-radius: 999px; background: rgba(255,255,255,.9); display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="#1A1A1A"><path d="M7 4l13 8-13 8z"></path></svg></div></div>
+        <div><div class="bm">[Video title]</div><div class="meta" style="margin-top: 4px">[Channel] · 41K views · 2w</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="band"></div>
+
+  <!-- News -->
+  <div style="padding: 16px">
+    <div class="tx">In the news</div>
+    <div style="display: flex; gap: 12px; padding: 10px 0">
+      <div style="flex-grow: 1"><div class="meta" style="font-weight: 600">[News source] · 4d</div><div class="bm" style="margin-top: 2px">[Headline matched to "Celebrations"]</div></div>
+      <div class="art" style="width: 64px; height: 64px; border-radius: 8px"></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1500}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

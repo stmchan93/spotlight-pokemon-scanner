@@ -1,0 +1,69 @@
+{
+  "kind": "youtube#playlistItemListResponse",
+  "etag": "b1f0",
+  "nextPageToken": "EAAaBlBUOkNBVQ",
+  "items": [
+    {
+      "kind": "youtube#playlistItem",
+      "etag": "e1",
+      "id": "VVVVSFlNN2dzLUdaWnBSR0Vzc2tURXF6US5hQmNEZUZnSGlKMQ",
+      "snippet": {
+        "publishedAt": "2026-09-22T19:00:07Z",
+        "channelId": "UCUHYM7gs-GZpRGEsskTEqzQ",
+        "title": "Opening a 30th Celebration Booster Box! (Mew RGB hunt)",
+        "description": "We rip a full box of 30th Celebration looking for the Mew RGB secret rares.",
+        "thumbnails": {
+          "default": {"url": "https://i.ytimg.com/vi/aBcDeFgHiJ1/default.jpg", "width": 120, "height": 90},
+          "medium": {"url": "https://i.ytimg.com/vi/aBcDeFgHiJ1/mqdefault.jpg", "width": 320, "height": 180},
+          "high": {"url": "https://i.ytimg.com/vi/aBcDeFgHiJ1/hqdefault.jpg", "width": 480, "height": 360}
+        },
+        "channelTitle": "PokeRev",
+        "playlistId": "UUUHYM7gs-GZpRGEsskTEqzQ",
+        "position": 0,
+        "resourceId": {"kind": "youtube#video", "videoId": "aBcDeFgHiJ1"},
+        "videoOwnerChannelTitle": "PokeRev",
+        "videoOwnerChannelId": "UCUHYM7gs-GZpRGEsskTEqzQ"
+      },
+      "contentDetails": {"videoId": "aBcDeFgHiJ1", "videoPublishedAt": "2026-09-22T19:00:07Z"}
+    },
+    {
+      "kind": "youtube#playlistItem",
+      "etag": "e2",
+      "id": "VVVVSFlNN2dzLUdaWnBSR0Vzc2tURXF6US5rTG1Ob1BxUnNUMg",
+      "snippet": {
+        "publishedAt": "2026-09-20T18:30:00Z",
+        "channelId": "UCUHYM7gs-GZpRGEsskTEqzQ",
+        "title": "Vintage market update - is Base Set cooling off?",
+        "description": "Prices on WOTC vintage over the last 30 days.",
+        "thumbnails": {
+          "high": {"url": "https://i.ytimg.com/vi/kLmNoPqRsT2/hqdefault.jpg", "width": 480, "height": 360}
+        },
+        "channelTitle": "PokeRev",
+        "playlistId": "UUUHYM7gs-GZpRGEsskTEqzQ",
+        "position": 1,
+        "resourceId": {"kind": "youtube#video", "videoId": "kLmNoPqRsT2"},
+        "videoOwnerChannelTitle": "PokeRev",
+        "videoOwnerChannelId": "UCUHYM7gs-GZpRGEsskTEqzQ"
+      },
+      "contentDetails": {"videoId": "kLmNoPqRsT2", "videoPublishedAt": "2026-09-20T18:30:00Z"}
+    },
+    {
+      "kind": "youtube#playlistItem",
+      "etag": "e3",
+      "id": "VVVVSFlNN2dzLUdaWnBSR0Vzc2tURXF6US5wcml2YXRl",
+      "snippet": {
+        "publishedAt": "2026-09-19T10:00:00Z",
+        "channelId": "UCUHYM7gs-GZpRGEsskTEqzQ",
+        "title": "Private video",
+        "description": "This video is private.",
+        "thumbnails": {},
+        "channelTitle": "PokeRev",
+        "playlistId": "UUUHYM7gs-GZpRGEsskTEqzQ",
+        "position": 2,
+        "resourceId": {"kind": "youtube#video", "videoId": "pRiVaTeVid3"}
+      },
+      "contentDetails": {"videoId": "pRiVaTeVid3"}
+    }
+  ],
+  "pageInfo": {"totalResults": 2140, "resultsPerPage": 3}
+}

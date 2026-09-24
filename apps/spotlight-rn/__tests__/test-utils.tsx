@@ -194,6 +194,22 @@ export function createTestSpotlightRepository(
       return overrides.getTopMovers?.(...args)
         ?? baseRepository.getTopMovers(...args);
     },
+    fetchMetaPulse: (...args) => {
+      return overrides.fetchMetaPulse?.(...args)
+        ?? baseRepository.fetchMetaPulse(...args);
+    },
+    fetchHotCards: (...args) => {
+      return overrides.fetchHotCards?.(...args)
+        ?? baseRepository.fetchHotCards(...args);
+    },
+    fetchSetSpotlight: (...args) => {
+      return overrides.fetchSetSpotlight?.(...args)
+        ?? baseRepository.fetchSetSpotlight(...args);
+    },
+    fetchNewsFeed: (...args) => {
+      return overrides.fetchNewsFeed?.(...args)
+        ?? baseRepository.fetchNewsFeed(...args);
+    },
     getCardConditionHistory: (...args) => {
       return overrides.getCardConditionHistory?.(...args)
         ?? baseRepository.getCardConditionHistory(...args);

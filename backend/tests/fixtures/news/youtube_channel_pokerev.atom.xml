@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+ <link rel="self" href="http://www.youtube.com/feeds/videos.xml?channel_id=UCUHYM7gs-GZpRGEsskTEqzQ"/>
+ <id>yt:channel:UHYM7gs-GZpRGEsskTEqzQ</id>
+ <yt:channelId>UHYM7gs-GZpRGEsskTEqzQ</yt:channelId>
+ <title>PokeRev</title>
+ <link rel="alternate" href="https://www.youtube.com/channel/UCUHYM7gs-GZpRGEsskTEqzQ"/>
+ <author>
+  <name>PokeRev</name>
+  <uri>https://www.youtube.com/channel/UCUHYM7gs-GZpRGEsskTEqzQ</uri>
+ </author>
+ <published>2014-03-02T21:10:11+00:00</published>
+ <entry>
+  <id>yt:video:aBcDeFgHiJ1</id>
+  <yt:videoId>aBcDeFgHiJ1</yt:videoId>
+  <yt:channelId>UCUHYM7gs-GZpRGEsskTEqzQ</yt:channelId>
+  <title>Opening a 30th Celebration Booster Box! (Mew RGB hunt)</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=aBcDeFgHiJ1"/>
+  <author>
+   <name>PokeRev</name>
+   <uri>https://www.youtube.com/channel/UCUHYM7gs-GZpRGEsskTEqzQ</uri>
+  </author>
+  <published>2026-09-22T19:00:07+00:00</published>
+  <updated>2026-09-23T02:11:40+00:00</updated>
+  <media:group>
+   <media:title>Opening a 30th Celebration Booster Box! (Mew RGB hunt)</media:title>
+   <media:content url="https://www.youtube.com/v/aBcDeFgHiJ1?version=3" type="application/x-shockwave-flash" width="640" height="390"/>
+   <media:thumbnail url="https://i2.ytimg.com/vi/aBcDeFgHiJ1/hqdefault.jpg" width="480" height="360"/>
+   <media:description>We rip a full box of 30th Celebration looking for the Mew RGB secret rares.</media:description>
+   <media:community>
+    <media:starRating count="9120" average="5.00" min="1" max="5"/>
+    <media:statistics views="184230"/>
+   </media:community>
+  </media:group>
+ </entry>
+ <entry>
+  <id>yt:video:kLmNoPqRsT2</id>
+  <yt:videoId>kLmNoPqRsT2</yt:videoId>
+  <yt:channelId>UCUHYM7gs-GZpRGEsskTEqzQ</yt:channelId>
+  <title>Vintage market update - is Base Set cooling off?</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=kLmNoPqRsT2"/>
+  <author>
+   <name>PokeRev</name>
+   <uri>https://www.youtube.com/channel/UCUHYM7gs-GZpRGEsskTEqzQ</uri>
+  </author>
+  <published>2026-09-20T18:30:00+00:00</published>
+  <updated>2026-09-21T09:00:00+00:00</updated>
+  <media:group>
+   <media:title>Vintage market update - is Base Set cooling off?</media:title>
+   <media:thumbnail url="https://i3.ytimg.com/vi/kLmNoPqRsT2/hqdefault.jpg" width="480" height="360"/>
+   <media:description>Prices on WOTC vintage over the last 30 days.</media:description>
+   <media:community>
+    <media:statistics views="40211"/>
+   </media:community>
+  </media:group>
+ </entry>
+</feed>

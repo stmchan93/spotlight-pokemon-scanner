@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>News and videos</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#FFFFFF;font-family:'Plus Jakarta Sans',system-ui,sans-serif;color:#1A1A1A}
+a{color:#7000FF;text-decoration:none}a:hover{color:#4B3FD8}
+.tx{font-size:14px;line-height:21px;font-weight:600;color:#1A1A1A}
+.ts{font-size:17px;line-height:23px;font-weight:600;color:#1A1A1A}
+.bm{font-size:14px;line-height:21px;font-weight:500;color:#1A1A1A}
+.cm{font-size:12px;line-height:16.8px;font-weight:500;color:#717171}
+.meta{font-size:11px;line-height:14.3px;font-weight:400;color:#4A4A4A}
+.src{font-size:11px;line-height:14.3px;font-weight:600;color:#4A4A4A}
+.up{display:inline-flex;align-items:center;background:#E2F4E8;color:#1E7A3C;font-size:11px;line-height:14px;font-weight:600;padding:2px 6px;border-radius:4px}
+.band{height:4px;background:#F2F2F2;flex-shrink:0}
+.art{background:#E8E8E8;border-radius:8px;flex-shrink:0}
+.chip{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:999px;border:1px solid #D4D4D4;font-size:11px;font-weight:600;color:#4A4A4A;white-space:nowrap}
+.cardchip{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px 0 3px;border-radius:999px;background:#F7EEFF;font-size:11px;font-weight:600;color:#4B3FD8;white-space:nowrap}
+.gchip{display:inline-flex;align-items:center;height:32px;padding:0 12px;border-radius:999px;border:1px solid #D4D4D4;background:#FFFFFF;font-family:inherit;font-size:13px;font-weight:600;color:#1A1A1A;white-space:nowrap}
+.gchip.on{background:#1A1A1A;border-color:#1A1A1A;color:#FFFFFF}
+.bubble{width:44px;height:44px;border-radius:999px;background:#F3F3F3;display:flex;align-items:center;justify-content:center;border:0;padding:0;box-shadow:0 8px 20px rgba(0,0,0,.08)}
+.tab{border:0;background:none;font-family:inherit;padding:12px 0 10px;font-size:15px;line-height:20px;font-weight:600;color:#717171;border-bottom:2px solid transparent}
+.tab.on{color:#1A1A1A;border-bottom-color:#1A1A1A}
+.item{display:flex;gap:12px;padding:14px 16px;border-bottom:0.5px solid #D4D4D4}
+.play{width:30px;height:30px;border-radius:999px;background:rgba(255,255,255,.9);display:flex;align-items:center;justify-content:center}
+</style>
+</helmet>
+<div style="width: 390px; height: 1400px; box-sizing: border-box; background: #FFFFFF; display: flex; flex-direction: column; overflow: hidden">
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 12px 16px 8px">
+    <button class="bubble" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"></path></svg></button>
+    <div style="flex-grow: 1"><div style="font-size: 22px; line-height: 27.5px; font-weight: 700">News &amp; videos</div><div class="cm">Opens from “All news ›” in the feed</div></div>
+  </div>
+
+  <div style="display: flex; gap: 8px; padding: 8px 16px 8px; overflow: hidden">
+    <button class="gchip on">All</button>
+    <button class="gchip">News</button>
+    <button class="gchip">Market</button>
+    <button class="gchip">Videos</button>
+    <button class="gchip">Community</button>
+  </div>
+  <div class="cm" style="padding: 0 16px 8px">Only for games in your collection · Pokémon, One Piece</div>
+
+  <!-- Lead story -->
+  <div style="padding: 8px 16px 16px">
+    <div class="art" style="width: 358px; height: 190px; border-radius: 12px"></div>
+    <div class="src" style="margin-top: 10px">PokéBeach · 1h</div>
+    <div class="ts" style="margin-top: 2px">[Lead headline: new set's full card list revealed]</div>
+    <div style="display: flex; gap: 6px; margin-top: 8px"><span class="chip">Pokémon</span><span class="chip">Set reveal</span></div>
+  </div>
+  <div class="band"></div>
+
+  <div class="item">
+    <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px">
+      <div class="src">TCGplayer Seller Blog · 1d</div>
+      <div class="bm">[Price Trends: One Piece cards climbing in price]</div>
+      <div style="display: flex; gap: 6px; flex-wrap: wrap"><span class="chip">One Piece</span><span class="chip">Market</span><span class="cardchip"><span style="width: 16px; height: 16px; border-radius: 999px; background: #D9AEFF"></span>3 cards you own</span></div>
+    </div>
+    <div class="art" style="width: 72px; height: 72px"></div>
+  </div>
+
+  <div class="item">
+    <div style="position: relative; width: 128px; height: 72px; border-radius: 8px; background: #2E2E2E; flex-shrink: 0; display: flex; align-items: center; justify-content: center"><div class="play"><svg width="12" height="12" viewBox="0 0 24 24" fill="#1A1A1A"><path d="M7 4l13 8-13 8z"></path></svg></div><div style="position: absolute; right: 5px; bottom: 5px; background: rgba(0,0,0,.75); color: #FFFFFF; font-size: 10px; font-weight: 600; padding: 1px 4px; border-radius: 3px">14:08</div></div>
+    <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px">
+      <div class="src">YouTube · [Channel] · 1d</div>
+      <div class="bm">[Video title: opening a Celebrations UPC]</div>
+      <div class="meta">96K views</div>
+    </div>
+  </div>
+
+  <div class="item">
+    <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px">
+      <div class="src">onepiece.gg · 5h</div>
+      <div class="bm">[Headline: official ban and restriction update]</div>
+      <div style="display: flex; gap: 6px"><span class="chip">One Piece</span><span class="chip">Ban list</span></div>
+    </div>
+    <div class="art" style="width: 72px; height: 72px"></div>
+  </div>
+
+  <div class="item">
+    <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px">
+      <div class="src">Elite Fourum · top this week</div>
+      <div class="bm">[Thread: PSA 10 Aquapolis crystals — pop vs price]</div>
+      <div style="display: flex; gap: 6px; flex-wrap: wrap"><span class="chip">Community</span><span class="cardchip"><span style="width: 16px; height: 16px; border-radius: 999px; background: #D9AEFF"></span>Lugia (Crystal) <span class="up" style="margin-left: 2px">+31%</span></span></div>
+    </div>
+    <div class="art" style="width: 72px; height: 72px"></div>
+  </div>
+
+  <div class="item">
+    <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px">
+      <div class="src">Polygon · 1d</div>
+      <div class="bm">[Headline: Pokémon TCG news story]</div>
+      <div style="display: flex; gap: 6px"><span class="chip">Pokémon</span></div>
+    </div>
+    <div class="art" style="width: 72px; height: 72px"></div>
+  </div>
+
+  <div class="item">
+    <div style="position: relative; width: 128px; height: 72px; border-radius: 8px; background: #2E2E2E; flex-shrink: 0; display: flex; align-items: center; justify-content: center"><div class="play"><svg width="12" height="12" viewBox="0 0 24 24" fill="#1A1A1A"><path d="M7 4l13 8-13 8z"></path></svg></div></div>
+    <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px">
+      <div class="src">YouTube · [Channel] · 2d</div>
+      <div class="bm">[Video title: vintage market update]</div>
+      <div class="meta">41K views</div>
+    </div>
+  </div>
+
+  <div class="item">
+    <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px">
+      <div class="src">Dexerto · 2d</div>
+      <div class="bm">[Headline: Pokémon TCG news story]</div>
+      <div style="display: flex; gap: 6px"><span class="chip">Pokémon</span></div>
+    </div>
+    <div class="art" style="width: 72px; height: 72px"></div>
+  </div>
+
+  <div class="meta" style="padding: 12px 16px; color: #717171">Headlines and thumbnails link out to the source. We never copy the article.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1400}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

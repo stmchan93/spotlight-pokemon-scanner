@@ -20,6 +20,7 @@ import {
 import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import type { MetaPulse } from '@spotlight/api-client';
 import {
   Avatar,
   StateCard,
@@ -32,6 +33,20 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { HOME_HEADER_BAR_HEIGHT, HomeHeader } from '@/components/home-header';
 import { tabBarBottomFadeHeight } from '@/lib/tab-bar-insets';
+import { HotCardsBlock, hasHotCardsContent } from '@/features/meta-feed/components/hot-cards-block';
+import { MetaPulseBlock, hasMetaPulseContent } from '@/features/meta-feed/components/meta-pulse-block';
+import { NewsBlock, hasNewsContent } from '@/features/meta-feed/components/news-block';
+import {
+  SetSpotlightBlock,
+  hasSetSpotlightContent,
+} from '@/features/meta-feed/components/set-spotlight-block';
+import {
+  NEWS_FEED_BLOCK_LIMIT,
+  useHotCards,
+  useMetaPulse,
+  useNewsFeed,
+  useSetSpotlight,
+} from '@/features/meta-feed/hooks/use-meta-feed';
 import { PostCard } from '@/features/social/components/post-card';
 import { RepostAttribution } from '@/features/social/components/repost-attribution';
 import {
@@ -164,6 +179,38 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     refreshIfStale: refreshTopMoversIfStale,
   } = useTopMovers();
   const topTrendsVisible = hasTopTrendsContent(topMovers, topMoversLoading);
+  // The meta feed blocks: same shared-cache pattern, each with its own window.
+  const metaPulse = useMetaPulse();
+  const hotCards = useHotCards();
+  const setSpotlight = useSetSpotlight();
+  const newsFeed = useNewsFeed({ limit: NEWS_FEED_BLOCK_LIMIT });
+  const {
+    refresh: refreshMetaPulse,
+    refreshIfStale: refreshMetaPulseIfStale,
+  } = metaPulse;
+  const { refresh: refreshHotCards, refreshIfStale: refreshHotCardsIfStale } = hotCards;
+  const {
+    refresh: refreshSetSpotlight,
+    refreshIfStale: refreshSetSpotlightIfStale,
+  } = setSpotlight;
+  const { refresh: refreshNewsFeed, refreshIfStale: refreshNewsFeedIfStale } = newsFeed;
+  /*
+    The header's sections in feed order (Meta pulse → Hot on Ekalight → Set
+    spotlight → Top Trends → Card news), each present only with content. The
+    LAST visible one is the section that meets the first post, so it hands its
+    closing band to the first cell once posts exist (see renderItem); every
+    other section closes itself.
+  */
+  const visibleHeaderBlocks = [
+    hasMetaPulseContent(metaPulse.data) ? 'metaPulse' : null,
+    hasHotCardsContent(hotCards.data) ? 'hotCards' : null,
+    hasSetSpotlightContent(setSpotlight.data) ? 'setSpotlight' : null,
+    topTrendsVisible ? 'topTrends' : null,
+    hasNewsContent(newsFeed.data) ? 'news' : null,
+  ].filter((block): block is string => block != null);
+  const headerBlocksVisible = visibleHeaderBlocks.length > 0;
+  const lastHeaderBlock = visibleHeaderBlocks[visibleHeaderBlocks.length - 1];
+  const showBlockBand = (block: string) => items.length === 0 || block !== lastHeaderBlock;
 
   /*
     "Back to top", the same FAB Collection / Wishlist / Insights already carry.
@@ -418,6 +465,10 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       // Top Trends has its own, much wider window (movers change daily); it
       // is checked on every focus regardless of which branch the feed takes.
       refreshTopMoversIfStale();
+      refreshMetaPulseIfStale();
+      refreshHotCardsIfStale();
+      refreshSetSpotlightIfStale();
+      refreshNewsFeedIfStale();
       // Compare-and-record rather than read-and-clear: the owner's Activity tab
       // watches the same counter and must see this signal too.
       if (seenRefreshVersionRef.current !== getFeedRefreshVersion()) {
@@ -428,7 +479,15 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       if (Date.now() - lastLoadedAtRef.current >= FEED_STALE_AFTER_MS) {
         refetchFeedQuietly();
       }
-    }, [loadFeed, refetchFeedQuietly, refreshTopMoversIfStale]),
+    }, [
+      loadFeed,
+      refetchFeedQuietly,
+      refreshHotCardsIfStale,
+      refreshMetaPulseIfStale,
+      refreshNewsFeedIfStale,
+      refreshSetSpotlightIfStale,
+      refreshTopMoversIfStale,
+    ]),
   );
 
   const handleRefresh = useCallback(() => {
@@ -439,6 +498,10 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     // Not awaited: the spinner tracks the feed read, and a slow movers read
     // keeps the cached rail up rather than holding the control open.
     void refreshTopMovers();
+    void refreshMetaPulse();
+    void refreshHotCards();
+    void refreshSetSpotlight();
+    void refreshNewsFeed();
     void (async () => {
       try {
         const page = await readFeed();
@@ -458,7 +521,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         }
       }
     })();
-  }, [refreshTopMovers]);
+  }, [refreshHotCards, refreshMetaPulse, refreshNewsFeed, refreshSetSpotlight, refreshTopMovers]);
 
   const handleLoadMore = useCallback(() => {
     if (!hasMore || loadingMoreRef.current || status !== 'ready' || items.length === 0) {
@@ -505,6 +568,26 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     [router],
   );
 
+  // Routes owned by the meta feed pages; cast like the other pushes here
+  // because typed routes are generated at build time.
+  const openMeta = useCallback(
+    (pulse: MetaPulse) => {
+      router.push({ pathname: '/meta', params: { game: pulse.game } } as never);
+    },
+    [router],
+  );
+
+  const openSetSpotlight = useCallback(
+    (setId: string) => {
+      router.push({ pathname: '/set-spotlight/[setId]', params: { setId } } as never);
+    },
+    [router],
+  );
+
+  const openNews = useCallback(() => {
+    router.push('/news' as never);
+  }, [router]);
+
   const openComposer = useCallback(() => {
     router.push('/new-post' as never);
   }, [router]);
@@ -546,9 +629,9 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
           // posts exist, the FIRST CELL draws this band (see renderItem):
           // Android lays cell 0 over the header's bottom edge, and anything
           // drawn from the header's side got shaved by the cell's background.
-          // With Top Trends below, the block is the header's last section and
-          // closes itself; the composer's 16pt paddingBottom is the whole gap.
-          borderBottomWidth: items.length > 0 || topTrendsVisible ? 0 : 4,
+          // With any feed block below (Meta pulse … Card news), the blocks close
+          // themselves; the composer's 16pt paddingBottom is the whole gap.
+          borderBottomWidth: items.length > 0 || headerBlocksVisible ? 0 : 4,
         },
       ]}
       testID={`${testID}-compose-divider`}
@@ -588,7 +671,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       loading={topMoversLoading}
       movers={topMovers}
       onPressCard={handleOpenCard}
-      showBand={items.length === 0}
+      showBand={showBlockBand('topTrends')}
       testID={`${testID}-top-trends`}
     />
   );
@@ -723,7 +806,32 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         ListHeaderComponent={
           <>
             {composePrompt}
+            <MetaPulseBlock
+              onOpenMeta={openMeta}
+              pulse={metaPulse.data}
+              showBand={showBlockBand('metaPulse')}
+              testID={`${testID}-meta-pulse`}
+            />
+            <HotCardsBlock
+              hot={hotCards.data}
+              onPressCard={handleOpenCard}
+              showBand={showBlockBand('hotCards')}
+              testID={`${testID}-hot-cards`}
+            />
+            <SetSpotlightBlock
+              onOpenSet={openSetSpotlight}
+              onPressCard={handleOpenCard}
+              showBand={showBlockBand('setSpotlight')}
+              spotlight={setSpotlight.data}
+              testID={`${testID}-set-spotlight`}
+            />
             {topTrendsBlock}
+            <NewsBlock
+              feed={newsFeed.data}
+              onOpenNews={openNews}
+              showBand={showBlockBand('news')}
+              testID={`${testID}-card-news`}
+            />
           </>
         }
         onEndReached={handleLoadMore}
@@ -758,16 +866,16 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
               doing the shaving, it has nothing left to lose. Under the
               composer, the 8pt bottom margin plus the card's own 8pt top
               inset makes the 16pt under-composer gap (Figma 4299:94902).
-              Under the Top Trends block the seam is the plain inter-section
-              rhythm — band + the card's 8 (Figma 5085:15398) — so the margin
-              drops.
+              Under a feed block (whichever is last: Top Trends, Card news…) the
+              seam is the plain inter-section rhythm — band + the card's 8
+              (Figma 5085:15398) — so the margin drops.
             */}
             {index === 0 ? (
               <View
                 style={{
                   backgroundColor: theme.colors.gray100,
                   height: 4,
-                  marginBottom: topTrendsVisible ? 0 : 8,
+                  marginBottom: headerBlocksVisible ? 0 : 8,
                 }}
                 testID={`${testID}-first-cell-rule`}
               />

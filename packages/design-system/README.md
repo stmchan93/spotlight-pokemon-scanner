@@ -49,6 +49,7 @@ Defined in `src/tokens.ts`:
 - `borderWidths`
 - `cardGridRule` — the one rule a CARD-VIEW GRID draws between its cells (`{ color, width }`). Collection and Wishlist render the same tile in the same grid, so they draw the same line; before this token they had drifted to gray-400 at 0.5 and gray-100 at 1 while the frames called for gray-300 at 1. New card grids consume it rather than picking a gray.
 - `MAX_FONT_SIZE_MULTIPLIER`
+- `colors.mediaScrim` / `colors.mediaPlayButton` — chrome over video thumbnails (`VideoTile`)
 
 ## Font Scaling Policy
 
@@ -67,6 +68,10 @@ Current typography roles:
 - `control`
 - `caption`
 - `micro`
+- `captionStrong` — 12/600, section links on the feed blocks ("See the meta ›")
+- `cardMetaStrong` — 11/600, a news row's "Source · 2h", a hot tile's "4.2× usual checks"
+- `chipLabel` — 11/600, `DeltaPill`, `RankBadge` and outlined tag chips
+- `tag` — 10/700, `LaneTag` and the video duration badge
 
 Current scanner surface tokens:
 
@@ -629,6 +634,110 @@ first, and back off the first shows the last. Clones carry no `testID`;
 From two items up the rail also draws a `CarouselPagination` under itself,
 centred, fed its own `autoAdvanceIntervalMs` so the active bar counts the dwell
 down.
+
+### Meta feed primitives
+
+Shared by the Social feed blocks (Meta pulse, Hot on Ekalight, Set spotlight,
+Card news — `apps/spotlight-rn/src/features/meta-feed/components`) and the Meta
+/ Set / News pages. Visual target: `docs/meta-feed-mockup/*.dc.html`. All are
+presentation only — strings arrive preformatted, taps are the host's call.
+
+#### LaneTag
+
+File: `src/components/lane-tag.tsx`. 18pt-tall uppercase RAW / GRADED marker
+after a group or card name, so a raw move is never read as a slab move.
+
+| Prop | Type | Notes |
+| --- | --- | --- |
+| `lane` | `'raw' \| 'graded'` | `graded` = gray900 fill + white; `raw` = gray100 fill + gray700 |
+| `label` | `string` | Optional override, e.g. `PSA 10` |
+| `style`, `testID` | | |
+
+#### DeltaPill
+
+File: `src/components/delta-pill.tsx`. Arrow-less signed change chip on the
+`deltaUp*` / `deltaDown*` ramp (11/600 `chipLabel`, radius 4). Use `TrendPill`
+when the design has an arrow icon.
+
+| Prop | Type | Notes |
+| --- | --- | --- |
+| `label` | `string` | Preformatted, e.g. `+18.4%` / `−4.1%` |
+| `changePercent` | `number \| null` | `> 0` green, `< 0` red, `0`/null gray |
+| `style`, `testID` | | Pass `alignSelf: 'flex-end'` in right-aligned columns |
+
+#### RankBadge
+
+File: `src/components/rank-badge.tsx`.
+
+| Prop | Type | Notes |
+| --- | --- | --- |
+| `rank` | `number` | 1-based |
+| `variant` | `'badge' \| 'plain'` | `badge` (default): 22pt gray900 circle, white number — over card art. `plain`: 14pt-wide bold number column for list rows |
+| `style`, `testID` | | Position the badge from the host (e.g. absolute top/left 6) |
+
+#### MetaGroupRow
+
+File: `src/components/meta-group-row.tsx`. One rising/cooling card group: 32pt
+tinted trend icon (GraphUp / GraphDown), name + `LaneTag` over a description,
+`DeltaPill` over the $ value line. Rows sit in a host container (1pt gray200
+border, `radii.md`, `overflow: hidden`).
+
+| Prop | Type | Notes |
+| --- | --- | --- |
+| `label` | `string` | `Vintage PSA 10 · pop ≤ 50` |
+| `lane` | `'raw' \| 'graded'` | Feeds the `LaneTag` |
+| `description` | `string` | `pre-2003 · 1,840 cards` |
+| `changeLabel` | `string` | Preformatted median change |
+| `changePercent` | `number` | `>= 0` rising (green icon), `< 0` cooling (red) |
+| `valueLabel` | `string` | Optional, `+$412k value` |
+| `divider` | `boolean` | 1pt gray200 rule ABOVE the row (all but the first) |
+| `onPress`, `testID` | | Derives `-icon-up`/`-icon-down`, `-lane`, `-change` |
+
+#### RankedCardRow
+
+File: `src/components/ranked-card-row.tsx`. Numbered row for top-N lists
+(Set spotlight): `RankBadge` plain, 36×50 art, name (+ optional `LaneTag`) over
+subtitle, `priceCaption` price over an optional `DeltaPill`.
+
+| Prop | Type | Notes |
+| --- | --- | --- |
+| `rank` | `number` | |
+| `imageUrl` | `string \| null` | null = gray200 fill |
+| `name`, `subtitle`, `priceLabel` | `string` | Preformatted |
+| `changeLabel`, `changePercent` | `string \| null`, `number \| null` | Omit for no pill |
+| `tag` | `{ lane, label? } \| null` | e.g. `{ lane: 'graded', label: 'PSA 10' }` |
+| `divider` | `boolean` | 0.5pt gray300 rule UNDER the row (all but the last) |
+| `onPress`, `testID` | | Derives `-change` |
+
+#### NewsRow
+
+File: `src/components/news-row.tsx`. Headline row: `cardMetaStrong` source ·
+age, `bodyMedium` headline (≤ 3 lines), outlined tag chips, 72×72 thumbnail on
+the right. Headline + source + thumbnail only — never article text.
+
+| Prop | Type | Notes |
+| --- | --- | --- |
+| `sourceLabel` | `string` | `PokéBeach · 2h` |
+| `title` | `string` | |
+| `tags` | `string[]` | Chips; empty = no chip row |
+| `imageUrl` | `string \| null` | null = gray200 square |
+| `divider` | `boolean` | 0.5pt gray300 rule UNDER the row |
+| `onPress`, `testID` | | Role `link`; derives `-thumb` |
+
+#### VideoTile
+
+File: `src/components/video-tile.tsx`. Video in a horizontal rail: 232×130
+thumbnail (gray800 fallback) with a 40pt `mediaPlayButton` circle and a
+`mediaScrim` duration badge, then title (≤ 2 lines) and meta. Exports
+`VIDEO_TILE_WIDTH` (232).
+
+| Prop | Type | Notes |
+| --- | --- | --- |
+| `title`, `metaLabel` | `string` | `PokeRev · 212K views · 3d` |
+| `durationLabel` | `string \| null` | `18:42`; omitted = no badge |
+| `imageUrl` | `string \| null` | |
+| `width` | `number` | Default 232; thumbnail keeps the ratio |
+| `onPress`, `testID` | | Role `link`; derives `-thumb`, `-duration` |
 
 ### CarouselPagination
 

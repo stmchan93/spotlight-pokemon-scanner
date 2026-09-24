@@ -333,6 +333,10 @@ PPT_POPULATION_LOG_FILE="$LOG_DIR/ppt_population.log"
 SOCIAL_MODERATION_LOG_FILE="$LOG_DIR/social_moderation.log"
 POST_MEDIA_PURGE_LOG_FILE="$LOG_DIR/post_media_purge.log"
 DEAL_SCAN_LOG_FILE="$LOG_DIR/deal_scan.log"
+META_PULSE_LOG_FILE="$LOG_DIR/meta_pulse.log"
+HOT_CARDS_LOG_FILE="$LOG_DIR/hot_cards.log"
+SET_SPOTLIGHT_LOG_FILE="$LOG_DIR/set_spotlight.log"
+NEWS_FEED_LOG_FILE="$LOG_DIR/news_feed.log"
 TORCH_CPU_INDEX_URL="${SPOTLIGHT_VM_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}"
 TORCH_PACKAGE_SPEC="${SPOTLIGHT_VM_TORCH_PACKAGE_SPEC:-torch==2.11.0+cpu}"
 SYNC_CRON_SCHEDULE="${SPOTLIGHT_VM_SYNC_CRON:-0 18 * * *}"
@@ -512,7 +516,11 @@ chmod +x \
   "$SCRIPT_DIR/run_social_moderation_vm.sh" \
   "$SCRIPT_DIR/run_post_media_purge_vm.sh" \
   "$SCRIPT_DIR/run_deal_scan_vm.sh" \
-  "$SCRIPT_DIR/run_deal_scan_vm_scheduled.sh"
+  "$SCRIPT_DIR/run_deal_scan_vm_scheduled.sh" \
+  "$SCRIPT_DIR/run_meta_pulse_vm.sh" \
+  "$SCRIPT_DIR/run_hot_cards_vm.sh" \
+  "$SCRIPT_DIR/run_set_spotlight_vm.sh" \
+  "$SCRIPT_DIR/run_news_feed_vm.sh"
 
 sudo tee "$SERVICE_PATH" >/dev/null <<EOF
 [Unit]
@@ -617,6 +625,18 @@ POST_MEDIA_PURGE_LINE="15 8 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_post_media_pu
 # $DEAL_SCAN_LOG_FILE from inside the wrapper, which is why this line has no
 # redirect of its own.
 DEAL_SCAN_LINE="* * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_deal_scan_vm_scheduled.sh"
+# Social-feed market blocks (docs/meta-feed-api-contracts-2026-09-23.md). All
+# free (own DB + free RSS/YouTube quota), so they install on BOTH environments;
+# each runner no-ops unless its *_ENABLED flag is truthy in the env files.
+# Cron is UTC. Meta pulse at 07:10 UTC (00:10 PDT / 23:10 PST): after the last
+# TCGCSV catch-up attempt (20:35 PT), prod's 18:00 PT Scrydex sync and the
+# 06:30 UTC PPT population refresh, so it sees the day's final prices. Set
+# spotlight follows it. Hot cards hourly at :41 and news at :17 stay clear of
+# the :05/:35 TCGCSV and :50 deal-scan minutes.
+META_PULSE_LINE="10 7 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_meta_pulse_vm.sh >> $META_PULSE_LOG_FILE 2>&1"
+SET_SPOTLIGHT_LINE="25 7 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_set_spotlight_vm.sh >> $SET_SPOTLIGHT_LOG_FILE 2>&1"
+HOT_CARDS_LINE="41 * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_hot_cards_vm.sh >> $HOT_CARDS_LOG_FILE 2>&1"
+NEWS_FEED_LINE="17 * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_news_feed_vm.sh >> $NEWS_FEED_LOG_FILE 2>&1"
 
 CURRENT_CRONTAB="$(mktemp "${TMPDIR:-/tmp}/spotlight-crontab.XXXXXX")"
 trap 'rm -f "$CURRENT_CRONTAB"' EXIT
@@ -669,6 +689,10 @@ PY
   # it installs on BOTH environments and stays dark where that lane is off;
   # staging is where it needs to run first anyway.
   echo "$DEAL_SCAN_LINE"
+  echo "$META_PULSE_LINE"
+  echo "$SET_SPOTLIGHT_LINE"
+  echo "$HOT_CARDS_LINE"
+  echo "$NEWS_FEED_LINE"
   echo "$CRON_END"
 } | crontab -
 
@@ -717,6 +741,7 @@ echo "  Resource monitor log: $RESOURCE_MONITOR_LOG_FILE"
 echo "  Social moderation log: $SOCIAL_MODERATION_LOG_FILE"
 echo "  Post media purge log: $POST_MEDIA_PURGE_LOG_FILE"
 echo "  Deal scan log: $DEAL_SCAN_LOG_FILE"
+echo "  Feed job logs: $META_PULSE_LOG_FILE $SET_SPOTLIGHT_LOG_FILE $HOT_CARDS_LOG_FILE $NEWS_FEED_LOG_FILE"
 echo "  Sync schedule: $SYNC_CRON_SCHEDULE timezone=$SYNC_CRON_TIMEZONE (minute scheduler wrapper)"
 echo "  Health cron: $HEALTH_CRON_SCHEDULE"
 echo "  Resource cron: $RESOURCE_CRON_SCHEDULE"

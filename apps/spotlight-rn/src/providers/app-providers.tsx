@@ -196,6 +196,15 @@ type AppServices = {
   topMoversCache: TopMovers | null;
   setTopMoversCache: Dispatch<SetStateAction<TopMovers | null>>;
   /**
+   * Last successful meta feed reads (Meta pulse, Hot on Ekalight, Set
+   * spotlight, Card news), keyed by read + query — see `useMetaFeedRead`. A
+   * missing key means never loaded; a `null` value means the server has the
+   * feature switched off. Catalog-wide like `topMoversCache`, so not
+   * owner-scoped.
+   */
+  metaFeedCache: Readonly<Record<string, unknown>>;
+  setMetaFeedCacheEntry: (key: string, value: unknown) => void;
+  /**
    * Optimistically surface a just-added card at the top of the Collection
    * without waiting on the slow portfolio dashboard refetch. Prepends (deduping
    * by id) into both the shared inventory cache and the dashboard cache, and
@@ -264,6 +273,10 @@ export function AppProviders({
   const [activeCollectionState, setActiveCollectionState] = useState<ScopedCache<string> | null>(null);
   // Plain state, not ScopedCache — see the AppServices doc comment.
   const [topMoversCache, setTopMoversCache] = useState<TopMovers | null>(null);
+  const [metaFeedCache, setMetaFeedCache] = useState<Readonly<Record<string, unknown>>>({});
+  const setMetaFeedCacheEntry = useCallback((key: string, value: unknown) => {
+    setMetaFeedCache((current) => ({ ...current, [key]: value }));
+  }, []);
   // Owner-scoped like the value itself: on an account switch this reverts to
   // "not restored yet" for free, rather than reporting the previous account's
   // read as if it answered for the new one.
@@ -459,6 +472,8 @@ export function AppProviders({
       setPortfolioPerformanceCache,
       topMoversCache,
       setTopMoversCache,
+      metaFeedCache,
+      setMetaFeedCacheEntry,
       prependOptimisticInventoryEntry,
       removeOptimisticInventoryEntries,
       activeCollectionID,
@@ -476,6 +491,8 @@ export function AppProviders({
     portfolioPerformanceCache,
     setPortfolioPerformanceCache,
     topMoversCache,
+    metaFeedCache,
+    setMetaFeedCacheEntry,
     prependOptimisticInventoryEntry,
     removeOptimisticInventoryEntries,
     refreshData,
