@@ -30,6 +30,7 @@ from decimal import Decimal
 from typing import Any
 
 from catalog_tools import (
+    SEALED_SUPERTYPE,
     SUPPORTED_GAMES,
     _table_columns,
     fx_rate_snapshot_for_pair,
@@ -322,8 +323,11 @@ def _card_games(connection: sqlite3.Connection, card_ids: list[str]) -> dict[str
         ids = card_ids[start : start + chunk]
         placeholders = ",".join("?" for _ in ids)
         for row in connection.execute(
-            f"SELECT id, game FROM cards WHERE id IN ({placeholders})", tuple(ids)
+            f"SELECT id, game, supertype FROM cards WHERE id IN ({placeholders})", tuple(ids)
         ):
+            # Sealed product is priced daily too, but Top Trends is card gainers.
+            if row[2] == SEALED_SUPERTYPE:
+                continue
             out[str(row[0])] = str(row[1] or "pokemon")
     return out
 
@@ -387,7 +391,9 @@ def compute_top_movers(
     candidates: list[Candidate] = []
     for card_id, now_row in now_rows.items():
         then_row = then_rows.get(card_id)
-        if then_row is None:
+        game = games.get(card_id)
+        # No game = not a card here (sealed product, or a row no longer in `cards`).
+        if then_row is None or game is None:
             continue
         pair = _same_source_pair(then_row, now_row, jpy_usd=jpy_usd)
         if pair is None:
@@ -396,7 +402,7 @@ def compute_top_movers(
         candidates.append(
             Candidate(
                 card_id=card_id,
-                game=games.get(card_id, "pokemon"),
+                game=game,
                 source=source,
                 currency=currency,
                 price_then=price_then,

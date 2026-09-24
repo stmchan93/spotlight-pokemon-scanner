@@ -1755,6 +1755,10 @@ GAME_RIFTBOUND = "riftbound"
 GAME_GUNDAM = "gundam"
 DEFAULT_GAME = GAME_POKEMON
 
+# `cards.supertype` of sealed product rows (booster boxes, ETBs, …; see
+# sealed_products.py). Card-only features skip these rows.
+SEALED_SUPERTYPE = "Sealed"
+
 # Coarse server-side grouping of the raw catalog rarity label ("Special
 # Illustration Rare", "Rare Holo GX", …) into a small stable key set the app can
 # filter by. EVERY game maps onto these same eight keys — the rarity filter chips
@@ -5229,6 +5233,10 @@ def _search_cards_attempt(
         # before being dropped, which trims recall slightly on a shared catalog
         # — a ranking nuance, never a wrong-game result.
         if card.get("game") != game:
+            continue
+        # Sealed product has its own search (sealed_products.search_sealed_products);
+        # card search, and the scanner's text fallback through it, never returns it.
+        if card.get("supertype") == SEALED_SUPERTYPE:
             continue
         if not _manual_search_card_matches_structured_filters(card, structured_filters, game=game):
             continue

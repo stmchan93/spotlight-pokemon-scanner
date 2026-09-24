@@ -249,7 +249,7 @@ class SyncTcgcsvPricesTests(unittest.TestCase):
     def test_partial_crawl_prices_but_does_not_store_marker(self):
         # One flaky group: its cards keep yesterday's main via staleness; the
         # marker stays un-advanced so the next cron attempt re-crawls the day.
-        def fake_build(categories, group_by_product=None, failed_groups=None):
+        def fake_build(categories, group_by_product=None, failed_groups=None, product_rows_out=None):
             failed_groups.append((3, 604, "prices"))
             return MOONBREON_PRICES, {}
         with mock.patch.object(sync_tcgcsv_prices, "build_price_and_number_maps", side_effect=fake_build):
@@ -264,7 +264,7 @@ class SyncTcgcsvPricesTests(unittest.TestCase):
         )
 
     def test_broadly_failed_crawl_aborts_the_run(self):
-        def fake_build(categories, group_by_product=None, failed_groups=None):
+        def fake_build(categories, group_by_product=None, failed_groups=None, product_rows_out=None):
             failed_groups.extend((3, gid, "prices") for gid in range(50))
             return {}, {}
         with mock.patch.object(sync_tcgcsv_prices, "build_price_and_number_maps", side_effect=fake_build):

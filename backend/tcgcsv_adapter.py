@@ -137,13 +137,17 @@ def _results(payload: Any) -> list[dict[str, Any]]:
     return [row for row in results if isinstance(row, dict)] if isinstance(results, list) else []
 
 
+def fetch_groups(category_id: int) -> list[dict[str, Any]]:
+    """Group (set) rows for a category: groupId, name, abbreviation, publishedOn."""
+    return [
+        row
+        for row in _results(_fetch_json(f"{TCGCSV_BASE_URL}/{category_id}/groups"))
+        if isinstance(row.get("groupId"), int)
+    ]
+
+
 def fetch_group_ids(category_id: int) -> list[int]:
-    group_ids: list[int] = []
-    for row in _results(_fetch_json(f"{TCGCSV_BASE_URL}/{category_id}/groups")):
-        group_id = row.get("groupId")
-        if isinstance(group_id, int):
-            group_ids.append(group_id)
-    return group_ids
+    return [row["groupId"] for row in fetch_groups(category_id)]
 
 
 def fetch_group_prices(category_id: int, group_id: int) -> list[dict[str, Any]]:
@@ -158,6 +162,7 @@ def build_price_and_number_maps(
     categories: tuple[int, ...] = TCGCSV_CATEGORY_IDS,
     group_by_product: dict[str, tuple[int, int]] | None = None,
     failed_groups: list[tuple[int, int, str]] | None = None,
+    product_rows_out: list[tuple[int, dict[str, Any], dict[str, Any]]] | None = None,
 ) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, str]]:
     """({productId(str): {subTypeName: price_row}}, {productId: normalized card
     Number}) over every group in every category. The Number map (from each
@@ -170,11 +175,16 @@ def build_price_and_number_maps(
     is recorded there and skipped instead of aborting the crawl — one flaky group
     must not cost the other ~380 their daily price. Without it (back-compat),
     any failure propagates. Group-LIST fetches always propagate: without the
-    list there is no crawl to salvage."""
+    list there is no crawl to salvage.
+
+    ``product_rows_out``, when supplied, receives every
+    ``(category_id, group_row, product_row)`` the crawl fetched — the sealed
+    catalog ingest reads them without a second crawl."""
     by_product: dict[str, dict[str, dict[str, Any]]] = {}
     number_by_product: dict[str, str] = {}
     for category_id in categories:
-        for group_id in fetch_group_ids(category_id):
+        for group_row in fetch_groups(category_id):
+            group_id = group_row["groupId"]
             try:
                 price_rows = fetch_group_prices(category_id, group_id)
             except Exception:
@@ -202,6 +212,8 @@ def build_price_and_number_maps(
                 product_id = str(row.get("productId") or "").strip()
                 if not product_id:
                     continue
+                if product_rows_out is not None:
+                    product_rows_out.append((category_id, group_row, row))
                 number = product_number(row)
                 if number:
                     number_by_product[product_id] = number

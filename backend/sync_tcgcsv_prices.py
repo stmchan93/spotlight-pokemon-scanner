@@ -38,6 +38,7 @@ from catalog_tools import (
     utc_now,
 )
 from env_loader import load_backend_env_file
+from sealed_products import upsert_sealed_products
 from pricing_utils import cleaned_high_price, cleaned_price
 from tcgcsv_adapter import (
     SUBTYPE_TO_SCRYDEX_VARIANT_LABEL,
@@ -91,6 +92,11 @@ def load_tcgplayer_id_backfill(path: Path = TCGPLAYER_ID_BACKFILL_PATH) -> dict[
 
 def tcgcsv_sync_enabled() -> bool:
     return str(os.environ.get("TCGCSV_SYNC_ENABLED") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def tcgcsv_sealed_ingest_enabled() -> bool:
+    """Sealed product catalog ingest from the same crawl — ON unless disabled."""
+    return str(os.environ.get("TCGCSV_SEALED_INGEST") or "").strip().lower() not in {"0", "false", "no", "off"}
 
 
 def tcgcsv_verify_numbers_enabled() -> bool:
@@ -530,9 +536,11 @@ def run_tcgcsv_price_sync(
         if group_by_product is None:
             group_by_product = {}
         failed_groups: list[tuple[int, int, str]] = []
+        crawled_products: list[tuple[int, dict[str, Any], dict[str, Any]]] = []
         if product_price_map is None:
             product_price_map, product_number_map = build_price_and_number_maps(
-                TCGCSV_CATEGORY_IDS, group_by_product, failed_groups
+                TCGCSV_CATEGORY_IDS, group_by_product, failed_groups,
+                product_rows_out=crawled_products,
             )
             # A few flaky groups are tolerated (their cards keep yesterday's main
             # via staleness); a broadly failing crawl means TCGCSV is down —
@@ -541,6 +549,13 @@ def run_tcgcsv_price_sync(
                 raise RuntimeError(f"TCGCSV crawl failed for {len(failed_groups)} groups; aborting run")
         if product_number_map is None:
             product_number_map = {}
+
+        # Sealed catalog rides the same crawl, and lands BEFORE the variant map
+        # is read so this run prices the new rows too.
+        sealed_stats: dict[str, int] = {}
+        if crawled_products and not dry_run and not history_only and tcgcsv_sealed_ingest_enabled():
+            sealed_stats = upsert_sealed_products(connection, crawled_products)
+            connection.commit()
 
         variant_map = _card_variant_product_ids(connection)
         defaults = _default_raw_variants(connection)
@@ -575,7 +590,8 @@ def run_tcgcsv_price_sync(
                  "skipped_number_mismatch": 0, "overrides_applied": 0,
                  "backfill_applied": 0,
                  "requests": requests_made, "products": len(product_price_map),
-                 "collisions_resolved": len(collision_owners)}
+                 "collisions_resolved": len(collision_owners),
+                 "sealed_upserted": sealed_stats.get("upserted", 0)}
         mismatch_suspects: list[dict[str, str]] = []
         pending = 0
         for card_id in all_card_ids:

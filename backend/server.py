@@ -172,6 +172,7 @@ from ebay_comps import (
 # Module imports (not `from`): the watchlist wiring touches a wide slice of both
 # and the qualified names keep the seam visible at every call site.
 import ebay_listings
+from sealed_products import is_sealed_card, search_sealed_products
 import expo_push
 import watch_signals
 from anthropic_adapter import identify_pokemon_lookalike
@@ -13050,13 +13051,21 @@ class SpotlightScanService:
         limit: int = 20,
         offset: int = 0,
         rarity_bucket_filter: str | None = None,
+        kind: str = "cards",
     ) -> dict[str, Any]:
         # No default: the HTTP handler owns "absent means Pokémon". A default
         # here would put that decision in two places, and the service layer is
         # the wrong one — it cannot see whether the client sent a lane or not.
         # `None` is that handler's OTHER decision (`?game=all`): every game.
         offset = max(0, int(offset or 0))
-        if game is None:
+        if kind == "sealed":
+            # Sealed product: its own small name/set search (sealed_products.py).
+            raw = search_sealed_products(
+                self.connection, query, game=game, limit=limit + 1, offset=offset,
+            )
+            has_more = len(raw) > limit
+            results = raw[:limit]
+        elif game is None:
             results, has_more = self._search_every_game(
                 query,
                 limit=limit,
@@ -14475,6 +14484,14 @@ class SpotlightScanService:
             "language": str(resolved_card.get("language") or original_card.get("language") or "English"),
             "imageSmallURL": resolved_card.get("imageSmallURL") or original_card.get("imageSmallURL"),
             "imageLargeURL": resolved_card.get("imageURL") or original_card.get("imageLargeURL") or original_card.get("imageURL"),
+            # "sealed" for booster boxes, ETBs, tins… (sealed_products.py): the
+            # card page drops number, condition, grade and printing for these.
+            "productKind": "sealed" if is_sealed_card(resolved_card) or is_sealed_card(original_card) else "card",
+            "sealedProductType": (
+                (resolved_card.get("subtypes") or [None])[0]
+                if is_sealed_card(resolved_card)
+                else None
+            ),
         }
 
     def _candidate_payload(
@@ -16399,6 +16416,12 @@ class SpotlightScanService:
                 "language": resolved_card["language"],
                 "imageSmallURL": resolved_card["imageSmallURL"],
                 "imageLargeURL": resolved_card["imageURL"],
+                # "sealed" rows (booster boxes, ETBs…) render without number,
+                # condition, grade or printing on the card page.
+                "productKind": "sealed" if is_sealed_card(resolved_card) else "card",
+                "sealedProductType": (
+                    (resolved_card.get("subtypes") or [None])[0] if is_sealed_card(resolved_card) else None
+                ),
                 "pricing": pricing,
                 "isFavorite": favorite_row is not None,
                 # Compact per-printing TCGplayer product ids (NOT the full Scrydex
@@ -24439,6 +24462,9 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             # is naming the card, not the lane their camera is pointed at.
             raw_game = query_params.get("game", [""])[0].strip().lower()
             game = None if raw_game == "all" else normalize_game(raw_game)
+            # `kind=sealed` searches sealed product; absent (every older client)
+            # means cards, which never include sealed rows.
+            kind = "sealed" if query_params.get("kind", [""])[0].strip().lower() == "sealed" else "cards"
             self._write_json(
                 HTTPStatus.OK,
                 self.service.search(
@@ -24447,6 +24473,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     limit=limit,
                     offset=offset,
                     rarity_bucket_filter=rarity_bucket_param,
+                    kind=kind,
                 ),
             )
             return

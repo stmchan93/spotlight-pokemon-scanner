@@ -228,6 +228,8 @@ def build_links(
 
     cards = [card_meta_from_row(r) for r in conn.execute(
         "SELECT id, language, name, artist, national_pokedex_numbers_json, regulation_mark FROM cards"
+        # Sealed product has no EN<->JP card counterpart.
+        " WHERE supertype IS NULL OR supertype != 'Sealed'"
     )]
     if name_filter is not None:
         names_in = name_filter
@@ -397,6 +399,8 @@ def add_unique_name_artist_links(
     stamp = now or datetime.now(timezone.utc).isoformat()
     cards = [card_meta_from_row(r) for r in conn.execute(
         "SELECT id, language, name, artist, national_pokedex_numbers_json, regulation_mark FROM cards"
+        # Sealed product has no EN<->JP card counterpart.
+        " WHERE supertype IS NULL OR supertype != 'Sealed'"
     )]
     index = build_candidate_index(cards)
     existing = {r[0] for r in conn.execute("SELECT card_id FROM card_language_links")}

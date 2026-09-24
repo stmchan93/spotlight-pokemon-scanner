@@ -382,6 +382,9 @@ def load_catalog_cards_from_database(
             raise SystemExit(f"{database_path} has no `cards` table.")
         where = ["image_url IS NOT NULL", "TRIM(image_url) != ''"]
         params: list[Any] = []
+        if "supertype" in columns:
+            # Sealed product (box art) must never enter the CARD matcher.
+            where.append("(supertype IS NULL OR supertype != 'Sealed')")
         if "game" in columns:
             where.append("game = ?")
             params.append(normalized_game)
