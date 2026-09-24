@@ -1552,6 +1552,37 @@ describe('HttpSpotlightRepository', () => {
     });
   });
 
+  it('gives the watchlist a cold-load budget and throws when it times out', async () => {
+    jest.useFakeTimers();
+    global.fetch = jest.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      return new Promise<Response>((_, reject) => {
+        const abort = () => {
+          const error = new Error('Request aborted');
+          error.name = 'AbortError';
+          reject(error);
+        };
+        if (init?.signal?.aborted) {
+          abort();
+          return;
+        }
+        init?.signal?.addEventListener('abort', abort, { once: true });
+      });
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const loadPromise = repository.getCardFavorites();
+    let settled = false;
+    void loadPromise.then(() => { settled = true; }, () => { settled = true; });
+
+    // Still waiting past the 12s default: a cold server compute gets room to finish.
+    await jest.advanceTimersByTimeAsync(20000);
+    expect(settled).toBe(false);
+
+    await jest.advanceTimersByTimeAsync(10000);
+    // A failed read is an error, never an empty watchlist.
+    await expect(loadPromise).rejects.toThrow('Request timed out while contacting the Spotlight backend.');
+  });
+
   it('uses a short per-attempt timeout and retries a stalled raw match before giving up', async () => {
     jest.useFakeTimers();
     global.fetch = jest.fn().mockImplementation((url: string, init?: RequestInit) => {

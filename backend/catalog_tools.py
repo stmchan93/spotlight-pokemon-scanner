@@ -6493,6 +6493,60 @@ def price_history_cell_portfolio_rows_by_card_date(
     return result
 
 
+def price_history_cell_lane_rows_by_card_date(
+    connection: sqlite3.Connection,
+    *,
+    provider: str,
+    card_ids: Iterable[str],
+    price_dates: Iterable[str],
+    lane: str,
+    market_only: bool = False,
+) -> dict[str, dict[str, list[Any]]]:
+    """``price_history_cell_portfolio_rows_by_card_date`` restricted to ONE lane.
+
+    Raw resolvers only read ``lane='raw'`` cells and graded ones only
+    ``lane='graded'``, but a vintage card carries ~10x more graded cells than
+    raw per day (base1-1 on staging: ~140 graded vs ~15 raw). The lane sits in
+    ``idx_cell_trend_market`` right after ``(card_id, provider, price_date)``,
+    so the test runs on the index entry and the other lane's rows are never
+    fetched from the table. Separate from the unscoped reader on purpose (see
+    its docstring): callers opt in, and ``+rowid`` stays.
+
+    ``market_only`` projects to the index's own columns (no low/mid/high/
+    currency), so the read never touches the table at all — for series that
+    only plot ``market``."""
+    columns = f"card_id, {_TREND_CELL_COLUMNS}" if market_only else _PORTFOLIO_CELL_COLUMNS
+    if not _table_exists(connection, "card_price_history_cell"):
+        return {}
+    ids = sorted({str(c) for c in card_ids if str(c or "").strip()})
+    dates = sorted({str(d) for d in price_dates if str(d or "").strip()})
+    result: dict[str, dict[str, list[Any]]] = {}
+    if not ids or not dates:
+        return result
+    for date_start in range(0, len(dates), 400):
+        date_chunk = dates[date_start : date_start + 400]
+        date_placeholders = ",".join("?" for _ in date_chunk)
+        for id_start in range(0, len(ids), 400):
+            id_chunk = ids[id_start : id_start + 400]
+            id_placeholders = ",".join("?" for _ in id_chunk)
+            rows = connection.execute(
+                f"""
+                SELECT {columns} FROM card_price_history_cell
+                WHERE provider = ?
+                  AND card_id IN ({id_placeholders})
+                  AND price_date IN ({date_placeholders})
+                  AND lane = ?
+                ORDER BY +rowid
+                """,
+                (provider, *id_chunk, *date_chunk, lane),
+            ).fetchall()
+            for row in rows:
+                card_id = str(_cell_field(row, "card_id"))
+                price_date = str(_cell_field(row, "price_date"))
+                result.setdefault(card_id, {}).setdefault(price_date, []).append(row)
+    return result
+
+
 def _cell_field(row: Any, name: str) -> Any:
     try:
         return row[name]
@@ -7062,6 +7116,9 @@ def price_history_rows_for_cards_batched(
     *,
     provider: str,
     days: int,
+    floor_slack_days: int | None = None,
+    lane_scoped_cells: bool = False,
+    market_only_cells: bool = False,
 ) -> dict[Any, list[dict[str, Any]]]:
     """Batched, projected twin of ``price_history_rows_for_card`` for the Insights
     (portfolio performance) table.
@@ -7081,7 +7138,24 @@ def price_history_rows_for_cards_batched(
     "grade": str|None, "is_perfect"/"is_signed"/"is_error": bool|None}``. Returns
     ``{key: [resolved_rows]}`` where each list is byte-for-byte identical to what
     ``price_history_rows_for_card`` would return for that request (same row shape,
-    same DESC ``price_date`` order, same resolver semantics)."""
+    same DESC ``price_date`` order, same resolver semantics).
+
+    Opt-in read reducers (the watchlist uses both; other callers are unchanged):
+
+    - ``floor_slack_days`` floors the daily read at each card's newest date
+      minus ``days + floor_slack_days`` calendar days, so it stops walking the
+      card's WHOLE history (~150 rows/card and growing) to keep the newest
+      ``days``. Anchored on the card's own newest row (one covering-index
+      aggregate), so a card whose prices stopped weeks ago keeps its series;
+      only a card with more than ``floor_slack_days`` missing days inside the
+      window loses its oldest rows.
+    - ``lane_scoped_cells`` fetches cells only for the (card, day) pairs the
+      main-lane COALESCE did not already price, and only on the lane each
+      request resolves on (``raw`` or ``graded``). The resolved output is
+      identical: raw resolution reads only raw cells, graded only graded.
+    - ``market_only_cells`` (with ``lane_scoped_cells``) reads cells index-only:
+      resolved rows carry ``market`` but no low/mid/high, and a cell with no
+      market yields no price. For sparkline-style series that plot market."""
     if not requests:
         return {}
     day_limit = max(1, int(days))
@@ -7104,19 +7178,54 @@ def price_history_rows_for_cards_batched(
         include_raw_json=include_raw_json, include_graded_json=include_graded_json
     )
     daily_by_card: dict[str, list[sqlite3.Row]] = {}
+    # (card chunk, floor date or None) — one daily read per group.
+    read_groups: list[tuple[list[str], str | None]] = []
     for start in range(0, len(unique_card_ids), 400):
         chunk = unique_card_ids[start : start + 400]
         if not chunk:
             continue
+        if floor_slack_days is None:
+            read_groups.append((chunk, None))
+            continue
         placeholders = ",".join("?" for _ in chunk)
+        floor_by_card: dict[str, str] = {}
+        for card_id, latest in connection.execute(
+            f"""
+            SELECT card_id, MAX(price_date) FROM card_price_history_daily
+            WHERE provider = ? AND card_id IN ({placeholders})
+            GROUP BY card_id
+            """,
+            (provider, *chunk),
+        ):
+            try:
+                latest_day = datetime.fromisoformat(str(latest)[:10]).date()
+            except ValueError:
+                continue
+            floor_by_card[str(card_id)] = (
+                latest_day - timedelta(days=day_limit + max(0, int(floor_slack_days)))
+            ).isoformat()
+        if not floor_by_card:
+            continue
+        # Cards priced through the newest date share one floor; the few stale
+        # ones are read together at their oldest floor. Two reads at most.
+        current_floor = max(floor_by_card.values())
+        current = [c for c, f in floor_by_card.items() if f == current_floor]
+        stale = [c for c, f in floor_by_card.items() if f != current_floor]
+        read_groups.append((current, current_floor))
+        if stale:
+            read_groups.append((stale, min(floor_by_card[c] for c in stale)))
+    for chunk, floor_date in read_groups:
+        placeholders = ",".join("?" for _ in chunk)
+        floor_sql = " AND price_date >= ?" if floor_date else ""
+        floor_params = (floor_date,) if floor_date else ()
         rows = connection.execute(
             f"""
             SELECT {select_columns}
             FROM card_price_history_daily
-            WHERE provider = ? AND card_id IN ({placeholders})
+            WHERE provider = ? AND card_id IN ({placeholders}){floor_sql}
             ORDER BY card_id ASC, price_date DESC
             """,
-            (provider, *chunk),
+            (provider, *sorted(chunk), *floor_params),
         ).fetchall()
         for row in rows:
             cid = str(row["card_id"] or "").strip()
@@ -7130,7 +7239,39 @@ def price_history_rows_for_cards_batched(
     # 2. Batched, projected cell read over the union of (card_id, price_date)
     #    pairs the daily window produced (cells mode only).
     cells_by_card_date: dict[str, dict[str, list[Any]]] = {}
-    if use_cells:
+    if use_cells and lane_scoped_cells:
+        # {lane: ({card_id}, {price_date})} for only the rows that need cells.
+        needed_by_lane: dict[str, tuple[set[str], set[str]]] = {}
+        for req in requests:
+            card_id = str(req.get("card_id") or "").strip()
+            is_graded_req = (
+                req.get("pricing_mode")
+                or (PSA_GRADE_PRICING_MODE if req.get("grader") or req.get("grade") else RAW_PRICING_MODE)
+            ) == PSA_GRADE_PRICING_MODE
+            for row in daily_by_card.get(card_id, []):
+                if not is_graded_req and main_raw_history_market(
+                    row, variant=req.get("variant"), condition=req.get("condition")
+                ) is not None:
+                    continue
+                cards, dates = needed_by_lane.setdefault(
+                    "graded" if is_graded_req else "raw", (set(), set())
+                )
+                cards.add(card_id)
+                dates.add(str(row["price_date"]))
+        for lane, (lane_cards, lane_dates) in needed_by_lane.items():
+            lane_cells = price_history_cell_lane_rows_by_card_date(
+                connection,
+                provider=provider,
+                card_ids=lane_cards,
+                price_dates=lane_dates,
+                lane=lane,
+                market_only=market_only_cells,
+            )
+            for card_id, by_date in lane_cells.items():
+                merged = cells_by_card_date.setdefault(card_id, {})
+                for price_date, cells in by_date.items():
+                    merged.setdefault(price_date, []).extend(cells)
+    elif use_cells:
         needed_dates = sorted(
             {str(row["price_date"]) for card_rows in daily_by_card.values() for row in card_rows}
         )

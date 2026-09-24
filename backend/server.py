@@ -57,6 +57,7 @@ from catalog_tools import (
     pricing_provider,
     price_history_cell_rows_for_day,
     price_history_cell_rows_by_date,
+    price_history_cell_lane_rows_by_card_date,
     price_history_cell_portfolio_rows_by_card_date,
     resolve_graded_entry_from_cells,
     resolve_raw_summary_from_cells,
@@ -2016,9 +2017,14 @@ SINCE_WATCHED_SPARK_POINTS = 30
 # eBay's "Card Condition" descriptor value a deal listing must carry.
 DEAL_REQUIRED_CARD_CONDITION = "near mint or better"
 SINCE_WATCHED_MAX_DAYS = 365
+# Extra calendar days below the 30-row sparkline window when its history read is
+# floored, so a card with a few missed sync days still fills 30 rows.
+SPARK_HISTORY_FLOOR_SLACK_DAYS = 14
 # One-shot guard flag for /api/v1/ops/backfill-added-baselines (mirrors
 # access_existing_users_backfilled).
 ADDED_BASELINE_BACKFILL_FLAG = "added_baseline_backfilled"
+# Per-start cap on legacy watches given a baseline (one price resolution each).
+FAVORITE_BASELINE_BACKFILL_MAX_ROWS = 500
 
 PORTFOLIO_DASHBOARD_PREWARM_ENV = "PORTFOLIO_DASHBOARD_PREWARM"
 # Lookback for the Top Trends ranking. 30 by default; staging runs shorter
@@ -2658,10 +2664,6 @@ class SpotlightScanService:
             return None, None
         price = self._history_primary_price_value(pricing)
         return (price, utc_now()[:10]) if price is not None else (None, None)
-
-    def _watch_printing_market(self, card_id: str, variant_key: str) -> float | None:
-        cell = watch_printings.latest_printing_price(self.connection, card_id, variant_key)
-        return round(float(cell["market"]), 2) if cell is not None else None
 
     def _favorite_rows_by_card_id(
         self,
@@ -8336,6 +8338,7 @@ class SpotlightScanService:
         today_pricing: dict[str, Any] | None,
         time_zone_name: str | None = None,
         yesterday_rows_by_card_id: dict[str, sqlite3.Row | None] | None = None,
+        yesterday_cells_by_card_id: dict[str, list[Any]] | None = None,
     ) -> tuple[float | None, float | None]:
         """Compute (dayChangeAmount, dayChangePercent) for a single inventory entry.
 
@@ -8392,6 +8395,12 @@ class SpotlightScanService:
             # Compare like-for-like: if yesterday can't price this exact condition,
             # report "no change" rather than diffing against the NM default.
             require_condition_match=True,
+            # Pre-fetched in bulk (None → the resolver's per-day cell query).
+            day_cells=(
+                yesterday_cells_by_card_id.get(str(card_id or "").strip(), [])
+                if yesterday_cells_by_card_id is not None
+                else None
+            ),
         )
         yesterday_price = self._history_primary_price_value(yesterday_pricing)
         if yesterday_price is None:
@@ -19898,6 +19907,76 @@ class SpotlightScanService:
         )
         return result
 
+    def backfill_missing_favorite_baselines(
+        self, *, source: str = "startup", max_rows: int = FAVORITE_BASELINE_BACKFILL_MAX_ROWS
+    ) -> dict[str, Any]:
+        """Start tracking legacy watches that never got a baseline: rows with
+        BOTH added_market_price and added_market_date NULL get the watched
+        printing's CURRENT price (the main printing for variant_key '') and
+        today's date — the same values a new watch captures — so the row shows
+        "since watched" from today instead of "$0.00 since watched".
+
+        Idempotent: it only ever fills NULL/NULL rows (the UPDATE re-checks), so
+        a second run finds nothing. Unpriced cards stay NULL and are retried on
+        the next start. card_favorites is small; ``max_rows`` bounds the per-row
+        price resolution on a cold start. Best-effort, never raises."""
+        started_at = perf_counter()
+        summary: dict[str, Any] = {"candidates": 0, "filled": 0, "unpriced": 0}
+        try:
+            rows = self.connection.execute(
+                """
+                SELECT owner_user_id, card_id, variant_key
+                FROM card_favorites
+                WHERE added_market_price IS NULL AND added_market_date IS NULL
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (max(0, int(max_rows)),),
+            ).fetchall()
+            summary["candidates"] = len(rows)
+            for row in rows:
+                card_id = str(row["card_id"] or "").strip()
+                variant_key = watch_printings.normalize_variant_key(row["variant_key"])
+                if not card_id:
+                    continue
+                if variant_key:
+                    price, price_date = self._watch_printing_baseline(card_id, variant_key)
+                else:
+                    price, price_date = self._added_baseline_now(card_id)
+                if price is None or not price_date:
+                    summary["unpriced"] += 1
+                    continue
+                cursor = self.connection.execute(
+                    """
+                    UPDATE card_favorites
+                    SET added_market_price = ?, added_market_date = ?
+                    WHERE owner_user_id = ? AND card_id = ? AND variant_key = ?
+                      AND added_market_price IS NULL AND added_market_date IS NULL
+                    """,
+                    (round(float(price), 2), price_date, row["owner_user_id"], row["card_id"], row["variant_key"]),
+                )
+                summary["filled"] += max(0, cursor.rowcount or 0)
+                # Commit per row: the price lookups between UPDATEs must not run
+                # inside an open write transaction that blocks request writes.
+                self.connection.commit()
+        except Exception:  # noqa: BLE001 - best-effort startup hygiene
+            traceback.print_exc()
+            summary["error"] = True
+            try:
+                self.connection.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+        self._emit_structured_log(
+            {
+                "severity": "INFO",
+                "event": "favorite_baseline_backfill",
+                "source": source,
+                "elapsedMs": round((perf_counter() - started_at) * 1000.0, 1),
+                **summary,
+            }
+        )
+        return summary
+
     def backfill_added_baselines(
         self,
         *,
@@ -21573,14 +21652,17 @@ class SpotlightScanService:
         aggregates catch a target price set, changed or cleared (the wishlist
         payload carries targetPriceCents, and neither of the first two moves
         when only a target changes — including the disk-mirrored copy, which is
-        keyed by this same version)."""
+        keyed by this same version). The baseline count catches the startup
+        baseline backfill, which fills added_market_price without touching
+        anything else here."""
         base = self._portfolio_dashboard_version_token(owner_user_id, "America/Los_Angeles")
         row = self.connection.execute(
             """
             SELECT MAX(created_at) AS fav_created,
                    COUNT(*) AS fav_count,
                    MAX(target_set_at) AS fav_target_set,
-                   COALESCE(SUM(COALESCE(target_price_cents, 0)), 0) AS fav_target_sum
+                   COALESCE(SUM(COALESCE(target_price_cents, 0)), 0) AS fav_target_sum,
+                   COUNT(added_market_price) AS fav_baseline_count
             FROM card_favorites
             WHERE owner_user_id = ?
             """,
@@ -21967,7 +22049,7 @@ class SpotlightScanService:
         }
 
     def _sparklines_for_requests(
-        self, spark_requests: list[dict[str, Any]]
+        self, spark_requests: list[dict[str, Any]], *, reduced_reads: bool = False
     ) -> dict[str, tuple[list[float], float | None]]:
         """Resolve per-row 30-day mini sparklines for a list page in ONE batched
         history read (`price_history_rows_for_cards_batched` — two indexed
@@ -21984,6 +22066,13 @@ class SpotlightScanService:
                 spark_requests,
                 provider=pricing_provider(),
                 days=SINCE_ADDED_SPARK_DAYS,
+                # reduced_reads: stop at a calendar floor instead of walking every
+                # card's whole history, and fetch only the cells the main lane
+                # didn't price, on the request's own lane (watchlist cold load).
+                floor_slack_days=SPARK_HISTORY_FLOOR_SLACK_DAYS if reduced_reads else None,
+                lane_scoped_cells=reduced_reads,
+                # Both series plot market only: read the cells index-only.
+                market_only_cells=reduced_reads,
             )
         except Exception:  # noqa: BLE001 - sparklines are decorative
             traceback.print_exc()
@@ -22009,7 +22098,7 @@ class SpotlightScanService:
         return result
 
     def _since_baseline_series_for_requests(
-        self, spark_requests: list[dict[str, Any]]
+        self, spark_requests: list[dict[str, Any]], *, reduced_reads: bool = False
     ) -> dict[str, list[float]]:
         """Per-row market series from the baseline ("since") date to today,
         oldest->newest, in ONE batched history read sized to the oldest baseline.
@@ -22028,12 +22117,19 @@ class SpotlightScanService:
             except ValueError:
                 continue
             oldest_days = max(oldest_days, age)
+        window_days = min(oldest_days, SINCE_WATCHED_MAX_DAYS)
         try:
             history_rows_by_key = price_history_rows_for_cards_batched(
                 self.connection,
                 dated,
                 provider=pricing_provider(),
-                days=min(oldest_days, SINCE_WATCHED_MAX_DAYS),
+                days=window_days,
+                # Every kept point is dated >= its row's baseline (>= today -
+                # window + 1), so a floor of newest - window drops nothing used.
+                floor_slack_days=0 if reduced_reads else None,
+                lane_scoped_cells=reduced_reads,
+                # Both series plot market only: read the cells index-only.
+                market_only_cells=reduced_reads,
             )
         except Exception:  # noqa: BLE001 - sparklines are decorative
             traceback.print_exc()
@@ -22619,6 +22715,37 @@ class SpotlightScanService:
         against card_price_history_cell; on a cold page cache (post-deploy) that
         exceeded the client timeout — 'Client disconnected before response write
         completed' — and the wishlist rendered empty (observed 2026-07-16)."""
+        started_at = perf_counter()
+        source = "error"
+        payload: dict[str, Any] | None = None
+        try:
+            payload, source = self._card_favorites_cached(limit=limit, offset=offset)
+            return payload
+        finally:
+            self._log_card_favorites_timing(started_at, source=source, payload=payload)
+
+    def _log_card_favorites_timing(
+        self, started_at: float, *, source: str, payload: dict[str, Any] | None
+    ) -> None:
+        """A cold watchlist compute ran ~40s after a restart (2026-09-24) and was
+        visible only as 'Client disconnected'. ``source`` says whether the
+        payload came from memory, the disk cache, or a fresh compute."""
+        elapsed_ms = round((perf_counter() - started_at) * 1000.0, 1)
+        entries = payload.get("entries") if isinstance(payload, dict) else None
+        self._emit_structured_log(
+            {
+                "severity": "INFO",
+                "event": "card_favorites_request",
+                "source": source,
+                "entryCount": len(entries) if isinstance(entries, list) else None,
+                "elapsedMs": elapsed_ms,
+                "slow": elapsed_ms >= 3000.0,
+            }
+        )
+
+    def _card_favorites_cached(
+        self, *, limit: int, offset: int
+    ) -> tuple[dict[str, Any], str]:
         owner_user_id = self._current_owner_user_id()
         try:
             version = self._deck_entries_version_token(owner_user_id)
@@ -22630,22 +22757,22 @@ class SpotlightScanService:
         if version is not None:
             cached = self._deck_entries_cache.get(cache_key)
             if cached is not None and cached[0] == version:
-                return cached[1]
+                return cached[1], "memory"
 
         lock = self._deck_entries_cache_lock_for(cache_key)
         with lock:
             if version is not None:
                 cached = self._deck_entries_cache.get(cache_key)
                 if cached is not None and cached[0] == version:
-                    return cached[1]
+                    return cached[1], "memory"
             restored = self._hydrate_from_disk("deck_entries", cache_key, version)
             if restored is not None:
                 self._store_deck_entries_cache(cache_key, version, restored)
-                return restored
+                return restored, "disk"
             payload = self._compute_card_favorites(limit=limit, offset=offset)
             if version is not None:
                 self._store_deck_entries_cache(cache_key, version, payload)
-            return payload
+            return payload, "computed"
 
     def _compute_card_favorites(self, *, limit: int = 200, offset: int = 0) -> dict[str, Any]:
         owner_user_id = self._current_owner_user_id()
@@ -22679,8 +22806,19 @@ class SpotlightScanService:
         # slab context, raw copies a condition, and the price/day-change is computed in
         # the owned lane. Unowned favorites stay on the raw lane with no grade.
         owned_summary = self._owned_deck_summary_by_card_id(owner_user_id, card_ids_in_order)
+        # Printing watches' own TCGplayer market, batched (was one query per row).
+        printing_prices = watch_printings.latest_printing_prices(
+            self.connection,
+            [
+                (str(row["card_id"] or "").strip(), variant_key)
+                for row in rows
+                if (variant_key := watch_printings.normalize_variant_key(row["variant_key"]))
+            ],
+        )
 
         entries: list[dict[str, Any]] = []
+        # Day change is resolved after the loop, in bulk: (entry, kwargs) pairs.
+        day_change_jobs: list[tuple[dict[str, Any], dict[str, Any]]] = []
         # 30-day row sparklines: one batched history request per favorite
         # (budget-capped), resolved in ONE call after the loop. Favorites lists
         # are small and uncached, so inline compute is fine; the single batched
@@ -22740,15 +22878,15 @@ class SpotlightScanService:
                     "variantName": variant_name,
                 }
 
-            day_change_amount, day_change_percent = self._day_change_for_entry(
-                card_id=card_id,
-                item_kind=item_kind,
-                grader=grader,
-                grade=grade,
-                variant_name=variant_name,
-                condition_code=condition,
-                today_pricing=pricing,
-            )
+            day_change_kwargs = {
+                "card_id": card_id,
+                "item_kind": item_kind,
+                "grader": grader,
+                "grade": grade,
+                "variant_name": variant_name,
+                "condition_code": condition,
+                "today_pricing": pricing,
+            }
 
             # Since-added baseline must live on the SAME lane the row's current
             # price resolved on. OWNED favorites price on the owned lane, so
@@ -22764,9 +22902,8 @@ class SpotlightScanService:
                 baseline_date = row["added_market_date"]
             # The watched printing's own TCGplayer market; '' keeps the card's
             # main price exactly as before.
-            market_price = (
-                self._watch_printing_market(card_id, watch_variant) if watch_variant else None
-            )
+            printing_cell = printing_prices.get((card_id, watch_variant)) if watch_variant else None
+            market_price = round(float(printing_cell["market"]), 2) if printing_cell else None
             if market_price is None:
                 market_price = self._history_primary_price_value(pricing)
             since_added_amount, since_added_percent, since_added_baseline_date = (
@@ -22814,8 +22951,8 @@ class SpotlightScanService:
                     # Owned copy's print variant (e.g. "Holofoil") so the wishlist
                     # rows can render "Variant · Condition" like the Collection.
                     "variantName": variant_name,
-                    "dayChangeAmount": day_change_amount,
-                    "dayChangePercent": day_change_percent,
+                    "dayChangeAmount": None,
+                    "dayChangePercent": None,
                     "sinceAddedChangeAmount": since_added_amount,
                     "sinceAddedChangePercent": since_added_percent,
                     "sinceAddedBaselineDate": since_added_baseline_date,
@@ -22835,11 +22972,16 @@ class SpotlightScanService:
                     ),
                 }
             )
+            day_change_jobs.append((entries[-1], day_change_kwargs))
+
+        self._apply_bulk_day_changes(day_change_jobs)
 
         # Rows past the spark budget (or with no resolvable history) keep null
         # spark fields — the sinceAdded fields above are never truncated.
-        spark_by_key = self._sparklines_for_requests(spark_requests)
-        since_watched_by_key = self._since_baseline_series_for_requests(spark_requests)
+        spark_by_key = self._sparklines_for_requests(spark_requests, reduced_reads=True)
+        since_watched_by_key = self._since_baseline_series_for_requests(
+            spark_requests, reduced_reads=True
+        )
         for entry in entries:
             key = str(entry.get("watchKey") or "")
             spark = spark_by_key.get(key)
@@ -22848,6 +22990,68 @@ class SpotlightScanService:
             entry["sinceWatchedPoints"] = since_watched_by_key.get(key)
 
         return {"entries": entries, "limit": safe_limit, "offset": safe_offset}
+
+    def _apply_bulk_day_changes(
+        self, jobs: list[tuple[dict[str, Any], dict[str, Any]]]
+    ) -> None:
+        """Fill ``dayChangeAmount``/``dayChangePercent`` for list rows with two
+        bulk reads instead of two queries per row: yesterday's history row per
+        card, then yesterday's cells for only the rows the main lane can't
+        price, on the lane each row resolves on (graded rows read graded cells,
+        raw rows raw cells — the resolvers never look at the other lane)."""
+        if not jobs:
+            return
+        card_ids = [str(kwargs["card_id"]) for _, kwargs in jobs]
+        yesterday_rows = self._yesterday_price_history_rows_by_card_id(card_ids)
+        yesterday_cells: dict[str, list[Any]] | None = None
+        if price_history_cells_enabled():
+            needed: dict[str, tuple[set[str], set[str]]] = {}
+            for _, kwargs in jobs:
+                card_id = str(kwargs["card_id"])
+                yesterday_row = yesterday_rows.get(card_id)
+                if yesterday_row is None:
+                    continue
+                is_slab = str(kwargs.get("item_kind") or "").strip().lower() == "slab"
+                if not is_slab:
+                    today_pricing = kwargs.get("today_pricing")
+                    today_variant = (
+                        str(today_pricing.get("variant") or "").strip() or None
+                        if isinstance(today_pricing, dict)
+                        else None
+                    )
+                    if main_raw_history_market(
+                        yesterday_row,
+                        variant=kwargs.get("variant_name") or today_variant,
+                        condition=self._portfolio_condition_code(kwargs.get("condition_code")),
+                    ) is not None:
+                        continue
+                cards, dates = needed.setdefault("graded" if is_slab else "raw", (set(), set()))
+                cards.add(card_id)
+                dates.add(str(yesterday_row["price_date"]))
+            yesterday_cells = {}
+            for lane, (lane_cards, lane_dates) in needed.items():
+                by_card = price_history_cell_lane_rows_by_card_date(
+                    self.connection,
+                    provider=pricing_provider(),
+                    card_ids=lane_cards,
+                    price_dates=lane_dates,
+                    lane=lane,
+                )
+                for card_id, by_date in by_card.items():
+                    yesterday_row = yesterday_rows.get(card_id)
+                    if yesterday_row is None:
+                        continue
+                    yesterday_cells.setdefault(card_id, []).extend(
+                        by_date.get(str(yesterday_row["price_date"]), [])
+                    )
+        for entry, kwargs in jobs:
+            amount, percent = self._day_change_for_entry(
+                **kwargs,
+                yesterday_rows_by_card_id=yesterday_rows,
+                yesterday_cells_by_card_id=yesterday_cells,
+            )
+            entry["dayChangeAmount"] = amount
+            entry["dayChangePercent"] = percent
 
     def _owned_card_ids_for_user(self, owner_user_id: str, card_ids: list[str]) -> set[str]:
         normalized = [card_id for card_id in card_ids if card_id]
@@ -27526,6 +27730,13 @@ def main() -> None:
             name="portfolio-dashboard-prewarm",
             daemon=True,
         ).start()
+
+    # Legacy watches with no baseline start tracking from today (idempotent).
+    threading.Thread(
+        target=SpotlightRequestHandler.service.backfill_missing_favorite_baselines,
+        name="favorite-baseline-backfill",
+        daemon=True,
+    ).start()
 
     threading.Thread(
         target=SpotlightRequestHandler.service.prewarm_market_movers,

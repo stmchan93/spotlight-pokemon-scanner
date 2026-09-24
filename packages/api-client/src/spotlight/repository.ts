@@ -622,6 +622,11 @@ const dashboardRequestTimeoutMs = 30000;
 // Give these reads the same 30s budget as the consolidated dashboard so a cold
 // toggle finishes (warming the cache) instead of false-failing.
 const portfolioRangeRequestTimeoutMs = 30000;
+// The watchlist is computed server-side from price history; after a backend
+// restart the first load reads it cold (measured ~40s for 77 watches before the
+// 2026-09-24 read fixes). 30s like the dashboard, so a cold load can finish and
+// warm the cache instead of aborting at the 12s default.
+const cardFavoritesRequestTimeoutMs = 30000;
 // The first dashboard call after the backend's page cache goes cold can be slow
 // enough to time out, but that attempt warms the cache, so a single short-backoff
 // retry usually lands fast. Retry only on transport/timeout failures (never on a
@@ -6999,7 +7004,14 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     }
     const queryString = params.toString();
     const url = `${this.baseUrl}/api/v1/card-favorites${queryString ? `?${queryString}` : ''}`;
-    const response = await this.requestJson<{ entries?: unknown[] }>(url);
+    const response = await this.requestJsonRead<{ entries?: unknown[] }>(url, undefined, {
+      timeoutMs: cardFavoritesRequestTimeoutMs,
+    });
+    // A failed read THROWS: returning [] made a timeout look like an empty
+    // watchlist and wiped the rows the screen already had.
+    if (response.kind === 'error') {
+      throw response.error;
+    }
     if (response.kind !== 'success' || !response.data) {
       return [];
     }

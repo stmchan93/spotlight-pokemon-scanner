@@ -353,6 +353,77 @@ def latest_printing_price(
     return {"date": str(row[0])[:10], "market": market, "low": low}
 
 
+# raw_main cells are only ever written by the TCGCSV sync, under this provider.
+_RAW_MAIN_CELL_PROVIDER = "tcgcsv"
+
+
+def latest_printing_prices(
+    connection: sqlite3.Connection, pairs: Iterable[tuple[str, str]]
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """Batched ``latest_printing_price`` for a list page: ``{(card_id,
+    variant_key): {market, low, date}}``, pairs without a cell omitted.
+
+    Two queries total instead of one per printing watch. The per-watch query
+    has no provider, so it walks the card's cells newest-first through the
+    identity index and fetches every table row to test the lane — every graded
+    cell of the day, and the card's ENTIRE history when the printing has no
+    cell. Pinning ``provider`` lets ``idx_cell_trend_market`` answer step 1
+    from the index alone; step 2 then reads one table row per hit."""
+    wanted: dict[str, set[str]] = {}
+    for card_id, variant_key in pairs:
+        if card_id and variant_key:
+            wanted.setdefault(str(card_id), set()).add(str(variant_key))
+    if not wanted or not _table_exists(connection, "card_price_history_cell"):
+        return {}
+    latest_date: dict[tuple[str, str], str] = {}
+    card_ids = sorted(wanted)
+    for start in range(0, len(card_ids), 400):
+        chunk = card_ids[start : start + 400]
+        placeholders = ",".join("?" for _ in chunk)
+        for row in connection.execute(
+            f"""
+            SELECT card_id, variant_key, MAX(price_date) FROM card_price_history_cell
+            WHERE card_id IN ({placeholders}) AND provider = ? AND lane = 'raw_main'
+              AND market IS NOT NULL
+            GROUP BY card_id, variant_key
+            """,
+            (*chunk, _RAW_MAIN_CELL_PROVIDER),
+        ):
+            key = (str(row[0]), str(row[1] or ""))
+            if key[1] in wanted.get(key[0], ()) and row[2]:
+                latest_date[key] = str(row[2])
+    if not latest_date:
+        return {}
+    result: dict[tuple[str, str], dict[str, Any]] = {}
+    hit_cards = sorted({card_id for card_id, _ in latest_date})
+    hit_dates = sorted(set(latest_date.values()))
+    for start in range(0, len(hit_cards), 400):
+        chunk = hit_cards[start : start + 400]
+        card_ph = ",".join("?" for _ in chunk)
+        date_ph = ",".join("?" for _ in hit_dates)
+        for row in connection.execute(
+            f"""
+            SELECT card_id, variant_key, price_date, market, low FROM card_price_history_cell
+            WHERE card_id IN ({card_ph}) AND provider = ? AND price_date IN ({date_ph})
+              AND lane = 'raw_main' AND market IS NOT NULL
+            """,
+            (*chunk, _RAW_MAIN_CELL_PROVIDER, *hit_dates),
+        ):
+            key = (str(row[0]), str(row[1] or ""))
+            if latest_date.get(key) != str(row[2]):
+                continue
+            try:
+                market = float(row[3])
+            except (TypeError, ValueError):
+                continue
+            try:
+                low = float(row[4]) if row[4] is not None else None
+            except (TypeError, ValueError):
+                low = None
+            result[key] = {"date": str(row[2])[:10], "market": market, "low": low}
+    return result
+
+
 # --- PPT eBay "ungraded" signals --------------------------------------------
 
 

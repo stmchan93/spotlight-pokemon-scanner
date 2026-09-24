@@ -31,6 +31,7 @@ import {
   InventoryCardTile,
   PillButton,
   SearchField,
+  StateCard,
   Text,
   cardGridRule,
   colors,
@@ -263,6 +264,8 @@ export function WishlistScreen() {
     dismiss: dismissDeal,
   } = useDealAlerts();
 
+  // A failed or timed-out read keeps whatever rows are already on screen and
+  // surfaces a Retry; it never blanks the list or leaves the loader spinning.
   const loadFavorites = useCallback(async () => {
     try {
       const result = await spotlightRepository.getCardFavorites();
@@ -272,6 +275,15 @@ export function WishlistScreen() {
       setErrorMessage('Could not load your watchlist right now.');
     }
   }, [spotlightRepository]);
+
+  const handleRetry = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      await loadFavorites();
+    } finally {
+      setIsLoading(false);
+    }
+  }, [loadFavorites]);
 
   useEffect(() => {
     let cancelled = false;
@@ -665,7 +677,7 @@ export function WishlistScreen() {
     viewMode === 'list' ? 'Switch to grid view' : 'Switch to list view';
 
   const showLoading = isLoading && favorites.length === 0;
-  const hasContent = !showLoading && !errorMessage && visibleEntries.length > 0;
+  const hasContent = !showLoading && visibleEntries.length > 0;
 
   // The whole screen is one virtualized FlatList: the hero + search + filter
   // chrome rides along as the list header, and the wishlist renders row-by-row
@@ -832,6 +844,20 @@ export function WishlistScreen() {
 
       </View>
 
+      {errorMessage && favorites.length > 0 ? (
+        <StateCard
+          actionLabel="Retry"
+          actionTestID="wishlist-retry"
+          actionVariant="secondary"
+          message={errorMessage}
+          onActionPress={() => { void handleRetry(); }}
+          style={[styles.errorCard, { marginHorizontal: theme.layout.pageGutter }]}
+          testID="wishlist-error"
+          title="Couldn't refresh your watchlist"
+          variant="muted"
+        />
+      ) : null}
+
       <View style={styles.listTopSpacer} />
     </View>
   );
@@ -841,9 +867,16 @@ export function WishlistScreen() {
       Loading your watchlist…
     </Text>
   ) : errorMessage ? (
-    <Text style={[styles.emptyText, { color: theme.colors.gray600 }]} testID="wishlist-error">
-      {errorMessage}
-    </Text>
+    <StateCard
+      actionLabel="Retry"
+      actionTestID="wishlist-retry"
+      centered
+      message={errorMessage}
+      onActionPress={() => { void handleRetry(); }}
+      style={[styles.errorCard, { marginHorizontal: theme.layout.pageGutter }]}
+      testID="wishlist-error"
+      title="Couldn't load your watchlist"
+    />
   ) : (
     <Text style={[styles.emptyText, { color: theme.colors.gray600 }]} testID="wishlist-empty">
       {favorites.length === 0
@@ -1404,6 +1437,9 @@ const styles = StyleSheet.create({
   },
   footerSpacer: {
     height: 16,
+  },
+  errorCard: {
+    marginTop: 16,
   },
   emptyText: {
     fontFamily: 'SpotlightBodyRegular',

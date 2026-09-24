@@ -219,6 +219,54 @@ describe('WishlistScreen', () => {
     mockIsFocused = true;
   });
 
+  it('shows an error with Retry instead of spinning when the load times out', async () => {
+    const getCardFavorites = jest
+      .fn<Promise<CardFavoriteEntry[]>, []>()
+      .mockRejectedValueOnce(new Error('Request timed out while contacting the Spotlight backend.'))
+      .mockResolvedValue([buildFavoriteEntry({ cardId: 'after-retry', name: 'Retried' })]);
+    const repository = createTestSpotlightRepository({ getCardFavorites });
+
+    renderWishlistScreen(repository);
+
+    expect(await screen.findByTestId('wishlist-error')).toBeTruthy();
+    expect(screen.queryByTestId('wishlist-loading')).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('wishlist-retry'));
+    });
+
+    await waitFor(() => expect(screen.getByTestId('wishlist-row-after-retry')).toBeTruthy());
+    expect(screen.queryByTestId('wishlist-error')).toBeNull();
+    expect(getCardFavorites).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the rows it has when a refresh fails, with a Retry above them', async () => {
+    const getCardFavorites = jest
+      .fn<Promise<CardFavoriteEntry[]>, []>()
+      .mockResolvedValueOnce([buildFavoriteEntry({ cardId: 'kept', name: 'Kept' })])
+      .mockRejectedValueOnce(new Error('Request timed out while contacting the Spotlight backend.'))
+      .mockResolvedValue([buildFavoriteEntry({ cardId: 'kept', name: 'Kept' })]);
+    const repository = createTestSpotlightRepository({ getCardFavorites });
+
+    const view = renderWishlistScreen(repository);
+    await waitFor(() => expect(screen.getByTestId('wishlist-row-kept')).toBeTruthy());
+
+    // Coming back to the tab re-reads; that read fails.
+    mockIsFocused = false;
+    view.rerender(<WishlistScreen />);
+    mockIsFocused = true;
+    view.rerender(<WishlistScreen />);
+
+    expect(await screen.findByTestId('wishlist-error')).toBeTruthy();
+    expect(screen.getByTestId('wishlist-row-kept')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('wishlist-retry'));
+    });
+    await waitFor(() => expect(screen.queryByTestId('wishlist-error')).not.toBeOnTheScreen());
+    expect(screen.getByTestId('wishlist-row-kept')).toBeTruthy();
+  });
+
   it('rarity chips keep only entries whose served bucket matches (missing bucket never matches)', async () => {
     const favorites = [
       buildFavoriteEntry({ cardId: 'sir-card', name: 'Charizard ex', rarityBucket: 'sir' }),
