@@ -815,6 +815,11 @@ def sample_french_pikachu_slab_scan_payload() -> dict[str, object]:
     }
 
 
+# The Scrydex provider only reports ready with credentials; without these the
+# refresh tests depended on a developer's gitignored backend/.env.
+FAKE_SCRYDEX_CREDENTIALS = {"SCRYDEX_API_KEY": "test-key", "SCRYDEX_TEAM_ID": "test-team"}
+
+
 class BackendResetPhase1Tests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -1804,7 +1809,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
 
         with patch.dict(
             os.environ,
-            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "0"},
+            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "0", **FAKE_SCRYDEX_CREDENTIALS},
             clear=False,
         ):
             service.refresh_card_pricing("m2a_ja-232")
@@ -1895,7 +1900,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
 
         with patch.dict(
             os.environ,
-            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "0"},
+            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "0", **FAKE_SCRYDEX_CREDENTIALS},
             clear=False,
         ):
             service.refresh_card_pricing("m2a_ja-232", grader="PSA", grade="9")
@@ -2786,7 +2791,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
 
         with patch.dict(
             os.environ,
-            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "0"},
+            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "0", **FAKE_SCRYDEX_CREDENTIALS},
             clear=False,
         ):
             service.refresh_card_pricing(
