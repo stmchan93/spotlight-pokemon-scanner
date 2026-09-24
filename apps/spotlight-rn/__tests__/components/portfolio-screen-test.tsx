@@ -1323,13 +1323,14 @@ describe('PortfolioScreen', () => {
   // Since added (same as the Watchlist): card view shows the arrow + percent;
   // list view adds a sparkline from the add date with the added-at price
   // dashed across it. The old 30d `sparkPoints` feed neither.
-  it('shows since-added percent in card view and adds the sparkline in list view', async () => {
+  it('shows the since-added dollar change in card view and adds the sparkline in list view', async () => {
     const inventory = [
       buildInventoryEntry({
         id: 'trend-1',
         name: 'Trendy Card',
         cardId: 'card-trend-1',
         marketPrice: 600,
+        sinceAddedChangeAmount: 142,
         sinceAddedChangePercent: 31,
         sinceAddedBaselinePrice: 458,
         sinceAddedPoints: [458, 470, 520, 600],
@@ -1350,7 +1351,7 @@ describe('PortfolioScreen', () => {
       expect(screen.getByTestId('collection-masonry-grid-tile-trend-1')).toBeTruthy();
     });
     expect(screen.getByTestId('collection-masonry-grid-tile-trend-1-trend-arrow-up')).toBeTruthy();
-    expect(screen.getByText('+31.00% since added')).toBeTruthy();
+    expect(screen.getByText('+$142.00 since added')).toBeTruthy();
 
     await act(async () => {
       fireEvent.press(screen.getByTestId('collection-search-row-view-toggle'));
@@ -1358,7 +1359,7 @@ describe('PortfolioScreen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('card-list-row-card-trend-1')).toBeTruthy();
     });
-    expect(screen.getByText('+31.00% since added')).toBeTruthy();
+    expect(screen.getByText('+$142.00 since added')).toBeTruthy();
     expect(screen.getByTestId('card-list-row-card-trend-1-sparkline')).toBeTruthy();
     expect(screen.getByTestId('card-list-row-card-trend-1-sparkline-baseline')).toBeTruthy();
   });

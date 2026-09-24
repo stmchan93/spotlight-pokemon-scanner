@@ -42,6 +42,7 @@ const devFavoriteOverrides: Record<string, Partial<CardFavoriteEntry>> = {
     marketPrice: 1100,
     slabContext: { grade: '10', grader: 'PSA' },
     sinceAddedBaselinePrice: 1240.5,
+    sinceAddedChangeAmount: -140.5,
     sinceAddedChangePercent: -11.33,
     sinceWatchedPoints: [1240.5, 1225, 1210, 1180.25, 1165, 1150, 1120, 1100],
   },
@@ -50,12 +51,14 @@ const devFavoriteOverrides: Record<string, Partial<CardFavoriteEntry>> = {
   'sm7-1': {
     marketPrice: 12.4,
     sinceAddedBaselinePrice: 10.5,
+    sinceAddedChangeAmount: 1.9,
     sinceAddedChangePercent: 18.1,
     sinceWatchedPoints: [10.5, 10.2, 9.9, 10.4, 11.1, 11.6, 12.0, 12.4],
   },
   'xyp-111': {
     marketPrice: 37.54,
     sinceAddedBaselinePrice: 37.2,
+    sinceAddedChangeAmount: 0.34,
     sinceAddedChangePercent: 0.91,
     sinceWatchedPoints: [37.2, 36.8, 37.9, 36.9, 37.3, 37.1, 37.54],
   },
@@ -80,10 +83,12 @@ function withDevSinceAdded(value: unknown): unknown {
       // Scale the shape onto the entry's own price so the numbers read true.
       const points = override.sinceAddedPoints as number[];
       const scale = typeof price === 'number' && price > 0 ? price / points[points.length - 1] : 1;
+      const baseline = Number(((override.sinceAddedBaselinePrice as number) * scale).toFixed(2));
       return {
         ...entry,
         ...override,
-        sinceAddedBaselinePrice: Number(((override.sinceAddedBaselinePrice as number) * scale).toFixed(2)),
+        sinceAddedBaselinePrice: baseline,
+        sinceAddedChangeAmount: typeof price === 'number' ? Number((price - baseline).toFixed(2)) : null,
         sinceAddedPoints: points.map((point) => Number((point * scale).toFixed(2))),
       };
     });

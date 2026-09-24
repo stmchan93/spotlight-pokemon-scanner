@@ -1028,13 +1028,13 @@ function WishlistListRow({
       selected={editMode && selected}
       setName={entry.setName}
       showQuantity={false}
-      // Since watched: the % under the price, and a sparkline from the watch
+      // Since watched: the change under the price, and a sparkline from the watch
       // date with the watched-at price dashed across it.
       sparkBaseline={WATCHLIST_TREND_ACCESS === 'full' ? entry.sinceAddedBaselinePrice ?? null : null}
       sparkPoints={WATCHLIST_TREND_ACCESS === 'full' ? entry.sinceWatchedPoints ?? undefined : undefined}
       sparkTrendPct={entry.sinceAddedChangePercent ?? null}
       testID={`wishlist-row-${entry.cardId}`}
-      trendChangePercent={WATCHLIST_TREND_ACCESS === 'hidden' ? null : entry.sinceAddedChangePercent ?? null}
+      trendChangeAmount={WATCHLIST_TREND_ACCESS === 'hidden' ? null : entry.sinceAddedChangeAmount ?? null}
       trendSuffix={SINCE_WATCHED_SUFFIX}
     />
   );
@@ -1251,8 +1251,9 @@ function WishlistGridTile({
       priceLabel={formatOptionalCurrency(entry.marketPrice, entry.currencyCode)}
       // Numeric price feeds the tile's penny guard (sub-$1 → no trend line).
       marketPrice={entry.marketPrice ?? null}
-      // Card view gets the arrow + "since watched" percent, no sparkline.
-      trendChangePercent={WATCHLIST_TREND_ACCESS === 'hidden' ? null : entry.sinceAddedChangePercent ?? null}
+      // Card view gets the arrow + "since watched" change, no sparkline.
+      trendChangeAmount={WATCHLIST_TREND_ACCESS === 'hidden' ? null : entry.sinceAddedChangeAmount ?? null}
+      formatTrendAmount={(value) => formatOptionalCurrency(value, entry.currencyCode ?? 'USD') ?? `$${value.toFixed(2)}`}
       trendSuffix={SINCE_WATCHED_SUFFIX}
       isFavorite
       showFavorite={false}

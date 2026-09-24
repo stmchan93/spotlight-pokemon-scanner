@@ -1,7 +1,7 @@
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useSpotlightTheme } from '../theme';
-import { borderWidths } from '../tokens';
+import { borderWidths, textStyles } from '../tokens';
 import { AppText } from './app-text';
 import { PriceSparkline } from './price-sparkline';
 import { SelectionCheckCircle } from './selection-check-circle';
@@ -58,9 +58,14 @@ export type CardListRowProps = {
    * direction.
    */
   sparkTrendPct?: number | null;
+  /**
+   * A signed money change (in `currencyCode`) shown on the trend line instead
+   * of `trendChangePercent` — `"+$1.90"`. Same colors, zero and penny rules.
+   */
+  trendChangeAmount?: number | null;
   /** Reference price drawn as a dashed line across the sparkline. */
   sparkBaseline?: number | null;
-  /** Words after the percent, e.g. "since watched" → "+18.00% since watched". */
+  /** Words after the percent, e.g. "since added" → "+18.00% since added". */
   trendSuffix?: string | null;
   quantity: number;
   /**
@@ -145,6 +150,7 @@ export function CardListRow({
   sparkPoints,
   sparkTrendPct,
   sparkBaseline,
+  trendChangeAmount,
   trendSuffix,
   quantity,
   showQuantity = true,
@@ -181,9 +187,14 @@ export function CardListRow({
   // Exactly 0 renders as a quiet gray "0.00%" — "tracked but flat" (e.g. a
   // card added since the last price sync) must read differently from "no
   // data" (null → hidden entirely).
-  const trendPercent = typeof trendChangePercent === 'number' && Number.isFinite(trendChangePercent)
-    ? trendChangePercent
+  const trendAmount = typeof trendChangeAmount === 'number' && Number.isFinite(trendChangeAmount)
+    ? trendChangeAmount
     : null;
+  const trendPercent = trendAmount ?? (
+    typeof trendChangePercent === 'number' && Number.isFinite(trendChangePercent)
+      ? trendChangePercent
+      : null
+  );
   // Penny guard: sub-$1 cards render no percent at all — a −50% on $0.04 is
   // technically true but misleads (pennies aren't investment content).
   const isPennyPrice = marketPrice !== null && marketPrice < 1;
@@ -194,9 +205,11 @@ export function CardListRow({
         ? theme.colors.red400
         : theme.colors.green400
       : theme.colors.gray600;
-  const trendLabel = trendPercent !== null
-    ? `${trendPercent > 0 ? '+' : ''}${trendPercent.toFixed(2)}%${trendSuffix ? ` ${trendSuffix}` : ''}`
-    : '';
+  const trendLabel = trendAmount !== null
+    ? `${trendAmount > 0 ? '+' : trendAmount < 0 ? '−' : ''}${formatCurrency(Math.abs(trendAmount), currencyCode)}`
+    : trendPercent !== null
+      ? `${trendPercent > 0 ? '+' : ''}${trendPercent.toFixed(2)}%`
+      : '';
   const showSparkline = Array.isArray(sparkPoints) && sparkPoints.length > 0;
 
   const Container = onPress ? Pressable : View;
@@ -354,15 +367,6 @@ export function CardListRow({
         ) : null}
       </View>
 
-      {showSparkline ? (
-        <PriceSparkline
-          baseline={sparkBaseline}
-          points={sparkPoints ?? []}
-          testID={testID ? `${testID}-sparkline` : undefined}
-          trendPct={sparkTrendPct}
-        />
-      ) : null}
-
       <View style={styles.right}>
         {hasPrice ? (
           <AppText
@@ -376,10 +380,20 @@ export function CardListRow({
           </AppText>
         ) : null}
 
+        {/* Right-aligned under the price, between it and the trend line. */}
+        {showSparkline ? (
+          <PriceSparkline
+            baseline={sparkBaseline}
+            points={sparkPoints ?? []}
+            testID={testID ? `${testID}-sparkline` : undefined}
+            trendPct={sparkTrendPct}
+          />
+        ) : null}
+
         {showTrend ? (
           <AppText
             numberOfLines={1}
-            // A suffixed label ("since watched") hangs left from the column's
+            // A suffixed label ("since added") hangs left from the column's
             // bottom edge instead of widening it, so it never squeezes the
             // name/set copy.
             style={[styles.trendLabel, trendSuffix ? styles.trendLabelHanging : null, { color: trendColor }]}
@@ -387,8 +401,16 @@ export function CardListRow({
             variant="label"
           >
             {trendLabel}
+            {trendSuffix ? (
+              // The suffix reads in the condition line's label type, in the
+              // percent's color.
+              <Text style={styles.trendSuffix}>{` ${trendSuffix}`}</Text>
+            ) : null}
           </AppText>
         ) : null}
+        {/* Holds the bottom line's height while the hanging label is absolute,
+            so the sparkline stays in the middle. */}
+        {showTrend && trendSuffix && showSparkline ? <View style={styles.trendLineSpacer} /> : null}
       </View>
     </Container>
   );
@@ -470,5 +492,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     textAlign: 'right',
+  },
+  trendLineSpacer: {
+    height: 21,
+  },
+  trendSuffix: {
+    fontFamily: textStyles.label.fontFamily,
+    fontSize: textStyles.label.fontSize,
   },
 });

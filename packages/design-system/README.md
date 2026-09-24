@@ -447,15 +447,18 @@ Current API concepts:
   `marketPrice < 1` the line is suppressed entirely (a −50% on $0.04 misleads;
   pennies aren't investment content)
 - optional `sparkPoints` + `sparkTrendPct` — renders a 62×22 `PriceSparkline`
-  between the name/set copy and the price column
-  (`[thumb][name/set][sparkline][price + %]`); the sparkline tints by its
+  right-aligned in the price column, between the price and the % line; the sparkline tints by its
   OWN `sparkTrendPct` direction, independent of the percent line. Absent/empty
   → no sparkline, layout identical to before
+- optional `trendChangeAmount` — a signed money change shown on the trend
+  line instead of the percent (`"+$1.90"`, `"−$140.50"`), in `currencyCode`;
+  same colors, zero and penny rules
 - optional `sparkBaseline` — a reference price drawn dashed across the
   sparkline (the Watchlist's price-when-watched); `testID` suffix
   `-sparkline-baseline`
 - optional `trendSuffix` — words after the percent (`"+18.10% since
-  watched"`). A suffixed label hangs left from the price column's bottom edge
+  added"`), set in the condition line's `label` type (13 Medium) in the
+  percent's color. A suffixed label hangs left from the price column's bottom edge
   (absolute, 220 wide, right-aligned) so it never widens the column and
   squeezes the name/set copy
 - `quantity` (rendered as `"Qty: {n}"` at the bottom of the LEFT copy stack,
@@ -507,8 +510,10 @@ Current API concepts:
   `0.00%` with NO arrow ("tracked but flat" ≠ "no data"); null/non-finite
   hides the line. Callers pass the shared trend-window expression (since-added
   or 30d)
-- optional `trendSuffix` — words after the percent, e.g. `"since watched"`
-  (Watchlist card view)
+- optional `trendChangeAmount` + `formatTrendAmount` — a signed money change
+  shown instead of the percent (`"▲ +$1.90"`)
+- optional `trendSuffix` — words after the percent, e.g. `"since added"`,
+  set in the condition line's `label` type (13 Medium) in the percent's color
 - optional `marketPrice` — numeric price backing `priceLabel`, used only for
   the penny guard: `< 1` suppresses the trend line AND the day-change pill
   entirely (a −50% on $0.04 misleads; pennies aren't investment content)

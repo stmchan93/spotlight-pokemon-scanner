@@ -297,7 +297,8 @@ function CollectionTileSlot({
       // Numeric price feeds the tile's penny guard (sub-$1 → no trend line).
       marketPrice={entry.hasMarketPrice ? entry.marketPrice : null}
       // Arrow + "since added" percent under the price; no sparkline in card view.
-      trendChangePercent={COLLECTION_TREND_ACCESS === 'hidden' ? null : entry.sinceAddedChangePercent ?? null}
+      trendChangeAmount={COLLECTION_TREND_ACCESS === 'hidden' ? null : entry.sinceAddedChangeAmount ?? null}
+      formatTrendAmount={(value) => formatOptionalCurrency(value, entry.currencyCode) ?? `$${value.toFixed(2)}`}
       trendSuffix={SINCE_ADDED_SUFFIX}
       isFavorite={entry.isFavorite === true}
       showFavorite={false}

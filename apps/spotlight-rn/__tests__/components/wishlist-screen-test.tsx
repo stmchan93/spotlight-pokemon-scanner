@@ -274,7 +274,7 @@ describe('WishlistScreen', () => {
   // Since watched: list rows carry the % and a sparkline from the watch date
   // with the watched-at price dashed across it; card view carries the arrow +
   // % only. The old 30d `sparkPoints` never feed either.
-  it('shows since-watched percent and sparkline in list view, percent only in card view', async () => {
+  it('shows the since-watched dollar change and sparkline in list view, change only in card view', async () => {
     const favorites = [
       buildFavoriteEntry({
         cardId: 'window-1',
@@ -299,7 +299,7 @@ describe('WishlistScreen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('wishlist-row-window-1')).toBeTruthy();
     });
-    expect(screen.getByText('+31.00% since watched')).toBeTruthy();
+    expect(screen.getByText('+$142.00 since watched')).toBeTruthy();
     expect(screen.getByTestId('wishlist-row-window-1-sparkline')).toBeTruthy();
     expect(screen.getByTestId('wishlist-row-window-1-sparkline-baseline')).toBeTruthy();
 
@@ -310,7 +310,7 @@ describe('WishlistScreen', () => {
       expect(screen.getByTestId('wishlist-grid-tile-window-1')).toBeTruthy();
     });
     expect(screen.getByTestId('wishlist-grid-tile-window-1-trend-arrow-up')).toBeTruthy();
-    expect(screen.getByText('+31.00% since watched')).toBeTruthy();
+    expect(screen.getByText('+$142.00 since watched')).toBeTruthy();
     expect(screen.queryByTestId('wishlist-row-window-1-sparkline')).toBeNull();
   });
 

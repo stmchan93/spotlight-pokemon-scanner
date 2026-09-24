@@ -4,6 +4,7 @@ import {
   Image,
   Pressable,
   StyleSheet,
+  Text,
   View,
   type ImageLoadEventData,
   type NativeSyntheticEvent,
@@ -79,7 +80,14 @@ export type InventoryCardTileProps = {
    * Callers pass the window-scoped percent (since-added or 30d).
    */
   trendChangePercent?: number | null;
-  /** Words after the percent, e.g. "since watched" → "▲ +18.00% since watched". */
+  /**
+   * A signed money change shown on the trend line instead of
+   * `trendChangePercent` (`"▲ +$1.90"`); formatted by `formatTrendAmount`.
+   */
+  trendChangeAmount?: number | null;
+  /** Formats the absolute trend amount (e.g. `1.9` -> `$1.90`). */
+  formatTrendAmount?: (value: number) => string;
+  /** Words after the percent, e.g. "since added" → "▲ +18.00% since added". */
   trendSuffix?: string | null;
   /**
    * Day-over-day DOLLAR move, rendered as a tinted pill beside the price
@@ -204,6 +212,8 @@ export function InventoryCardTile({
   footnote = null,
   marketPrice,
   trendChangePercent,
+  trendChangeAmount,
+  formatTrendAmount,
   trendSuffix,
   dayChangeAmount,
   formatDayChange,
@@ -249,10 +259,15 @@ export function InventoryCardTile({
   // Trend under the price: arrow + signed percent (green/red), gray 0.00% with
   // no arrow at exactly 0, hidden when null/non-finite. Penny guard: sub-$1
   // cards render no percent at all — a −50% on $0.04 misleads.
-  const trendPercent =
+  const trendAmount =
+    typeof trendChangeAmount === 'number' && Number.isFinite(trendChangeAmount)
+      ? trendChangeAmount
+      : null;
+  const trendPercent = trendAmount ?? (
     typeof trendChangePercent === 'number' && Number.isFinite(trendChangePercent)
       ? trendChangePercent
-      : null;
+      : null
+  );
   const isPennyPrice = marketPrice != null && marketPrice < 1;
   const showTrend = trendPercent !== null && !isPennyPrice;
   const trendColor =
@@ -261,9 +276,13 @@ export function InventoryCardTile({
         ? theme.colors.red400
         : theme.colors.green400
       : theme.colors.gray600;
-  const trendLabel = trendPercent !== null
-    ? `${trendPercent > 0 ? '+' : ''}${trendPercent.toFixed(2)}%${trendSuffix ? ` ${trendSuffix}` : ''}`
-    : '';
+  const trendLabel = trendAmount !== null
+    ? `${trendAmount > 0 ? '+' : trendAmount < 0 ? '−' : ''}${
+      formatTrendAmount ? formatTrendAmount(Math.abs(trendAmount)) : `$${Math.abs(trendAmount).toFixed(2)}`
+    }`
+    : trendPercent !== null
+      ? `${trendPercent > 0 ? '+' : ''}${trendPercent.toFixed(2)}%`
+      : '';
   // The day-move pill. Shares the penny guard with the percent above for the
   // same reason: a few cents on a $0.04 card is noise wearing a badge.
   const dayChange =
@@ -481,6 +500,10 @@ export function InventoryCardTile({
                     style={[styles.trendText, { color: trendColor }]}
                   >
                     {trendLabel}
+                    {trendSuffix ? (
+                      // Condition-line type (label), in the percent's color.
+                      <Text style={styles.trendSuffix}>{` ${trendSuffix}`}</Text>
+                    ) : null}
                   </AppText>
                 </View>
               ) : null}
@@ -697,6 +720,10 @@ const styles = StyleSheet.create({
   dayChangeText: {
     ...textStyles.deltaPill,
     fontSize: 12,
+  },
+  trendSuffix: {
+    fontFamily: textStyles.label.fontFamily,
+    fontSize: textStyles.label.fontSize,
   },
   trendGroup: {
     alignItems: 'center',

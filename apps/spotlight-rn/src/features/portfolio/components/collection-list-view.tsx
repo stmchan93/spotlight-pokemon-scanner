@@ -79,7 +79,7 @@ export function CollectionListRow({
       sparkPoints={COLLECTION_TREND_ACCESS === 'full' ? entry.sinceAddedPoints ?? undefined : undefined}
       sparkTrendPct={entry.sinceAddedChangePercent ?? null}
       testID={`card-list-row-${entry.cardId}`}
-      trendChangePercent={COLLECTION_TREND_ACCESS === 'hidden' ? null : entry.sinceAddedChangePercent ?? null}
+      trendChangeAmount={COLLECTION_TREND_ACCESS === 'hidden' ? null : entry.sinceAddedChangeAmount ?? null}
       trendSuffix={SINCE_ADDED_SUFFIX}
     />
   );
