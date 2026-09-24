@@ -197,6 +197,25 @@ describe('WishlistScreen', () => {
     expect(screen.queryByTestId('wishlist-list-pagination-view-more')).toBeNull();
   });
 
+  it('re-reads the watchlist when the tab comes back into view', async () => {
+    const favorites = [buildFavoriteEntry({ cardId: 'first', name: 'First' })];
+    const getCardFavorites = jest.fn(async () => [...favorites]);
+    const repository = createTestSpotlightRepository({ getCardFavorites });
+
+    const view = renderWishlistScreen(repository);
+    await waitFor(() => expect(screen.getByTestId('wishlist-row-first')).toBeTruthy());
+
+    // Leave the tab, watch a card elsewhere, come back.
+    mockIsFocused = false;
+    view.rerender(<WishlistScreen />);
+    favorites.push(buildFavoriteEntry({ cardId: 'watched-elsewhere', name: 'Watched' }));
+    mockIsFocused = true;
+    view.rerender(<WishlistScreen />);
+
+    await waitFor(() => expect(screen.getByTestId('wishlist-row-watched-elsewhere')).toBeTruthy());
+    mockIsFocused = true;
+  });
+
   it('rarity chips keep only entries whose served bucket matches (missing bucket never matches)', async () => {
     const favorites = [
       buildFavoriteEntry({ cardId: 'sir-card', name: 'Charizard ex', rarityBucket: 'sir' }),

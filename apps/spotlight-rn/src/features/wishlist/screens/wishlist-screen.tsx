@@ -256,6 +256,21 @@ export function WishlistScreen() {
     };
   }, [dataVersion, loadFavorites]);
 
+  // Watching a card elsewhere (card page, scanner tray) doesn't bump dataVersion,
+  // and this tab stays mounted, so re-read quietly each time it comes into view.
+  // Skips the first focus: the mount load above already covers it.
+  const hasFocusedOnceRef = useRef(false);
+  useEffect(() => {
+    if (!isFocused) {
+      return;
+    }
+    if (!hasFocusedOnceRef.current) {
+      hasFocusedOnceRef.current = true;
+      return;
+    }
+    void loadFavorites();
+  }, [isFocused, loadFavorites]);
+
   /*
     The bar FLOATS: the bubbles stay pinned at the top while the centred
     "Watchlist" title slides up out of the row, so the list scrolls beneath the
