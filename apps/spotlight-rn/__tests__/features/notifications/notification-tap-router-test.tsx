@@ -1,7 +1,10 @@
 import { renderHook, waitFor } from '@testing-library/react-native';
 import * as Notifications from 'expo-notifications';
 
-import { useNotificationTapRouter } from '@/features/notifications/use-notification-tap-router';
+import {
+  __resetNotificationTapRouterForTests,
+  useNotificationTapRouter,
+} from '@/features/notifications/use-notification-tap-router';
 
 const mockPush = jest.fn();
 let mockNavigationState: { key: string } | undefined = { key: 'root' };
@@ -58,6 +61,7 @@ const DEAL_DATA = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  __resetNotificationTapRouterForTests();
   mockNavigationState = { key: 'root' };
   mockAuth = { currentUser: { id: 'owner-1' }, isGuest: false };
   notifications.getLastNotificationResponseAsync.mockResolvedValue(null);
@@ -78,6 +82,27 @@ describe('useNotificationTapRouter', () => {
     await waitFor(() => {
       expect(mockServices.spotlightRepository.markDealAlertTapped).toHaveBeenCalledWith('alert-1');
     });
+  });
+
+  it('never replays the launch notification when the app tree remounts', async () => {
+    // The 2026-09-24 flicker: a cold-start navigation remounted the tree, the
+    // new mount re-read the sticky launch response, navigated again, forever.
+    notifications.getLastNotificationResponseAsync.mockResolvedValue(
+      makeResponse('cold-loop', { url: '/cards/ex8-106' }),
+    );
+
+    const first = renderHook(() => useNotificationTapRouter());
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledTimes(1);
+    });
+    first.unmount();
+
+    const second = renderHook(() => useNotificationTapRouter());
+    await waitFor(() => {
+      expect(notifications.getLastNotificationResponseAsync).toHaveBeenCalledTimes(2);
+    });
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    second.unmount();
   });
 
   it('routes a WARM tap through the response listener', async () => {

@@ -34,6 +34,16 @@ import { debugTrace } from '@/lib/observability/debug-trace';
  * `/wishlist` at someone sitting on the sign-in screen would be worse than
  * doing nothing.
  */
+// Module scope, not a ref: a cold-start navigation can remount the whole app
+// tree inside the same JS runtime, and a per-mount memory then re-read the
+// launch notification and navigated again — forever (the 2026-09-24 push-tap
+// flicker: signed-in state flipping ~3x/s until force-quit).
+const handledNotificationIds = new Set<string>();
+
+export function __resetNotificationTapRouterForTests(): void {
+  handledNotificationIds.clear();
+}
+
 export function useNotificationTapRouter(): void {
   const router = useRouter();
   const navigationState = useRootNavigationState();
@@ -43,7 +53,6 @@ export function useNotificationTapRouter(): void {
   const isNavigatorReady = Boolean(navigationState?.key);
   const isSignedIn = Boolean(auth.currentUser) && !auth.isGuest;
 
-  const handledIdsRef = useRef<Set<string>>(new Set());
   const pendingRef = useRef<NotificationRoute | null>(null);
   // Bumped rather than storing the route in state: the flush effect has to
   // re-run for a REPEAT tap on the same alert too, and an identical route
@@ -55,13 +64,16 @@ export function useNotificationTapRouter(): void {
       return;
     }
     const identifier = response.notification?.request?.identifier ?? null;
-    debugTrace('push_enqueue', { has_identifier: Boolean(identifier), seen: identifier ? handledIdsRef.current.has(identifier) : false, handled_count: handledIdsRef.current.size });
+    debugTrace('push_enqueue', { has_identifier: Boolean(identifier), seen: identifier ? handledNotificationIds.has(identifier) : false, handled_count: handledNotificationIds.size });
     if (identifier) {
-      if (handledIdsRef.current.has(identifier)) {
+      if (handledNotificationIds.has(identifier)) {
         return;
       }
-      handledIdsRef.current.add(identifier);
+      handledNotificationIds.add(identifier);
     }
+    // The launch response is sticky for the life of the process; once handled,
+    // clear it so no later mount can replay it.
+    clearLaunchResponse();
     const data = response.notification?.request?.content?.data;
     const route = parseNotificationRoute(data);
     if (!route) {
@@ -122,4 +134,17 @@ export function useNotificationTapRouter(): void {
       void spotlightRepository.markDealAlertTapped(route.alertId);
     }
   }, [isNavigatorReady, isSignedIn, pendingVersion, router, spotlightRepository]);
+}
+
+function clearLaunchResponse(): void {
+  const Notifications = loadNotificationsModule();
+  try {
+    if (Notifications && typeof Notifications.clearLastNotificationResponse === 'function') {
+      Notifications.clearLastNotificationResponse();
+    } else if (Notifications && typeof Notifications.clearLastNotificationResponseAsync === 'function') {
+      void Notifications.clearLastNotificationResponseAsync().catch(() => {});
+    }
+  } catch {
+    // Best-effort: the id set above already stops a replay in this process.
+  }
 }
