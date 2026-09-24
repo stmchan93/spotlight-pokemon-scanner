@@ -25,9 +25,10 @@ jest.mock('@/providers/app-providers', () => ({
   useAppServices: () => mockServices,
 }));
 
-let mockAuth: { currentUser: { id: string } | null; isGuest: boolean } = {
+let mockAuth: { currentUser: { id: string } | null; isGuest: boolean; state?: string } = {
   currentUser: { id: 'owner-1' },
   isGuest: false,
+  state: 'signedIn',
 };
 
 jest.mock('@/providers/auth-provider', () => ({
@@ -63,7 +64,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   __resetNotificationTapRouterForTests();
   mockNavigationState = { key: 'root' };
-  mockAuth = { currentUser: { id: 'owner-1' }, isGuest: false };
+  mockAuth = { currentUser: { id: 'owner-1' }, isGuest: false, state: 'signedIn' };
   notifications.getLastNotificationResponseAsync.mockResolvedValue(null);
   notifications.addNotificationResponseReceivedListener.mockReturnValue({ remove: jest.fn() });
 });
@@ -103,6 +104,28 @@ describe('useNotificationTapRouter', () => {
     });
     expect(mockPush).toHaveBeenCalledTimes(1);
     second.unmount();
+  });
+
+  it('keeps a cold-start tap accepted by a mount that is thrown away before sign-in', async () => {
+    // Launch order on device: the bridge mounts, reads the launch response,
+    // then the tree remounts once the session lands. The route must survive.
+    mockAuth = { currentUser: null, isGuest: false, state: 'loading' };
+    notifications.getLastNotificationResponseAsync.mockResolvedValue(
+      makeResponse('cold-remount', { url: '/cards/ex8-106' }),
+    );
+    const first = renderHook(() => useNotificationTapRouter());
+    await waitFor(() => {
+      expect(notifications.getLastNotificationResponseAsync).toHaveBeenCalledTimes(1);
+    });
+    expect(mockPush).not.toHaveBeenCalled();
+    first.unmount();
+
+    mockAuth = { currentUser: { id: 'owner-1' }, isGuest: false, state: 'signedIn' };
+    renderHook(() => useNotificationTapRouter());
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith('/cards/ex8-106');
+    });
+    expect(mockPush).toHaveBeenCalledTimes(1);
   });
 
   it('routes a WARM tap through the response listener', async () => {

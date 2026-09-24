@@ -1,6 +1,6 @@
 import type { NotificationResponse } from 'expo-notifications';
 import { useRootNavigationState, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
@@ -39,9 +39,14 @@ import { debugTrace } from '@/lib/observability/debug-trace';
 // launch notification and navigated again — forever (the 2026-09-24 push-tap
 // flicker: signed-in state flipping ~3x/s until force-quit).
 const handledNotificationIds = new Set<string>();
+// Same reason: at launch the bridge mounts twice (again once the session
+// lands), so the route the FIRST mount accepted must survive to be flushed by
+// whichever mount is alive once the user is signed in.
+let pendingRoute: NotificationRoute | null = null;
 
 export function __resetNotificationTapRouterForTests(): void {
   handledNotificationIds.clear();
+  pendingRoute = null;
 }
 
 export function useNotificationTapRouter(): void {
@@ -51,9 +56,10 @@ export function useNotificationTapRouter(): void {
   const auth = useAuth();
 
   const isNavigatorReady = Boolean(navigationState?.key);
-  const isSignedIn = Boolean(auth.currentUser) && !auth.isGuest;
+  // `state === 'signedIn'`, not just a user: navigating while the auth gate is
+  // still settling is what remounted the tree on a cold start.
+  const isSignedIn = auth.state === 'signedIn' && Boolean(auth.currentUser) && !auth.isGuest;
 
-  const pendingRef = useRef<NotificationRoute | null>(null);
   // Bumped rather than storing the route in state: the flush effect has to
   // re-run for a REPEAT tap on the same alert too, and an identical route
   // object would not retrigger it.
@@ -80,7 +86,7 @@ export function useNotificationTapRouter(): void {
       return;
     }
     capturePostHogEvent(AnalyticsEvent.pushOpened, pushOpenedAnalyticsProps(data));
-    pendingRef.current = route;
+    pendingRoute = route;
     setPendingVersion((version) => version + 1);
   }, []);
 
@@ -118,11 +124,11 @@ export function useNotificationTapRouter(): void {
   }, [enqueueResponse]);
 
   useEffect(() => {
-    const route = pendingRef.current;
+    const route = pendingRoute;
     if (!route || !isNavigatorReady || !isSignedIn) {
       return;
     }
-    pendingRef.current = null;
+    pendingRoute = null;
     debugTrace('push_flush', { url_length: route.url.length });
     // `as never`: the payload's url is a runtime string, so it cannot satisfy
     // typed routes' literal union. It is validated in `parseNotificationRoute`.
