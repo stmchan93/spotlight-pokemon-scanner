@@ -38,10 +38,6 @@ import { HotCardsBlock, hasHotCardsContent } from '@/features/meta-feed/componen
 import { MetaPulseBlock, hasMetaPulseContent } from '@/features/meta-feed/components/meta-pulse-block';
 import { NewsBlock, hasNewsContent } from '@/features/meta-feed/components/news-block';
 import {
-  SetSpotlightBlock,
-  hasSetSpotlightContent,
-} from '@/features/meta-feed/components/set-spotlight-block';
-import {
   CALENDAR_BLOCK_LIMIT,
   NEWS_FEED_BLOCK_LIMIT,
   useCalendar,
@@ -49,7 +45,6 @@ import {
   useMetaExposure,
   useMetaPulse,
   useNewsFeed,
-  useSetSpotlight,
 } from '@/features/meta-feed/hooks/use-meta-feed';
 import { useMetaFeedNavigation } from '@/features/meta-feed/hooks/use-meta-feed-navigation';
 import { PostCard } from '@/features/social/components/post-card';
@@ -193,7 +188,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     { enabled: metaPulse.data != null },
   );
   const hotCards = useHotCards();
-  const setSpotlight = useSetSpotlight();
   const calendar = useCalendar({ limit: CALENDAR_BLOCK_LIMIT });
   const newsFeed = useNewsFeed({ limit: NEWS_FEED_BLOCK_LIMIT });
   const {
@@ -203,14 +197,10 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const { refresh: refreshMetaExposure, refreshIfStale: refreshMetaExposureIfStale } = metaExposure;
   const { refresh: refreshCalendar, refreshIfStale: refreshCalendarIfStale } = calendar;
   const { refresh: refreshHotCards, refreshIfStale: refreshHotCardsIfStale } = hotCards;
-  const {
-    refresh: refreshSetSpotlight,
-    refreshIfStale: refreshSetSpotlightIfStale,
-  } = setSpotlight;
   const { refresh: refreshNewsFeed, refreshIfStale: refreshNewsFeedIfStale } = newsFeed;
   /*
-    The header's sections in feed order (Meta pulse → Hot on Ekalight → Set
-    spotlight → Coming up → Top Trends → Card news), each present only with
+    The header's sections in feed order (Meta pulse → Hot on Ekalight → Coming
+    up → Top Trends → Card news), each present only with
     content. The
     LAST visible one is the section that meets the first post, so it hands its
     closing band to the first cell once posts exist (see renderItem); every
@@ -219,7 +209,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const visibleHeaderBlocks = [
     hasMetaPulseContent(metaPulse.data) ? 'metaPulse' : null,
     hasHotCardsContent(hotCards.data) ? 'hotCards' : null,
-    hasSetSpotlightContent(setSpotlight.data) ? 'setSpotlight' : null,
     hasComingUpContent(calendar.data) ? 'comingUp' : null,
     topTrendsVisible ? 'topTrends' : null,
     hasNewsContent(newsFeed.data) ? 'news' : null,
@@ -484,7 +473,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       refreshMetaPulseIfStale();
       refreshMetaExposureIfStale();
       refreshHotCardsIfStale();
-      refreshSetSpotlightIfStale();
       refreshCalendarIfStale();
       refreshNewsFeedIfStale();
       // Compare-and-record rather than read-and-clear: the owner's Activity tab
@@ -505,7 +493,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       refreshMetaExposureIfStale,
       refreshMetaPulseIfStale,
       refreshNewsFeedIfStale,
-      refreshSetSpotlightIfStale,
       refreshTopMoversIfStale,
     ]),
   );
@@ -521,7 +508,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     void refreshMetaPulse();
     void refreshMetaExposure();
     void refreshHotCards();
-    void refreshSetSpotlight();
     void refreshCalendar();
     void refreshNewsFeed();
     void (async () => {
@@ -549,7 +535,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     refreshMetaExposure,
     refreshMetaPulse,
     refreshNewsFeed,
-    refreshSetSpotlight,
     refreshTopMovers,
   ]);
 
@@ -603,13 +588,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const openMeta = useCallback(
     (pulse: MetaPulse) => {
       router.push({ pathname: '/meta', params: { game: pulse.game } } as never);
-    },
-    [router],
-  );
-
-  const openSetSpotlight = useCallback(
-    (setId: string) => {
-      router.push({ pathname: '/set-spotlight/[setId]', params: { setId } } as never);
     },
     [router],
   );
@@ -858,13 +836,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
               onPressCard={handleOpenCard}
               showBand={showBlockBand('hotCards')}
               testID={`${testID}-hot-cards`}
-            />
-            <SetSpotlightBlock
-              onOpenSet={openSetSpotlight}
-              onPressCard={handleOpenCard}
-              showBand={showBlockBand('setSpotlight')}
-              spotlight={setSpotlight.data}
-              testID={`${testID}-set-spotlight`}
             />
             <ComingUpBlock
               feed={calendar.data}

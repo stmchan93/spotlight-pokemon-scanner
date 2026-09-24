@@ -460,7 +460,6 @@ describe('FeedScreen', () => {
         'feed-compose-prompt',
         'feed-meta-pulse',
         'feed-hot-cards',
-        'feed-set-spotlight',
         'feed-coming-up',
         'feed-top-trends',
         'feed-card-news',
@@ -480,7 +479,6 @@ describe('FeedScreen', () => {
       expect(band('feed-compose-divider')).toBe(0);
       expect(band('feed-meta-pulse')).toBe(4);
       expect(band('feed-hot-cards')).toBe(4);
-      expect(band('feed-set-spotlight')).toBe(4);
       expect(band('feed-coming-up')).toBe(4);
       expect(band('feed-top-trends')).toBe(4);
       expect(band('feed-card-news')).toBe(0);
@@ -513,7 +511,7 @@ describe('FeedScreen', () => {
       expect(StyleSheet.flatten(screen.getByTestId('feed-card-news').props.style).borderBottomWidth).toBe(4);
     });
 
-    it('slots Coming up between Set spotlight and Top Trends, and hands it the seam when last', async () => {
+    it('leaves Set spotlight out of the feed, and hands Coming up the seam when last', async () => {
       fetchSetSpotlight.mockResolvedValue(mockSetSpotlight);
       fetchCalendar.mockResolvedValue(mockCalendarFeed);
 
@@ -521,9 +519,8 @@ describe('FeedScreen', () => {
       await waitFor(() => expect(screen.getByTestId('feed-coming-up')).toBeTruthy());
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-      const sections = screen.getAllByTestId(/^feed-(set-spotlight|coming-up)$/);
-      expect(sections.map((row) => row.props.testID)).toEqual(['feed-set-spotlight', 'feed-coming-up']);
-      expect(StyleSheet.flatten(screen.getByTestId('feed-set-spotlight').props.style).borderBottomWidth).toBe(4);
+      expect(screen.queryByTestId('feed-set-spotlight')).toBeNull();
+      expect(fetchSetSpotlight).not.toHaveBeenCalled();
       expect(StyleSheet.flatten(screen.getByTestId('feed-coming-up').props.style).borderBottomWidth).toBe(0);
       expect(StyleSheet.flatten(screen.getByTestId('feed-first-cell-rule').props.style).marginBottom).toBe(0);
     });
@@ -537,7 +534,7 @@ describe('FeedScreen', () => {
       expect(screen.queryByTestId('feed-coming-up')).toBeNull();
     });
 
-    it('routes the block links to the meta, set and news pages', async () => {
+    it('routes the block links to the meta and news pages', async () => {
       resolveAll();
 
       renderFeed();
@@ -552,11 +549,6 @@ describe('FeedScreen', () => {
       });
       fireEvent.press(screen.getByTestId('feed-coming-up-header-action'));
       expect(push).toHaveBeenLastCalledWith('/calendar');
-      fireEvent.press(screen.getByTestId('feed-set-spotlight-header-action'));
-      expect(push).toHaveBeenLastCalledWith({
-        pathname: '/set-spotlight/[setId]',
-        params: { setId: 'cel25' },
-      });
       fireEvent.press(screen.getByTestId('feed-card-news-header-action'));
       expect(push).toHaveBeenLastCalledWith('/news');
       fireEvent.press(screen.getByTestId('feed-hot-cards-tile-ecard3-149'));
@@ -572,7 +564,7 @@ describe('FeedScreen', () => {
       renderFeed();
       await waitFor(() => expect(screen.getByTestId('feed-card-news')).toBeTruthy());
       await waitFor(() => expect(fetchMetaExposure).toHaveBeenCalledTimes(1));
-      const reads = [fetchMetaPulse, fetchMetaExposure, fetchHotCards, fetchSetSpotlight, fetchCalendar, fetchNewsFeed];
+      const reads = [fetchMetaPulse, fetchMetaExposure, fetchHotCards, fetchCalendar, fetchNewsFeed];
       for (const read of reads) {
         expect(read).toHaveBeenCalledTimes(1);
       }

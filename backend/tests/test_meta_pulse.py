@@ -513,7 +513,7 @@ class ComputeTests(unittest.TestCase):
         )
         raw = groups["vintage:raw"]
         self.assertEqual(set(raw), {"ownedCount", "valueChangeUsd", "ownedCards"})
-        self.assertEqual(raw["ownedCount"], 4)
+        self.assertEqual(raw["ownedCount"], 3)
         self.assertAlmostEqual(raw["valueChangeUsd"], 2 * 1.0 + 1.2)
         self.assertEqual([c["cardId"] for c in raw["ownedCards"]], ["v0", "v2", "v1"])
         self.assertEqual(set(raw["ownedCards"][0]), CARD_KEYS)
@@ -530,8 +530,8 @@ class ComputeTests(unittest.TestCase):
         self.assertEqual(callout["imageUrls"], ["https://img/v4.png"])
 
         bob = build_meta_exposure_payload(self.connection, owner_user_id="bob", game="pokemon", window_days=7)
-        self.assertEqual(bob["groups"]["vintage:raw"]["ownedCount"], 5)
-        self.assertEqual(bob["groups"]["vintage:graded:psa10"]["ownedCount"], 3)
+        self.assertEqual(bob["groups"]["vintage:raw"]["ownedCount"], 1)
+        self.assertEqual(bob["groups"]["vintage:graded:psa10"]["ownedCount"], 1)
         self.assertAlmostEqual(bob["groups"]["vintage:graded:psa10"]["valueChangeUsd"], 84.0)
         nobody = build_meta_exposure_payload(self.connection, owner_user_id="carol", game="pokemon", window_days=7)
         self.assertEqual((nobody["groups"], nobody["callout"]), ({}, None))

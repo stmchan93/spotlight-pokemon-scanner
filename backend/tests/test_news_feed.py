@@ -400,6 +400,42 @@ class RefreshTests(CatalogTestCase):
                         now=NOW, sources=[src])
         self.assertEqual(self.rows()[0][6], nf._iso(NOW))
 
+    def test_missing_feed_image_filled_from_article_page_once(self) -> None:
+        body = b"""<?xml version="1.0"?><rss version="2.0"><channel>
+          <item><title>Pokemon TCG news one</title><link>https://example.com/a</link></item>
+          <item><title>Pokemon TCG forum thread</title><link>https://example.com/b</link></item>
+          <item><title>Surging Sparks Pikachu ex 238/191 spotted</title><link>https://example.com/c</link></item>
+          </channel></rss>"""
+        src = nf.NewsSource("img", "X", "https://img.test/rss", "news", "pokemon")
+        feed = FakeFetcher({src.url: nf.FetchResponse(200, body)})
+        pages = FakeFetcher({
+            "https://example.com/a": nf.FetchResponse(
+                200, b'<head><meta content="/up/hero.webp" property="og:image"></head>'),
+            # Discourse puts the forum's SVG logo in og:image: not a thumbnail.
+            "https://example.com/b": nf.FetchResponse(
+                200, b'<meta property="og:image" content="https://cdn.test/logo-mark.svg">'),
+        })
+        self.connection.execute("UPDATE cards SET image_small_url = 'https://img.test/sv8-238.png' "
+                                "WHERE id = 'sv8-238'")
+        nf.refresh_news(self.connection, fetch=feed, fetch_page=pages, now=NOW, sources=[src])
+        images = {row[4]: row[5] for row in self.rows()}
+        self.assertEqual(images["https://example.com/a"], "https://example.com/up/hero.webp")
+        self.assertIsNone(images["https://example.com/b"])
+        self.assertEqual(images["https://example.com/c"], "https://img.test/sv8-238.png")  # tagged card art
+
+        nf.refresh_news(self.connection, fetch=feed, fetch_page=pages, now=NOW + timedelta(hours=1), sources=[src])
+        self.assertEqual(len(pages.calls), 3)  # each page looked at once, ever
+
+    def test_page_image_prefers_og_then_twitter(self) -> None:
+        self.assertEqual(
+            nf.page_image('<meta name="twitter:image" content="https://t.test/x.jpg">'
+                          '<meta property="og:image" content="https://o.test/y.jpg">', "https://a.test/"),
+            "https://o.test/y.jpg",
+        )
+        self.assertEqual(nf.page_image('<meta name="twitter:image" content="//t.test/x.jpg">', "https://a.test/"),
+                         "https://t.test/x.jpg")
+        self.assertIsNone(nf.page_image("<html></html>", "https://a.test/"))
+
 
 # --- payload -----------------------------------------------------------------------
 

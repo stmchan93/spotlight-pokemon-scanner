@@ -1705,9 +1705,9 @@ export type MetaExposure = {
     imageUrls: string[];         // ≤ 2 of the user's cards, for the fanned thumbnails
   } | null;
   groups: Record<string, {       // keyed by groupKey; only groups where the user owns ≥ 1 card
-    ownedCount: number;
+    ownedCount: number;          // distinct priced cards: ownedCards.length unless over the cap
     valueChangeUsd: number;      // change in the user's holdings in this group over the window
-    ownedCards: MetaCard[];      // ≤ 20, for "Your cards in this group" on the group page
+    ownedCards: MetaCard[];      // ≤ 50, for "Your cards in this group" on the group page
   }>;
 };
 

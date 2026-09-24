@@ -80,7 +80,7 @@ FLAT_BAND_PCT = 0.5
 SPARK_POINTS = 30
 TOP_CARDS = 20  # stored per group; the group page lists them all
 FEED_TOP_CARDS = 5  # the public /market/meta payload only needs the lead card
-EXPOSURE_OWNED_CARDS = 20
+EXPOSURE_OWNED_CARDS = 50
 EXPOSURE_CALLOUT_IMAGES = 2
 RETENTION_DAYS = 14
 RUN_SETTING_KEY = "meta_pulse_last_run"
@@ -1629,7 +1629,9 @@ def build_meta_exposure_payload(
                 "changePercent": round(pair.change_pct, 1), "currencyCode": "USD",
             })
         groups[key] = {
-            "ownedCount": sum(h.quantity for h in owned),
+            # Distinct priced cards, so "You own N" matches the group page's list
+            # (copies and unpriced holdings made it read 14 over a list of 10).
+            "ownedCount": len(priced),
             "valueChangeUsd": round(sum(h.value_change for h in owned), 2),
             "ownedCards": owned_cards,
         }

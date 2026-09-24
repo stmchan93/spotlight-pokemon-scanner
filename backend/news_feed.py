@@ -56,6 +56,10 @@ DEFAULT_PAGE_LIMIT = 20
 MAX_PAGE_LIMIT = 50
 FETCH_TIMEOUT_SECONDS = 20
 MAX_FEED_BYTES = 5 * 1024 * 1024
+# og:image lives in <head>; the rest of the article is never read.
+MAX_PAGE_HEAD_BYTES = 256 * 1024
+# Article pages fetched per source per poll for items whose feed had no image.
+PAGE_IMAGE_FETCHES_PER_SOURCE = 8
 
 BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -152,6 +156,11 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
         );
         """
     )
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(news_items)")}
+    if "image_checked" not in columns:
+        # 1 once the article page was looked at, so a page with no og:image is
+        # not re-fetched every poll.
+        connection.execute("ALTER TABLE news_items ADD COLUMN image_checked INTEGER NOT NULL DEFAULT 0")
 
 
 # --- small helpers -----------------------------------------------------------
@@ -301,6 +310,27 @@ def _media_image(element: ET.Element, base: str | None) -> str | None:
         url = node.get("url")
         if url and (mime.startswith("image/") or _IMAGE_EXT_RE.search(url)):
             return _clean_image_url(url, base)
+    return None
+
+
+_META_TAG_RE = re.compile(r"<meta\b[^>]*>", re.IGNORECASE)
+_META_ATTR_RE = re.compile(r"\b(property|name|content)\s*=\s*[\"']([^\"']*)[\"']", re.IGNORECASE)
+_PAGE_IMAGE_KEYS = ("og:image", "og:image:url", "og:image:secure_url", "twitter:image", "twitter:image:src")
+
+
+def page_image(markup: str, base: str) -> str | None:
+    """The article's share image (og:image, then twitter:image). Skips SVG site
+    logos (Discourse forums put the forum logo there)."""
+    found: dict[str, str] = {}
+    for tag in _META_TAG_RE.findall(markup):
+        attrs = {key.lower(): value for key, value in _META_ATTR_RE.findall(tag)}
+        key = (attrs.get("property") or attrs.get("name") or "").lower()
+        if key in _PAGE_IMAGE_KEYS and attrs.get("content") and key not in found:
+            found[key] = attrs["content"]
+    for key in _PAGE_IMAGE_KEYS:
+        candidate = _clean_image_url(found.get(key), base)
+        if candidate and not re.search(r"\.svg(\?|$)", candidate, re.I) and not _NON_THUMBNAIL_RE.search(candidate):
+            return candidate
     return None
 
 
@@ -786,6 +816,69 @@ def urllib_fetch(url: str, headers: Mapping[str, str]) -> FetchResponse:
         return FetchResponse(error.code, b"", dict(error.headers.items()) if error.headers else {})
 
 
+def urllib_fetch_page_head(url: str, headers: Mapping[str, str]) -> FetchResponse:
+    request = urllib.request.Request(url, headers=dict(headers))
+    try:
+        with urllib.request.urlopen(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
+            return FetchResponse(response.status, response.read(MAX_PAGE_HEAD_BYTES), dict(response.headers.items()))
+    except urllib.error.HTTPError as error:
+        return FetchResponse(error.code, b"", {})
+
+
+def _fetch_page_image(fetch_page: Fetcher, url: str, user_agent: str) -> str | None:
+    try:
+        response = fetch_page(url, {"User-Agent": user_agent, "Accept": "text/html,*/*;q=0.8"})
+    except Exception as error:  # one bad article never stops the poll
+        LOGGER.info("news_feed page image fetch failed url=%s: %s", url, error)
+        return None
+    if response.status != 200 or not response.body:
+        return None
+    return page_image(response.body.decode("utf-8", errors="replace"), url)
+
+
+def _tagged_art(connection: sqlite3.Connection, row: NewsRow) -> str | None:
+    """Last-resort thumbnail: the first tagged card's art, else the set logo."""
+    try:
+        for card_id in row.card_ids:
+            found = connection.execute("SELECT image_small_url FROM cards WHERE id = ?", (card_id,)).fetchone()
+            if found and found[0]:
+                return str(found[0])
+        if row.set_id:
+            found = connection.execute("SELECT logo_url FROM expansions WHERE id = ?", (row.set_id,)).fetchone()
+            if found and found[0]:
+                return str(found[0])
+    except sqlite3.OperationalError:
+        return None
+    return None
+
+
+def fill_missing_image(
+    connection: sqlite3.Connection,
+    row: NewsRow,
+    *,
+    fetch_page: Fetcher | None,
+    user_agent: str,
+    budget: list[int],
+) -> bool:
+    """Give a feed item with no image one: the article's og:image, else tagged
+    card art. Returns True when the article page was checked."""
+    if row.image_url:
+        return False
+    stored = connection.execute(
+        "SELECT image_url, image_checked FROM news_items WHERE id = ?", (row.id,)
+    ).fetchone()
+    if stored and stored[0]:
+        return False  # the upsert keeps the stored image
+    checked = bool(stored and stored[1])
+    if not checked and fetch_page is not None and budget[0] > 0:
+        budget[0] -= 1
+        row.image_url = _fetch_page_image(fetch_page, row.url, user_agent)
+        checked = True
+    if not row.image_url and (checked or fetch_page is None):
+        row.image_url = _tagged_art(connection, row)
+    return checked
+
+
 def _load_state(connection: sqlite3.Connection, source_key: str) -> tuple[str | None, str | None, int]:
     row = connection.execute(
         "SELECT etag, last_modified, consecutive_failures FROM news_sources_state WHERE source_key = ?",
@@ -855,12 +948,15 @@ def refresh_news(
     connection: sqlite3.Connection,
     *,
     fetch: Fetcher | None = None,
+    fetch_page: Fetcher | None = None,
     now: datetime | None = None,
     sources: Iterable[NewsSource] | None = None,
 ) -> dict[str, Any]:
     """Poll every source once. Never raises for a single bad source."""
     ensure_schema(connection)
-    fetch = fetch or urllib_fetch
+    if fetch is None:
+        # An injected feed fetcher (tests) never reaches real article pages.
+        fetch, fetch_page = urllib_fetch, fetch_page or urllib_fetch_page_head
     current = _now(now)
     fetched_at = _iso(current)
     cutoff = current - timedelta(days=RETENTION_DAYS)
@@ -917,12 +1013,17 @@ def refresh_news(
         entries = entries[: source.max_items]
 
         stored = 0
+        page_budget = [PAGE_IMAGE_FETCHES_PER_SOURCE]
         for entry in entries:
             row = entry_to_row(connection, index, entry, kind=source.kind, source_name=source.name,
                                source_key=source.key, source_game=source.game, published_fallback=current)
             if source.require_game and not row.game:
                 continue
-            upsert_news_row(connection, row, fetched_at=fetched_at)
+            page_checked = fill_missing_image(connection, row, fetch_page=fetch_page,
+                                              user_agent=source.user_agent, budget=page_budget)
+            item_id = upsert_news_row(connection, row, fetched_at=fetched_at)
+            if page_checked:
+                connection.execute("UPDATE news_items SET image_checked = 1 WHERE id = ?", (item_id,))
             stored += 1
         _save_state(connection, source, status=200, fetched_at=fetched_at, ok=True,
                     etag=response.header("ETag"), last_modified=response.header("Last-Modified"),
