@@ -58,6 +58,8 @@ type MetaSectionProps = {
   children: ReactNode;
   /** Right-hand caption on the title row ("past 7 days"). */
   caption?: string | null;
+  /** Replaces the caption with a control, e.g. the Groups sort toggle. */
+  accessory?: ReactNode;
   /** Line under the title row. */
   description?: string | null;
   /** Draw the 4pt gray band that closes a section (not on the last one). */
@@ -67,7 +69,7 @@ type MetaSectionProps = {
 };
 
 /** A padded page section with a `titleXsmall` row, closed by the feed's 4pt band. */
-export function MetaSection({ caption, children, description, showBand = true, testID, title }: MetaSectionProps) {
+export function MetaSection({ accessory, caption, children, description, showBand = true, testID, title }: MetaSectionProps) {
   const theme = useSpotlightTheme();
 
   return (
@@ -83,7 +85,7 @@ export function MetaSection({ caption, children, description, showBand = true, t
           <Text accessibilityRole="header" style={[theme.typography.titleXsmall, styles.titleText]}>
             {title}
           </Text>
-          {caption ? <Text style={theme.typography.captionMedium}>{caption}</Text> : null}
+          {accessory ?? (caption ? <Text style={theme.typography.captionMedium}>{caption}</Text> : null)}
         </View>
       ) : null}
       {description ? (

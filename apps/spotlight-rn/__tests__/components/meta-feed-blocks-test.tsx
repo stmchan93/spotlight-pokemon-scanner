@@ -40,9 +40,9 @@ describe('MetaPulseBlock', () => {
   });
 
   it('names the game, window and lanes in the caption', () => {
-    expect(metaPulseCaption(mockMetaPulse)).toBe('Pokémon · past 7 days · from price changes, raw and graded');
+    expect(metaPulseCaption(mockMetaPulse)).toBe('Pokémon · past 7 days');
     expect(metaPulseCaption({ ...mockMetaPulse, groups: mockMetaPulse.groups.filter((g) => g.lane === 'raw') }))
-      .toBe('Pokémon · past 7 days · from raw price changes');
+      .toBe('Pokémon · past 7 days');
   });
 
   it('renders the headline and three tagged group rows, and opens the meta page', () => {

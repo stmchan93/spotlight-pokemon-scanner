@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ArrowDown, ArrowUp } from 'iconoir-react-native';
 
 import {
   DEFAULT_CARD_GAME,
@@ -216,6 +217,13 @@ type MetaPageBodyProps = {
 
 function MetaPageBody({ loading, onOpenCard, onRetry, onSelectGroup, pulse, selectedGroupKey, status }: MetaPageBodyProps) {
   const theme = useSpotlightTheme();
+  const [risingFirst, setRisingFirst] = useState(true);
+  const sortedGroups = useMemo(() => {
+    const groups = [...(pulse?.groups ?? [])];
+    return groups.sort((a, b) =>
+      risingFirst ? b.medianChangePercent - a.medianChangePercent : a.medianChangePercent - b.medianChangePercent,
+    );
+  }, [pulse, risingFirst]);
   if (!pulse) {
     if (status === 'loading') {
       return <MetaSkeleton />;
@@ -261,8 +269,12 @@ function MetaPageBody({ loading, onOpenCard, onRetry, onSelectGroup, pulse, sele
   return (
     <View style={loading ? styles.stale : null} testID="meta-content">
       <HeadlineCard pulse={pulse} />
-      <MetaSection caption="sort: price change" testID="meta-groups" title="Groups">
-        <GroupsTable groups={pulse.groups} onSelectGroup={onSelectGroup} selectedGroupKey={selectedGroup.groupKey} />
+      <MetaSection
+        accessory={<GroupSortToggle onToggle={() => setRisingFirst((value) => !value)} risingFirst={risingFirst} />}
+        testID="meta-groups"
+        title="Groups"
+      >
+        <GroupsTable groups={sortedGroups} onSelectGroup={onSelectGroup} selectedGroupKey={selectedGroup.groupKey} />
         <Text style={[theme.typography.cardMeta, styles.footnote]}>{GROUPS_FOOTNOTE}</Text>
       </MetaSection>
       {pulse.ladders.map((ladder, index) => (
@@ -372,6 +384,27 @@ function StatTile({
         {caption}
       </Text>
     </View>
+  );
+}
+
+/** Flips the Groups table between biggest gains first and biggest drops first. */
+function GroupSortToggle({ onToggle, risingFirst }: { onToggle: () => void; risingFirst: boolean }) {
+  const theme = useSpotlightTheme();
+  const color = risingFirst ? theme.colors.deltaUpText : theme.colors.deltaDownText;
+  const Icon = risingFirst ? ArrowUp : ArrowDown;
+  return (
+    <Pressable
+      accessibilityHint="Changes the sort order"
+      accessibilityLabel={risingFirst ? 'Sorted by biggest gains first' : 'Sorted by biggest drops first'}
+      accessibilityRole="button"
+      hitSlop={spacing.xs}
+      onPress={onToggle}
+      style={({ pressed }) => [styles.sortToggle, { opacity: pressed ? 0.7 : 1 }]}
+      testID="meta-groups-sort"
+    >
+      <Icon color={color} height={14} strokeWidth={2.2} width={14} />
+      <Text style={[theme.typography.captionStrong, { color }]}>{risingFirst ? 'Rising first' : 'Falling first'}</Text>
+    </Pressable>
   );
 }
 
@@ -530,6 +563,11 @@ function MetaSkeleton() {
 }
 
 const styles = StyleSheet.create({
+  sortToggle: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.xxxs,
+  },
   barFill: {
     borderCurve: 'continuous',
     borderRadius: radii.pill,

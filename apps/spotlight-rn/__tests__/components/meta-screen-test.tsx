@@ -73,6 +73,20 @@ describe('MetaScreen', () => {
     expect(screen.queryByTestId('meta-driving')).toBeNull();
   });
 
+  it('flips the groups between rising first and falling first', async () => {
+    renderMeta(async () => mockMetaPulse);
+    await screen.findByTestId('meta-groups-sort');
+    const firstGroupId = () =>
+      screen.getAllByTestId(/^meta-group-[^-]+:[^-]+(:[^-]+)*$/)[0].props.testID as string;
+
+    expect(screen.getByText('Rising first')).toBeTruthy();
+    expect(firstGroupId()).toBe('meta-group-vintage:graded:psa10:pop_le_50');
+
+    fireEvent.press(screen.getByTestId('meta-groups-sort'));
+    expect(screen.getByText('Falling first')).toBeTruthy();
+    expect(firstGroupId()).toBe('meta-group-modern:raw:sir');
+  });
+
   it('disables windows the server has no history for', async () => {
     renderMeta(async () => mockMetaPulse);
     await screen.findByTestId('meta-content');

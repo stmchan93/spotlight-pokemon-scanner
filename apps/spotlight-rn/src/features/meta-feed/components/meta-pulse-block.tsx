@@ -28,15 +28,9 @@ export function metaPulseFeedGroups(groups: MetaGroup[], count = META_PULSE_BLOC
   return [...risers.slice(0, count - 1), biggestCooler];
 }
 
-/** "Pokémon · past 7 days · from price changes, raw and graded". */
+/** "Pokémon · past 7 days". */
 export function metaPulseCaption(pulse: MetaPulse): string {
-  const lanes = new Set(pulse.groups.map((group) => group.lane));
-  const source = lanes.has('raw') && lanes.has('graded')
-    ? 'from price changes, raw and graded'
-    : lanes.has('graded')
-      ? 'from graded price changes'
-      : 'from raw price changes';
-  return `${gameDisplayName(pulse.game)} · past ${pulse.windowDays} days · ${source}`;
+  return `${gameDisplayName(pulse.game)} · past ${pulse.windowDays} days`;
 }
 
 /** Same rule the block renders by, so the feed can lay out seams from it. */
@@ -110,6 +104,7 @@ export function MetaPulseBlock({
             changePercent={group.medianChangePercent}
             description={group.description}
             divider={index > 0}
+            imageUrl={group.topCards[0]?.imageUrl ?? null}
             key={group.groupKey}
             label={group.label}
             lane={group.lane}

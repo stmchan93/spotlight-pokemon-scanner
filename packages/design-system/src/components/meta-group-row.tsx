@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { GraphDown, GraphUp } from 'iconoir-react-native';
 
 import { useSpotlightTheme } from '../theme';
@@ -14,8 +14,14 @@ export type MetaGroupRowProps = {
   description: string;
   /** Preformatted signed median change, e.g. "+18.4%". */
   changeLabel: string;
-  /** Drives the icon (rising/cooling) and the pill tint. */
+  /** Drives the fallback icon (rising/cooling) and the pill tint. */
   changePercent: number;
+  /**
+   * Art of the card leading the group, so the row shows what it is about.
+   * Groups span many sets, so a card reads better than a set logo. Null falls
+   * back to the rising/cooling icon.
+   */
+  imageUrl?: string | null;
   /** Line under the pill, e.g. "+$412K value". Omitted = no line. */
   valueLabel?: string;
   /** Draw the 1pt gray200 rule above the row (every row but the first). */
@@ -36,6 +42,7 @@ export function MetaGroupRow({
   description,
   changeLabel,
   changePercent,
+  imageUrl = null,
   valueLabel,
   divider = false,
   onPress,
@@ -59,6 +66,19 @@ export function MetaGroupRow({
       ]}
       testID={testID}
     >
+      {imageUrl ? (
+        <View
+          style={[styles.art, { backgroundColor: theme.colors.gray200, borderCurve: 'continuous' }]}
+          testID={testID ? `${testID}-art` : undefined}
+        >
+          <Image
+            accessibilityIgnoresInvertColors
+            resizeMode="cover"
+            source={{ uri: imageUrl }}
+            style={StyleSheet.absoluteFill}
+          />
+        </View>
+      ) : (
       <View
         style={[
           styles.icon,
@@ -77,6 +97,7 @@ export function MetaGroupRow({
           width={16}
         />
       </View>
+      )}
       <View style={styles.identity}>
         <View style={styles.labelRow}>
           <AppText color="gray900" numberOfLines={1} style={styles.label} variant="bodyMedium">
@@ -111,6 +132,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     padding: 12,
+  },
+  // Card-shaped (5:7) thumbnail; raw-card art radius per inventory tiles.
+  art: {
+    borderRadius: 2,
+    height: 45,
+    overflow: 'hidden',
+    width: 32,
   },
   icon: {
     alignItems: 'center',
