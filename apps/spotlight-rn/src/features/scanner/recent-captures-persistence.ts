@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
-
+import { AppState, type NativeEventSubscription } from 'react-native';
 
 import type { ScanPriceSheetSelection } from './screens/scan-price-sheet';
 import type { RecentCapture } from './screens/scanner-screen-types';
@@ -22,7 +22,17 @@ export const RECENT_CAPTURES_DIR = `${FileSystem.documentDirectory ?? ''}scans/`
  * here; do not raise this number without doing that first.
  */
 export const RECENT_CAPTURES_MAX = 150;
-export const PERSIST_DEBOUNCE_MS = 500;
+/**
+ * Trailing debounce: every schedule restarts the clock, so a binder page (a
+ * pocket every ~2s) or a scan burst coalesces into one write instead of one per
+ * 500ms. A write serializes the whole tray on the JS thread, which is what
+ * caused the periodic tray hitches. The max-wait still lands a long, unbroken
+ * burst; background/unmount flushes cover the tail.
+ */
+export const PERSIST_DEBOUNCE_MS = 1500;
+export const PERSIST_MAX_WAIT_MS = 5000;
+// Upper bound on how long a debounced write waits for the JS thread to idle.
+export const PERSIST_IDLE_TIMEOUT_MS = 2000;
 export const PERSIST_ENVELOPE_VERSION = 1;
 /**
  * How many candidates we persist per capture. The matcher returns 10; the
@@ -90,6 +100,10 @@ export type PersistedTraySnapshot = {
 let scansDirReady = false;
 let scansDirPromise: Promise<void> | null = null;
 let pendingDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+// When the current unwritten burst started; anchors the max-wait.
+let burstStartedAtMs: number | null = null;
+let cancelPendingIdleWrite: (() => void) | null = null;
+let appStateSubscription: NativeEventSubscription | null = null;
 let pendingSnapshot: PersistedTraySnapshot | null = null;
 let isWriting = false;
 // Snapshot handed to `writePersistedTray` while another write was already in
@@ -302,30 +316,70 @@ function isPersistableItem(capture: RecentCapture): boolean {
   return !capture.isLoadingCandidates && Boolean(capture.normalizedImageUri);
 }
 
+// Serialized row JSON keyed by the source capture. Tray rows are immutable
+// React state (every change is a new object), and `toPersistedCapture` reads
+// only the capture, so identity is a complete cache key. Only the rows that
+// changed since the last write get re-stringified.
+let serializedRowCache = new WeakMap<RecentCapture, string>();
+
+function serializedRow(capture: RecentCapture): string {
+  let json = serializedRowCache.get(capture);
+  if (json === undefined) {
+    json = JSON.stringify(toPersistedCapture(capture));
+    serializedRowCache.set(capture, json);
+  }
+  return json;
+}
+
+function persistableParts(snapshot: PersistedTraySnapshot): {
+  persistable: RecentCapture[];
+  priceSelections: Record<string, ScanPriceSheetSelection>;
+} {
+  const persistable = snapshot.items.filter(isPersistableItem);
+  const priceSelections: Record<string, ScanPriceSheetSelection> = {};
+  persistable.forEach((capture) => {
+    const selection = snapshot.priceSelections.get(capture.id);
+    if (selection) {
+      priceSelections[capture.id] = selection;
+    }
+  });
+  return { persistable, priceSelections };
+}
+
+/**
+ * Same bytes as `JSON.stringify(envelope)` (key order included), assembled
+ * from cached row strings.
+ */
+function serializeTrayEnvelope(snapshot: PersistedTraySnapshot, ownerKey: string | null): string {
+  const { persistable, priceSelections } = persistableParts(snapshot);
+  const rows = persistable.map(serializedRow).join(',');
+  return `{"version":${PERSIST_ENVELOPE_VERSION},"ownerKey":${JSON.stringify(ownerKey)},"items":[${rows}],"priceSelections":${JSON.stringify(priceSelections)}}`;
+}
+
+/** Test hook: the cached serializer next to a plain `JSON.stringify(envelope)`. */
+export function __serializeTrayEnvelopeForTests(
+  snapshot: PersistedTraySnapshot,
+  ownerKey: string | null,
+): { cached: string; uncached: string } {
+  const { persistable, priceSelections } = persistableParts(snapshot);
+  const envelope: PersistedTrayEnvelope = {
+    version: PERSIST_ENVELOPE_VERSION,
+    ownerKey,
+    items: persistable.map(toPersistedCapture),
+    priceSelections,
+  };
+  return { cached: serializeTrayEnvelope(snapshot, ownerKey), uncached: JSON.stringify(envelope) };
+}
+
 /**
  * One AsyncStorage write. Never rejects: every failure — including envelope
  * construction and serialization — is reported and swallowed. `writePersistedTray`
  * depends on this so its drain loop cannot be aborted mid-queue.
  */
 async function performTrayWrite(snapshot: PersistedTraySnapshot): Promise<void> {
-  let envelope: PersistedTrayEnvelope;
   let serialized: string;
   try {
-    const persistable = snapshot.items.filter(isPersistableItem);
-    const priceSelections: Record<string, ScanPriceSheetSelection> = {};
-    persistable.forEach((capture) => {
-      const selection = snapshot.priceSelections.get(capture.id);
-      if (selection) {
-        priceSelections[capture.id] = selection;
-      }
-    });
-    envelope = {
-      version: PERSIST_ENVELOPE_VERSION,
-      ownerKey: currentOwnerKey,
-      items: persistable.map(toPersistedCapture),
-      priceSelections,
-    };
-    serialized = JSON.stringify(envelope);
+    serialized = serializeTrayEnvelope(snapshot, currentOwnerKey);
   } catch {
     // Best-effort: persistence failures never block the tray.
     return;
@@ -388,33 +442,96 @@ async function writePersistedTray(snapshot: PersistedTraySnapshot): Promise<void
   }
 }
 
+type IdleCallbackApi = {
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
+/**
+ * Run the write when the JS thread is idle so serialization never lands
+ * mid-gesture or mid-animation. (InteractionManager is a setImmediate stub on
+ * RN 0.83, so it would not help.) Returns a canceller.
+ */
+function runWhenIdle(task: () => void): () => void {
+  const api = globalThis as IdleCallbackApi;
+  if (typeof api.requestIdleCallback === 'function') {
+    const handle = api.requestIdleCallback(task, { timeout: PERSIST_IDLE_TIMEOUT_MS });
+    return () => api.cancelIdleCallback?.(handle);
+  }
+  const timer = setTimeout(task, 0);
+  return () => clearTimeout(timer);
+}
+
+function clearPendingSchedule(): void {
+  if (pendingDebounceTimer) {
+    clearTimeout(pendingDebounceTimer);
+    pendingDebounceTimer = null;
+  }
+  cancelPendingIdleWrite?.();
+  cancelPendingIdleWrite = null;
+  burstStartedAtMs = null;
+}
+
+// Backgrounding can end in a kill, and the debounce now holds up to a few
+// seconds of changes: write whatever is pending the moment we leave the
+// foreground. Subscribed lazily so importing the module has no side effects.
+function ensureBackgroundFlush(): void {
+  if (appStateSubscription) {
+    return;
+  }
+  appStateSubscription = AppState.addEventListener('change', (nextState) => {
+    if (nextState !== 'active' && pendingSnapshot) {
+      void flushPersist();
+    }
+  }) ?? null;
+}
+
+function runDebouncedWrite(): void {
+  pendingDebounceTimer = null;
+  cancelPendingIdleWrite = runWhenIdle(() => {
+    cancelPendingIdleWrite = null;
+    burstStartedAtMs = null;
+    // Read at run time, not when the timer fired: the latest tray always wins.
+    const snapshot = pendingSnapshot;
+    pendingSnapshot = null;
+    if (snapshot) {
+      void writePersistedTray(snapshot);
+    }
+  });
+}
+
 export function schedulePersist(
   items: RecentCapture[],
   priceSelections?: ReadonlyMap<string, ScanPriceSheetSelection>,
 ): void {
   pendingSnapshot = snapshotOf(items, priceSelections);
-  if (pendingDebounceTimer) {
+  ensureBackgroundFlush();
+  if (cancelPendingIdleWrite) {
+    // A write is already waiting for idle and will pick up this snapshot.
     return;
   }
-  pendingDebounceTimer = setTimeout(() => {
-    pendingDebounceTimer = null;
-    const snapshot = pendingSnapshot;
-    pendingSnapshot = null;
-    if (!snapshot) {
-      return;
-    }
-    void writePersistedTray(snapshot);
-  }, PERSIST_DEBOUNCE_MS);
+  const now = Date.now();
+  burstStartedAtMs ??= now;
+  if (pendingDebounceTimer) {
+    clearTimeout(pendingDebounceTimer);
+  }
+  const untilMaxWait = burstStartedAtMs + PERSIST_MAX_WAIT_MS - now;
+  pendingDebounceTimer = setTimeout(
+    runDebouncedWrite,
+    Math.max(0, Math.min(PERSIST_DEBOUNCE_MS, untilMaxWait)),
+  );
 }
 
+/**
+ * Write now, skipping the debounce and the idle wait. Call on unmount / Clear
+ * All with the live tray; with no argument it writes only what is pending
+ * (the module already does this itself on app background).
+ */
 export async function flushPersist(
   explicit?: RecentCapture[],
   priceSelections?: ReadonlyMap<string, ScanPriceSheetSelection>,
 ): Promise<void> {
-  if (pendingDebounceTimer) {
-    clearTimeout(pendingDebounceTimer);
-    pendingDebounceTimer = null;
-  }
+  clearPendingSchedule();
   // Prefer an explicit snapshot when the caller knows exactly what storage
   // should hold (e.g. unmount passes the live tray; Clear All passes []).
   const snapshot = explicit !== undefined ? snapshotOf(explicit, priceSelections) : pendingSnapshot;
@@ -588,10 +705,10 @@ export async function sweepOrphanScans(keepIds: Set<string>): Promise<void> {
 export function __resetRecentCapturesPersistenceForTests(): void {
   scansDirReady = false;
   scansDirPromise = null;
-  if (pendingDebounceTimer) {
-    clearTimeout(pendingDebounceTimer);
-    pendingDebounceTimer = null;
-  }
+  clearPendingSchedule();
+  appStateSubscription?.remove();
+  appStateSubscription = null;
+  serializedRowCache = new WeakMap();
   pendingSnapshot = null;
   isWriting = false;
   queuedSnapshot = null;

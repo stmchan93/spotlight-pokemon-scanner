@@ -1,8 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
+import { AppState } from 'react-native';
+
 import {
   __resetRecentCapturesPersistenceForTests,
+  __serializeTrayEnvelopeForTests,
   copyToScansDir,
   deleteScanFile,
   ensureScansDir,
@@ -12,6 +15,7 @@ import {
   loadPersistedTraySnapshot,
   PERSIST_DEBOUNCE_MS,
   PERSIST_ENVELOPE_VERSION,
+  PERSIST_MAX_WAIT_MS,
   PERSISTED_CANDIDATES_MAX,
   RECENT_CAPTURES_DIR,
   RECENT_CAPTURES_MAX,
@@ -135,6 +139,18 @@ function makeCandidates(count: number): RecentCapture['candidates'] {
   }));
 }
 
+/**
+ * Let the debounce elapse, then the idle-deferred write (a 0ms timer in jest,
+ * where requestIdleCallback does not exist; fake timers need a 1ms tick to run
+ * it), then the setItem microtasks.
+ */
+async function settleDebouncedWrite(): Promise<void> {
+  jest.advanceTimersByTime(PERSIST_DEBOUNCE_MS);
+  jest.advanceTimersByTime(1);
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 /** Read back what is actually in AsyncStorage right now. */
 async function readEnvelope(): Promise<{
   version: number;
@@ -179,9 +195,7 @@ describe('recent-captures-persistence', () => {
         ['gone', { ...holofoilLP, variantKey: 'normal', variantLabel: 'Normal' }],
       ]);
       schedulePersist([kept], selections);
-      jest.advanceTimersByTime(PERSIST_DEBOUNCE_MS);
-      await Promise.resolve();
-      await Promise.resolve();
+      await settleDebouncedWrite();
 
       const envelope = await readEnvelope();
       expect(envelope.ownerKey).toBe('user-a');
@@ -203,9 +217,7 @@ describe('recent-captures-persistence', () => {
       setRecentCapturesOwner('user-a');
 
       schedulePersist([kept], new Map([['kept', holofoilLP]]));
-      jest.advanceTimersByTime(PERSIST_DEBOUNCE_MS);
-      await Promise.resolve();
-      await Promise.resolve();
+      await settleDebouncedWrite();
 
       // Same rows, no selections argument: nothing is dropped.
       await flushPersist([kept]);
@@ -220,9 +232,7 @@ describe('recent-captures-persistence', () => {
       mockedFs.__seedFile(kept.normalizedImageUri!);
       setRecentCapturesOwner('user-a');
       schedulePersist([kept], new Map([['kept', holofoilLP]]));
-      jest.advanceTimersByTime(PERSIST_DEBOUNCE_MS);
-      await Promise.resolve();
-      await Promise.resolve();
+      await settleDebouncedWrite();
 
       __resetRecentCapturesPersistenceForTests();
       setRecentCapturesOwner('user-b');
@@ -242,9 +252,7 @@ describe('recent-captures-persistence', () => {
       schedulePersist([loading, ready]); // second call should be coalesced
       expect(await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY)).toBeNull();
 
-      jest.advanceTimersByTime(PERSIST_DEBOUNCE_MS);
-      await Promise.resolve();
-      await Promise.resolve();
+      await settleDebouncedWrite();
 
       const raw = await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY);
       expect(raw).not.toBeNull();
@@ -258,9 +266,7 @@ describe('recent-captures-persistence', () => {
       const ready = makeCapture();
       mockedFs.__seedFile(ready.normalizedImageUri!);
       schedulePersist([ready]);
-      jest.advanceTimersByTime(PERSIST_DEBOUNCE_MS);
-      await Promise.resolve();
-      await Promise.resolve();
+      await settleDebouncedWrite();
 
       // Clear All passes [] explicitly — overwrite now, don't wait for debounce.
       await flushPersist([]);
@@ -273,9 +279,7 @@ describe('recent-captures-persistence', () => {
       const ready = makeCapture();
       mockedFs.__seedFile(ready.normalizedImageUri!);
       schedulePersist([ready]);
-      jest.advanceTimersByTime(PERSIST_DEBOUNCE_MS);
-      await Promise.resolve();
-      await Promise.resolve();
+      await settleDebouncedWrite();
 
       // The debounce has settled (nothing pending). An unmount flush with no
       // explicit snapshot must leave the persisted tray intact — previously it
@@ -300,6 +304,126 @@ describe('recent-captures-persistence', () => {
     });
   });
 
+  describe('debounce timing', () => {
+    const storedIds = async (): Promise<string[] | null> => {
+      const raw = await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY);
+      return raw ? (JSON.parse(raw).items as { id: string }[]).map((item) => item.id) : null;
+    };
+    const flushMicrotasks = async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    };
+    const seeded = (id: string) => {
+      const capture = makeCapture({ id, normalizedImageUri: `${RECENT_CAPTURES_DIR}${id}.jpg` });
+      mockedFs.__seedFile(capture.normalizedImageUri!);
+      return capture;
+    };
+
+    it('restarts the timer on every schedule during a burst', async () => {
+      const a = seeded('a');
+      const b = seeded('b');
+      schedulePersist([a]);
+      jest.advanceTimersByTime(PERSIST_DEBOUNCE_MS - 100);
+      schedulePersist([a, b]);
+      // The first schedule's window has passed, but the second restarted it.
+      jest.advanceTimersByTime(200);
+      jest.advanceTimersByTime(1);
+      await flushMicrotasks();
+      expect(await storedIds()).toBeNull();
+
+      await settleDebouncedWrite();
+      expect(await storedIds()).toEqual(['a', 'b']);
+      expect(AsyncStorage.setItem).toHaveBeenCalledTimes(1);
+    });
+
+    it('writes at the max-wait even if the burst never pauses', async () => {
+      const rows: RecentCapture[] = [];
+      // A pocket every ~1s never lets the 1.5s debounce settle.
+      for (let elapsed = 0; elapsed < PERSIST_MAX_WAIT_MS; elapsed += 1000) {
+        rows.push(seeded(`p${elapsed}`));
+        schedulePersist([...rows]);
+        jest.advanceTimersByTime(1000);
+        jest.advanceTimersByTime(1);
+        await flushMicrotasks();
+      }
+      expect(AsyncStorage.setItem).toHaveBeenCalledTimes(1);
+      expect(await storedIds()).toEqual(rows.map((row) => row.id));
+    });
+
+    it('writes the latest tray, including changes made while waiting for idle', async () => {
+      const a = seeded('a');
+      const b = seeded('b');
+      schedulePersist([a]);
+      jest.advanceTimersByTime(PERSIST_DEBOUNCE_MS);
+      // Debounce fired; the write is parked until idle. This newer tray must win.
+      schedulePersist([a, b]);
+      jest.advanceTimersByTime(1);
+      await flushMicrotasks();
+      expect(await storedIds()).toEqual(['a', 'b']);
+      expect(AsyncStorage.setItem).toHaveBeenCalledTimes(1);
+    });
+
+    it('flushes the pending tray when the app leaves the foreground', async () => {
+      const a = seeded('a');
+      schedulePersist([a]);
+      const listener = (AppState.addEventListener as jest.Mock).mock.calls.at(-1)?.[1] as
+        | ((state: string) => void)
+        | undefined;
+      expect(listener).toBeDefined();
+      listener!('background');
+      await flushMicrotasks();
+      expect(await storedIds()).toEqual(['a']);
+
+      // The cancelled debounce must not write again.
+      await settleDebouncedWrite();
+      expect(AsyncStorage.setItem).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('serialization cache', () => {
+    it('produces byte-identical JSON to an uncached stringify, before and after edits', async () => {
+      setRecentCapturesOwner('user-a');
+      const plain = makeCapture({ id: 'plain', candidates: makeCandidates(3), totalCandidateCount: 3 });
+      const paged = makeCapture({
+        id: 'paged',
+        candidates: makeCandidates(30),
+        activeCandidateIndex: 25,
+        totalCandidateCount: 40,
+        matchConfidence: 'low',
+        normalizedImageDimensions: { width: 630, height: 880 },
+      });
+      const loading = makeCapture({ id: 'loading', isLoadingCandidates: true });
+      const selections = new Map([
+        ['plain', {
+          variantKey: 'holofoil',
+          variantLabel: 'Holofoil "quoted"',
+          conditionCode: 'near_mint' as const,
+          conditionShortLabel: 'NM',
+          marketPrice: null,
+        }],
+      ]);
+      const first = __serializeTrayEnvelopeForTests({ items: [plain, paged, loading], priceSelections: selections }, 'user-a');
+      expect(first.cached).toBe(first.uncached);
+
+      // Warm cache + one replaced row: still identical, and the edit shows up.
+      const edited = { ...paged, activeCandidateIndex: 2 };
+      const second = __serializeTrayEnvelopeForTests({ items: [plain, edited], priceSelections: new Map() }, null);
+      expect(second.cached).toBe(second.uncached);
+      expect(JSON.parse(second.cached).items[1].activeCandidateIndex).toBe(2);
+
+      // And it round-trips through the real write + load path.
+      mockedFs.__seedFile(plain.normalizedImageUri!);
+      await flushPersist([plain, paged], selections);
+      expect(await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY)).toBe(
+        __serializeTrayEnvelopeForTests({ items: [plain, paged], priceSelections: selections }, 'user-a').uncached,
+      );
+      const loaded = await loadPersistedTraySnapshot();
+      expect(loaded.items.map((item) => item.id)).toEqual(['plain', 'paged']);
+      expect(loaded.items[1].candidates).toHaveLength(26);
+      expect(loaded.priceSelections.get('plain')).toEqual(selections.get('plain'));
+    });
+  });
+
   describe('loadPersistedTray', () => {
     it('returns an empty array when nothing is stored', async () => {
       const result = await loadPersistedTray();
@@ -313,9 +437,7 @@ describe('recent-captures-persistence', () => {
       // Note: do not seed `evicted` — its file is "missing".
 
       schedulePersist([survives, evicted]);
-      jest.advanceTimersByTime(PERSIST_DEBOUNCE_MS);
-      await Promise.resolve();
-      await Promise.resolve();
+      await settleDebouncedWrite();
 
       const loaded = await loadPersistedTray();
       expect(loaded).toHaveLength(1);
