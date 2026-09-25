@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useCallback,
   type Dispatch,
@@ -176,6 +177,18 @@ type AppServices = {
    */
   sessionOwnerKey: string;
   refreshData: () => void;
+  /**
+   * While a deferral is held (the Scanner tab is focused — see
+   * `useDeferDataRefreshWhileFocused`), `refreshData()` calls are coalesced
+   * into at most one `dataVersion` bump per `DEFERRED_REFRESH_WINDOW_MS`, so a
+   * show's worth of scanner adds doesn't reload the whole inventory per add.
+   * Releasing the last deferral flushes anything pending synchronously, before
+   * the screen the user is moving to can paint. Returns the release function.
+   * With no deferral held, `refreshData()` bumps immediately, exactly as before.
+   */
+  deferDataRefresh: () => () => void;
+  /** Bump `dataVersion` now if a deferred refresh is pending; no-op otherwise. */
+  flushPendingRefresh: () => void;
   inventoryEntriesCache: InventoryCardEntry[] | null;
   setInventoryEntriesCache: Dispatch<SetStateAction<InventoryCardEntry[] | null>>;
   portfolioDashboardCache: PortfolioDashboard | null;
@@ -240,6 +253,16 @@ type AppServices = {
 };
 
 const AppServicesContext = createContext<AppServices | null>(null);
+
+/**
+ * Max staleness of `dataVersion` while the Scanner holds a deferral. Nothing
+ * that renders `dataVersion`-driven data is on screen then (the Scanner patches
+ * its own tray inventory optimistically), and leaving the Scanner flushes, so
+ * this only bounds background work — it is never a delay the user sees.
+ * A fixed window rather than a resetting debounce: at a show adds land every
+ * 10-30s, which a few-second trailing debounce would never coalesce.
+ */
+export const DEFERRED_REFRESH_WINDOW_MS = 15_000;
 
 type ScopedCache<T> = {
   ownerKey: string;
@@ -392,7 +415,17 @@ export function AppProviders({
     });
   }, [activeSessionOwnerKey]);
 
-  const refreshData = useCallback(() => {
+  // Refs, not state: deferral bookkeeping must never itself re-render the tree.
+  const deferralCountRef = useRef(0);
+  const hasPendingRefreshRef = useRef(false);
+  const deferredRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const bumpDataVersion = useCallback(() => {
+    if (deferredRefreshTimerRef.current) {
+      clearTimeout(deferredRefreshTimerRef.current);
+      deferredRefreshTimerRef.current = null;
+    }
+    hasPendingRefreshRef.current = false;
     setDataVersion((value) => value + 1);
     // A mutation (PDP edit/add/delete/sale/import/scan-confirm) also makes the
     // Insights performance numbers stale — drop that cache so the Insights page
@@ -401,6 +434,45 @@ export function AppProviders({
     // won't thrash the cache on ordinary browsing.
     setPortfolioPerformanceCache(null);
   }, [setPortfolioPerformanceCache]);
+
+  const refreshData = useCallback(() => {
+    if (deferralCountRef.current === 0) {
+      bumpDataVersion();
+      return;
+    }
+    hasPendingRefreshRef.current = true;
+    if (!deferredRefreshTimerRef.current) {
+      deferredRefreshTimerRef.current = setTimeout(bumpDataVersion, DEFERRED_REFRESH_WINDOW_MS);
+    }
+  }, [bumpDataVersion]);
+
+  const flushPendingRefresh = useCallback(() => {
+    if (hasPendingRefreshRef.current) {
+      bumpDataVersion();
+    }
+  }, [bumpDataVersion]);
+
+  const deferDataRefresh = useCallback(() => {
+    deferralCountRef.current += 1;
+    let released = false;
+    return () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      deferralCountRef.current = Math.max(0, deferralCountRef.current - 1);
+      if (deferralCountRef.current === 0) {
+        flushPendingRefresh();
+      }
+    };
+  }, [flushPendingRefresh]);
+
+  useEffect(() => () => {
+    if (deferredRefreshTimerRef.current) {
+      clearTimeout(deferredRefreshTimerRef.current);
+      deferredRefreshTimerRef.current = null;
+    }
+  }, []);
 
   const prependOptimisticInventoryEntry = useCallback((entry: InventoryCardEntry) => {
     setInventoryEntriesCache((current) => prependInventoryEntry(current ?? [], entry));
@@ -464,6 +536,8 @@ export function AppProviders({
       dataVersion,
       sessionOwnerKey: activeSessionOwnerKey,
       refreshData,
+      deferDataRefresh,
+      flushPendingRefresh,
       inventoryEntriesCache,
       setInventoryEntriesCache,
       portfolioDashboardCache,
@@ -496,6 +570,8 @@ export function AppProviders({
     prependOptimisticInventoryEntry,
     removeOptimisticInventoryEntries,
     refreshData,
+    deferDataRefresh,
+    flushPendingRefresh,
     setInventoryEntriesCache,
     setPortfolioDashboardCache,
     spotlightRepository,

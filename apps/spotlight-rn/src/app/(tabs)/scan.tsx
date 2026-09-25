@@ -6,6 +6,7 @@ import { MountOnFirstFocus } from '@/components/mount-on-first-focus';
 import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
 import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
 import { getLastActiveTab } from '@/lib/last-active-tab';
+import { useDeferDataRefreshWhileFocused } from '@/providers/use-defer-data-refresh';
 
 /**
  * The Scanner, as an ordinary tab.
@@ -89,6 +90,9 @@ import { getLastActiveTab } from '@/lib/last-active-tab';
  */
 export default function ScanRoute() {
   const navigation = useNavigation();
+  // Coalesce the Scanner's per-add refreshData() calls; leaving flushes them
+  // before Collection, a card page, etc. can show stale data.
+  useDeferDataRefreshWhileFocused();
 
   const goBack = useCallback(() => {
     // BACK to where you came from, not to a fixed destination. Leaving the
