@@ -2814,6 +2814,29 @@ export function ScannerScreen({
     zoomFactor,
   ]);
 
+  // A tap the shutter swallowed, with every gate's value: the only field
+  // signal for "tapped and nothing happened" (Android, 2026-09-24).
+  const lastShutterBlockedAtRef = useRef(0);
+  const reportShutterBlocked = useCallback((source: string, extra: Record<string, unknown> = {}) => {
+    const details = {
+      source,
+      mode: isBinderPageMode ? 'page' : 'card',
+      shouldMountCamera,
+      isCameraReady,
+      isCapturing,
+      capturingRef: capturingRef.current,
+      zoomHydrated,
+      isTrayExpanded,
+      ...extra,
+    };
+    console.info('[scanner-shutter] blocked', details);
+    const now = Date.now();
+    if (now - lastShutterBlockedAtRef.current > 3000) {
+      lastShutterBlockedAtRef.current = now;
+      capturePostHogEvent('scan_shutter_blocked', details);
+    }
+  }, [isBinderPageMode, isCameraReady, isCapturing, isTrayExpanded, shouldMountCamera, zoomHydrated]);
+
   const handleCapture = useCallback(async () => {
     if (!hasPermission) {
       // vision-camera exposes only a boolean — re-request once and bail if the
@@ -2826,6 +2849,7 @@ export function ScannerScreen({
     }
 
     if (!cameraRef.current || !isCameraReady || isCapturing || capturingRef.current) {
+      reportShutterBlocked('handle_capture', { hasCameraRef: cameraRef.current != null });
       return;
     }
     // Claim the lock synchronously BEFORE any await/setState so a second burst
@@ -3249,6 +3273,7 @@ export function ScannerScreen({
   }, [
     ensureGuestSession,
     hasPermission,
+    reportShutterBlocked,
     isBinderPageMode,
     isCameraReady,
     isCapturing,
@@ -4529,9 +4554,12 @@ export function ScannerScreen({
         isTrayExpanded={isTrayExpanded}
         layout={captureSurfaceLayout}
         reticleLockProgress={reticleLockProgress}
-        onCameraError={() => {
+        onCameraError={(error) => {
           // A session error (e.g. an unrecoverable interruption) — drop the gate
           // so the UI reflects the dead session instead of a stuck-enabled button.
+          const message = error instanceof Error ? error.message : String(error);
+          console.info('[scanner-camera] error', { mode: isBinderPageMode ? 'page' : 'card', message });
+          capturePostHogEvent('scan_camera_error', { mode: isBinderPageMode ? 'page' : 'card', message: message.slice(0, 300) });
           setIsCameraReady(false);
           setIsCapturing(false);
         }}
@@ -4550,6 +4578,7 @@ export function ScannerScreen({
         onCapture={() => {
           void handleCapture();
         }}
+        onCaptureBlocked={(info) => reportShutterBlocked('reticle', info)}
         prompt={promptCopy}
         shouldMountCamera={shouldMountCamera}
         suspendPreview={activeBinderPageId != null}

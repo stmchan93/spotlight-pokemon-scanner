@@ -145,6 +145,8 @@ type RawScannerCaptureSurfaceProps = {
   onCameraReady: () => void;
   onCameraStopped?: () => void;
   onCapture: () => void;
+  /** A tap on the reticle while the shutter is gated — diagnostics only. */
+  onCaptureBlocked?: (info: { isSettling: boolean; cameraStarted: boolean; cameraSessionEpoch: number }) => void;
   /**
    * 'page' = binder-page mode: a 4K still so each of the nine pocket crops is
    * ~720px wide, above the matcher's 630px input. 'card' = the single-card
@@ -316,6 +318,7 @@ export function RawScannerCaptureSurface({
   onCameraReady,
   onCameraStopped,
   onCapture,
+  onCaptureBlocked,
   captureResolution = 'card',
   pageGrid = null,
   prompt,
@@ -528,13 +531,15 @@ export function RawScannerCaptureSurface({
   const [cameraStarted, setCameraStarted] = useState(false);
   const appliedZoom = Platform.OS === 'android' && !cameraStarted ? undefined : zoom;
   const handleCameraStarted = useCallback(() => {
+    console.info('[scanner-camera] started', { captureResolution });
     setCameraStarted(true);
     onCameraReady();
-  }, [onCameraReady]);
+  }, [captureResolution, onCameraReady]);
   const handleCameraStopped = useCallback(() => {
+    console.info('[scanner-camera] stopped', { captureResolution });
     setCameraStarted(false);
     onCameraStopped?.();
-  }, [onCameraStopped]);
+  }, [captureResolution, onCameraStopped]);
 
   // Android watchdog: rapid isActive flaps (fast tab swipes) can race CameraX
   // into a dead CLOSED state while isActive is still true — no error, no
@@ -548,6 +553,7 @@ export function RawScannerCaptureSurface({
       return;
     }
     const timer = setTimeout(() => {
+      console.info('[scanner-camera] watchdog remount', { cameraSessionEpoch });
       setCameraSessionEpoch((epoch) => epoch + 1);
     }, 4000);
     return () => clearTimeout(timer);
@@ -590,8 +596,16 @@ export function RawScannerCaptureSurface({
         <Pressable
           accessibilityLabel="Capture scan inside frame"
           accessibilityRole="button"
-          disabled={!canCapture || isSettling}
-          onPress={onCapture}
+          // Not `disabled`: a gated tap must still reach onCaptureBlocked so a
+          // dead shutter is diagnosable in the field.
+          accessibilityState={{ disabled: !canCapture || isSettling }}
+          onPress={() => {
+            if (canCapture && !isSettling) {
+              onCapture();
+            } else {
+              onCaptureBlocked?.({ isSettling, cameraStarted, cameraSessionEpoch });
+            }
+          }}
           style={[
             styles.reticleCaptureButton,
             {
