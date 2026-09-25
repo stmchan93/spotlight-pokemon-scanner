@@ -1,5 +1,6 @@
-"""Market alerts: price-move pushes, the Sunday summary, and the ONE per-user
-push limiter that watchlist deal alerts also route through.
+"""Market alerts: price-move pushes, the Sunday summary, collection value
+milestones, and the ONE per-user push limiter that watchlist deal alerts also
+route through.
 
 Seams
 -----
@@ -19,14 +20,21 @@ The limiter (all silent; nothing is ever surfaced to the user)
    the hourly job simply does not send, and the first run at/after 09:00 picks
    up whatever is still pending (price moves are re-derived from the day's
    prices; unsent deals stay ``push_sent_at IS NULL`` for up to 24h).
-2. At most ONE push per user per local day. Pending deals win over price
-   moves (a listing can sell; a price move will still be true tomorrow).
-   Several price moves become one push: "Latios ☆ +12% and 2 more".
+2. At most ONE push per user per local day. Priority: pending deals >
+   collection milestone > price moves (a listing can sell; a milestone or a
+   price move will still be true tomorrow). Several price moves become one
+   push: "Latios ☆ +12% and 2 more".
 3. The weekly summary (Sunday 17:00-21:00 local) is NOT held back by rule 2:
    it is once a week, and losing it because a deal pushed that morning would
    lose the week. It still counts as that day's push, so nothing follows it.
 4. The same card is pushed at most once per 3 days, unless its price has moved
    another >= 10% since the price it was last alerted at.
+5. Milestones ($100 ... $1M) fire once per milestone per owner, EVER, when the
+   Collection headline value (the server's 1W chart ``currentValue``) crosses
+   UP through one above the highest already celebrated; a multi-milestone jump
+   celebrates only the highest. Dips and re-crossings do nothing. An owner's
+   first evaluation records their current milestone WITHOUT pushing. The value
+   is read at most once per local day per owner (it is a full portfolio replay).
 
 Every claim is a UNIQUE ledger row committed BEFORE any message is assembled
 (``market_alert_pushes.dedupe_key``), so a crash or an overlapping run loses a
@@ -84,10 +92,17 @@ RECEIPT_SWEEP_DAYS = 2
 KIND_PRICE_MOVE = "price_move"
 KIND_WEEKLY_SUMMARY = "weekly_summary"
 KIND_DEAL = "deal"
-ALL_KINDS = (KIND_PRICE_MOVE, KIND_WEEKLY_SUMMARY, KIND_DEAL)
+KIND_MILESTONE = "milestone"
+ALL_KINDS = (KIND_PRICE_MOVE, KIND_WEEKLY_SUMMARY, KIND_DEAL, KIND_MILESTONE)
 
 DATA_TYPE_PRICE_MOVE = "price_move"
 DATA_TYPE_WEEKLY_SUMMARY = "weekly_summary"
+DATA_TYPE_MILESTONE = "collection_milestone"
+
+MILESTONES_USD = (
+    100, 250, 500, 1_000, 2_500, 5_000, 10_000, 25_000, 50_000,
+    100_000, 250_000, 500_000, 1_000_000,
+)
 
 # Created app-side (push-notifications.ts); deals keep their own channel.
 MARKET_CHANNEL_ID = "market"
@@ -96,6 +111,8 @@ COLLECTION_DEEP_LINK = "/"
 WATCHLIST_DEEP_LINK = expo_push.WATCHLIST_DEEP_LINK
 
 Sender = Callable[[Sequence[expo_push.PushMessage]], expo_push.PushResult]
+# (owner_user_id, IANA zone) -> the Collection headline value in USD, or None.
+CollectionValueFn = Callable[[str, str], "float | None"]
 
 
 def is_enabled(environ: Mapping[str, str] | None = None) -> bool:
@@ -128,6 +145,7 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
     created by server.py's deal-radar patch; this only extends them."""
     _add_column(connection, "user_notification_prefs", "price_moves_enabled", "INTEGER NOT NULL DEFAULT 1")
     _add_column(connection, "user_notification_prefs", "weekly_summary_enabled", "INTEGER NOT NULL DEFAULT 1")
+    _add_column(connection, "user_notification_prefs", "milestone_alerts_enabled", "INTEGER NOT NULL DEFAULT 1")
     _add_column(connection, "user_notification_prefs", "timezone", "TEXT")
     # The device's IANA zone, sent with every token registration.
     _add_column(connection, "user_push_tokens", "timezone", "TEXT")
@@ -178,6 +196,18 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
         """
     )
     _migrate_card_state_per_printing(connection)
+    # Highest milestone already celebrated (or seeded) per owner, and the local
+    # date its value was last read, so the replay runs at most once a day.
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS market_alert_milestones (
+            owner_user_id TEXT PRIMARY KEY,
+            milestone_usd INTEGER NOT NULL,
+            checked_local_date TEXT,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
 
 
 def _migrate_card_state_per_printing(connection: sqlite3.Connection) -> None:
@@ -241,6 +271,7 @@ DEFAULT_PREFS = {
     "priceMovesEnabled": True,
     "weeklySummaryEnabled": True,
     "dealAlertsEnabled": True,
+    "milestoneAlertsEnabled": True,
 }
 
 
@@ -258,6 +289,7 @@ def _prefs_from_row(row: Mapping[str, Any] | None) -> dict[str, Any]:
         "priceMovesEnabled": _flag("price_moves_enabled"),
         "weeklySummaryEnabled": _flag("weekly_summary_enabled"),
         "dealAlertsEnabled": _flag("deal_alerts_enabled"),
+        "milestoneAlertsEnabled": _flag("milestone_alerts_enabled"),
         "timezone": row["timezone"] if "timezone" in keys else None,
     }
 
@@ -277,6 +309,7 @@ _PREF_COLUMNS = {
     "priceMovesEnabled": "price_moves_enabled",
     "weeklySummaryEnabled": "weekly_summary_enabled",
     "dealAlertsEnabled": "deal_alerts_enabled",
+    "milestoneAlertsEnabled": "milestone_alerts_enabled",
 }
 
 
@@ -324,6 +357,7 @@ def public_prefs(prefs: Mapping[str, Any]) -> dict[str, Any]:
         "priceMovesEnabled": bool(prefs.get("priceMovesEnabled", True)),
         "weeklySummaryEnabled": bool(prefs.get("weeklySummaryEnabled", True)),
         "dealAlertsEnabled": bool(prefs.get("dealAlertsEnabled", True)),
+        "milestoneAlertsEnabled": bool(prefs.get("milestoneAlertsEnabled", True)),
         "timezone": prefs.get("timezone") or None,
     }
 
@@ -410,6 +444,16 @@ class WeeklySummary:
     top_card_id: str | None = None
     top_card_name: str | None = None
     top_change_pct: float | None = None
+    # The same holdings' value a week ago; the collection % needs it > 0.
+    start_value_usd: float | None = None
+    # The top mover's contribution (price change x quantity held).
+    top_change_usd: float | None = None
+
+
+@dataclass(frozen=True)
+class MilestoneCrossing:
+    milestone_usd: int
+    value_usd: float
 
 
 @dataclass(frozen=True)
@@ -422,6 +466,7 @@ class PlannedPush:
     card_ids: tuple[str, ...] = ()
     deal_alert_ids: tuple[str, ...] = ()
     move_prices: dict[Any, float] = field(default_factory=dict)  # (card_id, variant_key) -> USD
+    milestone_usd: int | None = None
 
 
 def format_pct(pct: float) -> str:
@@ -432,6 +477,11 @@ def format_pct(pct: float) -> str:
 def format_signed_usd(amount: float) -> str:
     rounded = int(round(amount))
     return f"+${rounded:,}" if rounded >= 0 else f"-${abs(rounded):,}"
+
+
+def _minus(text: str) -> str:
+    """Typographic minus for user-facing copy ("-3%" -> "−3%")."""
+    return text.replace("-", "\u2212", 1) if text.startswith("-") else text
 
 
 def _name(value: str | None, fallback: str = "A card") -> str:
@@ -513,13 +563,41 @@ def build_weekly_push(summary: WeeklySummary | None) -> PlannedPush | None:
         return None
     if int(round(summary.delta_usd)) == 0 and summary.top_card_id is None:
         return None
-    title = f"Your collection {format_signed_usd(summary.delta_usd)} this week"
-    if summary.top_card_id and summary.top_change_pct is not None:
-        body = f"Top mover: {_name(summary.top_card_name)} {format_pct(summary.top_change_pct)}."
+    rounded = int(round(summary.delta_usd))
+    if rounded == 0:
+        title = "Your collection held steady this week"
+    else:
+        amount = format_signed_usd(abs(summary.delta_usd))[1:]
+        pct = ""
+        if summary.start_value_usd and summary.start_value_usd > 0:
+            pct = f" ({_minus(format_pct(summary.delta_usd / summary.start_value_usd * 100.0))})"
+        title = f"Your collection is {'up' if rounded > 0 else 'down'} {amount}{pct} this week"
+    if summary.top_card_id and summary.top_change_usd is not None:
+        body = f"Led by {_name(summary.top_card_name)} {_minus(format_signed_usd(summary.top_change_usd))}."
+    elif summary.top_card_id and summary.top_change_pct is not None:
+        body = f"Led by {_name(summary.top_card_name)} {_minus(format_pct(summary.top_change_pct))}."
     else:
         body = "Your Sunday summary."
     data = {"type": DATA_TYPE_WEEKLY_SUMMARY, "url": COLLECTION_DEEP_LINK}
     return PlannedPush(KIND_WEEKLY_SUMMARY, title, body, data, MARKET_CHANNEL_ID)
+
+
+def milestone_reached(value_usd: float | None) -> int:
+    """The highest milestone at or below the value; 0 below the first."""
+    if value_usd is None:
+        return 0
+    return max((m for m in MILESTONES_USD if value_usd >= m), default=0)
+
+
+def build_milestone_push(crossing: MilestoneCrossing | None) -> PlannedPush | None:
+    if crossing is None or crossing.milestone_usd <= 0:
+        return None
+    title = f"Your collection just passed ${crossing.milestone_usd:,} \U0001F389"
+    data = {"type": DATA_TYPE_MILESTONE, "url": COLLECTION_DEEP_LINK, "milestoneUsd": crossing.milestone_usd}
+    return PlannedPush(
+        KIND_MILESTONE, title, "Tap to see what's driving it.", data, MARKET_CHANNEL_ID,
+        milestone_usd=crossing.milestone_usd,
+    )
 
 
 @dataclass
@@ -531,6 +609,7 @@ class OwnerPlanInput:
     deals: Sequence[PendingDeal] = ()
     moves: Sequence[PriceMove] = ()
     weekly: WeeklySummary | None = None
+    milestone: MilestoneCrossing | None = None
 
 
 def plan_push(item: OwnerPlanInput, kinds: Iterable[str] = ALL_KINDS) -> PlannedPush | None:
@@ -551,6 +630,8 @@ def plan_push(item: OwnerPlanInput, kinds: Iterable[str] = ALL_KINDS) -> Planned
         return None
     if KIND_DEAL in allowed and item.prefs.get("dealAlertsEnabled", True) and item.deals:
         return build_deal_push(item.deals)
+    if KIND_MILESTONE in allowed and item.prefs.get("milestoneAlertsEnabled", True) and item.milestone:
+        return build_milestone_push(item.milestone)
     if KIND_PRICE_MOVE in allowed and item.prefs.get("priceMovesEnabled", True) and item.moves:
         return build_price_move_push(item.moves)
     return None
@@ -850,21 +931,69 @@ def weekly_summary_for_owner(
         return None
     changes = raw_price_changes(connection, list(owned), ref_date=ref_date, window_days=WEEKLY_WINDOW_DAYS)
     delta = 0.0
+    start = 0.0
     paired = 0
-    top: tuple[str, float] | None = None
+    contributions: list[tuple[str, float, float]] = []  # (card_id, usd, pct)
     for card_id, price in changes.items():
         if price.price_then is None or price.change_pct is None:
             continue
         paired += 1
-        delta += (price.price_now - price.price_then) * owned[card_id]
-        if price.price_now >= MOVE_MIN_USD and (top is None or abs(price.change_pct) > abs(top[1])):
-            top = (card_id, price.change_pct)
+        contribution = (price.price_now - price.price_then) * owned[card_id]
+        delta += contribution
+        start += price.price_then * owned[card_id]
+        if price.price_now >= MOVE_MIN_USD:
+            contributions.append((card_id, contribution, price.change_pct))
     if paired == 0:
         return None
-    if top is None:
-        return WeeklySummary(delta_usd=delta)
-    name = _card_names(connection, [top[0]]).get(top[0], "")
-    return WeeklySummary(delta, top[0], name, top[1])
+    # "Led by" = the biggest dollar contributor in the week's direction.
+    leaders = [c for c in contributions if (c[1] >= 0) == (delta >= 0) and c[1] != 0] or contributions
+    if not leaders:
+        return WeeklySummary(delta_usd=delta, start_value_usd=start)
+    top_id, top_usd, top_pct = max(leaders, key=lambda c: (abs(c[1]), c[0]))
+    name = _card_names(connection, [top_id]).get(top_id, "")
+    return WeeklySummary(
+        delta, top_id, name, top_pct, start_value_usd=start, top_change_usd=top_usd,
+    )
+
+
+def milestone_for_owner(
+    connection: sqlite3.Connection,
+    owner: str,
+    *,
+    value_fn: CollectionValueFn,
+    zone: str,
+    local_date: date,
+    now_utc: datetime,
+    dry_run: bool = False,
+) -> MilestoneCrossing | None:
+    """A NEW milestone crossed since the last celebrated one, else None.
+
+    First sight of an owner seeds their current milestone without a push. A
+    read that finds no crossing stamps the day so the replay is not repeated
+    hourly; a crossing is left unstamped until the claim records it."""
+    row = connection.execute(
+        "SELECT milestone_usd, checked_local_date FROM market_alert_milestones WHERE owner_user_id = ?",
+        (owner,),
+    ).fetchone()
+    if row is not None and str(row[1] or "") == local_date.isoformat():
+        return None
+    value = value_fn(owner, zone)
+    if value is None:
+        return None
+    reached = milestone_reached(value)
+    if row is not None and reached > int(row[0] or 0):
+        return MilestoneCrossing(reached, float(value))
+    if not dry_run:
+        connection.execute(
+            """
+            INSERT INTO market_alert_milestones (owner_user_id, milestone_usd, checked_local_date, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(owner_user_id) DO UPDATE SET checked_local_date = excluded.checked_local_date
+            """,
+            (owner, reached, local_date.isoformat(), now_utc.isoformat()),
+        )
+        connection.commit()
+    return None
 
 
 # --- claim + send -----------------------------------------------------------------
@@ -919,6 +1048,18 @@ def _claim(
                 """,
                 (owner, card_id, variant_key, stamp, float(price)),
             )
+    if plan.kind == KIND_MILESTONE and plan.milestone_usd:
+        connection.execute(
+            """
+            INSERT INTO market_alert_milestones (owner_user_id, milestone_usd, checked_local_date, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(owner_user_id) DO UPDATE SET
+                milestone_usd = MAX(milestone_usd, excluded.milestone_usd),
+                checked_local_date = excluded.checked_local_date,
+                updated_at = excluded.updated_at
+            """,
+            (owner, int(plan.milestone_usd), local_date, stamp),
+        )
     connection.commit()
     return push_id
 
@@ -1006,12 +1147,14 @@ def run_market_alerts(
     transport: expo_push.Transport | None = None,
     dry_run: bool = False,
     check_receipts: bool = True,
+    collection_value: CollectionValueFn | None = None,
 ) -> dict[str, Any]:
     """One pass of the limiter over every owner with a live push token.
 
     ``sender`` receives assembled ``PushMessage``s and returns a PushResult;
     tests inject a fake. The default posts through ``expo_push.send_messages``
-    (with ``transport`` when given).
+    (with ``transport`` when given). ``collection_value`` supplies the
+    Collection headline value for milestones; without it that lane is off.
     """
     now_utc = now or datetime.now(timezone.utc)
     if now_utc.tzinfo is None:
@@ -1060,7 +1203,18 @@ def run_market_alerts(
         if not item.pushed_today:
             if KIND_DEAL in kinds and prefs["dealAlertsEnabled"]:
                 item.deals = pending_deals(connection, owner, now_utc)
-            if KIND_PRICE_MOVE in kinds and prefs["priceMovesEnabled"] and not item.deals:
+            if (
+                KIND_MILESTONE in kinds and collection_value is not None
+                and prefs["milestoneAlertsEnabled"] and not item.deals
+            ):
+                item.milestone = milestone_for_owner(
+                    connection, owner, value_fn=collection_value, zone=zone,
+                    local_date=local_date, now_utc=now_utc, dry_run=dry_run,
+                )
+            if (
+                KIND_PRICE_MOVE in kinds and prefs["priceMovesEnabled"]
+                and not item.deals and not item.milestone
+            ):
                 item.moves = price_moves_for_owner(
                     connection, owner, now_utc=now_utc, local_date=local_date, ref_date=ref_date
                 )
@@ -1103,6 +1257,25 @@ def run_market_alerts(
 # --- CLI (the hourly VM job) ----------------------------------------------------------
 
 
+def _service_collection_value(database_path: Path) -> CollectionValueFn:
+    """The server's own Collection headline valuation, built lazily: the
+    service is only constructed when some owner actually needs a milestone read."""
+    service: list[Any] = []
+
+    def value(owner: str, zone: str) -> float | None:
+        if not service:
+            from server import SpotlightScanService  # heavy; local import
+
+            service.append(SpotlightScanService(database_path, Path(__file__).resolve().parent.parent))
+        try:
+            return service[0].collection_headline_value_for_owner(owner, time_zone_name=zone)
+        except Exception as error:  # noqa: BLE001 - one owner's valuation must not stop the run
+            print(f"[market-alerts] milestone value failed for an owner: {type(error).__name__}: {error}")
+            return None
+
+    return value
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Hourly market-alert pushes (price moves, weekly summary, deals)")
     parser.add_argument("--database-path", required=True)
@@ -1118,7 +1291,10 @@ def main(argv: list[str] | None = None) -> int:
     connection = connect(args.database_path, timeout_seconds=30.0)
     try:
         now = datetime.fromisoformat(args.now) if args.now else None
-        summary = run_market_alerts(connection, now=now, dry_run=args.dry_run)
+        summary = run_market_alerts(
+            connection, now=now, dry_run=args.dry_run,
+            collection_value=_service_collection_value(Path(args.database_path)),
+        )
     finally:
         connection.close()
     print(

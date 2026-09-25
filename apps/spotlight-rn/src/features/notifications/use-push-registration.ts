@@ -6,6 +6,8 @@ import { useAppServices } from '@/providers/app-providers';
 import {
   configureForegroundNotificationHandler,
   getPushPermissionStatus,
+  hasRunFirstLaunchPushPrompt,
+  markFirstLaunchPushPromptRun,
   openNotificationSettings,
   registerPushToken,
   revokePushToken,
@@ -22,12 +24,12 @@ import {
  * signed-out tree can still see that a token is outstanding and retire it.
  */
 let registeredOwnerKey: string | null = null;
-// One sign-in prompt per process; the foreground re-sync must never re-ask.
-let hasPromptedThisProcess = false;
+// Guards the first-launch ask against a remount racing the AsyncStorage flag.
+let firstLaunchPromptInFlight = false;
 
 /** Test seam: the module-level key above outlives `jest.resetModules()` sparingly. */
 export function __resetPushRegistrationForTests(): void {
-  hasPromptedThisProcess = false;
+  firstLaunchPromptInFlight = false;
   registeredOwnerKey = null;
 }
 
@@ -35,12 +37,8 @@ export function __resetPushRegistrationForTests(): void {
  * Root-layout hook. Keeps the backend's copy of this device's Expo push token
  * in step with who is signed in.
  *
- * NEVER PROMPTS. `registerPushToken` is called without `promptIfNeeded`, so a
- * signed-in user who has never been asked IS asked once, right after sign-in
- * (product decision 2026-09-24: alerts are on by default, and a Settings-only
- * prompt meant nobody ever enabled them). iOS shows that dialog once per
- * install, so an "undetermined" status is what gates it; a denial is left
- * alone and only the Account switch can route to OS settings.
+ * NEVER PROMPTS — it runs on the auth and onboarding screens too. The one-time
+ * ask lives in `useFirstLaunchPushPrompt`, mounted inside the main app.
  */
 export function usePushRegistration(): void {
   const { sessionOwnerKey, spotlightRepository } = useAppServices();
@@ -63,13 +61,7 @@ export function usePushRegistration(): void {
       }
       return;
     }
-    const promptIfNeeded = !hasPromptedThisProcess
-      && AppState.currentState === 'active'
-      && (await getPushPermissionStatus()) === 'undetermined';
-    if (promptIfNeeded) {
-      hasPromptedThisProcess = true;
-    }
-    const outcome = await registerPushToken(spotlightRepository, { promptIfNeeded });
+    const outcome = await registerPushToken(spotlightRepository);
     registeredOwnerKey = outcome.status === 'registered' ? sessionOwnerKey : null;
   }, [isSignedIn, sessionOwnerKey, spotlightRepository]);
 
@@ -93,13 +85,67 @@ export function usePushRegistration(): void {
   }, [syncRegistration]);
 }
 
+/**
+ * Raises the system dialog ONCE PER INSTALL, the first time a signed-in user
+ * reaches the main app (product decision 2026-09-24: a Settings-only prompt
+ * meant nobody enabled alerts). Mount it only inside the fully gated tree —
+ * never on the auth, profile or @handle claim screens.
+ *
+ * Guests wait: a token needs a server-side owner, so the flag stays unspent
+ * until they convert. An already-decided permission is never re-asked; a
+ * granted one is registered by `usePushRegistration`.
+ */
+export function useFirstLaunchPushPrompt(): void {
+  const { sessionOwnerKey, spotlightRepository } = useAppServices();
+  const auth = useAuth();
+  const isSignedIn = Boolean(auth.currentUser) && !auth.isGuest;
+
+  const maybePrompt = useCallback(async () => {
+    // iOS drops a dialog presented while backgrounded, so only ask when active;
+    // the AppState listener below retries on the next foreground.
+    if (!isSignedIn || firstLaunchPromptInFlight || AppState.currentState !== 'active') {
+      return;
+    }
+    firstLaunchPromptInFlight = true;
+    try {
+      if (await hasRunFirstLaunchPushPrompt()) {
+        return;
+      }
+      const permission = await getPushPermissionStatus();
+      // Spend the flag before the dialog so no remount can queue a second one.
+      await markFirstLaunchPushPromptRun();
+      if (permission !== 'undetermined') {
+        return;
+      }
+      const outcome = await registerPushToken(spotlightRepository, { promptIfNeeded: true });
+      if (outcome.status === 'registered') {
+        registeredOwnerKey = sessionOwnerKey;
+      }
+    } finally {
+      firstLaunchPromptInFlight = false;
+    }
+  }, [isSignedIn, sessionOwnerKey, spotlightRepository]);
+
+  useEffect(() => {
+    void maybePrompt();
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        void maybePrompt();
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [maybePrompt]);
+}
+
 export type PushPermissionPrompt = {
   permission: PushPermissionStatus;
   /** True once the OS will actually deliver — the value a Switch should show. */
   isEnabled: boolean;
   isBusy: boolean;
   /**
-   * The ONLY place the system dialog is raised. Call from a deliberate tap.
+   * Raises the system dialog. Call from a deliberate tap.
    *
    * - `undetermined` → prompts, then registers the token on a yes.
    * - `denied` → the dialog is spent, so it offers the OS settings page instead.

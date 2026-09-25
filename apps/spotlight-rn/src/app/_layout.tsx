@@ -41,7 +41,10 @@ import { StagingSmokeDiagnostics } from '@/components/staging-smoke-diagnostics'
 import { AccessGate } from '@/features/auth/components/access-gate';
 import { AuthGate } from '@/features/auth/components/auth-gate';
 import { HandleClaimGate } from '@/features/auth/components/handle-claim-gate';
-import { PushNotificationsBridge } from '@/features/notifications/push-notifications-bridge';
+import {
+  FirstLaunchPushPrompt,
+  PushNotificationsBridge,
+} from '@/features/notifications/push-notifications-bridge';
 import { AppErrorBoundary } from '@/lib/observability/app-error-boundary';
 import { PostHogAppProvider, identifyPostHogUser } from '@/lib/observability/posthog';
 import { PostHogScreenTracker } from '@/lib/observability/posthog-screen-tracker';
@@ -182,6 +185,7 @@ function AuthenticatedRoot() {
           <View style={{ flex: 1 }}>
             <StatusBar style={Platform.OS === 'android' ? 'dark' : 'dark'} />
             <PostHogScreenTracker />
+            <FirstLaunchPushPrompt />
             <Stack
               screenOptions={{
                 animation: 'default',
@@ -369,7 +373,7 @@ function RootLayout() {
                             `AuthenticatedAppProviders` (it reads the repository
                             and the session) and beside the navigator (it routes
                             a tapped notification). It never prompts for
-                            permission — see the hook.
+                            permission — `FirstLaunchPushPrompt` does, once.
                           */}
                           <PushNotificationsBridge />
                           <StagingSmokeDiagnostics />

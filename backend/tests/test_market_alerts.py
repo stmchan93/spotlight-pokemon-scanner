@@ -1,6 +1,6 @@
 """market_alerts: price-move thresholds, bundling, the per-card cooldown,
 quiet-hours deferral, the Sunday summary across timezones, owner scoping,
-prefs, and deals routed through the same limiter.
+prefs, collection milestones, and deals routed through the same limiter.
 
 Every push goes to a FAKE sender (or an injected fake Expo transport). Nothing
 here reaches the network.
@@ -326,7 +326,10 @@ class OwnerScopingTests(MarketAlertsTestCase):
     def test_prefs_are_per_owner_and_absent_row_is_all_on(self) -> None:
         self.assertEqual(
             ma.get_alert_prefs(self.connection, "alice"),
-            {"priceMovesEnabled": True, "weeklySummaryEnabled": True, "dealAlertsEnabled": True, "timezone": None},
+            {
+                "priceMovesEnabled": True, "weeklySummaryEnabled": True, "dealAlertsEnabled": True,
+                "milestoneAlertsEnabled": True, "timezone": None,
+            },
         )
         ma.set_alert_prefs(self.connection, "alice", {"weeklySummaryEnabled": False, "timezone": "Asia/Tokyo"})
         self.assertFalse(ma.get_alert_prefs(self.connection, "alice")["weeklySummaryEnabled"])
@@ -368,8 +371,9 @@ class WeeklySummaryTests(MarketAlertsTestCase):
         self.token("u1")
         self.run_job(self.SUNDAY_LA_1705)
         (message,) = self.sender.messages
-        self.assertEqual(message.title, "Your collection +$55 this week")
-        self.assertEqual(message.body, "Top mover: Mew +30%.")
+        # +$60 (Mew x2) - $5 (Pikachu) on a $250 start.
+        self.assertEqual(message.title, "Your collection is up $55 (+22%) this week")
+        self.assertEqual(message.body, "Led by Mew +$60.")
         self.assertEqual(message.data, {"type": ma.DATA_TYPE_WEEKLY_SUMMARY, "url": "/"})
         # Once per week: the next hourly run in the window sends nothing.
         self.run_job(self.SUNDAY_LA_1705 + timedelta(hours=1))
@@ -400,12 +404,168 @@ class WeeklySummaryTests(MarketAlertsTestCase):
         self.run_job(self.SUNDAY_LA_1705 + timedelta(hours=1))
         self.assertEqual(len(self.sender.messages), 2)
 
+    def test_down_week_names_the_biggest_dollar_loser(self) -> None:
+        self.own("u1", "mew")
+        self.own("u1", "pika", qty=10)  # -$50 vs Mew's +$30
+        self.token("u1")
+        self.run_job(self.SUNDAY_LA_1705)
+        (message,) = self.sender.messages
+        # -$20 on a $600 start.
+        self.assertEqual(message.title, "Your collection is down $20 (\u22123%) this week")
+        self.assertEqual(message.body, "Led by Pikachu \u2212$50.")
+
+    def test_weekly_copy_without_a_start_value_or_dollar_mover(self) -> None:
+        push = ma.build_weekly_push(ma.WeeklySummary(42.0, "c", "Charizard", 12.0))
+        self.assertEqual(push.title, "Your collection is up $42 this week")
+        self.assertEqual(push.body, "Led by Charizard +12%.")
+        push = ma.build_weekly_push(ma.WeeklySummary(0.2, "c", "Charizard", 12.0, 100.0, 3.0))
+        self.assertEqual(push.title, "Your collection held steady this week")
+
     def test_weekly_off_or_no_holdings_sends_nothing(self) -> None:
         self.token("u1")
         self.assertEqual(self.run_job(self.SUNDAY_LA_1705)["sent"], 0)  # owns nothing
         self.own("u1", "mew")
         ma.set_alert_prefs(self.connection, "u1", {"weeklySummaryEnabled": False})
         self.assertEqual(self.run_job(self.SUNDAY_LA_1705)["sent"], 0)
+
+
+class MilestoneTests(MarketAlertsTestCase):
+    """The value comes from an injected provider (the server's 1W headline in
+    production); these tests drive it directly."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.values: dict[str, float] = {}
+        self.value_calls: list[str] = []
+
+    def value(self, owner: str, zone: str) -> float | None:
+        self.value_calls.append(owner)
+        return self.values.get(owner)
+
+    def run_job(self, now: datetime = NOW, **kwargs):
+        kwargs.setdefault("collection_value", self.value)
+        return super().run_job(now, **kwargs)
+
+    def stored(self, owner: str) -> int | None:
+        row = self.connection.execute(
+            "SELECT milestone_usd FROM market_alert_milestones WHERE owner_user_id = ?", (owner,)
+        ).fetchone()
+        return None if row is None else int(row[0])
+
+    def seed(self, owner: str, value: float, now: datetime = NOW - timedelta(days=1)) -> None:
+        self.values[owner] = value
+        self.run_job(now)
+
+    def test_first_sight_seeds_without_pushing(self) -> None:
+        self.token("u1")
+        self.values["u1"] = 3_400.0
+        self.assertEqual(self.run_job()["sent"], 0)
+        self.assertEqual(self.stored("u1"), 2_500)
+        self.assertEqual(self.ledger(), [])
+
+    def test_crossing_fires_once(self) -> None:
+        self.token("u1")
+        self.seed("u1", 900.0)
+        self.values["u1"] = 1_040.0
+        self.run_job()
+        (message,) = self.sender.messages
+        self.assertEqual(message.title, "Your collection just passed $1,000 \U0001F389")
+        self.assertEqual(message.body, "Tap to see what's driving it.")
+        self.assertEqual(message.data["url"], "/")
+        self.assertEqual(message.data["type"], ma.DATA_TYPE_MILESTONE)
+        self.assertEqual(self.stored("u1"), 1_000)
+        self.assertEqual([r["kind"] for r in self.ledger("u1")], [ma.KIND_MILESTONE])
+        self.run_job(NOW + timedelta(days=1))
+        self.assertEqual(len(self.sender.messages), 1)
+
+    def test_recrossing_after_a_dip_does_nothing(self) -> None:
+        self.token("u1")
+        self.seed("u1", 900.0, NOW - timedelta(days=2))
+        self.values["u1"] = 1_100.0
+        self.run_job(NOW - timedelta(days=1))
+        self.values["u1"] = 950.0
+        self.run_job(NOW)
+        self.values["u1"] = 1_200.0
+        self.run_job(NOW + timedelta(days=1))
+        self.assertEqual(len(self.sender.messages), 1)
+        self.assertEqual(self.stored("u1"), 1_000)
+
+    def test_multi_milestone_jump_celebrates_only_the_highest(self) -> None:
+        self.token("u1")
+        self.seed("u1", 120.0)
+        self.values["u1"] = 5_300.0
+        self.run_job()
+        (message,) = self.sender.messages
+        self.assertEqual(message.title, "Your collection just passed $5,000 \U0001F389")
+        self.assertEqual(self.stored("u1"), 5_000)
+        self.run_job(NOW + timedelta(days=1))
+        self.assertEqual(len(self.sender.messages), 1)
+
+    def test_quiet_hours_defer_instead_of_dropping(self) -> None:
+        self.token("u1")
+        self.seed("u1", 450.0)
+        self.values["u1"] = 520.0
+        late = datetime(2026, 9, 23, 5, 0, tzinfo=timezone.utc)  # 22:00 LA
+        self.run_job(late)
+        self.assertEqual(self.sender.messages, [])
+        self.assertEqual(self.stored("u1"), 250)
+        self.run_job(datetime(2026, 9, 23, 16, 3, tzinfo=timezone.utc))  # 09:03 LA
+        (message,) = self.sender.messages
+        self.assertIn("$500", message.title)
+
+    def test_milestone_beats_price_moves_and_loses_to_deals(self) -> None:
+        self.token("u1")
+        self.seed("u1", 90.0)  # before the move exists, so the seed run sends nothing
+        self.move("mew", 100.0, 130.0, name="Mew")
+        self.own("u1", "mew")
+        self.values["u1"] = 130.0
+        self.deal("u1", "mew")
+        self.run_job()
+        self.assertEqual([m.data["type"] for m in self.sender.messages], [expo_push.DATA_TYPE_DEAL_ALERT])
+        self.assertEqual(self.stored("u1"), 0)  # not celebrated; still pending
+        # Next day: no deal, so the milestone wins over Mew's move.
+        self.run_job(NOW + timedelta(days=1))
+        self.assertEqual(
+            [m.data["type"] for m in self.sender.messages],
+            [expo_push.DATA_TYPE_DEAL_ALERT, ma.DATA_TYPE_MILESTONE],
+        )
+        self.assertEqual(self.stored("u1"), 100)
+
+    def test_milestone_wins_over_a_same_day_price_move(self) -> None:
+        self.token("u1")
+        self.seed("u1", 90.0)  # before the move exists, so the seed run sends nothing
+        self.move("mew", 100.0, 130.0, name="Mew")
+        self.own("u1", "mew")
+        self.values["u1"] = 130.0
+        self.run_job()
+        (message,) = self.sender.messages
+        self.assertEqual(message.data["type"], ma.DATA_TYPE_MILESTONE)
+        self.run_job(NOW + timedelta(hours=2))  # the daily cap holds the move back
+        self.assertEqual(len(self.sender.messages), 1)
+
+    def test_pref_off_suppresses_and_is_serialized(self) -> None:
+        self.token("u1")
+        self.seed("u1", 900.0)
+        prefs = ma.set_alert_prefs(self.connection, "u1", {"milestoneAlertsEnabled": False})
+        self.assertFalse(ma.public_prefs(prefs)["milestoneAlertsEnabled"])
+        self.values["u1"] = 1_500.0
+        self.assertEqual(self.run_job()["sent"], 0)
+        self.assertEqual(self.stored("u1"), 500)
+
+    def test_value_is_read_once_per_local_day(self) -> None:
+        self.token("u1")
+        self.values["u1"] = 300.0
+        self.run_job()
+        self.run_job(NOW + timedelta(hours=1))
+        self.assertEqual(self.value_calls, ["u1"])
+        self.run_job(NOW + timedelta(days=1))
+        self.assertEqual(self.value_calls, ["u1", "u1"])
+
+    def test_no_provider_means_no_milestone_lane(self) -> None:
+        self.token("u1")
+        self.values["u1"] = 5_000.0
+        self.assertEqual(self.run_job(collection_value=None)["sent"], 0)
+        self.assertEqual(self.value_calls, [])
 
 
 class DealRoutingTests(MarketAlertsTestCase):
@@ -524,6 +684,17 @@ class ServiceWiringTests(unittest.TestCase):
         self.assertEqual(len(posts), 1)
         self.assertEqual(posts[0][0], expo_push.EXPO_PUSH_URL)
         self.assertEqual(posts[0][1][0]["to"], TOKEN_A)
+
+    def test_milestone_value_is_the_collection_headline_for_that_owner(self) -> None:
+        with patch.object(
+            SpotlightScanService, "deck_history",
+            lambda svc, **kw: {"summary": {"currentValue": 1234.5 if svc._current_owner_user_id() == "alice" else 0.0},
+                               "range": kw.get("range_label")},
+        ):
+            self.assertEqual(self.service.collection_headline_value_for_owner("alice", time_zone_name="UTC"), 1234.5)
+            self.assertEqual(self.service.collection_headline_value_for_owner("bob"), 0.0)
+        # Real path, nothing held: a zero headline, not an error.
+        self.assertEqual(self.service.collection_headline_value_for_owner("carol"), 0.0)
 
 
 if __name__ == "__main__":

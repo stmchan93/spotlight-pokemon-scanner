@@ -430,14 +430,16 @@ function withLocalImages(repository: SpotlightRepository): SpotlightRepository {
   });
 }
 
-export async function createDevRepository(): Promise<SpotlightRepository> {
+export async function createDevRepository(
+  { seedFavorites = true }: { seedFavorites?: boolean } = {},
+): Promise<SpotlightRepository> {
   const mock = new MockSpotlightRepository();
   // Private-field poke: the mock has no API for seeding favorites at a fixed
   // time, and dev screenshots need one (see seededFavorites).
   const favoriteTimestamps = (
     mock as unknown as { favoriteCardTimestamps: Map<string, string> }
   ).favoriteCardTimestamps;
-  for (const [cardId, variant, favoritedAt] of seededFavorites) {
+  for (const [cardId, variant, favoritedAt] of seedFavorites ? seededFavorites : []) {
     favoriteTimestamps.set(buildWatchKey(cardId, variant), favoritedAt);
   }
   return withLocalImages(mock);

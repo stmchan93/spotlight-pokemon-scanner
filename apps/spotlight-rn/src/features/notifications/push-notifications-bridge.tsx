@@ -1,5 +1,8 @@
 import { useNotificationTapRouter } from '@/features/notifications/use-notification-tap-router';
-import { usePushRegistration } from '@/features/notifications/use-push-registration';
+import {
+  useFirstLaunchPushPrompt,
+  usePushRegistration,
+} from '@/features/notifications/use-push-registration';
 
 /**
  * Renderless. Mounted ONCE from the root layout, inside the app providers (it
@@ -13,5 +16,14 @@ import { usePushRegistration } from '@/features/notifications/use-push-registrat
 export function PushNotificationsBridge() {
   usePushRegistration();
   useNotificationTapRouter();
+  return null;
+}
+
+/**
+ * Renderless. The one-time first-launch permission ask — mounted INSIDE the
+ * auth, access and @handle gates so the dialog never lands on those screens.
+ */
+export function FirstLaunchPushPrompt() {
+  useFirstLaunchPushPrompt();
   return null;
 }

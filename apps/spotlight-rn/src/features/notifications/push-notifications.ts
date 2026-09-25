@@ -11,12 +11,11 @@ import { loadNotificationsModule } from '@/features/notifications/notifications-
 /**
  * Push registration, with no React in it.
  *
- * THE PROMPT IS A ONE-SHOT RESOURCE. iOS shows the system permission dialog
- * exactly once per install; every later `requestPermissionsAsync` resolves
- * straight to the stored answer without showing anything. So nothing in here
- * asks on its own — `requestPushPermission` is only ever called from a
- * deliberate user action (the Deals-band CTA, the Account toggle), and the
- * silent path below refuses to ask at all.
+ * THE PROMPT IS A ONE-SHOT RESOURCE: iOS shows the system dialog once per
+ * install. Policy (2026-09-24): it is raised once on first launch, as soon as a
+ * signed-in (non-guest) user reaches the main app, guarded by a per-install
+ * flag; after that only the Deals-band CTA and the Account toggle ask, and the
+ * silent app-open path never does.
  */
 
 /** Android channel ids. Mirrors what the backend puts in the push envelope. */
@@ -42,6 +41,30 @@ export function resolveDeviceTimeZone(): string | null {
  * identity and needs no privacy-manifest entry. It dies with the install.
  */
 const PUSH_DEVICE_ID_STORAGE_KEY = '@spotlight/notifications/device-id';
+
+/** Set once the first-launch permission ask has run, whatever the answer. */
+const FIRST_LAUNCH_PROMPT_STORAGE_KEY = '@spotlight/notifications/first-launch-prompted';
+
+/**
+ * True when the first-launch ask has already happened on this install. An
+ * unreadable flag counts as asked: skipping the prompt is recoverable from the
+ * Account toggle, asking twice is not.
+ */
+export async function hasRunFirstLaunchPushPrompt(): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(FIRST_LAUNCH_PROMPT_STORAGE_KEY)) !== null;
+  } catch {
+    return true;
+  }
+}
+
+export async function markFirstLaunchPushPromptRun(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(FIRST_LAUNCH_PROMPT_STORAGE_KEY, new Date().toISOString());
+  } catch {
+    // ignore persistence failure; iOS itself won't re-show a decided dialog
+  }
+}
 
 export type PushPermissionStatus = 'granted' | 'denied' | 'undetermined';
 
@@ -132,7 +155,7 @@ export async function getPushPermissionStatus(): Promise<PushPermissionStatus> {
 
 /**
  * Shows the system dialog — ONCE PER INSTALL on iOS. Only call this from an
- * explicit user action.
+ * explicit user action or the one-time first-launch ask.
  */
 export async function requestPushPermission(): Promise<PushPermissionStatus> {
   const Notifications = loadNotificationsModule();
@@ -220,7 +243,8 @@ export function configureForegroundNotificationHandler(): void {
  *
  * `promptIfNeeded` is the whole permission policy in one flag: false (the app
  * -open path) returns `permission_missing` rather than spending the one-shot
- * iOS dialog; true is only ever passed from a user-initiated CTA.
+ * iOS dialog; true is only passed from a user-initiated CTA or the one-time
+ * first-launch ask.
  */
 export async function registerPushToken(
   repository: SpotlightRepository,

@@ -47,6 +47,7 @@ jest.mock('@/features/notifications', () => ({
 
 const ALL_ON: AlertPreferences = {
   dealAlertsEnabled: true,
+  milestoneAlertsEnabled: true,
   priceMovesEnabled: true,
   weeklySummaryEnabled: true,
 };

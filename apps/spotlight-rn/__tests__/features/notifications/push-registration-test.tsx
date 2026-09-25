@@ -1,14 +1,35 @@
-import { AppState } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
-import { Alert, Linking } from 'react-native';
+import { Alert, AppState, Linking } from 'react-native';
 import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 
 import {
   __resetPushRegistrationForTests,
+  useFirstLaunchPushPrompt,
   usePushPermissionPrompt,
   usePushRegistration,
 } from '@/features/notifications/use-push-registration';
+
+// In-memory AsyncStorage stand-in; state lives in the factory for hoisting.
+jest.mock('@react-native-async-storage/async-storage', () => {
+  const store = new Map<string, string>();
+  return {
+    __esModule: true,
+    default: {
+      __clear: () => store.clear(),
+      getItem: jest.fn(async (key: string) => store.get(key) ?? null),
+      removeItem: jest.fn(async (key: string) => {
+        store.delete(key);
+      }),
+      setItem: jest.fn(async (key: string, value: string) => {
+        store.set(key, value);
+      }),
+    },
+  };
+});
+
+const storage = AsyncStorage as unknown as { __clear: () => void };
 
 const mockServices = {
   sessionOwnerKey: 'owner-1',
@@ -49,6 +70,8 @@ function setPermission(status: 'granted' | 'denied' | 'undetermined') {
 beforeEach(() => {
   jest.clearAllMocks();
   __resetPushRegistrationForTests();
+  storage.__clear();
+  AppState.currentState = 'active';
   mockAuth = { currentUser: { id: 'owner-1' }, isGuest: false };
   mockServices.sessionOwnerKey = 'owner-1';
   mockServices.spotlightRepository.registerPushToken.mockResolvedValue(true);
@@ -87,48 +110,17 @@ describe('usePushRegistration', () => {
     expect(notifications.requestPermissionsAsync).not.toHaveBeenCalled();
   });
 
-  it('asks once right after sign-in when permission was never asked', async () => {
+  it('never prompts, even when permission was never asked', async () => {
     setPermission('undetermined');
-    AppState.currentState = 'active';
-
-    renderHook(() => usePushRegistration());
-
-    await waitFor(() => {
-      expect(notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
-    });
-    await waitFor(() => {
-      expect(mockServices.spotlightRepository.registerPushToken).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  it('never re-asks on a later foreground in the same process', async () => {
-    setPermission('undetermined');
-    AppState.currentState = 'active';
-    notifications.requestPermissionsAsync.mockResolvedValue({
-      canAskAgain: true,
-      granted: false,
-      status: 'undetermined',
-    });
-
-    const { rerender } = renderHook(() => usePushRegistration());
-    await waitFor(() => {
-      expect(notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
-    });
-    rerender({});
-
-    expect(notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not ask when the user already said no', async () => {
-    setPermission('denied');
-    AppState.currentState = 'active';
 
     renderHook(() => usePushRegistration());
 
     await waitFor(() => {
       expect(notifications.getPermissionsAsync).toHaveBeenCalled();
     });
+    await act(async () => {});
     expect(notifications.requestPermissionsAsync).not.toHaveBeenCalled();
+    expect(mockServices.spotlightRepository.registerPushToken).not.toHaveBeenCalled();
   });
 
   it('does not ask a guest', async () => {
@@ -179,6 +171,92 @@ describe('usePushRegistration', () => {
 
     await act(async () => {});
     expect(mockServices.spotlightRepository.revokePushToken).not.toHaveBeenCalled();
+  });
+});
+
+describe('useFirstLaunchPushPrompt', () => {
+  function grantOnPrompt() {
+    notifications.requestPermissionsAsync.mockImplementation(async () => {
+      setPermission('granted');
+      return { canAskAgain: false, granted: true, status: 'granted' };
+    });
+  }
+
+  it('asks once on first launch and registers the token after a yes', async () => {
+    setPermission('undetermined');
+    grantOnPrompt();
+
+    renderHook(() => useFirstLaunchPushPrompt());
+
+    await waitFor(() => {
+      expect(mockServices.spotlightRepository.registerPushToken).toHaveBeenCalledTimes(1);
+    });
+    expect(notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+    expect(mockServices.spotlightRepository.registerPushToken).toHaveBeenCalledWith(
+      expect.objectContaining({ expoPushToken: 'ExponentPushToken[mock-token]' }),
+    );
+  });
+
+  it('never asks twice on the same install, whatever the answer', async () => {
+    setPermission('undetermined');
+    // A dismissed/declined dialog: the OS answer stays unresolved here.
+    notifications.requestPermissionsAsync.mockResolvedValue({
+      canAskAgain: true,
+      granted: false,
+      status: 'undetermined',
+    });
+
+    const first = renderHook(() => useFirstLaunchPushPrompt());
+    await waitFor(() => {
+      expect(notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+    });
+    first.unmount();
+
+    // Next launch: fresh process state, same install storage.
+    __resetPushRegistrationForTests();
+    renderHook(() => useFirstLaunchPushPrompt());
+    await act(async () => {});
+
+    expect(notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not ask when permission was already denied', async () => {
+    setPermission('denied');
+
+    renderHook(() => useFirstLaunchPushPrompt());
+
+    await waitFor(() => {
+      expect(AsyncStorage.setItem).toHaveBeenCalled();
+    });
+    expect(notifications.requestPermissionsAsync).not.toHaveBeenCalled();
+  });
+
+  it('waits for a real session instead of asking a guest', async () => {
+    setPermission('undetermined');
+    grantOnPrompt();
+    mockAuth = { currentUser: { id: 'guest-1' }, isGuest: true };
+
+    const { rerender } = renderHook(() => useFirstLaunchPushPrompt());
+    await act(async () => {});
+    expect(notifications.requestPermissionsAsync).not.toHaveBeenCalled();
+
+    // Converting to a real account still gets the one ask.
+    mockAuth = { currentUser: { id: 'owner-1' }, isGuest: false };
+    rerender({});
+    await waitFor(() => {
+      expect(notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('holds the ask until the app is in the foreground', async () => {
+    setPermission('undetermined');
+    AppState.currentState = 'background';
+
+    renderHook(() => useFirstLaunchPushPrompt());
+    await act(async () => {});
+
+    expect(notifications.requestPermissionsAsync).not.toHaveBeenCalled();
+    expect(AsyncStorage.setItem).not.toHaveBeenCalled();
   });
 });
 

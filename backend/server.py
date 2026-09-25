@@ -185,6 +185,7 @@ import news_feed
 import set_spotlight
 import similar_cards
 import watch_signals
+import watchlist_suggestions
 import youtube_feed
 from anthropic_adapter import identify_pokemon_lookalike
 from pricecharting_adapter import PriceChartingProvider
@@ -4517,7 +4518,7 @@ class SpotlightScanService:
         return {"dealAlertsEnabled": deal, "targetHitsEnabled": target}
 
     def alert_prefs(self) -> dict[str, Any]:
-        """The three Alerts switches (+ stored zone) for THIS owner. Absent row = all on."""
+        """The Alerts switches (+ stored zone) for THIS owner. Absent row = all on."""
         return market_alerts.public_prefs(
             market_alerts.get_alert_prefs(self.connection, self._current_owner_user_id())
         )
@@ -21606,6 +21607,17 @@ class SpotlightScanService:
         entries = payload.get("entries", []) if isinstance(payload, dict) else []
         return deck_entries_export_csv(entries)
 
+    def collection_headline_value_for_owner(
+        self, owner_user_id: str, *, time_zone_name: str | None = None
+    ) -> float:
+        """The Collection headline for a job with no request: the client reads
+        it from the 1W chart's ``summary.currentValue`` (all collections), so
+        market_alerts' milestones use exactly that number."""
+        identity = RequestIdentity(user_id=str(owner_user_id), auth_source="market_alerts")
+        with self.request_identity_context(identity):
+            payload = self.deck_history(range_label="1W", time_zone_name=time_zone_name)
+        return float((payload.get("summary") or {}).get("currentValue") or 0.0)
+
     def portfolio_summary_for_owner(self, owner_user_id: str) -> dict[str, Any]:
         """Cheap public headline for a portfolio: total value + card count only.
 
@@ -22324,6 +22336,14 @@ class SpotlightScanService:
     def card_similar_cards(self, card_id: str) -> dict[str, Any]:
         """PDP "More like this": stored neighbours + ~20 indexed card/price reads."""
         return similar_cards.build_similar_cards_payload(self.connection, card_id)
+
+    def watchlist_suggestions(self, *, limit: Any = None) -> dict[str, Any]:
+        """Watchlist empty state: the caller's recent unowned, unwatched scans."""
+        return watchlist_suggestions.build_watchlist_suggestions(
+            self.connection,
+            self._current_owner_user_id(),
+            limit=watchlist_suggestions.DEFAULT_LIMIT if limit is None else limit,
+        )
 
     def market_set_spotlight(self, *, set_id: str | None) -> dict[str, Any] | None:
         """This week's pick (set_id None) or any set. None → unknown set / no pick.
@@ -24569,6 +24589,19 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/v1/ops/unmatched-scans":
             limit = int(query.get("limit", ["25"])[0])
             self._write_json(HTTPStatus.OK, self.service.unmatched_scans(limit=limit))
+            return
+
+        if parsed.path == "/api/v1/watchlist/suggestions":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            # Bad/missing limit falls back to the default; the module clamps.
+            limit = query.get("limit", [None])[0]
+            with self.service.request_identity_context(identity):
+                self._write_json(
+                    HTTPStatus.OK,
+                    self.service.watchlist_suggestions(limit=limit),
+                )
             return
 
         if parsed.path == "/api/v1/card-favorites":

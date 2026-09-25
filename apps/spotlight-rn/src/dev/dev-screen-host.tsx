@@ -96,6 +96,8 @@ const devScreens: Record<string, () => ReactElement> = {
   ),
   news: () => <NewsScreen onBack={() => undefined} onOpenCard={() => undefined} />,
   wishlist: () => <WishlistScreen />,
+  // Zero watches: the teaching empty state (repository built without favorites).
+  'watchlist-empty': () => <WishlistScreen />,
   // The watchlist target sheet over the PDP: the optional post-Watch prompt
   // and the edit sheet a Watchlist long-press opens.
   'target-sheet': () => <DevTargetSheetScreen mode="afterWatch" />,
@@ -182,7 +184,7 @@ export function DevScreenHost({ screen }: { screen: string }) {
     // The PDP's module-level caches are keyed by cardId only — clear them so a
     // real session's data never bleeds into a dev screenshot (or vice versa).
     clearCardDetailCache();
-    void createDevRepository().then((repo) => {
+    void createDevRepository({ seedFavorites: screen !== 'watchlist-empty' }).then((repo) => {
       if (!cancelled) {
         setRepository(repo);
       }

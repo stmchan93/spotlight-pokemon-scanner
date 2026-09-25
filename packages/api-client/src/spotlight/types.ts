@@ -1960,6 +1960,25 @@ export type CardFavoritesQuery = {
   offset?: number;
 };
 
+/**
+ * A card the caller scanned recently but neither owns nor watches — the
+ * Watchlist empty state's "Suggest cards to watch" (GET
+ * /api/v1/watchlist/suggestions, backend/watchlist_suggestions.py).
+ */
+export type WatchlistSuggestion = {
+  cardId: string;
+  name: string;
+  cardNumber: string;
+  setName: string;
+  imageUrl: string | null;
+  game?: CardGame;
+  language: string | null;
+  /** Raw main market price in `currencyCode`; null = unpriced. */
+  marketPrice: number | null;
+  currencyCode: string;
+  lastScannedAt: string | null;
+};
+
 export type CollectionVariantOption = {
   id: string;
   label: string;
@@ -2490,6 +2509,8 @@ export type AlertPreferences = {
   priceMovesEnabled: boolean;
   weeklySummaryEnabled: boolean;
   dealAlertsEnabled: boolean;
+  /** Collection value milestone pushes ($100 ... $1M). */
+  milestoneAlertsEnabled: boolean;
 };
 
 /** A partial write; `timezone` (IANA) rides along so local-time windows work. */

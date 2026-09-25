@@ -12,8 +12,9 @@ import { useAppServices } from '@/providers/app-providers';
 
 type AlertKey = keyof AlertPreferences;
 
-const PREF_ANALYTICS_NAME: Record<AlertKey, 'price_moves' | 'weekly_summary' | 'deals'> = {
+const PREF_ANALYTICS_NAME: Record<AlertKey, 'price_moves' | 'weekly_summary' | 'deals' | 'milestones'> = {
   dealAlertsEnabled: 'deals',
+  milestoneAlertsEnabled: 'milestones',
   priceMovesEnabled: 'price_moves',
   weeklySummaryEnabled: 'weekly_summary',
 };
@@ -32,6 +33,12 @@ const ROWS: { key: AlertKey; title: string; description: string; testID: string 
     title: 'Weekly summary',
   },
   {
+    description: 'When your collection passes $1,000, $5,000 and more',
+    key: 'milestoneAlertsEnabled',
+    testID: 'alert-settings-milestones',
+    title: 'Collection milestones',
+  },
+  {
     description: 'Watched cards listed well below market',
     key: 'dealAlertsEnabled',
     testID: 'alert-settings-deals',
@@ -41,6 +48,7 @@ const ROWS: { key: AlertKey; title: string; description: string; testID: string 
 
 const DEFAULT_PREFS: AlertPreferences = {
   dealAlertsEnabled: true,
+  milestoneAlertsEnabled: true,
   priceMovesEnabled: true,
   weeklySummaryEnabled: true,
 };
@@ -50,7 +58,7 @@ export type AlertSettingsSectionProps = {
 };
 
 /**
- * Alert switches, shown inline on the Account screen. Three switches, nothing else. The anti-spam limits (1 push a day,
+ * Alert switches, shown inline on the Account screen. One switch per push kind, nothing else. The anti-spam limits (1 push a day,
  * quiet hours, per-card cooldown) are enforced server-side and silently.
  *
  * Each switch shows pref AND OS permission, like the Account deal toggle did:

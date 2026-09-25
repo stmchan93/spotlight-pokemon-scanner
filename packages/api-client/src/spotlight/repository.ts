@@ -31,6 +31,7 @@ import {
   parseSetSpotlightPayload,
 } from './meta-feed-wire';
 import { parseSimilarCardsPayload } from './similar-cards-wire';
+import { parseWatchlistSuggestionsPayload } from './watchlist-suggestions-wire';
 import {
   ALL_COLLECTIONS_ID,
   CARD_GAMES,
@@ -147,6 +148,7 @@ import type {
   SetSpotlightQuery,
   SimilarCard,
   SimilarCards,
+  WatchlistSuggestion,
   PortfolioPerformanceRow,
   TransactionInsights,
   PortfolioSaleRequestPayload,
@@ -403,6 +405,12 @@ export interface SpotlightRepository {
   ): Promise<CardFavoriteRecord>;
   setCardLike(cardId: string, isLiked?: boolean | null): Promise<CardLikeRecord>;
   getCardFavorites(query?: CardFavoritesQuery): Promise<CardFavoriteEntry[]>;
+  /**
+   * Watchlist empty state: cards the caller scanned in the last 30 days that
+   * they neither own nor watch, newest scan first (server default 6, max 12).
+   * Throws on a failed read so the caller can tell "none" from "couldn't load".
+   */
+  getWatchlistSuggestions(limit?: number): Promise<WatchlistSuggestion[]>;
   /**
    * Set (or clear, with `null`) the watchlist target price for one card, in USD
    * CENTS. Never throws: the result's `status` distinguishes
@@ -1746,6 +1754,7 @@ function buildAlertPreferences(value: unknown): AlertPreferences {
     dealAlertsEnabled: normalizeBoolean(record.dealAlertsEnabled) ?? true,
     priceMovesEnabled: normalizeBoolean(record.priceMovesEnabled) ?? true,
     weeklySummaryEnabled: normalizeBoolean(record.weeklySummaryEnabled) ?? true,
+    milestoneAlertsEnabled: normalizeBoolean(record.milestoneAlertsEnabled) ?? true,
   };
 }
 
@@ -4473,6 +4482,32 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return entries;
   }
 
+  // No scan history in the mock: suggest unowned, unwatched catalog cards.
+  async getWatchlistSuggestions(limit?: number): Promise<WatchlistSuggestion[]> {
+    const safeLimit = Math.max(1, Math.min(limit ?? 6, 12));
+    const ownedCardIds = new Set(this.inventoryEntries.map((entry) => entry.cardId));
+    const watchedCardIds = new Set(
+      Array.from(this.favoriteCardTimestamps.keys()).map((key) => key.slice(0, key.lastIndexOf('|'))),
+    );
+    return this.catalogResults
+      .filter((result) => result.productKind !== 'sealed'
+        && !ownedCardIds.has(result.cardId)
+        && !watchedCardIds.has(result.cardId))
+      .slice(0, safeLimit)
+      .map((result) => ({
+        cardId: result.cardId,
+        name: result.name,
+        cardNumber: result.cardNumber,
+        setName: result.setName,
+        imageUrl: result.imageUrl,
+        game: result.game,
+        language: null,
+        marketPrice: result.marketPrice ?? null,
+        currencyCode: result.currencyCode ?? 'USD',
+        lastScannedAt: null,
+      }));
+  }
+
   async setCardFavoriteTarget(
     cardId: string,
     targetPriceCents: number | null,
@@ -4587,7 +4622,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return { status: 'ok', prefs: { ...this.notificationPrefs } };
   }
 
-  private marketAlertSwitches = { priceMovesEnabled: true, weeklySummaryEnabled: true };
+  private marketAlertSwitches = { priceMovesEnabled: true, weeklySummaryEnabled: true, milestoneAlertsEnabled: true };
 
   async fetchAlertPreferences(): Promise<AlertPreferences> {
     // Deals share the notification-prefs flag, exactly like the server.
@@ -4600,6 +4635,9 @@ export class MockSpotlightRepository implements SpotlightRepository {
     }
     if (typeof patch.weeklySummaryEnabled === 'boolean') {
       this.marketAlertSwitches.weeklySummaryEnabled = patch.weeklySummaryEnabled;
+    }
+    if (typeof patch.milestoneAlertsEnabled === 'boolean') {
+      this.marketAlertSwitches.milestoneAlertsEnabled = patch.milestoneAlertsEnabled;
     }
     if (typeof patch.dealAlertsEnabled === 'boolean') {
       this.notificationPrefs.dealAlertsEnabled = patch.dealAlertsEnabled;
@@ -7083,6 +7121,17 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       .filter((entry): entry is CardFavoriteEntry => entry !== null);
   }
 
+  async getWatchlistSuggestions(limit?: number): Promise<WatchlistSuggestion[]> {
+    const query = typeof limit === 'number' ? `?limit=${encodeURIComponent(String(limit))}` : '';
+    const response = await this.requestJsonRead<unknown>(
+      `${this.baseUrl}/api/v1/watchlist/suggestions${query}`,
+    );
+    if (response.kind === 'error') {
+      throw response.error;
+    }
+    return response.kind === 'success' ? parseWatchlistSuggestionsPayload(response.data) : [];
+  }
+
   async setCardFavoriteTarget(
     cardId: string,
     targetPriceCents: number | null,
@@ -7260,7 +7309,12 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
   async updateAlertPreferences(patch: AlertPreferencesPatch): Promise<AlertPreferencesResult> {
     const body: Record<string, boolean | string> = {};
-    for (const key of ['priceMovesEnabled', 'weeklySummaryEnabled', 'dealAlertsEnabled'] as const) {
+    for (const key of [
+      'priceMovesEnabled',
+      'weeklySummaryEnabled',
+      'dealAlertsEnabled',
+      'milestoneAlertsEnabled',
+    ] as const) {
       if (typeof patch[key] === 'boolean') {
         body[key] = patch[key];
       }

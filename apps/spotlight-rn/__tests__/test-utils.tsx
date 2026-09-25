@@ -242,6 +242,10 @@ export function createTestSpotlightRepository(
       return overrides.getCardFavorites?.(...args)
         ?? baseRepository.getCardFavorites(...args);
     },
+    getWatchlistSuggestions: (...args) => {
+      return overrides.getWatchlistSuggestions?.(...args)
+        ?? baseRepository.getWatchlistSuggestions(...args);
+    },
     setCardFavoriteTarget: (...args) => {
       return overrides.setCardFavoriteTarget?.(...args)
         ?? baseRepository.setCardFavoriteTarget(...args);

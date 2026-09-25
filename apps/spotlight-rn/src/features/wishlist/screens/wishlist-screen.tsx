@@ -51,6 +51,7 @@ import {
   WishlistHeader,
 } from '@/features/wishlist/components/wishlist-header';
 import { DealRadarBand } from '@/features/wishlist/components/deal-radar-band';
+import { WatchlistEmptyState } from '@/features/wishlist/components/watchlist-empty-state';
 import {
   TargetPriceSheet,
   type TargetPriceSubmitResult,
@@ -877,11 +878,11 @@ export function WishlistScreen() {
       testID="wishlist-error"
       title="Couldn't load your watchlist"
     />
+  ) : favorites.length === 0 ? (
+    <WatchlistEmptyState onWatched={() => { void loadFavorites(); }} />
   ) : (
     <Text style={[styles.emptyText, { color: theme.colors.gray600 }]} testID="wishlist-empty">
-      {favorites.length === 0
-        ? 'Scan a card to add it to your watchlist.'
-        : 'No cards match your filters.'}
+      No cards match your filters.
     </Text>
   );
 
