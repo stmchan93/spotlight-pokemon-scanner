@@ -535,6 +535,15 @@ export function RawScannerCaptureSurface({
     setCameraStarted(false);
     onCameraStopped?.();
   }, [onCameraStopped]);
+  // Leaving the screen (e.g. a card pushed from the tray) must forget "started"
+  // even when CameraX drops onStopped: the screen re-gates the shutter on
+  // refocus, and a stale `true` here would keep the watchdog from recovering a
+  // session that never re-fires onStarted.
+  useEffect(() => {
+    if (!shouldMountCamera) {
+      setCameraStarted(false);
+    }
+  }, [shouldMountCamera]);
 
   // Android watchdog: rapid isActive flaps (fast tab swipes) can race CameraX
   // into a dead CLOSED state while isActive is still true — no error, no
