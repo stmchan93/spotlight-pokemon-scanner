@@ -77,7 +77,7 @@ describe('Alert settings screen', () => {
     expect(screen.getByTestId('alert-settings-deals').props.value).toBe(true);
     expect(screen.getByText('Price moves')).toBeTruthy();
     expect(screen.getByText('Cards you own or watch, when they move 10%+ and $5+')).toBeTruthy();
-    expect(screen.getByText('Weekly summary')).toBeTruthy();
+    expect(screen.getByText('Monthly summary')).toBeTruthy();
     expect(screen.getByText('Deals under market')).toBeTruthy();
     expect(screen.getByText('Watched cards listed well below market')).toBeTruthy();
     // No limits explainer: the limits are enforced silently.

@@ -1,4 +1,4 @@
-"""Market alerts: price-move pushes, the Sunday summary, collection value
+"""Market alerts: price-move pushes, the monthly summary, collection value
 milestones, and the ONE per-user push limiter that watchlist deal alerts also
 route through.
 
@@ -24,9 +24,11 @@ The limiter (all silent; nothing is ever surfaced to the user)
    collection milestone > price moves (a listing can sell; a milestone or a
    price move will still be true tomorrow). Several price moves become one
    push: "Latios ☆ +12% and 2 more".
-3. The weekly summary (Sunday 17:00-21:00 local) is NOT held back by rule 2:
-   it is once a week, and losing it because a deal pushed that morning would
-   lose the week. It still counts as that day's push, so nothing follows it.
+3. The monthly summary (the 1st, 17:00-21:00 local, covering the previous
+   calendar month) is NOT held back by rule 2: it is once a month, and losing
+   it because a deal pushed that morning would lose the month. It still counts
+   as that day's push, so nothing follows it. (Internally it keeps the
+   ``weekly_summary`` kind/pref names: stored prefs and ledger rows carry over.)
 4. The same card is pushed at most once per 3 days, unless its price has moved
    another >= 10% since the price it was last alerted at.
 5. Milestones ($100 ... $1M) fire once per milestone per owner, EVER, when the
@@ -82,9 +84,9 @@ CARD_REARM_PCT = 10.0
 QUIET_START_HOUR = 21
 QUIET_END_HOUR = 9
 
-WEEKLY_WEEKDAY = 6  # Sunday (date.weekday())
+# Weekly was too frequent (user, 2026-09-24): the summary is monthly now.
+SUMMARY_DAY_OF_MONTH = 1
 WEEKLY_HOUR = 17
-WEEKLY_WINDOW_DAYS = 7
 
 PENDING_DEAL_MAX_AGE_HOURS = 24
 RECEIPT_SWEEP_DAYS = 2
@@ -375,10 +377,24 @@ def in_quiet_hours(local: datetime) -> bool:
 
 
 def weekly_due(local: datetime) -> bool:
+    """The (monthly) summary's send window: the 1st, 17:00-21:00 local."""
     return (
-        local.weekday() == WEEKLY_WEEKDAY
+        local.day == SUMMARY_DAY_OF_MONTH
         and WEEKLY_HOUR <= local.hour < QUIET_START_HOUR
     )
+
+
+def _previous_month_start(local_date: date) -> date:
+    return (local_date.replace(day=1) - timedelta(days=1)).replace(day=1)
+
+
+def summary_window_days(local_date: date) -> int:
+    """Days back to the 1st of the previous month (the month being summarized)."""
+    return (local_date - _previous_month_start(local_date)).days
+
+
+def summary_period_label(local_date: date) -> str:
+    return f"in {_previous_month_start(local_date).strftime('%B')}"
 
 
 def move_pct(price_now: float, price_then: float | None) -> float | None:
@@ -558,26 +574,26 @@ def build_deal_push(deals: Sequence[PendingDeal]) -> PlannedPush | None:
     )
 
 
-def build_weekly_push(summary: WeeklySummary | None) -> PlannedPush | None:
+def build_weekly_push(summary: WeeklySummary | None, period: str = "this month") -> PlannedPush | None:
     if summary is None:
         return None
     if int(round(summary.delta_usd)) == 0 and summary.top_card_id is None:
         return None
     rounded = int(round(summary.delta_usd))
     if rounded == 0:
-        title = "Your collection held steady this week"
+        title = f"Your collection held steady {period}"
     else:
         amount = format_signed_usd(abs(summary.delta_usd))[1:]
         pct = ""
         if summary.start_value_usd and summary.start_value_usd > 0:
             pct = f" ({_minus(format_pct(summary.delta_usd / summary.start_value_usd * 100.0))})"
-        title = f"Your collection is {'up' if rounded > 0 else 'down'} {amount}{pct} this week"
+        title = f"Your collection is {'up' if rounded > 0 else 'down'} {amount}{pct} {period}"
     if summary.top_card_id and summary.top_change_usd is not None:
         body = f"Led by {_name(summary.top_card_name)} {_minus(format_signed_usd(summary.top_change_usd))}."
     elif summary.top_card_id and summary.top_change_pct is not None:
         body = f"Led by {_name(summary.top_card_name)} {_minus(format_pct(summary.top_change_pct))}."
     else:
-        body = "Your Sunday summary."
+        body = "Your monthly summary."
     data = {"type": DATA_TYPE_WEEKLY_SUMMARY, "url": COLLECTION_DEEP_LINK}
     return PlannedPush(KIND_WEEKLY_SUMMARY, title, body, data, MARKET_CHANNEL_ID)
 
@@ -623,7 +639,7 @@ def plan_push(item: OwnerPlanInput, kinds: Iterable[str] = ALL_KINDS) -> Planned
         and weekly_due(item.local)
         and not item.weekly_sent_today
     ):
-        weekly = build_weekly_push(item.weekly)
+        weekly = build_weekly_push(item.weekly, summary_period_label(item.local.date()))
         if weekly is not None:
             return weekly  # exempt from the daily cap (rule 3)
     if item.pushed_today:
@@ -922,14 +938,15 @@ def price_moves_for_owner(
 
 
 def weekly_summary_for_owner(
-    connection: sqlite3.Connection, owner: str, *, ref_date: date | None
+    connection: sqlite3.Connection, owner: str, *, ref_date: date | None, window_days: int = 30
 ) -> WeeklySummary | None:
-    """Raw holdings x same-source 7-day price pairs. Cards without a pair add
+    """Raw holdings x same-source price pairs over ``window_days`` (the monthly
+    summary passes the previous month's span). Cards without a pair add
     nothing (never a guess)."""
     owned = owned_raw_quantities(connection, owner)
     if not owned or ref_date is None:
         return None
-    changes = raw_price_changes(connection, list(owned), ref_date=ref_date, window_days=WEEKLY_WINDOW_DAYS)
+    changes = raw_price_changes(connection, list(owned), ref_date=ref_date, window_days=window_days)
     delta = 0.0
     start = 0.0
     paired = 0
@@ -945,7 +962,7 @@ def weekly_summary_for_owner(
             contributions.append((card_id, contribution, price.change_pct))
     if paired == 0:
         return None
-    # "Led by" = the biggest dollar contributor in the week's direction.
+    # "Led by" = the biggest dollar contributor in the period's direction.
     leaders = [c for c in contributions if (c[1] >= 0) == (delta >= 0) and c[1] != 0] or contributions
     if not leaders:
         return WeeklySummary(delta_usd=delta, start_value_usd=start)
@@ -1199,7 +1216,9 @@ def run_market_alerts(
             KIND_WEEKLY_SUMMARY in kinds and prefs["weeklySummaryEnabled"]
             and weekly_due(local) and not weekly_sent
         ):
-            item.weekly = weekly_summary_for_owner(connection, owner, ref_date=ref_date)
+            item.weekly = weekly_summary_for_owner(
+                connection, owner, ref_date=ref_date, window_days=summary_window_days(local_date),
+            )
         if not item.pushed_today:
             if KIND_DEAL in kinds and prefs["dealAlertsEnabled"]:
                 item.deals = pending_deals(connection, owner, now_utc)
@@ -1277,7 +1296,7 @@ def _service_collection_value(database_path: Path) -> CollectionValueFn:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Hourly market-alert pushes (price moves, weekly summary, deals)")
+    parser = argparse.ArgumentParser(description="Hourly market-alert pushes (price moves, monthly summary, milestones, deals)")
     parser.add_argument("--database-path", required=True)
     parser.add_argument("--dry-run", action="store_true", help="plan only; send and write nothing")
     parser.add_argument("--force", action="store_true", help=f"run even when {ENABLED_ENV} is off")

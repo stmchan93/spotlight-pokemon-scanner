@@ -27,10 +27,10 @@ const ROWS: { key: AlertKey; title: string; description: string; testID: string 
     title: 'Price moves',
   },
   {
-    description: 'Sunday evening: how your collection did',
+    description: 'On the 1st: how your collection did last month',
     key: 'weeklySummaryEnabled',
     testID: 'alert-settings-weekly-summary',
-    title: 'Weekly summary',
+    title: 'Monthly summary',
   },
   {
     description: 'When your collection passes $1,000, $5,000 and more',

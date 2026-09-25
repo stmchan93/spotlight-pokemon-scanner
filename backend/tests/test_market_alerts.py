@@ -1,5 +1,5 @@
 """market_alerts: price-move thresholds, bundling, the per-card cooldown,
-quiet-hours deferral, the Sunday summary across timezones, owner scoping,
+quiet-hours deferral, the monthly summary across timezones, owner scoping,
 prefs, collection milestones, and deals routed through the same limiter.
 
 Every push goes to a FAKE sender (or an injected fake Expo transport). Nothing
@@ -11,7 +11,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -170,9 +170,17 @@ class ThresholdTests(unittest.TestCase):
         self.assertTrue(ma.in_quiet_hours(ma.local_now(datetime(2026, 9, 23, 4, 0, tzinfo=timezone.utc), la)))  # 21:00
         self.assertTrue(ma.in_quiet_hours(ma.local_now(datetime(2026, 9, 22, 15, 59, tzinfo=timezone.utc), la)))  # 08:59
         self.assertFalse(ma.in_quiet_hours(ma.local_now(datetime(2026, 9, 22, 16, 0, tzinfo=timezone.utc), la)))  # 09:00
-        self.assertTrue(ma.weekly_due(ma.local_now(datetime(2026, 9, 28, 0, 0, tzinfo=timezone.utc), la)))  # Sun 17:00
-        self.assertFalse(ma.weekly_due(ma.local_now(datetime(2026, 9, 27, 23, 59, tzinfo=timezone.utc), la)))  # 16:59
-        self.assertFalse(ma.weekly_due(ma.local_now(datetime(2026, 9, 28, 4, 0, tzinfo=timezone.utc), la)))  # 21:00
+        self.assertTrue(ma.weekly_due(ma.local_now(datetime(2026, 10, 2, 0, 0, tzinfo=timezone.utc), la)))  # Oct 1 17:00
+        self.assertFalse(ma.weekly_due(ma.local_now(datetime(2026, 10, 1, 23, 59, tzinfo=timezone.utc), la)))  # 16:59
+        self.assertFalse(ma.weekly_due(ma.local_now(datetime(2026, 10, 2, 4, 0, tzinfo=timezone.utc), la)))  # 21:00
+        # Monthly, not weekly: a Sunday that isn't the 1st never sends.
+        self.assertFalse(ma.weekly_due(ma.local_now(datetime(2026, 9, 28, 0, 0, tzinfo=timezone.utc), la)))  # Sun 17:00
+
+    def test_monthly_window_is_the_previous_month(self) -> None:
+        self.assertEqual(ma.summary_window_days(date(2026, 10, 1)), 30)  # back to Sep 1
+        self.assertEqual(ma.summary_window_days(date(2026, 3, 1)), 28)  # back to Feb 1
+        self.assertEqual(ma.summary_period_label(date(2026, 10, 1)), "in September")
+        self.assertEqual(ma.summary_period_label(date(2027, 1, 1)), "in December")
 
     def test_invalid_timezone_falls_back_to_los_angeles(self) -> None:
         self.assertIsNone(ma.normalize_timezone("Mars/Olympus"))
@@ -353,80 +361,80 @@ class OwnerScopingTests(MarketAlertsTestCase):
             ma.set_alert_prefs(self.connection, "alice", ["nope"])  # type: ignore[arg-type]
 
 
-class WeeklySummaryTests(MarketAlertsTestCase):
-    # Sunday 2026-09-27; 17:05 in Los Angeles = 2026-09-28 00:05 UTC.
-    SUNDAY_LA_1705 = datetime(2026, 9, 28, 0, 5, tzinfo=timezone.utc)
+class MonthlySummaryTests(MarketAlertsTestCase):
+    # Oct 1 2026, 17:05 in Los Angeles = 2026-10-02 00:05 UTC; summarizes September.
+    FIRST_LA_1705 = datetime(2026, 10, 2, 0, 5, tzinfo=timezone.utc)
 
     def setUp(self) -> None:
         super().setUp()
-        self.move("mew", 100.0, 130.0, name="Mew", then_day="2026-09-20", now_day="2026-09-27")
-        self.move("pika", 50.0, 45.0, name="Pikachu", then_day="2026-09-20", now_day="2026-09-27")
-        # A flat yesterday so the Sunday run has no daily move to send instead.
-        self.price("mew", "2026-09-26", 130.0)
-        self.price("pika", "2026-09-26", 45.0)
+        self.move("mew", 100.0, 130.0, name="Mew", then_day="2026-08-31", now_day="2026-09-30")
+        self.move("pika", 50.0, 45.0, name="Pikachu", then_day="2026-08-31", now_day="2026-09-30")
+        # A flat yesterday so the summary run has no daily move to send instead.
+        self.price("mew", "2026-09-29", 130.0)
+        self.price("pika", "2026-09-29", 45.0)
 
-    def test_sunday_five_pm_local_summary(self) -> None:
+    def test_first_of_month_five_pm_local_summary(self) -> None:
         self.own("u1", "mew", qty=2)
         self.own("u1", "pika")
         self.token("u1")
-        self.run_job(self.SUNDAY_LA_1705)
+        self.run_job(self.FIRST_LA_1705)
         (message,) = self.sender.messages
         # +$60 (Mew x2) - $5 (Pikachu) on a $250 start.
-        self.assertEqual(message.title, "Your collection is up $55 (+22%) this week")
+        self.assertEqual(message.title, "Your collection is up $55 (+22%) in September")
         self.assertEqual(message.body, "Led by Mew +$60.")
         self.assertEqual(message.data, {"type": ma.DATA_TYPE_WEEKLY_SUMMARY, "url": "/"})
-        # Once per week: the next hourly run in the window sends nothing.
-        self.run_job(self.SUNDAY_LA_1705 + timedelta(hours=1))
+        # Once per month: the next hourly run in the window sends nothing.
+        self.run_job(self.FIRST_LA_1705 + timedelta(hours=1))
         self.assertEqual(len(self.sender.messages), 1)
 
     def test_schedule_follows_each_users_timezone(self) -> None:
         for owner, token, zone in (("la", TOKEN_A, "America/Los_Angeles"), ("ldn", TOKEN_B, "Europe/London")):
             self.own(owner, "mew")
             self.token(owner, token, zone)
-        self.run_job(datetime(2026, 9, 27, 16, 5, tzinfo=timezone.utc))  # 17:05 London, 09:05 LA
+        self.run_job(datetime(2026, 10, 1, 16, 5, tzinfo=timezone.utc))  # 17:05 London, 09:05 LA
         self.assertEqual([m.to for m in self.sender.messages], [TOKEN_B])
-        self.run_job(datetime(2026, 9, 27, 23, 5, tzinfo=timezone.utc))  # 16:05 LA: not yet
+        self.run_job(datetime(2026, 10, 1, 23, 5, tzinfo=timezone.utc))  # 16:05 LA: not yet
         self.assertEqual(len(self.sender.messages), 1)
-        self.run_job(self.SUNDAY_LA_1705)
+        self.run_job(self.FIRST_LA_1705)
         self.assertEqual([m.to for m in self.sender.messages], [TOKEN_B, TOKEN_A])
 
     def test_weekly_still_sends_after_that_days_push_but_nothing_follows_it(self) -> None:
         self.own("u1", "mew")
         self.token("u1")
-        self.deal("u1", "mew", created_at=datetime(2026, 9, 27, 18, 0, tzinfo=timezone.utc))
-        self.run_job(datetime(2026, 9, 27, 18, 5, tzinfo=timezone.utc))  # Sun 11:05 LA: the deal
-        self.run_job(self.SUNDAY_LA_1705)
+        self.deal("u1", "mew", created_at=datetime(2026, 10, 1, 18, 0, tzinfo=timezone.utc))
+        self.run_job(datetime(2026, 10, 1, 18, 5, tzinfo=timezone.utc))  # Oct 1 11:05 LA: the deal
+        self.run_job(self.FIRST_LA_1705)
         self.assertEqual(
             [m.data["type"] for m in self.sender.messages],
             [expo_push.DATA_TYPE_DEAL_ALERT, ma.DATA_TYPE_WEEKLY_SUMMARY],
         )
-        self.deal("u1", "mew", alert_id="deal-2", created_at=self.SUNDAY_LA_1705)
-        self.run_job(self.SUNDAY_LA_1705 + timedelta(hours=1))
+        self.deal("u1", "mew", alert_id="deal-2", created_at=self.FIRST_LA_1705)
+        self.run_job(self.FIRST_LA_1705 + timedelta(hours=1))
         self.assertEqual(len(self.sender.messages), 2)
 
     def test_down_week_names_the_biggest_dollar_loser(self) -> None:
         self.own("u1", "mew")
         self.own("u1", "pika", qty=10)  # -$50 vs Mew's +$30
         self.token("u1")
-        self.run_job(self.SUNDAY_LA_1705)
+        self.run_job(self.FIRST_LA_1705)
         (message,) = self.sender.messages
         # -$20 on a $600 start.
-        self.assertEqual(message.title, "Your collection is down $20 (\u22123%) this week")
+        self.assertEqual(message.title, "Your collection is down $20 (\u22123%) in September")
         self.assertEqual(message.body, "Led by Pikachu \u2212$50.")
 
     def test_weekly_copy_without_a_start_value_or_dollar_mover(self) -> None:
-        push = ma.build_weekly_push(ma.WeeklySummary(42.0, "c", "Charizard", 12.0))
-        self.assertEqual(push.title, "Your collection is up $42 this week")
+        push = ma.build_weekly_push(ma.WeeklySummary(42.0, "c", "Charizard", 12.0), "in September")
+        self.assertEqual(push.title, "Your collection is up $42 in September")
         self.assertEqual(push.body, "Led by Charizard +12%.")
-        push = ma.build_weekly_push(ma.WeeklySummary(0.2, "c", "Charizard", 12.0, 100.0, 3.0))
-        self.assertEqual(push.title, "Your collection held steady this week")
+        push = ma.build_weekly_push(ma.WeeklySummary(0.2, "c", "Charizard", 12.0, 100.0, 3.0), "in September")
+        self.assertEqual(push.title, "Your collection held steady in September")
 
     def test_weekly_off_or_no_holdings_sends_nothing(self) -> None:
         self.token("u1")
-        self.assertEqual(self.run_job(self.SUNDAY_LA_1705)["sent"], 0)  # owns nothing
+        self.assertEqual(self.run_job(self.FIRST_LA_1705)["sent"], 0)  # owns nothing
         self.own("u1", "mew")
         ma.set_alert_prefs(self.connection, "u1", {"weeklySummaryEnabled": False})
-        self.assertEqual(self.run_job(self.SUNDAY_LA_1705)["sent"], 0)
+        self.assertEqual(self.run_job(self.FIRST_LA_1705)["sent"], 0)
 
 
 class MilestoneTests(MarketAlertsTestCase):
