@@ -19,6 +19,31 @@ import { __resetScannerTargetConfigForTests } from '@/features/scanner/use-scann
 
 import { createTestSpotlightRepository, renderWithProviders } from './test-utils';
 
+// Tray row testIDs carry the capture id, not the position; these resolve the
+// nth rendered row (newest first) to its id-based testIDs.
+const trayRowTestIdPattern = /^scanner-tray-row-/;
+
+function queryTrayRow(position: number) {
+  return screen.queryAllByTestId(trayRowTestIdPattern)[position] ?? null;
+}
+
+function trayRow(position: number) {
+  const row = queryTrayRow(position);
+  if (!row) {
+    throw new Error(`No scan tray row at position ${position}`);
+  }
+  return row;
+}
+
+function trayTestId(part: string, position: number, suffix = '') {
+  const captureId = String(trayRow(position).props.testID).replace(trayRowTestIdPattern, '');
+  return `scanner-tray-${part}-${captureId}${suffix}`;
+}
+
+function findTrayElement(part: string, position: number, suffix = '') {
+  return waitFor(() => screen.getByTestId(trayTestId(part, position, suffix)));
+}
+
 const { useKeepAwake } = jest.requireMock('expo-keep-awake') as {
   useKeepAwake: jest.Mock;
 };
@@ -327,7 +352,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
 
     expect(StyleSheet.flatten(screen.getByTestId('scanner-reticle').props.style)).toMatchObject({
@@ -354,22 +379,22 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
 
     expect(screen.getByText('Oshawott')).toBeTruthy();
     expect(screen.queryByText('Potential match')).toBeNull();
-    expect(screen.getByTestId('scanner-tray-image-0')).toBeTruthy();
-    expect(screen.getByTestId('scanner-tray-image-0').props.source).toEqual({
+    expect(screen.getByTestId(trayTestId('image', 0))).toBeTruthy();
+    expect(screen.getByTestId(trayTestId('image', 0)).props.source).toEqual({
       uri: 'https://images.pokemontcg.io/mcdonalds25/21.png',
     });
     expect(screen.getByText("McDonald's Collection 2021 · #21/25")).toBeTruthy();
     expect(screen.queryByTestId('scanner-matches-button')).toBeNull();
     expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.56');
-    expect(screen.getByTestId('scanner-tray-swipe-0-delete-button', {
+    expect(screen.getByTestId(trayTestId('swipe', 0, '-delete-button'), {
       includeHiddenElements: true,
     })).toBeTruthy();
-    expect(screen.getByTestId('scanner-tray-swipe-0-delete-button', {
+    expect(screen.getByTestId(trayTestId('swipe', 0, '-delete-button'), {
       includeHiddenElements: true,
     }).props.accessibilityState).toMatchObject({
       disabled: true,
@@ -403,12 +428,12 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
 
     expect(screen.getByText('Poncho Pikachu')).toBeTruthy();
     // No raw sales means no headline price: render an em-dash, never "$0.00".
-    expect(screen.getByTestId('scanner-tray-price-0')).toHaveTextContent('—');
+    expect(screen.getByTestId(trayTestId('price', 0))).toHaveTextContent('—');
     expect(screen.queryByText('$0.00')).toBeNull();
   });
 
@@ -738,7 +763,7 @@ describe('ScannerScreen', () => {
       width: 630,
     }]);
 
-    fireEvent.press(screen.getByTestId('scanner-tray-open-card-0'));
+    fireEvent.press(screen.getByTestId(trayTestId('open-card', 0)));
 
     await waitFor(() => {
       expect(mockPush).toHaveBeenCalledWith({
@@ -790,14 +815,14 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
 
-    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-delete-button', {
+    fireEvent.press(screen.getByTestId(trayTestId('swipe', 0, '-delete-button'), {
       includeHiddenElements: true,
     }));
 
-    expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    expect(trayRow(0)).toBeTruthy();
     expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.56');
   });
 
@@ -811,10 +836,10 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
 
-    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-reveal-actions', {
+    fireEvent.press(screen.getByTestId(trayTestId('swipe', 0, '-reveal-actions'), {
       includeHiddenElements: true,
     }));
 
@@ -822,7 +847,7 @@ describe('ScannerScreen', () => {
       expect(handleTopLevelSwipeEnabledChange).toHaveBeenCalledWith(false);
     });
 
-    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-collapse-delete', {
+    fireEvent.press(screen.getByTestId(trayTestId('swipe', 0, '-collapse-delete'), {
       includeHiddenElements: true,
     }));
 
@@ -838,7 +863,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
 
     expect(screen.getByTestId('scanner-tray-header')).toBeTruthy();
@@ -857,37 +882,37 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
 
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-1')).toBeTruthy();
+      expect(trayRow(1)).toBeTruthy();
     });
 
     expandedViewportHeight = StyleSheet.flatten(screen.getByTestId('scanner-tray-viewport').props.style)?.height ?? 0;
-    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-reveal-actions', {
+    fireEvent.press(screen.getByTestId(trayTestId('swipe', 0, '-reveal-actions'), {
       includeHiddenElements: true,
     }));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-swipe-0-delete-button', {
+      expect(screen.getByTestId(trayTestId('swipe', 0, '-delete-button'), {
         includeHiddenElements: true,
       }).props.accessibilityState).toMatchObject({
         disabled: false,
       });
     });
 
-    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-delete-button', {
+    fireEvent.press(screen.getByTestId(trayTestId('swipe', 0, '-delete-button'), {
       includeHiddenElements: true,
     }));
 
     await waitFor(() => {
-      expect(screen.queryByTestId('scanner-tray-row-1')).not.toBeOnTheScreen();
+      expect(queryTrayRow(1)).not.toBeOnTheScreen();
     });
 
-    expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    expect(trayRow(0)).toBeTruthy();
     expect(screen.getByTestId('scanner-tray-header')).toBeTruthy();
     // Tray viewport fits content (captureRowHeight) when only one row remains.
     expect(StyleSheet.flatten(screen.getByTestId('scanner-tray-viewport').props.style)?.height).toBeGreaterThanOrEqual(102);
@@ -907,7 +932,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
 
     // Collapsed with a scan: the LIST's CLEAR ALL is still expanded-only. The
@@ -932,7 +957,7 @@ describe('ScannerScreen', () => {
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
 
     const fullTotal = screen.getByTestId('scanner-value-pill-text').props.children;
@@ -955,7 +980,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scan-bulk-confirm-sheet-confirm'));
 
     await waitFor(() => {
-      expect(screen.queryByTestId('scanner-tray-row-0')).not.toBeOnTheScreen();
+      expect(queryTrayRow(0)).not.toBeOnTheScreen();
     });
     expect(screen.queryByTestId('scanner-tray-discount-tag')).toBeNull();
   });
@@ -968,7 +993,7 @@ describe('ScannerScreen', () => {
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
 
     fireEvent.press(screen.getByTestId('scanner-tray-discount-trigger'));
@@ -996,7 +1021,7 @@ describe('ScannerScreen', () => {
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
 
     fireEvent.press(screen.getByTestId('scanner-tray-discount-trigger'));
@@ -1069,9 +1094,9 @@ describe('ScannerScreen', () => {
 
     // Untouched row: the write carries the printing the pill names.
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-printing-0-label').props.children).toBe('Normal');
+      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('Normal');
     });
-    fireEvent.press(screen.getByTestId('scanner-tray-add-0'), {
+    fireEvent.press(screen.getByTestId(trayTestId('add', 0)), {
       nativeEvent: { pageX: 180, pageY: 640 },
       currentTarget: {
         measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) =>
@@ -1123,7 +1148,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
 
     // Collapsed with a scan: ADD ALL is available without swiping the tray up.
@@ -1143,7 +1168,7 @@ describe('ScannerScreen', () => {
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
 
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
@@ -1228,7 +1253,7 @@ describe('ScannerScreen', () => {
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
 
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
@@ -1251,7 +1276,7 @@ describe('ScannerScreen', () => {
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
 
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
@@ -1289,7 +1314,7 @@ describe('ScannerScreen', () => {
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
-    expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    expect(trayRow(0)).toBeTruthy();
     expect(screen.getByText('Finding match')).toBeTruthy();
 
     await waitFor(() => {
@@ -1333,7 +1358,7 @@ describe('ScannerScreen', () => {
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
-    expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    expect(trayRow(0)).toBeTruthy();
     expect(screen.getByText('Finding match')).toBeTruthy();
 
     await waitForScannerReady();
@@ -1347,7 +1372,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-1')).toBeTruthy();
+      expect(trayRow(1)).toBeTruthy();
     });
 
     pendingResolvers[0]?.({
@@ -1389,7 +1414,7 @@ describe('ScannerScreen', () => {
     expect(await screen.findByText('Oshawott')).toBeTruthy();
     expect(screen.queryByText('Potential match')).toBeNull();
 
-    fireEvent.press(screen.getByTestId('scanner-tray-change-0'));
+    fireEvent.press(screen.getByTestId(trayTestId('change', 0)));
 
     fireEvent.press(await screen.findByTestId('change-card-picker-row-1'));
 
@@ -1460,7 +1485,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     expect(await screen.findByText('Oshawott')).toBeTruthy();
-    fireEvent.press(screen.getByTestId('scanner-tray-change-0'));
+    fireEvent.press(screen.getByTestId(trayTestId('change', 0)));
 
     // The sheet reads CHANGE, not SWITCH.
     expect(await screen.findByText('CHANGE')).toBeTruthy();
@@ -1538,7 +1563,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     expect(await screen.findByText('Oshawott')).toBeTruthy();
-    fireEvent.press(screen.getByTestId('scanner-tray-change-0'));
+    fireEvent.press(screen.getByTestId(trayTestId('change', 0)));
 
     fireEvent.press(await screen.findByTestId('change-card-picker-variant-reverseholofoil'));
     await waitFor(() => {
@@ -1561,7 +1586,7 @@ describe('ScannerScreen', () => {
 
     expect(await screen.findByText('Oshawott')).toBeTruthy();
 
-    fireEvent.press(screen.getByTestId('scanner-tray-open-card-0'));
+    fireEvent.press(screen.getByTestId(trayTestId('open-card', 0)));
 
     await waitFor(() => {
       expect(mockPush).toHaveBeenCalledWith({
@@ -1602,7 +1627,7 @@ describe('ScannerScreen', () => {
       // Let the mocked camera request settle before the next capture.
       // The newest row remains row 0 even after multiple captures.
       await waitFor(() => {
-        expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+        expect(trayRow(0)).toBeTruthy();
       });
       await waitForScannerReady();
     }
@@ -1611,7 +1636,7 @@ describe('ScannerScreen', () => {
     // Collapsed shows EXACTLY one card (the newest, row 0): every row stays
     // mounted (so toggling never churns the row set), but the viewport is
     // clipped to a single full row so only row 0 is visible.
-    expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    expect(trayRow(0)).toBeTruthy();
     const collapsedViewportHeight =
       StyleSheet.flatten(screen.getByTestId('scanner-tray-viewport').props.style)?.height ?? 0;
     expect(collapsedViewportHeight).toBe(102); // exactly one full row, no peek
@@ -1625,7 +1650,7 @@ describe('ScannerScreen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('scanner-tray-scroll')).toBeTruthy();
       expect(screen.getByTestId('scanner-tray-viewport')).toBeTruthy();
-      expect(screen.getByTestId('scanner-tray-row-1')).toBeTruthy();
+      expect(trayRow(1)).toBeTruthy();
     });
 
     const viewportHeight = StyleSheet.flatten(screen.getByTestId('scanner-tray-viewport').props.style)?.height ?? 0;
@@ -1652,7 +1677,7 @@ describe('ScannerScreen', () => {
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
 
     expect(screen.getByTestId('scanner-target-pill')).toBeTruthy();
@@ -1695,7 +1720,7 @@ describe('ScannerScreen', () => {
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
 
     // Collapsed tray chips: frost over the camera, solid gray0 on fallback
@@ -1795,10 +1820,10 @@ describe('ScannerScreen', () => {
 
     expect(await screen.findByText('Froakie')).toBeTruthy();
 
-    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-reveal-actions', {
+    fireEvent.press(screen.getByTestId(trayTestId('swipe', 0, '-reveal-actions'), {
       hidden: true,
     }));
-    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-collection-button'));
+    fireEvent.press(screen.getByTestId(trayTestId('swipe', 0, '-collection-button')));
 
     await waitFor(() => {
       expect(addPayloads).toHaveLength(1);
@@ -1813,7 +1838,7 @@ describe('ScannerScreen', () => {
     // Once a card is added to the collection it should leave the recent-scans
     // tray (after a brief "ADDED" confirmation) rather than lingering.
     await waitFor(() => {
-      expect(screen.queryByTestId('scanner-tray-row-0')).not.toBeOnTheScreen();
+      expect(queryTrayRow(0)).not.toBeOnTheScreen();
     }, { timeout: 2500 });
   });
 
@@ -1849,7 +1874,7 @@ describe('ScannerScreen', () => {
 
     // The inline ADD ▾ pill opens the per-row menu; picking Wishlist favorites
     // the active candidate immediately (no confirm sheet).
-    const addPill = await screen.findByTestId('scanner-tray-add-0');
+    const addPill = await findTrayElement('add', 0);
     expect(addPill).toHaveTextContent('ADD ITEM');
     fireEvent.press(addPill, {
       // A real press always carries both; the handler reads the tap point
@@ -1871,7 +1896,7 @@ describe('ScannerScreen', () => {
     // After wishlisting, the row slides out of the tray (same exit as a
     // collection add) rather than lingering.
     await waitFor(() => {
-      expect(screen.queryByTestId('scanner-tray-row-0')).not.toBeOnTheScreen();
+      expect(queryTrayRow(0)).not.toBeOnTheScreen();
     }, { timeout: 2500 });
   });
 
@@ -1913,10 +1938,10 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     expect(await screen.findByText('Froakie')).toBeTruthy();
-    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-reveal-actions', {
+    fireEvent.press(screen.getByTestId(trayTestId('swipe', 0, '-reveal-actions'), {
       hidden: true,
     }));
-    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-collection-button'));
+    fireEvent.press(screen.getByTestId(trayTestId('swipe', 0, '-collection-button')));
 
     await waitFor(() => {
       expect(addPayloads).toHaveLength(1);
@@ -1968,7 +1993,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     expect(await screen.findByText('Oshawott')).toBeTruthy();
-    fireEvent.press(screen.getByTestId('scanner-tray-change-0'));
+    fireEvent.press(screen.getByTestId(trayTestId('change', 0)));
     fireEvent.press(await screen.findByTestId('change-card-picker-row-1'));
 
     await waitFor(() => {
@@ -2016,8 +2041,8 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     expect(await screen.findByText('Oshawott')).toBeTruthy();
-    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-reveal-actions', { hidden: true }));
-    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-delete-button'));
+    fireEvent.press(screen.getByTestId(trayTestId('swipe', 0, '-reveal-actions'), { hidden: true }));
+    fireEvent.press(screen.getByTestId(trayTestId('swipe', 0, '-delete-button')));
 
     await waitFor(() => {
       expect(feedbackPayloads).toHaveLength(1);
@@ -2067,7 +2092,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     expect(await screen.findByText('Oshawott')).toBeTruthy();
-    fireEvent.press(screen.getByTestId('scanner-tray-change-0'));
+    fireEvent.press(screen.getByTestId(trayTestId('change', 0)));
 
     fireEvent.press(await screen.findByTestId('change-card-picker-row-1'));
 
@@ -2077,7 +2102,7 @@ describe('ScannerScreen', () => {
       expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
     });
 
-    fireEvent.press(screen.getByTestId('scanner-tray-open-card-0'));
+    fireEvent.press(screen.getByTestId(trayTestId('open-card', 0)));
 
     await waitFor(() => {
       expect(mockPush).toHaveBeenCalledWith({
@@ -2146,12 +2171,12 @@ describe('ScannerScreen', () => {
 
     // The printing pill replaces the old flat "RAW" tag outright.
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-printing-0-label').props.children).toBe('Holofoil');
+      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('Holofoil');
     });
     expect(screen.queryByText('RAW')).toBeNull();
 
     // The condition still lives in the price sheet, reachable from the price.
-    fireEvent.press(screen.getByTestId('scanner-tray-price-0'));
+    fireEvent.press(screen.getByTestId(trayTestId('price', 0)));
     fireEvent.press(await screen.findByTestId('scan-price-sheet-row-holofoil-LP'));
 
     await waitFor(() => {
@@ -2206,10 +2231,10 @@ describe('ScannerScreen', () => {
 
     // The pill names the printing the price assumes; its menu lists the rest.
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-printing-0-label').props.children).toBe('Holofoil');
+      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('Holofoil');
     });
 
-    fireEvent.press(screen.getByTestId('scanner-tray-printing-0'));
+    fireEvent.press(screen.getByTestId(trayTestId('printing', 0)));
     fireEvent.press(await screen.findByTestId('printing-menu-reverse-holofoil'));
 
     await waitFor(() => {
@@ -2269,15 +2294,15 @@ describe('ScannerScreen', () => {
 
     expect(await screen.findByText('Froakie')).toBeTruthy();
 
-    fireEvent.press(screen.getByTestId('scanner-tray-price-0'));
+    fireEvent.press(screen.getByTestId(trayTestId('price', 0)));
 
     const lpRow = await screen.findByTestId('scan-price-sheet-row-holofoil-LP');
     fireEvent.press(lpRow);
 
-    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-reveal-actions', {
+    fireEvent.press(screen.getByTestId(trayTestId('swipe', 0, '-reveal-actions'), {
       hidden: true,
     }));
-    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-collection-button'));
+    fireEvent.press(screen.getByTestId(trayTestId('swipe', 0, '-collection-button')));
 
     await waitFor(() => {
       expect(addPayloads).toHaveLength(1);
@@ -2349,7 +2374,7 @@ describe('ScannerScreen', () => {
     // The row lands in the tray and leaves its "Finding match" state through the
     // normal scan-failure path — no crash, no dropped capture, no doomed 401.
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
     await waitFor(() => {
       expect(screen.queryByText('Finding match')).not.toBeOnTheScreen();
@@ -2365,7 +2390,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(trayRow(0)).toBeTruthy();
     });
     expect(mockEnsureGuestSession).not.toHaveBeenCalled();
   });
@@ -2413,14 +2438,14 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     expect(await screen.findByText('Froakie')).toBeTruthy();
-    expect(screen.getByTestId('scanner-tray-price-0')).toHaveTextContent('$0.55');
+    expect(screen.getByTestId(trayTestId('price', 0))).toHaveTextContent('$0.55');
     expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.55');
 
-    fireEvent.press(screen.getByTestId('scanner-tray-price-0'));
+    fireEvent.press(screen.getByTestId(trayTestId('price', 0)));
     fireEvent.press(await screen.findByTestId('scan-price-sheet-row-holofoil-LP'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-price-0')).toHaveTextContent('$0.42');
+      expect(screen.getByTestId(trayTestId('price', 0))).toHaveTextContent('$0.42');
     });
     expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.42');
   });
@@ -2475,7 +2500,7 @@ describe('ScannerScreen', () => {
 
     expect(screen.getByTestId('scanner-recent-title').props.children).toBe('SCAN: 2');
     // Newest capture is prepended, so the unpriced Poncho Pikachu is row 0.
-    expect(screen.getByTestId('scanner-tray-price-0')).toHaveTextContent('—');
+    expect(screen.getByTestId(trayTestId('price', 0))).toHaveTextContent('—');
     expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.56');
   });
 
@@ -2512,7 +2537,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     expect(await screen.findByText('Gastly')).toBeTruthy();
-    expect(screen.getByTestId('scanner-tray-price-0')).toHaveTextContent('¥4,000.00');
+    expect(screen.getByTestId(trayTestId('price', 0))).toHaveTextContent('¥4,000.00');
     expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.00');
   });
 

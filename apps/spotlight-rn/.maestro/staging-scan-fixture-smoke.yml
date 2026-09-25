@@ -10,7 +10,10 @@ appId: com.ekalight.app.staging
 - assertVisible:
     id: scanner-tray
 - assertVisible:
-    id: scanner-tray-row-0
+    # Row testIDs carry the capture id (regex match).
+    id: "scanner-tray-row-.*"
+    index: 0
 - assertVisible:
-    id: scanner-tray-open-card-0
+    id: "scanner-tray-open-card-.*"
+    index: 0
 - takeScreenshot: staging-smoke-scan-fixture

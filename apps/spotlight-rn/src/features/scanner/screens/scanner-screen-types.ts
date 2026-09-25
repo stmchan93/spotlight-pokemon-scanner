@@ -83,4 +83,12 @@ export type CaptureMatchParams = {
    * built. Resolves to null when disabled / unavailable / no number read.
    */
   rawCollectorNumberPromise?: Promise<string | null> | null;
+  /** Binder pocket: collects prefetch + haptic work to run once the page finishes. */
+  pageEffects?: BinderPageEffects;
+};
+
+export type BinderPageEffects = {
+  foundCount: number;
+  prefetchUrls: string[];
+  settledCount: number;
 };

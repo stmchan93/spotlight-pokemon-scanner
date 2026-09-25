@@ -1,4 +1,4 @@
-import { memo, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, type ReactNode, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { GridPlus, Trash } from 'iconoir-react-native';
 import { AccessibilityInfo, Animated, Dimensions, Pressable, StyleSheet, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -109,24 +109,48 @@ export type RecentCaptureSwipeRowProps = {
   testID: string;
 };
 
-function useReduceMotion(): boolean {
-  const [reduceMotion, setReduceMotion] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
+// One shared reduce-motion subscription for every row: per-row listeners meant
+// 150 native queries + subscriptions when a full tray rehydrated.
+let reduceMotionEnabled = false;
+let reduceMotionSubscription: { remove: () => void } | null = null;
+const reduceMotionListeners = new Set<() => void>();
+
+function setReduceMotionEnabled(enabled: boolean) {
+  if (enabled === reduceMotionEnabled) {
+    return;
+  }
+  reduceMotionEnabled = enabled;
+  reduceMotionListeners.forEach((listener) => listener());
+}
+
+function subscribeReduceMotion(listener: () => void) {
+  reduceMotionListeners.add(listener);
+  if (!reduceMotionSubscription) {
+    reduceMotionSubscription = AccessibilityInfo.addEventListener(
+      'reduceMotionChanged',
+      setReduceMotionEnabled,
+    );
     AccessibilityInfo.isReduceMotionEnabled()
-      .then((enabled) => {
-        if (!cancelled) setReduceMotion(enabled);
-      })
+      .then(setReduceMotionEnabled)
       .catch(() => {
         /* default to motion-on if the query fails */
       });
-    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
-    return () => {
-      cancelled = true;
-      sub.remove();
-    };
-  }, []);
-  return reduceMotion;
+  }
+  return () => {
+    reduceMotionListeners.delete(listener);
+    if (reduceMotionListeners.size === 0) {
+      reduceMotionSubscription?.remove();
+      reduceMotionSubscription = null;
+    }
+  };
+}
+
+function getReduceMotionEnabled() {
+  return reduceMotionEnabled;
+}
+
+function useReduceMotion(): boolean {
+  return useSyncExternalStore(subscribeReduceMotion, getReduceMotionEnabled);
 }
 
 function RecentCaptureSwipeRowInner({

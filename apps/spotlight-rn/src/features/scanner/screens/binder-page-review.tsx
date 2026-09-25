@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
@@ -100,7 +100,8 @@ const captionHeight = 15 + 13 + 15 + 6 + 2;
  * would sit in its own window and the picker (also in-tree) could not stack
  * above it.
  */
-export function BinderPageReview({
+// Memoized: the scanner screen re-renders on every pocket landing.
+export const BinderPageReview = memo(function BinderPageReview({
   isAddingAll,
   onAddAll,
   onApplyPriceSelections,
@@ -379,7 +380,7 @@ export function BinderPageReview({
       </SafeAreaView>
     </View>
   );
-}
+});
 
 function PocketTile({
   capture,
