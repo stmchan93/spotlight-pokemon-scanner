@@ -1,14 +1,7 @@
-import { memo, type ReactNode, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { GridPlus, Trash } from 'iconoir-react-native';
-import { AccessibilityInfo, Animated, Dimensions, Pressable, StyleSheet, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
-import Reanimated, {
-  Easing,
-  LinearTransition,
-  withTiming,
-  type EntryAnimationsValues,
-  type ExitAnimationsValues,
-} from 'react-native-reanimated';
 
 import { Text, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
@@ -25,147 +18,27 @@ const captureRowHeight = 102;
 // Kept small so a short, easy drag reliably reveals Favorite/Delete.
 const railOpenThreshold = 36;
 
-// Card-dismiss / advance choreography (design handoff "Exact spec" table).
-// Exit: translateX 0 → -100% + opacity 1 → 0 over 290ms ease-in (slow-start,
-// accelerates out). Enter: the advanced row slides in from the right,
-// translateX 24 → 0 + opacity 0 → 1 over 400ms decelerate (no overshoot).
-const ROW_EXIT_DURATION_MS = 290;
-const ROW_ENTER_DURATION_MS = 400;
-const ROW_ENTER_OFFSET_PX = 24;
-const ROW_LAYOUT_DURATION_MS = 290;
-
-// Custom reanimated exiting animation: slide the whole row left off its own
-// width and fade. `-100%` in the web reference maps to the row's measured width.
-function buildRowExitAnimation(values: ExitAnimationsValues) {
-  'worklet';
-  const width = values.currentWidth || Dimensions.get('window').width;
-  return {
-    initialValues: {
-      opacity: 1,
-      transform: [{ translateX: 0 }],
-    },
-    animations: {
-      opacity: withTiming(0, { duration: ROW_EXIT_DURATION_MS, easing: Easing.in(Easing.ease) }),
-      transform: [
-        {
-          translateX: withTiming(-width, {
-            duration: ROW_EXIT_DURATION_MS,
-            easing: Easing.in(Easing.ease),
-          }),
-        },
-      ],
-    },
-  };
-}
-
-// Custom reanimated entering animation: slide in from +24px on the right and
-// fade up. Decelerate curve, no overshoot.
-function buildRowEnterAnimation(_values: EntryAnimationsValues) {
-  'worklet';
-  return {
-    initialValues: {
-      opacity: 0,
-      transform: [{ translateX: ROW_ENTER_OFFSET_PX }],
-    },
-    animations: {
-      opacity: withTiming(1, {
-        duration: ROW_ENTER_DURATION_MS,
-        easing: Easing.bezier(0.2, 0.9, 0.1, 1),
-      }),
-      transform: [
-        {
-          translateX: withTiming(0, {
-            duration: ROW_ENTER_DURATION_MS,
-            easing: Easing.bezier(0.2, 0.9, 0.1, 1),
-          }),
-        },
-      ],
-    },
-  };
-}
-
-const rowLayoutTransition = LinearTransition.duration(ROW_LAYOUT_DURATION_MS).easing(
-  Easing.bezier(0.2, 0.9, 0.1, 1),
-);
-
+// Enter/exit/glide choreography lives in scan-tray-list.tsx: the tray is a
+// recycled list, so a row no longer owns its mount/unmount animations.
 export type RecentCaptureSwipeRowProps = {
   actionRailKey: string;
   children: ReactNode;
-  // When false, a newly-mounted row appears without the slide-in-from-right
-  // enter animation. The collapsed tray sets this true so the next card
-  // "advances" in after ADD; the expanded list sets it false so opening the
-  // tray doesn't fan every row in at once.
-  enableEnterAnimation?: boolean;
   onActionRailVisibilityChange?: (key: string, visible: boolean) => void;
   onAddToCollection: (id: string) => void;
   onDelete: (id: string) => void;
-  // Windowed tray rendering: when false, the row keeps its Reanimated wrapper
-  // (so identity, enter/exit choreography and list geometry never change) but
-  // swaps the Swipeable + content for a fixed-height empty shell. Rows far
-  // outside the scroll viewport set this — a full tray is 100+ rows, and
-  // keeping every Swipeable/image/pressable mounted made swipes, scrolls and
-  // burst scans scale with tray size.
-  renderContent?: boolean;
   testID: string;
 };
-
-// One shared reduce-motion subscription for every row: per-row listeners meant
-// 150 native queries + subscriptions when a full tray rehydrated.
-let reduceMotionEnabled = false;
-let reduceMotionSubscription: { remove: () => void } | null = null;
-const reduceMotionListeners = new Set<() => void>();
-
-function setReduceMotionEnabled(enabled: boolean) {
-  if (enabled === reduceMotionEnabled) {
-    return;
-  }
-  reduceMotionEnabled = enabled;
-  reduceMotionListeners.forEach((listener) => listener());
-}
-
-function subscribeReduceMotion(listener: () => void) {
-  reduceMotionListeners.add(listener);
-  if (!reduceMotionSubscription) {
-    reduceMotionSubscription = AccessibilityInfo.addEventListener(
-      'reduceMotionChanged',
-      setReduceMotionEnabled,
-    );
-    AccessibilityInfo.isReduceMotionEnabled()
-      .then(setReduceMotionEnabled)
-      .catch(() => {
-        /* default to motion-on if the query fails */
-      });
-  }
-  return () => {
-    reduceMotionListeners.delete(listener);
-    if (reduceMotionListeners.size === 0) {
-      reduceMotionSubscription?.remove();
-      reduceMotionSubscription = null;
-    }
-  };
-}
-
-function getReduceMotionEnabled() {
-  return reduceMotionEnabled;
-}
-
-function useReduceMotion(): boolean {
-  return useSyncExternalStore(subscribeReduceMotion, getReduceMotionEnabled);
-}
 
 function RecentCaptureSwipeRowInner({
   actionRailKey,
   children,
-  enableEnterAnimation = false,
   onActionRailVisibilityChange,
   onAddToCollection,
   onDelete,
-  renderContent = true,
   testID,
 }: RecentCaptureSwipeRowProps) {
   const theme = useSpotlightTheme();
   const swipeableRef = useRef<Swipeable>(null);
-  const reduceMotion = useReduceMotion();
   // Mirrors the Swipeable's open/closed state. The native gesture owns the
   // animation; we only track open-ness to gate the actions (so an off-screen
   // Delete can't be activated by a screen reader or stray tap) and to toggle the
@@ -268,38 +141,20 @@ function RecentCaptureSwipeRowInner({
     };
   }, [actionRailKey, onActionRailVisibilityChange]);
 
-  // Windowed out with the rail open (scrolled far away): the Swipeable below
-  // unmounts, so its rail is gone — drop the mirrored open state too, or the
-  // tray-level pan stays disabled by a rail that no longer exists.
-  useEffect(() => {
-    if (!renderContent && isOpen) {
-      setIsOpen(false);
-      onActionRailVisibilityChange?.(actionRailKey, false);
+  // A recycled cell now shows another scan: close this one's rail instantly
+  // (no animation) so the new row never appears half-swiped. The effect above
+  // already reported the old key's rail as closed.
+  const railKeyRef = useRef(actionRailKey);
+  useLayoutEffect(() => {
+    if (railKeyRef.current === actionRailKey) {
+      return;
     }
-  }, [actionRailKey, isOpen, onActionRailVisibilityChange, renderContent]);
+    railKeyRef.current = actionRailKey;
+    swipeableRef.current?.reset?.();
+    setIsOpen(false);
+  }, [actionRailKey]);
 
   return (
-    // Outer reanimated wrapper owns the card-dismiss choreography: a removed row
-    // slides left + fades (exiting), a newly-revealed row slides in from the
-    // right (entering), and surviving siblings glide into their new slot
-    // (layout). Reduced-motion drops every animation so rows appear/leave
-    // instantly. The Swipeable's own favorite/delete rail is untouched.
-    <Reanimated.View
-      entering={reduceMotion || !enableEnterAnimation ? undefined : buildRowEnterAnimation}
-      exiting={reduceMotion ? undefined : buildRowExitAnimation}
-      // Windowed-out shells skip the layout glide: expanding a binder tray
-      // inserts page headers, which shifts EVERY row below them — with 150
-      // rows that started 150 concurrent layout animations in one commit
-      // (a ~200ms UI-thread stall mid-expand). Off-screen shells just snap;
-      // the visible rendered rows still glide.
-      layout={reduceMotion || !renderContent ? undefined : rowLayoutTransition}
-    >
-    {!renderContent ? (
-      // Same height as the real row content so the pinned list geometry is
-      // byte-identical; the wrapper above stays mounted so windowing a row in
-      // or out never fires the enter/exit choreography.
-      <View style={styles.captureSwipeShellPlaceholder} testID={`${testID}-placeholder`} />
-    ) : (
     <Swipeable
       ref={swipeableRef}
       // Scope the horizontal claim by rail state (same negotiation as the
@@ -347,8 +202,6 @@ function RecentCaptureSwipeRowInner({
       ) : null}
       <View style={styles.captureSwipeContent}>{children}</View>
     </Swipeable>
-    )}
-    </Reanimated.View>
   );
 }
 
@@ -399,12 +252,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   captureSwipeContent: {
-    width: '100%',
-  },
-  // Windowed-out shell: exactly the real row-content height so scroll geometry
-  // never shifts when content mounts in or out.
-  captureSwipeShellPlaceholder: {
-    height: captureRowHeight,
     width: '100%',
   },
   captureSwipeShell: {

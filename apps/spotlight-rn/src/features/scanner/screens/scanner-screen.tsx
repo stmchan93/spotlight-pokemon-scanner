@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from 'react-native-svg';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Fragment, memo, type MutableRefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, type MutableRefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   IconChevronDown,
   IconChevronLeft,
@@ -43,7 +43,6 @@ import {
 import Reanimated, {
   Easing,
   runOnJS,
-  useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -51,6 +50,7 @@ import Reanimated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useCameraPermission } from 'react-native-vision-camera';
+import type { FlashListRef } from '@shopify/flash-list';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
@@ -163,6 +163,7 @@ import { AnchoredOptionMenu, PrintingMenu } from '@/features/scanner/components/
 import { CustomDiscountSheet } from '@/features/scanner/components/custom-discount-sheet';
 import { ChangeCardPicker } from './change-card-picker';
 import { RecentCaptureSwipeRow } from './recent-capture-swipe-row';
+import { ScanTrayList, type ScanTrayListItem } from './scan-tray-list';
 import {
   ScanPriceSheet,
   buildScanPriceSelection,
@@ -283,8 +284,8 @@ const traySwipeThreshold = 20;
 const trayFlingVelocity = 220;
 const trayHeaderHitSlop = { bottom: 10, left: 12, right: 12, top: 12 } as const;
 // Tray expand/collapse height animation. Driven by Reanimated (NOT classic
-// LayoutAnimation): every tray row is a Reanimated.View (entering/exiting/layout
-// choreography), and running RN's LayoutAnimation over that same subtree is what
+// LayoutAnimation): the tray rows animate with Reanimated (scan-tray-list.tsx),
+// and running RN's LayoutAnimation over that same subtree is what
 // crashed the app on every swipe-to-expand/collapse. Keeping the height on the
 // same animation system as the rows removes that collision.
 const trayHeightTimingConfig = {
@@ -292,16 +293,13 @@ const trayHeightTimingConfig = {
   easing: Easing.out(Easing.cubic),
 } as const;
 
-// Windowed tray rows: only rows within the expanded viewport ± this overscan
-// render full content (Swipeable + image + pressables); the rest are
-// fixed-height shells. A full tray is 100+ rows (~5k native views when all
-// mounted), which made swipes, list scrolls and burst-scan commits scale with
-// tray size. ~5 rows of headroom on each side.
-const trayRenderOverscanPx = 600;
-// The scroll offset feeding the window only updates JS state when it crosses a
-// bucket edge (not per scrolled pixel). Must stay well under the overscan so a
-// row's content is mounted before it can scroll into view.
-const trayRenderWindowBucketPx = 464;
+// The tray list (FlashList) keeps rows mounted this far past the viewport on
+// each side — ~5 rows of headroom, the same as the old hand-rolled window.
+const trayDrawDistancePx = 600;
+// The CLEAR ALL footer's own box: the section is trayClearSectionHeight tall,
+// but the last row's 24px gap already sits above it, and the content height
+// math below never counted that gap — so the pill lands exactly where it did.
+const trayClearFooterHeight = trayClearSectionHeight - captureRowGap;
 
 
 // Capture ids already reported as cap-evicted. This function runs INSIDE a
@@ -522,11 +520,6 @@ function PocketBadge({ binderPage }: { binderPage: BinderPageRef }) {
 
 type CaptureTrayRowProps = {
   capture: RecentCapture;
-  // Ref, not a boolean: `entering` only matters at mount, but a boolean prop
-  // derived from `isTrayExpanded` changed identity for every row on every tray
-  // toggle — a full 100+-row re-render at the exact moment the expand/collapse
-  // animation started. The ref is stable; rows read `.current` when they render.
-  enterAnimationEnabledRef: MutableRefObject<boolean>;
   onActionRailVisibilityChange: (key: string, visible: boolean) => void;
   onAddToCollection: (captureId: string) => void;
   onDelete: (captureId: string) => void;
@@ -534,10 +527,6 @@ type CaptureTrayRowProps = {
   onOpenChangeCardPicker: (captureId: string) => void;
   onOpenRowMenu: (captureId: string, anchor: CaptureRowMenuAnchor) => void;
   onShowPrice: (captureId: string) => void;
-  // Windowed tray rendering: rows far outside the scroll viewport render a
-  // fixed-height shell instead of the Swipeable + image + pressables. See
-  // RecentCaptureSwipeRow.renderContent.
-  renderContent: boolean;
   selection: ScanPriceSheetSelection | null;
   /** The active candidate's printings; empty until the matrix lands (or none exist). */
   variants: readonly RawPricingMatrixVariant[];
@@ -560,7 +549,6 @@ const emptyVariants: readonly RawPricingMatrixVariant[] = [];
 // every row on every scan.
 const CaptureTrayRow = memo(function CaptureTrayRow({
   capture,
-  enterAnimationEnabledRef,
   onActionRailVisibilityChange,
   onAddToCollection,
   onDelete,
@@ -569,7 +557,6 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
   onOpenRowMenu,
   onShowPrice,
   onOpenPrintingMenu,
-  renderContent,
   selection,
   variants,
 }: CaptureTrayRowProps) {
@@ -608,17 +595,11 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
   return (
     <RecentCaptureSwipeRow
       actionRailKey={capture.id}
-      // Collapsed tray shows a single row; after ADD the next card advances
-      // in with the slide-from-right enter. Expanded list opens without
-      // fanning every row, so enter is gated to the collapsed viewport.
-      enableEnterAnimation={enterAnimationEnabledRef.current}
       onActionRailVisibilityChange={onActionRailVisibilityChange}
       onAddToCollection={onAddToCollection}
       onDelete={onDelete}
-      renderContent={renderContent}
       testID={`scanner-tray-swipe-${capture.id}`}
     >
-      {!renderContent ? null : (
       <View style={styles.captureRow} testID={`scanner-tray-row-${capture.id}`}>
         <View style={styles.captureLeftGroup}>
           <View style={styles.captureThumbColumn}>
@@ -867,13 +848,14 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
           </View>
         ) : null}
       </View>
-      )}
     </RecentCaptureSwipeRow>
   );
 });
 
 type CaptureTrayRowContainerProps = Omit<CaptureTrayRowProps, 'capture' | 'selection' | 'variants'> & {
   captureId: string;
+  /** Set while the row plays its exit: the store has already dropped it. */
+  exitingCapture: RecentCapture | null;
   trayStore: TrayStore;
   variantsByCardId: ReadonlyMap<string, RawPricingMatrixVariant[]>;
 };
@@ -883,19 +865,31 @@ type CaptureTrayRowContainerProps = Omit<CaptureTrayRowProps, 'capture' | 'selec
 // but the memoized row below only re-renders when ITS printings changed.
 const CaptureTrayRowContainer = memo(function CaptureTrayRowContainer({
   captureId,
+  exitingCapture,
   trayStore,
   variantsByCardId,
   ...rowProps
 }: CaptureTrayRowContainerProps) {
   const liveCapture = useTrayCapture(trayStore, captureId);
-  const selection = useTrayPriceSelection(trayStore, captureId);
-  // Keep the last capture if the store dropped it before the list unmounted
-  // this row, so the exit animation never plays over an empty row.
-  const lastCaptureRef = useRef(liveCapture);
+  const liveSelection = useTrayPriceSelection(trayStore, captureId);
+  // A removed row keeps drawing what it last showed (capture AND price pick)
+  // while it exits. Per id: the list recycles this component across rows.
+  const lastRef = useRef<{ capture: RecentCapture; id: string; selection: ScanPriceSheetSelection | null } | null>(null);
   if (liveCapture) {
-    lastCaptureRef.current = liveCapture;
+    lastRef.current = { capture: liveCapture, id: captureId, selection: liveSelection };
   }
-  const capture = liveCapture ?? lastCaptureRef.current;
+  const last = lastRef.current?.id === captureId ? lastRef.current : null;
+  const capture = liveCapture ?? last?.capture ?? exitingCapture;
+  const selection = liveCapture ? liveSelection : last?.selection ?? null;
+  // An exiting row's rail no longer counts as open (the old unmount did this),
+  // so the tray pan is back the moment the delete lands.
+  const { onActionRailVisibilityChange } = rowProps;
+  const isExiting = exitingCapture != null;
+  useEffect(() => {
+    if (isExiting) {
+      onActionRailVisibilityChange(captureId, false);
+    }
+  }, [captureId, isExiting, onActionRailVisibilityChange]);
   if (!capture) {
     return null;
   }
@@ -1170,9 +1164,6 @@ export function ScannerScreen({
   const recentCapturesRef = useRef<RecentCapture[]>(trayStore.getState().items);
   const [openActionRailKeys, setOpenActionRailKeys] = useState<Record<string, true>>({});
   const [isTrayExpanded, setIsTrayExpanded] = useState(false);
-  // Top of the windowed-row viewport in scroll-content px, bucketed (see
-  // trayRenderWindowBucketPx). Drives which rows render full content.
-  const [trayRenderWindowTop, setTrayRenderWindowTop] = useState(0);
   const [addAllMenuOpen, setAddAllMenuOpen] = useState(false);
   const [addAllAnchor, setAddAllAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [addAllConfirm, setAddAllConfirm] = useState<AddAllMenuAction | null>(null);
@@ -1227,7 +1218,7 @@ export function ScannerScreen({
   const hasFocusedScannerRef = useRef(false);
   const hasPromptedForPermissionRef = useRef(false);
   const cameraRef = useRef<RawScannerCameraHandle | null>(null);
-  const trayScrollRef = useRef<Reanimated.ScrollView>(null);
+  const trayListRef = useRef<FlashListRef<ScanTrayListItem>>(null);
   const reticleSnapshotRef = useRef({ height: 0, previewHeight: 0, previewWidth: 0, width: 0, x: 0, y: 0 });
   const recentlyAddedTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
@@ -1435,10 +1426,10 @@ export function ScannerScreen({
   */
   const isTopLevelSwipeEnabled =
     Object.keys(openActionRailKeys).length === 0 && activeBinderPageId == null;
-  // Every capture row stays mounted regardless of expand/collapse — the
-  // collapsed tray just clips them to a single-row viewport height. Keeping the
+  // The list keeps the same rows regardless of expand/collapse — the
+  // collapsed tray just clips it to a single-row viewport height. Keeping the
   // row set stable means toggling never mounts/unmounts rows, so the rows'
-  // Reanimated enter/exit (reserved for genuine add/delete) never fire on a
+  // enter/exit (reserved for genuine add/delete) never fire on a
   // toggle. That mass mount/unmount on every swipe was crashing the tray.
   const trayExpandedBodyHeight = alignToFourPointGrid(
     Math.max(
@@ -1498,7 +1489,7 @@ export function ScannerScreen({
    * The anchor as an INITIAL offset, because the imperative scrollTo cannot
    * reach the first binder scan.
    *
-   * The tray ScrollView is unmounted while the tray is empty, so the first
+   * The tray list is unmounted while the tray is empty, so the first
    * binder scan of a session MOUNTS it. The layout effect below fires with the
    * ref already attached — but the native scroll view was created this frame
    * and its content size is still 0, so scrollTo(y: 64) CLAMPS to 0. Content
@@ -1517,39 +1508,6 @@ export function ScannerScreen({
   );
   const shouldLoadInventory = trayCount > 0 || dataVersion > 0;
 
-  // Which rows render full content (vs a fixed-height shell): everything
-  // intersecting [windowTop − overscan, windowTop + expanded viewport +
-  // overscan]. The span uses the EXPANDED viewport in both tray states so
-  // toggling never mounts row content mid-animation — the collapsed tray
-  // already has the whole first screenful rendered. Row offsets mirror the
-  // trayContentHeight math exactly (row 102 + gap 24, header 40 + gap when a
-  // binder page group starts while expanded).
-  const trayRowContentVisibility = useMemo(() => {
-    // Clamp a stale window (content shrank under it — clear-all, bulk delete)
-    // back to the top rather than windowing every remaining row out.
-    const anchoredTop = trayRenderWindowTop > trayContentHeight ? 0 : trayRenderWindowTop;
-    const windowTop = Math.max(0, anchoredTop - trayRenderOverscanPx);
-    const windowBottom = anchoredTop + trayScrollViewportHeight + trayRenderOverscanPx;
-    let nextRowTop = 0;
-    return trayIds.map((captureId, index) => {
-      const pageId = trayPageIds[index];
-      if (pageId && binderPageGroups.get(pageId)?.firstCaptureId === captureId) {
-        nextRowTop += binderPageHeaderHeight + captureRowGap;
-      }
-      const rowTop = nextRowTop;
-      const rowBottom = rowTop + captureRowHeight;
-      nextRowTop = rowBottom + captureRowGap;
-      return rowBottom >= windowTop && rowTop <= windowBottom;
-    });
-  }, [
-    binderPageGroups,
-    trayContentHeight,
-    trayIds,
-    trayPageIds,
-    trayRenderWindowTop,
-    trayScrollViewportHeight,
-  ]);
-
   // --- Tray expand/collapse animation state (all UI-thread) ---
   // ONE shared value owns the viewport height for its whole life: the pan's
   // onUpdate writes it directly (finger-following), the pan's onEnd starts the
@@ -1566,13 +1524,10 @@ export function ScannerScreen({
   const trayHeightTarget = useSharedValue(collapsedViewportHeight);
   const trayDragStartHeight = useSharedValue(collapsedViewportHeight);
   // Live scroll offset of the inner list, mirrored into a shared value ON THE
-  // UI THREAD (useAnimatedScrollHandler below) so the pan worklets can gate
+  // UI THREAD (useScrollOffset in the tray list) so the pan worklets can gate
   // "collapse only from top-of-content" without reading a stale JS ref.
   const trayScrollOffset = useSharedValue(0);
   const trayDragStartScrollOffset = useSharedValue(0);
-  // Last bucket the scroll handler reported to JS for the row window — kept on
-  // the UI thread so scrolling inside one bucket costs zero JS work.
-  const trayRenderWindowBucket = useSharedValue(0);
 
   // Jest's reanimated mock rebuilds shared values from their init on every
   // render, so imperative writes (the gesture, commitTrayExpandedState) never
@@ -1753,20 +1708,14 @@ export function ScannerScreen({
       trayHeightTarget.value = target;
       trayHeight.value = withTiming(target, trayHeightTimingConfig);
     }
-    if (!nextExpanded) {
-      // Collapse anchors the list to the top (scrollTo below) — realign the
-      // row-content window with it. The scroll handler would also report the
-      // 0-bucket, but not before the collapsed frame renders.
-      trayRenderWindowBucket.value = 0;
-      setTrayRenderWindowTop(0);
-    } else {
+    if (nextExpanded) {
       // Expanding: the collapsed state parked the scroll just past the first
       // binder-page header (collapsedAnchorOffset) so the newest ROW filled
       // the one-row peek. Left there, the header — VIEW PAGE / DELETE PAGE —
       // opens hidden above the fold. Return to 0 so the header is the first
       // thing the expanded tray shows.
       trayScrollOffset.value = 0;
-      trayScrollRef.current?.scrollTo({ animated: false, y: 0 });
+      trayListRef.current?.scrollToOffset({ animated: false, offset: 0 });
     }
     setIsTrayExpanded((current) => {
       if (current === nextExpanded) {
@@ -1777,7 +1726,7 @@ export function ScannerScreen({
         // Anchor row 0 so the collapse reveals the top card (just past the
         // first binder page header, which stays mounted).
         trayScrollOffset.value = collapsedAnchorOffset;
-        trayScrollRef.current?.scrollTo({ animated: false, y: collapsedAnchorOffset });
+        trayListRef.current?.scrollToOffset({ animated: false, offset: collapsedAnchorOffset });
       }
 
       // The tray height itself springs via the Reanimated `trayHeight`
@@ -1790,7 +1739,6 @@ export function ScannerScreen({
     collapsedViewportHeight,
     trayHeight,
     trayHeightTarget,
-    trayRenderWindowBucket,
     trayScrollOffset,
     trayScrollViewportHeight,
   ]);
@@ -1798,10 +1746,7 @@ export function ScannerScreen({
   useEffect(() => {
     if (trayCount === 0 && isTrayExpanded) {
       // Through commitTrayExpandedState, NOT setIsTrayExpanded: the commit
-      // path also resets the row-content window and scroll anchor. Collapsing
-      // around it once left the window pointing deep into a cleared list, so
-      // the next scan's row 0 rendered as an invisible windowed-out shell
-      // ("SCAN: 1 but no card").
+      // path also resets the scroll anchor.
       commitTrayExpandedState(false);
     }
   }, [commitTrayExpandedState, isTrayExpanded, trayCount]);
@@ -1821,7 +1766,7 @@ export function ScannerScreen({
       return;
     }
     trayScrollOffset.value = collapsedAnchorOffset;
-    trayScrollRef.current?.scrollTo({ animated: false, y: collapsedAnchorOffset });
+    trayListRef.current?.scrollToOffset({ animated: false, offset: collapsedAnchorOffset });
   }, [collapsedAnchorOffset, isTrayExpanded, trayCount, trayScrollOffset]);
 
   const inventoryByCardId = useMemo(() => {
@@ -4348,22 +4293,6 @@ export function ScannerScreen({
   // scrolled, the same drag scrolls the list instead of collapsing).
   const trayScrollNativeGesture = useMemo(() => Gesture.Native(), []);
 
-  // Mirrors the list's scroll offset into `trayScrollOffset` on the UI thread
-  // so the pan worklets below read a live value (a JS-ref mirror goes stale
-  // exactly when the JS thread is busy — the moment the tray used to jank).
-  const handleTrayScroll = useAnimatedScrollHandler({
-    onScroll: (event) => {
-      trayScrollOffset.value = event.contentOffset.y;
-      // Advance the row-content window only when the scroll crosses a bucket
-      // edge — one JS render per ~4 rows scrolled, not one per scroll event.
-      const bucket = Math.round(event.contentOffset.y / trayRenderWindowBucketPx);
-      if (bucket !== trayRenderWindowBucket.value) {
-        trayRenderWindowBucket.value = bucket;
-        runOnJS(setTrayRenderWindowTop)(bucket * trayRenderWindowBucketPx);
-      }
-    },
-  });
-
   // Vertical swipe to expand/collapse the tray. Lives in gesture-handler (not a
   // JS PanResponder) so it shares one arena with the row swipe-to-action
   // Swipeables; otherwise the native row recognizers swallow the vertical drag.
@@ -4517,19 +4446,16 @@ export function ScannerScreen({
       resolveCaptureTrayPrice(capture, binderReviewPriceSelections.get(capture.id) ?? null)),
   )), [activeBinderPageRows, binderReviewPriceSelections]);
 
-  // Collapsed tray: a newly mounted row "advances" in with the slide-from-right
-  // enter; expanded: new rows appear in place. Mirrored through a stable ref
-  // (updated during render, read by rows when they mount) instead of a boolean
-  // prop — the boolean flipped on every toggle and re-rendered all rows at the
-  // exact moment the expand/collapse animation started.
+  // Collapsed tray: a new scan's row slides in from the right; expanded: new
+  // rows appear in place. A ref, read when a row first shows a capture, so a
+  // toggle never re-renders the rows mid-animation.
   const enterAnimationEnabledRef = useRef(!isTrayExpanded);
   enterAnimationEnabledRef.current = !isTrayExpanded;
 
-  const renderCaptureRow = (captureId: string, index: number) => (
+  const renderTrayRow = useCallback((captureId: string, exitingCapture: RecentCapture | null) => (
     <CaptureTrayRowContainer
-      key={captureId}
       captureId={captureId}
-      enterAnimationEnabledRef={enterAnimationEnabledRef}
+      exitingCapture={exitingCapture}
       onActionRailVisibilityChange={handleCaptureActionRailVisibilityChange}
       onAddToCollection={gatedRowAddToCollection}
       onDelete={gatedRowDelete}
@@ -4538,11 +4464,76 @@ export function ScannerScreen({
       onOpenRowMenu={handleOpenRowMenu}
       onShowPrice={gatedShowRowPrice}
       onOpenPrintingMenu={gatedOpenPrintingMenu}
-      renderContent={trayRowContentVisibility[index] !== false}
       trayStore={trayStore}
       variantsByCardId={variantsByCardId}
     />
-  );
+  ), [
+    gatedOpenChangeCardPicker,
+    gatedOpenPrintingMenu,
+    gatedRowAddToCollection,
+    gatedRowDelete,
+    gatedShowRowPrice,
+    handleCaptureActionRailVisibilityChange,
+    handleOpenCard,
+    handleOpenRowMenu,
+    trayStore,
+    variantsByCardId,
+  ]);
+
+  // Header actions through a ref so the list's renderItem stays stable.
+  const binderHeaderActionsRef = useRef({ gate, handleDeleteBinderPage, openBinderPageReview });
+  binderHeaderActionsRef.current = { gate, handleDeleteBinderPage, openBinderPageReview };
+  const renderTrayPageHeader = useCallback((pageId: string, pageRowCount: number) => (
+    <View style={styles.binderPageHeader} testID={`scanner-tray-page-header-${pageId}`}>
+      <Text style={styles.binderPageHeaderLabel}>
+        {`BINDER PAGE · ${pageRowCount} CARD${pageRowCount === 1 ? '' : 'S'}`}
+      </Text>
+      {pageRowCount > 0 ? (
+        <View style={styles.binderPageHeaderActions}>
+          <ArenaPressable
+            accessibilityLabel="View binder page"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => {
+              const actions = binderHeaderActionsRef.current;
+              actions.gate(() => actions.openBinderPageReview(pageId))();
+            }}
+            style={({ pressed }) => [
+              styles.binderPageHeaderButton,
+              pressed ? styles.captureChangeChipPressed : null,
+            ]}
+            testID={`scanner-tray-page-view-${pageId}`}
+          >
+            <Text style={styles.binderPageHeaderButtonLabel}>VIEW PAGE</Text>
+          </ArenaPressable>
+          <ArenaPressable
+            accessibilityLabel="Delete binder page"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => {
+              const actions = binderHeaderActionsRef.current;
+              actions.gate(() => actions.handleDeleteBinderPage(pageId, pageRowCount))();
+            }}
+            style={({ pressed }) => [
+              styles.binderPageHeaderButton,
+              styles.binderPageHeaderDeleteButton,
+              pressed ? styles.captureChangeChipPressed : null,
+            ]}
+            testID={`scanner-tray-page-delete-${pageId}`}
+          >
+            <Text
+              style={[
+                styles.binderPageHeaderButtonLabel,
+                styles.binderPageHeaderDeleteButtonLabel,
+              ]}
+            >
+              DELETE PAGE
+            </Text>
+          </ArenaPressable>
+        </View>
+      ) : null}
+    </View>
+  ), []);
 
   // The one capture each open sheet/menu shows — subscribed by id, so other
   // rows changing never re-render the screen for them.
@@ -5099,121 +5090,52 @@ export function ScannerScreen({
                 style={[styles.trayViewport, trayViewportAnimatedStyle]}
                 testID="scanner-tray-viewport"
               >
-                <GestureDetector gesture={trayScrollNativeGesture}>
-                <Reanimated.ScrollView
-                  ref={trayScrollRef}
-                  nestedScrollEnabled
-                  // No top rubber-band: at top-of-content a downward drag
-                  // belongs to the tray pan (finger-following collapse). With
-                  // bounce on, the ScrollView rubber-bands that same drag
-                  // simultaneously and the two motions fight — the half-second
-                  // stutter when collapsing a full tray from max height. (A
-                  // 2-row tray never enables scrolling, which is why it was
-                  // always smooth.)
-                  bounces={false}
+                <ScanTrayList
+                  // No top rubber-band (bounces off inside): at top-of-content
+                  // a downward drag belongs to the tray pan (finger-following
+                  // collapse); a rubber-banding list fought it.
                   contentOffset={trayInitialContentOffset}
-                  overScrollMode="never"
-                  onScroll={handleTrayScroll}
-                  scrollEnabled={isTrayExpanded && trayScrollEnabled}
-                  scrollEventThrottle={16}
-                  showsVerticalScrollIndicator={isTrayExpanded && trayScrollEnabled}
-                  style={styles.trayScroll}
-                  contentContainerStyle={[
-                    styles.trayScrollContent,
-                    // Pin the scroll content to its full intrinsic height so the
-                    // row list geometry is FIXED and independent of the parent
-                    // viewport height, which springs from tall→short on collapse.
-                    // Without this, every frame of the collapse shrinks the
-                    // viewport and RN re-lays-out the ScrollView content; with a
-                    // tall list that per-frame reflow drives each row's
-                    // `layout={LinearTransition}` and janks for ~0.5s. Pinning the
-                    // height means the viewport just clips (native height anim) and
-                    // the rows never re-measure. (Empty case is handled above, so
-                    // trayContentHeight is always > 0 here.)
-                    { height: trayContentHeight },
-                  ]}
-                  testID="scanner-tray-scroll"
-                >
-                  {trayIds.map((captureId, index) => {
-                    const pageId = trayPageIds[index] ?? null;
-                    const pageGroup = pageId != null ? binderPageGroups.get(pageId) : undefined;
-                    // Headers render in BOTH tray states — the collapsed
-                    // viewport scrolls past the first one (collapsedAnchorOffset)
-                    // instead of the header unmounting, so expanding never
-                    // reflows the list.
-                    const startsPage = pageGroup?.firstCaptureId === captureId;
-                    if (!startsPage || pageId == null || pageGroup == null) {
-                      return renderCaptureRow(captureId, index);
-                    }
-                    const pageRowCount = pageGroup.rowCount;
-                    return (
-                      <Fragment key={`page-group-${pageId}`}>
-                        <View style={styles.binderPageHeader} testID={`scanner-tray-page-header-${pageId}`}>
-                          <Text style={styles.binderPageHeaderLabel}>
-                            {`BINDER PAGE · ${pageRowCount} CARD${pageRowCount === 1 ? '' : 'S'}`}
-                          </Text>
-                          {pageRowCount > 0 ? (
-                            <View style={styles.binderPageHeaderActions}>
-                              <ArenaPressable
-                                accessibilityLabel="View binder page"
-                                accessibilityRole="button"
-                                hitSlop={8}
-                                onPress={gate(() => openBinderPageReview(pageId))}
-                                style={({ pressed }) => [
-                                  styles.binderPageHeaderButton,
-                                  pressed ? styles.captureChangeChipPressed : null,
-                                ]}
-                                testID={`scanner-tray-page-view-${pageId}`}
-                              >
-                                <Text style={styles.binderPageHeaderButtonLabel}>VIEW PAGE</Text>
-                              </ArenaPressable>
-                              <ArenaPressable
-                                accessibilityLabel="Delete binder page"
-                                accessibilityRole="button"
-                                hitSlop={8}
-                                onPress={gate(() => handleDeleteBinderPage(pageId, pageRowCount))}
-                                style={({ pressed }) => [
-                                  styles.binderPageHeaderButton,
-                                  styles.binderPageHeaderDeleteButton,
-                                  pressed ? styles.captureChangeChipPressed : null,
-                                ]}
-                                testID={`scanner-tray-page-delete-${pageId}`}
-                              >
-                                <Text
-                                  style={[
-                                    styles.binderPageHeaderButtonLabel,
-                                    styles.binderPageHeaderDeleteButtonLabel,
-                                  ]}
-                                >
-                                  DELETE PAGE
-                                </Text>
-                              </ArenaPressable>
-                            </View>
-                          ) : null}
+                  drawDistance={trayDrawDistancePx}
+                  enterAnimationEnabledRef={enterAnimationEnabledRef}
+                  // Always in the list (constant content height in both tray
+                  // states); the pill itself only while expanded, as before.
+                  footer={(
+                    <View style={styles.trayClearFooter}>
+                      {isTrayExpanded ? (
+                        <View style={styles.trayClearSection}>
+                          <ArenaPressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Clear all scans"
+                            hitSlop={8}
+                            onPress={gate(handleClearAllCaptures)}
+                            style={({ pressed }) => [
+                              styles.trayClearAllPill,
+                              pressed ? styles.trayClearAllPillPressed : null,
+                            ]}
+                            testID="scanner-tray-clear-all"
+                          >
+                            <Text style={styles.trayClearAllLabel}>CLEAR ALL</Text>
+                          </ArenaPressable>
                         </View>
-                        {renderCaptureRow(captureId, index)}
-                      </Fragment>
-                    );
-                  })}
-                  {isTrayExpanded ? (
-                    <View style={styles.trayClearSection}>
-                      <ArenaPressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Clear all scans"
-                        hitSlop={8}
-                        onPress={gate(handleClearAllCaptures)}
-                        style={({ pressed }) => [
-                          styles.trayClearAllPill,
-                          pressed ? styles.trayClearAllPillPressed : null,
-                        ]}
-                        testID="scanner-tray-clear-all"
-                      >
-                        <Text style={styles.trayClearAllLabel}>CLEAR ALL</Text>
-                      </ArenaPressable>
+                      ) : null}
                     </View>
-                  ) : null}
-                </Reanimated.ScrollView>
-                </GestureDetector>
+                  )}
+                  // Fixed at the EXPANDED height: the animated viewport around
+                  // it clips, so the list never re-measures mid-animation.
+                  height={trayScrollViewportHeight}
+                  ids={trayIds}
+                  listRef={trayListRef}
+                  nativeScrollGesture={trayScrollNativeGesture}
+                  pageGroups={binderPageGroups}
+                  pageIds={trayPageIds}
+                  renderHeader={renderTrayPageHeader}
+                  renderRow={renderTrayRow}
+                  scrollEnabled={isTrayExpanded && trayScrollEnabled}
+                  scrollOffset={trayScrollOffset}
+                  showsVerticalScrollIndicator={isTrayExpanded && trayScrollEnabled}
+                  testID="scanner-tray-scroll"
+                  trayStore={trayStore}
+                />
               </Reanimated.View>
             )}
           </View>
@@ -5910,6 +5832,10 @@ const styles = StyleSheet.create({
     ...textStyles.labelStrong,
     color: colors.purple500,
   },
+  trayClearFooter: {
+    height: trayClearFooterHeight,
+    overflow: 'visible',
+  },
   trayClearSection: {
     alignItems: 'center',
     height: trayClearSectionHeight,
@@ -6027,12 +5953,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingBottom: 4,
     paddingTop: 2,
-  },
-  trayScroll: {
-    width: '100%',
-  },
-  trayScrollContent: {
-    gap: captureRowGap,
   },
   trayViewport: {
     overflow: 'hidden',

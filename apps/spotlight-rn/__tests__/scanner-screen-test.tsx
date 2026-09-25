@@ -20,11 +20,29 @@ import { __resetScannerTargetConfigForTests } from '@/features/scanner/use-scann
 import { createTestSpotlightRepository, renderWithProviders } from './test-utils';
 
 // Tray row testIDs carry the capture id, not the position; these resolve the
-// nth rendered row (newest first) to its id-based testIDs.
+// nth row ON SCREEN (newest first) to its id-based testIDs. The tray is a
+// recycled FlashList, so tree order is cell order, not list order — sort by
+// the `top` FlashList gives each cell.
 const trayRowTestIdPattern = /^scanner-tray-row-/;
 
+type TestNode = { parent: TestNode | null; props: { style?: unknown } };
+
+function cellTop(node: TestNode): number {
+  for (let current: TestNode | null = node; current; current = current.parent) {
+    const style = StyleSheet.flatten(current.props.style as never) as { position?: string; top?: unknown } | undefined;
+    if (style?.position === 'absolute' && typeof style.top === 'number') {
+      return style.top;
+    }
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
 function queryTrayRow(position: number) {
-  return screen.queryAllByTestId(trayRowTestIdPattern)[position] ?? null;
+  const rows = screen.queryAllByTestId(trayRowTestIdPattern);
+  const ordered = rows
+    .map((row, treeIndex) => ({ row, top: cellTop(row as unknown as TestNode), treeIndex }))
+    .sort((a, b) => a.top - b.top || a.treeIndex - b.treeIndex);
+  return ordered[position]?.row ?? null;
 }
 
 function trayRow(position: number) {
@@ -1840,6 +1858,46 @@ describe('ScannerScreen', () => {
     await waitFor(() => {
       expect(queryTrayRow(0)).not.toBeOnTheScreen();
     }, { timeout: 2500 });
+  });
+
+  it('slides a deleted row out in place while SCAN and TOTAL update at once', async () => {
+    renderScannerScreen();
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    await waitFor(() => {
+      expect(trayRow(0)).toBeTruthy();
+    });
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    await waitFor(() => {
+      expect(trayRow(1)).toBeTruthy();
+    });
+    expect(screen.getByTestId('scanner-recent-title').props.children).toBe('SCAN: 2');
+
+    const deletedRowTestId = String(trayRow(0).props.testID);
+    fireEvent.press(screen.getByTestId(trayTestId('swipe', 0, '-reveal-actions'), {
+      includeHiddenElements: true,
+    }));
+    fireEvent.press(screen.getByTestId(trayTestId('swipe', 0, '-delete-button'), {
+      includeHiddenElements: true,
+    }));
+
+    // The store (count, TOTAL) drops it immediately; the row stays drawn for
+    // its exit, untouchable, then leaves.
+    expect(screen.getByTestId('scanner-recent-title').props.children).toBe('SCAN: 1');
+    type PointerNode = { parent: PointerNode | null; props: { pointerEvents?: string } };
+    let node: PointerNode | null = screen.getByTestId(deletedRowTestId) as unknown as PointerNode;
+    let blocked = false;
+    while (node) {
+      blocked = blocked || node.props.pointerEvents === 'none';
+      node = node.parent;
+    }
+    expect(blocked).toBe(true);
+    await waitFor(() => {
+      expect(screen.queryByTestId(deletedRowTestId)).not.toBeOnTheScreen();
+    });
+    expect(trayRow(0)).toBeTruthy();
   });
 
   it('wishlists a scanned card via the row ADD menu, then slides it out of the tray', async () => {

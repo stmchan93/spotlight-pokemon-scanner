@@ -22,6 +22,12 @@ jest.mock('react-native-worklets', () => require('react-native-worklets/lib/modu
 // components render synchronously in tests.
 jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));
 
+// FlashList v2 refuses to load off the New Architecture, which jest isn't.
+// Its own setup file stubs the synchronous native measurements (400x900
+// window, 100x100 items).
+jest.mock('@shopify/flash-list/dist/isNewArch', () => ({ isNewArch: () => true }));
+require('@shopify/flash-list/jestSetup');
+
 jest.mock('expo-font', () => ({
   useFonts: () => [true, null],
 }));
