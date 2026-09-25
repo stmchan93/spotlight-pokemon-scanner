@@ -674,7 +674,11 @@ class NewLowTests(unittest.TestCase):
         self.assertEqual(
             ws.evaluate_new_low(_listing(9_500), beaten_before, now=NOW).rejected_by, "not_a_new_low"
         )
-        result = ws.evaluate_new_low(_listing(8_900), beaten_before, now=NOW)
+        # $1 under the last alert on a sliding card is not news: 5% AND $5.
+        self.assertEqual(
+            ws.evaluate_new_low(_listing(8_900), beaten_before, now=NOW).rejected_by, "new_low_too_small"
+        )
+        result = ws.evaluate_new_low(_listing(8_500), beaten_before, now=NOW)
         self.assertTrue(result.passed)
         self.assertEqual(result.signal.lowest_seen_cents, 9_000)
 

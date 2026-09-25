@@ -625,6 +625,21 @@ class DealRoutingTests(MarketAlertsTestCase):
         self.assertIn("25% under market", message.body)
         self.assertIn("Plus 1 more deal on your watchlist.", message.body)
 
+    def test_deal_pushes_are_capped_at_three_a_week(self) -> None:
+        self.token("u1")
+        for day in range(5):
+            card = f"c{day}"
+            self.card(card, f"Card {day}")
+            at = NOW + timedelta(days=day)
+            self.deal("u1", card, alert_id=f"d{day}", created_at=at)
+            self.run_job(at + timedelta(minutes=5), kinds=(ma.KIND_DEAL,))
+        self.assertEqual(len(self.sender.messages), 3)
+        # A week after the first push the budget frees up again.
+        self.card("c7", "Card 7")
+        self.deal("u1", "c7", alert_id="d7", created_at=NOW + timedelta(days=7))
+        self.run_job(NOW + timedelta(days=7, minutes=5), kinds=(ma.KIND_DEAL,))
+        self.assertEqual(len(self.sender.messages), 4)
+
     def test_deals_off_sends_nothing(self) -> None:
         self.card("umbreon")
         self.token("u1")

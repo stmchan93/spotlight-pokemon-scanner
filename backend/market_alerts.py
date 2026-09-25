@@ -31,7 +31,8 @@ The limiter (all silent; nothing is ever surfaced to the user)
    ``weekly_summary`` kind/pref names: stored prefs and ledger rows carry over.)
 4. The same card is pushed at most once per 3 days, unless its price has moved
    another >= 10% since the price it was last alerted at. Card-move pushes are
-   UP-only and capped at one per owner per rolling 7 days.
+   UP-only and capped at one per owner per rolling 7 days. Deal pushes are
+   capped at 3 per owner per rolling 7 days (unsent deals expire after 24h).
 5. Milestones ($100 ... $1M) fire once per milestone per owner, EVER, when the
    Collection headline value (the server's 1W chart ``currentValue``) crosses
    UP through one above the highest already celebrated; a multi-milestone jump
@@ -84,6 +85,8 @@ CARD_COOLDOWN_DAYS = 3
 # Card-move pushes are the ones that pile up: at most one per owner per rolling
 # week, and only moves UP (user, 2026-09-24: "people don't care" about drops).
 PRICE_MOVE_WEEKLY_CAP_DAYS = 7
+# Deal pushes (under-market + new lows) share a rolling-week budget too.
+DEAL_WEEKLY_CAP = 3
 CARD_REARM_PCT = 10.0
 
 QUIET_START_HOUR = 21
@@ -770,6 +773,15 @@ def resolve_timezone(tokens: Sequence[tuple[str, str | None]], prefs: Mapping[st
     return normalize_timezone(prefs.get("timezone")) or DEFAULT_TIMEZONE
 
 
+def deal_pushes_this_week(connection: sqlite3.Connection, owner: str, local_date: date) -> int:
+    since = (local_date - timedelta(days=PRICE_MOVE_WEEKLY_CAP_DAYS - 1)).isoformat()
+    row = connection.execute(
+        "SELECT COUNT(*) FROM market_alert_pushes WHERE owner_user_id = ? AND kind = ? AND local_date >= ?",
+        (owner, KIND_DEAL, since),
+    ).fetchone()
+    return int(row[0] or 0)
+
+
 def price_move_pushed_recently(connection: sqlite3.Connection, owner: str, local_date: date) -> bool:
     """True when a card-move push went out in the last PRICE_MOVE_WEEKLY_CAP_DAYS local days."""
     since = (local_date - timedelta(days=PRICE_MOVE_WEEKLY_CAP_DAYS - 1)).isoformat()
@@ -1320,7 +1332,10 @@ def run_market_alerts(
                 connection, owner, ref_date=ref_date, window_days=summary_window_days(local_date),
             )
         if not item.pushed_today:
-            if KIND_DEAL in kinds and prefs["dealAlertsEnabled"]:
+            if (
+                KIND_DEAL in kinds and prefs["dealAlertsEnabled"]
+                and deal_pushes_this_week(connection, owner, local_date) < DEAL_WEEKLY_CAP
+            ):
                 item.deals = pending_deals(connection, owner, now_utc)
             if (
                 KIND_MILESTONE in kinds and collection_value is not None

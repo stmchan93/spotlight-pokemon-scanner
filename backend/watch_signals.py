@@ -67,7 +67,7 @@ Yardstick = min(printing market, PPT ungraded median when >= 3 sales).
 
 ``new_low`` (no % claim, any tier): a listing below the printing's lowest
 TCGplayer low over the last 30 days AND below every listing already alerted
-for that watch.
+for that watch, by at least 5% and $5.
 
 The ``min(added_market_price, current_market_price)`` baseline is load-bearing:
 without it a card added during a price spike alerts on every listing forever,
@@ -165,6 +165,10 @@ YARDSTICK_MIN_SALES = 3
 
 NEW_LOW_WINDOW_DAYS = 30
 NEW_LOW_MIN_CELL_DAYS = 7  # a week-old series has not "seen" anything yet
+# A new low must be MEANINGFULLY lower than the bar (both): $1 under the last
+# low on a slowly sliding card is not news (user, 2026-09-24).
+NEW_LOW_MIN_DROP_PCT = 5.0
+NEW_LOW_MIN_DROP_CENTS = 500
 
 #: Guardrails the history-only (digest) signals apply, in order. No ``rearm`` /
 #: ``daily_cap``: those are push concerns. ``target_hit`` carries its own 30-day
@@ -804,6 +808,8 @@ def evaluate_new_low(
         bar = min(bar, int(baseline.lowest_alerted_cents))
     if total >= bar:
         return GuardrailResult(False, "not_a_new_low")
+    if bar - total < NEW_LOW_MIN_DROP_CENTS or (bar - total) * 100 < bar * NEW_LOW_MIN_DROP_PCT:
+        return GuardrailResult(False, "new_low_too_small")
     market = baseline.current_market_cents
     if market and not passes_too_good_floor(discount_pct(total, int(market))):
         return GuardrailResult(False, "too_good_floor")
