@@ -33,6 +33,12 @@ type SupabaseAuthConfig = {
   anonKey: string;
   configurationIssue: string | null;
   isConfigured: boolean;
+  /**
+   * A sign-in return link only this build answers (staging: a second scheme,
+   * because prod also registers `spotlight`). Used only when the installed
+   * binary actually registers it — see resolveAuthRedirectURL.
+   */
+  isolatedRedirectURL: string | null;
   redirectURL: string;
   supabaseURL: string;
 };
@@ -476,11 +482,17 @@ export function resolveSupabaseAuthConfig(): SupabaseAuthConfig {
     scheme: resolveExpoScheme(),
   });
 
+  const isolatedRedirectURL = resolveRuntimeValue(
+    ['EXPO_PUBLIC_SPOTLIGHT_AUTH_ISOLATED_REDIRECT_URL'],
+    ['spotlightAuthIsolatedRedirectUrl'],
+  ) || null;
+
   if (!supabaseURL) {
     return {
       anonKey,
       configurationIssue: 'Supabase URL is missing. Set EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL.',
       isConfigured: false,
+      isolatedRedirectURL,
       redirectURL,
       supabaseURL,
     };
@@ -491,6 +503,7 @@ export function resolveSupabaseAuthConfig(): SupabaseAuthConfig {
       anonKey,
       configurationIssue: 'Supabase anon key is missing. Set EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY.',
       isConfigured: false,
+      isolatedRedirectURL,
       redirectURL,
       supabaseURL,
     };
@@ -500,6 +513,7 @@ export function resolveSupabaseAuthConfig(): SupabaseAuthConfig {
     anonKey,
     configurationIssue: null,
     isConfigured: true,
+    isolatedRedirectURL,
     redirectURL,
     supabaseURL,
   };

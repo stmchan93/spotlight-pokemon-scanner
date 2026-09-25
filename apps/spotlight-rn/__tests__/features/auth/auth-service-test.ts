@@ -36,6 +36,7 @@ type SupabaseMock = {
 };
 
 type LoadOptions = {
+  canOpenURL?: jest.Mock;
   appleModule?: Record<string, unknown>;
   capturePostHogEvent?: jest.Mock;
   config?: Record<string, unknown>;
@@ -128,6 +129,7 @@ async function loadAuthService(options: LoadOptions = {}) {
 
   const supabase = options.supabase === undefined ? makeSupabaseMock() : options.supabase;
   const openURL = jest.fn().mockResolvedValue(undefined);
+  const canOpenURL = options.canOpenURL ?? jest.fn().mockResolvedValue(false);
   const openAuthSessionAsync = jest.fn();
   const webBrowserModule = options.webBrowserModule ?? {
     openAuthSessionAsync,
@@ -160,6 +162,7 @@ async function loadAuthService(options: LoadOptions = {}) {
     capturePostHogEvent,
   }));
   jest.doMock('expo-linking', () => ({
+    canOpenURL,
     openURL,
   }));
   jest.doMock('expo-web-browser', () => webBrowserModule);
@@ -685,6 +688,41 @@ describe('auth-service Google sign-in', () => {
     });
 
     await expect(service.signInWithGoogle()).rejects.toThrow('Missing Supabase URL.');
+  });
+});
+
+// Staging and prod both register `spotlight://`, so Android handed staging's
+// Google redirect to the prod app. A build that registers its own scheme uses
+// it; an older binary running a newer OTA keeps the shared link.
+describe('auth-service sign-in return link', () => {
+  const isolated = 'spotlight-staging://login-callback';
+
+  async function redirectUsed(canOpen: boolean) {
+    const supabase = makeSupabaseMock();
+    supabase.auth.signInWithOAuth.mockResolvedValue({
+      data: { url: 'https://auth.example.com/google' },
+      error: null,
+    });
+    const { openAuthSessionAsync, service } = await loadAuthService({
+      canOpenURL: jest.fn().mockResolvedValue(canOpen),
+      config: { isolatedRedirectURL: isolated },
+      supabase,
+    });
+    openAuthSessionAsync.mockResolvedValueOnce({ type: 'cancel' });
+    await expect(service.signInWithGoogle()).rejects.toThrow(service.AuthCanceledError);
+    return {
+      oauth: supabase.auth.signInWithOAuth.mock.calls[0][0].options.redirectTo,
+      session: openAuthSessionAsync.mock.calls[0][1],
+    };
+  }
+
+  it('uses the isolated link when this build registers it', async () => {
+    await expect(redirectUsed(true)).resolves.toEqual({ oauth: isolated, session: isolated });
+  });
+
+  it('keeps the shared link on a build that does not', async () => {
+    const shared = defaultConfig.redirectURL;
+    await expect(redirectUsed(false)).resolves.toEqual({ oauth: shared, session: shared });
   });
 });
 

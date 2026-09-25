@@ -625,6 +625,21 @@ export async function restoreSessionFromUrl(url: string) {
   return data.session;
 }
 
+/**
+ * The return link for an OAuth round trip. Prefers the build's isolated link
+ * (staging: `spotlight-staging://`) so Android can't hand the redirect to the
+ * production app, but only when this binary registers that scheme — an older
+ * build still running a newer OTA keeps the shared link and keeps working.
+ */
+async function resolveAuthRedirectURL(): Promise<string> {
+  const isolated = supabaseAuthConfig.isolatedRedirectURL;
+  if (!isolated) {
+    return supabaseAuthConfig.redirectURL;
+  }
+  const registered = await Linking.canOpenURL(isolated).catch(() => false);
+  return registered ? isolated : supabaseAuthConfig.redirectURL;
+}
+
 export async function signInWithGoogle() {
   if (!supabase) {
     throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
@@ -633,10 +648,11 @@ export async function signInWithGoogle() {
     throw new Error('Google sign-in is unavailable in the current app build.');
   }
 
+  const redirectURL = await resolveAuthRedirectURL();
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: supabaseAuthConfig.redirectURL,
+      redirectTo: redirectURL,
       skipBrowserRedirect: true,
     },
   });
@@ -650,7 +666,7 @@ export async function signInWithGoogle() {
     throw new Error('Google sign-in could not be started.');
   }
 
-  const result = await webBrowserModule.openAuthSessionAsync(authURL, supabaseAuthConfig.redirectURL);
+  const result = await webBrowserModule.openAuthSessionAsync(authURL, redirectURL);
 
   if (result.type === 'cancel' || result.type === 'dismiss') {
     throw new AuthCanceledError();
@@ -1213,10 +1229,11 @@ export async function linkOAuthIdentityToCurrentUser(
 
   await requireAnonymousSession();
 
+  const redirectURL = await resolveAuthRedirectURL();
   const { data, error } = await supabase.auth.linkIdentity({
     provider,
     options: {
-      redirectTo: supabaseAuthConfig.redirectURL,
+      redirectTo: redirectURL,
       skipBrowserRedirect: true,
     },
   });
@@ -1230,7 +1247,7 @@ export async function linkOAuthIdentityToCurrentUser(
     throw new Error('Account linking could not be started.');
   }
 
-  const result = await webBrowserModule.openAuthSessionAsync(authURL, supabaseAuthConfig.redirectURL);
+  const result = await webBrowserModule.openAuthSessionAsync(authURL, redirectURL);
 
   if (result.type === 'cancel' || result.type === 'dismiss') {
     throw new AuthCanceledError();

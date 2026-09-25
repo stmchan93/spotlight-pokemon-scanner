@@ -52,6 +52,7 @@ describe('resolveSupabaseAuthConfig', () => {
       anonKey: 'sb_publishable_local',
       configurationIssue: null,
       isConfigured: true,
+      isolatedRedirectURL: null,
       redirectURL: 'spotlight://login-callback',
       supabaseURL: 'https://lvnjshymwvagwadqeofm.supabase.co',
     });
@@ -73,6 +74,7 @@ describe('resolveSupabaseAuthConfig', () => {
       anonKey: 'sb_publishable_env',
       configurationIssue: null,
       isConfigured: true,
+      isolatedRedirectURL: null,
       redirectURL: 'spotlight://env-callback',
       supabaseURL: 'https://env.supabase.co',
     });
@@ -94,6 +96,7 @@ describe('resolveSupabaseAuthConfig', () => {
       anonKey: 'sb_publishable_local',
       configurationIssue: null,
       isConfigured: true,
+      isolatedRedirectURL: null,
       redirectURL: 'spotlight://login-callback',
       supabaseURL: 'https://lvnjshymwvagwadqeofm.supabase.co',
     });

@@ -20,6 +20,7 @@ const EXPO_EXTRA_ENV_MAPPINGS = [
   ['EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY', 'spotlightSupabaseAnonKey'],
   ['EXPO_PUBLIC_SPOTLIGHT_AUTH_REDIRECT_HOST', 'spotlightAuthRedirectHost'],
   ['EXPO_PUBLIC_SPOTLIGHT_AUTH_REDIRECT_URL', 'spotlightAuthRedirectUrl'],
+  ['EXPO_PUBLIC_SPOTLIGHT_AUTH_ISOLATED_REDIRECT_URL', 'spotlightAuthIsolatedRedirectUrl'],
   ['EXPO_PUBLIC_SPOTLIGHT_AUTH_SCHEME', 'spotlightAuthScheme'],
   ['EXPO_PUBLIC_SPOTLIGHT_STAGING_SMOKE_ENABLED', 'spotlightStagingSmokeEnabled'],
   ['EXPO_PUBLIC_SPOTLIGHT_SCANNER_SMOKE_ENABLED', 'spotlightScannerSmokeEnabled'],
@@ -293,6 +294,10 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
   const releaseOverrides = loadSpotlightReleaseOverridesFromEnv(resolvedEnv);
   const resolvedAppEnv = trimEnvValue(resolvedEnv.SPOTLIGHT_APP_ENV);
   const resolvedScheme = releaseOverrides.scheme || baseExpoConfig.scheme;
+  // SPOTLIGHT_APP_SCHEME may list several (comma-separated); the first stays primary.
+  const resolvedSchemes = (Array.isArray(resolvedScheme) ? resolvedScheme : String(resolvedScheme ?? '').split(','))
+    .map((value) => String(value).trim())
+    .filter(Boolean);
   const resolvedRuntimeVersion = resolveSpotlightRuntimeVersionForEnv(resolvedAppEnv);
   const extra = {
     ...(baseExpoConfig.extra ?? {}),
@@ -335,6 +340,20 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
   if (trimEnvValue(resolvedAppEnv) === 'production') {
     const { NSAppTransportSecurity: _ats, ...productionInfoPlist } = ios.infoPlist ?? {};
     ios.infoPlist = productionInfoPlist;
+  }
+  // Extra schemes (after the primary) exist so sign-in can return on a link no
+  // other installed Ekalight build answers: staging and production both register
+  // `spotlight`, and Android handed staging's Google redirect to the prod app.
+  // iOS canOpenURL only answers for schemes listed here; the auth service uses
+  // it to tell a build that registers the extra scheme from one that doesn't.
+  const extraSchemes = resolvedSchemes.slice(1);
+  if (extraSchemes.length > 0) {
+    ios.infoPlist = {
+      ...(ios.infoPlist ?? {}),
+      LSApplicationQueriesSchemes: [
+        ...new Set([...(ios.infoPlist?.LSApplicationQueriesSchemes ?? []), ...extraSchemes]),
+      ],
+    };
   }
   // No per-env iOS icon override: every environment uses the Icon Composer bundle
   // declared in app.json (`ios.icon: './assets/ekalight.icon'`). Staging and
@@ -404,7 +423,7 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
     ios,
     plugins: resolvedPlugins,
     runtimeVersion: resolvedRuntimeVersion,
-    scheme: resolvedScheme || undefined,
+    scheme: resolvedSchemes.length > 1 ? resolvedSchemes : resolvedSchemes[0] || undefined,
     updates,
     extra,
   };
