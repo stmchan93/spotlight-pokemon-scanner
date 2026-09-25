@@ -14,7 +14,7 @@ import {
   useReducer,
   useRef,
 } from 'react';
-import { Dimensions, type LayoutChangeEvent, type ScrollViewProps, StyleSheet, View, type ViewProps } from 'react-native';
+import { type LayoutChangeEvent, type ScrollViewProps, StyleSheet, useWindowDimensions, View, type ViewProps } from 'react-native';
 import { FlashList, type FlashListRef, type ListRenderItemInfo } from '@shopify/flash-list';
 import { type GestureType, GestureDetector } from 'react-native-gesture-handler';
 import Reanimated, {
@@ -376,8 +376,11 @@ const ScanTrayRowSlot = memo(function ScanTrayRowSlot({
       ? withTiming(1, { duration: ROW_EXIT_DURATION_MS, easing: rowExitEasing })
       : 0;
   }, [captureId, exitProgress, exiting]);
+  // Read on the JS thread: `Dimensions` doesn't exist inside a UI worklet
+  // (calling it there white-screened the scanner on device).
+  const { width: windowWidth } = useWindowDimensions();
   const exitStyle = useAnimatedStyle(() => {
-    const width = rowWidth.value || Dimensions.get('window').width;
+    const width = rowWidth.value || windowWidth;
     return {
       opacity: 1 - exitProgress.value,
       transform: [{ translateX: -width * exitProgress.value }],
