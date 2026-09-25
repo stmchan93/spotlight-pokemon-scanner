@@ -185,7 +185,7 @@ class BinderPagePrepareServiceTests(BinderPageStoreTestCase):
         )
 
         self.assertEqual(response["pocketCount"], 9)
-        self.assertEqual(response["expiresInSeconds"], 600)
+        self.assertEqual(response["expiresInSeconds"], server_module.BINDER_PAGE_STORE_TTL_SECONDS)
         token = response["pageToken"]
         entry = server_module._binder_page_store[token]
         # Owner-scoped under whatever fallback identity the test env resolves.
@@ -333,20 +333,21 @@ class BinderPagePrepareServiceTests(BinderPageStoreTestCase):
         with self.assertRaisesRegex(ValueError, "pageImage.jpegBase64 is required"):
             self.service.prepare_binder_page({})
 
-    def test_prepare_prunes_expired_and_evicts_oldest_at_cap(self) -> None:
+    def test_prepare_prunes_expired_and_evicts_oldest_at_global_cap(self) -> None:
         from time import monotonic
 
         now = monotonic()
-        # One expired entry plus a full cap of live ones, oldest first.
+        ttl = server_module.BINDER_PAGE_STORE_TTL_SECONDS
         server_module._binder_page_store["expired"] = {
             "owner_user_id": "local-dev-user",
-            "created_at": now - 601.0,
+            "created_at": now - ttl - 1.0,
             "pockets": [b"x"],
         }
+        # A full global cap of OTHER users' live pages, oldest first.
         for index in range(server_module.BINDER_PAGE_STORE_MAX_ENTRIES):
             server_module._binder_page_store[f"live-{index}"] = {
-                "owner_user_id": "local-dev-user",
-                "created_at": now - 500.0 + index,
+                "owner_user_id": f"other-{index}",
+                "created_at": now - ttl + 100.0 + index,
                 "pockets": [b"x"],
             }
 
@@ -360,6 +361,36 @@ class BinderPagePrepareServiceTests(BinderPageStoreTestCase):
         self.assertIn("live-1", store)
         self.assertIn(response["pageToken"], store)
         self.assertEqual(len(store), server_module.BINDER_PAGE_STORE_MAX_ENTRIES)
+
+    def test_prepare_per_owner_cap_evicts_only_that_owners_oldest(self) -> None:
+        # A burst from one user must not push out another user's queued page.
+        from time import monotonic
+
+        now = monotonic()
+        me = self.service._current_owner_user_id()
+        server_module._binder_page_store["someone-else"] = {
+            "owner_user_id": "other-user",
+            "created_at": now - 900.0,  # older than all of this user's pages
+            "pockets": [b"x"],
+        }
+        for index in range(server_module.BINDER_PAGE_STORE_MAX_PER_OWNER):
+            server_module._binder_page_store[f"mine-{index}"] = {
+                "owner_user_id": me,
+                "created_at": now - 500.0 + index,
+                "pockets": [b"x"],
+            }
+
+        response = self.service.prepare_binder_page(
+            {"pageImage": {"jpegBase64": base64.b64encode(_color_page_jpeg()).decode("ascii")}}
+        )
+
+        store = server_module._binder_page_store
+        self.assertIn("someone-else", store)
+        self.assertNotIn("mine-0", store)
+        self.assertIn("mine-1", store)
+        self.assertIn(response["pageToken"], store)
+        owned = [t for t, e in store.items() if e["owner_user_id"] == me]
+        self.assertEqual(len(owned), server_module.BINDER_PAGE_STORE_MAX_PER_OWNER)
 
 
 class BinderPocketReferenceTests(BinderPageStoreTestCase):
@@ -433,7 +464,7 @@ class BinderPocketReferenceTests(BinderPageStoreTestCase):
     def test_expired_token_raises_binder_page_token_error(self) -> None:
         self.service._raw_visual_matcher = CapturingVisualMatcher()
         token = self._prepare_page()
-        server_module._binder_page_store[token]["created_at"] -= 601.0
+        server_module._binder_page_store[token]["created_at"] -= server_module.BINDER_PAGE_STORE_TTL_SECONDS + 1.0
         with self.assertRaises(BinderPageTokenError):
             self.service.visual_match_scan(self._reference_payload(token, 0, "scan-expired"))
 

@@ -994,8 +994,14 @@ DECK_ENTRY_BULK_CREATE_MAX = 50
 # in memory only (they are matcher inputs, not scan artifacts) and are
 # owner-scoped so one user can never read another's page.
 BINDER_PAGE_PREPARE_PATH = "/api/v1/scan/binder-page/prepare"
-BINDER_PAGE_STORE_TTL_SECONDS = 600
-BINDER_PAGE_STORE_MAX_ENTRIES = 20
+# A vendor spamming pages queues them faster than the ~2s/pocket matcher drains
+# them; with one shared 20-page cap a burst (or a second vendor) evicted pages
+# before their pockets ran ("pageToken is unknown or expired", 2026-09-24).
+# Per-owner cap so one user's burst can't evict anyone else's; the global cap
+# is only a memory backstop (~0.5-1 MB of pocket JPEGs per page).
+BINDER_PAGE_STORE_TTL_SECONDS = 1200
+BINDER_PAGE_STORE_MAX_PER_OWNER = 40
+BINDER_PAGE_STORE_MAX_ENTRIES = 200
 # token -> {"owner_user_id", "created_at" (monotonic), "pockets": list[bytes]}
 _binder_page_store: dict[str, dict[str, Any]] = {}
 _binder_page_store_lock = threading.Lock()
@@ -15504,17 +15510,31 @@ class SpotlightScanService:
                 if now - float(entry.get("created_at") or 0.0) > BINDER_PAGE_STORE_TTL_SECONDS
             ]:
                 del _binder_page_store[stale_token]
-            while len(_binder_page_store) >= BINDER_PAGE_STORE_MAX_ENTRIES:
+            owner_user_id = self._current_owner_user_id()
+
+            def _evict_oldest(tokens: list[str]) -> None:
                 oldest_token = min(
-                    _binder_page_store,
+                    tokens,
                     key=lambda existing_token: float(
                         _binder_page_store[existing_token].get("created_at") or 0.0
                     ),
                 )
                 del _binder_page_store[oldest_token]
+
+            while True:
+                owned = [
+                    existing_token
+                    for existing_token, entry in _binder_page_store.items()
+                    if str(entry.get("owner_user_id") or "") == owner_user_id
+                ]
+                if len(owned) < BINDER_PAGE_STORE_MAX_PER_OWNER:
+                    break
+                _evict_oldest(owned)
+            while len(_binder_page_store) >= BINDER_PAGE_STORE_MAX_ENTRIES:
+                _evict_oldest(list(_binder_page_store))
             known_energies = sorted(e for e in pocket_edge_energies if e is not None)
             _binder_page_store[token] = {
-                "owner_user_id": self._current_owner_user_id(),
+                "owner_user_id": owner_user_id,
                 "created_at": now,
                 "pockets": pockets,
                 # For the post-match empty gate: this pocket's energy vs the page's.
