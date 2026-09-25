@@ -24,6 +24,8 @@ type OwnedEntryEditFieldsProps = {
   gainLabel: string | null;
   /** Pre-formatted "Updated <date>" line, or null. */
   updatedLabel?: string | null;
+  /** False hides the Condition/Grade row (sealed product has no condition). */
+  showGrade?: boolean;
   testID?: string;
 };
 
@@ -48,6 +50,7 @@ export function OwnedEntryEditFields({
   gainPerUnit,
   gainLabel,
   updatedLabel,
+  showGrade = true,
   testID = 'owned-entry-edit',
 }: OwnedEntryEditFieldsProps) {
   const theme = useSpotlightTheme();
@@ -59,6 +62,7 @@ export function OwnedEntryEditFields({
 
   return (
     <View style={styles.root} testID={testID}>
+      {showGrade ? (
       <View style={styles.group}>
         <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
           {gradeTitle}
@@ -79,6 +83,7 @@ export function OwnedEntryEditFields({
           <NavArrowDown color={theme.colors.gray400} height={24} width={24} />
         </Pressable>
       </View>
+      ) : null}
 
       <View style={styles.group}>
         <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>

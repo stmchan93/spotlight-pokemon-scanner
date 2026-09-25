@@ -2304,7 +2304,9 @@ export function CardDetailScreen({
         cardID: activeCardId,
         slabContext: savedSlabContext,
         variantName: savedRawVariantName,
-        condition: editIsRaw ? selectedCondition : null,
+        // Sealed is stored with no condition; sending the seeded default would
+        // change its identity and replace the row instead of updating it.
+        condition: editIsRaw && !isSealed ? selectedCondition : null,
         quantity: editQuantity,
         unitPrice: costBasis ?? 0,
         currencyCode: selectedEntry.currencyCode || 'USD',
@@ -2328,7 +2330,7 @@ export function CardDetailScreen({
         // still be the other language's card mid-refetch, so fall back to the
         // existing entry's fields and let the refetch correct the visuals.
         const detailFresh = detail.cardId === activeCardId;
-        const conditionOption = editIsRaw
+        const conditionOption = editIsRaw && !isSealed
           ? deckConditionOptions.find((option) => option.code === selectedCondition) ?? null
           : null;
         if (result.deckEntryID !== selectedEntry.id) {
@@ -2364,7 +2366,7 @@ export function CardDetailScreen({
           addedAt: selectedEntry.addedAt,
           kind: editIsRaw ? 'raw' : 'graded',
           variantName: editIsRaw ? savedRawVariantName : savedSlabContext?.variantName ?? null,
-          conditionCode: editIsRaw ? selectedCondition : null,
+          conditionCode: editIsRaw && !isSealed ? selectedCondition : null,
           conditionLabel: conditionOption?.label ?? null,
           conditionShortLabel: conditionOption?.shortLabel ?? null,
           slabContext: savedSlabContext,
@@ -2399,6 +2401,7 @@ export function CardDetailScreen({
     editQuantity,
     editSlabContext,
     isSavingEdit,
+    isSealed,
     onBack,
     ownedSlabContext,
     prependOptimisticInventoryEntry,
@@ -2765,6 +2768,36 @@ export function CardDetailScreen({
           </View>
         )}
 
+        {/* Sealed product owned: quantity + cost basis only (no condition,
+            printing or grade to edit). */}
+        {isSealed && isOwnedEdit ? (
+          <View
+            onLayout={(event) => {
+              const { y, height } = event.nativeEvent.layout;
+              editSectionRectRef.current = { y, height };
+            }}
+            style={styles.optionsGroup}
+          >
+            <OwnedEntryEditFields
+              costBasisText={editCostBasisText}
+              gainLabel={editGainLabel}
+              gainPerUnit={editGainPerUnit}
+              gradeLabel={null}
+              gradeTitle=""
+              onChangeCostBasisText={handleChangeEditCostBasisText}
+              onCostBasisBlur={handleCostBasisBlur}
+              onCostBasisFocus={handleCostBasisFocus}
+              onDecrement={() => setEditQuantity((current) => Math.max(1, current - 1))}
+              onIncrement={() => setEditQuantity((current) => current + 1)}
+              onOpenGradePicker={() => undefined}
+              quantity={editQuantity}
+              showGrade={false}
+              testID="detail-owned-edit"
+              updatedLabel={editUpdatedLabel}
+            />
+          </View>
+        ) : null}
+
         <AddToCollectionSheet
           confirmDisabled={isAddPending || !addDetail}
           confirmLabel="CONFIRM"
@@ -2962,8 +2995,7 @@ export function CardDetailScreen({
           stickyFooterStyle,
         ]}
       >
-        {/* Sealed has no owned-edit fields, so it always offers another add. */}
-        {isOwnedEdit && !isSealed ? (
+        {isOwnedEdit ? (
           <View style={styles.actionBar}>
             <Button
               disabled={isSavingEdit || !detail}

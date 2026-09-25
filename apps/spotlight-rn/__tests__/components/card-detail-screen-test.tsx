@@ -2814,6 +2814,65 @@ describe('CardDetailScreen', () => {
       expect(screen.queryByTestId('detail-tcgplayer-button')).toBeNull();
     });
 
+    it('lets an owned sealed product change its quantity (no condition row)', async () => {
+      const ownedSealed: InventoryCardEntry = {
+        addedAt: '2026-09-20T12:00:00.000Z',
+        cardId: sealedId,
+        cardNumber: '',
+        conditionCode: null,
+        conditionLabel: null,
+        conditionShortLabel: null,
+        costBasisPerUnit: null,
+        costBasisTotal: null,
+        currencyCode: 'USD',
+        hasMarketPrice: true,
+        id: 'e-sealed',
+        imageUrl: sealedDetail.imageUrl,
+        kind: 'raw',
+        marketPrice: 62.75,
+        name: sealedDetail.name,
+        quantity: 2,
+        setName: sealedDetail.setName,
+        slabContext: null,
+        variantName: null,
+      };
+      const replacePortfolioEntry = jest.fn(async () => ({
+        previousDeckEntryID: 'e-sealed',
+        deckEntryID: 'e-sealed',
+        cardID: sealedId,
+        quantity: 3,
+        unitPrice: null,
+        updatedAt: '2026-09-24T12:00:00.000Z',
+      }));
+      const onBack = jest.fn();
+
+      renderWithProviders(
+        <CardDetailScreen cardId={sealedId} entryId="e-sealed" onBack={onBack} />,
+        {
+          spotlightRepository: sealedRepository({
+            getCardDetail: async (query) => (
+              query.cardId === sealedId ? { ...sealedDetail, ownedEntries: [ownedSealed] } : null
+            ),
+            replacePortfolioEntry,
+          }),
+        },
+      );
+
+      expect(await screen.findByTestId('detail-owned-edit')).toBeTruthy();
+      expect(screen.queryByTestId('detail-owned-edit-grade-trigger')).toBeNull();
+      expect(screen.getByTestId('detail-owned-edit-quantity-value').props.children).toBe(2);
+
+      fireEvent.press(screen.getByTestId('detail-owned-edit-quantity-increment'));
+      fireEvent.press(screen.getByTestId('detail-save-edit'));
+
+      await waitFor(() => {
+        expect(replacePortfolioEntry).toHaveBeenCalledWith(
+          expect.objectContaining({ deckEntryID: 'e-sealed', cardID: sealedId, quantity: 3, condition: null }),
+        );
+      });
+      await waitFor(() => expect(onBack).toHaveBeenCalled());
+    });
+
     it('keeps a long header title on one truncated line between the bubbles', async () => {
       renderWithProviders(
         <CardDetailScreen cardId={sealedId} onBack={jest.fn()} />,
