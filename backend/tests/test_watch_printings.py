@@ -759,7 +759,9 @@ class PerPrintingMarketAlertTests(PrintingTestCase):
         self._watch_printing("owner-a", REVERSE)
         summary = self._run()
         self.assertEqual(summary["sent"], 1)
-        self.assertEqual(self.sender.messages[0].title, f"{DRAGONITE_NAME} · {REVERSE} +20%")
+        # The printing rides along in the card's name, whichever wording rotates in.
+        self.assertIn(f"{DRAGONITE_NAME} · {REVERSE}", self.sender.messages[0].title)
+        self.assertEqual(self.sender.messages[0].body, "Up $20 since yesterday, now at $120.")
         state = self.connection.execute(
             "SELECT variant_key, last_price_usd FROM market_alert_card_state"
         ).fetchall()
@@ -781,10 +783,8 @@ class PerPrintingMarketAlertTests(PrintingTestCase):
         self.connection.commit()
         self.assertEqual(self._run()["byKind"], {"deal": 1})
         message = self.sender.messages[0]
-        self.assertEqual(
-            message.body,
-            f"Your {DRAGONITE_NAME} · {REVERSE} is listed at $95 — the lowest we've seen (usually $129+)",
-        )
+        self.assertEqual(message.title, f"Lowest {DRAGONITE_NAME} · {REVERSE} price we've seen \U0001F440")
+        self.assertEqual(message.body, "$95 on eBay. It usually goes for $129+.")
         self.assertNotIn("%", message.title)
 
     def test_target_hit_reads_the_watched_printing(self) -> None:

@@ -30,7 +30,8 @@ The limiter (all silent; nothing is ever surfaced to the user)
    as that day's push, so nothing follows it. (Internally it keeps the
    ``weekly_summary`` kind/pref names: stored prefs and ledger rows carry over.)
 4. The same card is pushed at most once per 3 days, unless its price has moved
-   another >= 10% since the price it was last alerted at.
+   another >= 10% since the price it was last alerted at. Card-move pushes are
+   UP-only and capped at one per owner per rolling 7 days.
 5. Milestones ($100 ... $1M) fire once per milestone per owner, EVER, when the
    Collection headline value (the server's 1W chart ``currentValue``) crosses
    UP through one above the highest already celebrated; a multi-milestone jump
@@ -56,6 +57,7 @@ import os
 import sqlite3
 import sys
 import uuid
+import zlib
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -79,6 +81,9 @@ MOVE_MAX_STALENESS_DAYS = 2
 # missed sync day must not hide a move; a month-old row is not "yesterday").
 PREVIOUS_DAY_MAX_GAP_DAYS = 3
 CARD_COOLDOWN_DAYS = 3
+# Card-move pushes are the ones that pile up: at most one per owner per rolling
+# week, and only moves UP (user, 2026-09-24: "people don't care" about drops).
+PRICE_MOVE_WEEKLY_CAP_DAYS = 7
 CARD_REARM_PCT = 10.0
 
 QUIET_START_HOUR = 21
@@ -393,8 +398,9 @@ def summary_window_days(local_date: date) -> int:
     return (local_date - _previous_month_start(local_date)).days
 
 
-def summary_period_label(local_date: date) -> str:
-    return f"in {_previous_month_start(local_date).strftime('%B')}"
+def summary_month_name(local_date: date) -> str:
+    """The month the recap covers ("September" on Oct 1)."""
+    return _previous_month_start(local_date).strftime("%B")
 
 
 def move_pct(price_now: float, price_then: float | None) -> float | None:
@@ -504,27 +510,52 @@ def _name(value: str | None, fallback: str = "A card") -> str:
     return (value or "").strip() or fallback
 
 
-def build_price_move_push(moves: Sequence[PriceMove]) -> PlannedPush | None:
+def _usd(amount: float) -> str:
+    """Friendly money: whole dollars from $10 up ("$412"), cents below ("$4.50")."""
+    amount = abs(amount)
+    return f"${amount:,.2f}" if amount < 10 else f"${int(round(amount)):,}"
+
+
+def _pick(options: Sequence[str], seed: str) -> str:
+    """Rotate wordings so the same alert doesn't read identically every time;
+    stable for a given seed (owner-day), so a retried plan says the same thing."""
+    return options[zlib.crc32(seed.encode("utf-8")) % len(options)]
+
+
+def build_price_move_push(moves: Sequence[PriceMove], seed: str = "") -> PlannedPush | None:
     if not moves:
         return None
     ranked = sorted(moves, key=lambda m: (-abs(m.change_pct), m.card_id, m.variant_key))
     lead = ranked[0]
-    headline = f"{lead.display_name} {format_pct(lead.change_pct)}"
     card_ids = tuple(dict.fromkeys(m.card_id for m in ranked))
     # Cooldown memory is per (card, printing).
     prices = {(m.card_id, m.variant_key): m.price_now for m in ranked}
     data: dict[str, Any] = {"type": DATA_TYPE_PRICE_MOVE, "cardIds": list(card_ids)}
+    name = lead.display_name
+    delta = _usd(lead.price_now - lead.price_then)
     if len(ranked) == 1:
-        direction = "up" if lead.change_pct >= 0 else "down"
-        delta = abs(lead.price_now - lead.price_then)
-        body = f"Now {expo_push.format_usd_cents(round(lead.price_now * 100))}, {direction} {expo_push.format_usd_cents(round(delta * 100))} since yesterday."
+        pct = int(round(lead.change_pct))
+        if lead.owned:
+            title = _pick((
+                f"Your {name} is having a day \U0001F4C8",
+                f"Your {name} just jumped {pct}% \U0001F680",
+                f"Look at your {name} go \U0001F4C8",
+            ), seed)
+        else:
+            title = _pick((
+                f"The {name} you're watching is climbing \U0001F4C8",
+                f"{name} just jumped {pct}% \U0001F440",
+            ), seed)
+        body = f"Up {delta} since yesterday, now at {_usd(lead.price_now)}."
         data.update({"url": f"/cards/{lead.card_id}", "cardId": lead.card_id})
-        return PlannedPush(KIND_PRICE_MOVE, headline, body, data, MARKET_CHANNEL_ID, card_ids, (), prices)
+        return PlannedPush(KIND_PRICE_MOVE, title, body, data, MARKET_CHANNEL_ID, card_ids, (), prices)
     owned = any(m.owned for m in ranked)
-    watched = any(not m.owned for m in ranked)
-    who = "own or watch" if owned and watched else ("own" if owned else "watch")
-    title = f"{headline} and {len(ranked) - 1} more"
-    body = f"Cards you {who} moved today. Tap to see all {len(ranked)}."
+    count = len(ranked)
+    title = _pick((
+        f"{count} of your cards moved today",
+        f"{count} of your cards are up today \U0001F4C8",
+    ), seed) if owned else f"{count} cards you're watching are up today \U0001F440"
+    body = f"{name} led the way, up {delta}!"
     # Bundled: land on the list those cards live in.
     data["url"] = COLLECTION_DEEP_LINK if owned else WATCHLIST_DEEP_LINK
     return PlannedPush(KIND_PRICE_MOVE, title, body, data, MARKET_CHANNEL_ID, card_ids, (), prices)
@@ -536,17 +567,11 @@ KIND_NEW_LOW = "new_low"
 def new_low_copy(deal: PendingDeal) -> tuple[str, str]:
     """(title, body) for a new_low: no % claim, just the price and the bar."""
     name = _name(deal.card_name, "A watched card")
-    who = f"Your {name} · {deal.printing}" if deal.printing else f"Your {name}"
-    typical = (
-        f" (usually {expo_push.format_usd_cents(deal.baseline_cents)}+)"
-        if deal.baseline_cents
-        else ""
-    )
-    body = (
-        f"{who} is listed at {expo_push.format_usd_cents(deal.total_cents)}"
-        f" — the lowest we've seen{typical}"
-    )
-    return f"{name} — lowest price we've seen", body
+    label = f"{name} · {deal.printing}" if deal.printing else name
+    body = f"{_usd(deal.total_cents / 100)} on eBay."
+    if deal.baseline_cents:
+        body += f" It usually goes for {_usd(deal.baseline_cents / 100)}+."
+    return f"Lowest {label} price we've seen \U0001F440", body
 
 
 def build_deal_push(deals: Sequence[PendingDeal]) -> PlannedPush | None:
@@ -559,9 +584,13 @@ def build_deal_push(deals: Sequence[PendingDeal]) -> PlannedPush | None:
     if lead.kind == KIND_NEW_LOW:
         headline, body = new_low_copy(lead)
     else:
-        headline = f"{name} listed {pct}% under market" if pct > 0 else f"{name} listed under market"
-        body = f"{expo_push.format_usd_cents(lead.total_cents)} on eBay, a card you watch."
-    title = headline if len(ranked) == 1 else f"{headline} and {len(ranked) - 1} more"
+        headline = f"The {name} you're watching is on sale \U0001F440"
+        under = f", {pct}% under market" if pct > 0 else ", under market"
+        body = f"{_usd(lead.total_cents / 100)} on eBay{under}."
+    title = headline
+    if len(ranked) > 1:
+        more = len(ranked) - 1
+        body += f" Plus {more} more deal{'s' if more > 1 else ''} on your watchlist."
     data = {
         "type": expo_push.DATA_TYPE_DEAL_ALERT,
         "url": WATCHLIST_DEEP_LINK,
@@ -574,26 +603,30 @@ def build_deal_push(deals: Sequence[PendingDeal]) -> PlannedPush | None:
     )
 
 
-def build_weekly_push(summary: WeeklySummary | None, period: str = "this month") -> PlannedPush | None:
+def build_weekly_push(summary: WeeklySummary | None, month: str = "") -> PlannedPush | None:
+    """The monthly recap (the ``weekly`` names are historical)."""
     if summary is None:
         return None
     if int(round(summary.delta_usd)) == 0 and summary.top_card_id is None:
         return None
     rounded = int(round(summary.delta_usd))
-    if rounded == 0:
-        title = f"Your collection held steady {period}"
+    recap = f"Your {month} recap is in" if month else "Your monthly recap is in"
+    pct = ""
+    if summary.start_value_usd and summary.start_value_usd > 0 and rounded != 0:
+        pct = f" ({_minus(format_pct(summary.delta_usd / summary.start_value_usd * 100.0))})"
+    if rounded > 0:
+        title = f"{recap} \U0001F4CA"
+        body = f"Up {_usd(summary.delta_usd)}{pct} this month."
+        if summary.top_card_id and summary.top_change_usd is not None and summary.top_change_usd > 0:
+            body += f" {_name(summary.top_card_name)} did the heavy lifting (+{_usd(summary.top_change_usd)})."
+        elif summary.top_card_id and summary.top_change_pct is not None and summary.top_change_pct > 0:
+            body += f" {_name(summary.top_card_name)} led the way ({format_pct(summary.top_change_pct)})."
+    elif rounded < 0:
+        title = f"{month} was a quiet one" if month else "A quiet month for your collection"
+        body = f"Down {_usd(summary.delta_usd)}{pct} this month. Tap to see how your cards did."
     else:
-        amount = format_signed_usd(abs(summary.delta_usd))[1:]
-        pct = ""
-        if summary.start_value_usd and summary.start_value_usd > 0:
-            pct = f" ({_minus(format_pct(summary.delta_usd / summary.start_value_usd * 100.0))})"
-        title = f"Your collection is {'up' if rounded > 0 else 'down'} {amount}{pct} {period}"
-    if summary.top_card_id and summary.top_change_usd is not None:
-        body = f"Led by {_name(summary.top_card_name)} {_minus(format_signed_usd(summary.top_change_usd))}."
-    elif summary.top_card_id and summary.top_change_pct is not None:
-        body = f"Led by {_name(summary.top_card_name)} {_minus(format_pct(summary.top_change_pct))}."
-    else:
-        body = "Your monthly summary."
+        title = recap
+        body = "Your collection held steady this month."
     data = {"type": DATA_TYPE_WEEKLY_SUMMARY, "url": COLLECTION_DEEP_LINK}
     return PlannedPush(KIND_WEEKLY_SUMMARY, title, body, data, MARKET_CHANNEL_ID)
 
@@ -608,10 +641,10 @@ def milestone_reached(value_usd: float | None) -> int:
 def build_milestone_push(crossing: MilestoneCrossing | None) -> PlannedPush | None:
     if crossing is None or crossing.milestone_usd <= 0:
         return None
-    title = f"Your collection just passed ${crossing.milestone_usd:,} \U0001F389"
+    title = f"You just hit a ${crossing.milestone_usd:,} collection \U0001F389"
     data = {"type": DATA_TYPE_MILESTONE, "url": COLLECTION_DEEP_LINK, "milestoneUsd": crossing.milestone_usd}
     return PlannedPush(
-        KIND_MILESTONE, title, "Tap to see what's driving it.", data, MARKET_CHANNEL_ID,
+        KIND_MILESTONE, title, "Congratulations! Your collection is growing!", data, MARKET_CHANNEL_ID,
         milestone_usd=crossing.milestone_usd,
     )
 
@@ -639,7 +672,7 @@ def plan_push(item: OwnerPlanInput, kinds: Iterable[str] = ALL_KINDS) -> Planned
         and weekly_due(item.local)
         and not item.weekly_sent_today
     ):
-        weekly = build_weekly_push(item.weekly, summary_period_label(item.local.date()))
+        weekly = build_weekly_push(item.weekly, summary_month_name(item.local.date()))
         if weekly is not None:
             return weekly  # exempt from the daily cap (rule 3)
     if item.pushed_today:
@@ -649,7 +682,7 @@ def plan_push(item: OwnerPlanInput, kinds: Iterable[str] = ALL_KINDS) -> Planned
     if KIND_MILESTONE in allowed and item.prefs.get("milestoneAlertsEnabled", True) and item.milestone:
         return build_milestone_push(item.milestone)
     if KIND_PRICE_MOVE in allowed and item.prefs.get("priceMovesEnabled", True) and item.moves:
-        return build_price_move_push(item.moves)
+        return build_price_move_push(item.moves, seed=item.local.date().isoformat())
     return None
 
 
@@ -694,6 +727,16 @@ def resolve_timezone(tokens: Sequence[tuple[str, str | None]], prefs: Mapping[st
         if normalize_timezone(zone):
             return str(zone)
     return normalize_timezone(prefs.get("timezone")) or DEFAULT_TIMEZONE
+
+
+def price_move_pushed_recently(connection: sqlite3.Connection, owner: str, local_date: date) -> bool:
+    """True when a card-move push went out in the last PRICE_MOVE_WEEKLY_CAP_DAYS local days."""
+    since = (local_date - timedelta(days=PRICE_MOVE_WEEKLY_CAP_DAYS - 1)).isoformat()
+    row = connection.execute(
+        "SELECT 1 FROM market_alert_pushes WHERE owner_user_id = ? AND kind = ? AND local_date >= ? LIMIT 1",
+        (owner, KIND_PRICE_MOVE, since),
+    ).fetchone()
+    return row is not None
 
 
 def _pushes_on(connection: sqlite3.Connection, owner: str, local_date: str) -> set[str]:
@@ -922,7 +965,7 @@ def price_moves_for_owner(
         if price.change_pct is None or price.now_date < stale_before:
             continue  # no like-for-like pair, a glitch-sized jump, or old news
         pct = move_pct(price.price_now, price.price_then)
-        if pct is None or not cooldown_allows(
+        if pct is None or pct < 0 or not cooldown_allows(
             states.get((card_id, variant_key)), price.price_now, now_utc
         ):
             continue
@@ -1233,6 +1276,7 @@ def run_market_alerts(
             if (
                 KIND_PRICE_MOVE in kinds and prefs["priceMovesEnabled"]
                 and not item.deals and not item.milestone
+                and not price_move_pushed_recently(connection, owner, local_date)
             ):
                 item.moves = price_moves_for_owner(
                     connection, owner, now_utc=now_utc, local_date=local_date, ref_date=ref_date

@@ -76,7 +76,7 @@ describe('Alert settings screen', () => {
     expect(screen.getByTestId('alert-settings-price-moves').props.value).toBe(true);
     expect(screen.getByTestId('alert-settings-deals').props.value).toBe(true);
     expect(screen.getByText('Price moves')).toBeTruthy();
-    expect(screen.getByText('Cards you own or watch, when they move 10%+ and $5+')).toBeTruthy();
+    expect(screen.getByText('When a card you own or watch jumps 10%+ (at most once a week)')).toBeTruthy();
     expect(screen.getByText('Monthly summary')).toBeTruthy();
     expect(screen.getByText('Deals under market')).toBeTruthy();
     expect(screen.getByText('Watched cards listed well below market')).toBeTruthy();

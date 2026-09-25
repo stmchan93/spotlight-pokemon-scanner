@@ -21,7 +21,7 @@ const PREF_ANALYTICS_NAME: Record<AlertKey, 'price_moves' | 'weekly_summary' | '
 
 const ROWS: { key: AlertKey; title: string; description: string; testID: string }[] = [
   {
-    description: 'Cards you own or watch, when they move 10%+ and $5+',
+    description: 'When a card you own or watch jumps 10%+ (at most once a week)',
     key: 'priceMovesEnabled',
     testID: 'alert-settings-price-moves',
     title: 'Price moves',
