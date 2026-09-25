@@ -1,52 +1,29 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { AppState } from 'react-native';
 
 import {
   __resetRecentCapturesPersistenceForTests,
-  __serializeTrayEnvelopeForTests,
+  assignSortKeys,
   copyToScansDir,
   deleteScanFile,
   ensureScansDir,
+  findCapturesWithMissingImages,
   flushPersist,
   FS_CONCURRENCY_LIMIT,
-  loadPersistedTray,
   loadPersistedTraySnapshot,
   PERSIST_DEBOUNCE_MS,
-  PERSIST_ENVELOPE_VERSION,
   PERSIST_MAX_WAIT_MS,
-  PERSISTED_CANDIDATES_MAX,
   RECENT_CAPTURES_DIR,
-  RECENT_CAPTURES_MAX,
-  RECENT_CAPTURES_STORAGE_KEY,
   schedulePersist,
   setRecentCapturesOwner,
   sweepOrphanScans,
 } from '@/features/scanner/recent-captures-persistence';
 import type { RecentCapture } from '@/features/scanner/screens/scanner-screen-types';
+import * as trayDb from '@/features/scanner/tray-db';
 
-jest.mock('@react-native-async-storage/async-storage', () => {
-  const store = new Map<string, string>();
-  return {
-    __esModule: true,
-    default: {
-      getItem: jest.fn((key: string) => Promise.resolve(store.has(key) ? store.get(key)! : null)),
-      setItem: jest.fn((key: string, value: string) => {
-        store.set(key, value);
-        return Promise.resolve();
-      }),
-      removeItem: jest.fn((key: string) => {
-        store.delete(key);
-        return Promise.resolve();
-      }),
-      clear: jest.fn(() => {
-        store.clear();
-        return Promise.resolve();
-      }),
-    },
-  };
-});
+import { __fakeSQLiteLog, __setFakeSQLiteFault } from '../../../test-support/fake-expo-sqlite';
+import { readTrayRows, seedTrayRows } from '../../../test-support/scan-tray-db';
 
 jest.mock('expo-file-system/legacy', () => {
   const files = new Map<string, { size: number }>();
@@ -65,8 +42,7 @@ jest.mock('expo-file-system/legacy', () => {
     }),
     copyAsync: jest.fn(async ({ from, to }: { from: string; to: string }) => {
       const src = files.get(from);
-      const size = src?.size ?? 1024;
-      files.set(to, { size });
+      files.set(to, { size: src?.size ?? 1024 });
     }),
     deleteAsync: jest.fn(async (uri: string) => {
       files.delete(uri);
@@ -83,9 +59,6 @@ jest.mock('expo-file-system/legacy', () => {
     __seedFile: (uri: string, size = 1024) => {
       files.set(uri, { size });
     },
-    __seedDirectory: (uri: string) => {
-      directories.add(uri);
-    },
     __getFiles: () => new Map(files),
     __clearMockState: () => {
       files.clear();
@@ -97,33 +70,33 @@ jest.mock('expo-file-system/legacy', () => {
 
 const mockedFs = FileSystem as unknown as {
   __seedFile: (uri: string, size?: number) => void;
-  __seedDirectory: (uri: string) => void;
   __getFiles: () => Map<string, { size: number }>;
   __clearMockState: () => void;
 };
 
 function makeCapture(overrides: Partial<RecentCapture> = {}): RecentCapture {
+  const id = overrides.id ?? 'cap-1';
   return {
     activeCandidateIndex: 0,
     candidates: [],
     totalCandidateCount: 0,
     isLoadingMoreCandidates: false,
     hasTrackedSelectionEvent: false,
-    id: 'cap-1',
+    id,
     isAddingToInventory: false,
     isLoadingCandidates: false,
     matchReviewDisposition: null,
     matchReviewReason: null,
     mode: 'raw',
     normalizedImageDimensions: null,
-    normalizedImageUri: `${RECENT_CAPTURES_DIR}cap-1.jpg`,
+    normalizedImageUri: `${RECENT_CAPTURES_DIR}${id}.jpg`,
     recentlyAdded: false,
-    scanID: 'scan-1',
+    scanID: `scan-${id}`,
     slabContext: null,
     sourceImageCrop: null,
     sourceImageDimensions: null,
     sourceImageRotationDegrees: 0,
-    uri: `${RECENT_CAPTURES_DIR}cap-1.jpg`,
+    uri: `${RECENT_CAPTURES_DIR}${id}-src.jpg`,
     ...overrides,
   };
 }
@@ -139,34 +112,41 @@ function makeCandidates(count: number): RecentCapture['candidates'] {
   }));
 }
 
-/**
- * Let the debounce elapse, then the idle-deferred write (a 0ms timer in jest,
- * where requestIdleCallback does not exist; fake timers need a 1ms tick to run
- * it), then the setItem microtasks.
- */
+const captures = (count: number, prefix = 'cap') => Array.from(
+  { length: count },
+  (_unused, index) => makeCapture({ id: `${prefix}-${index}` }),
+);
+
+/** Enough microtask turns for a write to go through the DB queue and commit. */
+async function drain(): Promise<void> {
+  for (let turn = 0; turn < 40; turn += 1) {
+    await Promise.resolve();
+  }
+}
+
+/** Let the debounce elapse, then the idle-deferred write (a 0ms timer in jest), then the DB work. */
 async function settleDebouncedWrite(): Promise<void> {
   jest.advanceTimersByTime(PERSIST_DEBOUNCE_MS);
   jest.advanceTimersByTime(1);
-  await Promise.resolve();
-  await Promise.resolve();
+  await drain();
 }
 
-/** Read back what is actually in AsyncStorage right now. */
-async function readEnvelope(): Promise<{
-  version: number;
-  ownerKey?: string | null;
-  items: Record<string, unknown>[];
-}> {
-  const raw = await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY);
-  return JSON.parse(raw!);
+const storedIds = async (owner: string | null = null) => (await readTrayRows(owner)).map((row) => row.id);
+const upsertCount = () => __fakeSQLiteLog().filter((sql) => sql.startsWith('INSERT INTO scan_tray_rows')).length;
+const transactionCount = () => __fakeSQLiteLog().filter((sql) => sql === 'BEGIN').length;
+
+async function hydrate(owner: string | null) {
+  __resetRecentCapturesPersistenceForTests();
+  setRecentCapturesOwner(owner);
+  return loadPersistedTraySnapshot();
 }
 
-describe('recent-captures-persistence', () => {
-  beforeEach(async () => {
+describe('recent-captures-persistence (tray DB)', () => {
+  beforeEach(() => {
     __resetRecentCapturesPersistenceForTests();
     mockedFs.__clearMockState();
-    await AsyncStorage.clear();
     jest.clearAllMocks();
+    jest.restoreAllMocks();
     jest.useFakeTimers();
   });
 
@@ -174,7 +154,234 @@ describe('recent-captures-persistence', () => {
     jest.useRealTimers();
   });
 
-  describe('price selections (printing + condition)', () => {
+  describe('writes only what changed', () => {
+    it('upserts new and edited rows only, each flush in one transaction', async () => {
+      const [a, b] = captures(2);
+      await readTrayRows(null); // open the DB so its schema transaction isn't counted
+      const baseTxns = transactionCount();
+      await flushPersist([a, b]);
+      expect(upsertCount()).toBe(2);
+      expect(transactionCount()).toBe(baseTxns + 1);
+
+      const editedB = { ...b, activeCandidateIndex: 0, matchReviewReason: 'edited' };
+      await flushPersist([a, editedB]);
+      expect(upsertCount()).toBe(3);
+      expect(transactionCount()).toBe(baseTxns + 2);
+
+      // Same objects again: nothing to write, no transaction at all.
+      await flushPersist([a, editedB]);
+      expect(upsertCount()).toBe(3);
+      expect(transactionCount()).toBe(baseTxns + 2);
+
+      expect((await readTrayRows(null)).find((row) => row.id === b.id)?.capture.matchReviewReason).toBe('edited');
+    });
+
+    it('a new scan at the top writes one row; the others keep their sort keys', async () => {
+      const rows = captures(5);
+      await flushPersist(rows);
+      const before = await readTrayRows(null);
+
+      const newest = makeCapture({ id: 'newest' });
+      await flushPersist([newest, ...rows]);
+      expect(upsertCount()).toBe(6);
+
+      const after = await readTrayRows(null);
+      expect(after.map((row) => row.id)).toEqual(['newest', ...rows.map((row) => row.id)]);
+      expect(after.slice(1).map((row) => row.sortKey)).toEqual(before.map((row) => row.sortKey));
+    });
+
+    it('a price pick on one row rewrites only that row', async () => {
+      const [a, b] = captures(2);
+      await flushPersist([a, b], new Map());
+      const pick = {
+        variantKey: 'holofoil',
+        variantLabel: 'Holofoil',
+        conditionCode: 'lightly_played' as const,
+        conditionShortLabel: 'LP',
+        marketPrice: 4.2,
+      };
+      await flushPersist([a, b], new Map([[b.id, pick]]));
+      expect(upsertCount()).toBe(3);
+      expect((await readTrayRows(null)).find((row) => row.id === b.id)?.priceSelection).toEqual(pick);
+    });
+
+    it('deletes removed rows and keeps the rest', async () => {
+      const [a, b, c] = captures(3);
+      await flushPersist([a, b, c]);
+      await flushPersist([a, c]);
+      expect(await storedIds()).toEqual([a.id, c.id]);
+      expect(upsertCount()).toBe(3);
+    });
+
+    it('removing many rows at once is one transaction', async () => {
+      const rows = captures(200);
+      await flushPersist(rows);
+      const beforeTxns = transactionCount();
+      await flushPersist(rows.slice(0, 50));
+      expect(transactionCount()).toBe(beforeTxns + 1);
+      expect(await storedIds()).toHaveLength(50);
+    });
+
+    it('Clear All is a single delete statement', async () => {
+      await flushPersist(captures(200));
+      const logBefore = __fakeSQLiteLog().length;
+      await flushPersist([]);
+      const statements = __fakeSQLiteLog().slice(logBefore);
+      expect(statements).toEqual(['DELETE FROM scan_tray_rows WHERE owner_key = ?']);
+      expect(await storedIds()).toEqual([]);
+    });
+
+    it('skips loading rows and rows with no normalized image', async () => {
+      const loading = makeCapture({ id: 'loading', isLoadingCandidates: true });
+      const imageless = makeCapture({ id: 'imageless', normalizedImageUri: null });
+      const ready = makeCapture({ id: 'ready' });
+      await flushPersist([loading, imageless, ready]);
+      expect(await storedIds()).toEqual(['ready']);
+    });
+
+    it('a failed write rolls back entirely and is retried by the next write', async () => {
+      const [a, b] = captures(2);
+      let inserts = 0;
+      // Fail on the SECOND row: the first row's insert must roll back with it.
+      __setFakeSQLiteFault((sql) => sql.startsWith('INSERT INTO scan_tray_rows') && (inserts += 1) === 2);
+      await flushPersist([a, b]);
+      __setFakeSQLiteFault(null);
+      expect(await storedIds()).toEqual([]);
+
+      // Same rows, no change since: still written, because nothing was committed.
+      await flushPersist([a, b]);
+      expect(await storedIds()).toEqual([a.id, b.id]);
+    });
+  });
+
+  describe('no cap', () => {
+    it('persists and reloads 300 rows in order, none evicted', async () => {
+      setRecentCapturesOwner('user-a');
+      const rows = captures(300);
+      await flushPersist(rows);
+      const loaded = await hydrate('user-a');
+      expect(loaded.items.map((item) => item.id)).toEqual(rows.map((row) => row.id));
+    });
+
+    it('keeps every candidate and the active pick, however deep', async () => {
+      const paged = makeCapture({
+        id: 'paged',
+        candidates: makeCandidates(30),
+        activeCandidateIndex: 25,
+        totalCandidateCount: 42,
+      });
+      await flushPersist([paged]);
+      const [loaded] = (await hydrate(null)).items;
+      expect(loaded.candidates).toEqual(paged.candidates);
+      expect(loaded.activeCandidateIndex).toBe(25);
+      expect(loaded.totalCandidateCount).toBe(42);
+    });
+
+    it('clamps an active index that points past its own candidate array', async () => {
+      await seedTrayRows(null, [{ ...makeCapture({ id: 'broken', candidates: makeCandidates(3) }), activeCandidateIndex: 9 }]);
+      const [loaded] = (await hydrate(null)).items;
+      expect(loaded.activeCandidateIndex).toBe(2);
+    });
+  });
+
+  describe('load', () => {
+    it('returns an empty tray when nothing is stored', async () => {
+      const loaded = await hydrate('user-a');
+      expect(loaded.items).toEqual([]);
+      expect(loaded.priceSelections.size).toBe(0);
+    });
+
+    it('rebuilds session-only flags on restored rows', async () => {
+      await flushPersist([makeCapture({ id: 'a', recentlyAdded: true, hasTrackedSelectionEvent: true })]);
+      const [row] = (await hydrate(null)).items;
+      expect(row).toEqual(expect.objectContaining({
+        hasTrackedSelectionEvent: false,
+        isLoadingCandidates: false,
+        recentlyAdded: false,
+        shownAtMs: null,
+      }));
+    });
+
+    it('drops an undecodable row and deletes it on the next write', async () => {
+      await flushPersist(captures(2));
+      await trayDb.applyTrayChanges(null, [{
+        id: 'corrupt',
+        sortKey: 0.5,
+        mode: 'raw',
+        normalizedImageUri: null,
+        sourceImageUri: null,
+        binderPageId: null,
+        activeCardId: null,
+        activeCardName: null,
+        captureJson: '{not json',
+        priceSelectionJson: null,
+      }], []);
+      const loaded = await hydrate(null);
+      expect(loaded.items.map((item) => item.id)).toEqual(['cap-0', 'cap-1']);
+
+      await flushPersist([makeCapture({ id: 'new' }), ...loaded.items]);
+      expect(await storedIds()).toEqual(['new', 'cap-0', 'cap-1']);
+    });
+
+    it('does not probe image files (that runs after paint)', async () => {
+      await flushPersist(captures(20));
+      (FileSystem.getInfoAsync as jest.Mock).mockClear();
+      await hydrate(null);
+      expect(FileSystem.getInfoAsync).not.toHaveBeenCalled();
+    });
+
+    it('the first write after a load rewrites nothing that is unchanged', async () => {
+      setRecentCapturesOwner('user-a');
+      await flushPersist(captures(10));
+      const loaded = await hydrate('user-a');
+      const before = upsertCount();
+      await flushPersist(loaded.items);
+      expect(upsertCount()).toBe(before);
+    });
+  });
+
+  describe('account scoping', () => {
+    it('never returns another owner\'s rows', async () => {
+      await seedTrayRows('user-a', [makeCapture({ id: 'a-row' })]);
+      await seedTrayRows('user-b', [makeCapture({ id: 'b-row' })]);
+      const loaded = await hydrate('user-a');
+      expect(loaded.items.map((item) => item.id)).toEqual(['a-row']);
+    });
+
+    it('an account switch clears the previous account\'s rows and choices', async () => {
+      setRecentCapturesOwner('user-a');
+      const kept = makeCapture({ id: 'kept' });
+      await flushPersist([kept], new Map([['kept', {
+        variantKey: 'normal',
+        variantLabel: 'Normal',
+        conditionCode: 'near_mint',
+        conditionShortLabel: 'NM',
+        marketPrice: 1,
+      }]]));
+
+      const asB = await hydrate('user-b');
+      expect(asB.items).toHaveLength(0);
+      expect(asB.priceSelections.size).toBe(0);
+      // Gone, not hidden: switching back does not bring them back (today's policy).
+      expect((await hydrate('user-a')).items).toHaveLength(0);
+    });
+
+    it('a signed-in account does not see the signed-out tray', async () => {
+      setRecentCapturesOwner(null);
+      await flushPersist([makeCapture({ id: 'guest-row' })]);
+      expect((await hydrate('user-a')).items).toHaveLength(0);
+    });
+
+    it('a snapshot taken for one account is never written under another', async () => {
+      setRecentCapturesOwner('user-a');
+      schedulePersist([makeCapture({ id: 'a-row' })]);
+      setRecentCapturesOwner('user-b');
+      await settleDebouncedWrite();
+      expect(await storedIds('user-b')).toEqual([]);
+    });
+  });
+
+  describe('price selections', () => {
     const holofoilLP = {
       variantKey: 'holofoil',
       variantLabel: 'Holofoil',
@@ -183,743 +390,263 @@ describe('recent-captures-persistence', () => {
       marketPrice: 4.2,
     };
 
-    it('round-trips the choices with the rows and prunes ids that no longer exist', async () => {
-      const kept = makeCapture({ id: 'kept', normalizedImageUri: `${RECENT_CAPTURES_DIR}kept.jpg` });
-      mockedFs.__seedFile(kept.normalizedImageUri!);
+    it('round-trips with the rows; choices for rows not in the tray are not stored', async () => {
       setRecentCapturesOwner('user-a');
-
-      const selections = new Map([
-        ['kept', holofoilLP],
-        // A row that was swiped away (or never persisted): its choice must not
-        // linger in storage forever.
-        ['gone', { ...holofoilLP, variantKey: 'normal', variantLabel: 'Normal' }],
-      ]);
-      schedulePersist([kept], selections);
+      schedulePersist([makeCapture({ id: 'kept' })], new Map([['kept', holofoilLP], ['gone', holofoilLP]]));
       await settleDebouncedWrite();
 
-      const envelope = await readEnvelope();
-      expect(envelope.ownerKey).toBe('user-a');
-      expect((envelope as { priceSelections?: Record<string, unknown> }).priceSelections).toEqual({
-        kept: holofoilLP,
-      });
-
-      __resetRecentCapturesPersistenceForTests();
-      setRecentCapturesOwner('user-a');
-      const loaded = await loadPersistedTraySnapshot();
+      const loaded = await hydrate('user-a');
       expect(loaded.items.map((item) => item.id)).toEqual(['kept']);
       expect(loaded.priceSelections.get('kept')).toEqual(holofoilLP);
       expect(loaded.priceSelections.has('gone')).toBe(false);
     });
 
-    it('keeps the last known choices on a rows-only write (Clear All / legacy re-stamp paths)', async () => {
-      const kept = makeCapture({ id: 'kept', normalizedImageUri: `${RECENT_CAPTURES_DIR}kept.jpg` });
-      mockedFs.__seedFile(kept.normalizedImageUri!);
-      setRecentCapturesOwner('user-a');
-
-      schedulePersist([kept], new Map([['kept', holofoilLP]]));
-      await settleDebouncedWrite();
-
-      // Same rows, no selections argument: nothing is dropped.
-      await flushPersist([kept]);
-      const envelope = await readEnvelope();
-      expect((envelope as { priceSelections?: Record<string, unknown> }).priceSelections).toEqual({
-        kept: holofoilLP,
-      });
-    });
-
-    it('does not rehydrate another account\'s choices', async () => {
-      const kept = makeCapture({ id: 'kept', normalizedImageUri: `${RECENT_CAPTURES_DIR}kept.jpg` });
-      mockedFs.__seedFile(kept.normalizedImageUri!);
-      setRecentCapturesOwner('user-a');
-      schedulePersist([kept], new Map([['kept', holofoilLP]]));
-      await settleDebouncedWrite();
-
-      __resetRecentCapturesPersistenceForTests();
-      setRecentCapturesOwner('user-b');
-      const loaded = await loadPersistedTraySnapshot();
-      expect(loaded.items).toHaveLength(0);
-      expect(loaded.priceSelections.size).toBe(0);
+    it('a rows-only write keeps the last known choices', async () => {
+      const kept = makeCapture({ id: 'kept' });
+      await flushPersist([kept], new Map([['kept', holofoilLP]]));
+      await flushPersist([{ ...kept, matchReviewReason: 'edited' }]);
+      expect((await readTrayRows(null))[0].priceSelection).toEqual(holofoilLP);
     });
   });
 
-  describe('schedulePersist + flushPersist', () => {
-    it('debounces writes and persists only non-loading items', async () => {
-      const loading = makeCapture({ id: 'loading', isLoadingCandidates: true });
-      const ready = makeCapture({ id: 'ready' });
-      mockedFs.__seedFile(ready.normalizedImageUri!);
-
-      schedulePersist([loading, ready]);
-      schedulePersist([loading, ready]); // second call should be coalesced
-      expect(await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY)).toBeNull();
-
+  describe('scheduling', () => {
+    it('debounces writes into one transaction', async () => {
+      const writes = jest.spyOn(trayDb, 'applyTrayChanges');
+      const [a, b] = captures(2);
+      schedulePersist([a]);
+      schedulePersist([a, b]);
+      expect(writes).not.toHaveBeenCalled();
       await settleDebouncedWrite();
-
-      const raw = await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY);
-      expect(raw).not.toBeNull();
-      const envelope = JSON.parse(raw!);
-      expect(envelope.version).toBe(PERSIST_ENVELOPE_VERSION);
-      expect(envelope.items).toHaveLength(1);
-      expect(envelope.items[0].id).toBe('ready');
+      expect(writes).toHaveBeenCalledTimes(1);
+      expect(await storedIds()).toEqual([a.id, b.id]);
     });
-
-    it('flushPersist([]) writes the empty state immediately (for Clear All)', async () => {
-      const ready = makeCapture();
-      mockedFs.__seedFile(ready.normalizedImageUri!);
-      schedulePersist([ready]);
-      await settleDebouncedWrite();
-
-      // Clear All passes [] explicitly — overwrite now, don't wait for debounce.
-      await flushPersist([]);
-      const raw = await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY);
-      const envelope = JSON.parse(raw!);
-      expect(envelope.items).toHaveLength(0);
-    });
-
-    it('argument-less flushPersist does NOT clobber a settled tray (unmount on nav)', async () => {
-      const ready = makeCapture();
-      mockedFs.__seedFile(ready.normalizedImageUri!);
-      schedulePersist([ready]);
-      await settleDebouncedWrite();
-
-      // The debounce has settled (nothing pending). An unmount flush with no
-      // explicit snapshot must leave the persisted tray intact — previously it
-      // wrote [] and wiped every scan on each page bounce.
-      await flushPersist();
-      const raw = await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY);
-      const envelope = JSON.parse(raw!);
-      expect(envelope.items).toHaveLength(1);
-      expect(envelope.items[0].id).toBe(ready.id);
-    });
-
-    it('flushPersist(tray) persists the live tray on unmount', async () => {
-      const ready = makeCapture({ id: 'live' });
-      mockedFs.__seedFile(ready.normalizedImageUri!);
-
-      // No prior debounced write — the unmount flush is the only persist.
-      await flushPersist([ready]);
-      const raw = await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY);
-      const envelope = JSON.parse(raw!);
-      expect(envelope.items).toHaveLength(1);
-      expect(envelope.items[0].id).toBe('live');
-    });
-  });
-
-  describe('debounce timing', () => {
-    const storedIds = async (): Promise<string[] | null> => {
-      const raw = await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY);
-      return raw ? (JSON.parse(raw).items as { id: string }[]).map((item) => item.id) : null;
-    };
-    const flushMicrotasks = async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    };
-    const seeded = (id: string) => {
-      const capture = makeCapture({ id, normalizedImageUri: `${RECENT_CAPTURES_DIR}${id}.jpg` });
-      mockedFs.__seedFile(capture.normalizedImageUri!);
-      return capture;
-    };
 
     it('restarts the timer on every schedule during a burst', async () => {
-      const a = seeded('a');
-      const b = seeded('b');
+      const writes = jest.spyOn(trayDb, 'applyTrayChanges');
+      const [a, b] = captures(2);
       schedulePersist([a]);
       jest.advanceTimersByTime(PERSIST_DEBOUNCE_MS - 100);
       schedulePersist([a, b]);
-      // The first schedule's window has passed, but the second restarted it.
       jest.advanceTimersByTime(200);
       jest.advanceTimersByTime(1);
-      await flushMicrotasks();
-      expect(await storedIds()).toBeNull();
+      await drain();
+      expect(writes).not.toHaveBeenCalled();
 
       await settleDebouncedWrite();
-      expect(await storedIds()).toEqual(['a', 'b']);
-      expect(AsyncStorage.setItem).toHaveBeenCalledTimes(1);
+      expect(writes).toHaveBeenCalledTimes(1);
+      expect(await storedIds()).toEqual([a.id, b.id]);
     });
 
     it('writes at the max-wait even if the burst never pauses', async () => {
+      const writes = jest.spyOn(trayDb, 'applyTrayChanges');
       const rows: RecentCapture[] = [];
-      // A pocket every ~1s never lets the 1.5s debounce settle.
       for (let elapsed = 0; elapsed < PERSIST_MAX_WAIT_MS; elapsed += 1000) {
-        rows.push(seeded(`p${elapsed}`));
+        rows.push(makeCapture({ id: `p${elapsed}` }));
         schedulePersist([...rows]);
         jest.advanceTimersByTime(1000);
         jest.advanceTimersByTime(1);
-        await flushMicrotasks();
+        await drain();
       }
-      expect(AsyncStorage.setItem).toHaveBeenCalledTimes(1);
+      expect(writes).toHaveBeenCalledTimes(1);
       expect(await storedIds()).toEqual(rows.map((row) => row.id));
     });
 
     it('writes the latest tray, including changes made while waiting for idle', async () => {
-      const a = seeded('a');
-      const b = seeded('b');
+      const [a, b] = captures(2);
       schedulePersist([a]);
       jest.advanceTimersByTime(PERSIST_DEBOUNCE_MS);
-      // Debounce fired; the write is parked until idle. This newer tray must win.
       schedulePersist([a, b]);
       jest.advanceTimersByTime(1);
-      await flushMicrotasks();
-      expect(await storedIds()).toEqual(['a', 'b']);
-      expect(AsyncStorage.setItem).toHaveBeenCalledTimes(1);
+      await drain();
+      expect(await storedIds()).toEqual([a.id, b.id]);
     });
 
     it('flushes the pending tray when the app leaves the foreground', async () => {
-      const a = seeded('a');
-      schedulePersist([a]);
+      const writes = jest.spyOn(trayDb, 'applyTrayChanges');
+      schedulePersist([makeCapture({ id: 'a' })]);
       const listener = (AppState.addEventListener as jest.Mock).mock.calls.at(-1)?.[1] as
         | ((state: string) => void)
         | undefined;
       expect(listener).toBeDefined();
       listener!('background');
-      await flushMicrotasks();
+      await drain();
       expect(await storedIds()).toEqual(['a']);
 
-      // The cancelled debounce must not write again.
       await settleDebouncedWrite();
-      expect(AsyncStorage.setItem).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('serialization cache', () => {
-    it('produces byte-identical JSON to an uncached stringify, before and after edits', async () => {
-      setRecentCapturesOwner('user-a');
-      const plain = makeCapture({ id: 'plain', candidates: makeCandidates(3), totalCandidateCount: 3 });
-      const paged = makeCapture({
-        id: 'paged',
-        candidates: makeCandidates(30),
-        activeCandidateIndex: 25,
-        totalCandidateCount: 40,
-        matchConfidence: 'low',
-        normalizedImageDimensions: { width: 630, height: 880 },
-      });
-      const loading = makeCapture({ id: 'loading', isLoadingCandidates: true });
-      const selections = new Map([
-        ['plain', {
-          variantKey: 'holofoil',
-          variantLabel: 'Holofoil "quoted"',
-          conditionCode: 'near_mint' as const,
-          conditionShortLabel: 'NM',
-          marketPrice: null,
-        }],
-      ]);
-      const first = __serializeTrayEnvelopeForTests({ items: [plain, paged, loading], priceSelections: selections }, 'user-a');
-      expect(first.cached).toBe(first.uncached);
-
-      // Warm cache + one replaced row: still identical, and the edit shows up.
-      const edited = { ...paged, activeCandidateIndex: 2 };
-      const second = __serializeTrayEnvelopeForTests({ items: [plain, edited], priceSelections: new Map() }, null);
-      expect(second.cached).toBe(second.uncached);
-      expect(JSON.parse(second.cached).items[1].activeCandidateIndex).toBe(2);
-
-      // And it round-trips through the real write + load path.
-      mockedFs.__seedFile(plain.normalizedImageUri!);
-      await flushPersist([plain, paged], selections);
-      expect(await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY)).toBe(
-        __serializeTrayEnvelopeForTests({ items: [plain, paged], priceSelections: selections }, 'user-a').uncached,
-      );
-      const loaded = await loadPersistedTraySnapshot();
-      expect(loaded.items.map((item) => item.id)).toEqual(['plain', 'paged']);
-      expect(loaded.items[1].candidates).toHaveLength(26);
-      expect(loaded.priceSelections.get('plain')).toEqual(selections.get('plain'));
-    });
-  });
-
-  describe('loadPersistedTray', () => {
-    it('returns an empty array when nothing is stored', async () => {
-      const result = await loadPersistedTray();
-      expect(result).toEqual([]);
+      expect(writes).toHaveBeenCalledTimes(1);
     });
 
-    it('drops items whose files no longer exist', async () => {
-      const survives = makeCapture({ id: 'survives', normalizedImageUri: `${RECENT_CAPTURES_DIR}survives.jpg` });
-      const evicted = makeCapture({ id: 'evicted', normalizedImageUri: `${RECENT_CAPTURES_DIR}evicted.jpg` });
-      mockedFs.__seedFile(survives.normalizedImageUri!);
-      // Note: do not seed `evicted` — its file is "missing".
-
-      schedulePersist([survives, evicted]);
+    it('argument-less flushPersist does NOT clobber a settled tray (unmount on nav)', async () => {
+      schedulePersist([makeCapture({ id: 'a' })]);
       await settleDebouncedWrite();
-
-      const loaded = await loadPersistedTray();
-      expect(loaded).toHaveLength(1);
-      expect(loaded[0].id).toBe('survives');
-      // Ephemeral fields must reset on rehydrate.
-      expect(loaded[0].isLoadingCandidates).toBe(false);
-      expect(loaded[0].isAddingToInventory).toBe(false);
-      expect(loaded[0].recentlyAdded).toBe(false);
-      expect(loaded[0].hasTrackedSelectionEvent).toBe(false);
-    });
-
-    it('drops everything and clears storage on version mismatch', async () => {
-      await AsyncStorage.setItem(
-        RECENT_CAPTURES_STORAGE_KEY,
-        JSON.stringify({ version: 99, items: [{ id: 'x' }] }),
-      );
-      const loaded = await loadPersistedTray();
-      expect(loaded).toEqual([]);
-      const raw = await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY);
-      expect(raw).toBeNull();
-    });
-
-    it('treats corrupt JSON as empty without throwing', async () => {
-      await AsyncStorage.setItem(RECENT_CAPTURES_STORAGE_KEY, '{not valid json');
-      const loaded = await loadPersistedTray();
-      expect(loaded).toEqual([]);
-    });
-  });
-
-  describe('account scoping', () => {
-    it('stamps writes with the current account owner', async () => {
-      const cap = makeCapture();
-      mockedFs.__seedFile(cap.normalizedImageUri!);
-      setRecentCapturesOwner('user-a');
-      await flushPersist([cap]);
-
-      const envelope = JSON.parse((await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY))!);
-      expect(envelope.ownerKey).toBe('user-a');
-    });
-
-    it('keeps the tray when reloaded under the same account', async () => {
-      const cap = makeCapture();
-      mockedFs.__seedFile(cap.normalizedImageUri!);
-      setRecentCapturesOwner('user-a');
-      await flushPersist([cap]);
-
-      setRecentCapturesOwner('user-a');
-      const loaded = await loadPersistedTray();
-      expect(loaded).toHaveLength(1);
-      expect(loaded[0].id).toBe(cap.id);
-    });
-
-    it('clears the tray + its images when loaded under a DIFFERENT account', async () => {
-      const cap = makeCapture();
-      mockedFs.__seedFile(cap.normalizedImageUri!);
-      setRecentCapturesOwner('user-a');
-      await flushPersist([cap]);
-
-      // Switching accounts: a new owner loads the tray.
-      setRecentCapturesOwner('user-b');
-      const loaded = await loadPersistedTray();
-
-      expect(loaded).toEqual([]);
-      // Storage wiped and the previous account's image swept off disk.
-      expect(await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY)).toBeNull();
-      expect(mockedFs.__getFiles().has(cap.normalizedImageUri!)).toBe(false);
-    });
-
-    it('clears when a signed-in account loads a signed-out (null-owner) tray', async () => {
-      const cap = makeCapture();
-      mockedFs.__seedFile(cap.normalizedImageUri!);
-      setRecentCapturesOwner(null); // signed out
-      await flushPersist([cap]);
-
-      setRecentCapturesOwner('user-a'); // now signed in
-      const loaded = await loadPersistedTray();
-      expect(loaded).toEqual([]);
-    });
-
-    it('adopts a legacy (unstamped) tray and re-stamps it for the current account', async () => {
-      const cap = makeCapture();
-      mockedFs.__seedFile(cap.normalizedImageUri!);
-      // Pre-upgrade envelope: no ownerKey field at all.
-      await AsyncStorage.setItem(
-        RECENT_CAPTURES_STORAGE_KEY,
-        JSON.stringify({
-          version: PERSIST_ENVELOPE_VERSION,
-          items: [
-            {
-              id: cap.id,
-              scanID: cap.scanID,
-              mode: 'raw',
-              uri: cap.uri,
-              normalizedImageUri: cap.normalizedImageUri,
-              candidates: [],
-              activeCandidateIndex: 0,
-              totalCandidateCount: 0,
-              matchReviewDisposition: null,
-              matchReviewReason: null,
-              slabContext: null,
-              normalizedImageDimensions: null,
-              sourceImageCrop: null,
-              sourceImageDimensions: null,
-              sourceImageRotationDegrees: 0,
-            },
-          ],
-        }),
-      );
-
-      setRecentCapturesOwner('user-a');
-      const loaded = await loadPersistedTray();
-      expect(loaded).toHaveLength(1); // adopted, not cleared
-
-      // The legacy tray was re-stamped with the current account so a later switch
-      // to another account clears it. (loadPersistedTray re-writes fire-and-forget.)
-      await Promise.resolve();
-      await Promise.resolve();
-      const envelope = JSON.parse((await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY))!);
-      expect(envelope.ownerKey).toBe('user-a');
-    });
-  });
-
-  describe('copyToScansDir', () => {
-    it('copies a source uri into the persistent scans dir', async () => {
-      mockedFs.__seedFile('file:///cache/tmp.jpg', 4096);
-      const dest = await copyToScansDir('file:///cache/tmp.jpg', 'cap-99');
-      expect(dest).toBe(`${RECENT_CAPTURES_DIR}cap-99.jpg`);
-      expect(mockedFs.__getFiles().has(dest!)).toBe(true);
-    });
-
-    it('returns the same uri without copying when source is already persisted', async () => {
-      const alreadyPersisted = `${RECENT_CAPTURES_DIR}cap-2.jpg`;
-      const dest = await copyToScansDir(alreadyPersisted, 'cap-2');
-      expect(dest).toBe(alreadyPersisted);
-      expect((FileSystem.copyAsync as jest.Mock).mock.calls.length).toBe(0);
-    });
-
-    it('returns null on copy failure', async () => {
-      (FileSystem.copyAsync as jest.Mock).mockRejectedValueOnce(new Error('disk full'));
-      const dest = await copyToScansDir('file:///cache/tmp.jpg', 'cap-3');
-      expect(dest).toBeNull();
-    });
-
-    it('writes raw-source variant with a -src suffix', async () => {
-      mockedFs.__seedFile('file:///cache/raw.jpg', 8192);
-      const dest = await copyToScansDir('file:///cache/raw.jpg', 'cap-4', 'raw', 'slabs');
-      expect(dest).toBe(`${RECENT_CAPTURES_DIR}cap-4-src.jpg`);
-    });
-  });
-
-  describe('deleteScanFile', () => {
-    it('deletes files that live inside the scans dir', async () => {
-      const uri = `${RECENT_CAPTURES_DIR}cap-x.jpg`;
-      mockedFs.__seedFile(uri);
-      await deleteScanFile(uri, 'swipe');
-      expect(mockedFs.__getFiles().has(uri)).toBe(false);
-    });
-
-    it('does nothing for uris outside the scans dir', async () => {
-      await deleteScanFile('file:///cache/random.jpg', 'swipe');
-      expect((FileSystem.deleteAsync as jest.Mock).mock.calls.length).toBe(0);
-    });
-  });
-
-  describe('sweepOrphanScans', () => {
-    it('deletes files whose id is not in the keep set, leaves the rest', async () => {
-      mockedFs.__seedFile(`${RECENT_CAPTURES_DIR}keep.jpg`);
-      mockedFs.__seedFile(`${RECENT_CAPTURES_DIR}keep-src.jpg`);
-      mockedFs.__seedFile(`${RECENT_CAPTURES_DIR}orphan.jpg`);
-      mockedFs.__seedFile(`${RECENT_CAPTURES_DIR}orphan-src.jpg`);
-
-      await sweepOrphanScans(new Set(['keep']));
-
-      const remaining = Array.from(mockedFs.__getFiles().keys()).sort();
-      expect(remaining).toEqual([
-        `${RECENT_CAPTURES_DIR}keep-src.jpg`,
-        `${RECENT_CAPTURES_DIR}keep.jpg`,
-      ]);
-    });
-  });
-
-  describe('ensureScansDir', () => {
-    it('makes the directory only when it does not already exist', async () => {
-      await ensureScansDir();
-      expect((FileSystem.makeDirectoryAsync as jest.Mock).mock.calls).toEqual([
-        [RECENT_CAPTURES_DIR, { intermediates: true }],
-      ]);
-
-      // Second call should be a no-op thanks to the cached flag.
-      (FileSystem.makeDirectoryAsync as jest.Mock).mockClear();
-      await ensureScansDir();
-      expect((FileSystem.makeDirectoryAsync as jest.Mock).mock.calls.length).toBe(0);
-    });
-  });
-
-  describe('candidate truncation', () => {
-    it('persists only the first page of candidates but keeps totalCandidateCount', async () => {
-      // A capture the user paged through in the change-card picker: the live
-      // array grew 10 -> 30, but only the head belongs in storage.
-      const paged = makeCapture({
-        candidates: makeCandidates(30),
-        totalCandidateCount: 87,
-      });
-      mockedFs.__seedFile(paged.normalizedImageUri!);
-
-      await flushPersist([paged]);
-
-      const envelope = await readEnvelope();
-      expect(envelope.items[0].candidates).toHaveLength(PERSISTED_CANDIDATES_MAX);
-      // The picker still knows how many exist server-side and can refetch.
-      expect(envelope.items[0].totalCandidateCount).toBe(87);
-      // The stored slice is the HEAD of the ranked list, so `loadMoreCandidates`
-      // paging with `offset = candidates.length` stays correct.
-      const stored = envelope.items[0].candidates as { id: string }[];
-      expect(stored[0].id).toBe('cand-0');
-      expect(stored[stored.length - 1].id).toBe(`cand-${PERSISTED_CANDIDATES_MAX - 1}`);
-    });
-
-    it('extends the persisted prefix so a deep selection is never orphaned', async () => {
-      // User paged to candidate 25 and selected it. A flat slice(0, 10) would
-      // drop the selected card entirely, so the prefix stretches to include it.
-      const deepSelection = makeCapture({
-        activeCandidateIndex: 25,
-        candidates: makeCandidates(30),
-        totalCandidateCount: 30,
-      });
-      mockedFs.__seedFile(deepSelection.normalizedImageUri!);
-
-      await flushPersist([deepSelection]);
-
-      const envelope = await readEnvelope();
-      expect(envelope.items[0].candidates).toHaveLength(26);
-      expect(envelope.items[0].activeCandidateIndex).toBe(25);
-    });
-
-    it('round-trips the active selection through save + load', async () => {
-      const deepSelection = makeCapture({
-        activeCandidateIndex: 25,
-        candidates: makeCandidates(30),
-        totalCandidateCount: 30,
-      });
-      mockedFs.__seedFile(deepSelection.normalizedImageUri!);
-
-      await flushPersist([deepSelection]);
-      const loaded = await loadPersistedTray();
-
-      expect(loaded).toHaveLength(1);
-      expect(loaded[0].activeCandidateIndex).toBe(25);
-      // The selection still resolves to the card the user actually picked.
-      expect(loaded[0].candidates[loaded[0].activeCandidateIndex].id).toBe('cand-25');
-      expect(loaded[0].totalCandidateCount).toBe(30);
-    });
-
-    it('shallow selections persist exactly one page', async () => {
-      const shallow = makeCapture({
-        activeCandidateIndex: 3,
-        candidates: makeCandidates(30),
-        totalCandidateCount: 30,
-      });
-      mockedFs.__seedFile(shallow.normalizedImageUri!);
-
-      await flushPersist([shallow]);
-      const loaded = await loadPersistedTray();
-
-      expect(loaded[0].candidates).toHaveLength(PERSISTED_CANDIDATES_MAX);
-      expect(loaded[0].activeCandidateIndex).toBe(3);
-    });
-
-    it('still loads a pre-truncation envelope carrying 30 candidates (no version bump)', async () => {
-      // Truncation did NOT change the stored schema shape, so envelopes written
-      // by the previous build must load untouched — a version bump here would
-      // wipe every user's tray on upgrade.
-      const cap = makeCapture();
-      mockedFs.__seedFile(cap.normalizedImageUri!);
-      setRecentCapturesOwner('user-a');
-      await AsyncStorage.setItem(
-        RECENT_CAPTURES_STORAGE_KEY,
-        JSON.stringify({
-          version: PERSIST_ENVELOPE_VERSION,
-          ownerKey: 'user-a',
-          items: [
-            {
-              id: cap.id,
-              scanID: cap.scanID,
-              mode: 'raw',
-              uri: cap.uri,
-              normalizedImageUri: cap.normalizedImageUri,
-              candidates: makeCandidates(30),
-              activeCandidateIndex: 22,
-              totalCandidateCount: 30,
-              matchReviewDisposition: null,
-              matchReviewReason: null,
-              slabContext: null,
-              normalizedImageDimensions: null,
-              sourceImageCrop: null,
-              sourceImageDimensions: null,
-              sourceImageRotationDegrees: 0,
-            },
-          ],
-        }),
-      );
-
-      const loaded = await loadPersistedTray();
-      expect(loaded).toHaveLength(1);
-      expect(loaded[0].candidates).toHaveLength(30);
-      expect(loaded[0].activeCandidateIndex).toBe(22);
-      expect(loaded[0].candidates[22].id).toBe('cand-22');
-    });
-
-    it('clamps an active index that points past its own candidate array', async () => {
-      const cap = makeCapture();
-      mockedFs.__seedFile(cap.normalizedImageUri!);
-      setRecentCapturesOwner('user-a');
-      await AsyncStorage.setItem(
-        RECENT_CAPTURES_STORAGE_KEY,
-        JSON.stringify({
-          version: PERSIST_ENVELOPE_VERSION,
-          ownerKey: 'user-a',
-          items: [
-            {
-              id: cap.id,
-              scanID: cap.scanID,
-              mode: 'raw',
-              uri: cap.uri,
-              normalizedImageUri: cap.normalizedImageUri,
-              candidates: makeCandidates(4),
-              activeCandidateIndex: 25, // impossible; must not rehydrate as-is
-              totalCandidateCount: 30,
-              matchReviewDisposition: null,
-              matchReviewReason: null,
-              slabContext: null,
-              normalizedImageDimensions: null,
-              sourceImageCrop: null,
-              sourceImageDimensions: null,
-              sourceImageRotationDegrees: 0,
-            },
-          ],
-        }),
-      );
-
-      const loaded = await loadPersistedTray();
-      expect(loaded[0].activeCandidateIndex).toBe(3);
-      expect(loaded[0].candidates[loaded[0].activeCandidateIndex]).toBeDefined();
+      await flushPersist();
+      expect(await storedIds()).toEqual(['a']);
     });
   });
 
   describe('write collisions', () => {
+    function gateFirstWrite() {
+      const real = trayDb.applyTrayChanges;
+      let release: (() => void) | null = null;
+      const spy = jest.spyOn(trayDb, 'applyTrayChanges').mockImplementationOnce(
+        (...args) => new Promise<boolean>((resolve) => {
+          release = () => {
+            void real(...args).then(resolve);
+          };
+        }),
+      );
+      return { spy, release: () => release!() };
+    }
+
     it('does not lose a write that collides with an in-flight write', async () => {
-      // The regression this guards: writePersistedTray used to early-return
-      // while a write was in flight, and schedulePersist had already dropped
-      // its pending snapshot — so the colliding change set vanished. At 150
-      // items writes take hundreds of ms, so the casualty is the last scan of
-      // a burst.
-      const first = makeCapture({ id: 'first', normalizedImageUri: `${RECENT_CAPTURES_DIR}first.jpg` });
-      const second = makeCapture({ id: 'second', normalizedImageUri: `${RECENT_CAPTURES_DIR}second.jpg` });
-      mockedFs.__seedFile(first.normalizedImageUri!);
-      mockedFs.__seedFile(second.normalizedImageUri!);
-
-      const setItem = AsyncStorage.setItem as jest.Mock;
-      const realSetItem = setItem.getMockImplementation()!;
-      let releaseFirstWrite: (() => void) | null = null;
-      setItem.mockImplementationOnce((key: string, value: string) => new Promise<void>((resolve) => {
-        releaseFirstWrite = () => {
-          void realSetItem(key, value);
-          resolve();
-        };
-      }));
-
+      const [first, second] = captures(2);
+      const gate = gateFirstWrite();
       const firstWrite = flushPersist([first]);
-      await Promise.resolve();
-      expect(releaseFirstWrite).not.toBeNull();
-
-      // Collides with the still-unresolved first write.
+      await drain();
       const secondWrite = flushPersist([first, second]);
-      releaseFirstWrite!();
-      await firstWrite;
-      await secondWrite;
-
-      const envelope = await readEnvelope();
-      expect(envelope.items.map((item) => item.id)).toEqual(['first', 'second']);
-      // Both writes actually hit storage: the queued one was drained, not dropped.
-      expect(setItem.mock.calls).toHaveLength(2);
+      gate.release();
+      await Promise.all([firstWrite, secondWrite]);
+      expect(await storedIds()).toEqual([first.id, second.id]);
+      expect(gate.spy).toHaveBeenCalledTimes(2);
     });
 
-    it('coalesces multiple collisions into a single trailing write of the newest state', async () => {
-      const a = makeCapture({ id: 'a', normalizedImageUri: `${RECENT_CAPTURES_DIR}a.jpg` });
-      const b = makeCapture({ id: 'b', normalizedImageUri: `${RECENT_CAPTURES_DIR}b.jpg` });
-      const c = makeCapture({ id: 'c', normalizedImageUri: `${RECENT_CAPTURES_DIR}c.jpg` });
-
-      const setItem = AsyncStorage.setItem as jest.Mock;
-      const realSetItem = setItem.getMockImplementation()!;
-      let releaseFirstWrite: (() => void) | null = null;
-      setItem.mockImplementationOnce((key: string, value: string) => new Promise<void>((resolve) => {
-        releaseFirstWrite = () => {
-          void realSetItem(key, value);
-          resolve();
-        };
-      }));
-
+    it('coalesces multiple collisions into one trailing write of the newest tray', async () => {
+      const [a, b, c] = captures(3);
+      const gate = gateFirstWrite();
       const firstWrite = flushPersist([a]);
-      await Promise.resolve();
+      await drain();
       const collision1 = flushPersist([a, b]);
       const collision2 = flushPersist([a, b, c]);
-      releaseFirstWrite!();
+      gate.release();
       await Promise.all([firstWrite, collision1, collision2]);
-
-      const envelope = await readEnvelope();
-      expect(envelope.items.map((item) => item.id)).toEqual(['a', 'b', 'c']);
-      // Depth-1 queue: the newest snapshot supersedes the older one, so two
-      // collisions produce one trailing write, and the drain loop terminates.
-      expect(setItem.mock.calls).toHaveLength(2);
+      expect(await storedIds()).toEqual([a.id, b.id, c.id]);
+      expect(gate.spy).toHaveBeenCalledTimes(2);
     });
   });
 
-  describe('filesystem concurrency', () => {
-    it('bounds concurrent getInfoAsync probes when rehydrating a large tray', async () => {
-      const captures = Array.from({ length: 60 }, (_unused, index) => makeCapture({
-        id: `cap-${index}`,
-        normalizedImageUri: `${RECENT_CAPTURES_DIR}cap-${index}.jpg`,
-        uri: `${RECENT_CAPTURES_DIR}cap-${index}.jpg`,
-      }));
-      captures.forEach((capture) => mockedFs.__seedFile(capture.normalizedImageUri!));
-      await flushPersist(captures);
+  describe('assignSortKeys', () => {
+    const keysFor = (ids: string[], stored: Record<string, number>) => assignSortKeys(ids, (id) => stored[id]);
 
+    it('numbers a fresh tray top-down', () => {
+      expect(keysFor(['a', 'b', 'c'], {})).toEqual([3, 2, 1]);
+    });
+
+    it('places new rows above, between and below stored ones without moving them', () => {
+      const keys = keysFor(['top', 'x', 'mid', 'y', 'bottom'], { x: 10, y: 4 });
+      expect(keys[1]).toBe(10);
+      expect(keys[3]).toBe(4);
+      expect(keys[0]).toBeGreaterThan(10);
+      expect(keys[2]).toBeGreaterThan(4);
+      expect(keys[2]).toBeLessThan(10);
+      expect(keys[4]).toBeLessThan(4);
+    });
+
+    it('renumbers when stored keys are out of order or a gap is exhausted', () => {
+      expect(keysFor(['a', 'b'], { a: 1, b: 2 })).toEqual([2, 1]);
+      expect(keysFor(['a', 'new', 'b'], { a: 1 + 1e-9, b: 1 })).toEqual([3, 2, 1]);
+    });
+  });
+
+  describe('image files', () => {
+    it('copyToScansDir copies into the scans dir, -src suffix for raw sources', async () => {
+      mockedFs.__seedFile('file:///cache/tmp.jpg', 4096);
+      expect(await copyToScansDir('file:///cache/tmp.jpg', 'cap-99')).toBe(`${RECENT_CAPTURES_DIR}cap-99.jpg`);
+      expect(await copyToScansDir('file:///cache/tmp.jpg', 'cap-4', 'raw', 'slabs')).toBe(`${RECENT_CAPTURES_DIR}cap-4-src.jpg`);
+    });
+
+    it('copyToScansDir passes through already-durable uris and returns null on failure', async () => {
+      const durable = `${RECENT_CAPTURES_DIR}cap-2.jpg`;
+      expect(await copyToScansDir(durable, 'cap-2')).toBe(durable);
+      expect(FileSystem.copyAsync).not.toHaveBeenCalled();
+      (FileSystem.copyAsync as jest.Mock).mockRejectedValueOnce(new Error('disk full'));
+      expect(await copyToScansDir('file:///cache/tmp.jpg', 'cap-3')).toBeNull();
+    });
+
+    it('deleteScanFile only touches the scans dir', async () => {
+      const uri = `${RECENT_CAPTURES_DIR}cap-x.jpg`;
+      mockedFs.__seedFile(uri);
+      await deleteScanFile(uri, 'swipe');
+      expect(mockedFs.__getFiles().has(uri)).toBe(false);
+      await deleteScanFile('file:///cache/random.jpg', 'swipe');
+      expect(FileSystem.deleteAsync).toHaveBeenCalledTimes(1);
+    });
+
+    it('ensureScansDir makes the directory once', async () => {
+      await ensureScansDir();
+      await ensureScansDir();
+      expect((FileSystem.makeDirectoryAsync as jest.Mock).mock.calls).toEqual([
+        [RECENT_CAPTURES_DIR, { intermediates: true }],
+      ]);
+    });
+
+    it('findCapturesWithMissingImages reports rows whose image is gone, with bounded probes', async () => {
+      const rows = captures(60);
+      rows.slice(1).forEach((row) => mockedFs.__seedFile(row.normalizedImageUri!));
       const getInfo = FileSystem.getInfoAsync as jest.Mock;
       const realGetInfo = getInfo.getMockImplementation()!;
       let inFlight = 0;
-      let peakInFlight = 0;
+      let peak = 0;
       getInfo.mockImplementation(async (uri: string) => {
         inFlight += 1;
-        peakInFlight = Math.max(peakInFlight, inFlight);
-        // Yield a few microtasks so overlapping calls actually overlap.
+        peak = Math.max(peak, inFlight);
         await Promise.resolve();
         await Promise.resolve();
         inFlight -= 1;
         return realGetInfo(uri);
       });
+      expect([...await findCapturesWithMissingImages(rows)]).toEqual(['cap-0']);
+      expect(peak).toBeGreaterThan(1);
+      expect(peak).toBeLessThanOrEqual(FS_CONCURRENCY_LIMIT);
+    });
 
-      try {
-        const loaded = await loadPersistedTray();
-        expect(loaded).toHaveLength(60);
-        expect(peakInFlight).toBeGreaterThan(1); // still parallel, not serialized
-        expect(peakInFlight).toBeLessThanOrEqual(FS_CONCURRENCY_LIMIT);
-      } finally {
-        getInfo.mockImplementation(realGetInfo);
-      }
+    it('sweepOrphanScans keeps files of stored rows and live rows, deletes the rest', async () => {
+      setRecentCapturesOwner('user-a');
+      await flushPersist([makeCapture({ id: 'stored' })]);
+      ['stored', 'stored-src', 'live', 'orphan', 'orphan-src'].forEach((name) => {
+        mockedFs.__seedFile(`${RECENT_CAPTURES_DIR}${name}.jpg`);
+      });
+      await sweepOrphanScans(new Set(['live']));
+      expect([...mockedFs.__getFiles().keys()].sort()).toEqual([
+        `${RECENT_CAPTURES_DIR}live.jpg`,
+        `${RECENT_CAPTURES_DIR}stored-src.jpg`,
+        `${RECENT_CAPTURES_DIR}stored.jpg`,
+      ]);
+    });
+
+    it('sweepOrphanScans lands a pending write before deciding what is orphaned', async () => {
+      schedulePersist([makeCapture({ id: 'fresh' })]);
+      mockedFs.__seedFile(`${RECENT_CAPTURES_DIR}fresh.jpg`);
+      await sweepOrphanScans();
+      expect(mockedFs.__getFiles().has(`${RECENT_CAPTURES_DIR}fresh.jpg`)).toBe(true);
+    });
+
+    it('sweepOrphanScans deletes nothing without a DB', async () => {
+      jest.spyOn(trayDb, 'listOwnerTrayRowIds').mockResolvedValueOnce(null);
+      mockedFs.__seedFile(`${RECENT_CAPTURES_DIR}unknown.jpg`);
+      await sweepOrphanScans();
+      expect(mockedFs.__getFiles().size).toBe(1);
     });
 
     it('bounds concurrent deletes during the orphan sweep', async () => {
       for (let index = 0; index < 60; index += 1) {
         mockedFs.__seedFile(`${RECENT_CAPTURES_DIR}orphan-${index}.jpg`);
       }
-
       const deleteAsync = FileSystem.deleteAsync as jest.Mock;
       const realDelete = deleteAsync.getMockImplementation()!;
       let inFlight = 0;
-      let peakInFlight = 0;
+      let peak = 0;
       deleteAsync.mockImplementation(async (uri: string, options?: unknown) => {
         inFlight += 1;
-        peakInFlight = Math.max(peakInFlight, inFlight);
+        peak = Math.max(peak, inFlight);
         await Promise.resolve();
         await Promise.resolve();
         inFlight -= 1;
         return realDelete(uri, options);
       });
-
-      try {
-        await sweepOrphanScans(new Set());
-        expect(mockedFs.__getFiles().size).toBe(0);
-        expect(peakInFlight).toBeGreaterThan(1);
-        expect(peakInFlight).toBeLessThanOrEqual(FS_CONCURRENCY_LIMIT);
-      } finally {
-        deleteAsync.mockImplementation(realDelete);
-      }
+      await sweepOrphanScans();
+      expect(mockedFs.__getFiles().size).toBe(0);
+      expect(peak).toBeGreaterThan(1);
+      expect(peak).toBeLessThanOrEqual(FS_CONCURRENCY_LIMIT);
     });
-  });
-
-  it('exposes the agreed-upon cap', () => {
-    // Raised 50 -> 150 (2026-08): the old cap was silently evicting scans (and
-    // deleting their images) mid-session for high-volume users. 150 is the
-    // measured-safe ceiling for a NON-virtualized tray; raising it further
-    // requires virtualization work, not just a bigger number here.
-    expect(RECENT_CAPTURES_MAX).toBe(150);
   });
 });

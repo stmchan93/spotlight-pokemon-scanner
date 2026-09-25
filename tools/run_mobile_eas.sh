@@ -7,6 +7,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_DIR="$REPO_ROOT/apps/spotlight-rn"
 RELEASE_NOTES_SCRIPT="$REPO_ROOT/tools/release_notes.mjs"
 ENV_RESOLVER_SCRIPT="$REPO_ROOT/tools/mobile_env_resolver.py"
+FINGERPRINT_GUARD="$REPO_ROOT/tools/native_fingerprint_guard.py"
 
 ENVIRONMENT="${1:-}"
 ACTION="${2:-}"
@@ -14,6 +15,7 @@ PLATFORM="${3:-ios}"
 PROFILE="${4:-$ENVIRONMENT}"
 ENV_FILE="${MOBILE_EAS_ENV_FILE:-$APP_DIR/.env.${ENVIRONMENT}}"
 TEMP_ENV_FILE=""
+FINGERPRINT_STATE_FILE=""
 # Drop the four positionals this script reads so anything AFTER them is the
 # caller's own eas-cli flags — see the submit branch, which forwards them.
 shift $(( $# < 4 ? $# : 4 )) || true
@@ -90,6 +92,9 @@ is_enabled_flag() {
 cleanup() {
   if [ -n "$TEMP_ENV_FILE" ] && [ -f "$TEMP_ENV_FILE" ]; then
     rm -f "$TEMP_ENV_FILE"
+  fi
+  if [ -n "$FINGERPRINT_STATE_FILE" ] && [ -f "$FINGERPRINT_STATE_FILE" ]; then
+    rm -f "$FINGERPRINT_STATE_FILE"
   fi
 }
 
@@ -294,8 +299,29 @@ run_update() {
     UPDATE_ARGS+=(--message "$BUILD_MESSAGE")
   fi
 
+  # Refuse an OTA whose native fingerprint differs from the build this
+  # runtimeVersion was cut from (see tools/native_fingerprint_guard.py).
+  python3 "$FINGERPRINT_GUARD" check-update --environment "$ENVIRONMENT" --platform "$PLATFORM"
+
   pnpm dlx eas-cli "${UPDATE_ARGS[@]}"
   verify_channel_head_matches_git_commit "$channel_name" "$PLATFORM" "$expected_commit" >/dev/null
+}
+
+# Fingerprint the tree BEFORE the upload (edits made during a long build must
+# not leak into the record), refuse a build that would put different native code
+# on an existing runtimeVersion, and record the fingerprint once the build
+# succeeds. The record file then needs committing — the clean-worktree check
+# makes the next build/OTA insist on it.
+run_native_build_with_fingerprint() {
+  FINGERPRINT_STATE_FILE="$(create_temp_env_file "$ENVIRONMENT-fingerprint")"
+  python3 "$FINGERPRINT_GUARD" check-build --environment "$ENVIRONMENT" --platform "$PLATFORM" --save-to "$FINGERPRINT_STATE_FILE"
+  pnpm dlx eas-cli "$@"
+  if ! python3 "$FINGERPRINT_GUARD" record --environment "$ENVIRONMENT" --platform "$PLATFORM" --from-file "$FINGERPRINT_STATE_FILE" --via build; then
+    echo "Build succeeded but recording its native fingerprint failed. Record it from the build's commit with:" >&2
+    echo "  python3 tools/native_fingerprint_guard.py record --environment $ENVIRONMENT --platform $PLATFORM --profile $PROFILE --resolve-env --via build --force" >&2
+    exit 1
+  fi
+  echo "Commit tools/native-fingerprints.json (native fingerprint for this $ENVIRONMENT $PLATFORM build)." >&2
 }
 
 if [ "$ACTION" = "update" ]; then
@@ -308,7 +334,8 @@ if [ "$ACTION" = "build" ]; then
   if [ -n "$BUILD_MESSAGE" ]; then
     BUILD_ARGS+=(--message "$BUILD_MESSAGE")
   fi
-  exec pnpm dlx eas-cli "${BUILD_ARGS[@]}"
+  run_native_build_with_fingerprint "${BUILD_ARGS[@]}"
+  exit 0
 fi
 
 if [ "$ACTION" = "release" ]; then
@@ -331,7 +358,8 @@ if [ "$ACTION" = "release" ]; then
       log_testflight_notes_skipped
     fi
   fi
-  exec pnpm dlx eas-cli "${BUILD_ARGS[@]}"
+  run_native_build_with_fingerprint "${BUILD_ARGS[@]}"
+  exit 0
 fi
 
 # Extra args are forwarded (see the `exec` below) so a submit can name the build

@@ -127,9 +127,9 @@ import {
   copyToScansDir,
   deleteScanFile,
   ensureScansDir,
+  findCapturesWithMissingImages,
   flushPersist,
   loadPersistedTraySnapshot,
-  RECENT_CAPTURES_MAX,
   schedulePersist,
   setRecentCapturesOwner,
   sweepOrphanScans,
@@ -210,8 +210,6 @@ import type {
   BinderPageRef,
   RecentCapture,
 } from './scanner-screen-types';
-
-const maxStoredCaptures = RECENT_CAPTURES_MAX;
 
 // Phase 2 raw collector-number OCR (SECONDARY verification only). Default OFF.
 // Enable per-build for on-device latency measurement. Requires the custom dev
@@ -302,11 +300,6 @@ const trayDrawDistancePx = 600;
 const trayClearFooterHeight = trayClearSectionHeight - captureRowGap;
 
 
-// Capture ids already reported as cap-evicted. This function runs INSIDE a
-// tray-store updater; kept idempotent from when that was a React updater that
-// could replay. Bounded by scans per process, so a few hundred ids at worst.
-const reportedCapEvictionIds = new Set<string>();
-
 // Candidate thumbs warmed per scan: the change-card picker's first screenful.
 const prefetchedCandidateThumbCount = 3;
 
@@ -362,28 +355,6 @@ function releaseCaptureScanUris(capture: RecentCapture): string[] {
     (uri): uri is string => Boolean(uri),
   );
   return [...new Set(uris)];
-}
-
-function applyCapEviction(
-  nextItems: RecentCapture[],
-  insertingMode: 'raw' | 'slabs',
-): RecentCapture[] {
-  if (nextItems.length <= maxStoredCaptures) {
-    return nextItems;
-  }
-  const survivors = nextItems.slice(0, maxStoredCaptures);
-  const dropped = nextItems.slice(maxStoredCaptures);
-  dropped.forEach((item) => {
-    if (!reportedCapEvictionIds.has(item.id)) {
-      reportedCapEvictionIds.add(item.id);
-      // The tray filled up and pushed this scan out untouched — the clearest
-      // signal we have that someone scanned a pile and added none of it.
-    }
-    releaseCaptureScanUris(item).forEach((uri) => {
-      void deleteScanFile(uri, 'cap_evict');
-    });
-  });
-  return survivors;
 }
 
 type ScannerScreenProps = {
@@ -1236,12 +1207,11 @@ export function ScannerScreen({
   const { currentSession } = useAuth();
   const trayOwnerKey = currentSession?.user.id ?? null;
 
-  // Rehydrate the tray from disk on first mount. Runs once per scanner-screen
-  // lifecycle; the persistence module's own AsyncStorage read is cheap and
-  // does not block paint (the scanner renders against the empty tray until
-  // this resolves, then state updates and the rows pop in). Also kicks off a
-  // background orphan-file sweep so cap-evicted/force-quit-lost files don't
-  // accumulate forever.
+  // Rehydrate the tray from the tray DB on first mount. Runs once per
+  // scanner-screen lifecycle and does not block paint (the scanner renders
+  // against the empty tray until this resolves, then the rows pop in). After
+  // that, off the startup path: drop rows whose image is gone, and sweep scan
+  // files no row owns so force-quit leftovers don't accumulate.
   // Persistence is gated on this ref: a SECOND mounted scanner instance (the
   // Scan tab pushes a new tabs stack over Wishlist/Insights) starts with an
   // empty tray, and letting it persist before its rehydrate resolved wiped the
@@ -1250,7 +1220,7 @@ export function ScannerScreen({
   const hasHydratedTrayRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
-    // Stamp the active account synchronously before any load/write so loadPersistedTray
+    // Stamp the active account synchronously before any load/write so the tray load
     // can detect an account switch (and clear) and writes are tagged with the right owner.
     setRecentCapturesOwner(trayOwnerKey);
     void (async () => {
@@ -1261,17 +1231,23 @@ export function ScannerScreen({
           return;
         }
         hasHydratedTrayRef.current = true;
-        if (loaded.length === 0) {
-          return;
+        if (loaded.length > 0) {
+          trayStore.setItems((current) => (current.length > 0 ? current : loaded));
+          // The printing/condition choices ride with the rows they belong to —
+          // a corrected printing must survive backing out / a crash exactly like
+          // the scan itself does.
+          if (loadedSelections.size > 0) {
+            trayStore.setPriceSelections((current) => (current.size > 0 ? current : new Map(loadedSelections)));
+          }
+          const missing = await findCapturesWithMissingImages(loaded);
+          if (cancelled) {
+            return;
+          }
+          if (missing.size > 0) {
+            trayStore.removeCaptures(missing);
+          }
         }
-        trayStore.setItems((current) => (current.length > 0 ? current : loaded));
-        // The printing/condition choices ride with the rows they belong to —
-        // a corrected printing must survive backing out / a crash exactly like
-        // the scan itself does.
-        if (loadedSelections.size > 0) {
-          trayStore.setPriceSelections((current) => (current.size > 0 ? current : new Map(loadedSelections)));
-        }
-        void sweepOrphanScans(new Set(loaded.map((item) => item.id)));
+        void sweepOrphanScans(new Set(trayStore.getState().ids));
       } catch {
         // Persistence errors are reported inside the module via PostHog.
         // A failed rehydrate just leaves the tray empty for this session —
@@ -1284,7 +1260,7 @@ export function ScannerScreen({
   }, [trayOwnerKey, trayStore]);
 
   // Persist on every tray change, debounced inside the module so rapid scans
-  // coalesce into one AsyncStorage write. Loading items are skipped by the
+  // coalesce into one tray-DB transaction. Loading items are skipped by the
   // module itself, so the very first persist of any given scan naturally
   // happens after the match resolves. <TrayCommitEffects> runs that effect and
   // keeps these refs on the committed tray for the unmount flush below. Gated
@@ -1881,8 +1857,8 @@ export function ScannerScreen({
     // A deal's discount dies with its deal — 20% off the last customer must
     // never ride into the next one.
     setDiscountPercent(0);
-    // One event carrying how many rows went, not one event per row — a tray
-    // wiped at the cap would otherwise cost as much as the scans themselves.
+    // One event carrying how many rows went, not one event per row — a big
+    // tray would otherwise cost as much as the scans themselves.
 
     const uris: string[] = [];
     trayStore.clear().forEach((capture) => {
@@ -2358,10 +2334,7 @@ export function ScannerScreen({
 
       // Pocket 0 IS the shutter placeholder; the rest go directly beneath it
       // so the tray reads in page order (top-left first).
-      trayStore.setItems((current) => applyCapEviction(
-        insertBinderPocketRows(current, captureId, pocketCount, pageLayout.id),
-        'raw',
-      ));
+      trayStore.setItems((current) => insertBinderPocketRows(current, captureId, pocketCount, pageLayout.id));
 
       const failAllPockets = () => {
         trayStore.setItems((current) => current.map((capture) => {
@@ -2865,7 +2838,7 @@ export function ScannerScreen({
     const guestSessionPromise = isGuest ? ensureGuestSession() : null;
 
     const captureId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    trayStore.setItems((current) => applyCapEviction([
+    trayStore.setItems((current) => [
       {
         activeCandidateIndex: 0,
         candidates: [],
@@ -2890,7 +2863,7 @@ export function ScannerScreen({
         uri: '',
       },
       ...current,
-    ], 'raw'));
+    ]);
 
     let capturedPhotoUri = '';
     let capturedSourceImageCrop: ScanSourceImageCrop | null = null;
@@ -3277,7 +3250,7 @@ export function ScannerScreen({
     setIsCapturing(true);
 
     const captureId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    trayStore.setItems((current) => applyCapEviction([
+    trayStore.setItems((current) => [
       {
         activeCandidateIndex: 0,
         candidates: [],
@@ -3302,7 +3275,7 @@ export function ScannerScreen({
         uri: '',
       },
       ...current,
-    ], 'raw'));
+    ]);
 
     try {
       const normalizedTarget = await loadRawScannerSmokeFixture();

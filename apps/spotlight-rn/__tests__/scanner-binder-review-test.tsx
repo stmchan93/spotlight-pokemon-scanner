@@ -4,13 +4,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
   __resetRecentCapturesPersistenceForTests,
-  PERSIST_ENVELOPE_VERSION,
   RECENT_CAPTURES_DIR,
-  RECENT_CAPTURES_STORAGE_KEY,
 } from '@/features/scanner/recent-captures-persistence';
 import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
 import { __resetScannerTargetConfigForTests } from '@/features/scanner/use-scanner-target-config';
 
+import { readTrayRows, seedTrayRows } from '../test-support/scan-tray-db';
 import { createTestSpotlightRepository, renderWithProviders } from './test-utils';
 
 /*
@@ -21,7 +20,7 @@ import { createTestSpotlightRepository, renderWithProviders } from './test-utils
   selection map, and persistence are all exercised together.
 */
 
-// In-memory AsyncStorage — the scanner tray is rehydrated from it on mount.
+// In-memory AsyncStorage for the scanner's other flags (the tray itself is in the tray DB).
 jest.mock('@react-native-async-storage/async-storage', () => {
   const store = new Map<string, string>();
   return {
@@ -164,24 +163,25 @@ const matrices: Record<string, { variant: string; variantKey: string; conditions
 };
 
 async function seedPersistedPage(priceSelections?: Record<string, unknown>) {
-  await AsyncStorage.setItem(
-    RECENT_CAPTURES_STORAGE_KEY,
-    JSON.stringify({
-      version: PERSIST_ENVELOPE_VERSION,
-      ownerKey: OWNER_ID,
-      items: [
-        pocketRow(0, [cardA]),
-        pocketRow(1, [cardB, cardB2, cardA], 'low'),
-        pocketRow(2, [cardC]),
-      ],
-      ...(priceSelections ? { priceSelections } : {}),
-    }),
+  await seedTrayRows(
+    OWNER_ID,
+    [
+      pocketRow(0, [cardA]),
+      pocketRow(1, [cardB, cardB2, cardA], 'low'),
+      pocketRow(2, [cardC]),
+    ],
+    priceSelections,
   );
 }
 
 async function readPersistedSelections(): Promise<Record<string, { variantLabel: string; conditionShortLabel: string }>> {
-  const raw = await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY);
-  return JSON.parse(raw ?? '{}').priceSelections ?? {};
+  const selections: Record<string, { variantLabel: string; conditionShortLabel: string }> = {};
+  (await readTrayRows(OWNER_ID)).forEach((row) => {
+    if (row.priceSelection) {
+      selections[row.id] = row.priceSelection;
+    }
+  });
+  return selections;
 }
 
 let matrixCalls: string[] = [];

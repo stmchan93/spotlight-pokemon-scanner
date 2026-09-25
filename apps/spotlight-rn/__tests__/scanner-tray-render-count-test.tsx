@@ -3,13 +3,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
   __resetRecentCapturesPersistenceForTests,
-  PERSIST_ENVELOPE_VERSION,
   RECENT_CAPTURES_DIR,
-  RECENT_CAPTURES_STORAGE_KEY,
 } from '@/features/scanner/recent-captures-persistence';
 import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
 import { __resetScannerTargetConfigForTests } from '@/features/scanner/use-scanner-target-config';
 
+import { seedTrayRows } from '../test-support/scan-tray-db';
 import { createTestSpotlightRepository, renderWithProviders } from './test-utils';
 
 /*
@@ -152,14 +151,7 @@ describe('ScannerScreen tray render isolation', () => {
   });
 
   it('patching one scan re-renders only that row, not its siblings or the screen', async () => {
-    await AsyncStorage.setItem(
-      RECENT_CAPTURES_STORAGE_KEY,
-      JSON.stringify({
-        version: PERSIST_ENVELOPE_VERSION,
-        ownerKey: OWNER_ID,
-        items: ROW_IDS.map((id, index) => persistedRow(id, index + 1)),
-      }),
-    );
+    await seedTrayRows(OWNER_ID, ROW_IDS.map((id, index) => persistedRow(id, index + 1)));
     const spotlightRepository = createTestSpotlightRepository({
       getRawPricingMatrix: async (cardId: string) => ({ cardID: cardId, currencyCode: 'USD', variants: [] }),
     });

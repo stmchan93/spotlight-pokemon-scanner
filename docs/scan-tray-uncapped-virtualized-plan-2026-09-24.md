@@ -1,6 +1,6 @@
 # Scan tray: uncapped + virtualized — plan (2026-09-24)
 
-Status: PLANNED, not started. Goal from the owner: the scan tray is a real
+Status (2026-09-24): P0 + P1 shipped; P2+P3 BUILT on expo-sqlite (not per-row JSON) — awaiting the staging native build (runtime 0.1.3). Guardrail shipped (docs/ota-native-fingerprint-guard-2026-09-24.md). Goal from the owner: the scan tray is a real
 virtualized list and has no card cap; persisted rows keep ALL candidates.
 
 ## Have vs need
@@ -29,3 +29,22 @@ virtualized list and has no card cap; persisted rows keep ALL candidates.
 
 ## Risks
 Startup time / memory / OS kills on low-end Android; Clear All + Add All over 1000 rows (batch backend calls); price refresh for 1000 rows; iCloud backup size; disk (~300KB/image × 1000).
+
+## 2026-09-24 decision: SQLite instead of per-row JSON files (P2+P3)
+
+Owner chose expo-sqlite (native, needs a build) over per-row JSON files: per-row
+writes in one transaction, atomic Clear All / bulk removal, no hand-rolled
+crash-safety, one file instead of N. Built:
+- `tray-db.ts` (async API, one FIFO queue, WAL, `PRAGMA user_version` migrations),
+  table `scan_tray_rows` (summary columns + `capture_json` with ALL candidates),
+  index `(owner_key, sort_key)`; `tray-row-codec.ts`; `tray-sqlite-module.ts`
+  (guarded loader: on a binary without expo-sqlite the tray is memory-only).
+- Writes: only changed rows (identity diff) per flush, one transaction; debounce
+  semantics unchanged. No cap, no eviction, no candidate trimming.
+- `legacy-tray-migration.ts`: one-time import of the old AsyncStorage blob
+  (idempotent, blob deleted only after commit). DELETE this file one release after
+  every active binary is on runtime >= 0.1.3 / 1.3.0.
+- Rollout: runtime bumped 0.1.2 -> 0.1.3 (staging) and 1.2.0 -> 1.3.0 (prod),
+  bundled with the iOS notification extension (card art) in one native build.
+- Open: DB lives in Documents/SQLite (iCloud-backed, like scans/); excluding it
+  needs a small native step. Loading is all-rows (no paging yet).

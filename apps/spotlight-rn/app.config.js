@@ -263,8 +263,12 @@ function withPlugin(existingPlugins, pluginEntry) {
 // the bump to 1.2.0 made the mismatch pointless as well as confusing. Changing
 // it costs nothing while no production binary exists; once one ships, moving
 // this again strands its OTAs.
+// 2026-09-24: expo-sqlite (scan tray DB) + the iOS notification extension are
+// native changes, so both runtimes moved on: 0.1.2 -> 0.1.3 (app.json, staging)
+// and 1.2.0 -> 1.3.0 (production). OTAs from here on reach only binaries built
+// with them; older binaries keep their last compatible update.
 const SPOTLIGHT_RUNTIME_VERSION_BY_ENV = {
-  production: '1.2.0',
+  production: '1.3.0',
 };
 
 function resolveSpotlightRuntimeVersionForEnv(resolvedAppEnv, baseConfig = baseExpoConfig) {
@@ -409,6 +413,10 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
       },
     },
   ]);
+
+  // iOS Notification Service Extension (targets/notification-service/): lets a
+  // push carry card art (Expo `richContent.image`). Android needs nothing.
+  resolvedPlugins = withPlugin(resolvedPlugins, '@bacons/apple-targets');
 
   // Per-environment display name (home-screen / App Store label). Prod keeps the
   // clean brand name; non-prod builds are suffixed so testers can tell which app

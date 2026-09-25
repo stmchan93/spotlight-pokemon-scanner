@@ -644,3 +644,13 @@ jest.mock('expo-file-system/legacy', () => ({
   documentDirectory: 'file:///mock-docs/',
   cacheDirectory: 'file:///mock-cache/',
 }));
+
+// The scan tray's SQLite store runs on a node:sqlite-backed fake (real SQL,
+// in-memory, keyed by DB name). Emptied before every test so trays never leak
+// between tests; schema survives, like a cleared app.
+jest.mock('@/features/scanner/tray-sqlite-module', () => ({
+  loadTraySQLite: () => require('./test-support/fake-expo-sqlite'),
+}));
+beforeEach(() => {
+  require('./test-support/fake-expo-sqlite').__resetFakeSQLite();
+});
