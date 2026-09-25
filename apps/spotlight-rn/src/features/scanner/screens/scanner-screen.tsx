@@ -79,6 +79,18 @@ import {
 
 import { useTabsPage } from '@/contexts/tabs-page-context';
 import {
+  createTrayStore,
+  shallowArrayEqual,
+  useTrayCapture,
+  useTrayIds,
+  useTrayPriceSelection,
+  useTrayPriceSummary,
+  useTraySelector,
+  type TrayPriceSelections,
+  type TrayState,
+  type TrayStore,
+} from '@/features/scanner/tray-store';
+import {
   saveScanCandidateReviewSession,
   type ScanSourceImageCrop,
   type ScanSourceImageDimensions,
@@ -293,10 +305,8 @@ const trayRenderWindowBucketPx = 464;
 
 
 // Capture ids already reported as cap-evicted. This function runs INSIDE a
-// setRecentCaptures updater, and React may invoke an updater more than once for
-// a single commit (StrictMode in dev, re-render during concurrent work). File
-// deletion tolerates that; an analytics count does not. Bounded by scans per
-// process, so a few hundred ids at worst.
+// tray-store updater; kept idempotent from when that was a React updater that
+// could replay. Bounded by scans per process, so a few hundred ids at worst.
 const reportedCapEvictionIds = new Set<string>();
 
 // Candidate thumbs warmed per scan: the change-card picker's first screenful.
@@ -862,6 +872,95 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
   );
 });
 
+type CaptureTrayRowContainerProps = Omit<CaptureTrayRowProps, 'capture' | 'selection' | 'variants'> & {
+  captureId: string;
+  trayStore: TrayStore;
+  variantsByCardId: ReadonlyMap<string, RawPricingMatrixVariant[]>;
+};
+
+// Reads its own capture + price pick from the tray store, so a patch to one
+// scan re-renders one row. A new `variantsByCardId` re-runs every container,
+// but the memoized row below only re-renders when ITS printings changed.
+const CaptureTrayRowContainer = memo(function CaptureTrayRowContainer({
+  captureId,
+  trayStore,
+  variantsByCardId,
+  ...rowProps
+}: CaptureTrayRowContainerProps) {
+  const liveCapture = useTrayCapture(trayStore, captureId);
+  const selection = useTrayPriceSelection(trayStore, captureId);
+  // Keep the last capture if the store dropped it before the list unmounted
+  // this row, so the exit animation never plays over an empty row.
+  const lastCaptureRef = useRef(liveCapture);
+  if (liveCapture) {
+    lastCaptureRef.current = liveCapture;
+  }
+  const capture = liveCapture ?? lastCaptureRef.current;
+  if (!capture) {
+    return null;
+  }
+  const candidate = activeCandidateForCapture(capture);
+  const variants = (candidate ? variantsByCardId.get(candidate.cardId) : null) ?? emptyVariants;
+  return <CaptureTrayRow {...rowProps} capture={capture} selection={selection} variants={variants} />;
+});
+
+// Tray-wide effects that need every row: mirrors the committed tray into the
+// screen's refs and schedules persistence — the same post-commit effect that
+// used to live on the screen, now in a leaf so row patches don't re-render it.
+function TrayCommitEffects({
+  hasHydratedTrayRef,
+  priceSelectionRef,
+  recentCapturesRef,
+  trayStore,
+}: {
+  hasHydratedTrayRef: MutableRefObject<boolean>;
+  priceSelectionRef: MutableRefObject<TrayPriceSelections>;
+  recentCapturesRef: MutableRefObject<RecentCapture[]>;
+  trayStore: TrayStore;
+}) {
+  const recentCaptures = useTraySelector(trayStore, selectTrayItems);
+  const priceSelection = useTraySelector(trayStore, selectTrayPriceSelections);
+  useEffect(() => {
+    recentCapturesRef.current = recentCaptures;
+    priceSelectionRef.current = priceSelection;
+    if (hasHydratedTrayRef.current) {
+      schedulePersist(recentCaptures.map(withDurableScanUris), priceSelection);
+    }
+  }, [hasHydratedTrayRef, priceSelection, priceSelectionRef, recentCaptures, recentCapturesRef]);
+  return null;
+}
+
+// Screen-level tray selectors. Module scope so their identity is stable and
+// `useTraySelector` only recomputes when the tray itself changes.
+const selectTrayItems = (state: TrayState) => state.items;
+const selectTrayPriceSelections = (state: TrayState) => state.priceSelections;
+const selectTrayPageIds = (state: TrayState) => state.items.map((capture) => capture.binderPage?.pageId);
+const selectFirstRowHasBinderPage = (state: TrayState) => Boolean(state.items[0]?.binderPage);
+const selectTrayScanCount = (state: TrayState) => state.items.filter(
+  (capture) => !capture.binderPage?.empty,
+).length;
+// Count for the bulk confirm copy: resolved (non-loading, matched) scans.
+const selectBulkEligibleCount = (state: TrayState) => state.items.filter(
+  (capture) => !capture.isLoadingCandidates && !capture.recentlyAdded && activeCandidateForCapture(capture) != null,
+).length;
+// One matrix read per distinct card in the tray, through the shared cache.
+// Raw rows only — a slab's price comes from its grade, not a printing.
+const selectTrayVariantCardIds = (state: TrayState) => {
+  const ids = new Set<string>();
+  state.items.forEach((capture) => {
+    if (capture.mode !== 'raw' || capture.isLoadingCandidates) {
+      return;
+    }
+    const candidate = activeCandidateForCapture(capture);
+    if (candidate) {
+      ids.add(candidate.cardId);
+    }
+  });
+  return [...ids].sort().join(',');
+};
+const emptyPriceSelections: TrayPriceSelections = new Map();
+const selectNoPriceSelections = () => emptyPriceSelections;
+
 export function ScannerScreen({
   onExitToPortfolio,
   onTopLevelSwipeEnabledChange,
@@ -1061,10 +1160,14 @@ export function ScannerScreen({
   // session and the gate stayed stuck closed. Defaults true (focused on mount).
   const [isScreenFocused, setIsScreenFocused] = useState(true);
   const [inventoryEntries, setInventoryEntries] = useState<InventoryCardEntry[]>([]);
-  const [recentCaptures, setRecentCaptures] = useState<RecentCapture[]>([]);
-  // Mirrors `recentCaptures` so the unmount flush reads the latest tray without
-  // a stale closure (see the persist effect below).
-  const recentCapturesRef = useRef<RecentCapture[]>([]);
+  // The tray's rows + price picks live in a per-screen store (tray-store.ts);
+  // the screen subscribes only to the id list and the values it draws.
+  const [trayStore] = useState(() => createTrayStore());
+  const trayIds = useTrayIds(trayStore);
+  const trayCount = trayIds.length;
+  // The COMMITTED tray, mirrored by <TrayCommitEffects> after each commit, so
+  // handlers and the unmount flush read it without a stale closure.
+  const recentCapturesRef = useRef<RecentCapture[]>(trayStore.getState().items);
   const [openActionRailKeys, setOpenActionRailKeys] = useState<Record<string, true>>({});
   const [isTrayExpanded, setIsTrayExpanded] = useState(false);
   // Top of the windowed-row viewport in scroll-content px, bucketed (see
@@ -1112,7 +1215,6 @@ export function ScannerScreen({
   const [zoomFactor, setZoomFactor, zoomHydrated] = useScannerZoomFactor();
   const [isScanTargetSheetOpen, setIsScanTargetSheetOpen] = useState(false);
   const [ebayTrayState, setEbayTrayState] = useState<Map<string, { loading: boolean; url: string | null }>>(new Map());
-  const [priceSelection, setPriceSelection] = useState<Map<string, ScanPriceSheetSelection>>(new Map());
   // Printings per card, for the tray rows' variant chips. Read through the
   // shared 60s cache, so the price sheet and the change-card picker reuse
   // whatever a row already fetched (and vice versa).
@@ -1171,12 +1273,12 @@ export function ScannerScreen({
         if (loaded.length === 0) {
           return;
         }
-        setRecentCaptures((current) => (current.length > 0 ? current : loaded));
+        trayStore.setItems((current) => (current.length > 0 ? current : loaded));
         // The printing/condition choices ride with the rows they belong to —
         // a corrected printing must survive backing out / a crash exactly like
         // the scan itself does.
         if (loadedSelections.size > 0) {
-          setPriceSelection((current) => (current.size > 0 ? current : new Map(loadedSelections)));
+          trayStore.setPriceSelections((current) => (current.size > 0 ? current : new Map(loadedSelections)));
         }
         void sweepOrphanScans(new Set(loaded.map((item) => item.id)));
       } catch {
@@ -1188,22 +1290,15 @@ export function ScannerScreen({
     return () => {
       cancelled = true;
     };
-  }, [trayOwnerKey]);
+  }, [trayOwnerKey, trayStore]);
 
   // Persist on every tray change, debounced inside the module so rapid scans
   // coalesce into one AsyncStorage write. Loading items are skipped by the
   // module itself, so the very first persist of any given scan naturally
-  // happens after the match resolves. The ref mirrors the latest tray so the
-  // unmount flush below can persist it without a stale closure. Gated on
-  // hydration so a fresh instance's empty initial state never clobbers disk.
-  const priceSelectionRef = useRef(priceSelection);
-  useEffect(() => {
-    recentCapturesRef.current = recentCaptures;
-    priceSelectionRef.current = priceSelection;
-    if (hasHydratedTrayRef.current) {
-      schedulePersist(recentCaptures.map(withDurableScanUris), priceSelection);
-    }
-  }, [priceSelection, recentCaptures]);
+  // happens after the match resolves. <TrayCommitEffects> runs that effect and
+  // keeps these refs on the committed tray for the unmount flush below. Gated
+  // on hydration so a fresh instance's empty initial state never clobbers disk.
+  const priceSelectionRef = useRef<TrayPriceSelections>(trayStore.getState().priceSelections);
 
   // What the row SHOWS as its printing: the user's pick, else the first
   // printing (which is what the pill names and what the price already uses).
@@ -1319,7 +1414,7 @@ export function ScannerScreen({
     // uses the saved field-of-view, not the transient 1× default. (Test env seeds
     // ready synchronously, matching isCameraReady.)
     && (zoomHydrated || isTestEnv);
-  const canToggleTray = recentCaptures.length > 0;
+  const canToggleTray = trayCount > 0;
   /*
     THE BINDER REVIEW COUNTS AS "SOMETHING OPEN" — and on Android that is the
     difference between its Add button working and not.
@@ -1345,7 +1440,6 @@ export function ScannerScreen({
   // row set stable means toggling never mounts/unmounts rows, so the rows'
   // Reanimated enter/exit (reserved for genuine add/delete) never fire on a
   // toggle. That mass mount/unmount on every swipe was crashing the tray.
-  const visibleCaptures = recentCaptures;
   const trayExpandedBodyHeight = alignToFourPointGrid(
     Math.max(
       Math.round(windowHeight * 0.85) - rawScannerTrayHeaderHeight - trayBottomInset,
@@ -1359,10 +1453,11 @@ export function ScannerScreen({
   // in BOTH states so a toggle never changes the pinned scroll-content height —
   // that mid-animation height change re-laid-out every mounted row. Collapsed,
   // the surplus height is invisible: the viewport clips to one row.
+  const trayPageIds = useTraySelector(trayStore, selectTrayPageIds, shallowArrayEqual);
   const binderPageGroups = useMemo(() => {
     const groups = new Map<string, { firstCaptureId: string; rowCount: number }>();
-    recentCaptures.forEach((capture) => {
-      const pageId = capture.binderPage?.pageId;
+    trayIds.forEach((captureId, index) => {
+      const pageId = trayPageIds[index];
       if (!pageId) {
         return;
       }
@@ -1370,19 +1465,19 @@ export function ScannerScreen({
       if (group) {
         group.rowCount += 1;
       } else {
-        groups.set(pageId, { firstCaptureId: capture.id, rowCount: 1 });
+        groups.set(pageId, { firstCaptureId: captureId, rowCount: 1 });
       }
     });
     return groups;
-  }, [recentCaptures]);
+  }, [trayIds, trayPageIds]);
   const binderPageHeaderCount = binderPageGroups.size;
-  const trayContentHeight = recentCaptures.length === 0
+  const trayContentHeight = trayCount === 0
     ? 0
-    : (recentCaptures.length * captureRowHeight)
-      + ((recentCaptures.length - 1) * captureRowGap)
+    : (trayCount * captureRowHeight)
+      + ((trayCount - 1) * captureRowGap)
       + (binderPageHeaderCount * (binderPageHeaderHeight + captureRowGap))
       + trayClearSectionHeight;
-  const trayScrollViewportHeight = recentCaptures.length > 0
+  const trayScrollViewportHeight = trayCount > 0
     ? Math.min(trayContentHeight, trayExpandedBodyHeight)
     : Math.max(140, trayExpandedBodyHeight);
   const trayScrollEnabled = trayContentHeight > trayScrollViewportHeight;
@@ -1395,7 +1490,8 @@ export function ScannerScreen({
   // "awkward" binder expand). The collapsed tray instead anchors its scroll
   // just past the first header so the newest ROW fills the one-row viewport;
   // expanding is then a pure clip reveal with zero reflow.
-  const collapsedAnchorOffset = recentCaptures[0]?.binderPage
+  const firstRowHasBinderPage = useTraySelector(trayStore, selectFirstRowHasBinderPage);
+  const collapsedAnchorOffset = firstRowHasBinderPage
     ? binderPageHeaderHeight + captureRowGap
     : 0;
   /**
@@ -1419,7 +1515,7 @@ export function ScannerScreen({
     () => ({ x: 0, y: isTrayExpanded ? 0 : collapsedAnchorOffset }),
     [collapsedAnchorOffset, isTrayExpanded],
   );
-  const shouldLoadInventory = recentCaptures.length > 0 || dataVersion > 0;
+  const shouldLoadInventory = trayCount > 0 || dataVersion > 0;
 
   // Which rows render full content (vs a fixed-height shell): everything
   // intersecting [windowTop − overscan, windowTop + expanded viewport +
@@ -1435,9 +1531,9 @@ export function ScannerScreen({
     const windowTop = Math.max(0, anchoredTop - trayRenderOverscanPx);
     const windowBottom = anchoredTop + trayScrollViewportHeight + trayRenderOverscanPx;
     let nextRowTop = 0;
-    return recentCaptures.map((capture) => {
-      const pageId = capture.binderPage?.pageId;
-      if (pageId && binderPageGroups.get(pageId)?.firstCaptureId === capture.id) {
+    return trayIds.map((captureId, index) => {
+      const pageId = trayPageIds[index];
+      if (pageId && binderPageGroups.get(pageId)?.firstCaptureId === captureId) {
         nextRowTop += binderPageHeaderHeight + captureRowGap;
       }
       const rowTop = nextRowTop;
@@ -1447,8 +1543,9 @@ export function ScannerScreen({
     });
   }, [
     binderPageGroups,
-    recentCaptures,
     trayContentHeight,
+    trayIds,
+    trayPageIds,
     trayRenderWindowTop,
     trayScrollViewportHeight,
   ]);
@@ -1699,7 +1796,7 @@ export function ScannerScreen({
   ]);
 
   useEffect(() => {
-    if (recentCaptures.length === 0 && isTrayExpanded) {
+    if (trayCount === 0 && isTrayExpanded) {
       // Through commitTrayExpandedState, NOT setIsTrayExpanded: the commit
       // path also resets the row-content window and scroll anchor. Collapsing
       // around it once left the window pointing deep into a cleared list, so
@@ -1707,7 +1804,7 @@ export function ScannerScreen({
       // ("SCAN: 1 but no card").
       commitTrayExpandedState(false);
     }
-  }, [commitTrayExpandedState, isTrayExpanded, recentCaptures.length]);
+  }, [commitTrayExpandedState, isTrayExpanded, trayCount]);
 
   // Hold the collapsed anchor as scans land: a binder capture prepending a new
   // page (header + row) or a lane switch changes what sits at the top of the
@@ -1720,12 +1817,12 @@ export function ScannerScreen({
   // past it — iOS lands that in the same frame, Android's scrollTo does not, and
   // the buttons flashed before the row appeared.
   useLayoutEffect(() => {
-    if (isTrayExpanded || recentCaptures.length === 0) {
+    if (isTrayExpanded || trayCount === 0) {
       return;
     }
     trayScrollOffset.value = collapsedAnchorOffset;
     trayScrollRef.current?.scrollTo({ animated: false, y: collapsedAnchorOffset });
-  }, [collapsedAnchorOffset, isTrayExpanded, recentCaptures.length, trayScrollOffset]);
+  }, [collapsedAnchorOffset, isTrayExpanded, trayCount, trayScrollOffset]);
 
   const inventoryByCardId = useMemo(() => {
     const lookup = new Map<string, { entryIds: string[]; quantity: number }>();
@@ -1758,19 +1855,13 @@ export function ScannerScreen({
   // The header TOTAL is the sum of exactly what the rows show: each capture is
   // priced through the SAME `resolveCaptureTrayPrice` the row cell uses, honoring
   // the price-sheet selection (e.g. a Lightly Played comp) instead of the raw
-  // candidate market price. One O(n) pass over the tray with a Map lookup per
-  // capture — no per-row inventory/pricing fetches — memoized on the only two
-  // inputs that can change it, so a 150-item tray recomputes only when the tray
-  // itself or a price selection mutates.
-  const trayPriceSummary = useMemo(
-    () => summarizeTrayPrices(recentCaptures.map(
-      (capture) => resolveCaptureTrayPrice(capture, priceSelection.get(capture.id) ?? null),
-    )),
-    [priceSelection, recentCaptures],
-  );
+  // candidate market price. Per-row prices are cached in the tray store, so a
+  // change re-resolves only the rows it touched; the screen re-renders only
+  // when the summary itself changes.
+  const trayPriceSummary = useTrayPriceSummary(trayStore);
 
   // The two removal paths above run BEFORE trackRowResolved is defined, and both
-  // must keep empty dep lists (the memoized swipe rows depend on it). A ref lets
+  // must keep stable dep lists (the memoized swipe rows depend on it). A ref lets
   // them reach the live callback without taking it as a dependency.
   const trackRowResolvedRef = useRef<(capture: RecentCapture, outcome: ScanRowOutcome) => void>(
     () => {},
@@ -1785,24 +1876,12 @@ export function ScannerScreen({
       trackRowResolvedRef.current(swiped, 'dismissed');
     }
 
-    setRecentCaptures((current) => {
-      const removed = current.find((capture) => capture.id === captureId);
-      if (removed) {
-        releaseCaptureScanUris(removed).forEach((uri) => {
-          void deleteScanFile(uri, 'swipe');
-        });
-      }
-      return current.filter((capture) => capture.id !== captureId);
+    trayStore.removeCaptures(new Set([captureId])).forEach((removed) => {
+      releaseCaptureScanUris(removed).forEach((uri) => {
+        void deleteScanFile(uri, 'swipe');
+      });
     });
-    setPriceSelection((current) => {
-      if (!current.has(captureId)) {
-        return current;
-      }
-      const next = new Map(current);
-      next.delete(captureId);
-      return next;
-    });
-  }, []);
+  }, [trayStore]);
 
   // Deletes an entire binder page: every capture with this pageId leaves the
   // tray in one update, with the same local-file + selection cleanup as a
@@ -1820,16 +1899,8 @@ export function ScannerScreen({
         void deleteScanFile(uri, 'binder_page_delete');
       });
     });
-    setRecentCaptures((current) => current.filter((capture) => !removedIds.has(capture.id)));
-    setPriceSelection((current) => {
-      if (![...removedIds].some((id) => current.has(id))) {
-        return current;
-      }
-      const next = new Map(current);
-      removedIds.forEach((id) => next.delete(id));
-      return next;
-    });
-  }, []);
+    trayStore.removeCaptures(removedIds);
+  }, [trayStore]);
 
   const handleDeleteBinderPage = useCallback((pageId: string, cardCount: number) => {
     Alert.alert(
@@ -1846,22 +1917,10 @@ export function ScannerScreen({
   // as a swipe-delete (free the local scan files + per-capture selection state),
   // but tagged 'added' so telemetry can tell intentional adds from discards.
   const removeCaptureAfterAdd = useCallback((captureId: string) => {
-    setRecentCaptures((current) => {
-      const removed = current.find((capture) => capture.id === captureId);
-      if (removed) {
-        releaseCaptureScanUris(removed).forEach((uri) => {
-          void deleteScanFile(uri, 'added');
-        });
-      }
-      return current.filter((capture) => capture.id !== captureId);
-    });
-    setPriceSelection((current) => {
-      if (!current.has(captureId)) {
-        return current;
-      }
-      const next = new Map(current);
-      next.delete(captureId);
-      return next;
+    trayStore.removeCaptures(new Set([captureId])).forEach((removed) => {
+      releaseCaptureScanUris(removed).forEach((uri) => {
+        void deleteScanFile(uri, 'added');
+      });
     });
     setEbayTrayState((current) => {
       if (!current.has(captureId)) {
@@ -1871,7 +1930,7 @@ export function ScannerScreen({
       next.delete(captureId);
       return next;
     });
-  }, []);
+  }, [trayStore]);
 
   const performClearAllCaptures = useCallback(() => {
     // A deal's discount dies with its deal — 20% off the last customer must
@@ -1880,21 +1939,17 @@ export function ScannerScreen({
     // One event carrying how many rows went, not one event per row — a tray
     // wiped at the cap would otherwise cost as much as the scans themselves.
 
-    setRecentCaptures((current) => {
-      const uris: string[] = [];
-      current.forEach((capture) => {
-        // The vendor case: the row showed a price and they moved on without
-        // touching it. Previously this left no event at all, so ~57% of scans
-        // landed in no bucket and the outcomes never summed to scans attempted.
-        trackRowResolvedRef.current(capture, capture.isLoadingCandidates ? 'evicted' : 'read');
-        uris.push(...releaseCaptureScanUris(capture));
-      });
-      void (async () => {
-        await Promise.all(uris.map((uri) => deleteScanFile(uri, 'clear_all')));
-      })();
-      return [];
+    const uris: string[] = [];
+    trayStore.clear().forEach((capture) => {
+      // The vendor case: the row showed a price and they moved on without
+      // touching it. Previously this left no event at all, so ~57% of scans
+      // landed in no bucket and the outcomes never summed to scans attempted.
+      trackRowResolvedRef.current(capture, capture.isLoadingCandidates ? 'evicted' : 'read');
+      uris.push(...releaseCaptureScanUris(capture));
     });
-    setPriceSelection(new Map());
+    void (async () => {
+      await Promise.all(uris.map((uri) => deleteScanFile(uri, 'clear_all')));
+    })();
     setEbayTrayState(new Map());
     setOpenActionRailKeys({});
     setActivePriceCaptureId(null);
@@ -1903,7 +1958,7 @@ export function ScannerScreen({
     // explicitly with []) so a force-quit right after Clear All can't resurrect
     // just-deleted scans.
     void flushPersist([]);
-  }, []);
+  }, [trayStore]);
 
   const handleClearAllCaptures = useCallback(() => {
     Alert.alert(
@@ -1923,14 +1978,7 @@ export function ScannerScreen({
     }
   }, []);
 
-  const updateRecentCapture = useCallback((
-    captureId: string,
-    transform: (capture: RecentCapture) => RecentCapture,
-  ) => {
-    setRecentCaptures((current) => current.map((capture) => (
-      capture.id === captureId ? transform(capture) : capture
-    )));
-  }, []);
+  const updateRecentCapture = trayStore.patchCapture;
 
   const trackRowResolved = useCallback((capture: RecentCapture, outcome: ScanRowOutcome) => {
     if (capture.hasTrackedSelectionEvent) {
@@ -2264,7 +2312,7 @@ export function ScannerScreen({
       // in the tray and the overlay, so the user sees we looked and found
       // nothing, instead of an Energy card at 0.3 or a silent gap.
       if (matchResult.emptyPocket && matchPayload.binderPage) {
-        setRecentCaptures((current) => current.map((capture) => (
+        trayStore.setItems((current) => current.map((capture) => (
           capture.id === captureId ? markCaptureEmptyPocket(capture) : capture
         )));
         return null;
@@ -2302,7 +2350,7 @@ export function ScannerScreen({
       // keys on BinderPageTokenUnknown); the row itself is already handled.
       return error;
     }
-  }, [applyMatchFailureForCapture, applyMatchSuccessForCapture, spotlightRepository]);
+  }, [applyMatchFailureForCapture, applyMatchSuccessForCapture, spotlightRepository, trayStore]);
 
   /**
    * Binder-page: one captured photo → the page image uploads ONCE
@@ -2365,13 +2413,13 @@ export function ScannerScreen({
 
       // Pocket 0 IS the shutter placeholder; the rest go directly beneath it
       // so the tray reads in page order (top-left first).
-      setRecentCaptures((current) => applyCapEviction(
+      trayStore.setItems((current) => applyCapEviction(
         insertBinderPocketRows(current, captureId, pocketCount, pageLayout.id),
         'raw',
       ));
 
       const failAllPockets = () => {
-        setRecentCaptures((current) => current.map((capture) => {
+        trayStore.setItems((current) => current.map((capture) => {
           if (capture.id !== captureId && !capture.id.startsWith(`${captureId}-p`)) {
             return capture;
           }
@@ -2410,7 +2458,7 @@ export function ScannerScreen({
         if (result && result.targets.length === pocketCount) {
           // All nine crops in one pass over the tray.
           const targetByRowId = new Map(result.targets.map((target, index) => [pocketRowId(index), target]));
-          setRecentCaptures((current) => current.map((capture) => {
+          trayStore.setItems((current) => current.map((capture) => {
             const target = targetByRowId.get(capture.id);
             return target
               ? {
@@ -2734,7 +2782,7 @@ export function ScannerScreen({
       const emptyPockets = new Set(emptyPocketIndexes.filter((index) => index < pocketCount));
       if (emptyPockets.size > 0) {
         const emptyRowIds = new Set([...emptyPockets].map((index) => pocketRowId(index)));
-        setRecentCaptures((current) => current.map((capture) => (
+        trayStore.setItems((current) => current.map((capture) => (
           emptyRowIds.has(capture.id) ? markCaptureEmptyPocket(capture) : capture
         )));
       }
@@ -2811,6 +2859,7 @@ export function ScannerScreen({
     runMatchForCapture,
     scanLane,
     spotlightRepository,
+    trayStore,
     zoomFactor,
   ]);
 
@@ -2871,7 +2920,7 @@ export function ScannerScreen({
     const guestSessionPromise = isGuest ? ensureGuestSession() : null;
 
     const captureId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setRecentCaptures((current) => applyCapEviction([
+    trayStore.setItems((current) => applyCapEviction([
       {
         activeCandidateIndex: 0,
         candidates: [],
@@ -2919,16 +2968,12 @@ export function ScannerScreen({
         mode: isSlab ? 'slabs' : 'raw',
       });
 
-      setRecentCaptures((current) => current.map((capture) => {
-        if (capture.id !== captureId) {
-          return capture;
-        }
-
+      updateRecentCapture(captureId, (capture) => {
         return {
           ...capture,
           mode: isSlab ? 'slabs' : 'raw',
         };
-      }));
+      });
 
       setIsCapturing(false);
 
@@ -2940,11 +2985,7 @@ export function ScannerScreen({
           errorKind: 'source_capture_unavailable',
           mode: isSlab ? 'slabs' : 'raw',
         }));
-        setRecentCaptures((current) => current.map((capture) => {
-          if (capture.id !== captureId) {
-            return capture;
-          }
-
+        updateRecentCapture(captureId, (capture) => {
           return {
             ...capture,
             isLoadingCandidates: false,
@@ -2960,7 +3001,7 @@ export function ScannerScreen({
             sourceImageRotationDegrees: 0,
             uri: photo?.uri ?? '',
           };
-        }));
+        });
         void triggerScannerProcessedHaptic();
         return;
       }
@@ -2987,11 +3028,7 @@ export function ScannerScreen({
       });
       capturedSourceImageCrop = sourceImageCrop;
 
-      setRecentCaptures((current) => current.map((capture) => {
-        if (capture.id !== captureId) {
-          return capture;
-        }
-
+      updateRecentCapture(captureId, (capture) => {
         return {
           ...capture,
           matchReviewDisposition: null,
@@ -3009,7 +3046,7 @@ export function ScannerScreen({
             rawSourceImageDimensions.width > rawSourceImageDimensions.height ? 90 : 0,
           uri: photo.uri,
         };
-      }));
+      });
 
       const normalizeStartedAt = Date.now();
       const previewLayout = {
@@ -3177,11 +3214,7 @@ export function ScannerScreen({
         };
       }
 
-      setRecentCaptures((current) => current.map((capture) => {
-        if (capture.id !== captureId) {
-          return capture;
-        }
-
+      updateRecentCapture(captureId, (capture) => {
         return {
           ...capture,
           mode: isSlab ? 'slabs' : 'raw',
@@ -3193,7 +3226,7 @@ export function ScannerScreen({
           sourceImageRotationDegrees: normalizedTarget.normalizationRotationDegrees,
           uri: photo.uri,
         };
-      }));
+      });
 
       // The match (and the artifact upload it carries) is the first authed call
       // of a guest's life. If the mint failed — anonymous sign-ins off, offline
@@ -3248,11 +3281,7 @@ export function ScannerScreen({
         slabAnalysisMs: slabAnalysisMsForAnalytics,
       }));
       setIsCapturing(false);
-      setRecentCaptures((current) => current.map((capture) => {
-        if (capture.id !== captureId) {
-          return capture;
-        }
-
+      updateRecentCapture(captureId, (capture) => {
         return {
           ...capture,
           isLoadingCandidates: false,
@@ -3267,7 +3296,7 @@ export function ScannerScreen({
           sourceImageRotationDegrees: 0,
           uri: capturedPhotoUri,
         };
-      }));
+      });
       void triggerScannerProcessedHaptic();
     }
   }, [
@@ -3282,8 +3311,10 @@ export function ScannerScreen({
     runBinderPageCapture,
     runMatchForCapture,
     scanLane,
+    trayStore,
     triggerCaptureFlash,
     triggerReticleLock,
+    updateRecentCapture,
     zoomFactor,
   ]);
 
@@ -3301,7 +3332,7 @@ export function ScannerScreen({
     setIsCapturing(true);
 
     const captureId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setRecentCaptures((current) => applyCapEviction([
+    trayStore.setItems((current) => applyCapEviction([
       {
         activeCandidateIndex: 0,
         candidates: [],
@@ -3393,7 +3424,7 @@ export function ScannerScreen({
         normalizeMs: 0,
       }));
     }
-  }, [isCapturing, scanLane, scannerSmokeEnabled, runMatchForCapture, updateRecentCapture]);
+  }, [isCapturing, scanLane, scannerSmokeEnabled, runMatchForCapture, trayStore, updateRecentCapture]);
 
   const setActiveCandidate = useCallback((captureId: string, nextIndex: number) => {
     // Read from the ref, not from state, so the tray rows keep their memoized
@@ -3431,19 +3462,16 @@ export function ScannerScreen({
         }).catch(() => {});
       }
     }
-    setRecentCaptures((current) => current.map((capture) => {
-      if (capture.id !== captureId) {
-        return capture;
-      }
+    updateRecentCapture(captureId, (capture) => {
       const safeIndex = Math.max(0, Math.min(nextIndex, capture.candidates.length - 1));
       if (safeIndex === capture.activeCandidateIndex) {
         return capture;
       }
       return { ...capture, activeCandidateIndex: safeIndex };
-    }));
+    });
     // The stored variant/condition was priced against the PREVIOUS card. Keeping
     // it would show one card's Reverse Holofoil price under another card's name.
-    setPriceSelection((current) => {
+    trayStore.setPriceSelections((current) => {
       if (!current.has(captureId)) {
         return current;
       }
@@ -3451,10 +3479,10 @@ export function ScannerScreen({
       next.delete(captureId);
       return next;
     });
-  }, [spotlightRepository]);
+  }, [spotlightRepository, trayStore, updateRecentCapture]);
 
   const loadMoreCandidates = useCallback(async (captureId: string) => {
-    const capture = recentCaptures.find((entry) => entry.id === captureId);
+    const capture = recentCapturesRef.current.find((entry) => entry.id === captureId);
     if (!capture || !capture.scanID) {
       return;
     }
@@ -3497,7 +3525,7 @@ export function ScannerScreen({
         isLoadingMoreCandidates: false,
       }));
     }
-  }, [recentCaptures, spotlightRepository, updateRecentCapture]);
+  }, [spotlightRepository, updateRecentCapture]);
 
   const openChangeCardPicker = useCallback((captureId: string) => {
     setActiveChangeCaptureId(captureId);
@@ -3522,7 +3550,7 @@ export function ScannerScreen({
   // confirmation so the row plays its reanimated left-slide + fade exit. A
   // failed write reverts the flip and keeps the row in the tray.
   const handleRowWishlist = useCallback(async (captureId: string) => {
-    const capture = recentCaptures.find((entry) => entry.id === captureId);
+    const capture = recentCapturesRef.current.find((entry) => entry.id === captureId);
     const candidate = capture ? activeCandidateForCapture(capture) : null;
     if (!capture || !candidate) {
       return;
@@ -3532,7 +3560,7 @@ export function ScannerScreen({
     const variant = watchVariantForCapture(capture, candidate);
 
     // Instant feedback: flip the pill to WISHLISTED before the network settles.
-    setRecentCaptures((current) => withUpdatedCaptureFavoriteState(current, cardId, true));
+    trayStore.setItems((current) => withUpdatedCaptureFavoriteState(current, cardId, true));
 
     let didSucceed = false;
     try {
@@ -3552,7 +3580,7 @@ export function ScannerScreen({
         error,
       );
       // Revert the optimistic flip and leave the row in the tray to retry.
-      setRecentCaptures((current) => withUpdatedCaptureFavoriteState(current, cardId, false));
+      trayStore.setItems((current) => withUpdatedCaptureFavoriteState(current, cardId, false));
     }
 
     if (didSucceed) {
@@ -3568,10 +3596,10 @@ export function ScannerScreen({
       }, addedConfirmationDurationMs);
       recentlyAddedTimersRef.current.set(captureId, timerId);
     }
-  }, [recentCaptures, refreshData, removeCaptureAfterAdd, spotlightRepository, watchVariantForCapture]);
+  }, [refreshData, removeCaptureAfterAdd, spotlightRepository, trayStore, watchVariantForCapture]);
 
   const handleAddToInventory = useCallback(async (captureId: string) => {
-    const capture = recentCaptures.find((candidate) => candidate.id === captureId);
+    const capture = recentCapturesRef.current.find((candidate) => candidate.id === captureId);
     const activeCandidate = capture ? activeCandidateForCapture(capture) : null;
     if (!capture || !activeCandidate || capture.isLoadingCandidates || capture.isAddingToInventory) {
       return;
@@ -3584,16 +3612,12 @@ export function ScannerScreen({
       mode: capture.mode,
     });
 
-    setRecentCaptures((current) => current.map((entry) => {
-      if (entry.id !== captureId) {
-        return entry;
-      }
-
+    updateRecentCapture(captureId, (entry) => {
       return {
         ...entry,
         isAddingToInventory: true,
       };
-    }));
+    });
 
     const addedAt = new Date().toISOString();
     let previousInventoryEntries: InventoryCardEntry[] = [];
@@ -3608,7 +3632,7 @@ export function ScannerScreen({
     let didSucceed = false;
     try {
       trackRowResolved(capture, 'added');
-      const selectedCondition: DeckConditionCode = priceSelection.get(capture.id)?.conditionCode ?? 'near_mint';
+      const selectedCondition: DeckConditionCode = priceSelectionRef.current.get(capture.id)?.conditionCode ?? 'near_mint';
       const createResponse = await spotlightRepository.createInventoryEntry(
         buildInventoryEntryArgs(
           capture,
@@ -3656,17 +3680,13 @@ export function ScannerScreen({
       });
       logScannerDiagnostic(`[SCANNER] addToInventory failed: ${scannerErrorMessage(error)}`, error);
     } finally {
-      setRecentCaptures((current) => current.map((entry) => {
-        if (entry.id !== captureId) {
-          return entry;
-        }
-
+      updateRecentCapture(captureId, (entry) => {
         return {
           ...entry,
           isAddingToInventory: false,
           recentlyAdded: didSucceed ? true : entry.recentlyAdded,
         };
-      }));
+      });
 
       if (didSucceed) {
         const existingTimer = recentlyAddedTimersRef.current.get(captureId);
@@ -3682,7 +3702,7 @@ export function ScannerScreen({
         recentlyAddedTimersRef.current.set(captureId, timerId);
       }
     }
-  }, [activeCollectionID, rawVariantLabelFor, prependOptimisticInventoryEntry, priceSelection, recentCaptures, refreshData, removeCaptureAfterAdd, spotlightRepository, trackRowResolved]);
+  }, [activeCollectionID, rawVariantLabelFor, prependOptimisticInventoryEntry, refreshData, removeCaptureAfterAdd, spotlightRepository, trackRowResolved, updateRecentCapture]);
 
   // Stable wrapper for the swipe row's "Collection" action so React.memo doesn't
   // re-render every row when handleAddToInventory re-creates on recentCaptures
@@ -3708,7 +3728,7 @@ export function ScannerScreen({
     // Snapshot the resolved watches BEFORE clearing the tray; de-dupe by card +
     // printing so repeat scans of the same printing only watch it once.
     const watches = new Map<string, { cardId: string; variant: string | null }>();
-    for (const capture of recentCaptures) {
+    for (const capture of recentCapturesRef.current) {
       if (capture.isLoadingCandidates || capture.recentlyAdded) {
         continue;
       }
@@ -3748,7 +3768,6 @@ export function ScannerScreen({
     })();
   }, [
     performClearAllCaptures,
-    recentCaptures,
     refreshData,
     spotlightRepository,
     watchVariantForCapture,
@@ -3769,7 +3788,9 @@ export function ScannerScreen({
   // invalidation, with per-entry results so a single bad row still cannot take
   // the rest down.
   const handleBulkAddToCollection = useCallback(() => {
-    const targets = recentCaptures.filter(
+    // Taken before the clear below empties the tray (and its price picks).
+    const selections = priceSelectionRef.current;
+    const targets = recentCapturesRef.current.filter(
       (capture) => !capture.isLoadingCandidates && !capture.recentlyAdded,
     );
 
@@ -3794,7 +3815,7 @@ export function ScannerScreen({
           capture,
           candidate,
           addedAt,
-          priceSelection.get(capture.id)?.conditionCode ?? ('near_mint' as DeckConditionCode),
+          selections.get(capture.id)?.conditionCode ?? ('near_mint' as DeckConditionCode),
           activeCollectionID,
           rawVariantLabelFor(capture, candidate),
         );
@@ -3860,8 +3881,6 @@ export function ScannerScreen({
     rawVariantLabelFor,
     activeCollectionID,
     performClearAllCaptures,
-    priceSelection,
-    recentCaptures,
     refreshData,
     spotlightRepository,
     prependOptimisticInventoryEntry,
@@ -3872,7 +3891,9 @@ export function ScannerScreen({
   // binder page. Rows leave the tray as they land, like a row ADD, so the
   // rest of the session (other pages, single scans) stays put.
   const handleAddBinderPage = useCallback((pageId: string) => {
-    const targets = binderPageRows(recentCaptures, pageId).filter(
+    // Taken up front: rows (and their price picks) leave the tray as they land.
+    const selections = priceSelectionRef.current;
+    const targets = binderPageRows(recentCapturesRef.current, pageId).filter(
       (capture) => !capture.isLoadingCandidates && !capture.recentlyAdded && !!activeCandidateForCapture(capture),
     );
     if (targets.length === 0 || isAddingBinderPage) {
@@ -3906,7 +3927,7 @@ export function ScannerScreen({
         succeeded += 1;
       };
       const entryArgs = (capture: RecentCapture, candidate: CatalogSearchResult) => {
-        const condition: DeckConditionCode = priceSelection.get(capture.id)?.conditionCode ?? 'near_mint';
+        const condition: DeckConditionCode = selections.get(capture.id)?.conditionCode ?? 'near_mint';
         return buildInventoryEntryArgs(
           capture,
           candidate,
@@ -3976,8 +3997,6 @@ export function ScannerScreen({
     rawVariantLabelFor,
     activeCollectionID,
     isAddingBinderPage,
-    priceSelection,
-    recentCaptures,
     refreshData,
     removeCaptureAfterAdd,
     spotlightRepository,
@@ -4063,15 +4082,10 @@ export function ScannerScreen({
 
   // Count for the confirm copy: resolved (non-loading, matched) scans for the add
   // actions; the whole session for remove.
-  const bulkEligibleCount = useMemo(
-    () => recentCaptures.filter(
-      (capture) => !capture.isLoadingCandidates && !capture.recentlyAdded && activeCandidateForCapture(capture) != null,
-    ).length,
-    [recentCaptures],
-  );
+  const bulkEligibleCount = useTraySelector(trayStore, selectBulkEligibleCount);
 
   const activeBulkAction: AddAllMenuAction = addAllConfirm ?? lastBulkActionRef.current;
-  const removeCount = recentCaptures.length;
+  const removeCount = trayCount;
   const itemWord = (count: number) => (count === 1 ? 'item' : 'items');
   const bulkConfirmConfig = activeBulkAction === 'remove'
     ? {
@@ -4153,8 +4167,8 @@ export function ScannerScreen({
     if (existing?.loading) return;
     setEbayTrayState((prev) => new Map(prev).set(captureId, { loading: true, url: null }));
     void spotlightRepository.getCardRecentSales({
-      cardId: recentCaptures.find((c) => c.id === captureId)
-        ? (activeCandidateForCapture(recentCaptures.find((c) => c.id === captureId)!)?.cardId ?? '')
+      cardId: recentCapturesRef.current.find((c) => c.id === captureId)
+        ? (activeCandidateForCapture(recentCapturesRef.current.find((c) => c.id === captureId)!)?.cardId ?? '')
         : '',
       limit: 10,
       refresh: true,
@@ -4176,7 +4190,7 @@ export function ScannerScreen({
       .catch(() => {
         setEbayTrayState((prev) => new Map(prev).set(captureId, { loading: false, url: null }));
       });
-  }, [ebayTrayState, recentCaptures, spotlightRepository]);
+  }, [ebayTrayState, spotlightRepository]);
 
   const toggleTrayExpanded = useCallback(() => {
     if (!canToggleTray) {
@@ -4186,21 +4200,8 @@ export function ScannerScreen({
     commitTrayExpandedState(!isTrayExpanded);
   }, [canToggleTray, commitTrayExpandedState, isTrayExpanded]);
 
-  // One matrix read per distinct card in the tray, through the shared cache.
-  // Raw rows only — a slab's price comes from its grade, not a printing.
-  const trayVariantCardIds = useMemo(() => {
-    const ids = new Set<string>();
-    recentCaptures.forEach((capture) => {
-      if (capture.mode !== 'raw' || capture.isLoadingCandidates) {
-        return;
-      }
-      const candidate = activeCandidateForCapture(capture);
-      if (candidate) {
-        ids.add(candidate.cardId);
-      }
-    });
-    return [...ids].sort().join(',');
-  }, [recentCaptures]);
+  // One matrix read per distinct card in the tray (see selectTrayVariantCardIds).
+  const trayVariantCardIds = useTraySelector(trayStore, selectTrayVariantCardIds);
 
   useEffect(() => {
     const cardIds = trayVariantCardIds ? trayVariantCardIds.split(',') : [];
@@ -4245,24 +4246,24 @@ export function ScannerScreen({
       if (!condition) {
         return;
       }
-      setPriceSelection((current) => {
+      trayStore.setPriceSelections((current) => {
         const next = new Map(current);
         next.set(captureId, buildScanPriceSelection(variant, condition.code, condition.market ?? null));
         return next;
       });
     },
-    [],
+    [trayStore],
   );
 
   const handlePriceSelection = useCallback(
     (captureId: string, selection: ScanPriceSheetSelection) => {
-      setPriceSelection((current) => {
+      trayStore.setPriceSelections((current) => {
         const next = new Map(current);
         next.set(captureId, selection);
         return next;
       });
     },
-    [],
+    [trayStore],
   );
 
   // Binder "Set all": one state commit for the whole page, the same shape the
@@ -4272,13 +4273,13 @@ export function ScannerScreen({
       if (entries.length === 0) {
         return;
       }
-      setPriceSelection((current) => {
+      trayStore.setPriceSelections((current) => {
         const next = new Map(current);
         entries.forEach(({ captureId, selection }) => next.set(captureId, selection));
         return next;
       });
     },
-    [],
+    [trayStore],
   );
 
   const handleClosePriceSheet = useCallback(() => {
@@ -4289,12 +4290,12 @@ export function ScannerScreen({
     if (!activePriceCaptureId) {
       return;
     }
-    const capture = recentCaptures.find((entry) => entry.id === activePriceCaptureId);
+    const capture = recentCapturesRef.current.find((entry) => entry.id === activePriceCaptureId);
     if (!capture) {
       return;
     }
     handleEbayTrayTap(capture.id, capture.slabContext ?? null);
-  }, [activePriceCaptureId, handleEbayTrayTap, recentCaptures]);
+  }, [activePriceCaptureId, handleEbayTrayTap]);
 
   const handleCaptureActionRailVisibilityChange = useCallback((key: string, visible: boolean) => {
     setOpenActionRailKeys((current) => {
@@ -4485,15 +4486,16 @@ export function ScannerScreen({
 
   // Binder page review props, stable across tray updates that don't touch the
   // reviewed page (other pockets landing, unrelated rows).
-  const activeBinderPageRowsRef = useRef<RecentCapture[]>([]);
-  const activeBinderPageRows = useMemo(() => {
-    const next = activeBinderPageId ? binderPageRows(recentCaptures, activeBinderPageId) : [];
-    const previous = activeBinderPageRowsRef.current;
-    const unchanged = next.length === previous.length
-      && next.every((capture, index) => capture === previous[index]);
-    return unchanged ? previous : next;
-  }, [activeBinderPageId, recentCaptures]);
-  activeBinderPageRowsRef.current = activeBinderPageRows;
+  const selectActiveBinderPageRows = useCallback(
+    (state: TrayState) => (activeBinderPageId ? binderPageRows(state.items, activeBinderPageId) : []),
+    [activeBinderPageId],
+  );
+  const activeBinderPageRows = useTraySelector(trayStore, selectActiveBinderPageRows, shallowArrayEqual);
+  // The review needs the price picks only while it is open.
+  const binderReviewPriceSelections = useTraySelector(
+    trayStore,
+    activeBinderPageId ? selectTrayPriceSelections : selectNoPriceSelections,
+  );
   const handleAddBinderPageRef = useRef(handleAddBinderPage);
   handleAddBinderPageRef.current = handleAddBinderPage;
   const gatedAddActiveBinderPage = useMemo(() => gate(() => {
@@ -4502,15 +4504,18 @@ export function ScannerScreen({
     }
   }), [activeBinderPageId, gate]);
   const binderPagePriceLabelFor = useCallback((capture: RecentCapture) => {
-    const { amount, currencyCode } = resolveCaptureTrayPrice(capture, priceSelection.get(capture.id) ?? null);
+    const { amount, currencyCode } = resolveCaptureTrayPrice(
+      capture,
+      binderReviewPriceSelections.get(capture.id) ?? null,
+    );
     return isFinitePrice(amount) ? formatCurrency(amount, currencyCode) : null;
-  }, [priceSelection]);
+  }, [binderReviewPriceSelections]);
   // Same per-capture resolution as the rows and the tray TOTAL, so the page
   // total can never drift from what the tiles show.
   const binderPageTotalLabel = useMemo(() => formatTrayTotal(summarizeTrayPrices(
     activeBinderPageRows.map((capture) =>
-      resolveCaptureTrayPrice(capture, priceSelection.get(capture.id) ?? null)),
-  )), [activeBinderPageRows, priceSelection]);
+      resolveCaptureTrayPrice(capture, binderReviewPriceSelections.get(capture.id) ?? null)),
+  )), [activeBinderPageRows, binderReviewPriceSelections]);
 
   // Collapsed tray: a newly mounted row "advances" in with the slide-from-right
   // enter; expanded: new rows appear in place. Mirrored through a stable ref
@@ -4520,10 +4525,10 @@ export function ScannerScreen({
   const enterAnimationEnabledRef = useRef(!isTrayExpanded);
   enterAnimationEnabledRef.current = !isTrayExpanded;
 
-  const renderCaptureRow = (capture: RecentCapture, index: number) => (
-    <CaptureTrayRow
-      key={capture.id}
-      capture={capture}
+  const renderCaptureRow = (captureId: string, index: number) => (
+    <CaptureTrayRowContainer
+      key={captureId}
+      captureId={captureId}
       enterAnimationEnabledRef={enterAnimationEnabledRef}
       onActionRailVisibilityChange={handleCaptureActionRailVisibilityChange}
       onAddToCollection={gatedRowAddToCollection}
@@ -4534,16 +4539,29 @@ export function ScannerScreen({
       onShowPrice={gatedShowRowPrice}
       onOpenPrintingMenu={gatedOpenPrintingMenu}
       renderContent={trayRowContentVisibility[index] !== false}
-      selection={priceSelection.get(capture.id) ?? null}
-      variants={(() => {
-        const candidate = activeCandidateForCapture(capture);
-        return (candidate ? variantsByCardId.get(candidate.cardId) : null) ?? emptyVariants;
-      })()}
+      trayStore={trayStore}
+      variantsByCardId={variantsByCardId}
     />
   );
 
+  // The one capture each open sheet/menu shows — subscribed by id, so other
+  // rows changing never re-render the screen for them.
+  const activePriceCapture = useTrayCapture(trayStore, activePriceCaptureId);
+  const activePriceSelection = useTrayPriceSelection(trayStore, activePriceCaptureId);
+  const printingMenuCapture = useTrayCapture(trayStore, printingMenuCaptureId);
+  const printingMenuSelection = useTrayPriceSelection(trayStore, printingMenuCaptureId);
+  const changeCapture = useTrayCapture(trayStore, activeChangeCaptureId);
+  const changeCaptureSelection = useTrayPriceSelection(trayStore, activeChangeCaptureId);
+  const trayScanCount = useTraySelector(trayStore, selectTrayScanCount);
+
   return (
     <SafeAreaView edges={['left', 'right']} style={styles.safeArea}>
+      <TrayCommitEffects
+        hasHydratedTrayRef={hasHydratedTrayRef}
+        priceSelectionRef={priceSelectionRef}
+        recentCapturesRef={recentCapturesRef}
+        trayStore={trayStore}
+      />
       {isActiveTab ? <ScannerKeepAwake /> : null}
       <RawScannerCaptureSurface
         cameraRef={cameraRef}
@@ -4775,7 +4793,7 @@ export function ScannerScreen({
               {
                 left: 16,
                 right: 16,
-                bottom: (recentCaptures.length > 0 ? footerReservedHeight : emptyTrayVisualHeight) + 16,
+                bottom: (trayCount > 0 ? footerReservedHeight : emptyTrayVisualHeight) + 16,
               },
             ]}
           >
@@ -4980,14 +4998,14 @@ export function ScannerScreen({
                   testID="scanner-recent-title-surface"
                 >
                   <Text style={styles.trayInfoPillLabel} testID="scanner-recent-title">
-                    {`SCAN: ${recentCaptures.filter((capture) => !capture.binderPage?.empty).length}`}
+                    {`SCAN: ${trayScanCount}`}
                   </Text>
                   {/* Ends the deal in one tap from either tray state. It lives
                       HERE, on the pill that counts this deal's scans and as far
                       from ADD ALL as the row allows, so a fat finger between
                       customers cannot post a stack to the collection instead.
                       Opens the same confirm the menu's Clear row does. */}
-                  {recentCaptures.length > 0 ? (
+                  {trayCount > 0 ? (
                     <Pressable
                       accessibilityLabel="Clear all scans"
                       accessibilityRole="button"
@@ -5008,7 +5026,7 @@ export function ScannerScreen({
                     up. The dropdown flips above its anchor near the screen
                     bottom, which covers the collapsed position. Its Clear row
                     is the same wipe the SCAN pill's ✕ runs. */}
-                {recentCaptures.length > 0 ? (
+                {trayCount > 0 ? (
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Add all scans"
@@ -5066,7 +5084,7 @@ export function ScannerScreen({
           <View
             style={[
               styles.trayBody,
-              recentCaptures.length === 0 ? styles.trayBodyEmpty : null,
+              trayCount === 0 ? styles.trayBodyEmpty : null,
               {
                 paddingBottom: trayBottomInset,
               },
@@ -5074,7 +5092,7 @@ export function ScannerScreen({
             ]}
             testID="scanner-tray-body"
           >
-            {recentCaptures.length === 0 ? (
+            {trayCount === 0 ? (
               <View style={styles.trayEmptyFill} testID="scanner-tray-empty-fill" />
             ) : (
               <Reanimated.View
@@ -5116,16 +5134,16 @@ export function ScannerScreen({
                   ]}
                   testID="scanner-tray-scroll"
                 >
-                  {visibleCaptures.map((capture, index) => {
-                    const pageId = capture.binderPage?.pageId ?? null;
+                  {trayIds.map((captureId, index) => {
+                    const pageId = trayPageIds[index] ?? null;
                     const pageGroup = pageId != null ? binderPageGroups.get(pageId) : undefined;
                     // Headers render in BOTH tray states — the collapsed
                     // viewport scrolls past the first one (collapsedAnchorOffset)
                     // instead of the header unmounting, so expanding never
                     // reflows the list.
-                    const startsPage = pageGroup?.firstCaptureId === capture.id;
+                    const startsPage = pageGroup?.firstCaptureId === captureId;
                     if (!startsPage || pageId == null || pageGroup == null) {
-                      return renderCaptureRow(capture, index);
+                      return renderCaptureRow(captureId, index);
                     }
                     const pageRowCount = pageGroup.rowCount;
                     return (
@@ -5173,7 +5191,7 @@ export function ScannerScreen({
                             </View>
                           ) : null}
                         </View>
-                        {renderCaptureRow(capture, index)}
+                        {renderCaptureRow(captureId, index)}
                       </Fragment>
                     );
                   })}
@@ -5210,7 +5228,7 @@ export function ScannerScreen({
         if (!activePriceCaptureId) {
           return null;
         }
-        const activeCapture = recentCaptures.find((entry) => entry.id === activePriceCaptureId);
+        const activeCapture = activePriceCapture;
         if (!activeCapture) {
           return null;
         }
@@ -5218,7 +5236,7 @@ export function ScannerScreen({
         if (!activeCandidate) {
           return null;
         }
-        const activeSelection = priceSelection.get(activeCapture.id) ?? null;
+        const activeSelection = activePriceSelection;
         const ebayState = ebayTrayState.get(activeCapture.id);
         return (
           <ScanPriceSheet
@@ -5292,16 +5310,16 @@ export function ScannerScreen({
           if (!printingMenuCaptureId) {
             return null;
           }
-          const capture = recentCaptures.find((entry) => entry.id === printingMenuCaptureId);
+          const capture = printingMenuCapture;
           const candidate = capture ? activeCandidateForCapture(capture) : null;
           const list = (candidate ? variantsByCardId.get(candidate.cardId) : null) ?? emptyVariants;
-          return priceSelection.get(printingMenuCaptureId)?.variantKey ?? list[0]?.variantKey ?? null;
+          return printingMenuSelection?.variantKey ?? list[0]?.variantKey ?? null;
         })()}
         variants={(() => {
           if (!printingMenuCaptureId) {
             return emptyVariants;
           }
-          const capture = recentCaptures.find((entry) => entry.id === printingMenuCaptureId);
+          const capture = printingMenuCapture;
           const candidate = capture ? activeCandidateForCapture(capture) : null;
           return (candidate ? variantsByCardId.get(candidate.cardId) : null) ?? emptyVariants;
         })()}
@@ -5362,7 +5380,7 @@ export function ScannerScreen({
             onClose={closeBinderPageReview}
             onPressPocket={gatedOpenChangeCardPicker}
             onApplyPriceSelections={handlePriceSelections}
-            priceSelections={priceSelection}
+            priceSelections={binderReviewPriceSelections}
             pockets={activeBinderPageRows}
             priceLabelFor={binderPagePriceLabelFor}
             totalLabel={binderPageTotalLabel}
@@ -5371,9 +5389,6 @@ export function ScannerScreen({
       })()}
 
       {(() => {
-        const changeCapture = activeChangeCaptureId
-          ? recentCaptures.find((capture) => capture.id === activeChangeCaptureId)
-          : null;
         if (!changeCapture) {
           return null;
         }
@@ -5387,8 +5402,8 @@ export function ScannerScreen({
             isLoadingMore={changeCapture.isLoadingMoreCandidates}
             onLoadMoreCandidates={() => loadMoreCandidates(changeCapture.id)}
             mode={changeCapture.mode === 'slabs' ? 'slabs' : 'raw'}
-            selectedVariantKey={priceSelection.get(changeCapture.id)?.variantKey ?? null}
-            selectedConditionCode={priceSelection.get(changeCapture.id)?.conditionCode ?? null}
+            selectedVariantKey={changeCaptureSelection?.variantKey ?? null}
+            selectedConditionCode={changeCaptureSelection?.conditionCode ?? null}
             onSelectCandidate={(index) => setActiveCandidate(changeCapture.id, index)}
             onSelectVariant={(selection) => handlePriceSelection(changeCapture.id, selection)}
             onOpenMatchedCard={(candidate) => {
