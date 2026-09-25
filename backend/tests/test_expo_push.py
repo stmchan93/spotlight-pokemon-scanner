@@ -157,6 +157,32 @@ class TestMessageAssembly(unittest.TestCase):
         self.assertEqual(payload["data"]["cardId"], "card-3")
         self.assertEqual(message.reference_id, "alert-3")
 
+    def test_payload_without_image_has_no_rich_content_keys(self) -> None:
+        payload = expo_push.PushMessage(to=token(1), title="t", body="b").as_payload()
+        self.assertEqual(
+            payload,
+            {"to": token(1), "title": "t", "body": "b", "priority": "default", "sound": "default"},
+        )
+        self.assertEqual(
+            list(payload), ["to", "title", "body", "priority", "sound"]
+        )
+
+    def test_blank_image_url_is_ignored(self) -> None:
+        payload = expo_push.PushMessage(
+            to=token(1), title="t", body="b", image_url="  "
+        ).as_payload()
+        self.assertNotIn("richContent", payload)
+        self.assertNotIn("mutableContent", payload)
+
+    def test_image_url_becomes_rich_content_and_mutable_content(self) -> None:
+        url = "https://images.example.com/card-3.png"
+        payload = expo_push.PushMessage(
+            to=token(1), title="t", body="b", channel_id="deals", image_url=url
+        ).as_payload()
+        self.assertEqual(payload["richContent"], {"image": url})
+        self.assertIs(payload["mutableContent"], True)
+        self.assertEqual(payload["channelId"], "deals")
+
     def test_token_format_guard(self) -> None:
         self.assertTrue(is_expo_push_token("ExponentPushToken[abc]"))
         self.assertTrue(is_expo_push_token("ExpoPushToken[abc]"))

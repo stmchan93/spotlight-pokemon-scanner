@@ -72,6 +72,9 @@ class MarketAlertsTestCase(unittest.TestCase):
             number="1/100", rarity="Rare", variant="Raw", language="English", game="pokemon",
             source_provider="scrydex", source_record_id=card_id, set_id="set1",
         )
+        self.connection.execute(
+            "UPDATE cards SET image_url = ? WHERE id = ?", (f"https://img.test/{card_id}.png", card_id)
+        )
         self.connection.commit()
 
     def price(self, card_id: str, day: str, usd: float) -> None:
@@ -197,11 +200,10 @@ class PriceMoveTests(MarketAlertsTestCase):
         summary = self.run_job()
         self.assertEqual(summary["sent"], 1)
         (message,) = self.sender.messages
-        self.assertIn(message.title, (
-            "The Latios ☆ you're watching is climbing \U0001F4C8",
-            "Latios ☆ just jumped 12% \U0001F440",
-        ))
-        self.assertEqual(message.body, "Up $9.00 since yesterday, now at $84.")
+        self.assertIn("Latios ☆", message.title)
+        self.assertIn("now at $84", message.body)
+        # The card's art rides along as the push image.
+        self.assertEqual(message.image_url, "https://img.test/latios.png")
         self.assertEqual(message.data["url"], "/cards/latios")
         self.assertEqual(message.data["type"], ma.DATA_TYPE_PRICE_MOVE)
         self.assertNotIn("alertId", message.data)  # not a deal_alerts row
@@ -226,8 +228,10 @@ class PriceMoveTests(MarketAlertsTestCase):
         self.token("u1")
         self.run_job()
         (message,) = self.sender.messages
-        self.assertIn(message.title, ("2 of your cards moved today", "2 of your cards are up today \U0001F4C8"))
-        self.assertEqual(message.body, "Mew led the way, up $30!")
+        self.assertIn("2", message.title)
+        # Named card = the biggest dollar move (Mew +$30 over Latios +$9).
+        self.assertIn("Mew", message.body)
+        self.assertIn("$30", message.body)
         self.assertEqual(message.data["url"], "/")  # something owned -> Collection
         # Drops never push (Eevee fell 17%): only moves up.
         self.assertEqual(set(message.data["cardIds"]), {"latios", "mew"})
@@ -393,8 +397,10 @@ class MonthlySummaryTests(MarketAlertsTestCase):
         self.run_job(self.FIRST_LA_1705)
         (message,) = self.sender.messages
         # +$60 (Mew x2) - $5 (Pikachu) on a $250 start.
-        self.assertEqual(message.title, "Your September recap is in \U0001F4CA")
-        self.assertEqual(message.body, "Up $55 (+22%) this month. Mew did the heavy lifting (+$60).")
+        self.assertIn("September", message.title)
+        self.assertIn("Your collection grew $55 (+22%)", message.body)
+        self.assertIn("Mew", message.body)
+        self.assertIn("+$60", message.body)
         self.assertEqual(message.data, {"type": ma.DATA_TYPE_WEEKLY_SUMMARY, "url": "/"})
         # Once per month: the next hourly run in the window sends nothing.
         self.run_job(self.FIRST_LA_1705 + timedelta(hours=1))
@@ -425,24 +431,20 @@ class MonthlySummaryTests(MarketAlertsTestCase):
         self.run_job(self.FIRST_LA_1705 + timedelta(hours=1))
         self.assertEqual(len(self.sender.messages), 2)
 
-    def test_down_week_names_the_biggest_dollar_loser(self) -> None:
+    def test_a_down_month_sends_no_recap(self) -> None:
         self.own("u1", "mew")
-        self.own("u1", "pika", qty=10)  # -$50 vs Mew's +$30
+        self.own("u1", "pika", qty=10)  # -$50 vs Mew's +$30: down $20
         self.token("u1")
-        self.run_job(self.FIRST_LA_1705)
-        (message,) = self.sender.messages
-        # -$20 on a $600 start.
-        self.assertEqual(message.title, "September was a quiet one")
-        # A down month doesn't name a loser.
-        self.assertEqual(message.body, "Down $20 (\u22123%) this month. Tap to see how your cards did.")
+        self.assertEqual(self.run_job(self.FIRST_LA_1705)["sent"], 0)
 
     def test_weekly_copy_without_a_start_value_or_dollar_mover(self) -> None:
         push = ma.build_weekly_push(ma.WeeklySummary(42.0, "c", "Charizard", 12.0), "September")
-        self.assertEqual(push.title, "Your September recap is in \U0001F4CA")
-        self.assertEqual(push.body, "Up $42 this month. Charizard led the way (+12%).")
-        push = ma.build_weekly_push(ma.WeeklySummary(0.2, "c", "Charizard", 12.0, 100.0, 3.0), "September")
-        self.assertEqual(push.title, "Your September recap is in")
-        self.assertEqual(push.body, "Your collection held steady this month.")
+        self.assertIn("Your collection grew $42", push.body)
+        self.assertNotIn("(+", push.body.split("grew")[1].split(".")[0])  # no start value, no %
+        self.assertIn("Charizard", push.body)
+        self.assertIn("+12%", push.body)
+        # A flat month (rounds to $0) sends nothing either.
+        self.assertIsNone(ma.build_weekly_push(ma.WeeklySummary(0.2, "c", "Charizard", 12.0, 100.0, 3.0), "September"))
 
     def test_weekly_off_or_no_holdings_sends_nothing(self) -> None:
         self.token("u1")
@@ -492,7 +494,7 @@ class MilestoneTests(MarketAlertsTestCase):
         self.values["u1"] = 1_040.0
         self.run_job()
         (message,) = self.sender.messages
-        self.assertEqual(message.title, "You just hit a $1,000 collection \U0001F389")
+        self.assertIn("$1,000", message.title)
         self.assertEqual(message.body, "Congratulations! Your collection is growing!")
         self.assertEqual(message.data["url"], "/")
         self.assertEqual(message.data["type"], ma.DATA_TYPE_MILESTONE)
@@ -519,7 +521,7 @@ class MilestoneTests(MarketAlertsTestCase):
         self.values["u1"] = 5_300.0
         self.run_job()
         (message,) = self.sender.messages
-        self.assertEqual(message.title, "You just hit a $5,000 collection \U0001F389")
+        self.assertIn("$5,000", message.title)
         self.assertEqual(self.stored("u1"), 5_000)
         self.run_job(NOW + timedelta(days=1))
         self.assertEqual(len(self.sender.messages), 1)
@@ -599,8 +601,8 @@ class DealRoutingTests(MarketAlertsTestCase):
         self.deal("u1", "umbreon")
         self.run_job()
         (message,) = self.sender.messages
-        self.assertEqual(message.title, "The Umbreon ex you're watching is on sale \U0001F440")
-        self.assertIn("on eBay, 18% under market.", message.body)
+        self.assertIn("Umbreon ex", message.title + message.body)
+        self.assertIn("18% under market", message.body)
         self.assertEqual(message.data["alertId"], "deal-1")
         self.assertEqual(message.data["url"], "/wishlist")
         stamped = self.connection.execute("SELECT push_sent_at FROM deal_alerts WHERE id = 'deal-1'").fetchone()[0]
@@ -619,8 +621,9 @@ class DealRoutingTests(MarketAlertsTestCase):
         self.assertEqual(pending, 2)
         self.run_job(datetime(2026, 9, 23, 16, 3, tzinfo=timezone.utc))
         (message,) = self.sender.messages
-        self.assertEqual(message.title, "The Espeon ex you're watching is on sale \U0001F440")
-        self.assertIn("25% under market. Plus 1 more deal on your watchlist.", message.body)
+        self.assertIn("Espeon ex", message.title + message.body)
+        self.assertIn("25% under market", message.body)
+        self.assertIn("Plus 1 more deal on your watchlist.", message.body)
 
     def test_deals_off_sends_nothing(self) -> None:
         self.card("umbreon")

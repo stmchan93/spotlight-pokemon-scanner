@@ -107,6 +107,10 @@ class PushMessage:
     channel_id: str | None = None
     priority: str = "default"
     reference_id: str | None = None
+    # Card art thumbnail. Android renders it out of the box (large icon); iOS
+    # needs a Notification Service Extension to download and attach it, which
+    # is why mutableContent rides along.
+    image_url: str | None = None
 
     def as_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -121,6 +125,10 @@ class PushMessage:
             payload["sound"] = self.sound
         if self.channel_id:
             payload["channelId"] = self.channel_id
+        image_url = (self.image_url or "").strip()
+        if image_url:
+            payload["richContent"] = {"image": image_url}
+            payload["mutableContent"] = True
         return payload
 
 

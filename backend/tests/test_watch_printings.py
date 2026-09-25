@@ -783,8 +783,9 @@ class PerPrintingMarketAlertTests(PrintingTestCase):
         self.connection.commit()
         self.assertEqual(self._run()["byKind"], {"deal": 1})
         message = self.sender.messages[0]
-        self.assertEqual(message.title, f"Lowest {DRAGONITE_NAME} · {REVERSE} price we've seen \U0001F440")
-        self.assertEqual(message.body, "$95 on eBay. It usually goes for $129+.")
+        self.assertIn(f"{DRAGONITE_NAME} · {REVERSE}", message.title)
+        self.assertIn("$95", message.title + message.body)
+        self.assertIn("It usually goes for $129+.", message.body)
         self.assertNotIn("%", message.title)
 
     def test_target_hit_reads_the_watched_printing(self) -> None:
