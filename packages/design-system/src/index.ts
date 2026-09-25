@@ -1,3 +1,4 @@
+export * from './components/animated-popover';
 export * from './components/app-text';
 export * from './components/avatar';
 export * from './components/badge';

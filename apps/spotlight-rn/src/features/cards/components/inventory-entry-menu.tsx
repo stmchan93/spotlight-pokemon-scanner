@@ -2,7 +2,13 @@ import { Dimensions, Modal, Platform, Pressable, StyleSheet, View } from 'react-
 import { BlurView } from 'expo-blur';
 import { GridPlus, Trash } from 'iconoir-react-native';
 
-import { Text, useSpotlightTheme } from '@spotlight/design-system';
+import {
+  PopoverSurface,
+  Text,
+  popoverTransformOrigin,
+  usePopoverTransition,
+  useSpotlightTheme,
+} from '@spotlight/design-system';
 
 export type InventoryEntryMenuAnchor = { x: number; y: number; width: number; height: number };
 
@@ -42,6 +48,7 @@ export function InventoryEntryMenu({
   testID = 'inventory-entry-menu',
 }: InventoryEntryMenuProps) {
   const theme = useSpotlightTheme();
+  const transition = usePopoverTransition(visible);
 
   if (!visible) {
     return null;
@@ -62,17 +69,25 @@ export function InventoryEntryMenu({
   const maxLeft = screen.width - CARD_WIDTH - SCREEN_MARGIN;
   const rawLeft = anchor ? anchor.x + anchor.width - CARD_WIDTH : FALLBACK_LEFT;
   const left = Math.max(SCREEN_MARGIN, Math.min(rawLeft, maxLeft));
+  const origin = popoverTransformOrigin({ anchor, cardLeft: left, cardWidth: CARD_WIDTH, opensUp: openUp });
+  // Every close path shrinks the card back into its trigger first.
+  const close = () => transition.dismiss(onClose);
 
   return (
-    <Modal animationType="none" onRequestClose={onClose} transparent visible>
+    <Modal animationType="none" onRequestClose={close} transparent visible>
       <Pressable
         accessibilityLabel="Close"
         accessibilityRole="button"
-        onPress={onClose}
+        onPress={close}
         style={styles.backdrop}
         testID={`${testID}-backdrop`}
       />
-      <View style={[styles.card, { left, ...verticalStyle }]} testID={testID}>
+      <PopoverSurface
+        origin={origin}
+        style={[styles.card, { left, ...verticalStyle }]}
+        testID={testID}
+        transition={transition}
+      >
         {/* iOS ONLY. Android's dimezis blur samples the app's own view
             hierarchy, and inside a transparent Modal — a separate window —
             there is nothing to sample, so the "glass" was just the translucent
@@ -90,7 +105,7 @@ export function InventoryEntryMenu({
         <Pressable
           accessibilityLabel="Add another to Collection"
           accessibilityRole="button"
-          onPress={onAdd}
+          onPress={() => transition.dismiss(onAdd)}
           style={({ pressed }) => [
             styles.row,
             { backgroundColor: pressed ? 'rgba(0, 0, 0, 0.06)' : 'transparent' },
@@ -106,7 +121,7 @@ export function InventoryEntryMenu({
         <Pressable
           accessibilityLabel="Delete this entry"
           accessibilityRole="button"
-          onPress={onDelete}
+          onPress={() => transition.dismiss(onDelete)}
           style={({ pressed }) => [
             styles.row,
             { backgroundColor: pressed ? 'rgba(0, 0, 0, 0.06)' : 'transparent' },
@@ -118,7 +133,7 @@ export function InventoryEntryMenu({
             Delete
           </Text>
         </Pressable>
-      </View>
+      </PopoverSurface>
     </Modal>
   );
 }

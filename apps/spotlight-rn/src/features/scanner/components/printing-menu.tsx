@@ -3,7 +3,13 @@ import { BlurView } from 'expo-blur';
 import { IconCheck } from '@tabler/icons-react-native';
 
 import type { RawPricingMatrixVariant } from '@spotlight/api-client';
-import { Text, useSpotlightTheme } from '@spotlight/design-system';
+import {
+  PopoverSurface,
+  Text,
+  popoverTransformOrigin,
+  usePopoverTransition,
+  useSpotlightTheme,
+} from '@spotlight/design-system';
 
 export type AnchoredMenuAnchor = { x: number; y: number; width: number; height: number };
 
@@ -95,6 +101,7 @@ export function AnchoredOptionMenu({
   testID = 'option-menu',
 }: AnchoredOptionMenuProps) {
   const theme = useSpotlightTheme();
+  const transition = usePopoverTransition(visible);
 
   if (!visible || options.length === 0) {
     return null;
@@ -125,17 +132,25 @@ export function AnchoredOptionMenu({
   const maxLeft = screen.width - CARD_MIN_WIDTH - SCREEN_MARGIN;
   const rawLeft = anchor ? anchor.x : FALLBACK_LEFT;
   const left = Math.max(SCREEN_MARGIN, Math.min(rawLeft, maxLeft));
+  const origin = popoverTransformOrigin({ anchor, cardLeft: left, cardWidth: CARD_MIN_WIDTH, opensUp: openUp });
+  // Every close path shrinks the card back into its trigger first.
+  const close = () => transition.dismiss(onClose);
 
   return (
-    <Modal animationType="none" onRequestClose={onClose} transparent visible>
+    <Modal animationType="none" onRequestClose={close} transparent visible>
       <Pressable
         accessibilityLabel="Close"
         accessibilityRole="button"
-        onPress={onClose}
+        onPress={close}
         style={styles.backdrop}
         testID={`${testID}-backdrop`}
       />
-      <View style={[styles.card, { left, ...verticalStyle }]} testID={testID}>
+      <PopoverSurface
+        origin={origin}
+        style={[styles.card, { left, ...verticalStyle }]}
+        testID={testID}
+        transition={transition}
+      >
         {/* iOS-only blur: inside a transparent Modal Android has nothing to sample. */}
         {Platform.OS === 'ios' ? (
           <BlurView intensity={40} style={StyleSheet.absoluteFill} tint="light" />
@@ -162,7 +177,7 @@ export function AnchoredOptionMenu({
                 accessibilityRole="button"
                 accessibilityState={{ selected: isSelected }}
                 key={option.key}
-                onPress={() => onSelect(option)}
+                onPress={() => transition.dismiss(() => onSelect(option))}
                 style={({ pressed }) => [
                   styles.row,
                   { backgroundColor: pressed ? 'rgba(0, 0, 0, 0.06)' : 'transparent' },
@@ -182,7 +197,7 @@ export function AnchoredOptionMenu({
             );
           })}
         </ScrollView>
-      </View>
+      </PopoverSurface>
     </Modal>
   );
 }

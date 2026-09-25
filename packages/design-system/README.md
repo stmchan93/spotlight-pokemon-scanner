@@ -270,6 +270,35 @@ Current API concepts:
   - `light` (white elevated sheet — default)
   - `dark` (gray-900 scanner sheet shown over the camera)
 
+### PopoverSurface + usePopoverTransition
+
+File: `src/components/animated-popover.tsx`
+
+Use for every anchored dropdown/popover (the transparent-`Modal` menus: scanner
+ADD ALL, printing / option menus, binder layout, PDP inventory "...",
+inventory browser FILTER). Gives the
+iOS Photos-filter-menu motion: the card grows out of its trigger with a spring
+and shrinks back into it on close.
+
+- `usePopoverTransition(visible)` — call it above the menu's
+  `if (!visible) return null`. Returns `{ progress, reduceMotion, dismiss }`.
+- `dismiss(after)` — animate out (~160ms ease-in), then run `after` exactly once.
+  Route EVERY close path through it: backdrop `onPress`, `Modal`
+  `onRequestClose` (Android back), and each row's select
+  (`dismiss(() => onSelect(x))`). Taps during the exit are ignored. The parent
+  still owns `visible` and unmounts the Modal when its callback runs.
+- `<PopoverSurface transition origin style testID>` — replaces the menu's card
+  `View`; same style/children/hit areas, plus the animated scale + opacity.
+- `popoverTransformOrigin({ anchor, cardLeft, cardWidth, opensUp })` — the grow
+  point: the trigger's horizontal center on the card edge facing it.
+- `POPOVER_CENTER_ORIGIN` — for a small centered menu with no measured trigger
+  (inventory browser FILTER menu): the card scales about its own middle.
+- Motion: open spring `POPOVER_OPEN_SPRING` (damping 26 / stiffness 300 /
+  mass 0.8, ~245ms, no visible bounce) from `POPOVER_MIN_SCALE` (0.3); opacity
+  reaches 1 by half-way. Reduce Motion: fade only, no scale.
+- Keep the Modal, backdrop `Pressable`, and pointer events as they are — only
+  the card is animated.
+
 ### RadioDot
 
 File: `src/components/radio-dot.tsx`

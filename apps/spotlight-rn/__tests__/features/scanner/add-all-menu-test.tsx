@@ -1,5 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import type { PropsWithChildren } from 'react';
+import { Modal } from 'react-native';
 
 import { SpotlightThemeProvider } from '@spotlight/design-system';
 
@@ -8,6 +9,9 @@ import { AddAllMenu } from '@/features/scanner/components/add-all-menu';
 function Wrapper({ children }: PropsWithChildren) {
   return <SpotlightThemeProvider>{children}</SpotlightThemeProvider>;
 }
+
+// The exit animation's completion hops back to JS on a microtask (worklets mock).
+const flushExit = () => act(async () => {});
 
 function renderMenu(overrides?: Partial<Parameters<typeof AddAllMenu>[0]>) {
   const props = {
@@ -35,23 +39,50 @@ describe('AddAllMenu', () => {
     expect(screen.getByText('Clear')).toBeTruthy();
   });
 
-  it('fires onSelect with the matching action for each row', () => {
+  it.each(['collection', 'wishlist', 'remove'] as const)(
+    'fires onSelect(%s) once after the exit animation',
+    async (action) => {
+      const props = renderMenu();
+
+      fireEvent.press(screen.getByTestId(`add-all-menu-${action}`));
+      expect(props.onSelect).not.toHaveBeenCalled();
+      await flushExit();
+      expect(props.onSelect).toHaveBeenCalledTimes(1);
+      expect(props.onSelect).toHaveBeenCalledWith(action);
+      expect(props.onClose).not.toHaveBeenCalled();
+    },
+  );
+
+  it('ignores further taps while the menu is animating out', async () => {
     const props = renderMenu();
 
     fireEvent.press(screen.getByTestId('add-all-menu-collection'));
-    expect(props.onSelect).toHaveBeenCalledWith('collection');
-
     fireEvent.press(screen.getByTestId('add-all-menu-wishlist'));
-    expect(props.onSelect).toHaveBeenCalledWith('wishlist');
+    fireEvent.press(screen.getByTestId('add-all-menu-backdrop'));
+    await flushExit();
 
-    fireEvent.press(screen.getByTestId('add-all-menu-remove'));
-    expect(props.onSelect).toHaveBeenCalledWith('remove');
+    expect(props.onSelect).toHaveBeenCalledTimes(1);
+    expect(props.onSelect).toHaveBeenCalledWith('collection');
+    expect(props.onClose).not.toHaveBeenCalled();
   });
 
-  it('fires onClose when the backdrop is pressed', () => {
+  it('closes once on Android back (onRequestClose)', async () => {
+    const props = renderMenu();
+
+    const modal = screen.UNSAFE_getByType(Modal);
+    fireEvent(modal, 'requestClose');
+    fireEvent(modal, 'requestClose');
+    await flushExit();
+
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires onClose exactly once when the backdrop is pressed', async () => {
     const props = renderMenu();
 
     fireEvent.press(screen.getByTestId('add-all-menu-backdrop'));
+    fireEvent.press(screen.getByTestId('add-all-menu-backdrop'));
+    await flushExit();
     expect(props.onClose).toHaveBeenCalledTimes(1);
   });
 

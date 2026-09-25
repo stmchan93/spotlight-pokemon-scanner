@@ -1,9 +1,13 @@
-import { fireEvent, screen } from '@testing-library/react-native';
+import { act, fireEvent, screen } from '@testing-library/react-native';
+import { Modal } from 'react-native';
 
 import { InventoryBrowserScreen } from '@/features/inventory/screens/inventory-browser-screen';
 
 import { mockInventoryEntries } from '../mock-api-client';
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
+
+// The popover exit's completion hops back to JS on a microtask (worklets mock).
+const flushExit = () => act(async () => {});
 
 describe('InventoryBrowserScreen', () => {
   it('shows the SwiftUI no-results copy for search misses', async () => {
@@ -95,6 +99,7 @@ describe('InventoryBrowserScreen', () => {
     // Open the filter dropdown attached to the search field.
     fireEvent.press(screen.getByTestId('inventory-filter-button'));
     fireEvent.press(screen.getByTestId('inventory-filter-graded'));
+    await flushExit();
 
     expect(screen.getByText('1 shown')).toBeTruthy();
     expect(screen.getByText('Charizard')).toBeTruthy();
@@ -102,6 +107,7 @@ describe('InventoryBrowserScreen', () => {
 
     fireEvent.press(screen.getByTestId('inventory-filter-button'));
     fireEvent.press(screen.getByTestId('inventory-filter-raw'));
+    await flushExit();
 
     expect(screen.getByText('6 shown')).toBeTruthy();
     expect(screen.getByText('Scorbunny')).toBeTruthy();
@@ -109,10 +115,57 @@ describe('InventoryBrowserScreen', () => {
 
     fireEvent.press(screen.getByTestId('inventory-filter-button'));
     fireEvent.press(screen.getByTestId('inventory-filter-favorite'));
+    await flushExit();
 
     expect(screen.getByText('2 shown')).toBeTruthy();
     expect(screen.getByText('Scorbunny')).toBeTruthy();
     expect(screen.getByText('Charizard')).toBeTruthy();
     expect(screen.queryByText('Oshawott')).toBeNull();
+  });
+
+  it('filter menu: a pick lands once, after the exit, and closes the menu', async () => {
+    renderWithProviders(
+      <InventoryBrowserScreen onBack={jest.fn()} onOpenAddCard={jest.fn()} onOpenEntry={jest.fn()} />,
+    );
+    expect(await screen.findByText('View all cards')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('inventory-filter-button'));
+    fireEvent.press(screen.getByTestId('inventory-filter-graded'));
+    // Further taps during the exit are ignored.
+    fireEvent.press(screen.getByTestId('inventory-filter-raw'));
+    fireEvent.press(screen.getByTestId('inventory-filter-backdrop'));
+    // Still up while the card shrinks.
+    expect(screen.getByTestId('inventory-filter-menu')).toBeTruthy();
+    await flushExit();
+
+    expect(screen.queryByTestId('inventory-filter-menu')).toBeNull();
+    fireEvent.press(screen.getByTestId('inventory-filter-button'));
+    expect(screen.getByTestId('inventory-filter-graded').props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true }),
+    );
+  });
+
+  it.each(['backdrop', 'back'] as const)('filter menu: %s closes it after the exit', async (path) => {
+    renderWithProviders(
+      <InventoryBrowserScreen onBack={jest.fn()} onOpenAddCard={jest.fn()} onOpenEntry={jest.fn()} />,
+    );
+    expect(await screen.findByText('View all cards')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('inventory-filter-button'));
+    if (path === 'backdrop') {
+      fireEvent.press(screen.getByTestId('inventory-filter-backdrop'));
+      fireEvent.press(screen.getByTestId('inventory-filter-backdrop'));
+    } else {
+      const modal = screen.UNSAFE_getByType(Modal);
+      fireEvent(modal, 'requestClose');
+      fireEvent(modal, 'requestClose');
+    }
+    expect(screen.getByTestId('inventory-filter-menu')).toBeTruthy();
+    await flushExit();
+    expect(screen.queryByTestId('inventory-filter-menu')).toBeNull();
+
+    // Reopens cleanly after an exit (transition resets on each open).
+    fireEvent.press(screen.getByTestId('inventory-filter-button'));
+    expect(screen.getByTestId('inventory-filter-menu')).toBeTruthy();
   });
 });

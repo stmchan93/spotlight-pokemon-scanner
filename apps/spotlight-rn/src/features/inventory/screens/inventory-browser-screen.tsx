@@ -19,11 +19,14 @@ import type {
 import {
   Button,
   InventoryCardTile,
+  POPOVER_CENTER_ORIGIN,
   PillButton,
+  PopoverSurface,
   SearchField,
   StateCard,
   Text,
   colors,
+  usePopoverTransition,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -127,6 +130,7 @@ export function InventoryBrowserScreen({
   const [sortOption, setSortOption] = useState<InventorySortOption>('value');
   const [filterOption, setFilterOption] = useState<InventoryFilterOption>('all');
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+  const filterMenuTransition = usePopoverTransition(filterMenuOpen);
 
   const tileWidth = useMemo(() => {
     return Math.max(96, Math.floor((width - PAGE_GUTTER * 2 - GRID_GAP) / 2));
@@ -206,10 +210,17 @@ export function InventoryBrowserScreen({
     [onOpenEntry],
   );
 
+  // Every close path shrinks the menu first; the pick lands once it's gone.
+  const { dismiss: dismissFilterMenu } = filterMenuTransition;
+  const closeFilterMenu = useCallback(() => {
+    dismissFilterMenu(() => setFilterMenuOpen(false));
+  }, [dismissFilterMenu]);
   const handleSelectFilter = useCallback((value: InventoryFilterOption) => {
-    setFilterOption(value);
-    setFilterMenuOpen(false);
-  }, []);
+    dismissFilterMenu(() => {
+      setFilterOption(value);
+      setFilterMenuOpen(false);
+    });
+  }, [dismissFilterMenu]);
 
   return (
     <SafeAreaView
@@ -334,67 +345,70 @@ export function InventoryBrowserScreen({
 
       <Modal
         animationType="fade"
-        onRequestClose={() => setFilterMenuOpen(false)}
+        onRequestClose={closeFilterMenu}
         transparent
         visible={filterMenuOpen}
       >
         <Pressable
           accessibilityLabel="Dismiss filter menu"
-          onPress={() => setFilterMenuOpen(false)}
+          onPress={closeFilterMenu}
           style={styles.filterBackdrop}
           testID="inventory-filter-backdrop"
         >
-          <Pressable
-            accessibilityRole="menu"
-            onPress={() => {}}
-            style={[
-              styles.filterSheet,
-              {
-                backgroundColor: theme.colors.canvasElevated,
-                borderColor: theme.colors.outlineSubtle,
-              },
-            ]}
-            testID="inventory-filter-menu"
-          >
-            <Text style={[theme.typography.micro, styles.filterSheetTitle]}>FILTER</Text>
-            {filterOptions.map((option) => {
-              const isActive = filterOption === option.value;
-              return (
-                <Pressable
-                  accessibilityRole="menuitem"
-                  accessibilityState={{ selected: isActive }}
-                  key={option.value}
-                  onPress={() => handleSelectFilter(option.value)}
-                  style={({ pressed }) => [
-                    styles.filterOption,
-                    {
-                      backgroundColor: isActive
-                        ? theme.colors.surfaceMuted
-                        : 'transparent',
-                      opacity: pressed ? 0.85 : 1,
-                    },
-                  ]}
-                  testID={`inventory-filter-${option.value}`}
-                >
-                  <Text
-                    style={[
-                      theme.typography.body,
-                      { color: theme.colors.textPrimary },
+          {/* Centered, not anchored to the filter icon: scale about its middle. */}
+          <PopoverSurface origin={POPOVER_CENTER_ORIGIN} transition={filterMenuTransition}>
+            <Pressable
+              accessibilityRole="menu"
+              onPress={() => {}}
+              style={[
+                styles.filterSheet,
+                {
+                  backgroundColor: theme.colors.canvasElevated,
+                  borderColor: theme.colors.outlineSubtle,
+                },
+              ]}
+              testID="inventory-filter-menu"
+            >
+              <Text style={[theme.typography.micro, styles.filterSheetTitle]}>FILTER</Text>
+              {filterOptions.map((option) => {
+                const isActive = filterOption === option.value;
+                return (
+                  <Pressable
+                    accessibilityRole="menuitem"
+                    accessibilityState={{ selected: isActive }}
+                    key={option.value}
+                    onPress={() => handleSelectFilter(option.value)}
+                    style={({ pressed }) => [
+                      styles.filterOption,
+                      {
+                        backgroundColor: isActive
+                          ? theme.colors.surfaceMuted
+                          : 'transparent',
+                        opacity: pressed ? 0.85 : 1,
+                      },
                     ]}
+                    testID={`inventory-filter-${option.value}`}
                   >
-                    {option.label}
-                  </Text>
-                  {isActive ? (
                     <Text
-                      style={[theme.typography.body, { color: theme.colors.brand }]}
+                      style={[
+                        theme.typography.body,
+                        { color: theme.colors.textPrimary },
+                      ]}
                     >
-                      ✓
+                      {option.label}
                     </Text>
-                  ) : null}
-                </Pressable>
-              );
-            })}
-          </Pressable>
+                    {isActive ? (
+                      <Text
+                        style={[theme.typography.body, { color: theme.colors.brand }]}
+                      >
+                        ✓
+                      </Text>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </Pressable>
+          </PopoverSurface>
         </Pressable>
       </Modal>
     </SafeAreaView>
