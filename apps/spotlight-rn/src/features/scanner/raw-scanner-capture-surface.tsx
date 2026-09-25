@@ -307,6 +307,19 @@ export function getRawScannerEmptyTrayVisualHeight({
   return rawScannerTrayHeaderHeight + rawScannerTrayEmptyPeekHeight + bottomInset;
 }
 
+/**
+ * CameraX reports a superseded zoom/focus/exposure request as an error
+ * (`CameraControl$OperationCanceledException`). The session is healthy.
+ */
+export function isBenignCameraCancellation(error: unknown): boolean {
+  const message = error instanceof Error
+    ? `${error.name} ${error.message}`
+    : typeof error === 'object' && error != null && 'message' in error
+      ? String((error as { message: unknown }).message)
+      : String(error);
+  return message.includes('OperationCanceledException');
+}
+
 export function RawScannerCaptureSurface({
   cameraRef,
   canCapture,
@@ -540,6 +553,19 @@ export function RawScannerCaptureSurface({
     setCameraStarted(false);
     onCameraStopped?.();
   }, [captureResolution, onCameraStopped]);
+  const handleCameraError = useCallback((error: unknown) => {
+    // CameraX cancels an in-flight zoom/focus request when a newer one lands
+    // (the page-mode rebind re-applies zoom). The session is fine — treating it
+    // as fatal left the shutter gated forever (Android, 2026-09-24).
+    if (isBenignCameraCancellation(error)) {
+      console.info('[scanner-camera] ignored cancellation', { captureResolution });
+      return;
+    }
+    // A real error: forget "started" so the watchdog remounts the session
+    // instead of leaving it gated with a live-looking preview.
+    setCameraStarted(false);
+    onCameraError?.(error);
+  }, [captureResolution, onCameraError]);
 
   // Android watchdog: rapid isActive flaps (fast tab swipes) can race CameraX
   // into a dead CLOSED state while isActive is still true — no error, no
@@ -571,7 +597,7 @@ export function RawScannerCaptureSurface({
           device={device}
           isActive={shouldMountCamera && !suspendPreview}
           key={`camera-${cameraSessionEpoch}`}
-          onError={onCameraError}
+          onError={handleCameraError}
           onStarted={handleCameraStarted}
           onStopped={handleCameraStopped}
           // Orient captures to the UI (locked to portrait) rather than the physical

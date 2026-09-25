@@ -3,6 +3,7 @@ import { colors } from '@spotlight/design-system';
 import {
   getRawScannerCollapsedTrayReservedHeight,
   getRawScannerEmptyTrayVisualHeight,
+  isBenignCameraCancellation,
   makeRawScannerCaptureLayout,
   rawScannerModeToggleGap,
   reticleLockedOutlineColor,
@@ -87,3 +88,19 @@ describe('raw scanner capture layout', () => {
   });
 });
 
+
+// The Android shutter died after single<->multi: CameraX cancelled a superseded
+// zoom request, the app treated it as fatal and gated the shutter forever.
+describe('isBenignCameraCancellation', () => {
+  it('treats a superseded zoom request as benign', () => {
+    const message = 'androidx.camera.core.CameraControl$OperationCanceledException: Cancelled due to another zoom value being set.';
+    expect(isBenignCameraCancellation(new Error(message))).toBe(true);
+    expect(isBenignCameraCancellation({ code: 'unknown/unknown', message })).toBe(true);
+  });
+
+  it('keeps real session errors fatal', () => {
+    expect(isBenignCameraCancellation(new Error('session/camera-has-been-disconnected'))).toBe(false);
+    expect(isBenignCameraCancellation({ code: 'device/camera-in-use-by-other-app', message: 'in use' })).toBe(false);
+    expect(isBenignCameraCancellation(null)).toBe(false);
+  });
+});
