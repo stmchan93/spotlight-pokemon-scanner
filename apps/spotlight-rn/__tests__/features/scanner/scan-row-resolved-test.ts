@@ -1,5 +1,6 @@
 import {
   buildScanRowResolvedProperties,
+  scannerCaptureThumbUri,
   type ScanRowOutcome,
 } from '@/features/scanner/screens/scanner-screen-helpers';
 import type { RecentCapture } from '@/features/scanner/screens/scanner-screen-types';
@@ -90,11 +91,52 @@ describe('scan_row_resolved properties', () => {
     expect(buildScanRowResolvedProperties(makeCapture(), 'read', 3_500).game).toBeUndefined();
   });
 
+  it('carries the matched alt-art printing when the active candidate has one', () => {
+    const properties = buildScanRowResolvedProperties(
+      makeCapture({
+        candidates: [
+          { cardId: 'a', matchedVariant: { label: 'Manga Alt Art', tcgplayerProductId: '527026', imageUrl: null, source: 'tcgplayer' } },
+        ] as RecentCapture['candidates'],
+      }),
+      'read',
+      3_500,
+    );
+    expect(properties.matched_variant).toBe('Manga Alt Art');
+    expect(buildScanRowResolvedProperties(makeCapture(), 'read', 3_500).matched_variant).toBeUndefined();
+  });
+
   it('every outcome produces one bucket, so outcomes sum to scans attempted', () => {
     const outcomes: ScanRowOutcome[] = ['added', 'opened', 'dismissed', 'read', 'evicted'];
     const buckets = outcomes.map(
       (outcome) => buildScanRowResolvedProperties(makeCapture(), outcome, 3_500).outcome,
     );
     expect(new Set(buckets).size).toBe(outcomes.length);
+  });
+});
+
+describe('tray thumbnail and the matched alt-art image flag', () => {
+  const matchedCandidate = {
+    cardId: 'op-1',
+    imageUrl: 'https://img/luffy.png',
+    smallImageUrl: 'https://img/luffy-small.png',
+    matchedVariant: {
+      label: 'Manga Alt Art',
+      tcgplayerProductId: '527026',
+      imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/527026_in_1000x1000.jpg',
+      source: 'tcgplayer',
+    },
+  } as RecentCapture['candidates'][number];
+
+  it("keeps the card's own art by default (image rights not cleared)", () => {
+    const capture = makeCapture({ candidates: [matchedCandidate] });
+    expect(scannerCaptureThumbUri(capture, matchedCandidate)).toBe('https://img/luffy-small.png');
+    expect(scannerCaptureThumbUri(capture, matchedCandidate, false)).toBe('https://img/luffy-small.png');
+  });
+
+  it('shows the matched printing image when the flag is on', () => {
+    const capture = makeCapture({ candidates: [matchedCandidate] });
+    expect(scannerCaptureThumbUri(capture, matchedCandidate, true)).toBe(
+      'https://tcgplayer-cdn.tcgplayer.com/product/527026_in_1000x1000.jpg',
+    );
   });
 });

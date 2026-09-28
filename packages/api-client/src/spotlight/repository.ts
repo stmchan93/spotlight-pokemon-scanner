@@ -188,6 +188,7 @@ import type {
   ScannerMatchResult,
   ScannerMode,
   ScannerTargetLanguageMismatch,
+  ScanMatchedVariant,
   SlabContext,
   SpotlightRepositoryLoadResult,
   WhosThatPokemonMatch,
@@ -868,6 +869,8 @@ type ScanMatchCandidateDTO = {
   candidate?: CardCandidateDTO | null;
   finalScore?: number | null;
   imageScore?: number | null;
+  // Present only when the photo matched an alt-art reference image of the card.
+  matchedVariant?: unknown;
 };
 
 type ScanMatchResponseDTO = {
@@ -2369,6 +2372,7 @@ function mapScannerMatchCandidates(
       return [];
     }
 
+    const matchedVariant = normalizeScanMatchedVariant(entry?.matchedVariant);
     // When the card has no raw price, `market` is a graded slab comp shown as a
     // reference; tag it so the UI reads it as "PSA 10", not the ungraded value.
     const priceIsGradedReference = card.pricing.pricingMode === 'graded_reference';
@@ -2400,8 +2404,32 @@ function mapScannerMatchCandidates(
       game: card.game,
       priceIsGradedReference,
       gradedReferenceLabel,
+      // Only set when served, so candidates without one keep their old shape.
+      ...(matchedVariant ? { matchedVariant } : {}),
     }];
   });
+}
+
+/** Untrusted `matchedVariant` → the client shape, or null when absent/malformed. */
+function normalizeScanMatchedVariant(value: unknown): ScanMatchedVariant | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const raw = value as Record<string, unknown>;
+  const label = normalizeString(raw.label);
+  if (!label) {
+    return null;
+  }
+  const productId = typeof raw.tcgplayerProductId === 'number' && Number.isFinite(raw.tcgplayerProductId)
+    ? String(Math.trunc(raw.tcgplayerProductId))
+    : normalizeString(raw.tcgplayerProductId);
+  const imageUrl = normalizeString(raw.imageUrl);
+  return {
+    label,
+    tcgplayerProductId: productId,
+    imageUrl: imageUrl && /^https?:\/\//i.test(imageUrl) ? imageUrl : null,
+    source: normalizeString(raw.source),
+  };
 }
 
 function normalizeSlabContext(value: DeckEntryDTO['slabContext']): SlabContext | null {

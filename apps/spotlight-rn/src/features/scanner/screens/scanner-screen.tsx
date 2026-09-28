@@ -90,6 +90,7 @@ import {
   type TrayState,
   type TrayStore,
 } from '@/features/scanner/tray-store';
+import { resolveMatchedPrintingDefaults } from '@/features/scanner/scan-batch-pricing';
 import {
   saveScanCandidateReviewSession,
   type ScanSourceImageCrop,
@@ -892,6 +893,43 @@ function TrayCommitEffects({
       schedulePersist(recentCaptures.map(withDurableScanUris), priceSelection);
     }
   }, [hasHydratedTrayRef, priceSelection, priceSelectionRef, recentCaptures, recentCapturesRef]);
+  return null;
+}
+
+// Rows whose photo matched an alt-art printing (backend `matchedVariant`) start
+// on that printing once the card's matrix lands. Only rows with no selection
+// are touched, so a user's pick always wins; a label the matrix lacks leaves
+// the row on its default printing.
+function MatchedPrintingDefaults({
+  trayStore,
+  variantsByCardId,
+}: {
+  trayStore: TrayStore;
+  variantsByCardId: ReadonlyMap<string, RawPricingMatrixVariant[]>;
+}) {
+  const recentCaptures = useTraySelector(trayStore, selectTrayItems);
+  useEffect(() => {
+    const entries = resolveMatchedPrintingDefaults(
+      recentCaptures,
+      trayStore.getState().priceSelections,
+      variantsByCardId,
+    );
+    if (entries.length === 0) {
+      return;
+    }
+    trayStore.setPriceSelections((current) => {
+      let next: Map<string, ScanPriceSheetSelection> | null = null;
+      entries.forEach(({ captureId, selection }) => {
+        // Re-checked against the live map: a pick may have landed meanwhile.
+        if (current.has(captureId)) {
+          return;
+        }
+        next ??= new Map(current);
+        next.set(captureId, selection);
+      });
+      return next ?? current;
+    });
+  }, [recentCaptures, trayStore, variantsByCardId]);
   return null;
 }
 
@@ -1951,6 +1989,7 @@ export function ScannerScreen({
   const applyMatchSuccessForCapture = useCallback(({
     captureId,
     captureMs,
+    game,
     matchResult,
     matchTarget,
     mode,
@@ -1960,6 +1999,9 @@ export function ScannerScreen({
     slabAnalysisMs,
     sourceImageDimensions,
   }: Pick<CaptureMatchParams, 'captureId' | 'captureMs' | 'matchTarget' | 'mode' | 'normalizeMs' | 'pageEffects' | 'scanStartedAt' | 'slabAnalysisMs' | 'sourceImageDimensions'> & {
+    // The lane the capture was sent under, not the live lane: these callbacks
+    // are memoized without it, so reading scanLane here reports a stale game.
+    game?: ScannerCapturePayload['game'];
     matchResult: ScannerMatchResult;
   }) => {
     const endToEndMs = Date.now() - scanStartedAt;
@@ -2038,7 +2080,7 @@ export function ScannerScreen({
       persistLiveTray();
     })();
     capturePostHogEvent('scan_match_succeeded', buildScanMatchSuccessProperties({
-      game: scanLane.game,
+      game,
       candidateCount: matchResult.candidates.length,
       captureMs,
       endToEndMs,
@@ -2114,7 +2156,7 @@ export function ScannerScreen({
       void triggerScannerProcessedHaptic();
     }
     capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
-      game: scanLane.game,
+      game,
       captureMs,
       endToEndMs: Date.now() - scanStartedAt,
       errorKind: scannerErrorKind(error),
@@ -2242,6 +2284,7 @@ export function ScannerScreen({
       applyMatchSuccessForCapture({
         captureId,
         captureMs,
+        game: matchPayload.game,
         matchResult,
         matchTarget,
         mode,
@@ -2591,7 +2634,7 @@ export function ScannerScreen({
               sourceImageDimensions,
             };
             if (item?.result) {
-              applyMatchSuccessForCapture({ ...shared, matchResult: item.result });
+              applyMatchSuccessForCapture({ ...shared, game: scanLane.game, matchResult: item.result });
             } else {
               applyMatchFailureForCapture({
                 ...shared,
@@ -4526,6 +4569,7 @@ export function ScannerScreen({
         recentCapturesRef={recentCapturesRef}
         trayStore={trayStore}
       />
+      <MatchedPrintingDefaults trayStore={trayStore} variantsByCardId={variantsByCardId} />
       {isActiveTab ? <ScannerKeepAwake /> : null}
       <RawScannerCaptureSurface
         cameraRef={cameraRef}

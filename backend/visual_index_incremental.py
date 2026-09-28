@@ -33,11 +33,11 @@ import threading
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
 import numpy as np
 
-from raw_visual_index import RawVisualIndex
+from raw_visual_index import RawVisualIndex, is_alt_reference_entry
 from visual_index_placeholders import is_card_back_image
 
 try:  # reuse the canonical alias derivation when available
@@ -47,6 +47,9 @@ except Exception:  # pragma: no cover - fallback keeps the module importable
 
 # Supertypes that belong in the visual index (mirrors the full build's defaults).
 DEFAULT_ELIGIBLE_SUPERTYPES: tuple[str, ...] = ("pokémon", "pokemon", "trainer", "energy")
+
+POKEMON_GAME = "pokemon"
+_SEALED_ID_PREFIX = "tcgp-sealed-"
 
 _IMAGE_USER_AGENT = "Ekalight/0.1 (+https://local.ekalight.app)"
 _DOWNLOAD_TIMEOUT_SECONDS = 30
@@ -104,16 +107,53 @@ def _eligible_card_rows(connection: Any, supertypes: Iterable[str]) -> list[dict
     return out
 
 
+def _game_card_rows(connection: Any, game: str) -> list[dict[str, Any]]:
+    """Index-able catalog cards for one non-Pokémon game. Mirrors the per-game
+    full build (tools/build_raw_visual_index.py): that game's rows minus sealed
+    product. Supertypes differ per game (Character, Leader, ...), so the Pokémon
+    supertype filter must not apply here."""
+    try:
+        cursor = connection.execute("SELECT * FROM cards WHERE game = ?", (game,))
+    except Exception:
+        # Pre-multi-game catalog: no `game` column, so no rows for this game.
+        return []
+    columns = [col[0] for col in cursor.description]
+    out: list[dict[str, Any]] = []
+    for row in cursor:
+        card = dict(zip(columns, row))
+        if str(card.get("supertype") or "").strip().lower() == "sealed":
+            continue
+        if str(card.get("id") or "").startswith(_SEALED_ID_PREFIX):
+            continue
+        out.append(card)
+    return out
+
+
+def _candidate_rows(
+    connection: Any, supertypes: Iterable[str], game: str | None
+) -> list[dict[str, Any]]:
+    if game is None or game == POKEMON_GAME:
+        return _eligible_card_rows(connection, supertypes)
+    return _game_card_rows(connection, game)
+
+
+def _base_indexed_ids(entries: Iterable[dict[str, Any]]) -> set[Any]:
+    # A card counts as indexed only via its base (Scrydex) row; alt-art rows
+    # (TCGplayer products) ride along untouched and never stand in for it.
+    return {entry.get("providerCardId") for entry in entries if not is_alt_reference_entry(entry)}
+
+
 def diff_missing_ids(
     index: RawVisualIndex,
     connection: Any,
     *,
     eligible_supertypes: Iterable[str] = DEFAULT_ELIGIBLE_SUPERTYPES,
+    game: str | None = None,
 ) -> list[str]:
     """Catalog card IDs that belong in the index but have no embedding yet."""
     index.load()
-    indexed = {entry.get("providerCardId") for entry in index.entries}
-    rows = _eligible_card_rows(connection, eligible_supertypes)
+    indexed = _base_indexed_ids(index.entries)
+    rows = _candidate_rows(connection, eligible_supertypes, game)
     return [str(r.get("id")) for r in rows if r.get("id") not in indexed]
 
 
@@ -144,10 +184,15 @@ def _title_aliases(card: dict[str, Any]) -> list[str]:
 
 
 def _manifest_entry(
-    row_index: int, card: dict[str, Any], reference_path: Path, model_id: str, artifact_version: str
+    row_index: int,
+    card: dict[str, Any],
+    reference_path: Path,
+    model_id: str,
+    artifact_version: str,
+    game: str | None = None,
 ) -> dict[str, Any]:
     cid = card.get("id")
-    return {
+    entry = {
         "rowIndex": row_index,
         "providerCardId": cid,
         "sourceProvider": card.get("source_provider") or "scrydex",
@@ -168,6 +213,10 @@ def _manifest_entry(
         "artifactVersion": artifact_version,
         "indexSource": "incremental_append",
     }
+    # Same shape as the full build: only non-Pokémon entries carry `game`.
+    if game and game != POKEMON_GAME:
+        entry["game"] = game
+    return entry
 
 
 def _atomic_publish(
@@ -225,8 +274,12 @@ def append_missing_cards(
     image_cache_root: Path | None = None,
     max_cards: int | None = None,
     logger: LogFn | None = None,
+    game: str | None = None,
 ) -> dict[str, Any]:
     """Embed catalog cards missing from the index, append them, and hot-reload.
+
+    `game` None/pokemon keeps the Pokémon supertype eligibility; any other game
+    diffs that game's catalog rows against its own per-game index.
 
     Returns a summary dict. A no-op (nothing missing, or everything skipped) does
     not touch the active artifacts.
@@ -238,8 +291,8 @@ def append_missing_cards(
     old_count = len(entries)
     embedding_dim = int(index.matrix.shape[1])
 
-    rows = _eligible_card_rows(connection, eligible_supertypes)
-    indexed_ids = {entry.get("providerCardId") for entry in entries}
+    rows = _candidate_rows(connection, eligible_supertypes, game)
+    indexed_ids = _base_indexed_ids(entries)
     missing = [r for r in rows if r.get("id") not in indexed_ids]
     if max_cards is not None:
         missing = missing[: max(0, int(max_cards))]
@@ -281,7 +334,11 @@ def append_missing_cards(
         kept.append((card, ref_path))
 
     if not images:
-        _log(logger, "INFO", f"visual_index_append no-op added=0 skipped={len(skipped_ids)}")
+        _log(
+            logger,
+            "INFO",
+            f"visual_index_append no-op game={game or POKEMON_GAME} added=0 skipped={len(skipped_ids)}",
+        )
         return {
             "changed": False,
             "added": 0,
@@ -311,7 +368,9 @@ def append_missing_cards(
 
     new_entries = list(entries)
     for offset, (card, ref_path) in enumerate(kept):
-        new_entries.append(_manifest_entry(old_count + offset, card, ref_path, model_id, artifact_version))
+        new_entries.append(
+            _manifest_entry(old_count + offset, card, ref_path, model_id, artifact_version, game)
+        )
 
     if new_matrix.shape[0] != len(new_entries):
         raise RuntimeError("row/entry count mismatch after append; aborting")
@@ -325,7 +384,8 @@ def append_missing_cards(
     _log(
         logger,
         "INFO",
-        f"visual_index_append added={len(kept)} skipped={len(skipped_ids)} entryCount={new_count}",
+        f"visual_index_append game={game or POKEMON_GAME} added={len(kept)} "
+        f"skipped={len(skipped_ids)} entryCount={new_count}",
     )
     return {
         "changed": True,
@@ -347,27 +407,69 @@ def run_refresh(
     eligible_supertypes: Iterable[str] = DEFAULT_ELIGIBLE_SUPERTYPES,
     download_image_fn: DownloadImageFn | None = None,
     logger: LogFn | None = None,
+    game_indexes: Mapping[str, RawVisualIndex | None] | None = None,
 ) -> dict[str, Any]:
     """Lock-guarded entry point used by the ops endpoint / sync hook.
+
+    `index` is the Pokémon index; its result stays at the top level. Each
+    non-Pokémon index in `game_indexes` (None = not built on this box) is
+    refreshed against its own game's catalog rows and reported under
+    ``games[<game>]``. `max_cards` caps each index separately.
 
     `dry_run` reports how many cards are missing without embedding anything. A
     concurrent refresh returns ``{"busy": True}`` instead of overlapping.
     """
+    games = {g: gi for g, gi in (game_indexes or {}).items() if gi is not None and g != POKEMON_GAME}
     if dry_run:
         missing = diff_missing_ids(index, connection, eligible_supertypes=eligible_supertypes)
-        return {"dryRun": True, "missing": len(missing), "missingSample": missing[:20]}
+        result: dict[str, Any] = {"dryRun": True, "missing": len(missing), "missingSample": missing[:20]}
+        if games:
+            result["games"] = {}
+            for game, game_index in games.items():
+                try:
+                    game_missing = diff_missing_ids(game_index, connection, game=game)
+                    result["games"][game] = {"missing": len(game_missing), "missingSample": game_missing[:20]}
+                except Exception as exc:  # noqa: BLE001 - one bad game must not hide the rest
+                    result["games"][game] = {"error": str(exc)}
+        return result
     if not _REFRESH_LOCK.acquire(blocking=False):
         return {"busy": True, "changed": False}
     try:
-        return append_missing_cards(
-            index=index,
-            connection=connection,
-            embed_images_fn=embed_images_fn,
-            model_id=model_id,
-            eligible_supertypes=eligible_supertypes,
-            download_image_fn=download_image_fn,
-            max_cards=max_cards,
-            logger=logger,
-        )
+        pokemon_error: Exception | None = None
+        try:
+            result = append_missing_cards(
+                index=index,
+                connection=connection,
+                embed_images_fn=embed_images_fn,
+                model_id=model_id,
+                eligible_supertypes=eligible_supertypes,
+                download_image_fn=download_image_fn,
+                max_cards=max_cards,
+                logger=logger,
+            )
+        except Exception as exc:
+            # Still refresh the other games; the Pokémon failure re-raises below.
+            pokemon_error = exc
+            result = {}
+        if games:
+            result["games"] = {}
+            for game, game_index in games.items():
+                try:
+                    result["games"][game] = append_missing_cards(
+                        index=game_index,
+                        connection=connection,
+                        embed_images_fn=embed_images_fn,
+                        model_id=model_id,
+                        download_image_fn=download_image_fn,
+                        max_cards=max_cards,
+                        logger=logger,
+                        game=game,
+                    )
+                except Exception as exc:  # noqa: BLE001 - a failed game keeps its old index
+                    _log(logger, "WARNING", f"visual_index_append failed game={game} error={exc}")
+                    result["games"][game] = {"changed": False, "error": str(exc)}
+        if pokemon_error is not None:
+            raise pokemon_error
+        return result
     finally:
         _REFRESH_LOCK.release()

@@ -190,6 +190,7 @@ import youtube_feed
 from anthropic_adapter import identify_pokemon_lookalike
 from pricecharting_adapter import PriceChartingProvider
 from pricing_provider import PricingProviderRegistry
+from raw_visual_index import is_alt_reference_entry, matched_variant_for_entry
 from scrydex_adapter import (
     SCRYDEX_FULL_CATALOG_SYNC_SCOPE,
     SCRYDEX_PROVIDER,
@@ -2206,6 +2207,8 @@ class CandidateEncodingItem:
     final_score: float
     reasons: tuple[str, ...]
     scored_fields: dict[str, Any] | None = None
+    # Alt-art row the photo matched (see matched_variant_for_entry); omitted when None.
+    matched_variant: dict[str, Any] | None = None
 
 
 @dataclass
@@ -2887,10 +2890,16 @@ class SpotlightScanService:
     def refresh_visual_index(self, *, dry_run: bool = False, max_cards: int | None = None) -> dict[str, Any]:
         """Embed catalog cards missing from the visual index, append them, and
         hot-reload — so new Scrydex sets become scannable without a full rebuild
-        or a backend restart. Reuses the already-loaded encoder + adapter."""
+        or a backend restart. Reuses the already-loaded encoder + adapter.
+
+        Covers every per-game index too: `index_for_game` hands back the cached
+        instance the scan path searches, so its reload() is the hot-swap."""
         from visual_index_incremental import run_refresh
 
         matcher = self._raw_visual_matcher_instance()
+        game_indexes = {
+            game: matcher.index_for_game(game) for game in SUPPORTED_GAMES if game != GAME_POKEMON
+        }
 
         def _logger(severity: str, message: str) -> None:
             self._emit_structured_log(
@@ -2905,6 +2914,7 @@ class SpotlightScanService:
             dry_run=dry_run,
             max_cards=max_cards,
             logger=_logger,
+            game_indexes=game_indexes,
         )
 
     def _prune_pending_visual_scans(self) -> None:
@@ -3057,6 +3067,7 @@ class SpotlightScanService:
                     final_score=float(summary["similarity"]),
                     reasons=("visual_similarity",),
                     scored_fields={"visualScore": round(float(summary["similarity"]), 4)},
+                    matched_variant=matched_variant_for_entry(match.entry),
                 )
                 for match, summary in zip(matches[:10], ranked_matches[:10], strict=True)
             ],
@@ -3074,28 +3085,32 @@ class SpotlightScanService:
         # so they add no latency to the live scan path. The "load more candidates"
         # endpoint hydrates pricing for these rows on demand.
         storage_candidates: list[dict[str, Any]] = list(encoded_candidates)
-        for offset, summary in enumerate(ranked_matches[10:SCAN_CANDIDATE_POOL_SIZE]):
+        for offset, (match, summary) in enumerate(
+            zip(matches[10:SCAN_CANDIDATE_POOL_SIZE], ranked_matches[10:SCAN_CANDIDATE_POOL_SIZE], strict=True)
+        ):
             similarity = float(summary.get("similarity") or 0.0)
-            storage_candidates.append(
-                {
-                    "rank": 10 + offset + 1,
-                    "candidate": {
-                        "id": str(summary.get("providerCardId") or ""),
-                        "name": str(summary.get("name") or ""),
-                        "setName": str(summary.get("setName") or ""),
-                        "number": str(summary.get("collectorNumber") or ""),
-                        "rarity": "Unknown",
-                        "variant": "Raw",
-                        "language": str(summary.get("language") or "Unknown"),
-                        "imageSmallURL": summary.get("imageUrl"),
-                        "imageLargeURL": summary.get("imageUrl"),
-                    },
-                    "imageScore": round(similarity, 4),
-                    "collectorNumberScore": 0.0,
-                    "nameScore": 0.0,
-                    "finalScore": round(similarity, 4),
-                }
-            )
+            pool_row: dict[str, Any] = {
+                "rank": 10 + offset + 1,
+                "candidate": {
+                    "id": str(summary.get("providerCardId") or ""),
+                    "name": str(summary.get("name") or ""),
+                    "setName": str(summary.get("setName") or ""),
+                    "number": str(summary.get("collectorNumber") or ""),
+                    "rarity": "Unknown",
+                    "variant": "Raw",
+                    "language": str(summary.get("language") or "Unknown"),
+                    "imageSmallURL": summary.get("imageUrl"),
+                    "imageLargeURL": summary.get("imageUrl"),
+                },
+                "imageScore": round(similarity, 4),
+                "collectorNumberScore": 0.0,
+                "nameScore": 0.0,
+                "finalScore": round(similarity, 4),
+            }
+            matched_variant = matched_variant_for_entry(match.entry)
+            if matched_variant is not None:
+                pool_row["matchedVariant"] = matched_variant
+            storage_candidates.append(pool_row)
 
         # Cross-language "Switch" tail: when the "Scanning for" toggle hard-filtered
         # the actually-scanned card out (e.g. an EN card scanned with the JP toggle
@@ -3129,6 +3144,7 @@ class SpotlightScanService:
                             "visualScore": round(similarity, 4),
                             "crossLanguageSwitch": True,
                         },
+                        matched_variant=matched_variant_for_entry(match.entry),
                     )
                 )
             if cross_lang_items:
@@ -14105,6 +14121,9 @@ class SpotlightScanService:
 
         scored: list[tuple[float, float, float, dict[str, Any]]] = []
         for entry in entries:
+            # Alt-art rows duplicate their card's base-row metadata.
+            if is_alt_reference_entry(entry):
+                continue
             candidate_language = str(entry.get("language") or "").strip().lower()
             if prefer_japanese and candidate_language and candidate_language != "japanese":
                 continue
@@ -14928,17 +14947,20 @@ class SpotlightScanService:
             }
             if item.scored_fields:
                 scored_entry.update(item.scored_fields)
+            encoded_entry = {
+                "rank": index,
+                "candidate": candidate_payload,
+                "imageScore": round(item.image_score, 4),
+                "collectorNumberScore": round(item.collector_number_score, 4),
+                "nameScore": round(item.name_score, 4),
+                "finalScore": round(item.final_score, 4),
+            }
+            if item.matched_variant:
+                # Scored rows are what a reranked scan persists for "load more".
+                scored_entry["matchedVariant"] = item.matched_variant
+                encoded_entry["matchedVariant"] = item.matched_variant
             scored_candidates.append(scored_entry)
-            encoded_candidates.append(
-                {
-                    "rank": index,
-                    "candidate": candidate_payload,
-                    "imageScore": round(item.image_score, 4),
-                    "collectorNumberScore": round(item.collector_number_score, 4),
-                    "nameScore": round(item.name_score, 4),
-                    "finalScore": round(item.final_score, 4),
-                }
-            )
+            encoded_candidates.append(encoded_entry)
             candidate_timings.append(
                 {
                     "rank": index,
@@ -15045,6 +15067,7 @@ class SpotlightScanService:
                         "retrievalScore": round(match.retrieval_score / 100.0, 4),
                         "rerankScore": round(match.resolution_score / 100.0, 4),
                     },
+                    matched_variant=(match.card or {}).get("_matchedVariant"),
                 )
                 for match in top_matches
             ],
@@ -15271,6 +15294,7 @@ class SpotlightScanService:
                 ),
                 "_cachePresence": False,
                 "_retrievalRoutes": [visual_phase_source],
+                "_matchedVariant": matched_variant_for_entry(match.entry),
             }
             for match, summary in zip(matches, visual_matches, strict=True)
         ]

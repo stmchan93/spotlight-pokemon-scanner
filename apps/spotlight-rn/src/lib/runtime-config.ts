@@ -111,6 +111,18 @@ export function resolveStagingSmokeModeEnabled(options: { allowDevelopment?: boo
   return runtimeAppEnv === 'staging' || (options.allowDevelopment === true && __DEV__);
 }
 
+/**
+ * Tray thumbnails show the matched alt-art printing's TCGplayer image
+ * (`matchedVariant.imageUrl`) instead of the card's own art. Default OFF:
+ * image rights are not cleared.
+ */
+export function resolveShowMatchedVariantImage() {
+  return resolveRuntimeBoolean(
+    ['EXPO_PUBLIC_SPOTLIGHT_SHOW_MATCHED_VARIANT_IMAGE'],
+    ['spotlightShowMatchedVariantImage'],
+  );
+}
+
 export function resolveExpoScheme() {
   const explicitScheme = resolveRuntimeValue(
     ['EXPO_PUBLIC_SPOTLIGHT_AUTH_SCHEME'],

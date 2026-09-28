@@ -21,6 +21,7 @@ import {
 import { analyzePSASlabCapture } from '@/features/scanner/slab-native-analysis';
 
 import type { BinderPageLayoutId } from '@/features/scanner/scanner-normalized-target';
+import { resolveShowMatchedVariantImage } from '@/lib/runtime-config';
 import type { RecentCapture, ScannerMode } from './scanner-screen-types';
 
 export const unsupportedSlabTitle = 'Slab type is currently not supported';
@@ -155,6 +156,11 @@ export function buildScanRowResolvedProperties(
   }
   if (capture.matchConfidence) {
     properties.match_confidence = capture.matchConfidence;
+  }
+  // The alt-art printing the photo matched, when the backend served one.
+  const matchedVariant = activeCandidateForCapture(capture)?.matchedVariant?.label;
+  if (matchedVariant) {
+    properties.matched_variant = matchedVariant;
   }
   return properties;
 }
@@ -582,7 +588,18 @@ export function scannerSlabInlineLabel(capture: RecentCapture) {
   return grader ?? normalizeSlabText(capture.slabContext?.variantName);
 }
 
-export function scannerCaptureThumbUri(capture: RecentCapture, candidate: CatalogSearchResult | null) {
+// Read once: the flag is build/OTA config, and this runs on every row render.
+let matchedVariantImageFlag: boolean | null = null;
+function matchedVariantImageEnabled() {
+  matchedVariantImageFlag ??= resolveShowMatchedVariantImage();
+  return matchedVariantImageFlag;
+}
+
+export function scannerCaptureThumbUri(
+  capture: RecentCapture,
+  candidate: CatalogSearchResult | null,
+  showMatchedVariantImage: boolean = matchedVariantImageEnabled(),
+) {
   if (capture.mode === 'slabs') {
     return candidate?.smallImageUrl || candidate?.imageUrl || capture.uri || null;
   }
@@ -597,7 +614,8 @@ export function scannerCaptureThumbUri(capture: RecentCapture, candidate: Catalo
   // card that snaps upright when normalization lands.
   const sourceUri = capture.sourceImageRotationDegrees ? null : capture.uri;
   return (
-    candidate?.smallImageUrl
+    (showMatchedVariantImage ? candidate?.matchedVariant?.imageUrl : null)
+    || candidate?.smallImageUrl
     || candidate?.imageUrl
     || capture.normalizedImageUri
     || sourceUri

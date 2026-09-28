@@ -1112,6 +1112,23 @@ export type CatalogSearchResult = {
    * on older payloads and on catalog search.
    */
   defaultVariantLabel?: string | null;
+  /**
+   * Scanner only: the alt-art printing the photo matched (a TCGplayer
+   * reference image of this card). The tray defaults its printing to `label`
+   * when the card's pricing matrix has it. Absent on older payloads and when
+   * the photo matched the card's base art.
+   */
+  matchedVariant?: ScanMatchedVariant | null;
+};
+
+/** The printing a scan photo matched, from the scan response's `matchedVariant`. */
+export type ScanMatchedVariant = {
+  /** Same printing names as the raw pricing matrix ("Manga Alt Art", "Enchanted"). */
+  label: string;
+  tcgplayerProductId: string | null;
+  /** Reference art for that printing. Not shown by default (image rights). */
+  imageUrl: string | null;
+  source: string | null;
 };
 
 export type ExpansionRecord = {

@@ -116,6 +116,62 @@ export function selectionForPrinting(
   };
 }
 
+/** The alt-art printing the scan photo matched, when the backend served one. */
+export function matchedPrintingLabel(candidate: CatalogSearchResult | null | undefined): string | null {
+  const label = candidate?.matchedVariant?.label;
+  return typeof label === 'string' && label.trim().length > 0 ? label.trim() : null;
+}
+
+/**
+ * The selection a row defaults to when its photo matched an alt-art printing
+ * (e.g. "Manga Alt Art") that the card's matrix prices. Null keeps today's
+ * default — the matrix's first printing — including when the label is not in
+ * the matrix.
+ */
+export function matchedPrintingSelection(
+  candidate: CatalogSearchResult | null | undefined,
+  variants: readonly RawPricingMatrixVariant[] | null | undefined,
+): ScanPriceSheetSelection | null {
+  const label = matchedPrintingLabel(candidate);
+  if (!candidate || !label || !variants || variants.length === 0) {
+    return null;
+  }
+  const matrix: RawPricingMatrix = {
+    cardID: candidate.cardId,
+    currencyCode: candidate.currencyCode ?? 'USD',
+    variants: [...variants],
+  };
+  return selectionForPrinting(matrix, label, null);
+}
+
+/**
+ * Matched-printing defaults for tray rows that have NO selection yet. Any
+ * existing selection — the user's pick, or a default already applied — wins,
+ * so this never overrides an explicit choice. Raw, resolved rows only.
+ */
+export function resolveMatchedPrintingDefaults(
+  captures: readonly RecentCapture[],
+  selections: ReadonlyMap<string, ScanPriceSheetSelection>,
+  variantsByCardId: ReadonlyMap<string, readonly RawPricingMatrixVariant[]>,
+): { captureId: string; selection: ScanPriceSheetSelection }[] {
+  return captures.flatMap((capture) => {
+    if (
+      capture.mode !== 'raw'
+      || capture.isLoadingCandidates
+      || capture.binderPage?.empty
+      || selections.has(capture.id)
+    ) {
+      return [];
+    }
+    const candidate = activeCandidateForCapture(capture);
+    if (!matchedPrintingLabel(candidate)) {
+      return [];
+    }
+    const selection = matchedPrintingSelection(candidate, candidate ? variantsByCardId.get(candidate.cardId) : null);
+    return selection ? [{ captureId: capture.id, selection }] : [];
+  });
+}
+
 /**
  * The card's OWN printing is the matrix's first variant — the one the scanned
  * price already reflects. Anything else is a printing the user chose, and only

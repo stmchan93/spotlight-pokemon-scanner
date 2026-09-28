@@ -18,6 +18,39 @@ class RawVisualSearchMatch:
 
 PLACEHOLDER_DENYLIST_FILENAME = "placeholder_card_ids.json"
 
+# Extra rows for a card's alternate art (e.g. a TCGplayer "Manga Alt Art"
+# product) keep the real card id as providerCardId and tag referenceSource.
+# Base rows carry no referenceSource.
+BASE_REFERENCE_SOURCE = "scrydex"
+TCGPLAYER_REFERENCE_SOURCE = "tcgplayer"
+
+
+def entry_reference_source(entry: dict[str, Any]) -> str:
+    return str(entry.get("referenceSource") or "").strip().lower() or BASE_REFERENCE_SOURCE
+
+
+def is_alt_reference_entry(entry: dict[str, Any]) -> bool:
+    return entry_reference_source(entry) != BASE_REFERENCE_SOURCE
+
+
+def tcgplayer_product_image_url(product_id: str) -> str:
+    return f"https://tcgplayer-cdn.tcgplayer.com/product/{product_id}_in_1000x1000.jpg"
+
+
+def matched_variant_for_entry(entry: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The art version a winning TCGplayer row stands for; None for base rows."""
+    if not isinstance(entry, dict) or entry_reference_source(entry) != TCGPLAYER_REFERENCE_SOURCE:
+        return None
+    product_id = str(entry.get("tcgplayerProductId") or "").strip()
+    if not product_id:
+        return None
+    return {
+        "label": str(entry.get("variantLabel") or "").strip() or None,
+        "tcgplayerProductId": product_id,
+        "imageUrl": tcgplayer_product_image_url(product_id),
+        "source": TCGPLAYER_REFERENCE_SOURCE,
+    }
+
 
 class RawVisualIndex:
     def __init__(self, npz_path: Path, manifest_path: Path) -> None:

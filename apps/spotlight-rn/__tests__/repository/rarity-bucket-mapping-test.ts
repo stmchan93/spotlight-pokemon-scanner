@@ -237,3 +237,82 @@ describe('HttpSpotlightRepository rarityBucket mapping', () => {
     expect(result.candidates[1].rarityBucket).toBeUndefined();
   });
 });
+
+describe('HttpSpotlightRepository scan matchedVariant mapping', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
+  });
+
+  function scanCandidate(id: string, extras: Record<string, unknown> = {}) {
+    return {
+      rank: 1,
+      candidate: {
+        id,
+        game: 'onepiece',
+        name: 'Monkey.D.Luffy',
+        setName: 'Awakening of the New Era',
+        number: 'OP05-119',
+        pricing: { currencyCode: 'usd', market: 2 },
+      },
+      ...extras,
+    };
+  }
+
+  it('parses matchedVariant and tolerates absent, null, and malformed values', async () => {
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/scan/visual-match')) {
+        return jsonResponse(200, {
+          scanID: 'scan-matched-variant',
+          topCandidates: [
+            scanCandidate('matched', {
+              matchedVariant: {
+                label: ' Manga Alt Art ',
+                tcgplayerProductId: '527026',
+                imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/527026_in_1000x1000.jpg',
+                source: 'tcgplayer',
+              },
+            }),
+            // Numeric product id is stringified; a non-http image url is dropped.
+            scanCandidate('numeric-id', {
+              matchedVariant: { label: 'Alt Art', tcgplayerProductId: 527027, imageUrl: 'javascript:alert(1)' },
+            }),
+            scanCandidate('absent'),
+            scanCandidate('null', { matchedVariant: null }),
+            scanCandidate('no-label', { matchedVariant: { label: '   ', imageUrl: 'https://x/y.jpg' } }),
+            scanCandidate('not-object', { matchedVariant: 'Manga Alt Art' }),
+          ],
+        });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const result = await repository.matchScannerCapture({
+      jpegBase64: 'bW9jay1zY2Fu',
+      height: 1620,
+      mode: 'raw',
+      width: 1080,
+    });
+
+    expect(result.candidates).toHaveLength(6);
+    expect(result.candidates[0].matchedVariant).toEqual({
+      label: 'Manga Alt Art',
+      tcgplayerProductId: '527026',
+      imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/527026_in_1000x1000.jpg',
+      source: 'tcgplayer',
+    });
+    expect(result.candidates[1].matchedVariant).toEqual({
+      label: 'Alt Art',
+      tcgplayerProductId: '527027',
+      imageUrl: null,
+      source: null,
+    });
+    // Absent/null/malformed: no key at all, so older candidate shapes are unchanged.
+    result.candidates.slice(2).forEach((candidate) => {
+      expect('matchedVariant' in candidate).toBe(false);
+    });
+  });
+});

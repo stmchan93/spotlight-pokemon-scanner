@@ -20,7 +20,7 @@ from catalog_tools import (
     game_for_scan_payload,
     normalize_game,
 )
-from raw_visual_index import RawVisualIndex, RawVisualSearchMatch
+from raw_visual_index import RawVisualIndex, RawVisualSearchMatch, is_alt_reference_entry
 from raw_visual_model import (
     DEFAULT_VISUAL_MODEL_ID,
     RawVisualFrozenEncoder,
@@ -232,6 +232,9 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+DEFAULT_ALT_REFERENCE_PENALTY = 0.02
+
+
 def _env_int(name: str, default: int) -> int:
     raw = os.environ.get(name)
     if raw is None:
@@ -337,6 +340,12 @@ class RawVisualMatcher:
         self.collector_tiebreak_enabled = _env_flag_enabled("SPOTLIGHT_VISUAL_COLLECTOR_TIEBREAK", default=False)
         self.collector_tiebreak_margin = _env_float("SPOTLIGHT_VISUAL_COLLECTOR_TIEBREAK_MARGIN", 0.03)
         self.collector_tiebreak_beta = _env_float("SPOTLIGHT_VISUAL_COLLECTOR_TIEBREAK_BETA", 0.04)
+
+        # Alt-art rows (TCGplayer products) must beat another card's base row by
+        # this margin before the per-card collapse; 0.05 lost real gains locally.
+        self.alt_reference_penalty = _env_float(
+            "SPOTLIGHT_VISUAL_ALT_REFERENCE_PENALTY", DEFAULT_ALT_REFERENCE_PENALTY
+        )
 
         # Basic-energy mini-index: a small parallel CLIP embedding index that
         # routes obvious basic-energy queries away from the main lookup. Built
@@ -943,6 +952,7 @@ class RawVisualMatcher:
         apply_language_bias: bool,
         variant_name: str,
         variant_inset_ratio: float,
+        alt_reference_penalty: float = 0.0,
     ) -> list[RawVisualSearchMatch]:
         adjusted_matches: list[RawVisualSearchMatch] = []
         for match in raw_matches:
@@ -954,6 +964,10 @@ class RawVisualMatcher:
             if provider_card_id.lower().startswith("tcgp-"):
                 adjusted_similarity -= 0.06
                 adjustment_reasons.append("tcgp_penalty")
+
+            if alt_reference_penalty and is_alt_reference_entry(match.entry):
+                adjusted_similarity -= alt_reference_penalty
+                adjustment_reasons.append("alt_reference_penalty")
 
             if apply_language_bias and candidate_language:
                 if candidate_language == preferred_language:
@@ -1568,6 +1582,9 @@ class RawVisualMatcher:
                     apply_language_bias=apply_language_bias,
                     variant_name=query_variant.name,
                     variant_inset_ratio=query_variant.inset_ratio,
+                    alt_reference_penalty=float(
+                        getattr(self, "alt_reference_penalty", DEFAULT_ALT_REFERENCE_PENALTY)
+                    ),
                 )
                 variant_matches.append(adjusted_matches)
                 top_match = adjusted_matches[0] if adjusted_matches else None

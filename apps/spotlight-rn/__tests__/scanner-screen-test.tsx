@@ -2300,6 +2300,73 @@ describe('ScannerScreen', () => {
     });
   });
 
+  // The backend names the alt-art printing the photo matched; the row starts on
+  // it (when the matrix prices it), and the user's own pick still wins.
+  it('defaults a row to the matched printing, and a picked printing overrides it', async () => {
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async () => ({
+        scanID: 'scan-froakie',
+        candidates: [{
+          id: 'froakie-candidate',
+          cardId: 'mcdonalds25-22',
+          name: 'Froakie',
+          cardNumber: '#22/25',
+          setName: "McDonald's Collection 2021",
+          imageUrl: 'https://cdn.spotlight.test/froakie.png',
+          marketPrice: 0.55,
+          currencyCode: 'USD',
+          matchedVariant: {
+            label: 'reverse  holofoil',
+            tcgplayerProductId: '527026',
+            imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/527026_in_1000x1000.jpg',
+            source: 'tcgplayer',
+          },
+        }],
+      }),
+      getRawPricingMatrix: async () => ({
+        cardID: 'mcdonalds25-22',
+        currencyCode: 'USD',
+        variants: [
+          {
+            variant: 'Holofoil',
+            variantKey: 'holofoil',
+            conditions: [
+              { code: 'NM', label: 'Near Mint', market: 0.55, low: null, mid: null, high: null },
+            ],
+          },
+          {
+            variant: 'Reverse Holofoil',
+            variantKey: 'reverse-holofoil',
+            conditions: [
+              { code: 'NM', label: 'Near Mint', market: 4.2, low: null, mid: null, high: null },
+            ],
+          },
+        ],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    expect(await screen.findByText('Froakie')).toBeTruthy();
+
+    await waitFor(() => {
+      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('Reverse Holofoil');
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $4.20');
+    });
+
+    fireEvent.press(screen.getByTestId(trayTestId('printing', 0)));
+    fireEvent.press(await screen.findByTestId('printing-menu-holofoil'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('Holofoil');
+    });
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.55');
+  });
+
   it('passes the condition selected in the price sheet through to inventory add', async () => {
     const addPayloads: any[] = [];
     const spotlightRepository = createTestSpotlightRepository({

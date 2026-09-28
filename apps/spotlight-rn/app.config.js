@@ -29,6 +29,9 @@ const EXPO_EXTRA_ENV_MAPPINGS = [
   // extra via this table — omitting this line made the flag silently false in
   // every staging OTA (all scans logged outcome=not_started, 2026-08-31).
   ['EXPO_PUBLIC_SPOTLIGHT_RAW_COLLECTOR_NUMBER_OCR_ENABLED', 'spotlightRawCollectorNumberOcrEnabled'],
+  // Tray thumbnail shows the matched alt-art's TCGplayer image. Default off
+  // (image rights not cleared).
+  ['EXPO_PUBLIC_SPOTLIGHT_SHOW_MATCHED_VARIANT_IMAGE', 'spotlightShowMatchedVariantImage'],
   ['EXPO_PUBLIC_SPOTLIGHT_POSTHOG_API_KEY', 'spotlightPosthogApiKey'],
   ['EXPO_PUBLIC_SPOTLIGHT_POSTHOG_HOST', 'spotlightPosthogHost'],
   ['EXPO_PUBLIC_SPOTLIGHT_POSTHOG_ENABLED', 'spotlightPosthogEnabled'],
