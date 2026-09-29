@@ -11,6 +11,10 @@ Design notes for safety (never take the VM down):
   * Additions-only. Existing rows are never reordered or re-embedded, so the
     existing index is provably unchanged (the full-rebuild parity check on
     2026-06-15 showed re-embedding is identical anyway).
+  * The one exception is `prune_excluded_rows`: rows whose card a per-game
+    exclusion (VISUAL_INDEX_EXCLUSIONS, e.g. One Piece DON!!) now keeps out of
+    the scanner are dropped; every other row keeps its exact embedding, and
+    the art-crop sidecar is remapped in the same publish.
   * The live in-memory index is only swapped by `RawVisualIndex.reload()`, which
     validates the new files BEFORE swapping; a bad/half-written refresh raises
     and the previous index keeps serving.
@@ -37,6 +41,7 @@ from typing import Any, Callable, Iterable, Mapping
 
 import numpy as np
 
+from raw_visual_art_version import art_crop_path_for_index
 from raw_visual_index import RawVisualIndex, is_alt_reference_entry
 from visual_index_placeholders import is_card_back_image
 
@@ -49,12 +54,17 @@ except Exception:  # pragma: no cover - fallback keeps the module importable
 DEFAULT_ELIGIBLE_SUPERTYPES: tuple[str, ...] = ("pokémon", "pokemon", "trainer", "energy")
 
 POKEMON_GAME = "pokemon"
+ONE_PIECE_GAME = "onepiece"
 _SEALED_ID_PREFIX = "tcgp-sealed-"
 # catalog_tools.TCGPLAYER_ONLY_SOURCE_PROVIDER (this module avoids a hard import).
 TCGPLAYER_ONLY_SOURCE_PROVIDER = "tcgplayer"
 
 _IMAGE_USER_AGENT = "Ekalight/0.1 (+https://local.ekalight.app)"
 _DOWNLOAD_TIMEOUT_SECONDS = 30
+
+# A pruned index may shrink by at most this fraction in one run; a predicate
+# bug that matches most rows must fail loudly instead of emptying the index.
+MAX_PRUNE_FRACTION = 0.25
 
 EmbedImagesFn = Callable[[list[Any]], np.ndarray]
 DownloadImageFn = Callable[[str], Any]
@@ -92,6 +102,29 @@ def _default_download_image(url: str) -> Any:
     with urllib.request.urlopen(request, timeout=_DOWNLOAD_TIMEOUT_SECONDS) as response:
         data = response.read()
     return Image.open(io.BytesIO(data)).convert("RGB")
+
+
+def _is_one_piece_don_card(card: Mapping[str, Any]) -> bool:
+    # DON!! cards are resource tokens nobody scans for value, yet their near-
+    # identical art attracts blurry One Piece scans. Only TCGplayer-only rows
+    # exist (supertype = TCGplayer's CardType "DON!!"); the name check mirrors
+    # tcgplayer_only_catalog.product_class for rows without a card type.
+    supertype = str(card.get("supertype") or "").strip().casefold()
+    name = str(card.get("name") or "").strip().casefold()
+    return supertype == "don!!" or name.startswith("don!!")
+
+
+# Per-game cards kept in the catalog/search but out of the scanner. Each
+# predicate reads `name`/`supertype`, keys shared by `cards` rows and manifest
+# entries, so the same rule filters the diff and prunes already-indexed rows.
+VISUAL_INDEX_EXCLUSIONS: dict[str, Callable[[Mapping[str, Any]], bool]] = {
+    ONE_PIECE_GAME: _is_one_piece_don_card,
+}
+
+
+def is_excluded_from_visual_index(card: Mapping[str, Any], game: str | None) -> bool:
+    predicate = VISUAL_INDEX_EXCLUSIONS.get(game or POKEMON_GAME)
+    return bool(predicate and predicate(card))
 
 
 def _eligible_card_rows(connection: Any, supertypes: Iterable[str]) -> list[dict[str, Any]]:
@@ -135,8 +168,10 @@ def _candidate_rows(
     connection: Any, supertypes: Iterable[str], game: str | None
 ) -> list[dict[str, Any]]:
     if game is None or game == POKEMON_GAME:
-        return _eligible_card_rows(connection, supertypes)
-    return _game_card_rows(connection, game)
+        rows = _eligible_card_rows(connection, supertypes)
+    else:
+        rows = _game_card_rows(connection, game)
+    return [row for row in rows if not is_excluded_from_visual_index(row, game)]
 
 
 def _base_indexed_ids(entries: Iterable[dict[str, Any]]) -> set[Any]:
@@ -226,7 +261,11 @@ def _manifest_entry(
 
 
 def _atomic_publish(
-    index: RawVisualIndex, matrix: np.ndarray, entries: list[dict[str, Any]], artifact_version: str
+    index: RawVisualIndex,
+    matrix: np.ndarray,
+    entries: list[dict[str, Any]],
+    manifest_updates: Mapping[str, Any],
+    backup_suffix: str = ".pre-append.bak",
 ) -> None:
     npz_path = index.npz_path
     manifest_path = index.manifest_path
@@ -238,7 +277,7 @@ def _atomic_publish(
         np.savez_compressed(handle, embeddings=matrix.astype(np.float32))
 
     # Preserve the existing manifest's top-level provenance (adapter paths, model
-    # id, etc.); only the entries + count change.
+    # id, etc.); only the entries + count (+ the caller's stamps) change.
     base_manifest: dict[str, Any] = {}
     try:
         base_manifest = json.loads(manifest_path.read_text())
@@ -246,8 +285,7 @@ def _atomic_publish(
         base_manifest = {}
     base_manifest["entries"] = entries
     base_manifest["entryCount"] = len(entries)
-    base_manifest["lastIncrementalAppendAt"] = _utc_now()
-    base_manifest["lastIncrementalArtifactVersion"] = artifact_version
+    base_manifest.update(manifest_updates)
     manifest_tmp.write_text(json.dumps(base_manifest))
 
     # Validate the temp pair loads + aligns before we swap anything in place.
@@ -261,11 +299,140 @@ def _atomic_publish(
 
     # Back up the current active (single rolling backup), then atomically swap.
     if npz_path.exists():
-        shutil.copy2(npz_path, Path(str(npz_path) + ".pre-append.bak"))
+        shutil.copy2(npz_path, Path(str(npz_path) + backup_suffix))
     if manifest_path.exists():
-        shutil.copy2(manifest_path, Path(str(manifest_path) + ".pre-append.bak"))
+        shutil.copy2(manifest_path, Path(str(manifest_path) + backup_suffix))
     os.replace(npz_tmp, npz_path)
     os.replace(manifest_tmp, manifest_path)
+
+
+def excluded_row_positions(entries: Iterable[Mapping[str, Any]], game: str | None) -> list[int]:
+    """Manifest positions whose card is excluded from this game's scanner."""
+    return [i for i, entry in enumerate(entries) if is_excluded_from_visual_index(entry, game)]
+
+
+def _remapped_art_crop_payload(
+    art_path: Path,
+    *,
+    current_index_version: str,
+    old_to_new: Mapping[int, int],
+    new_index_version: str,
+) -> tuple[dict[str, np.ndarray] | None, str]:
+    """The art-crop sidecar rewritten for the pruned index (rows renumbered,
+    dropped rows removed, stamped with the new index version), or None + why.
+    A sidecar that is missing, unreadable or already built for a different index
+    version is left alone: the matcher disables it by version mismatch and
+    tools/build_visual_artcrop_index.py must be re-run."""
+    if not art_path.exists():
+        return None, "missing"
+    try:
+        with np.load(str(art_path), allow_pickle=False) as archive:
+            payload = {key: np.asarray(archive[key]) for key in archive.files}
+        rows = payload["rows"].reshape(-1)
+        file_version = str(payload["index_artifact_version"].item())
+    except Exception:  # noqa: BLE001 - a bad sidecar must not block the prune
+        return None, "unreadable_left_disabled"
+    if file_version != current_index_version:
+        return None, "stale_left_disabled"
+    keep = [position for position, row in enumerate(rows.tolist()) if int(row) in old_to_new]
+    payload["rows"] = np.asarray([old_to_new[int(rows[p])] for p in keep], dtype=rows.dtype)
+    payload["embeddings"] = payload["embeddings"][keep]
+    payload["index_artifact_version"] = np.array(new_index_version)
+    return payload, "remapped"
+
+
+def _atomic_write_art_crop(art_path: Path, payload: Mapping[str, np.ndarray], backup_suffix: str) -> None:
+    tmp = Path(str(art_path) + ".tmp")
+    with open(tmp, "wb") as handle:
+        np.savez(handle, **payload)
+    with np.load(str(tmp), allow_pickle=False) as check:
+        if check["rows"].shape[0] != check["embeddings"].shape[0]:
+            tmp.unlink(missing_ok=True)
+            raise RuntimeError("refusing to publish art-crop sidecar: rows/embeddings mismatch")
+    shutil.copy2(art_path, Path(str(art_path) + backup_suffix))
+    os.replace(tmp, art_path)
+
+
+def prune_excluded_rows(
+    *,
+    index: RawVisualIndex,
+    game: str | None,
+    logger: LogFn | None = None,
+) -> dict[str, Any]:
+    """Remove index rows whose card is now excluded (VISUAL_INDEX_EXCLUSIONS),
+    e.g. One Piece DON!! rows embedded before the exclusion existed.
+
+    Every other row keeps its exact embedding bytes and manifest entry; only
+    `rowIndex` is renumbered to stay equal to the npz position. Removing rows
+    shifts row numbers, so the art-crop sidecar (keyed by row number) is
+    remapped in the same publish, and the manifest artifactVersion gets a
+    `+pruned-<ts>` suffix that the remapped sidecar is stamped with: a process
+    still holding the old index (or an old sidecar) sees a version mismatch and
+    skips the art rule instead of reading shifted rows.
+    """
+    index.load()
+    entries = list(index.entries)
+    remove = excluded_row_positions(entries, game)
+    if not remove:
+        return {"pruned": 0}
+    if len(remove) > MAX_PRUNE_FRACTION * len(entries):
+        raise RuntimeError(
+            f"refusing to prune {len(remove)} of {len(entries)} rows (> {MAX_PRUNE_FRACTION:.0%}); aborting"
+        )
+
+    raw_existing = np.asarray(np.load(index.npz_path)["embeddings"], dtype=np.float32)
+    if raw_existing.shape[0] != len(entries):
+        raise RuntimeError(
+            f"active npz/manifest mismatch ({raw_existing.shape[0]} rows vs {len(entries)} entries); aborting"
+        )
+    removed = set(remove)
+    keep = [i for i in range(len(entries)) if i not in removed]
+    old_to_new = {old: new for new, old in enumerate(keep)}
+    new_matrix = raw_existing[keep]
+    new_entries = []
+    for old in keep:
+        entry = dict(entries[old])
+        entry["rowIndex"] = old_to_new[old]
+        new_entries.append(entry)
+
+    current_version = str(index.artifact_version or "")
+    stamp = _utc_now().replace("-", "").replace(":", "")
+    new_version = f"{current_version or 'unversioned'}+pruned-{stamp}"
+
+    # Build the sidecar in memory first so only file writes remain after the
+    # index swap. Index first, sidecar second: in between, the sidecar's old
+    # version mismatches the new manifest, so the art rule pauses, never misreads.
+    art_path = art_crop_path_for_index(index.npz_path, game or POKEMON_GAME)
+    art_payload, art_status = _remapped_art_crop_payload(
+        art_path, current_index_version=current_version, old_to_new=old_to_new, new_index_version=new_version
+    )
+
+    _atomic_publish(
+        index,
+        new_matrix,
+        new_entries,
+        {
+            "artifactVersion": new_version,
+            "lastPruneAt": _utc_now(),
+            "lastPruneRemovedCount": len(remove),
+            "lastPruneBaseArtifactVersion": current_version,
+        },
+        backup_suffix=".pre-prune.bak",
+    )
+    if art_payload is not None:
+        try:
+            _atomic_write_art_crop(art_path, art_payload, ".pre-prune.bak")
+        except Exception as exc:  # noqa: BLE001 - the index prune already landed
+            art_status = "write_failed_left_disabled"
+            _log(logger, "WARNING", f"visual_index_prune art-crop write failed game={game} error={exc}")
+    new_count = index.reload()
+    _log(
+        logger,
+        "INFO",
+        f"visual_index_prune game={game or POKEMON_GAME} pruned={len(remove)} entryCount={new_count} "
+        f"artCrop={art_status}",
+    )
+    return {"pruned": len(remove), "entryCount": new_count, "artCrop": art_status, "artifactVersion": new_version}
 
 
 def append_missing_cards(
@@ -282,14 +449,50 @@ def append_missing_cards(
     logger: LogFn | None = None,
     game: str | None = None,
 ) -> dict[str, Any]:
-    """Embed catalog cards missing from the index, append them, and hot-reload.
+    """Prune now-excluded rows, then embed catalog cards missing from the index,
+    append them, and hot-reload.
 
     `game` None/pokemon keeps the Pokémon supertype eligibility; any other game
     diffs that game's catalog rows against its own per-game index.
 
-    Returns a summary dict. A no-op (nothing missing, or everything skipped) does
-    not touch the active artifacts.
+    Returns a summary dict. A no-op (nothing to prune, nothing missing, or
+    everything skipped) does not touch the active artifacts.
     """
+    prune = prune_excluded_rows(index=index, game=game, logger=logger)
+    result = _append_missing_cards(
+        index=index,
+        connection=connection,
+        embed_images_fn=embed_images_fn,
+        model_id=model_id,
+        artifact_version=artifact_version,
+        eligible_supertypes=eligible_supertypes,
+        download_image_fn=download_image_fn,
+        image_cache_root=image_cache_root,
+        max_cards=max_cards,
+        logger=logger,
+        game=game,
+    )
+    result["pruned"] = prune["pruned"]
+    if prune["pruned"]:
+        result["changed"] = True
+        result["artCrop"] = prune["artCrop"]
+    return result
+
+
+def _append_missing_cards(
+    *,
+    index: RawVisualIndex,
+    connection: Any,
+    embed_images_fn: EmbedImagesFn,
+    model_id: str,
+    artifact_version: str,
+    eligible_supertypes: Iterable[str],
+    download_image_fn: DownloadImageFn | None,
+    image_cache_root: Path | None,
+    max_cards: int | None,
+    logger: LogFn | None,
+    game: str | None,
+) -> dict[str, Any]:
     download = download_image_fn or _default_download_image
 
     index.load()
@@ -384,7 +587,12 @@ def append_missing_cards(
     if len(new_entries) < old_count:
         raise RuntimeError("refusing to publish a shrunken index; aborting")
 
-    _atomic_publish(index, new_matrix, new_entries, artifact_version)
+    _atomic_publish(
+        index,
+        new_matrix,
+        new_entries,
+        {"lastIncrementalAppendAt": _utc_now(), "lastIncrementalArtifactVersion": artifact_version},
+    )
     new_count = index.reload()
 
     _log(
@@ -428,13 +636,22 @@ def run_refresh(
     games = {g: gi for g, gi in (game_indexes or {}).items() if gi is not None and g != POKEMON_GAME}
     if dry_run:
         missing = diff_missing_ids(index, connection, eligible_supertypes=eligible_supertypes)
-        result: dict[str, Any] = {"dryRun": True, "missing": len(missing), "missingSample": missing[:20]}
+        result: dict[str, Any] = {
+            "dryRun": True,
+            "missing": len(missing),
+            "missingSample": missing[:20],
+            "wouldPrune": len(excluded_row_positions(index.entries, POKEMON_GAME)),
+        }
         if games:
             result["games"] = {}
             for game, game_index in games.items():
                 try:
                     game_missing = diff_missing_ids(game_index, connection, game=game)
-                    result["games"][game] = {"missing": len(game_missing), "missingSample": game_missing[:20]}
+                    result["games"][game] = {
+                        "missing": len(game_missing),
+                        "missingSample": game_missing[:20],
+                        "wouldPrune": len(excluded_row_positions(game_index.entries, game)),
+                    }
                 except Exception as exc:  # noqa: BLE001 - one bad game must not hide the rest
                     result["games"][game] = {"error": str(exc)}
         return result

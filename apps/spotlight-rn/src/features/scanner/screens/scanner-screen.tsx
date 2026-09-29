@@ -92,6 +92,12 @@ import {
 } from '@/features/scanner/tray-store';
 import { resolveMatchedPrintingDefaults } from '@/features/scanner/scan-batch-pricing';
 import {
+  cardNumberWithVersion,
+  matchedVersionLabel,
+  printingLabelsMatch,
+  versionLabelForPrinting,
+} from '@/features/cards/printing-image';
+import {
   saveScanCandidateReviewSession,
   type ScanSourceImageCrop,
   type ScanSourceImageDimensions,
@@ -490,6 +496,15 @@ function PocketBadge({ binderPage }: { binderPage: BinderPageRef }) {
   );
 }
 
+/** PDP `variant` param for a scanned card: the chosen printing, else its matched art version. */
+function scanPrintingRouteParam(
+  selection: ScanPriceSheetSelection | null | undefined,
+  candidate: CatalogSearchResult,
+): { variant?: string } {
+  const variant = selection?.variantLabel ?? matchedVersionLabel(candidate);
+  return variant ? { variant } : {};
+}
+
 type CaptureTrayRowProps = {
   capture: RecentCapture;
   onActionRailVisibilityChange: (key: string, visible: boolean) => void;
@@ -542,11 +557,6 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
   // Shared with the tray header TOTAL (`trayPriceSummary`) so the rows and the
   // number a dealer prices a stack off can never drift apart.
   const { amount: displayMarketPrice, currencyCode } = resolveCaptureTrayPrice(capture, selection);
-  const setAndNumberLine = candidate
-    ? [candidate.setName, candidate.cardNumber ? `#${candidate.cardNumber.replace(/^#/, '')}` : null]
-      .filter(Boolean)
-      .join(' · ')
-    : '';
   // A raw row's printings ARE its subtitle: the chips replace the old "RAW"
   // tag outright, and tapping one reprices the row, the tray TOTAL and what
   // gets added. Until the printings land the row simply has no third line.
@@ -556,6 +566,17 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
     ?? selection?.variantLabel
     ?? null;
   const showPrintingPicker = capture.mode === 'raw' && variants.length > 0;
+  // The matched art version (e.g. "Special Alt Art") drives the thumb and is
+  // named after the number — unless the printing link below already says it.
+  const rowPrintingLabel = capture.mode === 'raw' ? selection?.variantLabel ?? null : null;
+  const versionLabel = capture.mode === 'raw' ? versionLabelForPrinting(candidate, rowPrintingLabel) : null;
+  const versionInPicker = showPrintingPicker && printingLabelsMatch(versionLabel, activeVariantLabel);
+  const setAndNumberLine = candidate
+    ? [candidate.setName, cardNumberWithVersion(candidate.cardNumber, versionInPicker ? null : versionLabel)]
+      .filter(Boolean)
+      .join(' · ')
+    : '';
+  const thumbUri = scannerCaptureThumbUri(capture, candidate, rowPrintingLabel);
   const modeTagLine = capture.mode === 'slabs'
     ? scannerSlabInlineLabel(capture) || 'GRADED'
     : null;
@@ -581,7 +602,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
               disabled={!canCycleCandidate}
               onPress={canCycleCandidate ? () => onOpenChangeCardPicker(capture.id) : undefined}
             >
-              {scannerCaptureThumbUri(capture, candidate) ? (
+              {thumbUri ? (
                 <CachedImage
                   cachePolicy={imageCachePolicy.thumbnail}
                   // Keep the scan's own normalized crop on screen while the
@@ -598,7 +619,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                   style={styles.captureThumb}
                   testID={`scanner-tray-image-${capture.id}`}
                   transition={120}
-                  uri={scannerCaptureThumbUri(capture, candidate)}
+                  uri={thumbUri}
                 />
               ) : (
                 <View style={styles.captureThumb} testID={`scanner-tray-image-${capture.id}`} />
@@ -4115,9 +4136,14 @@ export function ScannerScreen({
         // getCardDetail resolves — matching search / portfolio / wishlist nav.
         previewId: saveCardDetailPreviewFromCatalogResult(candidate),
         scanReviewId,
+        // Land on the printing the row is on: the user's pick, else the
+        // matched art version. Raw only — a slab is priced by its cert.
+        ...(capture.mode === 'raw'
+          ? scanPrintingRouteParam(trayStore.getState().priceSelections.get(capture.id), candidate)
+          : {}),
       },
     });
-  }, [router, spotlightRepository, trackRowResolved]);
+  }, [router, spotlightRepository, trackRowResolved, trayStore]);
 
   const handleEbayTrayTap = useCallback((captureId: string, slabContext: { grader?: string | null; grade?: string | null; certNumber?: string | null; variantName?: string | null } | null) => {
     const existing = ebayTrayState.get(captureId);
@@ -5342,6 +5368,7 @@ export function ScannerScreen({
             onLoadMoreCandidates={() => loadMoreCandidates(changeCapture.id)}
             mode={changeCapture.mode === 'slabs' ? 'slabs' : 'raw'}
             selectedVariantKey={changeCaptureSelection?.variantKey ?? null}
+            selectedVariantLabel={changeCaptureSelection?.variantLabel ?? null}
             selectedConditionCode={changeCaptureSelection?.conditionCode ?? null}
             onSelectCandidate={(index) => setActiveCandidate(changeCapture.id, index)}
             onSelectVariant={(selection) => handlePriceSelection(changeCapture.id, selection)}
@@ -5357,6 +5384,16 @@ export function ScannerScreen({
                 params: {
                   cardId: candidate.cardId,
                   previewId: saveCardDetailPreviewFromCatalogResult(candidate),
+                  // The sheet's selection belongs to the capture's active
+                  // candidate; any other card opens on its matched version.
+                  ...(changeCapture.mode === 'raw'
+                    ? scanPrintingRouteParam(
+                      activeCandidateForCapture(changeCapture)?.cardId === candidate.cardId
+                        ? changeCaptureSelection
+                        : null,
+                      candidate,
+                    )
+                    : {}),
                 },
               });
             }}

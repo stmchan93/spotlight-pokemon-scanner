@@ -2357,6 +2357,16 @@ describe('ScannerScreen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $4.20');
     });
+    // The thumb shows the matched version's art (default on), and the card
+    // page opens on that printing.
+    const thumbUri = () => screen.getByTestId(trayTestId('image', 0)).props.source?.uri;
+    expect(thumbUri()).toBe('https://tcgplayer-cdn.tcgplayer.com/product/527026_in_1000x1000.jpg');
+    fireEvent.press(screen.getByTestId(trayTestId('open-card', 0)));
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenLastCalledWith(expect.objectContaining({
+        params: expect.objectContaining({ cardId: 'mcdonalds25-22', variant: 'Reverse Holofoil' }),
+      }));
+    });
 
     fireEvent.press(screen.getByTestId(trayTestId('printing', 0)));
     fireEvent.press(await screen.findByTestId('printing-menu-holofoil'));
@@ -2365,6 +2375,58 @@ describe('ScannerScreen', () => {
       expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('Holofoil');
     });
     expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.55');
+    // Another printing has no art of its own: the card's image comes back.
+    expect(thumbUri()).toBe('https://cdn.spotlight.test/froakie.png');
+    fireEvent.press(screen.getByTestId(trayTestId('open-card', 0)));
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenLastCalledWith(expect.objectContaining({
+        params: expect.objectContaining({ variant: 'Holofoil' }),
+      }));
+    });
+  });
+
+  // With no matrix row for the matched version the row keeps its default
+  // printing, but still depicts and names the version it matched.
+  it('names the matched version on the number line when the printing link does not', async () => {
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async () => ({
+        scanID: 'scan-rebecca',
+        candidates: [{
+          id: 'rebecca-candidate',
+          cardId: 'onepiece~op05-091',
+          name: 'Rebecca',
+          cardNumber: 'OP05-091',
+          setName: 'Awakening of the New Era',
+          imageUrl: 'https://cdn.spotlight.test/rebecca.png',
+          marketPrice: 1.2,
+          currencyCode: 'USD',
+          matchedVariant: {
+            label: 'Special Alt Art',
+            tcgplayerProductId: '541670',
+            imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/541670_in_1000x1000.jpg',
+            source: 'tcgplayer',
+          },
+        }],
+      }),
+      getRawPricingMatrix: async () => ({
+        cardID: 'onepiece~op05-091',
+        currencyCode: 'USD',
+        variants: [{
+          variant: 'Normal',
+          variantKey: 'normal',
+          conditions: [{ code: 'NM', label: 'Near Mint', market: 1.2, low: null, mid: null, high: null }],
+        }],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    expect(await screen.findByText('Rebecca')).toBeTruthy();
+    expect(await screen.findByText('Awakening of the New Era · #OP05-091 · Special Alt Art')).toBeTruthy();
+    expect(screen.getByTestId(trayTestId('image', 0)).props.source?.uri)
+      .toBe('https://tcgplayer-cdn.tcgplayer.com/product/541670_in_1000x1000.jpg');
   });
 
   it('passes the condition selected in the price sheet through to inventory add', async () => {

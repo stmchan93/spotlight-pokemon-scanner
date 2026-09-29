@@ -22,7 +22,11 @@ import {
 import { analyzePSASlabCapture } from '@/features/scanner/slab-native-analysis';
 
 import type { BinderPageLayoutId } from '@/features/scanner/scanner-normalized-target';
-import { resolveShowMatchedVariantImage } from '@/lib/runtime-config';
+import {
+  isMatchedVersionShown,
+  matchedVariantImageEnabled,
+  matchedVersionImageUrl,
+} from '@/features/cards/printing-image';
 import type { RecentCapture, ScannerMode } from './scanner-screen-types';
 
 export const unsupportedSlabTitle = 'Slab type is currently not supported';
@@ -597,16 +601,14 @@ export function scannerSlabInlineLabel(capture: RecentCapture) {
   return grader ?? normalizeSlabText(capture.slabContext?.variantName);
 }
 
-// Read once: the flag is build/OTA config, and this runs on every row render.
-let matchedVariantImageFlag: boolean | null = null;
-function matchedVariantImageEnabled() {
-  matchedVariantImageFlag ??= resolveShowMatchedVariantImage();
-  return matchedVariantImageFlag;
-}
-
+/**
+ * `printingLabel` is the printing the row is on (null = none chosen yet): the
+ * matched art version's image shows while the row is on that version.
+ */
 export function scannerCaptureThumbUri(
   capture: RecentCapture,
   candidate: CatalogSearchResult | null,
+  printingLabel: string | null = null,
   showMatchedVariantImage: boolean = matchedVariantImageEnabled(),
 ) {
   if (capture.mode === 'slabs') {
@@ -623,7 +625,9 @@ export function scannerCaptureThumbUri(
   // card that snaps upright when normalization lands.
   const sourceUri = capture.sourceImageRotationDegrees ? null : capture.uri;
   return (
-    (showMatchedVariantImage ? candidate?.matchedVariant?.imageUrl : null)
+    (isMatchedVersionShown(candidate, printingLabel)
+      ? matchedVersionImageUrl(candidate, showMatchedVariantImage)
+      : null)
     || candidate?.smallImageUrl
     || candidate?.imageUrl
     || capture.normalizedImageUri

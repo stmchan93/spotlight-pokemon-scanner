@@ -458,6 +458,12 @@ class DatabaseSourcedIndexBuildTests(unittest.TestCase):
             ("OP01-003", "onepiece", "Nami", "Romance Dawn", "OP01-003", "Common", "Raw", "English",
              "scrydex", "OP01-003", "OP01", "Booster Pack", "OP01", "2022/12/02", "Character",
              "[]", "[]", None, None, "[]", None, None, None, "{}", "now", "now"),
+            # DON!! stays in the catalog but never in the scanner index.
+            ("onepiece~tcgplayer-593814", "onepiece", "DON!! Card", "Event Group", "", "", "Normal", "English",
+             "tcgplayer", "593814", "onepiece~tcgplayer-group-1", None, None, None, "DON!!",
+             "[]", "[]", None, None, "[]",
+             "https://tcgplayer-cdn.tcgplayer.com/product/593814_in_1000x1000.jpg",
+             None, "593814", "{}", "now", "now"),
             ("base1-4", "pokemon", "Charizard", "Base", "4", "Rare Holo", "Raw", "English",
              "scrydex", "base1-4", "base1", "Base", "BS", "1999/01/09", "Pokémon",
              "[]", '["Fire"]', "Mitsuhiro Arita", None, "[6]",

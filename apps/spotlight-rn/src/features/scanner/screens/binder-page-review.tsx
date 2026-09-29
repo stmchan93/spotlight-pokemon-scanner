@@ -33,6 +33,7 @@ import {
   rawCardNormalizedTargetHeight,
   rawCardNormalizedTargetWidth,
 } from '@/features/scanner/scanner-normalized-target';
+import { cardNumberWithVersion, versionLabelForPrinting } from '@/features/cards/printing-image';
 import { useAppServices } from '@/providers/app-providers';
 
 import type { ScanPriceSheetSelection } from './scan-price-sheet';
@@ -418,13 +419,22 @@ function PocketTile({
   // for or to tap.
   const isLost = !capture;
   const cropUri = capture?.normalizedImageUri ?? capture?.uri ?? null;
-  const matchedUri = capture ? scannerCaptureThumbUri(capture, candidate) : null;
+  // The printing the pocket is on drives the art: the matched art version
+  // until another printing is picked.
+  const pocketPrintingLabel = capture?.mode === 'raw' ? selection?.variantLabel ?? null : null;
+  const matchedUri = capture ? scannerCaptureThumbUri(capture, candidate, pocketPrintingLabel) : null;
   // The scanned crop stands in until the match lands. Peeking at it by
   // long-press is gone — the hold gesture belongs to selection now.
   const artUri = isLoading || !candidate ? cropUri : matchedUri;
   const priceLabel = capture && candidate ? priceLabelFor(capture) : null;
   const setLine = candidate
-    ? [candidate.setName, candidate.cardNumber ? `#${candidate.cardNumber.replace(/^#/, '')}` : null]
+    ? [
+      candidate.setName,
+      cardNumberWithVersion(
+        candidate.cardNumber,
+        capture?.mode === 'raw' ? versionLabelForPrinting(candidate, pocketPrintingLabel) : null,
+      ),
+    ]
       .filter(Boolean)
       .join(' · ')
     : '';

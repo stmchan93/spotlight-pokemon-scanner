@@ -113,6 +113,7 @@ export function CardDetailHero({
             cachePolicy={imageCachePolicy.hero}
             contentFit="contain"
             style={[styles.image, isProduct ? null : { borderRadius: theme.layout.heroArtRadius }]}
+            testID={testID ? `${testID}-image` : undefined}
             uri={imageUrl}
           />
         </Animated.View>

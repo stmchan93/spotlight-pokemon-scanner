@@ -66,6 +66,7 @@ import { OwnedEntryEditFields } from '@/features/cards/components/owned-entry-ed
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
 import { InventoryDropdown } from '@/features/cards/components/inventory-dropdown';
 import { CardDetailHero } from '@/features/cards/components/card-detail-hero';
+import { printingImageFor } from '@/features/cards/printing-image';
 import { CardPopulationReport } from '@/features/cards/components/card-population-report';
 import { CardWishlistCounter } from '@/features/cards/components/card-wishlist-counter';
 import { CardPriceTrendList } from '@/features/cards/components/card-price-trend-list';
@@ -1492,6 +1493,13 @@ export function CardDetailScreen({
     ?? detailPreview?.largeImageUrl
     ?? detailPreview?.imageUrl
     ?? null;
+  // A printing with its own art (the version a scan matched) shows it in the
+  // header while selected; before the picker seeds, the routed printing counts.
+  // The preview belongs to the routed card, so an EN/JP swap drops it.
+  const heroPrintingImageUrl = activeCardId === cardId
+    ? printingImageFor(detailPreview?.printingImages, selectedVariantLabel ?? (selectedVariant ? null : initialVariant))
+    : null;
+  const heroImageUrl = heroPrintingImageUrl ?? displayImageUrl;
 
   /*
     Open the target-price sheet for this card.
@@ -2678,7 +2686,7 @@ export function CardDetailScreen({
         testID="detail-scroll"
       >
         <CardDetailHero
-          imageUrl={displayImageUrl}
+          imageUrl={heroImageUrl}
           isFavorite={isFavorite}
           name={displayName}
           onToggleFavorite={gate(handleToggleFavorite)}

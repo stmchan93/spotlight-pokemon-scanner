@@ -112,14 +112,16 @@ export function resolveStagingSmokeModeEnabled(options: { allowDevelopment?: boo
 }
 
 /**
- * Tray thumbnails show the matched alt-art printing's TCGplayer image
- * (`matchedVariant.imageUrl`) instead of the card's own art. Default OFF:
- * image rights are not cleared.
+ * Scanner surfaces (tray, change-card sheet, card page header) show the
+ * matched art version's TCGplayer image (`matchedVariant.imageUrl`) instead of
+ * the card's base art. Default ON (TCGplayer images approved for staging and
+ * production); set the env to 0 to switch it off.
  */
 export function resolveShowMatchedVariantImage() {
   return resolveRuntimeBoolean(
     ['EXPO_PUBLIC_SPOTLIGHT_SHOW_MATCHED_VARIANT_IMAGE'],
     ['spotlightShowMatchedVariantImage'],
+    true,
   );
 }
 

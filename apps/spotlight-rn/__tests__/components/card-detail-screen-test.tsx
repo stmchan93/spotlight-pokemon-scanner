@@ -1702,6 +1702,50 @@ describe('CardDetailScreen', () => {
       expect(heartLabel()).toBe('Add to watchlist');
     });
 
+    it('shows a scanned art version in the header while that printing is selected', async () => {
+      const versionImage = 'https://tcgplayer-cdn.tcgplayer.com/product/541670_in_1000x1000.jpg';
+      const scanReviewId = saveScanCandidateReviewSession({
+        id: 'scan-review-altart',
+        scanID: 'scan-altart',
+        selectedCardId: 'sm7-1',
+        candidates: [{
+          id: 'sm7-1-candidate',
+          cardId: 'sm7-1',
+          name: 'Treecko',
+          cardNumber: '#1/168',
+          setName: 'Celestial Storm',
+          imageUrl: 'https://images.pokemontcg.io/sm7/1.png',
+          currencyCode: 'USD',
+          matchedVariant: {
+            label: 'Reverse Holofoil',
+            tcgplayerProductId: '541670',
+            imageUrl: versionImage,
+            source: 'tcgplayer',
+          },
+        }],
+      });
+      renderWithProviders(
+        <CardDetailScreen
+          cardId="sm7-1"
+          initialVariant="Reverse Holofoil"
+          onBack={jest.fn()}
+          scanReviewId={scanReviewId}
+        />,
+        { spotlightRepository: printingRepository({ watchedVariants: ['Holofoil'] }) },
+      );
+      const heroUri = () => screen.getByTestId('detail-hero-card-image').props.source?.uri;
+
+      // Lands on the routed (matched) printing, showing its art.
+      expect(await screen.findByTestId('detail-watching-other-printings'))
+        .toHaveTextContent("You're watching the Holofoil");
+      expect(heroUri()).toBe(versionImage);
+
+      // Another printing has no art of its own: the card image comes back.
+      fireEvent.press(screen.getByTestId('detail-watching-printing-Holofoil'));
+      await waitFor(() => expect(heroUri()).not.toBe(versionImage));
+      expect(heroUri()).toBeTruthy();
+    });
+
     it('opens on a routed printing', async () => {
       renderWithProviders(
         <CardDetailScreen cardId="sm7-1" initialVariant="Reverse Holofoil" onBack={jest.fn()} />,

@@ -265,6 +265,12 @@ export function tcgPlayerProductIdFromCardId(cardId: string | null | undefined):
   return match ? match[1] : null;
 }
 
+/** TCGplayer's product image for a product id, or null without one. */
+export function buildTcgPlayerProductImageUrl(productId: string | null | undefined): string | null {
+  const id = productId?.trim();
+  return id && /^\d+$/.test(id) ? `https://tcgplayer-cdn.tcgplayer.com/product/${id}_in_1000x1000.jpg` : null;
+}
+
 /**
  * Resolve the TCGplayer product_id for the SELECTED printing/variant.
  *

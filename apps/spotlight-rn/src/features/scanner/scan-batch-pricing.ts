@@ -5,6 +5,8 @@ import type {
   RawPricingMatrixVariant,
 } from '@spotlight/api-client';
 
+import { matchedVersionLabel } from '@/features/cards/printing-image';
+
 import {
   buildScanPriceSelection,
   conditionCodeToDeckCondition,
@@ -118,8 +120,7 @@ export function selectionForPrinting(
 
 /** The alt-art printing the scan photo matched, when the backend served one. */
 export function matchedPrintingLabel(candidate: CatalogSearchResult | null | undefined): string | null {
-  const label = candidate?.matchedVariant?.label;
-  return typeof label === 'string' && label.trim().length > 0 ? label.trim() : null;
+  return matchedVersionLabel(candidate);
 }
 
 /**

@@ -114,7 +114,7 @@ describe('scan_row_resolved properties', () => {
   });
 });
 
-describe('tray thumbnail and the matched alt-art image flag', () => {
+describe('tray thumbnail and the matched art version', () => {
   const matchedCandidate = {
     cardId: 'op-1',
     imageUrl: 'https://img/luffy.png',
@@ -126,17 +126,30 @@ describe('tray thumbnail and the matched alt-art image flag', () => {
       source: 'tcgplayer',
     },
   } as RecentCapture['candidates'][number];
+  const versionImage = 'https://tcgplayer-cdn.tcgplayer.com/product/527026_in_1000x1000.jpg';
 
-  it("keeps the card's own art by default (image rights not cleared)", () => {
+  it('shows the matched version image by default', () => {
     const capture = makeCapture({ candidates: [matchedCandidate] });
-    expect(scannerCaptureThumbUri(capture, matchedCandidate)).toBe('https://img/luffy-small.png');
-    expect(scannerCaptureThumbUri(capture, matchedCandidate, false)).toBe('https://img/luffy-small.png');
+    expect(scannerCaptureThumbUri(capture, matchedCandidate)).toBe(versionImage);
+    expect(scannerCaptureThumbUri(capture, matchedCandidate, 'manga  alt art')).toBe(versionImage);
   });
 
-  it('shows the matched printing image when the flag is on', () => {
+  it("follows the chosen printing: another printing shows the card's own art", () => {
     const capture = makeCapture({ candidates: [matchedCandidate] });
-    expect(scannerCaptureThumbUri(capture, matchedCandidate, true)).toBe(
-      'https://tcgplayer-cdn.tcgplayer.com/product/527026_in_1000x1000.jpg',
-    );
+    expect(scannerCaptureThumbUri(capture, matchedCandidate, 'Normal')).toBe('https://img/luffy-small.png');
+  });
+
+  it("keeps the card's own art when the flag is switched off", () => {
+    const capture = makeCapture({ candidates: [matchedCandidate] });
+    expect(scannerCaptureThumbUri(capture, matchedCandidate, null, false)).toBe('https://img/luffy-small.png');
+  });
+
+  it('builds the image from the product id when the backend sent no image', () => {
+    const noImage = {
+      ...matchedCandidate,
+      matchedVariant: { ...matchedCandidate.matchedVariant!, imageUrl: null },
+    } as RecentCapture['candidates'][number];
+    const capture = makeCapture({ candidates: [noImage] });
+    expect(scannerCaptureThumbUri(capture, noImage)).toBe(versionImage);
   });
 });

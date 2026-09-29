@@ -7,6 +7,8 @@ import type {
   ProductKind,
 } from '@spotlight/api-client';
 
+import { printingImagesForCandidate, type PrintingImage } from '@/features/cards/printing-image';
+
 export type CardDetailPreview = {
   cardId: string;
   cardNumber: string;
@@ -22,6 +24,11 @@ export type CardDetailPreview = {
   marketPrice?: number | null;
   name: string;
   ownedEntry?: InventoryCardEntry | null;
+  /**
+   * Images for specific printings, e.g. the art version a scan matched. The
+   * card page header shows one while that printing is selected.
+   */
+  printingImages?: PrintingImage[];
   /** `'sealed'` paints the sealed layout before the detail request lands. */
   productKind?: ProductKind;
   setName: string;
@@ -68,6 +75,7 @@ function saveCardDetailPreview(input: SaveCardDetailPreviewInput) {
 // it must carry the game too — otherwise the grading lanes render as Pokémon's
 // for a beat and then swap, which reads as a flicker of wrong controls.
 export function cardDetailPreviewFromCatalogResult(result: CatalogSearchResult): CardDetailPreview {
+  const printingImages = printingImagesForCandidate(result);
   return {
     cardId: result.cardId,
     cardNumber: result.cardNumber,
@@ -78,6 +86,8 @@ export function cardDetailPreviewFromCatalogResult(result: CatalogSearchResult):
     imageUrl: result.imageUrl,
     marketPrice: result.marketPrice ?? null,
     name: result.name,
+    // Only set when the scan matched an art version, so other previews keep their shape.
+    ...(printingImages ? { printingImages } : {}),
     productKind: result.productKind,
     setName: result.setName,
   };

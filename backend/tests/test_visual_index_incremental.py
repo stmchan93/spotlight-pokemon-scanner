@@ -14,7 +14,14 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from catalog_tools import apply_schema, connect, upsert_card  # noqa: E402
 from raw_visual_index import RawVisualIndex  # noqa: E402
-from visual_index_incremental import append_missing_cards, diff_missing_ids, run_refresh  # noqa: E402
+from raw_visual_art_version import load_art_crop_index  # noqa: E402
+from visual_index_incremental import (  # noqa: E402
+    append_missing_cards,
+    diff_missing_ids,
+    is_excluded_from_visual_index,
+    prune_excluded_rows,
+    run_refresh,
+)
 
 
 def _write_index(npz_path: Path, manifest_path: Path, ids, embeddings) -> None:
@@ -257,6 +264,222 @@ class PerGameRefreshTests(unittest.TestCase):
         self.assertTrue(result["changed"])
         self.assertEqual(result["added"], 1)
         self.assertIn("error", result["games"]["onepiece"])
+
+
+class OnePieceDonExclusionTests(unittest.TestCase):
+    """DON!! cards stay in the catalog but never in the One Piece scanner."""
+
+    VERSION = "onepiece-v001+tcgp-altart"
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.poke_npz = self.dir / "visual_index_active_test.npz"
+        self.poke_manifest = self.dir / "visual_index_active_manifest.json"
+        _write_index(self.poke_npz, self.poke_manifest, ["poke-1"], [[0.0, 1.0, 0.0, 0.0]])
+        self.op_npz = self.dir / "visual_index_active_onepiece_test.npz"
+        self.op_manifest = self.dir / "visual_index_active_onepiece_manifest.json"
+        self.art = self.dir / "visual_index_active_onepiece_artcrop.npz"
+        # Rows: 0 base Luffy, 1 DON!! (tcgplayer-only), 2 Luffy alt art,
+        # 3 DON!! by name only, 4 Zoro base, 5 Zoro alt art.
+        self.entries = [
+            {"rowIndex": 0, "providerCardId": "onepiece~OP01-001", "name": "Monkey.D.Luffy",
+             "supertype": "Leader", "game": "onepiece"},
+            {"rowIndex": 1, "providerCardId": "onepiece~tcgplayer-593814", "name": "DON!! Card",
+             "supertype": "DON!!", "game": "onepiece", "catalogSource": "tcgplayer"},
+            {"rowIndex": 2, "providerCardId": "onepiece~OP01-001", "name": "Monkey.D.Luffy",
+             "supertype": "Leader", "game": "onepiece", "referenceSource": "tcgplayer",
+             "tcgplayerProductId": "111", "variantLabel": "Alt Art"},
+            {"rowIndex": 3, "providerCardId": "onepiece~tcgplayer-600000",
+             "name": "DON!! Card // Green Compass", "supertype": None, "game": "onepiece"},
+            {"rowIndex": 4, "providerCardId": "onepiece~OP01-025", "name": "Roronoa Zoro",
+             "supertype": "Character", "game": "onepiece"},
+            {"rowIndex": 5, "providerCardId": "onepiece~OP01-025", "name": "Roronoa Zoro",
+             "supertype": "Character", "game": "onepiece", "referenceSource": "tcgplayer",
+             "tcgplayerProductId": "222", "variantLabel": "Alt Art"},
+        ]
+        # Filler single-version rows 6..11 (keeps the prune under its 25% cap).
+        self.entries += [
+            {"rowIndex": i, "providerCardId": f"onepiece~ST01-{i:03d}", "name": f"Filler {i}",
+             "supertype": "Character", "game": "onepiece"}
+            for i in range(6, 12)
+        ]
+        rng = np.random.default_rng(7)
+        self.matrix = rng.standard_normal((12, 4)).astype(np.float32)
+        np.savez_compressed(self.op_npz, embeddings=self.matrix)
+        self.op_manifest.write_text(json.dumps({
+            "game": "onepiece", "artifactVersion": self.VERSION, "modelId": "m",
+            "entryCount": 12, "entries": self.entries,
+        }))
+        # Art sidecar covers the multi-version cards: Luffy rows 0,2 and Zoro 4,5.
+        self.art_embeddings = rng.standard_normal((4, 3)).astype(np.float16)
+        np.savez(
+            self.art,
+            rows=np.asarray([0, 2, 4, 5], dtype=np.int32),
+            embeddings=self.art_embeddings,
+            region=np.asarray([0.1, 0.1, 0.9, 0.6], dtype=np.float32),
+            adapter=np.array("adapter-v003"),
+            index_artifact_version=np.array(self.VERSION),
+        )
+        self.poke_index = RawVisualIndex(npz_path=self.poke_npz, manifest_path=self.poke_manifest)
+        self.op_index = RawVisualIndex(npz_path=self.op_npz, manifest_path=self.op_manifest)
+        self.conn = connect(self.dir / "catalog.sqlite")
+        apply_schema(self.conn, BACKEND_ROOT / "schema.sql")
+        self._add("poke-1", game="pokemon", name="DON!! Pikachu", supertype="Pokémon")
+        self._add("onepiece~OP01-001", game="onepiece", name="Monkey.D.Luffy", supertype="Leader")
+        self._add("onepiece~OP01-025", game="onepiece", name="Roronoa Zoro", supertype="Character")
+        self._add("onepiece~tcgplayer-593814", game="onepiece", name="DON!! Card", supertype="DON!!")
+        self._add("onepiece~tcgplayer-600000", game="onepiece", name="DON!! Card // Green Compass", supertype="")
+        self._add("onepiece~tcgplayer-700000", game="onepiece", name="DON!! Card", supertype="DON!!")
+
+    def tearDown(self) -> None:
+        self.conn.close()
+        self.tmp.cleanup()
+
+    def _add(self, card_id: str, *, game: str, name: str, supertype: str) -> None:
+        upsert_card(
+            self.conn, card_id=card_id, game=game, name=name, set_name="Test Set", number="001",
+            rarity="Rare", variant="Raw", language="English", supertype=supertype,
+            image_url=f"https://images.example.com/{card_id}.jpg",
+        )
+        self.conn.commit()
+
+    def _refresh(self, **kwargs):
+        return run_refresh(
+            index=self.poke_index,
+            connection=self.conn,
+            embed_images_fn=lambda images: np.ones((len(images), 4), dtype=np.float32),
+            model_id="test-model",
+            download_image_fn=lambda _url: _FakeImage(),
+            game_indexes={"onepiece": self.op_index},
+            **kwargs,
+        )
+
+    def test_predicate_is_one_piece_only(self) -> None:
+        self.assertTrue(is_excluded_from_visual_index({"name": "DON!! Card", "supertype": "DON!!"}, "onepiece"))
+        self.assertTrue(is_excluded_from_visual_index({"name": "x", "supertype": "DON!!"}, "onepiece"))
+        self.assertTrue(is_excluded_from_visual_index({"name": "DON!! Card // Promo"}, "onepiece"))
+        self.assertFalse(is_excluded_from_visual_index({"name": "Donquixote Doflamingo"}, "onepiece"))
+        self.assertFalse(is_excluded_from_visual_index({"name": "DON!! Card", "supertype": "DON!!"}, "pokemon"))
+        self.assertFalse(is_excluded_from_visual_index({"name": "DON!! Card", "supertype": "DON!!"}, None))
+
+    def test_diff_skips_don_cards(self) -> None:
+        dry = self._refresh(dry_run=True)
+        op = dry["games"]["onepiece"]
+        self.assertEqual(op["missing"], 0)  # tcgplayer-700000 is DON!!: never "missing"
+        self.assertEqual(op["wouldPrune"], 2)
+        self.assertEqual(dry["wouldPrune"], 0)
+        self.assertEqual(diff_missing_ids(self.op_index, self.conn, game="onepiece"), [])
+        # Pokémon keeps its own eligibility; a Pokémon name starting "DON!!" is untouched.
+        self.assertEqual(diff_missing_ids(self.poke_index, self.conn), [])
+
+    def test_refresh_prunes_don_rows_and_remaps_art_sidecar(self) -> None:
+        poke_before = (self.poke_npz.read_bytes(), self.poke_manifest.read_bytes())
+        result = self._refresh()
+
+        self.assertEqual(result["pruned"], 0)
+        self.assertEqual((self.poke_npz.read_bytes(), self.poke_manifest.read_bytes()), poke_before)
+
+        op = result["games"]["onepiece"]
+        self.assertTrue(op["changed"])
+        self.assertEqual(op["pruned"], 2)
+        self.assertEqual(op["added"], 0)
+        self.assertEqual(op["artCrop"], "remapped")
+        self.assertEqual(op["entryCount"], 10)
+
+        # Kept rows: old 0, 2, 4..11 -> new 0..9, embeddings byte-identical,
+        # entries identical apart from the renumbered rowIndex.
+        kept = [0, 2] + list(range(4, 12))
+        raw = np.load(self.op_npz)["embeddings"]
+        self.assertEqual(raw.dtype, np.float32)
+        self.assertEqual(raw.tobytes(), self.matrix[kept].tobytes())
+        manifest = json.loads(self.op_manifest.read_text())
+        self.assertEqual(manifest["entryCount"], 10)
+        for new, old in enumerate(kept):
+            expected = dict(self.entries[old], rowIndex=new)
+            self.assertEqual(manifest["entries"][new], expected)
+        self.assertTrue(manifest["artifactVersion"].startswith(self.VERSION + "+pruned-"))
+        self.assertEqual(manifest["lastPruneRemovedCount"], 2)
+        self.assertEqual(manifest["modelId"], "m")
+        self.assertTrue(Path(str(self.op_npz) + ".pre-prune.bak").exists())
+        self.assertEqual(self.op_index.artifact_version, manifest["artifactVersion"])
+        self.assertNotIn("DON!! Card", [e.get("name") for e in self.op_index.entries])
+
+        # Art sidecar: rows renumbered, embeddings untouched, stamped with the new
+        # version, and it still validates against the hot-reloaded index.
+        with np.load(self.art) as art:
+            self.assertEqual(art["rows"].tolist(), [0, 1, 2, 3])
+            self.assertEqual(art["rows"].dtype, np.int32)
+            self.assertEqual(art["embeddings"].tobytes(), self.art_embeddings.tobytes())
+            self.assertEqual(str(art["index_artifact_version"].item()), manifest["artifactVersion"])
+        logs: list = []
+        loaded = load_art_crop_index(
+            self.art,
+            index_artifact_version=self.op_index.artifact_version,
+            adapter_version="adapter-v003",
+            entries=self.op_index.entries,
+            log=lambda *a, **k: logs.append((a, k)),
+            game="onepiece",
+        )
+        self.assertIsNotNone(loaded, logs)
+        self.assertEqual(loaded.rows_by_card, {"onepiece~OP01-001": [0, 1], "onepiece~OP01-025": [2, 3]})
+
+        # Second run: nothing to prune, no DON re-added, artifacts untouched.
+        before = (self.op_npz.read_bytes(), self.art.read_bytes())
+        again = self._refresh()
+        self.assertFalse(again["games"]["onepiece"]["changed"])
+        self.assertEqual(again["games"]["onepiece"]["pruned"], 0)
+        self.assertEqual((self.op_npz.read_bytes(), self.art.read_bytes()), before)
+
+    def test_old_sidecar_is_rejected_by_pruned_index(self) -> None:
+        old_art = self.art.read_bytes()
+        prune_excluded_rows(index=self.op_index, game="onepiece")
+        # A process still holding the pre-prune sidecar must skip the art rule,
+        # not read shifted rows.
+        stale = self.dir / "stale_artcrop.npz"
+        stale.write_bytes(old_art)
+        logs: list = []
+        loaded = load_art_crop_index(
+            stale,
+            index_artifact_version=self.op_index.artifact_version,
+            adapter_version="adapter-v003",
+            entries=self.op_index.entries,
+            log=lambda *a, **k: logs.append(k.get("reason")),
+            game="onepiece",
+        )
+        self.assertIsNone(loaded)
+        self.assertIn("index_version_mismatch", logs)
+
+    def test_stale_sidecar_is_left_alone(self) -> None:
+        np.savez(
+            self.art,
+            rows=np.asarray([0, 2], dtype=np.int32),
+            embeddings=self.art_embeddings[:2],
+            region=np.asarray([0.1, 0.1, 0.9, 0.6], dtype=np.float32),
+            adapter=np.array("adapter-v003"),
+            index_artifact_version=np.array("some-older-index"),
+        )
+        before = self.art.read_bytes()
+        result = prune_excluded_rows(index=self.op_index, game="onepiece")
+        self.assertEqual(result["pruned"], 2)
+        self.assertEqual(result["artCrop"], "stale_left_disabled")
+        self.assertEqual(self.art.read_bytes(), before)
+
+    def test_missing_sidecar_still_prunes(self) -> None:
+        self.art.unlink()
+        result = prune_excluded_rows(index=self.op_index, game="onepiece")
+        self.assertEqual(result["pruned"], 2)
+        self.assertEqual(result["artCrop"], "missing")
+        self.assertEqual(len(self.op_index.entries), 10)
+
+    def test_prune_refuses_to_gut_the_index(self) -> None:
+        entries = [dict(e, name="DON!! Card", supertype="DON!!") for e in self.entries]
+        self.op_manifest.write_text(json.dumps({"artifactVersion": self.VERSION, "entries": entries}))
+        self.op_index.reload()
+        before = self.op_npz.read_bytes()
+        with self.assertRaises(RuntimeError):
+            prune_excluded_rows(index=self.op_index, game="onepiece")
+        self.assertEqual(self.op_npz.read_bytes(), before)
 
 
 class ServiceRefreshWiringTests(unittest.TestCase):

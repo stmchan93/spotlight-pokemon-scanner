@@ -23,6 +23,11 @@ import type {
 import { PillButton, Text, colors } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
+import {
+  candidateImageForPrinting,
+  cardNumberWithVersion,
+  versionLabelForPrinting,
+} from '@/features/cards/printing-image';
 import { useAppServices } from '@/providers/app-providers';
 
 import {
@@ -60,6 +65,12 @@ type ChangeCardPickerProps = {
   mode?: 'raw' | 'slabs';
   /** Printing currently chosen for this capture, if any (drives chip selection). */
   selectedVariantKey?: string | null;
+  /**
+   * Label of that printing. With none chosen, a candidate whose photo matched
+   * an art version (`matchedVariant`) is shown as that version; another
+   * printing shows the card's own art.
+   */
+  selectedVariantLabel?: string | null;
   /** Condition currently chosen for this capture; a printing swap preserves it. */
   selectedConditionCode?: DeckConditionCode | null;
   /** A printing chip was tapped — re-prices the tray row on that printing. */
@@ -87,6 +98,7 @@ export function ChangeCardPicker({
   isLoadingMore = false,
   mode = 'raw',
   selectedVariantKey,
+  selectedVariantLabel = null,
   selectedConditionCode,
   onLoadMoreCandidates,
   onClose,
@@ -167,6 +179,7 @@ export function ChangeCardPicker({
   const selectedIndex = pendingSelection ?? activeCandidateIndex;
   const heroCandidate = candidates[selectedIndex] ?? candidates[0] ?? null;
   const heroMatchPct = matchPercentFromScore(heroCandidate?.matchScore);
+  const heroImageUrl = candidateImageForPrinting(heroCandidate, selectedVariantLabel);
   // The matched image is tappable only when we can actually open a card detail.
   const canOpenMatch = Boolean(onOpenMatchedCard && heroCandidate?.cardId);
 
@@ -374,13 +387,13 @@ export function ChangeCardPicker({
                     ]}
                     testID={`${testID}-hero-open`}
                   >
-                    {heroCandidate?.imageUrl ? (
+                    {heroImageUrl ? (
                       <CachedImage
                         cachePolicy={imageCachePolicy.thumbnail}
                         contentFit="contain"
                         style={styles.matchImage}
                         testID={`${testID}-hero`}
-                        uri={heroCandidate.imageUrl}
+                        uri={heroImageUrl}
                       />
                     ) : (
                       <View style={[styles.matchImage, styles.heroPlaceholder]} />
@@ -407,7 +420,14 @@ export function ChangeCardPicker({
             >
               {visibleCandidates.map((candidate, index) => {
                 const isSelected = index === selectedIndex;
-                const meta = [candidate.cardNumber, candidate.setName].filter(Boolean).join(' · ');
+                // The capture's printing belongs to the selected row; every
+                // other row is shown as it matched (its art version, if any).
+                const rowPrintingLabel = isSelected ? selectedVariantLabel : null;
+                const versionLabel = versionLabelForPrinting(candidate, rowPrintingLabel);
+                const thumbUrl = candidateImageForPrinting(candidate, rowPrintingLabel, { preferSmall: true });
+                const meta = [cardNumberWithVersion(candidate.cardNumber, versionLabel), candidate.setName]
+                  .filter(Boolean)
+                  .join(' · ');
                 // Printings hang off the SELECTED row only: an always-on rail on
                 // every candidate would bury the card names it exists to compare.
                 const showVariants = isSelected && selectedVariants.length > 0;
@@ -429,12 +449,13 @@ export function ChangeCardPicker({
                       ]}
                       testID={`${testID}-row-${index}`}
                     >
-                      {candidate.imageUrl ? (
+                      {thumbUrl ? (
                         <CachedImage
                           cachePolicy={imageCachePolicy.thumbnail}
                           contentFit="cover"
                           style={styles.thumb}
-                          uri={candidate.smallImageUrl ?? candidate.imageUrl}
+                          testID={`${testID}-row-${index}-thumb`}
+                          uri={thumbUrl}
                         />
                       ) : (
                         <View style={[styles.thumb, styles.thumbPlaceholder]} />
@@ -444,7 +465,7 @@ export function ChangeCardPicker({
                           {candidate.name}
                         </Text>
                         {meta ? (
-                          <Text numberOfLines={1} style={styles.rowMeta}>
+                          <Text numberOfLines={1} style={styles.rowMeta} testID={`${testID}-row-${index}-meta`}>
                             {meta}
                           </Text>
                         ) : null}

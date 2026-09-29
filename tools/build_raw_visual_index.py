@@ -28,6 +28,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from catalog_tools import GAME_POKEMON, derive_card_title_aliases, normalize_game  # noqa: E402
 from scrydex_adapter import map_scrydex_catalog_card, scrydex_api_request  # noqa: E402
 from raw_visual_model import RawVisualFrozenEncoder, load_projection_adapter, project_embeddings_numpy, resolve_torch_device  # noqa: E402
+from visual_index_incremental import is_excluded_from_visual_index  # noqa: E402
 from visual_index_placeholders import is_card_back_image  # noqa: E402
 
 
@@ -401,7 +402,13 @@ def load_catalog_cards_from_database(
         rows = connection.execute(query, params).fetchall()
     finally:
         connection.close()
-    return [catalog_row_to_card(row) for row in rows]
+    # Same per-game exclusions as the nightly incremental refresh (One Piece
+    # DON!!), so a full rebuild can't reintroduce cards the scanner drops.
+    return [
+        card
+        for card in (catalog_row_to_card(row) for row in rows)
+        if not is_excluded_from_visual_index(card, normalized_game)
+    ]
 
 
 def download_image(url: str) -> Image.Image:
