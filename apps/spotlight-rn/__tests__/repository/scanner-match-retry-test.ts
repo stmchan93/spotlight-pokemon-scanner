@@ -206,8 +206,9 @@ describe('scanner visual-match — retry + deferred raw artifact upload', () => 
 
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0].cardId).toBe('miscp_ja-68');
-    // blank number renders as the '--' placeholder rather than dropping the card
-    expect(result.candidates[0].cardNumber).toBe('#--');
+    // blank number keeps the card (not dropped) and maps to '' — display sites
+    // drop an empty number rather than show a "#--" placeholder
+    expect(result.candidates[0].cardNumber).toBe('');
   }, 15000);
 
   it('does NOT retry slab matches (they keep a single long attempt)', async () => {

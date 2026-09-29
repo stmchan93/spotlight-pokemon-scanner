@@ -50,6 +50,8 @@ DEFAULT_ELIGIBLE_SUPERTYPES: tuple[str, ...] = ("pokémon", "pokemon", "trainer"
 
 POKEMON_GAME = "pokemon"
 _SEALED_ID_PREFIX = "tcgp-sealed-"
+# catalog_tools.TCGPLAYER_ONLY_SOURCE_PROVIDER (this module avoids a hard import).
+TCGPLAYER_ONLY_SOURCE_PROVIDER = "tcgplayer"
 
 _IMAGE_USER_AGENT = "Ekalight/0.1 (+https://local.ekalight.app)"
 _DOWNLOAD_TIMEOUT_SECONDS = 30
@@ -216,6 +218,10 @@ def _manifest_entry(
     # Same shape as the full build: only non-Pokémon entries carry `game`.
     if game and game != POKEMON_GAME:
         entry["game"] = game
+    # A TCGplayer-only card's row IS its base row: metadata only, never
+    # `referenceSource` (that tags alt-art rows, which _base_indexed_ids skips).
+    if card.get("source_provider") == TCGPLAYER_ONLY_SOURCE_PROVIDER:
+        entry["catalogSource"] = TCGPLAYER_ONLY_SOURCE_PROVIDER
     return entry
 
 

@@ -22,7 +22,11 @@ import type {
 } from '@/features/scanner/scan-candidate-review-session';
 
 function resultNumberLabel(result: CatalogSearchResult) {
-  return result.cardNumber.startsWith('#') ? result.cardNumber : `#${result.cardNumber}`;
+  const number = result.cardNumber?.trim() ?? '';
+  if (!number) {
+    return '';
+  }
+  return number.startsWith('#') ? number : `#${number}`;
 }
 
 export function resolveActiveScanReviewCandidate(

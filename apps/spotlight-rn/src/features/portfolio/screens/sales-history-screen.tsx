@@ -46,8 +46,12 @@ const filterOptions: { label: string; value: SalesFilterOption }[] = [
 
 const PAGE_GUTTER = 16;
 
-function formatCardNumber(cardNumber: string) {
-  return cardNumber.startsWith('#') ? cardNumber : `#${cardNumber}`;
+function formatCardNumber(cardNumber: string | null | undefined) {
+  const number = cardNumber?.trim() ?? '';
+  if (!number) {
+    return '';
+  }
+  return number.startsWith('#') ? number : `#${number}`;
 }
 
 function saleSearchText(sale: {
@@ -136,9 +140,7 @@ function SaleCard({
             </Text>
           </View>
           <Text numberOfLines={2} style={[theme.typography.label, { color: theme.colors.gray600 }]}>
-            {formatCardNumber(sale.cardNumber)}
-            {' • '}
-            {sale.setName}
+            {[formatCardNumber(sale.cardNumber), sale.setName].filter(Boolean).join(' • ')}
           </Text>
           <View style={styles.saleDetailRow}>
             <Text style={[theme.typography.label, styles.saleDate, { color: theme.colors.gray600 }]}>

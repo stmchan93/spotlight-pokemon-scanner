@@ -513,6 +513,8 @@ def build_set_aliases(connection: sqlite3.Connection) -> SetAliasIndex:
     try:
         rows = connection.execute(
             "SELECT id, game, name, code, language, series, source_payload_json FROM expansions"
+            # Synthetic TCGplayer group sets ("Battle Academy") are not set names to tag news with.
+            " WHERE IFNULL(source_provider, '') != 'tcgplayer'"
         ).fetchall()
     except sqlite3.OperationalError:
         return SetAliasIndex()

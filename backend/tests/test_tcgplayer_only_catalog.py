@@ -274,9 +274,9 @@ class RulesTableTests(TcgplayerOnlyTestCase):
         row = self._row(551000)
         self.assertEqual((row["status"], row["updated_at"]), ("created", "t0"))
 
-    def test_on_mode_is_not_built(self):
-        with self.assertRaises(NotImplementedError):
-            tpo.run_shadow_classification(self.connection, self._crawl(), mode=tpo.MODE_ON)
+    def test_off_mode_writes_no_classifications(self):
+        with self.assertRaises(ValueError):
+            tpo.run_shadow_classification(self.connection, self._crawl(), mode=tpo.MODE_OFF)
 
 
 class HelperTests(unittest.TestCase):
@@ -380,12 +380,13 @@ class SyncHookTests(TcgplayerOnlyTestCase):
         self.assertIn("tcgplayerOnlyReview", notes)
         self.assertIn("tcgplayerOnlyIgnored", notes)
 
-    def test_on_runs_as_shadow_in_this_phase(self):
-        self._sync("off")
-        baseline = self._snapshot()
-        self._sync("on")
-        self.assertEqual(self._snapshot(), baseline)
-        self.assertEqual(self._row(552137)["status"], tpo.STATUS_SHADOW_MISSING)
+    def test_on_creates_the_missing_card(self):
+        # Full P1 coverage lives in test_tcgplayer_only_ingest.py.
+        with mock.patch.object(tpo, "default_fetch_image", return_value=None):
+            self._sync("on")
+        self.assertEqual(self._row(552137)["status"], tpo.STATUS_CREATED)
+        self.assertIsNotNone(self.connection.execute(
+            "SELECT 1 FROM cards WHERE id = 'onepiece~tcgplayer-552137'").fetchone())
 
 
 if __name__ == "__main__":

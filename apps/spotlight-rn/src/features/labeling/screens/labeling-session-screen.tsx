@@ -60,7 +60,11 @@ const requiredAngles = [
 ] as const satisfies readonly { label: LabelingSessionAngleLabel; title: string }[];
 
 function cardNumberLabel(card: CatalogSearchResult) {
-  return card.cardNumber.startsWith('#') ? card.cardNumber : `#${card.cardNumber}`;
+  const number = card.cardNumber?.trim() ?? '';
+  if (!number) {
+    return '';
+  }
+  return number.startsWith('#') ? number : `#${number}`;
 }
 
 function errorMessageFromUnknown(error: unknown) {
@@ -652,7 +656,7 @@ export function LabelingSessionScreen() {
                   {selectedCard.name}
                 </Text>
                 <Text numberOfLines={1} style={[theme.typography.caption, { color: theme.colors.scannerTextMuted }]}>
-                  {selectedCard.setName} • {cardNumberLabel(selectedCard)}
+                  {[selectedCard.setName, cardNumberLabel(selectedCard)].filter(Boolean).join(' • ')}
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.scannerTextSecondary }]}>
                   {currentAngleIndex + 1} of {requiredAngles.length}

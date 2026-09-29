@@ -31,6 +31,7 @@ from catalog_tools import (
     pricing_provider,
     runtime_setting,
     raw_variant_sort_key,
+    reset_collision_guard_cache,
     start_provider_sync_run,
     tcgplayer_product_index_is_authoritative,
     update_provider_sync_run,
@@ -575,20 +576,29 @@ def run_tcgcsv_price_sync(
             connection.commit()
 
         # TCGplayer-only products (plan docs/tcgplayer-only-catalog-plan-2026-09-29.md):
-        # P0 only classifies into tcgplayer_product_classifications — no card rows.
+        # shadow classifies into tcgplayer_product_classifications; "on" also
+        # creates the missing cards, BEFORE the variant map is read so this run
+        # prices them too.
         tcgplayer_only_stats: dict[str, Any] = {}
+        tcgplayer_only_ingest: dict[str, Any] = {}
         tcgplayer_only_mode = tcgplayer_only_catalog.ingest_mode()
-        if tcgplayer_only_mode == tcgplayer_only_catalog.MODE_ON:
-            print("[tcgcsv] TCGCSV_TCGPLAYER_ONLY_INGEST=on is not built yet (P1); running shadow")
-            tcgplayer_only_mode = tcgplayer_only_catalog.MODE_SHADOW
         if (crawled_products and not dry_run and not history_only
-                and tcgplayer_only_mode == tcgplayer_only_catalog.MODE_SHADOW):
+                and tcgplayer_only_mode != tcgplayer_only_catalog.MODE_OFF):
             tcgplayer_only_stats = tcgplayer_only_catalog.run_shadow_classification(
                 connection, crawled_products,
                 product_price_map=product_price_map,
                 extra_card_claims={**load_tcgplayer_id_backfill(), **load_tcgplayer_id_overrides()},
+                mode=tcgplayer_only_mode,
             )
             connection.commit()
+            if tcgplayer_only_mode == tcgplayer_only_catalog.MODE_ON:
+                tcgplayer_only_ingest = tcgplayer_only_catalog.ingest_tcgplayer_only_cards(
+                    connection, crawled_products, product_price_map=product_price_map,
+                )
+                connection.commit()
+                if tcgplayer_only_ingest.get("created"):
+                    # New product links: the process-wide guard cache predates them.
+                    reset_collision_guard_cache()
 
         variant_map = _card_variant_product_ids(connection)
         defaults = _default_raw_variants(connection)
@@ -624,7 +634,8 @@ def run_tcgcsv_price_sync(
                  "backfill_applied": 0,
                  "requests": requests_made, "products": len(product_price_map),
                  "collisions_resolved": len(collision_owners),
-                 "sealed_upserted": sealed_stats.get("upserted", 0)}
+                 "sealed_upserted": sealed_stats.get("upserted", 0),
+                 "tcgplayer_only_created": sum((tcgplayer_only_ingest.get("created") or {}).values())}
         mismatch_suspects: list[dict[str, str]] = []
         pending = 0
         for card_id in all_card_ids:
@@ -745,6 +756,7 @@ def run_tcgcsv_price_sync(
                    "overridesApplied": stats["overrides_applied"],
                    "backfillApplied": stats["backfill_applied"],
                    **_tcgplayer_only_notes(tcgplayer_only_stats),
+                   **({"tcgplayerOnlyIngest": tcgplayer_only_ingest} if tcgplayer_only_ingest else {}),
                    "failedGroups": failed_groups[:20]},
         )
         connection.commit()

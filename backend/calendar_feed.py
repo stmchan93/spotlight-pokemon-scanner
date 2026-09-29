@@ -147,7 +147,9 @@ def _expansion_events(
     # the slashes are normalized.
     sql = (
         "SELECT id, game, name, language, release_date FROM expansions "
-        "WHERE release_date IS NOT NULL AND replace(substr(release_date, 1, 10), '/', '-') >= ?"
+        "WHERE release_date IS NOT NULL AND replace(substr(release_date, 1, 10), '/', '-') >= ? "
+        # Synthetic TCGplayer group sets (tcgplayer_only_catalog.py) are not releases.
+        "AND IFNULL(source_provider, '') != 'tcgplayer'"
     )
     params: list[Any] = [today.isoformat()]
     if game:

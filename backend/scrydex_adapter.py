@@ -20,6 +20,7 @@ from catalog_tools import (
     GAME_ONE_PIECE,
     bare_catalog_id,
     game_has_language_paths,
+    is_tcgplayer_catalog_card_id,
     namespaced_catalog_id,
     normalize_game,
     scrydex_game_segment,
@@ -1231,6 +1232,13 @@ def persist_scrydex_daily_history_from_card_payload(
     }
 
 
+def _refuse_non_scrydex_card_id(card_id: str) -> None:
+    """Hard backstop: TCGplayer-only and sealed ids are not Scrydex cards, so a
+    request for one can only miss — and it still bills a credit."""
+    if is_tcgplayer_catalog_card_id(card_id):
+        raise ValueError(f"Card {card_id} is not a Scrydex card; refusing the Scrydex request")
+
+
 def fetch_scrydex_price_history(
     card_id: str,
     *,
@@ -1245,6 +1253,7 @@ def fetch_scrydex_price_history(
     is_error: bool | None = None,
     timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
+    _refuse_non_scrydex_card_id(card_id)
     params: dict[str, str] = {
         "days": str(max(1, int(days))),
         "page_size": str(max(30, int(days))),
@@ -1372,6 +1381,7 @@ def fetch_scrydex_card_by_id(
     request_type: str = "card_fetch",
     timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
+    _refuse_non_scrydex_card_id(card_id)
     params = {"include": "prices"} if include_prices else {}
     # Callers pass OUR id (that is what is in the DB and on the wire from the
     # app); the provider only knows the bare one. No-op for Pokémon.
@@ -1398,6 +1408,7 @@ def fetch_scrydex_recent_sales(
     request_type: str = "card_recent_sales",
     timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
+    _refuse_non_scrydex_card_id(card_id)
     normalized_source = str(source or "").strip().lower() or "ebay"
     normalized_grader = str(grader or "").strip().upper() or None
     normalized_grade = str(grade or "").strip().upper() or None

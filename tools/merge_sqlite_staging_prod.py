@@ -130,6 +130,11 @@ CATALOG_TABLES = {
     "card_ebay_listings_cache",     # short-TTL cache; created empty if missing
     "card_external_refs",
     "provider_sync_runs",           # ops telemetry of the catalog sync
+    # TCGplayer-only classifications ride from prod like the cards they create:
+    # staging's `tcgplayer-…` cards are never merged (a staging user row that
+    # points at one fails the FK orphan check below instead).
+    "tcgplayer_product_classifications",
+    "card_tcgplayer_products",
 }
 
 # Infra/runtime tables that ride from prod untouched.

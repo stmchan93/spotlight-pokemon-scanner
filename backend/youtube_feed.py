@@ -516,6 +516,7 @@ def refresh_recent_set_videos(
                 """
                 SELECT id, name FROM expansions
                 WHERE game = ? AND COALESCE(language, 'English') LIKE 'En%'
+                  AND IFNULL(source_provider, '') != 'tcgplayer'
                   AND release_date IS NOT NULL AND REPLACE(release_date, '/', '-') <= ?
                 ORDER BY REPLACE(release_date, '/', '-') DESC
                 LIMIT ?

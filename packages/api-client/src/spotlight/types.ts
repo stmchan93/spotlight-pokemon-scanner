@@ -513,6 +513,8 @@ export type InventoryCardEntry = {
   rarityBucket?: RarityBucket;
   /** Which TCG this card is from; undefined on older payloads means Pokémon. */
   game?: CardGame;
+  /** Catalog source; undefined on older payloads means `'scrydex'`. */
+  catalogSource?: CardCatalogSource;
   // Owning collection, for unscoped (cross-collection) reads. Absent/null on
   // servers that predate collection tagging.
   collectionId?: string | null;
@@ -998,6 +1000,46 @@ export function marketplaceKeywordForGame(game: CardGame | undefined): string {
   return cardGameCapabilities(game).marketplaceKeyword;
 }
 
+/**
+ * Where a card's catalog row comes from. `'scrydex'` is the normal catalog;
+ * `'tcgplayer'` is a card Scrydex does not list that we carry from TCGplayer
+ * alone (raw TCGplayer pricing only — no graded pricing, population or
+ * per-condition prices). Absent on older servers → treat as `'scrydex'`.
+ */
+export type CardCatalogSource = 'scrydex' | 'tcgplayer';
+
+type CatalogSourced = {
+  catalogSource?: CardCatalogSource | null;
+} | null | undefined;
+
+/** True for a TCGplayer-only card (no graded data behind it, whatever its game). */
+export function isTcgplayerOnlyCard(card: CatalogSourced): boolean {
+  return card?.catalogSource === 'tcgplayer';
+}
+
+/**
+ * Graded pricing/population exists for THIS card: the game must have it and the
+ * card must come from the Scrydex catalog. A TCGplayer-only Pokémon card would
+ * otherwise inherit Pokémon's PSA/BGS/CGC lanes and show empty charts.
+ */
+export function cardHasGradedData(game: CardGame | undefined, catalogSource?: CardCatalogSource | null): boolean {
+  return catalogSource !== 'tcgplayer' && gameHasGradedData(game);
+}
+
+const RAW_ONLY_GRADERS: readonly GraderOption[] = ['Raw'];
+
+/**
+ * The grading lanes a card PAGE can price. Same as {@link gradersForGame} except
+ * a TCGplayer-only card gets `['Raw']`. Use `gradersForGame` where the user
+ * CLAIMS a grade (add to collection) — a slab of it is still ownable.
+ */
+export function pricedGradersForCard(
+  game: CardGame | undefined,
+  catalogSource?: CardCatalogSource | null,
+): readonly GraderOption[] {
+  return catalogSource === 'tcgplayer' ? RAW_ONLY_GRADERS : gradersForGame(game);
+}
+
 /** The keyword that scopes an eBay query to this game, or null to add nothing. */
 export function ebayKeywordForGame(game: CardGame | undefined): string | null {
   return cardGameCapabilities(game).ebayKeyword;
@@ -1096,6 +1138,13 @@ export type CatalogSearchResult = {
   rarityBucket?: RarityBucket;
   /** Which TCG this card is from; undefined on older payloads means Pokémon. */
   game?: CardGame;
+  /** Catalog source; undefined on older payloads means `'scrydex'`. */
+  catalogSource?: CardCatalogSource;
+  /**
+   * The Scrydex card that superseded this TCGplayer-only card, when Scrydex
+   * later added it. Null/absent otherwise.
+   */
+  canonicalCardId?: string | null;
   /**
    * True when `marketPrice` is a GRADED reference (a slab comp) rather than the
    * raw/ungraded price — set for cards that have no raw price of their own. The
@@ -1291,6 +1340,16 @@ export type CardDetailRecord = {
   cardId: string;
   /** Which TCG this card is from; undefined on older payloads means Pokémon. */
   game?: CardGame;
+  /**
+   * `'tcgplayer'` for a card Scrydex does not list (raw TCGplayer pricing only:
+   * the page hides graded lanes and population). Undefined = `'scrydex'`.
+   */
+  catalogSource?: CardCatalogSource;
+  /**
+   * Set when this TCGplayer-only card has been superseded by a Scrydex card;
+   * the page redirects there. Null/absent otherwise.
+   */
+  canonicalCardId?: string | null;
   /**
    * `'sealed'` for sealed product (booster box, ETB, tin…): the card page shows
    * no number, condition, grade or printing. Undefined on older payloads = card.
@@ -1945,6 +2004,8 @@ export type CardFavoriteEntry = {
   rarityBucket?: RarityBucket;
   /** Which TCG this card is from; undefined on older payloads means Pokémon. */
   game?: CardGame;
+  /** Catalog source; undefined on older payloads means `'scrydex'`. */
+  catalogSource?: CardCatalogSource;
   /** Day-over-day market price change for the owned/raw lane, in `currencyCode`. */
   dayChangeAmount?: number | null;
   dayChangePercent?: number | null;

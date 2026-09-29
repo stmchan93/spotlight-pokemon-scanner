@@ -11,6 +11,7 @@ import {
   DEFAULT_CARD_GAME,
   gameDisplayName,
   isSpotlightRepositoryRequestError,
+  isTcgplayerOnlyCard,
   type CardGame,
   type CatalogSearchResult,
   type InventoryCardEntry,
@@ -320,6 +321,12 @@ export function resolveCaptureTrayPrice(
   // named, not a bare 'USD' literal, so the assumption is greppable.
   const currencyCode = candidate?.currencyCode ?? supportedTrayCurrencyCode;
 
+  // A slab of a TCGplayer-only card has no graded price: the candidate's price
+  // is the RAW one, so the row shows "—" and stays out of the total.
+  if ((capture.mode === 'slabs' || capture.slabContext != null) && isTcgplayerOnlyCard(candidate)) {
+    return { amount: null, currencyCode };
+  }
+
   if (isFinitePrice(selection?.marketPrice)) {
     return { amount: selection.marketPrice, currencyCode };
   }
@@ -398,6 +405,8 @@ export function buildOptimisticInventoryEntry(
 ): InventoryCardEntry {
   const slabContext = options.slabContext;
   const isSlab = options.mode === 'slabs';
+  // Same rule as the tray row: no graded price for a TCGplayer-only card.
+  const isPriced = candidate.marketPrice != null && !(isSlab && isTcgplayerOnlyCard(candidate));
 
   return {
     addedAt,
@@ -409,11 +418,11 @@ export function buildOptimisticInventoryEntry(
     costBasisPerUnit: null,
     costBasisTotal: 0,
     currencyCode: candidate.currencyCode ?? 'USD',
-    hasMarketPrice: candidate.marketPrice != null,
+    hasMarketPrice: isPriced,
     id,
     imageUrl: candidate.imageUrl,
     kind: isSlab ? 'graded' : 'raw',
-    marketPrice: candidate.marketPrice ?? 0,
+    marketPrice: isPriced ? candidate.marketPrice ?? 0 : 0,
     name: candidate.name,
     quantity: 1,
     setName: candidate.setName,

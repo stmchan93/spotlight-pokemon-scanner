@@ -41,7 +41,12 @@ TABLES = {
 
 
 def game_filter(column: str) -> str:
-    return " OR ".join(f"{column} LIKE '{game}~%'" for game in GAMES)
+    games = " OR ".join(f"{column} LIKE '{game}~%'" for game in GAMES)
+    # Never TCGplayer-only cards or their synthetic group sets
+    # (`<game>~tcgplayer-…`, backend/tcgplayer_only_catalog.py): each env
+    # creates its own from its own TCGCSV sync, and a staging row must never
+    # ride an export into production.
+    return f"({games}) AND {column} NOT LIKE '%~tcgplayer-%'"
 
 
 def main() -> int:

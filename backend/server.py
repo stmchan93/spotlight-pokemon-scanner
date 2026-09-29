@@ -119,7 +119,10 @@ from catalog_tools import (
     rarity_bucket,
     GAME_POKEMON,
     game_display_name,
+    CATALOG_SOURCE_TCGPLAYER,
+    catalog_source_for_card_id,
     game_for_catalog_id,
+    is_tcgplayer_catalog_card_id,
     game_for_scan_payload,
     game_has_graded_pricing,
     game_has_listings,
@@ -4101,7 +4104,26 @@ class SpotlightScanService:
         connection = self.connection
         listings = self._cached_raw_listings(connection, normalized_card_id)
         payload: dict[str, Any]
-        if listings is not None:
+        numberless_tcgplayer_card = is_tcgplayer_catalog_card_id(normalized_card_id) and not str(
+            card.get("number") or ""
+        ).strip()
+        if listings is None and numberless_tcgplayer_card:
+            # No collector number: every listing would fail validation, so the
+            # eBay call is pure spend (same reason the deal scan skips these).
+            listings = []
+            payload = {
+                "cardID": normalized_card_id,
+                "source": "ebay",
+                "lane": "raw",
+                "status": "available",
+                "statusReason": "no_results",
+                "listings": listings,
+                "listingCount": 0,
+                "currencyCode": "USD",
+                "cached": False,
+                "consumer": ebay_listings.EBAY_CONSUMER_PDP_LOWEST_LISTED,
+            }
+        elif listings is not None:
             ebay_listings.record_ebay_cache_hit(
                 ebay_listings.EBAY_CONSUMER_PDP_LOWEST_LISTED
             )
@@ -5159,7 +5181,10 @@ class SpotlightScanService:
             # Sealed product has no collector number or card condition, so the
             # raw eBay search and Near Mint item-page gates can't validate a
             # listing — skip it rather than spend budget on unmatchable fetches.
-            if is_sealed_card(card):
+            # Numberless TCGplayer-only cards fail the same gates.
+            if is_sealed_card(card) or (
+                is_tcgplayer_catalog_card_id(card_id) and not str(card.get("number") or "").strip()
+            ):
                 continue
             query_variant = query_variant_by_card.get(card_id)
             cached_listings = self._cached_raw_listings(
@@ -7115,6 +7140,8 @@ class SpotlightScanService:
         # so the request lands on this game's Scrydex path, the persist so the
         # stored `source_url` names the path we actually called.
         if history_is_fresh or not self._live_pricing_enabled():
+            return
+        if is_tcgplayer_catalog_card_id(card_id):
             return
         if pricing_context.is_graded:
             if not pricing_context.grader or not pricing_context.grade:
@@ -14789,6 +14816,9 @@ class SpotlightScanService:
                 if is_sealed_card(resolved_card)
                 else None
             ),
+            # 'tcgplayer' = no Scrydex record, so no graded lanes (plan D7).
+            "catalogSource": catalog_source_for_card_id(card_id),
+            "canonicalCardId": None,
         }
 
     def _candidate_payload(
@@ -15150,6 +15180,8 @@ class SpotlightScanService:
                 "setPtcgoCode": cached_card.get("setPtcgoCode") or entry.get("setPtcgoCode"),
                 "sourcePayload": cached_card.get("sourcePayload") or entry.get("sourcePayload") or {},
                 "titleAliases": title_aliases,
+                "catalogSource": catalog_source_for_card_id(provider_card_id or cached_card.get("id")),
+                "canonicalCardId": None,
             }
         return {
             "id": provider_card_id,
@@ -15169,6 +15201,8 @@ class SpotlightScanService:
             "setPtcgoCode": entry.get("setPtcgoCode"),
             "sourcePayload": entry.get("sourcePayload") or {},
             "titleAliases": title_aliases,
+            "catalogSource": catalog_source_for_card_id(provider_card_id),
+            "canonicalCardId": None,
         }
 
     @staticmethod
@@ -16492,6 +16526,11 @@ class SpotlightScanService:
     ) -> dict[str, Any] | None:
         # Show mode gates app ACCESS only — never forces live pricing refresh.
         effective_force_refresh = force_refresh
+        # TCGplayer-only cards and sealed product are priced by the TCGCSV sync
+        # alone: Scrydex has never heard of their ids (both lanes, including the
+        # graded path's fallback to the Scrydex provider).
+        if is_tcgplayer_catalog_card_id(card_id):
+            return self._card_detail_for_context(card_id, pricing_context=pricing_context)
         if pricing_context.is_graded:
             if not pricing_context.grader or not pricing_context.grade:
                 return self._card_detail_for_context(card_id, pricing_context=pricing_context)
@@ -16712,9 +16751,11 @@ class SpotlightScanService:
         # Graded-only grails have no raw price, so the raw-lane PDP would be blank.
         # Surface the headline graded lane so the client can open ON it (non-null
         # ONLY when the card has no raw price but does have graded pricing).
+        catalog_source = catalog_source_for_card_id(resolved_card["id"])
+        has_graded_data = catalog_source != CATALOG_SOURCE_TCGPLAYER
         graded_reference = (
             self._headline_graded_reference(card_id, snapshot_row=snapshot_row)
-            if pricing is None and not pricing_context.is_graded
+            if pricing is None and not pricing_context.is_graded and has_graded_data
             else None
         )
         payload: dict[str, Any] = {
@@ -16739,6 +16780,10 @@ class SpotlightScanService:
                 "sealedProductType": (
                     (resolved_card.get("subtypes") or [None])[0] if is_sealed_card(resolved_card) else None
                 ),
+                # 'tcgplayer' cards carry no graded data (plan D7);
+                # canonicalCardId is reserved for supersession (P4).
+                "catalogSource": catalog_source,
+                "canonicalCardId": None,
                 "pricing": pricing,
                 "isFavorite": favorite_row is not None,
                 # Compact per-printing TCGplayer product ids (NOT the full Scrydex
@@ -16793,7 +16838,7 @@ class SpotlightScanService:
             "cardText": card_text_from_card(resolved_card),
             # GemRate population keyed by grader (PSA/BGS/CGC/SGC); {} when unsynced.
             # Drives the PDP's dynamic-by-grader population report.
-            "population": self._card_population(card_id),
+            "population": self._card_population(card_id) if has_graded_data else {},
             # Non-null ONLY for graded-only cards (no raw price): the headline
             # graded lane the PDP should default to so a chart shows instead of a
             # blank raw lane.
@@ -17270,6 +17315,8 @@ class SpotlightScanService:
             else RECENT_SALES_FRESHNESS_HOURS
         )
         if cached is not None and age_hours is not None and age_hours < refresh_after_hours:
+            return cached_payload
+        if is_tcgplayer_catalog_card_id(card_id):
             return cached_payload
 
         # Fetch the max page from Scrydex (same one-request credit cost): the

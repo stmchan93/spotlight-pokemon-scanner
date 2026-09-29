@@ -255,6 +255,17 @@ function tcgPlayerProductIdFromVariant(variant: TcgPlayerSourceVariant | null | 
 }
 
 /**
+ * The TCGplayer product id a TCGplayer-only card id encodes
+ * (`tcgplayer-552137`, `onepiece~tcgplayer-552137` → "552137"), or null for
+ * any other id. Such a card IS one TCGplayer product, so its page deep-links
+ * there even when the payload carries no per-printing marketplace ids.
+ */
+export function tcgPlayerProductIdFromCardId(cardId: string | null | undefined): string | null {
+  const match = (cardId ?? '').match(/(?:^|~)tcgplayer-(\d+)$/);
+  return match ? match[1] : null;
+}
+
+/**
  * Resolve the TCGplayer product_id for the SELECTED printing/variant.
  *
  * Multi-printing vintage cards (e.g. Base Charizard) carry a different

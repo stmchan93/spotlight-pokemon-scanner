@@ -33,6 +33,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable
 
+# TCGplayer-only cards (backend/tcgplayer_only_catalog.py) get no EN<->JP link:
+# their synthetic sets would pollute set pairing, and a supersession (plan P4)
+# must not inherit a link built against the placeholder row.
+SCRYDEX_CARDS_ONLY = "IFNULL(source_provider, '') != 'tcgplayer'"
+
 
 @dataclass(frozen=True)
 class CardMeta:
@@ -132,7 +137,7 @@ def detect_set_pairs(conn: sqlite3.Connection, *, min_overlap: int = 15) -> dict
 
     en: dict[str, dict[str, str]] = defaultdict(dict)
     jp: dict[str, dict[str, str]] = defaultdict(dict)
-    for r in conn.execute("SELECT set_id, language, name, number FROM cards"):
+    for r in conn.execute(f"SELECT set_id, language, name, number FROM cards WHERE {SCRYDEX_CARDS_ONLY}"):
         if not r["set_id"]:
             continue
         bucket = en if r["language"] == "English" else jp if r["language"] == "Japanese" else None
@@ -167,7 +172,7 @@ def deterministic_links(
 
     by_set: dict[str, dict[str, tuple[str, str]]] = defaultdict(dict)  # set_id -> num -> (name, card_id)
     wanted = set(set_pairs) | set(set_pairs.values())
-    for r in conn.execute("SELECT id, set_id, name, number FROM cards"):
+    for r in conn.execute(f"SELECT id, set_id, name, number FROM cards WHERE {SCRYDEX_CARDS_ONLY}"):
         if r["set_id"] in wanted:
             by_set[r["set_id"]].setdefault(_norm_num(r["number"]), (str(r["name"] or "").strip().lower(), r["id"]))
 
@@ -229,7 +234,8 @@ def build_links(
     cards = [card_meta_from_row(r) for r in conn.execute(
         "SELECT id, language, name, artist, national_pokedex_numbers_json, regulation_mark FROM cards"
         # Sealed product has no EN<->JP card counterpart.
-        " WHERE supertype IS NULL OR supertype != 'Sealed'"
+        " WHERE (supertype IS NULL OR supertype != 'Sealed')"
+        f" AND {SCRYDEX_CARDS_ONLY}"
     )]
     if name_filter is not None:
         names_in = name_filter
@@ -400,7 +406,8 @@ def add_unique_name_artist_links(
     cards = [card_meta_from_row(r) for r in conn.execute(
         "SELECT id, language, name, artist, national_pokedex_numbers_json, regulation_mark FROM cards"
         # Sealed product has no EN<->JP card counterpart.
-        " WHERE supertype IS NULL OR supertype != 'Sealed'"
+        " WHERE (supertype IS NULL OR supertype != 'Sealed')"
+        f" AND {SCRYDEX_CARDS_ONLY}"
     )]
     index = build_candidate_index(cards)
     existing = {r[0] for r in conn.execute("SELECT card_id FROM card_language_links")}

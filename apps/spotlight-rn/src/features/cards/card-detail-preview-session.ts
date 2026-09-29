@@ -1,4 +1,5 @@
 import type {
+  CardCatalogSource,
   CardFavoriteEntry,
   CardGame,
   CatalogSearchResult,
@@ -11,6 +12,8 @@ export type CardDetailPreview = {
   cardNumber: string;
   /** Which TCG this card is from; undefined means Pokémon. */
   game?: CardGame;
+  /** `'tcgplayer'` hides graded lanes before the detail lands; undefined = Scrydex. */
+  catalogSource?: CardCatalogSource;
   currencyCode?: string | null;
   entryId?: string | null;
   id: string;
@@ -70,6 +73,7 @@ export function cardDetailPreviewFromCatalogResult(result: CatalogSearchResult):
     cardNumber: result.cardNumber,
     currencyCode: result.currencyCode ?? 'USD',
     game: result.game,
+    catalogSource: result.catalogSource,
     id: result.id,
     imageUrl: result.imageUrl,
     marketPrice: result.marketPrice ?? null,
@@ -86,6 +90,7 @@ export function cardDetailPreviewFromInventoryEntry(entry: InventoryCardEntry): 
     currencyCode: entry.currencyCode,
     entryId: entry.id,
     game: entry.game,
+    catalogSource: entry.catalogSource,
     id: entry.id,
     imageUrl: entry.imageUrl,
     largeImageUrl: entry.largeImageUrl ?? null,
@@ -110,6 +115,7 @@ export function cardDetailPreviewFromFavorite(entry: CardFavoriteEntry): CardDet
     cardNumber: entry.cardNumber,
     currencyCode: entry.currencyCode,
     game: entry.game,
+    catalogSource: entry.catalogSource,
     id: `favorite:${entry.cardId}`,
     imageUrl: entry.imageUrl,
     largeImageUrl: entry.largeImageUrl ?? null,

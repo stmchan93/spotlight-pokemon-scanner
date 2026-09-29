@@ -1774,6 +1774,30 @@ SEALED_SUPERTYPE = "Sealed"
 # Every sealed row's id starts with this (sealed_products.sealed_card_id).
 SEALED_CARD_ID_PREFIX = "tcgp-sealed-"
 
+# TCGplayer-only cards (tcgplayer_only_catalog.py): cards Scrydex does not list,
+# stored as `tcgplayer-<productId>` / `<game>~tcgplayer-<productId>`.
+TCGPLAYER_ONLY_ID_PREFIX = "tcgplayer-"
+TCGPLAYER_ONLY_SOURCE_PROVIDER = "tcgplayer"
+CATALOG_SOURCE_SCRYDEX = "scrydex"
+CATALOG_SOURCE_TCGPLAYER = "tcgplayer"
+# SQL twin of is_tcgplayer_only_card_id for a `card_id` column.
+TCGPLAYER_ONLY_CARD_ID_SQL = "(card_id LIKE 'tcgplayer-%' OR card_id LIKE '%~tcgplayer-%')"
+
+
+def is_tcgplayer_only_card_id(value: object) -> bool:
+    return bare_catalog_id(value).startswith(TCGPLAYER_ONLY_ID_PREFIX)
+
+
+def is_tcgplayer_catalog_card_id(value: object) -> bool:
+    """Ids Scrydex has never heard of (TCGplayer-only cards and sealed product):
+    no Scrydex request may ever be made for them."""
+    return is_tcgplayer_only_card_id(value) or str(value or "").strip().startswith(SEALED_CARD_ID_PREFIX)
+
+
+def catalog_source_for_card_id(value: object) -> str:
+    """`catalogSource` on card payloads: which catalog the card row came from."""
+    return CATALOG_SOURCE_TCGPLAYER if is_tcgplayer_catalog_card_id(value) else CATALOG_SOURCE_SCRYDEX
+
 # Coarse server-side grouping of the raw catalog rarity label ("Special
 # Illustration Rare", "Rare Holo GX", …) into a small stable key set the app can
 # filter by. EVERY game maps onto these same eight keys — the rarity filter chips
@@ -3305,6 +3329,10 @@ def _card_row_to_dict(
         "imageSmallURL": row["image_small_url"],
         "sourcePayload": _json_load(row["source_payload_json"], {}) if include_source_payload else {},
         "titleAliases": list(title_aliases),
+        # 'tcgplayer' for TCGplayer-only cards and sealed product (no graded
+        # data); canonicalCardId is reserved for supersession (plan P4).
+        "catalogSource": catalog_source_for_card_id(row["id"]),
+        "canonicalCardId": None,
     }
 
 
@@ -3541,8 +3569,11 @@ _CARD_TCGPLAYER_PRODUCTS_INSERT = (
     "VALUES (?, ?, ?, ?)"
 )
 # Product ids claimed by more than one card — the mis-maps the guard suppresses.
+# TCGplayer-only cards never count: when Scrydex later lists the same product,
+# the Scrydex card must keep its price (the TCGplayer row is superseded, P4).
 _COLLIDING_PRODUCT_IDS_SQL = (
     "SELECT product_id FROM card_tcgplayer_products "
+    f"WHERE NOT {TCGPLAYER_ONLY_CARD_ID_SQL} "
     "GROUP BY product_id HAVING COUNT(DISTINCT card_id) > 1"
 )
 
@@ -3713,6 +3744,8 @@ def _build_collision_guard(connection: sqlite3.Connection) -> dict[str, Any]:
         "WHERE source_payload_json LIKE '%tcgplayer%'"
     )
     for card_id, payload_json in cursor:
+        if is_tcgplayer_only_card_id(card_id):
+            continue
         try:
             payload = json.loads(payload_json) if payload_json else None
         except (TypeError, ValueError):
@@ -5611,9 +5644,12 @@ def expansion_count(connection: sqlite3.Connection, *, game: str | None = None) 
     is non-zero the moment Pokémon syncs — which is why `?game=onepiece` against
     a populated Pokémon table never synced and returned a pure-Pokémon list.
     """
+    # Synthetic TCGplayer group sets (tcgplayer_only_catalog.py) are not Scrydex
+    # sets and must not satisfy the first-run gate.
     row = connection.execute(
-        "SELECT COUNT(*) AS count FROM expansions WHERE +game = ?",
-        (normalize_game(game),),
+        "SELECT COUNT(*) AS count FROM expansions WHERE +game = ? "
+        "AND IFNULL(source_provider, '') != ?",
+        (normalize_game(game), TCGPLAYER_ONLY_SOURCE_PROVIDER),
     ).fetchone()
     return int(row["count"]) if row else 0
 

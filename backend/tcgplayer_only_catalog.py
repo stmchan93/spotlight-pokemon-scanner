@@ -8,9 +8,11 @@ card-shaped product from the daily TCGCSV crawl is either
   IGNORE     — code cards and other non-card products (plus any class a game
                opts out of in EXCLUDED_CLASSES; none, plan D2).
 
-Phase P0 is SHADOW only: decisions land in `tcgplayer_product_classifications`
-under shadow_* statuses and the sync-run notes. No `cards` row, product link or
-price is written; nothing downstream reads the table yet.
+Every mode first records decisions in `tcgplayer_product_classifications`
+under shadow_* statuses (P0). Mode "on" (P1) then acts on them: each missing
+card becomes a real `cards` row (status 'created') in a synthetic set per
+TCGplayer group, priced by the same TCGCSV run, and each link is recorded as
+status 'linked' (its consumers come in P5).
 
 Scrydex stays primary: a product any card already claims (payload product ids,
 cards.tcgplayer_id, the overrides + backfill files, or a real classification)
@@ -35,11 +37,18 @@ from catalog_tools import (
     GAME_ONE_PIECE,
     GAME_POKEMON,
     GAME_RIFTBOUND,
+    TCGPLAYER_ONLY_SOURCE_PROVIDER,
     namespaced_catalog_id,
+    raw_variant_sort_key,
+    runtime_setting,
+    upsert_card,
+    upsert_expansion,
+    upsert_runtime_setting,
     utc_now,
 )
 from sealed_products import TCGCSV_CATEGORY_GAME, is_sealed_product
 from tcgcsv_adapter import (
+    SUBTYPE_TO_SCRYDEX_VARIANT_LABEL,
     TCGPLAYER_GROUP_ID_BY_SET_ID,
     card_numbers_match,
     normalized_card_number,
@@ -286,11 +295,14 @@ class CatalogIndex:
 
 
 def load_catalog_index(connection: sqlite3.Connection) -> CatalogIndex:
-    """Every catalog card except TCG Pocket and sealed rows (`tcgp-`): neither
-    is a physical card a TCGplayer single could be a version of."""
+    """Every Scrydex catalog card except TCG Pocket and sealed rows (`tcgp-`):
+    neither is a physical card a TCGplayer single could be a version of. Our
+    own TCGplayer-only rows are left out too, so they never vote a group onto
+    their synthetic set or become link targets."""
     rows = connection.execute(
         "SELECT id, game, language, name, number, rarity, set_id FROM cards "
-        "WHERE id NOT LIKE 'tcgp-%'"
+        "WHERE id NOT LIKE 'tcgp-%' AND IFNULL(source_provider, '') != ?",
+        (TCGPLAYER_ONLY_SOURCE_PROVIDER,),
     )
     columns = ("id", "game", "language", "name", "number", "rarity", "set_id")
     return CatalogIndex(dict(zip(columns, row)) for row in rows)
@@ -603,16 +615,21 @@ def persist_classifications(
     now: str | None = None,
 ) -> None:
     """Upsert shadow rows (first_seen_at kept) and drop shadow rows whose product
-    the catalog has since claimed. Rows under a REAL status are never touched."""
-    if mode != MODE_SHADOW:
-        raise NotImplementedError("P0 writes shadow classifications only")
+    the catalog has since claimed. Rows under a REAL status are never touched —
+    mode "on" promotes shadow rows afterwards, in ingest_tcgplayer_only_cards."""
+    if mode not in {MODE_SHADOW, MODE_ON}:
+        raise ValueError(f"no classifications are written in mode {mode!r}")
     now = now or utc_now()
-    existing = {
-        str(product_id): str(status)
-        for product_id, status in connection.execute(
-            "SELECT product_id, status FROM tcgplayer_product_classifications"
-        )
-    }
+    existing: dict[str, str] = {}
+    # Review rows the image resolver (tcgplayer_only_image_resolver.py) decided
+    # keep that decision while the rules still only say "review".
+    image_resolved: set[str] = set()
+    for product_id, status, evidence_json in connection.execute(
+        "SELECT product_id, status, evidence_json FROM tcgplayer_product_classifications"
+    ):
+        existing[str(product_id)] = str(status)
+        if status in {STATUS_SHADOW_MISSING, STATUS_SHADOW_LINKED} and '"resolvedBy"' in (evidence_json or ""):
+            image_resolved.add(str(product_id))
     stale = [(pid,) for pid, status in existing.items() if pid in claims and status not in REAL_STATUSES]
     connection.executemany(
         "DELETE FROM tcgplayer_product_classifications WHERE product_id = ?", stale
@@ -643,6 +660,7 @@ def persist_classifications(
             )
             for c in classifications
             if existing.get(c.product_id) not in REAL_STATUSES
+            and not (c.product_id in image_resolved and c.decision == DECISION_REVIEW)
         ],
     )
 
@@ -659,8 +677,8 @@ def run_shadow_classification(
 ) -> dict[str, Any]:
     """Classify the crawl and persist shadow rows. Zero network; the caller commits.
     Returns {"counts": {game_key: {status: n}}, **classifier stats}."""
-    if mode != MODE_SHADOW:
-        raise NotImplementedError("P0 supports shadow mode only")
+    if mode not in {MODE_SHADOW, MODE_ON}:
+        raise ValueError(f"no classifications are written in mode {mode!r}")
     index = load_catalog_index(connection)
     claims = load_claims(connection, extra_card_claims)
     classifications, stats = classify_products(
@@ -673,3 +691,363 @@ def run_shadow_classification(
     for c in classifications:
         counts[game_key(c.game, c.language)][_SHADOW_STATUS[c.decision]] += 1
     return {**stats, "counts": {game: dict(counter) for game, counter in counts.items()}}
+
+
+# --- P1: missing cards become real rows (mode "on") -------------------------
+
+TCGPLAYER_IMAGE_URL = "https://tcgplayer-cdn.tcgplayer.com/product/{pid}_in_1000x1000.jpg"
+TCGPLAYER_SMALL_IMAGE_URL = "https://tcgplayer-cdn.tcgplayer.com/product/{pid}_400w.jpg"
+MIN_IMAGE_WIDTH = 400
+PLACEHOLDER_SHARED_MIN = 3
+PLACEHOLDER_MD5_SETTING_KEY = "tcgplayer_only_placeholder_image_md5s"
+# TCGplayer's CDN 403s Python's default agent.
+_IMAGE_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/128.0 Safari/537.36"
+)
+_IMAGE_TIMEOUT_SECONDS = 20
+_IMAGE_PROBE_WORKERS = 8
+
+IMAGE_OK = "ok"
+IMAGE_MISSING = "missing"
+IMAGE_PLACEHOLDER = "placeholder"
+IMAGE_LOW_RES = "low_res"
+
+# TCGplayer rarity -> the label Scrydex uses for the same tier, per report
+# bucket (game_key). Measured 2026-09-29 on every product both catalogs carry;
+# a rarity not listed is already spelled the Scrydex way (or has no twin).
+_RARITY_LABELS: dict[str, dict[str, str]] = {
+    GAME_POKEMON: {
+        "holo rare": "Rare Holo",
+        "ultra rare": "Rare Ultra",
+        "secret rare": "Rare Secret",
+        "shiny holo rare": "Rare Shiny",
+        "rainbow rare": "Rare Rainbow",
+        "prism rare": "Rare Prism Star",
+        "rare ace": "Rare ACE",
+    },
+    f"{GAME_POKEMON}-jp": {
+        "holo rare": "Rare Holo",
+        "shiny secret rare": "Shiny Super Rare",
+        "ace rare": "ACE SPEC",
+        "rare holo legend": "LEGEND",
+    },
+    GAME_ONE_PIECE: {
+        "c": "Common", "uc": "Uncommon", "r": "Rare", "sr": "Super Rare",
+        "sec": "Secret Rare", "l": "Leader", "pr": "Promo", "tr": "Treasure Rare",
+    },
+    # "Quest" = the oversized Illumineer's Quest cards, "Special" on Scrydex.
+    GAME_LORCANA: {"quest": "Special"},
+    # "+"/"++" mark chase parallels; Scrydex keeps the base tier.
+    GAME_GUNDAM: {
+        "c+": "Common", "c++": "Common", "u+": "Uncommon", "r+": "Rare",
+        "lr": "Legend Rare", "lr+": "Legend Rare", "lr++": "Legend Rare",
+    },
+}
+_POKEMON_TYPES = frozenset({
+    "grass", "fire", "water", "lightning", "psychic", "fighting",
+    "darkness", "metal", "fairy", "dragon", "colorless",
+})
+_TRAINER_KINDS = ("supporter", "item", "stadium", "tool", "trainer")
+
+FetchImageFn = Any  # Callable[[str], bytes | None]
+
+
+def synthetic_set_id(game: str, group_id: Any) -> str:
+    """One browsable set per TCGplayer group (plan D5)."""
+    return namespaced_catalog_id(game, f"tcgplayer-group-{int(group_id)}")
+
+
+def scrydex_rarity(game: str, language: str, value: Any) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if text.casefold() in _UNKNOWN_RARITIES:
+        return ""
+    return _RARITY_LABELS.get(game_key(game, language), {}).get(text.casefold(), text)
+
+
+def card_kind(game: str, product_row: Mapping[str, Any], base_name: str) -> tuple[str | None, list[str], list[str]]:
+    """(supertype, subtypes, types) in Scrydex's vocabulary. Pokémon's supertype
+    decides whether the visual refresh indexes the card; One Piece and Lorcana
+    use TCGplayer's card type, which is Scrydex's word too; Gundam and
+    Riftbound rows carry none on Scrydex either."""
+    card_type = _extended(product_row, "Card Type", "CardType")
+    if game != GAME_POKEMON:
+        if game in {GAME_ONE_PIECE, GAME_LORCANA} and card_type:
+            return card_type, [], []
+        return None, [], []
+    parts = [part.strip() for part in re.split(r"[;,]", card_type) if part.strip()]
+    types = [part for part in parts if part.casefold() in _POKEMON_TYPES]
+    lowered = card_type.casefold()
+    if _extended(product_row, "HP") or types:
+        stage = _extended(product_row, "Stage")
+        return "Pokémon", [stage] if stage else [], types
+    if "energy" in lowered or re.search(r"\benergy$", base_name, re.I):
+        subtypes = ["Special"] if "special" in lowered else ["Basic"] if "basic" in lowered or not lowered else []
+        return "Energy", subtypes, []
+    for kind in _TRAINER_KINDS:
+        if kind in lowered:
+            return "Trainer", [] if kind == "trainer" else [kind.title()], []
+    return None, [], []
+
+
+def _scrydex_date(value: Any) -> str | None:
+    """"2024-12-31T00:00:00" -> "2024/12/31", the spelling Scrydex dates use,
+    so synthetic sets sort among theirs."""
+    text = str(value or "").strip()[:10]
+    return text.replace("-", "/") if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text) else None
+
+
+def _payload_variants(product_id: str, subtypes: Iterable[str]) -> list[dict[str, Any]]:
+    """The sealed payload shape: one Scrydex-labelled variant per TCGplayer
+    subtype, all on the one product, which is what the TCGCSV sync prices."""
+    labels: list[str] = []
+    for subtype in subtypes:
+        label = SUBTYPE_TO_SCRYDEX_VARIANT_LABEL.get(subtype, subtype)
+        if label and label not in labels:
+            labels.append(label)
+    labels.sort(key=raw_variant_sort_key)
+    return [
+        {"name": label, "marketplaces": [{"name": "tcgplayer", "product_id": int(product_id)}]}
+        for label in labels or ["Normal"]
+    ]
+
+
+def default_fetch_image(url: str) -> bytes | None:
+    from urllib.request import Request, urlopen
+
+    request = Request(url, headers={"User-Agent": _IMAGE_USER_AGENT, "Accept": "image/*"})
+    try:
+        with urlopen(request, timeout=_IMAGE_TIMEOUT_SECONDS) as response:
+            return response.read()
+    except Exception:
+        return None
+
+
+def image_verdict(data: bytes | None, placeholder_md5s: set[str] | frozenset[str]) -> str:
+    """ok | missing | placeholder (shared bytes, or TCGplayer's landscape
+    "Image Coming Soon" tile) | low_res (embeds poorly)."""
+    import hashlib
+    import io
+
+    if not data:
+        return IMAGE_MISSING
+    if hashlib.md5(data).hexdigest() in placeholder_md5s:
+        return IMAGE_PLACEHOLDER
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(data)) as image:
+            width, height = image.size
+    except Exception:
+        return IMAGE_MISSING
+    if width > height:
+        return IMAGE_PLACEHOLDER
+    if width < MIN_IMAGE_WIDTH:
+        return IMAGE_LOW_RES
+    return IMAGE_OK
+
+
+def probe_images(
+    connection: sqlite3.Connection,
+    product_ids: list[str],
+    fetch_image: FetchImageFn | None = None,
+) -> dict[str, str]:
+    """{product_id: verdict}. Bytes several products share are placeholders;
+    those hashes are remembered so a later night's small batch still sees them."""
+    import hashlib
+    from concurrent.futures import ThreadPoolExecutor
+
+    fetch = fetch_image or default_fetch_image
+    urls = [TCGPLAYER_IMAGE_URL.format(pid=pid) for pid in product_ids]
+    if not urls:
+        return {}
+    with ThreadPoolExecutor(max_workers=_IMAGE_PROBE_WORKERS) as pool:
+        blobs = dict(zip(product_ids, pool.map(fetch, urls)))
+    counts = Counter(hashlib.md5(data).hexdigest() for data in blobs.values() if data)
+    stored = runtime_setting(connection, PLACEHOLDER_MD5_SETTING_KEY)
+    known = set((stored or {}).get("value") or [])
+    shared = {digest for digest, count in counts.items() if count >= PLACEHOLDER_SHARED_MIN}
+    if shared - known:
+        upsert_runtime_setting(connection, key=PLACEHOLDER_MD5_SETTING_KEY, value=sorted(known | shared))
+    placeholders = known | shared
+    return {pid: image_verdict(data, placeholders) for pid, data in blobs.items()}
+
+
+def _image_urls(product_id: str, verdict: str) -> tuple[str | None, str | None]:
+    """(image_url, image_small_url). A low-res image still displays, but only
+    image_url feeds the visual index, and a NULL there is retried nightly."""
+    if verdict == IMAGE_OK:
+        return TCGPLAYER_IMAGE_URL.format(pid=product_id), TCGPLAYER_SMALL_IMAGE_URL.format(pid=product_id)
+    if verdict == IMAGE_LOW_RES:
+        return None, TCGPLAYER_SMALL_IMAGE_URL.format(pid=product_id)
+    return None, None
+
+
+def _upsert_tcgplayer_only_card(
+    connection: sqlite3.Connection,
+    *,
+    card_id: str,
+    category_id: int,
+    group_row: Mapping[str, Any],
+    product_row: Mapping[str, Any],
+    subtypes_priced: Iterable[str],
+    image_url: str | None,
+    image_small_url: str | None,
+) -> str:
+    game, language = TCGCSV_CATEGORY_GAME[int(category_id)]
+    product_id = str(product_row.get("productId")).strip()
+    base_name, version_label = split_product_name(product_row.get("name"))
+    supertype, subtypes, types = card_kind(game, product_row, base_name)
+    group_id = (group_row or {}).get("groupId")
+    released_on = ((product_row.get("presaleInfo") or {}).get("releasedOn")) or (group_row or {}).get("publishedOn")
+    set_id = synthetic_set_id(game, group_id)
+    upsert_card(
+        connection,
+        card_id=card_id,
+        name=base_name,
+        set_name=str((group_row or {}).get("name") or "").strip(),
+        number=_extended(product_row, "Number"),
+        rarity=scrydex_rarity(game, language, _extended(product_row, "Rarity")),
+        variant=version_label or "Normal",
+        language=language,
+        game=game,
+        source_provider=TCGPLAYER_ONLY_SOURCE_PROVIDER,
+        source_record_id=product_id,
+        set_id=set_id,
+        set_ptcgo_code=str((group_row or {}).get("abbreviation") or "").strip() or None,
+        set_release_date=_scrydex_date(released_on),
+        supertype=supertype,
+        subtypes=subtypes,
+        types=types,
+        image_url=image_url,
+        image_small_url=image_small_url,
+        tcgplayer_id=product_id,
+        source_payload={
+            "provider": TCGPLAYER_ONLY_SOURCE_PROVIDER,
+            "catalogSource": TCGPLAYER_ONLY_SOURCE_PROVIDER,
+            "tcgplayerProductName": product_row.get("name"),
+            "tcgplayerCategoryId": int(category_id),
+            "tcgplayerGroupId": group_id,
+            "tcgplayerUrl": product_row.get("url"),
+            "variants": _payload_variants(product_id, subtypes_priced),
+        },
+    )
+    return set_id
+
+
+def _upsert_group_set(connection: sqlite3.Connection, category_id: int, group_row: Mapping[str, Any]) -> None:
+    game, language = TCGCSV_CATEGORY_GAME[int(category_id)]
+    group_id = (group_row or {}).get("groupId")
+    upsert_expansion(
+        connection,
+        expansion_id=synthetic_set_id(game, group_id),
+        game=game,
+        name=str((group_row or {}).get("name") or "").strip() or f"TCGplayer group {group_id}",
+        code=str((group_row or {}).get("abbreviation") or "").strip() or None,
+        language=language,
+        release_date=_scrydex_date((group_row or {}).get("publishedOn")),
+        source_provider=TCGPLAYER_ONLY_SOURCE_PROVIDER,
+        source_payload={
+            "tcgplayerGroupId": group_id,
+            "tcgplayerCategoryId": int(category_id),
+            "isSupplemental": (group_row or {}).get("isSupplemental"),
+        },
+    )
+
+
+def ingest_tcgplayer_only_cards(
+    connection: sqlite3.Connection,
+    crawled_products: list[tuple[int, Mapping[str, Any], Mapping[str, Any]]],
+    *,
+    product_price_map: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
+    fetch_image: FetchImageFn | None = None,
+    now: str | None = None,
+) -> dict[str, Any]:
+    """Mode "on", after the classification pass: every shadow_missing row (the
+    rules' or the image resolver's) becomes a `cards` row + its group's set and
+    turns 'created'; shadow_linked rows turn 'linked' (recorded only — nothing
+    reads them before P5). Already-created cards are refreshed from the crawl,
+    keeping their probed image unless it is still NULL (presale art arrives
+    late). The TCGCSV sync prices them in the same run. The caller commits."""
+    now = now or utc_now()
+    crawl = {
+        str(product_row.get("productId") or "").strip(): (int(category_id), group_row or {}, product_row)
+        for category_id, group_row, product_row in crawled_products
+    }
+    rows = connection.execute(
+        "SELECT product_id, status, card_id, proposed_card_id, category_id "
+        "FROM tcgplayer_product_classifications WHERE status IN (?, ?)",
+        (STATUS_SHADOW_MISSING, STATUS_CREATED),
+    ).fetchall()
+    existing_images = {
+        str(card_id): (image_url, image_small_url)
+        for card_id, image_url, image_small_url in connection.execute(
+            "SELECT id, image_url, image_small_url FROM cards WHERE source_provider = ?",
+            (TCGPLAYER_ONLY_SOURCE_PROVIDER,),
+        )
+    }
+    targets: list[tuple[str, str, str]] = []  # (product_id, card_id, status)
+    for product_id, status, card_id, proposed, category_id in rows:
+        product_id = str(product_id)
+        if product_id not in crawl:
+            continue
+        game, _language = TCGCSV_CATEGORY_GAME.get(int(category_id), (GAME_POKEMON, "English"))
+        resolved_id = str(card_id or proposed or "") or proposed_card_id(game, product_id)
+        if resolved_id != proposed_card_id(game, product_id):
+            continue  # never write a row under any id but tcgplayer-<pid>
+        targets.append((product_id, resolved_id, str(status)))
+
+    needs_image = [
+        pid for pid, card_id, _status in targets
+        if not (existing_images.get(card_id) or (None, None))[0]
+    ]
+    # imageCount 0 = TCGplayer has no art yet (presales); the CDN would 403.
+    no_art = {pid for pid in needs_image if crawl[pid][2].get("imageCount") == 0}
+    verdicts = probe_images(connection, [pid for pid in needs_image if pid not in no_art], fetch_image)
+    verdicts.update({pid: IMAGE_MISSING for pid in no_art})
+
+    stats: dict[str, Any] = {
+        "created": Counter(), "refreshed": 0, "sets": 0,
+        "images": Counter(verdicts.values()), "nullImage": 0, "linked": 0,
+    }
+    groups: dict[tuple[int, int], Mapping[str, Any]] = {}
+    for product_id, card_id, status in targets:
+        category_id, group_row, product_row = crawl[product_id]
+        if product_id in verdicts:
+            image_url, image_small_url = _image_urls(product_id, verdicts[product_id])
+        else:
+            image_url, image_small_url = existing_images[card_id]
+        _upsert_tcgplayer_only_card(
+            connection,
+            card_id=card_id,
+            category_id=category_id,
+            group_row=group_row,
+            product_row=product_row,
+            subtypes_priced=(product_price_map or {}).get(product_id, {}).keys(),
+            image_url=image_url,
+            image_small_url=image_small_url,
+        )
+        groups[(category_id, int(group_row.get("groupId") or 0))] = group_row
+        if image_url is None:
+            stats["nullImage"] += 1
+        if status == STATUS_CREATED:
+            stats["refreshed"] += 1
+            continue
+        game, language = TCGCSV_CATEGORY_GAME[category_id]
+        stats["created"][game_key(game, language)] += 1
+        connection.execute(
+            "UPDATE tcgplayer_product_classifications SET status = ?, card_id = ?, "
+            "proposed_card_id = ?, updated_at = ? WHERE product_id = ?",
+            (STATUS_CREATED, card_id, card_id, now, product_id),
+        )
+    for (category_id, _group_id), group_row in groups.items():
+        _upsert_group_set(connection, category_id, group_row)
+    stats["sets"] = len(groups)
+    stats["linked"] = connection.execute(
+        "UPDATE tcgplayer_product_classifications SET status = ?, updated_at = ? "
+        "WHERE status = ? AND card_id IS NOT NULL",
+        (STATUS_LINKED, now, STATUS_SHADOW_LINKED),
+    ).rowcount
+    stats["created"] = dict(stats["created"])
+    stats["images"] = dict(stats["images"])
+    return stats

@@ -22,6 +22,7 @@ import {
   deckConditionOptions,
   gameHasListingsData,
   gradersForGame,
+  pricedGradersForCard,
   type CardDetailRecord,
   type CardFavoriteEntry,
   type CardPriceTrendList as CardPriceTrendListRecord,
@@ -78,6 +79,7 @@ import {
   buildTcgPlayerProductUrl,
   buildTcgPlayerSearchUrl,
   resolveTcgPlayerProductId,
+  tcgPlayerProductIdFromCardId,
 } from '@/features/cards/marketplace-urls';
 import {
   cardDetailPreviewFromCatalogResult,
@@ -115,15 +117,13 @@ import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
 
-function displayNumber(value?: string | null) {
-  const trimmed = value?.trim();
-  if (!trimmed) {
-    return '--';
-  }
-
-  // Identity block shows the bare number (Figma 992-7373 / 1080-3404: "095/094",
-  // no "#" prefix), so strip a leading "#" if the source includes one.
-  return trimmed.startsWith('#') ? trimmed.slice(1) : trimmed;
+// Identity block shows the bare number (Figma 992-7373 / 1080-3404: "095/094",
+// no "#" prefix). Null when the card has none — blank, or the "--" placeholder
+// list rows use for unnumbered cards — so the line drops it instead.
+function displayNumber(value?: string | null): string | null {
+  const trimmed = value?.trim() ?? '';
+  const bare = trimmed.startsWith('#') ? trimmed.slice(1).trim() : trimmed;
+  return bare && bare !== '--' ? bare : null;
 }
 
 // Catalog release dates arrive as "YYYY/MM/DD" / "YYYY-MM-DD" (or a bare year).
@@ -416,6 +416,23 @@ export function CardDetailScreen({
   // printing or language. Added as one condition-less entry and watched like a
   // card. Declared up here for the same dependency-array reason as `cardGame`.
   const isSealed = (detail?.productKind ?? detailPreview?.productKind) === 'sealed';
+  // A card Scrydex does not list, carried from TCGplayer alone: raw TCGplayer
+  // pricing only — no graded lanes, population or graded comps, whatever its
+  // game. Otherwise it looks and behaves like any other card.
+  const catalogSource = detail?.catalogSource ?? detailPreview?.catalogSource;
+  const isTcgplayerOnly = catalogSource === 'tcgplayer';
+  // A TCGplayer-only card that Scrydex later added is superseded: its detail
+  // names the Scrydex card, and the page moves there (replace, so Back skips
+  // the stale id). Once per card id.
+  const canonicalCardId = detail?.cardId === cardId ? detail.canonicalCardId?.trim() || null : null;
+  const redirectedFromCardIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!canonicalCardId || canonicalCardId === cardId || redirectedFromCardIdRef.current === cardId) {
+      return;
+    }
+    redirectedFromCardIdRef.current = cardId;
+    router.replace({ pathname: '/cards/[cardId]', params: { cardId: canonicalCardId } });
+  }, [canonicalCardId, cardId, router]);
   // Sealed has one TCGplayer product and no condition facet (TCGplayer lists
   // sealed as "Unopened", so a Near Mint filter would zero the page).
   const sealedMarketplaceUrl = useMemo(() => {
@@ -753,7 +770,7 @@ export function CardDetailScreen({
     // and names the exact headline graded lane — far more reliable than inferring
     // from population (empty for ~957/971 of these grails). Absent → leave Raw.
     const reference = detail.gradedReference;
-    if (!reference?.grader) {
+    if (!reference?.grader || isTcgplayerOnly) {
       return;
     }
     const matchedGrader =
@@ -762,7 +779,7 @@ export function CardDetailScreen({
       ) ?? reference.grader;
     setSelectedGrader(matchedGrader);
     setSelectedGrade(reference.grade ?? '10');
-  }, [activeCardId, cardGame, detail, selectedGrader]);
+  }, [activeCardId, cardGame, detail, isTcgplayerOnly, selectedGrader]);
 
   // Reset the per-lane selection whenever the grader switches so the grade
   // label always reflects the active lane.
@@ -841,6 +858,13 @@ export function CardDetailScreen({
       lastFetchedLaneKeyRef.current = key;
       const token = trendRequestTokenRef.current + 1;
       trendRequestTokenRef.current = token;
+      // No graded pricing exists for a TCGplayer-only card (an owned slab of
+      // one still seeds a graded lens): show nothing rather than ask.
+      if (lane.mode === 'graded' && isTcgplayerOnly) {
+        setPriceTrends(null);
+        setPriceTrendsLoading(false);
+        return Promise.resolve();
+      }
       setPriceTrendsLoading(true);
       return getCardPriceTrendsCached(spotlightRepository, activeCardId, lane)
         .then((next) => {
@@ -862,7 +886,7 @@ export function CardDetailScreen({
           setPriceTrendsLoading(false);
         });
     },
-    [activeCardId, spotlightRepository],
+    [activeCardId, isTcgplayerOnly, spotlightRepository],
   );
 
   // EARLY parallel fetch: as soon as the card id + early owned context are
@@ -1076,7 +1100,8 @@ export function CardDetailScreen({
     const condition = row.key.split('|').filter(Boolean).pop() ?? null;
     // Prefer an exact product-page deep link for the selected printing; fall back
     // to the keyword search when no product_id resolves.
-    const productId = resolveTcgPlayerProductId(detail.tcgPlayerVariants, selectedVariantLabel);
+    const productId = resolveTcgPlayerProductId(detail.tcgPlayerVariants, selectedVariantLabel)
+      ?? tcgPlayerProductIdFromCardId(detail.cardId);
     const url =
       (productId ? buildTcgPlayerProductUrl({ productId, condition }) : null) ??
       buildTcgPlayerSearchUrl({
@@ -1319,7 +1344,8 @@ export function CardDetailScreen({
     // Mint when we can resolve a product_id; otherwise fall back to the keyword
     // search (printing intentionally omitted there; see handleTrendRowPress for
     // why the Printing facet zeroes out promos).
-    const productId = resolveTcgPlayerProductId(detail.tcgPlayerVariants, selectedVariantLabel);
+    const productId = resolveTcgPlayerProductId(detail.tcgPlayerVariants, selectedVariantLabel)
+      ?? tcgPlayerProductIdFromCardId(detail.cardId);
     const url =
       (productId ? buildTcgPlayerProductUrl({ productId, condition: 'Near Mint' }) : null) ??
       buildTcgPlayerSearchUrl({
@@ -1614,7 +1640,20 @@ export function CardDetailScreen({
   // companies (PSA, CGC, SGC, BGS, TAG, ACE, AGS, CCIC), so handing it the
   // Pokémon four would hide most of its data. `gradersForGame` owns both facts;
   // this screen only asks. (`cardGame` is declared near the top; see the note.)
-  const availableGraders = useMemo(() => [...gradersForGame(cardGame)], [cardGame]);
+  //
+  // The PAGE's lanes are the ones we can price: a TCGplayer-only card gets Raw
+  // only (plus an owned slab's own grader, so its lens stays visible and an
+  // edit keeps it a slab). The add sheet still offers every grader — a slab of
+  // it is ownable, it just values at "—".
+  const ownedSlabGrader = ownedSlabContext?.grader ?? null;
+  const availableGraders = useMemo(() => {
+    const priced: string[] = [...pricedGradersForCard(cardGame, catalogSource)];
+    if (isTcgplayerOnly && ownedSlabGrader && !priced.includes(ownedSlabGrader)) {
+      priced.push(ownedSlabGrader);
+    }
+    return priced;
+  }, [cardGame, catalogSource, isTcgplayerOnly, ownedSlabGrader]);
+  const addSheetGraders = useMemo(() => [...gradersForGame(cardGame)], [cardGame]);
   const displayCardNumber = detail?.cardNumber ?? detailPreview?.cardNumber ?? '';
   const displaySetName = detail?.setName ?? detailPreview?.setName ?? '';
   // Card number + set name share one line, dot-separated ("052 · Scarlet &
@@ -1625,11 +1664,11 @@ export function CardDetailScreen({
   const identityNumberSetLine = isSealed
     ? [displaySealedType, displaySetName.trim() || null].filter(Boolean).join(' · ')
     : [
-      displayCardNumber.trim() ? displayNumber(displayCardNumber) : null,
+      displayNumber(displayCardNumber),
       displaySetName.trim() || null,
     ]
       .filter(Boolean)
-      .join(' · ') || displayNumber(displayCardNumber);
+      .join(' · ');
   // Release date + illustrator (Figma 1965:25870): "Jun 10, 2000 · Illus. Yuka
   // Morii". Either part may be missing; the line is omitted when both are.
   const displayArtist = detail?.artist?.trim() || null;
@@ -1701,7 +1740,7 @@ export function CardDetailScreen({
 
   // Carried into the log-transaction flow as the note so a bought/sold/traded
   // entry started from this card keeps its identity.
-  const transactionLabel = [displayName, displayCardNumber, displaySetName]
+  const transactionLabel = [displayName, displayNumber(displayCardNumber) ?? '', displaySetName]
     .map((part) => part.trim())
     .filter(Boolean)
     .join(' · ');
@@ -1714,7 +1753,8 @@ export function CardDetailScreen({
     // Exact product page for the selected printing when the detail payload
     // carries product ids; otherwise the keyword search (also the path before
     // `detail` resolves, where only preview fields are available).
-    const productId = resolveTcgPlayerProductId(detail?.tcgPlayerVariants, selectedVariantLabel);
+    const productId = resolveTcgPlayerProductId(detail?.tcgPlayerVariants, selectedVariantLabel)
+      ?? tcgPlayerProductIdFromCardId(detail?.cardId);
     return (
       (productId ? buildTcgPlayerProductUrl({ productId, condition }) : null) ??
       buildTcgPlayerSearchUrl({
@@ -1900,6 +1940,7 @@ export function CardDetailScreen({
     const addedVariantName = isSealed
       ? null
       : addIsRaw ? (addVariantLabel ?? null) : addConfiguredSlabContext?.variantName ?? null;
+    const addIsUnpricedSlab = !addIsRaw && addDetail.catalogSource === 'tcgplayer';
     // An add that came from a scan carries the scan id, so the confirmation
     // lands on the scan row and becomes a training label. Only when the card
     // being added is one the scan actually proposed: the sheet's EN/JP toggle
@@ -1936,8 +1977,10 @@ export function CardDetailScreen({
           setName: addDetail.setName,
           imageUrl: addDetail.imageUrl,
           largeImageUrl: addDetail.largeImageUrl ?? null,
-          marketPrice: addDetail.marketPrice ?? 0,
-          hasMarketPrice: addDetail.marketPrice != null,
+          // A slab of a TCGplayer-only card has no graded price ("—"), and
+          // the detail's price is the raw one.
+          marketPrice: addIsUnpricedSlab ? 0 : addDetail.marketPrice ?? 0,
+          hasMarketPrice: !addIsUnpricedSlab && addDetail.marketPrice != null,
           currencyCode: addDetail.currencyCode,
           quantity: addedQuantity,
           addedAt: response.addedAt || addedAt,
@@ -1948,6 +1991,8 @@ export function CardDetailScreen({
           conditionShortLabel: conditionOption?.shortLabel ?? null,
           slabContext: addConfiguredSlabContext,
           isFavorite: addDetail.isFavorite ?? false,
+          game: addDetail.game,
+          catalogSource: addDetail.catalogSource,
         });
         capturePostHogEvent('card_detail_add_item_succeeded', {
           kind: isSealed ? 'sealed' : addIsRaw ? 'raw' : 'graded',
@@ -2330,6 +2375,8 @@ export function CardDetailScreen({
         // still be the other language's card mid-refetch, so fall back to the
         // existing entry's fields and let the refetch correct the visuals.
         const detailFresh = detail.cardId === activeCardId;
+        const editIsUnpricedSlab = !editIsRaw
+          && (detailFresh ? detail.catalogSource : selectedEntry.catalogSource) === 'tcgplayer';
         const conditionOption = editIsRaw && !isSealed
           ? deckConditionOptions.find((option) => option.code === selectedCondition) ?? null
           : null;
@@ -2349,14 +2396,17 @@ export function CardDetailScreen({
           // instantly. `detail.marketPrice` is the card's BASE (raw) price and is
           // wrong for a grade change; only fall back to it (or the old entry's
           // price) when the backend didn't return a market price.
-          marketPrice:
-            result.marketPrice != null
+          // A slab of a TCGplayer-only card has no graded price ("—").
+          marketPrice: editIsUnpricedSlab
+            ? 0
+            : result.marketPrice != null
               ? result.marketPrice
               : detailFresh
                 ? detail.marketPrice ?? 0
                 : selectedEntry.marketPrice,
-          hasMarketPrice:
-            result.marketPrice != null
+          hasMarketPrice: editIsUnpricedSlab
+            ? false
+            : result.marketPrice != null
               ? result.hasMarketPrice ?? true
               : detailFresh
                 ? detail.marketPrice != null
@@ -2371,6 +2421,8 @@ export function CardDetailScreen({
           conditionShortLabel: conditionOption?.shortLabel ?? null,
           slabContext: savedSlabContext,
           isFavorite: selectedEntry.isFavorite,
+          game: selectedEntry.game,
+          catalogSource: detailFresh ? detail.catalogSource : selectedEntry.catalogSource,
           // The cost basis was written by the call above, and it has to ride
           // into the cache with everything else. Omitted, this optimistic row
           // REPLACED the real one with the field missing — so the save landed
@@ -2803,7 +2855,7 @@ export function CardDetailScreen({
           confirmLabel="CONFIRM"
           gradeLabel={addGradeLabel}
           gradeTitle={addGradeTitle}
-          graders={availableGraders}
+          graders={addSheetGraders}
           languages={languageToggleOptions}
           onClose={() => setAddSheetOpen(false)}
           onConfirm={handleAddItem}
@@ -2881,7 +2933,7 @@ export function CardDetailScreen({
 
         {/* Pop report sits BELOW Price Trend (designer annotation, Figma
             2489:7581); it renders nothing on the raw lane / without population. */}
-        {isSealed ? null : (
+        {isSealed || isTcgplayerOnly ? null : (
           <CardPopulationReport
             grader={selectedGrader}
             population={detail?.population}

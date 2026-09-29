@@ -61,6 +61,7 @@ import type {
   CardFavoriteTargetResult,
   CardWatchOptions,
   DealLiquidityTier,
+  CardCatalogSource,
   CardGame,
   CardPopulation,
   TcgPlayerVariantMarketplace,
@@ -706,6 +707,10 @@ type CardCandidateDTO = {
   subtypes?: Array<string | null> | null;
   productKind?: string | null;
   sealedProductType?: string | null;
+  // 'scrydex' | 'tcgplayer'. Absent on older servers → 'scrydex'.
+  catalogSource?: string | null;
+  // The Scrydex card that superseded a TCGplayer-only card; null otherwise.
+  canonicalCardId?: string | null;
   // Raw Scrydex catalog payload; we only read `variants[].marketplaces` to
   // surface per-printing TCGplayer product ids for deep links.
   sourcePayload?: {
@@ -1156,6 +1161,8 @@ type NormalizedCardCandidate = {
   isFavorite: boolean;
   rarityBucket?: RarityBucket;
   game?: CardGame;
+  catalogSource: CardCatalogSource;
+  canonicalCardId: string | null;
   productKind: ProductKind;
   sealedProductType: string | null;
   pricing: {
@@ -2022,11 +2029,18 @@ function pickImageUrl(candidates: unknown[], baseUrl?: string) {
   return '';
 }
 
+const NO_CARD_NUMBER = '--';
+
 function normalizeCardNumber(value: unknown) {
-  return normalizeString(value) ?? '--';
+  return normalizeString(value) ?? NO_CARD_NUMBER;
 }
 
+// '' for an unnumbered card (the '--' placeholder): display sites drop an empty
+// number, whereas "#--" leaked into every row, share text and search query.
 function withCardNumberPrefix(value: string) {
+  if (!value.trim() || value.trim() === NO_CARD_NUMBER) {
+    return '';
+  }
   return value.startsWith('#') ? value : `#${value}`;
 }
 
@@ -2050,6 +2064,26 @@ function normalizeCardGame(value: unknown): CardGame | undefined {
   return typeof value === 'string' && (CARD_GAMES as readonly string[]).includes(value)
     ? (value as CardGame)
     : undefined;
+}
+
+// TCGplayer-only card ids: `tcgplayer-<productId>` (Pokémon) or
+// `<game>~tcgplayer-<productId>`. NOT `tcgp-` — that is Scrydex's TCG Pocket.
+const TCGPLAYER_ONLY_CARD_ID_PATTERN = /(?:^|~)tcgplayer-\d+$/;
+
+// Where the card's catalog row comes from. Anything but an explicit
+// 'tcgplayer' is the normal Scrydex catalog — including an absent field (older
+// server) and an unknown value (newer server). The id pattern is a fallback
+// for payloads that dropped the field, so a TCGplayer-only card can never
+// grow Pokémon's graded lanes.
+function normalizeCatalogSource(value: unknown, cardId?: string | null): CardCatalogSource {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (raw === 'tcgplayer') {
+    return 'tcgplayer';
+  }
+  if (!raw && cardId && TCGPLAYER_ONLY_CARD_ID_PATTERN.test(cardId)) {
+    return 'tcgplayer';
+  }
+  return 'scrydex';
 }
 
 // Search results say "sealed" via supertype/subtypes; card detail says it via
@@ -2102,6 +2136,8 @@ function normalizeCardCandidate(candidate: CardCandidateDTO | null | undefined, 
     // from this normalizer. Dropping it here is what would leave the capability
     // helpers permanently answering "Pokémon" for a One Piece card.
     game: normalizeCardGame(candidate?.game),
+    catalogSource: normalizeCatalogSource(candidate?.catalogSource, id),
+    canonicalCardId: normalizeString(candidate?.canonicalCardId),
     ...normalizeProductKind(candidate),
     pricing: {
       currencyCode: normalizeCurrencyCode(candidate?.pricing?.currencyCode),
@@ -2402,6 +2438,8 @@ function mapScannerMatchCandidates(
       // rehydrated rows can still render/filter without a fresh search.
       rarityBucket: card.rarityBucket,
       game: card.game,
+      catalogSource: card.catalogSource,
+      canonicalCardId: card.canonicalCardId,
       priceIsGradedReference,
       gradedReferenceLabel,
       // Only set when served, so candidates without one keep their old shape.
@@ -2492,7 +2530,13 @@ function mapDeckEntry(entry: DeckEntryDTO, baseUrl?: string): InventoryCardEntry
   const costBasisTotal = normalizeNumber(entry.costBasisTotal);
   const itemKind = normalizeString(entry.itemKind);
   const pricingCondition = conditionCodeFromLabel(card.pricing.condition) ?? normalizeConditionCode(card.pricing.condition);
-  const hasMarketPrice = card.pricing.market != null && (
+  const kind: InventoryCardEntry['kind'] =
+    itemKind === 'slab' ? 'graded' : itemKind === 'raw' ? 'raw' : (slabContext ? 'graded' : 'raw');
+  // A slab of a TCGplayer-only card has NO graded price; whatever the server
+  // put in `pricing` is the raw TCGplayer price, which is not what the slab is
+  // worth. Mark it unpriced so every surface shows "—" and totals skip it.
+  const isUnpricedGradedHolding = kind === 'graded' && card.catalogSource === 'tcgplayer';
+  const hasMarketPrice = !isUnpricedGradedHolding && card.pricing.market != null && (
     requestedConditionCode == null
     || pricingCondition == null
     || requestedConditionCode === pricingCondition
@@ -2516,12 +2560,12 @@ function mapDeckEntry(entry: DeckEntryDTO, baseUrl?: string): InventoryCardEntry
     imageUrl: pickImageUrl([card.imageSmallURL, card.imageLargeURL], baseUrl),
     smallImageUrl: pickImageUrl([card.imageSmallURL], baseUrl) || null,
     largeImageUrl: pickImageUrl([card.imageLargeURL], baseUrl) || null,
-    marketPrice: card.pricing.market ?? 0,
+    marketPrice: isUnpricedGradedHolding ? 0 : card.pricing.market ?? 0,
     hasMarketPrice,
     currencyCode: card.pricing.currencyCode,
     quantity,
     addedAt: normalizeString(entry.addedAt) ?? new Date().toISOString(),
-    kind: itemKind === 'slab' ? 'graded' : itemKind === 'raw' ? 'raw' : (slabContext ? 'graded' : 'raw'),
+    kind,
     variantName,
     conditionCode: normalizeConditionCode(entry.condition),
     conditionLabel: conditionCopy.label ?? null,
@@ -2529,21 +2573,38 @@ function mapDeckEntry(entry: DeckEntryDTO, baseUrl?: string): InventoryCardEntry
     slabContext,
     rarityBucket: card.rarityBucket,
     game: card.game,
+    catalogSource: card.catalogSource,
     collectionId: normalizeString(entry.collectionId) ?? null,
     collectionName: normalizeString(entry.collectionName) ?? null,
     costBasisPerUnit: explicitCostBasisPerUnit ?? derivedCostBasisPerUnit,
     costBasisTotal: costBasisTotal ?? null,
     isFavorite: normalizeBoolean(entry.isFavorite) ?? card.isFavorite,
     favoritedAt: normalizeString(entry.favoritedAt) ?? null,
-    dayChangeAmount: normalizeNumber(entry.dayChangeAmount) ?? null,
-    dayChangePercent: normalizeNumber(entry.dayChangePercent) ?? null,
-    sinceAddedChangeAmount: normalizeNumber(entry.sinceAddedChangeAmount) ?? null,
-    sinceAddedChangePercent: normalizeNumber(entry.sinceAddedChangePercent) ?? null,
-    sinceAddedBaselineDate: normalizeString(entry.sinceAddedBaselineDate) ?? null,
-    sparkPoints: normalizeSparkPoints(entry.sparkPoints),
-    sinceAddedPoints: normalizeSparkPoints(entry.sinceAddedPoints),
-    sinceAddedBaselinePrice: normalizeNumber(entry.sinceAddedBaselinePrice) ?? null,
-    sparkTrendPct: normalizeNumber(entry.sparkTrendPct) ?? null,
+    // Unpriced slab (see above): any server-side trend would be the RAW
+    // series, so drop it with the price.
+    ...(isUnpricedGradedHolding
+      ? {
+          dayChangeAmount: null,
+          dayChangePercent: null,
+          sinceAddedChangeAmount: null,
+          sinceAddedChangePercent: null,
+          sinceAddedBaselineDate: null,
+          sparkPoints: null,
+          sinceAddedPoints: null,
+          sinceAddedBaselinePrice: null,
+          sparkTrendPct: null,
+        }
+      : {
+          dayChangeAmount: normalizeNumber(entry.dayChangeAmount) ?? null,
+          dayChangePercent: normalizeNumber(entry.dayChangePercent) ?? null,
+          sinceAddedChangeAmount: normalizeNumber(entry.sinceAddedChangeAmount) ?? null,
+          sinceAddedChangePercent: normalizeNumber(entry.sinceAddedChangePercent) ?? null,
+          sinceAddedBaselineDate: normalizeString(entry.sinceAddedBaselineDate) ?? null,
+          sparkPoints: normalizeSparkPoints(entry.sparkPoints),
+          sinceAddedPoints: normalizeSparkPoints(entry.sinceAddedPoints),
+          sinceAddedBaselinePrice: normalizeNumber(entry.sinceAddedBaselinePrice) ?? null,
+          sparkTrendPct: normalizeNumber(entry.sparkTrendPct) ?? null,
+        }),
     listingUrl: normalizeString(entry.listingUrl) ?? null,
     listingPriceCents: normalizeNumber(entry.listingPriceCents) ?? null,
     listedAt: normalizeString(entry.listedAt) ?? null,
@@ -2827,9 +2888,11 @@ function normalizeScannerCardNumber(value: string | null | undefined) {
 }
 
 function buildScannerCandidateQueries(candidate: CatalogSearchResult) {
-  const rawNumber = typeof candidate.cardNumber === 'string'
+  const strippedNumber = typeof candidate.cardNumber === 'string'
     ? candidate.cardNumber.trim().replace(/^#/, '')
     : '';
+  // '--' is the unnumbered-card placeholder, not a search term.
+  const rawNumber = strippedNumber === NO_CARD_NUMBER ? '' : strippedNumber;
 
   return [
     [candidate.name, candidate.setName, rawNumber].filter(Boolean).join(' '),
@@ -5265,6 +5328,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           isFavorite: card.isFavorite,
           rarityBucket: card.rarityBucket,
           game: card.game,
+          catalogSource: card.catalogSource,
+          canonicalCardId: card.canonicalCardId,
         }];
       });
   }
@@ -5973,6 +6038,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           isFavorite: card.isFavorite,
           rarityBucket: card.rarityBucket,
           game: card.game,
+          catalogSource: card.catalogSource,
+          canonicalCardId: card.canonicalCardId,
         }];
       });
 
@@ -6802,8 +6869,12 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       productKind: card.productKind,
       sealedProductType: card.sealedProductType,
       name: card.name,
+      // Sealed has no number; an unnumbered card maps to '' as well.
       cardNumber: card.productKind === 'sealed' ? '' : withCardNumberPrefix(card.number),
       setName: card.setName,
+      catalogSource: card.catalogSource,
+      canonicalCardId: card.canonicalCardId
+        ?? normalizeString((detailResponse.data as { canonicalCardId?: unknown }).canonicalCardId),
       // The authoritative game for the PDP. A preview (scan/collection/search
       // row) usually carries one too, but a deep link into a card has no
       // preview at all — this is the only source that always exists.
@@ -7133,6 +7204,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           slabContext,
           rarityBucket: normalizeRarityBucket(card.rarityBucket),
           game: normalizeCardGame(card.game),
+          catalogSource: normalizeCatalogSource(card.catalogSource, cardId),
           dayChangeAmount: normalizeNumber(entry.dayChangeAmount) ?? null,
           dayChangePercent: normalizeNumber(entry.dayChangePercent) ?? null,
           sinceAddedChangeAmount: normalizeNumber(entry.sinceAddedChangeAmount) ?? null,
@@ -7748,6 +7820,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         isFavorite: card.isFavorite,
         rarityBucket: card.rarityBucket,
         game: card.game,
+        catalogSource: card.catalogSource,
+        canonicalCardId: card.canonicalCardId,
       }];
     });
   }

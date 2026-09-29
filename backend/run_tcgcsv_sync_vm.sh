@@ -36,3 +36,23 @@ export SPOTLIGHT_RUNTIME_LABEL="${SPOTLIGHT_RUNTIME_LABEL:-vm-tcgcsv-sync:${HOST
   --database-path "$DATABASE_PATH" \
   --scheduled-for "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
   "$@"
+
+# TCGplayer-only cards (TCGCSV_TCGPLAYER_ONLY_INGEST=on) land in `cards` during
+# the sync above; embed them into the visual index the same day. Staging never
+# runs the Scrydex sync, whose run_sync_vm.sh hook would otherwise do this.
+# Best-effort, same as there: a refresh failure must never fail the sync job.
+case "$(printf '%s' "${TCGCSV_TCGPLAYER_ONLY_INGEST:-}" | tr '[:upper:]' '[:lower:]')" in
+  on|1|true|yes)
+    REFRESH_URL="http://127.0.0.1:8788/api/v1/ops/refresh-visual-index"
+    if [ -n "${SPOTLIGHT_OPS_REFRESH_TOKEN:-}" ]; then
+      REFRESH_URL="${REFRESH_URL}?token=${SPOTLIGHT_OPS_REFRESH_TOKEN}"
+    fi
+    echo "[tcgcsv] triggering incremental visual-index refresh"
+    if curl -sS -m 900 -X POST "$REFRESH_URL"; then
+      echo
+      echo "[tcgcsv] visual-index refresh complete"
+    else
+      echo "[tcgcsv] visual-index refresh request failed (non-fatal)" >&2
+    fi
+    ;;
+esac
