@@ -128,6 +128,38 @@ class BuildTcgplayerAltArtIndexTests(unittest.TestCase):
         self.assertEqual(candidate.ordinal, 1)
         self.assertTrue(tool.is_finish_only(candidate, set(tool.DEFAULT_FINISH_ONLY_LABELS)))
 
+    def test_image_shape_guards(self) -> None:
+        from PIL import Image
+
+        sizes = {"102": (300, 419), "103": (1000, 573), "104": (600, 838)}
+        for pid, size in sizes.items():
+            Image.new("RGB", size, (int(pid) % 255, 0, 0)).save(self.images / f"{pid}.jpg")
+        self.assertEqual(tool.image_size(self.images / "103.jpg"), (1000, 573))
+        self.assertIsNone(tool.image_size(self.images / "100.jpg"))  # not a real image
+
+        candidates = tool.group_candidates(tool.load_mapping_rows(self.mapping))
+        result = tool.select_alt_art_rows(
+            base_entries=self.base_entries,
+            base_matrix=self.base_matrix,
+            candidates=candidates,
+            image_path_for=lambda pid: self.images / f"{pid}.jpg",
+            embed_products=lambda pids: np.stack([self.vectors[p] for p in pids]),
+            threshold=0.97,
+            suspect_threshold=0.80,
+            finish_only_labels=set(tool.DEFAULT_FINISH_ONLY_LABELS),
+            image_size_for=lambda pid: tool.image_size(self.images / f"{pid}.jpg"),
+            min_width=400,
+        )
+        decisions = {d.candidate.product_id: d for d in result.decisions}
+        self.assertEqual(decisions["102"].outcome, tool.SKIP_LOW_RES)
+        self.assertEqual(decisions["102"].note, "300x419")
+        self.assertEqual(decisions["103"].outcome, tool.SKIP_PLACEHOLDER)
+        self.assertEqual(decisions["103"].note, "landscape 1000x573")
+        # normal portrait image still reaches the art comparison (Foil w/ unrelated art -> suspect)
+        self.assertEqual(decisions["104"].outcome, tool.SKIP_SUSPECT)
+        self.assertEqual(decisions["101"].outcome, tool.SKIP_MISSING_IMAGE)  # undecodable bytes
+        self.assertEqual(result.added, [])
+
 
 if __name__ == "__main__":
     unittest.main()

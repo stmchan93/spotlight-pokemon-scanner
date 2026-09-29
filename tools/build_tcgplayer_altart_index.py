@@ -12,7 +12,8 @@ REAL card id, so the matcher's per-card max-collapse lets either art win.
 A product is skipped when:
   * its card id is not in the base index (or is a sealed product),
   * it is the card's base product (product_id == cards.tcgplayer_id),
-  * its image is missing / shared by several products (placeholder guard),
+  * its image is missing / shared by several products / landscape (placeholder guard),
+  * its image is narrower than --min-width (low-res thumbnails embed poorly),
   * it is the SAME ART as the card's Scrydex row (cosine >= threshold) —
     finish-only products (Normal/Foil/Cold Foil/…) land here,
   * it is the same art as a product already added for that card,
@@ -73,6 +74,7 @@ DEFAULT_FINISH_ONLY_LABELS = (
 )
 SEALED_PREFIX = "tcgp-sealed"
 PLACEHOLDER_SHARED_MIN = 3
+DEFAULT_MIN_WIDTH = 400
 TCGPLAYER_IMAGE_URL = "https://tcgplayer-cdn.tcgplayer.com/product/{pid}_in_1000x1000.jpg"
 
 SKIP_NOT_IN_INDEX = "skipped_not_in_index"
@@ -80,6 +82,7 @@ SKIP_SEALED = "skipped_sealed"
 SKIP_BASE = "skipped_base_product"
 SKIP_MISSING_IMAGE = "skipped_missing_image"
 SKIP_PLACEHOLDER = "skipped_placeholder_image"
+SKIP_LOW_RES = "skipped_low_res"
 SKIP_SAME_ART = "skipped_same_art"
 SKIP_DUP_PRODUCT = "skipped_duplicate_product_art"
 SKIP_SUSPECT = "skipped_suspect_mapping"
@@ -210,8 +213,14 @@ def select_alt_art_rows(
     suspect_threshold: float,
     finish_only_labels: set[str],
     placeholder_product_ids: set[str] | None = None,
+    image_size_for: Callable[[str], tuple[int, int] | None] | None = None,
+    min_width: int = DEFAULT_MIN_WIDTH,
 ) -> SelectionResult:
-    """Decide which products get a row. ``embed_products`` returns projected rows."""
+    """Decide which products get a row. ``embed_products`` returns projected rows.
+
+    ``image_size_for`` (product id -> (width, height), None if unreadable) enables
+    the shape checks; without it only the md5 placeholder guard applies.
+    """
     result = SelectionResult()
     rows_by_card: dict[str, list[int]] = defaultdict(list)
     for index, entry in enumerate(base_entries):
@@ -230,9 +239,18 @@ def select_alt_art_rows(
         elif not image_path_for(candidate.product_id).exists():
             result.decisions.append(Decision(candidate, SKIP_MISSING_IMAGE))
         elif candidate.product_id in placeholder_product_ids:
-            result.decisions.append(Decision(candidate, SKIP_PLACEHOLDER))
+            result.decisions.append(Decision(candidate, SKIP_PLACEHOLDER, note="shared image"))
         else:
-            pending.append(candidate)
+            size = image_size_for(candidate.product_id) if image_size_for else None
+            if image_size_for and size is None:
+                result.decisions.append(Decision(candidate, SKIP_MISSING_IMAGE, note="unreadable image"))
+            elif size and size[0] > size[1]:
+                # Cards are portrait; TCGplayer's "Image Coming Soon" tile is landscape.
+                result.decisions.append(Decision(candidate, SKIP_PLACEHOLDER, note=f"landscape {size[0]}x{size[1]}"))
+            elif size and size[0] < min_width:
+                result.decisions.append(Decision(candidate, SKIP_LOW_RES, note=f"{size[0]}x{size[1]}"))
+            else:
+                pending.append(candidate)
 
     unique_products = sorted({c.product_id for c in pending})
     embeddings = _normalize_rows(embed_products(unique_products)) if unique_products else np.zeros((0, base_matrix.shape[1]), np.float32)
@@ -310,6 +328,17 @@ def placeholder_products(product_ids: Iterable[str], image_path_for: Callable[[s
         if path.exists():
             by_hash[hashlib.md5(path.read_bytes()).hexdigest()].append(pid)
     return {pid for pids in by_hash.values() if len(pids) >= PLACEHOLDER_SHARED_MIN for pid in pids}
+
+
+def image_size(path: Path) -> tuple[int, int] | None:
+    """Header-only read: PIL's open() parses dimensions without decoding pixels."""
+    from PIL import Image
+
+    try:
+        with Image.open(path) as image:
+            return image.size
+    except Exception:
+        return None
 
 
 def summarize(result: SelectionResult) -> dict[str, Any]:
@@ -418,6 +447,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="Finish-only labels below this base cosine are logged as suspected bad mappings.")
     parser.add_argument("--finish-only-labels", default=",".join(DEFAULT_FINISH_ONLY_LABELS),
                         help="Comma-separated labels that can never change the art.")
+    parser.add_argument("--min-width", type=int, default=DEFAULT_MIN_WIDTH,
+                        help="Skip product images narrower than this (px) as low-res.")
     parser.add_argument("--version-suffix", default=DEFAULT_SUFFIX)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--embedding-cache", type=Path, default=None,
@@ -473,6 +504,8 @@ def main(argv: list[str] | None = None) -> int:
         suspect_threshold=args.suspect_threshold,
         finish_only_labels=finish_only,
         placeholder_product_ids=placeholders,
+        image_size_for=lambda pid: image_size(image_path_for(pid)),
+        min_width=args.min_width,
     )
     summary = summarize(result)
     summary.update(
@@ -483,6 +516,7 @@ def main(argv: list[str] | None = None) -> int:
             "addedCardCount": len({c.card_id for c, _ in result.added}),
             "sameArtThreshold": args.same_art_threshold,
             "suspectThreshold": args.suspect_threshold,
+            "minImageWidth": args.min_width,
             "finishOnlyLabels": sorted(finish_only),
             "referenceSource": REFERENCE_SOURCE,
             "adapter": args.adapter.name,
