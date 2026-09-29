@@ -20,6 +20,10 @@ A product is skipped when:
   * its label is finish-only but the art is far from the base row — that is
     a suspected bad mapping (a finish cannot change the art), logged, not added.
 
+With --emit-artcrop (default on) it also writes the art-crop sidecar
+``visual_index_active_<game>_artcrop.npz`` next to the index (see
+build_visual_artcrop_index.py, which also rebuilds just that file).
+
 Existing rows are never re-embedded or re-projected; the base matrix is copied
 verbatim. Re-running on an augmented index first drops its tcgplayer rows, so
 the output is idempotent.
@@ -53,6 +57,9 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import build_visual_artcrop_index as artcrop  # noqa: E402
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -456,11 +463,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--report-json", type=Path, default=None, help="Write every decision with its similarity.")
     parser.add_argument("--parity-check", type=int, default=0, help="Re-embed N base rows from Scrydex URLs first.")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--emit-artcrop", action=argparse.BooleanOptionalAction, default=True,
+                        help="Also write visual_index_active_<game>_artcrop.npz for multi-version cards.")
+    parser.add_argument("--adapter-metadata", type=Path, default=None,
+                        help="Adapter metadata JSON (default <adapter stem>_metadata.json) for the art file's adapter version.")
+    parser.add_argument("--artcrop-region", type=artcrop.parse_region, default=None,
+                        help="x0,y0,x1,y1 fractions; default per game.")
+    parser.add_argument("--scrydex-image-cache", type=Path, default=artcrop.DEFAULT_SCRYDEX_CACHE,
+                        help="Where Scrydex reference images are downloaded for art crops.")
+    parser.add_argument("--artcrop-embedding-cache", type=Path, default=None,
+                        help="Optional .npz cache of art-crop embeddings.")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    # Resolve before any work so a missing adapter metadata file fails fast.
+    art_adapter_version = artcrop.adapter_artifact_version(args.adapter, args.adapter_metadata) if args.emit_artcrop else None
     base_manifest = json.loads(args.base_manifest.read_text())
     crop = str(base_manifest.get("cropPreset") or "none").lower()
     if crop not in {"none", "full_card", ""}:
@@ -560,6 +579,22 @@ def main(argv: list[str] | None = None) -> int:
     manifest_out.write_text(json.dumps(manifest, indent=2))
     print(f"[write] rows {len(base_entries)} -> {len(manifest['entries'])}")
     print(f"[write] {npz_out}\n[write] {manifest_out}")
+    if args.emit_artcrop:
+        region = args.artcrop_region or artcrop.ARTCROP_REGIONS.get(args.game)
+        art = artcrop.emit_artcrop(
+            game=args.game,
+            manifest=manifest,
+            out_path=artcrop.artcrop_path_for(args.out_dir, args.game),
+            region=region,
+            adapter_version=art_adapter_version,
+            load_image=artcrop.ReferenceImages(game=args.game, images_dirs=[images_dir], scrydex_cache=args.scrydex_image_cache),
+            embed_crops=artcrop.LazyArtCropEmbedder(
+                model_id=args.model_id, adapter_path=args.adapter, region=region or (0, 0, 1, 1),
+                batch_size=args.batch_size, cache_path=args.artcrop_embedding_cache,
+                encoder=embedder.encoder, adapter=embedder.adapter,
+            ),
+        )
+        print(json.dumps(art, indent=2))
     return 0
 
 

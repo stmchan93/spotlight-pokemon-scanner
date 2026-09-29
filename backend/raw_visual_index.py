@@ -60,6 +60,10 @@ class RawVisualIndex:
         self._entries: list[dict[str, Any]] | None = None
         self._load_lock = threading.Lock()
         self._denylist_ids: frozenset[str] | None = None
+        # Manifest-level artifactVersion + a counter bumped on every (re)load, so
+        # sidecar artifacts keyed to this index (art crops) can revalidate.
+        self._artifact_version: str | None = None
+        self.generation = 0
 
     @property
     def denylist_ids(self) -> frozenset[str]:
@@ -85,7 +89,7 @@ class RawVisualIndex:
     def is_available(self) -> bool:
         return self.npz_path.exists() and self.manifest_path.exists()
 
-    def _read_from_disk(self) -> tuple[np.ndarray, list[dict[str, Any]]]:
+    def _read_from_disk(self) -> tuple[np.ndarray, list[dict[str, Any]], str | None]:
         manifest = json.loads(self.manifest_path.read_text())
         entries = [entry for entry in manifest.get("entries", []) if isinstance(entry, dict)]
         matrix = np.load(self.npz_path)["embeddings"].astype(np.float32)
@@ -98,7 +102,8 @@ class RawVisualIndex:
         matrix = np.nan_to_num(matrix, nan=0.0, posinf=0.0, neginf=0.0)
         norms = np.linalg.norm(matrix, axis=1, keepdims=True)
         norms[norms == 0] = 1.0
-        return matrix / norms, entries
+        artifact_version = str(manifest.get("artifactVersion") or "").strip() or None
+        return matrix / norms, entries, artifact_version
 
     def load(self) -> None:
         if self._matrix is not None and self._entries is not None:
@@ -106,7 +111,8 @@ class RawVisualIndex:
         with self._load_lock:
             if self._matrix is not None and self._entries is not None:
                 return
-            self._matrix, self._entries = self._read_from_disk()
+            self._matrix, self._entries, self._artifact_version = self._read_from_disk()
+            self.generation += 1
 
     def reload(self) -> int:
         """Re-read the npz + manifest from disk and atomically swap them in.
@@ -118,10 +124,12 @@ class RawVisualIndex:
         their own array reference and are unaffected by the swap. Returns the new
         entry count.
         """
-        matrix, entries = self._read_from_disk()
+        matrix, entries, artifact_version = self._read_from_disk()
         with self._load_lock:
             self._matrix = matrix
             self._entries = entries
+            self._artifact_version = artifact_version
+            self.generation += 1
         return len(entries)
 
     @property
@@ -129,6 +137,11 @@ class RawVisualIndex:
         self.load()
         assert self._matrix is not None
         return self._matrix
+
+    @property
+    def artifact_version(self) -> str | None:
+        self.load()
+        return self._artifact_version
 
     @property
     def entries(self) -> list[dict[str, Any]]:

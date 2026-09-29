@@ -13,10 +13,12 @@ if str(TOOLS_ROOT) not in sys.path:
 try:
     import numpy as np  # noqa: E402
     import build_tcgplayer_altart_index as tool  # noqa: E402
+    import build_visual_artcrop_index as artcrop  # noqa: E402
     _IMPORT_ERROR: Exception | None = None
 except Exception as exc:  # pragma: no cover - host-python dependency fallback
     np = None  # type: ignore[assignment]
     tool = None  # type: ignore[assignment]
+    artcrop = None  # type: ignore[assignment]
     _IMPORT_ERROR = exc
 
 
@@ -159,6 +161,113 @@ class BuildTcgplayerAltArtIndexTests(unittest.TestCase):
         self.assertEqual(decisions["104"].outcome, tool.SKIP_SUSPECT)
         self.assertEqual(decisions["101"].outcome, tool.SKIP_MISSING_IMAGE)  # undecodable bytes
         self.assertEqual(result.added, [])
+
+
+@unittest.skipIf(_IMPORT_ERROR is not None, f"numpy unavailable: {_IMPORT_ERROR}")
+class ArtCropSidecarTests(unittest.TestCase):
+    def setUp(self) -> None:
+        from PIL import Image
+
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.images = root / "img"
+        self.images.mkdir()
+        self.scrydex = root / "scry"
+        (self.scrydex / "g").mkdir(parents=True)
+        # A has base + 2 alt-art rows, B is single-row, C has base + 1 alt-art row.
+        self.entries = [
+            {"rowIndex": 0, "providerCardId": "g~A-1", "imageUrl": "https://x/A"},
+            {"rowIndex": 1, "providerCardId": "g~B-1", "imageUrl": "https://x/B"},
+            {"rowIndex": 2, "providerCardId": "g~C-1", "imageUrl": "https://x/C"},
+            {"rowIndex": 3, "providerCardId": "g~A-1", "referenceSource": "tcgplayer", "tcgplayerProductId": "10"},
+            {"rowIndex": 4, "providerCardId": "g~A-1", "referenceSource": "tcgplayer", "tcgplayerProductId": "11"},
+            {"rowIndex": 5, "providerCardId": "g~C-1", "referenceSource": "tcgplayer", "tcgplayerProductId": "12"},
+        ]
+        self.manifest = {"artifactVersion": "g-v1+tcgp-test", "entries": self.entries}
+        for i, cid in enumerate(("g~A-1", "g~B-1", "g~C-1")):
+            Image.new("RGB", (630, 880), (40 * i, 10, 10)).save(self.scrydex / "g" / f"{cid}.img", format="PNG")
+        for pid in ("10", "11", "12"):
+            # white product-shot margin around a dark card body
+            canvas = Image.new("RGB", (700, 1000), (255, 255, 255))
+            canvas.paste(Image.new("RGB", (630, 880), (int(pid), 60, 60)), (35, 60))
+            canvas.save(self.images / f"{pid}.jpg")
+        self.loader = artcrop.ReferenceImages(game="g", images_dirs=[self.images], scrydex_cache=self.scrydex, download=False)
+        self.embedded: list[tuple[str, tuple[int, int]]] = []
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _embed(self, keys, crops):
+        self.embedded.extend((k, c.size) for k, c in zip(keys, crops))
+        out = np.zeros((len(keys), 768), np.float32)
+        for i, key in enumerate(keys):
+            out[i, sum(map(ord, key)) % 768] = 3.0  # un-normalised on purpose
+        return out
+
+    def test_sidecar_contract(self) -> None:
+        out = Path(self.tmp.name) / "idx" / artcrop.artcrop_path_for(Path("."), "g").name
+        self.assertEqual(out.name, "visual_index_active_g_artcrop.npz")
+        summary = artcrop.emit_artcrop(
+            game="g", manifest=self.manifest, out_path=out, region=(0.1, 0.07, 0.9, 0.38),
+            adapter_version="siglip2-384-v003-candidate", load_image=self.loader, embed_crops=self._embed,
+        )
+        self.assertEqual(summary["artRows"], 5)
+        data = np.load(out, allow_pickle=False)
+        self.assertEqual(sorted(data.files), ["adapter", "embeddings", "index_artifact_version", "region", "rows"])
+        self.assertEqual(data["rows"].dtype, np.int32)
+        self.assertEqual(data["rows"].tolist(), [0, 2, 3, 4, 5])  # single-row card B excluded
+        self.assertEqual(data["embeddings"].dtype, np.float16)
+        self.assertEqual(data["embeddings"].shape, (5, 768))
+        np.testing.assert_allclose(np.linalg.norm(data["embeddings"].astype(np.float32), axis=1), 1.0, atol=1e-3)
+        self.assertEqual(data["region"].dtype, np.float32)
+        np.testing.assert_allclose(data["region"], [0.1, 0.07, 0.9, 0.38])
+        self.assertEqual(data["adapter"].shape, ())
+        self.assertEqual(str(data["adapter"]), "siglip2-384-v003-candidate")
+        self.assertEqual(str(data["index_artifact_version"]), "g-v1+tcgp-test")
+        # crops come from the 630x880 canvas: (0.1..0.9)*630 x (0.07..0.38)*880
+        self.assertTrue(all(size == (504, 273) for _, size in self.embedded))
+        self.assertEqual(sorted(k for k, _ in self.embedded),
+                         ["scrydex:g~A-1", "scrydex:g~C-1", "tcgplayer:10", "tcgplayer:11", "tcgplayer:12"])
+
+    def test_tcgplayer_margin_is_trimmed(self) -> None:
+        from PIL import Image
+
+        image = Image.open(self.images / "10.jpg")
+        self.assertEqual(artcrop.card_edge_bbox(image), (35, 60, 665, 940))
+        prepared = artcrop.prepare_reference(image, "tcgplayer")
+        self.assertEqual(prepared.size, (630, 880))
+        self.assertLess(prepared.getpixel((2, 2))[1], 120)  # corner is card body, not white margin
+
+    def test_missing_image_fails_unless_allowed(self) -> None:
+        (self.images / "11.jpg").unlink()
+        out = Path(self.tmp.name) / "art.npz"
+        kwargs = dict(game="g", manifest=self.manifest, out_path=out, region=None,
+                      adapter_version="v", load_image=self.loader, embed_crops=self._embed)
+        with self.assertRaises(SystemExit):
+            artcrop.emit_artcrop(**kwargs)
+        self.assertFalse(out.exists())
+        artcrop.emit_artcrop(**{**kwargs, "region": (0, 0, 1, 1)}, allow_missing=True)
+        self.assertEqual(np.load(out)["rows"].tolist(), [0, 2, 3, 5])
+
+    def test_no_versions_writes_nothing_and_clears_stale_file(self) -> None:
+        out = Path(self.tmp.name) / "art.npz"
+        out.write_bytes(b"stale")
+        manifest = {"artifactVersion": "v", "entries": self.entries[:3]}
+        summary = artcrop.emit_artcrop(game="lorcana", manifest=manifest, out_path=out, region=None,
+                                       adapter_version="v", load_image=self.loader, embed_crops=self._embed)
+        self.assertEqual(summary["artRows"], 0)
+        self.assertFalse(out.exists())
+        self.assertEqual(self.embedded, [])
+
+    def test_default_regions_and_adapter_version(self) -> None:
+        self.assertEqual(artcrop.ARTCROP_REGIONS["onepiece"], (0.10, 0.07, 0.90, 0.38))
+        self.assertEqual(artcrop.ARTCROP_REGIONS["gundam"], (0.15, 0.10, 0.90, 0.40))
+        adapter = Path(self.tmp.name) / "raw_visual_adapter_x.pt"
+        adapter.write_bytes(b"")
+        adapter.with_name("raw_visual_adapter_x_metadata.json").write_text('{"artifactVersion": "x-v9"}')
+        self.assertEqual(artcrop.adapter_artifact_version(adapter), "x-v9")
+        self.assertTrue(tool.parse_args(["--game", "g", "--base-npz", "a", "--base-manifest", "b", "--mapping", "c",
+                                         "--images-dir", "d", "--adapter", "e", "--out-dir", "f"]).emit_artcrop)
 
 
 if __name__ == "__main__":

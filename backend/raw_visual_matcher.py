@@ -20,6 +20,17 @@ from catalog_tools import (
     game_for_scan_payload,
     normalize_game,
 )
+from raw_visual_art_version import (
+    ART_VERSION_SWITCH_REASON,
+    DEFAULT_ART_VERSION_MARGIN,
+    DEFAULT_ART_VERSION_WINDOW,
+    ArtCropIndex,
+    art_crop_path_for_index,
+    art_crop_query_image,
+    art_version_candidates,
+    load_art_crop_index,
+    pick_art_version,
+)
 from raw_visual_index import RawVisualIndex, RawVisualSearchMatch, is_alt_reference_entry
 from raw_visual_model import (
     DEFAULT_VISUAL_MODEL_ID,
@@ -346,6 +357,16 @@ class RawVisualMatcher:
         self.alt_reference_penalty = _env_float(
             "SPOTLIGHT_VISUAL_ALT_REFERENCE_PENALTY", DEFAULT_ALT_REFERENCE_PENALTY
         )
+
+        # Art-crop version rule (non-Pokémon): re-chooses only WHICH version row
+        # of the already-picked top-1 card it is. Default on; a no-op until the
+        # per-game `_artcrop.npz` sidecar exists. Window/margin validated
+        # 2026-09-28 on One Piece + Gundam.
+        self.art_version_rule_enabled = _env_flag_enabled("SPOTLIGHT_VISUAL_ART_VERSION_RULE", default=True)
+        self.art_version_window = _env_float("SPOTLIGHT_VISUAL_ART_VERSION_WINDOW", DEFAULT_ART_VERSION_WINDOW)
+        self.art_version_margin = _env_float("SPOTLIGHT_VISUAL_ART_VERSION_MARGIN", DEFAULT_ART_VERSION_MARGIN)
+        self._art_version_indexes: dict[str, tuple[tuple[Any, ...], ArtCropIndex | None]] = {}
+        self._adapter_artifact_version: str | None = None
 
         # Basic-energy mini-index: a small parallel CLIP embedding index that
         # routes obvious basic-energy queries away from the main lookup. Built
@@ -1390,6 +1411,128 @@ class RawVisualMatcher:
             "shortlistConsidered": len(matches),
         }
 
+    def _active_adapter_artifact_version(self) -> str | None:
+        cached = getattr(self, "_adapter_artifact_version", None)
+        if cached is not None:
+            return cached or None
+        version = ""
+        path = getattr(self, "adapter_metadata_path", None)
+        if getattr(self, "_adapter", None) is not None and path is not None:
+            try:
+                version = str(json.loads(Path(path).read_text()).get("artifactVersion") or "").strip()
+            except (OSError, ValueError, AttributeError):
+                version = ""
+        self._adapter_artifact_version = version
+        return version or None
+
+    def _art_version_index(self, game: str, index: RawVisualIndex) -> ArtCropIndex | None:
+        """The validated art sidecar for a game index, reloaded whenever the index
+        (re)loads or the sidecar file changes on disk."""
+        path = art_crop_path_for_index(index.npz_path, game)
+        try:
+            mtime_ns = path.stat().st_mtime_ns
+        except OSError:
+            mtime_ns = None
+        entries = index.entries
+        key = (id(index), getattr(index, "generation", 0), mtime_ns)
+        cache = getattr(self, "_art_version_indexes", None)
+        if cache is None:
+            cache = {}
+            self._art_version_indexes = cache
+        cached = cache.get(game)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        art_index = load_art_crop_index(
+            path,
+            index_artifact_version=getattr(index, "artifact_version", None),
+            adapter_version=self._active_adapter_artifact_version(),
+            entries=entries,
+            log=_emit_matcher_log,
+            game=game,
+        )
+        cache[game] = (key, art_index)
+        return art_index
+
+    def _apply_art_version_rule(
+        self,
+        matches: list[RawVisualSearchMatch],
+        *,
+        game: str,
+        index: RawVisualIndex,
+        query_image: Any,
+        query_embedding: np.ndarray | None,
+    ) -> tuple[list[RawVisualSearchMatch], dict[str, Any]]:
+        """Re-choose the top-1 card's version row by its art crop. Only the
+        top-1 match's row/entry can change; its card id and similarity (and so
+        the ranking) are left exactly as the whole-card match decided."""
+        if not getattr(self, "art_version_rule_enabled", True):
+            return matches, {"applied": False, "reason": "feature_disabled"}
+        if game == GAME_POKEMON:
+            return matches, {"applied": False, "reason": "pokemon"}
+        if not matches or query_embedding is None:
+            return matches, {"applied": False, "reason": "no_match"}
+        art_index = self._art_version_index(game, index)
+        if art_index is None:
+            return matches, {"applied": False, "reason": "art_index_unavailable"}
+
+        winner = matches[0]
+        card_id = str(winner.entry.get("providerCardId") or "").strip()
+        card_rows = art_index.rows_by_card.get(card_id)
+        if not card_rows or winner.row_index not in art_index.position_by_row:
+            return matches, {"applied": False, "reason": "card_not_covered"}
+
+        # Whole-card similarity of every covered version row, with the same
+        # alt-row penalty the ranking used (language bias is per-card, so it
+        # cancels within one card's rows).
+        penalty = float(getattr(self, "alt_reference_penalty", DEFAULT_ALT_REFERENCE_PENALTY))
+        entries = index.entries
+        whole = index.matrix[card_rows] @ np.asarray(query_embedding, dtype=np.float32)
+        adjusted_by_row = {
+            row: float(score) - (penalty if is_alt_reference_entry(entries[row]) else 0.0)
+            for row, score in zip(card_rows, whole)
+        }
+        window = float(getattr(self, "art_version_window", DEFAULT_ART_VERSION_WINDOW))
+        candidates = art_version_candidates(winner.row_index, adjusted_by_row, window=window)
+        if candidates is None:
+            return matches, {"applied": False, "reason": "outside_window", "cardId": card_id}
+
+        # Triggered: one extra encoder pass on the query's art crop.
+        crop_embedding, crop_timing = self._image_embedding_with_timing(
+            art_crop_query_image(query_image, art_index.region)
+        )
+        art_similarity_by_row = {
+            row: float(art_index.embeddings[art_index.position_by_row[row]] @ crop_embedding)
+            for row in candidates
+        }
+        margin = float(getattr(self, "art_version_margin", DEFAULT_ART_VERSION_MARGIN))
+        chosen_row = pick_art_version(winner.row_index, candidates, art_similarity_by_row, margin=margin)
+        debug = {
+            "applied": chosen_row != winner.row_index,
+            "reason": "switched" if chosen_row != winner.row_index else "kept_whole_card_choice",
+            "cardId": card_id,
+            "fromRow": winner.row_index,
+            "toRow": chosen_row,
+            "wholeCardSimilarities": {str(row): round(adjusted_by_row[row], 6) for row in candidates},
+            "artSimilarities": {str(row): round(value, 6) for row, value in art_similarity_by_row.items()},
+            "cropEmbeddingMs": round(float(crop_timing.get("embeddingMs") or 0.0), 3),
+        }
+        if chosen_row == winner.row_index:
+            return matches, debug
+
+        # Row-specific fields (referenceSource, variantLabel, tcgplayerProductId,
+        # image) come from the chosen row; per-match debug fields carry over.
+        switched_entry = dict(entries[chosen_row])
+        for key, value in winner.entry.items():
+            if key.startswith("_"):
+                switched_entry[key] = value
+        switched_entry["_visualLanguageAdjustmentReasons"] = [
+            *list(winner.entry.get("_visualLanguageAdjustmentReasons") or []),
+            ART_VERSION_SWITCH_REASON,
+        ]
+        switched_entry["_visualArtVersionSwitch"] = {"fromRow": winner.row_index, "toRow": chosen_row}
+        switched = RawVisualSearchMatch(row_index=chosen_row, similarity=winner.similarity, entry=switched_entry)
+        return [switched, *matches[1:]], debug
+
     @staticmethod
     def _merge_variant_matches(
         variant_matches: list[list[RawVisualSearchMatch]],
@@ -1677,6 +1820,22 @@ class RawVisualMatcher:
             )
             collector_tiebreak_ms = (perf_counter() - collector_tiebreak_started_at) * 1000.0
 
+            # Art-crop version rule: runs last, on the final top-1 card, and can
+            # only swap which of that card's version rows represents it.
+            art_version_started_at = perf_counter()
+            try:
+                matches, art_version_debug = self._apply_art_version_rule(
+                    matches,
+                    game=game,
+                    index=index,
+                    query_image=decoded_query.image,
+                    query_embedding=base_variant_embedding,
+                )
+            except Exception as exc:  # noqa: BLE001 - the version rule must never fail a scan
+                _emit_matcher_log("WARNING", "visual_art_version_failed", game=game, error=str(exc))
+                art_version_debug = {"applied": False, "reason": "error", "error": str(exc)}
+            art_version_ms = (perf_counter() - art_version_started_at) * 1000.0
+
             # Target-language mismatch: compare the user's explicit toggle against a
             # confident visual language prediction so the client can warn "wrong
             # toggle" and drop the scan. Runs regardless of the explicit hint (the
@@ -1733,6 +1892,7 @@ class RawVisualMatcher:
                 "userPhotoRerank": rerank_debug,
                 "miniIndexEnergyRouted": mini_routed_debug,
                 "collectorNumberTiebreak": collector_tiebreak_debug,
+                "artVersion": art_version_debug,
                 "timings": {
                     "imageDecodeMs": round(image_decode_ms, 3),
                     "ensureRuntimeMs": round(ensure_runtime_ms, 3),
@@ -1745,6 +1905,7 @@ class RawVisualMatcher:
                     "indexSearchMs": round(index_search_ms, 3),
                     "userPhotoRerankMs": round(user_photo_rerank_ms, 3),
                     "collectorTiebreakMs": round(collector_tiebreak_ms, 3),
+                    "artVersionMs": round(art_version_ms, 3),
                     "matchPayloadMs": round((perf_counter() - match_started_at) * 1000.0, 3),
                 },
             }
