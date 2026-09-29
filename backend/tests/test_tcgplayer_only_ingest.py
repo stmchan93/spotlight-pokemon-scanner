@@ -275,6 +275,12 @@ class IngestTests(IngestTestCase):
         self.assertEqual(len(self.fetched), 3)
         self.assertIsNotNone(card_by_id(self.connection, LUFFY_ID)["imageURL"])
 
+    def test_image_count_zero_is_still_probed(self):
+        # TCGCSV's imageCount lags the CDN (P-116 Robin reported 0 with a live image).
+        crawl = [(cat, group, {**product, "imageCount": 0}) for cat, group, product in self.CRAWL]
+        self._sync(crawl=crawl)
+        self.assertIsNotNone(card_by_id(self.connection, LUFFY_ID)["imageURL"])
+
     def test_bytes_shared_by_several_products_are_placeholders(self):
         shared = _jpeg(shade=99)
         self.images = {"150001": shared, "150002": shared, "150003": shared}

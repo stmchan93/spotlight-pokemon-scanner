@@ -1001,10 +1001,10 @@ def ingest_tcgplayer_only_cards(
         pid for pid, card_id, _status in targets
         if not (existing_images.get(card_id) or (None, None))[0]
     ]
-    # imageCount 0 = TCGplayer has no art yet (presales); the CDN would 403.
-    no_art = {pid for pid in needs_image if crawl[pid][2].get("imageCount") == 0}
-    verdicts = probe_images(connection, [pid for pid in needs_image if pid not in no_art], fetch_image)
-    verdicts.update({pid: IMAGE_MISSING for pid in no_art})
+    # Probe even when TCGCSV says imageCount 0: that field lags the CDN (P-116
+    # Robin 709566 reported 0 while its image was already live), and a 403 for a
+    # genuinely art-less presale is cheap.
+    verdicts = probe_images(connection, needs_image, fetch_image)
 
     stats: dict[str, Any] = {
         "created": Counter(), "refreshed": 0, "sets": 0,
