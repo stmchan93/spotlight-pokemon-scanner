@@ -39,6 +39,7 @@ from catalog_tools import (
 )
 from env_loader import load_backend_env_file
 from sealed_products import upsert_sealed_products
+import tcgplayer_only_catalog
 from pricing_utils import cleaned_high_price, cleaned_price
 from tcgcsv_adapter import (
     SUBTYPE_TO_SCRYDEX_VARIANT_LABEL,
@@ -224,6 +225,22 @@ def _card_numbers(connection: sqlite3.Connection) -> dict[str, str]:
     return {
         str(row[0]): normalized_card_number(row[1])
         for row in connection.execute("SELECT id, number FROM cards")
+    }
+
+
+def _tcgplayer_only_notes(stats: dict[str, Any]) -> dict[str, Any]:
+    """{tcgplayerOnlyShadowMissing: {game: n}, …Linked, …Review, …Ignored}."""
+    if not stats:
+        return {}
+    counts = stats.get("counts") or {}
+    return {
+        note_key: {game: by_status.get(status, 0) for game, by_status in sorted(counts.items())}
+        for note_key, status in (
+            ("tcgplayerOnlyShadowMissing", tcgplayer_only_catalog.STATUS_SHADOW_MISSING),
+            ("tcgplayerOnlyShadowLinked", tcgplayer_only_catalog.STATUS_SHADOW_LINKED),
+            ("tcgplayerOnlyReview", tcgplayer_only_catalog.STATUS_REVIEW),
+            ("tcgplayerOnlyIgnored", tcgplayer_only_catalog.STATUS_IGNORED),
+        )
     }
 
 
@@ -557,6 +574,22 @@ def run_tcgcsv_price_sync(
             sealed_stats = upsert_sealed_products(connection, crawled_products)
             connection.commit()
 
+        # TCGplayer-only products (plan docs/tcgplayer-only-catalog-plan-2026-09-29.md):
+        # P0 only classifies into tcgplayer_product_classifications — no card rows.
+        tcgplayer_only_stats: dict[str, Any] = {}
+        tcgplayer_only_mode = tcgplayer_only_catalog.ingest_mode()
+        if tcgplayer_only_mode == tcgplayer_only_catalog.MODE_ON:
+            print("[tcgcsv] TCGCSV_TCGPLAYER_ONLY_INGEST=on is not built yet (P1); running shadow")
+            tcgplayer_only_mode = tcgplayer_only_catalog.MODE_SHADOW
+        if (crawled_products and not dry_run and not history_only
+                and tcgplayer_only_mode == tcgplayer_only_catalog.MODE_SHADOW):
+            tcgplayer_only_stats = tcgplayer_only_catalog.run_shadow_classification(
+                connection, crawled_products,
+                product_price_map=product_price_map,
+                extra_card_claims={**load_tcgplayer_id_backfill(), **load_tcgplayer_id_overrides()},
+            )
+            connection.commit()
+
         variant_map = _card_variant_product_ids(connection)
         defaults = _default_raw_variants(connection)
         colliding = collision_guard(connection)["colliding_product_ids"]
@@ -711,6 +744,7 @@ def run_tcgcsv_price_sync(
                    "numberMismatchSuspects": mismatch_suspects,
                    "overridesApplied": stats["overrides_applied"],
                    "backfillApplied": stats["backfill_applied"],
+                   **_tcgplayer_only_notes(tcgplayer_only_stats),
                    "failedGroups": failed_groups[:20]},
         )
         connection.commit()

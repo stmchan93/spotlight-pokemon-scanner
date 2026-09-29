@@ -100,6 +100,25 @@ CREATE TABLE IF NOT EXISTS card_tcgplayer_products (
     PRIMARY KEY (card_id, ordinal)
 );
 
+-- TCGplayer products no catalog card claims, sorted by tcgplayer_only_catalog.py
+-- (docs/tcgplayer-only-catalog-plan-2026-09-29.md). Deliberately NOT keyed to
+-- cards(id): shadow rows point at cards that do not exist yet. shadow_* statuses
+-- are audit-only; nothing downstream may act on them.
+CREATE TABLE IF NOT EXISTS tcgplayer_product_classifications (
+    product_id TEXT PRIMARY KEY,
+    category_id INTEGER NOT NULL,
+    group_id INTEGER,
+    game TEXT NOT NULL,
+    -- linked | created | review | ignored | superseded | shadow_missing | shadow_linked
+    status TEXT NOT NULL,
+    card_id TEXT,
+    proposed_card_id TEXT,
+    version_label TEXT,
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    first_seen_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS card_price_snapshots (
     card_id TEXT PRIMARY KEY REFERENCES cards(id) ON DELETE CASCADE,
     provider TEXT NOT NULL,
@@ -732,6 +751,9 @@ CREATE INDEX IF NOT EXISTS idx_card_artist_aliases_card_id
 
 CREATE INDEX IF NOT EXISTS idx_card_tcgplayer_products_product_id
     ON card_tcgplayer_products(product_id);
+
+CREATE INDEX IF NOT EXISTS idx_tcgplayer_product_classifications_status
+    ON tcgplayer_product_classifications(game, status);
 
 CREATE INDEX IF NOT EXISTS idx_card_price_snapshots_lookup
     ON card_price_snapshots(card_id, updated_at DESC);

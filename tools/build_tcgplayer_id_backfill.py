@@ -43,6 +43,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend.tcgcsv_adapter import (  # noqa: E402
+    TCGPLAYER_GROUP_ID_BY_SET_ID,
     card_numbers_match,
     normalized_card_number,
     product_number,
@@ -50,42 +51,9 @@ from backend.tcgcsv_adapter import (  # noqa: E402
 
 JP_CATEGORY_ID = 85
 
-# Our set id -> TCGplayer group id, for sets whose English name TCGplayer spells
-# differently (or where several groups share a name). Verified by hand against
-# the group list on 2026-09-07; everything else resolves by normalized name.
-SET_ID_TO_GROUP_ID: dict[str, int] = {
-    "base1_ja": 23721,      # Expansion Pack (not the "(No Rarity)" print run)
-    "base2_ja": 23722,      # Pokemon Jungle
-    "vnd1_ja": 24206,       # Vending Machine cards Series 1 (Blue)
-    "vnd2_ja": 24207,
-    "vnd3_ja": 24208,
-    "vs1_ja": 24180,        # Pokemon VS
-    "web1_ja": 24141,       # Pokemon Web
-    "pcg7_ja": 24084,       # Holon Phantom (singular on TCGplayer)
-    "dp1_ja": 23973,        # "Space Time Creation" vs "DP1: Space-Time Creation"
-    "adv4_ja": 24124,       # "Magma vs Aqua" casing
-    "bwp_ja": 24342,        # BW-P Promotional cards
-    "pcgp_ja": 24138,       # PCG-P Promotional cards
-    "dpp_ja": 24137,        # DP-P Promotional cards
-    "advp_ja": 24140,       # ADV-P Promotional cards
-    "miscpp_ja": 24143,     # P Promotional cards
-    "miscpt_ja": 24157,     # T Promotional cards
-    "miscpj_ja": 24142,     # J Promotional cards
-    "miscppp_ja": 24152,    # PPP Promotional cards
-    "svp_ja": 23779,        # SV-P Promotional Cards
-    "swshp_ja": 23876,      # S-P: Sword & Shield Promos
-    "smp_ja": 23881,        # SM-P: Sun & Moon Promos
-    "xyp_ja": 23908,        # XY-P: XY Promos
-    "lp_ja": 24023,         # L-P: Legends Promos
-    "mp_ja": 24423,         # M-P Promotional Cards
-    "cp4_ja": 23972,        # CP4: Premium Champion Pack
-    "sm3p_ja": 23694,       # SM3+: Shining Legends
-    "sm1p_ja": 23880,       # sm1+: Enhanced Expansion Pack Sun & Moon
-    "sar_ja": 23858,        # sA: Fire Starter Set V
-    "saw_ja": 23862,        # sA: Water Starter Set V
-    "wcs23_ja": 23802,      # WCS23: 2023 World Championships Yokohama Deck: Pikachu
-    "l1hg_ja": 24025,       # L1: HeartGold Collection
-}
+# Hand-verified set -> group aliases live with the adapter so the backend's
+# TCGplayer-only classifier shares them.
+SET_ID_TO_GROUP_ID = TCGPLAYER_GROUP_ID_BY_SET_ID
 
 # Sets we deliberately do not map (no single TCGplayer group, or TCGplayer
 # groups them differently). They stay on the Scrydex fallback.
