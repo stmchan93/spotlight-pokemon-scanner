@@ -41,7 +41,14 @@ from typing import Any, Callable, Iterable, Mapping
 
 import numpy as np
 
-from raw_visual_art_version import art_crop_path_for_index
+from raw_visual_art_version import (
+    ART_COVERAGE_ALL_CARDS,
+    art_crop_path_for_index,
+    crop_art_region,
+    edge_structure_map,
+    prepare_art_reference,
+    reference_is_tcgplayer_image,
+)
 from raw_visual_index import RawVisualIndex, is_alt_reference_entry
 from visual_index_placeholders import is_card_back_image
 
@@ -336,9 +343,64 @@ def _remapped_art_crop_payload(
         return None, "stale_left_disabled"
     keep = [position for position, row in enumerate(rows.tolist()) if int(row) in old_to_new]
     payload["rows"] = np.asarray([old_to_new[int(rows[p])] for p in keep], dtype=rows.dtype)
-    payload["embeddings"] = payload["embeddings"][keep]
+    for key in _ART_PER_ROW_KEYS:
+        if key in payload:
+            payload[key] = payload[key][keep]
     payload["index_artifact_version"] = np.array(new_index_version)
     return payload, "remapped"
+
+
+# Per-row arrays of the art-crop sidecar (aligned with "rows").
+_ART_PER_ROW_KEYS = ("embeddings", "edge_maps")
+
+
+def append_art_crop_rows(
+    *,
+    index: RawVisualIndex,
+    game: str | None,
+    new_rows: list[tuple[int, dict[str, Any], Any]],
+    embed_images_fn: EmbedImagesFn,
+    logger: LogFn | None = None,
+) -> str:
+    """Extend an ALL-CARDS art sidecar with freshly appended index rows
+    (row, manifest entry, reference image) so the card rerank keeps covering
+    every card. Anything else (Pokémon, no sidecar, a version-only sidecar, a
+    stale one) is left alone; the matcher simply skips uncovered cards."""
+    if not new_rows or (game or POKEMON_GAME) == POKEMON_GAME:
+        return "skipped"
+    art_path = art_crop_path_for_index(index.npz_path, game)
+    if not art_path.exists():
+        return "missing"
+    try:
+        with np.load(str(art_path), allow_pickle=False) as archive:
+            payload = {key: np.asarray(archive[key]) for key in archive.files}
+        coverage = str(payload["coverage"].item()) if "coverage" in payload else ""
+        file_version = str(payload["index_artifact_version"].item())
+        region = tuple(float(v) for v in payload["region"].reshape(-1))
+    except Exception:  # noqa: BLE001 - a bad sidecar must not block the append
+        return "unreadable_left_alone"
+    if coverage != ART_COVERAGE_ALL_CARDS or "edge_maps" not in payload:
+        return "not_all_cards"
+    if file_version != str(index.artifact_version or ""):
+        return "stale_left_disabled"
+    crops = [
+        crop_art_region(prepare_art_reference(image, trim_margin=reference_is_tcgplayer_image(entry)), region)
+        for _, entry, image in new_rows
+    ]
+    vectors = np.asarray(embed_images_fn(crops), dtype=np.float32)
+    if vectors.ndim != 2 or vectors.shape != (len(crops), payload["embeddings"].shape[1]):
+        raise RuntimeError(f"art-crop embed returned {vectors.shape} for {len(crops)} crops")
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    edges = np.stack([edge_structure_map(crop) for crop in crops]).astype(np.int8)
+    if edges.shape[1] != payload["edge_maps"].shape[1]:
+        raise RuntimeError("art-crop edge map size changed; rebuild the sidecar")
+    payload["rows"] = np.concatenate([payload["rows"], np.asarray([row for row, _, _ in new_rows], dtype=payload["rows"].dtype)])
+    payload["embeddings"] = np.concatenate([payload["embeddings"], (vectors / norms).astype(payload["embeddings"].dtype)])
+    payload["edge_maps"] = np.concatenate([payload["edge_maps"], edges])
+    _atomic_write_art_crop(art_path, payload, ".pre-append.bak")
+    _log(logger, "INFO", f"visual_index_append art-crop game={game} addedRows={len(new_rows)}")
+    return "appended"
 
 
 def _atomic_write_art_crop(art_path: Path, payload: Mapping[str, np.ndarray], backup_suffix: str) -> None:
@@ -595,6 +657,20 @@ def _append_missing_cards(
     )
     new_count = index.reload()
 
+    # Index first, sidecar second (same order as the prune): until the art rows
+    # land, the new cards are simply uncovered and the card rerank skips them.
+    try:
+        art_status = append_art_crop_rows(
+            index=index,
+            game=game,
+            new_rows=[(old_count + offset, new_entries[old_count + offset], image) for offset, image in enumerate(images)],
+            embed_images_fn=embed_images_fn,
+            logger=logger,
+        )
+    except Exception as exc:  # noqa: BLE001 - the index append already landed
+        art_status = "append_failed"
+        _log(logger, "WARNING", f"visual_index_append art-crop failed game={game} error={exc}")
+
     _log(
         logger,
         "INFO",
@@ -607,6 +683,7 @@ def _append_missing_cards(
         "skipped": len(skipped_ids),
         "entryCount": new_count,
         "skippedIds": skipped_ids,
+        "artCropAppend": art_status,
     }
 
 

@@ -229,6 +229,44 @@ class ArtCropSidecarTests(unittest.TestCase):
         self.assertEqual(sorted(k for k, _ in self.embedded),
                          ["scrydex:g~A-1", "scrydex:g~C-1", "tcgplayer:10", "tcgplayer:11", "tcgplayer:12"])
 
+    def test_all_cards_sidecar_covers_every_row_with_edge_maps(self) -> None:
+        # A TCGplayer-only card: its base row points at a TCGplayer product shot.
+        entries = self.entries + [{"rowIndex": 6, "providerCardId": "g~tcgplayer-12", "catalogSource": "tcgplayer",
+                                   "imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/12_in_1000x1000.jpg"}]
+        (self.scrydex / "g" / "g~tcgplayer-12.img").write_bytes((self.images / "12.jpg").read_bytes())
+        out = Path(self.tmp.name) / "all.npz"
+        summary = artcrop.emit_artcrop(
+            game="g", manifest={"artifactVersion": "g-v2", "entries": entries}, out_path=out,
+            region=(0.1, 0.07, 0.9, 0.38), adapter_version="a", load_image=self.loader, embed_crops=self._embed,
+            all_cards=True,
+        )
+        self.assertEqual((summary["artRows"], summary["coverage"]), (7, "all_cards"))
+        data = np.load(out, allow_pickle=False)
+        self.assertEqual(sorted(data.files),
+                         ["adapter", "coverage", "edge_maps", "embeddings", "index_artifact_version", "region", "rows"])
+        self.assertEqual(data["rows"].tolist(), list(range(7)))  # single-row card B included
+        self.assertEqual(str(data["coverage"]), "all_cards")
+        self.assertEqual((data["edge_maps"].dtype, data["edge_maps"].shape), (np.dtype(np.int8), (7, 1536)))
+        self.assertTrue(artcrop.image_source(entries[6]) == "tcgplayer")  # margin gets trimmed
+        self.assertEqual(artcrop.image_source(entries[1]), "scrydex")
+
+    def test_chunked_embedding_matches_single_batch(self) -> None:
+        kwargs = dict(entries=self.entries, region=(0.1, 0.07, 0.9, 0.38), load_image=self.loader, all_cards=True)
+        one = artcrop.compute_artcrop(embed_crops=self._embed, **kwargs)
+        batches: list[int] = []
+        chunked = artcrop.compute_artcrop(embed_crops=lambda k, c: (batches.append(len(k)), self._embed(k, c))[1],
+                                          chunk_size=2, **kwargs)
+        self.assertEqual(batches, [2, 2, 2])
+        self.assertEqual(one[0], chunked[0])
+        np.testing.assert_array_equal(one[1], chunked[1])
+        np.testing.assert_array_equal(one[3], chunked[3])
+
+    def test_all_cards_refuses_pokemon(self) -> None:
+        with self.assertRaises(SystemExit):
+            artcrop.emit_artcrop(game="pokemon", manifest=self.manifest, out_path=Path(self.tmp.name) / "p.npz",
+                                 region=(0, 0, 1, 1), adapter_version="a", load_image=self.loader,
+                                 embed_crops=self._embed, all_cards=True)
+
     def test_tcgplayer_margin_is_trimmed(self) -> None:
         from PIL import Image
 
@@ -262,6 +300,7 @@ class ArtCropSidecarTests(unittest.TestCase):
     def test_default_regions_and_adapter_version(self) -> None:
         self.assertEqual(artcrop.ARTCROP_REGIONS["onepiece"], (0.10, 0.07, 0.90, 0.38))
         self.assertEqual(artcrop.ARTCROP_REGIONS["gundam"], (0.15, 0.10, 0.90, 0.40))
+        self.assertEqual(set(artcrop.ARTCROP_REGIONS), {"onepiece", "gundam", "lorcana", "riftbound"})
         adapter = Path(self.tmp.name) / "raw_visual_adapter_x.pt"
         adapter.write_bytes(b"")
         adapter.with_name("raw_visual_adapter_x_metadata.json").write_text('{"artifactVersion": "x-v9"}')

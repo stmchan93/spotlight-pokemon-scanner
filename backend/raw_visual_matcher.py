@@ -21,15 +21,23 @@ from catalog_tools import (
     normalize_game,
 )
 from raw_visual_art_version import (
+    ART_CARD_RERANK_REASON,
     ART_VERSION_SWITCH_REASON,
+    DEFAULT_ART_RERANK_MARGIN,
+    DEFAULT_ART_RERANK_MIN_SIMILARITY,
+    DEFAULT_ART_RERANK_TOP_K,
+    DEFAULT_ART_RERANK_WINDOW,
     DEFAULT_ART_VERSION_MARGIN,
     DEFAULT_ART_VERSION_WINDOW,
     ArtCropIndex,
     art_crop_path_for_index,
     art_crop_query_image,
+    art_rerank_pool,
     art_version_candidates,
     load_art_crop_index,
+    pick_art_card,
     pick_art_version,
+    same_drawing,
 )
 from raw_visual_index import RawVisualIndex, RawVisualSearchMatch, is_alt_reference_entry
 from raw_visual_model import (
@@ -367,6 +375,17 @@ class RawVisualMatcher:
         self.art_version_margin = _env_float("SPOTLIGHT_VISUAL_ART_VERSION_MARGIN", DEFAULT_ART_VERSION_MARGIN)
         self._art_version_indexes: dict[str, tuple[tuple[Any, ...], ArtCropIndex | None]] = {}
         self._adapter_artifact_version: str | None = None
+
+        # Art-crop CARD rerank (non-Pokémon): on a near-tie between different
+        # cards, promote the one whose artwork clearly matches better. Needs an
+        # `--all-cards` art file; a no-op otherwise. Validated 2026-09-29.
+        self.art_rerank_enabled = _env_flag_enabled("SPOTLIGHT_VISUAL_ART_RERANK", default=True)
+        self.art_rerank_window = _env_float("SPOTLIGHT_VISUAL_ART_RERANK_WINDOW", DEFAULT_ART_RERANK_WINDOW)
+        self.art_rerank_top_k = _env_int("SPOTLIGHT_VISUAL_ART_RERANK_K", DEFAULT_ART_RERANK_TOP_K)
+        self.art_rerank_margin = _env_float("SPOTLIGHT_VISUAL_ART_RERANK_MARGIN", DEFAULT_ART_RERANK_MARGIN)
+        self.art_rerank_min_similarity = _env_float(
+            "SPOTLIGHT_VISUAL_ART_RERANK_MIN_SIMILARITY", DEFAULT_ART_RERANK_MIN_SIMILARITY
+        )
 
         # Basic-energy mini-index: a small parallel CLIP embedding index that
         # routes obvious basic-energy queries away from the main lookup. Built
@@ -1461,6 +1480,7 @@ class RawVisualMatcher:
         index: RawVisualIndex,
         query_image: Any,
         query_embedding: np.ndarray | None,
+        crop_cache: dict[str, Any] | None = None,
     ) -> tuple[list[RawVisualSearchMatch], dict[str, Any]]:
         """Re-choose the top-1 card's version row by its art crop. Only the
         top-1 match's row/entry can change; its card id and similarity (and so
@@ -1497,9 +1517,7 @@ class RawVisualMatcher:
             return matches, {"applied": False, "reason": "outside_window", "cardId": card_id}
 
         # Triggered: one extra encoder pass on the query's art crop.
-        crop_embedding, crop_timing = self._image_embedding_with_timing(
-            art_crop_query_image(query_image, art_index.region)
-        )
+        crop_embedding, crop_ms = self._art_crop_embedding(query_image, art_index, crop_cache)
         art_similarity_by_row = {
             row: float(art_index.embeddings[art_index.position_by_row[row]] @ crop_embedding)
             for row in candidates
@@ -1514,7 +1532,7 @@ class RawVisualMatcher:
             "toRow": chosen_row,
             "wholeCardSimilarities": {str(row): round(adjusted_by_row[row], 6) for row in candidates},
             "artSimilarities": {str(row): round(value, 6) for row, value in art_similarity_by_row.items()},
-            "cropEmbeddingMs": round(float(crop_timing.get("embeddingMs") or 0.0), 3),
+            "cropEmbeddingMs": round(crop_ms, 3),
         }
         if chosen_row == winner.row_index:
             return matches, debug
@@ -1532,6 +1550,106 @@ class RawVisualMatcher:
         switched_entry["_visualArtVersionSwitch"] = {"fromRow": winner.row_index, "toRow": chosen_row}
         switched = RawVisualSearchMatch(row_index=chosen_row, similarity=winner.similarity, entry=switched_entry)
         return [switched, *matches[1:]], debug
+
+    def _art_crop_embedding(
+        self,
+        query_image: Any,
+        art_index: ArtCropIndex,
+        crop_cache: dict[str, Any] | None,
+    ) -> tuple[np.ndarray, float]:
+        """The query art-crop embedding, computed at most once per scan (both art
+        rules share it). Returns (embedding, ms spent now)."""
+        if crop_cache is not None and "embedding" in crop_cache:
+            return crop_cache["embedding"], 0.0
+        embedding, timing = self._image_embedding_with_timing(art_crop_query_image(query_image, art_index.region))
+        if crop_cache is not None:
+            crop_cache["embedding"] = embedding
+        return embedding, float(timing.get("embeddingMs") or 0.0)
+
+    def _apply_art_card_rerank(
+        self,
+        matches: list[RawVisualSearchMatch],
+        *,
+        game: str,
+        index: RawVisualIndex,
+        query_image: Any,
+        crop_cache: dict[str, Any] | None = None,
+    ) -> tuple[list[RawVisualSearchMatch], dict[str, Any]]:
+        """Near-tie between DIFFERENT cards: promote the candidate whose best
+        version's art crop clearly beats the top-1's. Only the promoted card
+        moves (to the front, taking the old top-1 similarity); nothing is
+        dropped or introduced."""
+        if not getattr(self, "art_rerank_enabled", True):
+            return matches, {"applied": False, "reason": "feature_disabled"}
+        if game == GAME_POKEMON:
+            return matches, {"applied": False, "reason": "pokemon"}
+        window = float(getattr(self, "art_rerank_window", DEFAULT_ART_RERANK_WINDOW))
+        pool, reason = art_rerank_pool(
+            [float(match.similarity) for match in matches],
+            window=window,
+            top_k=int(getattr(self, "art_rerank_top_k", DEFAULT_ART_RERANK_TOP_K)),
+            min_similarity=float(getattr(self, "art_rerank_min_similarity", DEFAULT_ART_RERANK_MIN_SIMILARITY)),
+        )
+        if pool is None:
+            return matches, {"applied": False, "reason": reason}
+        art_index = self._art_version_index(game, index)
+        if art_index is None or not art_index.supports_card_rerank:
+            return matches, {"applied": False, "reason": "art_index_unavailable"}
+
+        card_ids = [str(matches[i].entry.get("providerCardId") or "").strip() for i in pool]
+        rows_by_position = {i: (art_index.card_rows or {}).get(card_id) for i, card_id in zip(pool, card_ids)}
+        # An uncovered candidate (e.g. appended after the art file) might be the
+        # right card: never rerank around it.
+        if not all(rows_by_position.values()):
+            return matches, {"applied": False, "reason": "candidate_not_covered", "cardIds": card_ids}
+
+        crop_embedding, crop_ms = self._art_crop_embedding(query_image, art_index, crop_cache)
+        best_row_by_position: dict[int, int] = {}
+        art_by_position: dict[int, float] = {}
+        for position, rows in rows_by_position.items():
+            sims = art_index.embeddings[[art_index.position_by_row[row] for row in rows]] @ crop_embedding
+            best = int(np.argmax(sims))
+            best_row_by_position[position] = rows[best]
+            art_by_position[position] = float(sims[best])
+        chosen = pick_art_card(art_by_position, margin=float(getattr(self, "art_rerank_margin", DEFAULT_ART_RERANK_MARGIN)))
+        debug: dict[str, Any] = {
+            "applied": False,
+            "reason": "kept_whole_card_choice",
+            "cardIds": card_ids,
+            "wholeCardSimilarities": [round(float(matches[i].similarity), 6) for i in pool],
+            "artSimilarities": [round(art_by_position[i], 6) for i in pool],
+            "cropEmbeddingMs": round(crop_ms, 3),
+        }
+        if chosen == 0:
+            return matches, debug
+        if same_drawing(art_index, best_row_by_position[0], best_row_by_position[chosen]):
+            debug["reason"] = "same_drawing"
+            return matches, debug
+
+        top, promoted = matches[0], matches[chosen]
+        entry = dict(promoted.entry)
+        entry["_visualLanguageAdjustmentReasons"] = [
+            *list(promoted.entry.get("_visualLanguageAdjustmentReasons") or []),
+            ART_CARD_RERANK_REASON,
+        ]
+        entry["_visualArtCardRerank"] = {
+            "fromCardId": card_ids[0],
+            "wholeCardSimilarity": round(float(promoted.similarity), 6),
+            "artSimilarity": round(art_by_position[chosen], 6),
+            "fromArtSimilarity": round(art_by_position[0], 6),
+        }
+        promoted_match = RawVisualSearchMatch(row_index=promoted.row_index, similarity=float(top.similarity), entry=entry)
+        debug.update(applied=True, reason="switched", fromCardId=card_ids[0], toCardId=card_ids[pool.index(chosen)])
+        _emit_matcher_log(
+            "INFO",
+            "visual_art_card_rerank",
+            game=game,
+            fromCardId=card_ids[0],
+            toCardId=debug["toCardId"],
+            artSimilarities=debug["artSimilarities"],
+            wholeCardSimilarities=debug["wholeCardSimilarities"],
+        )
+        return [promoted_match, *[match for i, match in enumerate(matches) if i != chosen]], debug
 
     @staticmethod
     def _merge_variant_matches(
@@ -1820,6 +1938,24 @@ class RawVisualMatcher:
             )
             collector_tiebreak_ms = (perf_counter() - collector_tiebreak_started_at) * 1000.0
 
+            # Art-crop card rerank: a near-tie between different cards is settled
+            # by the artwork when it clearly differs. Runs before the version
+            # rule so that rule then picks the promoted card's version row.
+            art_crop_cache: dict[str, Any] = {}
+            art_rerank_started_at = perf_counter()
+            try:
+                matches, art_rerank_debug = self._apply_art_card_rerank(
+                    matches,
+                    game=game,
+                    index=index,
+                    query_image=decoded_query.image,
+                    crop_cache=art_crop_cache,
+                )
+            except Exception as exc:  # noqa: BLE001 - the rerank must never fail a scan
+                _emit_matcher_log("WARNING", "visual_art_card_rerank_failed", game=game, error=str(exc))
+                art_rerank_debug = {"applied": False, "reason": "error", "error": str(exc)}
+            art_rerank_ms = (perf_counter() - art_rerank_started_at) * 1000.0
+
             # Art-crop version rule: runs last, on the final top-1 card, and can
             # only swap which of that card's version rows represents it.
             art_version_started_at = perf_counter()
@@ -1830,6 +1966,7 @@ class RawVisualMatcher:
                     index=index,
                     query_image=decoded_query.image,
                     query_embedding=base_variant_embedding,
+                    crop_cache=art_crop_cache,
                 )
             except Exception as exc:  # noqa: BLE001 - the version rule must never fail a scan
                 _emit_matcher_log("WARNING", "visual_art_version_failed", game=game, error=str(exc))
@@ -1892,6 +2029,7 @@ class RawVisualMatcher:
                 "userPhotoRerank": rerank_debug,
                 "miniIndexEnergyRouted": mini_routed_debug,
                 "collectorNumberTiebreak": collector_tiebreak_debug,
+                "artCardRerank": art_rerank_debug,
                 "artVersion": art_version_debug,
                 "timings": {
                     "imageDecodeMs": round(image_decode_ms, 3),
@@ -1905,6 +2043,7 @@ class RawVisualMatcher:
                     "indexSearchMs": round(index_search_ms, 3),
                     "userPhotoRerankMs": round(user_photo_rerank_ms, 3),
                     "collectorTiebreakMs": round(collector_tiebreak_ms, 3),
+                    "artCardRerankMs": round(art_rerank_ms, 3),
                     "artVersionMs": round(art_version_ms, 3),
                     "matchPayloadMs": round((perf_counter() - match_started_at) * 1000.0, 3),
                 },

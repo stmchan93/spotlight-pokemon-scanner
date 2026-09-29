@@ -14,7 +14,14 @@ of that comparison:
       adapter                 0-d str         adapter artifactVersion
       index_artifact_version  0-d str         manifest artifactVersion
 
-Only rows of cards with >= 2 rows in the index are included. Each reference
+By default only rows of cards with >= 2 rows in the index are included (the
+version rule's needs). ``--all-cards`` covers EVERY row and adds two keys, which
+is what enables the matcher's cross-card art rerank:
+      coverage                0-d str         "all_cards"
+      edge_maps               int8   [N,1536] edge-structure map per row (same-drawing guard)
+The nightly incremental append extends an all-cards file with the new rows.
+TCGplayer-only cards (base row whose imageUrl is a TCGplayer product shot) are
+trimmed like alt-art rows. Each reference
 image is prepared as: TCGplayer product image trimmed to the card edge (white
 margin removed; Scrydex images are already edge-to-edge), resized to 630x880,
 cropped to the game's region, embedded with the frozen encoder (ONNX fp32) and
@@ -46,16 +53,36 @@ import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BACKEND_ROOT = REPO_ROOT / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
-# Artwork box per game as fractions of a 630x880 card (validated 2026-09-28, "R2").
+from raw_visual_art_version import (  # noqa: E402
+    ART_COVERAGE_ALL_CARDS,
+    card_edge_bbox,
+    crop_art_region,
+    edge_structure_map,
+    flatten_to_rgb,
+    prepare_art_reference,
+    reference_is_tcgplayer_image,
+    trim_to_card_edge,
+)
+
+# Artwork box per game as fractions of a 630x880 card. One Piece/Gundam
+# validated 2026-09-28 ("R2"); Lorcana/Riftbound (full-bleed art above the
+# name banner, cost/might icons mostly excluded) set 2026-09-29.
 ARTCROP_REGIONS: dict[str, tuple[float, float, float, float]] = {
     "onepiece": (0.10, 0.07, 0.90, 0.38),
     "gundam": (0.15, 0.10, 0.90, 0.40),
+    "lorcana": (0.06, 0.10, 0.94, 0.48),
+    "riftbound": (0.08, 0.10, 0.92, 0.50),
 }
+# Reprints share art across different Pokémon cards: never art-match them.
+ART_EXCLUDED_GAMES = frozenset({"pokemon"})
 CANVAS_SIZE = (630, 880)
 EMBEDDING_DIM = 768
 TCGPLAYER_SOURCE = "tcgplayer"
 DEFAULT_SCRYDEX_CACHE = BACKEND_ROOT / "data" / "visual-index" / ".cache" / "artcrop_reference_images"
+TCGPLAYER_IMAGE_URL = "https://tcgplayer-cdn.tcgplayer.com/product/{pid}_in_1000x1000.jpg"
 BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
 
 
@@ -82,49 +109,17 @@ def reference_key(entry: dict[str, Any]) -> str:
 # --- image preparation (mirrors the validated experiment exactly) ---
 
 
-def card_edge_bbox(image: Any, threshold: int = 245, fraction: float = 0.6) -> tuple[int, int, int, int] | None:
-    """Bounding box of rows/columns that are mostly non-white (the card body)."""
-    gray = np.asarray(image.convert("L")).astype(int)
-    dark = gray < threshold
-    rows = np.where(dark.mean(1) > fraction)[0]
-    cols = np.where(dark.mean(0) > fraction)[0]
-    if not len(rows) or not len(cols):
-        return None
-    return (int(cols[0]), int(rows[0]), int(cols[-1] + 1), int(rows[-1] + 1))
-
-
-def trim_to_card_edge(image: Any) -> Any:
-    """Drop TCGplayer's white product-shot margin; no-op when the box is implausible."""
-    box = card_edge_bbox(image)
-    width, height = image.size
-    if box and (box[2] - box[0]) > 0.5 * width and (box[3] - box[1]) > 0.5 * height and box != (0, 0, width, height):
-        image = image.crop(box)
-    return image
-
-
-def flatten_to_rgb(image: Any) -> Any:
-    from PIL import Image
-
-    if image.mode in ("P", "LA", "RGBA"):
-        image = image.convert("RGBA")
-        background = Image.new("RGBA", image.size, (255, 255, 255, 255))
-        background.alpha_composite(image)
-        image = background
-    return image.convert("RGB")
-
-
 def prepare_reference(image: Any, source: str) -> Any:
-    from PIL import Image
-
-    image = flatten_to_rgb(image)
-    if source == TCGPLAYER_SOURCE:
-        image = trim_to_card_edge(image)
-    return image.resize(CANVAS_SIZE, Image.LANCZOS)
+    return prepare_art_reference(image, trim_margin=source == TCGPLAYER_SOURCE)
 
 
 def crop_region(image: Any, region: Sequence[float]) -> Any:
-    width, height = image.size
-    return image.crop((int(region[0] * width), int(region[1] * height), int(region[2] * width), int(region[3] * height)))
+    return crop_art_region(image, region)
+
+
+def image_source(entry: dict[str, Any]) -> str:
+    """How to prepare the row's image: TCGplayer product shots get trimmed."""
+    return TCGPLAYER_SOURCE if reference_is_tcgplayer_image(entry) else "scrydex"
 
 
 # --- sidecar assembly ---
@@ -137,17 +132,23 @@ def build_artcrop_payload(
     region: Sequence[float],
     adapter_version: str,
     index_artifact_version: str,
+    edge_maps: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
+    """``edge_maps`` given = an all-cards file (adds ``coverage`` + ``edge_maps``)."""
     vectors = np.asarray(embeddings, dtype=np.float32).reshape(len(rows), -1)
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
     norms[norms == 0] = 1.0
-    return {
+    payload = {
         "rows": np.asarray(rows, dtype=np.int32),
         "embeddings": (vectors / norms).astype(np.float16),
         "region": np.asarray(region, dtype=np.float32),
         "adapter": np.array(str(adapter_version)),
         "index_artifact_version": np.array(str(index_artifact_version)),
     }
+    if edge_maps is not None:
+        payload["coverage"] = np.array(ART_COVERAGE_ALL_CARDS)
+        payload["edge_maps"] = np.asarray(edge_maps, dtype=np.int8).reshape(len(rows), -1)
+    return payload
 
 
 def compute_artcrop(
@@ -156,33 +157,59 @@ def compute_artcrop(
     region: Sequence[float],
     load_image: Callable[[dict[str, Any]], Any | None],
     embed_crops: Callable[[list[str], list[Any]], np.ndarray],
-) -> tuple[list[int], np.ndarray, list[int]]:
-    """Returns (rows, embeddings, rows_missing_an_image).
+    all_cards: bool = False,
+    chunk_size: int = 256,
+) -> tuple[list[int], np.ndarray, list[int], np.ndarray | None]:
+    """Returns (rows, embeddings, rows_missing_an_image, edge_maps or None).
 
     ``embed_crops(keys, crops)`` gets one reference key per crop (for caching).
     Rows sharing a reference key (same product image) are embedded once.
+    ``all_cards`` covers every row and also returns per-row edge maps.
     """
-    wanted = multi_version_rows(entries)
+    wanted = list(range(len(entries))) if all_cards else multi_version_rows(entries)
     rows: list[int] = []
     missing: list[int] = []
     key_for_row: dict[int, str] = {}
-    crops_by_key: dict[str, Any] = {}
+    by_key: dict[str, np.ndarray] = {}
+    edge_by_key: dict[str, np.ndarray] = {}
+    missing_keys: set[str] = set()
+    # Crops are embedded in chunks so an all-cards build holds at most
+    # `chunk_size` prepared images in memory (a whole One Piece index OOMs).
+    pending: dict[str, Any] = {}
+
+    def flush() -> None:
+        keys = list(pending)
+        vectors = embed_crops(keys, [pending[k] for k in keys])
+        for i, key in enumerate(keys):
+            by_key[key] = np.asarray(vectors[i], dtype=np.float32)
+            if all_cards:
+                edge_by_key[key] = edge_structure_map(pending[key])
+        pending.clear()
+
     for row in wanted:
         entry = entries[row]
         key = reference_key(entry)
-        if key not in crops_by_key:
+        if key in missing_keys:
+            missing.append(row)
+            continue
+        if key not in by_key and key not in pending:
             image = load_image(entry)
             if image is None:
+                missing_keys.add(key)
                 missing.append(row)
                 continue
-            crops_by_key[key] = crop_region(prepare_reference(image, entry_source(entry)), region)
+            pending[key] = crop_region(prepare_reference(image, image_source(entry)), region)
+            if len(pending) >= chunk_size:
+                flush()
         key_for_row[row] = key
         rows.append(row)
-    keys = list(crops_by_key)
-    vectors = embed_crops(keys, [crops_by_key[k] for k in keys]) if keys else np.zeros((0, EMBEDDING_DIM), np.float32)
-    by_key = {k: vectors[i] for i, k in enumerate(keys)}
+    if pending:
+        flush()
     matrix = np.stack([by_key[key_for_row[r]] for r in rows]) if rows else np.zeros((0, EMBEDDING_DIM), np.float32)
-    return rows, matrix, missing
+    edges = None
+    if all_cards:
+        edges = np.stack([edge_by_key[key_for_row[r]] for r in rows]) if rows else np.zeros((0, 1), np.int8)
+    return rows, matrix, missing, edges
 
 
 def write_artcrop(path: Path, payload: dict[str, np.ndarray]) -> None:
@@ -207,8 +234,9 @@ def adapter_artifact_version(adapter_path: Path, metadata_path: Path | None = No
 
 
 class ReferenceImages:
-    """TCGplayer rows: ``<images-dir>/<pid>.jpg``. Scrydex rows: entry imageUrl,
-    downloaded once into ``<scrydex-cache>/<game>/<providerCardId>.img``."""
+    """TCGplayer rows: ``<images-dir>/<pid>.jpg``, else (downloads on) the TCGplayer
+    CDN image cached as ``<scrydex-cache>/<game>/tcgplayer-<pid>.jpg``. Other rows:
+    entry imageUrl, downloaded once into ``<scrydex-cache>/<game>/<providerCardId>.img``."""
 
     def __init__(self, *, game: str, images_dirs: Sequence[Path], scrydex_cache: Path, download: bool = True):
         self.images_dirs = [Path(d) for d in images_dirs]
@@ -240,6 +268,10 @@ class ReferenceImages:
         if entry_source(entry) == TCGPLAYER_SOURCE:
             pid = entry.get("tcgplayerProductId")
             path = next((d / f"{pid}.jpg" for d in self.images_dirs if (d / f"{pid}.jpg").exists()), None)
+            if path is None and self.download and pid:
+                cached = self.scrydex_dir / f"tcgplayer-{pid}.jpg"
+                url = TCGPLAYER_IMAGE_URL.format(pid=pid)
+                path = cached if cached.exists() or self._fetch(url, cached) else None
         else:
             path = self.scrydex_path(entry)
             url = entry.get("imageUrl")
@@ -273,8 +305,6 @@ class ArtCropEmbedder:
         encoder: Any = None,
         adapter: Any = None,
     ):
-        if str(BACKEND_ROOT) not in sys.path:
-            sys.path.insert(0, str(BACKEND_ROOT))
         from raw_visual_model import RawVisualFrozenEncoder, load_projection_adapter, project_embeddings_numpy
 
         self._project = project_embeddings_numpy
@@ -288,7 +318,10 @@ class ArtCropEmbedder:
         if cache_path and cache_path.exists():
             data = np.load(cache_path, allow_pickle=False)
             if str(data["tag"]) == self.tag:
-                self.cache = {str(k): data["embeddings"][i] for i, k in enumerate(data["keys"])}
+                # Read the array ONCE: indexing the lazy npz per key re-reads the
+                # whole array each time and each row view pins its own copy.
+                vectors = np.asarray(data["embeddings"], dtype=np.float32)
+                self.cache = {str(k): vectors[i].copy() for i, k in enumerate(data["keys"])}
                 print(f"[artcrop] cache hit {len(self.cache)} crops from {cache_path}", flush=True)
 
     def __call__(self, keys: list[str], crops: list[Any]) -> np.ndarray:
@@ -320,14 +353,18 @@ def emit_artcrop(
     load_image: Callable[[dict[str, Any]], Any | None],
     embed_crops: Callable[[list[str], list[Any]], np.ndarray],
     allow_missing: bool = False,
+    all_cards: bool = False,
 ) -> dict[str, Any]:
-    """Writes (or, when the index has no multi-version cards, removes) the sidecar."""
+    """Writes (or, when the index has no multi-version cards and ``all_cards`` is
+    off, removes) the sidecar."""
+    if game in ART_EXCLUDED_GAMES:
+        raise SystemExit(f"[artcrop] {game}: art-crop matching is never used for this game")
     entries = [e for e in manifest.get("entries", []) if isinstance(e, dict)]
     for i, entry in enumerate(entries):
         if int(entry.get("rowIndex", i)) != i:
             raise SystemExit(f"Manifest rowIndex {entry.get('rowIndex')} at position {i}: rows must be in npz order")
     index_version = str(manifest.get("artifactVersion") or "")
-    if not multi_version_rows(entries):
+    if not all_cards and not multi_version_rows(entries):
         if out_path.exists():
             out_path.unlink()
             print(f"[artcrop] removed stale {out_path}", flush=True)
@@ -336,14 +373,17 @@ def emit_artcrop(
     region = region or ARTCROP_REGIONS.get(game)
     if region is None:
         raise SystemExit(f"No art-crop region for game {game!r}; pass --artcrop-region x0,y0,x1,y1")
-    rows, vectors, missing = compute_artcrop(entries=entries, region=region, load_image=load_image, embed_crops=embed_crops)
+    rows, vectors, missing, edges = compute_artcrop(
+        entries=entries, region=region, load_image=load_image, embed_crops=embed_crops, all_cards=all_cards
+    )
     if missing:
         detail = ", ".join(f"{m}:{reference_key(entries[m])}" for m in missing[:10])
         if not allow_missing:
             raise SystemExit(f"[artcrop] {len(missing)} rows have no reference image ({detail}); fix or pass --allow-missing-images")
         print(f"[artcrop] WARNING {len(missing)} rows omitted (no image): {detail}", flush=True)
     payload = build_artcrop_payload(
-        rows=rows, embeddings=vectors, region=region, adapter_version=adapter_version, index_artifact_version=index_version
+        rows=rows, embeddings=vectors, region=region, adapter_version=adapter_version, index_artifact_version=index_version,
+        edge_maps=edges,
     )
     write_artcrop(out_path, payload)
     summary = {
@@ -352,6 +392,7 @@ def emit_artcrop(
         "artRows": len(rows),
         "artCards": len({entries[r].get("providerCardId") for r in rows}),
         "missingRows": len(missing),
+        "coverage": ART_COVERAGE_ALL_CARDS if all_cards else "multi_version",
         "region": list(map(float, region)),
         "adapter": adapter_version,
         "indexArtifactVersion": index_version,
@@ -384,6 +425,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--embedding-cache", type=Path, default=None, help="Optional .npz cache of art-crop embeddings.")
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--allow-missing-images", action="store_true")
+    parser.add_argument("--all-cards", action="store_true",
+                        help="Cover every row + edge maps (enables the matcher's cross-card art rerank).")
     parser.add_argument("--out", type=Path, default=None, help="Default: sibling of the index.")
     return parser.parse_args(argv)
 
@@ -407,6 +450,7 @@ def main(argv: list[str] | None = None) -> int:
             batch_size=args.batch_size, cache_path=args.embedding_cache,
         ),
         allow_missing=args.allow_missing_images,
+        all_cards=args.all_cards,
     )
     print(json.dumps(summary, indent=2))
     return 0

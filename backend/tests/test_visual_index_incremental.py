@@ -481,6 +481,75 @@ class OnePieceDonExclusionTests(unittest.TestCase):
             prune_excluded_rows(index=self.op_index, game="onepiece")
         self.assertEqual(self.op_npz.read_bytes(), before)
 
+    def _write_all_cards_art(self, rows: list[int], version: str) -> np.ndarray:
+        edges = np.stack([np.full(1536, r, dtype=np.int8) for r in rows])
+        np.savez(
+            self.art,
+            rows=np.asarray(rows, dtype=np.int32),
+            embeddings=np.eye(len(rows), 4, dtype=np.float16),
+            region=np.asarray([0.1, 0.1, 0.9, 0.6], dtype=np.float32),
+            adapter=np.array("adapter-v003"),
+            index_artifact_version=np.array(version),
+            coverage=np.array("all_cards"),
+            edge_maps=edges,
+        )
+        return edges
+
+    def test_prune_remaps_edge_maps_with_rows(self) -> None:
+        self._write_all_cards_art(list(range(12)), self.VERSION)
+        result = prune_excluded_rows(index=self.op_index, game="onepiece")
+        self.assertEqual(result["artCrop"], "remapped")
+        kept = [0, 2] + list(range(4, 12))
+        with np.load(self.art) as art:
+            self.assertEqual(art["rows"].tolist(), list(range(10)))
+            self.assertEqual(art["edge_maps"][:, 0].tolist(), kept)  # each map followed its row
+            self.assertEqual(str(art["coverage"].item()), "all_cards")
+
+    def _append_new_card(self):
+        from PIL import Image
+
+        self._add("onepiece~OP02-001", game="onepiece", name="Edward.Newgate", supertype="Leader")
+        return append_missing_cards(
+            index=self.op_index,
+            connection=self.conn,
+            embed_images_fn=lambda images: np.full((len(images), 4), 2.0, dtype=np.float32),
+            model_id="m",
+            download_image_fn=lambda _url: Image.new("RGB", (630, 880), (90, 20, 20)),
+            image_cache_root=self.dir / "refs",
+            game="onepiece",
+        )
+
+    def test_append_extends_all_cards_sidecar(self) -> None:
+        prune_excluded_rows(index=self.op_index, game="onepiece")
+        edges_before = self._write_all_cards_art(list(range(10)), str(self.op_index.artifact_version))
+        result = self._append_new_card()
+        self.assertEqual(result["added"], 1)
+        self.assertEqual(result["artCropAppend"], "appended")
+        with np.load(self.art) as art:
+            self.assertEqual(art["rows"].tolist(), list(range(11)))
+            self.assertEqual(art["embeddings"].shape, (11, 4))
+            np.testing.assert_allclose(art["embeddings"][10].astype(np.float32), [0.5] * 4, atol=1e-3)
+            self.assertEqual(art["edge_maps"].shape, (11, 1536))
+            self.assertEqual(art["edge_maps"][:10].tobytes(), edges_before.tobytes())
+        loaded = load_art_crop_index(
+            self.art,
+            index_artifact_version=self.op_index.artifact_version,
+            adapter_version="adapter-v003",
+            entries=self.op_index.entries,
+            log=lambda *a, **k: None,
+            game="onepiece",
+        )
+        self.assertTrue(loaded.supports_card_rerank)
+        self.assertIn("onepiece~OP02-001", loaded.card_rows)
+
+    def test_append_leaves_version_only_sidecar_alone(self) -> None:
+        prune_excluded_rows(index=self.op_index, game="onepiece")
+        before = self.art.read_bytes()
+        result = self._append_new_card()
+        self.assertEqual(result["added"], 1)
+        self.assertEqual(result["artCropAppend"], "not_all_cards")
+        self.assertEqual(self.art.read_bytes(), before)
+
 
 class ServiceRefreshWiringTests(unittest.TestCase):
     def test_service_passes_every_non_pokemon_game_index(self) -> None:
