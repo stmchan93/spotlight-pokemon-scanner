@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Text } from './scaled-text';
 import { useSpotlightTheme } from '../theme';
+import { radii, spacing } from '../tokens';
 
 type SectionHeaderProps = {
   actionLabel?: string;
@@ -158,7 +159,7 @@ const styles = StyleSheet.create({
   chevronStem: {
     backgroundColor: 'rgba(15, 15, 18, 0.58)',
     borderCurve: 'continuous',
-    borderRadius: 999,
+    borderRadius: radii.pill,
     height: 2.2,
     position: 'absolute',
     top: 2.5,
@@ -197,7 +198,7 @@ const styles = StyleSheet.create({
   },
   leftHeader: {
     flex: 1,
-    paddingRight: 12,
+    paddingRight: spacing.xs,
   },
   titleRow: {
     alignItems: 'center',

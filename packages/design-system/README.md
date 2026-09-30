@@ -43,7 +43,7 @@ Defined in `src/tokens.ts`:
 - `colors`
 - `spacing`
 - `radii` — always paired with `borderCurve: 'continuous'` (iOS smooth corners ≈ Figma 60% smoothing; not valid on Image styles — clip via the wrapper View)
-- `layout`
+- `layout` — includes `rowThumbnailWidth`/`rowThumbnailHeight` (58x80, the `CardListRow` raw art slot; radius `inventoryArtRadiusRaw`) and `swipeActionWidth` (88, the action behind a swipe-left row)
 - `shadows`
 - `textStyles`
 - `borderWidths`
@@ -151,6 +151,8 @@ Current API concepts:
   - `ghost`
   - `outlined` (white fill, `gray300` hairline border — the Collection / Wishlist view toggle)
 - `shape`: `circle` (default) or `rounded` (rounded square at `radii.sm`)
+- `size` defaults to `iconButtonDefaultSize` (34); size a glyph in a default
+  button with `iconButtonDefaultGlyphSize` (17) instead of a literal
 
 ### SearchField
 
@@ -731,6 +733,9 @@ when the design has an arrow icon.
 | --- | --- | --- |
 | `label` | `string` | Preformatted, e.g. `+18.4%` / `−4.1%` |
 | `changePercent` | `number \| null` | `> 0` green, `< 0` red, `0`/null gray |
+
+The neutral (null) tone also serves a muted caveat chip beside a delta, e.g. the
+Watchlist Deals row's "Few sales" next to its "26% off".
 | `style`, `testID` | | Pass `alignSelf: 'flex-end'` in right-aligned columns |
 
 #### RankBadge

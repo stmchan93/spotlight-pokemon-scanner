@@ -35,6 +35,8 @@ import {
   Text,
   cardGridRule,
   colors,
+  layout,
+  spacing,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -1217,7 +1219,7 @@ function WishlistListRow({
       testID={`wishlist-row-delete-${rowTestKey(entry)}`}
     >
       <Trash color={theme.colors.gray0} height={20} width={20} />
-      <Text style={[styles.rowDeleteLabel, { color: theme.colors.gray0 }]}>Delete</Text>
+      <Text style={[theme.typography.caption, { color: theme.colors.gray0 }]}>Delete</Text>
     </Pressable>
   );
 
@@ -1482,14 +1484,9 @@ const styles = StyleSheet.create({
   rowDeleteAction: {
     alignItems: 'center',
     flexDirection: 'column',
-    gap: 4,
+    gap: spacing.xxxs,
     justifyContent: 'center',
-    width: 88,
-  },
-  rowDeleteLabel: {
-    fontFamily: 'SpotlightBodyMedium',
-    fontSize: 12,
-    lineHeight: 16,
+    width: layout.swipeActionWidth,
   },
   editBar: {
     alignItems: 'center',

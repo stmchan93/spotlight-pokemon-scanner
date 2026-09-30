@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 
 import type { CardFavoriteEntry, DealAlert, DealAlertsPage } from '@spotlight/api-client';
+import { colors, layout, radii, spacing, textStyles } from '@spotlight/design-system';
 
 import { buildDealShareMessage, isDealAlertLive } from '@/features/wishlist/deal-radar';
 import { WishlistScreen } from '@/features/wishlist/screens/wishlist-screen';
@@ -308,6 +309,66 @@ describe('Watchlist deal radar', () => {
         .toMatchObject({ alignItems: 'baseline', flexDirection: 'row' });
       expect(StyleSheet.flatten(screen.getByTestId('wishlist-deal-band-header-title').props.style))
         .toMatchObject({ fontSize: 17 });
+    });
+
+    it('draws a deal row from the watchlist row\'s tokens and primitives', async () => {
+      const { repository } = buildRepository({
+        page: {
+          alerts: [buildDealAlert({ tier: 'fewer', tierLabel: 'Fewer sales', variantKey: 'Holofoil' })],
+          limit: 5,
+          unseenCount: 1,
+        },
+      });
+      renderScreen(repository);
+
+      // Same art slot as `CardListRow`: 58x80, raw-art radius, continuous corners.
+      const artFrame = StyleSheet.flatten(
+        (await screen.findByTestId('wishlist-deal-art-frame-deal-1')).props.style,
+      );
+      expect(artFrame).toMatchObject({
+        borderCurve: 'continuous',
+        borderRadius: layout.inventoryArtRadiusRaw,
+        height: layout.rowThumbnailHeight,
+        width: layout.rowThumbnailWidth,
+      });
+      expect(artFrame.borderWidth).toBeUndefined();
+
+      // `CardListRow` insets on a continuous-corner card.
+      expect(StyleSheet.flatten(screen.getByTestId('wishlist-deal-card-deal-1').props.style)).toMatchObject({
+        borderCurve: 'continuous',
+        borderRadius: radii.md,
+        paddingHorizontal: spacing.sm,
+        padding: spacing.xs,
+      });
+
+      // Text roles match the list row: titleSmall name, gray600 label meta.
+      expect(StyleSheet.flatten(screen.getByTestId('wishlist-deal-name-deal-1').props.style)).toMatchObject({
+        fontFamily: textStyles.titleSmall.fontFamily,
+        fontSize: textStyles.titleSmall.fontSize,
+      });
+      for (const id of ['wishlist-deal-printing-deal-1', 'wishlist-deal-headline-deal-1']) {
+        expect(StyleSheet.flatten(screen.getByTestId(id).props.style)).toMatchObject({
+          color: colors.gray600,
+          fontSize: textStyles.label.fontSize,
+        });
+      }
+
+      // Chips are the shared DeltaPill: green for the discount, neutral for the caveat.
+      expect(StyleSheet.flatten(screen.getByTestId('wishlist-deal-discount-deal-1').props.style)).toMatchObject({
+        backgroundColor: colors.deltaUpSurface,
+        borderCurve: 'continuous',
+      });
+      expect(StyleSheet.flatten(screen.getByTestId('wishlist-deal-tier-deal-1').props.style)).toMatchObject({
+        backgroundColor: colors.gray100,
+        borderCurve: 'continuous',
+      });
+
+      // The swipe rail matches the watchlist row's Delete action.
+      const dismiss = screen.getByTestId('wishlist-deal-dismiss-deal-1', { includeHiddenElements: true });
+      expect(StyleSheet.flatten(dismiss.props.style)).toMatchObject({
+        borderCurve: 'continuous',
+        width: layout.swipeActionWidth,
+      });
     });
 
     it('pluralizes the caught count', async () => {

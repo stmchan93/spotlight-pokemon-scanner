@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react-native';
 import { StyleSheet, View } from 'react-native';
 
-import { SectionHeader } from '@spotlight/design-system';
+import { SectionHeader, colors, textStyles } from '@spotlight/design-system';
 
 import { renderWithProviders } from '../test-utils';
 
@@ -59,12 +59,29 @@ describe('SectionHeader', () => {
       fontSize: 17,
     });
     expect(StyleSheet.flatten(screen.getByTestId('deals-header-count').props.style)).toMatchObject({
-      fontSize: 12,
+      color: colors.gray600,
+      fontFamily: textStyles.captionMedium.fontFamily,
+      fontSize: textStyles.captionMedium.fontSize,
+    });
+    expect(StyleSheet.flatten(screen.getByTestId('deals-header-title').props.style)).toMatchObject({
+      fontFamily: textStyles.titleSmall.fontFamily,
     });
     expect(StyleSheet.flatten(screen.getByTestId('deals-header-title-row').props.style)).toMatchObject({
       alignItems: 'baseline',
     });
-    expect(screen.getByTestId('deals-dot')).toBeTruthy();
+    // Non-text accessory has no baseline, so its slot centres it.
+    let slot = screen.getByTestId('deals-dot').parent;
+    while (slot && !slot.props.style) {
+      slot = slot.parent;
+    }
+    expect(StyleSheet.flatten(slot?.props.style)).toMatchObject({ alignSelf: 'center' });
+  });
+
+  it('omits the accessory slot when there is no accessory', () => {
+    renderWithProviders(<SectionHeader countText="1" size="compact" testID="deals-header" title="Deals" titleAccessory={null} />);
+
+    // Title and count only — no empty centred slot between them.
+    expect(screen.getByTestId('deals-header-title-row').children).toHaveLength(2);
   });
 
   it('default size keeps the display title and a centred row', () => {

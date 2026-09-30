@@ -245,6 +245,13 @@ export const layout = {
   inventoryArtRadiusSlab: 0,
   // PDP hero card art (Figma 4211:86063 "Product Image" — 194x270 r=6).
   heroArtRadius: 6,
+  // Raw card-art slot on a list row (`CardListRow`, Figma 4173:82045 — 58x80,
+  // radius `inventoryArtRadiusRaw`). Anything that sits in a list beside those
+  // rows (the Watchlist Deals band) uses the same slot.
+  rowThumbnailWidth: 58,
+  rowThumbnailHeight: 80,
+  // Width of the action revealed behind a swipe-left row (Delete / Dismiss).
+  swipeActionWidth: 88,
   recentSaleHeight: 96,
   recentSaleImageWidth: 72,
   recentSaleImageHeight: 96,

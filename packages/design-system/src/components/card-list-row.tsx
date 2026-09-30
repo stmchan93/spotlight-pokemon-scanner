@@ -1,7 +1,7 @@
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useSpotlightTheme } from '../theme';
-import { borderWidths, textStyles } from '../tokens';
+import { borderWidths, layout, textStyles } from '../tokens';
 import { AppText } from './app-text';
 import { PriceSparkline } from './price-sparkline';
 import { SelectionCheckCircle } from './selection-check-circle';
@@ -105,9 +105,9 @@ export type CardListRowProps = {
   testID?: string;
 };
 
-const THUMBNAIL_WIDTH = 58;
-const THUMBNAIL_HEIGHT = 80;
-const THUMBNAIL_RADIUS = 2;
+const THUMBNAIL_WIDTH = layout.rowThumbnailWidth;
+const THUMBNAIL_HEIGHT = layout.rowThumbnailHeight;
+const THUMBNAIL_RADIUS = layout.inventoryArtRadiusRaw;
 // Slab rows show the whole slab (case + label) in a 50×80 slot (Figma
 // 2566:6390) — same 80pt row height as raw thumbs, narrower for the slab's
 // taller aspect. (84×136 is the card-detail-size slot, Figma 2609:6977.)

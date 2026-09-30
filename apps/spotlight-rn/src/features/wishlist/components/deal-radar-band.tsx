@@ -11,10 +11,13 @@ import { ShareIos, Xmark } from 'iconoir-react-native';
 
 import { buildWatchKey, type CardFavoriteEntry, type DealAlert } from '@spotlight/api-client';
 import {
+  DeltaPill,
   IconButton,
   SectionHeader,
   SurfaceCard,
   Text,
+  iconButtonDefaultGlyphSize,
+  layout,
   radii,
   spacing,
   useSpotlightTheme,
@@ -46,6 +49,8 @@ export type DealRadarBandProps = {
   style?: StyleProp<ViewStyle>;
   unseenCount: number;
 };
+
+const UNSEEN_DOT_SIZE = 8;
 
 type ResolvedDeal = { alert: DealAlert; card: CardFavoriteEntry | null; name: string };
 
@@ -192,7 +197,7 @@ function DealRadarRow({
       testID={`wishlist-deal-dismiss-${alertId}`}
     >
       <Xmark color={theme.colors.gray0} height={20} width={20} />
-      <Text style={[styles.dismissLabel, { color: theme.colors.gray0 }]}>Dismiss</Text>
+      <Text style={[theme.typography.caption, { color: theme.colors.gray0 }]}>Dismiss</Text>
     </Pressable>
   );
 
@@ -211,16 +216,17 @@ function DealRadarRow({
         onPress={() => onOpenDeal(alert, card)}
         testID={`wishlist-deal-row-${alert.id}`}
       >
-        <SurfaceCard padding={12} radius={theme.radii.md} variant="elevated">
+        <SurfaceCard
+          padding={spacing.xs}
+          radius={theme.radii.md}
+          style={styles.card}
+          testID={`wishlist-deal-card-${alert.id}`}
+          variant="elevated"
+        >
           <View style={styles.row}>
             <View
-              style={[
-                styles.artFrame,
-                {
-                  backgroundColor: theme.colors.field,
-                  borderColor: theme.colors.outlineSubtle,
-                },
-              ]}
+              style={[styles.artFrame, { backgroundColor: theme.colors.field }]}
+              testID={`wishlist-deal-art-frame-${alert.id}`}
             >
               <CachedImage
                 cachePolicy={imageCachePolicy.thumbnail}
@@ -232,13 +238,17 @@ function DealRadarRow({
             </View>
 
             <View style={styles.copy}>
-              <Text numberOfLines={1} style={theme.typography.bodyMedium}>
+              <Text
+                numberOfLines={1}
+                style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}
+                testID={`wishlist-deal-name-${alert.id}`}
+              >
                 {name}
               </Text>
               {printing ? (
                 <Text
                   numberOfLines={1}
-                  style={[theme.typography.caption, { color: theme.colors.gray600 }]}
+                  style={[theme.typography.label, { color: theme.colors.gray600 }]}
                   testID={`wishlist-deal-printing-${alert.id}`}
                 >
                   {printing}
@@ -246,7 +256,7 @@ function DealRadarRow({
               ) : null}
               <Text
                 numberOfLines={2}
-                style={[theme.typography.caption, { color: theme.colors.gray600 }]}
+                style={[theme.typography.label, { color: theme.colors.gray600 }]}
                 testID={`wishlist-deal-headline-${alert.id}`}
               >
                 {headline}
@@ -254,27 +264,20 @@ function DealRadarRow({
               {discountLabel || tierLabel ? (
                 <View style={styles.chips}>
                   {discountLabel ? (
-                    <View
-                      style={[styles.discountChip, { backgroundColor: theme.colors.deltaUpSurface }]}
-                    >
-                      <Text
-                        style={[theme.typography.deltaPill, { color: theme.colors.deltaUpText }]}
-                        testID={`wishlist-deal-discount-${alert.id}`}
-                      >
-                        {discountLabel}
-                      </Text>
-                    </View>
+                    // A discount only exists when it is > 0, so this is the green tone.
+                    <DeltaPill
+                      changePercent={alert.discountPct}
+                      label={discountLabel}
+                      testID={`wishlist-deal-discount-${alert.id}`}
+                    />
                   ) : null}
                   {tierLabel ? (
-                    // Muted on purpose: a caveat on the claim, not a second claim.
-                    <View style={[styles.discountChip, { backgroundColor: theme.colors.field }]}>
-                      <Text
-                        style={[theme.typography.deltaPill, { color: theme.colors.gray600 }]}
-                        testID={`wishlist-deal-tier-${alert.id}`}
-                      >
-                        {tierLabel}
-                      </Text>
-                    </View>
+                    // Neutral tone on purpose: a caveat on the claim, not a second claim.
+                    <DeltaPill
+                      changePercent={null}
+                      label={tierLabel}
+                      testID={`wishlist-deal-tier-${alert.id}`}
+                    />
                   ) : null}
                 </View>
               ) : null}
@@ -283,11 +286,14 @@ function DealRadarRow({
             <IconButton
               accessibilityLabel={`Share this ${name} deal`}
               onPress={() => onShareDeal(alert, card)}
-              size={34}
               testID={`wishlist-deal-share-${alert.id}`}
               variant="subtle"
             >
-              <ShareIos color={theme.colors.gray900} height={17} width={17} />
+              <ShareIos
+                color={theme.colors.gray900}
+                height={iconButtonDefaultGlyphSize}
+                width={iconButtonDefaultGlyphSize}
+              />
             </IconButton>
           </View>
         </SurfaceCard>
@@ -297,61 +303,55 @@ function DealRadarRow({
 }
 
 const styles = StyleSheet.create({
-  // `CardThumbnail`'s own `sm` metrics (44x60, radii.sm). Not the primitive
-  // itself: it takes an RN image source, and card art goes through
-  // `CachedImage` (expo-image) everywhere else in the app.
+  // The watchlist list row's own art slot (`CardListRow`: 58x80, raw-art
+  // radius, field fill, no stroke) so a deal reads as the same card. Not the
+  // primitive itself: card art here goes through `CachedImage` (expo-image).
   artFrame: {
     borderCurve: 'continuous',
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    height: 60,
+    borderRadius: layout.inventoryArtRadiusRaw,
+    height: layout.rowThumbnailHeight,
     overflow: 'hidden',
-    width: 44,
+    width: layout.rowThumbnailWidth,
   },
   band: {
     gap: spacing.xs,
   },
+  // `CardListRow`'s insets: 16 across, 12 down.
+  card: {
+    paddingHorizontal: spacing.sm,
+  },
   chips: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 4,
+    gap: spacing.xxxs,
   },
   copy: {
     alignItems: 'flex-start',
     flex: 1,
-    gap: 4,
+    gap: spacing.xxxs,
   },
+  // Same rail as the watchlist row's Delete, with the card's radius.
   dismissAction: {
     alignItems: 'center',
     borderCurve: 'continuous',
-    gap: 4,
+    gap: spacing.xxxs,
     justifyContent: 'center',
-    marginLeft: 8,
-    width: 88,
-  },
-  dismissLabel: {
-    fontFamily: 'SpotlightBodyMedium',
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  discountChip: {
-    borderCurve: 'continuous',
-    borderRadius: radii.pill,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    marginLeft: spacing.xxs,
+    width: layout.swipeActionWidth,
   },
   row: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 12,
+    // Thumb <-> copy gap matches `CardListRow`.
+    gap: spacing.xxs,
   },
   rows: {
-    gap: 8,
+    gap: spacing.xxs,
   },
   unseenDot: {
     borderCurve: 'continuous',
     borderRadius: radii.pill,
-    height: 8,
-    width: 8,
+    height: UNSEEN_DOT_SIZE,
+    width: UNSEEN_DOT_SIZE,
   },
 });

@@ -23,12 +23,17 @@ type IconButtonProps = {
   variant?: IconButtonVariant;
 };
 
+/** Default button diameter. */
+export const iconButtonDefaultSize = 34;
+/** Glyph edge for a default-size button: half its diameter. */
+export const iconButtonDefaultGlyphSize = iconButtonDefaultSize / 2;
+
 export function IconButton({
   accessibilityLabel,
   children,
   disabled = false,
   onPress,
-  size = 34,
+  size = iconButtonDefaultSize,
   shape = 'circle',
   style,
   testID,
