@@ -132,14 +132,15 @@ export function resolveShowMatchedVariantImage() {
  * their reads, and sends their routes back to the feed. Top Trends, posts and
  * market alerts are NOT behind it.
  */
-// Market/news feed sections are hidden in staging and production builds; only
-// local development shows them. Defaulted here, not in eas.json, because eas.json
-// is a native-fingerprint input and editing it blocks OTAs.
+// Market/news feed sections are hidden in every build until they ship; set
+// EXPO_PUBLIC_SPOTLIGHT_FEED_MARKET_BLOCKS=1 locally to work on them. Defaulted
+// here, not in eas.json, because eas.json is a native-fingerprint input and
+// editing it blocks OTAs.
 export function resolveFeedMarketBlocksEnabled() {
   return resolveRuntimeBoolean(
     ['EXPO_PUBLIC_SPOTLIGHT_FEED_MARKET_BLOCKS'],
     ['spotlightFeedMarketBlocks'],
-    resolveRuntimeAppEnv() === 'development',
+    false,
   );
 }
 

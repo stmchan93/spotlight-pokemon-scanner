@@ -104,3 +104,12 @@ describe('pushOpenedAnalyticsProps', () => {
     expect(pushOpenedAnalyticsProps(null)).toEqual({ kind: 'other' });
   });
 });
+
+// The market sections default off in every build; the tests above that exercise
+// them switch them on here (the "switched off" suites set '0' after this runs).
+beforeEach(() => {
+  process.env.EXPO_PUBLIC_SPOTLIGHT_FEED_MARKET_BLOCKS = '1';
+});
+afterEach(() => {
+  delete process.env.EXPO_PUBLIC_SPOTLIGHT_FEED_MARKET_BLOCKS;
+});
