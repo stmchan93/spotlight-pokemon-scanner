@@ -32,6 +32,9 @@ const EXPO_EXTRA_ENV_MAPPINGS = [
   // Scanner shows the matched art version's TCGplayer image. Default on; "0"
   // switches it off.
   ['EXPO_PUBLIC_SPOTLIGHT_SHOW_MATCHED_VARIANT_IMAGE', 'spotlightShowMatchedVariantImage'],
+  // Social feed market/news sections (Meta pulse, Hot, Coming up, Set
+  // spotlight, Card news). Default on; production sets "0" to hide them.
+  ['EXPO_PUBLIC_SPOTLIGHT_FEED_MARKET_BLOCKS', 'spotlightFeedMarketBlocks'],
   ['EXPO_PUBLIC_SPOTLIGHT_POSTHOG_API_KEY', 'spotlightPosthogApiKey'],
   ['EXPO_PUBLIC_SPOTLIGHT_POSTHOG_HOST', 'spotlightPosthogHost'],
   ['EXPO_PUBLIC_SPOTLIGHT_POSTHOG_ENABLED', 'spotlightPosthogEnabled'],

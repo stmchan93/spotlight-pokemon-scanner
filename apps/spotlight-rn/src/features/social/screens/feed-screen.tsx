@@ -70,6 +70,7 @@ import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
 import { useScrollToTop } from '@/components/scroll-to-top-fab';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAuth } from '@/providers/auth-provider';
+import { resolveFeedMarketBlocksEnabled } from '@/lib/runtime-config';
 
 const PAGE_SIZE = 20;
 
@@ -180,16 +181,20 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   } = useTopMovers();
   const topTrendsVisible = hasTopTrendsContent(topMovers, topMoversLoading);
   // The meta feed blocks: same shared-cache pattern, each with its own window.
-  const metaPulse = useMetaPulse();
+  // Switched off (production), none of them renders or fetches — focus and
+  // pull-to-refresh included; Top Trends and posts are unaffected.
+  const marketBlocksEnabled = resolveFeedMarketBlocksEnabled();
+  const marketReadOptions = { enabled: marketBlocksEnabled };
+  const metaPulse = useMetaPulse(undefined, marketReadOptions);
   // The viewer's own groups, for the pulse's callout + "You own N" tags. Waits
   // for the pulse so it is read for the same game/window.
   const metaExposure = useMetaExposure(
     metaPulse.data ? { game: metaPulse.data.game, windowDays: metaPulse.data.windowDays } : undefined,
-    { enabled: metaPulse.data != null },
+    { enabled: marketBlocksEnabled && metaPulse.data != null },
   );
-  const hotCards = useHotCards();
-  const calendar = useCalendar({ limit: CALENDAR_BLOCK_LIMIT });
-  const newsFeed = useNewsFeed({ limit: NEWS_FEED_BLOCK_LIMIT });
+  const hotCards = useHotCards(undefined, marketReadOptions);
+  const calendar = useCalendar({ limit: CALENDAR_BLOCK_LIMIT }, marketReadOptions);
+  const newsFeed = useNewsFeed({ limit: NEWS_FEED_BLOCK_LIMIT }, marketReadOptions);
   const {
     refresh: refreshMetaPulse,
     refreshIfStale: refreshMetaPulseIfStale,
@@ -207,11 +212,11 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     other section closes itself.
   */
   const visibleHeaderBlocks = [
-    hasMetaPulseContent(metaPulse.data) ? 'metaPulse' : null,
-    hasHotCardsContent(hotCards.data) ? 'hotCards' : null,
-    hasComingUpContent(calendar.data) ? 'comingUp' : null,
+    marketBlocksEnabled && hasMetaPulseContent(metaPulse.data) ? 'metaPulse' : null,
+    marketBlocksEnabled && hasHotCardsContent(hotCards.data) ? 'hotCards' : null,
+    marketBlocksEnabled && hasComingUpContent(calendar.data) ? 'comingUp' : null,
     topTrendsVisible ? 'topTrends' : null,
-    hasNewsContent(newsFeed.data) ? 'news' : null,
+    marketBlocksEnabled && hasNewsContent(newsFeed.data) ? 'news' : null,
   ].filter((block): block is string => block != null);
   const headerBlocksVisible = visibleHeaderBlocks.length > 0;
   const lastHeaderBlock = visibleHeaderBlocks[visibleHeaderBlocks.length - 1];
@@ -829,34 +834,40 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         ListHeaderComponent={
           <>
             {composePrompt}
-            <MetaPulseBlock
-              exposure={metaExposure.data}
-              onOpenGroup={openMetaGroupRow}
-              onOpenMeta={openMeta}
-              pulse={metaPulse.data}
-              showBand={showBlockBand('metaPulse')}
-              testID={`${testID}-meta-pulse`}
-            />
-            <HotCardsBlock
-              hot={hotCards.data}
-              onPressCard={handleOpenCard}
-              showBand={showBlockBand('hotCards')}
-              testID={`${testID}-hot-cards`}
-            />
-            <ComingUpBlock
-              feed={calendar.data}
-              onOpenCalendar={metaNavigation.openCalendar}
-              onOpenEvent={metaNavigation.openCalendarEvent}
-              showBand={showBlockBand('comingUp')}
-              testID={`${testID}-coming-up`}
-            />
+            {marketBlocksEnabled ? (
+              <>
+                <MetaPulseBlock
+                  exposure={metaExposure.data}
+                  onOpenGroup={openMetaGroupRow}
+                  onOpenMeta={openMeta}
+                  pulse={metaPulse.data}
+                  showBand={showBlockBand('metaPulse')}
+                  testID={`${testID}-meta-pulse`}
+                />
+                <HotCardsBlock
+                  hot={hotCards.data}
+                  onPressCard={handleOpenCard}
+                  showBand={showBlockBand('hotCards')}
+                  testID={`${testID}-hot-cards`}
+                />
+                <ComingUpBlock
+                  feed={calendar.data}
+                  onOpenCalendar={metaNavigation.openCalendar}
+                  onOpenEvent={metaNavigation.openCalendarEvent}
+                  showBand={showBlockBand('comingUp')}
+                  testID={`${testID}-coming-up`}
+                />
+              </>
+            ) : null}
             {topTrendsBlock}
-            <NewsBlock
-              feed={newsFeed.data}
-              onOpenNews={openNews}
-              showBand={showBlockBand('news')}
-              testID={`${testID}-card-news`}
-            />
+            {marketBlocksEnabled ? (
+              <NewsBlock
+                feed={newsFeed.data}
+                onOpenNews={openNews}
+                showBand={showBlockBand('news')}
+                testID={`${testID}-card-news`}
+              />
+            ) : null}
           </>
         }
         onEndReached={handleLoadMore}

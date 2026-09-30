@@ -1,3 +1,9 @@
+import {
+  FEED_MARKET_FALLBACK_URL,
+  isFeedMarketRoutePath,
+} from '@/features/meta-feed/feed-market-routes';
+import { resolveFeedMarketBlocksEnabled } from '@/lib/runtime-config';
+
 /**
  * Parsing for the `data` payload the backend attaches to a push.
  *
@@ -56,11 +62,27 @@ export function parseNotificationRoute(data: unknown): NotificationRoute | null 
     return null;
   }
   const record = data as Record<string, unknown>;
+  const cardId = readString(record.cardId);
   return {
     alertId: readString(record.alertId),
-    cardId: readString(record.cardId),
-    url: normalizeNotificationUrl(record.url) ?? DEAL_NOTIFICATION_FALLBACK_URL,
+    cardId,
+    url: withoutHiddenMarketPage(
+      normalizeNotificationUrl(record.url) ?? DEAL_NOTIFICATION_FALLBACK_URL,
+      cardId,
+    ),
   };
+}
+
+/**
+ * With the feed's market pages switched off, a push aimed at one (none are sent
+ * today; alerts link to cards, Collection or Wishlist) opens its card instead,
+ * or the feed when it names no card.
+ */
+function withoutHiddenMarketPage(url: string, cardId: string | null): string {
+  if (resolveFeedMarketBlocksEnabled() || !isFeedMarketRoutePath(url)) {
+    return url;
+  }
+  return cardId ? `/cards/${encodeURIComponent(cardId)}` : FEED_MARKET_FALLBACK_URL;
 }
 
 export type PushOpenedKind = 'price_move' | 'weekly_summary' | 'deal' | 'other';

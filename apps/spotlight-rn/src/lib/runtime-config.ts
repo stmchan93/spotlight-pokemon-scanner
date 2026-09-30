@@ -125,6 +125,21 @@ export function resolveShowMatchedVariantImage() {
   );
 }
 
+/**
+ * The Social feed's market/news sections (Meta pulse + group pages, Hot on
+ * Ekalight, Coming up + calendar, Set spotlight, Card news + News page).
+ * Default ON; the production build sets it to 0, which hides the blocks, skips
+ * their reads, and sends their routes back to the feed. Top Trends, posts and
+ * market alerts are NOT behind it.
+ */
+export function resolveFeedMarketBlocksEnabled() {
+  return resolveRuntimeBoolean(
+    ['EXPO_PUBLIC_SPOTLIGHT_FEED_MARKET_BLOCKS'],
+    ['spotlightFeedMarketBlocks'],
+    true,
+  );
+}
+
 export function resolveExpoScheme() {
   const explicitScheme = resolveRuntimeValue(
     ['EXPO_PUBLIC_SPOTLIGHT_AUTH_SCHEME'],

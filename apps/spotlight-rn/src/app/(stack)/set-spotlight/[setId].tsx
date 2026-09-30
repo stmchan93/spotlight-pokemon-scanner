@@ -3,12 +3,13 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { firstParam } from '@/features/meta-feed/screens/route-params';
 import { SetSpotlightScreen } from '@/features/meta-feed/screens/set-spotlight-screen';
+import { FeedMarketRouteGate } from '@/features/meta-feed/components/feed-market-route-gate';
 
 /**
  * `/set-spotlight/<setId>` — a set's spotlight page, pushed from the feed's Set
  * spotlight block. `current` opens this week's pick.
  */
-export default function SetSpotlightRoute() {
+function SetSpotlightRouteContent() {
   const router = useRouter();
   const params = useLocalSearchParams<{ setId?: string | string[] }>();
   const setId = firstParam(params.setId);
@@ -24,5 +25,13 @@ export default function SetSpotlightRoute() {
       onOpenCard={openCard}
       setId={setId && setId !== 'current' ? setId : null}
     />
+  );
+}
+
+export default function SetSpotlightRoute() {
+  return (
+    <FeedMarketRouteGate>
+      <SetSpotlightRouteContent />
+    </FeedMarketRouteGate>
   );
 }

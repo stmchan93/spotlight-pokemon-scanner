@@ -11,6 +11,10 @@ const mockBack = jest.fn();
 const mockUseLocalSearchParams = jest.fn();
 
 jest.mock('expo-router', () => ({
+  Redirect: ({ href }: { href: string }) => {
+    const { Text } = require('react-native');
+    return <Text testID="redirect">{href}</Text>;
+  },
   useLocalSearchParams: () => mockUseLocalSearchParams(),
   useRouter: () => ({ back: mockBack, push: mockPush }),
 }));
@@ -110,5 +114,30 @@ describe('meta feed routes', () => {
     mockUseLocalSearchParams.mockReturnValue({ setId: 'current' });
     render(<SetSpotlightRoute />);
     expect(propsOf('set')).toEqual({ setId: null });
+  });
+});
+
+describe('meta feed routes with the market blocks switched off', () => {
+  const FLAG = 'EXPO_PUBLIC_SPOTLIGHT_FEED_MARKET_BLOCKS';
+
+  beforeEach(() => {
+    process.env[FLAG] = '0';
+    mockUseLocalSearchParams.mockReturnValue({ game: 'pokemon', groupKey: 'modern:raw:sir', setId: 'cel25' });
+  });
+
+  afterEach(() => {
+    delete process.env[FLAG];
+  });
+
+  it.each([
+    ['/meta', MetaRoute, 'meta'],
+    ['/meta/group/[groupKey]', MetaGroupRoute, 'group'],
+    ['/calendar', CalendarRoute, 'calendar'],
+    ['/news', NewsRoute, 'news'],
+    ['/set-spotlight/[setId]', SetSpotlightRoute, 'set'],
+  ])('%s sends a deep link back to the feed without mounting the page', (_path, Route, name) => {
+    render(<Route />);
+    expect(screen.getByTestId('redirect').props.children).toBe('/social');
+    expect(screen.queryByTestId(`${name}-props`)).toBeNull();
   });
 });

@@ -578,6 +578,94 @@ describe('FeedScreen', () => {
     });
   });
 
+  /*
+    PRODUCTION SWITCH: EXPO_PUBLIC_SPOTLIGHT_FEED_MARKET_BLOCKS=0 hides Meta
+    pulse, Hot on Ekalight, Coming up and Card news, and never reads them —
+    not on mount, focus or pull-to-refresh. Top Trends and posts stay exactly
+    as they are.
+  */
+  describe('with the market blocks switched off', () => {
+    const FLAG = 'EXPO_PUBLIC_SPOTLIGHT_FEED_MARKET_BLOCKS';
+    const marketReads = () => [fetchMetaPulse, fetchMetaExposure, fetchHotCards, fetchCalendar, fetchNewsFeed, fetchSetSpotlight];
+
+    beforeEach(() => {
+      process.env[FLAG] = '0';
+      fetchMetaPulse.mockResolvedValue(mockMetaPulse);
+      fetchHotCards.mockResolvedValue(mockHotCards);
+      fetchSetSpotlight.mockResolvedValue(mockSetSpotlight);
+      fetchNewsFeed.mockResolvedValue(mockNewsFeed);
+      fetchMetaExposure.mockResolvedValue(mockMetaExposure);
+      fetchCalendar.mockResolvedValue(mockCalendarFeed);
+      getTopMovers.mockResolvedValue(buildMovers());
+    });
+
+    afterEach(() => {
+      delete process.env[FLAG];
+    });
+
+    function triggerLatestFocus() {
+      const calls = (useFocusEffect as jest.Mock).mock.calls;
+      const effect = calls[calls.length - 1]?.[0] as (() => void) | undefined;
+      effect?.();
+    }
+
+    it('renders Top Trends and posts only, and never reads the hidden blocks', async () => {
+      renderFeed();
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+      await waitFor(() => expect(screen.getByTestId('feed-top-trends')).toBeTruthy());
+
+      const sections = screen.getAllByTestId(
+        /^feed-(compose-prompt|meta-pulse|hot-cards|set-spotlight|coming-up|top-trends|card-news|post-body)$/,
+      );
+      expect(sections.map((row) => row.props.testID)).toEqual([
+        'feed-compose-prompt',
+        'feed-top-trends',
+        'feed-post-body',
+      ]);
+      // Top Trends is the last block, so it hands its band to the first cell.
+      expect(StyleSheet.flatten(screen.getByTestId('feed-top-trends').props.style).borderBottomWidth).toBe(0);
+      expect(StyleSheet.flatten(screen.getByTestId('feed-compose-divider').props.style).borderBottomWidth).toBe(0);
+      expect(StyleSheet.flatten(screen.getByTestId('feed-first-cell-rule').props.style).marginBottom).toBe(0);
+
+      // Focus well past every staleness window, then pull to refresh.
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 24 * 60 * 60_000);
+      await act(async () => {
+        triggerLatestFocus();
+      });
+      await act(async () => {
+        screen.getByTestId('feed-list').props.refreshControl.props.onRefresh();
+      });
+      await waitFor(() => expect(getTopMovers.mock.calls.length).toBeGreaterThanOrEqual(2));
+      for (const read of marketReads()) {
+        expect(read).not.toHaveBeenCalled();
+      }
+      nowSpy.mockRestore();
+    });
+
+    it('keeps the composer band when the feed is empty and nothing sits below it', async () => {
+      (fetchGlobalFeed as jest.Mock).mockResolvedValue([]);
+      getTopMovers.mockRejectedValue(new Error('no movers'));
+
+      renderFeed();
+      await waitFor(() => expect(screen.getByTestId('feed-empty')).toBeTruthy());
+
+      expect(screen.queryByTestId('feed-meta-pulse')).toBeNull();
+      expect(screen.queryByTestId('feed-card-news')).toBeNull();
+      expect(StyleSheet.flatten(screen.getByTestId('feed-compose-divider').props.style).borderBottomWidth).toBe(4);
+    });
+
+    it('is unchanged with the flag explicitly on', async () => {
+      process.env[FLAG] = '1';
+      renderFeed();
+      await waitFor(() => expect(screen.getByTestId('feed-card-news')).toBeTruthy());
+      expect(screen.getByTestId('feed-meta-pulse')).toBeTruthy();
+      expect(screen.getByTestId('feed-hot-cards')).toBeTruthy();
+      expect(screen.getByTestId('feed-coming-up')).toBeTruthy();
+      expect(fetchMetaPulse).toHaveBeenCalled();
+      expect(fetchNewsFeed).toHaveBeenCalledWith({ limit: 3 });
+    });
+  });
+
   it('shows an empty state when there are no posts', async () => {
     (fetchGlobalFeed as jest.Mock).mockResolvedValue([]);
 

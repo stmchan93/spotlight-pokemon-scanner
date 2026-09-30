@@ -60,6 +60,38 @@ describe('parseNotificationRoute', () => {
   });
 });
 
+describe('parseNotificationRoute with the feed market pages switched off', () => {
+  const FLAG = 'EXPO_PUBLIC_SPOTLIGHT_FEED_MARKET_BLOCKS';
+
+  afterEach(() => {
+    delete process.env[FLAG];
+  });
+
+  it('sends a push aimed at a hidden market page to its card, or the feed', () => {
+    process.env[FLAG] = '0';
+    expect(parseNotificationRoute({ cardId: 'sm7-1', url: '/meta/group/modern:raw:sir?game=pokemon' })).toEqual({
+      alertId: null,
+      cardId: 'sm7-1',
+      url: '/cards/sm7-1',
+    });
+    expect(parseNotificationRoute({ url: '/news?kind=video' })?.url).toBe('/social');
+    expect(parseNotificationRoute({ url: '/set-spotlight/sv8' })?.url).toBe('/social');
+  });
+
+  it('leaves the market alerts that ship today untouched', () => {
+    process.env[FLAG] = '0';
+    expect(parseNotificationRoute({ type: 'price_move', cardId: 'a', url: '/cards/a' })?.url).toBe('/cards/a');
+    expect(parseNotificationRoute({ type: 'weekly_summary', url: '/' })?.url).toBe('/');
+    expect(parseNotificationRoute({ type: 'deal_alert', alertId: 'x', url: '/wishlist' })?.url).toBe('/wishlist');
+    // Not a market page, just a lookalike prefix.
+    expect(parseNotificationRoute({ url: '/metadata' })?.url).toBe('/metadata');
+  });
+
+  it('keeps market-page links as-is while the pages are on', () => {
+    expect(parseNotificationRoute({ cardId: 'sm7-1', url: '/meta' })?.url).toBe('/meta');
+  });
+});
+
 describe('pushOpenedAnalyticsProps', () => {
   it('maps the backend data type to a kind and flags bundled price moves', () => {
     expect(pushOpenedAnalyticsProps({ type: 'price_move', cardIds: ['a'], cardId: 'a', url: '/cards/a' }))

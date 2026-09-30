@@ -13,7 +13,7 @@ export type UseMetaFeedReadResult<T> = {
   data: T | null;
   /** A read is in flight. Blocks don't skeleton on it (no placeholder flash). */
   loading: boolean;
-  /** Unconditional refetch (pull-to-refresh). Never throws. */
+  /** Unconditional refetch (pull-to-refresh); a no-op while disabled. Never throws. */
   refresh: () => Promise<void>;
   /** Refetch only if the last successful read is older than the window. */
   refreshIfStale: () => void;
@@ -55,6 +55,10 @@ export function useMetaFeedRead<T>(
   }, [cacheKey]);
 
   const refresh = useCallback(async () => {
+    // Disabled reads never hit the network, pull-to-refresh included.
+    if (!enabled) {
+      return;
+    }
     const token = ++fetchTokenRef.current;
     setLoading(true);
     try {
@@ -71,13 +75,13 @@ export function useMetaFeedRead<T>(
         setLoading(false);
       }
     }
-  }, [cacheKey, setMetaFeedCacheEntry, spotlightRepository]);
+  }, [cacheKey, enabled, setMetaFeedCacheEntry, spotlightRepository]);
 
   const refreshIfStale = useCallback(() => {
-    if (enabled && Date.now() - lastFetchedAtRef.current >= staleAfterMs) {
+    if (Date.now() - lastFetchedAtRef.current >= staleAfterMs) {
       void refresh();
     }
-  }, [enabled, refresh, staleAfterMs]);
+  }, [refresh, staleAfterMs]);
 
   useEffect(() => {
     refreshIfStale();

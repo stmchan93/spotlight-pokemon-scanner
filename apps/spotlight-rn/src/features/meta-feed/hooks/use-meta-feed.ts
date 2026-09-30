@@ -39,6 +39,9 @@ export const CALENDAR_BLOCK_LIMIT = 3;
 /** How many headlines the feed's Card news block shows. */
 export const NEWS_FEED_BLOCK_LIMIT = 3;
 
+/** `enabled: false` = never fetch (the feed's market blocks are switched off). */
+export type MetaFeedReadOptions = { enabled?: boolean };
+
 // Stable cache key for a query: undefined/null fields drop out so `{}` and
 // `{ game: undefined }` share one entry.
 export function metaFeedCacheKey(read: string, query: object | undefined): string {
@@ -50,19 +53,27 @@ export function metaFeedCacheKey(read: string, query: object | undefined): strin
     : `${read}?${entries.map(([key, value]) => `${key}=${String(value)}`).join('&')}`;
 }
 
-export function useMetaPulse(query?: MetaPulseQuery): UseMetaFeedReadResult<MetaPulse> {
+export function useMetaPulse(
+  query?: MetaPulseQuery,
+  options?: MetaFeedReadOptions,
+): UseMetaFeedReadResult<MetaPulse> {
   return useMetaFeedRead(
     metaFeedCacheKey('metaPulse', query),
     (repository) => repository.fetchMetaPulse(query),
     META_PULSE_STALE_AFTER_MS,
+    options?.enabled ?? true,
   );
 }
 
-export function useHotCards(query?: HotCardsQuery): UseMetaFeedReadResult<HotCards> {
+export function useHotCards(
+  query?: HotCardsQuery,
+  options?: MetaFeedReadOptions,
+): UseMetaFeedReadResult<HotCards> {
   return useMetaFeedRead(
     metaFeedCacheKey('hotCards', query),
     (repository) => repository.fetchHotCards(query),
     HOT_CARDS_STALE_AFTER_MS,
+    options?.enabled ?? true,
   );
 }
 
@@ -79,11 +90,15 @@ export function useSetSpotlight(query?: SetSpotlightQuery): UseMetaFeedReadResul
  * `{ limit: NEWS_FEED_BLOCK_LIMIT }`; the News page can pass its own filters
  * and handle `nextCursor` paging itself.
  */
-export function useNewsFeed(query?: NewsFeedQuery): UseMetaFeedReadResult<NewsFeed> {
+export function useNewsFeed(
+  query?: NewsFeedQuery,
+  options?: MetaFeedReadOptions,
+): UseMetaFeedReadResult<NewsFeed> {
   return useMetaFeedRead(
     metaFeedCacheKey('newsFeed', query),
     (repository) => repository.fetchNewsFeed(query),
     NEWS_FEED_STALE_AFTER_MS,
+    options?.enabled ?? true,
   );
 }
 
@@ -106,7 +121,7 @@ export function metaExposureCacheKey(ownerKey: string, query?: MetaExposureQuery
 
 export function useMetaExposure(
   query?: MetaExposureQuery,
-  options?: { enabled?: boolean },
+  options?: MetaFeedReadOptions,
 ): UseMetaFeedReadResult<MetaExposure> {
   const { sessionOwnerKey } = useAppServices();
   return useMetaFeedRead(
@@ -117,10 +132,14 @@ export function useMetaExposure(
   );
 }
 
-export function useCalendar(query?: CalendarQuery): UseMetaFeedReadResult<CalendarFeed> {
+export function useCalendar(
+  query?: CalendarQuery,
+  options?: MetaFeedReadOptions,
+): UseMetaFeedReadResult<CalendarFeed> {
   return useMetaFeedRead(
     metaFeedCacheKey('calendar', query),
     (repository) => repository.fetchCalendar(query),
     CALENDAR_STALE_AFTER_MS,
+    options?.enabled ?? true,
   );
 }
