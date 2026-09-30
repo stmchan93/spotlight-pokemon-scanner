@@ -13,9 +13,10 @@ This module owns SIGNAL-level logic only:
   market price, is this a deal?  — plus the price-history-only predicates.
 
 It owns none of the LISTING-level validation (is this the right card, is the
-price real after shipping, is it a lot/proxy/bundle, is the auction inside its
-final window). That lives in ``ebay_comps`` and lands here as a
-``ListingCandidate``, which is the entire contract between the two halves.
+price real after shipping, is it a lot/proxy/bundle). That lives in
+``ebay_comps`` and lands here as a ``ListingCandidate``, which is the entire
+contract between the two halves. Auctions never become one:
+``listing_candidate_from_validated`` drops them (deals are Buy It Now only).
 
 Guardrails, all deliberate and each a separately named helper so it can be
 tested in isolation (see ``GUARDRAIL_ORDER``):
@@ -237,6 +238,11 @@ def listing_candidate_from_validated(
         return None
     total_cents = _as_cents(row.get("totalAmount")) or price_cents
     buying_option = str(row.get("buyingOption") or "").strip().lower()
+    # Deals are Buy It Now only. A bid (even in the final window) is not the
+    # price the card sells at. An auction that ALSO offers Buy It Now arrives
+    # here as "fixed_price" priced at the BIN, and stays eligible.
+    if "auction" in buying_option:
+        return None
     return ListingCandidate(
         listing_id=listing_id,
         card_id=card_id,
@@ -338,6 +344,11 @@ class DealSignal:
     tier: str | None = None
     tier_label: str | None = None
     lowest_seen_cents: int | None = None  # new_low: the bar it beat
+    # Which number baseline_cents IS, for honest copy: "market" (the
+    # printing's market), "sales" (PPT's eBay-ungraded median) or "added"
+    # (the add-time price). None on new_low.
+    baseline_source: str | None = None
+    price_cents: int | None = None  # item price excl. shipping
 
     @property
     def rank_score(self) -> float:
@@ -697,6 +708,23 @@ def yardstick_cents(market_cents: int | None, liquidity: Liquidity | None) -> in
     return int(market_cents)
 
 
+BASELINE_SOURCE_MARKET = "market"
+BASELINE_SOURCE_SALES = "sales"
+BASELINE_SOURCE_ADDED = "added"
+
+
+def baseline_source_label(
+    effective_cents: int, *, market: int | None, reference: int | None
+) -> str:
+    """Which number the deal baseline is. A tie with the market reads as the
+    market: it is the more objective claim."""
+    if market is not None and int(effective_cents) == int(market):
+        return BASELINE_SOURCE_MARKET
+    if reference is not None and int(effective_cents) == int(reference):
+        return BASELINE_SOURCE_SALES
+    return BASELINE_SOURCE_ADDED
+
+
 def evaluate_under_added(
     candidate: ListingCandidate,
     baseline: WatchBaseline,
@@ -742,6 +770,7 @@ def evaluate_under_added(
     )
     if not passes_price_floor(effective):
         return GuardrailResult(False, "price_floor")
+    source = baseline_source_label(int(effective), market=market, reference=reference)
 
     pct = discount_pct(total, int(effective))
     minimum = TIER_MIN_PCT[liquidity.tier] if liquidity is not None else MIN_SIGNIFICANCE_PCT
@@ -777,6 +806,8 @@ def evaluate_under_added(
             variant_key=baseline.variant_key,
             tier=liquidity.tier if liquidity is not None else None,
             tier_label=liquidity.label if liquidity is not None else None,
+            baseline_source=source,
+            price_cents=candidate.price_cents,
         ),
     )
 
@@ -839,6 +870,7 @@ def evaluate_new_low(
             tier=liquidity.tier if liquidity is not None else None,
             tier_label=liquidity.label if liquidity is not None else None,
             lowest_seen_cents=bar,
+            price_cents=candidate.price_cents,
         ),
     )
 

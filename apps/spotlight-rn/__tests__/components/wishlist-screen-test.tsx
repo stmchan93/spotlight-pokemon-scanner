@@ -10,6 +10,8 @@ import {
   WISHLIST_TITLE_HIDE_DISTANCE,
 } from '@/features/wishlist/components/wishlist-header';
 import { WishlistScreen } from '@/features/wishlist/screens/wishlist-screen';
+import type { WatchlistStore } from '@/features/wishlist/watchlist-store';
+import { useAppServices } from '@/providers/app-providers';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
 
@@ -1056,6 +1058,107 @@ describe('WishlistScreen', () => {
       await waitFor(() => {
         expect(mockOpenLogin).toHaveBeenCalled();
       });
+    });
+  });
+  /*
+    iOS native tabs mount this screen HIDDEN at app launch (MountOnFirstFocus is
+    Android-only), so the mount load is minutes old by the first real visit.
+    That first focus used to be skipped as "covered by the mount load", and a
+    card watched in between stayed missing until a later revisit.
+  */
+  describe('staying in sync with watches made elsewhere', () => {
+    let capturedStore: WatchlistStore | null = null;
+    function StoreProbe() {
+      capturedStore = useAppServices().watchlistStore;
+      return null;
+    }
+    function Harness() {
+      return (
+        <>
+          <WishlistScreen />
+          <StoreProbe />
+        </>
+      );
+    }
+    const store = () => {
+      if (!capturedStore) throw new Error('store not captured');
+      return capturedStore;
+    };
+
+    afterEach(() => {
+      mockIsFocused = true;
+      capturedStore = null;
+    });
+
+    it('re-reads on the FIRST focus when the tab was mounted hidden (iOS eager mount)', async () => {
+      const favorites = [buildFavoriteEntry({ cardId: 'first', name: 'First' })];
+      const getCardFavorites = jest.fn(async () => [...favorites]);
+      mockIsFocused = false;
+      const view = renderWithProviders(<Harness />, {
+        spotlightRepository: createTestSpotlightRepository({ getCardFavorites }),
+      });
+      await waitFor(() => expect(getCardFavorites).toHaveBeenCalledTimes(1));
+
+      favorites.push(buildFavoriteEntry({ cardId: 'watched-later', name: 'Later' }));
+      mockIsFocused = true;
+      view.rerender(<Harness />);
+
+      await waitFor(() => expect(screen.getByTestId('wishlist-row-watched-later')).toBeTruthy());
+      expect(getCardFavorites).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not double-read when mounted AT its first focus (Android deferred mount)', async () => {
+      const getCardFavorites = jest.fn(async () => [buildFavoriteEntry({ cardId: 'first', name: 'First' })]);
+      renderWithProviders(<Harness />, {
+        spotlightRepository: createTestSpotlightRepository({ getCardFavorites }),
+      });
+      await waitFor(() => expect(screen.getByTestId('wishlist-row-first')).toBeTruthy());
+      expect(getCardFavorites).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows a watch made elsewhere immediately, and drops an unwatch, without waiting on a read', async () => {
+      const getCardFavorites = jest.fn(async () => [buildFavoriteEntry({ cardId: 'first', name: 'First' })]);
+      mockIsFocused = false;
+      renderWithProviders(<Harness />, {
+        spotlightRepository: createTestSpotlightRepository({ getCardFavorites }),
+      });
+      await waitFor(() => expect(screen.getByTestId('wishlist-row-first')).toBeTruthy());
+      // Never resolves: anything that appears now came from the store.
+      getCardFavorites.mockImplementation(() => new Promise<CardFavoriteEntry[]>(() => undefined));
+
+      act(() => {
+        store().applyWatchWrite(
+          { cardId: 'new-card', isFavorite: true, favoritedAt: new Date().toISOString(), watchVariant: null },
+          { cardId: 'new-card', name: 'Brand New', setName: 'Some Set', imageUrl: 'https://example.com/new.png' },
+        );
+      });
+      expect(screen.getByTestId('wishlist-row-new-card')).toBeTruthy();
+      expect(store().getSnapshot().stale).toBe(true);
+
+      act(() => {
+        store().applyWatchWrite({ cardId: 'first', isFavorite: false, watchVariant: null });
+      });
+      expect(screen.queryByTestId('wishlist-row-first')).toBeNull();
+      // Unfocused: nothing read yet.
+      expect(getCardFavorites).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-reads when a watch elsewhere marks the list stale while it is on screen', async () => {
+      const getCardFavorites = jest.fn(async () => [buildFavoriteEntry({ cardId: 'first', name: 'First' })]);
+      renderWithProviders(<Harness />, {
+        spotlightRepository: createTestSpotlightRepository({ getCardFavorites }),
+      });
+      await waitFor(() => expect(screen.getByTestId('wishlist-row-first')).toBeTruthy());
+      expect(getCardFavorites).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        store().markStale();
+      });
+
+      await waitFor(() => expect(getCardFavorites).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(store().getSnapshot().stale).toBe(false));
+      // A fresh read clears the flag; it does not loop.
+      expect(getCardFavorites).toHaveBeenCalledTimes(2);
     });
   });
 });

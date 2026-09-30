@@ -143,6 +143,7 @@ class DealAlertPush:
     total_cents: int
     discount_pct: float | None = None
     card_id: str | None = None
+    baseline_source: str | None = None  # market | sales | added
 
 
 @dataclass(frozen=True)
@@ -244,16 +245,32 @@ def format_usd_cents(cents: int | None) -> str:
     return f"${amount / 100:,.2f}"
 
 
+# What the percent is measured against, by the alert's `baseline_source`.
+# None (legacy rows) keeps the bare "26% under".
+DEAL_BASELINE_PHRASES: dict[str, str] = {
+    "market": "under market",
+    "sales": "under recent sales",
+    "added": "below what you added it at",
+}
+
+
+def deal_baseline_phrase(baseline_source: str | None) -> str:
+    return DEAL_BASELINE_PHRASES.get(str(baseline_source or ""), "under")
+
+
 def deal_push_body(
-    card_name: str, total_cents: int, discount_pct: float | None
+    card_name: str,
+    total_cents: int,
+    discount_pct: float | None,
+    baseline_source: str | None = None,
 ) -> str:
-    """``"Mega Starmie ex — $34, 26% under"``."""
+    """``"Mega Starmie ex — $34, 26% under market"``."""
     name = (card_name or "").strip() or "A watched card"
     price = format_usd_cents(total_cents)
     pct = int(round(float(discount_pct))) if discount_pct is not None else 0
     if pct <= 0:
         return f"{name} — {price}"
-    return f"{name} — {price}, {pct}% under"
+    return f"{name} — {price}, {pct}% {deal_baseline_phrase(baseline_source)}"
 
 
 def ops_push_body(alert: OpsAlertPush) -> str:
@@ -267,7 +284,9 @@ def build_deal_message(token: str, push: DealAlertPush) -> PushMessage:
     return PushMessage(
         to=token,
         title=DEAL_PUSH_TITLE,
-        body=deal_push_body(push.card_name, push.total_cents, push.discount_pct),
+        body=deal_push_body(
+            push.card_name, push.total_cents, push.discount_pct, push.baseline_source
+        ),
         data={
             "type": DATA_TYPE_DEAL_ALERT,
             "url": WATCHLIST_DEEP_LINK,

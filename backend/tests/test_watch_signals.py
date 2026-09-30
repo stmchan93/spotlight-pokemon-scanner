@@ -772,7 +772,7 @@ class ListingContractTests(unittest.TestCase):
         "shippingKnown": True,
         "totalAmount": 85.0,
         "currencyCode": "USD",
-        "buyingOption": "auction",
+        "buyingOption": "fixed_price",
         "auctionEndAt": "2026-09-19T18:00:00Z",
         "verification": "scrydex",
     }
@@ -784,8 +784,23 @@ class ListingContractTests(unittest.TestCase):
         self.assertEqual(candidate.price_cents, 8_000)
         self.assertEqual(candidate.shipping_cents, 500)
         self.assertEqual(candidate.total_cents, 8_500)
-        self.assertTrue(candidate.is_auction)
+        self.assertFalse(candidate.is_auction)
+        # itemEndDate rides along for fixed price too: the feed hides ended ones.
+        self.assertEqual(candidate.ends_at, "2026-09-19T18:00:00Z")
         self.assertEqual(candidate.verification_tier, "scrydex")
+
+    def test_auctions_are_never_deal_candidates(self) -> None:
+        """A bid is not a price: Marill me2pt5-232 alerted at a $5.58 bid with
+        54 minutes left and sold at $8.39. Deals are Buy It Now only."""
+        self.assertIsNone(
+            listing_candidate_from_validated(dict(self.VALID, buyingOption="auction"))
+        )
+
+    def test_auction_with_buy_it_now_stays_eligible_at_its_bin_price(self) -> None:
+        # The validator maps AUCTION+FIXED_PRICE to "fixed_price", priced at the BIN.
+        candidate = listing_candidate_from_validated(dict(self.VALID, buyingOption="fixed_price"))
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.price_cents, 8_000)
 
     def test_unknown_shipping_is_not_a_candidate(self) -> None:
         """A $2 card with $15 postage reads as a deal when shipping is missing."""
@@ -806,6 +821,21 @@ class ListingContractTests(unittest.TestCase):
         self.assertTrue(result.passed)
         self.assertEqual(result.signal.total_cents, 8_500)
         self.assertEqual(result.signal.discount_pct, 29.17)
+        self.assertEqual(result.signal.baseline_source, "market")
+        self.assertEqual(result.signal.price_cents, 8_000)
+
+    def test_baseline_source_names_the_number_the_deal_is_under(self) -> None:
+        candidate = listing_candidate_from_validated(self.VALID)
+        added = evaluate_under_added(
+            candidate, _baseline(card_id="card-1", added_cents=11_000, market_cents=12_000), now=NOW
+        )
+        self.assertTrue(added.passed)
+        self.assertEqual(added.signal.baseline_cents, 11_000)
+        self.assertEqual(added.signal.baseline_source, "added")
+        market = evaluate_under_added(
+            candidate, _baseline(card_id="card-1", added_cents=13_000, market_cents=12_000), now=NOW
+        )
+        self.assertEqual(market.signal.baseline_source, "market")
 
 
 class DiscountMathTests(unittest.TestCase):

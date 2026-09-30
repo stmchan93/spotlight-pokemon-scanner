@@ -142,6 +142,20 @@ class TestMessageAssembly(unittest.TestCase):
             "Umbreon VMAX — $34.50, 12% under",
         )
 
+    def test_body_names_what_the_percent_is_under(self) -> None:
+        self.assertEqual(
+            deal_push_body("Mega Starmie ex", 3400, 26.0, "market"),
+            "Mega Starmie ex — $34, 26% under market",
+        )
+        self.assertEqual(
+            deal_push_body("Mega Starmie ex", 3400, 26.0, "sales"),
+            "Mega Starmie ex — $34, 26% under recent sales",
+        )
+        self.assertEqual(
+            deal_push_body("Mega Starmie ex", 3400, 26.0, "added"),
+            "Mega Starmie ex — $34, 26% below what you added it at",
+        )
+
     def test_body_drops_the_percent_clause_when_there_is_no_discount(self) -> None:
         self.assertEqual(deal_push_body("Pikachu", 500, None), "Pikachu — $5")
         self.assertEqual(deal_push_body("  ", 500, 0.0), "A watched card — $5")

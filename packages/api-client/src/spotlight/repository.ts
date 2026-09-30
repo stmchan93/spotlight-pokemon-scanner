@@ -91,6 +91,7 @@ import type {
   DealAlert,
   DealAlertKind,
   DealAlertsPage,
+  DealBaselineSource,
   ExpansionRecord,
   InventoryEntryBulkCreateResponsePayload,
   InventoryEntryBulkCreateResultEntry,
@@ -190,6 +191,7 @@ import type {
   ScannerMode,
   ScannerTargetLanguageMismatch,
   ScanMatchedVariant,
+  PrintingImageFields,
   SlabContext,
   SpotlightRepositoryLoadResult,
   WhosThatPokemonMatch,
@@ -724,7 +726,12 @@ type CardCandidateDTO = {
   } | null;
 };
 
-type DeckEntryDTO = {
+type PrintingImageDTO = {
+  printingImageUrl?: unknown;
+  printingImageSmallUrl?: unknown;
+};
+
+type DeckEntryDTO = PrintingImageDTO & {
   id?: string;
   itemKind?: string | null;
   card: CardCandidateDTO;
@@ -780,7 +787,7 @@ type PortfolioHistoryDTO = {
 };
 
 type PortfolioLedgerDTO = {
-  transactions: Array<{
+  transactions: Array<PrintingImageDTO & {
     id: string;
     kind: 'buy' | 'sell';
     card: CardCandidateDTO;
@@ -970,6 +977,8 @@ type CardDetailDTO = {
   targetPriceCents?: number | null;
   watchedVariants?: unknown;
   watchTargetsCents?: unknown;
+  watchMarketPrices?: unknown;
+  watchPrintingLabels?: unknown;
   isLiked?: boolean | null;
   likedAt?: string | null;
   likeCount?: number | null;
@@ -1030,6 +1039,8 @@ type CardFavoriteDTO = {
   isFavorite?: boolean | null;
   favoritedAt?: string | null;
   watchVariant?: string | null;
+  watchMarketPrice?: unknown;
+  watchPrintingLabels?: unknown;
 };
 
 type CardLikeDTO = {
@@ -1487,6 +1498,16 @@ function normalizeString(value: unknown) {
   return trimmed ? trimmed : null;
 }
 
+/** Optional alt-art printing image fields; absent/blank → omitted (the card image shows). */
+function normalizePrintingImageFields(value: PrintingImageDTO | null | undefined): PrintingImageFields {
+  const printingImageUrl = normalizeString(value?.printingImageUrl);
+  const printingImageSmallUrl = normalizeString(value?.printingImageSmallUrl);
+  return {
+    ...(printingImageUrl ? { printingImageUrl } : {}),
+    ...(printingImageSmallUrl ? { printingImageSmallUrl } : {}),
+  };
+}
+
 function normalizeNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
@@ -1661,6 +1682,31 @@ function normalizeWatchTargets(value: unknown): Record<string, number | null> | 
   return targets;
 }
 
+function normalizeWatchMarketPrices(value: unknown): Record<string, number | null> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const prices: Record<string, number | null> = {};
+  for (const [key, price] of Object.entries(value)) {
+    prices[key.trim()] = normalizeNumber(price) ?? null;
+  }
+  return prices;
+}
+
+function normalizeWatchPrintingLabels(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const labels: Record<string, string> = {};
+  for (const [key, label] of Object.entries(value)) {
+    const normalized = normalizeString(label);
+    if (key.trim() && normalized) {
+      labels[key.trim()] = normalized;
+    }
+  }
+  return labels;
+}
+
 /**
  * An unknown kind falls back to `under_added` rather than dropping the alert: a
  * signal the server adds later should still render as a deal, just generically.
@@ -1689,6 +1735,10 @@ function normalizeRawEbayBuyingOption(value: unknown): RawEbayBuyingOption {
   return normalizeString(value)?.toLowerCase() === 'auction' ? 'auction' : 'fixed_price';
 }
 
+function normalizeDealBaselineSource(value: unknown): DealBaselineSource | null {
+  return value === 'market' || value === 'sales' || value === 'added' ? value : null;
+}
+
 /** One deal-alert row, or null when it has no id (nothing can be stamped). */
 function buildDealAlert(value: unknown): DealAlert | null {
   if (!isRecord(value)) {
@@ -1712,6 +1762,9 @@ function buildDealAlert(value: unknown): DealAlert | null {
     lowestSeenCents: normalizeCentsOrNull(value.lowestSeenCents),
     totalCents: normalizeCentsOrNull(value.totalCents) ?? 0,
     baselineCents: normalizeCentsOrNull(value.baselineCents) ?? 0,
+    baselineSource: normalizeDealBaselineSource(value.baselineSource),
+    listingEndsAt: normalizeString(value.listingEndsAt),
+    expiredAt: normalizeString(value.expiredAt),
     marketCents: normalizeCentsOrNull(value.marketCents),
     discountPct: normalizeNumber(value.discountPct),
     savingsCents: normalizeCentsOrNull(value.savingsCents),
@@ -2608,6 +2661,7 @@ function mapDeckEntry(entry: DeckEntryDTO, baseUrl?: string): InventoryCardEntry
     listingUrl: normalizeString(entry.listingUrl) ?? null,
     listingPriceCents: normalizeNumber(entry.listingPriceCents) ?? null,
     listedAt: normalizeString(entry.listedAt) ?? null,
+    ...normalizePrintingImageFields(entry),
   };
 }
 
@@ -2662,6 +2716,7 @@ function buildRecentSales(transactions: PortfolioLedgerDTO['transactions'], base
         status,
         costBasisPerUnit: normalizeNumber(transaction.costBasisPerUnit) ?? null,
         profit: normalizeNumber(transaction.profit) ?? null,
+        ...normalizePrintingImageFields(transaction),
       } satisfies RecentSaleRecord];
     });
 }
@@ -3049,6 +3104,7 @@ function normalizePortfolioLedger(value: PortfolioLedgerDTO | null | undefined) 
         paymentMethod: normalizeString(transaction?.paymentMethod) ?? null,
         paidAt: normalizeString(transaction?.paidAt) ?? null,
         status: normalizeString(transaction?.status) ?? null,
+        ...normalizePrintingImageFields(transaction),
       }];
     }),
     dailySeries: dailySeries.flatMap((point) => {
@@ -6911,6 +6967,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       targetPriceCents: normalizeCentsOrNull(detailResponse.data.targetPriceCents),
       watchedVariants: normalizeWatchedVariants(detailResponse.data.watchedVariants),
       watchTargetsCents: normalizeWatchTargets(detailResponse.data.watchTargetsCents),
+      watchMarketPrices: normalizeWatchMarketPrices(detailResponse.data.watchMarketPrices),
+      watchPrintingLabels: normalizeWatchPrintingLabels(detailResponse.data.watchPrintingLabels),
       isLiked: normalizeBoolean(detailResponse.data.isLiked) ?? false,
       likedAt: normalizeString(detailResponse.data.likedAt),
       likeCount: normalizeInteger(detailResponse.data.likeCount),
@@ -7112,6 +7170,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       favoritedAt: normalizeString(response.favoritedAt),
       // An older server echoes no printing; it acted on the main one.
       watchVariant: response.watchVariant === undefined ? variant : normalizeWatchVariant(response.watchVariant),
+      watchMarketPrice: normalizeNumber(response.watchMarketPrice) ?? null,
+      watchPrintingLabels: normalizeWatchPrintingLabels(response.watchPrintingLabels),
     };
   }
 
@@ -7216,6 +7276,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           sinceAddedBaselinePrice: normalizeNumber(entry.sinceAddedBaselinePrice) ?? null,
           // USD CENTS (the rest of this row is dollars). null = no target set.
           targetPriceCents: normalizeCentsOrNull(entry.targetPriceCents),
+          ...normalizePrintingImageFields(entry),
         };
       })
       .filter((entry): entry is CardFavoriteEntry => entry !== null);
@@ -8050,6 +8111,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       sparkline: Array.isArray(r.sparkline)
         ? r.sparkline.filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
         : [],
+      ...normalizePrintingImageFields(r),
     }));
     return {
       itemCount: num(raw.itemCount) ?? rows.length,

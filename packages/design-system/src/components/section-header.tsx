@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Text } from './scaled-text';
@@ -10,9 +11,18 @@ type SectionHeaderProps = {
   expanded?: boolean;
   onActionPress?: () => void;
   onPress?: () => void;
+  /**
+   * `default` = 25px display title for top-level page sections.
+   * `compact` = Figma Title-small (17/600) for a heading INSIDE a page, e.g. the
+   * Watchlist's Deals band; its count drops to `captionMedium` and sits on the
+   * title's baseline.
+   */
+  size?: 'default' | 'compact';
   subtitle?: string;
   testID?: string;
   title: string;
+  /** Small status mark (e.g. an unread dot) between the title and the count, vertically centred. */
+  titleAccessory?: ReactNode;
 };
 
 function ChevronGlyph({
@@ -39,26 +49,45 @@ export function SectionHeader({
   expanded,
   onActionPress,
   onPress,
+  size = 'default',
   subtitle,
   testID,
   title,
+  titleAccessory,
 }: SectionHeaderProps) {
   const theme = useSpotlightTheme();
   const hasChevron = typeof onPress === 'function';
   const headerCopyGap = subtitle ? theme.layout.titleBodyGap : 0;
+  const compact = size === 'compact';
 
   const titleBlock = (
     <View style={[styles.copy, { gap: headerCopyGap }]}>
-      <View style={styles.titleRow}>
-        <Text style={theme.typography.title}>{title}</Text>
+      <View
+        style={[styles.titleRow, compact ? styles.titleRowCompact : null]}
+        testID={testID ? `${testID}-title-row` : undefined}
+      >
+        <Text
+          style={compact ? theme.typography.titleSmall : theme.typography.title}
+          testID={testID ? `${testID}-title` : undefined}
+        >
+          {title}
+        </Text>
+        {titleAccessory ? <View style={styles.centeredSlot}>{titleAccessory}</View> : null}
         {countText ? (
-          <Text style={[theme.typography.bodyStrong, styles.countText, { color: theme.colors.textSecondary }]}>
+          <Text
+            style={
+              compact
+                ? [theme.typography.captionMedium, { color: theme.colors.gray600 }]
+                : [theme.typography.bodyStrong, styles.countText, { color: theme.colors.textSecondary }]
+            }
+            testID={testID ? `${testID}-count` : undefined}
+          >
             {countText}
           </Text>
         ) : null}
         {hasChevron ? (
           <View
-            style={styles.chevronSlot}
+            style={[styles.chevronSlot, styles.centeredSlot]}
             testID={testID ? `${testID}-chevron-slot` : undefined}
           >
             <ChevronGlyph
@@ -108,6 +137,10 @@ export function SectionHeader({
 }
 
 const styles = StyleSheet.create({
+  // Non-text children have no baseline; keep them centred in a baseline row.
+  centeredSlot: {
+    alignSelf: 'center',
+  },
   chevronFrame: {
     alignItems: 'center',
     height: 14,
@@ -171,5 +204,9 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     flexDirection: 'row',
     gap: 6,
+  },
+  // Mixed type sizes: share a baseline rather than a vertical centre.
+  titleRowCompact: {
+    alignItems: 'baseline',
   },
 });

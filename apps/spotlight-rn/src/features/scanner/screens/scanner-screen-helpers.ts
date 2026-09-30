@@ -404,6 +404,8 @@ export function buildOptimisticInventoryEntry(
   options: {
     mode: ScannerMode;
     slabContext: SlabContext | null;
+    /** The raw printing added; on the matched alt-art version the row shows its art. */
+    printingLabel?: string | null;
   },
   id: string,
 ): InventoryCardEntry {
@@ -411,6 +413,10 @@ export function buildOptimisticInventoryEntry(
   const isSlab = options.mode === 'slabs';
   // Same rule as the tray row: no graded price for a TCGplayer-only card.
   const isPriced = candidate.marketPrice != null && !(isSlab && isTcgplayerOnlyCard(candidate));
+  // Mirrors the server's printingImageUrl until the refetch replaces this row.
+  const printingImageUrl = !isSlab && options.printingLabel && isMatchedVersionShown(candidate, options.printingLabel)
+    ? matchedVersionImageUrl(candidate)
+    : null;
 
   return {
     addedAt,
@@ -433,6 +439,7 @@ export function buildOptimisticInventoryEntry(
     slabContext,
     isFavorite: candidate.isFavorite,
     variantName: slabContext?.variantName ?? null,
+    ...(printingImageUrl ? { printingImageUrl } : {}),
   };
 }
 

@@ -413,6 +413,17 @@ export type LabelingSessionArtifactRecord = {
 export type InventorySortOption = 'recent' | 'value' | 'a-z';
 export type InventoryFilterOption = 'all' | 'raw' | 'graded' | 'favorite';
 
+/**
+ * The art of the printing a row is about (an owned copy's or a watched
+ * printing's), set only when that printing is an alt-art version whose art
+ * differs from the card image; absent → show the card image. TCGplayer
+ * product images (large 1000px, small 400w).
+ */
+export type PrintingImageFields = {
+  printingImageUrl?: string;
+  printingImageSmallUrl?: string;
+};
+
 export type SlabContext = {
   grader: string;
   grade?: string | null;
@@ -552,7 +563,7 @@ export type InventoryCardEntry = {
   listingUrl?: string | null;
   listingPriceCents?: number | null;
   listedAt?: string | null;
-};
+} & PrintingImageFields;
 
 export type PortfolioInventoryItem = InventoryCardEntry;
 
@@ -586,7 +597,7 @@ export type PortfolioPerformanceRow = {
   monthGainPercent: number | null; // per-unit % change over ~30 days
   isFavorite: boolean; // wishlist heart — drives the Insights "Likes" chip
   sparkline: number[]; // oldest → newest; [] when no history
-};
+} & PrintingImageFields;
 
 export type PortfolioPerformance = {
   itemCount: number;
@@ -637,7 +648,7 @@ export type RecentSaleRecord = {
    * computed and snapshotted server-side. Null when costBasisPerUnit is null.
    */
   profit?: number | null;
-};
+} & PrintingImageFields;
 
 /**
  * Aggregated portfolio + sales metrics used by the Insights screen
@@ -1398,6 +1409,16 @@ export type CardDetailRecord = {
    * Optional: absent → only `targetPriceCents` (main printing) is known.
    */
   watchTargetsCents?: Record<string, number | null>;
+  /**
+   * Current market (USD) per watched PRINTING, keyed like `watchedVariants`
+   * ('' omitted: the main printing's price is `marketPrice`).
+   */
+  watchMarketPrices?: Record<string, number | null>;
+  /**
+   * Picker label per watched printing key ("1st Edition" -> "First Edition"):
+   * the PDP picker speaks Scrydex labels, watches are stored under TCGplayer's.
+   */
+  watchPrintingLabels?: Record<string, string>;
   /** Whether THIS user has liked the card (the PDP heart). Distinct from the
    *  wishlist (isFavorite). Absent on list/preview payloads. */
   isLiked?: boolean;
@@ -1958,6 +1979,10 @@ export type CardFavoriteRecord = {
   favoritedAt?: string | null;
   /** The printing this write acted on; null = the card's main printing. */
   watchVariant?: string | null;
+  /** That printing's current market (USD); null for the main printing. */
+  watchMarketPrice?: number | null;
+  /** Picker label per watched printing key, as on the card detail. */
+  watchPrintingLabels?: Record<string, string>;
 };
 
 /** Which printing a watch write targets. Omitted/null = the main printing. */
@@ -2031,7 +2056,7 @@ export type CardFavoriteEntry = {
    * same column.
    */
   targetPriceCents?: number | null;
-};
+} & PrintingImageFields;
 
 export type CardFavoritesQuery = {
   limit?: number;
@@ -2477,8 +2502,11 @@ export type DealLiquidityTier = 'often' | 'fewer' | 'rarely' | 'none';
  */
 export type RawEbayVerificationTier = 'scrydex' | 'aspects' | 'title';
 
-/** Fixed price, or an auction inside its final window. */
+/** Fixed price, or an auction inside its final window (PDP panel only; deals are fixed price). */
 export type RawEbayBuyingOption = 'fixed_price' | 'auction';
+
+/** What a deal's baseline is: market price, recent sales, or the added price. */
+export type DealBaselineSource = 'market' | 'sales' | 'added';
 
 export type DealAlert = {
   /** Server alert id (hex). Pass this to `markDealAlertSeen` / `...Tapped`. */
@@ -2508,6 +2536,16 @@ export type DealAlert = {
   totalCents: number;
   /** What `totalCents` was judged against, USD CENTS. */
   baselineCents: number;
+  /**
+   * Which number `baselineCents` is: the printing's `market`, recent eBay
+   * `sales` (median), or the price when the user `added` the watch. null on
+   * older alerts and on `new_low`.
+   */
+  baselineSource?: DealBaselineSource | null;
+  /** When the eBay listing ends (ISO); null when unknown. */
+  listingEndsAt?: string | null;
+  /** Set once the server found the listing dead (ended, sold, removed…). */
+  expiredAt?: string | null;
   /** Market price at alert time, USD CENTS; null when none could be resolved. */
   marketCents: number | null;
   /** Percent below the baseline (e.g. 22.22), or null. */

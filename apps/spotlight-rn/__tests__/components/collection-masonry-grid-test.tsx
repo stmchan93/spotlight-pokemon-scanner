@@ -151,6 +151,26 @@ describe('CollectionMasonryGrid', () => {
     expect(rowOne.getByTestId('collection-masonry-grid-tile-d')).toBeTruthy();
   });
 
+  // An owned alt-art copy shows its printing's art, not the card's base art.
+  it('shows the printing image for an alt-art copy and the card image otherwise', () => {
+    renderGrid([
+      makeEntry({
+        id: 'saa',
+        variantName: 'Special Alt Art',
+        printingImageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/541670_in_1000x1000.jpg',
+        printingImageSmallUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/541670_400w.jpg',
+      }),
+      makeEntry({ id: 'base', variantName: 'Foil' }),
+    ]);
+
+    expect(screen.getByTestId('collection-masonry-grid-tile-saa-image').props.source).toEqual({
+      uri: 'https://tcgplayer-cdn.tcgplayer.com/product/541670_400w.jpg',
+    });
+    expect(screen.getByTestId('collection-masonry-grid-tile-base-image').props.source).toEqual({
+      uri: 'https://example.com/c-sm.png',
+    });
+  });
+
   it('triggers onPressEntry with the right entry when a tile is tapped', () => {
     const onPressEntry = jest.fn();
     renderGrid(entries, onPressEntry);

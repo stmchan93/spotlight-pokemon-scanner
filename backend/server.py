@@ -49,6 +49,8 @@ from catalog_tools import (
     _is_default_main_raw_read,
     main_raw_cell_points_by_variant_date,
     main_raw_history_market,
+    apply_printing_point,
+    printing_cell_serves_condition,
     raw_main_price_enabled,
     resolve_main_raw_summary_from_row,
     RAW_MAIN_PRICE_SOURCE_SCRYDEX,
@@ -170,6 +172,7 @@ from market_movers import (
 from ebay_comps import (
     DEFAULT_RESULT_LIMIT as DEFAULT_EBAY_LISTING_LIMIT,
     MAX_RESULT_LIMIT as MAX_EBAY_LISTING_LIMIT,
+    _browse_search_ready_reason as _ebay_browse_ready_reason,
     fetch_ebay_items_by_legacy_ids,
     fetch_graded_card_ebay_comps,
 )
@@ -185,6 +188,7 @@ import watch_printings
 from sync_ppt_catalog import ensure_ppt_ungraded_signals_schema
 import meta_pulse
 import news_feed
+import printing_images
 import set_spotlight
 import similar_cards
 import watch_signals
@@ -1724,6 +1728,24 @@ def _apply_watch_deal_radar_schema_patch(connection: sqlite3.Connection) -> None
     _sqlite_add_column_if_missing(connection, "deal_alerts", "tier", "TEXT")
     _sqlite_add_column_if_missing(connection, "deal_alerts", "tier_label", "TEXT")
     _sqlite_add_column_if_missing(connection, "deal_alerts", "lowest_seen_cents", "INTEGER")
+    # Listing liveness (2026-09-29). The listing's end time, buying format and
+    # the price/shipping split the alert was judged on, so the feed can hide an
+    # ended listing and the sweep can tell a price change. `baseline_source`
+    # says which number baseline_cents is (market / sales / added) for copy.
+    # `expired_at` + `expired_reason` are stamped by the sweep
+    # (_sweep_deal_alerts): ended, sold, removed, auction, not Near Mint,
+    # repriced. `checked_at` / `check_failures` pace it.
+    _sqlite_add_column_if_missing(connection, "deal_alerts", "listing_ends_at", "TEXT")
+    _sqlite_add_column_if_missing(connection, "deal_alerts", "buying_option", "TEXT")
+    _sqlite_add_column_if_missing(connection, "deal_alerts", "price_cents", "INTEGER")
+    _sqlite_add_column_if_missing(connection, "deal_alerts", "shipping_cents", "INTEGER")
+    _sqlite_add_column_if_missing(connection, "deal_alerts", "baseline_source", "TEXT")
+    _sqlite_add_column_if_missing(connection, "deal_alerts", "expired_at", "TEXT")
+    _sqlite_add_column_if_missing(connection, "deal_alerts", "expired_reason", "TEXT")
+    _sqlite_add_column_if_missing(connection, "deal_alerts", "checked_at", "TEXT")
+    _sqlite_add_column_if_missing(
+        connection, "deal_alerts", "check_failures", "INTEGER NOT NULL DEFAULT 0"
+    )
     _sqlite_add_column_if_missing(connection, "ops_alerts", "sent_ticket_id", "TEXT")
     _sqlite_add_column_if_missing(connection, "ops_alerts", "sent_tickets_json", "TEXT")
 
@@ -2027,6 +2049,14 @@ SINCE_ADDED_SPARK_MAX_CONTEXTS = 800
 SINCE_WATCHED_SPARK_POINTS = 30
 # eBay's "Card Condition" descriptor value a deal listing must carry.
 DEAL_REQUIRED_CARD_CONDITION = "near mint or better"
+# Deal-alert liveness sweep (_sweep_deal_alerts), run at the top of every deal
+# scan (4x/day). One getItem per open listing, oldest-checked first, capped per
+# run and charged to the scan's own eBay budget. A listing whose lookup fails
+# this many sweeps in a row is treated as removed; an alert this old retires
+# without a call (its market comparison is stale by then).
+DEAL_ALERT_SWEEP_MAX_CALLS = 150
+DEAL_ALERT_SWEEP_MAX_FAILURES = 2
+DEAL_ALERT_MAX_AGE_DAYS = 14
 SINCE_WATCHED_MAX_DAYS = 365
 # Extra calendar days below the 30-row sparkline window when its history read is
 # floored, so a card with a few missed sync days still fills 30 rows.
@@ -2246,6 +2276,21 @@ class AccountStorageTarget:
         return f"{self.store}:{self.object_path}"
 
 
+def _deal_alert_utc_iso(value: object) -> str | None:
+    """An eBay end date ("2026-10-01T12:00:00.000Z") as UTC isoformat, the same
+    shape as utc_now(), so the feed can compare it as text. None if unparsable."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
 def _deal_item_rejection_reason(item: dict[str, Any] | None) -> str | None:
     if not item:
         return "item_lookup_failed"
@@ -2258,6 +2303,44 @@ def _deal_item_rejection_reason(item: dict[str, Any] | None) -> str | None:
     converted = str(item.get("convertedFromCurrency") or "").strip().upper()
     if converted and converted != "USD":
         return f"currency:{converted}"
+    return None
+
+
+def _deal_alert_liveness_reason(
+    item: dict[str, Any],
+    *,
+    price_cents: int | None,
+    total_cents: int,
+    now_iso: str,
+) -> str | None:
+    """Why an alerted listing is no longer the deal it was, from its getItem
+    payload, or None while it still is. Ended/sold first, then format, then
+    the Near Mint / US gates the scan applies, then price."""
+    ends_at = _deal_alert_utc_iso(item.get("itemEndDate"))
+    if ends_at is not None and ends_at <= now_iso:
+        return "ended"
+    if str(item.get("availabilityStatus") or "").strip().upper() == "OUT_OF_STOCK":
+        return "sold_out"
+    options = [str(option).upper() for option in (item.get("buyingOptions") or [])]
+    # An auction+BIN listing loses its BIN at the first bid.
+    if options and "FIXED_PRICE" not in options:
+        return "auction"
+    rejection = _deal_item_rejection_reason(item)
+    if rejection:
+        return rejection
+    price = item.get("priceAmount")
+    if isinstance(price, (int, float)):
+        now_price = int(round(float(price) * 100))
+        if price_cents is not None:
+            if now_price > int(price_cents):
+                return "repriced"
+        else:
+            shipping = item.get("shippingAmount")
+            now_shipping = (
+                int(round(float(shipping) * 100)) if isinstance(shipping, (int, float)) else 0
+            )
+            if now_price + now_shipping > int(total_cents):
+                return "repriced"
     return None
 
 
@@ -2662,7 +2745,7 @@ class SpotlightScanService:
         cell = watch_printings.latest_printing_price(self.connection, card_id, variant_key)
         if cell is not None:
             return round(float(cell["market"]), 2), utc_now()[:10]
-        label = scrydex_variant_label_for_subtype(variant_key) or variant_key
+        label = watch_printings.printing_label(variant_key)
         try:
             pricing = self._display_pricing_summary_for_context(
                 card_id,
@@ -2677,6 +2760,24 @@ class SpotlightScanService:
             return None, None
         price = self._history_primary_price_value(pricing)
         return (price, utc_now()[:10]) if price is not None else (None, None)
+
+    @staticmethod
+    def _watch_printing_labels(variant_keys: list[str]) -> dict[str, str]:
+        """{stored watch key: PDP picker label} for printing watches — the
+        picker speaks Scrydex labels ("First Edition") while a watch is stored
+        under its TCGplayer key ("1st Edition"), so the app maps with this
+        instead of comparing the two spellings."""
+        return {
+            key: label
+            for key in variant_keys
+            if key and (label := watch_printings.printing_label(key))
+        }
+
+    def _watch_market_prices(self, variant_keys: list[str], card_id: str) -> dict[str, float | None]:
+        """{printing watch key: that printing's current market}; '' omitted."""
+        return {
+            key: self._watch_printing_baseline(card_id, key)[0] for key in variant_keys if key
+        }
 
     def _favorite_rows_by_card_id(
         self,
@@ -2728,6 +2829,9 @@ class SpotlightScanService:
         cls,
         favorite_row: sqlite3.Row | None,
         pricing: dict[str, Any] | None,
+        *,
+        current_price: float | None = None,
+        use_current_price: bool = False,
     ) -> dict[str, Any] | None:
         """PDP "since wishlisted" context: the requester's favorite-day baseline
         vs the detail's already-resolved display pricing. None when the
@@ -2740,7 +2844,9 @@ class SpotlightScanService:
             cls._since_added_change(
                 baseline_price=favorite_row["added_market_price"],
                 baseline_date=favorite_row["added_market_date"],
-                current_price=cls._history_primary_price_value(pricing),
+                current_price=(
+                    current_price if use_current_price else cls._history_primary_price_value(pricing)
+                ),
             )
         )
         return {
@@ -4223,10 +4329,28 @@ class SpotlightScanService:
                 if cls._row_value(row, "lowest_seen_cents") is not None
                 else None
             ),
+            # Which number baselineCents is: market | sales | added (null on
+            # legacy rows and new_low). Drives honest copy.
+            "baselineSource": cls._row_value(row, "baseline_source"),
+            # When the listing ends, and when the sweep found it dead. The
+            # feed already hides both; the client re-checks endsAt at tap time.
+            "listingEndsAt": cls._row_value(row, "listing_ends_at"),
+            "expiredAt": cls._row_value(row, "expired_at"),
             "createdAt": row["created_at"],
             "seenAt": row["seen_at"],
             "tappedAt": row["tapped_at"],
         }
+
+    def _deal_alert_live_clause(self) -> tuple[str, tuple[Any, ...]]:
+        """`AND ...` hiding expired / ended alerts, or '' on a pre-patch table."""
+        columns = _sqlite_table_columns(self.connection, "deal_alerts")
+        if "expired_at" not in columns or "listing_ends_at" not in columns:
+            return "", ()
+        return (
+            "AND deal_alerts.expired_at IS NULL "
+            "AND (deal_alerts.listing_ends_at IS NULL OR deal_alerts.listing_ends_at > ?)",
+            (utc_now(),),
+        )
 
     def deal_alerts(self, *, limit: int = DEFAULT_DEAL_ALERT_LIMIT) -> dict[str, Any]:
         owner_user_id = self._current_owner_user_id()
@@ -4237,6 +4361,9 @@ class SpotlightScanService:
         safe_limit = max(1, min(safe_limit, MAX_DEAL_ALERT_LIMIT))
         if not _sqlite_table_exists(self.connection, "deal_alerts"):
             return {"alerts": [], "limit": safe_limit, "unseenCount": 0}
+        # A dead listing never shows: swept as expired, or past its end time
+        # (between sweeps). Tapping one lands on eBay's "similar items" page.
+        live, live_params = self._deal_alert_live_clause()
         rows = self.connection.execute(
             f"""
             SELECT deal_alerts.*,
@@ -4245,15 +4372,16 @@ class SpotlightScanService:
             LEFT JOIN cards ON cards.id = deal_alerts.card_id
             WHERE deal_alerts.owner_user_id = ?
               AND deal_alerts.dismissed_at IS NULL
+              {live}
             ORDER BY deal_alerts.created_at DESC, deal_alerts.id ASC
             LIMIT ?
             """,
-            (owner_user_id, safe_limit),
+            (owner_user_id, *live_params, safe_limit),
         ).fetchall()
         unseen = self.connection.execute(
             "SELECT COUNT(*) FROM deal_alerts "
-            "WHERE owner_user_id = ? AND seen_at IS NULL AND dismissed_at IS NULL",
-            (owner_user_id,),
+            f"WHERE owner_user_id = ? AND seen_at IS NULL AND dismissed_at IS NULL {live}",
+            (owner_user_id, *live_params),
         ).fetchone()
         return {
             "alerts": [self._deal_alert_payload(row) for row in rows],
@@ -4775,13 +4903,17 @@ class SpotlightScanService:
                 kinds=(market_alerts.KIND_DEAL,),
                 transport=transport,
             )
+        source = (
+            "deal_alerts.baseline_source" if "baseline_source" in columns else "NULL"
+        )
         rows = connection.execute(
-            """
+            f"""
             SELECT deal_alerts.id AS id,
                    deal_alerts.owner_user_id AS owner_user_id,
                    deal_alerts.card_id AS card_id,
                    deal_alerts.total_cents AS total_cents,
                    deal_alerts.discount_pct AS discount_pct,
+                   {source} AS baseline_source,
                    cards.name AS card_name
             FROM deal_alerts
             LEFT JOIN cards ON cards.id = deal_alerts.card_id
@@ -4805,6 +4937,7 @@ class SpotlightScanService:
                     else None
                 ),
                 card_id=str(row["card_id"] or "") or None,
+                baseline_source=row["baseline_source"],
             )
             for row in rows
         ]
@@ -4949,15 +5082,21 @@ class SpotlightScanService:
         """
         created = 0
         for signal in signals:
+            price_cents = getattr(signal, "price_cents", None)
             cursor = connection.execute(
                 """
                 INSERT OR IGNORE INTO deal_alerts (
                     id, owner_user_id, card_id, listing_id, kind, total_cents,
                     baseline_cents, market_cents, discount_pct, savings_cents,
                     url, verification_tier, created_at,
-                    variant_key, tier, tier_label, lowest_seen_cents
+                    variant_key, tier, tier_label, lowest_seen_cents,
+                    listing_ends_at, buying_option, price_cents, shipping_cents,
+                    baseline_source
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?
+                )
                 """,
                 (
                     uuid.uuid4().hex,
@@ -4977,6 +5116,15 @@ class SpotlightScanService:
                     getattr(signal, "tier", None),
                     getattr(signal, "tier_label", None),
                     getattr(signal, "lowest_seen_cents", None),
+                    _deal_alert_utc_iso(getattr(signal, "ends_at", None)),
+                    "auction" if getattr(signal, "is_auction", False) else "fixed_price",
+                    price_cents,
+                    (
+                        max(0, int(signal.total_cents) - int(price_cents))
+                        if price_cents is not None
+                        else None
+                    ),
+                    getattr(signal, "baseline_source", None),
                 ),
             )
             created += int(cursor.rowcount or 0)
@@ -5078,6 +5226,123 @@ class SpotlightScanService:
                     print(f"[watch] dropped deal listing {lid}: {item_checks[lid]}")
         return {lid for lid in listing_ids if item_checks.get(lid)}
 
+    def _sweep_deal_alerts(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        now: datetime,
+        max_calls: int,
+        fetch_json: Any | None = None,
+    ) -> dict[str, Any]:
+        """Retire alerts whose listing is gone, so the feed never offers a dead
+        link (on 2026-09-29 staging, 14 of 27 alerted listings had ended).
+
+        Idempotent; every step only touches open (`expired_at IS NULL`) rows:
+          1. no call: past its stored end time -> `ended`; stored auction ->
+             `auction`; older than DEAL_ALERT_MAX_AGE_DAYS -> `aged_out`.
+          2. getItem per open, undismissed listing (oldest-checked first, at most
+             `max_calls`): ended, sold out, auction-only, not Near Mint / not US,
+             or repriced above the alert -> expired with that reason. This is
+             also what clears the pre-9/23 played-condition and auction alerts.
+        A lookup that fails DEAL_ALERT_SWEEP_MAX_FAILURES sweeps running
+        (getItem 404s on a removed listing) expires as `removed`; a sweep where
+        EVERY lookup of several fails is an outage and counts nothing."""
+        summary: dict[str, Any] = {"calls": 0, "checked": 0, "expired": 0, "reasons": {}}
+        if not _sqlite_table_exists(connection, "deal_alerts"):
+            return summary
+        if "expired_at" not in _sqlite_table_columns(connection, "deal_alerts"):
+            return summary
+        now_utc = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+        now_iso = now_utc.astimezone(timezone.utc).isoformat()
+        reasons: dict[str, int] = summary["reasons"]
+
+        def _expire(where: str, params: tuple[Any, ...], reason: str) -> None:
+            cursor = connection.execute(
+                f"UPDATE deal_alerts SET expired_at = ?, expired_reason = ? "
+                f"WHERE expired_at IS NULL AND {where}",
+                (now_iso, reason, *params),
+            )
+            count = int(cursor.rowcount or 0)
+            if count:
+                reasons[reason] = reasons.get(reason, 0) + count
+                summary["expired"] += count
+
+        _expire("listing_ends_at IS NOT NULL AND listing_ends_at <= ?", (now_iso,), "ended")
+        _expire("buying_option = 'auction'", (), "auction")
+        aged_cutoff = (now_utc - timedelta(days=DEAL_ALERT_MAX_AGE_DAYS)).isoformat()
+        _expire("created_at < ?", (aged_cutoff,), "aged_out")
+        connection.commit()
+
+        if max_calls <= 0 or _ebay_browse_ready_reason() is not None:
+            return summary
+        rows = connection.execute(
+            """
+            SELECT listing_id,
+                   MIN(COALESCE(checked_at, '')) AS last_checked,
+                   MIN(price_cents) AS price_cents,
+                   MIN(total_cents) AS total_cents
+            FROM deal_alerts
+            WHERE expired_at IS NULL AND dismissed_at IS NULL
+            GROUP BY listing_id
+            ORDER BY last_checked ASC, listing_id ASC
+            LIMIT ?
+            """,
+            (int(max_calls),),
+        ).fetchall()
+        if not rows:
+            return summary
+        legacy_by_listing = {
+            str(row["listing_id"]): (
+                str(row["listing_id"]).split("|")[1]
+                if "|" in str(row["listing_id"])
+                else str(row["listing_id"])
+            )
+            for row in rows
+        }
+        items = fetch_ebay_items_by_legacy_ids(
+            list(legacy_by_listing.values()),
+            fetch_json=fetch_json,
+            consumer=ebay_listings.EBAY_CONSUMER_WATCH_SCAN,
+        )
+        summary["calls"] = len(set(legacy_by_listing.values()))
+        outage = not items and len(rows) > 1
+        for row in rows:
+            listing_id = str(row["listing_id"])
+            item = items.get(legacy_by_listing[listing_id])
+            if item is None:
+                if outage:
+                    continue
+                connection.execute(
+                    "UPDATE deal_alerts SET check_failures = COALESCE(check_failures, 0) + 1, "
+                    "checked_at = ? WHERE listing_id = ? AND expired_at IS NULL",
+                    (now_iso, listing_id),
+                )
+                _expire(
+                    "listing_id = ? AND check_failures >= ?",
+                    (listing_id, DEAL_ALERT_SWEEP_MAX_FAILURES),
+                    "removed",
+                )
+                continue
+            summary["checked"] += 1
+            reason = _deal_alert_liveness_reason(
+                item,
+                price_cents=int(row["price_cents"]) if row["price_cents"] is not None else None,
+                total_cents=int(row["total_cents"] or 0),
+                now_iso=now_iso,
+            )
+            connection.execute(
+                "UPDATE deal_alerts SET checked_at = ?, check_failures = 0 "
+                "WHERE listing_id = ? AND expired_at IS NULL",
+                (now_iso, listing_id),
+            )
+            if reason:
+                _expire("listing_id = ?", (listing_id,), reason)
+                print(f"[watch] expired deal listing {listing_id}: {reason}")
+        connection.commit()
+        if outage:
+            print(f"[watch][WARN] deal-alert sweep: all {len(rows)} lookups failed; treated as outage")
+        return summary
+
     def run_deal_scan(
         self,
         *,
@@ -5169,6 +5434,16 @@ class SpotlightScanService:
             "spentToday": spent_today,
             "remainingCalls": remaining,
         }
+        if not dry_run:
+            # Retire dead alerts first, on the same budget the scan spends.
+            sweep = self._sweep_deal_alerts(
+                connection,
+                now=moment,
+                max_calls=min(DEAL_ALERT_SWEEP_MAX_CALLS, remaining),
+                fetch_json=fetch_json,
+            )
+            summary["alertSweep"] = sweep
+            remaining = max(0, remaining - int(sweep["calls"]))
 
         candidates_by_card: dict[str, list[dict[str, Any]]] = {}
         calls_made = 0
@@ -5238,8 +5513,10 @@ class SpotlightScanService:
         # listing_id -> rejection reason (None = passed), shared across owners.
         item_checks: dict[str, str | None] = {}
         for owner_user_id, rows in by_owner.items():
+            # The scan's clock, not the wall clock: an injected `now` read the
+            # re-arm window against today and re-alerted old listings.
             prior_alerts = watch_signals.recent_alerts_for_owner(
-                connection, owner_user_id
+                connection, owner_user_id, now=moment
             )
             # (listing, watch) pairs: a listing only meets the watches whose
             # printing its title matches (a "Reverse Holo" title never meets a
@@ -5946,6 +6223,212 @@ class SpotlightScanService:
         return slab_context
 
     def _display_pricing_summary_for_context(
+        self,
+        card_id: str,
+        *,
+        pricing_context: PricingContext,
+        snapshot_row: sqlite3.Row | None = None,
+        day_cells: list[Any] | None = None,
+        printing_cells: dict[tuple[str, str], dict[str, Any]] | None = None,
+    ) -> dict[str, Any] | None:
+        """``printing_cells``: a list page's batched ``_printing_cells_for_copies``
+        (absent pair = no cell); None looks the one pair up on demand."""
+        pricing = self._resolved_display_pricing_summary(
+            card_id,
+            pricing_context=pricing_context,
+            snapshot_row=snapshot_row,
+            day_cells=day_cells,
+        )
+        if (
+            pricing_context.is_graded
+            or not str(pricing_context.preferred_variant or "").strip()
+            or not raw_main_price_enabled()
+        ):
+            return pricing
+        return self._with_printing_cell_price(
+            card_id,
+            pricing,
+            pricing_context=pricing_context,
+            snapshot_row=snapshot_row,
+            day_cells=day_cells,
+            printing_cells=printing_cells,
+        )
+
+    def _printing_cell_key_for_copy(
+        self,
+        snapshot_row: Any,
+        variant: str | None,
+        *,
+        require_fresh_main: bool = True,
+    ) -> str | None:
+        """The raw_main cell key of a raw copy's printing when that printing is NOT
+        the card's main one (the main keeps its main-lane COALESCE untouched) and
+        the TCGCSV sync priced it. ``require_fresh_main`` applies the PDP ladder's
+        gate (a stale/absent main lane leaves every printing on Scrydex); history
+        reads skip it — cells are pinned to their own day, like the main lane's."""
+        variant = str(variant or "").strip()
+        if not variant or snapshot_row is None or not raw_main_price_enabled():
+            return None
+        if require_fresh_main and resolve_main_raw_summary_from_row(snapshot_row) is None:
+            return None
+        if _is_default_main_raw_read(
+            variant=variant,
+            condition=None,
+            main_raw_variant=_cell_field(snapshot_row, "main_raw_variant"),
+        ):
+            return None
+        return watch_printings.printing_cell_key(
+            _cell_field(snapshot_row, "main_raw_printings_json"), variant
+        )
+
+    def _printing_cells_for_copies(
+        self,
+        pairs: Iterable[tuple[Any, Any]],
+        snapshot_rows: dict[str, sqlite3.Row],
+    ) -> dict[tuple[str, str], dict[str, Any]]:
+        """``{(card_id, variant_name): latest raw_main cell}`` for a list page's
+        raw non-main-printing copies — two queries total."""
+        if not raw_main_price_enabled():
+            return {}
+        key_by_pair: dict[tuple[str, str], str] = {}
+        for card_id, variant in pairs:
+            card_id = str(card_id or "").strip()
+            variant = str(variant or "").strip()
+            if not card_id or not variant or (card_id, variant) in key_by_pair:
+                continue
+            key = self._printing_cell_key_for_copy(snapshot_rows.get(card_id), variant)
+            if key:
+                key_by_pair[(card_id, variant)] = key
+        if not key_by_pair:
+            return {}
+        cells = watch_printings.latest_printing_prices(
+            self.connection, [(card_id, key) for (card_id, _), key in key_by_pair.items()]
+        )
+        return {
+            pair: cells[(pair[0], key)]
+            for pair, key in key_by_pair.items()
+            if (pair[0], key) in cells
+        }
+
+    def _printing_points_for_copies(
+        self,
+        pairs: Iterable[tuple[Any, Any]],
+        *,
+        since: str | None,
+        snapshot_rows: dict[str, sqlite3.Row] | None = None,
+    ) -> dict[tuple[str, str], dict[str, dict[str, float | None]]]:
+        """``{(card_id, variant_name): {price_date: {market, low}}}`` — the raw_main
+        cells of each raw non-main-printing copy since ``since``, in one read.
+        Pairs whose printing has no cell are omitted."""
+        if not raw_main_price_enabled():
+            return {}
+        wanted: dict[tuple[str, str], None] = {}
+        for card_id, variant in pairs:
+            card_id = str(card_id or "").strip()
+            variant = str(variant or "").strip()
+            if card_id and variant:
+                wanted[(card_id, variant)] = None
+        if not wanted:
+            return {}
+        rows = snapshot_rows
+        if rows is None:
+            rows = self._price_snapshot_rows_by_card_id([card_id for card_id, _ in wanted])
+        key_by_pair: dict[tuple[str, str], str] = {}
+        for card_id, variant in wanted:
+            key = self._printing_cell_key_for_copy(
+                rows.get(card_id), variant, require_fresh_main=False
+            )
+            if key:
+                key_by_pair[(card_id, variant)] = key
+        if not key_by_pair:
+            return {}
+        cells_by_card = watch_printings.raw_main_cells_by_card(
+            self.connection, sorted({card_id for card_id, _ in key_by_pair}), since=since
+        )
+        result: dict[tuple[str, str], dict[str, dict[str, float | None]]] = {}
+        for pair, key in key_by_pair.items():
+            points = watch_printings.printing_points_by_date(cells_by_card.get(pair[0]) or {}, key)
+            if points:
+                result[pair] = points
+        return result
+
+    def _with_printing_cell_price(
+        self,
+        card_id: str,
+        pricing: dict[str, Any] | None,
+        *,
+        pricing_context: PricingContext,
+        snapshot_row: sqlite3.Row | None,
+        day_cells: list[Any] | None,
+        printing_cells: dict[tuple[str, str], dict[str, Any]] | None,
+    ) -> dict[str, Any] | None:
+        """A raw read of a NON-main printing with its own TCGCSV raw_main cell
+        prices from that cell — the number the PDP shows for that printing — by
+        the rule in catalog_tools.apply_printing_point. Anything else returns
+        ``pricing`` untouched."""
+        variant = str(pricing_context.preferred_variant or "").strip()
+        if printing_cells is not None:
+            cell = printing_cells.get((card_id, variant))
+        else:
+            if snapshot_row is None:
+                snapshot_row = price_snapshot_row(self.connection, card_id)
+            key = self._printing_cell_key_for_copy(snapshot_row, variant)
+            cell = (
+                watch_printings.latest_printing_price(self.connection, card_id, key)
+                if key
+                else None
+            )
+        if cell is None:
+            return pricing
+        condition = pricing_context.preferred_condition
+        is_nm = (
+            not str(condition or "").strip()
+            or _normalized_condition_code(condition) == DEFAULT_RAW_CONDITION
+        )
+        if not is_nm:
+            # What Scrydex has for this printing + condition, resolved the way the
+            # served price was (cells when pre-fetched, else the snapshot blobs).
+            if snapshot_row is None:
+                snapshot_row = price_snapshot_row(self.connection, card_id)
+            if price_history_cells_enabled() and day_cells:
+                scrydex_variant, scrydex_condition, scrydex_summary = resolve_raw_summary_from_cells(
+                    day_cells, variant=variant, condition=condition
+                )
+            elif snapshot_row is not None:
+                scrydex_variant, scrydex_condition, scrydex_summary = _resolve_raw_context_summary(
+                    _raw_contexts_payload(snapshot_row["raw_contexts_json"]),
+                    variant=variant,
+                    condition=condition,
+                )
+            else:
+                scrydex_variant = scrydex_condition = scrydex_summary = None
+            if not printing_cell_serves_condition(
+                self.connection,
+                condition=condition,
+                printing_market=cell.get("market"),
+                scrydex_variant=scrydex_variant,
+                scrydex_condition=scrydex_condition,
+                scrydex_summary=scrydex_summary,
+                variant=variant,
+            ):
+                return pricing
+        base = dict(pricing) if isinstance(pricing, dict) else {
+            "id": card_id,
+            "cardID": card_id,
+            "pricingMode": RAW_PRICING_MODE,
+        }
+        summary = watch_printings.printing_pricing_summary(
+            cell, label=_normalized_variant_label(variant), base=base
+        )
+        summary["mainPriceSource"] = RAW_MAIN_PRICE_SOURCE_TCGCSV
+        if not is_nm:
+            # The printing's NM standing in for an unpriced/out-of-scale condition
+            # (the resolver's own best-available fallback, which never stamps a
+            # condition) — an "NM" stamp would make the app blank the copy.
+            summary.pop("condition", None)
+        return summary
+
+    def _resolved_display_pricing_summary(
         self,
         card_id: str,
         *,
@@ -7837,20 +8320,34 @@ class SpotlightScanService:
         # lane IS the NM price, so the like-for-like guard below treats it as an
         # exact NM resolution.
         main_market = main_raw_history_market(row, variant=variant_name, condition=condition_code)
+        resolved_variant: str | None = None
         if main_market is not None:
             resolved_condition = DEFAULT_RAW_CONDITION
             summary = {"currencyCode": "USD", "market": main_market, "payload": {}}
         elif use_cells:
-            _, resolved_condition, summary = resolve_raw_summary_from_cells(
+            resolved_variant, resolved_condition, summary = resolve_raw_summary_from_cells(
                 day_cells,
                 variant=variant_name,
                 condition=condition_code,
             )
         else:
-            _, resolved_condition, summary = _resolve_raw_context_summary(
+            resolved_variant, resolved_condition, summary = _resolve_raw_context_summary(
                 _raw_contexts_payload(row["raw_contexts_json"]),
                 variant=variant_name,
                 condition=condition_code,
+            )
+        printing_points = entry.get("printingPoints")
+        if main_market is None and printing_points:
+            # Owned non-main printing: that day's TCGCSV cell, by the same rule as
+            # its current price (catalog_tools.apply_printing_point).
+            _, resolved_condition, summary = apply_printing_point(
+                self.connection,
+                point=printing_points.get(str(row["price_date"])[:10]),
+                variant=variant_name,
+                condition=condition_code,
+                resolved_variant=resolved_variant,
+                resolved_condition=resolved_condition,
+                summary=summary,
             )
         # Like-for-like guard: when an exact condition is required, bail out if the
         # resolver had to substitute a different condition (the phantom-delta bug).
@@ -8389,8 +8886,11 @@ class SpotlightScanService:
         time_zone_name: str | None = None,
         yesterday_rows_by_card_id: dict[str, sqlite3.Row | None] | None = None,
         yesterday_cells_by_card_id: dict[str, list[Any]] | None = None,
+        printing_points: dict[str, dict[str, Any]] | None = None,
     ) -> tuple[float | None, float | None]:
         """Compute (dayChangeAmount, dayChangePercent) for a single inventory entry.
+        ``printing_points``: a non-main printing copy's TCGCSV cells by date
+        (``_printing_points_for_copies``), so yesterday prices like today.
 
         Returns ``(None, None)`` when no yesterday snapshot exists (e.g. the
         daily snapshot job has not run on this server yet) or when today's
@@ -8437,6 +8937,7 @@ class SpotlightScanService:
             "grader": grader,
             "grade": grade,
             "variantName": effective_variant,
+            "printingPoints": printing_points,
         }
         yesterday_pricing = self._portfolio_history_price_row_from_history_row(
             history_entry,
@@ -8896,6 +9397,23 @@ class SpotlightScanService:
         cells_by_card_date = self._range_scoped_cells_by_card_date(
             history_rows_by_card_id, start_date=start_date, end_date=end_date
         )
+        # Raw copies of a non-main printing chart from that printing's TCGCSV
+        # cells (the carry-in row can predate the window, hence the slack).
+        printing_points = self._printing_points_for_copies(
+            [
+                (snapshot.get("cardID"), snapshot.get("variantName"))
+                for snapshot in snapshot_by_id.values()
+                if str(snapshot.get("itemKind") or "").strip().lower() != "slab"
+                and not (snapshot.get("grader") or snapshot.get("grade"))
+            ],
+            since=(start_date - timedelta(days=14)).isoformat(),
+        )
+        for snapshot in snapshot_by_id.values():
+            copy_points = printing_points.get(
+                (str(snapshot.get("cardID") or ""), str(snapshot.get("variantName") or ""))
+            )
+            if copy_points and str(snapshot.get("itemKind") or "").strip().lower() != "slab":
+                snapshot["printingPoints"] = copy_points
         price_series_by_context: dict[tuple[str, str, str, str, str, str], list[dict[str, Any] | None]] = {}
         for deck_entry_id, snapshot in snapshot_by_id.items():
             context_conditions = condition_codes_by_entry_id.get(deck_entry_id) or {None}
@@ -8940,8 +9458,10 @@ class SpotlightScanService:
                 # replace_in/replace_out move quantity between entries when a
                 # replace changes identity (e.g. the PDP EN/JP swap). Ignoring
                 # them froze the OLD entry's holding in the history forever and
-                # never counted the new one.
-                if kind in {"add", "buy", "sale", "seed", "replace_in", "replace_out"}:
+                # never counted the new one. A plain "replace" (same-identity
+                # edit, e.g. the PDP quantity stepper) carries the quantity
+                # delta too; ignoring it kept the pre-edit quantity on the chart.
+                if kind in {"add", "buy", "sale", "seed", "replace", "replace_in", "replace_out"}:
                     state["quantity"] = int(state.get("quantity") or 0) + int(event.get("quantityDelta") or 0)
                 if kind in {"add", "buy"}:
                     added_quantity = int(event.get("quantityDelta") or 0)
@@ -8970,6 +9490,9 @@ class SpotlightScanService:
                                 + (float(event_unit_price) * abs(int(event.get("quantityDelta") or 0))),
                                 2,
                             )
+                if kind == "replace" and isinstance(event.get("totalPrice"), (int, float)):
+                    # A same-identity replace rewrites the entry's whole cost basis.
+                    state["cost_basis_total"] = round(float(event["totalPrice"]), 2)
                 if kind == "sale":
                     sale_cost_basis_total = event.get("costBasisTotal")
                     if isinstance(sale_cost_basis_total, (int, float)):
@@ -8997,6 +9520,7 @@ class SpotlightScanService:
                     "grader": snapshot.get("grader"),
                     "grade": snapshot.get("grade"),
                     "variantName": snapshot.get("variantName"),
+                    "printingPoints": snapshot.get("printingPoints"),
                 }
                 context_key = self._portfolio_history_context_key(context_entry, condition_code=condition_code)
                 if context_key is None:
@@ -9185,6 +9709,10 @@ class SpotlightScanService:
             self.connection,
             [str(row["card_id"] or "").strip() for row in [*buy_rows, *sale_rows]],
         )
+        printing_images_by_key = printing_images.printing_images_for(
+            self.connection,
+            [(row["card_id"], row["variant_name"]) for row in [*buy_rows, *sale_rows]],
+        )
 
         def _payload_for_transaction_row(row: sqlite3.Row) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
             card_id = str(row["card_id"] or "").strip()
@@ -9246,6 +9774,9 @@ class SpotlightScanService:
                     "id": str(row["id"] or "").strip(),
                     "kind": "buy",
                     "card": card_payload,
+                    **printing_images.printing_image_fields(
+                        printing_images_by_key, row["card_id"], row["variant_name"]
+                    ),
                     "slabContext": slab_context,
                     "condition": self._normalized_deck_card_condition(row["condition"]),
                     "quantity": quantity,
@@ -9304,6 +9835,9 @@ class SpotlightScanService:
                     "id": str(row["id"] or "").strip(),
                     "kind": "sell",
                     "card": card_payload,
+                    **printing_images.printing_image_fields(
+                        printing_images_by_key, row["card_id"], row["variant_name"]
+                    ),
                     "slabContext": slab_context,
                     "condition": self._normalized_deck_card_condition(row["condition"]),
                     "quantity": quantity,
@@ -10947,6 +11481,7 @@ class SpotlightScanService:
                     (resolved_deck_entry_id, owner_user_id),
                 )
             else:
+                updated_at = utc_now()
                 self.connection.execute(
                     """
                     UPDATE deck_entries
@@ -10954,8 +11489,26 @@ class SpotlightScanService:
                     WHERE id = ?
                       AND owner_user_id = ?
                     """,
-                    (quantity, utc_now(), resolved_deck_entry_id, owner_user_id),
+                    (quantity, updated_at, resolved_deck_entry_id, owner_user_id),
                 )
+                # Portfolio history replays the ledger, not the row: without an
+                # event the chart kept the old quantity forever.
+                previous_quantity = max(0, int(existing_row["quantity"] or 0))
+                if quantity != previous_quantity:
+                    append_deck_entry_event(
+                        self.connection,
+                        owner_user_id=owner_user_id,
+                        deck_entry_id=resolved_deck_entry_id,
+                        card_id=resolved_card_id,
+                        event_kind="replace",
+                        quantity_delta=quantity - previous_quantity,
+                        condition=str(existing_row["condition"] or "").strip() or None,
+                        grader=str(existing_row["grader"] or "").strip() or None,
+                        grade=str(existing_row["grade"] or "").strip() or None,
+                        cert_number=str(existing_row["cert_number"] or "").strip() or None,
+                        variant_name=str(existing_row["variant_name"] or "").strip() or None,
+                        created_at=updated_at,
+                    )
             self.connection.commit()
         except Exception:
             self.connection.rollback()
@@ -11523,6 +12076,19 @@ class SpotlightScanService:
                 if cells_prefetched
                 else {}
             )
+            # Non-main printing copies: the past price comes from the printing's
+            # TCGCSV cells, like the current one.
+            printing_points = self._printing_points_for_copies(
+                [
+                    (
+                        str((entry.get("card") or {}).get("id") or "").strip(),
+                        entry.get("variantName"),
+                    )
+                    for entry in entries
+                    if not entry.get("slabContext")
+                ],
+                since=(today - timedelta(days=60)).isoformat(),
+            )
 
             for entry in entries:
                 card = entry.get("card") or {}
@@ -11543,6 +12109,11 @@ class SpotlightScanService:
                     "grader": slab_context.get("grader"),
                     "grade": slab_context.get("grade"),
                     "variantName": entry.get("variantName"),
+                    "printingPoints": (
+                        None
+                        if slab_context
+                        else printing_points.get((card_id, str(entry.get("variantName") or "")))
+                    ),
                 }
                 past_date = str(past_row["price_date"] or "").strip()
                 past_pricing = self._portfolio_history_price_row_from_history_row(
@@ -16746,6 +17317,8 @@ class SpotlightScanService:
         )
         favorite_rows = self._favorite_rows_for_card(card_id, owner_user_id=owner_user_id)
         favorite_row = favorite_rows[0] if favorite_rows else None
+        watched_keys = [str(row["variant_key"] or "") for row in favorite_rows]
+        watch_market_prices = self._watch_market_prices(watched_keys, card_id)
         like_row = self._like_row(card_id, owner_user_id=owner_user_id)
         resolved_variant = pricing_context.preferred_variant or (str((pricing or {}).get("variant") or "").strip() or None)
         # Graded-only grails have no raw price, so the raw-lane PDP would be blank.
@@ -16816,7 +17389,19 @@ class SpotlightScanService:
             # The requester's wishlist baseline (null when unfavorited) so the
             # PDP can render "since wishlisted" for cards the viewer does not
             # own. Same serve-time arithmetic as the favorites list serializer.
-            "favoriteContext": self._favorite_context_payload(favorite_row, pricing),
+            "favoriteContext": self._favorite_context_payload(
+                favorite_row,
+                pricing,
+                # A printing watch's baseline is that printing's price, so its
+                # "since watched" must compare against the same printing.
+                current_price=(
+                    watch_market_prices.get(str(favorite_row["variant_key"] or ""))
+                    if favorite_row is not None and str(favorite_row["variant_key"] or "")
+                    else None
+                ),
+                use_current_price=favorite_row is not None
+                and bool(str(favorite_row["variant_key"] or "")),
+            ),
             # The watch target rides on the detail payload so the PDP control can
             # render its state without fetching the whole watchlist to read one
             # field. Null when unwatched or when no target is set.
@@ -16833,6 +17418,11 @@ class SpotlightScanService:
             },
             # The printing a '' (main-printing) watch is on, or null when unknown.
             "mainPrinting": watch_printings.main_printing_key(self.connection, card_id),
+            # {printing watch key: current market} and {key: picker label}: the
+            # target prompt quotes the watched printing, and the picker's
+            # "First Edition" finds its "1st Edition" watch by label.
+            "watchMarketPrices": watch_market_prices,
+            "watchPrintingLabels": self._watch_printing_labels(watched_keys),
             "isLiked": like_row is not None,
             "likedAt": like_row["created_at"] if like_row is not None else None,
             "cardText": card_text_from_card(resolved_card),
@@ -16991,12 +17581,22 @@ class SpotlightScanService:
             str(row["variant_key"] or "")
             for row in self._favorite_rows_for_card(normalized_card_id, owner_user_id=owner_user_id)
         ]
-        return self._favorite_state_payload(
+        payload = self._favorite_state_payload(
             normalized_card_id,
             existing_row,
             variant_key=variant_key,
             watched_variants=watched,
         )
+        # The price the watch is judged against, for the post-watch target
+        # prompt ("Market $X"). A printing watch quotes ITS printing; null for
+        # the main printing (the card's headline price already is that).
+        payload["watchMarketPrice"] = (
+            self._watch_printing_baseline(normalized_card_id, variant_key)[0]
+            if variant_key
+            else None
+        )
+        payload["watchPrintingLabels"] = self._watch_printing_labels(watched)
+        return payload
 
     def set_card_like(self, card_id: str, *, is_liked: bool | None = None) -> dict[str, Any]:
         """Toggle/set the PDP heart "like" (card_likes) — the public social signal,
@@ -19649,7 +20249,8 @@ class SpotlightScanService:
             sale_events.voided_at,
             deck_entries.grader,
             deck_entries.grade,
-            deck_entries.condition
+            deck_entries.condition,
+            deck_entries.variant_name
         """
         if has_columns:
             sale_select_columns += """,
@@ -20200,9 +20801,22 @@ class SpotlightScanService:
                     }
                 )
 
+            # A non-main printing's baseline comes from its TCGCSV cells, like its price.
+            baseline_printing_points = self._printing_points_for_copies(
+                [
+                    (job["card_id"], job["variant_name"])
+                    for job in jobs
+                    if job["kind"] == "deck"
+                    and job["item_kind"] != "slab"
+                    and not (job["grader"] or job["grade"])
+                ],
+                since=None,
+            )
+
             def _resolve_from_row(job: dict[str, Any], history_row: Any) -> tuple[float | None, str | None]:
                 if history_row is None:
                     return None, None
+                is_slab = job["item_kind"] == "slab" or bool(job["grader"] or job["grade"])
                 pricing = self._portfolio_history_price_row_from_history_row(
                     {
                         "cardID": job["card_id"],
@@ -20210,6 +20824,13 @@ class SpotlightScanService:
                         "grader": job["grader"],
                         "grade": job["grade"],
                         "variantName": job["variant_name"],
+                        "printingPoints": (
+                            None
+                            if is_slab or job["kind"] != "deck"
+                            else baseline_printing_points.get(
+                                (job["card_id"], str(job["variant_name"] or ""))
+                            )
+                        ),
                     },
                     row=history_row,
                     condition_code=self._portfolio_condition_code(job["condition"]),
@@ -20708,7 +21329,13 @@ class SpotlightScanService:
     # and the next read recomputes. The orphans are pruned at startup.
     # 3: deck entries / favorites gained sinceAddedPoints / sinceWatchedPoints
     # (2026-09-23 — the Collection list sparkline never showed until this).
-    PAYLOAD_CACHE_GENERATION = 3
+    # 4: deck entries / favorites gained printingImageUrl (alt-art owned copies).
+    # 5: owned "First Edition"/"Unlimited" copies take the TCGCSV main price
+    # when the main subtype is "1st Edition"/"Unlimited Holofoil"; label-keyed
+    # raw_main cells (alt arts) feed their printing's history.
+    # 6: owned copies of a non-main printing (alt arts, stamped promos) price and
+    # chart from that printing's TCGCSV raw_main cells.
+    PAYLOAD_CACHE_GENERATION = 6
 
     def _payload_cache_path(self, namespace: str, cache_key: Any, version: str) -> Path | None:
         root = getattr(self, "_payload_cache_root", None)
@@ -21078,10 +21705,22 @@ class SpotlightScanService:
             except (TypeError, ValueError):
                 profit_dollars = None
 
+        try:
+            variant_name = str(row["variant_name"] or "").strip() or None
+        except (IndexError, KeyError):
+            variant_name = None
+        # Per-row is fine: few rows get here, and base-art printings skip the query.
+        printing_image_payload = printing_images.printing_image_fields(
+            printing_images.printing_images_for(self.connection, [(card_id, variant_name)]),
+            card_id,
+            variant_name,
+        )
+
         return {
             "id": str(row["id"] or "").strip(),
             "kind": "sell",
             "card": card_payload,
+            **printing_image_payload,
             "slabContext": slab_context,
             "condition": condition,
             "quantity": quantity,
@@ -21926,12 +22565,35 @@ class SpotlightScanService:
             ).fetchall()
         }
         cards_by_id_map = cards_by_ids(self.connection, deck_card_ids)
+        # Alt-art copies show their printing's own art (one batched lookup).
+        printing_images_by_key = printing_images.printing_images_for(
+            self.connection, [(row["card_id"], row["variant_name"]) for row in rows]
+        )
         price_snapshot_rows = self._price_snapshot_rows_by_card_id(deck_card_ids)
         # Cells-first current price: pre-fetch each card's latest-day cells in two
         # bulk queries so the per-row pricing resolver never reads the fat
         # raw/graded context blobs off cold disk and never issues a per-card cell
         # query (no N+1). Empty in JSON mode → resolver keeps its JSON-blob path.
         latest_day_cells_by_card_id = self._latest_day_cells_by_card_id(deck_card_ids)
+        # Raw copies of a non-main printing (Alt Art, stamped promos) price and
+        # chart from that printing's own TCGCSV cells, batched.
+        raw_printing_pairs = [
+            (row["card_id"], row["variant_name"])
+            for row in rows
+            if not (str(row["grader"] or "").strip() or str(row["grade"] or "").strip())
+        ]
+        printing_cells = self._printing_cells_for_copies(raw_printing_pairs, price_snapshot_rows)
+        printing_points = (
+            self._printing_points_for_copies(
+                raw_printing_pairs,
+                since=(
+                    datetime.now(timezone.utc).date() - timedelta(days=SINCE_WATCHED_MAX_DAYS)
+                ).isoformat(),
+                snapshot_rows=price_snapshot_rows,
+            )
+            if printing_cells
+            else {}
+        )
         favorite_rows_by_card_id = self._favorite_rows_by_card_id(
             deck_card_ids,
             owner_user_id=owner_user_id,
@@ -21988,6 +22650,12 @@ class SpotlightScanService:
                 pricing_context=pricing_context,
                 snapshot_row=price_snapshot_rows.get(card_id),
                 day_cells=latest_day_cells_by_card_id.get(card_id),
+                printing_cells=printing_cells,
+            )
+            entry_printing_points = (
+                printing_points.get((card_id, variant_name))
+                if variant_name and not (grader or grade)
+                else None
             )
 
             card_payload = self._candidate_base_payload(card, card)
@@ -22026,6 +22694,7 @@ class SpotlightScanService:
                     condition_code=condition,
                     today_pricing=pricing,
                     yesterday_rows_by_card_id=yesterday_rows_by_card_id,
+                    printing_points=entry_printing_points,
                 )
             else:
                 day_change_amount, day_change_percent = None, None
@@ -22061,6 +22730,7 @@ class SpotlightScanService:
                         "grader": grader if is_graded_entry else None,
                         "grade": grade if is_graded_entry else None,
                         "since": since_added_baseline_date,
+                        "printing_points": entry_printing_points,
                     }
                 )
 
@@ -22092,6 +22762,9 @@ class SpotlightScanService:
                         else None
                     ),
                     "variantName": variant_name,
+                    **printing_images.printing_image_fields(
+                        printing_images_by_key, card_id, variant_name
+                    ),
                     "slabContext": slab_context,
                     "condition": condition,
                     "quantity": quantity,
@@ -22577,11 +23250,31 @@ class SpotlightScanService:
 
         card_ids = [str(row["card_id"] or "").strip() for row in rows]
         cards_by_id_map = cards_by_ids(self.connection, card_ids)
+        printing_images_by_key = printing_images.printing_images_for(
+            self.connection, [(row["card_id"], row["variant_name"]) for row in rows]
+        )
         price_snapshot_rows = self._price_snapshot_rows_by_card_id(card_ids)
         # Cells-first current price (same bulk prefetch as deck_entries) so the
         # "Current" column resolves without cold JSON-blob reads. Empty in JSON
         # mode → resolver keeps its JSON-blob path.
         latest_day_cells_by_card_id = self._latest_day_cells_by_card_id(card_ids)
+        # Raw copies of a non-main printing: that printing's TCGCSV cells, batched.
+        raw_printing_pairs = [
+            (row["card_id"], row["variant_name"])
+            for row in rows
+            if str(row["item_kind"] or "").strip().lower() != "slab"
+            and not (str(row["grader"] or "").strip() or str(row["grade"] or "").strip())
+        ]
+        printing_cells = self._printing_cells_for_copies(raw_printing_pairs, price_snapshot_rows)
+        printing_points = (
+            self._printing_points_for_copies(
+                raw_printing_pairs,
+                since=(now.date() - timedelta(days=year_days)).isoformat(),
+                snapshot_rows=price_snapshot_rows,
+            )
+            if printing_cells
+            else {}
+        )
 
         provider = pricing_provider()
         result_rows: list[dict[str, Any]] = []
@@ -22620,6 +23313,9 @@ class SpotlightScanService:
                     "condition": None if is_graded else condition,
                     "grader": grader if is_graded else None,
                     "grade": grade if is_graded else None,
+                    "printing_points": (
+                        None if is_graded else printing_points.get((card_id, variant_name or ""))
+                    ),
                 }
             )
         history_rows_by_entry = price_history_rows_for_cards_batched(
@@ -22667,6 +23363,7 @@ class SpotlightScanService:
                 pricing_context=pricing_context,
                 snapshot_row=price_snapshot_rows.get(card_id),
                 day_cells=latest_day_cells_by_card_id.get(card_id),
+                printing_cells=printing_cells,
             )
             current_price = self._primary_price_value(pricing)
             if isinstance(pricing, dict):
@@ -22785,6 +23482,9 @@ class SpotlightScanService:
                     # the full-size scan; imageUrl stays full-size for the PDP
                     # preview handoff.
                     "smallImageUrl": card.get("imageSmallURL"),
+                    **printing_images.printing_image_fields(
+                        printing_images_by_key, card_id, variant_name
+                    ),
                     "quantity": quantity,
                     "kind": "graded" if is_graded else "raw",
                     "variantName": variant_name,
@@ -22917,6 +23617,28 @@ class SpotlightScanService:
         # slab context, raw copies a condition, and the price/day-change is computed in
         # the owned lane. Unowned favorites stay on the raw lane with no grade.
         owned_summary = self._owned_deck_summary_by_card_id(owner_user_id, card_ids_in_order)
+        # Rows priced on an owned raw copy of a non-main printing quote that
+        # printing's TCGCSV cells, like the Collection row (batched; printing
+        # watches below keep their own read).
+        owned_printing_pairs = [
+            (card_id, owned["variant_name"])
+            for card_id, owned in owned_summary.items()
+            if owned.get("variant_name") and not (owned.get("grader") or owned.get("grade"))
+        ]
+        owned_printing_cells = self._printing_cells_for_copies(
+            owned_printing_pairs, price_snapshot_rows
+        )
+        owned_printing_points = (
+            self._printing_points_for_copies(
+                owned_printing_pairs,
+                since=(
+                    datetime.now(timezone.utc).date() - timedelta(days=SINCE_WATCHED_MAX_DAYS)
+                ).isoformat(),
+                snapshot_rows=price_snapshot_rows,
+            )
+            if owned_printing_cells
+            else {}
+        )
         # Printing watches' own TCGplayer market, batched (was one query per row).
         printing_prices = watch_printings.latest_printing_prices(
             self.connection,
@@ -22925,6 +23647,37 @@ class SpotlightScanService:
                 for row in rows
                 if (variant_key := watch_printings.normalize_variant_key(row["variant_key"]))
             ],
+        )
+
+        # A printing watch's row series (sparkline, since-watched line, day
+        # change) come from ITS raw_main cells, like its price: the history
+        # resolver merges TCGCSV only for the card's main printing, so any other
+        # printing drew nothing, or a Scrydex line under a TCGCSV price.
+        printing_cells_by_card = watch_printings.raw_main_cells_by_card(
+            self.connection,
+            [
+                str(row["card_id"] or "").strip()
+                for row in rows
+                if watch_printings.normalize_variant_key(row["variant_key"])
+            ],
+            since=(
+                datetime.now(timezone.utc).date() - timedelta(days=SINCE_WATCHED_MAX_DAYS)
+            ).isoformat(),
+        )
+        printing_series: dict[str, tuple[Any, ...]] = {}
+
+        # A row on an alt-art printing (the watched printing, else the owned
+        # copy's) shows that printing's art; one batched lookup.
+        def _art_variant(row: sqlite3.Row) -> str | None:
+            card_id = str(row["card_id"] or "").strip()
+            watched = watch_printings.normalize_variant_key(row["variant_key"])
+            if watched:
+                return watched
+            owned = owned_summary.get(card_id)
+            return owned["variant_name"] if owned else None
+
+        printing_images_by_key = printing_images.printing_images_for(
+            self.connection, [(row["card_id"], _art_variant(row)) for row in rows]
         )
 
         entries: list[dict[str, Any]] = []
@@ -22953,7 +23706,7 @@ class SpotlightScanService:
                 # A PRINTING watch prices on that printing's raw lane whatever
                 # the owned copy is: the row is "this printing", not "my copy".
                 grader = grade = cert_number = None
-                variant_name = scrydex_variant_label_for_subtype(watch_variant) or watch_variant
+                variant_name = watch_printings.printing_label(watch_variant)
                 condition = None
                 item_kind = None
 
@@ -22974,7 +23727,27 @@ class SpotlightScanService:
                 pricing_context=pricing_context,
                 snapshot_row=price_snapshot_rows.get(card_id),
                 day_cells=latest_day_cells_by_card_id.get(card_id),
+                printing_cells={} if watch_variant else owned_printing_cells,
             )
+            owned_points = (
+                owned_printing_points.get((card_id, str(variant_name or "")))
+                if not watch_variant and not (grader or grade)
+                else None
+            )
+            # The watched printing's own TCGplayer market; '' keeps the card's
+            # main price exactly as before.
+            printing_cell = printing_prices.get((card_id, watch_variant)) if watch_variant else None
+            if printing_cell is not None:
+                # card.pricing is what the app renders, so it must quote the
+                # watched printing too — not a stale Scrydex context or, via the
+                # resolver's fallback, the card's default printing.
+                pricing = watch_printings.printing_pricing_summary(
+                    printing_cell, label=variant_name, base=pricing
+                )
+            elif watch_variant and pricing is not None and not self._raw_pricing_matches_context(
+                pricing, preferred_variant=variant_name, preferred_condition=None
+            ):
+                pricing = None  # never another printing's price
             card_payload = self._candidate_base_payload(card, card)
             if pricing is not None:
                 card_payload["pricing"] = pricing
@@ -22997,6 +23770,7 @@ class SpotlightScanService:
                 "variant_name": variant_name,
                 "condition_code": condition,
                 "today_pricing": pricing,
+                "printing_points": owned_points,
             }
 
             # Since-added baseline must live on the SAME lane the row's current
@@ -23011,10 +23785,14 @@ class SpotlightScanService:
             else:
                 baseline_price = row["added_market_price"]
                 baseline_date = row["added_market_date"]
-            # The watched printing's own TCGplayer market; '' keeps the card's
-            # main price exactly as before.
-            printing_cell = printing_prices.get((card_id, watch_variant)) if watch_variant else None
             market_price = round(float(printing_cell["market"]), 2) if printing_cell else None
+            printing_points = (
+                watch_printings.cells_for_printing(
+                    printing_cells_by_card.get(card_id) or {}, watch_variant
+                )
+                if printing_cell is not None
+                else ()
+            )
             if market_price is None:
                 market_price = self._history_primary_price_value(pricing)
             since_added_amount, since_added_percent, since_added_baseline_date = (
@@ -23025,7 +23803,9 @@ class SpotlightScanService:
                 )
             )
 
-            if len(spark_requests) < SINCE_ADDED_SPARK_MAX_CONTEXTS:
+            if printing_points:
+                printing_series[entry_key] = printing_points
+            elif len(spark_requests) < SINCE_ADDED_SPARK_MAX_CONTEXTS:
                 is_graded_entry = bool(grader or grade)
                 today_variant = (
                     str(pricing.get("variant") or "").strip() or None
@@ -23045,6 +23825,7 @@ class SpotlightScanService:
                         "grader": grader if is_graded_entry else None,
                         "grade": grade if is_graded_entry else None,
                         "since": since_added_baseline_date,
+                        "printing_points": owned_points,
                     }
                 )
 
@@ -23062,6 +23843,9 @@ class SpotlightScanService:
                     # Owned copy's print variant (e.g. "Holofoil") so the wishlist
                     # rows can render "Variant · Condition" like the Collection.
                     "variantName": variant_name,
+                    **printing_images.printing_image_fields(
+                        printing_images_by_key, card_id, _art_variant(row)
+                    ),
                     "dayChangeAmount": None,
                     "dayChangePercent": None,
                     "sinceAddedChangeAmount": since_added_amount,
@@ -23083,7 +23867,8 @@ class SpotlightScanService:
                     ),
                 }
             )
-            day_change_jobs.append((entries[-1], day_change_kwargs))
+            if not printing_points:
+                day_change_jobs.append((entries[-1], day_change_kwargs))
 
         self._apply_bulk_day_changes(day_change_jobs)
 
@@ -23099,8 +23884,53 @@ class SpotlightScanService:
             entry["sparkPoints"] = spark[0] if spark else None
             entry["sparkTrendPct"] = spark[1] if spark else None
             entry["sinceWatchedPoints"] = since_watched_by_key.get(key)
+            if key in printing_series:
+                entry.update(
+                    self._printing_watch_series_fields(
+                        printing_series[key], since=entry.get("sinceAddedBaselineDate")
+                    )
+                )
 
         return {"entries": entries, "limit": safe_limit, "offset": safe_offset}
+
+    @classmethod
+    def _printing_watch_series_fields(
+        cls, points: tuple[Any, ...], *, since: Any
+    ) -> dict[str, Any]:
+        """Spark / since-watched / day-change fields for a printing watch from
+        its raw_main cells (oldest->newest ``CellPoint``s), shaped like the
+        history-derived ones."""
+        priced = [(p.price_date, p.market_cents / 100.0) for p in points if p.market_cents]
+        fields: dict[str, Any] = {
+            "sparkPoints": None,
+            "sparkTrendPct": None,
+            "sinceWatchedPoints": None,
+            "dayChangeAmount": None,
+            "dayChangePercent": None,
+        }
+        if not priced:
+            return fields
+        newest = date.fromisoformat(priced[-1][0][:10])
+        spark_floor = (newest - timedelta(days=SINCE_ADDED_SPARK_DAYS)).isoformat()
+        spark_values = [value for day, value in priced if day >= spark_floor]
+        if len(spark_values) >= 2:
+            spark = cls._downsample_sparkline(spark_values, target=SINCE_ADDED_SPARK_POINTS)
+            fields["sparkPoints"] = spark
+            fields["sparkTrendPct"] = (
+                round((spark[-1] - spark[0]) / spark[0] * 100.0, 2) if spark[0] > 0 else None
+            )
+        since_day = str(since or "")[:10]
+        if since_day:
+            since_values = [value for day, value in priced if day >= since_day]
+            if len(since_values) >= 2:
+                fields["sinceWatchedPoints"] = cls._downsample_sparkline(
+                    since_values, target=SINCE_WATCHED_SPARK_POINTS
+                )
+        if len(priced) >= 2 and priced[-2][1] > 0:
+            amount = round(priced[-1][1] - priced[-2][1], 2)
+            fields["dayChangeAmount"] = amount
+            fields["dayChangePercent"] = round(amount / priced[-2][1] * 100.0, 2)
+        return fields
 
     def _apply_bulk_day_changes(
         self, jobs: list[tuple[dict[str, Any], dict[str, Any]]]

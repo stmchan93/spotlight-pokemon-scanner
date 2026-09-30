@@ -35,11 +35,17 @@ const largeKeys = [
   'imageLargeURL',
 ] as const;
 
+// An owned copy / watched printing on an alt-art version carries that
+// printing's own art (backend `printingImageUrl`); it wins over the card image
+// on every surface. Card objects never carry these keys.
+const printingSmallKeys = ['printingImageSmallUrl', 'printingImageUrl'] as const;
+const printingLargeKeys = ['printingImageUrl', 'printingImageSmallUrl'] as const;
+
 const keyOrderByUse: Record<CardImageUse, readonly string[]> = {
-  backdrop: [...smallKeys, ...thumbnailKeys, 'imageUrl', ...largeKeys],
-  large: [...largeKeys, 'imageUrl', ...smallKeys, ...thumbnailKeys],
-  small: [...smallKeys, ...thumbnailKeys, 'imageUrl', ...largeKeys],
-  thumbnail: [...thumbnailKeys, ...smallKeys, 'imageUrl', ...largeKeys],
+  backdrop: [...printingSmallKeys, ...smallKeys, ...thumbnailKeys, 'imageUrl', ...largeKeys],
+  large: [...printingLargeKeys, ...largeKeys, 'imageUrl', ...smallKeys, ...thumbnailKeys],
+  small: [...printingSmallKeys, ...smallKeys, ...thumbnailKeys, 'imageUrl', ...largeKeys],
+  thumbnail: [...printingSmallKeys, ...thumbnailKeys, ...smallKeys, 'imageUrl', ...largeKeys],
 };
 
 function normalizedUrl(value: unknown) {

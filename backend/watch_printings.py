@@ -135,8 +135,23 @@ def migrate_card_favorites_per_printing(connection: sqlite3.Connection) -> bool:
 
 
 def _match_key(value: Any) -> str:
+    """THE printing-identity comparison for watches: case/punctuation-blind,
+    "1st" == "First" and "Holo" == "Holofoil", so a stored "1st Edition" meets
+    a "First Edition" cell and "Reverse Holo" names "Reverse Holofoil"."""
     text = re.sub(r"\b1st\b", "first", str(value or ""), flags=re.IGNORECASE)
+    text = re.sub(r"\bholo\b", "holofoil", text, flags=re.IGNORECASE)
     return re.sub(r"[^a-z0-9]+", "", text.lower())
+
+
+def printing_label(variant_key: Any) -> str | None:
+    """The PDP picker's (Scrydex) label for a stored watch key: "1st Edition"
+    -> "First Edition", "Unlimited Holofoil" -> "Unlimited". A key that is
+    already a label (subtype-collision cells key by label) is returned as is;
+    '' (main printing) -> None."""
+    key = normalize_variant_key(variant_key)
+    if not key:
+        return None
+    return SUBTYPE_TO_SCRYDEX_VARIANT_LABEL.get(key) or key
 
 
 def main_printing_key(connection: sqlite3.Connection, card_id: str) -> str | None:
@@ -249,6 +264,37 @@ def canonical_printing(
     return None
 
 
+def printing_cell_key(printings_json: Any, requested: Any) -> str | None:
+    """The raw_main cell key the TCGCSV sync wrote for the printing ``requested``
+    names (an owned copy's Scrydex label), from the snapshot's
+    ``main_raw_printings_json`` — the same map the PDP ladder prices printings
+    from. Mirrors the sync's keying: the printing's ``subTypeName`` unless
+    another priced printing shares it, then its label. So OP15-039's "Alt Art"
+    (its own product, subtype "Foil") is the cell "Foil", while ST30-001's
+    "Alt Art" (sharing "Foil" with the base card) is the cell "Alt Art". None
+    when the map does not price that printing."""
+    if isinstance(printings_json, dict):
+        parsed: Any = printings_json
+    else:
+        try:
+            parsed = json.loads(printings_json or "{}")
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(parsed, dict):
+        return None
+    entries = {str(label): entry for label, entry in parsed.items() if isinstance(entry, dict)}
+    label = canonical_printing(requested, entries)
+    if label is None:
+        return None
+    sub_type = normalize_variant_key(entries[label].get("subTypeName"))
+    if not sub_type:
+        return label
+    shared = sum(
+        1 for entry in entries.values() if normalize_variant_key(entry.get("subTypeName")) == sub_type
+    )
+    return sub_type if shared == 1 else label
+
+
 # --- raw_main cells ----------------------------------------------------------
 
 
@@ -323,34 +369,74 @@ def cells_for_printing(
     return ()
 
 
+def printing_points_by_date(
+    cells_by_variant: dict[str, tuple[CellPoint, ...]], printing: str | None
+) -> dict[str, dict[str, float | None]]:
+    """``{price_date: {market, low}}`` (dollars) for one printing's cells."""
+    return {
+        point.price_date: {
+            "market": point.market_cents / 100.0,
+            "low": point.low_cents / 100.0 if point.low_cents is not None else None,
+        }
+        for point in cells_for_printing(cells_by_variant, printing)
+        if point.market_cents is not None
+    }
+
+
 def latest_printing_price(
     connection: sqlite3.Connection, card_id: str, variant_key: str
 ) -> dict[str, Any] | None:
-    """Newest raw_main cell for one printing: ``{market, low, date}`` in
-    dollars, or None when the printing has no cell."""
-    if not variant_key or not _table_exists(connection, "card_price_history_cell"):
+    """Newest raw_main cell for one printing: ``{market, low, mid, high,
+    directLow, date}`` in dollars, or None when the printing has no cell."""
+    if not variant_key:
         return None
-    row = connection.execute(
-        """
-        SELECT price_date, market, low FROM card_price_history_cell
-        WHERE card_id = ? AND lane = 'raw_main' AND variant_key = ?
-          AND market IS NOT NULL
-        ORDER BY price_date DESC LIMIT 1
-        """,
-        (str(card_id), str(variant_key)),
-    ).fetchone()
-    if row is None:
-        return None
+    return latest_printing_prices(connection, [(str(card_id), str(variant_key))]).get(
+        (str(card_id), str(variant_key))
+    )
+
+
+def _optional_float(value: Any) -> float | None:
     try:
-        market = float(row[1])
+        return float(value) if value is not None else None
     except (TypeError, ValueError):
         return None
-    low = row[2]
-    try:
-        low = float(low) if low is not None else None
-    except (TypeError, ValueError):
-        low = None
-    return {"date": str(row[0])[:10], "market": market, "low": low}
+
+
+def printing_pricing_summary(
+    cell: dict[str, Any], *, label: str | None, base: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """A card ``pricing`` summary that quotes one printing's TCGplayer cell.
+    ``base`` (the card-level summary) keeps its identity fields; every price
+    field comes from the cell, so no other printing's number can leak through."""
+    summary = {
+        key: value
+        for key, value in (base or {}).items()
+        if not str(key).startswith("native") and not str(key).startswith("fx")
+        and key not in {"displayIsConverted", "trendsPct", "suppressionReason"}
+    }
+    market = _optional_float(cell.get("market"))
+    summary.update(
+        {
+            "pricingMode": summary.get("pricingMode") or "raw",
+            "provider": "tcgcsv",
+            "source": "tcgcsv",
+            "variant": label,
+            "condition": "NM",
+            "currencyCode": "USD",
+            "market": market,
+            "low": _optional_float(cell.get("low")),
+            "mid": _optional_float(cell.get("mid")),
+            "high": _optional_float(cell.get("high")),
+            "directLow": _optional_float(cell.get("directLow")),
+            "trend": market,
+            "trendsPct": None,
+            "payload": {},
+            "sourceURL": None,
+            "updatedAt": cell.get("date"),
+            "refreshedAt": cell.get("date"),
+        }
+    )
+    return summary
 
 
 # raw_main cells are only ever written by the TCGCSV sync, under this provider.
@@ -361,7 +447,8 @@ def latest_printing_prices(
     connection: sqlite3.Connection, pairs: Iterable[tuple[str, str]]
 ) -> dict[tuple[str, str], dict[str, Any]]:
     """Batched ``latest_printing_price`` for a list page: ``{(card_id,
-    variant_key): {market, low, date}}``, pairs without a cell omitted.
+    variant_key): {market, low, mid, high, directLow, date}}``, pairs without a
+    cell omitted.
 
     Two queries total instead of one per printing watch. The per-watch query
     has no provider, so it walks the card's cells newest-first through the
@@ -375,7 +462,22 @@ def latest_printing_prices(
             wanted.setdefault(str(card_id), set()).add(str(variant_key))
     if not wanted or not _table_exists(connection, "card_price_history_cell"):
         return {}
+    # The stored key normally IS the cell key, but the sync keys a cell by its
+    # Scrydex label once two printings collide on one subtype ("1st Edition"
+    # -> "First Edition"), so a key that misses exactly still matches by
+    # printing identity. An exact cell always beats a spelling match.
+    stored_by_match: dict[tuple[str, str], str] = {
+        (card_id, _match_key(key)): key for card_id, keys in wanted.items() for key in keys
+    }
+
+    def _stored_key(card_id: str, cell_key: str) -> tuple[str, bool] | None:
+        if cell_key in wanted.get(card_id, ()):
+            return cell_key, True
+        stored = stored_by_match.get((card_id, _match_key(cell_key)))
+        return (stored, False) if stored else None
+
     latest_date: dict[tuple[str, str], str] = {}
+    cell_for_stored: dict[tuple[str, str], tuple[str, bool]] = {}
     card_ids = sorted(wanted)
     for start in range(0, len(card_ids), 400):
         chunk = card_ids[start : start + 400]
@@ -389,11 +491,25 @@ def latest_printing_prices(
             """,
             (*chunk, _RAW_MAIN_CELL_PROVIDER),
         ):
-            key = (str(row[0]), str(row[1] or ""))
-            if key[1] in wanted.get(key[0], ()) and row[2]:
-                latest_date[key] = str(row[2])
+            card_id, cell_key = str(row[0]), str(row[1] or "")
+            resolved = _stored_key(card_id, cell_key) if row[2] else None
+            if resolved is None:
+                continue
+            stored, exact = resolved
+            current = cell_for_stored.get((card_id, stored))
+            if current is not None:
+                current_date = latest_date[(card_id, current[0])]
+                # Exact spelling wins; between two spellings, the newer cell.
+                if (current[1], current_date) >= (exact, str(row[2])):
+                    continue
+                latest_date.pop((card_id, current[0]), None)
+            cell_for_stored[(card_id, stored)] = (cell_key, exact)
+            latest_date[(card_id, cell_key)] = str(row[2])
     if not latest_date:
         return {}
+    stored_for_cell = {
+        (card_id, cell_key): stored for (card_id, stored), (cell_key, _) in cell_for_stored.items()
+    }
     result: dict[tuple[str, str], dict[str, Any]] = {}
     hit_cards = sorted({card_id for card_id, _ in latest_date})
     hit_dates = sorted(set(latest_date.values()))
@@ -403,7 +519,8 @@ def latest_printing_prices(
         date_ph = ",".join("?" for _ in hit_dates)
         for row in connection.execute(
             f"""
-            SELECT card_id, variant_key, price_date, market, low FROM card_price_history_cell
+            SELECT card_id, variant_key, price_date, market, low, mid, high, direct_low
+            FROM card_price_history_cell
             WHERE card_id IN ({card_ph}) AND provider = ? AND price_date IN ({date_ph})
               AND lane = 'raw_main' AND market IS NOT NULL
             """,
@@ -412,15 +529,17 @@ def latest_printing_prices(
             key = (str(row[0]), str(row[1] or ""))
             if latest_date.get(key) != str(row[2]):
                 continue
-            try:
-                market = float(row[3])
-            except (TypeError, ValueError):
+            market = _optional_float(row[3])
+            if market is None:
                 continue
-            try:
-                low = float(row[4]) if row[4] is not None else None
-            except (TypeError, ValueError):
-                low = None
-            result[key] = {"date": str(row[2])[:10], "market": market, "low": low}
+            result[(key[0], stored_for_cell[key])] = {
+                "date": str(row[2])[:10],
+                "market": market,
+                "low": _optional_float(row[4]),
+                "mid": _optional_float(row[5]),
+                "high": _optional_float(row[6]),
+                "directLow": _optional_float(row[7]),
+            }
     return result
 
 

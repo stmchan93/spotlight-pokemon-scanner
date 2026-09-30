@@ -419,8 +419,9 @@ class DealScanJobTests(WatchWiringTestCase):
         ).fetchone()
         self.assertIsNotNone(row)
         # The first scan's search + its alert's item-condition check; the
-        # second scan is a cache hit and raises nothing new to check.
-        self.assertEqual(int(row["api_calls"]), 2)
+        # second scan is a cache hit and raises nothing new to check, but its
+        # liveness sweep re-checks the open alert's listing once.
+        self.assertEqual(int(row["api_calls"]), 3)
         self.assertEqual(int(row["cache_hits"]), 1)
 
     def test_deal_needs_a_near_mint_us_item_page(self) -> None:
@@ -847,6 +848,231 @@ class DealAlertFeedTests(WatchWiringTestCase):
             handler.do_POST()
 
             handler.service.mark_deal_alert.assert_called_once_with("a1", field=field)
+
+
+class _ItemPageTransport:
+    """getItem pages by legacy id; an id not in `pages` 404s (raises)."""
+
+    def __init__(self, pages: dict[str, dict[str, object]]) -> None:
+        self.pages = pages
+        self.item_ids: list[str] = []
+
+    def __call__(self, url: str, **kwargs: object) -> dict[str, object]:
+        if "identity/v1/oauth2/token" in url:
+            return {"access_token": "token-value", "expires_in": 7200}
+        if "get_item_by_legacy_id" in url:
+            legacy_id = url.split("legacy_item_id=")[1]
+            self.item_ids.append(legacy_id)
+            if legacy_id not in self.pages:
+                raise OSError("404 item not found")
+            return self.pages[legacy_id]
+        raise AssertionError(f"Unexpected URL: {url}")
+
+
+def _item_page(
+    legacy_id: str,
+    *,
+    price: str = "70.00",
+    condition: str = "Near Mint or Better",
+    buying_options: tuple[str, ...] = ("FIXED_PRICE",),
+    availability: str = "IN_STOCK",
+    end_date: str | None = "2026-10-19T12:00:00.000Z",
+) -> dict[str, object]:
+    page: dict[str, object] = {
+        "itemId": f"v1|{legacy_id}|0",
+        "legacyItemId": legacy_id,
+        "title": f"{CARD_NAME} {CARD_NUMBER}",
+        "price": {"value": price, "currency": "USD"},
+        "itemLocation": {"country": "US"},
+        "buyingOptions": list(buying_options),
+        "estimatedAvailabilities": [{"estimatedAvailabilityStatus": availability}],
+        "conditionDescriptors": [
+            {"name": "Card Condition", "values": [{"content": condition}]}
+        ],
+    }
+    if end_date:
+        page["itemEndDate"] = end_date
+    return page
+
+
+class DealAlertLivenessTests(WatchWiringTestCase):
+    """Auctions never alert; dead listings leave the feed (2026-09-29: 14 of 27
+    staging alerts pointed at ended/sold listings)."""
+
+    def _alert(
+        self,
+        legacy_id: str,
+        *,
+        owner: str = "owner-a",
+        created_at: str | None = None,
+        ends_at: str | None = None,
+        buying_option: str | None = None,
+        price_cents: int | None = 7000,
+    ) -> str:
+        alert_id = f"alert-{legacy_id}-{owner}"
+        self.connection.execute(
+            """
+            INSERT INTO deal_alerts
+                (id, owner_user_id, card_id, listing_id, kind, total_cents,
+                 baseline_cents, market_cents, discount_pct, savings_cents,
+                 url, verification_tier, created_at, listing_ends_at,
+                 buying_option, price_cents)
+            VALUES (?, ?, ?, ?, 'under_added', 7000, 9000, 9000, 22.22, 2000,
+                    'https://ebay.test/1', 'title', ?, ?, ?, ?)
+            """,
+            (
+                alert_id,
+                owner,
+                CARD_ID,
+                f"v1|{legacy_id}|0",
+                created_at or (NOW - timedelta(days=1)).isoformat(),
+                ends_at,
+                buying_option,
+                price_cents,
+            ),
+        )
+        self.connection.commit()
+        return alert_id
+
+    def _sweep(self, transport: _ItemPageTransport, *, now: datetime = NOW) -> dict[str, object]:
+        with patch.dict("os.environ", BROWSE_ENV, clear=False):
+            _reset_ebay_token_cache()
+            return self.service._sweep_deal_alerts(
+                self.connection, now=now, max_calls=150, fetch_json=transport
+            )
+
+    def _expiry(self, alert_id: str) -> tuple[object, object]:
+        row = self.connection.execute(
+            "SELECT expired_at, expired_reason FROM deal_alerts WHERE id = ?", (alert_id,)
+        ).fetchone()
+        return row["expired_at"], row["expired_reason"]
+
+    def test_scan_never_alerts_on_an_auction(self) -> None:
+        self._card()
+        self._history()
+        self._watch("owner-a")
+        auction = _summary(item_id="v1|110000000009|0")
+        auction["buyingOptions"] = ["AUCTION"]
+        auction["currentBidPrice"] = {"value": "70.00", "currency": "USD"}
+        auction["itemEndDate"] = (NOW + timedelta(minutes=54)).isoformat()
+        summary = self._run_scan(_Transport([auction]))
+        self.assertEqual(summary["alertsCreated"], 0)
+        self.assertEqual(self._count("deal_alerts"), 0)
+
+    def test_auction_with_buy_it_now_alerts_at_the_bin_price(self) -> None:
+        self._card()
+        self._history()
+        self._watch("owner-a")
+        listing = _summary()
+        listing["buyingOptions"] = ["AUCTION", "FIXED_PRICE"]
+        listing["itemEndDate"] = "2026-09-25T18:00:00.000Z"
+        summary = self._run_scan(_Transport([listing]))
+        self.assertEqual(summary["alertsCreated"], 1)
+        row = self.connection.execute("SELECT * FROM deal_alerts").fetchone()
+        self.assertEqual(row["buying_option"], "fixed_price")
+        self.assertEqual(row["price_cents"], 7_000)
+        self.assertEqual(row["shipping_cents"], 0)
+        self.assertEqual(row["listing_ends_at"], "2026-09-25T18:00:00+00:00")
+        # baseline = the market (90.00), below the add-time 100.00
+        self.assertEqual(row["baseline_source"], "market")
+        self.assertIsNone(row["expired_at"])
+
+    def test_feed_hides_expired_and_ended_listings(self) -> None:
+        self._card()
+        live = self._alert("1", ends_at="2999-01-01T00:00:00+00:00")
+        self._alert("2", ends_at="2000-01-01T00:00:00+00:00")
+        swept = self._alert("3")
+        self.connection.execute(
+            "UPDATE deal_alerts SET expired_at = ?, expired_reason = 'sold_out' WHERE id = ?",
+            (utc_now(), swept),
+        )
+        self.connection.commit()
+        with self.service.request_identity_context(self._identity("owner-a")):
+            payload = self.service.deal_alerts()
+        self.assertEqual([alert["id"] for alert in payload["alerts"]], [live])
+        self.assertEqual(payload["unseenCount"], 1)
+        alert = payload["alerts"][0]
+        self.assertEqual(alert["listingEndsAt"], "2999-01-01T00:00:00+00:00")
+        self.assertIsNone(alert["expiredAt"])
+        self.assertIn("baselineSource", alert)
+
+    def test_sweep_expires_dead_listings_and_keeps_live_ones(self) -> None:
+        self._card()
+        live = self._alert("100")
+        sold = self._alert("101")
+        auction = self._alert("102")
+        played = self._alert("103")
+        repriced = self._alert("104")
+        transport = _ItemPageTransport(
+            {
+                "100": _item_page("100"),
+                "101": _item_page("101", availability="OUT_OF_STOCK"),
+                "102": _item_page("102", buying_options=("AUCTION",)),
+                "103": _item_page("103", condition="Lightly Played (Excellent)"),
+                "104": _item_page("104", price="85.00"),
+            }
+        )
+        summary = self._sweep(transport)
+        self.assertEqual(summary["calls"], 5)
+        self.assertEqual(self._expiry(live), (None, None))
+        self.assertEqual(self._expiry(sold)[1], "sold_out")
+        self.assertEqual(self._expiry(auction)[1], "auction")
+        self.assertEqual(self._expiry(played)[1], "card_condition:Lightly Played (Excellent)")
+        self.assertEqual(self._expiry(repriced)[1], "repriced")
+        # Idempotent: a second sweep only re-checks the live one.
+        first_expiry = self._expiry(sold)[0]
+        again = self._sweep(transport)
+        self.assertEqual(again["calls"], 1)
+        self.assertEqual(self._expiry(sold)[0], first_expiry)
+
+    def test_sweep_expires_ended_legacy_auction_and_aged_alerts_without_a_call(self) -> None:
+        self._card()
+        ended = self._alert("200", ends_at=(NOW - timedelta(minutes=5)).isoformat())
+        auction = self._alert("201", buying_option="auction")
+        aged = self._alert("202", created_at=(NOW - timedelta(days=30)).isoformat())
+        transport = _ItemPageTransport({})
+        summary = self._sweep(transport)
+        self.assertEqual(transport.item_ids, [])
+        self.assertEqual(self._expiry(ended)[1], "ended")
+        self.assertEqual(self._expiry(auction)[1], "auction")
+        self.assertEqual(self._expiry(aged)[1], "aged_out")
+        self.assertEqual(summary["expired"], 3)
+
+    def test_ended_item_page_expires_the_alert(self) -> None:
+        self._card()
+        alert = self._alert("300", price_cents=None)
+        self._sweep(_ItemPageTransport({"300": _item_page("300", end_date="2026-09-19T11:00:00.000Z")}))
+        self.assertEqual(self._expiry(alert)[1], "ended")
+
+    def test_removed_listing_expires_after_repeated_failed_lookups(self) -> None:
+        self._card()
+        alert = self._alert("400")
+        transport = _ItemPageTransport({})
+        self._sweep(transport)
+        self.assertEqual(self._expiry(alert), (None, None))
+        self._sweep(transport)
+        self.assertEqual(self._expiry(alert)[1], "removed")
+
+    def test_every_lookup_failing_is_an_outage_not_a_removal(self) -> None:
+        self._card()
+        first = self._alert("500")
+        second = self._alert("501")
+        transport = _ItemPageTransport({})
+        for _ in range(3):
+            self._sweep(transport)
+        self.assertEqual(self._expiry(first), (None, None))
+        self.assertEqual(self._expiry(second), (None, None))
+
+    def test_one_lookup_per_listing_shared_across_owners(self) -> None:
+        self._card()
+        a = self._alert("600", owner="owner-a")
+        b = self._alert("600", owner="owner-b")
+        transport = _ItemPageTransport({"600": _item_page("600", availability="OUT_OF_STOCK")})
+        summary = self._sweep(transport)
+        self.assertEqual(transport.item_ids, ["600"])
+        self.assertEqual(summary["calls"], 1)
+        self.assertEqual(self._expiry(a)[1], "sold_out")
+        self.assertEqual(self._expiry(b)[1], "sold_out")
 
 
 class RawListingsEndpointTests(WatchWiringTestCase):

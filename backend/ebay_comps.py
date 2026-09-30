@@ -703,7 +703,41 @@ def _normalize_browse_item(item: dict[str, Any]) -> dict[str, Any]:
         "convertedFromCurrency": str(price.get("convertedFromCurrency") or "").strip().upper() or None,
         "itemLocationCountry": str(location.get("country") or "").strip().upper() or None,
         "itemEndDate": str(item.get("itemEndDate") or "").strip() or None,
+        # Live-state fields for the deal-alert sweep (is this listing still
+        # buyable, as Buy It Now, at the alerted price?).
+        "buyingOptions": [
+            str(option or "").strip().upper()
+            for option in (item.get("buyingOptions") or [])
+            if str(option or "").strip()
+        ],
+        "availabilityStatus": _browse_item_availability_status(item),
+        "shippingAmount": _browse_item_shipping_amount(item),
     }
+
+
+def _browse_item_availability_status(item: dict[str, Any]) -> str | None:
+    """eBay's IN_STOCK / LIMITED_STOCK / OUT_OF_STOCK for the item, or None."""
+    for availability in item.get("estimatedAvailabilities") or []:
+        if not isinstance(availability, dict):
+            continue
+        status = str(availability.get("estimatedAvailabilityStatus") or "").strip().upper()
+        if status:
+            return status
+    return None
+
+
+def _browse_item_shipping_amount(item: dict[str, Any]) -> float | None:
+    """The cheapest listed shipping cost, or None when the item lists none."""
+    amounts: list[float] = []
+    for option in item.get("shippingOptions") or []:
+        cost = option.get("shippingCost") if isinstance(option, dict) else None
+        if not isinstance(cost, dict):
+            continue
+        try:
+            amounts.append(float(str(cost.get("value")).replace(",", "")))
+        except (TypeError, ValueError):
+            continue
+    return min(amounts) if amounts else None
 
 
 def fetch_ebay_items_by_legacy_ids(

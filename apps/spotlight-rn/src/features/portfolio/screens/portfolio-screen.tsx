@@ -119,6 +119,7 @@ import { buildProfileDeepLink } from '@/features/profile/profile-link';
 import { SharePostSheet } from '@/features/social/components/share-post-sheet';
 import { FOR_SALE_TAB_ENABLED } from '@/features/profile/for-sale-tab';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
+import { watchlistCardBasicsFromInventoryEntry } from '@/features/wishlist/watchlist-store';
 import { useAuth } from '@/providers/auth-provider';
 
 const GRID_TEST_ID = 'collection-masonry-grid';
@@ -434,6 +435,7 @@ export function PortfolioScreen({
     activeCollectionID,
     setActiveCollectionID,
     isActiveCollectionRestored,
+    watchlistStore,
   } = useAppServices();
   const [collectionsSnapshot, setCollectionsSnapshot] = useState<CollectionsSnapshot | null>(null);
   const [isLoadingCollections, setIsLoadingCollections] = useState(false);
@@ -1214,6 +1216,10 @@ export function PortfolioScreen({
           },
         );
         setWishlistToast(savedIsFavorite ? 'Added to Watchlist' : 'Removed from Watchlist');
+        watchlistStore.applyWatchWrite(
+          { ...record, isFavorite: savedIsFavorite, watchVariant: record?.watchVariant ?? variant },
+          watchlistCardBasicsFromInventoryEntry(entry),
+        );
         refreshData();
       })
       .catch(() => {
@@ -1223,7 +1229,7 @@ export function PortfolioScreen({
             : "Couldn't remove that card from your Watchlist. Please try again.",
         );
       });
-  }, [actionMenuEntry, refreshData, spotlightRepository]);
+  }, [actionMenuEntry, refreshData, spotlightRepository, watchlistStore]);
 
   // Delete from the menu: queue the confirm sheet on the actions sheet's
   // deterministic dismissal (same pattern as Share) instead of a timed guess.

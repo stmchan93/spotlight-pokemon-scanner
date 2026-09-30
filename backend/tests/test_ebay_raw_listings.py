@@ -384,6 +384,22 @@ class TitleDenylistTests(RawListingTestCase):
         self.assertEqual(title_not_a_card_reason("Umbreon VMAX custom card"), "custom")
         self.assertIsNone(title_not_a_card_reason("Umbreon VMAX 215/203 no customs fees"))
 
+    def test_metal_novelty_cards_are_not_cards(self) -> None:
+        # 2026-09-29: an "Aluminum Card - Vulpix" deal alert.
+        self.assertEqual(title_not_a_card_reason("Aluminum Card - Vulpix"), "aluminum")
+        self.assertEqual(title_not_a_card_reason("Charizard 4/102 Aluminium Card"), "aluminium")
+        self.assertEqual(title_not_a_card_reason("Charizard Gold Metal Card 4/102"), "metal card")
+        self.assertEqual(title_not_a_card_reason("Pikachu Stainless Steel Card"), "steel card")
+        self.assertEqual(title_not_a_card_reason("Charizard 24K Gold Card"), "24k")
+        # "Metal" is a Pokemon type: never a rejection on its own.
+        for title in (
+            "Metal Energy 95/102 Base Set",
+            "Steelix 52/123 Metal Holo Pokemon Card",
+            "Special Metal Energy 132/146 XY",
+        ):
+            with self.subTest(title=title):
+                self.assertIsNone(title_not_a_card_reason(title))
+
     def test_foreign_listings_are_rejected_and_unknown_location_passes(self) -> None:
         # 2026-09-22: an Italian Blaine's Charizard, priced in EUR and shown
         # converted, read as 58% under market.

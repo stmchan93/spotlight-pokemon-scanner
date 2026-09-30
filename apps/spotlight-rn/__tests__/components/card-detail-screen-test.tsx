@@ -1756,6 +1756,82 @@ describe('CardDetailScreen', () => {
       expect(screen.queryByTestId('detail-watching-other-printings')).toBeNull();
     });
 
+    // Wooper neo1-82 (staging 2026-09-29): the picker says "First Edition",
+    // the watch is stored as TCGplayer's "1st Edition", and the card's
+    // headline ($3.02) is the Unlimited main printing.
+    function editionRepository(
+      watch: Partial<CardDetailRecord>,
+      overrides: Parameters<typeof createTestSpotlightRepository>[0] = {},
+    ) {
+      const baseRepository = createTestSpotlightRepository();
+      return createTestSpotlightRepository({
+        getCardDetail: async (query) => {
+          const detail = await baseRepository.getCardDetail(query);
+          return detail
+            ? ({
+                ...detail,
+                marketPrice: 3.02,
+                marketHistory: { ...detail.marketHistory, selectedVariant: 'Unlimited' },
+                variantOptions: [
+                  { id: 'Unlimited', label: 'Unlimited', currentPrice: 3.02 },
+                  { id: 'First Edition', label: 'First Edition', currentPrice: 9.72 },
+                ],
+                isFavorite: (watch.watchedVariants ?? []).length > 0,
+                ...watch,
+              } satisfies CardDetailRecord)
+            : null;
+        },
+        ...overrides,
+      });
+    }
+
+    it('finds a stored "1st Edition" watch from the "First Edition" picker label', async () => {
+      const setCardFavorite = jest.fn(async (cardId: string, isFavorite?: boolean | null) => ({
+        cardId,
+        favoritedAt: null,
+        isFavorite: Boolean(isFavorite),
+      }));
+      renderWithProviders(
+        <CardDetailScreen cardId="sm7-1" initialVariant="First Edition" onBack={jest.fn()} />,
+        {
+          spotlightRepository: editionRepository(
+            {
+              watchedVariants: ['1st Edition'],
+              watchPrintingLabels: { '1st Edition': 'First Edition' },
+              watchMarketPrices: { '1st Edition': 9.72 },
+            },
+            { setCardFavorite },
+          ),
+        },
+      );
+
+      await waitFor(() => expect(heartLabel()).toBe('Remove from watchlist'));
+      fireEvent.press(screen.getByTestId('detail-hero-card-favorite'));
+      await waitFor(() => {
+        expect(setCardFavorite).toHaveBeenLastCalledWith('sm7-1', false, { variant: 'First Edition' });
+      });
+    });
+
+    it('the after-watch prompt quotes the watched printing, not the card headline', async () => {
+      const setCardFavorite = jest.fn(async (cardId: string, isFavorite?: boolean | null) => ({
+        cardId,
+        favoritedAt: '2026-09-29T00:00:00.000Z',
+        isFavorite: Boolean(isFavorite),
+        watchVariant: '1st Edition',
+        watchMarketPrice: 9.72,
+      }));
+      renderWithProviders(
+        <CardDetailScreen cardId="sm7-1" initialVariant="First Edition" onBack={jest.fn()} />,
+        { spotlightRepository: editionRepository({ watchedVariants: [] }, { setCardFavorite }) },
+      );
+
+      await waitFor(() => expect(heartLabel()).toBe('Add to watchlist'));
+      fireEvent.press(screen.getByTestId('detail-hero-card-favorite'));
+
+      expect(await screen.findByText('Market $9.72')).toBeOnTheScreen();
+      expect(screen.queryByText('Market $3.02')).toBeNull();
+    });
+
     it('a legacy main-printing watch covers the default printing and unwatches with no variant', async () => {
       const setCardFavorite = jest.fn(async (cardId: string, isFavorite?: boolean | null) => ({
         cardId,
@@ -2911,7 +2987,11 @@ describe('CardDetailScreen', () => {
 
       await waitFor(() => {
         expect(replacePortfolioEntry).toHaveBeenCalledWith(
-          expect.objectContaining({ deckEntryID: 'e-sealed', cardID: sealedId, quantity: 3, condition: null }),
+          expect.objectContaining({
+            deckEntryID: 'e-sealed', cardID: sealedId, quantity: 3, condition: null,
+            // A variant label would change the identity and REPLACE the row.
+            variantName: null,
+          }),
         );
       });
       await waitFor(() => expect(onBack).toHaveBeenCalled());

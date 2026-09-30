@@ -518,8 +518,17 @@ export function usePortfolioScreenModel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCollectionID, sessionOwnerKey]);
 
+  // Only the NEWEST dashboard read may land. This read takes 5-40s on a busy
+  // backend, so one started before a delete routinely resolves after the
+  // delete's own refetch was issued — and applied verbatim it put the deleted
+  // holding back into the chart (and the cache) with nothing left to correct it
+  // if the newer read then timed out.
+  const dashboardRequestSeqRef = useRef(0);
+
   const loadDashboard = useCallback(async () => {
     const requestedCollectionID = activeCollectionIDRef.current;
+    dashboardRequestSeqRef.current += 1;
+    const requestSeq = dashboardRequestSeqRef.current;
     setIsLoadingDashboard(true);
     // Compute only the open range; the rest are fetched on demand. Read it from a
     // ref so this callback isn't re-created on every range switch (which would
@@ -538,6 +547,10 @@ export function usePortfolioScreenModel({
     // good, because the suspicious-empty guard below then rejected the new
     // collection's own legitimate empty result in favour of it.
     if (requestedCollectionID !== activeCollectionIDRef.current) {
+      return;
+    }
+    // Superseded: the newer read owns the loading state and the result.
+    if (requestSeq !== dashboardRequestSeqRef.current) {
       return;
     }
 

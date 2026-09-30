@@ -66,7 +66,8 @@ import { OwnedEntryEditFields } from '@/features/cards/components/owned-entry-ed
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
 import { InventoryDropdown } from '@/features/cards/components/inventory-dropdown';
 import { CardDetailHero } from '@/features/cards/components/card-detail-hero';
-import { printingImageFor } from '@/features/cards/printing-image';
+import { printingImageFor, printingImagesForEntries } from '@/features/cards/printing-image';
+import { watchlistCardBasicsFromDetail } from '@/features/wishlist/watchlist-store';
 import { CardPopulationReport } from '@/features/cards/components/card-population-report';
 import { CardWishlistCounter } from '@/features/cards/components/card-wishlist-counter';
 import { CardPriceTrendList } from '@/features/cards/components/card-price-trend-list';
@@ -94,6 +95,8 @@ import {
   matchWatchedPrinting,
   otherWatchedPrintingLabels,
   resolveMainPrintingLabel,
+  pickerLabelForWatchKey,
+  relabelWatchKeys,
   watchVariantForKey,
 } from '@/features/cards/watch-printings';
 import {
@@ -240,6 +243,7 @@ export function CardDetailScreen({
     prependOptimisticInventoryEntry,
     removeOptimisticInventoryEntries,
     activeCollectionID,
+    watchlistStore,
   } = useAppServices();
   // The card currently DISPLAYED. Starts as the routed `cardId`, but the EN/JP
   // language toggle repoints it to the other-language counterpart IN PLACE (no
@@ -256,14 +260,17 @@ export function CardDetailScreen({
   const [isFavoritePending, setIsFavoritePending] = useState(false);
   // Watches are per PRINTING: which printings of this card are watched ('' =
   // main printing) and each one's target. The Watch icon reads the selected one.
+  // Keys are PICKER labels ("First Edition"), not the stored TCGplayer keys.
   const [watchState, setWatchState] = useState<{
     favoritedAt: string | null;
     targets: Record<string, number | null>;
     watchedVariants: string[];
+    marketPrices: Record<string, number | null>;
   }>({
     favoritedAt: null,
     targets: {},
     watchedVariants: [],
+    marketPrices: {},
   });
   // Public wishlist count shown as social proof; mutates optimistically
   // alongside the favorite toggle.
@@ -501,7 +508,7 @@ export function CardDetailScreen({
   // fires only on a real navigation/remount — never on an in-place EN/JP swap,
   // which must preserve the user's grade/grader/condition/variant.
   useEffect(() => {
-    setWatchState({ favoritedAt: null, targets: {}, watchedVariants: [] });
+    setWatchState({ favoritedAt: null, targets: {}, watchedVariants: [], marketPrices: {} });
     setLikeCount(0);
     setSelectedVariant(null);
     setSelectedGrader(null);
@@ -535,12 +542,20 @@ export function CardDetailScreen({
       return;
     }
     // Older servers send no printings: a watch there is the main printing's.
-    const watchedVariants = detail.watchedVariants ?? (detail.isFavorite ? [''] : []);
+    // Stored keys ("1st Edition") become picker labels ("First Edition") so the
+    // picker finds its watch; comparing the two spellings hid the watch.
+    const labels = detail.watchPrintingLabels;
+    const watchedVariants = (detail.watchedVariants ?? (detail.isFavorite ? [''] : []))
+      .map((key) => pickerLabelForWatchKey(key, labels));
     setWatchState({
       favoritedAt: detail.favoritedAt ?? null,
-      targets: detail.watchTargetsCents
-        ?? (detail.targetPriceCents != null ? { '': detail.targetPriceCents } : {}),
+      targets: relabelWatchKeys(
+        detail.watchTargetsCents
+          ?? (detail.targetPriceCents != null ? { '': detail.targetPriceCents } : {}),
+        labels,
+      ),
       watchedVariants,
+      marketPrices: relabelWatchKeys(detail.watchMarketPrices ?? {}, labels),
     });
     setLikeCount(detail.likeCount ?? 0);
     // The counterpart detail (real `language`) is in — drop the optimistic chip
@@ -1416,8 +1431,17 @@ export function CardDetailScreen({
         setWatchState((current) => ({
           ...current,
           favoritedAt: current.favoritedAt ?? result.favoritedAt ?? null,
+          // The watched printing's own price, for the target prompt below.
+          marketPrices: result.watchMarketPrice != null
+            ? { ...current.marketPrices, [storedKey]: result.watchMarketPrice }
+            : current.marketPrices,
         }));
         setIsFavoritePending(false);
+        // The Watchlist tab is already mounted; show (or drop) the row there now.
+        watchlistStore.applyWatchWrite(
+          { ...result, watchVariant: result.watchVariant ?? variant ?? null },
+          detail?.cardId === activeCardId ? watchlistCardBasicsFromDetail(detail) : null,
+        );
         if (nextIsFavorite && result.isFavorite) {
           setPromptTargetAfterWatch(true);
         }
@@ -1434,12 +1458,14 @@ export function CardDetailScreen({
       });
   }, [
     activeCardId,
+    detail,
     isFavoritePending,
     isSealed,
     selectedWatchKey,
     spotlightRepository,
     watchPrintingLabel,
     watchState,
+    watchlistStore,
   ]);
 
   // EN/JP toggle: derived from the loaded card's language + its other-language
@@ -1493,11 +1519,27 @@ export function CardDetailScreen({
     ?? detailPreview?.largeImageUrl
     ?? detailPreview?.imageUrl
     ?? null;
-  // A printing with its own art (the version a scan matched) shows it in the
-  // header while selected; before the picker seeds, the routed printing counts.
-  // The preview belongs to the routed card, so an EN/JP swap drops it.
+  // A printing with its own art (the version a scan matched, or an owned
+  // alt-art copy's) shows it in the header while selected; before the picker
+  // seeds, the routed printing (else the owned copy's) counts. The preview
+  // belongs to the routed card, so an EN/JP swap drops it.
+  const heroPrintingImages = useMemo(
+    () => [
+      ...(detailPreview?.printingImages ?? []),
+      ...(printingImagesForEntries(
+        inventoryEntries.map((entry) => ({
+          printingLabel: entry.variantName,
+          printingImageUrl: entry.printingImageUrl,
+        })),
+      ) ?? []),
+    ],
+    [detailPreview?.printingImages, inventoryEntries],
+  );
   const heroPrintingImageUrl = activeCardId === cardId
-    ? printingImageFor(detailPreview?.printingImages, selectedVariantLabel ?? (selectedVariant ? null : initialVariant))
+    ? printingImageFor(
+        heroPrintingImages,
+        selectedVariantLabel ?? (selectedVariant ? null : initialVariant ?? selectedEntry?.variantName),
+      )
     : null;
   const heroImageUrl = heroPrintingImageUrl ?? displayImageUrl;
 
@@ -1525,7 +1567,10 @@ export function CardDetailScreen({
       imageUrl: displayImageUrl ?? '',
       isOwned: inventoryEntries.length > 0,
       largeImageUrl: detail?.largeImageUrl ?? null,
-      marketPrice: detail?.marketPrice ?? null,
+      // The WATCHED printing's market: the card's headline is its main
+      // printing (Unlimited $3.02 on a 1st Edition $9.72 watch, 2026-09-29).
+      marketPrice: watchState.marketPrices[watchVariant ?? '']
+        ?? (watchVariant == null || watchVariant === mainPrintingLabel ? detail?.marketPrice ?? null : null),
       name: displayName,
       setName: detail?.setName ?? detailPreview?.setName ?? '',
       smallImageUrl: detail?.imageUrl ?? null,
@@ -1543,9 +1588,11 @@ export function CardDetailScreen({
     displayImageUrl,
     displayName,
     inventoryEntries.length,
+    mainPrintingLabel,
     selectedWatchKey,
     watchPrintingLabel,
     watchState.favoritedAt,
+    watchState.marketPrices,
     watchState.targets,
   ]);
 
@@ -1607,6 +1654,10 @@ export function CardDetailScreen({
     if (!favorited?.isFavorite) {
       return 'error';
     }
+    watchlistStore.applyWatchWrite(
+      { ...favorited, watchVariant: favorited.watchVariant ?? variant ?? null },
+      detail?.cardId === cardIdForTarget ? watchlistCardBasicsFromDetail(detail) : null,
+    );
     // Setting a target on an unwatched printing watches it — that IS an add.
     capturePostHogEvent(AnalyticsEvent.watchlistItemAdded, {
       source: 'target_price',
@@ -1631,7 +1682,7 @@ export function CardDetailScreen({
     applySaved(retry.target.targetPriceCents);
     reportTargetSet();
     return 'saved';
-  }, [activeCardId, isSealed, spotlightRepository, targetSheetEntry]);
+  }, [activeCardId, detail, isSealed, spotlightRepository, targetSheetEntry, watchlistStore]);
 
   useEffect(() => {
     if (!promptTargetAfterWatch) {
@@ -1977,6 +2028,10 @@ export function CardDetailScreen({
         const conditionOption = addedCondition
           ? deckConditionOptions.find((option) => option.code === addedCondition) ?? null
           : null;
+        // An alt-art printing shows its art until the refetch brings the server's.
+        const addedPrintingImageUrl = addIsRaw && addDetail.cardId === cardId
+          ? printingImageFor(heroPrintingImages, addedVariantName)
+          : null;
         prependOptimisticInventoryEntry({
           id: response.deckEntryID,
           cardId: addDetail.cardId,
@@ -2001,6 +2056,7 @@ export function CardDetailScreen({
           isFavorite: addDetail.isFavorite ?? false,
           game: addDetail.game,
           catalogSource: addDetail.catalogSource,
+          ...(addedPrintingImageUrl ? { printingImageUrl: addedPrintingImageUrl } : {}),
         });
         capturePostHogEvent('card_detail_add_item_succeeded', {
           kind: isSealed ? 'sealed' : addIsRaw ? 'raw' : 'graded',
@@ -2040,6 +2096,8 @@ export function CardDetailScreen({
     addDetail,
     addIsRaw,
     addVariantLabel,
+    cardId,
+    heroPrintingImages,
     isAddPending,
     isSealed,
     prependOptimisticInventoryEntry,
@@ -2335,8 +2393,10 @@ export function CardDetailScreen({
     // a quantity-only edit silently dropped the card out of its collection.
     // Unless the USER picked a variant this visit (editVariantDirtyRef) or
     // retargeted the card via the EN/JP swap, save the stored variant verbatim.
+    // Sealed has no printings, so its stored (null) variant always stands: a
+    // picked "Normal" replaced the row on a quantity edit (staging, 2026-09-29).
     const keepStoredVariant =
-      !editVariantDirtyRef.current && activeCardId === selectedEntry.cardId;
+      isSealed || (!editVariantDirtyRef.current && activeCardId === selectedEntry.cardId);
     const savedRawVariantName = !editIsRaw
       ? null
       : keepStoredVariant && selectedEntry.kind === 'raw'
@@ -2391,6 +2451,9 @@ export function CardDetailScreen({
         if (result.deckEntryID !== selectedEntry.id) {
           removeOptimisticInventoryEntries([selectedEntry.id]);
         }
+        const savedPrintingImageUrl = editIsRaw && activeCardId === cardId
+          ? printingImageFor(heroPrintingImages, savedRawVariantName)
+          : null;
         prependOptimisticInventoryEntry({
           id: result.deckEntryID,
           cardId: activeCardId,
@@ -2439,6 +2502,7 @@ export function CardDetailScreen({
           // edit having done nothing.
           costBasisPerUnit: costBasis,
           costBasisTotal: costBasis == null ? null : Number((costBasis * editQuantity).toFixed(2)),
+          ...(savedPrintingImageUrl ? { printingImageUrl: savedPrintingImageUrl } : {}),
         });
         refreshData();
         // Same handoff as the add flow: this page cannot toast while
@@ -2455,9 +2519,11 @@ export function CardDetailScreen({
       });
   }, [
     activeCardId,
+    cardId,
     detail,
     editCostBasisPerUnit,
     editIsRaw,
+    heroPrintingImages,
     editQuantity,
     editSlabContext,
     isSavingEdit,

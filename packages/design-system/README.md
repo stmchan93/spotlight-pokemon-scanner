@@ -237,6 +237,11 @@ Current API concepts:
 - optional count text
 - optional right-side action
 - optional collapse/expand interaction
+- size:
+  - `default`: 25px display `title` for top-level page sections; count in `bodyStrong`
+  - `compact`: Figma Title-small (`titleSmall`, 17/600) for a heading inside a page (e.g. the Watchlist Deals band); count in `captionMedium` gray-600, baseline-aligned with the title
+- optional `titleAccessory`: a small non-text mark (e.g. an unread dot) rendered between the title and the count, vertically centred
+- with a `testID`, the parts carry `${testID}-title-row`, `${testID}-title`, `${testID}-count`
 
 ### SheetHeader
 

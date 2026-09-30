@@ -24,6 +24,7 @@ import {
 } from '@spotlight/api-client';
 
 import { TabBarChromeProvider } from '@/contexts/tab-bar-chrome-context';
+import { createWatchlistStore, type WatchlistStore } from '@/features/wishlist/watchlist-store';
 import {
   prependDashboardInventoryEntry,
   prependInventoryEntry,
@@ -250,6 +251,12 @@ type AppServices = {
    * collection the user actually picked with the default on every cold start.
    */
   isActiveCollectionRestored: boolean;
+  /**
+   * The Watchlist's rows, shared so a watch toggled anywhere (card page,
+   * scanner tray, Collection) shows on the Watchlist tab immediately. One store
+   * per account — see `watchlist-store.ts`.
+   */
+  watchlistStore: WatchlistStore;
 };
 
 const AppServicesContext = createContext<AppServices | null>(null);
@@ -354,6 +361,13 @@ export function AppProviders({
   );
 
   const isActiveCollectionRestored = restoredCollectionOwnerKey === activeSessionOwnerKey;
+
+  // Recreated per account so one account's watchlist can never paint another's.
+  const watchlistStore = useMemo(
+    () => createWatchlistStore(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the account, not read
+    [activeSessionOwnerKey],
+  );
 
   // Restore the last choice for THIS account on mount / account switch.
   useEffect(() => {
@@ -553,8 +567,10 @@ export function AppProviders({
       activeCollectionID,
       setActiveCollectionID,
       isActiveCollectionRestored,
+      watchlistStore,
     };
   }, [
+    watchlistStore,
     activeCollectionID,
     setActiveCollectionID,
     isActiveCollectionRestored,

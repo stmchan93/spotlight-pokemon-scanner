@@ -12,9 +12,11 @@ import { ShareIos, Xmark } from 'iconoir-react-native';
 import { buildWatchKey, type CardFavoriteEntry, type DealAlert } from '@spotlight/api-client';
 import {
   IconButton,
+  SectionHeader,
   SurfaceCard,
   Text,
   radii,
+  spacing,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -100,19 +102,19 @@ export function DealRadarBand({
 
   return (
     <View style={[styles.band, style]} testID="wishlist-deal-band">
-      <View style={styles.header}>
-        <Text style={theme.typography.titleSmall}>Deals</Text>
-        {unseen > 0 ? (
+      <SectionHeader
+        countText={resolved.length === 1 ? '1 listing caught' : `${resolved.length} listings caught`}
+        size="compact"
+        testID="wishlist-deal-band-header"
+        title="Deals"
+        titleAccessory={unseen > 0 ? (
           <View
             accessibilityLabel={`${unseen} new deals`}
             style={[styles.unseenDot, { backgroundColor: theme.colors.brandStrong }]}
             testID="wishlist-deal-band-unseen-dot"
           />
         ) : null}
-        <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]}>
-          {resolved.length === 1 ? '1 listing caught' : `${resolved.length} listings caught`}
-        </Text>
-      </View>
+      />
 
       <View style={styles.rows}>
         {resolved.map(({ alert, card, name }) => (
@@ -307,7 +309,7 @@ const styles = StyleSheet.create({
     width: 44,
   },
   band: {
-    gap: 12,
+    gap: spacing.xs,
   },
   chips: {
     flexDirection: 'row',
@@ -337,11 +339,6 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     paddingHorizontal: 8,
     paddingVertical: 2,
-  },
-  header: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
   },
   row: {
     alignItems: 'center',

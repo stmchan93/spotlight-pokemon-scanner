@@ -25,6 +25,24 @@ describe('card image helpers', () => {
     expect(getCardImageUrl(card, 'backdrop')).toBe('https://cdn.spotlight.test/card-small.png');
   });
 
+  it('prefers an owned alt-art printing image over the card image for every use', () => {
+    const entry = {
+      imageUrl: 'https://cdn.spotlight.test/card-default.png',
+      smallImageUrl: 'https://cdn.spotlight.test/card-small.png',
+      largeImageUrl: 'https://cdn.spotlight.test/card-large.png',
+      printingImageUrl: 'https://cdn.spotlight.test/printing-large.png',
+      printingImageSmallUrl: 'https://cdn.spotlight.test/printing-small.png',
+    };
+
+    expect(getCardImageUrl(entry, 'large')).toBe('https://cdn.spotlight.test/printing-large.png');
+    expect(getCardImageUrl(entry, 'small')).toBe('https://cdn.spotlight.test/printing-small.png');
+    expect(getCardImageUrl(entry, 'thumbnail')).toBe('https://cdn.spotlight.test/printing-small.png');
+    expect(getCardImageUrl(entry, 'backdrop')).toBe('https://cdn.spotlight.test/printing-small.png');
+    // Only the large printing image: small uses fall back to it, not the base art.
+    expect(getCardImageUrl({ ...entry, printingImageSmallUrl: undefined }, 'small'))
+      .toBe('https://cdn.spotlight.test/printing-large.png');
+  });
+
   it('falls back to the current imageUrl contract until small or thumbnail props are available', () => {
     expect(getCardImageUrl({
       imageUrl: 'https://cdn.spotlight.test/card-default.png',

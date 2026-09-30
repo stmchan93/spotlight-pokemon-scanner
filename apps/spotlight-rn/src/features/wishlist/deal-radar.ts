@@ -1,4 +1,4 @@
-import type { DealAlert } from '@spotlight/api-client';
+import type { DealAlert, DealBaselineSource } from '@spotlight/api-client';
 
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
@@ -30,22 +30,70 @@ function compactCurrency(cents: number | null | undefined, currencyCode: string)
 }
 
 /**
- * The one line a deal row says out loud: "$34.00 listed — you added it at
- * $46.00".
+ * False once the listing is dead: the server swept it as expired, or its end
+ * time has passed since the feed loaded. A dead eBay link lands on "similar
+ * items", so it is never shown or opened. An unknown end time counts as live.
+ */
+export function isDealAlertLive(alert: DealAlert, now: number = Date.now()): boolean {
+  if (alert.expiredAt) {
+    return false;
+  }
+  if (!alert.listingEndsAt) {
+    return true;
+  }
+  const endsAt = Date.parse(alert.listingEndsAt);
+  return Number.isNaN(endsAt) || endsAt > now;
+}
+
+/**
+ * Which number the baseline is. Older alerts carry no source; one whose
+ * baseline equals the market can still be called the market.
+ */
+function dealBaselineSource(alert: DealAlert): DealBaselineSource | null {
+  if (alert.baselineSource) {
+    return alert.baselineSource;
+  }
+  return alert.marketCents != null && alert.marketCents === alert.baselineCents ? 'market' : null;
+}
+
+/** "$12.00 under the $46.00 market" — the comparison, named honestly. */
+function buildDealClaim(alert: DealAlert, currencyCode: string, voice: 'you' | 'I'): string | null {
+  const baseline = centsToCurrency(alert.baselineCents, currencyCode);
+  if (!baseline || alert.baselineCents <= 0) {
+    return null;
+  }
+  const savingsCents = alert.savingsCents ?? alert.baselineCents - alert.totalCents;
+  const savings = savingsCents > 0 ? centsToCurrency(savingsCents, currencyCode) : null;
+  const under = savings ? `${savings} under` : 'under';
+  switch (dealBaselineSource(alert)) {
+    case 'market':
+      return `${under} the ${baseline} market`;
+    case 'sales':
+      return `${under} recent sales (${baseline})`;
+    case 'added':
+      return `${savings ? `${savings} below` : 'below'} the ${baseline} ${voice} added it at`;
+    default:
+      return `${under} ${baseline}`;
+  }
+}
+
+/**
+ * The one line a deal row says out loud: "$34.00 listed — $12.00 under the
+ * $46.00 market".
  *
- * The baseline is what makes it a DEAL rather than a price, so it leads the
- * comparison. Falls back to market, and then to the bare listing price — a
- * price with no claim attached is still true, and a row that renders nothing
- * would be worse.
+ * The baseline is min(market, recent sales, the price when added), so the copy
+ * names whichever it was — "you added it at" only when it really was the added
+ * price. Falls back to the bare listing price: a price with no claim attached
+ * is still true, and a row that renders nothing would be worse.
  */
 export function buildDealHeadline(alert: DealAlert, currencyCode = 'USD'): string {
   const total = centsToCurrency(alert.totalCents, currencyCode) ?? '';
   if (alert.kind === 'new_low') {
     return buildNewLowLabel(alert, currencyCode);
   }
-  const baseline = centsToCurrency(alert.baselineCents, currencyCode);
-  if (baseline) {
-    return `${total} listed — you added it at ${baseline}`;
+  const claim = buildDealClaim(alert, currencyCode, 'you');
+  if (claim) {
+    return `${total} listed — ${claim}`;
   }
   const market = centsToCurrency(alert.marketCents, currencyCode);
   if (market) {
@@ -127,15 +175,10 @@ export function buildDealShareMessage(
     return alert.url ? `${plain}\n\n${alert.url}` : plain;
   }
 
-  const savings = centsToCurrency(alert.savingsCents, currencyCode);
-  const discount = buildDiscountLabel(alert);
-  const claim = savings
-    ? `${savings} under what I added it at`
-    : discount
-      ? `${discount} what I added it at`
-      : 'under what I added it at';
-
-  const headline = `${subject} just listed at ${total} — ${claim}.`;
+  const claim = buildDealClaim(alert, currencyCode, 'I');
+  const headline = claim
+    ? `${subject} just listed at ${total} — ${claim}.`
+    : `${subject} just listed at ${total}.`;
   return alert.url ? `${headline}\n\n${alert.url}` : headline;
 }
 

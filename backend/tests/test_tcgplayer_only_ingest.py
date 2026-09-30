@@ -480,9 +480,10 @@ class DeployConfigTests(unittest.TestCase):
                 return line.split("=", 1)[1].strip()
         return None
 
-    def test_staging_ingests_and_production_stays_shadow(self):
+    def test_staging_and_production_both_ingest(self):
+        # Production was switched on with the 2026-09-29 release (user decision).
         self.assertEqual(self._env_value(".env.staging"), "on")
-        self.assertIsNone(self._env_value(".env.production"))
+        self.assertEqual(self._env_value(".env.production"), "on")
 
     def test_tcgcsv_cron_refreshes_the_visual_index_when_ingesting(self):
         script = (BACKEND_ROOT / "run_tcgcsv_sync_vm.sh").read_text()

@@ -116,6 +116,19 @@ export function printingImagesForCandidate(
   return label && imageUrl ? [{ label, imageUrl }] : undefined;
 }
 
+/**
+ * Printing images carried by owned copies / watched printings (backend
+ * `printingImageUrl`, set only for alt-art versions), keyed by their printing.
+ */
+export function printingImagesForEntries(
+  entries: readonly { printingLabel?: string | null; printingImageUrl?: string | null }[],
+): PrintingImage[] | undefined {
+  const images = entries.flatMap(({ printingLabel, printingImageUrl }) =>
+    printingLabel?.trim() && printingImageUrl ? [{ label: printingLabel.trim(), imageUrl: printingImageUrl }] : [],
+  );
+  return images.length > 0 ? images : undefined;
+}
+
 export function printingImageFor(
   images: readonly PrintingImage[] | null | undefined,
   printingLabel: string | null | undefined,

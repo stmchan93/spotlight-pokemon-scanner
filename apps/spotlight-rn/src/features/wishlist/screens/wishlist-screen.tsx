@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import {
   Animated,
@@ -56,13 +56,14 @@ import {
   TargetPriceSheet,
   type TargetPriceSubmitResult,
 } from '@/features/wishlist/components/target-price-sheet';
-import { buildDealShareMessage, centsToCurrency } from '@/features/wishlist/deal-radar';
+import { buildDealShareMessage, centsToCurrency, isDealAlertLive } from '@/features/wishlist/deal-radar';
 import { useDealAlerts } from '@/features/wishlist/use-deal-alerts';
 import {
   AnalyticsEvent,
   watchlistKindForCardId,
   type WatchlistItemKind,
 } from '@/lib/observability/analytics-events';
+import { getCardImageUrl } from '@/lib/card-images';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import {
   SINCE_WATCHED_SUFFIX,
@@ -199,6 +200,8 @@ export function isNewWatch(entry: Pick<CardFavoriteEntry, 'favoritedAt' | 'since
   return youngerThanADay || points.length < 2;
 }
 
+const EMPTY_FAVORITES: CardFavoriteEntry[] = [];
+
 export function WishlistScreen() {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
@@ -217,7 +220,7 @@ export function WishlistScreen() {
   useEffect(() => {
     if (isFocused && isGuest) openLogin();
   }, [isFocused, isGuest, openLogin]);
-  const { spotlightRepository, dataVersion } = useAppServices();
+  const { spotlightRepository, dataVersion, watchlistStore } = useAppServices();
   // Your own identity, for the `spotlight://` link the share message carries.
   const { currentUser } = useAuth();
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
@@ -227,7 +230,12 @@ export function WishlistScreen() {
   const [dealShareBody, setDealShareBody] = useState<string | null>(null);
   // The card whose target price is being edited, or null when the sheet is shut.
   const [targetEntry, setTargetEntry] = useState<CardFavoriteEntry | null>(null);
-  const [favorites, setFavorites] = useState<CardFavoriteEntry[]>([]);
+  // Rows live in the shared watchlist store so watches toggled on other screens
+  // (card page, scanner tray, Collection) land here without a refetch.
+  const watchlistSnapshot = useSyncExternalStore(watchlistStore.subscribe, watchlistStore.getSnapshot);
+  const favorites = watchlistSnapshot.entries ?? EMPTY_FAVORITES;
+  const isStale = watchlistSnapshot.stale;
+  const setFavorites = watchlistStore.setEntries;
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -268,14 +276,15 @@ export function WishlistScreen() {
   // A failed or timed-out read keeps whatever rows are already on screen and
   // surfaces a Retry; it never blanks the list or leaves the loader spinning.
   const loadFavorites = useCallback(async () => {
+    const readToken = watchlistStore.beginRead();
     try {
       const result = await spotlightRepository.getCardFavorites();
-      setFavorites(result);
+      watchlistStore.commitRead(readToken, result);
       setErrorMessage(null);
     } catch {
       setErrorMessage('Could not load your watchlist right now.');
     }
-  }, [spotlightRepository]);
+  }, [spotlightRepository, watchlistStore]);
 
   const handleRetry = useCallback(async () => {
     setIsLoading(true);
@@ -299,20 +308,34 @@ export function WishlistScreen() {
     };
   }, [dataVersion, loadFavorites]);
 
-  // Watching a card elsewhere (card page, scanner tray) doesn't bump dataVersion,
-  // and this tab stays mounted, so re-read quietly each time it comes into view.
-  // Skips the first focus: the mount load above already covers it.
+  // Re-read quietly every time the tab comes into view, and whenever a watch
+  // written elsewhere marks the list stale while it's on screen. The ONLY skip
+  // is the focus the screen was mounted at (Android's MountOnFirstFocus, a deep
+  // link): the mount load above is that read. iOS native tabs mount this screen
+  // HIDDEN at launch, so its first real visit is a later focus and must re-read
+  // — skipping it showed a list as old as the app session.
+  const focusedAtMountRef = useRef(isFocused);
   const hasFocusedOnceRef = useRef(false);
+  const wasFocusedRef = useRef(false);
   useEffect(() => {
+    const justFocused = isFocused && !wasFocusedRef.current;
+    wasFocusedRef.current = isFocused;
     if (!isFocused) {
       return;
     }
-    if (!hasFocusedOnceRef.current) {
+    if (justFocused) {
+      const isMountFocus = !hasFocusedOnceRef.current && focusedAtMountRef.current;
       hasFocusedOnceRef.current = true;
+      if (isMountFocus && !isStale) {
+        return;
+      }
+      void loadFavorites();
       return;
     }
-    void loadFavorites();
-  }, [isFocused, loadFavorites]);
+    if (isStale) {
+      void loadFavorites();
+    }
+  }, [isFocused, isStale, loadFavorites]);
 
   /*
     The bar FLOATS: the bubbles stay pinned at the top while the centred
@@ -394,6 +417,11 @@ export function WishlistScreen() {
     most. The listing still opens if the write fails (see `markTapped`).
   */
   const handleOpenDeal = useCallback(async (alert: DealAlert, card: CardFavoriteEntry | null) => {
+    // Ended while the band sat on screen: eBay would show "similar items".
+    if (!isDealAlertLive(alert)) {
+      void refreshDealAlerts();
+      return;
+    }
     capturePostHogEvent('watch_deal_tapped', {
       cardId: alert.cardId,
       discountPct: alert.discountPct ?? null,
@@ -405,7 +433,7 @@ export function WishlistScreen() {
         // A dead listing URL is the marketplace's problem, not a screen error.
       });
     }
-  }, [markDealTapped]);
+  }, [markDealTapped, refreshDealAlerts]);
 
   const handleShareDeal = useCallback((alert: DealAlert, card: CardFavoriteEntry | null) => {
     // An un-watched card still shares: the alert carries its own name.
@@ -456,7 +484,7 @@ export function WishlistScreen() {
     )));
     void refreshDealAlerts();
     return 'saved';
-  }, [loadFavorites, refreshDealAlerts, spotlightRepository, targetEntry]);
+  }, [loadFavorites, refreshDealAlerts, setFavorites, spotlightRepository, targetEntry]);
 
   const visibleEntries = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -536,7 +564,7 @@ export function WishlistScreen() {
       spotlightRepository,
       entry.cardId,
       undefined,
-      entry.largeImageUrl ?? entry.imageUrl,
+      getCardImageUrl(entry, 'large') ?? entry.imageUrl,
     );
     const previewId = saveCardDetailPreviewFromFavorite(entry);
     router.push({
@@ -598,7 +626,7 @@ export function WishlistScreen() {
       .catch(() => {
         void loadFavorites();
       });
-  }, [loadFavorites, spotlightRepository]);
+  }, [loadFavorites, setFavorites, spotlightRepository]);
 
   const allVisibleSelected = visibleEntries.length > 0
     && visibleEntries.every((entry) => selectedIds.has(entry.watchKey));
@@ -660,7 +688,7 @@ export function WishlistScreen() {
       .finally(() => {
         setIsDeleting(false);
       });
-  }, [favorites, isDeleting, loadFavorites, selectedIds, spotlightRepository]);
+  }, [favorites, isDeleting, loadFavorites, selectedIds, setFavorites, spotlightRepository]);
 
   // Catalog search. Same destination the floating magnifier FAB had; it is a
   // bubble in the top bar now (see `WishlistHeader`), which also keeps it
@@ -1145,7 +1173,7 @@ function WishlistListRow({
       // so graded copies still read as slabs even without the text line.
       grader={entry.slabContext?.grader ?? null}
       grade={entry.slabContext?.grade ?? null}
-      imageUrl={entry.smallImageUrl ?? entry.imageUrl ?? null}
+      imageUrl={getCardImageUrl(entry, 'small')}
       marketPrice={entry.marketPrice ?? null}
       name={entry.name}
       // Not while multi-selecting: the row is a selection target then, and the
@@ -1361,7 +1389,7 @@ function WishlistGridTile({
     <InventoryCardTile
       bordered={false}
       footnote={targetLabel ?? (newWatch && WATCHLIST_TREND_ACCESS !== 'hidden' ? NEW_WATCH_LABEL : null)}
-      imageUrl={entry.smallImageUrl ?? entry.imageUrl ?? null}
+      imageUrl={getCardImageUrl(entry, 'small')}
       name={entry.name}
       setName={entry.setName ?? ''}
       cardNumber={entry.cardNumber ?? null}

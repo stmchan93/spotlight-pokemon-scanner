@@ -64,3 +64,28 @@ export function otherWatchedPrintingLabels(
 export function watchVariantForKey(key: string): string | null {
   return key === '' ? null : key;
 }
+
+/**
+ * The picker label for a stored watch key. The server stores TCGplayer's
+ * spelling ("1st Edition") and sends the picker's ("First Edition") in
+ * `watchPrintingLabels`; the picker label goes back out on writes and the
+ * server maps it to the same watch. '' (main printing) stays ''.
+ */
+export function pickerLabelForWatchKey(
+  key: string,
+  labels: Readonly<Record<string, string>> | undefined,
+): string {
+  return key === '' ? '' : labels?.[key] ?? key;
+}
+
+/** Re-key a per-watch record (targets, prices) from stored keys to picker labels. */
+export function relabelWatchKeys<T>(
+  record: Readonly<Record<string, T>>,
+  labels: Readonly<Record<string, string>> | undefined,
+): Record<string, T> {
+  const relabeled: Record<string, T> = {};
+  for (const [key, value] of Object.entries(record)) {
+    relabeled[pickerLabelForWatchKey(key, labels)] = value;
+  }
+  return relabeled;
+}

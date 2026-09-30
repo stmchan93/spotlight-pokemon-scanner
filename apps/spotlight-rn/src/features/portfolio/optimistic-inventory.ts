@@ -32,6 +32,73 @@ export function prependInventoryEntry(
   return [entry, ...entries];
 }
 
+function roundCurrency(value: number): number {
+  return Number(Math.max(0, value).toFixed(2));
+}
+
+function changePercentFor(changeAmount: number, startValue: number): number | null {
+  return Math.abs(startValue) < 0.01 ? null : Number(((changeAmount / startValue) * 100).toFixed(4));
+}
+
+/**
+ * Move the headline AND every range's newest chart point by `delta`.
+ *
+ * The headline is the chart's last point. Adjusting only `summary.currentValue`
+ * on an optimistic add/edit/delete split the two: after deleting a sealed box
+ * the balance dropped but the line, and the scrub tooltip on its last dot, kept
+ * the box until the slow dashboard refetch landed — and kept it for good when
+ * that refetch timed out (staging, 2026-09-29). Earlier days are history and
+ * stay as they are; the refetch reconciles everything.
+ */
+export function shiftDashboardLatestValue(
+  dashboard: PortfolioDashboard,
+  delta: number,
+): PortfolioDashboard {
+  if (!Number.isFinite(delta) || Math.abs(delta) < 0.005) {
+    return dashboard;
+  }
+
+  const ranges = { ...dashboard.ranges };
+  for (const key of Object.keys(ranges) as (keyof typeof ranges)[]) {
+    const range = ranges[key];
+    const lastIndex = range.portfolio.length - 1;
+    if (lastIndex < 0) {
+      continue;
+    }
+    const portfolio = range.portfolio.map((point, index) => (
+      index === lastIndex ? { ...point, value: roundCurrency(point.value + delta) } : point
+    ));
+    const summary = range.summary
+      ? (() => {
+          const currentValue = portfolio[lastIndex].value;
+          const changeAmount = Number((currentValue - range.summary.startValue).toFixed(2));
+          return {
+            ...range.summary,
+            currentValue,
+            changeAmount,
+            changePercent: changePercentFor(changeAmount, range.summary.startValue),
+          };
+        })()
+      : range.summary;
+    ranges[key] = { ...range, portfolio, summary };
+  }
+
+  const currentValue = roundCurrency(dashboard.summary.currentValue + delta);
+  const changeAmount = Number((dashboard.summary.changeAmount + (currentValue - dashboard.summary.currentValue)).toFixed(2));
+  const startValue = dashboard.summary.currentValue - dashboard.summary.changeAmount;
+
+  return {
+    ...dashboard,
+    ranges,
+    summary: {
+      ...dashboard.summary,
+      currentValue,
+      changeAmount,
+      changePercent: changePercentFor(changeAmount, startValue) ?? 0,
+    },
+  };
+}
+
 /**
  * Prepend an optimistic entry into the dashboard's inventory list (deduping by
  * id) and bump the summary value / count so the totals don't read briefly stale.
@@ -52,17 +119,14 @@ export function prependDashboardInventoryEntry(
     };
   }
 
-  const addedValue = inventoryEntryValue(entry);
-
-  return {
-    ...dashboard,
-    inventoryCount: dashboard.inventoryCount + 1,
-    inventoryItems,
-    summary: {
-      ...dashboard.summary,
-      currentValue: Number((dashboard.summary.currentValue + addedValue).toFixed(2)),
+  return shiftDashboardLatestValue(
+    {
+      ...dashboard,
+      inventoryCount: dashboard.inventoryCount + 1,
+      inventoryItems,
     },
-  };
+    inventoryEntryValue(entry),
+  );
 }
 
 /**
@@ -119,15 +183,14 @@ export function removeDashboardInventoryEntries(
   const inventoryItems = dashboard.inventoryItems.filter((entry) => !removalSet.has(entry.id));
   const removedValue = removedEntries.reduce((sum, entry) => sum + inventoryEntryValue(entry), 0);
 
-  return {
-    ...dashboard,
-    inventoryCount: Math.max(0, dashboard.inventoryCount - removedEntries.length),
-    inventoryItems,
-    summary: {
-      ...dashboard.summary,
-      currentValue: Number(Math.max(0, dashboard.summary.currentValue - removedValue).toFixed(2)),
+  return shiftDashboardLatestValue(
+    {
+      ...dashboard,
+      inventoryCount: Math.max(0, dashboard.inventoryCount - removedEntries.length),
+      inventoryItems,
     },
-  };
+    -removedValue,
+  );
 }
 
 /**
@@ -141,6 +204,7 @@ function entriesEquivalent(a: InventoryCardEntry, b: InventoryCardEntry): boolea
     a.cardId === b.cardId
     && a.name === b.name
     && a.imageUrl === b.imageUrl
+    && a.printingImageUrl === b.printingImageUrl
     && a.quantity === b.quantity
     && a.marketPrice === b.marketPrice
     && a.hasMarketPrice === b.hasMarketPrice
@@ -203,13 +267,12 @@ export function reflectInventoryCacheIntoDashboard(
 
   const inventoryItems = [...newEntries, ...retained];
 
-  return {
-    ...dashboard,
-    inventoryCount: inventoryItems.length,
-    inventoryItems,
-    summary: {
-      ...dashboard.summary,
-      currentValue: Number(Math.max(0, dashboard.summary.currentValue + valueDelta).toFixed(2)),
+  return shiftDashboardLatestValue(
+    {
+      ...dashboard,
+      inventoryCount: inventoryItems.length,
+      inventoryItems,
     },
-  };
+    valueDelta,
+  );
 }

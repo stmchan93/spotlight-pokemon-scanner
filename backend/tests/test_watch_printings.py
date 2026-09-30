@@ -11,6 +11,7 @@ through the injected mock transport.
 from __future__ import annotations
 
 import contextlib
+import json
 import sqlite3
 import sys
 import tempfile
@@ -847,6 +848,179 @@ class PptUngradedSignalTests(unittest.TestCase):
         read = watch_printings.ungraded_sales_by_card(self.connection, ["pl2-2"])["pl2-2"]
         self.assertEqual(read.sales_30d, 11)
         self.assertEqual(read.median_cents, 12_950)
+
+
+
+# --- edition / finish spellings: the watched printing's price everywhere ----------
+
+WOOPER = "neo1-82"
+FIRST_ED_KEY = "1st Edition"  # TCGplayer subtype = the stored watch key
+MAIN_PRICE_ENV = {"RAW_MAIN_PRICE_SOURCE": "tcgcsv", "PRICE_HISTORY_SOURCE": "cells"}
+
+
+class EditionSpellingWatchTests(PrintingTestCase):
+    """Staging 2026-09-29: a Wooper (Neo Genesis 82/111) 1st Edition watch read
+    "Market $3.02" — the Unlimited main printing — while its own TCGplayer price
+    was $9.72. The PDP picker says "First Edition", TCGplayer "1st Edition", the
+    card's headline is Unlimited, and Scrydex's First Edition context is stale."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        env = patch.dict("os.environ", MAIN_PRICE_ENV)
+        env.start()
+        self.addCleanup(env.stop)
+        self._card(WOOPER, name="Wooper", set_name="Neo Genesis", number="82/111")
+        stale = "2026-07-19T03:19:19+00:00"
+        raw_contexts = {
+            "variants": {
+                label: {
+                    "variant": label,
+                    "variantKey": key,
+                    "conditions": {
+                        "NM": {"variant": label, "variantKey": key, "condition": "NM",
+                               "currencyCode": "USD", "low": low, "market": market}
+                    },
+                }
+                for label, key, low, market in (
+                    ("First Edition", "firstEdition", 7.0, 9.12),
+                    ("Unlimited", "unlimited", 2.25, 3.09),
+                )
+            }
+        }
+        printings = {
+            "First Edition": {"subTypeName": FIRST_ED_KEY, "market": 9.72, "low": 2.0},
+            "Unlimited": {"subTypeName": "Unlimited", "market": 3.02, "low": 0.75},
+        }
+        self.connection.execute(
+            """
+            INSERT OR REPLACE INTO card_price_snapshots
+                (card_id, provider, display_currency_code, default_raw_variant,
+                 main_raw_variant, main_raw_market_price, main_raw_low_price,
+                 main_raw_updated_at, main_raw_printings_json, raw_contexts_json, updated_at)
+            VALUES (?, 'scrydex', 'USD', 'Unlimited', 'Unlimited', 3.02, 0.75, ?, ?, ?, ?)
+            """,
+            (WOOPER, utc_now(), json.dumps(printings), json.dumps(raw_contexts), stale),
+        )
+        self.connection.commit()
+        self._tcg_cells(WOOPER, variant=FIRST_ED_KEY, markets=(9.0, 9.5, 9.72), low=2.0)
+        self._tcg_cells(WOOPER, variant="Unlimited", markets=(3.0, 3.01, 3.02), low=0.75)
+
+    def _as(self, owner: str):
+        return self.service.request_identity_context(self._identity(owner))
+
+    def test_picker_label_watch_quotes_its_own_printing_everywhere(self) -> None:
+        with self._as("owner-a"):
+            added = self.service.set_card_favorite(WOOPER, is_favorite=True, variant="First Edition")
+            entry = self.service.card_favorites()["entries"][0]
+            detail = self.service.card_detail(WOOPER)
+
+        self.assertEqual(added["watchVariant"], FIRST_ED_KEY)
+        self.assertEqual(added["watchMarketPrice"], 9.72)
+        self.assertEqual(added["watchPrintingLabels"], {FIRST_ED_KEY: "First Edition"})
+        # List row: the app renders card.pricing — it must be 1st Edition's
+        # TCGplayer price, not Unlimited's $3.02 or Scrydex's stale $9.12.
+        self.assertEqual(entry["marketPrice"], 9.72)
+        self.assertEqual(entry["card"]["pricing"]["market"], 9.72)
+        self.assertEqual(entry["card"]["pricing"]["variant"], "First Edition")
+        self.assertEqual(entry["sinceAddedBaselinePrice"], 9.72)
+        self.assertEqual(entry["sinceAddedChangePercent"], 0.0)
+        self.assertEqual(entry["sparkPoints"], [9.0, 9.5, 9.72])
+        self.assertEqual(entry["dayChangeAmount"], 0.22)
+        # PDP: the target prompt's market + "since watched" use the printing.
+        assert detail is not None
+        self.assertEqual(detail["watchMarketPrices"], {FIRST_ED_KEY: 9.72})
+        self.assertEqual(detail["watchPrintingLabels"], {FIRST_ED_KEY: "First Edition"})
+        self.assertEqual(detail["favoriteContext"]["sinceAddedChangePercent"], 0.0)
+
+    def test_main_printing_watch_is_unchanged(self) -> None:
+        with self._as("owner-a"):
+            added = self.service.set_card_favorite(WOOPER, is_favorite=True)
+            entry = self.service.card_favorites()["entries"][0]
+        self.assertIsNone(added["watchMarketPrice"])
+        self.assertEqual(entry["card"]["pricing"]["market"], 3.02)
+        self.assertEqual(entry["marketPrice"], 3.02)
+
+    def test_a_label_keyed_cell_still_prices_the_stored_key(self) -> None:
+        # The sync keys a cell by its Scrydex label once two printings collide
+        # on one subtype, so the stored "1st Edition" can meet "First Edition".
+        self._watch_wooper("owner-a", FIRST_ED_KEY, added=9.0)
+        self.connection.execute(
+            "UPDATE card_price_history_cell SET variant_key = 'First Edition' "
+            "WHERE card_id = ? AND variant_key = ?",
+            (WOOPER, FIRST_ED_KEY),
+        )
+        self.connection.commit()
+        prices = watch_printings.latest_printing_prices(
+            self.connection, [(WOOPER, FIRST_ED_KEY), (WOOPER, "Unlimited")]
+        )
+        self.assertEqual(prices[(WOOPER, FIRST_ED_KEY)]["market"], 9.72)
+        self.assertEqual(prices[(WOOPER, "Unlimited")]["market"], 3.02)
+        with self._as("owner-a"):
+            entry = self.service.card_favorites()["entries"][0]
+        self.assertEqual(entry["card"]["pricing"]["market"], 9.72)
+
+    def test_exact_cell_beats_a_spelling_match(self) -> None:
+        self._tcg_cells(WOOPER, variant="First Edition", markets=(50.0,))
+        price = watch_printings.latest_printing_price(self.connection, WOOPER, FIRST_ED_KEY)
+        assert price is not None
+        self.assertEqual(price["market"], 9.72)
+
+    def test_deal_scan_baseline_is_the_watched_printing(self) -> None:
+        self._watch_wooper("owner-a", FIRST_ED_KEY, added=9.0)
+        self._watch_wooper("owner-b", "", added=3.0)
+        by_owner = {b.owner_user_id: b for b in ws.watched_card_baselines(self.connection)}
+        self.assertEqual(by_owner["owner-a"].printing, FIRST_ED_KEY)
+        self.assertEqual(by_owner["owner-a"].current_market_cents, 972)
+        self.assertEqual(by_owner["owner-b"].printing, "Unlimited")
+
+    def test_market_move_reads_the_watched_printing(self) -> None:
+        moves = ma.printing_day_over_day(
+            self.connection, [(WOOPER, FIRST_ED_KEY)], ref_date=NOW.date()
+        )
+        self.assertEqual(moves[(WOOPER, FIRST_ED_KEY)].price_now, 9.72)
+
+    def _watch_wooper(self, owner: str, variant: str, *, added: float) -> None:
+        self.connection.execute(
+            """
+            INSERT OR REPLACE INTO card_favorites
+                (owner_user_id, card_id, variant_key, created_at, added_market_price, added_market_date)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (owner, WOOPER, variant, utc_now(), added, self._day(2)),
+        )
+        self.connection.commit()
+
+
+class PrintingSpellingTests(unittest.TestCase):
+    PRINTINGS = ["Holofoil", "Reverse Holofoil", "1st Edition Holofoil", "Unlimited Holofoil"]
+
+    def test_client_spellings_map_to_the_stored_key(self) -> None:
+        cases = {
+            "First Edition": "1st Edition Holofoil",  # PDP picker label
+            "1st edition holofoil": "1st Edition Holofoil",
+            "First Edition Holofoil": "1st Edition Holofoil",
+            "Unlimited": "Unlimited Holofoil",
+            "Reverse Holo": "Reverse Holofoil",
+            "reverse-holofoil": "Reverse Holofoil",
+            "Holo": "Holofoil",
+        }
+        for requested, expected in cases.items():
+            with self.subTest(requested=requested):
+                self.assertEqual(watch_printings.canonical_printing(requested, self.PRINTINGS), expected)
+
+    def test_finishes_never_cross_match(self) -> None:
+        self.assertIsNone(watch_printings.canonical_printing("Shadowless", self.PRINTINGS))
+        self.assertIsNone(watch_printings.canonical_printing("Reverse", self.PRINTINGS))
+        cells = {"Holofoil": ("h",), "Reverse Holofoil": ("r",)}
+        self.assertEqual(watch_printings.cells_for_printing(cells, "Reverse Holo"), ("r",))
+        self.assertEqual(watch_printings.cells_for_printing(cells, "Holo"), ("h",))
+
+    def test_picker_label_for_stored_keys(self) -> None:
+        self.assertEqual(watch_printings.printing_label("1st Edition"), "First Edition")
+        self.assertEqual(watch_printings.printing_label("Unlimited Holofoil"), "Unlimited")
+        self.assertEqual(watch_printings.printing_label("Reverse Holofoil"), "Reverse Holofoil")
+        self.assertEqual(watch_printings.printing_label("Poke Ball Reverse Holofoil"), "Poke Ball Reverse Holofoil")
+        self.assertIsNone(watch_printings.printing_label(""))
 
 
 if __name__ == "__main__":

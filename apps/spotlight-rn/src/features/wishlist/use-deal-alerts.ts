@@ -4,6 +4,7 @@ import type { DealAlert } from '@spotlight/api-client';
 
 import { useAccessGate } from '@/features/auth/access-gate-provider';
 import { useAppServices } from '@/providers/app-providers';
+import { isDealAlertLive } from '@/features/wishlist/deal-radar';
 
 /**
  * How many deals the band asks for. Small on purpose: the band sits above the
@@ -53,7 +54,9 @@ export function useDealAlerts(): DealAlertsState {
       return;
     }
     const page = await spotlightRepository.listDealAlerts(DEAL_ALERT_LIMIT);
-    setAlerts(page.alerts);
+    // The server already hides dead listings; this catches one that ended
+    // since (or an older server that doesn't filter).
+    setAlerts(page.alerts.filter((alert) => isDealAlertLive(alert)));
     setUnseenCount(page.unseenCount);
   }, [flagEnabled, spotlightRepository]);
 

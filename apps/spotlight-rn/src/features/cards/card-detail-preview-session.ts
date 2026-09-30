@@ -7,7 +7,11 @@ import type {
   ProductKind,
 } from '@spotlight/api-client';
 
-import { printingImagesForCandidate, type PrintingImage } from '@/features/cards/printing-image';
+import {
+  printingImagesForCandidate,
+  printingImagesForEntries,
+  type PrintingImage,
+} from '@/features/cards/printing-image';
 
 export type CardDetailPreview = {
   cardId: string;
@@ -94,6 +98,10 @@ export function cardDetailPreviewFromCatalogResult(result: CatalogSearchResult):
 }
 
 export function cardDetailPreviewFromInventoryEntry(entry: InventoryCardEntry): CardDetailPreview {
+  // An alt-art copy opens on its own art while its printing is selected.
+  const printingImages = printingImagesForEntries([
+    { printingLabel: entry.variantName, printingImageUrl: entry.printingImageUrl },
+  ]);
   return {
     cardId: entry.cardId,
     cardNumber: entry.cardNumber,
@@ -107,6 +115,7 @@ export function cardDetailPreviewFromInventoryEntry(entry: InventoryCardEntry): 
     marketPrice: entry.hasMarketPrice ? entry.marketPrice : null,
     name: entry.name,
     ownedEntry: entry,
+    ...(printingImages ? { printingImages } : {}),
     setName: entry.setName,
   };
 }
@@ -120,6 +129,9 @@ export function saveCardDetailPreviewFromInventoryEntry(entry: InventoryCardEntr
 }
 
 export function cardDetailPreviewFromFavorite(entry: CardFavoriteEntry): CardDetailPreview {
+  const printingImages = printingImagesForEntries([
+    { printingLabel: entry.watchVariant ?? entry.variantName, printingImageUrl: entry.printingImageUrl },
+  ]);
   return {
     cardId: entry.cardId,
     cardNumber: entry.cardNumber,
@@ -131,6 +143,7 @@ export function cardDetailPreviewFromFavorite(entry: CardFavoriteEntry): CardDet
     largeImageUrl: entry.largeImageUrl ?? null,
     marketPrice: entry.marketPrice ?? null,
     name: entry.name,
+    ...(printingImages ? { printingImages } : {}),
     setName: entry.setName,
   };
 }

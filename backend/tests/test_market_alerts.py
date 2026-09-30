@@ -608,6 +608,45 @@ class DealRoutingTests(MarketAlertsTestCase):
         stamped = self.connection.execute("SELECT push_sent_at FROM deal_alerts WHERE id = 'deal-1'").fetchone()[0]
         self.assertIsNotNone(stamped)
 
+    def test_deal_copy_names_the_number_it_is_under(self) -> None:
+        self.card("umbreon", "Umbreon ex")
+        self.token("u1")
+        self.deal("u1", "umbreon")
+        self.connection.execute("UPDATE deal_alerts SET baseline_source = 'added'")
+        self.connection.commit()
+        self.run_job(kinds=(ma.KIND_DEAL,))
+        (message,) = self.sender.messages
+        self.assertIn("18% below what you added it at", message.body)
+        self.assertNotIn("under market", message.body)
+
+    def test_recent_sales_baseline_says_recent_sales(self) -> None:
+        self.card("umbreon", "Umbreon ex")
+        self.token("u1")
+        self.deal("u1", "umbreon")
+        self.connection.execute("UPDATE deal_alerts SET baseline_source = 'sales'")
+        self.connection.commit()
+        self.run_job(kinds=(ma.KIND_DEAL,))
+        (message,) = self.sender.messages
+        self.assertIn("18% under recent sales", message.body)
+
+    def test_expired_or_ended_deals_are_never_pushed(self) -> None:
+        self.card("umbreon", "Umbreon ex")
+        self.card("espeon", "Espeon ex")
+        self.token("u1")
+        self.deal("u1", "umbreon", alert_id="d1")
+        self.deal("u1", "espeon", alert_id="d2")
+        self.connection.execute(
+            "UPDATE deal_alerts SET expired_at = ?, expired_reason = 'sold_out' WHERE id = 'd1'",
+            (NOW.isoformat(),),
+        )
+        self.connection.execute(
+            "UPDATE deal_alerts SET listing_ends_at = ? WHERE id = 'd2'",
+            ((NOW - timedelta(minutes=1)).isoformat(),),
+        )
+        self.connection.commit()
+        self.run_job(kinds=(ma.KIND_DEAL,))
+        self.assertEqual(self.sender.messages, [])
+
     def test_deals_bundle_and_respect_quiet_hours(self) -> None:
         self.card("umbreon", "Umbreon ex")
         self.card("espeon", "Espeon ex")

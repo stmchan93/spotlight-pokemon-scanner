@@ -1,10 +1,11 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { Linking } from 'react-native';
+import { Linking, StyleSheet } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 
 import type { CardFavoriteEntry, DealAlert, DealAlertsPage } from '@spotlight/api-client';
 
+import { buildDealShareMessage, isDealAlertLive } from '@/features/wishlist/deal-radar';
 import { WishlistScreen } from '@/features/wishlist/screens/wishlist-screen';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../../test-utils';
@@ -243,10 +244,84 @@ describe('Watchlist deal radar', () => {
       renderScreen(repository);
 
       const headline = await screen.findByTestId('wishlist-deal-headline-deal-1');
-      expect(headline).toHaveTextContent('$34.00 listed — you added it at $46.00');
+      // The baseline equals the market here, so the copy says market, not "you added it at".
+      expect(headline).toHaveTextContent('$34.00 listed — $12.00 under the $46.00 market');
       expect(screen.getByTestId('wishlist-deal-discount-deal-1')).toHaveTextContent('26% off');
       // The unread state lives on the band, not on the social notification bell.
       expect(screen.getByTestId('wishlist-deal-band-unseen-dot')).toBeTruthy();
+    });
+
+    it('says "you added it at" only when the added price was the baseline', async () => {
+      const { repository } = buildRepository({
+        page: {
+          alerts: [
+            buildDealAlert({ baselineCents: 4000, baselineSource: 'added', marketCents: 4600, savingsCents: 600 }),
+            buildDealAlert({
+              baselineCents: 4200,
+              baselineSource: 'sales',
+              id: 'deal-2',
+              listingId: 'listing-2',
+              savingsCents: 800,
+            }),
+          ],
+          limit: 5,
+          unseenCount: 2,
+        },
+      });
+      renderScreen(repository);
+
+      expect(await screen.findByTestId('wishlist-deal-headline-deal-1'))
+        .toHaveTextContent('$34.00 listed — $6.00 below the $40.00 you added it at');
+      expect(screen.getByTestId('wishlist-deal-headline-deal-2'))
+        .toHaveTextContent('$34.00 listed — $8.00 under recent sales ($42.00)');
+    });
+
+    it('never shows a deal whose listing has ended or was swept as dead', async () => {
+      const { repository } = buildRepository({
+        page: {
+          alerts: [
+            buildDealAlert({ listingEndsAt: '2999-01-01T00:00:00+00:00' }),
+            buildDealAlert({ id: 'deal-ended', listingEndsAt: '2000-01-01T00:00:00+00:00', listingId: 'l-2' }),
+            buildDealAlert({ expiredAt: '2026-09-29T00:00:00+00:00', id: 'deal-expired', listingId: 'l-3' }),
+          ],
+          limit: 5,
+          unseenCount: 3,
+        },
+      });
+      renderScreen(repository);
+
+      expect(await screen.findByTestId('wishlist-deal-row-deal-1')).toBeTruthy();
+      expect(screen.queryByTestId('wishlist-deal-row-deal-ended')).toBeNull();
+      expect(screen.queryByTestId('wishlist-deal-row-deal-expired')).toBeNull();
+    });
+
+    it('heads the band with the shared compact SectionHeader: "Deals", the unseen dot, then the count', async () => {
+      const { repository } = buildRepository({
+        page: { alerts: [buildDealAlert()], limit: 5, unseenCount: 1 },
+      });
+      renderScreen(repository);
+
+      expect(await screen.findByTestId('wishlist-deal-band-header-title')).toHaveTextContent('Deals');
+      expect(screen.getByTestId('wishlist-deal-band-header-count')).toHaveTextContent('1 listing caught');
+      // Mixed type sizes share a baseline; the dot is centred inside that row.
+      expect(StyleSheet.flatten(screen.getByTestId('wishlist-deal-band-header-title-row').props.style))
+        .toMatchObject({ alignItems: 'baseline', flexDirection: 'row' });
+      expect(StyleSheet.flatten(screen.getByTestId('wishlist-deal-band-header-title').props.style))
+        .toMatchObject({ fontSize: 17 });
+    });
+
+    it('pluralizes the caught count', async () => {
+      const { repository } = buildRepository({
+        page: {
+          alerts: [buildDealAlert(), buildDealAlert({ id: 'deal-2' })],
+          limit: 5,
+          unseenCount: 0,
+        },
+      });
+      renderScreen(repository);
+
+      expect(await screen.findByTestId('wishlist-deal-band-header-count')).toHaveTextContent('2 listings caught');
+      expect(screen.queryByTestId('wishlist-deal-band-unseen-dot')).not.toBeOnTheScreen();
     });
 
     it('still renders a deal whose card has left the watchlist, naming it from the alert', async () => {
@@ -497,8 +572,31 @@ describe('Watchlist deal radar', () => {
       const [, body] = (sendMessage as jest.Mock).mock.calls[0];
       expect(body).toContain('Charizard');
       expect(body).toContain('$34.00');
-      expect(body).toContain('$12.00 under what I added it at');
+      expect(body).toContain('$12.00 under the $46.00 market');
       expect(body).toContain('https://www.ebay.com/itm/123');
+    });
+  });
+
+  describe('deal copy and liveness (pure)', () => {
+    it('shares an added-price deal in the first person', () => {
+      const body = buildDealShareMessage(
+        buildDealAlert({ baselineCents: 4000, baselineSource: 'added', savingsCents: 600 }),
+        { name: 'Charizard' },
+      );
+      expect(body).toContain('Charizard just listed at $34.00 — $6.00 below the $40.00 I added it at.');
+    });
+
+    it('names a legacy alert\'s baseline without claiming where it came from', () => {
+      const body = buildDealShareMessage(buildDealAlert({ baselineCents: 4000, savingsCents: 600 }), null);
+      expect(body).toContain('— $6.00 under $40.00.');
+    });
+
+    it('treats a swept or past-end listing as dead, and an unknown end as live', () => {
+      const now = Date.parse('2026-09-29T12:00:00Z');
+      expect(isDealAlertLive(buildDealAlert(), now)).toBe(true);
+      expect(isDealAlertLive(buildDealAlert({ listingEndsAt: '2026-09-29T13:00:00+00:00' }), now)).toBe(true);
+      expect(isDealAlertLive(buildDealAlert({ listingEndsAt: '2026-09-29T11:00:00+00:00' }), now)).toBe(false);
+      expect(isDealAlertLive(buildDealAlert({ expiredAt: '2026-09-29T10:00:00+00:00' }), now)).toBe(false);
     });
   });
 

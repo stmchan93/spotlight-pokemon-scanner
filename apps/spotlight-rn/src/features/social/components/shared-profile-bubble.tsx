@@ -7,6 +7,7 @@ import type { InventoryCardEntry, SpotlightRepository } from '@spotlight/api-cli
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import type { UserProfile } from '@/features/auth/auth-models';
 import { fetchProfileById } from '@/features/profile/profile-service';
+import { getCardImageUrl } from '@/lib/card-images';
 
 export type SharedProfileTab = 'collection' | 'wishlist';
 
@@ -367,7 +368,7 @@ export function SharedProfileBubble({
             // honest — the card is in the list, the picture is missing.
             placeholderColor={theme.colors.gray100}
             testID={`${testID}-slot-${index}`}
-            uri={entry.smallImageUrl || entry.imageUrl || null}
+            uri={getCardImageUrl(entry, 'small')}
           />
         ))}
       </View>

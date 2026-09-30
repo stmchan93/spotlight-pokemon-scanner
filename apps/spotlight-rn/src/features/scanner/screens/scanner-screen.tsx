@@ -168,6 +168,7 @@ import { BinderPageReview } from './binder-page-review';
 import { BinderLayoutMenu, type BinderLayoutMenuSelection } from '@/features/scanner/components/binder-layout-menu';
 import { AnchoredOptionMenu, PrintingMenu } from '@/features/scanner/components/printing-menu';
 import { CustomDiscountSheet } from '@/features/scanner/components/custom-discount-sheet';
+import { watchlistCardBasicsFromSearchResult } from '@/features/wishlist/watchlist-store';
 import { ChangeCardPicker } from './change-card-picker';
 import { RecentCaptureSwipeRow } from './recent-capture-swipe-row';
 import { ScanTrayList, type ScanTrayListItem } from './scan-tray-list';
@@ -1002,6 +1003,7 @@ export function ScannerScreen({
     spotlightRepository,
     prependOptimisticInventoryEntry,
     activeCollectionID,
+    watchlistStore,
   } = useAppServices();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
@@ -3546,7 +3548,11 @@ export function ScannerScreen({
 
     let didSucceed = false;
     try {
-      await spotlightRepository.setCardFavorite(cardId, true, { variant });
+      const watched = await spotlightRepository.setCardFavorite(cardId, true, { variant });
+      watchlistStore.applyWatchWrite(
+        { ...watched, watchVariant: watched.watchVariant ?? variant ?? null },
+        watchlistCardBasicsFromSearchResult(candidate),
+      );
       setInventoryEntries((current) => withUpdatedInventoryFavoriteState(current, cardId, true));
       refreshData();
       didSucceed = true;
@@ -3578,7 +3584,7 @@ export function ScannerScreen({
       }, addedConfirmationDurationMs);
       recentlyAddedTimersRef.current.set(captureId, timerId);
     }
-  }, [refreshData, removeCaptureAfterAdd, spotlightRepository, trayStore, watchVariantForCapture]);
+  }, [refreshData, removeCaptureAfterAdd, spotlightRepository, trayStore, watchVariantForCapture, watchlistStore]);
 
   const handleAddToInventory = useCallback(async (captureId: string) => {
     const capture = recentCapturesRef.current.find((candidate) => candidate.id === captureId);
@@ -3639,7 +3645,11 @@ export function ScannerScreen({
         buildOptimisticInventoryEntry(
           activeCandidate,
           createResponse.addedAt || addedAt,
-          { mode: capture.mode, slabContext: capture.slabContext },
+          {
+            mode: capture.mode,
+            slabContext: capture.slabContext,
+            printingLabel: rawVariantLabelFor(capture, activeCandidate),
+          },
           createResponse.deckEntryID,
         ),
       );
@@ -3709,7 +3719,7 @@ export function ScannerScreen({
   const handleBulkAddToWishlist = useCallback(() => {
     // Snapshot the resolved watches BEFORE clearing the tray; de-dupe by card +
     // printing so repeat scans of the same printing only watch it once.
-    const watches = new Map<string, { cardId: string; variant: string | null }>();
+    const watches = new Map<string, { cardId: string; variant: string | null; candidate: CatalogSearchResult }>();
     for (const capture of recentCapturesRef.current) {
       if (capture.isLoadingCandidates || capture.recentlyAdded) {
         continue;
@@ -3719,7 +3729,7 @@ export function ScannerScreen({
         continue;
       }
       const variant = watchVariantForCapture(capture, candidate);
-      watches.set(`${candidate.cardId}|${variant ?? ''}`, { cardId: candidate.cardId, variant });
+      watches.set(`${candidate.cardId}|${variant ?? ''}`, { cardId: candidate.cardId, variant, candidate });
     }
     const cardIds = Array.from(watches.values());
 
@@ -3732,9 +3742,13 @@ export function ScannerScreen({
     void (async () => {
       let succeeded = 0;
       // Sequential — concurrent writes contend on the backend's SQLite store.
-      for (const { cardId, variant } of cardIds) {
+      for (const { cardId, variant, candidate } of cardIds) {
         try {
-          await spotlightRepository.setCardFavorite(cardId, true, { variant });
+          const watched = await spotlightRepository.setCardFavorite(cardId, true, { variant });
+          watchlistStore.applyWatchWrite(
+            { ...watched, watchVariant: watched.watchVariant ?? variant ?? null },
+            watchlistCardBasicsFromSearchResult(candidate),
+          );
           succeeded += 1;
         } catch (error) {
           logScannerDiagnostic(`[SCANNER] addAll wishlist failed: ${scannerErrorMessage(error)}`, error);
@@ -3753,6 +3767,7 @@ export function ScannerScreen({
     refreshData,
     spotlightRepository,
     watchVariantForCapture,
+    watchlistStore,
   ]);
 
   // Bulk "Add to Collection": one inventory entry PER resolved scan (two scans of
@@ -3810,7 +3825,11 @@ export function ScannerScreen({
           buildOptimisticInventoryEntry(
             row.candidate,
             createdAt,
-            { mode: row.capture.mode, slabContext: row.capture.slabContext },
+            {
+              mode: row.capture.mode,
+              slabContext: row.capture.slabContext,
+              printingLabel: rawVariantLabelFor(row.capture, row.candidate),
+            },
             deckEntryID,
           ),
         );
@@ -3901,7 +3920,11 @@ export function ScannerScreen({
           buildOptimisticInventoryEntry(
             candidate,
             createdAddedAt || addedAt,
-            { mode: capture.mode, slabContext: capture.slabContext },
+            {
+              mode: capture.mode,
+              slabContext: capture.slabContext,
+              printingLabel: rawVariantLabelFor(capture, candidate),
+            },
             deckEntryID,
           ),
         );

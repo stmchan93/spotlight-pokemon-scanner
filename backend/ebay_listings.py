@@ -119,7 +119,10 @@ RAW_FETCH_PAGE_SIZE = 200
 DEFAULT_RAW_LISTING_LIMIT = RAW_FETCH_PAGE_SIZE
 
 # An auction only means something near the end. At $5 with six days left it is an
-# early bid, not a price.
+# early bid, not a price. Used by the PDP "Lowest listed" panel ONLY: the deal
+# radar drops auctions entirely (a final-window bid is still not the price it
+# sells at — Marill me2pt5-232 alerted at a $5.58 bid, sold at $8.39), see
+# watch_signals.listing_candidate_from_validated.
 AUCTION_FINAL_WINDOW_MINUTES = 120
 
 # Same tiering as the graded sold-comps lane (`recent_sales_merge`): a row is
@@ -159,6 +162,11 @@ RAW_TITLE_NOT_A_CARD_PHRASES: tuple[str, ...] = (
     "orica", "fan art", "digital", "code card", "online code", "playmat",
     # 2026-09-23: an "Oshawott 105/086 ... Extended Art Display Case" alert.
     "display case", "extended art", "custom", "binder insert", "insert",
+    # 2026-09-29: an "Aluminum Card - Vulpix" alert. Metal/aluminium novelty
+    # prints. Bare "metal" is NOT here: Metal is a Pokemon type ("Metal
+    # Energy", "Metal Pokemon"), so metal only counts next to "card(s)".
+    "aluminum", "aluminium", "metal cards", "steel card", "stainless steel",
+    "24k", "fan made", "handmade",
 )
 # Deliberately absent: "print", "sleeve", "binder", "display" — real singles say
 # "Unlimited print", "shipped in sleeve", "straight from binder".

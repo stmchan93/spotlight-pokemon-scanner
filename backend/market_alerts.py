@@ -461,6 +461,7 @@ class PendingDeal:
     kind: str = "under_added"
     printing: str | None = None  # the watched (or main) printing, for copy
     baseline_cents: int | None = None  # new_low: the "usually $X+" number
+    baseline_source: str | None = None  # market | sales | added (None = legacy)
 
 
 @dataclass(frozen=True)
@@ -613,7 +614,14 @@ def build_deal_push(deals: Sequence[PendingDeal], seed: str = "") -> PlannedPush
         headline, body = new_low_copy(lead, seed)
     else:
         price = _usd(lead.total_cents / 100)
-        off = f"{pct}% under market" if pct > 0 else "under market"
+        # Say what the percent is under: the baseline is min(market, recent
+        # sales, add-time price), not always "market".
+        phrase = (
+            expo_push.deal_baseline_phrase(lead.baseline_source)
+            if lead.baseline_source
+            else "under market"
+        )
+        off = f"{pct}% {phrase}" if pct > 0 else phrase
         headline, body = _pick_pair((
             (f"Deal alert! {name} is on sale \U0001F6A8", f"{price} on eBay, {off}. Go go go!"),
             (f"Psst\u2026 the {name} you're watching is on sale \U0001F440", f"{price} on eBay, {off}."),
@@ -809,15 +817,23 @@ def pending_deals(
     deal_columns = _columns(connection, "deal_alerts")
     dismissed = "AND d.dismissed_at IS NULL" if "dismissed_at" in deal_columns else ""
     variant = "d.variant_key" if "variant_key" in deal_columns else "''"
+    source = "d.baseline_source" if "baseline_source" in deal_columns else "NULL"
+    # Never push a listing that has since ended or been swept as dead.
+    live = ""
+    live_params: tuple[str, ...] = ()
+    if {"expired_at", "listing_ends_at"} <= deal_columns:
+        live = "AND d.expired_at IS NULL AND (d.listing_ends_at IS NULL OR d.listing_ends_at > ?)"
+        live_params = (now_utc.astimezone(timezone.utc).isoformat(),)
     rows = connection.execute(
         f"""
         SELECT d.id, d.card_id, d.total_cents, d.discount_pct, c.name, d.kind,
-               {variant} AS variant_key, d.baseline_cents
+               {variant} AS variant_key, d.baseline_cents, {source} AS baseline_source
         FROM deal_alerts d LEFT JOIN cards c ON c.id = d.card_id
         WHERE d.owner_user_id = ? AND d.push_sent_at IS NULL AND d.created_at >= ? {dismissed}
+          {live}
         ORDER BY d.created_at ASC, d.id ASC
         """,
-        (owner, cutoff),
+        (owner, cutoff, *live_params),
     ).fetchall()
     mains = watch_printings.main_printing_keys(
         connection, [str(r[1]) for r in rows if not str(r[6] or "")]
@@ -829,6 +845,7 @@ def pending_deals(
             kind=str(r[5] or "under_added"),
             printing=str(r[6] or "") or mains.get(str(r[1])) or None,
             baseline_cents=int(r[7]) if r[7] is not None else None,
+            baseline_source=str(r[8]) if r[8] else None,
         )
         for r in rows
     ]

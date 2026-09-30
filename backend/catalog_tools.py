@@ -19,6 +19,9 @@ import unicodedata
 # TCGCSV printing (subTypeName) <-> Scrydex variant label, for the main-lane
 # series merge. tcgcsv_adapter is stdlib-only, so no import cycle.
 from tcgcsv_adapter import TCGCSV_PROVIDER, scrydex_variant_label_for_subtype, subtype_for_variant_label
+# The canonical printing-identity normalizer (1st == First, subtype -> Scrydex
+# label, label-keyed cells). Imports only tcgcsv_adapter, so no cycle.
+from watch_printings import canonical_printing, printing_label
 
 
 MATCHER_VERSION = "raw-backend-reset-v1"
@@ -5984,7 +5987,12 @@ def _is_default_main_raw_read(
         requested_key = "normal"
     if main_key in _NORMAL_VARIANT_MATCH_KEYS:
         main_key = "normal"
-    return requested_key == main_key
+    if requested_key == main_key:
+        return True
+    # main_raw_variant is a TCGplayer subtype; owned copies carry the Scrydex
+    # label ("First Edition" vs "1st Edition" / "1st Edition Holofoil",
+    # "Unlimited" vs "Unlimited Holofoil").
+    return bool(main_key) and canonical_printing(variant, [str(main_raw_variant)]) is not None
 
 
 def resolve_main_raw_summary_from_row(
@@ -6077,17 +6085,25 @@ def main_raw_cell_points_by_variant_date(
     result: dict[str, dict[str, dict[str, Any]]] = {}
     for row in connection.execute(query, params).fetchall():
         sub_type = str(_cell_field(row, "variant_key") or "").strip()
-        label = scrydex_variant_label_for_subtype(sub_type)
+        # A subtype maps to its Scrydex label; a key that is no subtype is
+        # already the label (the sync keys subtype-collision printings — One
+        # Piece alt arts, Poke Ball reverses — by label).
+        label = printing_label(sub_type)
         if label is None:
-            continue  # unmapped subtype: never guess a printing
+            continue
         market = _coerce_price_float(_cell_field(row, "market"))
         if market is None:
             continue
         bucket = result.setdefault(_variant_match_key(label), {})
         date = str(_cell_field(row, "price_date"))
         # Two subtypes can collapse to one label (1st Edition Normal/Holofoil):
-        # the exact per-printing mapping wins, mirroring the sync's printings map.
-        if date in bucket and sub_type != subtype_for_variant_label(label):
+        # the exact per-printing mapping (or the label-keyed cell) wins,
+        # mirroring the sync's printings map.
+        exact = (
+            scrydex_variant_label_for_subtype(sub_type) is None
+            or sub_type == subtype_for_variant_label(label)
+        )
+        if date in bucket and not exact:
             continue
         bucket[date] = {
             "market": market,
@@ -6096,6 +6112,96 @@ def main_raw_cell_points_by_variant_date(
             "high": _coerce_price_float(_cell_field(row, "high")),
         }
     return result
+
+
+# --- Owned copies of a NON-main printing (Alt Art, stamped promos, ...) --------
+# The raw headline COALESCE above only covers the card's MAIN printing. A copy of
+# any other printing that has its own TCGCSV raw_main cell prices from that cell,
+# exactly as the PDP's condition ladder does for that printing:
+#   - NM is the cell (the ladder's Rule 1);
+#   - another condition keeps its own Scrydex price for that printing unless it
+#     is out of scale with the cell (Rule 2) or Scrydex has no exact price for
+#     it — then the printing's NM, i.e. the cell, is the best available price.
+
+#: Same margin as the PDP ladder's Rule 2 (server._MAIN_CONDITION_SCALE_MARGIN).
+PRINTING_CONDITION_SCALE_MARGIN = 2.0
+
+
+def _printing_identity_key(value: str | None) -> str:
+    key = _variant_match_key(_normalized_variant_label(value))
+    return "normal" if key in _NORMAL_VARIANT_MATCH_KEYS else key
+
+
+def printing_cell_serves_condition(
+    connection: sqlite3.Connection,
+    *,
+    condition: str | None,
+    printing_market: float | None,
+    scrydex_variant: str | None,
+    scrydex_condition: str | None,
+    scrydex_summary: dict[str, Any] | None,
+    variant: str | None,
+) -> bool:
+    """True when the printing's TCGCSV cell is the price for this condition
+    (see the block comment above). ``scrydex_*`` is what the Scrydex resolver
+    returned for (variant, condition) — it may have fallen back to another
+    condition or another printing, which never counts as an exact price."""
+    if printing_market is None:
+        return False
+    if not str(condition or "").strip():
+        return True
+    requested = _normalized_condition_code(condition)
+    if requested == DEFAULT_RAW_CONDITION:
+        return True
+    if (
+        not isinstance(scrydex_summary, dict)
+        or scrydex_summary.get("market") is None
+        or _normalized_condition_code(scrydex_condition) != requested
+        or _printing_identity_key(scrydex_variant) != _printing_identity_key(variant)
+    ):
+        return True
+    usd = _amount_to_usd(connection, scrydex_summary.get("market"), scrydex_summary.get("currencyCode"))
+    # Unconvertible: keep the Scrydex price (never judge what we cannot compare).
+    return usd is not None and usd > PRINTING_CONDITION_SCALE_MARGIN * float(printing_market)
+
+
+def apply_printing_point(
+    connection: sqlite3.Connection,
+    *,
+    point: dict[str, Any] | None,
+    variant: str | None,
+    condition: str | None,
+    resolved_variant: str | None,
+    resolved_condition: str | None,
+    summary: dict[str, Any] | None,
+) -> tuple[str | None, str | None, dict[str, Any] | None]:
+    """One history day of an owned non-main-printing copy: the Scrydex
+    resolution ``(resolved_variant, resolved_condition, summary)`` with that
+    day's TCGCSV point for the printing applied when the rule above picks it.
+    ``point`` is ``{market, low?, mid?, high?}`` in USD, or None (no cell that
+    day: the Scrydex resolution stands, like the main lane's mixed series)."""
+    if point is None or not printing_cell_serves_condition(
+        connection,
+        condition=condition,
+        printing_market=_coerce_price_float(point.get("market")),
+        scrydex_variant=resolved_variant,
+        scrydex_condition=resolved_condition,
+        scrydex_summary=summary,
+        variant=variant,
+    ):
+        return resolved_variant, resolved_condition, summary
+    return (
+        _normalized_variant_label(variant),
+        DEFAULT_RAW_CONDITION,
+        {
+            "currencyCode": "USD",
+            "low": _coerce_price_float(point.get("low")),
+            "market": _coerce_price_float(point.get("market")),
+            "mid": _coerce_price_float(point.get("mid")),
+            "high": _coerce_price_float(point.get("high")),
+            "payload": {},
+        },
+    )
 
 
 def _variant_match_key(value: str | None) -> str:
@@ -7171,7 +7277,9 @@ def price_history_rows_for_cards_batched(
 
     Each request is ``{"key": <opaque>, "card_id": str, "pricing_mode": str,
     "variant": str|None, "condition": str|None, "grader": str|None,
-    "grade": str|None, "is_perfect"/"is_signed"/"is_error": bool|None}``. Returns
+    "grade": str|None, "is_perfect"/"is_signed"/"is_error": bool|None,
+    "printing_points": {price_date: {market, low}}|None}`` (``printing_points``:
+    an owned non-main printing's TCGCSV cells, see ``apply_printing_point``). Returns
     ``{key: [resolved_rows]}`` where each list is byte-for-byte identical to what
     ``price_history_rows_for_card`` would return for that request (same row shape,
     same DESC ``price_date`` order, same resolver semantics).
@@ -7328,6 +7436,7 @@ def price_history_rows_for_cards_batched(
         is_perfect = req.get("is_perfect")
         is_signed = req.get("is_signed")
         is_error = req.get("is_error")
+        printing_points = req.get("printing_points") or None
         resolved_mode = req.get("pricing_mode") or (
             PSA_GRADE_PRICING_MODE if grader or grade else RAW_PRICING_MODE
         )
@@ -7374,6 +7483,17 @@ def price_history_rows_for_cards_batched(
                     resolved_variant, resolved_condition, summary = _resolve_raw_context_summary(
                         raw_contexts, variant=variant, condition=condition
                     )
+            if printing_points and resolved_mode != PSA_GRADE_PRICING_MODE:
+                # Owned non-main printing: that day's TCGCSV cell (see apply_printing_point).
+                resolved_variant, resolved_condition, summary = apply_printing_point(
+                    connection,
+                    point=printing_points.get(str(row["price_date"])[:10]),
+                    variant=variant,
+                    condition=condition,
+                    resolved_variant=resolved_variant,
+                    resolved_condition=resolved_condition,
+                    summary=summary,
+                )
             if summary is None:
                 continue
             resolved_rows.append(
