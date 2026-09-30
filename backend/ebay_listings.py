@@ -412,6 +412,23 @@ def title_worn_condition_reason(title: object) -> str | None:
     return None
 
 
+def title_rejection_reason(title: object) -> str | None:
+    """The first title rule a listing trips, as "denylist:lot",
+    "not_a_card:aluminum" or "worn_condition:hp", else None. The one title
+    gate: new candidates (evaluate_raw_listing) and the deal-alert sweep's
+    re-check of already-alerted listings both call it."""
+    denylisted = title_denylist_reason(title)
+    if denylisted:
+        return f"denylist:{denylisted}"
+    not_a_card = title_not_a_card_reason(title)
+    if not_a_card:
+        return f"not_a_card:{not_a_card}"
+    worn = title_worn_condition_reason(title)
+    if worn:
+        return f"worn_condition:{worn}"
+    return None
+
+
 def seller_rejection_reason(listing: dict[str, Any]) -> str | None:
     """Why this listing's seller is too thin to trust, or None. Unknown values
     pass: eBay omits them sometimes, and the cache predates the score field."""
@@ -562,15 +579,9 @@ def evaluate_raw_listing(
     if price_amount is None or price_amount <= 0:
         return {"ok": False, "reason": "missing_price", "candidate": None}
 
-    denylisted = title_denylist_reason(title)
-    if denylisted:
-        return {"ok": False, "reason": f"denylist:{denylisted}", "candidate": None}
-    not_a_card = title_not_a_card_reason(title)
-    if not_a_card:
-        return {"ok": False, "reason": f"not_a_card:{not_a_card}", "candidate": None}
-    worn = title_worn_condition_reason(title)
-    if worn:
-        return {"ok": False, "reason": f"worn_condition:{worn}", "candidate": None}
+    title_reason = title_rejection_reason(title)
+    if title_reason:
+        return {"ok": False, "reason": title_reason, "candidate": None}
     seller = seller_rejection_reason(listing)
     if seller:
         return {"ok": False, "reason": f"seller:{seller}", "candidate": None}

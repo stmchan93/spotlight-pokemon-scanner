@@ -2551,8 +2551,12 @@ export type DealAlert = {
    * ("usually $129+"). null elsewhere.
    */
   lowestSeenCents: number | null;
-  /** Shipping-inclusive listing total, USD CENTS. */
+  /** Shipping-inclusive listing total, USD CENTS. The deal math uses this. */
   totalCents: number;
+  /** The listing's item price excl. shipping, USD CENTS; null on older alerts. */
+  priceCents?: number | null;
+  /** Shipping on top of `priceCents`, USD CENTS (0 = free); null when unknown. */
+  shippingCents?: number | null;
   /** What `totalCents` was judged against, USD CENTS. */
   baselineCents: number;
   /**

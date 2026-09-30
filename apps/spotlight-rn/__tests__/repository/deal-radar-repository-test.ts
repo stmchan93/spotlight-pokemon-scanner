@@ -33,6 +33,8 @@ const alertPayload = {
   listingID: 'v1|1|0',
   kind: 'under_added',
   totalCents: 7000,
+  priceCents: 6400,
+  shippingCents: 600,
   baselineCents: 9000,
   baselineSource: 'market',
   listingEndsAt: '2026-10-18T00:00:00+00:00',
@@ -80,6 +82,8 @@ describe('HttpSpotlightRepository deal alerts', () => {
         tierLabel: null,
         lowestSeenCents: null,
         totalCents: 7000,
+        priceCents: 6400,
+        shippingCents: 600,
         baselineCents: 9000,
         baselineSource: 'market',
         listingEndsAt: '2026-10-18T00:00:00+00:00',
@@ -150,6 +154,9 @@ describe('HttpSpotlightRepository deal alerts', () => {
       tierLabel: null,
       lowestSeenCents: null,
       totalCents: 0,
+      // Older alerts: no item/shipping split, so the app shows the total.
+      priceCents: null,
+      shippingCents: null,
       baselineCents: 0,
       // An older server: no source, no end time, never swept.
       baselineSource: null,

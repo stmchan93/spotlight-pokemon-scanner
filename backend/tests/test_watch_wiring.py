@@ -877,11 +877,13 @@ def _item_page(
     buying_options: tuple[str, ...] = ("FIXED_PRICE",),
     availability: str = "IN_STOCK",
     end_date: str | None = "2026-10-19T12:00:00.000Z",
+    title: str | None = None,
+    shipping: str | None = None,
 ) -> dict[str, object]:
     page: dict[str, object] = {
         "itemId": f"v1|{legacy_id}|0",
         "legacyItemId": legacy_id,
-        "title": f"{CARD_NAME} {CARD_NUMBER}",
+        "title": title or f"{CARD_NAME} {CARD_NUMBER}",
         "price": {"value": price, "currency": "USD"},
         "itemLocation": {"country": "US"},
         "buyingOptions": list(buying_options),
@@ -892,6 +894,10 @@ def _item_page(
     }
     if end_date:
         page["itemEndDate"] = end_date
+    if shipping is not None:
+        page["shippingOptions"] = [
+            {"shippingCostType": "FIXED", "shippingCost": {"value": shipping, "currency": "USD"}}
+        ]
     return page
 
 
@@ -1073,6 +1079,83 @@ class DealAlertLivenessTests(WatchWiringTestCase):
         self.assertEqual(summary["calls"], 1)
         self.assertEqual(self._expiry(a)[1], "sold_out")
         self.assertEqual(self._expiry(b)[1], "sold_out")
+
+
+    def test_scan_stores_item_price_and_shipping_separately(self) -> None:
+        self._card()
+        self._history()
+        self._watch("owner-a")
+        listing = _summary(price="64.00")
+        listing["shippingOptions"] = [
+            {"shippingCostType": "FIXED", "shippingCost": {"value": "6.00", "currency": "USD"}}
+        ]
+        self.assertEqual(self._run_scan(_Transport([listing]))["alertsCreated"], 1)
+        row = self.connection.execute("SELECT * FROM deal_alerts").fetchone()
+        self.assertEqual(row["total_cents"], 7_000)
+        self.assertEqual(row["price_cents"], 6_400)
+        self.assertEqual(row["shipping_cents"], 600)
+        with self.service.request_identity_context(self._identity("owner-a")):
+            alert = self.service.deal_alerts()["alerts"][0]
+        self.assertEqual((alert["priceCents"], alert["shippingCents"]), (6_400, 600))
+
+    def test_sweep_expires_listings_failing_todays_title_filters(self) -> None:
+        # 9/25 "Aluminum Card - Vulpix": alerted before the metal-card rule.
+        self._card()
+        metal_a = self._alert("700", owner="owner-a")
+        metal_b = self._alert("700", owner="owner-b")
+        clean = self._alert("701")
+        transport = _ItemPageTransport(
+            {
+                "700": _item_page("700", title=f"Aluminum Card - {CARD_NAME} {CARD_NUMBER}"),
+                "701": _item_page("701"),
+            }
+        )
+        summary = self._sweep(transport)
+        self.assertEqual(self._expiry(metal_a)[1], "title_filter:not_a_card:aluminum")
+        self.assertEqual(self._expiry(metal_b)[1], "title_filter:not_a_card:aluminum")
+        self.assertEqual(self._expiry(clean), (None, None))
+        self.assertEqual(summary["reasons"], {"title_filter:not_a_card:aluminum": 2})
+
+    def test_sweep_backfills_price_and_shipping_on_older_alerts(self) -> None:
+        # Origin Forme Dialga V: total 56.00 = $50 item + $6 shipping, stored
+        # before price/shipping were kept.
+        self._card()
+        old = self._alert("800", price_cents=None)
+        kept = self._alert("801", price_cents=7000)
+        no_shipping = self._alert("802", price_cents=None)
+        transport = _ItemPageTransport(
+            {
+                "800": _item_page("800", price="64.00", shipping="6.00"),
+                "801": _item_page("801", price="70.00", shipping="0.00"),
+                "802": _item_page("802", price="70.00"),
+            }
+        )
+        self._sweep(transport)
+
+        def split(alert_id: str) -> tuple[object, object, object]:
+            row = self.connection.execute(
+                "SELECT price_cents, shipping_cents, total_cents FROM deal_alerts WHERE id = ?",
+                (alert_id,),
+            ).fetchone()
+            return row["price_cents"], row["shipping_cents"], row["total_cents"]
+
+        self.assertEqual(split(old), (6_400, 600, 7_000))
+        self.assertEqual(self._expiry(old), (None, None))
+        # An already-split row is never rewritten.
+        self.assertEqual(split(kept), (7_000, None, 7_000))
+        # Unknown shipping: nothing is guessed.
+        self.assertEqual(split(no_shipping), (None, None, 7_000))
+
+    def test_sweep_skips_dismissed_alerts(self) -> None:
+        self._card()
+        dismissed = self._alert("900")
+        self.connection.execute(
+            "UPDATE deal_alerts SET dismissed_at = ? WHERE id = ?", (utc_now(), dismissed)
+        )
+        self.connection.commit()
+        transport = _ItemPageTransport({"900": _item_page("900")})
+        self._sweep(transport)
+        self.assertEqual(transport.item_ids, [])
 
 
 class RawListingsEndpointTests(WatchWiringTestCase):

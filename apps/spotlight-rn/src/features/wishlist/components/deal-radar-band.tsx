@@ -27,6 +27,7 @@ import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { getCardImageSource } from '@/lib/card-images';
 import {
   buildDealHeadline,
+  buildDealPriceLines,
   buildDiscountLabel,
   buildTierLabel,
 } from '@/features/wishlist/deal-radar';
@@ -166,6 +167,7 @@ function DealRadarRow({
   // back to the thumbnail the alert carries for a card no longer watched.
   const artSource = card ? getCardImageSource(card, 'small') : alert.imageUrl ? { uri: alert.imageUrl } : undefined;
   const headline = buildDealHeadline(alert, currencyCode);
+  const { listPrice, shippingSuffix, watchLine } = buildDealPriceLines(alert, currencyCode);
   const discountLabel = buildDiscountLabel(alert);
   const tierLabel = buildTierLabel(alert);
   const printing = (alert.variantKey ?? '').trim() || null;
@@ -254,13 +256,31 @@ function DealRadarRow({
                   {printing}
                 </Text>
               ) : null}
-              <Text
-                numberOfLines={2}
-                style={[theme.typography.label, { color: theme.colors.gray600 }]}
-                testID={`wishlist-deal-headline-${alert.id}`}
-              >
-                {headline}
-              </Text>
+              <View testID={`wishlist-deal-headline-${alert.id}`}>
+                {watchLine ? (
+                  <Text
+                    numberOfLines={1}
+                    style={[theme.typography.label, { color: theme.colors.gray600 }]}
+                    testID={`wishlist-deal-watch-price-${alert.id}`}
+                  >
+                    {watchLine}
+                  </Text>
+                ) : null}
+                <Text
+                  numberOfLines={2}
+                  style={[theme.typography.label, { color: theme.colors.gray600 }]}
+                  testID={`wishlist-deal-list-price-${alert.id}`}
+                >
+                  {'List Price: '}
+                  <Text
+                    style={[theme.typography.labelStrong, { color: theme.colors.gray900 }]}
+                    testID={`wishlist-deal-list-price-value-${alert.id}`}
+                  >
+                    {listPrice}
+                  </Text>
+                  {shippingSuffix ? ` ${shippingSuffix}` : null}
+                </Text>
+              </View>
               {discountLabel || tierLabel ? (
                 <View style={styles.chips}>
                   {discountLabel ? (

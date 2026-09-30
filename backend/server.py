@@ -2344,6 +2344,29 @@ def _deal_alert_liveness_reason(
     return None
 
 
+def _deal_alert_title_reason(item: dict[str, Any]) -> str | None:
+    """`title_filter:<rule>` when the listing's current title fails today's
+    title gates (an alert can predate a rule: the 9/25 "Aluminum Card -
+    Vulpix"), else None. No title in the payload is not a failure."""
+    title = str(item.get("title") or "").strip()
+    if not title:
+        return None
+    reason = ebay_listings.title_rejection_reason(title)
+    return f"title_filter:{reason}" if reason else None
+
+
+def _deal_alert_price_split(item: dict[str, Any]) -> tuple[int, int] | None:
+    """(price_cents, shipping_cents) from a getItem payload, or None unless
+    both are known, so a backfill never guesses the shipping half."""
+    price = item.get("priceAmount")
+    shipping = item.get("shippingAmount")
+    if not isinstance(price, (int, float)) or price <= 0:
+        return None
+    if not isinstance(shipping, (int, float)):
+        return None
+    return int(round(float(price) * 100)), max(0, int(round(float(shipping) * 100)))
+
+
 class SpotlightScanService:
     def __init__(self, database_path: Path, repo_root: Path) -> None:
         self.database_path = database_path
@@ -4305,6 +4328,19 @@ class SpotlightScanService:
             "listingID": row["listing_id"],
             "kind": row["kind"],
             "totalCents": int(row["total_cents"] or 0),
+            # Item price and shipping as eBay shows them (the app reads "List
+            # Price: $50 + $6 shipping"); null on alerts the sweep has not
+            # backfilled yet. totalCents stays the number the deal was judged on.
+            "priceCents": (
+                int(cls._row_value(row, "price_cents"))
+                if cls._row_value(row, "price_cents") is not None
+                else None
+            ),
+            "shippingCents": (
+                int(cls._row_value(row, "shipping_cents"))
+                if cls._row_value(row, "shipping_cents") is not None
+                else None
+            ),
             "baselineCents": int(row["baseline_cents"] or 0),
             "marketCents": (
                 int(row["market_cents"]) if row["market_cents"] is not None else None
@@ -5244,6 +5280,11 @@ class SpotlightScanService:
              `max_calls`): ended, sold out, auction-only, not Near Mint / not US,
              or repriced above the alert -> expired with that reason. This is
              also what clears the pre-9/23 played-condition and auction alerts.
+             Then today's title gates re-run on the live title
+             (`title_filter:<rule>`), and a row stored before price/shipping
+             were kept gets both backfilled from the same payload.
+        Dismissed alerts are never looked up (they are not in the feed); they
+        retire through `aged_out`.
         A lookup that fails DEAL_ALERT_SWEEP_MAX_FAILURES sweeps running
         (getItem 404s on a removed listing) expires as `removed`; a sweep where
         EVERY lookup of several fails is an outage and counts nothing."""
@@ -5280,6 +5321,7 @@ class SpotlightScanService:
             SELECT listing_id,
                    MIN(COALESCE(checked_at, '')) AS last_checked,
                    MIN(price_cents) AS price_cents,
+                   MAX(price_cents IS NULL) AS needs_price,
                    MIN(total_cents) AS total_cents
             FROM deal_alerts
             WHERE expired_at IS NULL AND dismissed_at IS NULL
@@ -5329,12 +5371,22 @@ class SpotlightScanService:
                 price_cents=int(row["price_cents"]) if row["price_cents"] is not None else None,
                 total_cents=int(row["total_cents"] or 0),
                 now_iso=now_iso,
-            )
+            ) or _deal_alert_title_reason(item)
             connection.execute(
                 "UPDATE deal_alerts SET checked_at = ?, check_failures = 0 "
                 "WHERE listing_id = ? AND expired_at IS NULL",
                 (now_iso, listing_id),
             )
+            split = _deal_alert_price_split(item) if row["needs_price"] else None
+            if split is not None and not reason:
+                # Alerts from before price/shipping were stored: fill both from
+                # the listing as eBay shows it now. total_cents is untouched.
+                connection.execute(
+                    "UPDATE deal_alerts SET price_cents = ?, shipping_cents = ? "
+                    "WHERE listing_id = ? AND expired_at IS NULL AND price_cents IS NULL",
+                    (split[0], split[1], listing_id),
+                )
+                summary["priceBackfilled"] = summary.get("priceBackfilled", 0) + 1
             if reason:
                 _expire("listing_id = ?", (listing_id,), reason)
                 print(f"[watch] expired deal listing {listing_id}: {reason}")

@@ -238,21 +238,63 @@ describe('Watchlist deal radar', () => {
       expect(await screen.findByTestId('wishlist-deal-band')).toBeTruthy();
     });
 
-    it('says what the listing beat, in the card\'s own currency', async () => {
+    it('shows the watch price, then the list price in bold', async () => {
       const { repository } = buildRepository({
         page: { alerts: [buildDealAlert()], limit: 5, unseenCount: 1 },
       });
       renderScreen(repository);
 
-      const headline = await screen.findByTestId('wishlist-deal-headline-deal-1');
-      // The baseline equals the market here, so the copy says market, not "you added it at".
-      expect(headline).toHaveTextContent('$34.00 listed — $12.00 under the $46.00 market');
+      expect(await screen.findByTestId('wishlist-deal-watch-price-deal-1')).toHaveTextContent('Watch Price: $46.00');
+      // No price/shipping split on this alert: the total, with nothing said about shipping.
+      expect(screen.getByTestId('wishlist-deal-list-price-deal-1')).toHaveTextContent('List Price: $34.00', {
+        exact: true,
+      });
+      expect(StyleSheet.flatten(screen.getByTestId('wishlist-deal-list-price-value-deal-1').props.style))
+        .toMatchObject({
+          color: colors.gray900,
+          fontFamily: textStyles.labelStrong.fontFamily,
+          fontSize: textStyles.labelStrong.fontSize,
+        });
+      expect(screen.getByTestId('wishlist-deal-row-deal-1').props.accessibilityLabel)
+        .toBe('Charizard — Watch Price: $46.00. List Price: $34.00');
       expect(screen.getByTestId('wishlist-deal-discount-deal-1')).toHaveTextContent('26% off');
       // The unread state lives on the band, not on the social notification bell.
       expect(screen.getByTestId('wishlist-deal-band-unseen-dot')).toBeTruthy();
     });
 
-    it('says "you added it at" only when the added price was the baseline', async () => {
+    it('shows the item price plus shipping, so the number matches eBay', async () => {
+      // Origin Forme Dialga V: $56 total = $50 item + $6 shipping.
+      const { repository } = buildRepository({
+        page: {
+          alerts: [buildDealAlert({ priceCents: 5000, shippingCents: 600, totalCents: 5600 })],
+          limit: 5,
+          unseenCount: 1,
+        },
+      });
+      renderScreen(repository);
+
+      expect(await screen.findByTestId('wishlist-deal-list-price-deal-1'))
+        .toHaveTextContent('List Price: $50.00 + $6.00 shipping');
+      expect(screen.getByTestId('wishlist-deal-list-price-value-deal-1')).toHaveTextContent('$50.00', { exact: true });
+      expect(screen.getByTestId('wishlist-deal-row-deal-1').props.accessibilityLabel)
+        .toBe('Charizard — Watch Price: $46.00. List Price: $50.00 + $6.00 shipping');
+    });
+
+    it('says nothing about shipping when it is free', async () => {
+      const { repository } = buildRepository({
+        page: {
+          alerts: [buildDealAlert({ priceCents: 3400, shippingCents: 0 })],
+          limit: 5,
+          unseenCount: 1,
+        },
+      });
+      renderScreen(repository);
+
+      expect(await screen.findByTestId('wishlist-deal-list-price-deal-1'))
+        .toHaveTextContent('List Price: $34.00', { exact: true });
+    });
+
+    it('uses the baseline the listing was judged against as the watch price', async () => {
       const { repository } = buildRepository({
         page: {
           alerts: [
@@ -271,10 +313,10 @@ describe('Watchlist deal radar', () => {
       });
       renderScreen(repository);
 
-      expect(await screen.findByTestId('wishlist-deal-headline-deal-1'))
-        .toHaveTextContent('$34.00 listed — $6.00 below the $40.00 you added it at');
-      expect(screen.getByTestId('wishlist-deal-headline-deal-2'))
-        .toHaveTextContent('$34.00 listed — $8.00 under recent sales ($42.00)');
+      expect(await screen.findByTestId('wishlist-deal-watch-price-deal-1'))
+        .toHaveTextContent('Watch Price: $40.00');
+      expect(screen.getByTestId('wishlist-deal-watch-price-deal-2'))
+        .toHaveTextContent('Watch Price: $42.00');
     });
 
     it('never shows a deal whose listing has ended or was swept as dead', async () => {
@@ -346,7 +388,11 @@ describe('Watchlist deal radar', () => {
         fontFamily: textStyles.titleSmall.fontFamily,
         fontSize: textStyles.titleSmall.fontSize,
       });
-      for (const id of ['wishlist-deal-printing-deal-1', 'wishlist-deal-headline-deal-1']) {
+      for (const id of [
+        'wishlist-deal-printing-deal-1',
+        'wishlist-deal-watch-price-deal-1',
+        'wishlist-deal-list-price-deal-1',
+      ]) {
         expect(StyleSheet.flatten(screen.getByTestId(id).props.style)).toMatchObject({
           color: colors.gray600,
           fontSize: textStyles.label.fontSize,
@@ -454,8 +500,9 @@ describe('Watchlist deal radar', () => {
       });
       renderScreen(repository);
 
-      const headline = await screen.findByTestId('wishlist-deal-headline-deal-1');
-      expect(headline).toHaveTextContent("Lowest we've seen · $95 (usually $129+)");
+      expect(await screen.findByTestId('wishlist-deal-watch-price-deal-1'))
+        .toHaveTextContent("Lowest we've seen · usually $129+");
+      expect(screen.getByTestId('wishlist-deal-list-price-deal-1')).toHaveTextContent('List Price: $95.00');
       expect(screen.queryByTestId('wishlist-deal-discount-deal-1')).not.toBeOnTheScreen();
       expect(screen.getByTestId('wishlist-deal-printing-deal-1')).toHaveTextContent('Reverse Holofoil');
       expect(screen.getByTestId('wishlist-deal-tier-deal-1')).toHaveTextContent('Few sales');

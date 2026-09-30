@@ -1765,6 +1765,8 @@ function buildDealAlert(value: unknown): DealAlert | null {
     tierLabel: normalizeString(value.tierLabel),
     lowestSeenCents: normalizeCentsOrNull(value.lowestSeenCents),
     totalCents: normalizeCentsOrNull(value.totalCents) ?? 0,
+    priceCents: normalizeCentsOrNull(value.priceCents),
+    shippingCents: normalizeCentsOrNull(value.shippingCents),
     baselineCents: normalizeCentsOrNull(value.baselineCents) ?? 0,
     baselineSource: normalizeDealBaselineSource(value.baselineSource),
     listingEndsAt: normalizeString(value.listingEndsAt),

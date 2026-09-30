@@ -78,41 +78,61 @@ function buildDealClaim(alert: DealAlert, currencyCode: string, voice: 'you' | '
 }
 
 /**
- * The one line a deal row says out loud: "$34.00 listed — $12.00 under the
- * $46.00 market".
- *
- * The baseline is min(market, recent sales, the price when added), so the copy
- * names whichever it was — "you added it at" only when it really was the added
- * price. Falls back to the bare listing price: a price with no claim attached
- * is still true, and a row that renders nothing would be worse.
+ * What the listing costs, split the way eBay shows it: the item price, plus
+ * shipping when it is known and non-zero. Alerts from before the split was
+ * stored carry only the shipping-inclusive total — that is shown as-is, with
+ * nothing said about shipping. The deal math always uses `totalCents`.
  */
-export function buildDealHeadline(alert: DealAlert, currencyCode = 'USD'): string {
-  const total = centsToCurrency(alert.totalCents, currencyCode) ?? '';
-  if (alert.kind === 'new_low') {
-    return buildNewLowLabel(alert, currencyCode);
+export function resolveDealListPrice(alert: DealAlert): { priceCents: number; shippingCents: number | null } {
+  const price = alert.priceCents;
+  if (price != null && Number.isFinite(price) && price > 0) {
+    const shipping = alert.shippingCents ?? (price <= alert.totalCents ? alert.totalCents - price : null);
+    if (shipping != null && Number.isFinite(shipping) && shipping >= 0) {
+      return { priceCents: price, shippingCents: shipping > 0 ? shipping : null };
+    }
   }
-  const claim = buildDealClaim(alert, currencyCode, 'you');
-  if (claim) {
-    return `${total} listed — ${claim}`;
-  }
-  const market = centsToCurrency(alert.marketCents, currencyCode);
-  if (market) {
-    return `${total} listed — market is ${market}`;
-  }
-  return `${total} listed`;
+  return { priceCents: alert.totalCents, shippingCents: null };
 }
 
+export type DealPriceLines = {
+  /** "Watch Price: $46.00", or the new-low line; null when there is no yardstick. */
+  watchLine: string | null;
+  /** "$50.00" — the item price the row sets in bold. */
+  listPrice: string;
+  /** "+ $6.00 shipping", or null for free / unknown shipping. */
+  shippingSuffix: string | null;
+};
+
 /**
- * "Lowest we've seen · $95 (usually $129+)". A new low makes no percent claim —
- * it is the honest thing to say about a thin market with no reliable yardstick.
+ * The two price lines a deal row shows:
+ *   Watch Price: $46.00
+ *   List Price: **$50.00** + $6.00 shipping
+ *
+ * The watch price is the number the listing was judged against (the baseline:
+ * min of market, recent sales, the added price). A new low makes no percent
+ * claim, so its first line says "lowest we've seen" instead.
  */
-export function buildNewLowLabel(alert: DealAlert, currencyCode = 'USD'): string {
-  const total = compactCurrency(alert.totalCents, currencyCode) ?? '';
-  // "usually $129+" is a floor, so whole dollars rounded down.
-  const usual = alert.lowestSeenCents != null
-    ? compactCurrency(Math.floor(alert.lowestSeenCents / 100) * 100, currencyCode)
-    : null;
-  return usual ? `Lowest we've seen · ${total} (usually ${usual}+)` : `Lowest we've seen · ${total}`;
+export function buildDealPriceLines(alert: DealAlert, currencyCode = 'USD'): DealPriceLines {
+  const { priceCents, shippingCents } = resolveDealListPrice(alert);
+  const listPrice = centsToCurrency(priceCents, currencyCode) ?? '';
+  const shipping = shippingCents != null ? centsToCurrency(shippingCents, currencyCode) : null;
+  const shippingSuffix = shipping ? `+ ${shipping} shipping` : null;
+  if (alert.kind === 'new_low') {
+    const usual = alert.lowestSeenCents != null
+      ? compactCurrency(Math.floor(alert.lowestSeenCents / 100) * 100, currencyCode)
+      : null;
+    return { listPrice, shippingSuffix, watchLine: usual ? `Lowest we've seen · usually ${usual}+` : "Lowest we've seen" };
+  }
+  const watchCents = alert.baselineCents > 0 ? alert.baselineCents : alert.marketCents;
+  const watch = watchCents != null && watchCents > 0 ? centsToCurrency(watchCents, currencyCode) : null;
+  return { listPrice, shippingSuffix, watchLine: watch ? `Watch Price: ${watch}` : null };
+}
+
+/** The price lines as one sentence, for the row's accessibility label. */
+export function buildDealHeadline(alert: DealAlert, currencyCode = 'USD'): string {
+  const { listPrice, shippingSuffix, watchLine } = buildDealPriceLines(alert, currencyCode);
+  const list = `List Price: ${listPrice}${shippingSuffix ? ` ${shippingSuffix}` : ''}`;
+  return watchLine ? `${watchLine}. ${list}` : list;
 }
 
 /**
