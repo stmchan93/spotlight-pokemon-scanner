@@ -5,6 +5,13 @@ Do every open item, then delete it here (and delete the file once empty).
 
 ## Sealed product price history backfill (32 days)
 
+**Status 2026-09-29: BLOCKED — step 1 done, steps 2-4 not possible.** The 9/29
+prod deploy ran the TCGCSV sync (4,061 sealed products ingested). TCGCSV has
+taken its price-history archives down (every `archive/tcgplayer/prices-*.ppmd.7z`
+returns 403, any User-Agent; community posts hope it returns). Sealed history now
+builds forward from the nightly sync. Retry step 2 only if the archive returns;
+otherwise delete this item.
+
 Asked for 2026-09-23. Production only, never staging. Sealed products (booster
 boxes, ETBs, tins) only; card history must stay untouched.
 
