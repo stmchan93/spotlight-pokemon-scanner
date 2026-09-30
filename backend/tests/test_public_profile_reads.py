@@ -171,6 +171,7 @@ class PublicProfileReadTests(unittest.TestCase):
                 # None = every collection, which is what a caller that names no
                 # collection (including every pre-multi-collection caller) gets.
                 "collection_id": None,
+                "include_series": True,
             },
         )
 

@@ -1779,7 +1779,7 @@ describe('PortfolioScreen', () => {
       fireEvent.press(screen.getByTestId('range-1Y'));
     });
     await waitFor(() => {
-      expect(getPortfolioRange).toHaveBeenCalledWith('1Y');
+      expect(getPortfolioRange).toHaveBeenCalledWith('1Y', expect.any(Object));
     });
 
     // Re-selecting the already-loaded open range does NOT refetch.
@@ -1840,7 +1840,7 @@ describe('PortfolioScreen', () => {
       fireEvent.press(screen.getByTestId('range-ALL'));
     });
     await waitFor(() => {
-      expect(getPortfolioRange).toHaveBeenCalledWith('ALL');
+      expect(getPortfolioRange).toHaveBeenCalledWith('ALL', expect.any(Object));
     });
   });
 
@@ -1949,7 +1949,7 @@ describe('PortfolioScreen', () => {
       fireEvent.press(screen.getByTestId('range-1Y'));
     });
     await waitFor(() => {
-      expect(getPortfolioRange).toHaveBeenCalledWith('1Y');
+      expect(getPortfolioRange).toHaveBeenCalledWith('1Y', expect.any(Object));
     });
 
     await waitFor(() => {

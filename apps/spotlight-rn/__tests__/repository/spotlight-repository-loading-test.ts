@@ -1701,6 +1701,31 @@ describe('HttpSpotlightRepository', () => {
     );
   });
 
+  it('scopes an on-demand range fetch to the open collection (history only)', async () => {
+    const fetchedUrls: string[] = [];
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      fetchedUrls.push(url);
+      if (url.includes('/api/v1/portfolio/history')) {
+        return jsonResponse(200, { currencyCode: 'USD', summary: { currentValue: 0 }, points: [] });
+      }
+      if (url.includes('/api/v1/portfolio/ledger')) {
+        return jsonResponse(200, { transactions: [], dailySeries: [] });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://127.0.0.1:8788');
+    await repository.getPortfolioRange('1M', { collectionID: 'collection:abc' });
+    await repository.getPortfolioRange('1M');
+
+    const historyUrls = fetchedUrls.filter((url) => url.includes('/api/v1/portfolio/history'));
+    expect(new URL(historyUrls[0]).searchParams.get('collectionId')).toBe('collection:abc');
+    expect(new URL(historyUrls[1]).searchParams.has('collectionId')).toBe(false);
+    // The ledger is account-wide, as on the dashboard.
+    const ledgerUrls = fetchedUrls.filter((url) => url.includes('/api/v1/portfolio/ledger'));
+    expect(ledgerUrls.every((url) => !new URL(url).searchParams.has('collectionId'))).toBe(true);
+  });
+
   it('keeps date-only dashboard labels aligned to the actual range endpoints and slices 1Y separately from ALL', async () => {
     const allDates = dateSequence('2025-04-22', 370);
     const historyPointsByRange = {

@@ -636,9 +636,17 @@ export function usePortfolioScreenModel({
       return;
     }
     setLoadingRange(range);
+    const requestedCollectionID = activeCollectionIDRef.current;
     void (async () => {
       try {
-        const bucket = await spotlightRepository.getPortfolioRange(range);
+        const bucket = await spotlightRepository.getPortfolioRange(range, {
+          collectionID: requestedCollectionID,
+        });
+        // A range for the collection the user has since left must not land in
+        // the new one's chart.
+        if (activeCollectionIDRef.current !== requestedCollectionID) {
+          return;
+        }
         const hasData = bucket.portfolio.length > 0 || bucket.sales.length > 0;
         // Only cache a range once it actually returns data. A cold 3M/1Y read can
         // time out and come back empty; caching that empty bucket made re-tapping

@@ -9912,7 +9912,11 @@ class SpotlightScanService:
         # Only the summary totals are needed here, so skip the per-row day-change
         # batch entirely (was a full inventory scan + price lookups per ledger call).
         inventory_summary = self.deck_entries(
-            limit=1000, offset=0, include_inactive=False, compute_day_change=False
+            limit=1000,
+            offset=0,
+            include_inactive=False,
+            compute_day_change=False,
+            include_series=False,
         )["summary"]
 
         return {
@@ -12098,7 +12102,9 @@ class SpotlightScanService:
         total_portfolio_value_cents = 0
         top_growth: list[dict[str, Any]] = []
         try:
-            dashboard = self.deck_entries(limit=2000, compute_day_change=False)
+            dashboard = self.deck_entries(
+                limit=2000, compute_day_change=False, include_series=False
+            )
             summary = dashboard.get("summary") or {}
             total_portfolio_value_cents = int(round(float(summary.get("totalValue") or 0.0) * 100))
 
@@ -21562,9 +21568,15 @@ class SpotlightScanService:
         #
         # Ledger and insights genuinely have no per-entry anchor to inherit from
         # and stay account-wide deliberately.
+        # The same key the grid's own /deck/entries call uses, so the two share
+        # one compute (and its dogpile lock) instead of racing two near-identical
+        # ones on every collection switch. It also stops the dashboard handing
+        # the grid only the first 200 cards of a bigger collection.
         inventory = _section(
             "inventory",
-            lambda: self.deck_entries(limit=200, offset=0, collection_id=collection_id),
+            lambda: self.deck_entries(
+                limit=CLIENT_INVENTORY_PAGE_SIZE, offset=0, collection_id=collection_id
+            ),
         )
         insights = _section("insights", self.portfolio_insights)
 
@@ -22035,6 +22047,7 @@ class SpotlightScanService:
         favorites_only: bool = False,
         compute_day_change: bool = True,
         collection_id: str | None = None,
+        include_series: bool = True,
     ) -> dict[str, Any]:
         """Owner-scoped read for the CALLER, resolved from the ambient request
         identity. Thin wrapper over ``deck_entries_for_owner`` — that explicit
@@ -22048,6 +22061,7 @@ class SpotlightScanService:
             favorites_only=favorites_only,
             compute_day_change=compute_day_change,
             collection_id=collection_id,
+            include_series=include_series,
         )
 
     def deck_entries_for_owner(
@@ -22060,6 +22074,7 @@ class SpotlightScanService:
         favorites_only: bool = False,
         compute_day_change: bool = True,
         collection_id: str | None = None,
+        include_series: bool = True,
     ) -> dict[str, Any]:
         """Cache-and-dogpile wrapper over the heavy inventory computation, the
         same pattern as ``portfolio_dashboard``. The payload is a pure function
@@ -22072,7 +22087,11 @@ class SpotlightScanService:
 
         ``owner_user_id`` is EXPLICIT: this is the form the public-profile read
         endpoints call with a target user id while the ambient request identity
-        still belongs to the (authenticated) caller. Read-only by construction."""
+        still belongs to the (authenticated) caller. Read-only by construction.
+
+        ``include_series=False`` is for callers that read only the summary or
+        plain row fields: it skips the two per-row history series (sparkline and
+        since-added), which are most of a cold compute, and leaves them null."""
         owner_user_id = str(owner_user_id or "").strip()
         if not owner_user_id:
             raise ValueError("owner_user_id is required")
@@ -22094,6 +22113,7 @@ class SpotlightScanService:
             # served the previously-cached collection's holdings for the whole
             # version window.
             str(collection_id or ""),
+            bool(include_series),
         )
         if version is not None:
             cached = self._deck_entries_cache.get(cache_key)
@@ -22121,6 +22141,7 @@ class SpotlightScanService:
                 favorites_only=favorites_only,
                 compute_day_change=compute_day_change,
                 collection_id=collection_id,
+                include_series=include_series,
             )
             if version is not None:
                 self._store_deck_entries_cache(cache_key, version, payload)
@@ -22222,6 +22243,7 @@ class SpotlightScanService:
                 include_inactive=False,
                 compute_day_change=False,
                 collection_id=collection_id,
+                include_series=False,
             )["summary"]
             collections.append(
                 {
@@ -22246,6 +22268,7 @@ class SpotlightScanService:
             offset=0,
             include_inactive=False,
             compute_day_change=False,
+            include_series=False,
         )["summary"]
 
         return {
@@ -22398,6 +22421,7 @@ class SpotlightScanService:
             include_inactive=False,
             favorites_only=False,
             compute_day_change=False,
+            include_series=False,
         )
         entries = payload.get("entries", []) if isinstance(payload, dict) else []
         return deck_entries_export_csv(entries)
@@ -22435,6 +22459,7 @@ class SpotlightScanService:
             include_inactive=False,
             favorites_only=False,
             compute_day_change=False,
+            include_series=False,
         )
         summary = payload.get("summary") or {}
         entries = payload.get("entries") or []
@@ -22540,6 +22565,7 @@ class SpotlightScanService:
         favorites_only: bool = False,
         compute_day_change: bool = True,
         collection_id: str | None = None,
+        include_series: bool = True,
     ) -> dict[str, Any]:
         owner_user_id = str(owner_user_id or "").strip()
         if not owner_user_id:
@@ -22663,14 +22689,10 @@ class SpotlightScanService:
             deck_card_ids,
             owner_user_id=owner_user_id,
         )
-        # Batch the per-card "yesterday price" lookup into one query (was N+1, one
-        # query per row). Skipped entirely when the caller only needs the summary
-        # (e.g. the ledger inventory total) and not per-row day-change.
-        yesterday_rows_by_card_id = (
-            self._yesterday_price_history_rows_by_card_id(deck_card_ids)
-            if compute_day_change
-            else {}
-        )
+        # Day change is filled after the loop in bulk (yesterday's rows + only
+        # the cells the main lane can't price), never a per-row cell query.
+        # Skipped entirely when the caller only needs the summary.
+        day_change_jobs: list[tuple[dict[str, Any], dict[str, Any]]] = []
 
         entries: list[dict[str, Any]] = []
         total_value = 0.0
@@ -22749,20 +22771,20 @@ class SpotlightScanService:
             else:
                 raw_count += 1
 
-            if compute_day_change:
-                day_change_amount, day_change_percent = self._day_change_for_entry(
-                    card_id=card_id,
-                    item_kind=row["item_kind"],
-                    grader=grader,
-                    grade=grade,
-                    variant_name=variant_name,
-                    condition_code=condition,
-                    today_pricing=pricing,
-                    yesterday_rows_by_card_id=yesterday_rows_by_card_id,
-                    printing_points=entry_printing_points,
-                )
-            else:
-                day_change_amount, day_change_percent = None, None
+            day_change_kwargs = (
+                {
+                    "card_id": card_id,
+                    "item_kind": row["item_kind"],
+                    "grader": grader,
+                    "grade": grade,
+                    "variant_name": variant_name,
+                    "condition_code": condition,
+                    "today_pricing": pricing,
+                    "printing_points": entry_printing_points,
+                }
+                if compute_day_change
+                else None
+            )
 
             # "Since you added it": serve-time arithmetic on the stored add-day
             # baseline vs the price this row already resolved — no history read.
@@ -22774,7 +22796,7 @@ class SpotlightScanService:
                 )
             )
 
-            if len(spark_requests) < SINCE_ADDED_SPARK_MAX_CONTEXTS:
+            if include_series and len(spark_requests) < SINCE_ADDED_SPARK_MAX_CONTEXTS:
                 is_graded_entry = bool(grader or grade)
                 # Same variant carry-forward as day-change: price the history
                 # window for the printing today's price resolved to.
@@ -22852,8 +22874,8 @@ class SpotlightScanService:
                         if card_id in favorite_rows_by_card_id
                         else None
                     ),
-                    "dayChangeAmount": day_change_amount,
-                    "dayChangePercent": day_change_percent,
+                    "dayChangeAmount": None,
+                    "dayChangePercent": None,
                     "sinceAddedChangeAmount": since_added_amount,
                     "sinceAddedChangePercent": since_added_percent,
                     "sinceAddedBaselineDate": since_added_baseline_date,
@@ -22865,11 +22887,17 @@ class SpotlightScanService:
                     ),
                 }
             )
+            if day_change_kwargs is not None:
+                day_change_jobs.append((entries[-1], day_change_kwargs))
+
+        self._apply_bulk_day_changes(day_change_jobs)
 
         # Rows past the spark budget (or with no resolvable history) keep null
         # spark fields — the sinceAdded fields above are never truncated.
-        spark_by_key = self._sparklines_for_requests(spark_requests)
-        since_added_by_key = self._since_baseline_series_for_requests(spark_requests)
+        spark_by_key = self._sparklines_for_requests(spark_requests, lane_scoped=True)
+        since_added_by_key = self._since_baseline_series_for_requests(
+            spark_requests, lane_scoped=True
+        )
         for entry in entries:
             spark = spark_by_key.get(str(entry["id"]))
             entry["sparkPoints"] = spark[0] if spark else None
@@ -22890,7 +22918,11 @@ class SpotlightScanService:
         }
 
     def _sparklines_for_requests(
-        self, spark_requests: list[dict[str, Any]], *, reduced_reads: bool = False
+        self,
+        spark_requests: list[dict[str, Any]],
+        *,
+        reduced_reads: bool = False,
+        lane_scoped: bool = False,
     ) -> dict[str, tuple[list[float], float | None]]:
         """Resolve per-row 30-day mini sparklines for a list page in ONE batched
         history read (`price_history_rows_for_cards_batched` — two indexed
@@ -22898,7 +22930,11 @@ class SpotlightScanService:
         Insights table uses. Returns ``{key: (points oldest->newest, trendPct)}``;
         rows with fewer than two priced days are omitted (the caller emits null
         spark fields). Best-effort: any failure yields no sparklines, never a
-        failed list response."""
+        failed list response.
+
+        ``lane_scoped`` reads only the cells the resolvers use (same output);
+        ``reduced_reads`` additionally floors the daily read and reads market
+        only, which can differ for sparse or market-less cards (watchlist)."""
         if not spark_requests:
             return {}
         try:
@@ -22911,7 +22947,7 @@ class SpotlightScanService:
                 # card's whole history, and fetch only the cells the main lane
                 # didn't price, on the request's own lane (watchlist cold load).
                 floor_slack_days=SPARK_HISTORY_FLOOR_SLACK_DAYS if reduced_reads else None,
-                lane_scoped_cells=reduced_reads,
+                lane_scoped_cells=reduced_reads or lane_scoped,
                 # Both series plot market only: read the cells index-only.
                 market_only_cells=reduced_reads,
             )
@@ -22939,14 +22975,19 @@ class SpotlightScanService:
         return result
 
     def _since_baseline_series_for_requests(
-        self, spark_requests: list[dict[str, Any]], *, reduced_reads: bool = False
+        self,
+        spark_requests: list[dict[str, Any]],
+        *,
+        reduced_reads: bool = False,
+        lane_scoped: bool = False,
     ) -> dict[str, list[float]]:
         """Per-row market series from the baseline ("since") date to today,
         oldest->newest, in ONE batched history read sized to the oldest baseline.
         Only days priced on the row's CURRENT printing are kept, so a printing
         switch in the history (Espeon ex ex10-102's WCD reprint -> Holofoil on
         2026-09-14) can't draw a fake jump. Rows without a baseline date or with
-        fewer than two points are omitted. Best-effort, like the 30d sparkline."""
+        fewer than two points are omitted. Best-effort, like the 30d sparkline.
+        ``lane_scoped``/``reduced_reads`` as in ``_sparklines_for_requests``."""
         dated = [req for req in spark_requests if req.get("since")]
         if not dated:
             return {}
@@ -22967,8 +23008,8 @@ class SpotlightScanService:
                 days=window_days,
                 # Every kept point is dated >= its row's baseline (>= today -
                 # window + 1), so a floor of newest - window drops nothing used.
-                floor_slack_days=0 if reduced_reads else None,
-                lane_scoped_cells=reduced_reads,
+                floor_slack_days=0 if (reduced_reads or lane_scoped) else None,
+                lane_scoped_cells=reduced_reads or lane_scoped,
                 # Both series plot market only: read the cells index-only.
                 market_only_cells=reduced_reads,
             )
@@ -25845,6 +25886,9 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             days_value = query.get("days", ["30"])[0]
             range_value = query.get("range", [""])[0].strip() or None
             time_zone_name = query.get("timeZone", [""])[0].strip() or None
+            # Same scope as the dashboard that loaded the open range; without it
+            # a range fetched on demand showed the whole account's history.
+            collection_id = _normalized_collection_query_param(query)
             try:
                 days = int(days_value)
             except (TypeError, ValueError):
@@ -25855,7 +25899,10 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             try:
                 with self.service.request_identity_context(identity):
                     payload = self.service.portfolio_history_cached(
-                        days=days, range_label=range_value, time_zone_name=time_zone_name
+                        days=days,
+                        range_label=range_value,
+                        time_zone_name=time_zone_name,
+                        collection_id=collection_id,
                     )
             except Exception as error:
                 self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Deck history failed: {error}"})

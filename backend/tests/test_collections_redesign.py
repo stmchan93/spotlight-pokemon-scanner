@@ -452,7 +452,7 @@ class CollectionsRedesignTests(unittest.TestCase):
                 )
             self.assertEqual(
                 strip_refreshed(payload["inventory"]),
-                strip_refreshed(self.service.deck_entries(limit=200, offset=0)),
+                strip_refreshed(self.service.deck_entries(limit=1000, offset=0)),
             )
             self.assertEqual(
                 strip_refreshed(payload["insights"]),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import functools
 import io
 import json
 import os
@@ -2454,7 +2455,13 @@ def rarity_bucket(rarity, game: str | None = None) -> str:
 
 
 def _normalized_variant_label(value: str | None) -> str:
-    text = str(value or "").strip()
+    return _normalized_variant_label_text(str(value or "").strip())
+
+
+# Pure and called per history cell (tens of thousands per portfolio read) over a
+# few dozen distinct labels, so memoized.
+@functools.lru_cache(maxsize=4096)
+def _normalized_variant_label_text(text: str) -> str:
     if not text:
         return DEFAULT_RAW_VARIANT
     # Canonicalize the edition token so "1st Edition" (TCGplayer/PPT spelling)
@@ -5977,6 +5984,13 @@ def _is_default_main_raw_read(
 ) -> bool:
     """True when a raw read targets the main-lane headline: condition unset/NM
     and variant unset or the main lane's own printing."""
+    # Pure over three short labels and asked twice per history row, so memoized.
+    # Inputs are str/None straight off rows and requests (hashable).
+    return _is_default_main_raw_read_cached(variant, condition, main_raw_variant)
+
+
+@functools.lru_cache(maxsize=4096)
+def _is_default_main_raw_read_cached(variant: Any, condition: Any, main_raw_variant: Any) -> bool:
     if str(condition or "").strip() and _normalized_condition_code(condition) != DEFAULT_RAW_CONDITION:
         return False
     if not str(variant or "").strip():
@@ -6209,7 +6223,12 @@ def _variant_match_key(value: str | None) -> str:
     ("Holofoil", "Reverse Holofoil") with a stored ``variant_key``
     ("holofoil", "reverseHolofoil"). Empty/None reduces to "" (the implicit
     Normal/default bucket)."""
-    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+    return _variant_match_key_text(str(value or ""))
+
+
+@functools.lru_cache(maxsize=4096)
+def _variant_match_key_text(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", text.lower())
 
 
 # Normalized-default variant priority (mirrors RAW_VARIANT_PRIORITY but as match

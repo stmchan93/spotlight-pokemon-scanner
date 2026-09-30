@@ -253,7 +253,10 @@ export interface SpotlightRepository {
     collectionID?: string | null;
   }): Promise<SpotlightRepositoryLoadResult<PortfolioDashboard>>;
   getPortfolioDashboard(): Promise<PortfolioDashboard>;
-  getPortfolioRange(range: keyof PortfolioDashboard['ranges']): Promise<PortfolioDashboard['ranges'][keyof PortfolioDashboard['ranges']]>;
+  getPortfolioRange(
+    range: keyof PortfolioDashboard['ranges'],
+    options?: { collectionID?: string | null },
+  ): Promise<PortfolioDashboard['ranges'][keyof PortfolioDashboard['ranges']]>;
   getPortfolioPerformance(): Promise<PortfolioPerformance>;
   loadInventoryEntries(query?: InventoryEntriesQuery): Promise<SpotlightRepositoryLoadResult<InventoryCardEntry[]>>;
   getInventoryEntries(query?: InventoryEntriesQuery): Promise<InventoryCardEntry[]>;
@@ -3917,7 +3920,10 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return result.data ?? buildEmptyPortfolioDashboard();
   }
 
-  async getPortfolioRange(range: keyof PortfolioDashboard['ranges']) {
+  async getPortfolioRange(
+    range: keyof PortfolioDashboard['ranges'],
+    _options?: { collectionID?: string | null },
+  ) {
     const dashboard = await this.getPortfolioDashboard();
     return dashboard.ranges[range];
   }
@@ -5514,9 +5520,12 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   // open range; the chart fetches the rest when the user switches to them).
   async getPortfolioRange(
     range: keyof PortfolioDashboard['ranges'],
+    options?: { collectionID?: string | null },
   ): Promise<PortfolioDashboard['ranges'][keyof PortfolioDashboard['ranges']]> {
     const [historyResult, ledgerResult] = await Promise.all([
-      this.loadPortfolioHistory(range),
+      // History is collection-scoped like the dashboard that loaded the open
+      // range; the ledger stays account-wide, as it is there.
+      this.loadPortfolioHistory(range, options?.collectionID ?? null),
       this.loadPortfolioLedger(mapRangeToBackend(range)),
     ]);
     const history = historyResult.data ?? buildEmptyPortfolioHistory();
@@ -8052,11 +8061,18 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return { emails: Array.isArray(response.emails) ? response.emails.map((value) => String(value)) : [] };
   }
 
-  private async loadPortfolioHistory(range: keyof PortfolioDashboard['ranges']) {
+  private async loadPortfolioHistory(
+    range: keyof PortfolioDashboard['ranges'],
+    collectionID: string | null = null,
+  ) {
     const queryParams = new URLSearchParams({
       range: mapRangeToBackend(range),
       timeZone: 'America/Los_Angeles',
     });
+    const scopedCollectionID = collectionID?.trim();
+    if (scopedCollectionID && scopedCollectionID !== ALL_COLLECTIONS_ID) {
+      queryParams.set('collectionId', scopedCollectionID);
+    }
     const response = await this.requestJsonRead<PortfolioHistoryDTO>(
       `${this.baseUrl}/api/v1/portfolio/history?${queryParams.toString()}`,
       undefined,

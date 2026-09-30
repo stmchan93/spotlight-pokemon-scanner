@@ -104,7 +104,7 @@ class PortfolioPrewarmTests(unittest.TestCase):
         )
         self.assertIn((USER, "performance"), self.service._dashboard_cache)
         self.assertIn(
-            (USER, 200, 0, False, False, True, ""), self.service._deck_entries_cache
+            (USER, 1000, 0, False, False, True, "", True), self.service._deck_entries_cache
         )
 
     def test_prewarmed_objects_are_served_to_the_first_client_call(self) -> None:
@@ -116,13 +116,13 @@ class PortfolioPrewarmTests(unittest.TestCase):
         ][1]
         performance_cached = self.service._dashboard_cache[(USER, "performance")][1]
         entries_cached = self.service._deck_entries_cache[
-            (USER, 200, 0, False, False, True, "")
+            (USER, 1000, 0, False, False, True, "", True)
         ][1]
         with self.service.request_identity_context(self._identity()):
             self.assertIs(
                 self.service.portfolio_dashboard(range_key="1W"), dashboard_cached
             )
-            self.assertIs(self.service.deck_entries(limit=200), entries_cached)
+            self.assertIs(self.service.deck_entries(limit=1000), entries_cached)
             self.assertIs(self.service.portfolio_performance(), performance_cached)
 
 
