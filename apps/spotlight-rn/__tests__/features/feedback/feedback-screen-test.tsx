@@ -17,10 +17,11 @@ jest.mock('@/lib/observability/posthog', () => ({
 
 describe('FeedbackScreen', () => {
   const back = jest.fn();
+  const dismissTo = jest.fn();
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (useRouter as jest.Mock).mockReturnValue({ back });
+    (useRouter as jest.Mock).mockReturnValue({ back, dismissTo });
     (useLocalSearchParams as jest.Mock).mockReturnValue({ from: '/scan' });
   });
 
@@ -42,7 +43,7 @@ describe('FeedbackScreen', () => {
     expect(screen.getByTestId('feedback-message').props.maxLength).toBe(1000);
   });
 
-  it('sends the trimmed message and origin screen, then thanks the user', () => {
+  it('sends the trimmed message and origin screen, then goes back to Home', () => {
     renderWithProviders(<FeedbackScreen />);
 
     fireEvent.changeText(screen.getByTestId('feedback-message'), '  Salamence keeps scanning as the GX  ');
@@ -52,9 +53,7 @@ describe('FeedbackScreen', () => {
       message: 'Salamence keeps scanning as the GX',
       from_screen: '/scan',
     });
-    expect(screen.getByTestId('feedback-sent')).toBeTruthy();
-
-    fireEvent.press(screen.getByTestId('feedback-done'));
-    expect(back).toHaveBeenCalled();
+    expect(dismissTo).toHaveBeenCalledWith('/');
+    expect(back).not.toHaveBeenCalled();
   });
 });

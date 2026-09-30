@@ -54,6 +54,8 @@ export type UseVisionCameraCaptureOptions = {
    * `'front'` selects the selfie camera and skips the multi-cam
    * `physicalDevices` hint — that hint exists so the back ultra-wide can
    * Auto-Macro a close-held card, which has no front-camera equivalent.
+   * May change at runtime (a flip button): the new device reconfigures the
+   * mounted `<Camera>` session in place.
    */
   position?: 'back' | 'front';
 };

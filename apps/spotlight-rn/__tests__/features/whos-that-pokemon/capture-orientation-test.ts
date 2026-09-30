@@ -1,4 +1,6 @@
 import {
+  captureUnmirrorActions,
+  exifOrientationRotationDegrees,
   uprightDimensions,
   uprightRotationDegrees,
 } from '@/features/whos-that-pokemon/screens/whos-that-pokemon-screen';
@@ -43,6 +45,39 @@ describe('capture orientation', () => {
       expect(uprightDimensions(landscapeCapture, 'down')).toEqual({ width: 3840, height: 2160 });
       expect(uprightDimensions(landscapeCapture, 'up')).toEqual({ width: 3840, height: 2160 });
       expect(uprightDimensions(landscapeCapture, undefined)).toEqual({ width: 3840, height: 2160 });
+    });
+  });
+
+  describe('captureUnmirrorActions', () => {
+    // With mirrorMode="off" neither camera reports a mirror, so the still is
+    // baked as-is — no flip on either camera.
+    it('never flips an un-mirrored capture (front or back camera)', () => {
+      expect(captureUnmirrorActions(false, -90, 'horizontal')).toEqual([]);
+      expect(captureUnmirrorActions(undefined, -90, 'horizontal')).toEqual([]);
+      expect(captureUnmirrorActions(false, 90, 'horizontal')).toEqual([]);
+    });
+
+    it('cancels a mirror exactly once, in pass 1, when one is reported', () => {
+      expect(captureUnmirrorActions(true, -90, 'horizontal')).toEqual([{ flip: 'horizontal' }]);
+    });
+
+    it('does not flip on a guess when pass 1 cannot be observed', () => {
+      expect(captureUnmirrorActions(true, 0, 'horizontal')).toEqual([]);
+    });
+  });
+
+  describe('exifOrientationRotationDegrees', () => {
+    it('maps the rotation-only EXIF tags to clockwise degrees', () => {
+      expect(exifOrientationRotationDegrees(1)).toBe(0);
+      expect(exifOrientationRotationDegrees(3)).toBe(180);
+      expect(exifOrientationRotationDegrees(6)).toBe(90);
+      expect(exifOrientationRotationDegrees(8)).toBe(-90);
+    });
+
+    it('accepts string tags and ignores missing or unknown ones', () => {
+      expect(exifOrientationRotationDegrees('6')).toBe(90);
+      expect(exifOrientationRotationDegrees(undefined)).toBe(0);
+      expect(exifOrientationRotationDegrees(5)).toBe(0);
     });
   });
 });

@@ -1,3 +1,4 @@
+import { IconCameraRotate, IconPhoto } from '@tabler/icons-react-native';
 import { useRouter } from 'expo-router';
 // GOTCHA (this repo was burned by it — caused 100% scanner image loss): the
 // file-system APIs must be imported from 'expo-file-system/legacy'. The new
@@ -5,7 +6,7 @@ import { useRouter } from 'expo-router';
 import { cacheDirectory, deleteAsync, writeAsStringAsync } from 'expo-file-system/legacy';
 import { Image as ExpoImage } from 'expo-image';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type {
@@ -16,13 +17,17 @@ import type {
 import {
   AppText,
   colors,
+  glassNavBubbleGlyphSize,
+  glassNavBubbleGlyphStrokeWidth,
+  IconButton,
   radii,
   spacing,
   StateCard,
   textStyles,
 } from '@spotlight/design-system';
 
-import { ChromeBackButton } from '@/components/chrome-back-button';
+import { ChromeBackButton, chromeBackButtonSize } from '@/components/chrome-back-button';
+import { loadNativeImagePicker } from '@/lib/native-image-picker';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useVisionCameraCapture } from '@/features/scanner/use-vision-camera-capture';
 import { useAppServices } from '@/providers/app-providers';
@@ -145,47 +150,13 @@ function loadImageManipulator(): ImageManipulatorModule | null {
  * NOT done inside `use-vision-camera-capture` on purpose: that hook is shared
  * with the scanner, whose capture latency is a tracked product metric.
  *
- * ─────────────────────────────────────────────────────────────────────────────
- * THE MIRROR, which rides along on the very same EXIF flag
- * ─────────────────────────────────────────────────────────────────────────────
- * Reported as "when taking a photo of myself it got mirrored — it should just
- * take it as is", and note that `selfie-image.tsx` already answered that exact
- * sentence once by deleting a display-side `scaleX: -1`. That was right and it
- * was not enough: the pixels themselves were arriving mirrored.
- *
- * vision-camera's `mirrorMode` defaults to `'auto'`, which mirrors selfie
- * cameras — the LIVE PREVIEW, which is what you want (you frame yourself in a
- * mirror, like every camera app), and the still, which you do not. It records
- * the still's mirror the same lazy way it records the rotation: as an EXIF flag
- * (`HybridPhoto.kt` → `exif.flipHorizontally()`; on iOS AVFoundation hands back
- * a `.mirrored` orientation). So the saved pixels are NOT mirrored — a flag
- * saying "show me mirrored" is.
- *
- * Which means the mirror lands wherever the ROTATION lands, and nowhere else:
- *
- *   - pass 1 applies the EXIF (iOS) → it bakes the rotation AND the mirror, so
- *     the upright image is a mirror image. This is the bug the user sees.
- *   - pass 2 rebuilds from `capture.uri` with an explicit rotate (Android) → the
- *     EXIF is dropped wholesale, mirror included, so that path was already
- *     producing a true photo and must not be "corrected".
- *
- * Hence the flip is handed to PASS 1 only. On iOS it composes after the implicit
- * fix-orientation and cancels the mirror it just baked; on Android pass 1's
- * output is discarded by pass 2 anyway, so it costs nothing and changes nothing.
- * No third pass, no `Platform.OS` branch, and no way to double-flip.
- *
- * Gated on `rotation !== 0` because that is what makes "did pass 1 apply the
- * EXIF?" answerable at all (a quarter turn swaps width and height; nothing else
- * is observable). The app is portrait-locked and the sensor buffer is landscape,
- * so a capture is always a quarter turn from upright and the guard never fires —
- * it is there so that if that ever stops being true, the failure is "the old
- * mirrored photo", not "a photo flipped twice".
- *
- * The preview is deliberately left mirrored. Turning it off at the camera
- * (`mirrorMode="off"`) would fix the still in one prop, but vision-camera shares
- * one mirror mode across every output — `Camera.tsx` puts the preview output in
- * the same list — so it would also un-mirror the self-view you frame with, which
- * no mainstream selfie camera does.
+ * THE MIRROR. The camera runs with `mirrorMode="off"` (see the `<Camera>`), so
+ * the preview and the still both show the true, un-mirrored scene on either
+ * camera, and `isMirrored` comes back false. `captureUnmirrorActions` is kept as
+ * a guard for a platform that mirrors anyway: a mirror rides on the same EXIF
+ * flag as the rotation, so only pass 1 (which applies EXIF on iOS) can bake it,
+ * and only pass 1 undoes it. Pass 2 rebuilds from the original with the EXIF
+ * dropped, mirror included, so it never flips.
  */
 type CaptureOrientation = 'up' | 'right' | 'down' | 'left';
 
@@ -220,6 +191,97 @@ export function uprightDimensions(
     : { width: capture.width, height: capture.height };
 }
 
+/**
+ * Pass-1 actions that cancel a mirror baked in with the EXIF rotation. Empty
+ * for an un-mirrored capture (the normal case with `mirrorMode="off"`, and
+ * always for the back camera). `rotation !== 0` is what makes pass 1's EXIF
+ * handling observable, so without it we never flip on a guess.
+ */
+export function captureUnmirrorActions(
+  isMirrored: boolean | undefined,
+  rotation: number,
+  flipValue: string,
+): { flip: string }[] {
+  return isMirrored === true && rotation !== 0 ? [{ flip: flipValue }] : [];
+}
+
+/**
+ * Clockwise degrees that bring a library photo upright, from its EXIF
+ * `Orientation` tag (1 up, 3 upside down, 6 needs 90 CW, 8 needs 90 CCW).
+ * Mirrored/transposed tags are rare on real photos and are left as-is.
+ */
+export function exifOrientationRotationDegrees(tag: unknown): number {
+  switch (Number(tag)) {
+    case 3:
+      return 180;
+    case 6:
+      return 90;
+    case 8:
+      return -90;
+    default:
+      return 0;
+  }
+}
+
+// Library photos are downscaled to the camera path's HD long edge so the
+// backend sees the same size of image either way.
+const LIBRARY_PHOTO_MAX_EDGE = 1280;
+
+/**
+ * Turn a photo-library pick into an upright, EXIF-free JPEG + base64.
+ *
+ * iOS: the manipulator applies EXIF itself (see the header), so no rotate.
+ * Android: it does NOT, so the EXIF rotation is applied explicitly. Returns null
+ * when the module is missing or anything fails.
+ */
+async function bakeLibraryPhoto(
+  uri: string,
+  exifRotation: number,
+  platform: string,
+): Promise<SelfieCapture | null> {
+  const ImageManipulator = loadImageManipulator();
+  if (!ImageManipulator?.manipulateAsync) {
+    return null;
+  }
+  const format = ImageManipulator.SaveFormat?.JPEG ?? 'jpeg';
+  try {
+    const rotateActions =
+      platform === 'android' && exifRotation !== 0 ? [{ rotate: exifRotation }] : [];
+    const upright = await ImageManipulator.manipulateAsync(uri, rotateActions, {
+      format,
+    });
+    if (!upright?.uri) {
+      return null;
+    }
+    const longEdge = Math.max(upright.width, upright.height);
+    const resizeActions =
+      longEdge > LIBRARY_PHOTO_MAX_EDGE
+        ? [
+            upright.width >= upright.height
+              ? { resize: { width: LIBRARY_PHOTO_MAX_EDGE } }
+              : { resize: { height: LIBRARY_PHOTO_MAX_EDGE } },
+          ]
+        : [];
+    const baked = await ImageManipulator.manipulateAsync(upright.uri, resizeActions, {
+      base64: true,
+      compress: 0.9,
+      format,
+    });
+    deleteTempFile(upright.uri);
+    if (!baked?.uri || !baked.base64) {
+      return null;
+    }
+    return {
+      uri: baked.uri,
+      jpegBase64: baked.base64,
+      width: baked.width,
+      height: baked.height,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function bakeCaptureOrientation(
   capture: {
     uri: string;
@@ -238,15 +300,11 @@ async function bakeCaptureOrientation(
   const options = { base64: true, compress: 0.9, format } as const;
   const expected = uprightDimensions(capture, capture.orientation);
   const rotation = uprightRotationDegrees(capture.orientation);
-  /*
-    The front camera's mirror is an EXIF flag, and pass 1 is the only pass that
-    can apply it — see the header. Undoing it there is therefore both sufficient
-    and safe. `rotation !== 0` is what makes pass 1's behaviour observable.
-  */
-  const unmirrorActions =
-    capture.isMirrored === true && rotation !== 0
-      ? [{ flip: ImageManipulator.FlipType?.Horizontal ?? 'horizontal' }]
-      : [];
+  const unmirrorActions = captureUnmirrorActions(
+    capture.isMirrored,
+    rotation,
+    ImageManipulator.FlipType?.Horizontal ?? 'horizontal',
+  );
   try {
     /*
       PASS 1 — relying on the module to apply EXIF itself, plus the one
@@ -334,14 +392,13 @@ export function WhosThatPokemonScreen() {
   const insets = useSafeAreaInsets();
   const { spotlightRepository } = useAppServices();
   const { currentUser } = useAuth();
-  const {
-    device,
-    Camera,
-    photoOutput,
-    hasPermission,
-    requestPermission,
-    capture,
-  } = useVisionCameraCapture({ position: 'front', quality: 0.8 });
+  // Front by default; the flip button swaps to the back camera for a photo of
+  // someone else (the backend cuts the person out either way).
+  const [cameraPosition, setCameraPosition] = useState<'front' | 'back'>('front');
+  const { device, Camera, photoOutput, hasPermission, requestPermission, capture } =
+    useVisionCameraCapture({ position: cameraPosition, quality: 0.8 });
+  // Probed once: hides "Choose from library" on a binary without the picker.
+  const [canPickFromLibrary] = useState(() => loadNativeImagePicker() != null);
 
   const [phase, setPhase] = useState<Phase>('capture');
   const [matchFailed, setMatchFailed] = useState(false);
@@ -486,6 +543,17 @@ export function WhosThatPokemonScreen() {
     }
   }, [spotlightRepository]);
 
+  // A retake replaces the previous selfie — drop its temp file first.
+  const acceptSelfie = useCallback(
+    (nextSelfie: SelfieCapture) => {
+      deleteSelfieFile();
+      selfieUriRef.current = nextSelfie.uri;
+      setSelfie(nextSelfie);
+      void runMatch(nextSelfie);
+    },
+    [deleteSelfieFile, runMatch],
+  );
+
   const handleCapture = useCallback(async () => {
     if (isCapturing) {
       return;
@@ -526,11 +594,7 @@ export function WhosThatPokemonScreen() {
         deleteTempFile(result.uri);
       }
 
-      // A retake replaces the previous selfie — drop its temp file first.
-      deleteSelfieFile();
-      selfieUriRef.current = nextSelfie.uri;
-      setSelfie(nextSelfie);
-      void runMatch(nextSelfie);
+      acceptSelfie(nextSelfie);
     } catch {
       if (mountedRef.current) {
         Alert.alert('Capture failed', 'Could not take the photo. Please try again.');
@@ -540,7 +604,61 @@ export function WhosThatPokemonScreen() {
         setIsCapturing(false);
       }
     }
-  }, [capture, deleteSelfieFile, isCapturing, runMatch]);
+  }, [acceptSelfie, capture, isCapturing]);
+
+  const handleFlipCamera = useCallback(() => {
+    setCameraPosition((current) => (current === 'front' ? 'back' : 'front'));
+  }, []);
+
+  const handlePickFromLibrary = useCallback(async () => {
+    const ImagePicker = loadNativeImagePicker();
+    if (!ImagePicker || isCapturing) {
+      return;
+    }
+    setIsCapturing(true);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (permission?.granted === false) {
+        Alert.alert('Photos access needed', 'Allow photo access to choose a picture.');
+        return;
+      }
+      // quality 1 = no picker re-encode, so the EXIF tag still describes the file.
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: false,
+        exif: true,
+        mediaTypes: ['images'],
+        quality: 1,
+      });
+      const asset = result?.canceled ? null : result?.assets?.[0];
+      if (!asset?.uri || !mountedRef.current) {
+        return;
+      }
+      const baked = await bakeLibraryPhoto(
+        asset.uri,
+        exifOrientationRotationDegrees(asset.exif?.Orientation),
+        Platform.OS,
+      );
+      if (!mountedRef.current) {
+        if (baked) {
+          deleteTempFile(baked.uri);
+        }
+        return;
+      }
+      if (!baked) {
+        Alert.alert('Photo failed', 'Could not read that photo. Please try another.');
+        return;
+      }
+      acceptSelfie(baked);
+    } catch {
+      if (mountedRef.current) {
+        Alert.alert('Photo failed', 'Could not open your photos. Please try again.');
+      }
+    } finally {
+      if (mountedRef.current) {
+        setIsCapturing(false);
+      }
+    }
+  }, [acceptSelfie, isCapturing]);
 
   const handleRetry = useCallback(() => {
     if (selfie) {
@@ -670,6 +788,7 @@ export function WhosThatPokemonScreen() {
   */
   const isCameraMounted = hasPermission && device != null && photoOutput != null;
   const isCapturePhase = phase === 'capture';
+  const isFrontCamera = cameraPosition === 'front';
 
   const renderCameraLayer = () => {
     if (!isCameraMounted) {
@@ -687,6 +806,8 @@ export function WhosThatPokemonScreen() {
         <Camera
           device={device}
           isActive={isCapturePhase}
+          // True image on both cameras, preview included — no selfie mirror.
+          mirrorMode="off"
           onStarted={() => setIsCameraReady(true)}
           // Re-arms the shutter gate on the next activation. Without it the
           // flag would stay true across a stopped session and the first tap
@@ -709,7 +830,7 @@ export function WhosThatPokemonScreen() {
             actionLabel="Allow camera access"
             actionTestID="wtp-permission-request"
             centered
-            message="The front camera powers your Pokémon match. If the prompt doesn't appear, enable camera access in Settings."
+            message="The camera powers your Pokémon match. If the prompt doesn't appear, enable camera access in Settings."
             onActionPress={() => {
               void requestPermission();
             }}
@@ -728,23 +849,63 @@ export function WhosThatPokemonScreen() {
 
         <View style={[styles.captureFooter, { paddingBottom: insets.bottom + spacing.lg }]}>
           <AppText style={styles.captureHint} testID="wtp-capture-hint">
-            Take a picture of yourself to find out which Pok&eacute;mon you look like!
+            {isFrontCamera
+              ? 'Take a picture of yourself to find out which Pokémon you look like!'
+              : 'Take a picture of someone to find out which Pokémon they look like!'}
           </AppText>
-          <Pressable
-            accessibilityLabel="Take selfie"
-            accessibilityRole="button"
-            disabled={isCapturing || !isCameraReady || !device || !photoOutput}
-            onPress={() => {
-              void handleCapture();
-            }}
-            style={({ pressed }) => [
-              styles.shutterOuter,
-              pressed || isCapturing ? styles.shutterPressed : null,
-            ]}
-            testID="wtp-shutter"
-          >
-            <View style={styles.shutterInner} />
-          </Pressable>
+          <View style={styles.captureControls}>
+            {canPickFromLibrary ? (
+              <IconButton
+                accessibilityLabel="Choose from library"
+                disabled={isCapturing}
+                onPress={() => {
+                  void handlePickFromLibrary();
+                }}
+                size={chromeBackButtonSize}
+                testID="wtp-library"
+                variant="elevated"
+              >
+                <IconPhoto
+                  color={colors.textPrimary}
+                  size={glassNavBubbleGlyphSize}
+                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                />
+              </IconButton>
+            ) : (
+              <View style={styles.captureControlSpacer} />
+            )}
+            <Pressable
+              accessibilityLabel={isFrontCamera ? 'Take selfie' : 'Take photo'}
+              accessibilityRole="button"
+              disabled={isCapturing || !isCameraReady || !device || !photoOutput}
+              onPress={() => {
+                void handleCapture();
+              }}
+              style={({ pressed }) => [
+                styles.shutterOuter,
+                pressed || isCapturing ? styles.shutterPressed : null,
+              ]}
+              testID="wtp-shutter"
+            >
+              <View style={styles.shutterInner} />
+            </Pressable>
+            <IconButton
+              accessibilityLabel={
+                isFrontCamera ? 'Switch to back camera' : 'Switch to front camera'
+              }
+              disabled={isCapturing}
+              onPress={handleFlipCamera}
+              size={chromeBackButtonSize}
+              testID="wtp-flip-camera"
+              variant="elevated"
+            >
+              <IconCameraRotate
+                color={colors.textPrimary}
+                size={glassNavBubbleGlyphSize}
+                strokeWidth={glassNavBubbleGlyphStrokeWidth}
+              />
+            </IconButton>
+          </View>
         </View>
       </View>
     );
@@ -895,6 +1056,15 @@ const styles = StyleSheet.create({
     left: 0,
     position: 'absolute',
     right: 0,
+  },
+  captureControls: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.xl,
+  },
+  captureControlSpacer: {
+    height: chromeBackButtonSize,
+    width: chromeBackButtonSize,
   },
   captureHint: {
     ...textStyles.titleSmall,

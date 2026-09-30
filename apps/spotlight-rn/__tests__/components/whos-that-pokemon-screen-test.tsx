@@ -324,20 +324,73 @@ describe('WhosThatPokemonScreen', () => {
   });
 
   /*
-    THE MIRROR BUG — "when taking a photo of myself it got mirrored, it should
-    just take it as is."
-
-    `selfie-image.tsx` already answered that sentence once by removing a
-    display-side flip; the pixels were still arriving mirrored. vision-camera's
-    `mirrorMode` defaults to `'auto'`, which mirrors selfie cameras and records
-    it on the still as an EXIF flag — the SAME flag that carries the rotation.
-    So the mirror gets baked exactly where the rotation gets baked: in pass 1,
-    on the platform whose manipulator applies EXIF (iOS). Pass 2 rebuilds from
-    the original and drops the EXIF wholesale, mirror included.
-
-    Hence: cancel it in pass 1, and nowhere else. Undoing it in both places is
-    a double flip, which is the same bug wearing the opposite sign.
+    The camera runs with mirrorMode="off", so neither camera should report a
+    mirror. If a platform does anyway, it is cancelled in pass 1 (the pass that
+    bakes EXIF on iOS) and never in pass 2, which would be a double flip.
   */
+  it('renders the camera un-mirrored, preview included', async () => {
+    renderScreen();
+    expect((await screen.findByTestId('wtp-camera')).props.mirrorMode).toBe('off');
+  });
+
+  it('flips between the front and back camera', async () => {
+    const visionCamera = require('react-native-vision-camera') as {
+      useCameraDevice: (position: string, options?: unknown) => unknown;
+    };
+    const useCameraDeviceSpy = jest.spyOn(visionCamera, 'useCameraDevice');
+    try {
+      renderScreen();
+      await screen.findByTestId('wtp-shutter');
+      expect(useCameraDeviceSpy.mock.calls.at(-1)?.[0]).toBe('front');
+      expect(screen.getByLabelText('Take selfie')).toBeTruthy();
+
+      fireEvent.press(screen.getByTestId('wtp-flip-camera'));
+      expect(useCameraDeviceSpy.mock.calls.at(-1)?.[0]).toBe('back');
+      expect(screen.getByLabelText('Take photo')).toBeTruthy();
+      expect(screen.getByTestId('wtp-capture-hint').props.children).toBe(
+        'Take a picture of someone to find out which Pokémon they look like!',
+      );
+      // Still un-mirrored on the back camera.
+      expect(screen.getByTestId('wtp-camera').props.mirrorMode).toBe('off');
+
+      fireEvent.press(screen.getByTestId('wtp-flip-camera'));
+      expect(useCameraDeviceSpy.mock.calls.at(-1)?.[0]).toBe('front');
+      expect(screen.getByLabelText('Take selfie')).toBeTruthy();
+    } finally {
+      useCameraDeviceSpy.mockRestore();
+    }
+  });
+
+  it('matches a photo chosen from the library, baked upright first', async () => {
+    const { launchImageLibraryAsync } = require('expo-image-picker') as {
+      launchImageLibraryAsync: jest.Mock;
+    };
+    launchImageLibraryAsync.mockResolvedValueOnce({
+      canceled: false,
+      assets: [
+        { uri: 'file:///mock-library.jpg', width: 3024, height: 4032, exif: { Orientation: 6 } },
+      ],
+    });
+    const whosThatPokemon = jest.fn(async (_payload: WhosThatPokemonPayload) => mockMatches);
+    renderScreen(createTestSpotlightRepository({ whosThatPokemon }));
+
+    await act(async () => {
+      fireEvent.press(await screen.findByTestId('wtp-library'));
+    });
+    await waitFor(
+      () => {
+        expect(whosThatPokemon).toHaveBeenCalledTimes(1);
+      },
+      { timeout: 4000 },
+    );
+
+    const { manipulateAsync } = imageManipulatorMock();
+    // iOS (jest's platform): the manipulator applies EXIF itself, so no rotate.
+    expect(manipulateAsync.mock.calls[0][0]).toBe('file:///mock-library.jpg');
+    expect(manipulateAsync.mock.calls[0][1]).toEqual([]);
+    expect(whosThatPokemon.mock.calls[0][0].jpegBase64).toBe(UPRIGHT_BASE64);
+  });
+
   it('cancels the front camera mirror in the pass that bakes it, and only there', async () => {
      
     const { usePhotoOutput } = require('react-native-vision-camera') as {

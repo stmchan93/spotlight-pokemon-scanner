@@ -28,7 +28,6 @@ export function FeedbackScreen() {
   const insets = useSafeAreaInsets();
   const { from } = useLocalSearchParams<{ from?: string }>();
   const [message, setMessage] = useState('');
-  const [sent, setSent] = useState(false);
 
   const trimmed = message.trim();
 
@@ -40,7 +39,9 @@ export function FeedbackScreen() {
       message: trimmed,
       from_screen: typeof from === 'string' ? from : null,
     });
-    setSent(true);
+    // Sent: straight back to Home. The modal is a root-stack route, so POP_TO
+    // closes it and lands on the tabs root.
+    router.dismissTo('/');
   };
 
   return (
@@ -69,41 +70,34 @@ export function FeedbackScreen() {
             <Text style={theme.typography.display}>Give us feedback</Text>
           </View>
 
-          {sent ? (
-            <View style={styles.form} testID="feedback-sent">
-              <Text style={theme.typography.titleCompact}>Thanks — got it.</Text>
-              <Button label="Done" onPress={() => router.back()} size="lg" testID="feedback-done" />
-            </View>
-          ) : (
-            <View style={styles.form}>
-              <View style={styles.fieldWithCount}>
-                <TextField
-                  containerStyle={styles.messageContainer}
-                  inputStyle={styles.messageInput}
-                  maxLength={MAX_MESSAGE_LENGTH}
-                  multiline
-                  onChangeText={setMessage}
-                  placeholder="Tell us anything. Every piece of feedback goes directly back to the team"
-                  testID="feedback-message"
-                  textAlignVertical="top"
-                  value={message}
-                />
-                <Text
-                  style={[theme.typography.caption, styles.count, { color: theme.colors.textSecondary }]}
-                  testID="feedback-count"
-                >
-                  {`${message.length}/${MAX_MESSAGE_LENGTH}`}
-                </Text>
-              </View>
-              <Button
-                disabled={!trimmed}
-                label="Send"
-                onPress={handleSend}
-                size="lg"
-                testID="feedback-send"
+          <View style={styles.form}>
+            <View style={styles.fieldWithCount}>
+              <TextField
+                containerStyle={styles.messageContainer}
+                inputStyle={styles.messageInput}
+                maxLength={MAX_MESSAGE_LENGTH}
+                multiline
+                onChangeText={setMessage}
+                placeholder="Tell us anything. Every piece of feedback goes directly back to the team"
+                testID="feedback-message"
+                textAlignVertical="top"
+                value={message}
               />
+              <Text
+                style={[theme.typography.caption, styles.count, { color: theme.colors.textSecondary }]}
+                testID="feedback-count"
+              >
+                {`${message.length}/${MAX_MESSAGE_LENGTH}`}
+              </Text>
             </View>
-          )}
+            <Button
+              disabled={!trimmed}
+              label="Send"
+              onPress={handleSend}
+              size="lg"
+              testID="feedback-send"
+            />
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
