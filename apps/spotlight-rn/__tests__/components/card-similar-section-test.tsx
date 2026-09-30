@@ -86,16 +86,17 @@ describe('CardSimilarSection', () => {
     expect(screen.getByTestId('similar-same-name')).toBeTruthy();
     expect(screen.queryByText('Other Latios cards')).toBeNull();
     expect(screen.queryByText('Other sets and languages')).toBeNull();
-    expect(screen.getByText('Same look, lower price')).toBeTruthy();
-    expect(screen.queryByText('Similar art for less')).toBeNull();
+    // The backend's cheaper look-alikes are never shown.
+    expect(screen.queryByText('Same look, lower price')).toBeNull();
+    expect(screen.queryByTestId('similar-cheaper')).toBeNull();
     expect(screen.getByText('Japanese · Clash of the Blue Sky · 105/107')).toBeTruthy();
-    expect(screen.getByTestId('similar-cheaper-sv8-1-price').props.children).toBe('$165.00');
+    expect(screen.getByTestId('similar-same-name-pcg2_ja-66-price').props.children).toBe('$1,150.00');
     // Unpriced tiles simply drop the price line.
     expect(screen.queryByTestId('similar-same-name-ex3-94-price')).toBeNull();
   });
 
   it('hides empty rows individually', async () => {
-    renderSection(async () => ({ ...FULL, goesWith: null, sameLookCheaper: [] }));
+    renderSection(async () => ({ ...FULL, goesWith: null }));
 
     expect(await screen.findByTestId('similar-same-name')).toBeTruthy();
     expect(screen.queryByTestId('similar-goes-with')).toBeNull();
@@ -122,6 +123,21 @@ describe('CardSimilarSection', () => {
     }
   });
 
+  it('hides the section, heading included, when only cheaper look-alikes come back', async () => {
+    const { repository } = renderSection(async () => ({ ...EMPTY, sameLookCheaper: FULL.sameLookCheaper }));
+    await waitFor(() => expect(repository.fetchSimilarCards).toHaveBeenCalledWith('ex8-106'));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByText('Similar cards')).toBeNull();
+  });
+
+  it('shows the heading for a single similar card', async () => {
+    renderSection(async () => ({ ...EMPTY, sameName: [FULL.sameName[1]] }));
+    expect(await screen.findByText('Similar cards')).toBeTruthy();
+    expect(screen.getByTestId('similar-same-name-ex3-94')).toBeTruthy();
+  });
+
   it('does not fetch until enabled (after the main card payload)', () => {
     const { repository } = renderSection(async () => FULL, { enabled: false });
     expect(repository.fetchSimilarCards).not.toHaveBeenCalled();
@@ -131,10 +147,10 @@ describe('CardSimilarSection', () => {
     const { onPressCard } = renderSection(async () => FULL);
 
     fireEvent.press(await screen.findByTestId('similar-goes-with-ex8-105'));
-    fireEvent.press(screen.getByTestId('similar-cheaper-sv8-1'));
+    fireEvent.press(screen.getByTestId('similar-same-name-ex3-94'));
 
     expect(onPressCard).toHaveBeenNthCalledWith(1, expect.objectContaining({ cardId: 'ex8-105' }));
-    expect(onPressCard).toHaveBeenNthCalledWith(2, expect.objectContaining({ cardId: 'sv8-1' }));
+    expect(onPressCard).toHaveBeenNthCalledWith(2, expect.objectContaining({ cardId: 'ex3-94' }));
   });
 });
 
@@ -157,12 +173,12 @@ describe('CardDetailScreen "Similar cards"', () => {
       spotlightRepository: createTestSpotlightRepository({ fetchSimilarCards }),
     });
 
-    fireEvent.press(await screen.findByTestId('detail-similar-cheaper-sv8-1'));
+    fireEvent.press(await screen.findByTestId('detail-similar-same-name-ex3-94'));
 
     expect(fetchSimilarCards).toHaveBeenCalledWith('sm7-1');
     expect(push).toHaveBeenCalledWith({
       pathname: '/cards/[cardId]',
-      params: expect.objectContaining({ cardId: 'sv8-1', previewId: expect.any(String) }),
+      params: expect.objectContaining({ cardId: 'ex3-94', previewId: expect.any(String) }),
     });
   });
 });
@@ -179,7 +195,7 @@ describe('CardSimilarSection analytics', () => {
     await waitFor(() => {
       expect(capturePostHogEvent).toHaveBeenCalledWith('similar_cards_shown', {
         has_goes_with: true,
-        rows: 3,
+        rows: 2,
       });
     });
 
@@ -187,9 +203,7 @@ describe('CardSimilarSection analytics', () => {
     expect(capturePostHogEvent).toHaveBeenCalledWith('similar_card_opened', { rank: 2, row: 'same_name' });
     fireEvent.press(screen.getByTestId('similar-goes-with-ex8-105'));
     expect(capturePostHogEvent).toHaveBeenCalledWith('similar_card_opened', { rank: 1, row: 'goes_with' });
-    fireEvent.press(screen.getByTestId('similar-cheaper-sv8-1'));
-    expect(capturePostHogEvent).toHaveBeenCalledWith('similar_card_opened', { rank: 1, row: 'cheaper' });
-    expect(onPressCard).toHaveBeenCalledTimes(3);
+    expect(onPressCard).toHaveBeenCalledTimes(2);
 
     rerender(
       <SafeAreaProvider initialMetrics={safeAreaMetrics}>

@@ -12,9 +12,7 @@ type SimilarRow = 'goes_with' | 'same_name' | 'cheaper';
 
 /** Non-empty rows in a payload — the section renders exactly these. */
 export function similarRowCount(similar: SimilarCards): number {
-  return (similar.goesWith ? 1 : 0)
-    + (similar.sameName.length > 0 ? 1 : 0)
-    + (similar.sameLookCheaper.length > 0 ? 1 : 0);
+  return (similar.goesWith ? 1 : 0) + (similar.sameName.length > 0 ? 1 : 0);
 }
 
 type CardSimilarSectionProps = {
@@ -39,11 +37,11 @@ function subtitle(card: SimilarCard): string {
 }
 
 /**
- * "Similar cards" (docs/meta-feed-mockup/v2/SimilarV7): up to three rows from
- * the art-embedding neighbours — the same-set pair, other cards of the same
- * base name, and look-alikes that cost less. Empty rows hide; the whole
- * section hides when every row is empty, the feature is off (null), or the
- * request fails.
+ * "Similar cards" (docs/meta-feed-mockup/v2/SimilarV7): the same-set pair and
+ * other cards of the same base name. The backend's "same look, lower price"
+ * row is not shown (user call, 2026-09-30). Empty rows hide; the whole section,
+ * heading included, hides when both are empty, the feature is off (null), or
+ * the request fails.
  */
 export function CardSimilarSection({ cardId, enabled, repository, onPressCard, testID }: CardSimilarSectionProps) {
   const [similar, setSimilar] = useState<SimilarCards | null>(null);
@@ -91,30 +89,22 @@ export function CardSimilarSection({ cardId, enabled, repository, onPressCard, t
   if (!similar || similar.cardId !== cardId) {
     return null;
   }
-  const { goesWith, sameName, sameLookCheaper } = similar;
-  if (!goesWith && sameName.length === 0 && sameLookCheaper.length === 0) {
+  const { goesWith, sameName } = similar;
+  if (!goesWith && sameName.length === 0) {
     return null;
   }
   const openCard = (card: SimilarCard, row: SimilarRow, rank: number) => {
     capturePostHogEvent(AnalyticsEvent.similarCardOpened, { row, rank });
     onPressCard(card);
   };
-  // A null title renders the rail bare, directly under the section title.
+  // Rails sit bare, directly under the section title.
   const renderRail = (
     key: string,
     row: SimilarRow,
-    title: string | null,
-    caption: string | null,
     cards: SimilarCard[],
   ) =>
     cards.length === 0 ? null : (
       <View style={styles.row} testID={testID ? `${testID}-${key}` : undefined}>
-        {title ? (
-          <View style={styles.rowHeader}>
-            <AppText color="gray900" variant="titleSmall">{title}</AppText>
-            {caption ? <AppText color="gray600" variant="captionMedium">{caption}</AppText> : null}
-          </View>
-        ) : null}
         <ScrollView
           contentContainerStyle={styles.railContent}
           horizontal
@@ -159,8 +149,7 @@ export function CardSimilarSection({ cardId, enabled, repository, onPressCard, t
         </View>
       ) : null}
 
-      {renderRail('same-name', 'same_name', null, null, sameName)}
-      {renderRail('cheaper', 'cheaper', 'Same look, lower price', null, sameLookCheaper)}
+      {renderRail('same-name', 'same_name', sameName)}
     </View>
   );
 }
