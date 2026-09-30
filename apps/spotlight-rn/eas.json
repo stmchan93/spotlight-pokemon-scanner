@@ -48,6 +48,7 @@
         "SPOTLIGHT_EXPO_OWNER": "schan93",
         "SPOTLIGHT_IOS_BUNDLE_IDENTIFIER": "com.ekalight.app.staging",
         "EXPO_PUBLIC_SPOTLIGHT_RAW_COLLECTOR_NUMBER_OCR_ENABLED": "1",
+        "EXPO_PUBLIC_SPOTLIGHT_FEED_MARKET_BLOCKS": "0",
         "EXPO_PUBLIC_SPOTLIGHT_AUTH_ISOLATED_REDIRECT_URL": "spotlight-staging://login-callback"
       },
       "channel": "staging",
