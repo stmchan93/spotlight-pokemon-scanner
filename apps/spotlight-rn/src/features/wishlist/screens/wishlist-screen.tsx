@@ -188,16 +188,16 @@ function useWishlistViewMode(): [WishlistViewMode, (next: WishlistViewMode) => v
 
 /**
  * A watch younger than a day has one price at most, so "$0.00 since watched"
- * and a one-point chart read as broken. Show "Tracking starts tomorrow" instead.
+ * and a one-point chart read as broken. Show "Tracking starts tomorrow" for that
+ * first day only — a thinly priced card can stay short of two points for weeks,
+ * and the label would then be a false promise.
  */
 const NEW_WATCH_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const NEW_WATCH_LABEL = 'Tracking starts tomorrow';
 
-export function isNewWatch(entry: Pick<CardFavoriteEntry, 'favoritedAt' | 'sinceWatchedPoints'>, now = Date.now()): boolean {
-  const points = entry.sinceWatchedPoints ?? [];
+export function isNewWatch(entry: Pick<CardFavoriteEntry, 'favoritedAt'>, now = Date.now()): boolean {
   const watchedAt = entry.favoritedAt ? Date.parse(entry.favoritedAt) : Number.NaN;
-  const youngerThanADay = Number.isFinite(watchedAt) && now - watchedAt < NEW_WATCH_WINDOW_MS;
-  return youngerThanADay || points.length < 2;
+  return Number.isFinite(watchedAt) && now - watchedAt < NEW_WATCH_WINDOW_MS;
 }
 
 const EMPTY_FAVORITES: CardFavoriteEntry[] = [];
