@@ -19,6 +19,8 @@ import {
 } from '@/features/profile/screens/public-profile-screen';
 
 const SEARCH_DEBOUNCE_MS = 250;
+// Longer than any native push (~350ms iOS / Android) on a slow device.
+const AUTOFOCUS_FALLBACK_MS = 1000;
 
 /**
  * People search — the profile top bar's magnifier. Searches USERS (handle or
@@ -42,38 +44,74 @@ export function PeopleSearchScreen({ testID = 'people-search' }: { testID?: stri
   const searchTokenRef = useRef(0);
 
   /*
-    Focus AFTER the push transition, not `autoFocus`: an autofocused input
-    starts presenting the keyboard at mount — mid push animation — and the two
-    native animations fight (keyboard begins, is interrupted as the screen
-    attaches, presents again). That read as the keyboard opening twice and the
-    screen "opening two pages". `transitionEnd` fires once the native stack has
-    settled; the once-flag keeps the keyboard from re-popping when a profile
-    row pops back to this screen.
+    Focus AFTER the push transition, not `autoFocus`: an input focused mid push
+    starts presenting the keyboard while the screen is still sliding in, UIKit
+    interrupts it as the screen attaches, and it presents again — the keyboard
+    reads as "up, down, up".
+
+    WHICH navigator's `transitionEnd` matters: pushed from the tabs, this route
+    mounts the `(stack)` group with itself as that stack's ONLY screen. The
+    slide the user sees is the ROOT stack pushing the group; the inner stack
+    never animates, and its bottom-most screen reports "appeared" as soon as the
+    nested navigation controller attaches (react-native-screens adds it to the
+    parent only once it reaches the window — i.e. at the START of the parent's
+    push). Listening on our own navigation therefore focused mid-slide, which is
+    the bounce. When we are the stack's first screen, listen on the parent's.
+
+    Once-only, opening transitions only: `transitionEnd` also fires with
+    `closing: true` when a profile row pushes over this screen, and coming back
+    from that profile must not re-pop the keyboard.
   */
   const navigation = useNavigation();
   const searchFieldRef = useRef<TextInput>(null);
   const didAutoFocusRef = useRef(false);
   useEffect(() => {
-    const unsubscribe = navigation.addListener('transitionEnd' as never, () => {
+    const focusOnce = () => {
       if (!didAutoFocusRef.current) {
         didAutoFocusRef.current = true;
         searchFieldRef.current?.focus();
       }
-    });
-    return unsubscribe;
+    };
+    const isStackRoot = (navigation.getState?.()?.routes.length ?? 1) <= 1;
+    const transitionOwner = (isStackRoot ? navigation.getParent?.() : null) ?? navigation;
+    const unsubscribe = transitionOwner.addListener('transitionEnd' as never, ((event: {
+      data?: { closing?: boolean };
+    }) => {
+      if (!event?.data?.closing) {
+        focusOnce();
+      }
+    }) as never);
+    // Safety net only: if no opening transition is ever reported (a route
+    // shape we didn't anticipate), still bring the keyboard up — well after
+    // any push animation has finished, so it cannot reintroduce the bounce.
+    // Skipped if a row already pushed a profile over this screen.
+    const fallback = setTimeout(() => {
+      if (navigation.isFocused?.() !== false) {
+        focusOnce();
+      }
+    }, AUTOFOCUS_FALLBACK_MS);
+    return () => {
+      clearTimeout(fallback);
+      unsubscribe();
+    };
   }, [navigation]);
 
+  const [suggestionsStatus, setSuggestionsStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const [suggestionsAttempt, setSuggestionsAttempt] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    void fetchSuggestedUsers(viewerId).then((rows) => {
+    setSuggestionsStatus('loading');
+    void fetchSuggestedUsers(viewerId).then(({ failed, profiles }) => {
       if (!cancelled) {
-        setSuggestions(rows);
+        setSuggestions(profiles);
+        setSuggestionsStatus(failed ? 'failed' : 'ready');
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [viewerId]);
+  }, [viewerId, suggestionsAttempt]);
+  const retrySuggestions = useCallback(() => setSuggestionsAttempt((attempt) => attempt + 1), []);
 
   const trimmedQuery = query.trim();
   const isSearching = trimmedQuery.length > 0;
@@ -213,7 +251,36 @@ export function PeopleSearchScreen({ testID = 'people-search' }: { testID?: stri
               title={isLoading ? 'Searching' : 'No matches'}
               variant="field"
             />
-          ) : null
+          ) : suggestionsStatus === 'loading' ? (
+            <StateCard
+              loading
+              message="Finding collectors to follow."
+              style={styles.stateCard}
+              testID={`${testID}-suggested-loading`}
+              title="Loading"
+              variant="field"
+            />
+          ) : suggestionsStatus === 'failed' ? (
+            <StateCard
+              actionLabel="Try again"
+              actionTestID={`${testID}-suggested-retry`}
+              actionVariant="secondary"
+              message="Could not load collectors. You can still search by name or @handle."
+              onActionPress={retrySuggestions}
+              style={styles.stateCard}
+              testID={`${testID}-suggested-error`}
+              title="Something went wrong"
+              variant="field"
+            />
+          ) : (
+            <StateCard
+              message="Search by name or @handle to find collectors."
+              style={styles.stateCard}
+              testID={`${testID}-suggested-empty`}
+              title="Find collectors"
+              variant="field"
+            />
+          )
         }
         renderItem={renderItem}
         testID={`${testID}-list`}

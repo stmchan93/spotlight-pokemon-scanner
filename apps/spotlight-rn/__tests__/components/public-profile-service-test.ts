@@ -200,3 +200,83 @@ describe('profile-service', () => {
     expect(supabase.from).not.toHaveBeenCalled();
   });
 });
+
+describe('fetchSuggestedUsers', () => {
+  type ListResult = { data: unknown; error: unknown };
+
+  // One chained list read per `from()` call, resolved at `.abortSignal()`.
+  function makeListQuery(result: ListResult | Error) {
+    const query: Record<string, jest.Mock> = {};
+    query.select = jest.fn(() => query);
+    query.order = jest.fn(() => query);
+    query.limit = jest.fn(() => query);
+    query.abortSignal = jest.fn(async () => {
+      if (result instanceof Error) {
+        throw result;
+      }
+      return result;
+    });
+    return query;
+  }
+
+  function load(results: (ListResult | Error)[]) {
+    const queries = results.map(makeListQuery);
+    const pending = [...queries];
+    const supabase = { from: jest.fn(() => pending.shift()) };
+    const captureException = jest.fn();
+    jest.resetModules();
+    jest.doMock('@/lib/observability/posthog', () => ({ capturePostHogException: captureException }));
+    const service = loadProfileService(supabase);
+    return { captureException, queries, service, supabase };
+  }
+
+  afterEach(() => {
+    jest.dontMock('@/lib/observability/posthog');
+  });
+
+  it('returns the most-followed profiles without the viewer, nulls last', async () => {
+    const { queries, service, supabase } = load([
+      { data: [fullRow, { ...fullRow, user_id: 'viewer' }], error: null },
+    ]);
+
+    const result = await service.fetchSuggestedUsers('viewer');
+
+    expect(result.failed).toBe(false);
+    expect(result.profiles.map((p) => p.userID)).toEqual(['user-1']);
+    expect(supabase.from).toHaveBeenCalledTimes(1);
+    expect(queries[0].order).toHaveBeenCalledWith('follower_count', { ascending: false, nullsFirst: false });
+  });
+
+  it('logs a failed read and falls back to the newest profiles', async () => {
+    const { captureException, service } = load([
+      { data: null, error: { code: '42501', message: 'permission denied' } },
+      { data: [fullRow], error: null },
+    ]);
+
+    const result = await service.fetchSuggestedUsers(null);
+
+    expect(result).toEqual({ failed: false, profiles: [expect.objectContaining({ userID: 'user-1' })] });
+    expect(captureException).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ error_code: '42501', order: 'follower_count', source: 'people_suggestions' }),
+    );
+  });
+
+  it('reports failed (not empty) when every read errors', async () => {
+    const { captureException, service } = load([new Error('network'), new Error('network')]);
+
+    const result = await service.fetchSuggestedUsers(null);
+
+    expect(result).toEqual({ failed: true, profiles: [] });
+    expect(captureException).toHaveBeenCalledTimes(2);
+  });
+
+  it('is empty but not failed when nobody else has a profile', async () => {
+    const { service } = load([
+      { data: [{ ...fullRow, user_id: 'viewer' }], error: null },
+      { data: [{ ...fullRow, user_id: 'viewer' }], error: null },
+    ]);
+
+    expect(await service.fetchSuggestedUsers('viewer')).toEqual({ failed: false, profiles: [] });
+  });
+});

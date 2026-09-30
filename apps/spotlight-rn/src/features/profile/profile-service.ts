@@ -1,4 +1,5 @@
 import type { UserProfile } from '@/features/auth/auth-models';
+import { capturePostHogException } from '@/lib/observability/posthog';
 import { isMissingColumnError } from '@/lib/postgrest-errors';
 import { supabase } from '@/lib/supabase';
 
@@ -364,30 +365,85 @@ export function rankSearchMatches(profiles: UserProfile[], query: string): UserP
     .map((entry) => entry.profile);
 }
 
+export type SuggestedUsersResult = {
+  profiles: UserProfile[];
+  /**
+   * True when every read errored, timed out, or threw — as opposed to the view
+   * genuinely having no one else in it. The screen offers a retry only then.
+   */
+  failed: boolean;
+};
+
+const SUGGESTED_USERS_TIMEOUT_MS = 10_000;
+
 /**
- * Collectors to show before anything is typed: the most-followed public
- * profiles. Excludes `excludeUserID` (the viewer). [] on any failure.
+ * One ordered page of `public_profiles`, or `null` on any failure. Failures are
+ * reported to PostHog error tracking rather than swallowed: this list used to
+ * return [] on every error and the screen rendered a blank box with nothing in
+ * the logs to say why. A hung request (e.g. the auth client stuck mid token
+ * refresh) is aborted so it lands as a logged failure instead of forever-blank.
  */
-export async function fetchSuggestedUsers(excludeUserID: string | null, limit = 20): Promise<UserProfile[]> {
+async function readSuggestedPage(
+  orderColumn: 'follower_count' | 'created_at',
+  limit: number,
+): Promise<UserProfile[] | null> {
   if (!supabase) {
-    return [];
+    capturePostHogException(new Error('fetchSuggestedUsers: Supabase client is not configured'), {
+      source: 'people_suggestions',
+    });
+    return null;
   }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SUGGESTED_USERS_TIMEOUT_MS);
   try {
     const { data, error } = await supabase
       .from(PUBLIC_PROFILES_VIEW)
       .select(publicProfileSelect)
-      .order('follower_count', { ascending: false })
-      .limit(limit + 1);
+      // NULLS LAST: Postgres puts nulls FIRST on a descending sort, which would
+      // lead "Popular collectors" with profiles that have no count at all.
+      .order(orderColumn, { ascending: false, nullsFirst: false })
+      .limit(limit)
+      .abortSignal(controller.signal);
     if (error || !data) {
-      return [];
+      capturePostHogException(
+        new Error(`fetchSuggestedUsers(${orderColumn}) failed: ${error?.code ?? 'no_data'} ${error?.message ?? ''}`.trim()),
+        { error_code: error?.code ?? null, order: orderColumn, source: 'people_suggestions' },
+      );
+      return null;
     }
-    return (data as PublicProfileRow[])
-      .map(mapPublicProfile)
-      .filter((profile) => profile.userID !== excludeUserID)
-      .slice(0, limit);
-  } catch {
-    return [];
+    return (data as PublicProfileRow[]).map(mapPublicProfile);
+  } catch (caught) {
+    capturePostHogException(caught, { order: orderColumn, source: 'people_suggestions' });
+    return null;
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+/**
+ * Collectors to show before anything is typed: the most-followed public
+ * profiles, falling back to the newest ones when that read fails or leaves
+ * nobody (e.g. the viewer is the only profile with followers). Excludes
+ * `excludeUserID` (the viewer). Never throws.
+ */
+export async function fetchSuggestedUsers(
+  excludeUserID: string | null,
+  limit = 20,
+): Promise<SuggestedUsersResult> {
+  const withoutViewer = (rows: UserProfile[]) =>
+    rows.filter((profile) => profile.userID !== excludeUserID).slice(0, limit);
+
+  const popular = await readSuggestedPage('follower_count', limit + 1);
+  const popularProfiles = popular ? withoutViewer(popular) : [];
+  if (popularProfiles.length > 0) {
+    return { failed: false, profiles: popularProfiles };
+  }
+
+  const newest = await readSuggestedPage('created_at', limit + 1);
+  return {
+    failed: popular === null && newest === null,
+    profiles: newest ? withoutViewer(newest) : [],
+  };
 }
 
 export type HandleAvailability = 'available' | 'taken' | 'unknown';
