@@ -202,6 +202,18 @@ export function isNewWatch(entry: Pick<CardFavoriteEntry, 'favoritedAt'>, now = 
   return Number.isFinite(watchedAt) && now - watchedAt < NEW_WATCH_WINDOW_MS;
 }
 
+/**
+ * Whether the "since watched" change and sparkline have anything to say: past
+ * the first day AND at least two prices. A thinly priced card can sit on one
+ * point for weeks — it shows neither a trend nor a label then.
+ */
+export function hasWatchTrend(
+  entry: Pick<CardFavoriteEntry, 'favoritedAt' | 'sinceWatchedPoints'>,
+  now = Date.now(),
+): boolean {
+  return !isNewWatch(entry, now) && (entry.sinceWatchedPoints ?? []).length >= 2;
+}
+
 const EMPTY_FAVORITES: CardFavoriteEntry[] = [];
 
 export function WishlistScreen() {
@@ -1157,6 +1169,7 @@ function WishlistListRow({
   // The watched printing leads the line: "Reverse Holofoil · Near Mint".
   const gradeLine = [entry.watchVariant, priceLaneLabel].filter(Boolean).join(' · ') || null;
   const newWatch = isNewWatch(entry);
+  const showTrend = hasWatchTrend(entry);
 
   const row = (
     <CardListRow
@@ -1189,11 +1202,11 @@ function WishlistListRow({
       showQuantity={false}
       // Since watched: the change under the price, and a sparkline from the watch
       // date with the watched-at price dashed across it.
-      sparkBaseline={WATCHLIST_TREND_ACCESS === 'full' ? entry.sinceAddedBaselinePrice ?? null : null}
-      sparkPoints={WATCHLIST_TREND_ACCESS === 'full' && !newWatch ? entry.sinceWatchedPoints ?? undefined : undefined}
+      sparkBaseline={WATCHLIST_TREND_ACCESS === 'full' && showTrend ? entry.sinceAddedBaselinePrice ?? null : null}
+      sparkPoints={WATCHLIST_TREND_ACCESS === 'full' && showTrend ? entry.sinceWatchedPoints ?? undefined : undefined}
       sparkTrendPct={entry.sinceAddedChangePercent ?? null}
       testID={`wishlist-row-${rowTestKey(entry)}`}
-      trendChangeAmount={WATCHLIST_TREND_ACCESS === 'hidden' || newWatch ? null : entry.sinceAddedChangeAmount ?? null}
+      trendChangeAmount={WATCHLIST_TREND_ACCESS === 'hidden' || !showTrend ? null : entry.sinceAddedChangeAmount ?? null}
       trendSuffix={SINCE_WATCHED_SUFFIX}
     />
   );
@@ -1387,6 +1400,7 @@ function WishlistGridTile({
     ? `Target ${centsToCurrency(targetCents, entry.currencyCode ?? 'USD')}`
     : null;
   const newWatch = isNewWatch(entry);
+  const showTrend = hasWatchTrend(entry);
   return (
     <InventoryCardTile
       bordered={false}
@@ -1412,7 +1426,7 @@ function WishlistGridTile({
       // Numeric price feeds the tile's penny guard (sub-$1 → no trend line).
       marketPrice={entry.marketPrice ?? null}
       // Card view gets the arrow + "since watched" change, no sparkline.
-      trendChangeAmount={WATCHLIST_TREND_ACCESS === 'hidden' || newWatch ? null : entry.sinceAddedChangeAmount ?? null}
+      trendChangeAmount={WATCHLIST_TREND_ACCESS === 'hidden' || !showTrend ? null : entry.sinceAddedChangeAmount ?? null}
       formatTrendAmount={(value) => formatOptionalCurrency(value, entry.currencyCode ?? 'USD') ?? `$${value.toFixed(2)}`}
       trendSuffix={SINCE_WATCHED_SUFFIX}
       isFavorite
