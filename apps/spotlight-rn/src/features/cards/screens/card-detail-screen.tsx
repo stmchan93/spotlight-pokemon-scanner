@@ -208,6 +208,13 @@ type DropdownOption = {
 type CardDetailScreenProps = {
   cardId: string;
   entryId?: string;
+  /**
+   * Opened from the scanner: the page is the physical card just scanned, i.e.
+   * a NEW copy (add mode), even when older copies of this card are owned.
+   */
+  fromScan?: boolean;
+  /** Condition code to open on (the scan tray's picked condition). */
+  initialCondition?: string;
   /** Printing label to open on (e.g. a watchlist row's printing). */
   initialVariant?: string;
   onBack: () => void;
@@ -225,6 +232,8 @@ function deckConditionLabel(code: string | null): string | null {
 export function CardDetailScreen({
   cardId,
   entryId,
+  fromScan = false,
+  initialCondition,
   initialVariant,
   onBack,
   previewId,
@@ -575,6 +584,10 @@ export function CardDetailScreen({
   // empties every live pool (the counterpart detail owns nothing and the
   // inventory cache may not be loaded yet).
   const pinnedEntryRef = useRef<InventoryCardEntry | null>(null);
+  // A scan-opened page (no explicit entryId) is a new copy: owned copies stay
+  // listed in the Inventory dropdown but none is pre-selected for editing —
+  // otherwise an unrelated old copy's condition/printing seeds the page.
+  const opensAsNewCopy = !entryId && (fromScan || scanReviewId != null);
 
   const selectedEntry = useMemo(() => {
     // An explicit entryId pins the EDITED entry by id across every pool — even
@@ -592,6 +605,10 @@ export function CardDetailScreen({
       if (pinned) {
         return pinned;
       }
+    }
+
+    if (opensAsNewCopy) {
+      return null;
     }
 
     // Prefer authoritative owned entries if a full detail carried them; else the
@@ -638,6 +655,7 @@ export function CardDetailScreen({
     detailPreview?.ownedEntry,
     entryId,
     inventoryEntriesCache,
+    opensAsNewCopy,
     portfolioDashboardCache,
   ]);
 
@@ -701,9 +719,10 @@ export function CardDetailScreen({
     } else {
       setSelectedGrader('Raw');
       const ownedCondition = selectedEntry?.kind === 'raw' ? selectedEntry.conditionCode ?? null : null;
-      setSelectedCondition(ownedCondition ?? deckConditionOptions[0]?.code ?? null);
+      const routeCondition = deckConditionOptions.find((option) => option.code === initialCondition)?.code ?? null;
+      setSelectedCondition(ownedCondition ?? routeCondition ?? deckConditionOptions[0]?.code ?? null);
     }
-  }, [cardGame, cardId, detail, ownedSlabContext, selectedEntry]);
+  }, [cardGame, cardId, detail, initialCondition, ownedSlabContext, selectedEntry]);
 
   // Seed the variant default once the variant list actually resolves. Kept
   // separate from the grader seed because variantOptions is empty until full
@@ -1519,10 +1538,11 @@ export function CardDetailScreen({
     ?? detailPreview?.largeImageUrl
     ?? detailPreview?.imageUrl
     ?? null;
-  // A printing with its own art (the version a scan matched, or an owned
-  // alt-art copy's) shows it in the header while selected; before the picker
-  // seeds, the routed printing (else the owned copy's) counts. The preview
-  // belongs to the routed card, so an EN/JP swap drops it.
+  // A printing with its own art (the version a scan matched, an owned alt-art
+  // copy's, or any art-changing printing the card detail lists) shows it in
+  // the header while selected; before the picker seeds, the routed printing
+  // (else the owned copy's) counts. The preview belongs to the routed card, so
+  // an EN/JP swap drops it; the detail's list follows the card on screen.
   const heroPrintingImages = useMemo(
     () => [
       ...(detailPreview?.printingImages ?? []),
@@ -1535,12 +1555,14 @@ export function CardDetailScreen({
     ],
     [detailPreview?.printingImages, inventoryEntries],
   );
-  const heroPrintingImageUrl = activeCardId === cardId
-    ? printingImageFor(
-        heroPrintingImages,
-        selectedVariantLabel ?? (selectedVariant ? null : initialVariant ?? selectedEntry?.variantName),
-      )
-    : null;
+  const detailPrintingImages = detail?.cardId === activeCardId ? detail?.printingImages : undefined;
+  const heroPrintingLabel = activeCardId === cardId
+    ? selectedVariantLabel ?? (selectedVariant ? null : initialVariant ?? selectedEntry?.variantName)
+    : selectedVariantLabel;
+  const heroPrintingImageUrl = (activeCardId === cardId
+    ? printingImageFor(heroPrintingImages, heroPrintingLabel)
+    : null)
+    ?? printingImageFor(detailPrintingImages, heroPrintingLabel);
   const heroImageUrl = heroPrintingImageUrl ?? displayImageUrl;
 
   /*
@@ -2112,15 +2134,18 @@ export function CardDetailScreen({
   // default — first variant, Raw / Near Mint, quantity 1 — regardless of what the
   // PDP is currently showing. Edits stay local to the sheet (Figma 1640:4077).
   const handleOpenAddSheet = useCallback(() => {
-    setAddVariant(variantOptions[0]?.id ?? null);
+    // Exception: a scan-opened page IS the scanned copy, so the sheet starts on
+    // the printing + condition the page opened on (the scanned/picked ones).
+    const scanRaw = opensAsNewCopy && selectedGrader === 'Raw';
+    setAddVariant((opensAsNewCopy ? selectedVariant : null) ?? variantOptions[0]?.id ?? null);
     setAddGrader('Raw');
     setAddGrade(null);
-    setAddCondition('near_mint');
+    setAddCondition((scanRaw ? selectedCondition : null) ?? 'near_mint');
     setAddLanguageChip(null);
     pendingAddVariantLabelRef.current = null;
     setQuantity(1);
     setAddSheetOpen(true);
-  }, [variantOptions]);
+  }, [opensAsNewCopy, selectedCondition, selectedGrader, selectedVariant, variantOptions]);
 
   // Delete the owned entry behind this PDP (Figma 1874:23102). On success the
   // entry is gone, so close the sheet, recalc the portfolio (refreshData), and
@@ -2844,6 +2869,8 @@ export function CardDetailScreen({
         {inventoryEntries.length > 0 && !isSealed ? (
           <InventoryDropdown
             entries={inventoryEntries}
+            // Opened from a scan: show the copies you already own up front.
+            initiallyExpanded={opensAsNewCopy}
             language={selectedLanguageChip}
             onPressEntry={handlePressInventoryEntry}
             onPressEntryMenu={handlePressInventoryEntryMenu}

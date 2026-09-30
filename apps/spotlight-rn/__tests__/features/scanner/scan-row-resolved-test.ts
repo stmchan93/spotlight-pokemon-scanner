@@ -153,3 +153,27 @@ describe('tray thumbnail and the matched art version', () => {
     expect(scannerCaptureThumbUri(capture, noImage)).toBe(versionImage);
   });
 });
+
+describe('tray thumbnail and the card\'s other art-changing printings', () => {
+  // ST30-001-shaped: the scan matched the base art; "Alt Art" is a different
+  // art the backend lists in printingImages.
+  const candidate = {
+    cardId: 'onepiece~ST30-001',
+    imageUrl: 'https://img/luffy-ace.png',
+    smallImageUrl: 'https://img/luffy-ace-small.png',
+    printingImages: [{
+      label: 'Alt Art',
+      imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/693257_in_1000x1000.jpg',
+      smallImageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/693257_400w.jpg',
+    }],
+  } as RecentCapture['candidates'][number];
+
+  it('switches the thumb with the printing chip', () => {
+    const capture = makeCapture({ candidates: [candidate] });
+    expect(scannerCaptureThumbUri(capture, candidate)).toBe('https://img/luffy-ace-small.png');
+    expect(scannerCaptureThumbUri(capture, candidate, 'Foil')).toBe('https://img/luffy-ace-small.png');
+    expect(scannerCaptureThumbUri(capture, candidate, 'alt art'))
+      .toBe('https://tcgplayer-cdn.tcgplayer.com/product/693257_400w.jpg');
+    expect(scannerCaptureThumbUri(capture, candidate, 'Alt Art', false)).toBe('https://img/luffy-ace-small.png');
+  });
+});

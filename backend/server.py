@@ -15515,8 +15515,12 @@ class SpotlightScanService:
         # Show mode gates app ACCESS only — it never forces live pricing refresh.
         card_show_mode_active = False
         limited_items = items[:pricing_policy.limit]
-        _, price_snapshot_rows = self._batched_card_hydration_context(
-            [str((item.card or {}).get("id") or "").strip() for item in limited_items]
+        limited_card_ids = [str((item.card or {}).get("id") or "").strip() for item in limited_items]
+        _, price_snapshot_rows = self._batched_card_hydration_context(limited_card_ids)
+        # One batched lookup: each candidate's art-changing printings, so the
+        # tray's printing chip can switch the thumb to that printing's art.
+        printing_images_by_card = printing_images.printing_images_by_card(
+            self.connection, limited_card_ids
         )
 
         for index, item in enumerate(limited_items, start=1):
@@ -15560,6 +15564,8 @@ class SpotlightScanService:
                 # Scored rows are what a reranked scan persists for "load more".
                 scored_entry["matchedVariant"] = item.matched_variant
                 encoded_entry["matchedVariant"] = item.matched_variant
+            if printing_images_by_card.get(card_id):
+                encoded_entry["printingImages"] = printing_images_by_card[card_id]
             scored_candidates.append(scored_entry)
             encoded_candidates.append(encoded_entry)
             candidate_timings.append(
@@ -17482,7 +17488,7 @@ class SpotlightScanService:
         owner_user_id = self._optional_owner_user_id()
         # Log the view first so this viewer is reflected in the watcher count.
         self._record_card_view(card_id, owner_user_id=owner_user_id)
-        return self._card_detail_for_context(
+        payload = self._card_detail_for_context(
             card_id,
             pricing_context=pricing_context,
             owner_user_id=owner_user_id,
@@ -17491,6 +17497,13 @@ class SpotlightScanService:
             # tiny indexed lookups; {} in JSON mode → day_cells=None (JSON path).
             day_cells=self._latest_day_cells_by_card_id([card_id]).get(card_id),
         )
+        if payload is not None:
+            # Art per art-changing printing (alt arts…) so the PDP header follows
+            # the printing picker; base/finish printings keep the card image.
+            payload["printingImages"] = printing_images.printing_images_by_card(
+                self.connection, [card_id]
+            ).get(card_id, [])
+        return payload
 
     def set_card_favorite(
         self,

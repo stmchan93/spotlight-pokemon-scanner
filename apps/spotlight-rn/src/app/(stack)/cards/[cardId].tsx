@@ -14,7 +14,9 @@ export default function CardDetailRoute() {
   const router = useRouter();
   const params = useLocalSearchParams<{
     cardId?: string | string[];
+    condition?: string | string[];
     entryId?: string | string[];
+    fromScan?: string | string[];
     previewId?: string | string[];
     scanReviewId?: string | string[];
     variant?: string | string[];
@@ -24,6 +26,8 @@ export default function CardDetailRoute() {
   const previewId = firstParam(params.previewId) || undefined;
   const scanReviewId = firstParam(params.scanReviewId) || undefined;
   const variant = firstParam(params.variant) || undefined;
+  const condition = firstParam(params.condition) || undefined;
+  const fromScan = firstParam(params.fromScan) === '1';
 
   if (!cardId) {
     return null;
@@ -31,9 +35,11 @@ export default function CardDetailRoute() {
 
   return (
     <CardDetailScreen
-      key={`${cardId}:${entryId ?? ''}:${previewId ?? ''}:${scanReviewId ?? ''}:${variant ?? ''}`}
+      key={`${cardId}:${entryId ?? ''}:${previewId ?? ''}:${scanReviewId ?? ''}:${variant ?? ''}:${condition ?? ''}:${fromScan ? 'scan' : ''}`}
       cardId={cardId}
       entryId={entryId}
+      fromScan={fromScan}
+      initialCondition={condition}
       initialVariant={variant}
       onBack={() => router.back()}
       previewId={previewId}

@@ -788,7 +788,7 @@ describe('ScannerScreen', () => {
         pathname: '/cards/[cardId]',
         params: {
           cardId: 'base1-14',
-          entryId: undefined,
+          fromScan: '1',
           previewId: expect.any(String),
           scanReviewId: expect.any(String),
         },
@@ -1611,7 +1611,7 @@ describe('ScannerScreen', () => {
         pathname: '/cards/[cardId]',
         params: {
           cardId: 'mcdonalds25-21',
-          entryId: 'entry-2',
+          fromScan: '1',
           previewId: expect.any(String),
           scanReviewId: expect.any(String),
         },
@@ -2167,7 +2167,7 @@ describe('ScannerScreen', () => {
         pathname: '/cards/[cardId]',
         params: {
           cardId: 'mcdonalds25-16',
-          entryId: 'entry-1',
+          fromScan: '1',
           previewId: expect.any(String),
           scanReviewId: expect.any(String),
         },

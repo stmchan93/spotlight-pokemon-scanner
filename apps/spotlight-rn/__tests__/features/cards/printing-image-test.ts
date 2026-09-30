@@ -68,4 +68,21 @@ describe('printing images', () => {
     expect(printingImageFor(preview.printingImages, 'Normal')).toBeNull();
     expect('printingImages' in cardDetailPreviewFromCatalogResult({ ...candidate, matchedVariant: null })).toBe(false);
   });
+
+  it('switches to an art-changing printing the scan did not match', () => {
+    const altArt = 'https://tcgplayer-cdn.tcgplayer.com/product/693257_in_1000x1000.jpg';
+    const altArtSmall = 'https://tcgplayer-cdn.tcgplayer.com/product/693257_400w.jpg';
+    const luffy = {
+      ...candidate,
+      matchedVariant: null,
+      printingImages: [{ label: 'Alt Art', imageUrl: altArt, smallImageUrl: altArtSmall }],
+    } as CatalogSearchResult;
+    expect(candidateImageForPrinting(luffy, null)).toBe('https://img/boa.png');
+    expect(candidateImageForPrinting(luffy, 'Foil')).toBe('https://img/boa.png');
+    expect(candidateImageForPrinting(luffy, 'Alt Art')).toBe(altArt);
+    expect(candidateImageForPrinting(luffy, 'Alt Art', { preferSmall: true })).toBe(altArtSmall);
+    expect(versionLabelForPrinting(luffy, 'alt art')).toBe('Alt Art');
+    expect(versionLabelForPrinting(luffy, 'Foil')).toBeNull();
+    expect(printingImagesForCandidate(luffy)).toEqual([{ label: 'Alt Art', imageUrl: altArt }]);
+  });
 });

@@ -66,18 +66,58 @@ export function isMatchedVersionShown(
   return printingLabel == null || printingLabelsMatch(label, printingLabel);
 }
 
+/** The candidate's art-changing printing (backend `printingImages`) named `printingLabel`, if any. */
+function candidatePrintingImageEntry(
+  candidate: CatalogSearchResult | null | undefined,
+  printingLabel: string | null | undefined,
+) {
+  return printingLabel
+    ? candidate?.printingImages?.find((entry) => printingLabelsMatch(entry.label, printingLabel)) ?? null
+    : null;
+}
+
 /** The version name to show beside the card number, or null. */
 export function versionLabelForPrinting(
   candidate: CatalogSearchResult | null | undefined,
   printingLabel: string | null | undefined,
 ): string | null {
-  return isMatchedVersionShown(candidate, printingLabel) ? matchedVersionLabel(candidate) : null;
+  if (isMatchedVersionShown(candidate, printingLabel)) {
+    return matchedVersionLabel(candidate);
+  }
+  return candidatePrintingImageEntry(candidate, printingLabel)?.label ?? null;
 }
 
 /**
- * The image depicting `candidate` on `printingLabel`: the matched version's
- * image when that version is shown, else the card's own (small first when
- * `preferSmall`, for thumbnails).
+ * The art of the printing on screen when it differs from the card's: the
+ * matched version's image while that version is shown, else the chosen
+ * printing's own art (an alt art the scan did not match). Null = card image.
+ */
+export function candidatePrintingArtUrl(
+  candidate: CatalogSearchResult | null | undefined,
+  printingLabel: string | null | undefined,
+  options: { preferSmall?: boolean; enabled?: boolean } = {},
+): string | null {
+  const enabled = options.enabled ?? matchedVariantImageEnabled();
+  if (!candidate || !enabled) {
+    return null;
+  }
+  if (isMatchedVersionShown(candidate, printingLabel)) {
+    const versionImage = matchedVersionImageUrl(candidate, enabled);
+    if (versionImage) {
+      return versionImage;
+    }
+  }
+  const entry = candidatePrintingImageEntry(candidate, printingLabel);
+  if (!entry) {
+    return null;
+  }
+  return (options.preferSmall ? entry.smallImageUrl || entry.imageUrl : entry.imageUrl) || null;
+}
+
+/**
+ * The image depicting `candidate` on `printingLabel`: that printing's art when
+ * it differs (see `candidatePrintingArtUrl`), else the card's own (small first
+ * when `preferSmall`, for thumbnails).
  */
 export function candidateImageForPrinting(
   candidate: CatalogSearchResult | null | undefined,
@@ -87,13 +127,9 @@ export function candidateImageForPrinting(
   if (!candidate) {
     return null;
   }
-  const versionImage = isMatchedVersionShown(candidate, printingLabel)
-    ? matchedVersionImageUrl(candidate, options.enabled)
-    : null;
-  if (versionImage) {
-    return versionImage;
-  }
-  return (options.preferSmall ? candidate.smallImageUrl || candidate.imageUrl : candidate.imageUrl) || null;
+  return candidatePrintingArtUrl(candidate, printingLabel, options)
+    || (options.preferSmall ? candidate.smallImageUrl || candidate.imageUrl : candidate.imageUrl)
+    || null;
 }
 
 /** "#OP05-091 · Special Alt Art" parts: the number, then the version shown. */
@@ -105,15 +141,22 @@ export function cardNumberWithVersion(
   return [number, versionLabel || null].filter(Boolean).join(' · ') || null;
 }
 
-/** Per-printing images a card page can show in its header (matched version only today). */
+/** Per-printing images a card page can show in its header. */
 export type PrintingImage = { label: string; imageUrl: string };
 
+/** The matched version's image first, then the candidate's other art-changing printings. */
 export function printingImagesForCandidate(
   candidate: CatalogSearchResult | null | undefined,
 ): PrintingImage[] | undefined {
   const label = matchedVersionLabel(candidate);
   const imageUrl = matchedVersionImageUrl(candidate);
-  return label && imageUrl ? [{ label, imageUrl }] : undefined;
+  const images: PrintingImage[] = label && imageUrl ? [{ label, imageUrl }] : [];
+  if (matchedVariantImageEnabled()) {
+    for (const entry of candidate?.printingImages ?? []) {
+      images.push({ label: entry.label, imageUrl: entry.imageUrl });
+    }
+  }
+  return images.length > 0 ? images : undefined;
 }
 
 /**

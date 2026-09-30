@@ -191,6 +191,7 @@ import type {
   ScannerMode,
   ScannerTargetLanguageMismatch,
   ScanMatchedVariant,
+  CardPrintingImage,
   PrintingImageFields,
   SlabContext,
   SpotlightRepositoryLoadResult,
@@ -883,6 +884,8 @@ type ScanMatchCandidateDTO = {
   imageScore?: number | null;
   // Present only when the photo matched an alt-art reference image of the card.
   matchedVariant?: unknown;
+  // The card's art-changing printings; absent when it has none.
+  printingImages?: unknown;
 };
 
 type ScanMatchResponseDTO = {
@@ -986,6 +989,7 @@ type CardDetailDTO = {
   language?: string | null;
   counterpartCardID?: string | null;
   counterpartLanguage?: string | null;
+  printingImages?: unknown;
   cardText?: CardTextDTO | null;
   population?: unknown;
   gradedReference?: unknown;
@@ -2462,6 +2466,7 @@ function mapScannerMatchCandidates(
     }
 
     const matchedVariant = normalizeScanMatchedVariant(entry?.matchedVariant);
+    const printingImages = normalizePrintingImages(entry?.printingImages);
     // When the card has no raw price, `market` is a graded slab comp shown as a
     // reference; tag it so the UI reads it as "PSA 10", not the ungraded value.
     const priceIsGradedReference = card.pricing.pricingMode === 'graded_reference';
@@ -2497,6 +2502,31 @@ function mapScannerMatchCandidates(
       gradedReferenceLabel,
       // Only set when served, so candidates without one keep their old shape.
       ...(matchedVariant ? { matchedVariant } : {}),
+      ...(printingImages.length > 0 ? { printingImages } : {}),
+    }];
+  });
+}
+
+/** Untrusted `printingImages` → entries with a label and an http(s) image. */
+function normalizePrintingImages(value: unknown): CardPrintingImage[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') {
+      return [];
+    }
+    const raw = item as Record<string, unknown>;
+    const label = normalizeString(raw.label);
+    const imageUrl = normalizeString(raw.imageUrl);
+    if (!label || !imageUrl || !/^https?:\/\//i.test(imageUrl)) {
+      return [];
+    }
+    const smallImageUrl = normalizeString(raw.smallImageUrl);
+    return [{
+      label,
+      imageUrl,
+      smallImageUrl: smallImageUrl && /^https?:\/\//i.test(smallImageUrl) ? smallImageUrl : null,
     }];
   });
 }
@@ -6976,6 +7006,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       language: normalizeCardLanguage(detailResponse.data.language),
       counterpartCardId: normalizeString(detailResponse.data.counterpartCardID),
       counterpartLanguage: normalizeCardLanguage(detailResponse.data.counterpartLanguage),
+      printingImages: normalizePrintingImages(detailResponse.data.printingImages),
       trendsPct: card.pricing.trendsPct ?? null,
       cardText: buildCardText(detailResponse.data.cardText),
       tcgPlayerVariants: card.tcgPlayerVariants,

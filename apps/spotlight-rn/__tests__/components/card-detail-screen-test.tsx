@@ -569,6 +569,142 @@ describe('CardDetailScreen', () => {
     });
   });
 
+  describe('scan-opened page with an older owned copy', () => {
+    // User, 2026-09-29: scanned ST30-001 and the page opened as an EDIT of an
+    // unrelated Heavily Played copy added weeks earlier.
+    const heavilyPlayedEntry: InventoryCardEntry = {
+      addedAt: '2026-09-11T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: 'heavily_played',
+      conditionLabel: 'Heavily Played',
+      conditionShortLabel: 'HP',
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'owned-hp',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko.png',
+      kind: 'raw',
+      marketPrice: 12,
+      name: 'Treecko',
+      quantity: 1,
+      setName: 'Sky Stream',
+      slabContext: null,
+      variantName: null,
+    };
+
+    // The preceding add test's post-add refresh can re-warm the shared detail
+    // cache after its teardown; start each case from a cold cache.
+    beforeEach(async () => {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      clearCardDetailCache();
+    });
+
+    function renderWithOwnedHp(element: React.ReactElement) {
+      const baseRepository = createTestSpotlightRepository();
+      const createInventoryEntry = jest.fn(async () => ({
+        deckEntryID: 'new-entry',
+        cardID: 'sm7-1',
+        addedAt: '2026-09-29T00:00:00.000Z',
+      }));
+      renderWithProviders(element, {
+        spotlightRepository: createTestSpotlightRepository({
+          createInventoryEntry,
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail
+              ? ({ ...detail, ownedEntries: [heavilyPlayedEntry] } satisfies CardDetailRecord)
+              : null;
+          },
+        }),
+      });
+      return { createInventoryEntry };
+    }
+
+    function saveTreeckoScan() {
+      return saveScanCandidateReviewSession({
+        id: 'scan-review-treecko-hp',
+        scanID: 'scan-treecko-hp',
+        selectedCardId: 'sm7-1',
+        candidates: [{
+          id: 'sm7-1-candidate',
+          cardId: 'sm7-1',
+          name: 'Treecko',
+          cardNumber: '#1/168',
+          setName: 'Celestial Storm',
+          imageUrl: 'https://images.pokemontcg.io/sm7/1.png',
+          marketPrice: 0.25,
+          currencyCode: 'USD',
+        }],
+      });
+    }
+
+    async function addFromSheet() {
+      await waitFor(() => {
+        fireEvent.press(screen.getByTestId('detail-add-item'));
+        expect(screen.getByTestId('detail-add-sheet-confirm')).toBeTruthy();
+      });
+      fireEvent.press(screen.getByTestId('detail-add-sheet-confirm'));
+    }
+
+    it('opens as a NEW copy on Near Mint, still listing the owned copy', async () => {
+      const { createInventoryEntry } = renderWithOwnedHp(
+        <CardDetailScreen cardId="sm7-1" fromScan onBack={jest.fn()} scanReviewId={saveTreeckoScan()} />,
+      );
+
+      // Owned copies stay visible, but the page is add mode — not an edit.
+      expect(await screen.findByTestId('detail-inventory', {}, { timeout: 5000 })).toBeTruthy();
+      expect(screen.getByTestId('detail-add-item')).toBeTruthy();
+      expect(screen.queryByTestId('detail-save-edit')).toBeNull();
+      expect(screen.queryByTestId('detail-owned-edit')).toBeNull();
+      // Expanded up front so it's clear you already own one.
+      expect(screen.getByLabelText('Collapse inventory')).toBeTruthy();
+
+      await addFromSheet();
+      await waitFor(() => {
+        expect(createInventoryEntry).toHaveBeenCalledWith(expect.objectContaining({
+          cardID: 'sm7-1',
+          condition: 'near_mint',
+          sourceScanID: 'scan-treecko-hp',
+        }));
+      });
+    });
+
+    it('opens on the condition picked in the scan tray', async () => {
+      const { createInventoryEntry } = renderWithOwnedHp(
+        <CardDetailScreen
+          cardId="sm7-1"
+          fromScan
+          initialCondition="lightly_played"
+          onBack={jest.fn()}
+          scanReviewId={saveTreeckoScan()}
+        />,
+      );
+
+      await screen.findByTestId('detail-inventory', {}, { timeout: 5000 });
+      expect(screen.queryByTestId('detail-save-edit')).toBeNull();
+      await addFromSheet();
+      await waitFor(() => {
+        expect(createInventoryEntry).toHaveBeenCalledWith(expect.objectContaining({
+          condition: 'lightly_played',
+        }));
+      });
+    });
+
+    it('opened from the Collection it still edits the owned HP copy', async () => {
+      renderWithOwnedHp(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />);
+
+      expect(await screen.findByTestId('detail-save-edit')).toBeTruthy();
+      expect(screen.queryByTestId('detail-add-item')).toBeNull();
+      expect(screen.getByLabelText('Expand inventory')).toBeTruthy();
+      const trigger = await screen.findByTestId('detail-owned-edit-grade-trigger');
+      await waitFor(() => expect(within(trigger).getByText('Heavily Played')).toBeTruthy());
+    });
+  });
+
   it('ADD ITEM builds a graded slabContext when a non-Raw grader is selected', async () => {
     const createInventoryEntry = jest.fn(async () => ({
       deckEntryID: 'new-graded-entry',
@@ -1744,6 +1880,38 @@ describe('CardDetailScreen', () => {
       fireEvent.press(screen.getByTestId('detail-watching-printing-Holofoil'));
       await waitFor(() => expect(heroUri()).not.toBe(versionImage));
       expect(heroUri()).toBeTruthy();
+    });
+
+    it('switches the header to an art-changing printing the card detail lists', async () => {
+      // ST30-001-shaped: the base (Holofoil) keeps the card image, the other
+      // printing is an alt art nobody scanned or owns.
+      const altArtImage = 'https://tcgplayer-cdn.tcgplayer.com/product/693257_in_1000x1000.jpg';
+      const baseRepository = printingRepository({ watchedVariants: ['Reverse Holofoil'] });
+      renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail
+              ? {
+                  ...detail,
+                  printingImages: [{
+                    label: 'Reverse Holofoil',
+                    imageUrl: altArtImage,
+                    smallImageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/693257_400w.jpg',
+                  }],
+                }
+              : null;
+          },
+        }),
+      });
+      const heroUri = () => screen.getByTestId('detail-hero-card-image').props.source?.uri;
+
+      await screen.findByTestId('detail-watching-other-printings');
+      expect(heroUri()).toBeTruthy();
+      expect(heroUri()).not.toBe(altArtImage);
+
+      fireEvent.press(screen.getByTestId('detail-watching-printing-Reverse Holofoil'));
+      await waitFor(() => expect(heroUri()).toBe(altArtImage));
     });
 
     it('opens on a routed printing', async () => {

@@ -119,4 +119,24 @@ describe('HttpSpotlightRepository printing image mapping', () => {
     expect(performance.rows[0].printingImageSmallUrl).toBe(SAA_SMALL_URL);
     expect(performance.rows[1].printingImageUrl).toBeUndefined();
   });
+
+  it('maps the card detail printingImages and drops malformed entries', async () => {
+    const altArt = {
+      label: 'Alt Art',
+      imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/693257_in_1000x1000.jpg',
+      smallImageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/693257_400w.jpg',
+    };
+    mockFetch({
+      '/market-history': { currentPrice: 1, points: [], availableVariants: [], availableConditions: [] },
+      '/api/v1/cards/onepiece~OP05-091': {
+        card,
+        printingImages: [altArt, { label: 'Bad', imageUrl: 'javascript:alert(1)' }, { imageUrl: altArt.imageUrl }, null],
+      },
+      '/api/v1/deck/entries': { entries: [] },
+    });
+
+    const detail = await new HttpSpotlightRepository('http://example.test').getCardDetail({ cardId: card.id });
+
+    expect(detail?.printingImages).toEqual([altArt]);
+  });
 });

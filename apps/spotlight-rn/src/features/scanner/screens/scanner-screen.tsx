@@ -497,13 +497,20 @@ function PocketBadge({ binderPage }: { binderPage: BinderPageRef }) {
   );
 }
 
-/** PDP `variant` param for a scanned card: the chosen printing, else its matched art version. */
+/**
+ * PDP `variant` (+ `condition`) params for a scanned card: the chosen printing,
+ * else its matched art version; the condition only when the user picked one.
+ */
 function scanPrintingRouteParam(
   selection: ScanPriceSheetSelection | null | undefined,
   candidate: CatalogSearchResult,
-): { variant?: string } {
+): { condition?: string; variant?: string } {
   const variant = selection?.variantLabel ?? matchedVersionLabel(candidate);
-  return variant ? { variant } : {};
+  const condition = selection?.conditionCode;
+  return {
+    ...(variant ? { variant } : {}),
+    ...(condition ? { condition } : {}),
+  };
 }
 
 type CaptureTrayRowProps = {
@@ -1805,34 +1812,6 @@ export function ScannerScreen({
     trayScrollOffset.value = collapsedAnchorOffset;
     trayListRef.current?.scrollToOffset({ animated: false, offset: collapsedAnchorOffset });
   }, [collapsedAnchorOffset, isTrayExpanded, trayCount, trayScrollOffset]);
-
-  const inventoryByCardId = useMemo(() => {
-    const lookup = new Map<string, { entryIds: string[]; quantity: number }>();
-
-    inventoryEntries.forEach((entry) => {
-      const current = lookup.get(entry.cardId);
-      if (current) {
-        current.quantity += entry.quantity;
-        current.entryIds.push(entry.id);
-        return;
-      }
-
-      lookup.set(entry.cardId, {
-        entryIds: [entry.id],
-        quantity: entry.quantity,
-      });
-    });
-
-    return lookup;
-  }, [inventoryEntries]);
-
-  // Ref mirror for tap handlers (handleOpenCard): closing over the Map made the
-  // callback's identity change on every inventory refresh, which re-rendered
-  // every memoized tray row. Handlers run on tap, well after the sync effect.
-  const inventoryByCardIdRef = useRef(inventoryByCardId);
-  useEffect(() => {
-    inventoryByCardIdRef.current = inventoryByCardId;
-  }, [inventoryByCardId]);
 
   // The header TOTAL is the sum of exactly what the rows show: each capture is
   // priced through the SAME `resolveCaptureTrayPrice` the row cell uses, honoring
@@ -4124,7 +4103,6 @@ export function ScannerScreen({
       return;
     }
 
-    const matchingInventoryEntries = inventoryByCardIdRef.current.get(candidate.cardId)?.entryIds ?? [];
     const scanReviewId = saveScanCandidateReviewSession({
       candidates: capture.candidates,
       id: capture.id,
@@ -4153,7 +4131,9 @@ export function ScannerScreen({
       pathname: '/cards/[cardId]',
       params: {
         cardId: candidate.cardId,
-        entryId: matchingInventoryEntries[0],
+        // No entryId: the page is the physical card just scanned — a NEW copy —
+        // never an edit of some older owned copy of the same card.
+        fromScan: '1',
         // Seed a preview (the tapped candidate IS a CatalogSearchResult) so the
         // PDP body renders instantly instead of a blank "Loading card…" while
         // getCardDetail resolves — matching search / portfolio / wishlist nav.
@@ -5406,6 +5386,7 @@ export function ScannerScreen({
                 pathname: '/cards/[cardId]',
                 params: {
                   cardId: candidate.cardId,
+                  fromScan: '1',
                   previewId: saveCardDetailPreviewFromCatalogResult(candidate),
                   // The sheet's selection belongs to the capture's active
                   // candidate; any other card opens on its matched version.

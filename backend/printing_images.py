@@ -69,44 +69,47 @@ def _table_exists(connection: sqlite3.Connection, table: str) -> bool:
     )
 
 
-def printing_images_for(
+def _art_products_by_card(
     connection: sqlite3.Connection,
-    pairs: Iterable[tuple[Any, Any]],
-) -> dict[PrintingImageKey, dict[str, str]]:
-    """``{(card_id, printing_label_key(variant)): {"printingImageUrl", "printingImageSmallUrl"}}``
-    for the ``(card_id, variant_name)`` pairs that sit on an art-changing
-    printing. Two indexed queries per 400 cards, whatever the row count.
+    card_ids: Iterable[Any],
+) -> dict[str, dict[str, tuple[str, str]]]:
+    """``{card_id: {printing_label_key(label): (label, product_id)}}`` for every
+    art-changing printing of ``card_ids``, in listing order. Two indexed
+    queries per 400 cards, whatever the row count.
 
     Skipped: TCGplayer-only cards (their card image already IS the product
     image) and product ids claimed by more than one card (the mis-maps the
     pricing collision guard suppresses — never show another card's art)."""
-    wanted: set[PrintingImageKey] = set()
-    for card_id, variant_name in pairs:
-        card = str(card_id or "").strip()
-        if not card or is_tcgplayer_only_card_id(card) or not is_art_version_label(variant_name):
-            continue
-        wanted.add((card, printing_label_key(variant_name)))
-    if not wanted or not _table_exists(connection, "card_tcgplayer_products"):
+    cards = sorted(
+        {
+            card
+            for card in (str(value or "").strip() for value in card_ids)
+            if card and not is_tcgplayer_only_card_id(card)
+        }
+    )
+    if not cards or not _table_exists(connection, "card_tcgplayer_products"):
         return {}
 
-    product_by_key: dict[PrintingImageKey, str] = {}
-    for chunk in _chunks(sorted({card for card, _ in wanted})):
+    products: dict[str, dict[str, tuple[str, str]]] = {}
+    for chunk in _chunks(cards):
         placeholders = ",".join("?" for _ in chunk)
         for card_id, product_id, label in connection.execute(
             "SELECT card_id, product_id, variant_label FROM card_tcgplayer_products "
             f"WHERE card_id IN ({placeholders}) ORDER BY card_id, ordinal",
             chunk,
         ):
-            key = (str(card_id), printing_label_key(label))
             pid = str(product_id or "").strip()
+            if not pid.isdigit() or not is_art_version_label(label):
+                continue
+            by_key = products.setdefault(str(card_id), {})
             # The first printing listed owns a label it shares (same as the TCGCSV sync).
-            if key in wanted and pid.isdigit() and key not in product_by_key:
-                product_by_key[key] = pid
-    if not product_by_key:
+            by_key.setdefault(printing_label_key(label), (str(label).strip(), pid))
+    if not products:
         return {}
 
     colliding: set[str] = set()
-    for chunk in _chunks(sorted(set(product_by_key.values()))):
+    all_pids = sorted({pid for by_key in products.values() for _, pid in by_key.values()})
+    for chunk in _chunks(all_pids):
         placeholders = ",".join("?" for _ in chunk)
         colliding.update(
             str(row[0])
@@ -117,14 +120,56 @@ def printing_images_for(
                 chunk,
             )
         )
-
     return {
-        key: {
-            "printingImageUrl": TCGPLAYER_PRODUCT_IMAGE_URL.format(pid=pid),
-            "printingImageSmallUrl": TCGPLAYER_PRODUCT_SMALL_IMAGE_URL.format(pid=pid),
-        }
-        for key, pid in product_by_key.items()
-        if pid not in colliding
+        card_id: kept
+        for card_id, by_key in products.items()
+        if (kept := {key: entry for key, entry in by_key.items() if entry[1] not in colliding})
+    }
+
+
+def printing_images_for(
+    connection: sqlite3.Connection,
+    pairs: Iterable[tuple[Any, Any]],
+) -> dict[PrintingImageKey, dict[str, str]]:
+    """``{(card_id, printing_label_key(variant)): {"printingImageUrl", "printingImageSmallUrl"}}``
+    for the ``(card_id, variant_name)`` pairs that sit on an art-changing
+    printing (see ``_art_products_by_card`` for what is skipped)."""
+    wanted: set[PrintingImageKey] = set()
+    for card_id, variant_name in pairs:
+        card = str(card_id or "").strip()
+        if card and is_art_version_label(variant_name):
+            wanted.add((card, printing_label_key(variant_name)))
+    if not wanted:
+        return {}
+    products = _art_products_by_card(connection, {card for card, _ in wanted})
+    images: dict[PrintingImageKey, dict[str, str]] = {}
+    for card_id, key in wanted:
+        found = products.get(card_id, {}).get(key)
+        if found:
+            images[(card_id, key)] = {
+                "printingImageUrl": TCGPLAYER_PRODUCT_IMAGE_URL.format(pid=found[1]),
+                "printingImageSmallUrl": TCGPLAYER_PRODUCT_SMALL_IMAGE_URL.format(pid=found[1]),
+            }
+    return images
+
+
+def printing_images_by_card(
+    connection: sqlite3.Connection,
+    card_ids: Iterable[Any],
+) -> dict[str, list[dict[str, str]]]:
+    """``{card_id: [{"label", "imageUrl", "smallImageUrl"}]}``: every art-changing
+    printing of each card, so a printing picker can show the selected
+    printing's art. Base/finish printings get no entry (they keep the card image)."""
+    return {
+        card_id: [
+            {
+                "label": label,
+                "imageUrl": TCGPLAYER_PRODUCT_IMAGE_URL.format(pid=pid),
+                "smallImageUrl": TCGPLAYER_PRODUCT_SMALL_IMAGE_URL.format(pid=pid),
+            }
+            for label, pid in by_key.values()
+        ]
+        for card_id, by_key in _art_products_by_card(connection, card_ids).items()
     }
 
 

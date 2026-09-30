@@ -23,9 +23,8 @@ import { analyzePSASlabCapture } from '@/features/scanner/slab-native-analysis';
 
 import type { BinderPageLayoutId } from '@/features/scanner/scanner-normalized-target';
 import {
-  isMatchedVersionShown,
+  candidatePrintingArtUrl,
   matchedVariantImageEnabled,
-  matchedVersionImageUrl,
 } from '@/features/cards/printing-image';
 import type { RecentCapture, ScannerMode } from './scanner-screen-types';
 
@@ -414,8 +413,8 @@ export function buildOptimisticInventoryEntry(
   // Same rule as the tray row: no graded price for a TCGplayer-only card.
   const isPriced = candidate.marketPrice != null && !(isSlab && isTcgplayerOnlyCard(candidate));
   // Mirrors the server's printingImageUrl until the refetch replaces this row.
-  const printingImageUrl = !isSlab && options.printingLabel && isMatchedVersionShown(candidate, options.printingLabel)
-    ? matchedVersionImageUrl(candidate)
+  const printingImageUrl = !isSlab && options.printingLabel
+    ? candidatePrintingArtUrl(candidate, options.printingLabel)
     : null;
 
   return {
@@ -632,9 +631,10 @@ export function scannerCaptureThumbUri(
   // card that snaps upright when normalization lands.
   const sourceUri = capture.sourceImageRotationDegrees ? null : capture.uri;
   return (
-    (isMatchedVersionShown(candidate, printingLabel)
-      ? matchedVersionImageUrl(candidate, showMatchedVariantImage)
-      : null)
+    candidatePrintingArtUrl(candidate, printingLabel, {
+      preferSmall: true,
+      enabled: showMatchedVariantImage,
+    })
     || candidate?.smallImageUrl
     || candidate?.imageUrl
     || capture.normalizedImageUri

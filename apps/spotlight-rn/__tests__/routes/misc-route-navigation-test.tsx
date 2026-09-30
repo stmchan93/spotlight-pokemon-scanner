@@ -203,12 +203,16 @@ jest.mock('@/features/cards/screens/card-detail-screen', () => ({
   CardDetailScreen: ({
     cardId,
     entryId,
+    fromScan,
+    initialCondition,
     onBack,
     previewId,
     scanReviewId,
   }: {
     cardId: string;
     entryId?: string;
+    fromScan?: boolean;
+    initialCondition?: string;
     onBack: () => void;
     previewId?: string;
     scanReviewId?: string;
@@ -220,6 +224,8 @@ jest.mock('@/features/cards/screens/card-detail-screen', () => ({
         <Text testID="card-detail-entry">{entryId ?? 'none'}</Text>
         <Text testID="card-detail-preview">{previewId ?? 'none'}</Text>
         <Text testID="card-detail-scan-review">{scanReviewId ?? 'none'}</Text>
+        <Text testID="card-detail-from-scan">{fromScan ? 'yes' : 'no'}</Text>
+        <Text testID="card-detail-condition">{initialCondition ?? 'none'}</Text>
         <Pressable onPress={onBack} testID="card-detail-back" />
       </>
     );
@@ -591,6 +597,8 @@ describe('misc route wrappers', () => {
       entryId: ['entry-7'],
       previewId: ['preview-1'],
       scanReviewId: ['review-1'],
+      fromScan: '1',
+      condition: 'lightly_played',
     });
     rerender(<CardDetailRoute />);
 
@@ -598,6 +606,8 @@ describe('misc route wrappers', () => {
     expect(screen.getByTestId('card-detail-entry').props.children).toBe('entry-7');
     expect(screen.getByTestId('card-detail-preview').props.children).toBe('preview-1');
     expect(screen.getByTestId('card-detail-scan-review').props.children).toBe('review-1');
+    expect(screen.getByTestId('card-detail-from-scan').props.children).toBe('yes');
+    expect(screen.getByTestId('card-detail-condition').props.children).toBe('lightly_played');
 
     fireEvent.press(screen.getByTestId('card-detail-back'));
 

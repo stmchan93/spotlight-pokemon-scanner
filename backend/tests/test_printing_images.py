@@ -17,9 +17,15 @@ from catalog_tools import apply_schema, connect, upsert_card, upsert_deck_entry 
 import printing_images  # noqa: E402
 from printing_images import is_art_version_label, printing_image_fields, printing_images_for  # noqa: E402
 from request_auth import RequestIdentity  # noqa: E402
-from server import SpotlightScanService  # noqa: E402
+from server import CandidateEncodingItem, PricingLoadPolicy, SpotlightScanService  # noqa: E402
 
 CARD_ID = "onepiece~OP05-091"
+ST30_ID = "onepiece~ST30-001"
+ST30_ALT_ART = {
+    "label": "Alt Art",
+    "imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/693257_in_1000x1000.jpg",
+    "smallImageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/693257_400w.jpg",
+}
 SAA_URL = "https://tcgplayer-cdn.tcgplayer.com/product/541670_in_1000x1000.jpg"
 SAA_SMALL_URL = "https://tcgplayer-cdn.tcgplayer.com/product/541670_400w.jpg"
 
@@ -106,6 +112,21 @@ class PrintingImagesLookupTests(unittest.TestCase):
         )
         self.assertEqual(set(images), {(CARD_ID, "specialaltart")})
 
+    def test_card_printing_images_list_only_art_changing_printings(self) -> None:
+        _seed_card(self.connection, ST30_ID, _variants(("Foil", "693256"), ("Alt Art", "693257")))
+        self.connection.commit()
+        by_card = printing_images.printing_images_by_card(self.connection, [ST30_ID, CARD_ID, "nope"])
+        self.assertEqual(by_card[ST30_ID], [ST30_ALT_ART])
+        # Listing order; a later duplicate label never wins; Foil gets no entry.
+        self.assertEqual(
+            [(entry["label"], entry["imageUrl"]) for entry in by_card[CARD_ID]],
+            [
+                ("Alt Art", "https://tcgplayer-cdn.tcgplayer.com/product/541669_in_1000x1000.jpg"),
+                ("Special Alt Art", SAA_URL),
+            ],
+        )
+        self.assertNotIn("nope", by_card)
+
     def test_non_art_rows_issue_no_queries(self) -> None:
         statements: list[str] = []
         self.connection.set_trace_callback(statements.append)
@@ -177,6 +198,38 @@ class PrintingImagePayloadTests(unittest.TestCase):
             ledger = self.service.portfolio_ledger(range_label="ALL")
         buys = [row for row in ledger["transactions"] if row["kind"] == "buy"]
         self.assertEqual([row["printingImageUrl"] for row in buys], [SAA_URL])
+
+    def test_card_detail_lists_the_art_changing_printings(self) -> None:
+        _seed_card(self.service.connection, ST30_ID, _variants(("Foil", "693256"), ("Alt Art", "693257")))
+        self.service.connection.commit()
+        detail = self.service.card_detail(ST30_ID)
+        self.assertEqual(detail["printingImages"], [ST30_ALT_ART])
+        # The card image stays the base art.
+        self.assertIn("images.scrydex.com", detail["imageLargeURL"])
+
+    def test_scan_candidates_carry_printing_images(self) -> None:
+        _seed_card(self.service.connection, ST30_ID, _variants(("Foil", "693256"), ("Alt Art", "693257")))
+        self.service.connection.commit()
+        statements: list[str] = []
+        self.service.connection.set_trace_callback(statements.append)
+        self.addCleanup(self.service.connection.set_trace_callback, None)
+        encoded, _, _ = self.service._encode_top_candidates(
+            [
+                CandidateEncodingItem(
+                    card={"id": card_id}, image_score=0.9, collector_number_score=0.0,
+                    name_score=0.0, final_score=0.9, reasons=("visual_similarity",),
+                )
+                for card_id in (ST30_ID, CARD_ID)
+            ],
+            pricing_context=self.service._raw_pricing_context(),
+            pricing_policy=PricingLoadPolicy.top_ten_cached_only(),
+            trigger_source="scan_match_raw",
+        )
+        self.assertEqual(encoded[0]["printingImages"], [ST30_ALT_ART])
+        self.assertEqual([entry["label"] for entry in encoded[1]["printingImages"]], ["Special Alt Art"])
+        # One batched lookup for the whole candidate list.
+        lookups = [sql for sql in statements if "SELECT card_id, product_id, variant_label" in sql]
+        self.assertEqual(len(lookups), 1)
 
     def test_lookup_is_batched(self) -> None:
         calls: list[int] = []

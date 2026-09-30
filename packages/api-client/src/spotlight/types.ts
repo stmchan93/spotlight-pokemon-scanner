@@ -1179,6 +1179,20 @@ export type CatalogSearchResult = {
    * the photo matched the card's base art.
    */
   matchedVariant?: ScanMatchedVariant | null;
+  /**
+   * Scanner only: the card's art-changing printings (alt arts…) with their
+   * art, so the tray's printing chip can switch the thumb. Absent when the card
+   * has none; base/finish printings keep the card image.
+   */
+  printingImages?: CardPrintingImage[];
+};
+
+/** One art-changing printing's art (a TCGplayer product image). */
+export type CardPrintingImage = {
+  /** Printing name as the raw pricing matrix spells it ("Alt Art"). */
+  label: string;
+  imageUrl: string;
+  smallImageUrl: string | null;
 };
 
 /** The printing a scan photo matched, from the scan response's `matchedVariant`. */
@@ -1443,6 +1457,11 @@ export type CardDetailRecord = {
   counterpartCardId?: string | null;
   /** Language of {@link counterpartCardId} ('english' | 'japanese'), or null. */
   counterpartLanguage?: ScannerCardLanguage | null;
+  /**
+   * Art per art-changing printing (alt arts…) so the PDP header follows the
+   * printing picker. Base/finish printings are absent (they keep the card image).
+   */
+  printingImages?: CardPrintingImage[];
   /**
    * Scrydex percent-change trends for the active pricing context's resolved
    * condition. Values are nullable when the upstream provider omits a bucket.

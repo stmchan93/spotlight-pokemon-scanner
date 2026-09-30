@@ -315,4 +315,39 @@ describe('HttpSpotlightRepository scan matchedVariant mapping', () => {
       expect('matchedVariant' in candidate).toBe(false);
     });
   });
+
+  it('parses printingImages and omits the key when absent or empty', async () => {
+    const altArt = {
+      label: 'Alt Art',
+      imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/693257_in_1000x1000.jpg',
+      smallImageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/693257_400w.jpg',
+    };
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/scan/visual-match')) {
+        return jsonResponse(200, {
+          scanID: 'scan-printing-images',
+          topCandidates: [
+            scanCandidate('st30', {
+              printingImages: [altArt, { label: 'Bad', imageUrl: 'ftp://x' }, null, { ...altArt, smallImageUrl: 7 }],
+            }),
+            scanCandidate('absent'),
+            scanCandidate('empty', { printingImages: [] }),
+          ],
+        });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const result = await repository.matchScannerCapture({
+      jpegBase64: 'bW9jay1zY2Fu',
+      height: 1620,
+      mode: 'raw',
+      width: 1080,
+    });
+
+    expect(result.candidates[0].printingImages).toEqual([altArt, { ...altArt, smallImageUrl: null }]);
+    expect('printingImages' in result.candidates[1]).toBe(false);
+    expect('printingImages' in result.candidates[2]).toBe(false);
+  });
 });
