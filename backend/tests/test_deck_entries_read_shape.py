@@ -61,7 +61,7 @@ class DeckEntriesReadShapeTests(_Base):
         history = [
             " ".join(sql.split())
             for sql in statements
-            if any(re.search(rf"\bFROM {table}\b", sql) for table in HISTORY_TABLES)
+            if any(re.search(rf"\b(?:FROM|JOIN) {table}\b", sql) for table in HISTORY_TABLES)
         ]
         return payload, history
 
@@ -82,6 +82,8 @@ class DeckEntriesReadShapeTests(_Base):
             dates = re.search(r"price_date IN \(([^)]*)\)", sql)
             if "FROM card_price_history_cell" in sql and dates and "," in dates.group(1):
                 self.assertRegex(sql, r"AND lane = '(raw|graded)'", sql)
+            if "JOIN card_price_history_cell" in sql:
+                self.assertRegex(sql, r"AND c\.lane = '(raw|graded)'", sql)
 
     def test_summary_only_skips_history_series(self) -> None:
         self._seed_collection(8)
@@ -117,11 +119,13 @@ class DeckEntriesReadShapeTests(_Base):
 
         original_batched = server.price_history_rows_for_cards_batched
 
-        def unscoped(*args, **kwargs):
+        def unscoped(connection, requests, **kwargs):
             kwargs["floor_slack_days"] = None
             kwargs["lane_scoped_cells"] = False
             kwargs["market_only_cells"] = False
-            return original_batched(*args, **kwargs)
+            # Unbounded reads; the caller's own since filter does the rest.
+            requests = [{k: v for k, v in req.items() if k != "min_date"} for req in requests]
+            return original_batched(connection, requests, **kwargs)
 
         def per_row_day_changes(jobs):
             yesterday_rows = self.service._yesterday_price_history_rows_by_card_id(
@@ -141,6 +145,61 @@ class DeckEntriesReadShapeTests(_Base):
         self.assertEqual(payload, reference)
         self.assertTrue(any(entry["dayChangeAmount"] is not None for entry in payload["entries"]))
         self.assertTrue(any(entry["sinceAddedPoints"] for entry in payload["entries"]))
+
+
+class BatchedHistoryMinDateTests(_Base):
+    """``min_date`` bounds a request's reads to its own since-baseline instead
+    of the oldest one in the batch; the kept rows must be exactly the unbounded
+    result filtered to ``date >= min_date``."""
+
+    def _requests(self) -> list[dict]:
+        requests = []
+        for index in range(8):
+            card_id = f"card-{index}"
+            self._seed_card(card_id, base=10.0 + index)
+            graded = index % 3 == 1
+            requests.append(
+                {
+                    "key": f"row-{index}",
+                    "card_id": card_id,
+                    "pricing_mode": server.PSA_GRADE_PRICING_MODE if graded else server.RAW_PRICING_MODE,
+                    "variant": "Reverse Holofoil" if index % 3 == 2 else None,
+                    "condition": None if graded else "NM",
+                    "grader": "PSA" if graded else None,
+                    "grade": "10" if graded else None,
+                    "min_date": _day(3 + index * 5),
+                }
+            )
+        # Two requests on one card with different bounds, and an unbounded one.
+        requests.append({**requests[0], "key": "row-0b", "min_date": _day(1)})
+        requests.append({**requests[2], "key": "row-2-unbounded", "min_date": None})
+        return requests
+
+    def test_min_date_matches_filtered_unbounded_read(self) -> None:
+        requests = self._requests()
+        for options in (
+            {},
+            {"floor_slack_days": 0, "lane_scoped_cells": True},
+            {"floor_slack_days": 0, "lane_scoped_cells": True, "market_only_cells": True},
+        ):
+            with self.subTest(**options):
+                bounded = server.price_history_rows_for_cards_batched(
+                    self.connection, requests, provider="scrydex", days=60, **options
+                )
+                unbounded = server.price_history_rows_for_cards_batched(
+                    self.connection,
+                    [{**req, "min_date": None} for req in requests],
+                    provider="scrydex",
+                    days=60,
+                    **options,
+                )
+                for req in requests:
+                    floor = req["min_date"] or ""
+                    expected = [
+                        row for row in unbounded[req["key"]] if str(row["date"])[:10] >= floor
+                    ]
+                    self.assertEqual(bounded[req["key"]], expected, req["key"])
+                    self.assertTrue(expected, req["key"])
 
 
 if __name__ == "__main__":

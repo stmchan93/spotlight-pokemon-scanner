@@ -286,6 +286,31 @@ describe('PublicProfileScreen', () => {
       expect(screen.getByTestId('public-profile-collection-grid-tile-entry-1')).toBeTruthy();
     });
 
+    // Watched cards are mostly ones the collector does NOT own (quantity 0), so
+    // a count on those tiles would read "0". Collection tiles keep theirs.
+    it('shows no quantity count on watchlist tiles', async () => {
+      renderPublicProfile(
+        {},
+        {
+          getProfileWishlistEntries: async () => [
+            buildEntry({ id: 'want-1', name: 'Umbreon VMAX', quantity: 0 }),
+            buildEntry({ id: 'want-2', name: 'Moonbreon', quantity: 0 }),
+          ],
+        },
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-tabs')).toBeTruthy();
+      });
+      fireEvent.press(screen.getByTestId('public-profile-tabs-tab-wishlist'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-wishlist-grid-tile-want-1')).toBeTruthy();
+      });
+      expect(screen.queryByTestId('public-profile-wishlist-grid-tile-want-1-quantity')).toBeNull();
+      expect(screen.getByTestId('public-profile-collection-grid-tile-entry-1-quantity')).toBeTruthy();
+    });
+
     /*
       THE GRID HAS TO CLOSE — reported from a three-card wishlist.
 

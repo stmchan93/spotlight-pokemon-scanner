@@ -34,6 +34,7 @@ from catalog_tools import (  # noqa: E402
     upsert_price_history_daily,
     upsert_price_snapshot,
 )
+import server  # noqa: E402
 import watch_printings  # noqa: E402
 from request_auth import RequestIdentity  # noqa: E402
 from server import SpotlightScanService  # noqa: E402
@@ -158,7 +159,7 @@ class CardFavoritesReadShapeTests(_Base):
         history = [
             " ".join(sql.split())
             for sql in statements
-            if any(re.search(rf"\bFROM {table}\b", sql) for table in HISTORY_TABLES)
+            if any(re.search(rf"\b(?:FROM|JOIN) {table}\b", sql) for table in HISTORY_TABLES)
         ]
         return payload, history
 
@@ -197,17 +198,33 @@ class CardFavoritesReadShapeTests(_Base):
         self._seed_card("card-old", base=10.0)
         self._favorite("card-old", age_days=35)
         _, history = self._history_statements()
-        cell_reads = [sql for sql in history if "FROM card_price_history_cell" in sql]
-        lane_reads = [sql for sql in cell_reads if "AND lane = 'raw'" in sql]
+        cell_reads = [sql for sql in history if "card_price_history_cell" in sql]
+        lane_reads = [sql for sql in cell_reads if "lane = 'raw'" in sql]
         # One each for the 30-day sparkline and the since-watched series, both
         # limited to the days the main lane did not price.
         self.assertEqual(len(lane_reads), 2, "\n".join(cell_reads))
         for sql in lane_reads:
             # Market-only projection: served from idx_cell_trend_market alone.
-            self.assertNotIn(" low,", sql.split(" FROM ")[0])
+            self.assertNotIn("low,", sql.split(" FROM ")[0])
             self.assertNotIn(_day(0), sql)
         # Graded cells are never read for a raw-only watchlist's history.
-        self.assertFalse([sql for sql in cell_reads if "AND lane = 'graded'" in sql])
+        self.assertFalse([sql for sql in cell_reads if "lane = 'graded'" in sql])
+
+    def test_per_row_since_bounds_keep_the_payload_identical(self) -> None:
+        # Each since-watched read starts at its own row's baseline (min_date);
+        # reading every row from the OLDEST baseline must give the same payload.
+        self._seed_watchlist(10)
+        payload, _ = self._history_statements()
+        original = server.price_history_rows_for_cards_batched
+
+        def unbounded(connection, requests, **kwargs):
+            requests = [{k: v for k, v in req.items() if k != "min_date"} for req in requests]
+            return original(connection, requests, **kwargs)
+
+        with mock.patch.object(server, "price_history_rows_for_cards_batched", side_effect=unbounded):
+            reference, _ = self._history_statements()
+        self.assertEqual(payload, reference)
+        self.assertTrue(any(entry["sinceWatchedPoints"] for entry in payload["entries"]))
 
     def test_request_logs_timing_with_cache_source(self) -> None:
         self._seed_watchlist(2)
@@ -218,6 +235,7 @@ class CardFavoritesReadShapeTests(_Base):
                 self.service.card_favorites()
         timings = [e for e in events if e.get("event") == "card_favorites_request"]
         self.assertEqual([e["source"] for e in timings], ["computed", "memory"])
+        self.assertEqual([e["outcome"] for e in timings], ["miss", "hit"])
         self.assertTrue(all(isinstance(e["elapsedMs"], float) for e in timings))
         self.assertEqual(timings[0]["entryCount"], 3)
         self.assertIn("slow", timings[0])

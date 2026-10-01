@@ -2108,6 +2108,8 @@ PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS_ENV = "PORTFOLIO_DASHBOARD_PREWARM_MAX_OW
 # price sync paid a full cold compute anyway (~20s, user 2026-09-11), with the
 # prewarm's own "warmed 5 of 5" line reporting success the whole time.
 CLIENT_INVENTORY_PAGE_SIZE = 1000
+# card_favorites_request `source` -> deck_entries_request-style `outcome`.
+_CARD_FAVORITES_SOURCE_OUTCOMES = {"memory": "hit", "disk": "restored", "computed": "miss"}
 PORTFOLIO_DASHBOARD_PREWARM_DELAY_ENV = "PORTFOLIO_DASHBOARD_PREWARM_DELAY_SECONDS"
 DEFAULT_PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS = 50
 DEFAULT_PORTFOLIO_DASHBOARD_PREWARM_DELAY_SECONDS = 3.0
@@ -8744,6 +8746,13 @@ class SpotlightScanService:
                 if cid and cid not in result:
                     result[cid] = row
         return result
+
+    def _oldest_yesterday_price_date(self, card_ids: list[str]) -> str | None:
+        """Oldest ``price_date`` among the cards' day-change ("yesterday") rows:
+        the earliest day a day-change read can look up. None = no such row."""
+        rows = self._yesterday_price_history_rows_by_card_id(card_ids)
+        dates = [str(row["price_date"])[:10] for row in rows.values() if row is not None]
+        return min(dates) if dates else None
 
     def _yesterday_price_history_rows_by_card_id(
         self,
@@ -22075,6 +22084,7 @@ class SpotlightScanService:
         compute_day_change: bool = True,
         collection_id: str | None = None,
         include_series: bool = True,
+        log_surface: str | None = None,
     ) -> dict[str, Any]:
         """Cache-and-dogpile wrapper over the heavy inventory computation, the
         same pattern as ``portfolio_dashboard``. The payload is a pure function
@@ -22091,7 +22101,9 @@ class SpotlightScanService:
 
         ``include_series=False`` is for callers that read only the summary or
         plain row fields: it skips the two per-row history series (sparkline and
-        since-added), which are most of a cold compute, and leaves them null."""
+        since-added), which are most of a cold compute, and leaves them null.
+
+        ``log_surface`` tags the timing log line with the calling surface."""
         owner_user_id = str(owner_user_id or "").strip()
         if not owner_user_id:
             raise ValueError("owner_user_id is required")
@@ -22118,7 +22130,12 @@ class SpotlightScanService:
         if version is not None:
             cached = self._deck_entries_cache.get(cache_key)
             if cached is not None and cached[0] == version:
-                self._log_deck_entries_timing(started_at, outcome="hit")
+                self._log_deck_entries_timing(
+                    started_at,
+                    outcome="hit",
+                    surface=log_surface,
+                    include_series=include_series,
+                )
                 return cached[1]
 
         lock = self._deck_entries_cache_lock_for(cache_key)
@@ -22126,12 +22143,22 @@ class SpotlightScanService:
             if version is not None:
                 cached = self._deck_entries_cache.get(cache_key)
                 if cached is not None and cached[0] == version:
-                    self._log_deck_entries_timing(started_at, outcome="hit_after_wait")
+                    self._log_deck_entries_timing(
+                        started_at,
+                        outcome="hit_after_wait",
+                        surface=log_surface,
+                        include_series=include_series,
+                    )
                     return cached[1]
             restored = self._hydrate_from_disk("deck_entries", cache_key, version)
             if restored is not None:
                 self._store_deck_entries_cache(cache_key, version, restored)
-                self._log_deck_entries_timing(started_at, outcome="restored")
+                self._log_deck_entries_timing(
+                    started_at,
+                    outcome="restored",
+                    surface=log_surface,
+                    include_series=include_series,
+                )
                 return restored
             payload = self._compute_deck_entries_for_owner(
                 owner_user_id,
@@ -22145,7 +22172,12 @@ class SpotlightScanService:
             )
             if version is not None:
                 self._store_deck_entries_cache(cache_key, version, payload)
-            self._log_deck_entries_timing(started_at, outcome="miss")
+            self._log_deck_entries_timing(
+                started_at,
+                outcome="miss",
+                surface=log_surface,
+                include_series=include_series,
+            )
             return payload
 
     # ------------------------------------------------------------------
@@ -22437,6 +22469,124 @@ class SpotlightScanService:
             payload = self.deck_history(range_label="1W", time_zone_name=time_zone_name)
         return float((payload.get("summary") or {}).get("currentValue") or 0.0)
 
+    def public_deck_entries_for_owner(
+        self, owner_user_id: str, *, limit: int = 200, offset: int = 0
+    ) -> dict[str, Any]:
+        """Another collector's Collection grid for their public profile.
+
+        The visitor grid draws no row series and no day change (tiles show the
+        serve-time since-added change), so it skips both — the history reads
+        made this a 17-40s cold compute. Pages inside the first
+        ``CLIENT_INVENTORY_PAGE_SIZE`` rows are sliced from the SAME cached
+        payload ``portfolio_summary_for_owner`` reads, so the grid and the
+        summary the profile fires alongside it share one compute."""
+        safe_limit = max(0, min(int(limit), 1000))
+        safe_offset = max(0, int(offset))
+        lite = {
+            "include_inactive": False,
+            "favorites_only": False,
+            "compute_day_change": False,
+            "include_series": False,
+            "log_surface": "public_profile_collection",
+        }
+        if safe_offset + safe_limit <= CLIENT_INVENTORY_PAGE_SIZE:
+            shared = self.deck_entries_for_owner(
+                owner_user_id, limit=CLIENT_INVENTORY_PAGE_SIZE, offset=0, **lite
+            )
+            entries = (shared.get("entries") or [])[safe_offset : safe_offset + safe_limit]
+        else:
+            page = self.deck_entries_for_owner(
+                owner_user_id, limit=safe_limit, offset=safe_offset, **lite
+            )
+            entries = page.get("entries") or []
+        return {"entries": entries, "limit": safe_limit, "offset": safe_offset}
+
+    def public_watchlist_entries_for_owner(
+        self, owner_user_id: str, *, limit: int = 200, offset: int = 0
+    ) -> dict[str, Any]:
+        """Another collector's WATCHLIST for their public profile: the same
+        card_favorites rows the owner sees on their own Watchlist (most are
+        cards they do NOT own), shaped as deck entries so the profile grid and
+        ``getProfileWishlistEntries`` read it unchanged.
+
+        Rides the owner's favorites compute without the history series (the
+        grid draws none), cached on the same version token. Owner-only fields
+        are dropped: target price, the since-watched line and sparkline, and
+        the since-watched change on cards they don't own."""
+        owner_user_id = str(owner_user_id or "").strip()
+        if not owner_user_id:
+            raise ValueError("owner_user_id is required")
+        started_at = perf_counter()
+        source = "error"
+        payload: dict[str, Any] | None = None
+        try:
+            favorites, source = self._card_favorites_cached(
+                owner_user_id, limit=limit, offset=offset, include_series=False
+            )
+            payload = {
+                "entries": [
+                    self._public_watch_entry_payload(entry)
+                    for entry in favorites.get("entries") or []
+                ],
+                "limit": favorites.get("limit"),
+                "offset": favorites.get("offset"),
+            }
+            return payload
+        finally:
+            self._log_card_favorites_timing(
+                started_at,
+                source=source,
+                payload=payload,
+                event="public_profile_watchlist_request",
+            )
+
+    @staticmethod
+    def _public_watch_entry_payload(entry: dict[str, Any]) -> dict[str, Any]:
+        slab_context = entry.get("slabContext")
+        is_owned = bool(entry.get("isOwned"))
+        # Since-watched on an unowned card is the owner's private watch baseline.
+        since_fields = (
+            {
+                "sinceAddedChangeAmount": entry.get("sinceAddedChangeAmount"),
+                "sinceAddedChangePercent": entry.get("sinceAddedChangePercent"),
+                "sinceAddedBaselineDate": entry.get("sinceAddedBaselineDate"),
+                "sinceAddedBaselinePrice": entry.get("sinceAddedBaselinePrice"),
+            }
+            if is_owned
+            else {
+                "sinceAddedChangeAmount": None,
+                "sinceAddedChangePercent": None,
+                "sinceAddedBaselineDate": None,
+                "sinceAddedBaselinePrice": None,
+            }
+        )
+        return {
+            # Not a deck row id: a watch is keyed by (card, printing).
+            "id": f"watch:{entry.get('watchKey')}",
+            "itemKind": "slab" if slab_context else "raw",
+            "card": entry.get("card"),
+            "collectionId": None,
+            "collectionName": None,
+            "variantName": entry.get("variantName"),
+            "printingImageUrl": entry.get("printingImageUrl"),
+            "printingImageSmallUrl": entry.get("printingImageSmallUrl"),
+            "slabContext": slab_context,
+            "condition": entry.get("condition"),
+            # A watch holds no copies; the profile grid hides the count here.
+            "quantity": 0,
+            "addedAt": entry.get("favoritedAt"),
+            "isFavorite": True,
+            "favoritedAt": entry.get("favoritedAt"),
+            "isOwned": is_owned,
+            "watchVariant": entry.get("watchVariant"),
+            "dayChangeAmount": entry.get("dayChangeAmount"),
+            "dayChangePercent": entry.get("dayChangePercent"),
+            **since_fields,
+            "sparkPoints": None,
+            "sparkTrendPct": None,
+            "sinceAddedPoints": None,
+        }
+
     def portfolio_summary_for_owner(self, owner_user_id: str) -> dict[str, Any]:
         """Cheap public headline for a portfolio: total value + card count only.
 
@@ -22452,14 +22602,16 @@ class SpotlightScanService:
         owner_user_id = str(owner_user_id or "").strip()
         if not owner_user_id:
             raise ValueError("owner_user_id is required")
+        # Same key as public_deck_entries_for_owner's first pages: one compute.
         payload = self.deck_entries_for_owner(
             owner_user_id,
-            limit=1000,
+            limit=CLIENT_INVENTORY_PAGE_SIZE,
             offset=0,
             include_inactive=False,
             favorites_only=False,
             compute_day_change=False,
             include_series=False,
+            log_surface="public_profile_summary",
         )
         summary = payload.get("summary") or {}
         entries = payload.get("entries") or []
@@ -22523,17 +22675,26 @@ class SpotlightScanService:
                 self._deck_entries_cache.pop(next(iter(self._deck_entries_cache)), None)
             self._deck_entries_cache[cache_key] = (version, payload)
 
-    def _log_deck_entries_timing(self, started_at: float, *, outcome: str) -> None:
+    def _log_deck_entries_timing(
+        self,
+        started_at: float,
+        *,
+        outcome: str,
+        surface: str | None = None,
+        include_series: bool = True,
+    ) -> None:
         elapsed_ms = round((perf_counter() - started_at) * 1000.0, 1)
-        self._emit_structured_log(
-            {
-                "severity": "INFO",
-                "event": "deck_entries_request",
-                "outcome": outcome,
-                "elapsedMs": elapsed_ms,
-                "slow": elapsed_ms >= 5000.0,
-            }
-        )
+        record: dict[str, Any] = {
+            "severity": "INFO",
+            "event": "deck_entries_request",
+            "outcome": outcome,
+            "elapsedMs": elapsed_ms,
+            "slow": elapsed_ms >= 5000.0,
+            "includeSeries": bool(include_series),
+        }
+        if surface:
+            record["surface"] = surface
+        self._emit_structured_log(record)
 
     def _compute_deck_entries(
         self,
@@ -22674,15 +22835,25 @@ class SpotlightScanService:
             if not (str(row["grader"] or "").strip() or str(row["grade"] or "").strip())
         ]
         printing_cells = self._printing_cells_for_copies(raw_printing_pairs, price_snapshot_rows)
+        # The points feed the series (a year back) and day change (one day:
+        # yesterday's row). Without series, read only from the oldest
+        # yesterday-row date; without either, not at all.
+        printing_points_since: str | None = None
+        if printing_cells and include_series:
+            printing_points_since = (
+                datetime.now(timezone.utc).date() - timedelta(days=SINCE_WATCHED_MAX_DAYS)
+            ).isoformat()
+        elif printing_cells and compute_day_change:
+            printing_points_since = self._oldest_yesterday_price_date(
+                [card_id for card_id, variant in raw_printing_pairs if variant]
+            )
         printing_points = (
             self._printing_points_for_copies(
                 raw_printing_pairs,
-                since=(
-                    datetime.now(timezone.utc).date() - timedelta(days=SINCE_WATCHED_MAX_DAYS)
-                ).isoformat(),
+                since=printing_points_since,
                 snapshot_rows=price_snapshot_rows,
             )
-            if printing_cells
+            if printing_points_since
             else {}
         )
         favorite_rows_by_card_id = self._favorite_rows_by_card_id(
@@ -22988,7 +23159,12 @@ class SpotlightScanService:
         2026-09-14) can't draw a fake jump. Rows without a baseline date or with
         fewer than two points are omitted. Best-effort, like the 30d sparkline.
         ``lane_scoped``/``reduced_reads`` as in ``_sparklines_for_requests``."""
-        dated = [req for req in spark_requests if req.get("since")]
+        # min_date: each row reads from its own baseline, not the oldest one's.
+        dated = [
+            {**req, "min_date": str(req["since"])[:10]}
+            for req in spark_requests
+            if req.get("since")
+        ]
         if not dated:
             return {}
         today = datetime.now(timezone.utc).date()
@@ -23636,23 +23812,32 @@ class SpotlightScanService:
         source = "error"
         payload: dict[str, Any] | None = None
         try:
-            payload, source = self._card_favorites_cached(limit=limit, offset=offset)
+            payload, source = self._card_favorites_cached(
+                self._current_owner_user_id(), limit=limit, offset=offset
+            )
             return payload
         finally:
             self._log_card_favorites_timing(started_at, source=source, payload=payload)
 
     def _log_card_favorites_timing(
-        self, started_at: float, *, source: str, payload: dict[str, Any] | None
+        self,
+        started_at: float,
+        *,
+        source: str,
+        payload: dict[str, Any] | None,
+        event: str = "card_favorites_request",
     ) -> None:
         """A cold watchlist compute ran ~40s after a restart (2026-09-24) and was
         visible only as 'Client disconnected'. ``source`` says whether the
-        payload came from memory, the disk cache, or a fresh compute."""
+        payload came from memory, the disk cache, or a fresh compute;
+        ``outcome`` is the same in deck_entries_request's vocabulary."""
         elapsed_ms = round((perf_counter() - started_at) * 1000.0, 1)
         entries = payload.get("entries") if isinstance(payload, dict) else None
         self._emit_structured_log(
             {
                 "severity": "INFO",
-                "event": "card_favorites_request",
+                "event": event,
+                "outcome": _CARD_FAVORITES_SOURCE_OUTCOMES.get(source, source),
                 "source": source,
                 "entryCount": len(entries) if isinstance(entries, list) else None,
                 "elapsedMs": elapsed_ms,
@@ -23661,16 +23846,24 @@ class SpotlightScanService:
         )
 
     def _card_favorites_cached(
-        self, *, limit: int, offset: int
+        self,
+        owner_user_id: str,
+        *,
+        limit: int,
+        offset: int,
+        include_series: bool = True,
     ) -> tuple[dict[str, Any], str]:
-        owner_user_id = self._current_owner_user_id()
         try:
             version = self._deck_entries_version_token(owner_user_id)
         except Exception:  # noqa: BLE001 - cache bookkeeping must never break the wishlist
             traceback.print_exc()
             version = None
 
-        cache_key = (owner_user_id, "card_favorites", int(limit), int(offset))
+        # The series flag joins the key only when off, so the owner's existing
+        # key (and its disk-mirrored copy) is unchanged.
+        cache_key: tuple[Any, ...] = (owner_user_id, "card_favorites", int(limit), int(offset))
+        if not include_series:
+            cache_key = (*cache_key, "no_series")
         if version is not None:
             cached = self._deck_entries_cache.get(cache_key)
             if cached is not None and cached[0] == version:
@@ -23686,13 +23879,34 @@ class SpotlightScanService:
             if restored is not None:
                 self._store_deck_entries_cache(cache_key, version, restored)
                 return restored, "disk"
-            payload = self._compute_card_favorites(limit=limit, offset=offset)
+            payload = self._compute_card_favorites_for_owner(
+                owner_user_id, limit=limit, offset=offset, include_series=include_series
+            )
             if version is not None:
                 self._store_deck_entries_cache(cache_key, version, payload)
             return payload, "computed"
 
     def _compute_card_favorites(self, *, limit: int = 200, offset: int = 0) -> dict[str, Any]:
-        owner_user_id = self._current_owner_user_id()
+        """Ambient-identity wrapper; ``_compute_card_favorites_for_owner`` is the
+        real implementation."""
+        return self._compute_card_favorites_for_owner(
+            self._current_owner_user_id(), limit=limit, offset=offset
+        )
+
+    def _compute_card_favorites_for_owner(
+        self,
+        owner_user_id: str,
+        *,
+        limit: int = 200,
+        offset: int = 0,
+        include_series: bool = True,
+    ) -> dict[str, Any]:
+        """``include_series=False`` skips the two batched history reads (30d
+        sparkline + since-watched line) and leaves those fields null. Printing
+        watches keep their series: those come from cells read regardless."""
+        owner_user_id = str(owner_user_id or "").strip()
+        if not owner_user_id:
+            raise ValueError("owner_user_id is required")
         safe_limit = max(0, min(int(limit), 1000))
         safe_offset = max(0, int(offset))
         rows = self.connection.execute(
@@ -23734,15 +23948,25 @@ class SpotlightScanService:
         owned_printing_cells = self._printing_cells_for_copies(
             owned_printing_pairs, price_snapshot_rows
         )
+        # Series read a year back; day change alone only from yesterday's row.
+        owned_points_since: str | None = None
+        if owned_printing_cells:
+            owned_points_since = (
+                (
+                    datetime.now(timezone.utc).date() - timedelta(days=SINCE_WATCHED_MAX_DAYS)
+                ).isoformat()
+                if include_series
+                else self._oldest_yesterday_price_date(
+                    [card_id for card_id, _ in owned_printing_pairs]
+                )
+            )
         owned_printing_points = (
             self._printing_points_for_copies(
                 owned_printing_pairs,
-                since=(
-                    datetime.now(timezone.utc).date() - timedelta(days=SINCE_WATCHED_MAX_DAYS)
-                ).isoformat(),
+                since=owned_points_since,
                 snapshot_rows=price_snapshot_rows,
             )
-            if owned_printing_cells
+            if owned_points_since
             else {}
         )
         # Printing watches' own TCGplayer market, batched (was one query per row).
@@ -23980,9 +24204,15 @@ class SpotlightScanService:
 
         # Rows past the spark budget (or with no resolvable history) keep null
         # spark fields — the sinceAdded fields above are never truncated.
-        spark_by_key = self._sparklines_for_requests(spark_requests, reduced_reads=True)
-        since_watched_by_key = self._since_baseline_series_for_requests(
-            spark_requests, reduced_reads=True
+        spark_by_key = (
+            self._sparklines_for_requests(spark_requests, reduced_reads=True)
+            if include_series
+            else {}
+        )
+        since_watched_by_key = (
+            self._since_baseline_series_for_requests(spark_requests, reduced_reads=True)
+            if include_series
+            else {}
         )
         for entry in entries:
             key = str(entry.get("watchKey") or "")
@@ -25773,12 +26003,10 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 return
             try:
                 with self.service.request_identity_context(identity):
-                    payload = self.service.deck_entries_for_owner(
+                    payload = self.service.public_deck_entries_for_owner(
                         target_user_id,
                         limit=limit,
                         offset=offset,
-                        include_inactive=False,
-                        favorites_only=False,
                     )
             except Exception as error:  # noqa: BLE001
                 traceback.print_exc()
@@ -25792,12 +26020,11 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, payload)
             return
 
-        # This collector's WISHLIST, for the public profile's Wishlist tab. Same
-        # read as the public collection above with `favorites_only=True` — the
-        # wishlist IS the owner's favorited subset of their deck rows, which is
-        # exactly what the owner's own `/api/v1/deck/entries?favorites=1` asks
-        # for. Public by the same rule the Collection tab already follows: any
-        # signed-in visitor past the access gate may read it.
+        # This collector's WATCHLIST, for the public profile's Wishlist tab: the
+        # owner's card_favorites rows (mostly cards they don't own), the same
+        # list their own Watchlist screen shows, shaped as deck entries. Public
+        # by the same rule the Collection tab already follows: any signed-in
+        # visitor past the access gate may read it.
         if parsed.path.startswith(PUBLIC_PROFILE_PATH_PREFIX) and parsed.path.endswith(
             PUBLIC_PROFILE_WISHLIST_ENTRIES_SUFFIX
         ):
@@ -25821,18 +26048,16 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "offset must be an integer"})
                 return
-            # Same heavy-read semaphore as the collection read: this is the same
-            # expensive per-owner inventory computation, just filtered.
+            # Same heavy-read semaphore as the collection read: a cold miss runs
+            # the owner's per-card pricing.
             if not self._acquire_heavy_read_slot():
                 return
             try:
                 with self.service.request_identity_context(identity):
-                    payload = self.service.deck_entries_for_owner(
+                    payload = self.service.public_watchlist_entries_for_owner(
                         target_user_id,
                         limit=limit,
                         offset=offset,
-                        include_inactive=False,
-                        favorites_only=True,
                     )
             except Exception as error:  # noqa: BLE001
                 traceback.print_exc()

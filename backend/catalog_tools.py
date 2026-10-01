@@ -6708,6 +6708,57 @@ def price_history_cell_lane_rows_by_card_date(
     return result
 
 
+def price_history_cell_lane_rows_by_pairs(
+    connection: sqlite3.Connection,
+    *,
+    provider: str,
+    pairs: Iterable[tuple[str, str]],
+    lane: str,
+    market_only: bool = False,
+) -> dict[str, dict[str, list[Any]]]:
+    """``price_history_cell_lane_rows_by_card_date`` for exact ``(card_id,
+    price_date)`` pairs instead of the cross product of two IN lists, in ONE
+    query. When cards need different dates (each row's own since-baseline), the
+    cross product read every card on every other card's dates; on the
+    non-market-only projection each of those is a table-page read.
+
+    The pairs drive the join (``CROSS JOIN`` pins ``json_each`` as the outer
+    loop), so each pair is one equality seek on ``idx_cell_trend_market``; same
+    rows and the same per-(card, date) rowid order as the IN-list reader."""
+    if not _table_exists(connection, "card_price_history_cell"):
+        return {}
+    wanted = sorted(
+        {
+            (str(card_id), str(price_date))
+            for card_id, price_date in pairs
+            if str(card_id or "").strip() and str(price_date or "").strip()
+        }
+    )
+    result: dict[str, dict[str, list[Any]]] = {}
+    if not wanted:
+        return result
+    base_columns = f"card_id, {_TREND_CELL_COLUMNS}" if market_only else _PORTFOLIO_CELL_COLUMNS
+    columns = ", ".join(f"c.{column.strip()}" for column in base_columns.split(","))
+    rows = connection.execute(
+        f"""
+        SELECT {columns}
+        FROM json_each(?) AS w
+        CROSS JOIN card_price_history_cell AS c
+        WHERE c.card_id = json_extract(w.value, '$[0]')
+          AND c.provider = ?
+          AND c.price_date = json_extract(w.value, '$[1]')
+          AND c.lane = ?
+        ORDER BY c.rowid
+        """,
+        (json.dumps(wanted), provider, lane),
+    ).fetchall()
+    for row in rows:
+        card_id = str(_cell_field(row, "card_id"))
+        price_date = str(_cell_field(row, "price_date"))
+        result.setdefault(card_id, {}).setdefault(price_date, []).append(row)
+    return result
+
+
 def _cell_field(row: Any, name: str) -> Any:
     try:
         return row[name]
@@ -7264,11 +7315,26 @@ _HISTORY_DAILY_BASE_COLUMNS = (
 )
 
 
-def _history_daily_select_columns(*, include_raw_json: bool, include_graded_json: bool) -> str:
-    columns = list(_HISTORY_DAILY_BASE_COLUMNS)
-    columns.append("raw_contexts_json" if include_raw_json else "NULL AS raw_contexts_json")
-    columns.append("graded_contexts_json" if include_graded_json else "NULL AS graded_contexts_json")
+def _history_daily_select_columns(
+    *, include_raw_json: bool, include_graded_json: bool, table_alias: str | None = None
+) -> str:
+    prefix = f"{table_alias}." if table_alias else ""
+    columns = [f"{prefix}{column}" for column in _HISTORY_DAILY_BASE_COLUMNS]
+    columns.append(f"{prefix}raw_contexts_json" if include_raw_json else "NULL AS raw_contexts_json")
+    columns.append(
+        f"{prefix}graded_contexts_json" if include_graded_json else "NULL AS graded_contexts_json"
+    )
     return ", ".join(columns)
+
+
+def _request_min_date(req: dict[str, Any]) -> str | None:
+    return str(req.get("min_date") or "")[:10] or None
+
+
+def _rows_from_min_date(rows: list[Any], min_date: str | None) -> list[Any]:
+    if min_date is None:
+        return rows
+    return [row for row in rows if str(row["price_date"] or "")[:10] >= min_date]
 
 
 def price_history_rows_for_cards_batched(
@@ -7318,7 +7384,12 @@ def price_history_rows_for_cards_batched(
       identical: raw resolution reads only raw cells, graded only graded.
     - ``market_only_cells`` (with ``lane_scoped_cells``) reads cells index-only:
       resolved rows carry ``market`` but no low/mid/high, and a cell with no
-      market yields no price. For sparkline-style series that plot market."""
+      market yields no price. For sparkline-style series that plot market.
+
+    A request may also carry ``"min_date"`` (ISO date, inclusive): its rows
+    older than that are dropped, and the card's daily/cell reads start there
+    when every request on the card has one. The kept rows are exactly the
+    unbounded result filtered to ``date >= min_date``."""
     if not requests:
         return {}
     day_limit = max(1, int(days))
@@ -7340,6 +7411,20 @@ def price_history_rows_for_cards_batched(
     select_columns = _history_daily_select_columns(
         include_raw_json=include_raw_json, include_graded_json=include_graded_json
     )
+    # Card -> oldest min_date among its requests; a card with any unbounded
+    # request reads unbounded.
+    min_date_by_card: dict[str, str] = {}
+    unbounded_cards: set[str] = set()
+    for req in requests:
+        card_id = str(req.get("card_id") or "").strip()
+        bound = _request_min_date(req)
+        if bound is None:
+            unbounded_cards.add(card_id)
+        elif card_id not in min_date_by_card or bound < min_date_by_card[card_id]:
+            min_date_by_card[card_id] = bound
+    for card_id in unbounded_cards:
+        min_date_by_card.pop(card_id, None)
+
     daily_by_card: dict[str, list[sqlite3.Row]] = {}
     # (card chunk, floor date or None) — one daily read per group.
     read_groups: list[tuple[list[str], str | None]] = []
@@ -7378,18 +7463,47 @@ def price_history_rows_for_cards_batched(
         if stale:
             read_groups.append((stale, min(floor_by_card[c] for c in stale)))
     for chunk, floor_date in read_groups:
-        placeholders = ",".join("?" for _ in chunk)
-        floor_sql = " AND price_date >= ?" if floor_date else ""
-        floor_params = (floor_date,) if floor_date else ()
-        rows = connection.execute(
-            f"""
-            SELECT {select_columns}
-            FROM card_price_history_daily
-            WHERE provider = ? AND card_id IN ({placeholders}){floor_sql}
-            ORDER BY card_id ASC, price_date DESC
-            """,
-            (provider, *sorted(chunk), *floor_params),
-        ).fetchall()
+        if any(card_id in min_date_by_card for card_id in chunk):
+            # Each bounded card reads from max(group floor, its min_date), in
+            # one query: rows below min_date are dropped below anyway, and the
+            # newest-``days`` cap keeps the same rows above it.
+            bounds = []
+            for card_id in sorted(chunk):
+                card_floor = floor_date or ""
+                bound = min_date_by_card.get(card_id)
+                if bound is not None and bound > card_floor:
+                    card_floor = bound
+                bounds.append((card_id, card_floor))
+            bounded_columns = _history_daily_select_columns(
+                include_raw_json=include_raw_json,
+                include_graded_json=include_graded_json,
+                table_alias="d",
+            )
+            rows = connection.execute(
+                f"""
+                SELECT {bounded_columns}
+                FROM json_each(?) AS b
+                CROSS JOIN card_price_history_daily AS d
+                WHERE d.provider = ?
+                  AND d.card_id = json_extract(b.value, '$[0]')
+                  AND d.price_date >= json_extract(b.value, '$[1]')
+                ORDER BY d.card_id ASC, d.price_date DESC
+                """,
+                (json.dumps(bounds), provider),
+            ).fetchall()
+        else:
+            placeholders = ",".join("?" for _ in chunk)
+            floor_sql = " AND price_date >= ?" if floor_date else ""
+            floor_params = (floor_date,) if floor_date else ()
+            rows = connection.execute(
+                f"""
+                SELECT {select_columns}
+                FROM card_price_history_daily
+                WHERE provider = ? AND card_id IN ({placeholders}){floor_sql}
+                ORDER BY card_id ASC, price_date DESC
+                """,
+                (provider, *sorted(chunk), *floor_params),
+            ).fetchall()
         for row in rows:
             cid = str(row["card_id"] or "").strip()
             if not cid:
@@ -7403,30 +7517,32 @@ def price_history_rows_for_cards_batched(
     #    pairs the daily window produced (cells mode only).
     cells_by_card_date: dict[str, dict[str, list[Any]]] = {}
     if use_cells and lane_scoped_cells:
-        # {lane: ({card_id}, {price_date})} for only the rows that need cells.
-        needed_by_lane: dict[str, tuple[set[str], set[str]]] = {}
+        # {lane: {card_id: {price_date}}} for only the rows that need cells.
+        needed_by_lane: dict[str, dict[str, set[str]]] = {}
         for req in requests:
             card_id = str(req.get("card_id") or "").strip()
             is_graded_req = (
                 req.get("pricing_mode")
                 or (PSA_GRADE_PRICING_MODE if req.get("grader") or req.get("grade") else RAW_PRICING_MODE)
             ) == PSA_GRADE_PRICING_MODE
-            for row in daily_by_card.get(card_id, []):
+            for row in _rows_from_min_date(daily_by_card.get(card_id, []), _request_min_date(req)):
                 if not is_graded_req and main_raw_history_market(
                     row, variant=req.get("variant"), condition=req.get("condition")
                 ) is not None:
                     continue
-                cards, dates = needed_by_lane.setdefault(
-                    "graded" if is_graded_req else "raw", (set(), set())
-                )
-                cards.add(card_id)
-                dates.add(str(row["price_date"]))
-        for lane, (lane_cards, lane_dates) in needed_by_lane.items():
-            lane_cells = price_history_cell_lane_rows_by_card_date(
+                needed_by_lane.setdefault(
+                    "graded" if is_graded_req else "raw", {}
+                ).setdefault(card_id, set()).add(str(row["price_date"]))
+        for lane, dates_by_card in needed_by_lane.items():
+            # Exact pairs: a card never reads another card's dates.
+            lane_cells = price_history_cell_lane_rows_by_pairs(
                 connection,
                 provider=provider,
-                card_ids=lane_cards,
-                price_dates=lane_dates,
+                pairs=[
+                    (card_id, price_date)
+                    for card_id, card_dates in dates_by_card.items()
+                    for price_date in card_dates
+                ],
                 lane=lane,
                 market_only=market_only_cells,
             )
@@ -7462,7 +7578,7 @@ def price_history_rows_for_cards_batched(
         card_cells = cells_by_card_date.get(card_id, {}) if use_cells else {}
 
         resolved_rows: list[dict[str, Any]] = []
-        for row in daily_by_card.get(card_id, []):
+        for row in _rows_from_min_date(daily_by_card.get(card_id, []), _request_min_date(req)):
             summary: dict[str, Any] | None = None
             resolved_variant: str | None = None
             resolved_condition: str | None = None

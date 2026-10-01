@@ -23,7 +23,7 @@ import tempfile
 import unittest
 from http import HTTPStatus
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_ROOT.parent
@@ -213,38 +213,113 @@ class PublicProfileReadTests(unittest.TestCase):
             },
         )
 
-    # --- public wishlist: the favorited subset of the SAME read ---------------
-
-    def test_wishlist_read_returns_only_the_targets_favorited_cards(self) -> None:
+    def test_public_grid_pages_share_the_summary_compute(self) -> None:
         self._seed_two_owners()
-        # The target owns two cards but wishlists only one of them.
+        for index in range(5):
+            card_id = f"base-extra-{index}"
+            self._insert_card(card_id=card_id, name=f"Extra {index}", number=f"{index}/102")
+            self._record_buy(user_id=TARGET_USER_ID, card_id=card_id)
+        with self.service.request_identity_context(self._identity(CALLER_USER_ID)):
+            with patch.object(
+                self.service,
+                "_compute_deck_entries_for_owner",
+                wraps=self.service._compute_deck_entries_for_owner,
+            ) as compute:
+                summary = self.service.portfolio_summary_for_owner(TARGET_USER_ID)
+                first = self.service.public_deck_entries_for_owner(TARGET_USER_ID, limit=4)
+                second = self.service.public_deck_entries_for_owner(
+                    TARGET_USER_ID, limit=4, offset=4
+                )
+            full = self.service.deck_entries_for_owner(TARGET_USER_ID, limit=200)
+
+        # One series-free, day-change-free compute serves the summary and every page.
+        self.assertEqual(compute.call_count, 1)
+        self.assertIs(compute.call_args.kwargs["include_series"], False)
+        self.assertIs(compute.call_args.kwargs["compute_day_change"], False)
+        self.assertEqual(summary["cardCount"], 8)
+        ids = [entry["id"] for entry in first["entries"] + second["entries"]]
+        self.assertEqual(ids, [entry["id"] for entry in full["entries"]])
+        self.assertEqual((first["limit"], first["offset"]), (4, 0))
+        self.assertEqual((second["limit"], second["offset"]), (4, 4))
+        for entry in first["entries"]:
+            self.assertIsNone(entry["sparkPoints"])
+
+    # --- public watchlist: the target's card_favorites rows -------------------
+
+    def test_watchlist_read_returns_watched_cards_the_target_does_not_own(self) -> None:
+        self._seed_two_owners()
+        # The target owns Charizard (unwatched) and watches two cards: Blastoise
+        # they don't own, and Venusaur they do.
         self._insert_card(card_id="base-blastoise-2", name="Blastoise", number="2/102")
-        self._record_buy(user_id=TARGET_USER_ID, card_id="base-blastoise-2")
+        self._insert_card(card_id="base-venusaur-15", name="Venusaur", number="15/102")
+        self._record_buy(user_id=TARGET_USER_ID, card_id="base-venusaur-15")
         with self.service.request_identity_context(self._identity(TARGET_USER_ID)):
             self.service.set_card_favorite("base-blastoise-2", is_favorite=True)
+            self.service.set_card_favorite("base-venusaur-15", is_favorite=True)
+            own_watchlist = self.service.card_favorites(limit=10)
 
         with self.service.request_identity_context(self._identity(CALLER_USER_ID)):
-            wishlist = self.service.deck_entries_for_owner(
-                TARGET_USER_ID, limit=10, favorites_only=True
-            )
-            collection = self.service.deck_entries_for_owner(TARGET_USER_ID, limit=10)
+            public = self.service.public_watchlist_entries_for_owner(TARGET_USER_ID, limit=10)
 
+        public_ids = [entry["card"]["id"] for entry in public["entries"]]
+        # Exactly the owner's own Watchlist, in the same order.
         self.assertEqual(
-            [entry["card"]["id"] for entry in wishlist["entries"]], ["base-blastoise-2"]
+            public_ids, [entry["card"]["id"] for entry in own_watchlist["entries"]]
         )
-        # The filter is the whole point: the wishlist must be a strict subset.
-        self.assertEqual(len(collection["entries"]), 2)
+        self.assertEqual(sorted(public_ids), ["base-blastoise-2", "base-venusaur-15"])
+        by_id = {entry["card"]["id"]: entry for entry in public["entries"]}
+        unowned = by_id["base-blastoise-2"]
+        self.assertFalse(unowned["isOwned"])
+        self.assertEqual(unowned["quantity"], 0)
+        self.assertEqual(unowned["itemKind"], "raw")
+        self.assertTrue(unowned["isFavorite"])
+        self.assertTrue(unowned["id"].startswith("watch:"))
+        self.assertTrue(by_id["base-venusaur-15"]["isOwned"])
+        # Owner-only watch data never leaves the owner.
+        for entry in public["entries"]:
+            self.assertNotIn("targetPriceCents", entry)
+            self.assertNotIn("sinceWatchedPoints", entry)
+            self.assertIsNone(entry["sparkPoints"])
+        self.assertIsNone(unowned["sinceAddedChangePercent"])
+        self.assertIsNone(unowned["sinceAddedBaselinePrice"])
 
-    def test_wishlist_read_does_not_leak_the_callers_own_favorites(self) -> None:
+    def test_watchlist_read_does_not_leak_the_callers_own_favorites(self) -> None:
         self._seed_two_owners()
         # The CALLER favorites their own card; the target favorites nothing.
         with self.service.request_identity_context(self._identity(CALLER_USER_ID)):
             self.service.set_card_favorite("base-pikachu-58", is_favorite=True)
-            wishlist = self.service.deck_entries_for_owner(
-                TARGET_USER_ID, limit=10, favorites_only=True
-            )
+            wishlist = self.service.public_watchlist_entries_for_owner(TARGET_USER_ID, limit=10)
 
         self.assertEqual(wishlist["entries"], [])
+
+    def test_watchlist_read_skips_series_and_keeps_the_owners_cache_key(self) -> None:
+        self._seed_two_owners()
+        self._insert_card(card_id="base-blastoise-2", name="Blastoise", number="2/102")
+        with self.service.request_identity_context(self._identity(TARGET_USER_ID)):
+            self.service.set_card_favorite("base-blastoise-2", is_favorite=True)
+        calls: list[dict[str, object]] = []
+        original = self.service._compute_card_favorites_for_owner
+
+        def _spy(owner_user_id: str, **kwargs: object) -> dict[str, object]:
+            calls.append({"owner": owner_user_id, **kwargs})
+            return original(owner_user_id, **kwargs)
+
+        self.service._compute_card_favorites_for_owner = _spy  # type: ignore[method-assign]
+        with self.service.request_identity_context(self._identity(CALLER_USER_ID)):
+            self.service.public_watchlist_entries_for_owner(TARGET_USER_ID, limit=10)
+            self.service.public_watchlist_entries_for_owner(TARGET_USER_ID, limit=10)
+        with self.service.request_identity_context(self._identity(TARGET_USER_ID)):
+            self.service.card_favorites(limit=10)
+
+        # One series-free compute (the second visit is a cache hit), and the
+        # owner's own read stays a separate, series-bearing key.
+        self.assertEqual(
+            calls,
+            [
+                {"owner": TARGET_USER_ID, "limit": 10, "offset": 0, "include_series": False},
+                {"owner": TARGET_USER_ID, "limit": 10, "offset": 0, "include_series": True},
+            ],
+        )
 
     # --- uuid validation helper ----------------------------------------------
 
@@ -273,10 +348,7 @@ class PublicProfileRouteTests(unittest.TestCase):
         handler = self._handler(
             f"/api/v1/profiles/{TARGET_USER_ID}/deck/entries?limit=25&offset=10"
         )
-        handler.service.deck_entries_for_owner.return_value = {
-            "entries": [],
-            "summary": {"count": 0},
-        }
+        handler.service.public_deck_entries_for_owner.return_value = {"entries": []}
         handler._require_request_identity = lambda: caller  # type: ignore[method-assign]
         handler._write_json = Mock()  # type: ignore[method-assign]
 
@@ -284,46 +356,36 @@ class PublicProfileRouteTests(unittest.TestCase):
 
         # The ambient context still holds the CALLER, not the target.
         handler.service.request_identity_context.assert_called_once_with(caller)
-        handler.service.deck_entries_for_owner.assert_called_once_with(
-            TARGET_USER_ID,
-            limit=25,
-            offset=10,
-            include_inactive=False,
-            favorites_only=False,
+        handler.service.public_deck_entries_for_owner.assert_called_once_with(
+            TARGET_USER_ID, limit=25, offset=10
         )
         # The owner-scoped (ambient) read is never used for a public profile.
         handler.service.deck_entries.assert_not_called()
         handler._write_json.assert_called_once_with(
-            HTTPStatus.OK, handler.service.deck_entries_for_owner.return_value
+            HTTPStatus.OK, handler.service.public_deck_entries_for_owner.return_value
         )
 
-    def test_public_wishlist_route_reads_the_target_owner_with_favorites_only(self) -> None:
+    def test_public_wishlist_route_reads_the_target_owners_watchlist(self) -> None:
         caller = RequestIdentity(user_id=CALLER_USER_ID, auth_source="test")
         handler = self._handler(
             f"/api/v1/profiles/{TARGET_USER_ID}/wishlist/entries?limit=25&offset=10"
         )
-        handler.service.deck_entries_for_owner.return_value = {
-            "entries": [],
-            "summary": {"count": 0},
-        }
+        handler.service.public_watchlist_entries_for_owner.return_value = {"entries": []}
         handler._require_request_identity = lambda: caller  # type: ignore[method-assign]
         handler._write_json = Mock()  # type: ignore[method-assign]
 
         handler.do_GET()
 
         handler.service.request_identity_context.assert_called_once_with(caller)
-        # `favorites_only=True` is the ONLY difference from the collection route;
-        # if it regresses to False the tab silently shows the whole collection.
-        handler.service.deck_entries_for_owner.assert_called_once_with(
-            TARGET_USER_ID,
-            limit=25,
-            offset=10,
-            include_inactive=False,
-            favorites_only=True,
+        # The watchlist is the owner's card_favorites, not their favorited deck
+        # rows: deck_entries(favorites_only) hid every watched-but-unowned card.
+        handler.service.public_watchlist_entries_for_owner.assert_called_once_with(
+            TARGET_USER_ID, limit=25, offset=10
         )
-        handler.service.deck_entries.assert_not_called()
+        handler.service.deck_entries_for_owner.assert_not_called()
+        handler.service.card_favorites.assert_not_called()
         handler._write_json.assert_called_once_with(
-            HTTPStatus.OK, handler.service.deck_entries_for_owner.return_value
+            HTTPStatus.OK, handler.service.public_watchlist_entries_for_owner.return_value
         )
 
     def test_public_portfolio_summary_route_reads_the_target_owner_explicitly(self) -> None:

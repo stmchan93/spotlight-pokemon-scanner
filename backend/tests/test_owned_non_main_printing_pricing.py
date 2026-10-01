@@ -453,6 +453,38 @@ class OwnedNonMainPrintingTests(unittest.TestCase):
         self.assertIn(round(entry["dayChangeAmount"], 2), {round(60.23 - 59.00, 2), round(60.23 - 58.50, 2)})
         self.assertEqual(entry["sparkPoints"], [55.0, 57.0, 58.5, 59.0, 60.23])
 
+    def test_series_free_read_keeps_printing_day_change(self):
+        # Without series the printing points are only needed for day change, so
+        # they are read from yesterday's row date instead of a year back.
+        self._seed_st30()
+        self._own("onepiece~ST30-001", variant="Alt Art")
+        with self._as_user():
+            full = self.service._compute_deck_entries_for_owner(USER, limit=100)
+            with patch.object(
+                self.service,
+                "_printing_points_for_copies",
+                wraps=self.service._printing_points_for_copies,
+            ) as points:
+                lite = self.service._compute_deck_entries_for_owner(
+                    USER, limit=100, include_series=False
+                )
+                self.assertEqual(points.call_count, 1)
+                since = points.call_args.kwargs["since"]
+                points.reset_mock()
+                self.service._compute_deck_entries_for_owner(
+                    USER, limit=100, include_series=False, compute_day_change=False
+                )
+                points.assert_not_called()
+        self.assertIn(since, self.dates[:-1])
+        self.assertNotEqual(since, self.dates[0])
+        for key in ("dayChangeAmount", "dayChangePercent", "card"):
+            self.assertEqual(
+                [entry[key] for entry in lite["entries"]],
+                [entry[key] for entry in full["entries"]],
+                key,
+            )
+        self.assertIsNotNone(lite["entries"][0]["dayChangeAmount"])
+
     def test_batched_history_reader_applies_printing_points(self):
         self._seed_st30()
         card_id = "onepiece~ST30-001"

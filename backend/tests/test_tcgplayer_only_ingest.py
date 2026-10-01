@@ -489,6 +489,8 @@ class DeployConfigTests(unittest.TestCase):
         script = (BACKEND_ROOT / "run_tcgcsv_sync_vm.sh").read_text()
         self.assertIn("TCGCSV_TCGPLAYER_ONLY_INGEST", script)
         self.assertIn("/api/v1/ops/refresh-visual-index", script)
+        # The TCGCSV write invalidates every cache, so it re-warms them too.
+        self.assertIn("/api/v1/ops/prewarm-portfolio", script)
 
 
 if __name__ == "__main__":

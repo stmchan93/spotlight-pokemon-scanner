@@ -686,7 +686,7 @@ export function PublicProfileScreen({
   // Collection and Wishlist at the same time — one shared root would emit two
   // tiles per card id.
   const renderRow = useCallback(
-    (item: PublicCollectionRow, gridTestID: string) => {
+    (item: PublicCollectionRow, gridTestID: string, showQuantity = true) => {
       if (item.kind === 'post') {
         // Full-bleed post card (Figma 2903-7128): the card owns its inner padding
         // and its image spans edge-to-edge, so no page-gutter wrapper here.
@@ -719,6 +719,7 @@ export function PublicProfileScreen({
           <CollectionGridSingleRow
             entry={item.entry}
             onPressEntry={handlePressEntry}
+            showQuantity={showQuantity}
             testID={gridTestID}
           />
         );
@@ -729,6 +730,7 @@ export function PublicProfileScreen({
           onPressEntry={handlePressEntry}
           rowEntries={item.rowEntries}
           rowIndex={item.rowIndex}
+          showQuantity={showQuantity}
           testID={gridTestID}
         />
       );
@@ -751,7 +753,8 @@ export function PublicProfileScreen({
   );
 
   const renderWishlistItem = useCallback(
-    ({ item }: { item: PublicCollectionRow }) => renderRow(item, WISHLIST_GRID_TEST_ID),
+    // Watched cards are mostly not owned: no quantity count on these tiles.
+    ({ item }: { item: PublicCollectionRow }) => renderRow(item, WISHLIST_GRID_TEST_ID, false),
     [renderRow],
   );
 

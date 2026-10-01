@@ -120,6 +120,8 @@ type CollectionGridRowProps = {
   selectedEntryId?: string | null;
   editMode?: boolean;
   selectedIds?: Set<string>;
+  /** False hides the owned-quantity count (a watchlist holds no copies). */
+  showQuantity?: boolean;
   testID?: string;
 };
 
@@ -153,6 +155,7 @@ export function CollectionGridRow({
   selectedEntryId,
   editMode = false,
   selectedIds,
+  showQuantity = true,
   testID = 'collection-masonry-grid',
 }: CollectionGridRowProps) {
   return (
@@ -193,6 +196,7 @@ export function CollectionGridRow({
                 onPress={onPressEntry}
                 selectable={editMode}
                 selected={editMode ? !!selectedIds?.has(entry.id) : selectedEntryId === entry.id}
+                showQuantity={showQuantity}
                 testIDPrefix={`${testID}-tile`}
               />
             ) : null}
@@ -212,6 +216,8 @@ type CollectionGridSingleRowProps = {
   selectedEntryId?: string | null;
   editMode?: boolean;
   selectedIds?: Set<string>;
+  /** False hides the owned-quantity count (a watchlist holds no copies). */
+  showQuantity?: boolean;
   testID?: string;
 };
 
@@ -227,6 +233,7 @@ export function CollectionGridSingleRow({
   selectedEntryId,
   editMode = false,
   selectedIds,
+  showQuantity = true,
   testID = 'collection-masonry-grid',
 }: CollectionGridSingleRowProps) {
   return (
@@ -239,6 +246,7 @@ export function CollectionGridSingleRow({
           onPress={onPressEntry}
           selectable={editMode}
           selected={editMode ? !!selectedIds?.has(entry.id) : selectedEntryId === entry.id}
+          showQuantity={showQuantity}
           testIDPrefix={`${testID}-tile`}
         />
       </View>
@@ -253,6 +261,7 @@ type CollectionTileSlotProps = {
   delayLongPress?: number;
   selectable?: boolean;
   selected?: boolean;
+  showQuantity?: boolean;
   testIDPrefix: string;
 };
 
@@ -263,6 +272,7 @@ function CollectionTileSlot({
   delayLongPress,
   selectable,
   selected,
+  showQuantity = true,
   testIDPrefix,
 }: CollectionTileSlotProps) {
   const tileKind = entry.kind === 'graded' ? 'slab' : 'raw';
@@ -293,6 +303,7 @@ function CollectionTileSlot({
       graderLabel={tileKind === 'slab' ? entry.slabContext?.grader ?? null : null}
       gradeLabel={tileKind === 'slab' ? entry.slabContext?.grade ?? null : null}
       quantity={entry.quantity}
+      showQuantity={showQuantity}
       priceLabel={entry.hasMarketPrice ? formatOptionalCurrency(entry.marketPrice, entry.currencyCode) : null}
       // Numeric price feeds the tile's penny guard (sub-$1 → no trend line).
       marketPrice={entry.hasMarketPrice ? entry.marketPrice : null}

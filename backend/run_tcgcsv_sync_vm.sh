@@ -56,3 +56,21 @@ case "$(printf '%s' "${TCGCSV_TCGPLAYER_ONLY_INGEST:-}" | tr '[:upper:]' '[:lowe
     fi
     ;;
 esac
+
+# Post-sync: the TCGCSV write bumps pricing_sync_generation, which invalidates
+# every owner's dashboard/collection/watchlist caches and the Top Trends cache.
+# Staging runs no Scrydex sync, so without this the first user per owner after
+# each daily sync paid the cold recompute (an 18s Top Trends miss contended with
+# 5-29s collection reads on 2026-09-30). Same fire-and-forget hook as
+# run_sync_vm.sh; a warm cache makes it a no-op. Never fails the sync job.
+PREWARM_URL="http://127.0.0.1:8788/api/v1/ops/prewarm-portfolio"
+if [ -n "${SPOTLIGHT_OPS_REFRESH_TOKEN:-}" ]; then
+  PREWARM_URL="${PREWARM_URL}?token=${SPOTLIGHT_OPS_REFRESH_TOKEN}"
+fi
+echo "[tcgcsv] triggering portfolio cache prewarm"
+if curl -sS -m 30 -X POST "$PREWARM_URL"; then
+  echo
+  echo "[tcgcsv] portfolio prewarm started"
+else
+  echo "[tcgcsv] portfolio prewarm request failed (non-fatal)" >&2
+fi
