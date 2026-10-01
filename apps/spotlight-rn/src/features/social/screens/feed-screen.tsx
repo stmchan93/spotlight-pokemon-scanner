@@ -146,7 +146,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { openDrawer } = useAppDrawer();
-  const { accessToken, currentUser } = useAuth();
+  const { accessToken, applyFollowingDelta, currentUser } = useAuth();
   const apiBaseUrl = resolveRepositoryBaseUrl();
   // Lets a row you reposted yourself read "You reposted" rather than your name.
   const viewerHandle = currentUser?.handle?.trim() ?? null;
@@ -430,10 +430,13 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       next.add(authorId);
       return next;
     });
+    // Your own "Following" count moves with the tap, as on a profile page.
+    applyFollowingDelta(1);
     void followUser(authorId).then((ok) => {
       if (ok) {
         return;
       }
+      applyFollowingDelta(-1);
       setFollowedAuthorIds((current) => {
         if (!current) {
           return current;
@@ -443,7 +446,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         return next;
       });
     });
-  }, []);
+  }, [applyFollowingDelta]);
 
   /*
     Refetch on focus, for two different reasons with two different urgencies.

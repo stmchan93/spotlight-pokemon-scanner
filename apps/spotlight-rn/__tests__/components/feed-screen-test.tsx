@@ -72,6 +72,13 @@ jest.mock('@/features/social/social-service', () => {
   };
 });
 
+const mockFollowUser = jest.fn(async (_authorId: string) => true);
+jest.mock('@/features/profile/profile-service', () => ({
+  ...jest.requireActual('@/features/profile/profile-service'),
+  fetchFollowing: jest.fn(async () => []),
+  followUser: (authorId: string) => mockFollowUser(authorId),
+}));
+
 /** The id `AuthProvider` signs in as under NODE_ENV=test. */
 const MY_USER_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -171,6 +178,57 @@ describe('FeedScreen', () => {
     fetchCalendar.mockResolvedValue(null);
     // The hook logs the rejection; keep the default-rejecting reads quiet.
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  describe('following an author from a post', () => {
+    function FollowingCountProbe() {
+      const { useAuth } = require('@/providers/auth-provider');
+      const { Text } = require('react-native');
+      const { currentUser } = useAuth();
+      return <Text testID="probe-following-count">{String(currentUser?.followingCount ?? 0)}</Text>;
+    }
+
+    function renderFeedWithProbe() {
+      return renderWithProviders(
+        <>
+          <FeedScreen />
+          <FollowingCountProbe />
+        </>,
+        {
+          spotlightRepository: createTestSpotlightRepository({
+            getTopMovers: getTopMovers as unknown as () => Promise<never>,
+            fetchMetaPulse,
+            fetchHotCards,
+            fetchSetSpotlight,
+            fetchNewsFeed,
+            fetchMetaExposure,
+            fetchCalendar,
+          }),
+        },
+      );
+    }
+
+    it('bumps your own following count on the tap', async () => {
+      mockFollowUser.mockResolvedValue(true);
+      renderFeedWithProbe();
+      const before = Number((await screen.findByTestId('probe-following-count')).props.children);
+
+      fireEvent.press(await screen.findByTestId('feed-post-follow-button'));
+
+      await waitFor(() => expect(mockFollowUser).toHaveBeenCalledWith('author-1'));
+      expect(screen.getByTestId('probe-following-count').props.children).toBe(String(before + 1));
+    });
+
+    it('puts the count back when the follow fails', async () => {
+      mockFollowUser.mockResolvedValue(false);
+      renderFeedWithProbe();
+      const before = Number((await screen.findByTestId('probe-following-count')).props.children);
+
+      fireEvent.press(await screen.findByTestId('feed-post-follow-button'));
+
+      await waitFor(() => expect(screen.getByTestId('probe-following-count').props.children).toBe(String(before)));
+      expect(mockFollowUser).toHaveBeenCalled();
+    });
   });
 
   // Home is ONE feed: every visible post, newest first. The screen carried a
