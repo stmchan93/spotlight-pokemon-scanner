@@ -59,7 +59,10 @@ function OptionChip({
       ]}
       testID={testID}
     >
+      {/* One line: Android drew "Third Anniversary" wider than it measured,
+          wrapping "Anniversary" onto a second line the chip never showed. */}
       <Text
+        numberOfLines={1}
         style={[
           theme.typography.label,
           { color: selected ? theme.colors.gray0 : theme.colors.gray900 },
