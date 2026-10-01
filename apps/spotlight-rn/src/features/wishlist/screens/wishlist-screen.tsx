@@ -190,12 +190,9 @@ function useWishlistViewMode(): [WishlistViewMode, (next: WishlistViewMode) => v
 
 /**
  * A watch younger than a day has one price at most, so "$0.00 since watched"
- * and a one-point chart read as broken. Show "Tracking starts tomorrow" for that
- * first day only — a thinly priced card can stay short of two points for weeks,
- * and the label would then be a false promise.
+ * and a one-point chart read as broken — the trend stays hidden that first day.
  */
 const NEW_WATCH_WINDOW_MS = 24 * 60 * 60 * 1000;
-export const NEW_WATCH_LABEL = 'Tracking starts tomorrow';
 
 export function isNewWatch(entry: Pick<CardFavoriteEntry, 'favoritedAt'>, now = Date.now()): boolean {
   const watchedAt = entry.favoritedAt ? Date.parse(entry.favoritedAt) : Number.NaN;
@@ -1168,7 +1165,6 @@ function WishlistListRow({
     : entry.conditionLabel ?? (entry.marketPrice != null ? 'Near Mint' : null);
   // The watched printing leads the line: "Reverse Holofoil · Near Mint".
   const gradeLine = [entry.watchVariant, priceLaneLabel].filter(Boolean).join(' · ') || null;
-  const newWatch = isNewWatch(entry);
   const showTrend = hasWatchTrend(entry);
 
   const row = (
@@ -1177,7 +1173,7 @@ function WishlistListRow({
       currencyCode={entry.currencyCode ?? 'USD'}
       delayLongPress={350}
       firstInSection={firstInSection}
-      footnote={targetLabel ?? (newWatch && WATCHLIST_TREND_ACCESS !== 'hidden' ? NEW_WATCH_LABEL : null)}
+      footnote={targetLabel}
       // Condition/grade line per Figma 4173:82045 ("PSA 10" / "Near Mint").
       // The line labels the lane the row's PRICE resolved on: graded copies
       // their grade, owned raw copies their stored condition, and every other
@@ -1399,12 +1395,11 @@ function WishlistGridTile({
   const targetLabel = targetCents != null && targetCents > 0
     ? `Target ${centsToCurrency(targetCents, entry.currencyCode ?? 'USD')}`
     : null;
-  const newWatch = isNewWatch(entry);
   const showTrend = hasWatchTrend(entry);
   return (
     <InventoryCardTile
       bordered={false}
-      footnote={targetLabel ?? (newWatch && WATCHLIST_TREND_ACCESS !== 'hidden' ? NEW_WATCH_LABEL : null)}
+      footnote={targetLabel}
       imageUrl={getCardImageUrl(entry, 'small')}
       name={entry.name}
       setName={entry.setName ?? ''}
