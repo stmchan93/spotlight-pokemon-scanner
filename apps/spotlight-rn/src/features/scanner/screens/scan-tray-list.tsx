@@ -14,7 +14,15 @@ import {
   useReducer,
   useRef,
 } from 'react';
-import { type LayoutChangeEvent, type ScrollViewProps, StyleSheet, useWindowDimensions, View, type ViewProps } from 'react-native';
+import {
+  type LayoutChangeEvent,
+  Platform,
+  type ScrollViewProps,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+  type ViewProps,
+} from 'react-native';
 import { FlashList, type FlashListRef, type ListRenderItemInfo } from '@shopify/flash-list';
 import { type GestureType, GestureDetector } from 'react-native-gesture-handler';
 import Reanimated, {
@@ -43,7 +51,7 @@ import type { TrayStore } from '@/features/scanner/tray-store';
     for the exit duration and slides left + fades over the gap, while
   - the rows around it glide into place (a `layout` transition on the CELL,
     enabled only for a cell still showing the same item, so a recycled cell
-    never glides across the list), and
+    never glides across the list; iOS only, see shouldGlideTrayCell), and
   - insert: a capture never shown before slides in from the right (collapsed
     tray only), keyed on the capture id so it plays once.
   Same curves and durations as the old per-row Reanimated choreography.
@@ -79,6 +87,44 @@ function buildRowEnterAnimation(_values: EntryAnimationsValues) {
 }
 
 const rowLayoutTransition = LinearTransition.duration(ROW_LAYOUT_DURATION_MS).easing(rowEnterEasing);
+
+/*
+  FlashList v2 keeps item sizes by INDEX. The first commit after an add/remove
+  (or an exiting row's expiry) places each cell with the size of the item that
+  used to sit at its index — a zero-height exiting slot, or a 64px page header
+  above a 126px row — and corrects it one commit later. A glide started on that
+  first commit targets the wrong spot: iOS retargets it, Android kept the stale
+  frame and left several rows stacked on one slot (2026-09-30, Galaxy staging).
+  So Android never glides (rows snap, the exit slide still plays), and an
+  expiry — which changes no row's final position — never glides anywhere.
+*/
+export const TRAY_CELL_GLIDE_SUPPORTED = Platform.OS !== 'android';
+
+export function shouldGlideTrayCell({
+  glideSupported = TRAY_CELL_GLIDE_SUPPORTED,
+  glideUntil,
+  item,
+  mutationEpoch,
+  now,
+  reduceMotion,
+  shownEpoch,
+}: {
+  glideSupported?: boolean;
+  glideUntil: number;
+  item: ScanTrayListItem | undefined;
+  mutationEpoch: number;
+  now: number;
+  reduceMotion: boolean;
+  /** The mutation epoch when this cell started showing its current item. */
+  shownEpoch: number;
+}): boolean {
+  return glideSupported
+    && !reduceMotion
+    && item?.kind === 'row'
+    && !item.exitingCapture
+    && shownEpoch < mutationEpoch
+    && glideUntil > now;
+}
 
 export type ScanTrayListItem =
   | { kind: 'header'; key: string; pageId: string; rowCount: number }
@@ -296,11 +342,14 @@ const ScanTrayCell = forwardRef<View, ViewProps & { index: number }>(function Sc
   if (shownRef.current?.key !== key) {
     shownRef.current = { epoch: mutationEpochRef.current, key };
   }
-  const glide = !reduceMotion
-    && item?.kind === 'row'
-    && !item.exitingCapture
-    && shownRef.current.epoch < mutationEpochRef.current
-    && glideUntilRef.current > Date.now();
+  const glide = shouldGlideTrayCell({
+    glideUntil: glideUntilRef.current,
+    item,
+    mutationEpoch: mutationEpochRef.current,
+    now: Date.now(),
+    reduceMotion,
+    shownEpoch: shownRef.current.epoch,
+  });
   return (
     <Reanimated.View {...rest} layout={glide ? rowLayoutTransition : undefined} ref={ref}>
       {children}
@@ -462,13 +511,18 @@ export function ScanTrayList({
   const glideUntilRef = useRef(0);
   const mutationEpochRef = useRef(0);
   const idsRef = useRef(ids);
+  const lastItemsRef = useRef(items);
   if (idsRef.current !== ids) {
     if (idsRef.current.length > 0) {
       glideUntilRef.current = Date.now() + GLIDE_WINDOW_MS;
       mutationEpochRef.current += 1;
     }
     idsRef.current = ids;
+  } else if (lastItemsRef.current !== items) {
+    // An exiting row expired: nothing moves for real, so snap.
+    glideUntilRef.current = 0;
   }
+  lastItemsRef.current = items;
   const seenCaptureIdsRef = useRef<Set<string>>(new Set());
 
   const context = useMemo<TrayListContextValue>(() => ({
