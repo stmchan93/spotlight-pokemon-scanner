@@ -2348,7 +2348,8 @@ describe('ScannerScreen', () => {
 
     const label = await waitFor(() => {
       const node = screen.getByTestId(trayTestId('printing', 0, '-label'));
-      expect(node.props.children).toBe('Third Anniversary');
+      // Joined with a non-breaking space so Android can't wrap it.
+      expect(node.props.children).toBe('Third\u00A0Anniversary');
       return node;
     });
     expect(label.props.numberOfLines).toBe(1);
@@ -2420,7 +2421,7 @@ describe('ScannerScreen', () => {
     expect(await screen.findByText('Froakie')).toBeTruthy();
 
     await waitFor(() => {
-      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('Reverse Holofoil');
+      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('Reverse\u00A0Holofoil');
     });
     await waitFor(() => {
       expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $4.20');

@@ -753,7 +753,9 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                         // for "Third Anniversary"). iOS ignores this prop.
                         textBreakStrategy="simple"
                       >
-                        {activeVariantLabel ?? 'Default'}
+                        {/* Non-breaking spaces: Android still wrapped "Third Anniversary"
+                            at the space and drew the hidden second word. */}
+                        {(activeVariantLabel ?? 'Default').replace(/ /g, '\u00A0')}
                       </Text>
                       <IconChevronDown
                         color={colors.purple500}
