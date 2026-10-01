@@ -13,8 +13,6 @@ export const AnalyticsEvent = {
   watchlistItemRemoved: 'watchlist_item_removed',
   watchlistBulkAdded: 'watchlist_bulk_added',
   watchTargetSet: 'watch_target_set',
-  // Watchlist empty state's "Suggest cards to watch" button.
-  watchlistSuggestionsRequested: 'watchlist_suggestions_requested',
 
   // Feed / discovery surfaces.
   metaGroupOpened: 'meta_group_opened',

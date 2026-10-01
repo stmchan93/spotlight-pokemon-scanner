@@ -921,7 +921,7 @@ export function WishlistScreen() {
       title="Couldn't load your watchlist"
     />
   ) : favorites.length === 0 ? (
-    <WatchlistEmptyState onWatched={() => { void loadFavorites(); }} />
+    <WatchlistEmptyState />
   ) : (
     <Text style={[styles.emptyText, { color: theme.colors.gray600 }]} testID="wishlist-empty">
       No cards match your filters.
