@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
-import { saveCardDetailPreviewFromInventoryEntry } from '@/features/cards/card-detail-preview-session';
+import { saveCardDetailPreviewFromForeignInventoryEntry } from '@/features/cards/card-detail-preview-session';
 import { PublicProfileScreen } from '@/features/profile/screens/public-profile-screen';
 
 // A Supabase auth id. Handles are `[a-z0-9_]{3,20}` and can never look like
@@ -51,14 +51,14 @@ export default function PublicProfileRoute() {
       initialTab={initialTab}
       onBack={() => router.back()}
       onOpenEntry={(entry) => {
-        // Someone else's copy: pass the card + a display preview, but never the
-        // deck entry id — that identifies THEIR row and would read as an owned
-        // entry on the PDP.
+        // Someone else's copy: pass the card + a display-only preview. No entry
+        // id and no ownedEntry — either would open the PDP as an UPDATE of THEIR
+        // row. The viewer's own copies still come from the card detail.
         router.push({
           pathname: '/cards/[cardId]',
           params: {
             cardId: entry.cardId,
-            previewId: saveCardDetailPreviewFromInventoryEntry(entry),
+            previewId: saveCardDetailPreviewFromForeignInventoryEntry(entry),
           },
         });
       }}

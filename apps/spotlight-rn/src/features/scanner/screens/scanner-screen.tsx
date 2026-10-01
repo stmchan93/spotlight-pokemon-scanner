@@ -378,6 +378,13 @@ function ScannerKeepAwake() {
 // Nominal zoom factors offered in the scanner UI. The card occupies more of the
 // reticle at higher zoom, so the normalized 630×880 crop upscales less — which
 // helps accuracy on cards shot from farther away.
+// Tray printing pill: the whole pill (label + gap + chevron) caps at 200.
+const CAPTURE_PRINTING_PILL_MAX_WIDTH = 200;
+const CAPTURE_PRINTING_CHEVRON_SIZE = 14;
+const CAPTURE_PRINTING_PILL_GAP = 2;
+const CAPTURE_PRINTING_LABEL_MAX_WIDTH =
+  CAPTURE_PRINTING_PILL_MAX_WIDTH - CAPTURE_PRINTING_CHEVRON_SIZE - CAPTURE_PRINTING_PILL_GAP;
+
 const SCANNER_ZOOM_FACTORS = [1, 1.5, 2] as const;
 type ScannerZoomFactor = (typeof SCANNER_ZOOM_FACTORS)[number];
 
@@ -740,10 +747,19 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                         numberOfLines={1}
                         style={styles.capturePrintingLabel}
                         testID={`scanner-tray-printing-${capture.id}-label`}
+                        // Android's high-quality line breaker can wrap a label
+                        // at a space even when its measured width fits, and
+                        // numberOfLines then hides the second word ("Third"
+                        // for "Third Anniversary"). iOS ignores this prop.
+                        textBreakStrategy="simple"
                       >
                         {activeVariantLabel ?? 'Default'}
                       </Text>
-                      <IconChevronDown color={colors.purple500} size={14} strokeWidth={2.2} />
+                      <IconChevronDown
+                        color={colors.purple500}
+                        size={CAPTURE_PRINTING_CHEVRON_SIZE}
+                        strokeWidth={2.2}
+                      />
                     </ArenaPressable>
                   ) : modeTagLine ? (
                     <Text numberOfLines={1} style={styles.captureSubtitle}>
@@ -5692,13 +5708,15 @@ const styles = StyleSheet.create({
   // chevron: it names the printing the price assumes and reads as tappable
   // without adding a third filled shape to a row that already has CHANGE and
   // ADD. No container, so it keeps the subtitle's left edge.
+  // The pill hugs its content; the cap lives on the label itself rather than
+  // a flexShrink label inside an auto-width row, which Android measured
+  // inconsistently (label wrapped to its first word, pill sized to the cap).
   capturePrintingPill: {
     alignItems: 'center',
     alignSelf: 'flex-start',
     flexDirection: 'row',
-    gap: 2,
+    gap: CAPTURE_PRINTING_PILL_GAP,
     marginTop: 2,
-    maxWidth: 200,
     paddingVertical: 2,
   },
   capturePrintingPillPressed: {
@@ -5707,8 +5725,8 @@ const styles = StyleSheet.create({
   capturePrintingLabel: {
     ...textStyles.labelStrong,
     color: colors.purple500,
-    flexShrink: 1,
     fontSize: 12,
+    maxWidth: CAPTURE_PRINTING_LABEL_MAX_WIDTH,
   },
   captureThumb: {
     // Figma 3594:25986 — 58x80 at radius 2.695, which is a real card's corner

@@ -120,6 +120,25 @@ export function cardDetailPreviewFromInventoryEntry(entry: InventoryCardEntry): 
   };
 }
 
+/**
+ * Preview for a copy someone ELSE owns (a public profile's Collection). Paints
+ * the same art/name/price, but carries no `ownedEntry` / `entryId`: the card
+ * page treats a preview's owned entry as the viewer's own copy, so passing
+ * theirs would open the page as an UPDATE of their row.
+ */
+export function cardDetailPreviewFromForeignInventoryEntry(entry: InventoryCardEntry): CardDetailPreview {
+  return {
+    ...cardDetailPreviewFromInventoryEntry(entry),
+    entryId: null,
+    id: `foreign:${entry.id}`,
+    ownedEntry: null,
+  };
+}
+
+export function saveCardDetailPreviewFromForeignInventoryEntry(entry: InventoryCardEntry) {
+  return saveCardDetailPreview(cardDetailPreviewFromForeignInventoryEntry(entry));
+}
+
 export function saveCardDetailPreviewFromCatalogResult(result: CatalogSearchResult) {
   return saveCardDetailPreview(cardDetailPreviewFromCatalogResult(result));
 }

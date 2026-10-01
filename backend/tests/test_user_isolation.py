@@ -455,6 +455,86 @@ class UserIsolationTests(unittest.TestCase):
         self.assertNotIn(entry_ids[1], remaining)
         self.assertEqual(self._owner_row_count("deck_entries", "user-b"), 1)
 
+    def test_cross_user_deck_entry_mutations_are_rejected_and_row_unchanged(self) -> None:
+        # Regression for the public-profile PDP that opened another collector's
+        # copy as an UPDATE: every single-entry mutation must 404 on an entry the
+        # caller does not own, and leave that row exactly as it was.
+        self._insert_card(card_id="ex-torchic-1", name="Torchic")
+        self._insert_card(card_id="ex-torchic-2", name="Torchic", number="2/1")
+
+        with self.service.request_identity_context(self._identity("user-b")):
+            victim_id = self.service.record_buy(
+                {
+                    "cardID": "ex-torchic-1",
+                    "quantity": 2,
+                    "unitPrice": 3.0,
+                    "currencyCode": "USD",
+                    "boughtAt": "2026-06-01T09:00:00Z",
+                    "condition": "near_mint",
+                }
+            )["deckEntryID"]
+
+        def snapshot() -> tuple:
+            row = self.service.connection.execute(
+                "SELECT * FROM deck_entries WHERE id = ?", (victim_id,)
+            ).fetchone()
+            return tuple(row) if row is not None else ()
+
+        before = snapshot()
+        self.assertTrue(before)
+
+        attempts = {
+            "replace": lambda: self.service.replace_deck_entry(
+                {
+                    "deckEntryID": victim_id,
+                    "cardID": "ex-torchic-2",
+                    "quantity": 5,
+                    "unitPrice": 1.0,
+                    "condition": "damaged",
+                }
+            ),
+            "delete": lambda: self.service.delete_deck_entry({"deckEntryID": victim_id}),
+            "quantity": lambda: self.service.set_deck_entry_quantity(
+                {"deckEntryID": victim_id, "quantity": 0}
+            ),
+            "cost_basis": lambda: self.service.update_deck_entry_cost_basis(
+                {"deckEntryID": victim_id, "costBasisPerUnit": 99.0}
+            ),
+            "listing": lambda: self.service.update_deck_entry_listing(
+                {"deckEntryID": victim_id, "listingUrl": "https://www.ebay.com/itm/1"}
+            ),
+            "sale": lambda: self.service.record_sale(
+                {
+                    "deckEntryID": victim_id,
+                    "quantity": 1,
+                    "unitPrice": 10.0,
+                    "currencyCode": "USD",
+                    "soldAt": "2026-06-02T09:00:00Z",
+                }
+            ),
+        }
+        with self.service.request_identity_context(self._identity("user-a")):
+            for name, attempt in attempts.items():
+                with self.subTest(mutation=name):
+                    with self.assertRaises(FileNotFoundError):
+                        attempt()
+                    self.assertEqual(snapshot(), before)
+
+            # Card-keyed edits resolve the CALLER's copy of the card; user-a has
+            # none, so they must not fall through to user-b's.
+            with self.assertRaises(FileNotFoundError):
+                self.service.update_deck_entry_condition(
+                    {"cardID": "ex-torchic-1", "condition": "damaged"}
+                )
+            with self.assertRaises(FileNotFoundError):
+                self.service.update_deck_entry_purchase_price(
+                    {"cardID": "ex-torchic-1", "unitPrice": 50.0}
+                )
+
+        self.assertEqual(snapshot(), before)
+        self.assertEqual(self._owner_row_count("deck_entries", "user-a"), 0)
+        self.assertEqual(self._owner_row_count("sale_events", "user-a"), 0)
+
     def test_delete_deck_entries_requires_non_empty_list(self) -> None:
         with self.service.request_identity_context(self._identity("user-a")):
             with self.assertRaises(ValueError):

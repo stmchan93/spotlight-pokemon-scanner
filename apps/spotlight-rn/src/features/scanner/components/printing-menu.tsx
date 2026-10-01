@@ -187,6 +187,10 @@ export function AnchoredOptionMenu({
                 <Text
                   numberOfLines={1}
                   style={[theme.typography.body, styles.label, { color: theme.colors.gray900 }]}
+                  // The card is auto-width, so the label is measured to fit;
+                  // Android's high-quality breaker can still wrap it at a
+                  // space and numberOfLines hides the rest. iOS ignores this.
+                  textBreakStrategy="simple"
                 >
                   {option.label}
                 </Text>

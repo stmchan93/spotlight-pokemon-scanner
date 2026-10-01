@@ -2300,6 +2300,74 @@ describe('ScannerScreen', () => {
     });
   });
 
+  // Android showed only "Third" for "Third Anniversary" and stretched the pill:
+  // a flexShrink label inside an auto-width row measured inconsistently there.
+  // The label carries its own cap instead, so the pill hugs the full name.
+  it('shows a long printing name in full on a pill that hugs its label', async () => {
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async () => ({
+        scanID: 'scan-nami',
+        candidates: [{
+          id: 'nami-candidate',
+          cardId: 'op11-054',
+          name: 'Nami',
+          cardNumber: 'OP11-054',
+          setName: 'A Fist of Divine Speed',
+          imageUrl: 'https://cdn.spotlight.test/nami.png',
+          marketPrice: 12,
+          currencyCode: 'USD',
+        }],
+      }),
+      getRawPricingMatrix: async () => ({
+        cardID: 'op11-054',
+        currencyCode: 'USD',
+        variants: [
+          {
+            variant: 'Third Anniversary',
+            variantKey: 'third-anniversary',
+            conditions: [
+              { code: 'NM', label: 'Near Mint', market: 40, low: null, mid: null, high: null },
+            ],
+          },
+          {
+            variant: 'Foil',
+            variantKey: 'foil',
+            conditions: [
+              { code: 'NM', label: 'Near Mint', market: 12, low: null, mid: null, high: null },
+            ],
+          },
+        ],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    expect(await screen.findByText('Nami')).toBeTruthy();
+
+    const label = await waitFor(() => {
+      const node = screen.getByTestId(trayTestId('printing', 0, '-label'));
+      expect(node.props.children).toBe('Third Anniversary');
+      return node;
+    });
+    expect(label.props.numberOfLines).toBe(1);
+    expect(label.props.textBreakStrategy).toBe('simple');
+
+    const labelStyle = StyleSheet.flatten(label.props.style);
+    expect(labelStyle.flexShrink).toBeUndefined();
+    expect(typeof labelStyle.maxWidth).toBe('number');
+    expect(labelStyle.maxWidth as number).toBeLessThan(200);
+
+    const pill = screen.getByTestId(trayTestId('printing', 0));
+    const pillStyle = StyleSheet.flatten(
+      typeof pill.props.style === 'function' ? pill.props.style({ pressed: false }) : pill.props.style,
+    );
+    expect(pillStyle.alignSelf).toBe('flex-start');
+    expect(pillStyle.maxWidth).toBeUndefined();
+    expect(pillStyle.flexGrow ?? 0).toBe(0);
+  });
+
   // The backend names the alt-art printing the photo matched; the row starts on
   // it (when the matrix prices it), and the user's own pick still wins.
   it('defaults a row to the matched printing, and a picked printing overrides it', async () => {

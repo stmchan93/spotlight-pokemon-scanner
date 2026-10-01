@@ -8,6 +8,7 @@ import { useAppServices } from '@/providers/app-providers';
 import { clearCardAddedNotice, consumeCardAddedNotice } from '@/features/cards/card-added-notice';
 import {
   clearCardDetailPreviewSessions,
+  saveCardDetailPreviewFromForeignInventoryEntry,
   saveCardDetailPreviewFromInventoryEntry,
 } from '@/features/cards/card-detail-preview-session';
 import {
@@ -2729,6 +2730,77 @@ describe('CardDetailScreen', () => {
         variant: 'Raw',
       }));
     });
+  });
+
+  // These two use their own card ids: a render's late trend/detail fetch can land
+  // in the module-level cache after afterEach clears it, and would otherwise be
+  // served to the next test's sm7-1 render.
+  function repositoryServingCardAs(cardId: string) {
+    const baseRepository = createTestSpotlightRepository();
+    return createTestSpotlightRepository({
+      getCardDetail: async (query: { cardId: string }) => {
+        const base = await baseRepository.getCardDetail({ ...query, cardId: 'sm7-1' });
+        return base ? { ...base, cardId } : null;
+      },
+    });
+  }
+
+  it('opens a card from another collector\'s profile as an ADD, never an edit of their copy', async () => {
+    // Regression (staging 2026-09-30): tapping a Torchic in someone else's public
+    // Collection opened the PDP with UPDATE — their entry rode in on the preview
+    // as `ownedEntry` and the page treated it as the viewer's own copy.
+    const theirEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'foreign-treecko',
+      cardNumber: '#001/096',
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'their-treecko-entry',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko.png',
+      kind: 'raw',
+      marketPrice: 12,
+      name: 'Treecko',
+      quantity: 3,
+      setName: 'Sky Stream',
+    };
+    const previewId = saveCardDetailPreviewFromForeignInventoryEntry(theirEntry);
+
+    renderWithProviders(
+      <CardDetailScreen cardId="foreign-treecko" onBack={jest.fn()} previewId={previewId} />,
+      { spotlightRepository: repositoryServingCardAs('foreign-treecko') },
+    );
+
+    // The preview still paints the card before the detail lands.
+    expect(screen.getByTestId('detail-hero-card')).toBeTruthy();
+    await screen.findByTestId('detail-add-item');
+    expect(screen.queryByTestId('detail-save-edit')).toBeNull();
+    expect(screen.queryByTestId('detail-cancel-edit')).toBeNull();
+  });
+
+  it('still opens the viewer\'s OWN collection entry as an edit (control for the foreign-preview case)', async () => {
+    const ownEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'own-treecko',
+      cardNumber: '#001/096',
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'own-treecko-entry',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko.png',
+      kind: 'raw',
+      marketPrice: 12,
+      name: 'Treecko',
+      quantity: 1,
+      setName: 'Sky Stream',
+    };
+    const previewId = saveCardDetailPreviewFromInventoryEntry(ownEntry);
+
+    renderWithProviders(
+      <CardDetailScreen cardId="own-treecko" onBack={jest.fn()} previewId={previewId} />,
+      { spotlightRepository: repositoryServingCardAs('own-treecko') },
+    );
+
+    await screen.findByTestId('detail-save-edit');
+    expect(screen.queryByTestId('detail-add-item')).toBeNull();
   });
 
   it('seeds the default variant for an owned card opened from a preview (detail resolves after the preview)', async () => {
