@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { useIsFocused } from '@react-navigation/native';
 import {
   Animated,
+  AppState,
   Linking,
   Pressable,
   RefreshControl,
@@ -341,12 +342,29 @@ export function WishlistScreen() {
         return;
       }
       void loadFavorites();
+      void refreshDealAlerts();
       return;
     }
     if (isStale) {
       void loadFavorites();
     }
-  }, [isFocused, isStale, loadFavorites]);
+  }, [isFocused, isStale, loadFavorites, refreshDealAlerts]);
+
+  // A deal push opens this tab, often while it is already the focused one, so
+  // focus never changes: re-read the band whenever the app comes back to it.
+  useEffect(() => {
+    if (!isFocused) {
+      return;
+    }
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') {
+        void refreshDealAlerts();
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [isFocused, refreshDealAlerts]);
 
   /*
     The bar FLOATS: the bubbles stay pinned at the top while the centred

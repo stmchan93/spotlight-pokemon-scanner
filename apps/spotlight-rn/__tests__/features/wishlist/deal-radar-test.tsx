@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { Linking, StyleSheet } from 'react-native';
+import { AppState, Linking, StyleSheet } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 
@@ -205,6 +205,48 @@ describe('Watchlist deal radar', () => {
   });
 
   describe('the band', () => {
+    /*
+      A deal push opens /wishlist, usually on an app that was already running.
+      The band used to load only at mount, so a deal caught since then never
+      appeared (staging, 2026-10-02: the Vulpix push).
+    */
+    it('re-reads deals when the tab comes back into view', async () => {
+      const page: DealAlertsPage = { alerts: [], limit: 5, unseenCount: 0 };
+      const { mocks, repository } = buildRepository({ page });
+      const view = renderScreen(repository);
+      await screen.findByText('Charizard');
+      expect(screen.queryByTestId('wishlist-deal-band')).not.toBeOnTheScreen();
+
+      mockIsFocused = false;
+      view.rerender(<WishlistScreen />);
+      page.alerts = [buildDealAlert()];
+      page.unseenCount = 1;
+      mockIsFocused = true;
+      view.rerender(<WishlistScreen />);
+
+      expect(await screen.findByTestId('wishlist-deal-row-deal-1')).toBeTruthy();
+      expect(mocks.listDealAlerts).toHaveBeenCalledTimes(2);
+    });
+
+    it('re-reads deals when the app returns to the foreground on this tab', async () => {
+      // react-native's jest preset already mocks AppState; read the listeners off it.
+      const addListener = AppState.addEventListener as jest.Mock;
+      const page: DealAlertsPage = { alerts: [], limit: 5, unseenCount: 0 };
+      const { repository } = buildRepository({ page });
+      renderScreen(repository);
+      await screen.findByText('Charizard');
+
+      page.alerts = [buildDealAlert()];
+      page.unseenCount = 1;
+      act(() => {
+        addListener.mock.calls
+          .filter(([type]) => type === 'change')
+          .forEach(([, listener]) => listener('active'));
+      });
+
+      expect(await screen.findByTestId('wishlist-deal-row-deal-1')).toBeTruthy();
+    });
+
     it('renders nothing at all when there are no deals', async () => {
       const { repository } = buildRepository({ page: { alerts: [], limit: 5, unseenCount: 0 } });
       renderScreen(repository);
