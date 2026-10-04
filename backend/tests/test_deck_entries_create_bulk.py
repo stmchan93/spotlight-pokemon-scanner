@@ -8,11 +8,13 @@ savepoint so a bad entry reports ``{index, error}`` while the rest commit.
 from __future__ import annotations
 
 import contextlib
+import sqlite3
 import sys
 import tempfile
 import unittest
 from http import HTTPStatus
 from pathlib import Path
+from unittest import mock
 from unittest.mock import Mock
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +25,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from catalog_tools import apply_schema, connect, upsert_card  # noqa: E402
 from request_auth import RequestIdentity  # noqa: E402
+import server  # noqa: E402
 from server import SpotlightRequestHandler, SpotlightScanService  # noqa: E402
 
 
@@ -140,6 +143,46 @@ class DeckEntriesCreateBulkTests(unittest.TestCase):
             "SELECT card_id FROM deck_entries ORDER BY card_id"
         ).fetchall()
         self.assertEqual([row["card_id"] for row in rows], ["base-blastoise-2", "base-pikachu-58"])
+
+    def test_concurrent_writer_mid_batch_does_not_drop_entries(self) -> None:
+        # Prod 2026-10-04: another request committed between an entry's reads
+        # and its write, and SQLite failed the write instantly ("database is
+        # locked", no busy wait) — 6 of 26 tray cards silently dropped.
+        original_upsert = server.upsert_deck_entry
+        side_writes = iter(range(100))
+
+        def upsert_after_concurrent_commit(*args: object, **kwargs: object):
+            # The entry has already read (snapshot open); now someone else commits.
+            other = connect(self.database_path, timeout_seconds=0.05)
+            try:
+                other.execute(
+                    "INSERT INTO collections (id, owner_user_id, name, created_at) VALUES (?, 'user-b', 'x', '2026-10-04')",
+                    (f"collection:side-{next(side_writes)}",),
+                )
+                other.commit()
+            except sqlite3.OperationalError:
+                pass  # the bulk already holds the write lock: this writer waits its turn
+            finally:
+                other.close()
+            return original_upsert(*args, **kwargs)
+
+        patcher = mock.patch.object(server, "upsert_deck_entry", upsert_after_concurrent_commit)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        with self.service.request_identity_context(self._identity("user-a")):
+            response = self.service.create_deck_entries_bulk(
+                {
+                    "entries": [
+                        self._entry("base-pikachu-58"),
+                        self._entry("base-charizard-4"),
+                        self._entry("base-blastoise-2"),
+                        self._entry("base-pikachu-58"),
+                    ]
+                }
+            )
+
+        self.assertEqual(response["failedCount"], 0, response["results"])
+        self.assertEqual(response["createdCount"], 4)
 
     def test_bulk_is_owner_scoped_like_single_create(self) -> None:
         with self.service.request_identity_context(self._identity("user-a")):

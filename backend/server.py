@@ -19672,6 +19672,19 @@ class SpotlightScanService:
                 }
             )
 
+    def _begin_immediate_with_retry(self, attempts: int = 3) -> None:
+        """BEGIN IMMEDIATE waits busy_timeout (5s) for another writer; a long
+        sync write can outlast that, so try a few times before failing."""
+        if self.connection.in_transaction:
+            self.connection.commit()
+        for attempt in range(attempts):
+            try:
+                self.connection.execute("BEGIN IMMEDIATE")
+                return
+            except sqlite3.OperationalError as error:
+                if "locked" not in str(error) or attempt == attempts - 1:
+                    raise
+
     def create_deck_entries_bulk(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Binder-page "add all": up to DECK_ENTRY_BULK_CREATE_MAX single-create
         payloads in ONE transaction. Each entry runs the exact single-create
@@ -19689,6 +19702,12 @@ class SpotlightScanService:
 
         results: list[dict[str, Any]] = []
         created: list[dict[str, Any]] = []
+        # Take the write lock BEFORE any entry reads. Otherwise the first
+        # SAVEPOINT opens a read-only transaction, a concurrent request commits,
+        # and the entry's write fails instantly with "database is locked" (a
+        # stale WAL snapshot never waits on busy_timeout) — 6 of 26 tray cards
+        # dropped on prod 2026-10-04.
+        self._begin_immediate_with_retry()
         try:
             for index, entry in enumerate(raw_entries):
                 if not isinstance(entry, dict):
