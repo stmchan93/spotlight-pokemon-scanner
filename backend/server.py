@@ -22672,7 +22672,14 @@ class SpotlightScanService:
             (owner_user_id,),
         ).fetchone()
         fav_parts = [str(row[key]) for key in row.keys()] if row is not None else []
-        return "|".join([base, *fav_parts])
+        # Same for deck entries: the baseline backfill fills added_market_price
+        # without moving updated_at, so the disk mirror kept blank rows (prod 2026-10-06).
+        deck_baseline_row = self.connection.execute(
+            "SELECT COUNT(added_market_price) FROM deck_entries WHERE owner_user_id = ?",
+            (owner_user_id,),
+        ).fetchone()
+        deck_baseline_count = str(deck_baseline_row[0]) if deck_baseline_row is not None else "0"
+        return "|".join([base, *fav_parts, f"deb:{deck_baseline_count}"])
 
     def _deck_entries_cache_lock_for(self, cache_key: tuple[Any, ...]) -> "threading.Lock":
         with self._dashboard_cache_locks_guard:

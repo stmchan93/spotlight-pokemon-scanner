@@ -496,6 +496,25 @@ class SinceAddedBaselineTests(unittest.TestCase):
             runtime_setting(self.service.connection, ADDED_BASELINE_BACKFILL_FLAG)
         )
 
+    def test_backfill_changes_deck_entries_version_token(self) -> None:
+        # The disk-mirrored deck_entries payload is keyed by this token; a
+        # backfill that left it unchanged kept serving blank since-added rows.
+        self._insert_card("bf-tok")
+        self._seed_history("bf-tok", "2026-06-01", market=10.0)
+        upsert_deck_entry(
+            self.service.connection,
+            owner_user_id="user-a",
+            card_id="bf-tok",
+            quantity=1,
+            added_at="2026-06-07T12:00:00Z",
+        )
+        self.service.connection.commit()
+        before = self.service._deck_entries_version_token("user-a")
+
+        self.service.backfill_added_baselines()
+
+        self.assertNotEqual(self.service._deck_entries_version_token("user-a"), before)
+
     def test_backfill_pre_history_add_falls_back_to_earliest_price(self) -> None:
         self._insert_card("bf-2")
         self._seed_history("bf-2", "2026-06-01", market=10.0)
