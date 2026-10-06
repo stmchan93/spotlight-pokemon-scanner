@@ -8,6 +8,7 @@ import {
   Menu as MenuIcon,
   MessageText,
   Settings,
+  Star,
   ViewGrid,
 } from 'iconoir-react-native';
 import { useEffect, useRef, useState } from 'react';
@@ -29,6 +30,7 @@ import { fetchTotalUnreadMessageCount } from '@/features/social/dm-service';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAuth } from '@/providers/auth-provider';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
+import { openStoreReviewPage } from '@/features/review-prompt/review-prompt';
 import { useAppServices } from '@/providers/app-providers';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
@@ -383,6 +385,15 @@ export function AppDrawer() {
           <View style={styles.spacer} />
 
           <View style={styles.navSection}>
+            <DrawerNavItem
+              icon={Star}
+              label="Rate Ekalight"
+              onPress={() => {
+                closeDrawer();
+                void openStoreReviewPage();
+              }}
+              testID="app-drawer-nav-rate"
+            />
             <DrawerNavItem
               icon={MessageText}
               label="Send Feedback"

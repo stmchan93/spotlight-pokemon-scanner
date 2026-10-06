@@ -32,6 +32,11 @@ export const AnalyticsEvent = {
   // People.
   peopleSearchPerformed: 'people_search_performed',
   peopleProfileOpened: 'people_profile_opened',
+
+  // App Store review prompt.
+  reviewPromptEligible: 'review_prompt_eligible',
+  reviewPromptRequested: 'review_prompt_requested',
+  reviewStorePageOpened: 'review_store_page_opened',
 } as const;
 
 export type AnalyticsEventName = (typeof AnalyticsEvent)[keyof typeof AnalyticsEvent];

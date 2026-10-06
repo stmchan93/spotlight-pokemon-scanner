@@ -148,6 +148,7 @@ import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { prefetchImageUrls } from '@/lib/card-images';
 import { useAuth } from '@/providers/auth-provider';
 import { AnalyticsEvent, watchlistKindForCardId } from '@/lib/observability/analytics-events';
+import { maybeRequestReview, noteScanTrouble, recordGoodScan } from '@/features/review-prompt/review-prompt';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { resolveRuntimeBoolean, resolveStagingSmokeModeEnabled } from '@/lib/runtime-config';
 import { useAppServices } from '@/providers/app-providers';
@@ -1692,6 +1693,7 @@ export function ScannerScreen({
       // Blurred (a route covers the scanner): stop the session so returning
       // produces a clean isActive false→true transition.
       setIsScreenFocused(false);
+      maybeRequestReview('scanner_blur');
       setIsCameraReady(false);
       setIsCapturing(false);
     };
@@ -1716,6 +1718,7 @@ export function ScannerScreen({
       // Leaving scanner for portfolio — stop capture state.
       setIsCameraReady(false);
       setIsCapturing(false);
+      maybeRequestReview('scanner_blur');
     }
   }, [isActiveTab]);
 
@@ -2081,6 +2084,7 @@ export function ScannerScreen({
       ]);
       persistLiveTray();
     })();
+    recordGoodScan();
     capturePostHogEvent('scan_match_succeeded', buildScanMatchSuccessProperties({
       game,
       candidateCount: matchResult.candidates.length,
@@ -2157,6 +2161,7 @@ export function ScannerScreen({
     } else {
       void triggerScannerProcessedHaptic();
     }
+    noteScanTrouble();
     capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
       game,
       captureMs,
@@ -2941,6 +2946,7 @@ export function ScannerScreen({
       setIsCapturing(false);
 
       if (!photo?.uri) {
+        noteScanTrouble();
         capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
           game: scanLane.game,
           captureMs,
@@ -3234,6 +3240,7 @@ export function ScannerScreen({
             : {}),
         });
       }
+      noteScanTrouble();
       capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
         game: scanLane.game,
         captureMs: captureMsForAnalytics,
@@ -3404,6 +3411,9 @@ export function ScannerScreen({
       // top card as a miss — which is how a 7-for-7 session read as 2 errors.
       switched_back: nextIndex === 0,
     });
+    if (nextIndex !== 0) {
+      noteScanTrouble();
+    }
     // The rank alone can't be trained on. This sends the pair the analytics
     // event can't carry — which card was predicted, which the user picked — to
     // scan_events, where the confirmed labels already live.
@@ -3614,6 +3624,7 @@ export function ScannerScreen({
         mode: capture.mode,
       });
       didSucceed = true;
+      maybeRequestReview('collection_add');
       // Surface the new card at the top of the Collection instantly. Reuse the
       // REAL entry id from the create response so the background refetch
       // reconciles (dedupes) by id instead of duplicating the optimistic row.
@@ -3855,6 +3866,9 @@ export function ScannerScreen({
         succeeded,
         failed: rows.length - succeeded,
       });
+      if (succeeded > 0) {
+        maybeRequestReview('collection_add_all');
+      }
       refreshData();
     })();
   }, [
