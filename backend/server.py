@@ -219,10 +219,12 @@ from scrydex_adapter import (
 )
 from recent_sales_merge import (
     SHOWN_VERIFICATION_TIERS,
+    local_price_outliers,
     merge_ppt_sold_listings,
     ppt_only_rows_for_grade,
     sale_sort_date,
     sale_verification,
+    title_conflicts_with_card,
 )
 from ppt_adapter import (
     ebay_item_id_from_url,
@@ -648,6 +650,7 @@ def _filter_recent_sales_rows(
     *,
     variant_key: str | None,
     limit: int,
+    card: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Serve-time cleanup of cached Scrydex listings rows.
 
@@ -660,6 +663,8 @@ def _filter_recent_sales_rows(
       - drop rows flagged is_signed / is_error / is_perfect in the payload
       - when a variant is requested, keep rows whose variant matches it
         (rows with NO variant tag pass — dropping unknowns would empty lists)
+      - drop rows whose title names another printing (reprint line, non-holo)
+      - drop rows far from the sales sold around them (local_price_outliers)
       - re-cap to `limit` after filtering
     """
     if cached is None:
@@ -681,9 +686,15 @@ def _filter_recent_sales_rows(
         # PPT-only rows are cached whole but served only once verified.
         if sale_verification(sale) not in SHOWN_VERIFICATION_TIERS:
             continue
+        # Scrydex mixes in other printings too (Celebrations Charizard under
+        # Base Set 4/102), so the title check covers every source.
+        if card is not None and title_conflicts_with_card(sale.get("title"), card):
+            continue
         kept.append(sale)
-        if len(kept) >= limit:
-            break
+    # Price check runs on the whole clean list (before the cap) so each sale is
+    # judged against the sales sold around it.
+    outliers = local_price_outliers(kept)
+    kept = [sale for index, sale in enumerate(kept) if index not in outliers][:limit]
     filtered = dict(cached)
     filtered["sales"] = kept
     filtered["resultCount"] = len(kept)
@@ -691,7 +702,7 @@ def _filter_recent_sales_rows(
 
 
 def _recent_sales_average(sale_rows: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Mean of the newest USD sales (3 if there are 3, else 2, else 1) that
+    """Median of the newest USD sales (3 if there are 3, else 2, else 1) that
     fall inside RECENT_SALES_AVERAGE_MAX_AGE_DAYS. None when nothing recent
     exists so the caller falls back to the provider's graded price."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=RECENT_SALES_AVERAGE_MAX_AGE_DAYS)
@@ -710,8 +721,13 @@ def _recent_sales_average(sale_rows: list[dict[str, Any]]) -> dict[str, Any] | N
     sample = priced[:RECENT_SALES_AVERAGE_SAMPLE]
     if not sample:
         return None
+    # Median, not mean: one mismatched sale that slips the filters can't
+    # swing it (a $199.99 among ~$3,900 sales took the mean to $2,667).
+    amounts = sorted(amount for _, amount in sample)
+    middle = len(amounts) // 2
+    median = amounts[middle] if len(amounts) % 2 else (amounts[middle - 1] + amounts[middle]) / 2
     return {
-        "amount": round(sum(amount for _, amount in sample) / len(sample), 2),
+        "amount": round(median, 2),
         "currencyCode": "USD",
         "sampleSize": len(sample),
         "windowDays": RECENT_SALES_AVERAGE_MAX_AGE_DAYS,
@@ -17979,7 +17995,7 @@ class SpotlightScanService:
             limit=RECENT_SALES_MAX_LIMIT,
         )
         cached_payload = _recent_sales_payload(
-            _filter_recent_sales_rows(cached, variant_key=requested_variant, limit=normalized_limit),
+            _filter_recent_sales_rows(cached, variant_key=requested_variant, limit=normalized_limit, card=card),
             source=normalized_source,
             grader=normalized_grader,
             grade=normalized_grade,
@@ -18027,7 +18043,7 @@ class SpotlightScanService:
         )
         self.connection.commit()
         return _recent_sales_payload(
-            _filter_recent_sales_rows(cached, variant_key=requested_variant, limit=normalized_limit),
+            _filter_recent_sales_rows(cached, variant_key=requested_variant, limit=normalized_limit, card=card),
             source=normalized_source,
             grader=normalized_grader,
             grade=normalized_grade,

@@ -428,6 +428,78 @@ def _demote_price_outliers(sales: list[dict[str, Any]]) -> int:
     return demoted
 
 
+# Reprint lines that reuse an older card's name + number ("Celebrations Classic
+# Collection #4 Charizard" vs Base Set 4/102). A title naming one of these is a
+# different card unless the card's own set is that line.
+_REPRINT_LINE_TOKENS = (
+    "celebrations", "classic collection", "evolutions", "base set 2", "legendary collection",
+)
+# Time-local price check: a served sale far from the sales sold around it is a
+# mismatched listing (a $199.99 "Moonbreon PSA 10" among ~$3,900 sales), while a
+# card that climbed over the year keeps its honest older sales.
+LOCAL_OUTLIER_NEIGHBORS = 10
+LOCAL_OUTLIER_WINDOW_DAYS = 60
+LOCAL_OUTLIER_FLOOR = 0.25
+LOCAL_OUTLIER_CEILING = 4.0
+
+
+def title_conflicts_with_card(title: object, card: dict[str, Any]) -> bool:
+    """True when the listing title names a different printing than the card:
+    a reprint line the card isn't from, or "non holo" on a holo card. Applies
+    to every source, Scrydex included. No year check: PSA label years and
+    catalog release dates disagree (Pop Series 1 is 2004 vs "2006" labels)."""
+    text = _fold(clean_ppt_title(title))
+    if not text:
+        return False
+    set_text = _fold(card.get("set_name") or card.get("setName"))
+    padded = f" {text} "
+    for token in _REPRINT_LINE_TOKENS:
+        if f" {token} " in padded and token not in set_text:
+            return True
+    rarity = _fold(card.get("rarity"))
+    if "holo" in rarity and "non holo" in text:
+        return True
+    return False
+
+
+def local_price_outliers(sales: list[dict[str, Any]]) -> set[int]:
+    """Indexes of sales priced under LOCAL_OUTLIER_FLOOR or over
+    LOCAL_OUTLIER_CEILING times the median of the LOCAL_OUTLIER_NEIGHBORS
+    sales closest in time within LOCAL_OUTLIER_WINDOW_DAYS. A sale with fewer
+    than OUTLIER_MIN_SAMPLE such neighbors is not judged (sparse lists keep
+    their history)."""
+    priced: list[tuple[int, datetime, float]] = []
+    for index, sale in enumerate(sales):
+        try:
+            price = float(sale.get("price")) if sale.get("price") is not None else None
+        except (TypeError, ValueError):
+            price = None
+        if price is None or price <= 0:
+            continue
+        priced.append((index, sale_sort_date(sale.get("soldAt") or sale.get("sold_at")), price))
+    if len(priced) <= OUTLIER_MIN_SAMPLE:
+        return set()
+    outliers: set[int] = set()
+    for index, sold_at, price in priced:
+        window = LOCAL_OUTLIER_WINDOW_DAYS * 86400
+        neighbors = sorted(
+            (
+                other
+                for other in priced
+                if other[0] != index and abs((other[1] - sold_at).total_seconds()) <= window
+            ),
+            key=lambda other: abs((other[1] - sold_at).total_seconds()),
+        )[:LOCAL_OUTLIER_NEIGHBORS]
+        if len(neighbors) < OUTLIER_MIN_SAMPLE:
+            continue
+        prices = sorted(other[2] for other in neighbors)
+        middle = len(prices) // 2
+        median = prices[middle] if len(prices) % 2 else (prices[middle - 1] + prices[middle]) / 2
+        if price < median * LOCAL_OUTLIER_FLOOR or price > median * LOCAL_OUTLIER_CEILING:
+            outliers.add(index)
+    return outliers
+
+
 def sale_verification(sale: dict[str, Any]) -> str:
     payload = sale.get("sourcePayload")
     spotlight = payload.get("_spotlight") if isinstance(payload, dict) else None

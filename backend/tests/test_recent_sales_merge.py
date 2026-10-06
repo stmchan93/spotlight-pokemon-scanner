@@ -18,7 +18,9 @@ from recent_sales_merge import (  # noqa: E402
     merge_ppt_sold_listings,
     ppt_only_rows_for_grade,
     ppt_row_to_sale,
+    local_price_outliers,
     sale_verification,
+    title_conflicts_with_card,
     verify_aspects,
     verify_title,
 )
@@ -36,6 +38,14 @@ CHARIZARD_CLASSIC = {
     "number": "003/034",
     "set_name": "Pokémon TCG Classic - Charizard",
     "language": "English",
+}
+BASE_CHARIZARD = {
+    "id": "base1-4", "name": "Charizard", "number": "4/102", "set_name": "Base",
+    "set_release_date": "1999/01/09", "rarity": "Rare Holo", "language": "English",
+}
+MOONBREON = {
+    "id": "swsh7-215", "name": "Umbreon VMAX", "number": "215/203", "set_name": "Evolving Skies",
+    "set_release_date": "2021/08/27", "rarity": "Rare Rainbow", "language": "English",
 }
 MEW_PROMO = {"id": "basep-8", "name": "Mew", "number": "8", "set_name": "Wizards Black Star Promos", "language": "English"}
 
@@ -392,6 +402,62 @@ class ServeTimeTests(unittest.TestCase):
         payload = server._recent_sales_payload(self._cached(rows), source="ebay", grader="CGC", grade="9.5")
         self.assertIsNone(payload["recentAverage"])
         self.assertEqual(payload["saleCount"], 2)
+
+    def test_title_conflict_catches_other_printings_of_the_same_name_and_number(self):
+        for title in (
+            "2021 POKEMON CELEBRATIONS ULTRA-PREMIUM COLLECTION #4 CHARIZARD PSA 9",
+            "CHARIZARD 2021 POKEMON CELEBRATIONS CLASSIC BASE SET 4/102 RARE HOLO PSA 9",
+            "Charizard 4/102 Base Set NON HOLO PSA 9",
+        ):
+            self.assertTrue(title_conflicts_with_card(title, BASE_CHARIZARD), title)
+        for title in (
+            "1999 POKEMON BASE SET UNLIMITED #4 CHARIZARD-HOLO PSA 9",
+            "2006 Pokemon Base Set Charizard 4/102 PSA 9",  # label years don't match catalog dates
+            "Charizard 4/102 Base Set Holo PSA 9",  # no year at all
+        ):
+            self.assertFalse(title_conflicts_with_card(title, BASE_CHARIZARD), title)
+        # A Celebrations card's own sales are not a conflict.
+        venusaur = {"set_name": "Celebrations: Classic Collection", "set_release_date": "2021/10/08"}
+        self.assertFalse(title_conflicts_with_card("2021 Celebrations Classic Collection Venusaur PSA 9", venusaur))
+
+    def test_local_outliers_flag_a_mismatch_but_keep_a_rising_cards_old_sales(self):
+        moonbreon = [{"soldAt": "2026/10/05", "price": 199.99}] + [
+            {"soldAt": f"2026/10/0{day}", "price": price}
+            for day, price in ((5, 4050.0), (4, 3750.0), (4, 3938.0), (3, 3900.0), (2, 3650.0), (1, 3850.0))
+        ]
+        self.assertEqual(local_price_outliers(moonbreon), {0})
+        # Steady climb from $150 to $1,500 over a year: nothing is an outlier.
+        rising = [
+            {"soldAt": f"2025/{month:02d}/15", "price": 150.0 * month}
+            for month in range(1, 11)
+        ]
+        self.assertEqual(local_price_outliers(rising), set())
+        # Too few sales to judge.
+        self.assertEqual(local_price_outliers(moonbreon[:4]), set())
+
+    def test_filter_drops_title_conflicts_and_local_outliers_before_capping(self):
+        sales = [
+            {"soldAt": "2026/10/05", "price": 199.99, "title": "Umbreon VMAX 215/203 PSA 10", "sourcePayload": {}},
+            {"soldAt": "2026/10/05", "price": 4050.0, "title": "Moonbreon 215/203 PSA 10", "sourcePayload": {}},
+            {"soldAt": "2026/10/04", "price": 3750.0, "title": "Umbreon VMAX 215/203 PSA 10", "sourcePayload": {}},
+            {"soldAt": "2026/10/04", "price": 3938.0, "title": "2021 Evolving Skies Umbreon VMAX PSA 10", "sourcePayload": {}},
+            {"soldAt": "2026/10/03", "price": 3900.0, "title": "Umbreon VMAX 215/203 PSA 10", "sourcePayload": {}},
+            {"soldAt": "2026/10/02", "price": 3650.0, "title": "Umbreon VMAX 215/203 PSA 10", "sourcePayload": {}},
+            {"soldAt": "2026/10/01", "price": 3850.0, "title": "Umbreon VMAX 215/203 PSA 10", "sourcePayload": {}},
+            {"soldAt": "2026/10/01", "price": 900.0, "title": "2023 Umbreon VMAX 215/203 PSA 10", "sourcePayload": {}},
+        ]
+        filtered = server._filter_recent_sales_rows(
+            self._cached(sales), variant_key=None, limit=3, card=MOONBREON
+        )
+        self.assertEqual([s["price"] for s in filtered["sales"]], [4050.0, 3750.0, 3938.0])
+
+    def test_recent_average_is_the_median_so_one_bad_sale_cannot_swing_it(self):
+        rows = [
+            {"soldAt": _days_ago(1), "price": 199.99, "currencyCode": "USD"},
+            {"soldAt": _days_ago(1), "price": 4050.0, "currencyCode": "USD"},
+            {"soldAt": _days_ago(2), "price": 3750.0, "currencyCode": "USD"},
+        ]
+        self.assertEqual(server._recent_sales_average(rows)["amount"], 3750.0)
 
 
 if __name__ == "__main__":
