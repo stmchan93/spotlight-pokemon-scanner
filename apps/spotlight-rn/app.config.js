@@ -273,6 +273,8 @@ function withPlugin(existingPlugins, pluginEntry) {
 // native changes, so both runtimes moved on: 0.1.2 -> 0.1.3 (app.json, staging)
 // and 1.2.0 -> 1.3.0 (production). OTAs from here on reach only binaries built
 // with them; older binaries keep their last compatible update.
+// 2026-10-06: expo-store-review (review prompt) moved staging 0.1.3 -> 0.1.4.
+// Production stays 1.3.0 until its next native build.
 const SPOTLIGHT_RUNTIME_VERSION_BY_ENV = {
   production: '1.3.0',
 };
