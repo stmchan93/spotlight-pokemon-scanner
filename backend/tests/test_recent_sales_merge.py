@@ -459,6 +459,53 @@ class ServeTimeTests(unittest.TestCase):
         ]
         self.assertEqual(server._recent_sales_average(rows)["amount"], 3750.0)
 
+    def test_recent_average_takes_whole_days_so_same_day_order_does_not_matter(self):
+        day1, day2 = _days_ago(1), _days_ago(2)
+        rows = [
+            {"soldAt": day1, "price": 4050.0, "currencyCode": "USD"},
+            {"soldAt": day2, "price": 3750.0, "currencyCode": "USD"},
+            {"soldAt": day2, "price": 3938.0, "currencyCode": "USD"},
+            {"soldAt": day2, "price": 4100.0, "currencyCode": "USD"},
+            {"soldAt": day2, "price": 4583.52, "currencyCode": "USD"},
+            {"soldAt": _days_ago(3), "price": 9999.0, "currencyCode": "USD"},
+        ]
+        avg = server._recent_sales_average(rows)
+        self.assertEqual((avg["amount"], avg["sampleSize"]), (4050.0, 5))
+        self.assertEqual(server._recent_sales_average(list(reversed(rows)))["amount"], 4050.0)
+
+    def test_filter_average_ignores_the_page_cap(self):
+        rows = [
+            {"soldAt": _days_ago(1), "price": 100.0, "currencyCode": "USD", "sourcePayload": {}},
+            {"soldAt": _days_ago(1), "price": 110.0, "currencyCode": "USD", "sourcePayload": {}},
+            {"soldAt": _days_ago(1), "price": 120.0, "currencyCode": "USD", "sourcePayload": {}},
+        ]
+        capped = server._filter_recent_sales_rows(self._cached(rows), variant_key=None, limit=1)
+        payload = server._recent_sales_payload(capped, source="ebay", grader="PSA", grade="10")
+        self.assertEqual(payload["saleCount"], 1)
+        self.assertEqual((payload["recentAverage"]["amount"], payload["recentAverage"]["sampleSize"]), (110.0, 3))
+
+
+class GradedTrendOverlayTests(unittest.TestCase):
+    def test_graded_row_shows_the_cached_recent_sales_figure(self):
+        from unittest import mock
+        service = server.SpotlightScanService.__new__(server.SpotlightScanService)
+        service._thread_local = type("T", (), {})()
+        service._thread_local.connection = object()
+        trend_list = {"mode": "psa", "rows": [
+            {"key": "PSA 10", "currentPrice": 3850.0, "currencyCode": "USD"},
+            {"key": "PSA 9", "currentPrice": 2300.0, "currencyCode": "USD"},
+        ]}
+        sales = [
+            {"soldAt": _days_ago(1), "price": p, "currencyCode": "USD", "title": "Umbreon VMAX 215/203 PSA 10", "sourcePayload": {}}
+            for p in (4050.0, 3750.0, 3938.0)
+        ]
+        def fake_cache(_conn, *, card_id, grader, grade, source, limit):
+            return {"sales": sales, "status": "available"} if grade == "10" else None
+        with mock.patch.object(server, "card_by_id", return_value=MOONBREON), \
+             mock.patch.object(server, "slab_recent_sales_cache", side_effect=fake_cache):
+            result = service._apply_recent_sales_average_to_graded_trend_rows("swsh7-215", trend_list, variant=None)
+        self.assertEqual([r["currentPrice"] for r in result["rows"]], [3938.0, 2300.0])
+
 
 if __name__ == "__main__":
     unittest.main()

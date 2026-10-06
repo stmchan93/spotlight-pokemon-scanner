@@ -580,7 +580,7 @@ RECENT_SALES_EMPTY_REFRESH_HOURS = 48
 # of those rows to look up per refresh (free calls, but ~200ms each).
 RECENT_SALES_PPT_LOOKUP_DAYS = 90
 RECENT_SALES_PPT_LOOKUP_CAP = 40
-# "Recent average" headline: newest 3 (or 2, or 1) verified USD sales no older
+# "Recent average" headline: newest 3+ (whole days; or 2, or 1) verified USD sales no older
 # than this. Older sales stay listed but never become a price.
 RECENT_SALES_AVERAGE_SAMPLE = 3
 RECENT_SALES_AVERAGE_MAX_AGE_DAYS = 180
@@ -694,16 +694,21 @@ def _filter_recent_sales_rows(
     # Price check runs on the whole clean list (before the cap) so each sale is
     # judged against the sales sold around it.
     outliers = local_price_outliers(kept)
-    kept = [sale for index, sale in enumerate(kept) if index not in outliers][:limit]
+    kept = [sale for index, sale in enumerate(kept) if index not in outliers]
     filtered = dict(cached)
+    # From the whole clean list, not the capped page, so the PDP's price row and
+    # the expanded panel agree whatever `limit` each asked for.
+    filtered["recentAverage"] = _recent_sales_average(kept)
+    kept = kept[:limit]
     filtered["sales"] = kept
     filtered["resultCount"] = len(kept)
     return filtered
 
 
 def _recent_sales_average(sale_rows: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Median of the newest USD sales (3 if there are 3, else 2, else 1) that
-    fall inside RECENT_SALES_AVERAGE_MAX_AGE_DAYS. None when nothing recent
+    """Median of the newest USD sales (every sale on the newest dates until
+    there are at least 3, else 2, else 1) that fall inside
+    RECENT_SALES_AVERAGE_MAX_AGE_DAYS. None when nothing recent
     exists so the caller falls back to the provider's graded price."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=RECENT_SALES_AVERAGE_MAX_AGE_DAYS)
     priced: list[tuple[datetime, float]] = []
@@ -718,9 +723,16 @@ def _recent_sales_average(sale_rows: list[dict[str, Any]]) -> dict[str, Any] | N
             continue
         priced.append((sold_at, amount))
     priced.sort(key=lambda item: item[0], reverse=True)
-    sample = priced[:RECENT_SALES_AVERAGE_SAMPLE]
-    if not sample:
+    if not priced:
         return None
+    # Sales carry a date, not a time, so "newest 3" is ambiguous inside a busy
+    # day and the app orders same-day rows differently than this list. Take
+    # whole days instead: every sale on the newest dates until there are 3.
+    sample: list[tuple[datetime, float]] = []
+    for sold_at, amount in priced:
+        if len(sample) >= RECENT_SALES_AVERAGE_SAMPLE and sold_at != sample[-1][0]:
+            break
+        sample.append((sold_at, amount))
     # Median, not mean: one mismatched sale that slips the filters can't
     # swing it (a $199.99 among ~$3,900 sales took the mean to $2,667).
     amounts = sorted(amount for _, amount in sample)
@@ -773,7 +785,7 @@ def _recent_sales_payload(
     sale_rows = list(cached.get("sales") or [])
     unavailable = status != "available"
     return {
-        "recentAverage": _recent_sales_average(sale_rows),
+        "recentAverage": cached["recentAverage"] if "recentAverage" in cached else _recent_sales_average(sale_rows),
         "source": str(cached.get("source") or source).strip().lower() or source,
         "grader": str(cached.get("grader") or grader).strip().upper() or grader,
         "grade": str(cached.get("grade") or grade).strip().upper() or grade,
@@ -8082,7 +8094,53 @@ class SpotlightScanService:
             converted = self._apply_main_condition_rules_to_raw_trend_rows(
                 card_id, converted, requested_variant=variant
             )
+        else:
+            converted = self._apply_recent_sales_average_to_graded_trend_rows(
+                card_id, converted, variant=variant
+            )
         return converted
+
+    def _apply_recent_sales_average_to_graded_trend_rows(
+        self,
+        card_id: str,
+        trend_list: dict[str, Any] | None,
+        *,
+        variant: str | None,
+    ) -> dict[str, Any] | None:
+        """A graded row whose sold comps are already cached shows the same
+        recent-sales figure the expanded panel shows, from the first paint —
+        otherwise the price jumped from the provider's number to the average
+        the moment the row was opened. Cache read only; never fetches."""
+        if not isinstance(trend_list, dict) or not isinstance(trend_list.get("rows"), list):
+            return trend_list
+        card = card_by_id(self.connection, card_id)
+        rows: list[Any] = []
+        changed = False
+        for row in trend_list["rows"]:
+            parts = str(row.get("key") or "").replace("|", " ").split() if isinstance(row, dict) else []
+            if len(parts) < 2:
+                rows.append(row)
+                continue
+            cached = slab_recent_sales_cache(
+                self.connection,
+                card_id=card_id,
+                grader=parts[0].upper(),
+                grade=parts[1].upper(),
+                source="ebay",
+                limit=RECENT_SALES_MAX_LIMIT,
+            )
+            filtered = _filter_recent_sales_rows(
+                cached, variant_key=variant, limit=RECENT_SALES_MAX_LIMIT, card=card
+            )
+            average = (filtered or {}).get("recentAverage")
+            if not average:
+                rows.append(row)
+                continue
+            rows.append({**row, "currentPrice": average["amount"], "currencyCode": average["currencyCode"]})
+            changed = True
+        if not changed:
+            return trend_list
+        return {**trend_list, "rows": rows}
 
     def _apply_main_condition_rules_to_raw_trend_rows(
         self,
