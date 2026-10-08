@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
-import { SpotlightThemeProvider, cardGridRule } from '@spotlight/design-system';
+import { SpotlightThemeProvider, cardGrid } from '@spotlight/design-system';
 import type { InventoryCardEntry } from '@spotlight/api-client';
 
 import { CollectionMasonryGrid } from '@/features/portfolio/components/collection-masonry-grid';
@@ -50,7 +50,7 @@ describe('CollectionMasonryGrid', () => {
     makeEntry({ id: 'd' }),
   ];
 
-  it('renders ruled rows with their testIDs', () => {
+  it('renders rows with their testIDs', () => {
     renderGrid(entries);
 
     expect(screen.getByTestId('collection-masonry-grid')).toBeTruthy();
@@ -60,72 +60,38 @@ describe('CollectionMasonryGrid', () => {
     expect(screen.queryByTestId('collection-masonry-grid-row-2')).toBeNull();
   });
 
-  // An odd card count leaves the last row half-full. The centre rule used to be
-  // drawn only when the second cell HAD a card, so that row lost its divider and
-  // the grid's centre line visibly broke on the final row.
-  it('keeps the centre divider on a half-full last row', () => {
-    renderGrid([...entries, makeEntry({ id: 'e' })]);
-
-    const lastRow = screen.getByTestId('collection-masonry-grid-row-2');
-    const dividers = lastRow.props.children
-      .filter(Boolean)
-      .map((cell: { props?: { style?: unknown } }) => StyleSheet.flatten(cell?.props?.style))
-      .filter((style: { borderLeftWidth?: number } | undefined) => (style?.borderLeftWidth ?? 0) > 0);
-
-    // The second cell rules against the first, empty or not.
-    expect(dividers).toHaveLength(1);
-  });
-
-  function ruleOf(rowIndex: number) {
+  function rowStyle(rowIndex: number) {
     return StyleSheet.flatten(
       screen.getByTestId(`collection-masonry-grid-row-${rowIndex}`).props.style,
-    ) as { borderTopWidth?: number; borderBottomWidth?: number };
+    ) as { borderTopWidth?: number; paddingBottom?: number; paddingTop?: number };
   }
 
-  /*
-    Figma 3670:47296 hangs the `cardGridRule` hairline off the TOP of every card, not the
-    bottom of every row — which is what stops an interior boundary being drawn
-    twice, once by the row above and once by the row below.
-
-    INTERIOR rows therefore have no bottom rule. The LAST one does, because
-    there is no next row to draw that edge; see the next test for why the grid
-    has to close at all.
-  */
-  it('rules interior rows on top only, so no boundary is drawn twice', () => {
-    renderGrid(entries);
-
-    expect(ruleOf(0).borderTopWidth).toBe(cardGridRule.width);
-    expect(ruleOf(0).borderBottomWidth ?? 0).toBe(0);
-    expect(ruleOf(1).borderTopWidth).toBe(cardGridRule.width);
-  });
-
-  /*
-    THE REPORTED BUG. A wishlist of three cards leaves the last row half-full,
-    and the centre divider is drawn there whether or not the second cell has a
-    card (see the test above — skipping it broke the grid's centre line). With
-    no closing rule that vertical hairline ran down beside blank space and
-    terminated in mid-air, so the grid looked torn off rather than finished.
-
-    The card component in Figma cannot specify this: a card knows its own
-    strokes, not whether it is the last one on the screen.
-  */
-  it('closes the grid under the final row', () => {
+  // Figma 5722:21021: tiles separated by gray-50 gaps, no hairlines. Each row
+  // paints its top gap; only the last row also paints the bottom one, so no
+  // boundary gets a double gap.
+  it('separates rows with gaps instead of rules', () => {
     renderGrid([...entries, makeEntry({ id: 'e' })]);
 
-    expect(screen.getByTestId('collection-masonry-grid-row-2')).toBeTruthy();
-    expect(ruleOf(2).borderBottomWidth).toBe(cardGridRule.width);
-    // …and only the final row. An interior bottom rule would double up with the
-    // next row's top rule, which is the bug the top-only scheme exists to fix.
-    expect(ruleOf(0).borderBottomWidth ?? 0).toBe(0);
-    expect(ruleOf(1).borderBottomWidth ?? 0).toBe(0);
+    for (const rowIndex of [0, 1, 2]) {
+      expect(rowStyle(rowIndex).paddingTop).toBe(cardGrid.gap);
+      expect(rowStyle(rowIndex).borderTopWidth ?? 0).toBe(0);
+    }
+    expect(rowStyle(0).paddingBottom ?? 0).toBe(0);
+    expect(rowStyle(2).paddingBottom).toBe(cardGrid.gap);
   });
 
-  // A single full row is both the first and the last, so it carries both rules.
-  it('closes a grid that is only one row tall', () => {
-    renderGrid([makeEntry({ id: 'a' }), makeEntry({ id: 'b' })]);
+  // An odd count leaves the last row half-full; the empty cell must stay page
+  // background rather than drawing a blank white tile.
+  it('leaves the empty cell of a half-full row unfilled', () => {
+    renderGrid([...entries, makeEntry({ id: 'e' })]);
 
-    expect(ruleOf(0).borderTopWidth).toBe(cardGridRule.width);
-    expect(ruleOf(0).borderBottomWidth).toBe(cardGridRule.width);
+    const fills = screen
+      .getByTestId('collection-masonry-grid-row-2')
+      .props.children.filter(Boolean)
+      .map((cell: { props?: { style?: unknown } }) =>
+        (StyleSheet.flatten(cell?.props?.style) as { backgroundColor?: string } | undefined)?.backgroundColor);
+
+    expect(fills).toEqual([cardGrid.tileFill, undefined]);
   });
 
   it('renders a tile testID for every entry', () => {

@@ -5,7 +5,7 @@ import { Text } from './scaled-text';
 import { useSpotlightTheme } from '../theme';
 import { radii, spacing } from '../tokens';
 
-export type PillButtonTone = 'default' | 'filter' | 'soft' | 'option';
+export type PillButtonTone = 'default' | 'filter' | 'filled' | 'soft' | 'option';
 
 type PillButtonProps = {
   label: string;
@@ -25,6 +25,9 @@ type PillButtonProps = {
    * filter modal etc. 'filter' is the chip used in the Collection / Sales chip
    * rows: a white pill when inactive and a solid black (gray900) pill with a
    * white label when selected (Figma — selected chips read black, not purple).
+   * 'filled' is the borderless 'filter' chip (Figma 5722:21551): gray-100 fill
+   * when inactive, the same black pill when selected. Collection / Insights /
+   * Wishlist chip rows.
    * 'soft' is the borderless gray-50 chip used inside empty states (Figma
    * "Scan to add", 3370:4175) — a low-emphasis suggestion, not a toggle, so it
    * ignores `selected`.
@@ -48,7 +51,9 @@ export function PillButton({
 }: PillButtonProps) {
   const theme = useSpotlightTheme();
 
-  const containerStyle = tone === 'filter'
+  const isFilterChip = tone === 'filter' || tone === 'filled';
+
+  const containerStyle = isFilterChip
     ? styles.filterContainer
     : tone === 'soft'
       ? styles.softContainer
@@ -56,7 +61,7 @@ export function PillButton({
         ? styles.optionContainer
         : styles.container;
 
-  const labelStyle = tone === 'filter'
+  const labelStyle = isFilterChip
     ? theme.typography.label
     : tone === 'soft'
       ? theme.typography.bodyMedium
@@ -66,6 +71,8 @@ export function PillButton({
 
   const backgroundColor = tone === 'filter'
     ? (selected ? theme.colors.gray900 : theme.colors.gray0)
+    : tone === 'filled'
+      ? (selected ? theme.colors.gray900 : theme.colors.gray100)
     : tone === 'soft'
       ? theme.colors.gray50
       : tone === 'option'
@@ -74,13 +81,15 @@ export function PillButton({
 
   const borderColor = tone === 'filter'
     ? (selected ? theme.colors.gray900 : theme.colors.gray300)
+    : tone === 'filled'
+      ? (selected ? theme.colors.gray900 : theme.colors.gray100)
     : tone === 'soft'
       ? 'transparent'
       : tone === 'option'
         ? (selected ? theme.colors.purple500 : theme.colors.gray50)
         : (selected ? theme.colors.brand : theme.colors.outlineSubtle);
 
-  const labelColor = tone === 'filter'
+  const labelColor = isFilterChip
     ? (selected ? theme.colors.gray0 : theme.colors.gray900)
     : tone === 'soft'
       ? theme.colors.gray900

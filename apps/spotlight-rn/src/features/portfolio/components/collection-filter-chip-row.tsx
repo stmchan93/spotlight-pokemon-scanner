@@ -120,7 +120,7 @@ export function CollectionFilterChipRow({
             onPress={() => onFilterChange(key)}
             selected={activeFilter === key}
             testID={`${testID}-${key}`}
-            tone="filter"
+            tone="filled"
           />
         ))}
       </View>

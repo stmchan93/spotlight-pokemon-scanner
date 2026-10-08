@@ -341,7 +341,7 @@ export function InsightsScreen() {
                 shape="rounded"
                 size={40}
                 testID="insights-sort-button"
-                variant="outlined"
+                variant="filled"
               >
                 <Filter color={colors.gray600} height={18} width={18} />
               </IconButton>

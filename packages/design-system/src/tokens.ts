@@ -212,18 +212,15 @@ export const borderWidths = {
 } as const;
 
 /**
- * The rule between cells of a CARD-VIEW GRID.
- *
- * Collection and Wishlist draw the SAME grid of the same tile, so they draw the
- * same line — and for a while they did not: Collection ruled it gray/400 at
- * 0.5, Wishlist gray/100 at 1, while the frames (card 4886:5770, and the chip
- * outline it is meant to sit beside, 1874:21747) both call for gray/300 at 1.
- * One definition, so the next surface that grows a card grid cannot invent a
- * fourth.
+ * CARD-VIEW GRID (Collection, Wishlist, public profile): white tiles on a
+ * gray-50 page, separated by gaps instead of hairlines (Figma 5722:21021).
+ * One definition so every surface with a card grid draws the same one.
  */
-export const cardGridRule = {
-  color: colors.gray300,
-  width: borderWidths.containerRule,
+export const cardGrid = {
+  background: colors.gray50,
+  gap: 4,
+  tileFill: colors.gray0,
+  tileRadius: 4,
 } as const;
 
 export const layout = {

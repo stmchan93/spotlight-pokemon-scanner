@@ -17,7 +17,7 @@ type CollectionSearchRowProps = {
   onFocus?: TextInputProps['onFocus'];
   /**
    * "Search Card" action — opens the card-catalog search dialog. Rendered as the
-   * bordered button to the right of the collection search input (Figma
+   * filled button to the right of the collection search input (Figma
    * 2724:1722). Replaces the old floating bottom-right catalog-search FAB.
    */
   onSearchCard?: () => void;
@@ -114,7 +114,7 @@ export function CollectionSearchRow({
             shape="rounded"
             size={40}
             testID={`${testID}-view-toggle`}
-            variant="outlined"
+            variant="filled"
           >
             <ToggleIcon color={colors.gray900} height={16} width={16} />
           </IconButton>
@@ -126,7 +126,7 @@ export function CollectionSearchRow({
             shape="rounded"
             size={40}
             testID={`${testID}-search-card`}
-            variant="outlined"
+            variant="filled"
           >
             <SearchIcon color={colors.gray900} height={16} width={16} />
           </IconButton>

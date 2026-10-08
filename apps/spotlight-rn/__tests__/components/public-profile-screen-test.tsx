@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import type { InventoryCardEntry } from '@spotlight/api-client';
-import { cardGridRule } from '@spotlight/design-system';
+import { cardGrid } from '@spotlight/design-system';
 
 import type { UserProfile } from '@/features/auth/auth-models';
 import {
@@ -312,14 +312,9 @@ describe('PublicProfileScreen', () => {
     });
 
     /*
-      THE GRID HAS TO CLOSE — reported from a three-card wishlist.
-
-      This screen chunks its own rows rather than using `CollectionMasonryGrid`,
-      so that component's coverage does not reach it. With an odd count the last
-      row is half-full, and its centre divider is drawn whether or not the second
-      cell holds a card; with no closing rule that hairline ran down beside blank
-      space and ended in mid-air, so the grid read as torn off rather than
-      finished.
+      THE GRID HAS TO CLOSE. This screen chunks its own rows rather than using
+      `CollectionMasonryGrid`, so that component's coverage does not reach it.
+      With an odd count the last row is half-full and must still end on a gap.
     */
     it('closes the wishlist grid under its final row', async () => {
       renderPublicProfile(
@@ -339,17 +334,15 @@ describe('PublicProfileScreen', () => {
         expect(screen.getByTestId('public-profile-wishlist-grid-tile-want-3')).toBeTruthy(),
       );
 
-      const rule = (rowIndex: number) =>
+      const rowStyle = (rowIndex: number) =>
         StyleSheet.flatten(
           screen.getByTestId(`public-profile-wishlist-grid-row-${rowIndex}`).props.style,
-        ) as { borderTopWidth?: number; borderBottomWidth?: number };
+        ) as { paddingBottom?: number; paddingTop?: number };
 
-      // Three cards → two rows, the second holding one card and one empty cell.
-      expect(rule(1).borderBottomWidth).toBe(cardGridRule.width);
-      // Still no doubled interior boundary — that is what the top-only scheme
-      // exists to prevent.
-      expect(rule(0).borderBottomWidth ?? 0).toBe(0);
-      expect(rule(0).borderTopWidth).toBe(cardGridRule.width);
+      // Three cards → two rows; the last one closes the grid with a bottom gap.
+      expect(rowStyle(1).paddingBottom).toBe(cardGrid.gap);
+      expect(rowStyle(0).paddingBottom ?? 0).toBe(0);
+      expect(rowStyle(0).paddingTop).toBe(cardGrid.gap);
     });
 
     it('does not refetch when the tab is re-selected', async () => {

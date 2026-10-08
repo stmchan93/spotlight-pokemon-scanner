@@ -1,6 +1,6 @@
 import { Linking, StyleSheet, View } from 'react-native';
 
-import { InventoryCardTile, cardGridRule } from '@spotlight/design-system';
+import { InventoryCardTile, cardGrid } from '@spotlight/design-system';
 import type { InventoryCardEntry } from '@spotlight/api-client';
 
 import { getCardImageUrl } from '@/lib/card-images';
@@ -44,12 +44,9 @@ export function chunkCollectionGridRows(entries: InventoryCardEntry[]): Inventor
 }
 
 /**
- * Collection "card view" grid (Figma node 3670:47296 "Card Container"): two
- * fixed columns of plain tiles. The grid is full-bleed — no horizontal page
- * gutter and no inter-cell gaps — so each row's `cardGridRule` hairlines run
- * edge to edge across the whole app width (the SAME rule Wishlist's card view
- * draws, which is the point of the shared token). Tiles render "plain" (no per-card shell
- * border/fill); the row draws the dividers.
+ * Collection "card view" grid (Figma 5722:21021): two fixed columns of white
+ * tiles on the gray-50 page, separated by `cardGrid.gap` instead of hairlines.
+ * Full-bleed — no horizontal page gutter.
  */
 export function CollectionMasonryGrid({
   entries,
@@ -61,26 +58,6 @@ export function CollectionMasonryGrid({
   selectedIds,
   testID = 'collection-masonry-grid',
 }: CollectionMasonryGridProps) {
-  // A lone entry shouldn't render as a full-bleed ruled row — that reads as a
-  // wide rectangle with one card stranded in the corner. Box it into a single
-  // column-width tile so the hairline border hugs just that one item.
-  if (entries.length === 1) {
-    return (
-      <View style={styles.grid} testID={testID}>
-        <CollectionGridSingleRow
-          entry={entries[0]}
-          onPressEntry={onPressEntry}
-          onLongPressEntry={onLongPressEntry}
-          delayLongPress={delayLongPress}
-          selectedEntryId={selectedEntryId}
-          editMode={editMode}
-          selectedIds={selectedIds}
-          testID={testID}
-        />
-      </View>
-    );
-  }
-
   const rows = chunkCollectionGridRows(entries);
 
   return (
@@ -126,24 +103,9 @@ type CollectionGridRowProps = {
 };
 
 /**
- * One full-bleed ruled row of up to {@link COLLECTION_GRID_COLUMNS} tiles.
- *
- * Figma (3670:47297 / 3670:47310) hangs the rules off each Card: every card
- * draws a 0.5pt top stroke and the left column draws the centre stroke on its
- * right edge. So the row draws its hairline on TOP, not the bottom — which is
- * what stops adjacent rows drawing two hairlines on the same boundary.
- *
- * THE LAST ROW ALSO CLOSES THE GRID, and that is not a return of the per-row
- * bottom rule this replaced. Interior boundaries still get exactly one line
- * (the next row's top stroke); only the final edge, which has no next row to
- * draw it, gets one here.
- *
- * It is load-bearing rather than decorative because of the CENTRE divider: it
- * is drawn even where the last row's second cell is empty (see below), so with
- * an odd card count and no closing rule that vertical hairline ran down beside
- * blank space and terminated in mid-air. Reported from a wishlist with three
- * cards. The card component in Figma cannot specify this — a card knows its own
- * strokes, not whether it is the last one.
+ * One row of up to {@link COLLECTION_GRID_COLUMNS} tiles. Each row paints its
+ * own top gap in the grid background, and the last row also its bottom gap, so
+ * rows stacked in a virtualized list read as one continuous grid.
  */
 export function CollectionGridRow({
   rowEntries,
@@ -160,13 +122,7 @@ export function CollectionGridRow({
 }: CollectionGridRowProps) {
   return (
     <View
-      style={[
-        styles.row,
-        { borderTopColor: cardGridRule.color },
-        isLastRow
-          ? { borderBottomColor: cardGridRule.color, borderBottomWidth: cardGridRule.width }
-          : null,
-      ]}
+      style={[styles.row, isLastRow ? styles.lastRow : null]}
       testID={`${testID}-row-${rowIndex}`}
     >
       {Array.from({ length: COLLECTION_GRID_COLUMNS }).map((_, colIndex) => {
@@ -174,19 +130,8 @@ export function CollectionGridRow({
         return (
           <View
             key={entry?.id ?? `row-${rowIndex}-col-${colIndex}`}
-            style={[
-              styles.cell,
-              // Middle vertical divider between the two columns. Figma draws it
-              // as the LEFT card's right stroke; as the right cell's left
-              // stroke it lands on the same pixel column. NOT gated on the cell
-              // having an entry: an odd card count leaves the last row's second
-              // cell empty, and skipping the rule there dropped the grid's
-              // centre line for that row only — a visible break in a line every
-              // other row draws.
-              colIndex === 1
-                ? { borderLeftColor: cardGridRule.color, borderLeftWidth: cardGridRule.width }
-                : null,
-            ]}
+            // An empty trailing cell stays background so the gap reads as page.
+            style={[styles.cell, entry ? styles.filledCell : null]}
           >
             {entry ? (
               <CollectionTileSlot
@@ -221,37 +166,12 @@ type CollectionGridSingleRowProps = {
   testID?: string;
 };
 
-/**
- * The lone-entry layout: box the single tile at one column's width with a full
- * hairline border so it reads as a contained square, not a stretched row.
- */
+/** The lone-entry layout: one tile at column width, not a stretched row. */
 export function CollectionGridSingleRow({
   entry,
-  onPressEntry,
-  onLongPressEntry,
-  delayLongPress,
-  selectedEntryId,
-  editMode = false,
-  selectedIds,
-  showQuantity = true,
-  testID = 'collection-masonry-grid',
+  ...rowProps
 }: CollectionGridSingleRowProps) {
-  return (
-    <View style={styles.singleRow}>
-      <View style={[styles.singleCell, { borderColor: cardGridRule.color }]}>
-        <CollectionTileSlot
-          entry={entry}
-          delayLongPress={delayLongPress}
-          onLongPress={onLongPressEntry}
-          onPress={onPressEntry}
-          selectable={editMode}
-          selected={editMode ? !!selectedIds?.has(entry.id) : selectedEntryId === entry.id}
-          showQuantity={showQuantity}
-          testIDPrefix={`${testID}-tile`}
-        />
-      </View>
-    </View>
-  );
+  return <CollectionGridRow {...rowProps} isLastRow rowEntries={[entry]} rowIndex={0} />;
 }
 
 type CollectionTileSlotProps = {
@@ -327,25 +247,25 @@ function CollectionTileSlot({
 
 const styles = StyleSheet.create({
   grid: {
-    // Full-bleed: no horizontal gutter and no row gap, so each row's rules
-    // run all the way to the app edges and stack into a continuous ruled grid.
-    paddingVertical: 16,
+    backgroundColor: cardGrid.background,
   },
   row: {
     alignItems: 'stretch',
-    borderTopWidth: cardGridRule.width,
+    backgroundColor: cardGrid.background,
     flexDirection: 'row',
+    gap: cardGrid.gap,
+    paddingTop: cardGrid.gap,
+  },
+  lastRow: {
+    paddingBottom: cardGrid.gap,
   },
   cell: {
     flex: 1,
   },
-  singleRow: {
-    flexDirection: 'row',
-  },
-  singleCell: {
-    // Box the lone tile at one column's width with a full rule border so it
-    // reads as a contained square, not a stretched full-width row.
-    borderWidth: cardGridRule.width,
-    width: '50%',
+  filledCell: {
+    backgroundColor: cardGrid.tileFill,
+    borderCurve: 'continuous',
+    borderRadius: cardGrid.tileRadius,
+    overflow: 'hidden',
   },
 });

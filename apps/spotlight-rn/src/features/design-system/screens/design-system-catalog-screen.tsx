@@ -210,6 +210,20 @@ export function DesignSystemCatalogScreen({
                 tone="filter"
               />
               <PillButton
+                label="Likes"
+                leading={<Text style={theme.typography.label}>♥</Text>}
+                testID="catalog-pill-button-filled"
+                tone="filled"
+              />
+              <IconButton
+                accessibilityLabel="Filled sample"
+                shape="rounded"
+                testID="catalog-icon-button-filled"
+                variant="filled"
+              >
+                <Text style={theme.typography.label}>≡</Text>
+              </IconButton>
+              <PillButton
                 label="Scan to add"
                 testID="catalog-pill-button-soft"
                 tone="soft"
