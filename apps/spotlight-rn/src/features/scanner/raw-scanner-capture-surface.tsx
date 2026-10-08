@@ -21,6 +21,7 @@ import {
   useCameraDevice,
   usePhotoOutput,
 } from 'react-native-vision-camera';
+import Svg, { Path } from 'react-native-svg';
 
 import { resolveScannerCameraDevice } from '@/features/scanner/scanner-camera-lens';
 
@@ -188,6 +189,27 @@ type RawScannerCaptureSurfaceProps = {
    */
   zoomFactor?: number;
 };
+
+/** Full-preview rect with the reticle cut out (even-odd), so only the frame stays undimmed. */
+export function buildScrimPath(
+  width: number,
+  height: number,
+  hole: { height: number; width: number; x: number; y: number },
+  radius: number,
+) {
+  const r = Math.min(radius, hole.width / 2, hole.height / 2);
+  const left = hole.x;
+  const top = hole.y;
+  const right = hole.x + hole.width;
+  const bottom = hole.y + hole.height;
+  return [
+    `M0 0H${width}V${height}H0Z`,
+    `M${left + r} ${top}H${right - r}A${r} ${r} 0 0 1 ${right} ${top + r}`,
+    `V${bottom - r}A${r} ${r} 0 0 1 ${right - r} ${bottom}`,
+    `H${left + r}A${r} ${r} 0 0 1 ${left} ${bottom - r}`,
+    `V${top + r}A${r} ${r} 0 0 1 ${left + r} ${top}Z`,
+  ].join('');
+}
 
 export type RawScannerCaptureLayoutMode = 'card' | 'page';
 
@@ -616,6 +638,22 @@ export function RawScannerCaptureSurface({
           style={[StyleSheet.absoluteFillObject, styles.cameraFallback]}
           testID={`${testIDPrefix}-camera-fallback`}
         />
+      )}
+
+      {isTrayExpanded ? null : (
+        <Svg
+          height={layout.previewHeight}
+          pointerEvents="none"
+          style={StyleSheet.absoluteFillObject}
+          testID={`${testIDPrefix}-scrim`}
+          width={layout.previewWidth}
+        >
+          <Path
+            d={buildScrimPath(layout.previewWidth, layout.previewHeight, frameRect, scannerReticleCornerRadius)}
+            fill={colors.scannerScrim}
+            fillRule="evenodd"
+          />
+        </Svg>
       )}
 
       {shouldMountCamera && !isTrayExpanded ? (
