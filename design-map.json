@@ -391,6 +391,33 @@
       ],
       "deepLink": "TODO(dev route)",
       "mockData": null
+    },
+    {
+      "figmaNodeId": "5476:7127",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=5476-7127",
+      "screenName": "Events",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/events/screens/events-screen.tsx",
+        "apps/spotlight-rn/src/features/events/components/event-list-card.tsx",
+        "apps/spotlight-rn/src/features/events/components/featured-event-card.tsx",
+        "apps/spotlight-rn/src/app/(tabs)/events.tsx"
+      ],
+      "deepLink": "spotlight://dev/events",
+      "mockData": "packages/api-client/src/spotlight/spotlight-events.ts",
+      "notes": "Saved segment is an addition not in the frame (user asked for a separate saved list). Mock events have no flyer, so flyer slots render the placeholder."
+    },
+    {
+      "figmaNodeId": "5528:730",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=5528-730",
+      "screenName": "Event Detail",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/events/screens/event-detail-screen.tsx",
+        "apps/spotlight-rn/src/features/events/components/event-map.tsx",
+        "apps/spotlight-rn/src/app/(stack)/events/[eventId].tsx"
+      ],
+      "deepLink": "spotlight://dev/event-detail",
+      "mockData": "packages/api-client/src/spotlight/spotlight-events.ts",
+      "notes": "Apple Wallet button intentionally omitted (no Wallet integration). Map needs a native build with react-native-maps; older binaries show the tap-to-open fallback."
     }
   ]
 }

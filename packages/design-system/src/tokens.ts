@@ -65,6 +65,8 @@ export const colors = {
   // Color/yellow/400 from Figma — the scan-tray swipe rail's "Collection"
   // action chip fill (Figma 1768:4057).
   yellow400: '#FFC233',
+  // Spotlight show flyer orange — default Events detail gradient (Figma 5528:731).
+  eventAccent: '#FFB005',
   green100: '#E2F4E8',
   green400: '#4CAF6E',
   red100: '#FDECEC',
@@ -341,6 +343,22 @@ export const textStyles = {
     fontFamily: fontFamilies.bodySemiBold,
     fontSize: 17,
     lineHeight: 22.95,
+    color: colors.gray900,
+  } satisfies TextStyle,
+  // Bold section title — 17/700 (Figma Events "Featured Spotlight Events" 5476:7198).
+  sectionTitleBold: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyBold,
+    fontSize: 17,
+    lineHeight: 22,
+    color: colors.gray900,
+  } satisfies TextStyle,
+  // Detail page title — 19/700 (Figma Events Details 5528:800).
+  detailTitleBold: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyBold,
+    fontSize: 19,
+    lineHeight: 24,
     color: colors.gray900,
   } satisfies TextStyle,
   // Compact sheet title — 14/600 gray-900 (Figma New Post header 3147:10838).

@@ -8,6 +8,8 @@ import { Text, colors, textStyles } from '@spotlight/design-system';
 import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
 import { clearCardDetailCache } from '@/features/cards/card-detail-prefetch';
 import { CardDetailScreen } from '@/features/cards/screens/card-detail-screen';
+import { EventDetailScreen } from '@/features/events/screens/event-detail-screen';
+import { EventsScreen } from '@/features/events/screens/events-screen';
 import { InsightsScreen } from '@/features/insights/screens/insights-screen';
 import { ComingUpBlock } from '@/features/meta-feed/components/coming-up-block';
 import { HotCardsBlock } from '@/features/meta-feed/components/hot-cards-block';
@@ -58,6 +60,9 @@ const devScreens: Record<string, () => ReactElement> = {
   // sections: UNOWNED browse (ADD ITEM/SHARE footer, trend list) and OWNED
   // edit-in-place (Inventory panel, SAVE/CANCEL footer).
   'card-detail': () => <CardDetailScreen cardId="sm7-1" onBack={() => undefined} />,
+  // Figma 5476:7127 / 5528:730 — mock feed from MockSpotlightRepository.
+  events: () => <EventsScreen />,
+  'event-detail': () => <EventDetailScreen eventId="hawaii-2026-10" onBack={() => undefined} />,
   'card-detail-owned': () => (
     <CardDetailScreen cardId="mcdonalds25-21" onBack={() => undefined} />
   ),

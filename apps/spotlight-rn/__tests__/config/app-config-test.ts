@@ -509,4 +509,26 @@ describe('app config local overrides bridge', () => {
       /^file:\/\/.+\/@react-native-async-storage\/async-storage\/android\/local_repo$/,
     );
   });
+
+  it('passes the Google Maps Android key to the react-native-maps plugin only when set', () => {
+    type PluginEntry = string | [string, ...unknown[]];
+    const findMaps = (plugins: PluginEntry[]) =>
+      plugins.find((entry) => (Array.isArray(entry) ? entry[0] : entry) === 'react-native-maps');
+
+    // The package's plugin strips the manifest key when it has no props, so
+    // the key has to ride the plugin entry, not only android.config.googleMaps.
+    const withKey = buildExpoConfigForEnv(
+      { GOOGLE_MAPS_ANDROID_API_KEY: 'test-maps-key' },
+      '/virtual/LocalOverrides.xcconfig',
+    );
+    expect(findMaps(withKey.plugins as PluginEntry[])).toEqual([
+      'react-native-maps',
+      { androidGoogleMapsApiKey: 'test-maps-key' },
+    ]);
+    expect(withKey.android?.config?.googleMaps?.apiKey).toBe('test-maps-key');
+
+    const withoutKey = buildExpoConfigForEnv({}, '/virtual/LocalOverrides.xcconfig');
+    expect(findMaps(withoutKey.plugins as PluginEntry[])).toBe('react-native-maps');
+    expect(withoutKey.android?.config?.googleMaps).toBeUndefined();
+  });
 });

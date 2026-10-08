@@ -314,8 +314,8 @@ describe('misc route wrappers', () => {
     expect(screen.getByTestId('stack-screen-options').props.children).toContain('"backgroundColor":"transparent"');
     browse.unmount();
 
-    // The tabs layout is Apple's native tab bar now, not a Slot. Four tabs:
-    // Home / Scan / Wishlist / Social, and the ORDER is part of the contract —
+    // The tabs layout is Apple's native tab bar now, not a Slot. Five tabs:
+    // Home / Wishlist / Scan / Events / Social, and the ORDER is part of the contract —
     // `index` is Collection, so the app opens on your own cards, and the feed
     // sits last as `social`. These two have traded places once already; the
     // assertion below is what stops a third swap going unnoticed.
@@ -325,10 +325,11 @@ describe('misc route wrappers', () => {
     expect(screen.getByTestId('native-tab-index')).toBeTruthy();
     expect(screen.getByTestId('native-tab-scan')).toBeTruthy();
     expect(screen.getByTestId('native-tab-wishlist')).toBeTruthy();
+    expect(screen.getByTestId('native-tab-events')).toBeTruthy();
     expect(screen.getByTestId('native-tab-social')).toBeTruthy();
     expect(
       screen.getAllByTestId(/^native-tab-/).map((node) => node.props.children),
-    ).toEqual(['index', 'scan', 'wishlist', 'social']);
+    ).toEqual(['index', 'wishlist', 'scan', 'events', 'social']);
     expect(screen.getByTestId('native-tabs-hidden').props.children).toBe('false');
 
     // On the Scanner the BAR is hidden so the camera keeps the full screen —
@@ -351,21 +352,21 @@ describe('misc route wrappers', () => {
 
     mockTabAvatar = null;
     const glyph = render(<TabsLayout />);
-    const asGlyph = JSON.parse(screen.getAllByTestId('tab-icon')[3].props.children);
+    const asGlyph = JSON.parse(screen.getAllByTestId('tab-icon')[4].props.children);
     expect(asGlyph.sf).not.toBeNull();
     expect(asGlyph.src).toBeNull();
     glyph.unmount();
 
     mockTabAvatar = { uri: 'data:image/png;base64,PNG', width: 28, height: 28, scale: 3 };
     render(<TabsLayout />);
-    const asPhoto = JSON.parse(screen.getAllByTestId('tab-icon')[3].props.children);
+    const asPhoto = JSON.parse(screen.getAllByTestId('tab-icon')[4].props.children);
     expect(asPhoto.src).toEqual(mockTabAvatar);
     expect(asPhoto.sf).toBeNull();
     expect(asPhoto.renderingMode).toBe('original');
 
     // The avatar reaches ONLY the You tab — the assertion that matters here,
     // since every other tab now carries an image too.
-    const others = [0, 1, 2].map((i) =>
+    const others = [0, 1, 2, 3].map((i) =>
       JSON.parse(screen.getAllByTestId('tab-icon')[i].props.children),
     );
     for (const icon of others) {
@@ -393,7 +394,7 @@ describe('misc route wrappers', () => {
     mockPathname.mockReturnValue('/');
     render(<TabsLayout />);
 
-    const [home, scan, wishlist] = [0, 1, 2].map((i) =>
+    const [home, wishlist, scan] = [0, 1, 2].map((i) =>
       JSON.parse(screen.getAllByTestId('tab-icon')[i].props.children),
     );
 
@@ -437,9 +438,9 @@ describe('misc route wrappers', () => {
     ).toBe(false);
 
     const tabRoutes = fs.readdirSync(tabsDir).filter((name: string) => name.endsWith('.tsx'));
-    // Home / Scan / Wishlist / Social, plus the layout and the two aliases
-    // (/portfolio and /you, both redirecting to Collection at the tabs root).
-    expect(tabRoutes).toHaveLength(7);
+    // Home / Wishlist / Scan / Events / Social, plus the layout and the two
+    // aliases (/portfolio and /you, both redirecting to Collection at the tabs root).
+    expect(tabRoutes).toHaveLength(8);
 
     for (const name of tabRoutes) {
       const source: string = fs.readFileSync(path.join(tabsDir, name), 'utf8');

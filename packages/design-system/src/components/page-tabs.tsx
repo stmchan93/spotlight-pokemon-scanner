@@ -12,6 +12,8 @@ export type PageTabsProps<V extends string> = {
   tabs: ReadonlyArray<PageTab<V>>;
   value: V;
   onChange: (value: V) => void;
+  /** `start` = left-aligned tabs on the page gutter (Figma Events 5476:7154). */
+  align?: 'center' | 'start';
   testID?: string;
 };
 
@@ -19,6 +21,7 @@ export function PageTabs<V extends string>({
   tabs,
   value,
   onChange,
+  align = 'center',
   testID,
 }: PageTabsProps<V>) {
   const theme = useSpotlightTheme();
@@ -37,7 +40,7 @@ export function PageTabs<V extends string>({
         ]}
         testID={testID ? `${testID}-rail` : undefined}
       />
-      <View style={styles.container}>
+      <View style={[styles.container, align === 'start' && styles.containerStart]}>
         {tabs.map((tab) => {
           const selected = tab.value === value;
           return (
@@ -128,6 +131,13 @@ const styles = StyleSheet.create({
     // padding here stacks on top of the lip — 16 + 16 read as ~32 of dead
     // white above "Collection", which is the bug this zero fixes.
     paddingTop: 0,
+  },
+  // Label lands on the 24pt inset (16 gutter + 8 tab padding in Figma): the
+  // container's 14 plus the tab's own 10. Box-to-box gap is 14.
+  containerStart: {
+    justifyContent: 'flex-start',
+    gap: 14,
+    paddingHorizontal: 14,
   },
   tab: {
     alignItems: 'center',

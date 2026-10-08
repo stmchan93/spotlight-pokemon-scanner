@@ -143,12 +143,12 @@ describe('tabs layout — scanner chrome', () => {
   it('does not give the other tabs a content style on either platform', () => {
     Platform.OS = 'android';
     renderTabsLayout();
-    for (const name of ['index', 'wishlist', 'social']) {
+    for (const name of ['index', 'wishlist', 'events', 'social']) {
       const props = JSON.parse(
         screen.getByTestId(`trigger-props-${name}`).props.children as string,
       ) as { contentStyle: unknown; disableAutomaticContentInsets: unknown };
       // Their bar is drawn, so they MUST keep expo-router's bottom inset and the
-      // theme canvas. "Fix the scanner" must never mean "break Home/Wishlist/Social".
+      // theme canvas. "Fix the scanner" must never mean "break the other tabs".
       expect(props.contentStyle).toBeNull();
       expect(props.disableAutomaticContentInsets).toBeNull();
     }

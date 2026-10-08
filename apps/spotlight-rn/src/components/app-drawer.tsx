@@ -242,8 +242,8 @@ export function AppDrawer() {
     screen and silently did nothing from any tab.
 
     The duplicates also bought no reach: the drawer opens from Home, Social and
-    Wishlist only, and on every one of those the bottom bar is drawn with all
-    four tabs one tap away.
+    Wishlist only, and on every one of those the bottom bar is drawn with every
+    tab one tap away.
 
     So everything left here is drawer-ONLY, and every one of them is a stack
     route, which is exactly the case `goTo` handles correctly.

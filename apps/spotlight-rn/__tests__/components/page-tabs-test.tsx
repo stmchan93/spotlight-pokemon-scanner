@@ -109,6 +109,26 @@ describe('PageTabs', () => {
     expect(rail.height).toBeGreaterThan(0);
   });
 
+  // Events (Figma 5476:7154) left-aligns the tabs on the page gutter; every
+  // other screen keeps them centered.
+  it('centers tabs by default and left-aligns them with align="start"', () => {
+    // The row of tabs is the root's second child, after the rail.
+    const tabRow = () => {
+      const row = screen.getByTestId('page-tabs').children[1];
+      return StyleSheet.flatten(typeof row === 'string' ? undefined : row.props.style);
+    };
+
+    const { rerender } = renderWithProviders(
+      <PageTabs<TabValue> tabs={TABS} value="portfolio" onChange={jest.fn()} testID="page-tabs" />,
+    );
+    expect(tabRow().justifyContent).not.toBe('flex-start');
+
+    rerender(
+      <PageTabs<TabValue> align="start" tabs={TABS} value="portfolio" onChange={jest.fn()} testID="page-tabs" />,
+    );
+    expect(tabRow()).toMatchObject({ justifyContent: 'flex-start', gap: 14, paddingHorizontal: 14 });
+  });
+
   it('exposes the container testID and per-tab testIDs', () => {
     renderWithProviders(
       <PageTabs<TabValue>

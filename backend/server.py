@@ -191,6 +191,7 @@ import news_feed
 import printing_images
 import set_spotlight
 import similar_cards
+import spotlight_events
 import watch_signals
 import watchlist_suggestions
 import youtube_feed
@@ -24747,6 +24748,21 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 f"path={getattr(self, 'path', '<unknown>')} status={status.value}"
             )
 
+    def _write_public_image(self, body: bytes, *, content_type: str, max_age: int) -> None:
+        """Public, shared-cacheable image bytes (event flyers)."""
+        self.send_response(HTTPStatus.OK.value)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", f"public, max-age={max_age}")
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            print(
+                "[HTTP] Client disconnected before public image write completed: "
+                f"path={getattr(self, 'path', '<unknown>')}"
+            )
+
     def _write_post_media_image(
         self, body: bytes, *, content_type: str
     ) -> None:
@@ -26657,6 +26673,31 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Calendar failed: {error}"})
                 return
             self._write_json(HTTPStatus.OK, payload)
+            return
+
+        # Spotlight's own shows (Events tab): public like the calendar, no flag.
+        if parsed.path == "/api/v1/events":
+            try:
+                payload = spotlight_events.build_events_payload()
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Events failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        if parsed.path.startswith("/api/v1/events/") and parsed.path.endswith("/flyer"):
+            event_id = unquote(parsed.path[len("/api/v1/events/"):-len("/flyer")])
+            # Lookup is by validated id only; the file path comes from metadata.
+            flyer = spotlight_events.flyer_file(event_id) if event_id else None
+            try:
+                body = flyer[0].read_bytes() if flyer else None
+            except OSError:
+                body = None
+            if flyer is None or body is None:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+                return
+            self._write_public_image(body, content_type=flyer[1], max_age=3600)
             return
 
         if parsed.path == "/api/v1/feed/news":

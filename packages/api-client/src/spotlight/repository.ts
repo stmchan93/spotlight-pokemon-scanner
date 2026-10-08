@@ -22,6 +22,11 @@ import {
   mockSetSpotlight,
 } from './meta-feed-mock-data';
 import {
+  mockSpotlightEventsFeed,
+  parseSpotlightEventsPayload,
+  type SpotlightEventsFeed,
+} from './spotlight-events';
+import {
   parseCalendarPayload,
   parseHotCardsPayload,
   parseMetaExposurePayload,
@@ -396,6 +401,8 @@ export interface SpotlightRepository {
   fetchMetaGroupDetail(query: MetaGroupDetailQuery): Promise<MetaGroupDetail | null>;
   fetchMetaExposure(query?: MetaExposureQuery): Promise<MetaExposure | null>;
   fetchCalendar(query?: CalendarQuery): Promise<CalendarFeed | null>;
+  /** Spotlight's own shows (Events tab). Null when the route is absent (old backend). */
+  fetchSpotlightEvents(): Promise<SpotlightEventsFeed | null>;
   getCardConditionHistory(query: CardConditionHistoryQuery): Promise<CardConditionHistory | null>;
   getRawPricingMatrix(cardId: string): Promise<RawPricingMatrix>;
   getCardEbayListings(query: CardDetailQuery & {
@@ -4107,6 +4114,10 @@ export class MockSpotlightRepository implements SpotlightRepository {
     const limit = Math.max(1, Math.min(50, Math.trunc(query?.limit ?? 20)));
     const items = mockCalendarFeed.items.filter((item) => !query?.game || item.game === query.game);
     return { items: items.slice(0, limit) };
+  }
+
+  async fetchSpotlightEvents(): Promise<SpotlightEventsFeed | null> {
+    return mockSpotlightEventsFeed;
   }
 
   async loadInventoryEntries(query?: InventoryEntriesQuery) {
@@ -8316,6 +8327,11 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       limit: query?.limit,
     });
     return result.disabled ? null : parseCalendarPayload(result.data);
+  }
+
+  async fetchSpotlightEvents(): Promise<SpotlightEventsFeed | null> {
+    const result = await this.requestMetaFeedRead('/api/v1/events', {});
+    return result.disabled ? null : parseSpotlightEventsPayload(result.data, this.baseUrl);
   }
 
   /**

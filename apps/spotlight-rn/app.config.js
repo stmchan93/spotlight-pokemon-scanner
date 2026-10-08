@@ -426,6 +426,24 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
   // push carry card art (Expo `richContent.image`). Android needs nothing.
   resolvedPlugins = withPlugin(resolvedPlugins, '@bacons/apple-targets');
 
+  // react-native-maps: iOS uses Apple Maps (no key); Android's Google Maps needs
+  // GOOGLE_MAPS_ANDROID_API_KEY at build time. The package's own config plugin
+  // is auto-applied by prebuild and REMOVES the manifest key when it has no
+  // props, so the key must be passed to the plugin, not only via googleMaps.
+  const googleMapsAndroidApiKey = trimEnvValue(resolvedEnv.GOOGLE_MAPS_ANDROID_API_KEY);
+  if (googleMapsAndroidApiKey) {
+    android.config = {
+      ...(android.config ?? {}),
+      googleMaps: { apiKey: googleMapsAndroidApiKey },
+    };
+  }
+  resolvedPlugins = withPlugin(
+    resolvedPlugins,
+    googleMapsAndroidApiKey
+      ? ['react-native-maps', { androidGoogleMapsApiKey: googleMapsAndroidApiKey }]
+      : 'react-native-maps',
+  );
+
   // Per-environment display name (home-screen / App Store label). Prod keeps the
   // clean brand name; non-prod builds are suffixed so testers can tell which app
   // they have installed when several coexist on one device.

@@ -194,18 +194,16 @@ export default function TabsLayout() {
       /*
         Material's default is LABEL_VISIBILITY_AUTO, which shows labels only
         while there are THREE OR FEWER tabs and drops them at four or more.
-        We have exactly four (Home/Scan/Wishlist/Social), so Android silently
-        landed on the wrong side of that threshold and showed bare icons while
-        iOS showed labels. Pin it rather than sit one tab away from a
-        behaviour change.
+        We have five, so without this pin Android shows bare icons while iOS
+        shows labels.
       */
       labelVisibilityMode="labeled"
       minimizeBehavior="onScrollDown"
       rippleColor={colors.gray200}
       tintColor={colors.gray900}
       /*
-        UNSELECTED colour. `tintColor` only styles the selected tab; the other
-        three were left to Material's theme, which on a phone in dark mode is a
+        UNSELECTED colour. `tintColor` only styles the selected tab; the others
+        were left to Material's theme, which on a phone in dark mode is a
         near-white `onSurfaceVariant` painted over our white bar — Scan,
         Wishlist and Social were invisible (Galaxy, 2026-09-17). Pin them.
         Android-only: iOS keeps its own glass defaults, and setting `iconColor`
@@ -216,7 +214,8 @@ export default function TabsLayout() {
         : {})}
     >
       {/*
-        Home / Scan / Wishlist / Social, in that order.
+        Home / Wishlist / Scan / Events / Social, in that order (Figma puts
+        Scan in the middle).
 
         `index` is COLLECTION — the app opens on your own cards. The feed had
         this slot for a while under the name Home; it moved to `social`, last in
@@ -262,8 +261,8 @@ export default function TabsLayout() {
         Apple's own `viewfinder`, which iOS renders natively — nothing to
         rasterize. It is NOT rasterized for Android either: the SF Symbols
         license does not permit shipping Apple's artwork on other platforms, so
-        Android keeps a Material glyph. That is the one place the two platforms
-        differ from each other by design.
+        Android keeps a Material glyph. Events follows the same pattern
+        (SF `calendar` / Material `event`).
 
         The labels stay the system font. The frame specifies Plus Jakarta Sans
         SemiBold 10/12, but the label belongs to the OS here — on iOS 26 it is
@@ -284,6 +283,16 @@ export default function TabsLayout() {
           }}
         />
         <Label>Home</Label>
+      </Trigger>
+      <Trigger name="wishlist">
+        <Icon
+          renderingMode="template"
+          src={{
+            default: require('../../../assets/images/tab-icons/wishlist.png'),
+            selected: require('../../../assets/images/tab-icons/wishlist-filled.png'),
+          }}
+        />
+        <Label>Watchlist</Label>
       </Trigger>
       {/*
         NO BOTTOM INSET ON THE SCANNER.
@@ -309,7 +318,7 @@ export default function TabsLayout() {
         theme background before it applies `contentStyle`
         (`NativeTabsView.js` `Screen()`: `style={[{ backgroundColor:
         colors.background }, options.contentStyle, …]}`), and this app's theme
-        background is `#FFFFFF` (`src/app/_layout.tsx`). On the three light tabs
+        background is `#FFFFFF` (`src/app/_layout.tsx`). On the light tabs
         that is invisible; under a full-bleed viewfinder it is a white sheet the
         camera has to cover on its very first frame. Naming the canvas removes
         the whole class rather than relying on the scanner painting first.
@@ -328,15 +337,9 @@ export default function TabsLayout() {
         <Icon md="qr_code_scanner" sf={{ default: 'viewfinder', selected: 'viewfinder' }} />
         <Label>Scan</Label>
       </Trigger>
-      <Trigger name="wishlist">
-        <Icon
-          renderingMode="template"
-          src={{
-            default: require('../../../assets/images/tab-icons/wishlist.png'),
-            selected: require('../../../assets/images/tab-icons/wishlist-filled.png'),
-          }}
-        />
-        <Label>Watchlist</Label>
+      <Trigger name="events">
+        <Icon md="event" sf={{ default: 'calendar', selected: 'calendar' }} />
+        <Label>Events</Label>
       </Trigger>
       <Trigger name="social">
         {/*

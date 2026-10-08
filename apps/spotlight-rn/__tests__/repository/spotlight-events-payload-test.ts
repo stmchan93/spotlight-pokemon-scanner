@@ -1,0 +1,119 @@
+import { parseSpotlightEventsPayload } from '../../../../packages/api-client/src/spotlight/spotlight-events';
+
+const BASE = 'https://api.example.com/';
+
+function row(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'pomona-2026-12',
+    title: 'Spotlight at the Pomona Fairplex',
+    shortTitle: 'Spotlight Pomona',
+    venue: 'Fairplex',
+    city: 'Pomona, CA',
+    address: '1101 W McKinley Ave, Pomona, CA',
+    latitude: 34.08,
+    longitude: -117.76,
+    startDate: '2026-12-05',
+    endDate: '2026-12-06',
+    timezone: 'America/Los_Angeles',
+    openTime: '10:00',
+    closeTime: '17:00',
+    tableCount: 300,
+    categories: ['Pokemon', 'Sports'],
+    about: 'Big show.',
+    flyerUrl: '/api/v1/events/pomona-2026-12/flyer.jpg',
+    ticketUrl: 'https://tickets.example.com/pomona',
+    shareUrl: 'https://example.com/e/pomona',
+    featured: true,
+    accentColor: '#FFB000',
+    status: 'upcoming',
+    ...overrides,
+  };
+}
+
+function parseOne(overrides: Record<string, unknown> = {}, baseUrl = BASE) {
+  const { items } = parseSpotlightEventsPayload({ items: [row(overrides)] }, baseUrl);
+  expect(items).toHaveLength(1);
+  return items[0];
+}
+
+describe('parseSpotlightEventsPayload', () => {
+  it('parses a full row and resolves a relative flyerUrl against the base', () => {
+    const event = parseOne();
+    expect(event).toMatchObject({
+      id: 'pomona-2026-12',
+      shortTitle: 'Spotlight Pomona',
+      flyerUrl: 'https://api.example.com/api/v1/events/pomona-2026-12/flyer.jpg',
+      ticketUrl: 'https://tickets.example.com/pomona',
+      shareUrl: 'https://example.com/e/pomona',
+      openTime: '10:00',
+      closeTime: '17:00',
+      tableCount: 300,
+      accentColor: '#FFB000',
+      featured: true,
+      status: 'upcoming',
+    });
+  });
+
+  it('keeps absolute http(s) flyer urls and drops other schemes', () => {
+    expect(parseOne({ flyerUrl: 'https://cdn.example.com/f.jpg' }).flyerUrl).toBe('https://cdn.example.com/f.jpg');
+    expect(parseOne({ flyerUrl: 'file:///etc/passwd' }).flyerUrl).toBeNull();
+  });
+
+  it('drops rows missing an id, a title or a valid start date', () => {
+    const { items } = parseSpotlightEventsPayload(
+      {
+        items: [
+          row({ id: 'keep' }),
+          row({ id: '' }),
+          row({ id: 'no-title', title: '  ' }),
+          row({ id: 'bad-date', startDate: '12/05/2026' }),
+          row({ id: 'bad-end', endDate: 'soon' }),
+          null,
+          'nope',
+        ],
+      },
+      BASE,
+    );
+    expect(items.map((item) => item.id)).toEqual(['keep']);
+  });
+
+  it('defaults a missing endDate to the start date', () => {
+    const event = parseOne({ endDate: undefined });
+    expect(event.endDate).toBe('2026-12-05');
+  });
+
+  it('nulls malformed colors and times', () => {
+    const event = parseOne({ accentColor: 'orange', openTime: '10am', closeTime: '5:00' });
+    expect(event.accentColor).toBeNull();
+    expect(event.openTime).toBeNull();
+    expect(event.closeTime).toBeNull();
+    expect(parseOne({ accentColor: '#FFF' }).accentColor).toBeNull();
+  });
+
+  it('drops non-https ticket and share links', () => {
+    const event = parseOne({ ticketUrl: 'javascript:alert(1)', shareUrl: 'ftp://example.com' });
+    expect(event.ticketUrl).toBeNull();
+    expect(event.shareUrl).toBeNull();
+    // A relative ticket link is not resolved like the flyer is.
+    expect(parseOne({ ticketUrl: '/tickets' }).ticketUrl).toBeNull();
+  });
+
+  it('falls back to the full title when shortTitle is absent', () => {
+    expect(parseOne({ shortTitle: undefined }).shortTitle).toBe('Spotlight at the Pomona Fairplex');
+    expect(parseOne({ shortTitle: '' }).shortTitle).toBe('Spotlight at the Pomona Fairplex');
+  });
+
+  it('normalizes table counts, categories, status and featured', () => {
+    expect(parseOne({ tableCount: 0 }).tableCount).toBeNull();
+    expect(parseOne({ tableCount: 120.7 }).tableCount).toBe(120);
+    expect(parseOne({ categories: ['Pokemon', 4, ' ', 'Lorcana'] }).categories).toEqual(['Pokemon', 'Lorcana']);
+    expect(parseOne({ status: 'cancelled' }).status).toBe('upcoming');
+    expect(parseOne({ featured: 'yes' }).featured).toBe(false);
+    expect(parseOne({ latitude: '34.1' }).latitude).toBeNull();
+  });
+
+  it('returns an empty feed for non-object payloads', () => {
+    expect(parseSpotlightEventsPayload(null)).toEqual({ items: [] });
+    expect(parseSpotlightEventsPayload({ items: 'nope' })).toEqual({ items: [] });
+  });
+});

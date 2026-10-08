@@ -1,0 +1,51 @@
+{
+  "_note": "Spotlight's own card shows (Events tab). The hawaii-2026-10 row is a placeholder from Figma pending real data. Flyer files live in backend/data/spotlight_event_flyers/.",
+  "events": [
+    {
+      "id": "ontario-2026-08",
+      "title": "Spotlight at the Ontario Convention Center",
+      "shortTitle": "Spotlight Ontario",
+      "venue": "Ontario Convention Center",
+      "city": "Ontario, CA",
+      "address": "2000 E Convention Center Way, Ontario, CA 91764",
+      "latitude": 34.0672,
+      "longitude": -117.597,
+      "startDate": "2026-08-22",
+      "endDate": "2026-08-23",
+      "timezone": "America/Los_Angeles",
+      "openTime": "11:00",
+      "closeTime": "17:00",
+      "tableCount": 275,
+      "categories": ["Pokemon", "Sports", "One Piece", "Yu-Gi-Oh", "Magic The Gathering", "Lorcana"],
+      "about": null,
+      "flyer": "ontario-2026-08.png",
+      "ticketUrl": null,
+      "shareUrl": null,
+      "featured": true,
+      "accentColor": "#FFB000"
+    },
+    {
+      "id": "hawaii-2026-10",
+      "title": "Spotlight at the Hawaii Convention Center",
+      "shortTitle": "Spotlight Hawaii",
+      "venue": "Hawaii Convention Center",
+      "city": "Oahu, HI",
+      "address": "1801 Kalakaua Ave, Honolulu, HI 96815",
+      "latitude": 21.2906,
+      "longitude": -157.836,
+      "startDate": "2026-10-24",
+      "endDate": "2026-10-25",
+      "timezone": "Pacific/Honolulu",
+      "openTime": "10:00",
+      "closeTime": "17:00",
+      "tableCount": null,
+      "categories": ["Pokemon", "Sports", "One Piece", "Yu-Gi-Oh", "Magic The Gathering", "Lorcana"],
+      "about": null,
+      "flyer": null,
+      "ticketUrl": null,
+      "shareUrl": null,
+      "featured": true,
+      "accentColor": "#FFB000"
+    }
+  ]
+}

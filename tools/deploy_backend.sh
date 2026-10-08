@@ -257,6 +257,15 @@ if [ -f "$BACKEND_DIR/data/calendar_events.json" ]; then
   mkdir -p "$BUNDLE_ROOT/data"
   cp "$BACKEND_DIR/data/calendar_events.json" "$BUNDLE_ROOT/data/calendar_events.json"
 fi
+# Spotlight's own shows (spotlight_events.py) + their flyer images; optional at runtime.
+if [ -f "$BACKEND_DIR/data/spotlight_events.json" ]; then
+  mkdir -p "$BUNDLE_ROOT/data"
+  cp "$BACKEND_DIR/data/spotlight_events.json" "$BUNDLE_ROOT/data/spotlight_events.json"
+fi
+if [ -d "$BACKEND_DIR/data/spotlight_event_flyers" ]; then
+  mkdir -p "$BUNDLE_ROOT/data/spotlight_event_flyers"
+  cp -R "$BACKEND_DIR/data/spotlight_event_flyers/." "$BUNDLE_ROOT/data/spotlight_event_flyers/"
+fi
 # --------------------------------------------------------------------------
 # Rerank-pool / adapter embedding-space preflight guard.
 #

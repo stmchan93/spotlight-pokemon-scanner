@@ -15,6 +15,7 @@ describe('last active tab', () => {
     expect(returnableTabFromPathname('')).toBe('index');
     expect(returnableTabFromPathname('/wishlist')).toBe('wishlist');
     expect(returnableTabFromPathname('/social')).toBe('social');
+    expect(returnableTabFromPathname('/events')).toBe('events');
     // Trailing slashes and query strings are the same tab.
     expect(returnableTabFromPathname('/social/')).toBe('social');
     expect(returnableTabFromPathname('/wishlist?filter=all')).toBe('wishlist');
@@ -52,5 +53,7 @@ describe('last active tab', () => {
     expect(getLastActiveTab()).toBe('social');
     rememberActiveTab('/wishlist');
     expect(getLastActiveTab()).toBe('wishlist');
+    rememberActiveTab('/events');
+    expect(getLastActiveTab()).toBe('events');
   });
 });
