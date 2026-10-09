@@ -285,7 +285,7 @@ describe('app config local overrides bridge', () => {
     expect(config.updates?.checkAutomatically).toBeUndefined();
     // No SPOTLIGHT_APP_ENV set here, so runtimeVersion stays the app.json
     // literal — the runtime that every staging-era binary was built with.
-    expect(config.runtimeVersion).toBe('0.1.4');
+    expect(config.runtimeVersion).toBe('0.1.5');
 
     Object.assign(process.env, previousEnv);
   });
@@ -359,9 +359,9 @@ describe('app config local overrides bridge', () => {
     // '0.2.0'); what this test actually guards is that it is never one of the
     // staging-lineage values below.
     expect(runtimeFor('production')).toBe('1.3.1');
-    expect(runtimeFor('staging')).toBe('0.1.4');
-    expect(runtimeFor('development')).toBe('0.1.4');
-    expect(runtimeFor()).toBe('0.1.4');
+    expect(runtimeFor('staging')).toBe('0.1.5');
+    expect(runtimeFor('development')).toBe('0.1.5');
+    expect(runtimeFor()).toBe('0.1.5');
   });
 
   it('adds localization plugin with PostHog observability env values', () => {
