@@ -1467,6 +1467,46 @@ def provider_sync_run_is_fresh(
     return datetime.now(timezone.utc) - completed <= timedelta(hours=max_age_hours)
 
 
+TCGCSV_PRICE_SYNC_MAX_AGE_HOURS = 30.0
+
+
+def tcgcsv_price_sync_health(
+    connection: sqlite3.Connection,
+    *,
+    max_age_hours: float = TCGCSV_PRICE_SYNC_MAX_AGE_HOURS,
+) -> dict[str, Any]:
+    """Freshness of the daily TCGCSV (TCGplayer) price sync, keyed on the last
+    SUCCEEDED run so an in-flight run never reads as an outage. Daily cadence +
+    30h means one missed or failed day trips it."""
+    enabled = str(os.environ.get("TCGCSV_SYNC_ENABLED") or "").strip().lower() in {"1", "true", "yes", "on"}
+    row = connection.execute(
+        """
+        SELECT completed_at FROM provider_sync_runs
+        WHERE provider = 'tcgcsv' AND sync_scope = 'raw-main' AND status = ?
+        ORDER BY completed_at DESC LIMIT 1
+        """,
+        (PROVIDER_SYNC_STATUS_SUCCEEDED,),
+    ).fetchone()
+    last_succeeded_at = row["completed_at"] if row else None
+    hours_since = None
+    if last_succeeded_at:
+        try:
+            completed = datetime.fromisoformat(str(last_succeeded_at))
+            if completed.tzinfo is None:
+                completed = completed.replace(tzinfo=timezone.utc)
+            hours_since = round((datetime.now(timezone.utc) - completed).total_seconds() / 3600, 1)
+        except ValueError:
+            hours_since = None
+    return {
+        "enabled": enabled,
+        "lastSucceededAt": last_succeeded_at,
+        "hoursSinceSuccess": hours_since,
+        "maxAgeHours": max_age_hours,
+        "fresh": (not enabled) or (hours_since is not None and hours_since <= max_age_hours),
+        "latestRun": latest_provider_sync_run(connection, provider="tcgcsv", sync_scope="raw-main"),
+    }
+
+
 def runtime_setting(connection: sqlite3.Connection, key: str) -> dict[str, Any] | None:
     row = connection.execute(
         """

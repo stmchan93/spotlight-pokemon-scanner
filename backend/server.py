@@ -54,6 +54,7 @@ from catalog_tools import (
     raw_main_price_enabled,
     resolve_main_raw_summary_from_row,
     stamp_main_raw_refresh,
+    tcgcsv_price_sync_health,
     RAW_MAIN_PRICE_SOURCE_SCRYDEX,
     RAW_MAIN_PRICE_SOURCE_TCGCSV,
     price_history_cells_enabled,
@@ -13937,6 +13938,7 @@ class SpotlightScanService:
             "scrydexAudit": scrydex_request_audit_summary(),
             "scrydexFullCatalogSync": scrydex_full_sync,
             "scrydexFullCatalogSyncFresh": scrydex_full_sync_is_fresh,
+            "tcgcsvPriceSync": tcgcsv_price_sync_health(self.connection),
         }
 
     def scrydex_usage_summary(

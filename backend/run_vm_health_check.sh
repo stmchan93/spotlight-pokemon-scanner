@@ -71,6 +71,13 @@ summary = {
     "scrydexRecentSources": audit.get("byRuntimeLabel", [])[:3],
 }
 print(summary)
+
+# TCGplayer prices come from the daily TCGCSV sync; a missed or failed day
+# fails the check, which withholds the dead-man's-switch ping below.
+tcgcsv = payload.get("tcgcsvPriceSync") or {}
+print({"tcgcsvPriceSync": {k: tcgcsv.get(k) for k in ("enabled", "lastSucceededAt", "hoursSinceSuccess", "fresh")}})
+if tcgcsv and not tcgcsv.get("fresh"):
+    raise SystemExit("tcgcsv price sync is stale")
 PY
 
 if [ -n "$public_base_url" ]; then
