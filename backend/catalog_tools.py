@@ -8052,6 +8052,23 @@ _RAW_PHANTOM_MIN_USD = 20.0
 # legit raw price that's merely near or slightly above the slab.
 _RAW_PHANTOM_MARGIN = 1.5
 
+# The mirror case: a raw NM far BELOW the card's own low-grade slabs (PSA 7/8) is a
+# mis-mapped price (POP 5 Umbreon ☆ read $71 — the Celebrations reprint's number —
+# against a $16k PSA 7). Low grades sit near raw value, so 5% is a wide margin.
+# Measured 2026-10-12: 2 of 26,822 PSA-priced cards trip it.
+_RAW_FLOOR_GRADES = ("7", "8", "9")
+_RAW_FLOOR_RATIO = 0.05
+_RAW_FLOOR_MIN_SLAB_USD = 500.0
+
+
+def _raw_far_below_low_grades(raw_nm_usd: float, low_grade_usds: list[float | None]) -> bool:
+    # Needs two of PSA 7/8/9 and the CHEAPEST of them is the bar, itself >= $500:
+    # one junk or lone slab can't trigger suppression on its own.
+    present = [v for v in low_grade_usds if v is not None]
+    if len(present) < 2 or min(present) < _RAW_FLOOR_MIN_SLAB_USD:
+        return False
+    return raw_nm_usd < min(present) * _RAW_FLOOR_RATIO
+
 
 def _amount_to_usd(
     connection: sqlite3.Connection,
@@ -8082,7 +8099,8 @@ def _is_raw_phantom_price(
     served_currency: str | None = None,
 ) -> bool:
     """True when a SINGLE-PRINTING card's RAW NM market sits well above its OWN PSA
-    10 market (USD) — an illiquid "phantom" raw price (a raw card cannot be worth
+    10 market, or far below its own PSA 7/8 (``_raw_far_below_low_grades``) — an
+    illiquid "phantom" raw price (a raw card cannot be worth
     much more than its graded slab). CURRENCY-AWARE: both sides convert to USD via
     the cached FX snapshot before comparing.
 
@@ -8116,6 +8134,14 @@ def _is_raw_phantom_price(
         raw_nm_usd = _amount_to_usd(connection, cell.get("market"), cell.get("currencyCode"))
     if raw_nm_usd is None or raw_nm_usd < _RAW_PHANTOM_MIN_USD:
         return False
+
+    low_grade_usds = []
+    for grade in _RAW_FLOOR_GRADES:
+        entry = _resolve_graded_context_entry(graded_contexts, grader="PSA", grade=grade)
+        if isinstance(entry, dict):
+            low_grade_usds.append(_amount_to_usd(connection, entry.get("market"), entry.get("currencyCode")))
+    if _raw_far_below_low_grades(raw_nm_usd, low_grade_usds):
+        return True
 
     psa10_entry = _resolve_graded_context_entry(graded_contexts, grader="PSA", grade="10")
     if not isinstance(psa10_entry, dict):
@@ -8179,6 +8205,16 @@ def _is_raw_phantom_price_from_cells(
         )
     if raw_nm_usd is None or raw_nm_usd < _RAW_PHANTOM_MIN_USD:
         return False
+
+    low_grade_usds = []
+    for grade in _RAW_FLOOR_GRADES:
+        grade_cell = resolve_graded_entry_from_cells(day_cells, grader="PSA", grade=grade)
+        if grade_cell is not None:
+            low_grade_usds.append(_amount_to_usd(
+                connection, _cell_field(grade_cell, "market"), _cell_field(grade_cell, "currency_code")
+            ))
+    if _raw_far_below_low_grades(raw_nm_usd, low_grade_usds):
+        return True
 
     psa10_cell = resolve_graded_entry_from_cells(day_cells, grader="PSA", grade="10")
     if psa10_cell is None:
