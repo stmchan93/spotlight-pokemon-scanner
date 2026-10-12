@@ -53,6 +53,7 @@ from catalog_tools import (
     printing_cell_serves_condition,
     raw_main_price_enabled,
     resolve_main_raw_summary_from_row,
+    stamp_main_raw_refresh,
     RAW_MAIN_PRICE_SOURCE_SCRYDEX,
     RAW_MAIN_PRICE_SOURCE_TCGCSV,
     price_history_cells_enabled,
@@ -6970,6 +6971,7 @@ class SpotlightScanService:
             if main_summary is not None:
                 pricing["condition"] = DEFAULT_RAW_CONDITION
                 pricing["mainPriceSource"] = RAW_MAIN_PRICE_SOURCE_TCGCSV
+                stamp_main_raw_refresh(pricing, snapshot_row)
             elif _is_default_main_raw_read(
                 variant=pricing_context.preferred_variant,
                 condition=pricing_context.preferred_condition,

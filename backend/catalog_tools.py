@@ -5963,6 +5963,33 @@ def tcgcsv_stale_hours() -> float:
         return 48.0
 
 
+def _parse_utc_timestamp(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _timestamp_within_hours(value: Any, hours: float) -> bool:
+    parsed = _parse_utc_timestamp(value)
+    return parsed is not None and datetime.now(timezone.utc) - parsed <= timedelta(hours=hours)
+
+
+def stamp_main_raw_refresh(pricing: dict[str, Any], row: Any) -> None:
+    """A served TCGCSV main price carries its own clock: ``refreshedAt``/``isFresh``
+    otherwise come from the Scrydex lane's ``updated_at``, which sealed rows never
+    get bumped (no Scrydex record), so they read as frozen at first ingest."""
+    main_updated_at = _cell_field(row, "main_raw_updated_at")
+    main_parsed = _parse_utc_timestamp(main_updated_at)
+    snapshot_parsed = _parse_utc_timestamp(pricing.get("refreshedAt"))
+    if main_parsed and (snapshot_parsed is None or main_parsed > snapshot_parsed):
+        pricing["refreshedAt"] = main_updated_at
+        pricing["isFresh"] = bool(pricing.get("isFresh")) or _timestamp_within_hours(main_updated_at, 24)
+
+
 def _main_raw_is_fresh(updated_at: Any) -> bool:
     """NULL/unparseable timestamps count as stale (never serve a frozen main)."""
     if not updated_at:
@@ -8561,6 +8588,7 @@ def price_snapshot_for_card(
         if main_summary is not None:
             result["condition"] = DEFAULT_RAW_CONDITION
             result["mainPriceSource"] = RAW_MAIN_PRICE_SOURCE_TCGCSV
+            stamp_main_raw_refresh(result, row)
         elif _is_default_main_raw_read(
             variant=requested_variant,
             condition=requested_condition,

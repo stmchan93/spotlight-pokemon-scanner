@@ -243,6 +243,33 @@ class MainRawPriceServingTests(unittest.TestCase):
                 self.assertEqual(pricing["pricingMode"], "raw")
                 self.assertEqual(pricing["mainPriceSource"], "tcgcsv")
 
+    def test_fresh_main_stamps_its_own_refresh_time(self):
+        # Sealed rows have no Scrydex sync, so the snapshot updated_at froze at
+        # first ingest while the TCGCSV main kept updating daily.
+        self._seed_raw(variant="Holofoil", condition="NM", market=15.0)
+        self.connection.execute(
+            "UPDATE card_price_snapshots SET updated_at = ? WHERE card_id = 'c1'", (_now_iso(hours_ago=24 * 12),)
+        )
+        main_at = _now_iso(hours_ago=2)
+        self._set_main_snapshot(market=10.0, variant="Holofoil", updated_at=main_at)
+        with patch.dict(os.environ, FLAG_ON):
+            for pricing in (
+                self._resolve(),
+                price_snapshot_for_card(self.connection, "c1", pricing_mode=RAW_PRICING_MODE),
+            ):
+                self.assertEqual(pricing["refreshedAt"], main_at)
+                self.assertTrue(pricing["isFresh"])
+
+    def test_older_main_keeps_snapshot_refresh_time(self):
+        self._seed_raw(variant="Holofoil", condition="NM", market=15.0)
+        snapshot_at = _now_iso(hours_ago=1)
+        self.connection.execute("UPDATE card_price_snapshots SET updated_at = ? WHERE card_id = 'c1'", (snapshot_at,))
+        self._set_main_snapshot(market=10.0, variant="Holofoil", updated_at=_now_iso(hours_ago=5))
+        with patch.dict(os.environ, FLAG_ON):
+            pricing = self._resolve()
+        self.assertEqual(pricing["refreshedAt"], snapshot_at)
+        self.assertTrue(pricing["isFresh"])
+
     def test_flag_on_null_main_falls_back_to_scrydex(self):
         self._seed_raw(variant="Holofoil", condition="NM", market=15.0)
         with patch.dict(os.environ, FLAG_ON):
