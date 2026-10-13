@@ -71,6 +71,10 @@ that were deleted and is explicitly a product event.
 either means adding never fails or means nobody reaches it. Today those are
 indistinguishable.
 
+**Removed 2026-10-11:** `scan_inventory_add_failed` now fires in production (6 in
+30 days), and taps equalled succeeded + failed exactly (302 = 296 + 6), so
+`scan_add_tapped` added nothing. Count add attempts as succeeded + failed.
+
 Call sites: `src/features/scanner/screens/scanner-screen.tsx` — `deleteRecentCapture`
 (swipe), `performClearAllCaptures` (clear_all), `applyCapEviction` (cap_evicted),
 `handleAddToInventory` (add tapped).

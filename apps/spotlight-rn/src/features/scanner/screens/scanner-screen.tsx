@@ -3582,13 +3582,6 @@ export function ScannerScreen({
       return;
     }
 
-    // Fired on intent, before the write. `scan_inventory_add_failed` sitting at
-    // zero could mean adding never fails or that nobody ever reaches it; without
-    // this event those two are indistinguishable.
-    capturePostHogEvent('scan_add_tapped', {
-      mode: capture.mode,
-    });
-
     updateRecentCapture(captureId, (entry) => {
       return {
         ...entry,
