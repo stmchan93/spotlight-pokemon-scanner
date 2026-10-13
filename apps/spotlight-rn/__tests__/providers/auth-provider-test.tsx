@@ -455,6 +455,39 @@ describe('AuthProvider', () => {
     expect(capturePostHogEvent).toHaveBeenCalledWith('auth_sign_in_failed', {
       provider: 'google',
       reason_class: 'Error',
+      error_code: null,
+      error_message: 'google boom',
+    });
+  });
+
+  it('logs the Apple error code and points the user at another sign-in method', async () => {
+    // Apple's native sheet fails on-device with a coded error (never reaches Supabase).
+    const appleError = Object.assign(new Error('The operation couldn’t be completed. (AuthorizationError error 1000.)'), {
+      code: 'ERR_REQUEST_UNKNOWN',
+    });
+    const { capturePostHogEvent, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      nodeEnv: 'development',
+      authServiceOverrides: {
+        signInWithApple: jest.fn(async () => {
+          throw appleError;
+        }),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedOut')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('sign-in-apple'));
+
+    await waitFor(() => {
+      expect(getByText("error:Apple sign-in didn't work on this device. Try Google or email instead.")).toBeTruthy();
+    });
+    expect(capturePostHogEvent).toHaveBeenCalledWith('auth_sign_in_failed', {
+      provider: 'apple',
+      reason_class: 'Error',
+      error_code: 'ERR_REQUEST_UNKNOWN',
+      error_message: 'The operation couldn’t be completed. (AuthorizationError error 1000.)',
     });
   });
 

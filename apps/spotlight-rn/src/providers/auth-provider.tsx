@@ -263,9 +263,18 @@ function isTransportError(error: Error): boolean {
   );
 }
 
+// Apple's native sheet failed on-device (no request ever reached Supabase in
+// the Oct 2026 failures), so retrying Apple rarely helps — point at the others.
+const APPLE_SIGN_IN_FAILED_MESSAGE = "Apple sign-in didn't work on this device. Try Google or email instead.";
+
 function errorMessageFromUnknown(error: unknown) {
   if (error instanceof AuthCanceledError || isAuthCanceledError(error)) {
     return null;
+  }
+
+  // New installs try "Sign in" before they have an account.
+  if (authErrorCode(error) === 'invalid_credentials') {
+    return "Wrong email or password. New here? Create an account instead.";
   }
 
   if (isExpectedSessionEndError(error)) {
@@ -309,6 +318,23 @@ function captureAuthSignInSucceeded(provider: 'apple' | 'google' | 'email') {
   });
 }
 
+function authErrorCode(error: unknown): string | null {
+  if (typeof error !== 'object' || error === null) {
+    return null;
+  }
+  const { code, status } = error as { code?: unknown; status?: unknown };
+  if (typeof code === 'string' || typeof code === 'number') {
+    return String(code);
+  }
+  return typeof status === 'number' ? String(status) : null;
+}
+
+function authErrorMessage(error: unknown): string | null {
+  const message = error instanceof Error ? error.message : null;
+  // Emails never belong in analytics.
+  return message ? message.replace(/[^\s@]+@[^\s@]+/g, '<email>').slice(0, 200) : null;
+}
+
 function captureAuthSignInFailed(provider: 'apple' | 'google' | 'email', error: unknown) {
   const reasonClass = authReasonClassFromUnknown(error);
   if (!reasonClass) {
@@ -318,6 +344,8 @@ function captureAuthSignInFailed(provider: 'apple' | 'google' | 'email', error: 
   capturePostHogEvent('auth_sign_in_failed', {
     provider,
     reason_class: reasonClass,
+    error_code: authErrorCode(error),
+    error_message: authErrorMessage(error),
   });
 }
 
@@ -830,7 +858,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
       return { needsCode: result.needsCode };
     }),
     signInEmail: ({ email, password }) => runWithBusy(async () => {
-      const session = await signInWithEmailPassword({ email, password });
+      let session: Session;
+      try {
+        session = await signInWithEmailPassword({ email, password });
+      } catch (error) {
+        captureAuthSignInFailed('email', error);
+        throw error;
+      }
       await updateFromSession(session);
       captureAuthSignInSucceeded('email');
     }),
@@ -879,22 +913,27 @@ export function AuthProvider({ children }: PropsWithChildren) {
         if (isAnonymousSession(currentSession)) {
           pendingOAuthLinkProviderRef.current = 'apple';
         }
-        const session = isAnonymousSession(currentSession)
-          ? await linkAppleIdentityToCurrentUser().catch((error) => {
-              if (isIdentityAlreadyLinkedError(error)) {
-                return signInWithApple();
-              }
-              throw error;
-            })
-          : await signInWithApple();
+        let session: Session | null;
+        try {
+          session = isAnonymousSession(currentSession)
+            ? await linkAppleIdentityToCurrentUser().catch((error) => {
+                if (isIdentityAlreadyLinkedError(error)) {
+                  return signInWithApple();
+                }
+                throw error;
+              })
+            : await signInWithApple();
+        } catch (error) {
+          captureAuthSignInFailed('apple', error);
+          if (error instanceof AuthCanceledError || isAuthCanceledError(error) || (error instanceof Error && isTransportError(error))) {
+            throw error;
+          }
+          throw new Error(APPLE_SIGN_IN_FAILED_MESSAGE);
+        }
         if (session) {
           await updateFromSession(session);
           captureAuthSignInSucceeded('apple');
         }
-      }, {
-        onError: (error) => {
-          captureAuthSignInFailed('apple', error);
-        },
       });
     },
     signInWithGoogle: async () => {
