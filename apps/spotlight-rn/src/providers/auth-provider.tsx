@@ -272,11 +272,6 @@ function errorMessageFromUnknown(error: unknown) {
     return null;
   }
 
-  // New installs try "Sign in" before they have an account.
-  if (authErrorCode(error) === 'invalid_credentials') {
-    return "Wrong email or password. New here? Create an account instead.";
-  }
-
   if (isExpectedSessionEndError(error)) {
     return null;
   }
