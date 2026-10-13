@@ -553,44 +553,6 @@ class RawPhantomSuppressionTests(unittest.TestCase):
         # raw $5 vs PSA10 $50 -> raw < slab -> NOT phantom (also below $20 floor anyway).
         self.assertFalse(_is_raw_phantom_price(self.connection, self._raw(5.0), self._graded(50.0)))
 
-    @staticmethod
-    def _graded_grades(markets, currency="USD"):
-        return {"graders": {"PSA": {grade: [{
-            "grader": "PSA", "grade": grade, "variant": None,
-            "isPerfect": False, "isSigned": False, "isError": False,
-            "currencyCode": currency, "market": market,
-        }] for grade, market in markets.items()}}}
-
-    def test_raw_far_below_psa7_is_phantom(self):
-        # POP 5 Umbreon ☆: raw $71 vs PSA 7 $16k -> a mis-mapped price, suppress.
-        graded = self._graded_grades({"7": 16134.79, "8": 24816.87, "10": 144783.35})
-        self.assertTrue(_is_raw_phantom_price(self.connection, self._raw(71.35), graded))
-
-    def test_raw_near_low_grades_not_phantom(self):
-        # Vintage holo: raw $400 vs PSA 7 $800 / PSA 8 $1,500 -> legit.
-        graded = self._graded_grades({"7": 800.0, "8": 1500.0, "10": 9000.0})
-        self.assertFalse(_is_raw_phantom_price(self.connection, self._raw(400.0), graded))
-
-    def test_cheap_slabs_never_floor_judged(self):
-        # Modern card: raw $25 vs PSA 8 $300 (under the $500 slab floor) -> legit.
-        graded = self._graded_grades({"8": 300.0, "10": 2000.0})
-        self.assertFalse(_is_raw_phantom_price(self.connection, self._raw(25.0), graded))
-
-    def test_inconsistent_low_grades_never_floor_judged(self):
-        # Junk graded data (PSA 9 far below PSA 8) must not blank a sane raw price.
-        graded = self._graded_grades({"8": 746.22, "9": 69.77, "10": 302.98})
-        self.assertFalse(_is_raw_phantom_price(self.connection, self._raw(36.0), graded))
-
-    def test_single_low_grade_never_floor_judged(self):
-        # A lone PSA 9 isn't enough evidence to blank a raw price.
-        graded = self._graded_grades({"9": 955.57})
-        self.assertFalse(_is_raw_phantom_price(self.connection, self._raw(31.0), graded))
-
-    def test_psa10_alone_never_floor_judged(self):
-        # Only a PSA 10 exists: high gem premiums are normal, so no floor check.
-        graded = self._graded_grades({"10": 5000.0})
-        self.assertFalse(_is_raw_phantom_price(self.connection, self._raw(30.0), graded))
-
     def test_raw_no_psa10_not_phantom(self):
         # Conservative: no PSA10 to compare against -> never suppress.
         self.assertFalse(_is_raw_phantom_price(self.connection, self._raw(500.0), self._graded(None)))

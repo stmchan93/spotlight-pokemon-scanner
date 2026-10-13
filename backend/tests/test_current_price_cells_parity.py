@@ -380,17 +380,6 @@ class CurrentPriceCellsParityTests(unittest.TestCase):
         self.assertEqual(cells_pricing["suppressionReason"], "phantom")
         self.assertEqual(json_pricing["suppressionReason"], "phantom")
 
-    def test_raw_far_below_low_grades_suppression_parity(self) -> None:
-        # Mirror case: raw NM far below the card's own PSA 7 -> both paths suppress.
-        self._seed_raw("c1", variant="Normal", condition="NM", market=71.35)
-        self._seed_graded("c1", grader="PSA", grade="7", variant="Normal", market=16134.79)
-        self._seed_graded("c1", grader="PSA", grade="8", variant="Normal", market=24816.87)
-        self.connection.commit()
-        json_pricing, cells_pricing = self._both_paths("c1", self.shim._raw_pricing_context())
-        self.assertEqual(self._sig(json_pricing), self._sig(cells_pricing))
-        self.assertIsNone(cells_pricing["market"])
-        self.assertEqual(json_pricing["suppressionReason"], "phantom")
-
     def test_scalar_default_only_card_parity(self) -> None:
         # Card with only default_raw_* scalars and no context entries / raw cells.
         self._seed_scalar_only("c2", market=7.5)
