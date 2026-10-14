@@ -3,7 +3,7 @@ import * as mockApiClient from '../mock-api-client';
 import { mockPortfolioDashboard } from '@spotlight/api-client';
 import { SpotlightThemeProvider } from '@spotlight/design-system';
 
-import { PortfolioChartCard } from '@/features/portfolio/components/portfolio-chart-card';
+import { PortfolioChartCard, portfolioLineYDomain } from '@/features/portfolio/components/portfolio-chart-card';
 
 jest.mock('@spotlight/api-client', () => mockApiClient);
 
@@ -160,5 +160,25 @@ describe('PortfolioChartCard', () => {
     renderChart({ dashboard: emptyDashboard, isLoading: true });
 
     expect(screen.getByTestId('portfolio-chart-skeleton')).toBeTruthy();
+  });
+});
+
+describe('portfolioLineYDomain', () => {
+  it('keeps a 3% dip to about a third of the chart instead of the full height', () => {
+    const { min, max } = portfolioLineYDomain([1730, 1720, 1690, 1680]);
+    expect((1730 - 1680) / (max - min)).toBeCloseTo(50 / (1730 * 0.08), 5);
+    expect(min).toBeLessThan(1680);
+    expect(max).toBeGreaterThan(1730);
+  });
+
+  it('still fills the chart for a large move, with headroom', () => {
+    const { min, max } = portfolioLineYDomain([1000, 1500]);
+    expect(max - min).toBeCloseTo(600, 5);
+  });
+
+  it('centers a flat line', () => {
+    const { min, max } = portfolioLineYDomain([100, 100]);
+    expect((min + max) / 2).toBe(100);
+    expect(max - min).toBeGreaterThan(0);
   });
 });

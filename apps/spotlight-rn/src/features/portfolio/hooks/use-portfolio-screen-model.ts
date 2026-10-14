@@ -42,6 +42,9 @@ const maxRecentSales = 9;
  * Module-scoped on purpose: it closes over nothing from the component, so it
  * needs no identity in any hook dependency list.
  */
+// The chart's pills other than the open 1W, in the order people tap them.
+const BACKGROUND_PREFETCH_RANGES: readonly PortfolioHistoryRange[] = ['1M', '3M', '1Y', 'ALL'];
+
 const rangesWithData = (source: PortfolioDashboard): Set<PortfolioHistoryRange> => {
   const loaded = new Set<PortfolioHistoryRange>();
   for (const range of historyRanges) {
@@ -525,6 +528,59 @@ export function usePortfolioScreenModel({
   // if the newer read then timed out.
   const dashboardRequestSeqRef = useRef(0);
 
+  // Fetch one range and merge it in. Shared by a tap and the background
+  // prefetch, so a tap on a range already in flight waits on that same request.
+  const rangeRequestsRef = useRef(new Map<PortfolioHistoryRange, Promise<void>>());
+  const fetchRange = useCallback((range: PortfolioHistoryRange) => {
+    const inFlight = rangeRequestsRef.current.get(range);
+    if (inFlight) {
+      return inFlight;
+    }
+    const requestedCollectionID = activeCollectionIDRef.current;
+    const request = (async () => {
+      try {
+        const bucket = await spotlightRepository.getPortfolioRange(range, {
+          collectionID: requestedCollectionID,
+        });
+        // A range for the collection the user has since left must not land in
+        // the new one's chart.
+        if (activeCollectionIDRef.current !== requestedCollectionID) {
+          return;
+        }
+        const hasData = bucket.portfolio.length > 0 || bucket.sales.length > 0;
+        // Only cache a range once it actually returns data. A cold 3M/1Y read can
+        // time out and come back empty; caching that empty bucket made re-tapping
+        // the month a no-op ("can't toggle"). Leaving an empty result uncached lets
+        // the next tap retry (the cold call also warms the backend cache).
+        if (hasData) {
+          loadedRangesRef.current.add(range);
+          setDashboard((prev) => ({ ...prev, ranges: { ...prev.ranges, [range]: bucket } }));
+        }
+      } catch {
+        // Leave the range empty — the chart shows its empty state, never crashes.
+      } finally {
+        rangeRequestsRef.current.delete(range);
+      }
+    })();
+    rangeRequestsRef.current.set(range, request);
+    return request;
+  }, [spotlightRepository]);
+
+  // After the open range lands, load the chart's other ranges one at a time so
+  // switching is instant. Sequential, not parallel: these are the same reads a
+  // tap makes, and a burst of them is what overloaded the backend on 9/11.
+  const prefetchOtherRanges = useCallback(async () => {
+    const collectionID = activeCollectionIDRef.current;
+    for (const range of BACKGROUND_PREFETCH_RANGES) {
+      if (activeCollectionIDRef.current !== collectionID) {
+        return;
+      }
+      if (!loadedRangesRef.current.has(range)) {
+        await fetchRange(range);
+      }
+    }
+  }, [fetchRange]);
+
   const loadDashboard = useCallback(async () => {
     const requestedCollectionID = activeCollectionIDRef.current;
     dashboardRequestSeqRef.current += 1;
@@ -615,6 +671,7 @@ export function usePortfolioScreenModel({
       displayedCollectionIDRef.current = loadedCollectionID;
       persistDashboard(loadResult.data, savedAt, sessionOwnerKey, loadedCollectionID);
       setLoadError(null);
+      void prefetchOtherRanges();
     } else if (loadResult.state === 'error' || isSuspiciousEmpty) {
       // Stale-while-revalidate: if we already have a chart to show, keep it and
       // flag "couldn't refresh" instead of surfacing a blocking error (or, for a
@@ -625,44 +682,21 @@ export function usePortfolioScreenModel({
       setLoadError(null);
     }
     setIsLoadingDashboard(false);
-  }, [sessionOwnerKey, setInventoryEntriesCache, setPortfolioDashboardCache, spotlightRepository]);
+  }, [prefetchOtherRanges, sessionOwnerKey, setInventoryEntriesCache, setPortfolioDashboardCache, spotlightRepository]);
 
-  // Switch the chart range. If the range hasn't been loaded yet (the dashboard
-  // only computed the open range), fetch just that range on demand and merge it
-  // in; the chart shows its skeleton via `loadingRange` until it arrives.
+  // Switch the chart range. If the range hasn't been loaded yet, fetch it (or
+  // join the prefetch already fetching it); the chart shows its skeleton via
+  // `loadingRange` until it arrives.
   const selectRange = useCallback((range: PortfolioHistoryRange) => {
     setSelectedRange(range);
     if (loadedRangesRef.current.has(range)) {
       return;
     }
     setLoadingRange(range);
-    const requestedCollectionID = activeCollectionIDRef.current;
-    void (async () => {
-      try {
-        const bucket = await spotlightRepository.getPortfolioRange(range, {
-          collectionID: requestedCollectionID,
-        });
-        // A range for the collection the user has since left must not land in
-        // the new one's chart.
-        if (activeCollectionIDRef.current !== requestedCollectionID) {
-          return;
-        }
-        const hasData = bucket.portfolio.length > 0 || bucket.sales.length > 0;
-        // Only cache a range once it actually returns data. A cold 3M/1Y read can
-        // time out and come back empty; caching that empty bucket made re-tapping
-        // the month a no-op ("can't toggle"). Leaving an empty result uncached lets
-        // the next tap retry (the cold call also warms the backend cache).
-        if (hasData) {
-          loadedRangesRef.current.add(range);
-          setDashboard((prev) => ({ ...prev, ranges: { ...prev.ranges, [range]: bucket } }));
-        }
-      } catch {
-        // Leave the range empty — the chart shows its empty state, never crashes.
-      } finally {
-        setLoadingRange((current) => (current === range ? null : current));
-      }
-    })();
-  }, [spotlightRepository]);
+    void fetchRange(range).finally(() => {
+      setLoadingRange((current) => (current === range ? null : current));
+    });
+  }, [fetchRange]);
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true);

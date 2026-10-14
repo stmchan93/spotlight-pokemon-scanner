@@ -63,6 +63,10 @@ const DAY_MS = 86400000;
 // is honest enough — daily points and timezone edges cost about that much.
 const RANGE_CLAMP_TOLERANCE_DAYS = 2;
 
+// The line's y-window spans at least this fraction of the portfolio value, so
+// a move's height on screen tracks its real size (3% ≈ a third of the chart).
+const LINE_MIN_SPAN_RATIO = 0.08;
+
 // Below this, the baseline is too near zero to divide by.
 const MEANINGFUL_BASELINE_VALUE = 1;
 
@@ -201,6 +205,22 @@ function formatTooltipDateLabel(isoDate: string) {
     })
     .replace(/^(\w+)\s/, '$1, ')
     .toUpperCase();
+}
+
+// The portfolio LINE auto-scales to the visible value range (not 0→max), with
+// a minimum span so small moves stay small (a $50 dip on $1,700 filled the full
+// height and read as a 50% crash), and headroom off the edges.
+export function portfolioLineYDomain(rawValues: readonly number[]) {
+  const values = rawValues.filter((value) => Number.isFinite(value));
+  if (values.length === 0) {
+    return { min: 0, max: 1 };
+  }
+  const dataMin = Math.min(...values);
+  const dataMax = Math.max(...values);
+  const minSpan = Math.abs(dataMax) * LINE_MIN_SPAN_RATIO || 2;
+  const paddedSpan = Math.max((dataMax - dataMin) * 1.2, minSpan);
+  const mid = (dataMax + dataMin) / 2;
+  return { min: mid - paddedSpan / 2, max: mid + paddedSpan / 2 };
 }
 
 // "Apr 2026" — the caption for a range that starts later than its label claims.
@@ -466,28 +486,12 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   const yAxisMaxValue = useMemo(() => {
     return buildRoundedCurrencyTicks(series.map((point) => point.value));
   }, [series]);
-  // The portfolio LINE auto-scales to the visible value range (not 0→max) so a
-  // small % move over the window reads as a real slope instead of a near-flat
-  // line. A little headroom on each side keeps the peak/trough off the edges.
   // (Sales BARS keep the 0-baseline via `yAxisMaxValue` — they encode magnitude,
   // not trend, so their height must stay proportional from zero.)
-  const lineYDomain = useMemo(() => {
-    const values = series
-      .map((point) => point.value)
-      .filter((value) => Number.isFinite(value));
-    if (values.length === 0) {
-      return { min: 0, max: 1 };
-    }
-    const dataMin = Math.min(...values);
-    const dataMax = Math.max(...values);
-    if (dataMax === dataMin) {
-      // Flat window — center the line with a small symmetric band.
-      const pad = Math.abs(dataMax) * 0.05 || 1;
-      return { min: dataMin - pad, max: dataMax + pad };
-    }
-    const pad = (dataMax - dataMin) * 0.1;
-    return { min: dataMin - pad, max: dataMax + pad };
-  }, [series]);
+  const lineYDomain = useMemo(
+    () => portfolioLineYDomain(series.map((point) => point.value)),
+    [series],
+  );
   const plotWidth = Math.max(chartWidth - chartPaddingX * 2, 1);
   const plotHeight = Math.max(chartHeight - chartPaddingY * 2, 1);
 

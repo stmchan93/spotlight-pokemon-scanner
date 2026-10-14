@@ -1833,15 +1833,45 @@ describe('PortfolioScreen', () => {
         fireEvent.press(screen.getByTestId(`range-${range}`));
       });
     }
-    expect(getPortfolioRange).not.toHaveBeenCalled();
 
-    // The range that came back empty is still fetched on demand.
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('range-ALL'));
-    });
+    // The range that came back empty is still fetched — by the background
+    // prefetch, before anyone taps it — and it is the ONLY one fetched.
     await waitFor(() => {
       expect(getPortfolioRange).toHaveBeenCalledWith('ALL', expect.any(Object));
     });
+    expect(getPortfolioRange).toHaveBeenCalledTimes(1);
+  });
+
+  it('prefetches the other chart ranges one at a time after the open range loads', async () => {
+    const pointFor = (value: number) => ({ isoDate: '2026-06-01', shortLabel: 'Jun 1', value });
+    const dashboard = buildDashboardWithInventory([buildInventoryEntry({ id: 'a', name: 'Alpha' })]);
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const getPortfolioRange = jest.fn(async (_range: string) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await Promise.resolve();
+      inFlight -= 1;
+      return { portfolio: [pointFor(999)], sales: [] };
+    });
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: dashboard.inventoryItems, errorMessage: null }),
+      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+      getPortfolioRange,
+    });
+
+    renderPortfolioScreen({ repository });
+    await screen.findByText('Alpha');
+    await waitFor(() => {
+      expect(getPortfolioRange.mock.calls.map(([range]) => range)).toEqual(['1M', '3M', '1Y', 'ALL']);
+    });
+    expect(maxInFlight).toBe(1);
+
+    // Already loaded, so a tap is instant and costs no request.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('range-3M'));
+    });
+    expect(getPortfolioRange).toHaveBeenCalledTimes(4);
   });
 
   // The reported bug: every pill showed the same change, because the header
