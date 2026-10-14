@@ -350,6 +350,7 @@ export function usePortfolioScreenModel({
     loadedRangesRef.current = cached
       ? rangesWithData(cached)
       : new Set<PortfolioHistoryRange>([selectedRangeRef.current]);
+    stagedRangesRef.current.clear();
     setHasLoadedDashboard(cached !== null);
     setHasLoadedInventory(cached !== null);
     setIsLoadingDashboard(cached === null);
@@ -528,9 +529,23 @@ export function usePortfolioScreenModel({
   // if the newer read then timed out.
   const dashboardRequestSeqRef = useRef(0);
 
-  // Fetch one range and merge it in. Shared by a tap and the background
-  // prefetch, so a tap on a range already in flight waits on that same request.
+  // Fetch one range. Shared by a tap and the background prefetch, so a tap on a
+  // range already in flight waits on that same request. A fetched range is
+  // STAGED, not merged: merging replaces the dashboard and re-renders the whole
+  // screen, and four background merges made the pills lag. It joins the
+  // dashboard when it is selected (or lands while selected).
   const rangeRequestsRef = useRef(new Map<PortfolioHistoryRange, Promise<void>>());
+  const stagedRangesRef = useRef(new Map<PortfolioHistoryRange, PortfolioDashboard['ranges'][PortfolioHistoryRange]>());
+  const applyStagedRange = useCallback((range: PortfolioHistoryRange) => {
+    const bucket = stagedRangesRef.current.get(range);
+    if (!bucket) {
+      return false;
+    }
+    stagedRangesRef.current.delete(range);
+    loadedRangesRef.current.add(range);
+    setDashboard((prev) => ({ ...prev, ranges: { ...prev.ranges, [range]: bucket } }));
+    return true;
+  }, []);
   const fetchRange = useCallback((range: PortfolioHistoryRange) => {
     const inFlight = rangeRequestsRef.current.get(range);
     if (inFlight) {
@@ -553,8 +568,10 @@ export function usePortfolioScreenModel({
         // the month a no-op ("can't toggle"). Leaving an empty result uncached lets
         // the next tap retry (the cold call also warms the backend cache).
         if (hasData) {
-          loadedRangesRef.current.add(range);
-          setDashboard((prev) => ({ ...prev, ranges: { ...prev.ranges, [range]: bucket } }));
+          stagedRangesRef.current.set(range, bucket);
+          if (selectedRangeRef.current === range) {
+            applyStagedRange(range);
+          }
         }
       } catch {
         // Leave the range empty — the chart shows its empty state, never crashes.
@@ -564,7 +581,7 @@ export function usePortfolioScreenModel({
     })();
     rangeRequestsRef.current.set(range, request);
     return request;
-  }, [spotlightRepository]);
+  }, [applyStagedRange, spotlightRepository]);
 
   // After the open range lands, load the chart's other ranges one at a time so
   // switching is instant. Sequential, not parallel: these are the same reads a
@@ -575,7 +592,7 @@ export function usePortfolioScreenModel({
       if (activeCollectionIDRef.current !== collectionID) {
         return;
       }
-      if (!loadedRangesRef.current.has(range)) {
+      if (!loadedRangesRef.current.has(range) && !stagedRangesRef.current.has(range)) {
         await fetchRange(range);
       }
     }
@@ -661,6 +678,7 @@ export function usePortfolioScreenModel({
       // numbers behind. What the fresh payload answered is what is loaded.
       loadedRangesRef.current = rangesWithData(nextDashboard);
       loadedRangesRef.current.add(openRange);
+      stagedRangesRef.current.clear();
       setPortfolioDashboardCache(nextDashboard);
       setInventoryEntriesCache(nextDashboard.inventoryItems);
       setHasLoadedDashboard(true);
@@ -689,14 +707,17 @@ export function usePortfolioScreenModel({
   // `loadingRange` until it arrives.
   const selectRange = useCallback((range: PortfolioHistoryRange) => {
     setSelectedRange(range);
-    if (loadedRangesRef.current.has(range)) {
+    // The ref normally follows state in an effect; a fetch landing before that
+    // runs must already see this range as selected.
+    selectedRangeRef.current = range;
+    if (loadedRangesRef.current.has(range) || applyStagedRange(range)) {
       return;
     }
     setLoadingRange(range);
     void fetchRange(range).finally(() => {
       setLoadingRange((current) => (current === range ? null : current));
     });
-  }, [fetchRange]);
+  }, [applyStagedRange, fetchRange]);
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true);
