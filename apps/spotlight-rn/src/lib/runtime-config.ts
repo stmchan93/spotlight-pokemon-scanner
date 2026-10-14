@@ -127,20 +127,17 @@ export function resolveShowMatchedVariantImage() {
 
 /**
  * The Social feed's market/news sections (Meta pulse + group pages, Hot on
- * Ekalight, Coming up + calendar, Set spotlight, Card news + News page).
- * Default ON; the production build sets it to 0, which hides the blocks, skips
- * their reads, and sends their routes back to the feed. Top Trends, posts and
+ * Ekalight, Coming up + calendar, Card news + News page). Top Trends, posts and
  * market alerts are NOT behind it.
  */
-// Market/news feed sections are hidden in every build until they ship; set
-// EXPO_PUBLIC_SPOTLIGHT_FEED_MARKET_BLOCKS=1 locally to work on them. Defaulted
-// here, not in eas.json, because eas.json is a native-fingerprint input and
-// editing it blocks OTAs.
+// On in development and staging, off in production until they ship; the env
+// overrides either way. Defaulted here, not in eas.json, because eas.json is a
+// native-fingerprint input and editing it blocks OTAs.
 export function resolveFeedMarketBlocksEnabled() {
   return resolveRuntimeBoolean(
     ['EXPO_PUBLIC_SPOTLIGHT_FEED_MARKET_BLOCKS'],
     ['spotlightFeedMarketBlocks'],
-    false,
+    resolveRuntimeAppEnv() !== 'production',
   );
 }
 
