@@ -22,8 +22,11 @@ import {
   mockSetSpotlight,
 } from './meta-feed-mock-data';
 import {
+  mockSpotlightEventMap,
   mockSpotlightEventsFeed,
+  parseSpotlightEventMap,
   parseSpotlightEventsPayload,
+  type SpotlightEventMap,
   type SpotlightEventsFeed,
 } from './spotlight-events';
 import {
@@ -402,6 +405,8 @@ export interface SpotlightRepository {
   fetchCalendar(query?: CalendarQuery): Promise<CalendarFeed | null>;
   /** Spotlight's own shows (Events tab). Null when the route is absent (old backend). */
   fetchSpotlightEvents(): Promise<SpotlightEventsFeed | null>;
+  /** `url` is an event's absolute `floorMapUrl`. Null when the map is gone (404). */
+  fetchSpotlightEventMap(url: string): Promise<SpotlightEventMap | null>;
   getCardConditionHistory(query: CardConditionHistoryQuery): Promise<CardConditionHistory | null>;
   getRawPricingMatrix(cardId: string): Promise<RawPricingMatrix>;
   getCardEbayListings(query: CardDetailQuery & {
@@ -4068,6 +4073,10 @@ export class MockSpotlightRepository implements SpotlightRepository {
 
   async fetchSpotlightEvents(): Promise<SpotlightEventsFeed | null> {
     return mockSpotlightEventsFeed;
+  }
+
+  async fetchSpotlightEventMap(_url: string): Promise<SpotlightEventMap | null> {
+    return mockSpotlightEventMap;
   }
 
   async loadInventoryEntries(query?: InventoryEntriesQuery) {
@@ -8281,6 +8290,17 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   async fetchSpotlightEvents(): Promise<SpotlightEventsFeed | null> {
     const result = await this.requestMetaFeedRead('/api/v1/events', {});
     return result.disabled ? null : parseSpotlightEventsPayload(result.data, this.baseUrl);
+  }
+
+  async fetchSpotlightEventMap(url: string): Promise<SpotlightEventMap | null> {
+    const response = await this.requestJsonRead<unknown>(url, undefined, { allowNotFound: true });
+    if (response.kind === 'not_found') {
+      return null;
+    }
+    if (response.kind !== 'success' || response.data == null) {
+      throw new Error('event map read failed');
+    }
+    return parseSpotlightEventMap(response.data, this.baseUrl);
   }
 
   /**

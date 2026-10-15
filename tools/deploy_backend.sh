@@ -266,6 +266,10 @@ if [ -d "$BACKEND_DIR/data/spotlight_event_flyers" ]; then
   mkdir -p "$BUNDLE_ROOT/data/spotlight_event_flyers"
   cp -R "$BACKEND_DIR/data/spotlight_event_flyers/." "$BUNDLE_ROOT/data/spotlight_event_flyers/"
 fi
+if [ -d "$BACKEND_DIR/data/spotlight_event_maps" ]; then
+  mkdir -p "$BUNDLE_ROOT/data/spotlight_event_maps"
+  cp -R "$BACKEND_DIR/data/spotlight_event_maps/." "$BUNDLE_ROOT/data/spotlight_event_maps/"
+fi
 # --------------------------------------------------------------------------
 # Rerank-pool / adapter embedding-space preflight guard.
 #

@@ -1,5 +1,7 @@
-import { useCallback } from 'react';
-import { Linking, Platform, Pressable, ScrollView, Share, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { useCallback, useRef } from 'react';
+import { Linking, Platform, Pressable, Share, StyleSheet, View, useWindowDimensions } from 'react-native';
+// Gesture-handler's ScrollView so the floor map's pan can block it while zoomed.
+import { ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { Clock, Heart, HeartSolid, MapsArrowDiagonal, NavArrowLeft, PeopleTag, ShareIos } from 'iconoir-react-native';
@@ -22,6 +24,7 @@ import {
 
 import { EventFlyer } from '@/features/events/components/event-flyer';
 import { EventMap } from '@/features/events/components/event-map';
+import { EventVendorsSection } from '@/features/events/components/event-vendors-section';
 import { formatEventSchedule, formatEventShareMessage } from '@/features/events/event-format';
 import { useSpotlightEvent } from '@/features/events/hooks/use-spotlight-events';
 import { useSavedEvents } from '@/features/events/saved-events-store';
@@ -55,6 +58,7 @@ export function EventDetailScreen({ eventId, onBack }: EventDetailScreenProps) {
   const { width: windowWidth } = useWindowDimensions();
   const { event, failed, refresh } = useSpotlightEvent(eventId);
   const { isSaved, toggle } = useSavedEvents();
+  const scrollRef = useRef<ScrollView>(null);
   const saved = isSaved(eventId);
   const accent = event?.accentColor ?? theme.colors.eventAccent;
   const canBuy = Boolean(event?.ticketUrl) && event?.status !== 'past';
@@ -144,6 +148,14 @@ export function EventDetailScreen({ eventId, onBack }: EventDetailScreenProps) {
             />
           ) : null}
         </View>
+
+        {event.floorMapUrl ? (
+          <EventVendorsSection
+            floorMapUrl={event.floorMapUrl}
+            renderTitle={(title) => <SectionTitle title={title} />}
+            scrollGesture={scrollRef}
+          />
+        ) : null}
       </>
     );
   };
@@ -153,6 +165,8 @@ export function EventDetailScreen({ eventId, onBack }: EventDetailScreenProps) {
       <ScrollView
         contentContainerStyle={{ paddingBottom: spacing.xxl + (canBuy ? 0 : insets.bottom) }}
         contentInsetAdjustmentBehavior="never"
+        keyboardShouldPersistTaps="handled"
+        ref={scrollRef}
         showsVerticalScrollIndicator={false}
         testID="event-detail-scroll"
       >

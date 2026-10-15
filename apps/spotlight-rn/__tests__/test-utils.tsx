@@ -230,6 +230,10 @@ export function createTestSpotlightRepository(
       return overrides.fetchSpotlightEvents?.(...args)
         ?? baseRepository.fetchSpotlightEvents(...args);
     },
+    fetchSpotlightEventMap: (...args) => {
+      return overrides.fetchSpotlightEventMap?.(...args)
+        ?? baseRepository.fetchSpotlightEventMap(...args);
+    },
     getCardConditionHistory: (...args) => {
       return overrides.getCardConditionHistory?.(...args)
         ?? baseRepository.getCardConditionHistory(...args);

@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fireEvent, screen, within } from '@testing-library/react-native';
 import { Linking, Platform, Share } from 'react-native';
 
-import type { SpotlightEventsFeed } from '@spotlight/api-client';
+import { mockSpotlightEventMap, type SpotlightEventsFeed } from '@spotlight/api-client';
 import { resetSavedEventsForTests } from '@/features/events/saved-events-store';
 import { EventDetailScreen, openEventInMaps } from '@/features/events/screens/event-detail-screen';
 import { openLinkOut } from '@/features/meta-feed/screens/components/open-link-out';
@@ -238,5 +238,81 @@ describe('openEventInMaps', () => {
     setOS('android');
     openEventInMaps({ ...event, latitude: null, longitude: null });
     expect(openURL).toHaveBeenCalledWith('geo:0,0?q=1801%20Kalakaua%20Ave%2C%20Honolulu%2C%20HI');
+  });
+});
+
+describe('EventDetailScreen vendors', () => {
+  const withMap = makeEvent({ floorMapUrl: 'https://example.com/api/v1/events/hawaii-2026-10/map' });
+
+  function renderWithMap(event = withMap) {
+    const fetchSpotlightEventMap = jest.fn(async () => mockSpotlightEventMap);
+    renderWithProviders(<EventDetailScreen eventId={event.id} onBack={jest.fn()} />, {
+      spotlightRepository: createTestSpotlightRepository({
+        fetchSpotlightEvents: async () => ({ items: [event] }),
+        fetchSpotlightEventMap,
+      }),
+    });
+    return { fetchSpotlightEventMap };
+  }
+
+  beforeEach(async () => {
+    resetSavedEventsForTests();
+    await AsyncStorage.clear();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('is absent, and never fetches, when the event has no floor map', async () => {
+    const { fetchSpotlightEventMap } = renderWithMap(makeEvent({ floorMapUrl: null }));
+    await screen.findByTestId('event-detail-title');
+    expect(screen.queryByTestId('event-vendors')).toBeNull();
+    expect(fetchSpotlightEventMap).not.toHaveBeenCalled();
+  });
+
+  it('lists vendors and filters them by search and tag', async () => {
+    const { fetchSpotlightEventMap } = renderWithMap();
+    expect(await screen.findByTestId('event-vendors')).toBeTruthy();
+    expect(fetchSpotlightEventMap).toHaveBeenCalledWith(withMap.floorMapUrl);
+    expect(screen.getByTestId('event-vendors-count').props.children).toBe('3 vendors');
+
+    fireEvent.changeText(screen.getByTestId('event-vendors-search'), 'main');
+    expect(screen.getByTestId('event-vendor-main-street-cards')).toBeTruthy();
+    expect(screen.queryByTestId('event-vendor-aloha-puddin')).toBeNull();
+    expect(screen.getByTestId('event-vendors-count').props.children).toBe('1 of 3 vendors');
+
+    fireEvent.changeText(screen.getByTestId('event-vendors-search'), '');
+    fireEvent.press(screen.getByTestId('event-vendors-tag-Food'));
+    expect(screen.getByTestId('event-vendor-aloha-puddin')).toBeTruthy();
+    expect(screen.queryByTestId('event-vendor-main-street-cards')).toBeNull();
+  });
+
+  it('selecting a vendor shows its card, highlights its tables and opens Instagram', async () => {
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    renderWithMap();
+    fireEvent(await screen.findByTestId('event-floor-map'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 360, height: 440 } },
+    });
+    fireEvent.press(screen.getByTestId('event-vendor-dokidoki-collectibles'));
+
+    expect(screen.getByTestId('event-vendor-card-name').props.children).toBe('DokiDokiCollectibles');
+    expect(screen.getByTestId('event-floor-map-highlight-A1')).toBeTruthy();
+    expect(screen.getByTestId('event-floor-map-highlight-A2')).toBeTruthy();
+    expect(screen.queryByTestId('event-floor-map-highlight-C14')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('event-vendor-card-instagram'));
+    expect(openURL).toHaveBeenCalledWith('https://instagram.com/dokidokicollectibles');
+
+    fireEvent.press(screen.getByTestId('event-vendor-card-close'));
+    expect(screen.queryByTestId('event-vendor-card')).toBeNull();
+  });
+
+  it('has no Instagram button for a vendor without a handle', async () => {
+    renderWithMap();
+    fireEvent.press(await screen.findByTestId('event-vendor-aloha-puddin'));
+    expect(screen.getByTestId('event-vendor-card')).toBeTruthy();
+    expect(screen.queryByTestId('event-vendor-card-instagram')).toBeNull();
   });
 });

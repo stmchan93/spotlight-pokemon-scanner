@@ -25,9 +25,25 @@ from server import SpotlightRequestHandler, SpotlightScanService  # noqa: E402
 ITEM_KEYS = {
     "id", "title", "shortTitle", "venue", "city", "address", "latitude", "longitude",
     "startDate", "endDate", "timezone", "openTime", "closeTime", "tableCount", "categories",
-    "about", "flyerUrl", "ticketUrl", "shareUrl", "featured", "accentColor", "status",
+    "about", "flyerUrl", "ticketUrl", "shareUrl", "featured", "accentColor", "status", "floorMapUrl",
 }
 PNG_BYTES = b"\x89PNG\r\n\x1a\nfake"
+
+
+def _map_doc(**overrides: Any) -> dict[str, Any]:
+    doc: dict[str, Any] = {
+        "eventId": "ignored-on-the-wire",
+        "imageFile": "ontario-2026-08.png",
+        "imageWidth": 1600,
+        "imageHeight": 3000,
+        "tables": [{"id": "C1", "block": "C", "number": 1, "x": 0.1, "y": 0.2, "width": 0.01, "height": 0.02}],
+        "vendors": [{"id": "main-street", "name": "Main Street", "location": "C1", "tableIds": ["C1"],
+                     "tags": ["Pokémon"], "instagram": "mainstreet"}],
+        "tags": ["Pokémon"],
+        "updatedAt": "2026-10-15T00:00:00Z",
+    }
+    doc.update(overrides)
+    return doc
 
 
 def _event(**overrides: Any) -> dict[str, Any]:
@@ -72,6 +88,8 @@ class SpotlightEventsTests(unittest.TestCase):
         self.events_path = root / "spotlight_events.json"
         self.flyers_dir = root / "flyers"
         self.flyers_dir.mkdir()
+        self.maps_dir = root / "maps"
+        self.maps_dir.mkdir()
 
     def _write(self, rows: list[Any]) -> None:
         spotlight_events.clear_cache()
@@ -79,7 +97,7 @@ class SpotlightEventsTests(unittest.TestCase):
 
     def _build(self, now: datetime) -> dict[str, Any]:
         return spotlight_events.build_events_payload(
-            now=now, events_path=self.events_path, flyers_dir=self.flyers_dir
+            now=now, events_path=self.events_path, flyers_dir=self.flyers_dir, maps_dir=self.maps_dir
         )
 
     def test_seed_file_is_valid(self) -> None:
@@ -174,6 +192,40 @@ class SpotlightEventsTests(unittest.TestCase):
                 spotlight_events.flyer_file(event_id, events_path=self.events_path, flyers_dir=self.flyers_dir)
             )
 
+    def test_floor_map_only_when_document_and_image_exist(self) -> None:
+        self._write([_event(id="mapped"), _event(id="no-image"), _event(id="bad-json"), _event(id="no-map")])
+        (self.maps_dir / "mapped.json").write_text(json.dumps(_map_doc(imageFile="mapped.png")), encoding="utf-8")
+        (self.maps_dir / "mapped.png").write_bytes(PNG_BYTES)
+        (self.maps_dir / "no-image.json").write_text(json.dumps(_map_doc(imageFile="gone.png")), encoding="utf-8")
+        (self.maps_dir / "bad-json.json").write_text("{nope", encoding="utf-8")
+        items = {i["id"]: i for i in self._build(_utc(2026, 1, 1))["items"]}
+        self.assertEqual(items["mapped"]["floorMapUrl"], "/api/v1/events/mapped/map")
+        for event_id in ("no-image", "bad-json", "no-map"):
+            self.assertIsNone(items[event_id]["floorMapUrl"])
+
+        kwargs = {"events_path": self.events_path, "maps_dir": self.maps_dir}
+        payload = spotlight_events.floor_map_payload("mapped", **kwargs)
+        assert payload is not None
+        self.assertNotIn("imageFile", payload)
+        self.assertEqual(payload["eventId"], "mapped")
+        self.assertEqual(payload["imageUrl"], "/api/v1/events/mapped/map-image")
+        self.assertEqual(payload["vendors"][0]["tableIds"], ["C1"])
+        self.assertEqual(
+            spotlight_events.floor_map_image_file("mapped", **kwargs), (self.maps_dir / "mapped.png").resolve()
+        )
+        for event_id in ("no-image", "bad-json", "no-map", "unknown", "../mapped"):
+            self.assertIsNone(spotlight_events.floor_map_payload(event_id, **kwargs))
+            self.assertIsNone(spotlight_events.floor_map_image_file(event_id, **kwargs))
+
+    def test_floor_map_image_name_cannot_escape_the_maps_dir(self) -> None:
+        self._write([_event(id="sneaky")])
+        (self.maps_dir / "sneaky.json").write_text(
+            json.dumps(_map_doc(imageFile="../spotlight_events.json")), encoding="utf-8"
+        )
+        self.assertIsNone(
+            spotlight_events.floor_map_payload("sneaky", events_path=self.events_path, maps_dir=self.maps_dir)
+        )
+
     def test_reloads_when_file_changes(self) -> None:
         self._write([_event(id="one")])
         self.assertEqual(len(spotlight_events.load_events(self.events_path)), 1)
@@ -207,7 +259,11 @@ class SpotlightEventsRouteTests(unittest.TestCase):
             json.dumps({"events": [_event(flyer="ontario.png"), _event(id="no-flyer", flyer=None)]}),
             encoding="utf-8",
         )
-        for name, value in (("EVENTS_PATH", events_path), ("FLYERS_DIR", flyers_dir)):
+        maps_dir = root / "maps"
+        maps_dir.mkdir()
+        (maps_dir / "ontario-2026-08.json").write_text(json.dumps(_map_doc()), encoding="utf-8")
+        (maps_dir / "ontario-2026-08.png").write_bytes(PNG_BYTES)
+        for name, value in (("EVENTS_PATH", events_path), ("FLYERS_DIR", flyers_dir), ("MAPS_DIR", maps_dir)):
             patcher = mock.patch.object(spotlight_events, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -252,6 +308,24 @@ class SpotlightEventsRouteTests(unittest.TestCase):
             "/api/v1/events/unknown/flyer",
             "/api/v1/events//flyer",
             "/api/v1/events/..%2F..%2Fserver.py/flyer",
+        ):
+            with self.subTest(path=path):
+                ((kind, (status, payload)),) = self._get(path)
+                self.assertEqual((kind, status, payload), ("json", HTTPStatus.NOT_FOUND, {"error": "not_found"}))
+
+    def test_map_routes(self) -> None:
+        ((kind, (status, payload)),) = self._get("/api/v1/events/ontario-2026-08/map")
+        self.assertEqual((kind, status), ("json", HTTPStatus.OK))
+        self.assertEqual(payload["imageUrl"], "/api/v1/events/ontario-2026-08/map-image")
+        self.assertNotIn("imageFile", payload)
+        ((kind, (body, kw)),) = self._get("/api/v1/events/ontario-2026-08/map-image")
+        self.assertEqual((kind, body, kw), ("image", PNG_BYTES, {"content_type": "image/png", "max_age": 600}))
+        for path in (
+            "/api/v1/events/no-flyer/map",
+            "/api/v1/events/no-flyer/map-image",
+            "/api/v1/events/unknown/map",
+            "/api/v1/events//map",
+            "/api/v1/events/..%2F..%2Fserver.py/map-image",
         ):
             with self.subTest(path=path):
                 ((kind, (status, payload)),) = self._get(path)

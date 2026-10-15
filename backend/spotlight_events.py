@@ -9,6 +9,8 @@ Served shape: ``{"items": [SpotlightEvent, ...]}`` ordered live, then upcoming
 (soonest first), then past (most recent first). ``status`` is computed from
 today's date in each event's own timezone. The raw ``flyer`` filename never goes
 on the wire; ``flyerUrl`` is the flyer route when the file exists, else null.
+``floorMapUrl`` likewise points at the event's floor map
+(``data/spotlight_event_maps/<id>.json`` + image) when one has been built.
 """
 
 from __future__ import annotations
@@ -28,6 +30,8 @@ LOGGER = logging.getLogger("spotlight.spotlight_events")
 DATA_DIR = Path(__file__).resolve().parent / "data"
 EVENTS_PATH = DATA_DIR / "spotlight_events.json"
 FLYERS_DIR = DATA_DIR / "spotlight_event_flyers"
+# `<event-id>.json` + its floor image, written by tools/build_event_floor_map.py.
+MAPS_DIR = DATA_DIR / "spotlight_event_maps"
 FLYER_CONTENT_TYPES = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -243,13 +247,16 @@ def build_events_payload(
     now: datetime | None = None,
     events_path: Path | None = None,
     flyers_dir: Path | None = None,
+    maps_dir: Path | None = None,
 ) -> dict[str, Any]:
     flyers = Path(flyers_dir or FLYERS_DIR)
+    maps = Path(maps_dir or MAPS_DIR)
     buckets: dict[str, list[dict[str, Any]]] = {status: [] for status in STATUSES}
     for event in load_events(events_path):
         has_flyer = _flyer_path(event, flyers) is not None
         item = {k: v for k, v in event.items() if k != "flyer"}
         item["flyerUrl"] = flyer_url(event["id"]) if has_flyer else None
+        item["floorMapUrl"] = floor_map_url(event["id"]) if _load_map(event["id"], maps) else None
         item["status"] = event_status(event, now)
         buckets[item["status"]].append(item)
     buckets["live"].sort(key=lambda e: (e["startDate"], e["id"]))
@@ -272,6 +279,80 @@ def flyer_file(
     if path is None:
         return None
     return path, FLYER_CONTENT_TYPES[path.suffix.lower()]
+
+
+def floor_map_url(event_id: str) -> str:
+    return f"/api/v1/events/{event_id}/map"
+
+
+def floor_map_image_url(event_id: str) -> str:
+    return f"/api/v1/events/{event_id}/map-image"
+
+
+def _map_image_path(document: dict[str, Any], maps_dir: Path) -> Path | None:
+    name = document.get("imageFile")
+    if not isinstance(name, str) or not _FLYER_RE.match(name) or Path(name).suffix.lower() != ".png":
+        return None
+    root = maps_dir.resolve()
+    candidate = (root / name).resolve()
+    if candidate.parent != root or not candidate.is_file():
+        return None
+    return candidate
+
+
+def _load_map(event_id: str, maps_dir: Path) -> dict[str, Any] | None:
+    """The stored map document, only when it AND its image are present."""
+    if not _ID_RE.match(event_id):
+        return None
+    path = maps_dir / f"{event_id}.json"
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    key = f"map:{path}"
+    with _lock:
+        cached = _cache.get(key)
+        if cached and cached[0] == mtime:
+            document = cached[1][0]
+            return document if _map_image_path(document, maps_dir) else None
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        LOGGER.warning("floor map %s unreadable: %s", path, error)
+        return None
+    if not isinstance(document, dict) or not isinstance(document.get("tables"), list) or not isinstance(
+        document.get("vendors"), list
+    ):
+        LOGGER.warning("floor map %s has no tables/vendors", path)
+        return None
+    with _lock:
+        _cache[key] = (mtime, [document])
+    return document if _map_image_path(document, maps_dir) else None
+
+
+def floor_map_payload(
+    event_id: str, *, events_path: Path | None = None, maps_dir: Path | None = None
+) -> dict[str, Any] | None:
+    """The served map for a validated event, or None. The image filename never goes on the wire."""
+    if not any(e["id"] == event_id for e in load_events(events_path)):
+        return None
+    document = _load_map(event_id, Path(maps_dir or MAPS_DIR))
+    if document is None:
+        return None
+    payload = {k: v for k, v in document.items() if k != "imageFile"}
+    payload["eventId"] = event_id
+    payload["imageUrl"] = floor_map_image_url(event_id)
+    return payload
+
+
+def floor_map_image_file(
+    event_id: str, *, events_path: Path | None = None, maps_dir: Path | None = None
+) -> Path | None:
+    if not any(e["id"] == event_id for e in load_events(events_path)):
+        return None
+    maps = Path(maps_dir or MAPS_DIR)
+    document = _load_map(event_id, maps)
+    return _map_image_path(document, maps) if document else None
 
 
 def clear_cache() -> None:

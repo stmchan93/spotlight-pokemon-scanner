@@ -1,4 +1,7 @@
-import { parseSpotlightEventsPayload } from '../../../../packages/api-client/src/spotlight/spotlight-events';
+import {
+  parseSpotlightEventMap,
+  parseSpotlightEventsPayload,
+} from '../../../../packages/api-client/src/spotlight/spotlight-events';
 
 const BASE = 'https://api.example.com/';
 
@@ -115,5 +118,62 @@ describe('parseSpotlightEventsPayload', () => {
   it('returns an empty feed for non-object payloads', () => {
     expect(parseSpotlightEventsPayload(null)).toEqual({ items: [] });
     expect(parseSpotlightEventsPayload({ items: 'nope' })).toEqual({ items: [] });
+  });
+});
+
+describe('floorMapUrl', () => {
+  it('resolves a relative floorMapUrl and defaults to null', () => {
+    expect(parseOne({ floorMapUrl: '/api/v1/events/pomona-2026-12/map' }).floorMapUrl).toBe(
+      'https://api.example.com/api/v1/events/pomona-2026-12/map',
+    );
+    expect(parseOne().floorMapUrl).toBeNull();
+    expect(parseOne({ floorMapUrl: 'javascript:alert(1)' }).floorMapUrl).toBeNull();
+  });
+});
+
+describe('parseSpotlightEventMap', () => {
+  const payload = (overrides: Record<string, unknown> = {}) => ({
+    eventId: 'hawaii-2026-10',
+    imageUrl: '/api/v1/events/hawaii-2026-10/map-image',
+    imageWidth: 1433,
+    imageHeight: 2700,
+    tables: [
+      { id: 'C14', block: 'C', number: 14, x: 0.41, y: 0.62, width: 0.011, height: 0.017 },
+      { id: 'C15', block: 'C', number: 15, x: 0.41, y: 0.64, width: 0.011, height: 0.017 },
+      { id: 'BAD', x: 2, y: 0.1, width: 0.1, height: 0.1 },
+      null,
+    ],
+    vendors: [
+      {
+        id: 'main-street-cards',
+        name: 'Main Street Cards',
+        location: 'C14-C15, Z9',
+        tableIds: ['C14', 'C15', 'Z9'],
+        tags: ['Pokémon', 'Graded'],
+        instagram: '@mainstreetcards',
+      },
+      { id: 'no-name' },
+      { id: 'odd-ig', name: 'Odd IG', location: 'C14', tableIds: ['C14'], tags: [], instagram: 'https://evil' },
+    ],
+    tags: ['Pokémon', 'Graded'],
+    updatedAt: '2026-10-15T23:50:00Z',
+    ...overrides,
+  });
+
+  it('parses the map, resolving the image against the base and dropping malformed rows', () => {
+    const map = parseSpotlightEventMap(payload(), BASE);
+    expect(map).not.toBeNull();
+    expect(map?.imageUrl).toBe('https://api.example.com/api/v1/events/hawaii-2026-10/map-image');
+    expect(map?.tables.map((table) => table.id)).toEqual(['C14', 'C15']);
+    expect(map?.vendors.map((vendor) => vendor.id)).toEqual(['main-street-cards', 'odd-ig']);
+    // Unknown tables are dropped from a vendor; "@" is stripped; a non-handle is rejected.
+    expect(map?.vendors[0]).toMatchObject({ tableIds: ['C14', 'C15'], instagram: 'mainstreetcards' });
+    expect(map?.vendors[1].instagram).toBeNull();
+  });
+
+  it('rejects a payload without a usable image', () => {
+    expect(parseSpotlightEventMap(payload({ imageUrl: null }), BASE)).toBeNull();
+    expect(parseSpotlightEventMap(payload({ imageWidth: 0 }), BASE)).toBeNull();
+    expect(parseSpotlightEventMap('nope', BASE)).toBeNull();
   });
 });
