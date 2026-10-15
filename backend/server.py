@@ -32,7 +32,6 @@ from catalog_tools import (
     _graded_variants_for_context,
     _is_raw_phantom_price,
     _is_raw_phantom_price_from_cells,
-    _ppt_graded_signal_row,
     _normalized_condition_code,
     _normalized_variant_label,
     _raw_context_conditions,
@@ -187,7 +186,6 @@ import expo_push
 import hot_cards
 import market_alerts
 import watch_printings
-from sync_ppt_catalog import ensure_ppt_ungraded_signals_schema
 import meta_pulse
 import news_feed
 import printing_images
@@ -220,19 +218,12 @@ from scrydex_adapter import (
     raw_evidence_looks_japanese,
     search_remote_scrydex_japanese_raw_candidates,
 )
-from recent_sales_merge import (
-    SHOWN_VERIFICATION_TIERS,
-    local_price_outliers,
-    merge_ppt_sold_listings,
-    ppt_only_rows_for_grade,
-    sale_sort_date,
-    sale_verification,
-    title_conflicts_with_card,
-)
-from ppt_adapter import (
+from recent_sales import (
     ebay_item_id_from_url,
-    fetch_ppt_sold_listings_by_ebay_item_id,
+    local_price_outliers,
     reconcile_recent_sales_prices,
+    sale_sort_date,
+    title_conflicts_with_card,
 )
 from slab_cert_resolver import resolve_psa_cert_from_scan_cache
 from tcgcsv_adapter import TCGCSV_PROVIDER, scrydex_variant_label_for_subtype
@@ -579,10 +570,6 @@ RECENT_SALES_DEFAULT_LIMIT = 5
 RECENT_SALES_MAX_LIMIT = 25
 RECENT_SALES_FRESHNESS_HOURS = 24
 RECENT_SALES_EMPTY_REFRESH_HOURS = 48
-# PPT-only comps: eBay getItem reach (days) for photos/aspects, and how many
-# of those rows to look up per refresh (free calls, but ~200ms each).
-RECENT_SALES_PPT_LOOKUP_DAYS = 90
-RECENT_SALES_PPT_LOOKUP_CAP = 40
 # "Recent average" headline: newest 3+ (whole days; or 2, or 1) verified USD sales no older
 # than this. Older sales stay listed but never become a price.
 RECENT_SALES_AVERAGE_SAMPLE = 3
@@ -686,9 +673,6 @@ def _filter_recent_sales_rows(
             row_variant = _recent_sales_variant_match_key(sale.get("variant"))
             if row_variant and row_variant != requested:
                 continue
-        # PPT-only rows are cached whole but served only once verified.
-        if sale_verification(sale) not in SHOWN_VERIFICATION_TIERS:
-            continue
         # Scrydex mixes in other printings too (Celebrations Charizard under
         # Base Set 4/102), so the title check covers every source.
         if card is not None and title_conflicts_with_card(sale.get("title"), card):
@@ -1785,9 +1769,8 @@ def _apply_watch_printings_schema_patch(connection: sqlite3.Connection) -> None:
     """Watch per printing. Runs AFTER the favorites + deal-radar patches so every
     card_favorites column exists before the (one-time, small-table) rebuild onto
     the (owner_user_id, card_id, variant_key) key. Idempotent: a table already on
-    that key is untouched. Also the per-card PPT eBay-ungraded signal table."""
+    that key is untouched."""
     watch_printings.migrate_card_favorites_per_printing(connection)
-    ensure_ppt_ungraded_signals_schema(connection)
 
 
 def _apply_card_likes_schema_patch(connection: sqlite3.Connection) -> None:
@@ -2947,25 +2930,6 @@ class SpotlightScanService:
             (normalized_card_id,),
         ).fetchone()
         return int(row[0]) if row else 0
-
-    def _card_population(self, card_id: str) -> dict[str, Any]:
-        """GemRate population for this card, keyed by grader (PSA/BGS/CGC/SGC). Empty
-        dict when none is synced. Populated by the PPT population overlay; read-only
-        metadata that never affects a displayed price."""
-        normalized_card_id = str(card_id or "").strip()
-        if not normalized_card_id:
-            return {}
-        row = self.connection.execute(
-            "SELECT population_json FROM card_price_snapshots WHERE card_id = ? LIMIT 1",
-            (normalized_card_id,),
-        ).fetchone()
-        if not row or not row[0]:
-            return {}
-        try:
-            parsed = json.loads(row[0])
-        except (ValueError, TypeError):
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
 
     def _card_watcher_count(self, card_id: str) -> int:
         """Distinct viewers of this card within the rolling watcher window."""
@@ -6907,30 +6871,6 @@ class SpotlightScanService:
                 for key in ("market", "low", "mid", "high", "trend", "directLow"):
                     summary[key] = None
                 summary["suppressionReason"] = "phantom"
-
-        if pricing_context.is_graded:
-            # Merge DURABLE PPT trust signals (ppt_graded_signals) into the headline
-            # graded summary so the trust line survives a Scrydex sync that
-            # overwrites graded_contexts_json. Defensive: no row -> leave as-is.
-            # Applies to BOTH graded resolutions: the JSON branch above and the
-            # cells-first branch (the signal table is a side table, not a blob, so
-            # reading it costs the cells path nothing and keeps the trust line
-            # identical across read sources).
-            signal_row = _ppt_graded_signal_row(
-                self.connection,
-                snapshot_row["card_id"],
-                pricing_context.grader,
-                pricing_context.grade,
-            )
-            if signal_row is not None:
-                resolved_payload = dict(resolved_payload)
-                if signal_row["confidence"] is not None:
-                    confidence_raw = str(signal_row["confidence"]).strip().lower()
-                    if confidence_raw:
-                        resolved_payload["confidenceLabel"] = confidence_raw.capitalize()
-                        resolved_payload["confidenceLevel"] = confidence_raw
-                if signal_row["count"] is not None:
-                    resolved_payload["compCount"] = signal_row["count"]
 
         pricing = {
             "id": snapshot_row["card_id"],
@@ -15509,8 +15449,8 @@ class SpotlightScanService:
     def _candidate_base_payload(resolved_card: dict[str, Any], original_card: dict[str, Any]) -> dict[str, Any]:
         card_id = str(resolved_card.get("id") or original_card.get("id") or "")
         # Which game this card belongs to. The client needs it to decide what the
-        # card detail may claim — a One Piece card has no graded prices and no
-        # population, so those blocks are hidden rather than rendered empty.
+        # card detail may claim — a One Piece card has no graded prices, so those
+        # blocks are hidden rather than rendered empty.
         game = normalize_game(resolved_card.get("game") or original_card.get("game"))
         raw_rarity = resolved_card.get("rarity") or original_card.get("rarity")
         return {
@@ -17578,9 +17518,6 @@ class SpotlightScanService:
             "isLiked": like_row is not None,
             "likedAt": like_row["created_at"] if like_row is not None else None,
             "cardText": card_text_from_card(resolved_card),
-            # GemRate population keyed by grader (PSA/BGS/CGC/SGC); {} when unsynced.
-            # Drives the PDP's dynamic-by-grader population report.
-            "population": self._card_population(card_id) if has_graded_data else {},
             # Non-null ONLY for graded-only cards (no raw price): the headline
             # graded lane the PDP should default to so a chart shows instead of a
             # blank raw lane.
@@ -17889,97 +17826,35 @@ class SpotlightScanService:
 
     def _reconcile_recent_sales_prices(
         self,
-        card: dict[str, Any],
         card_id: str,
         sales: list[dict[str, Any]],
-        *,
-        grader: str | None = None,
-        grade: str | None = None,
     ) -> None:
-        """Make every fetched comp USD, attach its eBay photo, and fill the list
-        from PPT's per-grade sold listings before it is cached (see
-        `ppt_adapter.reconcile_recent_sales_prices` and `recent_sales_merge`).
-        Per refresh: one PPT call (skipped without a TCGplayer id or key) and
-        one free Browse `getItem` per Scrydex row plus per recent PPT-only row
-        (capped, see RECENT_SALES_PPT_LOOKUP_CAP). Any vendor failure leaves
-        the Scrydex rows as they came; PPT-only rows are appended with a
-        verification tier and only the verified ones are ever served."""
-        try:
-            row = self.connection.execute(
-                "SELECT tcgplayer_id FROM cards WHERE id = ?", (card_id,)
-            ).fetchone()
-        except sqlite3.OperationalError:
-            row = None
-        tcgplayer_id = str(row[0] or "").strip() if row is not None else ""
-        language = "japanese" if str(card.get("language") or "").strip().lower().startswith("jap") else "english"
-        ppt_rows = (
-            fetch_ppt_sold_listings_by_ebay_item_id(tcgplayer_id, language=language)
-            if tcgplayer_id
-            else {}
-        )
-        scrydex_item_ids = {
+        """Make every fetched comp USD and attach its eBay photo before it is
+        cached (see `recent_sales.reconcile_recent_sales_prices`). Per refresh:
+        one free Browse `getItem` per row. Any eBay failure leaves the Scrydex
+        rows as they came."""
+        if not sales:
+            return
+        item_ids = list(dict.fromkeys(
             item_id
             for item_id in (ebay_item_id_from_url(sale.get("listingURL")) for sale in sales if isinstance(sale, dict))
             if item_id
-        }
-        ppt_only: list[dict[str, Any]] = []
-        if grader and grade and ppt_rows:
-            ppt_only = ppt_only_rows_for_grade(
-                ppt_rows, grader=grader, grade=grade, scrydex_item_ids=scrydex_item_ids
-            )
-        if not sales and not ppt_only:
-            return
-        # eBay only answers getItem for ~90 days of ended listings, so look up
-        # the newest PPT-only rows inside that window and skip the rest.
-        lookup_cutoff = datetime.now(timezone.utc) - timedelta(days=RECENT_SALES_PPT_LOOKUP_DAYS)
-        # NEWEST FIRST before the cap. The cap exists to bound Browse calls, but
-        # taking rows in arrival order spent them arbitrarily — on a heavily
-        # traded card the 40 lookups could all land on rows nobody scrolls to,
-        # while the newest (the ones still answerable, and the ones about to
-        # age out of the window forever) got nothing.
-        in_window_ppt = sorted(
-            (r for r in ppt_only
-             if sale_sort_date(str(r.get("soldDate") or "")[:10].replace("-", "/")) >= lookup_cutoff),
-            key=lambda r: sale_sort_date(str(r.get("soldDate") or "")[:10].replace("-", "/")),
-            reverse=True,
-        )
-        ppt_lookup_ids = [
-            str(r.get("listingId") or "").strip() for r in in_window_ppt
-        ][:RECENT_SALES_PPT_LOOKUP_CAP]
-        ebay_items = fetch_ebay_items_by_legacy_ids([*scrydex_item_ids, *ppt_lookup_ids])
+        ))
+        ebay_items = fetch_ebay_items_by_legacy_ids(item_ids)
         # Keep every photo Browse just gave us, then fill the rest from what we
         # kept on earlier views. eBay answers getItem for ~90 days but serves the
         # image far longer, so this is the difference between an old comp
         # carrying its photo and going grey forever.
         remember_ebay_listing_images(self.connection, ebay_items)
-        stored_images = ebay_listing_images_by_item_id(
-            self.connection,
-            [
-                *scrydex_item_ids,
-                *(str(r.get("listingId") or "").strip() for r in ppt_only),
-            ],
-        )
+        stored_images = ebay_listing_images_by_item_id(self.connection, item_ids)
         counts = reconcile_recent_sales_prices(
             sales,
-            ppt_rows,
             to_usd=lambda amount, code: _amount_to_usd(self.connection, amount, code),
             ebay_items_by_item_id=ebay_items,
             stored_images_by_item_id=stored_images,
         )
         if counts.get("ebay") or counts.get("fx") or counts.get("unconverted"):
             print(f"[recent-sales] {card_id}: non-USD comps reconciled {counts}", flush=True)
-        if grader and grade:
-            tiers = merge_ppt_sold_listings(
-                sales,
-                ppt_only,
-                card=card,
-                grader=grader,
-                grade=grade,
-                ebay_items_by_item_id=ebay_items,
-                stored_images_by_item_id=stored_images,
-            )
-            if ppt_only:
-                print(f"[recent-sales] {card_id} {grader} {grade}: merged PPT rows {tiers}", flush=True)
 
     def card_recent_sales(
         self,
@@ -18073,7 +17948,12 @@ class SpotlightScanService:
             if cached is not None and str(cached.get("status") or "").strip().lower() == "no_results"
             else RECENT_SALES_FRESHNESS_HOURS
         )
-        if cached is not None and age_hours is not None and age_hours < refresh_after_hours:
+        if (
+            cached is not None
+            and not cached.get("hasLegacyRows")
+            and age_hours is not None
+            and age_hours < refresh_after_hours
+        ):
             return cached_payload
         if is_tcgplayer_catalog_card_id(card_id):
             return cached_payload
@@ -18090,9 +17970,7 @@ class SpotlightScanService:
             limit=RECENT_SALES_MAX_LIMIT,
         )
         remote_sales = list(remote_payload.get("sales") or [])
-        self._reconcile_recent_sales_prices(
-            card, card_id, remote_sales, grader=normalized_grader, grade=normalized_grade
-        )
+        self._reconcile_recent_sales_prices(card_id, remote_sales)
         cached = replace_slab_recent_sales_cache(
             self.connection,
             card_id=card_id,

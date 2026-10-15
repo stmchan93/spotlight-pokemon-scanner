@@ -25,7 +25,7 @@ jest.mock('expo-router', () => ({
  *
  * Everything here is driven by the capability table, never by `game ===
  * 'pokemon'`, which is why Lorcana (graded YES with its OWN eight companies,
- * population NO, listings YES only since the 2026-08-14 probe) is the
+ * listings YES only since the 2026-08-14 probe) is the
  * interesting case rather than a redundant one.
  */
 describe('card detail degrades by game capability', () => {

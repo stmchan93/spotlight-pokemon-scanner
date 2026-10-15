@@ -14,7 +14,7 @@ Two rules shape this module:
    against a baseline is signal-level logic and lives elsewhere.
 
 Everything here reuses `ebay_comps` for auth, the token cache, the `_request_json`
-choke point and query construction, and `recent_sales_merge` for the title-match
+choke point and query construction, and `recent_sales` for the title-match
 primitives, so there is one implementation of each.
 """
 
@@ -57,9 +57,9 @@ from ebay_comps import (
 )
 
 # Title-match primitives shared with the graded sold-comps lane. They are private
-# to `recent_sales_merge` but deliberately reused: a second copy of "does this
-# title name this card" would drift away from the one that has been tuned.
-from recent_sales_merge import (
+# to `recent_sales` but deliberately reused: a second copy of "does this title
+# name this card" would drift away from the one that has been tuned.
+from recent_sales import (
     _fold,
     _language_conflict,
     _name_matches,
@@ -125,10 +125,9 @@ DEFAULT_RAW_LISTING_LIMIT = RAW_FETCH_PAGE_SIZE
 # watch_signals.listing_candidate_from_validated.
 AUCTION_FINAL_WINDOW_MINUTES = 120
 
-# Same tiering as the graded sold-comps lane (`recent_sales_merge`): a row is
-# stored with its tier and only SERVED once it clears one. `scrydex` is listed
-# for shape compatibility; the raw active lane has no Scrydex item-id list, so in
-# practice a candidate is `aspects` or `title`.
+# A row is stored with its verification tier and only SERVED once it clears
+# one. `scrydex` is listed for shape compatibility; the raw active lane has no
+# Scrydex item-id list, so in practice a candidate is `aspects` or `title`.
 SERVABLE_VERIFICATION_TIERS: frozenset[str] = frozenset({"scrydex", "aspects", "title"})
 
 # The raw lane reuses `card_ebay_listings_cache`, whose PK is

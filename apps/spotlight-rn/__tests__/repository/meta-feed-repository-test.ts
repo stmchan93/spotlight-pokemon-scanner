@@ -131,7 +131,7 @@ describe('HttpSpotlightRepository meta feed v2 reads', () => {
 
   it('builds the group, exposure and calendar routes', async () => {
     const fetchMock = mockFetch(
-      jsonResponse(200, mockMetaGroupDetail('vintage:graded:psa10:pop_le_50')),
+      jsonResponse(200, mockMetaGroupDetail('vintage:graded:psa10')),
       jsonResponse(200, mockMetaExposure),
       jsonResponse(200, mockCalendarFeed),
       jsonResponse(200, mockCalendarFeed),
@@ -139,7 +139,7 @@ describe('HttpSpotlightRepository meta feed v2 reads', () => {
     const repository = new HttpSpotlightRepository('http://example.test');
 
     const detail = await repository.fetchMetaGroupDetail({
-      groupKey: 'vintage:graded:psa10:pop_le_50',
+      groupKey: 'vintage:graded:psa10',
       game: 'pokemon',
       windowDays: 7,
       lane: 'graded',
@@ -150,7 +150,7 @@ describe('HttpSpotlightRepository meta feed v2 reads', () => {
 
     const urls = fetchMock.mock.calls.map((call) => String(call[0]));
     expect(urls[0]).toBe(
-      'http://example.test/api/v1/market/meta/groups/vintage%3Agraded%3Apsa10%3Apop_le_50?game=pokemon&window=7&lane=graded',
+      'http://example.test/api/v1/market/meta/groups/vintage%3Agraded%3Apsa10?game=pokemon&window=7&lane=graded',
     );
     expect(urls[1]).toBe('http://example.test/api/v1/market/meta/me?game=pokemon&window=30');
     expect(urls[2]).toBe('http://example.test/api/v1/market/calendar?game=onepiece&limit=3');
@@ -158,7 +158,7 @@ describe('HttpSpotlightRepository meta feed v2 reads', () => {
 
     expect(detail?.group.topCards).toHaveLength(5);
     expect(exposure?.callout?.title).toBe('Your vintage is up +$312 this week');
-    expect(exposure?.groups['vintage:graded:psa10:pop_le_50'].ownedCount).toBe(4);
+    expect(exposure?.groups['vintage:graded:psa10'].ownedCount).toBe(4);
     expect(calendar?.items.map((item) => item.kind)).toEqual(['release', 'ban_list', 'reveal', 'event']);
   });
 

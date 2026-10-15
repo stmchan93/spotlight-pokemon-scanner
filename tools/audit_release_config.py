@@ -234,11 +234,6 @@ def audit_backend(
             f"{backend_secrets_path.name} must NOT set SCRYDEX_API_KEY for staging (keyless by design)",
             failures,
         )
-        require(
-            not secret_values.get("PPT_API_KEY", "").strip(),
-            f"{backend_secrets_path.name} must NOT set PPT_API_KEY for staging (keyless by design)",
-            failures,
-        )
 
     # Account deletion (App Store guideline 5.1.1(v)) deletes the Supabase auth user
     # via the Admin API. Without the service-role key the delete silently skips the

@@ -134,7 +134,7 @@ class CardRecentSalesTests(unittest.TestCase):
         self.assertEqual(cached["saleCount"], 1)
         self.assertFalse(cached["canRefresh"])
 
-    # --- Sold-comp currency reconciliation (Scrydex identity + PPT USD amounts) ---
+    # --- Sold-comp currency reconciliation (eBay > FX > Scrydex) ---
 
     def _scrydex_payload(self, *, price: float, currency: str, item_id: str = "366618245287") -> dict:
         return {
@@ -158,34 +158,82 @@ class CardRecentSalesTests(unittest.TestCase):
             ],
         }
 
-    def _set_tcgplayer_id(self, tcgplayer_id: str | None) -> None:
-        connection = connect(self.database_path)
-        connection.execute("UPDATE cards SET tcgplayer_id = ? WHERE id = ?", (tcgplayer_id, "gym1-60"))
-        connection.commit()
-        connection.close()
-
-    def test_recent_sales_take_ppt_usd_amount_for_the_same_ebay_item(self) -> None:
-        # The show bug: an AU $5,900 auction that Scrydex now stamps `5900 USD`.
-        # PPT holds the same item id with the amount converted at scrape time.
-        self._set_tcgplayer_id("88642")
+    def test_mislabelled_usd_row_without_ebay_data_keeps_scrydex_amount(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         try:
             with patch(
                 "server.fetch_scrydex_recent_sales",
                 return_value=self._scrydex_payload(price=5900.0, currency="USD"),
-            ), patch(
-                "server.fetch_ppt_sold_listings_by_ebay_item_id",
-                return_value={"366618245287": {"listingId": "366618245287", "price": 4230.3, "currency": "USD"}},
-            ) as ppt, patch("server.fetch_ebay_items_by_legacy_ids", return_value={}):
+            ), patch("server.fetch_ebay_items_by_legacy_ids", return_value={}):
                 payload = service.card_recent_sales("gym1-60", grader="PSA", grade="9", refresh=True)
-                cached = service.card_recent_sales("gym1-60", grader="PSA", grade="9")
         finally:
             service.connection.close()
 
-        ppt.assert_called_once_with("88642", language="english")
-        self.assertEqual(payload["sales"][0]["price"], {"amount": 4230.3, "currencyCode": "USD"})
-        # Persisted, not just served: the cache row carries the reconciled amount.
-        self.assertEqual(cached["sales"][0]["price"]["amount"], 4230.3)
+        self.assertEqual(payload["sales"][0]["price"], {"amount": 5900.0, "currencyCode": "USD"})
+
+    def _seed_legacy_ppt_cache(self, *, fetched_at: str) -> None:
+        connection = connect(self.database_path)
+        replace_slab_recent_sales_cache(
+            connection,
+            card_id="gym1-60",
+            grader="PSA",
+            grade="9",
+            source="ebay",
+            sales=[
+                {
+                    "sourceSaleID": "sale-au", "rank": 1, "title": "Rayquaza ex 97/97 PSA 9",
+                    "soldAt": "2026/08/27", "price": 4230.3, "currencyCode": "USD",
+                    "listingURL": "https://www.ebay.com/itm/366618245287",
+                    "sourcePayload": {"_spotlight": {
+                        "priceSource": "ppt", "scrydexPrice": 5900.0, "scrydexCurrency": "AUD",
+                    }},
+                },
+                {
+                    "sourceSaleID": "ppt:111", "rank": 2, "title": "Rayquaza ex 97/97 PSA 9",
+                    "soldAt": "2026/08/26", "price": 4100.0, "currencyCode": "USD",
+                    "listingURL": "https://www.ebay.com/itm/111",
+                    "sourcePayload": {"_spotlight": {"origin": "ppt", "verification": "title"}},
+                },
+            ],
+            fetched_at=fetched_at,
+            source_url=None,
+            source_payload={},
+        )
+        connection.commit()
+        connection.close()
+
+    def test_legacy_ppt_rows_are_never_served(self) -> None:
+        self._seed_legacy_ppt_cache(fetched_at=datetime.now(timezone.utc).isoformat())
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            payload = service.card_recent_sales("gym1-60", grader="PSA", grade="9")
+        finally:
+            service.connection.close()
+
+        # The PPT-only row is dropped; the PPT-repriced row shows Scrydex's number.
+        self.assertEqual(payload["saleCount"], 1)
+        self.assertEqual(payload["sales"][0]["price"], {"amount": 5900.0, "currencyCode": "AUD"})
+
+    def test_fresh_cache_with_legacy_ppt_rows_is_rebuilt_on_refresh(self) -> None:
+        self._seed_legacy_ppt_cache(fetched_at=datetime.now(timezone.utc).isoformat())
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            with patch(
+                "server.fetch_scrydex_recent_sales",
+                return_value=self._scrydex_payload(price=5900.0, currency="AUD"),
+            ) as scrydex, patch(
+                "server.fetch_ebay_items_by_legacy_ids", return_value={}
+            ), patch("server._amount_to_usd", return_value=4249.77):
+                payload = service.card_recent_sales("gym1-60", grader="PSA", grade="9", refresh=True)
+                again = service.card_recent_sales("gym1-60", grader="PSA", grade="9", refresh=True)
+        finally:
+            service.connection.close()
+
+        # Rebuilt once despite being fresh; the rebuilt key is then a normal cache hit.
+        scrydex.assert_called_once()
+        self.assertEqual(payload["saleCount"], 1)
+        self.assertEqual(payload["sales"][0]["price"], {"amount": 4249.77, "currencyCode": "USD"})
+        self.assertEqual(again["sales"][0]["price"], {"amount": 4249.77, "currencyCode": "USD"})
 
     def test_recent_sales_attach_ebay_photo_and_take_ebay_converted_price(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
@@ -215,15 +263,12 @@ class CardRecentSalesTests(unittest.TestCase):
         # The photo survives the cache round-trip via the row's source payload.
         self.assertEqual(cached["sales"][0]["imageURL"], "https://i.ebayimg.com/images/g/jbUAAeSw1yVqe6FK/s-l1600.jpg")
 
-    def test_recent_sales_convert_non_usd_scrydex_rows_when_ppt_lacks_them(self) -> None:
-        self._set_tcgplayer_id("88642")
+    def test_recent_sales_convert_non_usd_scrydex_rows(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         try:
             with patch(
                 "server.fetch_scrydex_recent_sales",
                 return_value=self._scrydex_payload(price=5900.0, currency="AUD"),
-            ), patch(
-                "server.fetch_ppt_sold_listings_by_ebay_item_id", return_value={}
             ), patch(
                 "server.fetch_ebay_items_by_legacy_ids", return_value={}
             ), patch(
@@ -242,15 +287,11 @@ class CardRecentSalesTests(unittest.TestCase):
             with patch(
                 "server.fetch_scrydex_recent_sales",
                 return_value=self._scrydex_payload(price=5900.0, currency="AUD"),
-            ), patch(
-                "server.fetch_ppt_sold_listings_by_ebay_item_id"
-            ) as ppt, patch("server.fetch_ebay_items_by_legacy_ids", return_value={}):
+            ), patch("server.fetch_ebay_items_by_legacy_ids", return_value={}):
                 payload = service.card_recent_sales("gym1-60", grader="PSA", grade="9", refresh=True)
         finally:
             service.connection.close()
 
-        # No tcgplayer id on the card -> PPT is never asked.
-        ppt.assert_not_called()
         self.assertEqual(payload["sales"][0]["price"], {"amount": 5900.0, "currencyCode": "AUD"})
 
     def test_service_card_recent_sales_returns_cached_no_results(self) -> None:

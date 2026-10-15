@@ -8,11 +8,11 @@
 > entity framing and postal-address handling; (2) the choice of California governing law and
 > the decision **not** to include an arbitration clause; (3) the CSAM/NCMEC reporting process
 > in Section 8; (4) DMCA designated-agent registration for Section 12; and (5) that the card
-> data-provider licences (Scrydex, PokemonPriceTracker, PriceCharting, eBay) permit the use
+> data-provider licences (Scrydex, TCGCSV, PriceCharting, eBay) permit the use
 > described in Section 11.
 
 **Effective date:** August 12, 2026
-**Last updated:** August 12, 2026
+**Last updated:** October 14, 2026
 
 ---
 

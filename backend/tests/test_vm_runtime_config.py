@@ -161,7 +161,7 @@ class ModerationCronScheduleTests(unittest.TestCase):
         self.assertNotIn("--loop", line)
 
     def test_entry_is_installed_on_both_environments(self) -> None:
-        # The Scrydex/PPT jobs are production-only; moderation must NOT be, because
+        # The Scrydex sync is production-only; moderation must NOT be, because
         # staging is where the users are.
         production_only = _extract_shell_block(
             self.source, '  if [ "$ENVIRONMENT" = "production" ]; then', "  fi"

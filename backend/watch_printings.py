@@ -1,6 +1,6 @@
 """Watch per printing: the storage migration, the card's known printings, and
-the per-printing TCGplayer (raw_main cell) + PPT eBay-ungraded reads that the
-watchlist, the deal scan and market alerts share.
+the per-printing TCGplayer (raw_main cell) reads that the watchlist, the deal
+scan and market alerts share.
 
 A watch is (owner, card, variant_key). ``variant_key`` is the TCGplayer printing
 label used as ``card_price_history_cell.variant_key`` on lane ``raw_main``
@@ -541,70 +541,3 @@ def latest_printing_prices(
                 "directLow": _optional_float(row[7]),
             }
     return result
-
-
-# --- PPT eBay "ungraded" signals --------------------------------------------
-
-
-@dataclass(frozen=True)
-class UngradedSales:
-    """PPT's eBay "ungraded" row for a card. PER CARD, not per printing: the
-    export keys eBay sales by TCGplayer product id, and one Pokémon product
-    carries every printing (Holofoil / Reverse Holofoil) as subtypes, so these
-    sales mix printings. Used only as a liquidity/yardstick signal."""
-
-    sales_count: int | None = None  # PPT: lifetime count
-    median_cents: int | None = None
-    sales_velocity_weekly: float | None = None
-    smart_market_cents: int | None = None
-    smart_market_confidence: str | None = None
-    market_7day_cents: int | None = None
-
-    @property
-    def sales_30d(self) -> int | None:
-        if self.sales_velocity_weekly is None:
-            return None
-        return int(round(max(0.0, self.sales_velocity_weekly) * 30.0 / 7.0))
-
-    @property
-    def sales_90d(self) -> int | None:
-        if self.sales_velocity_weekly is None:
-            return None
-        return int(round(max(0.0, self.sales_velocity_weekly) * 90.0 / 7.0))
-
-
-def ungraded_sales_by_card(
-    connection: sqlite3.Connection, card_ids: Sequence[str]
-) -> dict[str, UngradedSales]:
-    ids = [str(card_id) for card_id in dict.fromkeys(card_ids) if str(card_id or "").strip()]
-    if not ids or not _table_exists(connection, "ppt_ungraded_signals"):
-        return {}
-    out: dict[str, UngradedSales] = {}
-    for start in range(0, len(ids), 400):
-        chunk = ids[start : start + 400]
-        placeholders = ",".join("?" for _ in chunk)
-        for row in connection.execute(
-            "SELECT card_id, sales_count, median_price, sales_velocity_weekly, "
-            "smart_market_price, smart_market_confidence, market_price_7day "
-            f"FROM ppt_ungraded_signals WHERE card_id IN ({placeholders})",
-            chunk,
-        ).fetchall():
-            velocity = row[3]
-            try:
-                velocity = float(velocity) if velocity is not None else None
-            except (TypeError, ValueError):
-                velocity = None
-            count = row[1]
-            try:
-                count = int(count) if count is not None else None
-            except (TypeError, ValueError):
-                count = None
-            out[str(row[0])] = UngradedSales(
-                sales_count=count,
-                median_cents=_cents(row[2]),
-                sales_velocity_weekly=velocity,
-                smart_market_cents=_cents(row[4]),
-                smart_market_confidence=(str(row[5]).strip().lower() or None) if row[5] is not None else None,
-                market_7day_cents=_cents(row[6]),
-            )
-    return out

@@ -3,8 +3,8 @@
 Covers the card_favorites rebuild onto (owner, card, variant_key), the API
 (multi-printing add/remove/list, backward compatibility, 400 on an unknown
 printing), the listing <-> printing title match (the Dragonite case), the
-liquidity tiers and their thresholds, the `new_low` alert, per-printing price
-moves, and the PPT eBay-ungraded signal table. No network: every eBay call goes
+liquidity tiers and their thresholds, the `new_low` alert, and per-printing
+price moves. No network: every eBay call goes
 through the injected mock transport.
 """
 
@@ -39,7 +39,6 @@ from ebay_listings import (  # noqa: E402
     raw_listings_cache_key,
 )
 from server import SpotlightRequestHandler, SpotlightScanService  # noqa: E402
-from sync_ppt_catalog import parse_export_ebay, upsert_ppt_card_pricing  # noqa: E402
 from test_watch_wiring import (  # noqa: E402
     BROWSE_ENV,
     NOW,
@@ -161,11 +160,6 @@ class CardFavoritesMigrationTests(unittest.TestCase):
             )
             columns = {str(r[1]) for r in connection.execute("PRAGMA table_info(deal_alerts)")}
             self.assertLessEqual({"variant_key", "tier", "tier_label", "lowest_seen_cents"}, columns)
-            self.assertIsNotNone(
-                connection.execute(
-                    "SELECT 1 FROM sqlite_master WHERE name = 'ppt_ungraded_signals'"
-                ).fetchone()
-            )
             connection.close()
 
 
@@ -512,15 +506,8 @@ def _cells(markets, *, low=None, lows=None):
     )
 
 
-def _ppt(velocity, *, median=None, count=None):
-    return watch_printings.UngradedSales(
-        sales_count=count, median_cents=int(median * 100) if median else None,
-        sales_velocity_weekly=velocity,
-    )
-
-
 class LiquidityTierTests(unittest.TestCase):
-    def test_staging_like_tcgplayer_only(self) -> None:
+    def test_tcgplayer_market_changes(self) -> None:
         cases = [
             (tuple(100.0 + i for i in range(12)), ws.TIER_OFTEN),
             ((100, 101, 102, 103, 104, 105, 105, 105), ws.TIER_FEWER),
@@ -529,42 +516,25 @@ class LiquidityTierTests(unittest.TestCase):
         ]
         for markets, tier in cases:
             with self.subTest(markets=markets):
-                liquidity = ws.compute_liquidity(_cells(markets, low=95.0), None)
+                liquidity = ws.compute_liquidity(_cells(markets, low=95.0))
                 self.assertEqual(liquidity.tier, tier)
                 self.assertEqual(liquidity.source, "tcgplayer")
-        empty = ws.compute_liquidity((), None)
+        empty = ws.compute_liquidity(())
         self.assertEqual(empty.tier, ws.TIER_NONE)
         self.assertEqual(empty.label, "Not enough sales to judge")
 
-    def test_ppt_sales_velocity(self) -> None:
-        cells = _cells((100, 100, 100), low=95.0)
-        self.assertEqual(ws.compute_liquidity(cells, _ppt(3.0)).tier, ws.TIER_OFTEN)  # ~13 / 30d
-        self.assertEqual(ws.compute_liquidity(cells, _ppt(1.5)).tier, ws.TIER_FEWER)  # ~6
-        self.assertEqual(ws.compute_liquidity(cells, _ppt(0.5)).tier, ws.TIER_RARELY)  # ~2
-        self.assertEqual(ws.compute_liquidity(cells, _ppt(0.2)).tier, ws.TIER_RARELY)  # 1 in 30d, 3 in 90d
-        self.assertEqual(ws.compute_liquidity(cells, _ppt(3.0)).source, "ppt")
-        self.assertEqual(ws.compute_liquidity(cells, _ppt(1.5)).label, "Fewer sales")
-
-    def test_frozen_thin_printing_caps_even_a_liquid_card(self) -> None:
+    def test_frozen_thin_printing_caps_at_rarely(self) -> None:
         cells = _cells((200.0, 184.10) + (184.10,) * 8, low=90.0)
-        liquidity = ws.compute_liquidity(cells, _ppt(5.0))  # PPT's per-CARD count: often
+        liquidity = ws.compute_liquidity(cells)
         self.assertTrue(liquidity.frozen_thin)
         self.assertEqual(liquidity.tier, ws.TIER_RARELY)
         # Frozen but NOT thin (lowest listing close to market): not capped.
-        close = ws.compute_liquidity(_cells((200.0,) + (184.10,) * 9, low=180.0), _ppt(5.0))
+        close = ws.compute_liquidity(_cells((200.0,) + (184.10,) * 9, low=180.0))
         self.assertFalse(close.frozen_thin)
-        self.assertEqual(close.tier, ws.TIER_OFTEN)
-
-    def test_yardstick_uses_the_ungraded_median_with_three_sales(self) -> None:
-        cells = _cells(tuple(100.0 + i for i in range(12)), low=95.0)
-        with_median = ws.compute_liquidity(cells, _ppt(3.0, median=90.0))
-        self.assertEqual(ws.yardstick_cents(11_100, with_median), 9_000)
-        thin = ws.compute_liquidity(cells, _ppt(0.3, median=50.0))  # ~1 sale / 30d
-        self.assertIsNone(thin.ungraded_median_cents)
-        self.assertEqual(ws.yardstick_cents(11_100, thin), 11_100)
+        self.assertEqual(close.tier, ws.TIER_RARELY)  # one market change in 30d
 
 
-def _baseline(*, tier_cells, ppt=None, lowest_listing=None, market=10_000, **extra):
+def _baseline(*, tier_cells, lowest_listing=None, market=10_000, **extra):
     points = tuple(
         ws.PricePoint((TODAY - timedelta(days=2 - i)).isoformat(), p, "USD|holofoil|nm||")
         for i, p in enumerate((market + 400, market + 200, market))
@@ -576,7 +546,7 @@ def _baseline(*, tier_cells, ppt=None, lowest_listing=None, market=10_000, **ext
         current_market_cents=market,
         market_source_key="USD|holofoil|nm||",
         points=points,
-        liquidity=ws.compute_liquidity(tier_cells, ppt),
+        liquidity=ws.compute_liquidity(tier_cells),
         lowest_listing_cents=lowest_listing,
         **extra,
     )
@@ -802,53 +772,6 @@ class PerPrintingMarketAlertTests(PrintingTestCase):
         baseline = next(b for b in ws.watched_card_baselines(self.connection) if b.variant_key == REVERSE)
         self.assertEqual(baseline.current_market_cents, 12_000)
         self.assertEqual(baseline.printing, REVERSE)
-
-
-# --- PPT eBay ungraded signals ------------------------------------------------------
-
-
-class PptUngradedSignalTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.tempdir = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tempdir.cleanup)
-        self.connection = connect(Path(self.tempdir.name) / "ppt.sqlite")
-        self.addCleanup(self.connection.close)
-        apply_schema(self.connection, BACKEND_ROOT / "schema.sql")
-        upsert_card(
-            self.connection, card_id="pl2-2", name="Dragonite", set_name="Legends Awakened",
-            number="2/146", rarity="Holo", variant="Raw", language="English",
-            source_provider="scrydex", tcgplayer_id="90210",
-        )
-        self.connection.commit()
-
-    def test_export_ungraded_row_is_persisted_per_card(self) -> None:
-        csv_path = Path(self.tempdir.name) / "ebay.csv"
-        csv_path.write_text(
-            "tcgPlayerId,grade,salesCount,averagePrice,medianPrice,smartMarketPrice,"
-            "smartMarketConfidence,marketPrice7Day,marketTrend,salesVelocityWeekly\n"
-            "90210,ungraded,57,140.0,129.5,131.0,High,127.0,up,2.5\n"
-            "90210,psa10,12,900,880,890,Medium,870,flat,0.4\n"
-        )
-        sales = parse_export_ebay(str(csv_path))
-        self.assertEqual(sales["90210"]["ungraded"]["salesVelocityWeekly"], "2.5")
-        for signals_only in (True, False):
-            with self.subTest(signals_only=signals_only):
-                upsert_ppt_card_pricing(
-                    self.connection,
-                    {"tcgPlayerId": "90210", "prices": {}, "variants": {}, "ebay": {"salesByGrade": sales["90210"]}},
-                    price_date="2026-09-24",
-                    signals_only=signals_only,
-                )
-                row = self.connection.execute(
-                    "SELECT sales_count, median_price, sales_velocity_weekly, smart_market_price, "
-                    "smart_market_confidence, market_price_7day, tcgplayer_id "
-                    "FROM ppt_ungraded_signals WHERE card_id = 'pl2-2'"
-                ).fetchone()
-                self.assertEqual(tuple(row), (57, 129.5, 2.5, 131.0, "high", 127.0, "90210"))
-        read = watch_printings.ungraded_sales_by_card(self.connection, ["pl2-2"])["pl2-2"]
-        self.assertEqual(read.sales_30d, 11)
-        self.assertEqual(read.median_cents, 12_950)
-
 
 
 # --- edition / finish spellings: the watched printing's price everywhere ----------

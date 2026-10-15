@@ -53,10 +53,9 @@ export function metaCardTitle(card: MetaCard): string {
   return grade ? `${card.name} · ${grade}` : card.name;
 }
 
-/** "Skyridge · pop 41". */
+/** The row's secondary line: the set name ("Skyridge"). */
 export function metaCardMeta(card: MetaCard): string | null {
-  const parts = [card.setName, card.population != null ? `pop ${formatCount(card.population)}` : null];
-  return parts.filter(Boolean).join(' · ') || null;
+  return card.setName || null;
 }
 
 export type MetaGroupScreenProps = {

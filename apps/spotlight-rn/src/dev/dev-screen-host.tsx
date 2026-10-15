@@ -90,7 +90,7 @@ const devScreens: Record<string, () => ReactElement> = {
   meta: () => <MetaScreen onBack={() => undefined} onOpenGroup={() => undefined} />,
   'meta-group': () => (
     <MetaGroupScreen
-      groupKey="vintage:graded:psa10:pop_le_50"
+      groupKey="vintage:graded:psa10"
       onBack={() => undefined}
       onOpenCard={() => undefined}
     />

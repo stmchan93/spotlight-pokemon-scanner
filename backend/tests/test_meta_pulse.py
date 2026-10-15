@@ -5,7 +5,6 @@ null summary), headline fallbacks and the exact ``MetaPulse`` payload shape.
 
 from __future__ import annotations
 
-import json
 import sys
 import tempfile
 import unittest
@@ -66,7 +65,7 @@ GROUP_KEYS = {
 }
 CARD_KEYS = {
     "cardId", "game", "name", "number", "setName", "imageUrl", "lane", "grader", "grade",
-    "population", "priceNow", "priceThen", "changePercent", "currencyCode",
+    "priceNow", "priceThen", "changePercent", "currencyCode",
 }
 
 
@@ -111,30 +110,22 @@ class TaggingTests(unittest.TestCase):
         keys = {g.key for g in group_defs_for(promo, lane=LANE_RAW)}
         self.assertEqual(keys, {"vintage:raw", "promo:raw", "jp_promo:raw", "japanese:raw"})
 
-    def test_graded_tiers_and_pop_bands(self) -> None:
+    def test_graded_tiers(self) -> None:
         tags = _tags(name="Lugia", rarity="Rare Holo", release_date="2002-09-15")
-        groups = group_defs_for(tags, lane=LANE_GRADED, grader="PSA", grade="10", population=37)
-        keys = {g.key for g in groups}
-        self.assertEqual(
-            keys,
-            {"vintage:graded:psa10", "vintage:graded:psa10:pop_le_200", "vintage:graded:psa10:pop_le_50"},
-        )
-        labels = {g.key: g.label for g in groups}
-        self.assertEqual(labels["vintage:graded:psa10:pop_le_50"], "Vintage PSA 10 · pop ≤ 50")
-        # Unknown pop → no pop band; PSA 9 → only the psa9 tier.
-        keys = {g.key for g in group_defs_for(tags, lane=LANE_GRADED, grader="PSA", grade="10", population=None)}
-        self.assertEqual(keys, {"vintage:graded:psa10"})
-        keys = {g.key for g in group_defs_for(tags, lane=LANE_GRADED, grader="PSA", grade="9.0", population=5)}
+        groups = group_defs_for(tags, lane=LANE_GRADED, grader="PSA", grade="10")
+        self.assertEqual({g.key for g in groups}, {"vintage:graded:psa10"})
+        self.assertEqual(groups[0].label, "Vintage PSA 10")
+        keys = {g.key for g in group_defs_for(tags, lane=LANE_GRADED, grader="PSA", grade="9.0")}
         self.assertEqual(keys, {"vintage:graded:psa9"})
 
     def test_gold_star_rule_and_game_scoping(self) -> None:
         star = _tags(name="Umbreon ☆", rarity="Rare Holo Star", release_date="2005-05-04")
-        keys = {g.key for g in group_defs_for(star, lane=LANE_GRADED, grader="PSA", grade="10", population=120)}
+        keys = {g.key for g in group_defs_for(star, lane=LANE_GRADED, grader="PSA", grade="10")}
         self.assertIn("gold_star:graded:psa10", keys)
-        self.assertIn("ex_era:graded:psa10:pop_le_200", keys)
-        # Pop bands and Gold Stars are Pokémon-only.
+        self.assertIn("ex_era:graded:psa10", keys)
+        # Gold Stars are Pokémon-only.
         op = _tags(game="onepiece", name="Luffy ☆", rarity="Secret Rare", release_date="2001-01-01")
-        keys = {g.key for g in group_defs_for(op, lane=LANE_GRADED, grader="PSA", grade="10", population=10)}
+        keys = {g.key for g in group_defs_for(op, lane=LANE_GRADED, grader="PSA", grade="10")}
         self.assertEqual(keys, {"vintage:graded:psa10", "secret:graded:psa10"})
 
 
@@ -193,16 +184,16 @@ class HeadlineTests(unittest.TestCase):
 
     def test_riser_and_cooler_with_graded_comparison(self) -> None:
         headline = build_headline(
-            [self._g("Vintage PSA 10 · pop ≤ 50", 18.4), self._g("Special Illustration Rare", -4.1)],
+            [self._g("Vintage PSA 10", 18.4), self._g("Special Illustration Rare", -4.1)],
             {"rawValueChangePercent": 1.8, "gradedValueChangePercent": 6.1}, 7,
         )
         self.assertEqual(
             headline["title"],
-            "Vintage PSA 10 · pop ≤ 50 is running. Special Illustration Rare is cooling.",
+            "Vintage PSA 10 is running. Special Illustration Rare is cooling.",
         )
         self.assertEqual(
             headline["body"],
-            "Vintage PSA 10 · pop ≤ 50 gained 18.4% this week. Graded value is up 6.1% while raw is up 1.8%.",
+            "Vintage PSA 10 gained 18.4% this week. Graded value is up 6.1% while raw is up 1.8%.",
         )
 
     def test_fallbacks(self) -> None:
@@ -260,13 +251,6 @@ class ComputeTests(unittest.TestCase):
             "VALUES (?, 'scrydex', ?, 'graded', ?, ?, ?, ?, 0, ?, 0, ?, ?, ?)",
             (card_id, _d(days_ago), f"graded|{grader}|{grade}|{variant}|p0s{signed}e0", variant,
              grader, grade, signed, currency, price, utc_now()),
-        )
-
-    def _population(self, card_id: str, psa10: int) -> None:
-        self.connection.execute(
-            "INSERT INTO card_price_snapshots (card_id, provider, display_currency_code, population_json, "
-            "updated_at) VALUES (?, 'scrydex', 'USD', ?, ?)",
-            (card_id, json.dumps({"PSA": {"totalPopulation": psa10 * 3, "grades": {"10": psa10}}}), utc_now()),
         )
 
     def _seed_vintage_raw(self, count: int = 10, *, history_days: int = 30) -> None:
@@ -339,11 +323,10 @@ class ComputeTests(unittest.TestCase):
         self.assertEqual(group["cardCount"], 8)
         self.assertNotIn("switch", [c["cardId"] for c in group["topCards"]])
 
-    def test_graded_lane_pop_bands_ladder_and_filters(self) -> None:
+    def test_graded_lane_ladder_and_filters(self) -> None:
         self._seed_vintage_raw()
         for i in range(10):
             card_id = f"v{i}"
-            self._population(card_id, 30 if i < 8 else 500)
             then = 100.0 + i * 10
             for days_ago in range(0, 31):
                 self._graded(card_id, days_ago, then if days_ago > 3 else then * 1.2)
@@ -357,16 +340,17 @@ class ComputeTests(unittest.TestCase):
         keys = {g["groupKey"]: g for g in payload["groups"]}
         self.assertEqual(keys["vintage:graded:psa10"]["cardCount"], 10)
         self.assertAlmostEqual(keys["vintage:graded:psa10"]["medianChangePercent"], 20.0)
-        self.assertEqual(keys["vintage:graded:psa10:pop_le_50"]["cardCount"], 8)
-        self.assertEqual(keys["vintage:graded:psa10:pop_le_50"]["label"], "Vintage PSA 10 · pop ≤ 50")
-        top = keys["vintage:graded:psa10:pop_le_50"]["topCards"][0]
-        self.assertEqual((top["grader"], top["grade"], top["population"], top["lane"]), ("PSA", "10", 30, "graded"))
+        self.assertEqual(keys["vintage:graded:psa10"]["label"], "Vintage PSA 10")
+        self.assertFalse(any(":pop_" in k for k in keys))
+        top = keys["vintage:graded:psa10"]["topCards"][0]
+        self.assertEqual((top["grader"], top["grade"], top["lane"]), ("PSA", "10", "graded"))
+        self.assertNotIn("population", top)
         self.assertLessEqual(top["priceNow"], 1000.0)  # the $9,000 signed cell is ignored
         self.assertIsNotNone(payload["summary"]["gradedValueChangePercent"])
         self.assertIn("Graded value is up", payload["headline"]["body"])
         # Ladder rungs in rule order, raw first.
         ladder = next(l for l in payload["ladders"] if l["title"] == "Vintage: raw vs graded")
-        self.assertEqual([r["label"] for r in ladder["rungs"]], ["Raw NM", "PSA 9", "PSA 10", "PSA 10 · pop ≤ 50"])
+        self.assertEqual([r["label"] for r in ladder["rungs"]], ["Raw NM", "PSA 9", "PSA 10"])
         self.assertEqual(set(ladder["rungs"][0]), {"label", "lane", "medianChangePercent"})
         # Groups sorted by median desc.
         medians = [g["medianChangePercent"] for g in payload["groups"]]
@@ -501,7 +485,6 @@ class ComputeTests(unittest.TestCase):
         self._seed_vintage_raw()
         for i in range(10):
             card_id = f"v{i}"
-            self._population(card_id, 30 if i < 8 else 500)
             then = 100.0 + i * 10
             for days_ago in range(0, 11):
                 self._graded(card_id, days_ago, then if days_ago > 3 else then * 1.2)
@@ -526,8 +509,7 @@ class ComputeTests(unittest.TestCase):
         groups = payload["groups"]
         self.assertEqual(
             set(groups),
-            {"vintage:raw", "vintage:graded:psa10", "vintage:graded:psa10:pop_le_200",
-             "vintage:graded:psa10:pop_le_50"},
+            {"vintage:raw", "vintage:graded:psa10"},
         )
         raw = groups["vintage:raw"]
         self.assertEqual(set(raw), {"ownedCount", "valueChangeUsd", "ownedCards"})
@@ -538,11 +520,11 @@ class ComputeTests(unittest.TestCase):
         slab = groups["vintage:graded:psa10"]
         self.assertEqual((slab["ownedCount"], slab["valueChangeUsd"]), (1, 28.0))
         card = slab["ownedCards"][0]
-        self.assertEqual((card["grader"], card["grade"], card["population"], card["priceNow"]), ("PSA", "10", 30, 168.0))
+        self.assertEqual((card["grader"], card["grade"], card["priceNow"]), ("PSA", "10", 168.0))
 
         callout = payload["callout"]
         self.assertEqual(set(callout), {"title", "body", "valueChangeUsd", "imageUrls", "groupKey"})
-        self.assertEqual(callout["groupKey"], "vintage:graded:psa10:pop_le_50")
+        self.assertEqual(callout["groupKey"], "vintage:graded:psa10")
         self.assertEqual(callout["title"], "Your vintage is up +$28 this week")
         self.assertEqual(callout["body"], "1 PSA 10 and 4 raw cards in rising groups")
         self.assertEqual(callout["valueChangeUsd"], 28.0)

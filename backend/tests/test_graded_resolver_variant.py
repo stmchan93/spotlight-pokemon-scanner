@@ -17,7 +17,7 @@ from catalog_tools import (
 
 
 def test_normalized_variant_label_equates_1st_and_first_edition():
-    # The key fix: TCGplayer/PPT "1st Edition" must canonicalize to Scrydex's
+    # The key fix: TCGplayer "1st Edition" must canonicalize to Scrydex's
     # "First Edition" spelling so the per-printing graded lookup matches.
     assert _normalized_variant_label("1st Edition Holofoil") == "First Edition Holofoil"
     assert _normalized_variant_label("First Edition Holofoil") == "First Edition Holofoil"

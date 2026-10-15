@@ -29,7 +29,6 @@ function metaCard(overrides: Partial<MetaCard> & Pick<MetaCard, 'cardId' | 'name
     lane: 'raw',
     grader: null,
     grade: null,
-    population: null,
     priceNow: 0,
     priceThen: 0,
     changePercent: 0,
@@ -43,23 +42,23 @@ const IMG = 'https://images.pokemontcg.io';
 // Cards reused across the groups, the exposure payload and the group page.
 const latiosStar = metaCard({
   cardId: 'ex8-106', name: 'Latios ☆', number: '106', setName: 'Deoxys', imageUrl: `${IMG}/ex8/106.png`,
-  lane: 'graded', grader: 'PSA', grade: '10', population: 27, priceNow: 11_800, priceThen: 9_008, changePercent: 31,
+  lane: 'graded', grader: 'PSA', grade: '10', priceNow: 11_800, priceThen: 9_008, changePercent: 31,
 });
 const hoOh = metaCard({
   cardId: 'ecard3-146', name: 'Ho-oh', number: '146', setName: 'Skyridge', imageUrl: `${IMG}/ecard3/146.png`,
-  lane: 'graded', grader: 'PSA', grade: '10', population: 41, priceNow: 4_850, priceThen: 4_008, changePercent: 21,
+  lane: 'graded', grader: 'PSA', grade: '10', priceNow: 4_850, priceThen: 4_008, changePercent: 21,
 });
 const latiasStar = metaCard({
   cardId: 'ex8-105', name: 'Latias ☆', number: '105', setName: 'Deoxys', imageUrl: `${IMG}/ex8/105.png`,
-  lane: 'graded', grader: 'PSA', grade: '10', population: 38, priceNow: 7_400, priceThen: 6_298, changePercent: 17.5,
+  lane: 'graded', grader: 'PSA', grade: '10', priceNow: 7_400, priceThen: 6_298, changePercent: 17.5,
 });
 const mortysGengar = metaCard({
   cardId: 'neo4-5', name: "Morty's Gengar", number: '5', setName: 'VS', imageUrl: `${IMG}/neo4/5.png`,
-  lane: 'graded', grader: 'PSA', grade: '10', population: 33, priceNow: 1_120, priceThen: 981, changePercent: 14.2,
+  lane: 'graded', grader: 'PSA', grade: '10', priceNow: 1_120, priceThen: 981, changePercent: 14.2,
 });
 const rocketsRaikou = metaCard({
   cardId: 'ex7-107', name: "Rocket's Raikou ex", number: '107', setName: 'Team Rocket Returns', imageUrl: `${IMG}/ex7/107.png`,
-  lane: 'graded', grader: 'PSA', grade: '10', population: 44, priceNow: 2_050, priceThen: 1_867, changePercent: 9.8,
+  lane: 'graded', grader: 'PSA', grade: '10', priceNow: 2_050, priceThen: 1_867, changePercent: 9.8,
 });
 const deoxysEx = metaCard({
   cardId: 'ex8-99', name: 'Deoxys ex', number: '99', setName: 'Deoxys', imageUrl: `${IMG}/ex8/99.png`,
@@ -113,10 +112,10 @@ function mockGroup(seed: MockGroupSeed): MetaGroup {
 
 export const mockMetaGroups: MetaGroup[] = [
   mockGroup({
-    groupKey: 'vintage:graded:psa10:pop_le_50',
-    label: 'Vintage PSA 10 · low pop',
+    groupKey: 'vintage:graded:psa10',
+    label: 'Vintage PSA 10',
     lane: 'graded',
-    description: 'PSA 10s from before 2003 with 50 or fewer graded',
+    description: 'PSA 10s from before 2003',
     medianChangePercent: 18.4,
     valueNow: 2_650_000,
     valueChangeUsd: 412_000,
@@ -211,8 +210,8 @@ export const mockMetaPulse: MetaPulse = {
   computedAt: COMPUTED_AT,
   asOfDate: '2026-09-23',
   headline: {
-    title: 'Vintage low-pop is running. Modern chase cards are cooling.',
-    body: 'Vintage PSA 10s with a population of 50 or less rose 18.4% this week, while Scarlet & Violet Special Illustration Rares slipped 4.1%.',
+    title: 'Vintage PSA 10s are running. Modern chase cards are cooling.',
+    body: 'Vintage PSA 10s rose 18.4% this week, while Scarlet & Violet Special Illustration Rares slipped 4.1%.',
   },
   summary: {
     rawValueChangePercent: 1.2,
@@ -230,7 +229,6 @@ export const mockMetaPulse: MetaPulse = {
         { label: 'Raw NM', lane: 'raw', medianChangePercent: 4.1 },
         { label: 'PSA 9', lane: 'graded', medianChangePercent: 7.6 },
         { label: 'PSA 10', lane: 'graded', medianChangePercent: 12.9 },
-        { label: 'PSA 10 · pop ≤ 50', lane: 'graded', medianChangePercent: 18.4 },
       ],
     },
   ],
@@ -244,11 +242,11 @@ export function mockMetaGroupDetail(groupKey: string): MetaGroupDetail | null {
 
 const blastoisePsa10 = metaCard({
   cardId: 'base1-2', name: 'Blastoise', number: '2', setName: 'Base Set', imageUrl: `${IMG}/base1/2.png`,
-  lane: 'graded', grader: 'PSA', grade: '10', population: 48, priceNow: 3_900, priceThen: 3_640, changePercent: 7.1,
+  lane: 'graded', grader: 'PSA', grade: '10', priceNow: 3_900, priceThen: 3_640, changePercent: 7.1,
 });
 const lugiaPsa10 = metaCard({
   cardId: 'neo1-9', name: 'Lugia', number: '9', setName: 'Neo Genesis', imageUrl: `${IMG}/neo1/9.png`,
-  lane: 'graded', grader: 'PSA', grade: '10', population: 36, priceNow: 8_200, priceThen: 7_900, changePercent: 3.8,
+  lane: 'graded', grader: 'PSA', grade: '10', priceNow: 8_200, priceThen: 7_900, changePercent: 3.8,
 });
 
 /** The signed-in viewer's exposure, matching the Meta pulse v4 mockup's callout. */
@@ -260,10 +258,10 @@ export const mockMetaExposure: MetaExposure = {
     body: '4 PSA 10s and 11 raw cards in rising groups',
     valueChangeUsd: 312,
     imageUrls: [hoOh.imageUrl, mortysGengar.imageUrl].filter((url): url is string => url != null),
-    groupKey: 'vintage:graded:psa10:pop_le_50',
+    groupKey: 'vintage:graded:psa10',
   },
   groups: {
-    'vintage:graded:psa10:pop_le_50': {
+    'vintage:graded:psa10': {
       ownedCount: 4,
       valueChangeUsd: 312,
       ownedCards: [hoOh, mortysGengar, blastoisePsa10, lugiaPsa10],

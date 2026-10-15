@@ -68,7 +68,6 @@ import type {
   DealLiquidityTier,
   CardCatalogSource,
   CardGame,
-  CardPopulation,
   TcgPlayerVariantMarketplace,
   CardEbayListingRecord,
   CardEbayListingsRecord,
@@ -1001,7 +1000,6 @@ type CardDetailDTO = {
   counterpartLanguage?: string | null;
   printingImages?: unknown;
   cardText?: CardTextDTO | null;
-  population?: unknown;
   gradedReference?: unknown;
   artist?: string | null;
   setReleaseDate?: string | null;
@@ -1017,8 +1015,6 @@ type CardPriceTrendListDTO = {
     currencyCode?: string | null;
     points?: Array<number | null> | null;
     trendPct?: number | null;
-    confidence?: string | null;
-    saleCount?: number | null;
   }> | null;
 };
 
@@ -1950,45 +1946,6 @@ function normalizeCardLanguage(value: unknown): ScannerCardLanguage | null {
     return text;
   }
   return null;
-}
-
-// GemRate population is defensive/untyped upstream JSON: keep only graders that
-// carry at least one valid grade count, drop everything malformed. Returns null
-// when nothing usable survives so the PDP can branch on presence.
-function normalizeCardPopulation(value: unknown): CardPopulation | null {
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
-  const out: CardPopulation = {};
-  for (const [grader, raw] of Object.entries(value as Record<string, unknown>)) {
-    if (!raw || typeof raw !== 'object') {
-      continue;
-    }
-    const rawGrades = (raw as { grades?: unknown }).grades;
-    const grades: Record<string, number> = {};
-    if (rawGrades && typeof rawGrades === 'object') {
-      for (const [grade, count] of Object.entries(rawGrades as Record<string, unknown>)) {
-        if (typeof count === 'number' && Number.isFinite(count) && count >= 0) {
-          grades[grade] = Math.round(count);
-        }
-      }
-    }
-    if (Object.keys(grades).length === 0) {
-      continue;
-    }
-    const rawTotal = (raw as { totalPopulation?: unknown }).totalPopulation;
-    const rawGemRate = (raw as { gemRate?: unknown }).gemRate;
-    const totalPopulation =
-      typeof rawTotal === 'number' && Number.isFinite(rawTotal)
-        ? Math.max(0, Math.round(rawTotal))
-        : Object.values(grades).reduce((sum, n) => sum + n, 0);
-    out[grader.toUpperCase()] = {
-      totalPopulation,
-      gemRate: typeof rawGemRate === 'number' && Number.isFinite(rawGemRate) ? rawGemRate : null,
-      grades,
-    };
-  }
-  return Object.keys(out).length > 0 ? out : null;
 }
 
 // The backend sends `gradedReference` ONLY for graded-only cards (no raw price):
@@ -3359,11 +3316,6 @@ function buildCardPriceTrendList(
       const points = Array.isArray(row?.points)
         ? row.points.map((point) => normalizeNumber(point) ?? 0)
         : [];
-      const confidenceRaw = normalizeString(row?.confidence)?.toLowerCase();
-      const confidence =
-        confidenceRaw === 'high' || confidenceRaw === 'medium' || confidenceRaw === 'low'
-          ? confidenceRaw
-          : null;
       return [{
         label,
         key,
@@ -3371,8 +3323,6 @@ function buildCardPriceTrendList(
         currencyCode: normalizeCurrencyCode(row?.currencyCode),
         points,
         trendPct: normalizeNumber(row?.trendPct),
-        confidence,
-        saleCount: normalizeNumber(row?.saleCount),
       }];
     })
     : [];
@@ -7032,7 +6982,6 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       trendsPct: card.pricing.trendsPct ?? null,
       cardText: buildCardText(detailResponse.data.cardText),
       tcgPlayerVariants: card.tcgPlayerVariants,
-      population: normalizeCardPopulation(detailResponse.data.population),
       gradedReference: normalizeGradedReference(detailResponse.data.gradedReference),
       artist: normalizeString(detailResponse.data.artist),
       releaseDate: normalizeString(detailResponse.data.setReleaseDate),

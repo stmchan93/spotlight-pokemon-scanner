@@ -12,7 +12,7 @@
 > the user base grows.
 
 **Effective date:** August 12, 2026
-**Last updated:** August 12, 2026
+**Last updated:** October 14, 2026
 
 This policy supersedes the earlier Ekalight privacy policy (June 2026), which predates the
 social features described below.
@@ -252,7 +252,7 @@ each has its own privacy policy.
 | **Apple / Google** | Sign-in requests, if you use those methods | Authentication |
 
 **Card data providers.** We obtain card catalogue, reference, and pricing data from **Scrydex**,
-**PokemonPriceTracker**, **PriceCharting**, and **eBay**, and currency exchange rates from the
+**TCGCSV**, **PriceCharting**, and **eBay**, and currency exchange rates from the
 **European Central Bank**. These lookups are made by our servers and are keyed on card
 attributes — set, number, name, grade — or are bulk catalogue syncs. **No user data, account
 identifier, or user content is sent to any of them.** Our eBay access uses an application-level

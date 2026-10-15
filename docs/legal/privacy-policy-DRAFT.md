@@ -256,7 +256,7 @@ each has its own privacy policy.
 | **RevenueCat** | An anonymous, device-scoped identifier — **not** your account identifier or email | Purchase and entitlement handling [VERIFY: not live in production at the time of writing; see README] |
 
 **Card data providers.** We obtain card catalogue, reference, and pricing data from **Scrydex**,
-**PokemonPriceTracker**, **PriceCharting**, and **eBay**, and currency exchange rates from the
+**TCGCSV**, **PriceCharting**, and **eBay**, and currency exchange rates from the
 **European Central Bank**. These lookups are made by our servers and are keyed on card
 attributes — set, number, name, grade — or are bulk catalogue syncs. **No user data, account
 identifier, or user content is sent to any of them.** Our eBay access uses an application-level

@@ -64,24 +64,14 @@ describe('card game capability table', () => {
     expect(gameHasGradedData('gundam')).toBe(false);
   });
 
-  it('grants population data to Pokémon only, Lorcana included in the exclusion', () => {
-    // Lorcana has graded PRICES but zero population rows — our population
-    // source (GemRate via PokemonPriceTracker) is Pokémon-only.
-    expect(cardGameCapabilities('pokemon').hasPopulationData).toBe(true);
-    for (const game of ALL_GAMES.filter((id) => id !== 'pokemon')) {
-      expect(cardGameCapabilities(game).hasPopulationData).toBe(false);
-    }
-  });
-
   it('proves the capability flags are separate claims, via Lorcana', () => {
     // Lorcana is why these cannot be one flag: real graded prices AND a real
     // eBay sold comp (measured 2026-08-14 via
-    // tools/probe_scrydex_lorcana_listings.py), but zero population rows.
-    // Collapsing them would have hung an always-empty population panel under
-    // real graded lanes.
+    // tools/probe_scrydex_lorcana_listings.py), while One Piece has neither.
     expect(gameHasGradedData('lorcana')).toBe(true);
     expect(gameHasListingsData('lorcana')).toBe(true);
-    expect(cardGameCapabilities('lorcana').hasPopulationData).toBe(false);
+    expect(gameHasGradedData('onepiece')).toBe(false);
+    expect(gameHasListingsData('onepiece')).toBe(false);
   });
 
   it('hides the recent-sales surface wherever there are no listings to show', () => {

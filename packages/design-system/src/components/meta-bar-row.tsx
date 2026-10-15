@@ -6,7 +6,7 @@ import { OwnedTag } from './owned-tag';
 import { PriceSparkline } from './price-sparkline';
 
 export type MetaBarRowProps = {
-  /** Group name, e.g. "Vintage PSA 10 · low pop". */
+  /** Group name, e.g. "Vintage PSA 10". */
   label: string;
   /** Lead card art (the group's biggest contributor). Null = gray200 slot. */
   imageUrl?: string | null;

@@ -258,7 +258,7 @@ export function DesignSystemCatalogScreen({
               barFraction={1}
               changeLabel="+18.4%"
               changePercent={18.4}
-              label="Vintage PSA 10 · low pop"
+              label="Vintage PSA 10"
               ownedLabel="You own 4"
               sparkPoints={[100, 101, 101, 103, 104, 107, 112, 118.4]}
               testID="catalog-meta-bar-row"

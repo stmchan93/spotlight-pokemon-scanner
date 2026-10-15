@@ -810,13 +810,11 @@ export const CARD_GAMES: readonly CardGame[] = [
  *
  * The flags are statements about the DATA WE CAN GET, not about the games. One
  * Piece slabs exist in the world; what does not exist is a source we integrate
- * that serves their prices, populations or sold comps. Established by probing
+ * that serves their prices or sold comps. Established by probing
  * the live Scrydex API on 2026-08-13/14 (mirrors the backend `GAMES` registry,
  * which is the source of truth):
  *
  *   - graded prices exist for Pokémon AND Lorcana, and for nobody else
- *   - empty `pop_reports` for any non-Pokémon game (and our population source,
- *     GemRate via PokemonPriceTracker, is Pokémon-only regardless)
  *   - `/onepiece/v1/cards/{id}/listings` returns ZERO rows, so recent sales /
  *     lowest listed have nothing to show; the same endpoint returned a REAL
  *     eBay sold row for Lorcana (measured 2026-08-14 via
@@ -840,7 +838,6 @@ export type CardGameCapabilities = {
   marketplaceKeyword: string;
   ebayKeyword: string | null;
   hasGradedData: boolean;
-  hasPopulationData: boolean;
   hasListingsData: boolean;
   /**
    * Whether this game's catalog is split BY LANGUAGE — the client half of the
@@ -878,7 +875,6 @@ export const CARD_GAME_CAPABILITIES: Record<CardGame, CardGameCapabilities> = {
     marketplaceKeyword: 'pokemon',
     ebayKeyword: null,
     hasGradedData: true,
-    hasPopulationData: true,
     hasListingsData: true,
     hasLanguageLanes: true,
     graders: ['Raw', 'PSA', 'BGS', 'CGC'],
@@ -888,7 +884,6 @@ export const CARD_GAME_CAPABILITIES: Record<CardGame, CardGameCapabilities> = {
     marketplaceKeyword: 'one piece',
     ebayKeyword: 'one piece',
     hasGradedData: false,
-    hasPopulationData: false,
     hasListingsData: false,
     hasLanguageLanes: false,
     // The index is English-only; the scanner label says so.
@@ -901,11 +896,8 @@ export const CARD_GAME_CAPABILITIES: Record<CardGame, CardGameCapabilities> = {
     ebayKeyword: 'lorcana',
     // Lorcana DOES have graded pricing — measured, not assumed: 1,525 of 3,170
     // priced cards carry graded contexts (e.g. AOTV-224 PSA 10 Holofoil at $140
-    // market). It is the first game where graded and population disagree.
+    // market).
     hasGradedData: true,
-    // Population is zero outside Pokémon: our source (GemRate via
-    // PokemonPriceTracker) is Pokémon-only.
-    hasPopulationData: false,
     // MEASURED, 2026-08-14 (tools/probe_scrydex_lorcana_listings.py): the
     // broadest query for AOTV-224 returned one real eBay sold row, so the
     // sold-comps drawer under Lorcana's graded lanes has something to show.
@@ -925,7 +917,6 @@ export const CARD_GAME_CAPABILITIES: Record<CardGame, CardGameCapabilities> = {
     marketplaceKeyword: 'riftbound',
     ebayKeyword: 'riftbound',
     hasGradedData: false,
-    hasPopulationData: false,
     hasListingsData: false,
     hasLanguageLanes: false,
     graders: ['Raw'],
@@ -935,7 +926,6 @@ export const CARD_GAME_CAPABILITIES: Record<CardGame, CardGameCapabilities> = {
     marketplaceKeyword: 'gundam',
     ebayKeyword: 'gundam',
     hasGradedData: false,
-    hasPopulationData: false,
     hasListingsData: false,
     hasLanguageLanes: false,
     graders: ['Raw'],
@@ -954,7 +944,7 @@ export function cardGameCapabilities(game: CardGame | undefined): CardGameCapabi
 }
 
 /**
- * Whether this game has graded pricing and population data behind it. The
+ * Whether this game has graded pricing data behind it. The
  * detail screen uses this to HIDE those sections rather than render them empty,
  * which would read as broken.
  */
@@ -1014,7 +1004,7 @@ export function marketplaceKeywordForGame(game: CardGame | undefined): string {
 /**
  * Where a card's catalog row comes from. `'scrydex'` is the normal catalog;
  * `'tcgplayer'` is a card Scrydex does not list that we carry from TCGplayer
- * alone (raw TCGplayer pricing only — no graded pricing, population or
+ * alone (raw TCGplayer pricing only — no graded pricing or
  * per-condition prices). Absent on older servers → treat as `'scrydex'`.
  */
 export type CardCatalogSource = 'scrydex' | 'tcgplayer';
@@ -1029,7 +1019,7 @@ export function isTcgplayerOnlyCard(card: CatalogSourced): boolean {
 }
 
 /**
- * Graded pricing/population exists for THIS card: the game must have it and the
+ * Graded pricing exists for THIS card: the game must have it and the
  * card must come from the Scrydex catalog. A TCGplayer-only Pokémon card would
  * otherwise inherit Pokémon's PSA/BGS/CGC lanes and show empty charts.
  */
@@ -1367,7 +1357,7 @@ export type CardDetailRecord = {
   game?: CardGame;
   /**
    * `'tcgplayer'` for a card Scrydex does not list (raw TCGplayer pricing only:
-   * the page hides graded lanes and population). Undefined = `'scrydex'`.
+   * the page hides graded lanes). Undefined = `'scrydex'`.
    */
   catalogSource?: CardCatalogSource;
   /**
@@ -1481,12 +1471,6 @@ export type CardDetailRecord = {
    */
   tcgPlayerVariants?: TcgPlayerVariantMarketplace[] | null;
   /**
-   * GemRate population (from PPT), keyed by grading company (PSA/BGS/CGC/SGC).
-   * Drives the PDP's dynamic-by-grader population report. Absent/empty when the
-   * card has no synced population data.
-   */
-  population?: CardPopulation | null;
-  /**
    * Set ONLY for graded-only cards (no raw/ungraded price but graded pricing):
    * the headline graded lane the PDP should default to so a chart shows instead
    * of a blank raw lane. Null for normal (raw-priced) cards.
@@ -1497,20 +1481,6 @@ export type CardDetailRecord = {
   /** Catalog set release date string (e.g. "2000/06/10"); formatted for display. */
   releaseDate?: string | null;
 };
-
-/**
- * GemRate population for one grading company: the per-grade slab counts plus the
- * grader's total population and gem rate. `grades` is keyed by grade label
- * ("10", "9.5", "9", …) → count.
- */
-export type CardPopulationGrader = {
-  totalPopulation: number;
-  gemRate: number | null;
-  grades: Record<string, number>;
-};
-
-/** Population keyed by grading company (e.g. "PSA", "BGS", "CGC", "SGC"). */
-export type CardPopulation = Record<string, CardPopulationGrader>;
 
 /**
  * Minimal client-facing view of a Scrydex `sourcePayload` variant, carrying only
@@ -1579,13 +1549,6 @@ export type CardPriceTrendRow = {
   points: number[];
   /** Percent change across the series; drives the up/down tint. */
   trendPct?: number | null;
-  /**
-   * Graded only: PPT smartMarketPrice confidence ("high" | "medium" | "low") and
-   * the number of eBay sales behind it. Drives the "· high · 37 sales" trust line.
-   * Null for providers/rows that don't carry them (e.g. raw, Scrydex graded).
-   */
-  confidence?: 'high' | 'medium' | 'low' | null;
-  saleCount?: number | null;
 };
 
 export type CardPriceTrendList = {
@@ -1642,7 +1605,6 @@ export type MetaCard = {
   lane: MetaLane;
   grader: string | null;        // 'PSA' | 'CGC' | 'BGS' ... (graded only)
   grade: string | null;         // '10', '9.5' ... (graded only)
-  population: number | null;    // pop at this grade (Pokémon graded only)
   priceNow: number;
   priceThen: number;
   changePercent: number;
@@ -1650,8 +1612,8 @@ export type MetaCard = {
 };
 
 export type MetaGroup = {
-  groupKey: string;             // stable id, e.g. 'vintage:graded:psa10:pop_le_50'
-  label: string;                // 'Vintage PSA 10 · pop ≤ 50'
+  groupKey: string;             // stable id, e.g. 'vintage:graded:psa10'
+  label: string;                // 'Vintage PSA 10'
   lane: MetaLane;
   description: string;          // 'pre-2003 · 1,840 cards'
   medianChangePercent: number;  // median over cards whose price moved in the window

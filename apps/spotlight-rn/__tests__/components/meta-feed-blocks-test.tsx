@@ -80,14 +80,14 @@ describe('MetaPulseBlock', () => {
 
     expect(screen.getByText('Meta pulse')).toBeTruthy();
     expect(screen.getByText('Pokémon · past 7 days')).toBeTruthy();
-    expect(screen.getByText('Vintage low-pop is running. Modern chase cards are cooling.')).toBeTruthy();
+    expect(screen.getByText('Vintage PSA 10s are running. Modern chase cards are cooling.')).toBeTruthy();
     expect(screen.getByText('ON THE WAY UP')).toBeTruthy();
     expect(screen.getByText('COOLING OFF')).toBeTruthy();
 
     const upRows = screen.getAllByTestId(/^meta-pulse-up-row-[^-]+$/);
     const downRows = screen.getAllByTestId(/^meta-pulse-down-row-[^-]+$/);
     expect(upRows.map((row) => row.props.testID)).toEqual([
-      'meta-pulse-up-row-vintage:graded:psa10:pop_le_50',
+      'meta-pulse-up-row-vintage:graded:psa10',
       'meta-pulse-up-row-ex_era:raw:nm',
       'meta-pulse-up-row-promos:raw:jp',
     ]);
@@ -113,7 +113,7 @@ describe('MetaPulseBlock', () => {
     expect(screen.queryByText('4 PSA 10s and 11 raw cards in rising groups')).toBeNull();
     fireEvent.press(screen.getByTestId('meta-pulse-callout'));
     expect(onOpenGroup).toHaveBeenLastCalledWith(
-      { groupKey: 'vintage:graded:psa10:pop_le_50', mine: true },
+      { groupKey: 'vintage:graded:psa10', mine: true },
       mockMetaPulse,
     );
 
@@ -129,7 +129,7 @@ describe('MetaPulseBlock', () => {
   it('scales every bar against the largest |%| of the six shown', () => {
     renderThemed(<MetaPulseBlock pulse={mockMetaPulse} />);
     // 18.4 is the full bar; the rest are |%| / 18.4 (mockup: 67%, 44%, 22%, 11%).
-    expect(barWidth('meta-pulse-up-row-vintage:graded:psa10:pop_le_50-bar')).toBe('100%');
+    expect(barWidth('meta-pulse-up-row-vintage:graded:psa10-bar')).toBe('100%');
     expect(barWidth('meta-pulse-up-row-ex_era:raw:nm-bar')).toBe('67.4%');
     expect(barWidth('meta-pulse-up-row-promos:raw:jp-bar')).toBe('44%');
     expect(barWidth('meta-pulse-down-row-modern:raw:sir-bar')).toBe('22.3%');
@@ -417,7 +417,7 @@ describe('meta feed analytics', () => {
     expect(capture).toHaveBeenCalledWith('meta_callout_tapped', { direction: 'up' });
     expect(capture).toHaveBeenCalledWith('meta_group_opened', {
       direction: 'up',
-      group_key: 'vintage:graded:psa10:pop_le_50',
+      group_key: 'vintage:graded:psa10',
       lane: 'all',
       source: 'callout',
     });

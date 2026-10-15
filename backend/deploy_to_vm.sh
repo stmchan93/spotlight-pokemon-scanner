@@ -295,7 +295,7 @@ if [ "$ENVIRONMENT" = "production" ]; then
     fi
   done
 else
-  for key in SCRYDEX_API_KEY PPT_API_KEY; do
+  for key in SCRYDEX_API_KEY; do
     value="$(read_dotenv_value "$SECRETS_FILE" "$key")"
     if [ -n "$value" ]; then
       echo "$key must NOT be set in $SECRETS_FILE for staging (keyless by design)." >&2
@@ -329,7 +329,6 @@ SYNC_LOG_FILE="$LOG_DIR/scrydex_sync.log"
 TCGCSV_SYNC_LOG_FILE="$LOG_DIR/tcgcsv_sync.log"
 HEALTH_MONITOR_LOG_FILE="$LOG_DIR/health_monitor.log"
 RESOURCE_MONITOR_LOG_FILE="$LOG_DIR/resource_monitor.log"
-PPT_POPULATION_LOG_FILE="$LOG_DIR/ppt_population.log"
 SOCIAL_MODERATION_LOG_FILE="$LOG_DIR/social_moderation.log"
 POST_MEDIA_PURGE_LOG_FILE="$LOG_DIR/post_media_purge.log"
 DEAL_SCAN_LOG_FILE="$LOG_DIR/deal_scan.log"
@@ -586,17 +585,8 @@ SYNC_LINE="* * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_sync_vm_scheduled.sh"
 TCGCSV_SYNC_LINE="* * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_tcgcsv_sync_vm_scheduled.sh"
 HEALTH_LINE="$HEALTH_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/run_vm_health_check.sh >> $HEALTH_MONITOR_LOG_FILE 2>&1"
 RESOURCE_LINE="$RESOURCE_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/run_vm_resource_snapshot.sh >> $RESOURCE_MONITOR_LOG_FILE 2>&1"
-# PPT GemRate population refresh — DAILY at 06:30 UTC (~10:30pm PST / 11:30pm PDT),
-# 30 min after the PPT /export regenerates at 06:00 UTC, so we pull the freshest
-# population dump every day (was weekly; bumped to daily to cut the lag vs fresher
-# sources like ALT). Population is 1 of PPT's 2 daily exports, so daily stays
-# within budget. Off-peak and clear of the 6pm-PT Scrydex sync (~01:00-02:00 UTC)
-# and the 3am-PT disk snapshot. Cron runs on the VM's UTC system clock (CRON_TZ is
-# unsupported by Ubuntu's vixie cron, so we anchor in UTC). Enrichment-only; no-ops
-# if PPT_API_KEY is absent from the secrets file.
-PPT_POPULATION_LINE="30 6 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_ppt_population_vm.sh >> $PPT_POPULATION_LOG_FILE 2>&1"
 # Social moderation — every 2 minutes by default, on BOTH environments. Unlike
-# the Scrydex and PPT jobs above this burns no credits: OpenAI's omni-moderation
+# the Scrydex job above this burns no credits: OpenAI's omni-moderation
 # endpoint is free for text and images, so the only cost is GCS egress reading
 # each image once. It has to run on staging precisely because that is where the
 # users are — post images stay hidden by RLS until this approves them.
@@ -614,8 +604,7 @@ PPT_POPULATION_LINE="30 6 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_ppt_population_
 # top of this script, so the cron entry can rely on it existing.
 SOCIAL_MODERATION_LINE="$MODERATION_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/run_social_moderation_vm.sh >> $SOCIAL_MODERATION_LOG_FILE 2>&1"
 # Retention purge for post images. Daily at 08:15 UTC (~1:15am PT): clear of the
-# Scrydex sync (01:00-02:00 UTC), the PPT population refresh (06:30 UTC) and the
-# 3am-PT disk snapshot. Daily is right — the window is 30 DAYS, so a day of
+# Scrydex sync (01:00-02:00 UTC) and the 3am-PT disk snapshot. Daily is right — the window is 30 DAYS, so a day of
 # latency is irrelevant, and a run that hits its cap just continues tomorrow.
 #
 # Ships in DRY RUN. The runner only deletes when SPOTLIGHT_POST_MEDIA_PURGE_APPLY
@@ -633,8 +622,8 @@ DEAL_SCAN_LINE="* * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_deal_scan_vm_schedule
 # free (own DB + free RSS/YouTube quota), so they install on BOTH environments;
 # each runner no-ops unless its *_ENABLED flag is truthy in the env files.
 # Cron is UTC. Meta pulse at 07:10 UTC (00:10 PDT / 23:10 PST): after the last
-# TCGCSV catch-up attempt (20:35 PT), prod's 18:00 PT Scrydex sync and the
-# 06:30 UTC PPT population refresh, so it sees the day's final prices. Set
+# TCGCSV catch-up attempt (20:35 PT) and prod's 18:00 PT Scrydex sync, so it
+# sees the day's final prices. Set
 # spotlight follows it. Hot cards hourly at :41 and news at :17 stay clear of
 # the :05/:35 TCGCSV and :50 deal-scan minutes.
 META_PULSE_LINE="10 7 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_meta_pulse_vm.sh >> $META_PULSE_LOG_FILE 2>&1"
@@ -681,12 +670,10 @@ PY
 {
   cat "$CURRENT_CRONTAB"
   echo "$CRON_BEGIN"
-  # Staging boxes never run the credit-burning jobs (Scrydex sync, PPT
-  # population) — staging data arrives via litestream restore from prod's
-  # bucket. Only production gets those sync crons; both keep the monitors.
+  # Staging boxes never run the credit-burning Scrydex sync — staging data arrives via litestream restore from prod's
+  # bucket. Only production gets the sync cron; both keep the monitors.
   if [ "$ENVIRONMENT" = "production" ]; then
     echo "$SYNC_LINE"
-    echo "$PPT_POPULATION_LINE"
   fi
   # TCGCSV is a free mirror (no credits), so its line installs on BOTH
   # environments; the job stays dark unless TCGCSV_SYNC_ENABLED is truthy in

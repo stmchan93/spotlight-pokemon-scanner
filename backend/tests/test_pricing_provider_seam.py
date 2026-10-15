@@ -1,7 +1,5 @@
-"""The PRICING_PROVIDER seam: pricing_provider() selects which provider's rows the
-PRICE read/write paths use. Default 'scrydex' keeps behavior identical; 'ppt' flips
-the price source (PokemonPriceTracker) without touching catalog/identity/sync.
-"""
+"""pricing_provider() names the provider whose rows the PRICE read/write paths
+use. It is always Scrydex; the env var it used to read is ignored."""
 
 from __future__ import annotations
 
@@ -32,17 +30,9 @@ class PricingProviderSeamTests(unittest.TestCase):
         os.environ.pop("PRICING_PROVIDER", None)
         self.assertEqual(pricing_provider(), "scrydex")
 
-    def test_empty_falls_back_to_scrydex(self):
-        os.environ["PRICING_PROVIDER"] = "   "
+    def test_stale_env_value_is_ignored(self):
+        os.environ["PRICING_PROVIDER"] = "legacy-provider"
         self.assertEqual(pricing_provider(), "scrydex")
-
-    def test_ppt_flag(self):
-        os.environ["PRICING_PROVIDER"] = "ppt"
-        self.assertEqual(pricing_provider(), "ppt")
-
-    def test_normalizes_case_and_whitespace(self):
-        os.environ["PRICING_PROVIDER"] = "  PPT  "
-        self.assertEqual(pricing_provider(), "ppt")
 
 
 if __name__ == "__main__":

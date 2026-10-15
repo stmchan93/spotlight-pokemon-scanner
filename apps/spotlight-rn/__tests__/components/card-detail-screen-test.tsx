@@ -1498,17 +1498,9 @@ describe('CardDetailScreen', () => {
 
   it('a card WITH raw pricing keeps the Raw lane default (no graded auto-switch)', async () => {
     // Guardrail: the correction must not fire for normal cards that have raw
-    // pricing, even when population data is present.
+    // pricing.
     const baseRepository = createTestSpotlightRepository();
-    const getCardDetail = jest.fn(async (query: { cardId: string }) => {
-      const base = await baseRepository.getCardDetail(query);
-      return base
-        ? ({
-            ...base,
-            population: { PSA: { totalPopulation: 4, gemRate: 0.25, grades: { '10': 1 } } },
-          } satisfies CardDetailRecord)
-        : null;
-    });
+    const getCardDetail = jest.fn(async (query: { cardId: string }) => baseRepository.getCardDetail(query));
 
     renderWithProviders(
       <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
@@ -3116,8 +3108,6 @@ describe('CardDetailScreen', () => {
       tcgPlayerVariants: [
         { name: 'Sealed', marketplaces: [{ name: 'tcgplayer', product_id: 593355 }] },
       ],
-      // Graded data a card would render — sealed must still hide it.
-      population: { PSA: { total: 10, grades: { '10': 4 } } } as unknown as CardDetailRecord['population'],
     };
     const sealedTrends = jest.fn(async (query: { mode: string }) => ({
       mode: query.mode as 'raw' | 'graded',
@@ -3164,7 +3154,6 @@ describe('CardDetailScreen', () => {
       // Card-only surfaces are gone.
       expect(screen.queryByTestId('detail-configurator')).toBeNull();
       expect(screen.queryByTestId('detail-configurator-grader-PSA')).toBeNull();
-      expect(screen.queryByTestId('detail-population-report')).toBeNull();
       expect(screen.queryByTestId('detail-owned-edit')).toBeNull();
 
       // Same actions as a card: add + share in the bar, watch on the hero.

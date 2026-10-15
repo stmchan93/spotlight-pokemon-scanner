@@ -1,12 +1,10 @@
-"""Tests for the PokemonPriceTracker join anchor: cards.tcgplayer_id.
+"""Tests for the TCGplayer join key: cards.tcgplayer_id.
 
-PPT keys cards by TCGplayer product id (`tcgPlayerId`). Scrydex stores the same id
-in each card's payload at variants[].marketplaces[name=tcgplayer].product_id, and
-the two are identical (verified live: swsh7-215 -> 246723 on both). So
-`extract_tcgplayer_product_id` + the persisted `cards.tcgplayer_id` column give a
-deterministic, language-independent join (works for Japanese, where PPT's
-externalCatalogId is null). These tests pin the extraction, that upsert_card
-auto-populates it, and that the backfill fills existing rows.
+Scrydex stores the TCGplayer product id in each card's payload at
+variants[].marketplaces[name=tcgplayer].product_id. `extract_tcgplayer_product_id`
++ the persisted `cards.tcgplayer_id` column give the TCGCSV price sync a
+deterministic, language-independent join. These tests pin the extraction, that
+upsert_card auto-populates it, and that the backfill fills existing rows.
 """
 
 from __future__ import annotations

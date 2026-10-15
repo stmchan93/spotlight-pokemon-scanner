@@ -206,7 +206,7 @@ export const borderWidths = {
   // dividers). Literal 0.5 — NOT StyleSheet.hairlineWidth, which is 1 physical
   // pixel (≈0.33pt on 3x devices) and renders lighter than the spec.
   rule: 0.5,
-  // Standard 1pt container stroke (inventory dropdown shell, pop-report cells).
+  // Standard 1pt container stroke (inventory dropdown shell).
   containerRule: 1,
   // Thick gray-100 band between Social feed blocks and between sections of
   // the pages they open (Meta, News, Set spotlight).

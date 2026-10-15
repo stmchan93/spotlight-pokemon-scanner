@@ -49,22 +49,19 @@ tested in isolation (see ``GUARDRAIL_ORDER``):
 - ``daily_cap`` — max 3 alerts per user per day, ranked by discount% x absolute
   dollars saved.
 
-Liquidity tiers (per printing where data allows; docs/watch-printings-and-deal-
-tiers-plan-2026-09-24.md). ``compute_liquidity`` reads PPT's eBay "ungraded"
-velocity (per CARD — PPT keys eBay sales by product, which mixes printings)
-and the printing's own raw_main TCGplayer cells:
+Liquidity tiers (per printing; docs/watch-printings-and-deal-tiers-plan-
+2026-09-24.md). ``compute_liquidity`` counts the day-over-day market CHANGES of
+the printing's raw_main TCGplayer market over 30 days, which stand in for sales
+(TCGplayer's market only moves on a sale):
 
-  often   >= 10 sales / 30d     deal needs >= 10% AND below the lowest listing
-  fewer   5-9 sales / 30d       ("Fewer sales") >= 20%
-  rarely  1-4 sales / 90d, OR   ("Few sales") >= 25% AND below the lowest listing
+  often   >= 10 changes / 30d   deal needs >= 10% AND below the lowest listing
+  fewer   5-9 changes / 30d     ("Fewer sales") >= 20%
+  rarely  1-4 changes / 30d, OR ("Few sales") >= 25% AND below the lowest listing
           market frozen >= 7d while the lowest listing is >= 30% under it
   none    no usable data        ("Not enough sales to judge") never a % deal
 
-Without PPT (staging) the day-over-day market CHANGES of the printing's
-TCGplayer market over 30 days stand in for sales (TCGplayer's market only moves
-on a sale): >= 10 -> often, 5-9 -> fewer, 1-4 -> rarely, 0 -> none. A frozen,
-thin printing is capped at ``rarely`` even when PPT's per-card count is high.
-Yardstick = min(printing market, PPT ungraded median when >= 3 sales).
+A frozen, thin printing is capped at ``rarely``. The yardstick is the
+printing's market.
 
 ``new_low`` (no % claim, any tier): a listing below the printing's lowest
 TCGplayer low over the last 30 days AND below every listing already alerted
@@ -162,7 +159,6 @@ FEWER_MIN_SALES_30D = 5
 FROZEN_MARKET_DAYS = 7
 THIN_LISTING_GAP_PCT = 30.0
 LIQUIDITY_WINDOW_DAYS = 30
-YARDSTICK_MIN_SALES = 3
 
 NEW_LOW_WINDOW_DAYS = 30
 NEW_LOW_MIN_CELL_DAYS = 7  # a week-old series has not "seen" anything yet
@@ -300,13 +296,9 @@ class WatchBaseline:
 @dataclass(frozen=True)
 class Liquidity:
     tier: str
-    source: str  # ppt | tcgplayer | none
-    sales_30d: int | None = None
-    sales_90d: int | None = None
+    source: str  # tcgplayer | none
     market_changes_30d: int | None = None
     frozen_thin: bool = False
-    ungraded_median_cents: int | None = None
-    ungraded_sales: int | None = None
 
     @property
     def label(self) -> str | None:
@@ -345,8 +337,7 @@ class DealSignal:
     tier_label: str | None = None
     lowest_seen_cents: int | None = None  # new_low: the bar it beat
     # Which number baseline_cents IS, for honest copy: "market" (the
-    # printing's market), "sales" (PPT's eBay-ungraded median) or "added"
-    # (the add-time price). None on new_low.
+    # printing's market) or "added" (the add-time price). None on new_low.
     baseline_source: str | None = None
     price_cents: int | None = None  # item price excl. shipping
 
@@ -593,38 +584,18 @@ def effective_baseline_cents(
     return min(int(added_cents), int(market_cents))
 
 
-def compute_liquidity(
-    cells: Sequence[Any],
-    ungraded: Any | None = None,
-) -> Liquidity:
-    """The watch's liquidity tier. ``cells`` are the printing's raw_main points
-    (``price_date``, ``market_cents``, ``low_cents``; oldest→newest);
-    ``ungraded`` is the card's PPT eBay-ungraded row (``sales_30d``,
-    ``sales_90d``, ``median_cents``, ``sales_count``) or None."""
+def compute_liquidity(cells: Sequence[Any]) -> Liquidity:
+    """The watch's liquidity tier from the printing's raw_main points
+    (``price_date``, ``market_cents``, ``low_cents``; oldest→newest)."""
     ordered = sorted(
         (c for c in cells if getattr(c, "market_cents", None)), key=lambda c: c.price_date
     )
     frozen_thin = _frozen_and_thin(ordered)
     changes = _market_changes(ordered, days=LIQUIDITY_WINDOW_DAYS) if ordered else None
 
-    median_cents = getattr(ungraded, "median_cents", None) if ungraded is not None else None
-    sales_30d = getattr(ungraded, "sales_30d", None) if ungraded is not None else None
-    sales_90d = getattr(ungraded, "sales_90d", None) if ungraded is not None else None
-    count_for_median = sales_30d if sales_30d is not None else (
-        getattr(ungraded, "sales_count", None) if ungraded is not None else None
-    )
-
     tier: str | None = None
     source = "none"
-    if sales_30d is not None and (sales_30d > 0 or (sales_90d or 0) > 0):
-        source = "ppt"
-        if sales_30d >= OFTEN_MIN_SALES_30D:
-            tier = TIER_OFTEN
-        elif sales_30d >= FEWER_MIN_SALES_30D:
-            tier = TIER_FEWER
-        else:
-            tier = TIER_RARELY
-    elif changes is not None:
+    if changes is not None:
         source = "tcgplayer"
         if changes >= OFTEN_MIN_SALES_30D:
             tier = TIER_OFTEN
@@ -635,24 +606,15 @@ def compute_liquidity(
         else:
             tier = TIER_NONE
     if frozen_thin:
-        # A printing whose market has not moved in a week while copies list far
-        # under it is thin, whatever PPT's per-CARD count says (it mixes printings).
+        # Market unmoved for a week while copies list far under it: thin.
         tier = _less_liquid(tier or TIER_RARELY, TIER_RARELY)
         if source == "none":
             source = "tcgplayer"
     return Liquidity(
         tier=tier or TIER_NONE,
         source=source,
-        sales_30d=sales_30d,
-        sales_90d=sales_90d,
         market_changes_30d=changes,
         frozen_thin=frozen_thin,
-        ungraded_median_cents=(
-            int(median_cents)
-            if median_cents and count_for_median is not None and count_for_median >= YARDSTICK_MIN_SALES
-            else None
-        ),
-        ungraded_sales=count_for_median,
     )
 
 
@@ -698,30 +660,15 @@ def _frozen_and_thin(cells: Sequence[Any]) -> bool:
     return (newest_day - unchanged_since).days >= FROZEN_MARKET_DAYS
 
 
-def yardstick_cents(market_cents: int | None, liquidity: Liquidity | None) -> int | None:
-    """min(printing market, PPT ungraded median when >= 3 sales)."""
-    median = liquidity.ungraded_median_cents if liquidity is not None else None
-    if market_cents is None:
-        return median
-    if median:
-        return min(int(market_cents), int(median))
-    return int(market_cents)
-
-
 BASELINE_SOURCE_MARKET = "market"
-BASELINE_SOURCE_SALES = "sales"
 BASELINE_SOURCE_ADDED = "added"
 
 
-def baseline_source_label(
-    effective_cents: int, *, market: int | None, reference: int | None
-) -> str:
+def baseline_source_label(effective_cents: int, *, market: int | None) -> str:
     """Which number the deal baseline is. A tie with the market reads as the
     market: it is the more objective claim."""
     if market is not None and int(effective_cents) == int(market):
         return BASELINE_SOURCE_MARKET
-    if reference is not None and int(effective_cents) == int(reference):
-        return BASELINE_SOURCE_SALES
     return BASELINE_SOURCE_ADDED
 
 
@@ -761,16 +708,15 @@ def evaluate_under_added(
     if liquidity is not None and liquidity.tier == TIER_NONE:
         return GuardrailResult(False, "liquidity_tier")
 
-    reference = yardstick_cents(market, liquidity) if liquidity is not None else market
     effective = effective_baseline_cents(
         baseline.added_market_cents,
-        reference,
+        market,
         added_source=baseline.added_source_key,
         market_source=baseline.market_source_key,
     )
     if not passes_price_floor(effective):
         return GuardrailResult(False, "price_floor")
-    source = baseline_source_label(int(effective), market=market, reference=reference)
+    source = baseline_source_label(int(effective), market=market)
 
     pct = discount_pct(total, int(effective))
     minimum = TIER_MIN_PCT[liquidity.tier] if liquidity is not None else MIN_SIGNIFICANCE_PCT
@@ -1343,7 +1289,7 @@ def watched_card_baselines(
 
     ONE batched history read for the DISTINCT watched card ids — the per-card
     N+1 this replaces is what made the Insights cold path 15-24s — plus one
-    batched raw_main cell read and one PPT read. A main-printing watch ('')
+    batched raw_main cell read. A main-printing watch ('')
     keeps today's card-level series; a printing watch reads its own
     raw_main cells.
     """
@@ -1375,7 +1321,6 @@ def watched_card_baselines(
         ),
     )
     main_by_card = watch_printings.main_printing_keys(connection, distinct_card_ids)
-    ungraded_by_card = watch_printings.ungraded_sales_by_card(connection, distinct_card_ids)
     lowest_alerted = lowest_alerted_by_watch(connection, owner_user_ids)
 
     baselines: list[WatchBaseline] = []
@@ -1422,7 +1367,7 @@ def watched_card_baselines(
                 lowest_listing_cents=lowest_listing,
                 low_30d_cents=low_30d,
                 low_30d_days=low_days,
-                liquidity=compute_liquidity(cells, ungraded_by_card.get(card_id)),
+                liquidity=compute_liquidity(cells),
                 lowest_alerted_cents=lowest_alerted.get(
                     (str(row["owner_user_id"]), card_id, variant_key)
                 ),

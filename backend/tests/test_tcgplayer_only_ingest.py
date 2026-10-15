@@ -402,7 +402,7 @@ class ServiceTests(_ServiceCase):
         self.assertEqual(detail["card"]["catalogSource"], "tcgplayer")
         self.assertIsNone(detail["card"]["canonicalCardId"])
         self.assertEqual(detail["card"]["pricing"]["market"], LUFFY_PRICE)
-        self.assertEqual(detail["population"], {})
+        self.assertNotIn("population", detail)
         self.assertIsNone(detail["gradedReference"])
         scrydex_detail = self.service.card_detail("onepiece~P-001")
         self.assertEqual(scrydex_detail["card"]["catalogSource"], "scrydex")

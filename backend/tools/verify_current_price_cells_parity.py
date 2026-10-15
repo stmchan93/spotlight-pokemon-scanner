@@ -29,10 +29,7 @@ grader, grade, pricingMode``. The ``payload`` / ``trendsPct`` fields are NOT
 compared: cells do not persist them, so the cells path returns
 ``payload`` sourced from ``source_payload_json`` and ``trendsPct=None`` — a known,
 bounded divergence that the ``card_price_history_daily.source_payload_json`` column
-is itself slated to be dropped in the final migration phase. (The graded trust
-fields confidenceLabel/confidenceLevel/compCount merge from the durable
-``ppt_graded_signals`` side table on BOTH paths, so they only differ when no
-signal row exists and the JSON entry's own payload carried them.) Pass
+is itself slated to be dropped in the final migration phase. Pass
 ``--include-payload`` to see those differences too.
 
 Known, deliberate residual divergences a mismatch line can reflect:

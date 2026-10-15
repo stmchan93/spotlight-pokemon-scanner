@@ -90,7 +90,6 @@ function parseMetaCard(raw: Raw, fallbackGame: CardGame): MetaCard {
     lane: lane(raw.lane),
     grader: str(raw.grader),
     grade: str(raw.grade),
-    population: numOrNull(raw.population),
     priceNow: num(raw.priceNow),
     priceThen: num(raw.priceThen),
     changePercent: num(raw.changePercent),

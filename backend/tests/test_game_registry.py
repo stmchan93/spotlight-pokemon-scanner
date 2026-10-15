@@ -36,7 +36,6 @@ from catalog_tools import (  # noqa: E402
     game_has_graded_pricing,
     game_has_language_paths,
     game_has_listings,
-    game_has_pop_reports,
     game_marketplace_keyword,
     normalize_game,
     rarity_bucket,
@@ -134,21 +133,11 @@ class GameCapabilityTests(unittest.TestCase):
         for game in (GAME_ONE_PIECE, GAME_RIFTBOUND, GAME_GUNDAM):
             self.assertFalse(game_has_graded_pricing(game), game)
 
-    def test_population_is_pokemon_only(self) -> None:
-        # Including Lorcana: it has graded PRICES but zero population rows.
-        # Our population source is GemRate via PokemonPriceTracker.
-        self.assertTrue(game_has_pop_reports(GAME_POKEMON))
-        for game in (GAME_ONE_PIECE, GAME_LORCANA, GAME_RIFTBOUND, GAME_GUNDAM):
-            self.assertFalse(game_has_pop_reports(game), game)
-
     def test_graded_pricing_and_listings_are_separate_claims(self) -> None:
         # These stay separate flags because each is its own measurement against
-        # its own endpoint. Lorcana came back TRUE on graded pricing and TRUE on
-        # listings but FALSE on population — one "is this a graded game" boolean
-        # would have hung an always-empty population panel under a real lane.
+        # its own endpoint.
         self.assertTrue(game_has_graded_pricing(GAME_LORCANA))
         self.assertTrue(game_has_listings(GAME_LORCANA))
-        self.assertFalse(game_has_pop_reports(GAME_LORCANA))
 
     def test_listings_claims_match_what_was_measured(self) -> None:
         # Pokémon: shipped and serving. Lorcana: measured 2026-08-14 with one
@@ -171,7 +160,6 @@ class GameCapabilityTests(unittest.TestCase):
 
     def test_capabilities_of_an_absent_game_are_pokemons(self) -> None:
         self.assertTrue(game_has_graded_pricing(None))
-        self.assertTrue(game_has_pop_reports(None))
         self.assertTrue(game_has_listings(None))
         self.assertTrue(game_has_language_paths(None))
         self.assertEqual(game_graders(None), ("Raw", "PSA", "BGS", "CGC"))

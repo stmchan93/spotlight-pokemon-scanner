@@ -94,7 +94,7 @@ describe('MetaScreen', () => {
     fireEvent.press(await screen.findByTestId('meta-callout'));
     expect(onOpenGroup).toHaveBeenCalledWith({
       game: 'pokemon',
-      groupKey: 'vintage:graded:psa10:pop_le_50',
+      groupKey: 'vintage:graded:psa10',
       lane: 'all',
       mine: true,
       windowDays: 7,

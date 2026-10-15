@@ -133,8 +133,7 @@ CREATE TABLE IF NOT EXISTS card_price_snapshots (
     default_raw_trend_price REAL,
     raw_contexts_json TEXT NOT NULL DEFAULT '{}',
     graded_contexts_json TEXT NOT NULL DEFAULT '{}',
-    -- GemRate population (PPT), keyed by grader: {"PSA": {"totalPopulation", "gemRate",
-    -- "grades": {"10": n, ...}}, ...}. Metadata only — never feeds a displayed price.
+    -- Unused: former GemRate population overlay (removed 2026-10). Kept so existing DBs need no migration.
     population_json TEXT NOT NULL DEFAULT '{}',
     -- "Main lane": the raw headline price from TCGCSV (TCGplayer marketPrice),
     -- written only by sync_tcgcsv_prices. NULL = no TCGCSV price -> the read path
@@ -199,6 +198,7 @@ CREATE TABLE IF NOT EXISTS fx_rate_snapshots (
     updated_at TEXT NOT NULL
 );
 
+-- Unused: former PPT graded trust signals (removed 2026-10). No reader or writer.
 CREATE TABLE IF NOT EXISTS ppt_graded_signals (
     card_id TEXT NOT NULL,
     grader TEXT NOT NULL,
@@ -212,11 +212,7 @@ CREATE TABLE IF NOT EXISTS ppt_graded_signals (
     PRIMARY KEY (card_id, grader, grade)
 );
 
--- PPT eBay "ungraded" sales signals (the per-grade eBay export's `ungraded`
--- row). PER CARD, NOT per printing: PPT keys eBay sales by TCGplayer product id
--- and one product carries every printing as a subtype. Liquidity-tier input for
--- the watchlist deal radar; never a displayed price. Written by
--- sync_ppt_catalog.upsert_ppt_ungraded_signals.
+-- Unused: former PPT eBay-ungraded liquidity signals (removed 2026-10). No reader or writer.
 CREATE TABLE IF NOT EXISTS ppt_ungraded_signals (
     card_id TEXT PRIMARY KEY,
     tcgplayer_id TEXT,

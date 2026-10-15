@@ -36,16 +36,12 @@ describe('card detail for a TCGplayer-only card', () => {
     jest.clearAllMocks();
   });
 
-  const population = {
-    PSA: { totalPopulation: 120, gemRate: 0.4, grades: { '10': 48, '9': 60, '8': 12 } },
-  };
-
   function detailWith(patch: Partial<CardDetailRecord>) {
     const baseRepository = createTestSpotlightRepository();
     return jest.fn(async (query: { cardId: string }) => {
       const base = await baseRepository.getCardDetail({ ...query, cardId: 'sm7-1' });
       return base
-        ? ({ ...base, cardId: query.cardId, game: 'pokemon', population, ...patch } satisfies CardDetailRecord)
+        ? ({ ...base, cardId: query.cardId, game: 'pokemon', ...patch } satisfies CardDetailRecord)
         : null;
     });
   }
@@ -63,7 +59,7 @@ describe('card detail for a TCGplayer-only card', () => {
     }],
   }));
 
-  it('shows Pokémon graded lanes + population for a Scrydex card', async () => {
+  it('shows Pokémon graded lanes for a Scrydex card', async () => {
     renderWithProviders(
       <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
       {
@@ -75,10 +71,10 @@ describe('card detail for a TCGplayer-only card', () => {
     );
 
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
-    expect(await screen.findByTestId('detail-population-report')).toBeTruthy();
+    expect(await screen.findByTestId('detail-price-trends-row-PSA 10')).toBeTruthy();
   });
 
-  it('hides graded lanes and population for a TCGplayer-only Pokémon card, keeping Raw', async () => {
+  it('hides graded lanes for a TCGplayer-only Pokémon card, keeping Raw', async () => {
     renderWithProviders(
       <CardDetailScreen cardId="tcgplayer-600001" onBack={jest.fn()} />,
       {
@@ -94,7 +90,6 @@ describe('card detail for a TCGplayer-only card', () => {
     for (const grader of ['PSA', 'BGS', 'CGC']) {
       expect(screen.queryByTestId(`detail-configurator-grader-${grader}`)).toBeNull();
     }
-    expect(screen.queryByTestId('detail-population-report')).toBeNull();
     // Raw price still shows.
     expect(await screen.findByTestId('detail-price-trends')).toBeTruthy();
   });
@@ -148,10 +143,8 @@ describe('card detail for a TCGplayer-only card', () => {
     fireEvent.press(await screen.findByTestId('detail-inventory-header'));
     const row = await screen.findByTestId('detail-inventory-row-entry-slab');
     expect(within(row).getByText('—')).toBeTruthy();
-    // The owned slab keeps its own lens chip, but no population and no
-    // graded price request.
+    // The owned slab keeps its own lens chip, but no graded price request.
     expect(screen.getByTestId('detail-configurator-grader-PSA')).toBeTruthy();
-    expect(screen.queryByTestId('detail-population-report')).toBeNull();
     expect(priceTrends.mock.calls.some(([query]) => query.mode === 'graded')).toBe(false);
   });
 

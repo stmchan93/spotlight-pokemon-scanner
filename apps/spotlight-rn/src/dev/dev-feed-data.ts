@@ -73,7 +73,7 @@ export const devFeedItems: FeedItem[] = [
         avatarUrl: null,
         isVerified: false,
       },
-      body: 'Grail secured. PSA 10 population of 12.',
+      body: 'Grail secured. Finally landed the PSA 10.',
       cardId: 'sm7-1',
       likeCount: 128,
       commentCount: 41,

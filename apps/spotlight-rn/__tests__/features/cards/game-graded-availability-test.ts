@@ -10,10 +10,9 @@ import {
  * Which grading lanes a card may offer is decided by its GAME, not by whether a
  * particular card happens to have graded prices today.
  *
- * Probing Scrydex on 2026-08-13 found no graded prices and empty pop_reports for
- * One Piece across the newest set (OP16) and the oldest (OP01), plus a
- * single-card read and a PSA-10 price-history query. Our population source
- * (GemRate via PokemonPriceTracker) is Pokémon-only too. So a PSA/BGS/CGC chip
+ * Probing Scrydex on 2026-08-13 found no graded prices for One Piece across the
+ * newest set (OP16) and the oldest (OP01), plus a single-card read and a PSA-10
+ * price-history query. So a PSA/BGS/CGC chip
  * on a One Piece card would be a control leading to a permanently empty chart.
  */
 describe('graded data availability by game', () => {

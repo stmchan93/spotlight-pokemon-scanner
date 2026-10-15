@@ -16,7 +16,7 @@ jest.mock('@/providers/auth-provider', () => ({
   useAuth: () => ({ accessToken: null }),
 }));
 
-const GROUP_KEY = 'vintage:graded:psa10:pop_le_50';
+const GROUP_KEY = 'vintage:graded:psa10';
 
 function renderGroup({
   fetchMetaGroupDetail = async (query) => mockMetaGroupDetail(query.groupKey),
@@ -63,9 +63,9 @@ describe('MetaGroupScreen', () => {
 
   it('renders the header: direction, name, description, move and chart', async () => {
     renderGroup();
-    expect(await screen.findByText('Vintage PSA 10 · low pop')).toBeTruthy();
+    expect(await screen.findByText('Vintage PSA 10')).toBeTruthy();
     expect(screen.getByText('ON THE WAY UP · PAST 7 DAYS')).toBeTruthy();
-    expect(screen.getByText('PSA 10s from before 2003 with 50 or fewer graded')).toBeTruthy();
+    expect(screen.getByText('PSA 10s from before 2003')).toBeTruthy();
     expect(screen.getByTestId('meta-group-change').props.children).toBe('+18.4%');
     expect(screen.getByTestId('meta-group-value').props.children).toBe('+$412k');
     expect(screen.getByTestId('meta-group-chart')).toBeTruthy();
@@ -90,7 +90,8 @@ describe('MetaGroupScreen', () => {
     await screen.findByTestId('meta-group-movers');
     expect(screen.getByText('Biggest movers')).toBeTruthy();
     expect(screen.getByText('Latios ☆ · PSA 10')).toBeTruthy();
-    expect(screen.getByText('Deoxys · pop 27')).toBeTruthy();
+    expect(screen.getAllByText('Deoxys').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/pop \d/)).toBeNull();
     expect(screen.getByText('$11,800.00')).toBeTruthy();
     // Dollar move over the window, then the percent.
     expect(screen.getByTestId('meta-group-mover-ex8-106-change').props.children).toBe('+$2,792.00 (+31.0%)');

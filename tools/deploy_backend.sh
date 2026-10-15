@@ -74,7 +74,7 @@ default_instance() {
   case "$environment" in
     staging)
       # Split 2026-07-10: staging is its own isolated box (no syncs, no
-      # litestream, keyless Scrydex/PPT). Production = spotlight-backend-vm-small.
+      # litestream, keyless Scrydex). Production = spotlight-backend-vm-small.
       printf '%s\n' "spotlight-backend-staging"
       ;;
     production)

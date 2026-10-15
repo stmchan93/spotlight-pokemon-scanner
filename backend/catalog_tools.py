@@ -450,15 +450,13 @@ def _apply_additive_runtime_migrations(connection: sqlite3.Connection) -> None:
     _add_column_if_missing(connection, "deck_entry_events", "currency_code", "TEXT")
     _add_column_if_missing(connection, "deck_entry_events", "payment_method", "TEXT")
     _add_column_if_missing(connection, "portfolio_import_jobs", "owner_user_id", "TEXT")
-    # GemRate population overlay (PPT Business). Additive, metadata-only column on the
-    # price snapshot so the population sync never has to touch price columns.
+    # Unused (former population overlay); kept so old and new DBs match.
     _add_column_if_missing(
         connection, "card_price_snapshots", "population_json", "TEXT NOT NULL DEFAULT '{}'"
     )
-    # Join anchor to PokemonPriceTracker: PPT keys cards by TCGplayer product id
-    # (`tcgPlayerId`), and Scrydex stores the same id in each card's payload
-    # (variants[].marketplaces[name=tcgplayer].product_id). Persisting it as a
-    # first-class column lets the PPT pricing sync join EN+JP deterministically.
+    # TCGplayer product id, from each Scrydex card's payload
+    # (variants[].marketplaces[name=tcgplayer].product_id). The TCGCSV price
+    # sync joins on it.
     _add_column_if_missing(connection, "cards", "tcgplayer_id", "TEXT")
     # Multi-game routing. Existing rows are all Pokémon, which the DEFAULT
     # backfills in place — no rewrite pass needed.
@@ -2080,8 +2078,6 @@ class GameDescriptor:
       * graded prices exist for Pokémon and for LORCANA (1,525 of 3,170 priced
         Lorcana cards carry graded contexts, across eight companies), and for
         neither One Piece, Riftbound nor Gundam — all three measured at zero
-      * `pop_reports` are empty for every non-Pokémon game; our population
-        source, GemRate via PokemonPriceTracker, is Pokémon-only anyway
       * `/{game}/v1/cards/{id}/listings` returns 0 rows for One Piece but real
         eBay sold rows for LORCANA (measured 2026-08-14), and is unmeasured for
         Riftbound and Gundam — which therefore do not claim listings
@@ -2090,10 +2086,7 @@ class GameDescriptor:
 
     The flags stay SEPARATE rather than collapsing into one "is this a graded
     game" boolean because each is its own measurement against its own endpoint.
-    Lorcana happens to have come back true on both, but `has_pop_reports` is
-    false for it while `has_graded_pricing` is true — a single boolean would
-    have hung an always-empty population panel under a real graded lane. One
-    field per measured fact is the only shape that cannot lie.
+    One field per measured fact is the only shape that cannot lie.
     """
 
     id: str
@@ -2113,7 +2106,6 @@ class GameDescriptor:
     # "Ace", "Nami", "Elsa" are not searches, they are collisions.
     ebay_search_keyword: str | None
     has_graded_pricing: bool
-    has_pop_reports: bool
     has_listings: bool
     has_language_paths: bool
     # The grading companies this game actually has priced data for, "Raw" first.
@@ -2140,7 +2132,6 @@ GAMES: dict[str, GameDescriptor] = {
         marketplace_keyword="pokemon",
         ebay_search_keyword=None,
         has_graded_pricing=True,
-        has_pop_reports=True,
         has_listings=True,
         has_language_paths=True,
         graders=("Raw", "PSA", "BGS", "CGC"),
@@ -2155,7 +2146,6 @@ GAMES: dict[str, GameDescriptor] = {
         marketplace_keyword="one piece",
         ebay_search_keyword="one piece",
         has_graded_pricing=False,
-        has_pop_reports=False,
         has_listings=False,
         has_language_paths=False,
         graders=("Raw",),
@@ -2173,9 +2163,6 @@ GAMES: dict[str, GameDescriptor] = {
         # 3,170 priced cards carry graded contexts (e.g. AOTV-224 PSA 10
         # Holofoil at $140 market with low/mid/high populated).
         has_graded_pricing=True,
-        # Population is still zero everywhere outside Pokémon: our source is
-        # GemRate via PokemonPriceTracker, which is Pokémon-only.
-        has_pop_reports=False,
         # MEASURED, 2026-08-14, one live request
         # (tools/probe_scrydex_lorcana_listings.py): the broadest possible query
         # for AOTV-224 — a $140 PSA 10, the best candidate we have — returned a
@@ -2201,7 +2188,6 @@ GAMES: dict[str, GameDescriptor] = {
         marketplace_keyword="riftbound",
         ebay_search_keyword="riftbound",
         has_graded_pricing=False,
-        has_pop_reports=False,
         has_listings=False,
         has_language_paths=False,
         graders=("Raw",),
@@ -2216,7 +2202,6 @@ GAMES: dict[str, GameDescriptor] = {
         marketplace_keyword="gundam",
         ebay_search_keyword="gundam",
         has_graded_pricing=False,
-        has_pop_reports=False,
         has_listings=False,
         has_language_paths=False,
         graders=("Raw",),
@@ -2416,10 +2401,6 @@ def game_has_graded_pricing(game: str | None) -> bool:
     return game_descriptor(game).has_graded_pricing
 
 
-def game_has_pop_reports(game: str | None) -> bool:
-    return game_descriptor(game).has_pop_reports
-
-
 def game_graders(game: str | None) -> tuple[str, ...]:
     """The grading companies this game has priced data for, "Raw" first."""
     return game_descriptor(game).graders
@@ -2504,7 +2485,7 @@ def _normalized_variant_label(value: str | None) -> str:
 def _normalized_variant_label_text(text: str) -> str:
     if not text:
         return DEFAULT_RAW_VARIANT
-    # Canonicalize the edition token so "1st Edition" (TCGplayer/PPT spelling)
+    # Canonicalize the edition token so "1st Edition" (TCGplayer spelling)
     # matches Scrydex's "First Edition" spelling. Without this the graded
     # per-printing lookup silently falls back to the base printing.
     text = re.sub(r"\b1st\b", "First", text, flags=re.IGNORECASE)
@@ -3495,11 +3476,10 @@ def card_text_from_card(card: dict[str, Any] | None) -> dict[str, Any] | None:
 
 def extract_tcgplayer_product_id(source_payload: dict[str, Any] | None) -> str | None:
     """The TCGplayer product id Scrydex stores per variant
-    (``variants[].marketplaces[name=tcgplayer].product_id``). It is identical to
-    PokemonPriceTracker's ``tcgPlayerId`` (verified: swsh7-215 -> 246723 on both),
-    so it is our deterministic, language-independent join key to PPT pricing.
-    Returns the first TCGplayer product id found (primary printing), or ``None``
-    when the card has no TCGplayer product (~3% of JP, which PPT can't price anyway)."""
+    (``variants[].marketplaces[name=tcgplayer].product_id``): the deterministic,
+    language-independent join key to TCGCSV/TCGplayer pricing. Returns the first
+    TCGplayer product id found (primary printing), or ``None`` when the card has
+    no TCGplayer product."""
     if not isinstance(source_payload, dict):
         return None
     variants = source_payload.get("variants")
@@ -3900,7 +3880,7 @@ def upsert_card(
     now = utc_now()
     normalized_game = normalize_game(game)
     # Auto-derive the TCGplayer product id from the Scrydex payload when the caller
-    # didn't pass one, so the PPT join anchor stays populated on every catalog sync.
+    # didn't pass one, so the TCGplayer join key stays populated on every catalog sync.
     resolved_tcgplayer_id = tcgplayer_id or extract_tcgplayer_product_id(source_payload)
     connection.execute(
         """
@@ -5966,12 +5946,8 @@ def price_history_cells_enabled() -> bool:
 
 def pricing_provider() -> str:
     """The provider whose rows the PRICE read/write paths use (snapshot, daily,
-    cell). Defaults to ``"scrydex"``; set env ``PRICING_PROVIDER=ppt`` to serve
-    PokemonPriceTracker prices (written under the same one-row-per-card key, so the
-    cutover is a flag flip — revert by flipping back + re-running the Scrydex sync).
-    Catalog/identity/search/expansion/sync-ops stay on ``SCRYDEX_PROVIDER``
-    regardless — only PRICING follows this flag."""
-    return str(os.environ.get("PRICING_PROVIDER") or "").strip().lower() or "scrydex"
+    cell). Always Scrydex."""
+    return "scrydex"
 
 
 # --- Main-lane raw headline source flag (TCGCSV cutover) ----------------------
@@ -8023,26 +7999,6 @@ def _trend_pct_from_points(points: list[float], entry: dict[str, Any] | None) ->
     return None
 
 
-def _ppt_graded_signal_row(
-    connection: sqlite3.Connection,
-    card_id: str,
-    grader: str,
-    grade: str,
-) -> sqlite3.Row | None:
-    """Look up the durable PPT trust-signal row for (card_id, grader, grade).
-
-    Returns None when the table is absent (older DBs) or no row matches. Defensive:
-    never raises on a missing table so reads degrade to the snapshot-payload
-    fallback."""
-    if not _table_exists(connection, "ppt_graded_signals"):
-        return None
-    return connection.execute(
-        "SELECT confidence, count, smart, source, median "
-        "FROM ppt_graded_signals WHERE card_id = ? AND grader = ? AND grade = ? LIMIT 1",
-        (card_id, str(grader or "").strip().upper(), str(grade or "").strip().upper()),
-    ).fetchone()
-
-
 # Below this raw-vs-graded sanity floor we don't bother suppressing — sub-$20 raw
 # noise isn't worth a "no price" surface (matches the phantom-price analysis).
 _RAW_PHANTOM_MIN_USD = 20.0
@@ -8316,22 +8272,6 @@ def card_price_trend_list(
                 continue
             if isinstance(snapshot_entry, dict) and str(snapshot_entry.get("currencyCode") or "").strip():
                 currency_code = str(snapshot_entry.get("currencyCode"))
-            # Trust signals: prefer the DURABLE ppt_graded_signals side table
-            # (survives the daily Scrydex sync that overwrites graded_contexts_json),
-            # falling back to the snapshot entry's payload for back-compat. None for
-            # grades PPT has no signal for (e.g. Scrydex-only).
-            signal_row = _ppt_graded_signal_row(connection, card_id, grader_key, grade_key)
-            entry_payload = snapshot_entry.get("payload") if isinstance(snapshot_entry, dict) else None
-            entry_payload = entry_payload if isinstance(entry_payload, dict) else {}
-            if signal_row is not None and signal_row["confidence"] is not None:
-                confidence = str(signal_row["confidence"]).strip().lower() or None
-            else:
-                confidence = str(entry_payload.get("confidence") or "").strip().lower() or None
-            if signal_row is not None and signal_row["count"] is not None:
-                raw_count = signal_row["count"]
-            else:
-                raw_count = entry_payload.get("count")
-            sale_count = int(raw_count) if isinstance(raw_count, (int, float)) and not isinstance(raw_count, bool) else None
             label = f"{grader_key} {grade_key}"
             rows.append(
                 {
@@ -8341,8 +8281,6 @@ def card_price_trend_list(
                     "currencyCode": currency_code,
                     "points": points,
                     "trendPct": _trend_pct_from_points(points, snapshot_entry),
-                    "confidence": confidence,
-                    "saleCount": sale_count,
                 }
             )
         return {"mode": PSA_GRADE_PRICING_MODE, "provider": response_provider, "rows": rows}
@@ -8719,6 +8657,9 @@ def slab_recent_sales_cache(
         return None
 
     safe_limit = max(1, min(int(limit), 25))
+    key = (normalized_card_id, normalized_grader, normalized_grade, normalized_source)
+    has_sales_table = _table_exists(connection, "slab_recent_sales")
+    # Legacy PPT rows (`ppt:` ids, from the cancelled vendor) are never served.
     sale_rows = connection.execute(
         """
         SELECT *
@@ -8727,11 +8668,27 @@ def slab_recent_sales_cache(
           AND grader = ?
           AND grade = ?
           AND source = ?
+          AND (source_sale_id IS NULL OR source_sale_id NOT LIKE 'ppt:%')
         ORDER BY rank ASC, sold_at DESC, id ASC
         LIMIT ?
         """,
-        (normalized_card_id, normalized_grader, normalized_grade, normalized_source, safe_limit),
-    ).fetchall() if _table_exists(connection, "slab_recent_sales") else []
+        (*key, safe_limit),
+    ).fetchall() if has_sales_table else []
+    # A key still holding legacy rows is stale whatever its age, so the next
+    # refresh rebuilds it. Index-bounded to this key's rows.
+    has_legacy_rows = bool(has_sales_table and connection.execute(
+        """
+        SELECT 1
+        FROM slab_recent_sales
+        WHERE card_id = ?
+          AND grader = ?
+          AND grade = ?
+          AND source = ?
+          AND (source_sale_id LIKE 'ppt:%' OR source_payload_json LIKE '%"priceSource": "ppt"%')
+        LIMIT 1
+        """,
+        key,
+    ).fetchone())
 
     return {
         "cardID": cache_row["card_id"],
@@ -8745,25 +8702,35 @@ def slab_recent_sales_cache(
         "sourcePayload": _json_load(cache_row["source_payload_json"], {}),
         "createdAt": cache_row["created_at"],
         "updatedAt": cache_row["updated_at"],
-        "sales": [
-            {
-                "id": row["id"],
-                "cardID": row["card_id"],
-                "grader": row["grader"],
-                "grade": row["grade"],
-                "source": row["source"],
-                "sourceSaleID": row["source_sale_id"],
-                "rank": int(row["rank"] or 0),
-                "title": row["title"],
-                "soldAt": row["sold_at"],
-                "price": row["price"],
-                "currencyCode": row["currency_code"],
-                "listingURL": row["listing_url"],
-                "variant": row["variant"],
-                "sourcePayload": _json_load(row["source_payload_json"], {}),
-            }
-            for row in sale_rows
-        ],
+        "hasLegacyRows": has_legacy_rows,
+        "sales": [_slab_recent_sale_from_row(row) for row in sale_rows],
+    }
+
+
+def _slab_recent_sale_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    payload = _json_load(row["source_payload_json"], {})
+    price = row["price"]
+    currency_code = row["currency_code"]
+    spotlight = payload.get("_spotlight") if isinstance(payload, dict) else None
+    if isinstance(spotlight, dict) and spotlight.get("priceSource") == "ppt":
+        # Legacy row repriced from PPT: serve Scrydex's own number.
+        price = spotlight.get("scrydexPrice")
+        currency_code = str(spotlight.get("scrydexCurrency") or "").strip().upper() or currency_code
+    return {
+        "id": row["id"],
+        "cardID": row["card_id"],
+        "grader": row["grader"],
+        "grade": row["grade"],
+        "source": row["source"],
+        "sourceSaleID": row["source_sale_id"],
+        "rank": int(row["rank"] or 0),
+        "title": row["title"],
+        "soldAt": row["sold_at"],
+        "price": price,
+        "currencyCode": currency_code,
+        "listingURL": row["listing_url"],
+        "variant": row["variant"],
+        "sourcePayload": payload,
     }
 
 

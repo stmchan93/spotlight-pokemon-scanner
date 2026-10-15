@@ -8,7 +8,7 @@ history tables (the 27M-row cells table lesson):
 
 - ``compute_meta_pulse`` — the nightly job. Pairs each card's price "then" vs
   "now" per window, tags it into groups (era, rarity bucket, language, grader +
-  grade, PSA pop band), aggregates per group, and stores small result rows in
+  grade), aggregates per group, and stores small result rows in
   ``meta_pulse_groups`` / ``meta_pulse_cards`` / ``meta_pulse_runs``.
 - ``build_meta_pulse_payload`` — reads those tables and fills the headline
   template. No LLM.
@@ -211,7 +211,6 @@ class SlabTier:
     label: str
     grader: str
     grade: str
-    max_population: int | None = None
     games: tuple[str, ...] | None = None
 
 
@@ -236,9 +235,6 @@ SLAB_TIERS: tuple[SlabTier, ...] = (
     SlabTier("psa9", "PSA 9", "PSA", "9"),
     SlabTier("cgc10", "CGC 10", "CGC", "10"),
     SlabTier("bgs9_5", "BGS 9.5", "BGS", "9.5"),
-    # Pop counts are Pokémon-only (PPT/GemRate).
-    SlabTier("psa10:pop_le_200", "PSA 10 · pop ≤ 200", "PSA", "10", max_population=200, games=("pokemon",)),
-    SlabTier("psa10:pop_le_50", "PSA 10 · pop ≤ 50", "PSA", "10", max_population=50, games=("pokemon",)),
 )
 
 
@@ -253,7 +249,6 @@ LADDERS: tuple[LadderRule, ...] = (
         ("Raw NM", "vintage:raw"),
         ("PSA 9", "vintage:graded:psa9"),
         ("PSA 10", "vintage:graded:psa10"),
-        ("PSA 10 · pop ≤ 50", "vintage:graded:psa10:pop_le_50"),
     )),
     LadderRule("Gold Star: raw vs graded", (
         ("Raw NM", "gold_star:raw"),
@@ -279,14 +274,10 @@ def _applies(games: tuple[str, ...] | None, game: str) -> bool:
     return games is None or game in games
 
 
-def tier_matches(tier: SlabTier, *, game: str, grader: str, grade: str, population: int | None) -> bool:
+def tier_matches(tier: SlabTier, *, game: str, grader: str, grade: str) -> bool:
     if not _applies(tier.games, game):
         return False
-    if normalize_grader(grader) != tier.grader or normalize_grade(grade) != tier.grade:
-        return False
-    if tier.max_population is not None:
-        return population is not None and 0 < population <= tier.max_population
-    return True
+    return normalize_grader(grader) == tier.grader and normalize_grade(grade) == tier.grade
 
 
 @dataclass(frozen=True)
@@ -300,7 +291,6 @@ class GroupDef:
 
 def group_defs_for(
     tags: CardTags, *, lane: str, grader: str | None = None, grade: str | None = None,
-    population: int | None = None,
 ) -> list[GroupDef]:
     """Every group one priced item belongs to."""
     out: list[GroupDef] = []
@@ -313,7 +303,7 @@ def group_defs_for(
             out.append(GroupDef(raw_group_key(segment), LANE_RAW, segment.label, segment))
             continue
         for tier in SLAB_TIERS:
-            if tier_matches(tier, game=tags.game, grader=grader or "", grade=grade or "", population=population):
+            if tier_matches(tier, game=tags.game, grader=grader or "", grade=grade or ""):
                 out.append(
                     GroupDef(graded_group_key(segment, tier), LANE_GRADED, f"{segment.label} {tier.label}", segment, tier)
                 )
@@ -334,7 +324,6 @@ class PricePair:
     grader: str | None = None
     grade: str | None = None
     currency: str = "USD"  # source currency of both ends
-    population: int | None = None
 
     @property
     def delta(self) -> float:
@@ -387,7 +376,6 @@ def graded_pairs(
     now_items: dict[GradedKey, tuple[float, str]],
     then_items: dict[GradedKey, tuple[float, str]],
     cards: dict[str, CardInfo],
-    populations: dict[str, dict[str, dict[str, int]]],
 ) -> list[PricePair]:
     out: list[PricePair] = []
     for key, (now_usd, now_currency) in now_items.items():
@@ -400,7 +388,6 @@ def graded_pairs(
             card_id=card_id, game=info.game, lane=LANE_GRADED,
             price_then=then[0], price_now=now_usd, variant=variant, grader=grader, grade=grade,
             currency=now_currency,
-            population=populations.get(card_id, {}).get(grader, {}).get(grade),
         )
         if pair_is_eligible(pair):
             out.append(pair)
@@ -469,7 +456,7 @@ def aggregate_groups(
         lane_total.value_now += pair.price_now
         lane_total.value_then += pair.price_then
         for group in group_defs_for(
-            tags, lane=pair.lane, grader=pair.grader, grade=pair.grade, population=pair.population
+            tags, lane=pair.lane, grader=pair.grader, grade=pair.grade
         ):
             members.setdefault((pair.game, group.key), []).append(pair)
             defs[(pair.game, group.key)] = group
@@ -717,41 +704,6 @@ def _latest_graded_items(
     return out
 
 
-def _populations(connection: sqlite3.Connection, card_ids: Iterable[str]) -> dict[str, dict[str, dict[str, int]]]:
-    """{card_id: {grader: {grade: count}}} from ``card_price_snapshots.population_json``."""
-    ids = sorted(set(card_ids))
-    if not ids or "population_json" not in _table_columns(connection, "card_price_snapshots"):
-        return {}
-    out: dict[str, dict[str, dict[str, int]]] = {}
-    for offset in range(0, len(ids), SQL_CHUNK):
-        chunk = ids[offset : offset + SQL_CHUNK]
-        rows = connection.execute(
-            "SELECT card_id, population_json FROM card_price_snapshots "
-            f"WHERE card_id IN ({','.join('?' for _ in chunk)}) AND population_json != '{{}}'",
-            tuple(chunk),
-        ).fetchall()
-        for card_id, payload in rows:
-            try:
-                parsed = json.loads(payload or "{}")
-            except (TypeError, ValueError):
-                continue
-            if not isinstance(parsed, dict):
-                continue
-            by_grader: dict[str, dict[str, int]] = {}
-            for grader, entry in parsed.items():
-                grades = entry.get("grades") if isinstance(entry, dict) else None
-                if not isinstance(grades, dict):
-                    continue
-                by_grader[normalize_grader(grader)] = {
-                    normalize_grade(grade): int(count)
-                    for grade, count in grades.items()
-                    if isinstance(count, (int, float))
-                }
-            if by_grader:
-                out[str(card_id)] = by_grader
-    return out
-
-
 # --- schema -------------------------------------------------------------------
 
 
@@ -796,7 +748,7 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
             image_url TEXT,
             grader TEXT,
             grade TEXT,
-            population INTEGER,
+            population INTEGER,  -- unused (pop tiers removed); kept for existing DBs
             price_now REAL NOT NULL,
             price_then REAL NOT NULL,
             change_percent REAL NOT NULL,
@@ -890,10 +842,6 @@ def compute_meta_pulse(
             connection, start=ref_date - timedelta(days=NOW_TOLERANCE_DAYS), end=ref_date,
             jpy_usd=jpy_usd, card_ids=card_ids,
         )
-    populations = _populations(
-        connection,
-        {key[0] for key in graded_now if cards[key[0]].game == "pokemon"},
-    )
 
     per_window: dict[int, tuple[list[GroupResult], dict[tuple[str, str], LaneTotals]]] = {}
     trackers: dict[int, tuple[_SparkTracker, set[str]]] = {}
@@ -916,7 +864,7 @@ def compute_meta_pulse(
                 connection, start=then_end - timedelta(days=THEN_TOLERANCE_DAYS), end=then_end,
                 jpy_usd=jpy_usd, card_ids=card_ids, wanted=set(graded_now),
             )
-            pairs.extend(graded_pairs(graded_now, graded_then, cards, populations))
+            pairs.extend(graded_pairs(graded_now, graded_then, cards))
         groups, totals = aggregate_groups(
             pairs, tags, min_group_cards=min_group_cards, min_moved_cards=min_moved_cards
         )
@@ -1004,13 +952,13 @@ def _write_results(
                 info = cards[pair.card_id]
                 connection.execute(
                     "INSERT INTO meta_pulse_cards (game, as_of_date, window_days, lane, group_key, rank, "
-                    "card_id, name, number, set_name, image_url, grader, grade, population, "
+                    "card_id, name, number, set_name, image_url, grader, grade, "
                     "price_now, price_then, change_percent) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         group.game, as_of, window, group.lane, group.group_key, rank,
                         pair.card_id, info.name, info.number, info.set_name, info.image_url,
-                        pair.grader, pair.grade, pair.population,
+                        pair.grader, pair.grade,
                         round(pair.price_now, 2), round(pair.price_then, 2), round(pair.change_pct, 1),
                     ),
                 )
@@ -1131,8 +1079,8 @@ def _latest_as_of(connection: sqlite3.Connection, game: str) -> str | None:
 def _meta_card_dict(game: str, c: Any) -> dict[str, Any]:
     return {
         "cardId": c[2], "game": game, "name": c[3], "number": c[4], "setName": c[5],
-        "imageUrl": c[6], "lane": c[0], "grader": c[7], "grade": c[8], "population": c[9],
-        "priceNow": c[10], "priceThen": c[11], "changePercent": c[12], "currencyCode": "USD",
+        "imageUrl": c[6], "lane": c[0], "grader": c[7], "grade": c[8],
+        "priceNow": c[9], "priceThen": c[10], "changePercent": c[11], "currencyCode": "USD",
     }
 
 
@@ -1168,7 +1116,7 @@ def _load_group_dicts(
         card_where += " AND rank <= ?"
         card_params.append(max(0, int(top_cards_limit)))
     card_rows = connection.execute(
-        "SELECT lane, group_key, card_id, name, number, set_name, image_url, grader, grade, population, "
+        "SELECT lane, group_key, card_id, name, number, set_name, image_url, grader, grade, "
         f"price_now, price_then, change_percent FROM meta_pulse_cards WHERE {card_where} ORDER BY rank",
         tuple(card_params),
     ).fetchall()
@@ -1611,9 +1559,6 @@ def build_meta_exposure_payload(
                 holding.pair = None
 
     slab_ids = sorted({h.card_id for h in holdings if h.is_slab})
-    populations: dict[str, dict[str, dict[str, int]]] = {}
-    if slab_ids:
-        populations = _populations(connection, slab_ids) if game == "pokemon" else {}
     if slab_ids and _table_exists(connection, "card_price_history_cell"):
         jpy_usd = _jpy_usd_rate(connection)
         graded_now = _graded_latest_for_cards(connection, slab_ids, start=now_start, end=now_end, jpy_usd=jpy_usd)
@@ -1643,19 +1588,15 @@ def build_meta_exposure_payload(
             pair = PricePair(
                 card_id=holding.card_id, game=game, lane=LANE_GRADED, price_then=then[0], price_now=now_usd,
                 variant=key[3], grader=key[1], grade=key[2], currency=now_currency,
-                population=populations.get(holding.card_id, {}).get(key[1], {}).get(key[2]),
             )
             holding.pair = pair if pair_is_eligible(pair) else None
 
     members: dict[str, list[_Holding]] = {}
     for holding in holdings:
         tags = tag_card(cards[holding.card_id])
-        population = None
-        if holding.is_slab:
-            population = populations.get(holding.card_id, {}).get(holding.grader or "", {}).get(holding.grade or "")
         for group in group_defs_for(
             tags, lane=LANE_GRADED if holding.is_slab else LANE_RAW,
-            grader=holding.grader, grade=holding.grade, population=population,
+            grader=holding.grader, grade=holding.grade,
         ):
             if group.key in run_groups:
                 members.setdefault(group.key, []).append(holding)
@@ -1673,7 +1614,7 @@ def build_meta_exposure_payload(
             owned_cards.append({
                 "cardId": holding.card_id, "game": game, "name": info.name, "number": info.number,
                 "setName": info.set_name, "imageUrl": info.image_url, "lane": pair.lane,
-                "grader": pair.grader, "grade": pair.grade, "population": pair.population,
+                "grader": pair.grader, "grade": pair.grade,
                 "priceNow": round(pair.price_now, 2), "priceThen": round(pair.price_then, 2),
                 "changePercent": round(pair.change_pct, 1), "currencyCode": "USD",
             })

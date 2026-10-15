@@ -680,7 +680,7 @@ def _normalize_browse_item(item: dict[str, Any]) -> dict[str, Any]:
         converted_from_amount = None
     location = item.get("itemLocation") if isinstance(item.get("itemLocation"), dict) else {}
     # Seller-entered item specifics ("Card Number", "Grade", "Set", ...): the
-    # structured identity check for comps that only PPT's title match vouches for.
+    # structured identity check for listings (see ebay_listings.verify_raw_aspects).
     aspects: dict[str, str] = {}
     for aspect in item.get("localizedAspects") or []:
         if not isinstance(aspect, dict):

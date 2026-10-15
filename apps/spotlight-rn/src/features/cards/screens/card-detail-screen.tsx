@@ -68,7 +68,6 @@ import { InventoryDropdown } from '@/features/cards/components/inventory-dropdow
 import { CardDetailHero } from '@/features/cards/components/card-detail-hero';
 import { printingImageFor, printingImagesForEntries } from '@/features/cards/printing-image';
 import { watchlistCardBasicsFromDetail } from '@/features/wishlist/watchlist-store';
-import { CardPopulationReport } from '@/features/cards/components/card-population-report';
 import { CardWishlistCounter } from '@/features/cards/components/card-wishlist-counter';
 import { CardPriceTrendList } from '@/features/cards/components/card-price-trend-list';
 import { CardPriceTrendSkeleton } from '@/features/cards/components/card-price-trend-skeleton';
@@ -434,7 +433,7 @@ export function CardDetailScreen({
   // card. Declared up here for the same dependency-array reason as `cardGame`.
   const isSealed = (detail?.productKind ?? detailPreview?.productKind) === 'sealed';
   // A card Scrydex does not list, carried from TCGplayer alone: raw TCGplayer
-  // pricing only — no graded lanes, population or graded comps, whatever its
+  // pricing only — no graded lanes or graded comps, whatever its
   // game. Otherwise it looks and behaves like any other card.
   const catalogSource = detail?.catalogSource ?? detailPreview?.catalogSource;
   const isTcgplayerOnly = catalogSource === 'tcgplayer';
@@ -781,7 +780,7 @@ export function CardDetailScreen({
   // "No raw pricing" signal (all must hold): no top-level raw marketPrice, no
   // raw market-history current price / history points, and no raw variant list
   // (variantOptions AND marketHistory.availableVariants both empty). "Graded
-  // available" = the card carries GemRate population for at least one grader.
+  // available" = the backend sent a `gradedReference` naming the headline lane.
   const seededGradedFallbackCardIdRef = useRef<string | null>(null);
   useEffect(() => {
     // Gate on the ACTIVE card's own loaded detail so an EN/JP swap re-evaluates
@@ -802,8 +801,7 @@ export function CardDetailScreen({
     seededGradedFallbackCardIdRef.current = activeCardId;
 
     // The backend sets gradedReference ONLY for a graded-only card (no raw price)
-    // and names the exact headline graded lane — far more reliable than inferring
-    // from population (empty for ~957/971 of these grails). Absent → leave Raw.
+    // and names the exact headline graded lane. Absent → leave Raw.
     const reference = detail.gradedReference;
     if (!reference?.grader || isTcgplayerOnly) {
       return;
@@ -3032,17 +3030,7 @@ export function CardDetailScreen({
           </View>
         ) : null}
 
-        {/* Pop report sits BELOW Price Trend (designer annotation, Figma
-            2489:7581); it renders nothing on the raw lane / without population. */}
-        {isSealed || isTcgplayerOnly ? null : (
-          <CardPopulationReport
-            grader={selectedGrader}
-            population={detail?.population}
-            testID="detail-population-report"
-          />
-        )}
-
-        {/* "Similar cards" sits directly under the pop report and fetches only
+        {/* "Similar cards" sits directly under Price Trend and fetches only
             after the main detail lands, so it never delays first paint. */}
         {isSealed ? null : (
           <CardSimilarSection
