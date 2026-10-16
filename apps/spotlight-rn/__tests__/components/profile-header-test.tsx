@@ -146,6 +146,30 @@ describe('ProfileHeader', () => {
     expect(screen.getByText('Gotta collect them all.')).toBeTruthy();
   });
 
+  it('prompts for a bio on your own empty profile, and opens the editor', () => {
+    const onAddBioPress = jest.fn();
+    renderHeader(<ProfileHeader displayName="Ash Ketchum" initials="AK" onAddBioPress={onAddBioPress} />);
+
+    fireEvent.press(screen.getByText('Tell us about yourself!'));
+    expect(onAddBioPress).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows no prompt over a real bio, or on someone else\'s profile', () => {
+    const { rerender } = renderHeader(
+      <ProfileHeader bio="Gotta collect them all." displayName="Ash Ketchum" initials="AK" onAddBioPress={jest.fn()} />,
+    );
+    expect(screen.queryByText('Tell us about yourself!')).toBeNull();
+
+    rerender(
+      <SafeAreaProvider>
+        <SpotlightThemeProvider>
+          <ProfileHeader displayName="Ash Ketchum" initials="AK" />
+        </SpotlightThemeProvider>
+      </SafeAreaProvider>,
+    );
+    expect(screen.queryByText('Tell us about yourself!')).toBeNull();
+  });
+
   it('renders the three stat counts', () => {
     renderHeader(
       <ProfileHeader

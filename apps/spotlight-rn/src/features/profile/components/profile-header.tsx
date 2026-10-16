@@ -29,6 +29,8 @@ type ProfileHeaderProps = {
    */
   actionRow?: ReactNode;
   bio?: string | null;
+  /** Own profile only: with no bio, show a "Tell us about yourself!" prompt that calls this. */
+  onAddBioPress?: () => void;
   socialLink?: string | null;
   avatarUrl?: string | null;
   coverUrl?: string | null;
@@ -95,6 +97,7 @@ export function ProfileHeader({
   isVerified = false,
   actionRow,
   bio,
+  onAddBioPress,
   socialLink,
   avatarUrl,
   coverUrl,
@@ -273,6 +276,12 @@ export function ProfileHeader({
           >
             {bio}
           </Text>
+        ) : onAddBioPress ? (
+          <Pressable accessibilityRole="button" onPress={onAddBioPress} testID={`${testID}-bio-placeholder`}>
+            <Text style={[theme.typography.label, styles.bio, { color: theme.colors.gray300 }]}>
+              Tell us about yourself!
+            </Text>
+          </Pressable>
         ) : null}
         {actionRow ? <View style={styles.actionRowSlot}>{actionRow}</View> : null}
       </View>

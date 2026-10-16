@@ -1643,6 +1643,7 @@ export function PortfolioScreen({
         handle={currentUser?.handle}
         initials={profileInitials}
         isVerified={currentUser?.isVerified}
+        onAddBioPress={handleEditProfilePress}
         onFollowersPress={handleOpenFollowers}
         onFollowingPress={handleOpenFollowing}
         onSocialLinkPress={handleSocialLinkPress}

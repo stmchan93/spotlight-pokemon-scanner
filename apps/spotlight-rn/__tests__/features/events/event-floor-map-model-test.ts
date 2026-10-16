@@ -1,6 +1,7 @@
 import { mockSpotlightEventMap } from '@spotlight/api-client';
 
 import {
+  MAP_MAX_SCALE,
   clampTransform,
   contentSize,
   filterVendors,
@@ -37,9 +38,9 @@ describe('map geometry', () => {
 
   it('clamps scale and keeps a zoomed map covering the viewport', () => {
     const clamped = clampTransform({ scale: 10, translateX: 500, translateY: -99999 }, content, viewport);
-    expect(clamped.scale).toBe(6);
+    expect(clamped.scale).toBe(MAP_MAX_SCALE);
     expect(clamped.translateX).toBe(0);
-    expect(clamped.translateY).toBe(viewport.height - content.height * 6);
+    expect(clamped.translateY).toBe(viewport.height - content.height * MAP_MAX_SCALE);
   });
 
   it('zooms in on a vendor and centers its tables', () => {

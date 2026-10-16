@@ -1,8 +1,8 @@
 {
  "eventId": "hawaii-2026-10",
  "imageFile": "hawaii-2026-10.png",
- "imageWidth": 2400,
- "imageHeight": 4523,
+ "imageWidth": 3000,
+ "imageHeight": 5653,
  "tables": [
   {
    "id": "A1",
@@ -6098,5 +6098,5 @@
   "Food",
   "Misc"
  ],
- "updatedAt": "2026-10-16T01:52:23Z"
+ "updatedAt": "2026-10-16T02:50:32Z"
 }

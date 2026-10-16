@@ -46,8 +46,8 @@ REPO = Path(__file__).resolve().parents[1]
 OUT_DIR = REPO / "backend" / "data" / "spotlight_event_maps"
 TABLE_NODE_NAME = "6' table"
 FOOD_BLOCK = "FOOD"
-# Wide enough to read table numbers when zoomed on a phone, small enough to load fast.
-TARGET_IMAGE_WIDTH = 2400
+# ~3px per point at the app's max zoom (4x of a ~230pt-wide fit); bigger costs too much decode memory.
+TARGET_IMAGE_WIDTH = 3000
 
 _BLOCK_LABEL_RE = re.compile(r"^(?:[A-Z]|HA)$")
 _LOCATION_TOKEN_RE = re.compile(
