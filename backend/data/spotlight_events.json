@@ -88,7 +88,7 @@
       "flyer": "seattle-2026-12.png",
       "ticketUrl": null,
       "shareUrl": null,
-      "featured": false,
+      "featured": true,
       "accentColor": "#7519FF"
     }
   ]
