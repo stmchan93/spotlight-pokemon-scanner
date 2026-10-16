@@ -104,7 +104,7 @@ class SpotlightEventsTests(unittest.TestCase):
         raw = json.loads(spotlight_events.EVENTS_PATH.read_text(encoding="utf-8"))
         events = spotlight_events.load_events()
         self.assertEqual(len(events), len(raw["events"]))
-        self.assertEqual([e["id"] for e in events], ["ontario-2026-08", "hawaii-2026-10"])
+        self.assertEqual([e["id"] for e in events], ["ontario-2026-08", "hawaii-2026-10", "seattle-2026-12"])
 
     def test_invalid_rows_are_skipped_and_logged(self) -> None:
         bad = {

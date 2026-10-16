@@ -1,5 +1,5 @@
 {
-  "_note": "Spotlight's own card shows (Events tab). The hawaii-2026-10 row is a placeholder from Figma pending real data. Flyer files live in backend/data/spotlight_event_flyers/.",
+  "_note": "Spotlight's own card shows (Events tab). Flyer files live in backend/data/spotlight_event_flyers/; floor maps in backend/data/spotlight_event_maps/ (tools/build_event_floor_map.py).",
   "events": [
     {
       "id": "ontario-2026-08",
@@ -16,7 +16,14 @@
       "openTime": "11:00",
       "closeTime": "17:00",
       "tableCount": 275,
-      "categories": ["Pokemon", "Sports", "One Piece", "Yu-Gi-Oh", "Magic The Gathering", "Lorcana"],
+      "categories": [
+        "Pokemon",
+        "Sports",
+        "One Piece",
+        "Yu-Gi-Oh",
+        "Magic The Gathering",
+        "Lorcana"
+      ],
       "about": null,
       "flyer": "ontario-2026-08.png",
       "ticketUrl": null,
@@ -36,16 +43,53 @@
       "startDate": "2026-10-24",
       "endDate": "2026-10-25",
       "timezone": "Pacific/Honolulu",
-      "openTime": "10:00",
+      "openTime": "11:00",
       "closeTime": "17:00",
-      "tableCount": null,
-      "categories": ["Pokemon", "Sports", "One Piece", "Yu-Gi-Oh", "Magic The Gathering", "Lorcana"],
+      "tableCount": 450,
+      "categories": [
+        "Pokemon",
+        "Sports",
+        "One Piece",
+        "Yu-Gi-Oh",
+        "Magic The Gathering",
+        "Lorcana"
+      ],
       "about": null,
-      "flyer": null,
+      "flyer": "hawaii-2026-10.png",
       "ticketUrl": null,
       "shareUrl": null,
       "featured": true,
-      "accentColor": "#FFB000"
+      "accentColor": "#FF0F80"
+    },
+    {
+      "id": "seattle-2026-12",
+      "title": "Spotlight at Seattle Center",
+      "shortTitle": "Spotlight Seattle",
+      "venue": "Seattle Center",
+      "city": "Seattle, WA",
+      "address": "301 Mercer St, Seattle, WA 98109",
+      "latitude": 47.6244,
+      "longitude": -122.3507,
+      "startDate": "2026-12-12",
+      "endDate": "2026-12-13",
+      "timezone": "America/Los_Angeles",
+      "openTime": "11:00",
+      "closeTime": "17:00",
+      "tableCount": 275,
+      "categories": [
+        "Pokemon",
+        "Sports",
+        "One Piece",
+        "Yu-Gi-Oh",
+        "Magic The Gathering",
+        "Lorcana"
+      ],
+      "about": null,
+      "flyer": "seattle-2026-12.png",
+      "ticketUrl": null,
+      "shareUrl": null,
+      "featured": false,
+      "accentColor": "#7519FF"
     }
   ]
 }
