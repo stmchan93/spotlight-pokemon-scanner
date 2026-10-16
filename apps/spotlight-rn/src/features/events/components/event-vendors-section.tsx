@@ -1,17 +1,20 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import type { GestureType } from 'react-native-gesture-handler';
-import { Search, Xmark } from 'iconoir-react-native';
+import { Instagram, Search, Xmark } from 'iconoir-react-native';
 
 import type { SpotlightEventMap, SpotlightEventMapVendor } from '@spotlight/api-client';
 import {
   Button,
+  IconButton,
   PillButton,
   SearchField,
   SkeletonBlock,
   SurfaceCard,
   borderWidths,
+  iconButtonDefaultGlyphSize,
   radii,
+  shadows,
   spacing,
   Text,
   useSpotlightTheme,
@@ -23,6 +26,8 @@ import { useSpotlightEventMap } from '@/features/events/hooks/use-spotlight-even
 
 /** The server sends the chip set in display order (tools/build_event_floor_map.py FILTER_TAGS); this only guards a runaway list. */
 const MAX_TAG_CHIPS = 12;
+/** Map space the floating vendor card covers; a fitted vendor is centred above it. */
+const CARD_OVERLAY_HEIGHT = 96;
 /** The unfiltered list starts short; 180 rows in a non-virtualized page is a lot of layout. */
 const COLLAPSED_ROWS = 25;
 const ICON_SIZE = 18;
@@ -133,19 +138,26 @@ function EventVendorsBody({
         </ScrollView>
       ) : null}
 
-      <EventFloorMap
-        focusKey={selected?.id ?? null}
-        map={map}
-        matchedTableIds={matchedTableIds}
-        onTablePress={handleTablePress}
-        scrollGesture={scrollGesture}
-        selectedTableIds={selectedTableIds}
-      />
+      <View>
+        <EventFloorMap
+          bottomInset={selected ? CARD_OVERLAY_HEIGHT : 0}
+          focusKey={selected?.id ?? null}
+          map={map}
+          matchedTableIds={matchedTableIds}
+          onTablePress={handleTablePress}
+          scrollGesture={scrollGesture}
+          selectedTableIds={selectedTableIds}
+        />
+        {/* On the map, not below it: below, a tapped table's vendor landed off-screen. */}
+        {selected ? (
+          <View pointerEvents="box-none" style={styles.cardOverlay}>
+            <SelectedVendorCard onClose={() => setSelectedId(null)} vendor={selected} />
+          </View>
+        ) : null}
+      </View>
       <Text style={[theme.typography.caption, { color: theme.colors.gray500 }]}>
         {'Pinch to zoom · tap a table to see who\'s there'}
       </Text>
-
-      {selected ? <SelectedVendorCard onClose={() => setSelectedId(null)} vendor={selected} /> : null}
 
       <Text style={[theme.typography.label, { color: theme.colors.gray600 }]} testID="event-vendors-count">
         {isFiltering
@@ -214,43 +226,36 @@ function VendorRow({
   );
 }
 
+/** Compact, so it covers as little of the map it floats on as possible. */
 function SelectedVendorCard({ vendor, onClose }: { vendor: SpotlightEventMapVendor; onClose: () => void }) {
   const theme = useSpotlightTheme();
   const instagram = vendor.instagram;
+  const details = [`Booth ${vendor.location}`, ...vendor.tags].join(' · ');
   return (
-    <SurfaceCard padding={spacing.sm} testID="event-vendor-card" variant="muted">
+    <SurfaceCard padding={spacing.xs} style={shadows.card} testID="event-vendor-card" variant="elevated">
       <View style={styles.cardHeader}>
         <View style={styles.rowText}>
-          <Text style={theme.typography.titleCompact} testID="event-vendor-card-name">
+          <Text numberOfLines={1} style={theme.typography.titleCompact} testID="event-vendor-card-name">
             {vendor.name}
           </Text>
-          <Text style={[theme.typography.body, { color: theme.colors.gray600 }]}>{`Booth ${vendor.location}`}</Text>
+          <Text numberOfLines={2} style={[theme.typography.label, { color: theme.colors.gray600 }]}>
+            {details}
+          </Text>
         </View>
-        <Pressable accessibilityLabel="Close vendor" hitSlop={8} onPress={onClose} testID="event-vendor-card-close">
+        {instagram ? (
+          <IconButton
+            accessibilityLabel={`@${instagram} on Instagram`}
+            onPress={() => void Linking.openURL(`https://instagram.com/${instagram}`).catch(() => undefined)}
+            testID="event-vendor-card-instagram"
+            variant="subtle"
+          >
+            <Instagram color={theme.colors.gray900} height={iconButtonDefaultGlyphSize} width={iconButtonDefaultGlyphSize} />
+          </IconButton>
+        ) : null}
+        <IconButton accessibilityLabel="Close vendor" onPress={onClose} testID="event-vendor-card-close" variant="ghost">
           <Xmark color={theme.colors.gray600} height={ICON_SIZE} width={ICON_SIZE} />
-        </Pressable>
+        </IconButton>
       </View>
-      {vendor.tags.length > 0 ? (
-        <View style={styles.tags}>
-          {vendor.tags.map((item) => (
-            <View key={item} style={[styles.tag, { backgroundColor: theme.colors.gray0 }]}>
-              <Text style={[theme.typography.label, { color: theme.colors.gray900 }]}>{item}</Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
-      {instagram ? (
-        <Button
-          label={`@${instagram} on Instagram`}
-          labelStyleVariant="label"
-          onPress={() => void Linking.openURL(`https://instagram.com/${instagram}`).catch(() => undefined)}
-          shape="rounded"
-          size="xs"
-          style={styles.instagram}
-          testID="event-vendor-card-instagram"
-          variant="dark"
-        />
-      ) : null}
     </SurfaceCard>
   );
 }
@@ -258,6 +263,12 @@ function SelectedVendorCard({ vendor, onClose }: { vendor: SpotlightEventMapVend
 const styles = StyleSheet.create({
   section: {
     gap: spacing.sm,
+  },
+  cardOverlay: {
+    bottom: spacing.xs,
+    left: spacing.xs,
+    position: 'absolute',
+    right: spacing.xs,
   },
   chips: {
     gap: spacing.xxs,

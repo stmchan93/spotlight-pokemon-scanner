@@ -1,7 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector, type GestureType } from 'react-native-gesture-handler';
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  type SharedValue,
+} from 'react-native-reanimated';
 
 import type { SpotlightEventMap, SpotlightEventMapTable, SpotlightEventMapVector } from '@spotlight/api-client';
 import { Text, borderWidths, radii, useSpotlightTheme } from '@spotlight/design-system';
@@ -34,6 +40,8 @@ type EventFloorMapProps = {
   matchedTableIds: ReadonlySet<string>;
   /** Changing this animates the map to fit `selectedTableIds` (or back to the whole floor). */
   focusKey: string | null;
+  /** Height at the bottom covered by an overlay; a fitted selection is centred above it. */
+  bottomInset?: number;
   onTablePress: (tableId: string) => void;
   /** The enclosing scroll view, so panning a zoomed map doesn't also scroll the page. */
   scrollGesture?: GestureType | React.RefObject<unknown>;
@@ -45,6 +53,7 @@ export function EventFloorMap({
   selectedTableIds,
   matchedTableIds,
   focusKey,
+  bottomInset = 0,
   onTablePress,
   scrollGesture,
   testID = 'event-floor-map',
@@ -58,13 +67,24 @@ export function EventFloorMap({
   );
 
   const scale = useSharedValue(1);
-  // The zoom the drawn layer is laid out at. It is shrunk back by a static
-  // transform set in the SAME render as its size, so a change never shows a
-  // frame at the wrong size (the flicker on pinch release).
-  const [layoutZoom, setLayoutZoom] = useState(1);
+  // The zoom the drawn layer is laid out at; the live transform covers the rest.
+  // A new zoom is drawn hidden, then swapped in once laid out, so release never
+  // shows a frame at the wrong size. Each layer bakes its own zoom into its
+  // transform, so nothing has to stay in sync across threads.
+  const [shownZoom, setShownZoom] = useState(1);
+  const [pendingZoom, setPendingZoom] = useState<number | null>(null);
   const commitZoom = useCallback((next: number) => {
-    setLayoutZoom((current) => (Math.abs(current - next) < 0.01 ? current : next));
+    setPendingZoom(next);
   }, []);
+  const onLayerReady = useCallback(
+    (zoom: number) => {
+      if (zoom === pendingZoom) {
+        setShownZoom(zoom);
+        setPendingZoom(null);
+      }
+    },
+    [pendingZoom],
+  );
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
   const startScale = useSharedValue(1);
@@ -103,7 +123,13 @@ export function EventFloorMap({
       return;
     }
     const focus = [...selectedTableIds].map((id) => tablesById.get(id)).filter((table) => table != null);
-    applyTransform(fitTablesTransform(focus, content, viewport), true);
+    const fitted = fitTablesTransform(focus, content, {
+      width: viewport.width,
+      height: Math.max(viewport.height - bottomInset, viewport.height / 2),
+    });
+    // Fitting against the shorter frame centres the tables above the overlay;
+    // clamping against the real one keeps the map covering the whole viewport.
+    applyTransform(focus.length > 0 ? clampTransform(fitted, content, viewport) : fitted, true);
     // Only a new focus target moves the map; highlight-only changes leave the user's zoom alone.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusKey, viewportWidth]);
@@ -215,13 +241,7 @@ export function EventFloorMap({
 
   const gesture = Gesture.Simultaneous(pinch, pan, Gesture.Exclusive(doubleTap, singleTap));
 
-  const contentStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }, { translateY: translateY.value }, { scale: scale.value }],
-  }));
-  const drawn = useMemo(
-    () => ({ width: content.width * layoutZoom, height: content.height * layoutZoom }),
-    [content, layoutZoom],
-  );
+  const layerZooms = pendingZoom == null || Math.abs(pendingZoom - shownZoom) < 0.01 ? [shownZoom] : [shownZoom, pendingZoom];
 
   const onLayout = useCallback((event: LayoutChangeEvent) => {
     setViewportWidth(Math.round(event.nativeEvent.layout.width));
@@ -247,44 +267,34 @@ export function EventFloorMap({
       testID={testID}
     >
       {viewportWidth > 0 ? (
-        // On the fixed frame, not the moving map: gesture x/y are then screen
-        // (viewport) points, which is what the tap and pinch math expects.
+        // On the fixed frame, not the moving map: gesture x/y are then viewport
+        // points, which is what the tap and pinch math expects.
         <GestureDetector gesture={gesture}>
-          <View collapsable={false} style={StyleSheet.absoluteFill}>
-            <Animated.View
-              style={[styles.content, { height: content.height, width: content.width }, contentStyle]}
-              testID={`${testID}-content`}
-            >
-              <MapImage content={content} map={map} testID={testID} />
-              <View
-                pointerEvents="none"
-                style={[styles.rendered, { ...drawn, transform: [{ scale: 1 / layoutZoom }] }]}
-              >
-                {map.vector ? <FloorDrawing size={drawn} tables={map.tables} vector={map.vector} /> : null}
-                {highlighted.map(({ id, selected }) => {
-                  const table = tablesById.get(id);
-                  if (!table) {
-                    return null;
-                  }
-                  return (
-                    <View
-                      key={id}
-                      style={[
-                        styles.box,
-                        boxStyle(table, drawn),
-                        {
-                          backgroundColor: theme.colors.purple500,
-                          borderColor: selected ? theme.colors.gray900 : theme.colors.purple500,
-                          borderWidth: selected ? 2 : 1,
-                          opacity: selected ? 0.9 : 0.35,
-                        },
-                      ]}
-                      testID={`${testID}-highlight-${id}`}
-                    />
-                  );
-                })}
-              </View>
-            </Animated.View>
+          <View collapsable={false} style={StyleSheet.absoluteFill} testID={`${testID}-content`}>
+            <ImageLayer
+              content={content}
+              map={map}
+              scale={scale}
+              testID={testID}
+              translateX={translateX}
+              translateY={translateY}
+            />
+            {layerZooms.map((zoom) => (
+              <DrawnLayer
+                content={content}
+                highlighted={highlighted}
+                key={zoom}
+                map={map}
+                onReady={onLayerReady}
+                scale={scale}
+                tablesById={tablesById}
+                testID={testID}
+                translateX={translateX}
+                translateY={translateY}
+                visible={zoom === shownZoom && layerZooms.length === 1}
+                zoom={zoom}
+              />
+            ))}
           </View>
         </GestureDetector>
       ) : null}
@@ -298,27 +308,36 @@ function boxStyle(box: { x: number; y: number; width: number; height: number }, 
   return { height: box.height * size.height, left: box.x * size.width, top: box.y * size.height, width: box.width * size.width };
 }
 
+type LayerMotion = {
+  scale: SharedValue<number>;
+  translateX: SharedValue<number>;
+  translateY: SharedValue<number>;
+};
+
 /**
  * The image under everything: the walls only when the map has a drawn layer,
- * else the whole floor. Laid out at full-zoom size and shrunk by a static
- * transform, so a zoom change never re-lays it out (which would reload it).
+ * else the whole floor. Laid out once at full-zoom size and only ever shrunk by
+ * the live transform, so it never re-lays out (which would reload it).
  */
-const MapImage = memo(function MapImage({
+const ImageLayer = memo(function ImageLayer({
   content,
   map,
+  scale,
   testID,
-}: {
-  content: Size;
-  map: SpotlightEventMap;
-  testID: string;
-}) {
+  translateX,
+  translateY,
+}: LayerMotion & { content: Size; map: SpotlightEventMap; testID: string }) {
   const full = { width: content.width * IMAGE_RENDER_SCALE, height: content.height * IMAGE_RENDER_SCALE };
+  const style = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: scale.value / IMAGE_RENDER_SCALE },
+    ],
+  }));
   const box = map.vector ? boxStyle(map.vector.baseImage, full) : { left: 0, top: 0, ...full };
   return (
-    <View
-      pointerEvents="none"
-      style={[styles.rendered, { ...full, transform: [{ scale: 1 / IMAGE_RENDER_SCALE }] }]}
-    >
+    <Animated.View pointerEvents="none" style={[styles.layer, full, style]}>
       <CachedImage
         cachePolicy={imageCachePolicy.full}
         contentFit="fill"
@@ -326,9 +345,77 @@ const MapImage = memo(function MapImage({
         testID={`${testID}-image`}
         uri={map.vector ? map.vector.baseImageUrl : map.imageUrl}
       />
-    </View>
+    </Animated.View>
   );
 });
+
+/**
+ * Tables, numbers, labels and highlights, laid out AT `zoom` (never nested in a
+ * scaled-down parent: iOS then rasterizes them small and they pixelate).
+ */
+function DrawnLayer({
+  content,
+  highlighted,
+  map,
+  onReady,
+  scale,
+  tablesById,
+  testID,
+  translateX,
+  translateY,
+  visible,
+  zoom,
+}: LayerMotion & {
+  content: Size;
+  highlighted: readonly { id: string; selected: boolean }[];
+  map: SpotlightEventMap;
+  onReady: (zoom: number) => void;
+  tablesById: ReadonlyMap<string, SpotlightEventMapTable>;
+  testID: string;
+  visible: boolean;
+  zoom: number;
+}) {
+  const theme = useSpotlightTheme();
+  const size = useMemo(() => ({ width: content.width * zoom, height: content.height * zoom }), [content, zoom]);
+  const style = useAnimatedStyle(
+    () => ({
+      transform: [{ translateX: translateX.value }, { translateY: translateY.value }, { scale: scale.value / zoom }],
+    }),
+    [zoom],
+  );
+  return (
+    <Animated.View
+      onLayout={() => onReady(zoom)}
+      pointerEvents="none"
+      style={[styles.layer, size, { opacity: visible ? 1 : 0 }, style]}
+    >
+      {map.vector ? <FloorDrawing size={size} tables={map.tables} vector={map.vector} /> : null}
+      {highlighted.map(({ id, selected }) => {
+        const table = tablesById.get(id);
+        if (!table) {
+          return null;
+        }
+        return (
+          <View
+            key={id}
+            style={[
+              styles.box,
+              boxStyle(table, size),
+              {
+                backgroundColor: theme.colors.purple500,
+                borderColor: selected ? theme.colors.gray900 : theme.colors.purple500,
+                borderWidth: selected ? 2 : 1,
+                // See-through enough to read the table numbers underneath.
+                opacity: selected ? 0.6 : 0.35,
+              },
+            ]}
+            testID={visible ? `${testID}-highlight-${id}` : undefined}
+          />
+        );
+      })}
+    </Animated.View>
+  );
+}
 
 /** Areas, tables with their numbers, and labels, drawn at the current zoom so they stay sharp. */
 const FloorDrawing = memo(function FloorDrawing({
@@ -423,6 +510,12 @@ const styles = StyleSheet.create({
   },
   box: {
     position: 'absolute',
+  },
+  layer: {
+    left: 0,
+    position: 'absolute',
+    top: 0,
+    transformOrigin: 'left top',
   },
   table: {
     alignItems: 'center',
