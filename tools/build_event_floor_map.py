@@ -54,10 +54,16 @@ _LOCATION_TOKEN_RE = re.compile(
     r"^(?P<b1>HA|[A-Z])?\s*(?P<n1>\d+)\s*(?:[-–]\s*(?P<b2>HA|[A-Z])?\s*(?P<n2>\d+))?$"
 )
 
+# The app's filter chips, in display order. Anything a vendor sells outside the
+# named games/formats (food, supplies, Magic, Yu-Gi-Oh...) folds into "Misc".
+FILTER_TAGS = ["Pokémon", "One Piece", "Lorcana", "Riftbound", "Sports", "Singles", "Sealed", "Graded", "Misc"]
+MISC_TAG = "Misc"
+
 # Keyword -> tag, matched against the CSV's free-text "inventory" answer.
 TAG_PATTERNS: list[tuple[str, str]] = [
     ("Pokémon", r"pok[eé]mon|pkmn"),
     ("One Piece", r"one\s?piece"),
+    ("Riftbound", r"riftbound|\brift\b"),
     ("Sports", r"sport|baseball|basketball|football|\bnba\b|\bnfl\b|\bmlb\b"),
     ("Graded", r"slab|graded|\bpsa\b|\bcgc\b|\bbgs\b"),
     ("Singles", r"single"),
@@ -271,6 +277,18 @@ def tags_for(inventory: str) -> list[str]:
     return [tag for tag, pattern in TAG_PATTERNS if re.search(pattern, inventory, re.I)]
 
 
+# Attributes of what they already sell, not a separate line of goods.
+_NOT_MISC = {"Vintage", "Japanese"}
+
+
+def filter_tags(raw: list[str]) -> list[str]:
+    """Raw keyword tags -> the chip vocabulary, in chip order."""
+    tags = [t for t in FILTER_TAGS if t in raw]
+    if any(t not in FILTER_TAGS and t not in _NOT_MISC for t in raw) or not raw:
+        tags.append(MISC_TAG)
+    return tags
+
+
 def load_csv(path: Path) -> list[dict[str, str]]:
     keep = ("business_name", "name", "instagram", "inventory", "purchase", "status")
     with path.open(encoding="utf-8-sig", newline="") as handle:
@@ -342,9 +360,10 @@ def build_map(
         ids = [i for i in ids if i in table_ids]
 
         row = match_csv(name, csv_rows) if csv_rows else None
-        tags = tags_for(row["inventory"]) if row else []
+        raw_tags = tags_for(row["inventory"]) if row else []
         if any(i.startswith(FOOD_BLOCK) for i in ids) or (row and "food" in row["purchase"].lower()):
-            tags = ["Food", *[t for t in tags if t != "Food"]]
+            raw_tags.append("Food")
+        tags = filter_tags(raw_tags)
         if csv_rows and row is None:
             report["noCsvMatch"].append(name)
 
@@ -360,7 +379,7 @@ def build_map(
         })
 
     vendors.sort(key=lambda v: v["name"].lower())
-    tag_counts = collections.Counter(tag for v in vendors for tag in v["tags"])
+    used = {tag for v in vendors for tag in v["tags"]}
     document = {
         "eventId": event_id,
         "imageFile": image_file,
@@ -368,7 +387,7 @@ def build_map(
         "imageHeight": image_size[1],
         "tables": out_tables,
         "vendors": vendors,
-        "tags": [tag for tag, _ in tag_counts.most_common()],
+        "tags": [tag for tag in FILTER_TAGS if tag in used],
         "updatedAt": (now or datetime.now(timezone.utc)).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     }
     return document, report

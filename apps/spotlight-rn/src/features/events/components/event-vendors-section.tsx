@@ -21,7 +21,8 @@ import { EventFloorMap } from '@/features/events/components/event-floor-map';
 import { filterVendors, vendorForTable } from '@/features/events/event-floor-map-model';
 import { useSpotlightEventMap } from '@/features/events/hooks/use-spotlight-event-map';
 
-const MAX_TAG_CHIPS = 8;
+/** The server sends the chip set in display order (tools/build_event_floor_map.py FILTER_TAGS); this only guards a runaway list. */
+const MAX_TAG_CHIPS = 12;
 /** The unfiltered list starts short; 180 rows in a non-virtualized page is a lot of layout. */
 const COLLAPSED_ROWS = 25;
 const ICON_SIZE = 18;

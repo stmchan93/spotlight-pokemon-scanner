@@ -113,12 +113,12 @@ class BuildMapTests(unittest.TestCase):
         self.assertNotIn("VENDOR", self.vendors)
         main = self.vendors["Main Street Cards"]
         self.assertEqual(main["tableIds"], ["C1", "C2"])
-        self.assertEqual(main["tags"], ["Pokémon", "Graded", "Sealed"])
+        self.assertEqual(main["tags"], ["Pokémon", "Sealed", "Graded"])
         self.assertEqual(main["instagram"], "mainstreet")
         self.assertEqual(self.vendors["PeteLocks"]["tableIds"], ["HA1", "HA2"])
         self.assertEqual(self.vendors["Chazer808"]["instagram"], "chazer808")
-        self.assertEqual(self.vendors["Aloha Puddin"]["tags"], ["Food"])
-        self.assertEqual(self.doc["tags"][0], "Food")
+        self.assertEqual(self.vendors["Aloha Puddin"]["tags"], ["Misc"])
+        self.assertEqual(self.doc["tags"], ["Pokémon", "One Piece", "Singles", "Sealed", "Graded", "Misc"])
 
     def test_report_flags_what_a_human_must_fix(self) -> None:
         self.assertEqual(self.report["unknownTables"], ["Ghost Booth (K26): K26"])
@@ -134,6 +134,14 @@ class BuildMapTests(unittest.TestCase):
 
 
 class EnrichmentTests(unittest.TestCase):
+    def test_filter_tags_fold_the_rest_into_misc(self) -> None:
+        from tools.build_event_floor_map import filter_tags
+
+        self.assertEqual(filter_tags(["Graded", "Pokémon", "Vintage"]), ["Pokémon", "Graded"])
+        self.assertEqual(filter_tags(["Pokémon", "Magic"]), ["Pokémon", "Misc"])
+        self.assertEqual(filter_tags(["Riftbound", "Supplies"]), ["Riftbound", "Misc"])
+        self.assertEqual(filter_tags([]), ["Misc"])
+
     def test_tags(self) -> None:
         self.assertEqual(tags_for("We sell WOTC vintage, PSA slabs"), ["Graded", "Vintage"])
         self.assertEqual(tags_for("cookies"), [])
