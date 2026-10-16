@@ -207,7 +207,7 @@ export function EventDetailScreen({ eventId, onBack }: EventDetailScreenProps) {
             {
               accessibilityLabel: saved ? 'Remove from saved events' : 'Save event',
               children: saved ? (
-                <HeartSolid color={theme.colors.gray900} height={glassNavBubbleGlyphSize} width={glassNavBubbleGlyphSize} />
+                <HeartSolid color={theme.colors.red500} height={glassNavBubbleGlyphSize} width={glassNavBubbleGlyphSize} />
               ) : (
                 <Heart
                   color={theme.colors.gray900}

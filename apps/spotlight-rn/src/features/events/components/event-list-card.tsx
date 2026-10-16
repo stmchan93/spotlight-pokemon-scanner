@@ -75,7 +75,7 @@ export function EventListCard({ event, saved, onPress, onToggleSaved }: EventLis
         testID={`event-card-${event.id}-save`}
       >
         {saved ? (
-          <HeartSolid color={theme.colors.gray900} height={HEART_SIZE} width={HEART_SIZE} />
+          <HeartSolid color={theme.colors.red500} height={HEART_SIZE} width={HEART_SIZE} />
         ) : (
           <Heart color={theme.colors.gray900} height={HEART_SIZE} strokeWidth={1.5} width={HEART_SIZE} />
         )}
