@@ -50,8 +50,10 @@ def _layout():
         _table(1, 200, 0), _table(2, 200, 200), _table(3, 200, 100),
         _text("H", 250, 60), _text("HA", 220, 240), ha_group,
     ])
-    food = _node("FRAME", "food", 400, 0, 50, 100, [_table(1, 400, 0), _table(2, 400, 50), _text("Food/ Drink", 420, 40)])
-    floor = _node("FRAME", "map", 0, 0, 1000, 500, [block_c, block_h, food])
+    food = _node("FRAME", "food", 400, 0, 50, 100, [_table(1, 400, 0), _table(2, 400, 50), _text("Food/ Drink", 420, 40)],
+                 fills=[{"type": "SOLID", "color": {"r": 1, "g": 0.898, "b": 0, "a": 1}, "opacity": 0.7}])
+    walls = _node("RECTANGLE", "site map", 0, 0, 1000, 500, fills=[{"type": "IMAGE"}])
+    floor = _node("FRAME", "map", 0, 0, 1000, 500, [walls, block_c, block_h, food])
     vendors = _node("FRAME", "list", 2000, 0, 300, 400, [
         _row("VENDOR", "LOCATION", 0),
         _row("Main Street Cards", "C1-C2", 20),
@@ -98,7 +100,8 @@ class FigmaUrlTests(unittest.TestCase):
 class BuildMapTests(unittest.TestCase):
     def setUp(self) -> None:
         self.doc, self.report = build_map(
-            _layout(), event_id="show", image_file="show.png", image_size=(800, 400), csv_rows=CSV_ROWS,
+            _layout(), event_id="show", image_file="show.png", image_size=(800, 400), base_image_file="show-base.png",
+            csv_rows=CSV_ROWS,
             now=datetime(2026, 10, 15, tzinfo=timezone.utc),
         )
         self.vendors = {v["name"]: v for v in self.doc["vendors"]}
@@ -124,6 +127,15 @@ class BuildMapTests(unittest.TestCase):
         self.assertEqual(self.report["unknownTables"], ["Ghost Booth (K26): K26"])
         self.assertEqual(self.vendors["Ghost Booth"]["tableIds"], [])
         self.assertIn("Ghost Booth", self.report["noCsvMatch"])
+
+    def test_vector_drawing_pieces(self) -> None:
+        vector = self.doc["vector"]
+        self.assertEqual(vector["baseImageFile"], "show-base.png")
+        self.assertEqual(vector["baseImage"], {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0})
+        self.assertEqual(vector["areas"], [{"shape": "rect", "x": 0.4, "y": 0.0, "width": 0.05, "height": 0.2,
+                                            "color": "#FFE500", "opacity": 0.7}])
+        self.assertEqual(sorted(label["text"] for label in vector["labels"]), ["C", "Food/ Drink", "H", "HA"])
+        self.assertNotIn("1", [label["text"] for label in vector["labels"]])
 
     def test_no_contact_details_leave_the_csv(self) -> None:
         for vendor in self.doc["vendors"]:

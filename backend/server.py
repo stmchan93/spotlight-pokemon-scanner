@@ -26577,6 +26577,19 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, payload)
             return
 
+        if parsed.path.startswith("/api/v1/events/") and parsed.path.endswith("/map-base-image"):
+            event_id = unquote(parsed.path[len("/api/v1/events/"):-len("/map-base-image")])
+            image = spotlight_events.floor_map_base_image_file(event_id) if event_id else None
+            try:
+                body = image.read_bytes() if image else None
+            except OSError:
+                body = None
+            if body is None:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+                return
+            self._write_public_image(body, content_type="image/png", max_age=600)
+            return
+
         if parsed.path.startswith("/api/v1/events/") and parsed.path.endswith("/map-image"):
             event_id = unquote(parsed.path[len("/api/v1/events/"):-len("/map-image")])
             image = spotlight_events.floor_map_image_file(event_id) if event_id else None

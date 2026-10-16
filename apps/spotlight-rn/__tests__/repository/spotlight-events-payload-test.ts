@@ -171,6 +171,33 @@ describe('parseSpotlightEventMap', () => {
     expect(map?.vendors[1].instagram).toBeNull();
   });
 
+  it('parses the drawable pieces, skipping bad rows, and falls back to null when the base image is missing', () => {
+    const vector = {
+      baseImageUrl: '/api/v1/events/hawaii-2026-10/map-base-image',
+      baseImage: { x: 0.007, y: 0.002, width: 0.98, height: 0.99 },
+      areas: [
+        { shape: 'rect', x: 0.01, y: 0.02, width: 0.97, height: 0.1, color: '#FFE500', opacity: 0.7 },
+        { shape: 'ellipse', x: 0.3, y: 0.08, width: 0.04, height: 0.02, color: '#BFFEAC' },
+        { shape: 'rect', x: 0.1, y: 0.1, width: 0.1, height: 0.1, color: 'yellow' },
+      ],
+      labels: [
+        { text: 'C', x: 0.4, y: 0.8, width: 0.03, height: 0.03, fontSize: 0.02, bold: true },
+        { text: 'Food/\nDrink', x: 0.5, y: 0.5, width: 0.05, height: 0.02, fontSize: 0.009 },
+        { text: '', x: 0.1, y: 0.1, width: 0.1, height: 0.1, fontSize: 0.01 },
+      ],
+      tableColor: '#BFFEAC',
+      tableNumberSize: 0.0038,
+    };
+    const map = parseSpotlightEventMap(payload({ vector }), BASE);
+    expect(map?.vector?.baseImageUrl).toBe('https://api.example.com/api/v1/events/hawaii-2026-10/map-base-image');
+    expect(map?.vector?.areas).toHaveLength(2);
+    expect(map?.vector?.areas[1]).toMatchObject({ shape: 'ellipse', opacity: 1 });
+    expect(map?.vector?.labels.map((label) => [label.text, label.bold])).toEqual([['C', true], ['Food/\nDrink', false]]);
+
+    expect(parseSpotlightEventMap(payload({ vector: { ...vector, baseImageUrl: null } }), BASE)?.vector).toBeNull();
+    expect(parseSpotlightEventMap(payload(), BASE)?.vector).toBeNull();
+  });
+
   it('rejects a payload without a usable image', () => {
     expect(parseSpotlightEventMap(payload({ imageUrl: null }), BASE)).toBeNull();
     expect(parseSpotlightEventMap(payload({ imageWidth: 0 }), BASE)).toBeNull();

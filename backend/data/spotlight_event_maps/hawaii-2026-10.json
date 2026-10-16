@@ -6098,5 +6098,245 @@
   "Food",
   "Misc"
  ],
- "updatedAt": "2026-10-16T02:50:32Z"
+ "vector": {
+  "baseImageFile": "hawaii-2026-10-base.png",
+  "baseImage": {
+   "x": 0.00711,
+   "y": 0.00198,
+   "width": 0.98578,
+   "height": 0.99604
+  },
+  "areas": [
+   {
+    "shape": "rect",
+    "x": 0.0167,
+    "y": 0.02787,
+    "width": 0.97003,
+    "height": 0.09731,
+    "color": "#FFE500",
+    "opacity": 0.7
+   },
+   {
+    "shape": "ellipse",
+    "x": 0.2909,
+    "y": 0.0843,
+    "width": 0.04332,
+    "height": 0.02299,
+    "color": "#BFFEAC",
+    "opacity": 1.0
+   },
+   {
+    "shape": "ellipse",
+    "x": 0.36648,
+    "y": 0.08433,
+    "width": 0.04332,
+    "height": 0.02299,
+    "color": "#BFFEAC",
+    "opacity": 1.0
+   },
+   {
+    "shape": "ellipse",
+    "x": 0.44207,
+    "y": 0.08435,
+    "width": 0.04332,
+    "height": 0.02299,
+    "color": "#BFFEAC",
+    "opacity": 1.0
+   },
+   {
+    "shape": "ellipse",
+    "x": 0.51766,
+    "y": 0.08438,
+    "width": 0.04332,
+    "height": 0.02299,
+    "color": "#BFFEAC",
+    "opacity": 1.0
+   },
+   {
+    "shape": "ellipse",
+    "x": 0.59324,
+    "y": 0.0844,
+    "width": 0.04332,
+    "height": 0.02299,
+    "color": "#BFFEAC",
+    "opacity": 1.0
+   },
+   {
+    "shape": "ellipse",
+    "x": 0.66883,
+    "y": 0.08443,
+    "width": 0.04332,
+    "height": 0.02299,
+    "color": "#BFFEAC",
+    "opacity": 1.0
+   },
+   {
+    "shape": "rect",
+    "x": 0.45519,
+    "y": 0.41712,
+    "width": 0.12671,
+    "height": 0.24017,
+    "color": "#FFE500",
+    "opacity": 0.7
+   }
+  ],
+  "labels": [
+   {
+    "text": "Chill/Concession",
+    "x": 0.3703,
+    "y": 0.05133,
+    "width": 0.26248,
+    "height": 0.02194,
+    "fontSize": 0.01677,
+    "bold": true
+   },
+   {
+    "text": "A",
+    "x": 0.14373,
+    "y": 0.78405,
+    "width": 0.0283,
+    "height": 0.02751,
+    "fontSize": 0.02115,
+    "bold": true
+   },
+   {
+    "text": "E",
+    "x": 0.86662,
+    "y": 0.78428,
+    "width": 0.02341,
+    "height": 0.02751,
+    "fontSize": 0.02115,
+    "bold": true
+   },
+   {
+    "text": "I",
+    "x": 0.87311,
+    "y": 0.51261,
+    "width": 0.01103,
+    "height": 0.02751,
+    "fontSize": 0.02115,
+    "bold": true
+   },
+   {
+    "text": "F",
+    "x": 0.14713,
+    "y": 0.51238,
+    "width": 0.02219,
+    "height": 0.02751,
+    "fontSize": 0.02115,
+    "bold": true
+   },
+   {
+    "text": "J",
+    "x": 0.14812,
+    "y": 0.24836,
+    "width": 0.02167,
+    "height": 0.02751,
+    "fontSize": 0.02115,
+    "bold": true
+   },
+   {
+    "text": "N",
+    "x": 0.86448,
+    "y": 0.24859,
+    "width": 0.02917,
+    "height": 0.02751,
+    "fontSize": 0.02115,
+    "bold": true
+   },
+   {
+    "text": "B",
+    "x": 0.32445,
+    "y": 0.78411,
+    "width": 0.02551,
+    "height": 0.02751,
+    "fontSize": 0.02115,
+    "bold": true
+   },
+   {
+    "text": "G",
+    "x": 0.32201,
+    "y": 0.51243,
+    "width": 0.03109,
+    "height": 0.02751,
+    "fontSize": 0.02115,
+    "bold": true
+   },
+   {
+    "text": "C",
+    "x": 0.50311,
+    "y": 0.78417,
+    "width": 0.02952,
+    "height": 0.02751,
+    "fontSize": 0.02115,
+    "bold": true
+   },
+   {
+    "text": "D",
+    "x": 0.68383,
+    "y": 0.78423,
+    "width": 0.0283,
+    "height": 0.02751,
+    "fontSize": 0.02115,
+    "bold": true
+   },
+   {
+    "text": "H",
+    "x": 0.68345,
+    "y": 0.51255,
+    "width": 0.02865,
+    "height": 0.02751,
+    "fontSize": 0.02115,
+    "bold": true
+   },
+   {
+    "text": "HA",
+    "x": 0.67783,
+    "y": 0.62979,
+    "width": 0.03998,
+    "height": 0.01937,
+    "fontSize": 0.01485,
+    "bold": true
+   },
+   {
+    "text": "L",
+    "x": 0.50784,
+    "y": 0.24847,
+    "width": 0.02237,
+    "height": 0.02751,
+    "fontSize": 0.02115,
+    "bold": true
+   },
+   {
+    "text": "K",
+    "x": 0.32472,
+    "y": 0.24841,
+    "width": 0.02621,
+    "height": 0.02751,
+    "fontSize": 0.02115,
+    "bold": true
+   },
+   {
+    "text": "M",
+    "x": 0.68032,
+    "y": 0.24853,
+    "width": 0.03546,
+    "height": 0.02752,
+    "fontSize": 0.02115,
+    "bold": true
+   },
+   {
+    "text": "Food/\nDrink",
+    "x": 0.51853,
+    "y": 0.51924,
+    "width": 0.05063,
+    "height": 0.02465,
+    "fontSize": 0.00948,
+    "bold": true
+   }
+  ],
+  "tableColor": "#BFFEAC",
+  "tableNumberSize": 0.00379
+ },
+ "updatedAt": "2026-10-16T03:04:58Z"
 }

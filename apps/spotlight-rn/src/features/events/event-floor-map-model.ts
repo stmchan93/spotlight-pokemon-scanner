@@ -3,9 +3,9 @@ import type { SpotlightEventMap, SpotlightEventMapTable, SpotlightEventMapVendor
 export type MapTransform = { scale: number; translateX: number; translateY: number };
 
 export const MAP_MIN_SCALE = 1;
-export const MAP_MAX_SCALE = 4;
+export const MAP_MAX_SCALE = 6;
 /** Fitting a vendor never zooms past this; one table at max scale fills the screen. */
-const FIT_MAX_SCALE = 3.5;
+const FIT_MAX_SCALE = 4;
 /** Fraction of the viewport a fitted vendor's tables may cover. */
 const FIT_FILL = 0.5;
 /** Tables are a few points wide at 1x; widen the tap target in screen points. */

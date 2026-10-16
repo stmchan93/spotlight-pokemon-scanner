@@ -289,8 +289,18 @@ def floor_map_image_url(event_id: str) -> str:
     return f"/api/v1/events/{event_id}/map-image"
 
 
-def _map_image_path(document: dict[str, Any], maps_dir: Path) -> Path | None:
-    name = document.get("imageFile")
+def floor_map_base_image_url(event_id: str) -> str:
+    return f"/api/v1/events/{event_id}/map-base-image"
+
+
+def _vector_base_name(document: dict[str, Any]) -> str | None:
+    vector = document.get("vector")
+    name = vector.get("baseImageFile") if isinstance(vector, dict) else None
+    return name if isinstance(name, str) else None
+
+
+def _map_image_path(document: dict[str, Any], maps_dir: Path, name: str | None = None) -> Path | None:
+    name = document.get("imageFile") if name is None else name
     if not isinstance(name, str) or not _FLYER_RE.match(name) or Path(name).suffix.lower() != ".png":
         return None
     root = maps_dir.resolve()
@@ -342,6 +352,16 @@ def floor_map_payload(
     payload = {k: v for k, v in document.items() if k != "imageFile"}
     payload["eventId"] = event_id
     payload["imageUrl"] = floor_map_image_url(event_id)
+    # The app draws tables/labels itself over a walls-only image; without that
+    # image it falls back to the flat `imageUrl`.
+    vector = document.get("vector")
+    base_name = _vector_base_name(document)
+    if isinstance(vector, dict) and base_name and _map_image_path(document, Path(maps_dir or MAPS_DIR), base_name):
+        served = {k: v for k, v in vector.items() if k != "baseImageFile"}
+        served["baseImageUrl"] = floor_map_base_image_url(event_id)
+        payload["vector"] = served
+    else:
+        payload["vector"] = None
     return payload
 
 
@@ -353,6 +373,17 @@ def floor_map_image_file(
     maps = Path(maps_dir or MAPS_DIR)
     document = _load_map(event_id, maps)
     return _map_image_path(document, maps) if document else None
+
+
+def floor_map_base_image_file(
+    event_id: str, *, events_path: Path | None = None, maps_dir: Path | None = None
+) -> Path | None:
+    if not any(e["id"] == event_id for e in load_events(events_path)):
+        return None
+    maps = Path(maps_dir or MAPS_DIR)
+    document = _load_map(event_id, maps)
+    base_name = _vector_base_name(document) if document else None
+    return _map_image_path(document, maps, base_name) if document and base_name else None
 
 
 def clear_cache() -> None:

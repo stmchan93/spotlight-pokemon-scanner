@@ -48,6 +48,9 @@ TABLE_NODE_NAME = "6' table"
 FOOD_BLOCK = "FOOD"
 # ~3px per point at the app's max zoom (4x of a ~230pt-wide fit); bigger costs too much decode memory.
 TARGET_IMAGE_WIDTH = 3000
+# The walls-only floor plan under the app-drawn tables; it is itself a raster in
+# Figma, so going bigger than its source adds bytes, not detail.
+BASE_IMAGE_WIDTH = 2000
 
 _BLOCK_LABEL_RE = re.compile(r"^(?:[A-Z]|HA)$")
 _LOCATION_TOKEN_RE = re.compile(
@@ -217,6 +220,67 @@ def extract_tables(frame: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[st
     return tables, map_node
 
 
+def _solid_fill(node: dict[str, Any]) -> tuple[str, float] | None:
+    for fill in node.get("fills") or []:
+        if fill.get("visible", True) and fill.get("type") == "SOLID" and fill.get("color"):
+            c = fill["color"]
+            hex_color = "#%02X%02X%02X" % tuple(round(c[k] * 255) for k in "rgb")
+            return hex_color, round(float(fill.get("opacity", 1)) * float(c.get("a", 1)), 3)
+    return None
+
+
+def _has_image_fill(node: dict[str, Any]) -> bool:
+    return any(f.get("type") == "IMAGE" and f.get("visible", True) for f in node.get("fills") or [])
+
+
+def extract_drawing(map_node: dict[str, Any]) -> dict[str, Any]:
+    """What the app draws itself (sharp at any zoom): the walls raster's node,
+    coloured areas, text labels, and the tables' look. Boxes are absolute."""
+    base: dict[str, Any] | None = None
+    areas: list[dict[str, Any]] = []
+    labels: list[dict[str, Any]] = []
+    table_color: str | None = None
+    number_size: float | None = None
+
+    def walk(node: dict[str, Any], is_root: bool) -> None:
+        nonlocal base, table_color, number_size
+        if node.get("name") == TABLE_NODE_NAME:
+            fill = _solid_fill(node)
+            if fill and table_color is None:
+                table_color = fill[0]
+            for text in _text_children(node):
+                size = (text.get("style") or {}).get("fontSize")
+                if size and number_size is None:
+                    number_size = float(size)
+            return
+        kind = node.get("type")
+        if not is_root:
+            if _has_image_fill(node):
+                if base is None or node["absoluteBoundingBox"]["width"] > base["absoluteBoundingBox"]["width"]:
+                    base = node
+            elif kind == "TEXT" and _chars(node):
+                style = node.get("style") or {}
+                labels.append({
+                    "text": str(node.get("characters", "")).strip(),
+                    "box": _box(node),
+                    "fontSize": float(style.get("fontSize") or 0),
+                    "bold": float(style.get("fontWeight") or 400) >= 600,
+                })
+            elif kind in {"FRAME", "RECTANGLE", "ELLIPSE"}:
+                fill = _solid_fill(node)
+                if fill:
+                    areas.append({
+                        "shape": "ellipse" if kind == "ELLIPSE" else "rect",
+                        "box": _box(node), "color": fill[0], "opacity": fill[1],
+                    })
+        for child in node.get("children", []):
+            walk(child, False)
+
+    walk(map_node, True)
+    return {"base": base, "areas": areas, "labels": labels,
+            "tableColor": table_color or "#BFFEAC", "numberSize": number_size or 0.0}
+
+
 def extract_vendor_rows(frame: dict[str, Any]) -> list[tuple[str, str]]:
     """(name, location) for every two-text row; header rows dropped."""
     rows: list[tuple[str, str]] = []
@@ -330,6 +394,7 @@ def build_map(
     event_id: str,
     image_file: str,
     image_size: tuple[int, int],
+    base_image_file: str | None = None,
     csv_rows: list[dict[str, str]] | None = None,
     now: datetime | None = None,
 ) -> tuple[dict[str, Any], dict[str, list[str]]]:
@@ -381,6 +446,26 @@ def build_map(
         })
 
     vendors.sort(key=lambda v: v["name"].lower())
+
+    def frac(box: tuple[float, float, float, float]) -> dict[str, float]:
+        x, y, w, h = box
+        return {"x": round((x - mx) / mw, 5), "y": round((y - my) / mh, 5),
+                "width": round(w / mw, 5), "height": round(h / mh, 5)}
+
+    drawing = extract_drawing(map_node)
+    vector = None
+    if base_image_file and drawing["base"] is not None:
+        vector = {
+            "baseImageFile": base_image_file,
+            "baseImage": frac(_box(drawing["base"])),
+            "areas": [{"shape": a["shape"], **frac(a["box"]), "color": a["color"], "opacity": a["opacity"]}
+                      for a in drawing["areas"]],
+            # Font sizes as a fraction of the map's height, like every other measure.
+            "labels": [{"text": l["text"], **frac(l["box"]), "fontSize": round(l["fontSize"] / mh, 5),
+                        "bold": l["bold"]} for l in drawing["labels"]],
+            "tableColor": drawing["tableColor"],
+            "tableNumberSize": round(drawing["numberSize"] / mh, 5),
+        }
     used = {tag for v in vendors for tag in v["tags"]}
     document = {
         "eventId": event_id,
@@ -390,6 +475,7 @@ def build_map(
         "tables": out_tables,
         "vendors": vendors,
         "tags": [tag for tag in FILTER_TAGS if tag in used],
+        "vector": vector,
         "updatedAt": (now or datetime.now(timezone.utc)).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     }
     return document, report
@@ -419,14 +505,24 @@ def main(argv: list[str] | None = None) -> int:
     scale = min(1.0, TARGET_IMAGE_WIDTH / map_node["absoluteBoundingBox"]["width"])
     png = export_png(key, map_node["id"], scale, token)
 
+    base = extract_drawing(map_node)["base"]
+    base_png = None
+    if base is not None:
+        base_scale = min(1.0, BASE_IMAGE_WIDTH / base["absoluteBoundingBox"]["width"])
+        base_png = export_png(key, base["id"], base_scale, token)
+
     csv_rows = load_csv(args.vendors_csv.expanduser()) if args.vendors_csv else None
     image_file = f"{args.event_id}.png"
+    base_image_file = f"{args.event_id}-base.png" if base_png else None
     document, report = build_map(
-        frame, event_id=args.event_id, image_file=image_file, image_size=_png_size(png), csv_rows=csv_rows
+        frame, event_id=args.event_id, image_file=image_file, image_size=_png_size(png),
+        base_image_file=base_image_file, csv_rows=csv_rows,
     )
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     (args.out_dir / image_file).write_bytes(png)
+    if base_png and base_image_file:
+        (args.out_dir / base_image_file).write_bytes(base_png)
     (args.out_dir / f"{args.event_id}.json").write_text(
         json.dumps(document, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
     )

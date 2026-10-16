@@ -213,6 +213,37 @@ export type SpotlightEventMapVendor = {
   instagram: string | null;
 };
 
+/** A box in the map's fractional space (0..1 of the floor's width/height, top-left origin). */
+export type SpotlightEventMapBox = { x: number; y: number; width: number; height: number };
+
+export type SpotlightEventMapArea = SpotlightEventMapBox & {
+  shape: 'rect' | 'ellipse';
+  /** `#RRGGBB`. */
+  color: string;
+  opacity: number;
+};
+
+export type SpotlightEventMapLabel = SpotlightEventMapBox & {
+  text: string;
+  /** Fraction of the floor's height. */
+  fontSize: number;
+  bold: boolean;
+};
+
+/**
+ * Pieces the app draws itself so tables, numbers and labels stay sharp at any
+ * zoom: only the walls are an image. Absent -> draw the flat `imageUrl`.
+ */
+export type SpotlightEventMapVector = {
+  baseImageUrl: string;
+  baseImage: SpotlightEventMapBox;
+  areas: SpotlightEventMapArea[];
+  labels: SpotlightEventMapLabel[];
+  tableColor: string;
+  /** Table number font size, as a fraction of the floor's height. */
+  tableNumberSize: number;
+};
+
 export type SpotlightEventMap = {
   eventId: string;
   imageUrl: string;
@@ -223,6 +254,7 @@ export type SpotlightEventMap = {
   /** Most common first. */
   tags: string[];
   updatedAt: string | null;
+  vector: SpotlightEventMapVector | null;
 };
 
 function fraction(value: unknown): number | null {
@@ -272,6 +304,63 @@ function parseMapVendor(value: unknown, tableIds: ReadonlySet<string>): Spotligh
   };
 }
 
+function parseBox(raw: Raw): SpotlightEventMapBox | null {
+  const x = finite(raw.x);
+  const y = finite(raw.y);
+  const width = finite(raw.width);
+  const height = finite(raw.height);
+  if (x == null || y == null || !width || !height || width <= 0 || height <= 0) {
+    return null;
+  }
+  return { x, y, width, height };
+}
+
+function parseMapVector(value: unknown, baseUrl: string): SpotlightEventMapVector | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const raw = value as Raw;
+  const baseImageUrl = resolveUrl(raw.baseImageUrl, baseUrl);
+  const baseImage = raw.baseImage && typeof raw.baseImage === 'object' ? parseBox(raw.baseImage as Raw) : null;
+  const tableNumberSize = fraction(raw.tableNumberSize);
+  if (!baseImageUrl || !baseImage || !tableNumberSize) {
+    return null;
+  }
+  const areas: SpotlightEventMapArea[] = [];
+  for (const item of Array.isArray(raw.areas) ? raw.areas : []) {
+    const area = item && typeof item === 'object' ? (item as Raw) : null;
+    const box = area ? parseBox(area) : null;
+    const color = area ? str(area.color) : null;
+    if (area && box && color && COLOR_RE.test(color)) {
+      areas.push({
+        ...box,
+        shape: area.shape === 'ellipse' ? 'ellipse' : 'rect',
+        color,
+        opacity: Math.min(1, Math.max(0, finite(area.opacity) ?? 1)),
+      });
+    }
+  }
+  const labels: SpotlightEventMapLabel[] = [];
+  for (const item of Array.isArray(raw.labels) ? raw.labels : []) {
+    const label = item && typeof item === 'object' ? (item as Raw) : null;
+    const box = label ? parseBox(label) : null;
+    const text = label && typeof label.text === 'string' ? label.text.trim() : '';
+    const fontSize = label ? fraction(label.fontSize) : null;
+    if (box && text && fontSize) {
+      labels.push({ ...box, text, fontSize, bold: label?.bold === true });
+    }
+  }
+  const tableColor = str(raw.tableColor);
+  return {
+    baseImageUrl,
+    baseImage,
+    areas,
+    labels,
+    tableColor: tableColor && COLOR_RE.test(tableColor) ? tableColor : '#BFFEAC',
+    tableNumberSize,
+  };
+}
+
 export function parseSpotlightEventMap(value: unknown, baseUrl = ''): SpotlightEventMap | null {
   if (!value || typeof value !== 'object') {
     return null;
@@ -301,6 +390,7 @@ export function parseSpotlightEventMap(value: unknown, baseUrl = ''): SpotlightE
     vendors,
     tags: strings(raw.tags),
     updatedAt: str(raw.updatedAt),
+    vector: parseMapVector(raw.vector, baseUrl),
   };
 }
 
@@ -343,4 +433,5 @@ export const mockSpotlightEventMap: SpotlightEventMap = {
   ],
   tags: ['Pokémon', 'Graded', 'One Piece', 'Sealed', 'Food'],
   updatedAt: '2026-10-15T23:50:00Z',
+  vector: null,
 };

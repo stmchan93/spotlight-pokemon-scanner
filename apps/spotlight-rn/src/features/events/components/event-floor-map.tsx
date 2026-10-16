@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector, type GestureType } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
-import type { SpotlightEventMap } from '@spotlight/api-client';
-import { borderWidths, radii, useSpotlightTheme } from '@spotlight/design-system';
+import type { SpotlightEventMap, SpotlightEventMapTable, SpotlightEventMapVector } from '@spotlight/api-client';
+import { Text, borderWidths, radii, useSpotlightTheme } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import {
@@ -18,10 +18,11 @@ import {
 } from '@/features/events/event-floor-map-model';
 
 const VIEWPORT_HEIGHT = 440;
-// The floor is laid out at full-zoom size and shrunk to fit, never stretched:
-// iOS scales a view's existing bitmap under a transform, so a fit-size layout
-// zoomed 4x was a blurry upscale. Shrinking a big rendering stays sharp.
-const RENDER_SCALE = MAP_MAX_SCALE;
+// iOS scales a view's existing bitmap under a transform, so anything drawn once
+// and then zoomed goes soft. Two fixes: images are laid out at full-zoom size and
+// only ever shrunk; the drawn layer (tables, numbers, labels) is re-laid out at
+// the new zoom whenever a gesture settles, so it is re-rasterized sharp.
+const IMAGE_RENDER_SCALE = MAP_MAX_SCALE;
 const DOUBLE_TAP_SCALE = 2.5;
 const ANIMATION = { duration: 280 };
 
@@ -57,6 +58,15 @@ export function EventFloorMap({
   );
 
   const scale = useSharedValue(1);
+  // The zoom the drawn layer is laid out at; the live transform covers the rest.
+  const [layoutZoom, setLayoutZoom] = useState(1);
+  const layoutZoomValue = useSharedValue(1);
+  useLayoutEffect(() => {
+    layoutZoomValue.value = layoutZoom;
+  }, [layoutZoom, layoutZoomValue]);
+  const commitZoom = useCallback((next: number) => {
+    setLayoutZoom((current) => (Math.abs(current - next) < 0.01 ? current : next));
+  }, []);
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
   const startScale = useSharedValue(1);
@@ -65,11 +75,20 @@ export function EventFloorMap({
 
   const applyTransform = useCallback(
     (next: MapTransform, animated: boolean) => {
-      scale.value = animated ? withTiming(next.scale, ANIMATION) : next.scale;
+      if (animated) {
+        scale.value = withTiming(next.scale, ANIMATION, (finished) => {
+          if (finished) {
+            runOnJS(commitZoom)(next.scale);
+          }
+        });
+      } else {
+        scale.value = next.scale;
+        commitZoom(next.scale);
+      }
       translateX.value = animated ? withTiming(next.translateX, ANIMATION) : next.translateX;
       translateY.value = animated ? withTiming(next.translateY, ANIMATION) : next.translateY;
     },
-    [scale, translateX, translateY],
+    [commitZoom, scale, translateX, translateY],
   );
 
   // Whole floor on first layout and whenever a different map arrives.
@@ -131,6 +150,9 @@ export function EventFloorMap({
       scale.value = next.scale;
       translateX.value = next.translateX;
       translateY.value = next.translateY;
+    })
+    .onEnd(() => {
+      runOnJS(commitZoom)(scale.value);
     });
 
   // Unzoomed, a drag belongs to the page scroll; only a zoomed map pans.
@@ -179,7 +201,11 @@ export function EventFloorMap({
         { width: contentWidth, height: contentHeight },
         { width: viewportW, height: VIEWPORT_HEIGHT },
       );
-      scale.value = withTiming(next.scale, ANIMATION);
+      scale.value = withTiming(next.scale, ANIMATION, (finished) => {
+        if (finished) {
+          runOnJS(commitZoom)(next.scale);
+        }
+      });
       translateX.value = withTiming(next.translateX, ANIMATION);
       translateY.value = withTiming(next.translateY, ANIMATION);
     });
@@ -192,8 +218,16 @@ export function EventFloorMap({
   const gesture = Gesture.Simultaneous(pinch, pan, Gesture.Exclusive(doubleTap, singleTap));
 
   const contentStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }, { translateY: translateY.value }, { scale: scale.value }],
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: scale.value / layoutZoomValue.value },
+    ],
   }));
+  const drawn = useMemo(
+    () => ({ width: content.width * layoutZoom, height: content.height * layoutZoom }),
+    [content, layoutZoom],
+  );
 
   const onLayout = useCallback((event: LayoutChangeEvent) => {
     setViewportWidth(Math.round(event.nativeEvent.layout.width));
@@ -221,60 +255,151 @@ export function EventFloorMap({
       {viewportWidth > 0 ? (
         <GestureDetector gesture={gesture}>
           <Animated.View
-            style={[styles.content, { height: content.height, width: content.width }, contentStyle]}
+            style={[styles.content, { height: drawn.height, width: drawn.width }, contentStyle]}
             testID={`${testID}-content`}
           >
-            <View
-              pointerEvents="none"
-              style={[
-                styles.rendered,
-                {
-                  height: content.height * RENDER_SCALE,
-                  transform: [{ scale: 1 / RENDER_SCALE }],
-                  width: content.width * RENDER_SCALE,
-                },
-              ]}
-            >
-              <CachedImage
-                cachePolicy={imageCachePolicy.full}
-                contentFit="fill"
-                style={{ height: content.height * RENDER_SCALE, width: content.width * RENDER_SCALE }}
-                testID={`${testID}-image`}
-                uri={map.imageUrl}
-              />
-              {/* Plain views, not one big Svg: a canvas this size would cost tens of MB of backing store. */}
-              {highlighted.map(({ id, selected }) => {
-                const table = tablesById.get(id);
-                if (!table) {
-                  return null;
-                }
-                return (
-                  <View
-                    key={id}
-                    style={[
-                      styles.highlight,
-                      {
-                        backgroundColor: theme.colors.purple500,
-                        borderColor: selected ? theme.colors.gray900 : theme.colors.purple500,
-                        borderWidth: selected ? 2 : 1,
-                        height: table.height * content.height * RENDER_SCALE,
-                        left: table.x * content.width * RENDER_SCALE,
-                        opacity: selected ? 0.9 : 0.35,
-                        top: table.y * content.height * RENDER_SCALE,
-                        width: table.width * content.width * RENDER_SCALE,
-                      },
-                    ]}
-                    testID={`${testID}-highlight-${id}`}
-                  />
-                );
-              })}
-            </View>
+            <MapImage content={content} layoutZoom={layoutZoom} map={map} testID={testID} />
+            {map.vector ? <FloorDrawing size={drawn} tables={map.tables} vector={map.vector} /> : null}
+            {highlighted.map(({ id, selected }) => {
+              const table = tablesById.get(id);
+              if (!table) {
+                return null;
+              }
+              return (
+                <View
+                  key={id}
+                  pointerEvents="none"
+                  style={[
+                    styles.box,
+                    boxStyle(table, drawn),
+                    {
+                      backgroundColor: theme.colors.purple500,
+                      borderColor: selected ? theme.colors.gray900 : theme.colors.purple500,
+                      borderWidth: selected ? 2 : 1,
+                      opacity: selected ? 0.9 : 0.35,
+                    },
+                  ]}
+                  testID={`${testID}-highlight-${id}`}
+                />
+              );
+            })}
           </Animated.View>
         </GestureDetector>
       ) : null}
     </View>
   );
 }
+
+type Size = { width: number; height: number };
+
+function boxStyle(box: { x: number; y: number; width: number; height: number }, size: Size) {
+  return { height: box.height * size.height, left: box.x * size.width, top: box.y * size.height, width: box.width * size.width };
+}
+
+/**
+ * The image under everything: the walls only when the map has a drawn layer,
+ * else the whole floor. Laid out at full-zoom size and shrunk by a static
+ * transform, so a zoom change never re-lays it out (which would reload it).
+ */
+const MapImage = memo(function MapImage({
+  content,
+  layoutZoom,
+  map,
+  testID,
+}: {
+  content: Size;
+  layoutZoom: number;
+  map: SpotlightEventMap;
+  testID: string;
+}) {
+  const full = { width: content.width * IMAGE_RENDER_SCALE, height: content.height * IMAGE_RENDER_SCALE };
+  const box = map.vector ? boxStyle(map.vector.baseImage, full) : { left: 0, top: 0, ...full };
+  return (
+    <View
+      pointerEvents="none"
+      style={[styles.rendered, { ...full, transform: [{ scale: layoutZoom / IMAGE_RENDER_SCALE }] }]}
+    >
+      <CachedImage
+        cachePolicy={imageCachePolicy.full}
+        contentFit="fill"
+        style={[styles.box, box]}
+        testID={`${testID}-image`}
+        uri={map.vector ? map.vector.baseImageUrl : map.imageUrl}
+      />
+    </View>
+  );
+});
+
+/** Areas, tables with their numbers, and labels, drawn at the current zoom so they stay sharp. */
+const FloorDrawing = memo(function FloorDrawing({
+  size,
+  tables,
+  vector,
+}: {
+  size: Size;
+  tables: readonly SpotlightEventMapTable[];
+  vector: SpotlightEventMapVector;
+}) {
+  const theme = useSpotlightTheme();
+  const numberSize = vector.tableNumberSize * size.height;
+  return (
+    <View pointerEvents="none" style={[styles.box, { left: 0, top: 0, ...size }]}>
+      {vector.areas.map((area, index) => (
+        <View
+          // Areas never reorder within one map.
+          key={`area-${index}`}
+          style={[
+            styles.box,
+            boxStyle(area, size),
+            {
+              backgroundColor: area.color,
+              opacity: area.opacity,
+              ...(area.shape === 'ellipse' ? { borderRadius: (area.width * size.width) / 2 } : null),
+            },
+          ]}
+        />
+      ))}
+      {tables.map((table) => (
+        <View key={table.id} style={[styles.box, styles.table, boxStyle(table, size), { backgroundColor: vector.tableColor }]}>
+          <Text
+            allowFontScaling={false}
+            numberOfLines={1}
+            style={[styles.tableNumber, { color: theme.colors.gray900, fontSize: numberSize }]}
+          >
+            {table.number}
+          </Text>
+        </View>
+      ))}
+      {vector.labels.map((label) => {
+        const fontSize = label.fontSize * size.height;
+        const box = boxStyle(label, size);
+        // Centered on the Figma box; text is allowed to run past it rather than clip.
+        const width = Math.max(box.width, fontSize * label.text.length);
+        return (
+          <Text
+            allowFontScaling={false}
+            key={`${label.text}-${label.x}-${label.y}`}
+            style={[
+              styles.box,
+              styles.label,
+              {
+                color: theme.colors.gray900,
+                fontSize,
+                fontWeight: label.bold ? '700' : '400',
+                left: box.left + box.width / 2 - width / 2,
+                lineHeight: fontSize * 1.1,
+                top: box.top,
+                width,
+              },
+            ]}
+          >
+            {label.text}
+          </Text>
+        );
+      })}
+    </View>
+  );
+});
 
 const styles = StyleSheet.create({
   viewport: {
@@ -296,8 +421,19 @@ const styles = StyleSheet.create({
     top: 0,
     transformOrigin: 'left top',
   },
-  // Square, like the printed tables.
-  highlight: {
+  box: {
     position: 'absolute',
+  },
+  table: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tableNumber: {
+    fontWeight: '600',
+    includeFontPadding: false,
+    textAlign: 'center',
+  },
+  label: {
+    textAlign: 'center',
   },
 });

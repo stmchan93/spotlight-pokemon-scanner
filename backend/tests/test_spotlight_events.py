@@ -217,6 +217,31 @@ class SpotlightEventsTests(unittest.TestCase):
             self.assertIsNone(spotlight_events.floor_map_payload(event_id, **kwargs))
             self.assertIsNone(spotlight_events.floor_map_image_file(event_id, **kwargs))
 
+    def test_vector_section_only_with_its_base_image(self) -> None:
+        self._write([_event(id="vec"), _event(id="no-base")])
+        vector = {"baseImageFile": "vec-base.png", "baseImage": {"x": 0, "y": 0, "width": 1, "height": 1},
+                  "areas": [], "labels": [], "tableColor": "#BFFEAC", "tableNumberSize": 0.004}
+        for event_id in ("vec", "no-base"):
+            (self.maps_dir / f"{event_id}.json").write_text(
+                json.dumps(_map_doc(imageFile=f"{event_id}.png", vector={**vector, "baseImageFile": f"{event_id}-base.png"})),
+                encoding="utf-8",
+            )
+            (self.maps_dir / f"{event_id}.png").write_bytes(PNG_BYTES)
+        (self.maps_dir / "vec-base.png").write_bytes(PNG_BYTES)
+        kwargs = {"events_path": self.events_path, "maps_dir": self.maps_dir}
+
+        payload = spotlight_events.floor_map_payload("vec", **kwargs)
+        assert payload is not None
+        self.assertEqual(payload["vector"]["baseImageUrl"], "/api/v1/events/vec/map-base-image")
+        self.assertNotIn("baseImageFile", payload["vector"])
+        self.assertEqual(
+            spotlight_events.floor_map_base_image_file("vec", **kwargs), (self.maps_dir / "vec-base.png").resolve()
+        )
+        missing = spotlight_events.floor_map_payload("no-base", **kwargs)
+        assert missing is not None
+        self.assertIsNone(missing["vector"])
+        self.assertIsNone(spotlight_events.floor_map_base_image_file("no-base", **kwargs))
+
     def test_floor_map_image_name_cannot_escape_the_maps_dir(self) -> None:
         self._write([_event(id="sneaky")])
         (self.maps_dir / "sneaky.json").write_text(
@@ -323,6 +348,7 @@ class SpotlightEventsRouteTests(unittest.TestCase):
         for path in (
             "/api/v1/events/no-flyer/map",
             "/api/v1/events/no-flyer/map-image",
+            "/api/v1/events/ontario-2026-08/map-base-image",
             "/api/v1/events/unknown/map",
             "/api/v1/events//map",
             "/api/v1/events/..%2F..%2Fserver.py/map-image",
