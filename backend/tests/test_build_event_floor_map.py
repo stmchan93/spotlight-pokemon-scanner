@@ -117,8 +117,8 @@ class BuildMapTests(unittest.TestCase):
         self.assertEqual(main["instagram"], "mainstreet")
         self.assertEqual(self.vendors["PeteLocks"]["tableIds"], ["HA1", "HA2"])
         self.assertEqual(self.vendors["Chazer808"]["instagram"], "chazer808")
-        self.assertEqual(self.vendors["Aloha Puddin"]["tags"], ["Misc"])
-        self.assertEqual(self.doc["tags"], ["Pokémon", "One Piece", "Singles", "Sealed", "Graded", "Misc"])
+        self.assertEqual(self.vendors["Aloha Puddin"]["tags"], ["Food"])
+        self.assertEqual(self.doc["tags"], ["Pokémon", "One Piece", "Singles", "Sealed", "Graded", "Food", "Misc"])
 
     def test_report_flags_what_a_human_must_fix(self) -> None:
         self.assertEqual(self.report["unknownTables"], ["Ghost Booth (K26): K26"])

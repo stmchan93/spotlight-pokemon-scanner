@@ -55,8 +55,10 @@ _LOCATION_TOKEN_RE = re.compile(
 )
 
 # The app's filter chips, in display order. Anything a vendor sells outside the
-# named games/formats (food, supplies, Magic, Yu-Gi-Oh...) folds into "Misc".
-FILTER_TAGS = ["Pokémon", "One Piece", "Lorcana", "Riftbound", "Sports", "Singles", "Sealed", "Graded", "Misc"]
+# named games/formats (supplies, Magic, Yu-Gi-Oh...) folds into "Misc".
+FILTER_TAGS = [
+    "Pokémon", "One Piece", "Lorcana", "Riftbound", "Sports", "Singles", "Sealed", "Graded", "Food", "Misc",
+]
 MISC_TAG = "Misc"
 
 # Keyword -> tag, matched against the CSV's free-text "inventory" answer.
