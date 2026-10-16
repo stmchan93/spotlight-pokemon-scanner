@@ -47,7 +47,7 @@ OUT_DIR = REPO / "backend" / "data" / "spotlight_event_maps"
 TABLE_NODE_NAME = "6' table"
 FOOD_BLOCK = "FOOD"
 # Wide enough to read table numbers when zoomed on a phone, small enough to load fast.
-TARGET_IMAGE_WIDTH = 1600
+TARGET_IMAGE_WIDTH = 2400
 
 _BLOCK_LABEL_RE = re.compile(r"^(?:[A-Z]|HA)$")
 _LOCATION_TOKEN_RE = re.compile(

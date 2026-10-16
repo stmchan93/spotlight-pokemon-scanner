@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector, type GestureType } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import Svg, { Rect } from 'react-native-svg';
 
 import type { SpotlightEventMap } from '@spotlight/api-client';
 import { borderWidths, radii, useSpotlightTheme } from '@spotlight/design-system';
@@ -19,6 +18,10 @@ import {
 } from '@/features/events/event-floor-map-model';
 
 const VIEWPORT_HEIGHT = 440;
+// The floor is laid out at full-zoom size and shrunk to fit, never stretched:
+// iOS scales a view's existing bitmap under a transform, so a fit-size layout
+// zoomed 4x was a blurry upscale. Shrinking a big rendering stays sharp.
+const RENDER_SCALE = MAP_MAX_SCALE;
 const DOUBLE_TAP_SCALE = 2.5;
 const ANIMATION = { duration: 280 };
 
@@ -221,36 +224,51 @@ export function EventFloorMap({
             style={[styles.content, { height: content.height, width: content.width }, contentStyle]}
             testID={`${testID}-content`}
           >
-            <CachedImage
-              cachePolicy={imageCachePolicy.full}
-              contentFit="fill"
-              style={{ height: content.height, width: content.width }}
-              testID={`${testID}-image`}
-              uri={map.imageUrl}
-            />
-            <Svg height={content.height} pointerEvents="none" style={styles.overlay} width={content.width}>
+            <View
+              pointerEvents="none"
+              style={[
+                styles.rendered,
+                {
+                  height: content.height * RENDER_SCALE,
+                  transform: [{ scale: 1 / RENDER_SCALE }],
+                  width: content.width * RENDER_SCALE,
+                },
+              ]}
+            >
+              <CachedImage
+                cachePolicy={imageCachePolicy.full}
+                contentFit="fill"
+                style={{ height: content.height * RENDER_SCALE, width: content.width * RENDER_SCALE }}
+                testID={`${testID}-image`}
+                uri={map.imageUrl}
+              />
+              {/* Plain views, not one big Svg: a canvas this size would cost tens of MB of backing store. */}
               {highlighted.map(({ id, selected }) => {
                 const table = tablesById.get(id);
                 if (!table) {
                   return null;
                 }
                 return (
-                  <Rect
-                    fill={theme.colors.purple500}
-                    fillOpacity={selected ? 0.9 : 0.35}
-                    height={table.height * content.height}
+                  <View
                     key={id}
-                    rx={1}
-                    stroke={selected ? theme.colors.gray900 : theme.colors.purple500}
-                    strokeWidth={selected ? 0.6 : 0.4}
+                    style={[
+                      styles.highlight,
+                      {
+                        backgroundColor: theme.colors.purple500,
+                        borderColor: selected ? theme.colors.gray900 : theme.colors.purple500,
+                        borderWidth: selected ? 2 : 1,
+                        height: table.height * content.height * RENDER_SCALE,
+                        left: table.x * content.width * RENDER_SCALE,
+                        opacity: selected ? 0.9 : 0.35,
+                        top: table.y * content.height * RENDER_SCALE,
+                        width: table.width * content.width * RENDER_SCALE,
+                      },
+                    ]}
                     testID={`${testID}-highlight-${id}`}
-                    width={table.width * content.width}
-                    x={table.x * content.width}
-                    y={table.y * content.height}
                   />
                 );
               })}
-            </Svg>
+            </View>
           </Animated.View>
         </GestureDetector>
       ) : null}
@@ -272,9 +290,14 @@ const styles = StyleSheet.create({
     top: 0,
     transformOrigin: 'left top',
   },
-  overlay: {
+  rendered: {
     left: 0,
     position: 'absolute',
     top: 0,
+    transformOrigin: 'left top',
+  },
+  // Square, like the printed tables.
+  highlight: {
+    position: 'absolute',
   },
 });
