@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector, type GestureType } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -58,12 +58,10 @@ export function EventFloorMap({
   );
 
   const scale = useSharedValue(1);
-  // The zoom the drawn layer is laid out at; the live transform covers the rest.
+  // The zoom the drawn layer is laid out at. It is shrunk back by a static
+  // transform set in the SAME render as its size, so a change never shows a
+  // frame at the wrong size (the flicker on pinch release).
   const [layoutZoom, setLayoutZoom] = useState(1);
-  const layoutZoomValue = useSharedValue(1);
-  useLayoutEffect(() => {
-    layoutZoomValue.value = layoutZoom;
-  }, [layoutZoom, layoutZoomValue]);
   const commitZoom = useCallback((next: number) => {
     setLayoutZoom((current) => (Math.abs(current - next) < 0.01 ? current : next));
   }, []);
@@ -218,11 +216,7 @@ export function EventFloorMap({
   const gesture = Gesture.Simultaneous(pinch, pan, Gesture.Exclusive(doubleTap, singleTap));
 
   const contentStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: translateX.value },
-      { translateY: translateY.value },
-      { scale: scale.value / layoutZoomValue.value },
-    ],
+    transform: [{ translateX: translateX.value }, { translateY: translateY.value }, { scale: scale.value }],
   }));
   const drawn = useMemo(
     () => ({ width: content.width * layoutZoom, height: content.height * layoutZoom }),
@@ -253,37 +247,45 @@ export function EventFloorMap({
       testID={testID}
     >
       {viewportWidth > 0 ? (
+        // On the fixed frame, not the moving map: gesture x/y are then screen
+        // (viewport) points, which is what the tap and pinch math expects.
         <GestureDetector gesture={gesture}>
-          <Animated.View
-            style={[styles.content, { height: drawn.height, width: drawn.width }, contentStyle]}
-            testID={`${testID}-content`}
-          >
-            <MapImage content={content} layoutZoom={layoutZoom} map={map} testID={testID} />
-            {map.vector ? <FloorDrawing size={drawn} tables={map.tables} vector={map.vector} /> : null}
-            {highlighted.map(({ id, selected }) => {
-              const table = tablesById.get(id);
-              if (!table) {
-                return null;
-              }
-              return (
-                <View
-                  key={id}
-                  pointerEvents="none"
-                  style={[
-                    styles.box,
-                    boxStyle(table, drawn),
-                    {
-                      backgroundColor: theme.colors.purple500,
-                      borderColor: selected ? theme.colors.gray900 : theme.colors.purple500,
-                      borderWidth: selected ? 2 : 1,
-                      opacity: selected ? 0.9 : 0.35,
-                    },
-                  ]}
-                  testID={`${testID}-highlight-${id}`}
-                />
-              );
-            })}
-          </Animated.View>
+          <View collapsable={false} style={StyleSheet.absoluteFill}>
+            <Animated.View
+              style={[styles.content, { height: content.height, width: content.width }, contentStyle]}
+              testID={`${testID}-content`}
+            >
+              <MapImage content={content} map={map} testID={testID} />
+              <View
+                pointerEvents="none"
+                style={[styles.rendered, { ...drawn, transform: [{ scale: 1 / layoutZoom }] }]}
+              >
+                {map.vector ? <FloorDrawing size={drawn} tables={map.tables} vector={map.vector} /> : null}
+                {highlighted.map(({ id, selected }) => {
+                  const table = tablesById.get(id);
+                  if (!table) {
+                    return null;
+                  }
+                  return (
+                    <View
+                      key={id}
+                      style={[
+                        styles.box,
+                        boxStyle(table, drawn),
+                        {
+                          backgroundColor: theme.colors.purple500,
+                          borderColor: selected ? theme.colors.gray900 : theme.colors.purple500,
+                          borderWidth: selected ? 2 : 1,
+                          opacity: selected ? 0.9 : 0.35,
+                        },
+                      ]}
+                      testID={`${testID}-highlight-${id}`}
+                    />
+                  );
+                })}
+              </View>
+            </Animated.View>
+          </View>
         </GestureDetector>
       ) : null}
     </View>
@@ -303,12 +305,10 @@ function boxStyle(box: { x: number; y: number; width: number; height: number }, 
  */
 const MapImage = memo(function MapImage({
   content,
-  layoutZoom,
   map,
   testID,
 }: {
   content: Size;
-  layoutZoom: number;
   map: SpotlightEventMap;
   testID: string;
 }) {
@@ -317,7 +317,7 @@ const MapImage = memo(function MapImage({
   return (
     <View
       pointerEvents="none"
-      style={[styles.rendered, { ...full, transform: [{ scale: layoutZoom / IMAGE_RENDER_SCALE }] }]}
+      style={[styles.rendered, { ...full, transform: [{ scale: 1 / IMAGE_RENDER_SCALE }] }]}
     >
       <CachedImage
         cachePolicy={imageCachePolicy.full}
