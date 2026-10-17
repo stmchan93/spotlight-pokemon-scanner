@@ -23,7 +23,6 @@ import {
 } from '@spotlight/design-system';
 
 import { EventFlyer } from '@/features/events/components/event-flyer';
-import { EventMap } from '@/features/events/components/event-map';
 import { EventVendorsSection } from '@/features/events/components/event-vendors-section';
 import { formatEventSchedule, formatEventShareMessage } from '@/features/events/event-format';
 import { useSpotlightEvent } from '@/features/events/hooks/use-spotlight-events';
@@ -90,7 +89,6 @@ export function EventDetailScreen({ eventId, onBack }: EventDetailScreenProps) {
         </View>
       );
     }
-    const hasMap = event.latitude != null && event.longitude != null;
     return (
       <>
         <View style={styles.heading}>
@@ -138,15 +136,7 @@ export function EventDetailScreen({ eventId, onBack }: EventDetailScreenProps) {
             <MapsArrowDiagonal color={theme.colors.gray700} height={ICON_SIZE} strokeWidth={1.5} width={ICON_SIZE} />
             <Text style={[bodyText, styles.shrink]}>{event.address}</Text>
           </Pressable>
-          {hasMap ? (
-            <EventMap
-              address={event.address}
-              latitude={event.latitude as number}
-              longitude={event.longitude as number}
-              testID="event-detail-map"
-              title={event.venue}
-            />
-          ) : null}
+          {/* The embedded Apple map is off for now; the address row opens Maps. EventMap stays for later. */}
         </View>
 
         {event.floorMapUrl ? (

@@ -105,7 +105,7 @@ describe('EventDetailScreen', () => {
     }
     expect(screen.queryByText(/Tables$/)).toBeNull();
     expect(screen.getByText(upcomingFeatured.address)).toBeTruthy();
-    expect(screen.getByTestId('event-detail-map').props.accessibilityLabel).toBe('21.2906,-157.836');
+    expect(screen.queryByTestId('event-detail-map')).toBeNull();
   });
 
   it('shows Buy Tickets for an upcoming ticketed event and opens the link', async () => {
