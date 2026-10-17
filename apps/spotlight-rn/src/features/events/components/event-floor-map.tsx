@@ -31,6 +31,7 @@ import {
 // the new zoom whenever a gesture settles, so it is re-rasterized sharp.
 const IMAGE_RENDER_SCALE = MAP_MAX_SCALE;
 const ANIMATION = { duration: 280 };
+const PINCH_TAP_GUARD_MS = 350;
 
 type EventFloorMapProps = {
   map: SpotlightEventMap;
@@ -94,6 +95,8 @@ export function EventFloorMap({
   const startY = useSharedValue(0);
   const focalX = useSharedValue(0);
   const focalY = useSharedValue(0);
+  // Fingers lifting off a pinch can read as taps; a double tap then zoomed back in.
+  const pinchEndedAt = useSharedValue(0);
 
   const applyTransform = useCallback(
     (next: MapTransform, animated: boolean) => {
@@ -169,6 +172,7 @@ export function EventFloorMap({
   // frame shoved the map sideways while it was narrower than the frame).
   const pinch = Gesture.Pinch()
     .onStart((event) => {
+      pinchEndedAt.value = Number.MAX_SAFE_INTEGER;
       startScale.value = scale.value;
       startX.value = translateX.value;
       startY.value = translateY.value;
@@ -176,6 +180,10 @@ export function EventFloorMap({
       focalY.value = event.focalY;
     })
     .onUpdate((event) => {
+      // One finger already up: its focal point jumps, so hold the last frame.
+      if (event.numberOfPointers < 2) {
+        return;
+      }
       const nextScale = Math.min(MAP_MAX_SCALE, Math.max(1, startScale.value * event.scale));
       const ratio = nextScale / startScale.value;
       scale.value = nextScale;
@@ -191,7 +199,15 @@ export function EventFloorMap({
       translateX.value = withTiming(settled.translateX, ANIMATION);
       translateY.value = withTiming(settled.translateY, ANIMATION);
       runOnJS(commitZoom)(settled.scale);
+    })
+    .onFinalize(() => {
+      pinchEndedAt.value = Date.now();
     });
+
+  const tapBlocked = () => {
+    'worklet';
+    return Date.now() - pinchEndedAt.value < PINCH_TAP_GUARD_MS;
+  };
 
   // Unzoomed, a drag belongs to the page scroll; only a zoomed map pans.
   const pan = Gesture.Pan()
@@ -229,6 +245,9 @@ export function EventFloorMap({
   const doubleTap = Gesture.Tap()
     .numberOfTaps(2)
     .onEnd((event) => {
+      if (tapBlocked()) {
+        return;
+      }
       // Zoom in only, from the current level; pinch is how you zoom out.
       const nextScale = Math.min(MAP_MAX_SCALE, scale.value * DOUBLE_TAP_ZOOM_FACTOR);
       const ratio = nextScale / scale.value;
@@ -251,6 +270,9 @@ export function EventFloorMap({
     });
 
   const singleTap = Gesture.Tap().onEnd((event) => {
+    if (tapBlocked()) {
+      return;
+    }
     // JS-side state: must hop threads, or the gesture callback crashes.
     runOnJS(handleTap)(event.x, event.y, scale.value, translateX.value, translateY.value);
   });
