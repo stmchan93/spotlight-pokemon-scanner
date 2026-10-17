@@ -399,7 +399,6 @@
       "componentPaths": [
         "apps/spotlight-rn/src/features/events/screens/events-screen.tsx",
         "apps/spotlight-rn/src/features/events/components/event-list-card.tsx",
-        "apps/spotlight-rn/src/features/events/components/featured-event-card.tsx",
         "apps/spotlight-rn/src/app/(tabs)/events.tsx"
       ],
       "deepLink": "spotlight://dev/events",

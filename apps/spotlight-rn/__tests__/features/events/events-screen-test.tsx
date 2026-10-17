@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { fireEvent, screen, within } from '@testing-library/react-native';
+import { fireEvent, screen } from '@testing-library/react-native';
 import { Share, Text } from 'react-native';
 
 import type { SpotlightEventsFeed } from '@spotlight/api-client';
@@ -7,7 +7,6 @@ import { resetSavedEventsForTests } from '@/features/events/saved-events-store';
 import {
   EventsScreen,
   buildEventsShareMessage,
-  selectFeaturedEvents,
   selectTicketEvents,
 } from '@/features/events/screens/events-screen';
 import { openLinkOut } from '@/features/meta-feed/screens/components/open-link-out';
@@ -121,18 +120,9 @@ describe('EventsScreen', () => {
     jest.restoreAllMocks();
   });
 
-  it('shows only featured, non-past events in the carousel', async () => {
+  it('has no featured carousel; upcoming shows are listed once', async () => {
     renderEvents();
-    const carousel = await screen.findByTestId('events-featured-carousel');
-    expect(within(carousel).getByTestId('featured-event-hawaii-2026-10')).toBeTruthy();
-    expect(within(carousel).getByTestId('featured-event-irvine-2027-01')).toBeTruthy();
-    expect(within(carousel).queryByTestId('featured-event-ontario-2026-08')).toBeNull();
-    expect(within(carousel).queryByTestId('featured-event-pomona-2026-12')).toBeNull();
-  });
-
-  it('hides the carousel when nothing featured is upcoming', async () => {
-    renderEvents(async () => ({ items: [pastFeatured, laterTicketed] }));
-    expect(await screen.findByTestId('event-card-pomona-2026-12')).toBeTruthy();
+    expect(await screen.findByTestId('event-card-hawaii-2026-10')).toBeTruthy();
     expect(screen.queryByTestId('events-featured')).toBeNull();
   });
 
@@ -170,13 +160,10 @@ describe('EventsScreen', () => {
     expect(screen.queryByText('Past events')).toBeNull();
   });
 
-  it('pushes the detail route when a card or featured card is pressed', async () => {
+  it('pushes the detail route when a card is pressed', async () => {
     renderEvents();
     fireEvent.press(await screen.findByTestId('event-card-pomona-2026-12'));
     expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/events/[eventId]', params: { eventId: 'pomona-2026-12' } });
-
-    fireEvent.press(screen.getByTestId('featured-event-hawaii-2026-10'));
-    expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/events/[eventId]', params: { eventId: 'hawaii-2026-10' } });
   });
 
   it('Tickets tab shows only purchasable events and opens the ticket link', async () => {
@@ -263,11 +250,6 @@ describe('EventsScreen', () => {
 });
 
 describe('events-screen selectors', () => {
-  it('selectFeaturedEvents keeps featured events that are not past', () => {
-    expect(selectFeaturedEvents(FEED.items).map((event) => event.id)).toEqual(['hawaii-2026-10', 'irvine-2027-01']);
-    expect(selectFeaturedEvents([makeEvent({ status: 'live' })]).map((event) => event.status)).toEqual(['live']);
-  });
-
   it('selectTicketEvents keeps non-past events with a ticket link', () => {
     expect(selectTicketEvents(FEED.items).map((event) => event.id)).toEqual(['hawaii-2026-10', 'pomona-2026-12']);
   });

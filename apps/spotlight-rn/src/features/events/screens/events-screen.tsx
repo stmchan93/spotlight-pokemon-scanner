@@ -1,24 +1,12 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import {
-  Image,
-  Platform,
-  RefreshControl,
-  ScrollView,
-  Share,
-  StyleSheet,
-  View,
-  useWindowDimensions,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
-} from 'react-native';
+import { Image, Platform, RefreshControl, ScrollView, Share, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { Menu, ShareIos } from 'iconoir-react-native';
 
 import type { SpotlightEvent } from '@spotlight/api-client';
 import {
-  CarouselPagination,
   GlassNavBubble,
   PageTabs,
   SkeletonBlock,
@@ -33,7 +21,6 @@ import {
 } from '@spotlight/design-system';
 
 import { EventListCard } from '@/features/events/components/event-list-card';
-import { FEATURED_EVENT_CARD_WIDTH, FeaturedEventCard } from '@/features/events/components/featured-event-card';
 import { formatEventDateRange } from '@/features/events/event-format';
 import { useSpotlightEvents } from '@/features/events/hooks/use-spotlight-events';
 import { useSavedEvents } from '@/features/events/saved-events-store';
@@ -59,15 +46,9 @@ const LOGO_WIDTH = 203;
 const LOGO_HEIGHT = 170;
 const LOGO_TOP_BELOW_STATUS_BAR = spacing.xxs;
 const LOGO_CENTER_OFFSET = -11;
-const CAROUSEL_GAP = spacing.xxs;
 
 const headerImage = require('../../../../assets/images/events/events-header.jpg');
 const showLogo = require('../../../../assets/images/events/spotlight-card-show-logo.png');
-
-/** Upcoming/live featured shows; past ones drop out of the carousel. */
-export function selectFeaturedEvents(events: SpotlightEvent[]): SpotlightEvent[] {
-  return events.filter((event) => event.featured && event.status !== 'past');
-}
 
 /** Events with a ticket link that can still be bought. */
 export function selectTicketEvents(events: SpotlightEvent[]): SpotlightEvent[] {
@@ -89,19 +70,14 @@ export function EventsScreen() {
   const { events, failed, refresh } = useSpotlightEvents();
   const { isSaved, savedIds, toggle } = useSavedEvents();
   const [tab, setTab] = useState<EventsTab>('events');
-  const [featuredIndex, setFeaturedIndex] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
 
-  const featured = useMemo(() => selectFeaturedEvents(events), [events]);
   const upcoming = useMemo(() => events.filter((event) => event.status !== 'past'), [events]);
   const past = useMemo(() => events.filter((event) => event.status === 'past'), [events]);
   const tickets = useMemo(() => selectTicketEvents(events), [events]);
   const saved = useMemo(() => events.filter((event) => savedIds.has(event.id)), [events, savedIds]);
 
   const gutter = layout.pageGutter;
-  // A sliver of the next card peeks in, as drawn; never wider than the page.
-  const featuredCardWidth = Math.min(FEATURED_EVENT_CARD_WIDTH, windowWidth - gutter * 2 - CAROUSEL_GAP);
-  const featuredStride = featuredCardWidth + CAROUSEL_GAP;
 
   const openEvent = useCallback(
     (event: SpotlightEvent) => router.push({ pathname: '/events/[eventId]', params: { eventId: event.id } } as never),
@@ -117,14 +93,6 @@ export function EventsScreen() {
   const handleShare = useCallback(() => {
     void Share.share({ message: buildEventsShareMessage(events) }).catch(() => undefined);
   }, [events]);
-
-  const handleFeaturedScroll = useCallback(
-    (scrollEvent: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const index = Math.round(scrollEvent.nativeEvent.contentOffset.x / featuredStride);
-      setFeaturedIndex(Math.max(0, Math.min(featured.length - 1, index)));
-    },
-    [featured.length, featuredStride],
-  );
 
   const renderCard = (event: SpotlightEvent, onPress: () => void = () => openEvent(event)) => (
     <EventListCard
@@ -226,28 +194,6 @@ export function EventsScreen() {
         </View>
 
         <View style={[styles.sheet, { backgroundColor: theme.colors.gray0 }]}>
-          {featured.length > 0 ? (
-            <View style={styles.featuredSection} testID="events-featured">
-              <Text style={[theme.typography.sectionTitleBold, styles.sectionTitle]}>Featured Spotlight Events</Text>
-              <ScrollView
-                contentContainerStyle={{ gap: CAROUSEL_GAP, paddingHorizontal: gutter }}
-                decelerationRate="fast"
-                horizontal
-                onMomentumScrollEnd={handleFeaturedScroll}
-                showsHorizontalScrollIndicator={false}
-                snapToInterval={featuredStride}
-                testID="events-featured-carousel"
-              >
-                {featured.map((event) => (
-                  <FeaturedEventCard key={event.id} event={event} onPress={() => openEvent(event)} width={featuredCardWidth} />
-                ))}
-              </ScrollView>
-              <View style={styles.pagination}>
-                <CarouselPagination activeIndex={featuredIndex} count={featured.length} testID="events-featured-pagination" />
-              </View>
-            </View>
-          ) : null}
-
           <View style={styles.tabs}>
             <PageTabs align="start" onChange={setTab} tabs={TABS} testID="events-tabs" value={tab} />
           </View>
@@ -305,19 +251,8 @@ const styles = StyleSheet.create({
     borderTopRightRadius: SHEET_RADIUS,
     paddingTop: spacing.lg,
   },
-  featuredSection: {
-    gap: spacing.xxs,
-  },
-  sectionTitle: {
-    paddingHorizontal: spacing.lg,
-  },
-  pagination: {
-    alignItems: 'center',
-    paddingTop: spacing.xxs,
-  },
   tabs: {
     paddingBottom: spacing.sm,
-    paddingTop: spacing.xxxl,
   },
   list: {
     gap: spacing.sm,
