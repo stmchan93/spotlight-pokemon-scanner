@@ -6,6 +6,7 @@ import {
   contentSize,
   filterVendors,
   fitTablesTransform,
+  floorMapViewportHeight,
   restingTransform,
   tableAtPoint,
   vendorForTable,
@@ -58,5 +59,13 @@ describe('map geometry', () => {
     expect(tableAtPoint(tables, { x, y }, rest, content)?.id).toBe('C14');
     expect(tableAtPoint(tables, { x: 5, y: 5 }, rest, content)).toBeNull();
     expect(vendorForTable(vendors, 'C14')?.id).toBe('main-street-cards');
+  });
+});
+
+describe('floorMapViewportHeight', () => {
+  it('is about two thirds of the screen, never under 440', () => {
+    expect(floorMapViewportHeight(852)).toBe(554);
+    expect(floorMapViewportHeight(932)).toBe(606);
+    expect(floorMapViewportHeight(568)).toBe(440);
   });
 });

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { GestureType } from 'react-native-gesture-handler';
 import { Instagram, Search, Xmark } from 'iconoir-react-native';
 
@@ -22,7 +22,7 @@ import {
 } from '@spotlight/design-system';
 
 import { EventFloorMap } from '@/features/events/components/event-floor-map';
-import { filterVendors, vendorForTable } from '@/features/events/event-floor-map-model';
+import { filterVendors, floorMapViewportHeight, vendorForTable } from '@/features/events/event-floor-map-model';
 import { useSpotlightEventMap } from '@/features/events/hooks/use-spotlight-event-map';
 
 /** The server sends the chip set in display order (tools/build_event_floor_map.py FILTER_TAGS); this only guards a runaway list. */
@@ -64,11 +64,12 @@ type EventVendorsSectionProps = {
 
 export function EventVendorsSection({ floorMapUrl, scrollGesture, renderTitle }: EventVendorsSectionProps) {
   const { map, loading } = useSpotlightEventMap(floorMapUrl);
+  const mapHeight = floorMapViewportHeight(useWindowDimensions().height);
   if (!map) {
     return loading ? (
       <View style={styles.section} testID="event-vendors-loading">
         {renderTitle('Vendors')}
-        <SkeletonBlock height={440} width="100%" />
+        <SkeletonBlock height={mapHeight} width="100%" />
       </View>
     ) : null;
   }

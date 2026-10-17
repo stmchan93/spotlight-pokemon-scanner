@@ -48,6 +48,14 @@ export function vendorForTable(
 }
 
 /** Map content is the image fitted ("contain") into the viewport at scale 1. */
+/** The map's frame: about two thirds of the screen, never shorter than 440. */
+export function floorMapViewportHeight(windowHeight: number): number {
+  return Math.round(Math.max(440, windowHeight * 0.65));
+}
+
+/** Double tap zooms in by this factor from wherever you are, up to the max. */
+export const DOUBLE_TAP_ZOOM_FACTOR = 2;
+
 export function contentSize(map: Pick<SpotlightEventMap, 'imageWidth' | 'imageHeight'>, viewportWidth: number, viewportHeight: number) {
   const fit = Math.min(viewportWidth / map.imageWidth, viewportHeight / map.imageHeight);
   return { width: map.imageWidth * fit, height: map.imageHeight * fit };

@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { StyleSheet, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector, type GestureType } from 'react-native-gesture-handler';
 import Animated, {
   runOnJS,
@@ -14,22 +14,22 @@ import { Text, borderWidths, radii, useSpotlightTheme } from '@spotlight/design-
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import {
+  DOUBLE_TAP_ZOOM_FACTOR,
   MAP_MAX_SCALE,
   clampTransform,
   contentSize,
+  floorMapViewportHeight,
   fitTablesTransform,
   restingTransform,
   tableAtPoint,
   type MapTransform,
 } from '@/features/events/event-floor-map-model';
 
-const VIEWPORT_HEIGHT = 440;
 // iOS scales a view's existing bitmap under a transform, so anything drawn once
 // and then zoomed goes soft. Two fixes: images are laid out at full-zoom size and
 // only ever shrunk; the drawn layer (tables, numbers, labels) is re-laid out at
 // the new zoom whenever a gesture settles, so it is re-rasterized sharp.
 const IMAGE_RENDER_SCALE = MAP_MAX_SCALE;
-const DOUBLE_TAP_SCALE = 2.5;
 const ANIMATION = { duration: 280 };
 
 type EventFloorMapProps = {
@@ -60,10 +60,12 @@ export function EventFloorMap({
 }: EventFloorMapProps) {
   const theme = useSpotlightTheme();
   const [viewportWidth, setViewportWidth] = useState(0);
-  const viewport = useMemo(() => ({ width: viewportWidth, height: VIEWPORT_HEIGHT }), [viewportWidth]);
+  const viewportHeight = floorMapViewportHeight(useWindowDimensions().height);
+  const viewport = useMemo(() => ({ width: viewportWidth, height: viewportHeight }), [viewportWidth, viewportHeight]);
+  const { imageWidth, imageHeight } = map;
   const content = useMemo(
-    () => contentSize(map, Math.max(viewportWidth, 1), VIEWPORT_HEIGHT),
-    [map, viewportWidth],
+    () => contentSize({ imageWidth, imageHeight }, Math.max(viewportWidth, 1), viewportHeight),
+    [imageHeight, imageWidth, viewportHeight, viewportWidth],
   );
 
   const scale = useSharedValue(1);
@@ -90,6 +92,8 @@ export function EventFloorMap({
   const startScale = useSharedValue(1);
   const startX = useSharedValue(0);
   const startY = useSharedValue(0);
+  const focalX = useSharedValue(0);
+  const focalY = useSharedValue(0);
 
   const applyTransform = useCallback(
     (next: MapTransform, animated: boolean) => {
@@ -109,7 +113,9 @@ export function EventFloorMap({
     [commitZoom, scale, translateX, translateY],
   );
 
-  // Whole floor on first layout and whenever a different map arrives.
+  // Whole floor on first layout and when the floor itself changes size. Keyed on
+  // sizes, not the map object: a background refetch hands over a new object and
+  // used to throw the user's zoom away.
   useEffect(() => {
     if (viewportWidth > 0) {
       applyTransform(restingTransform(content, viewport), false);
@@ -123,13 +129,17 @@ export function EventFloorMap({
       return;
     }
     const focus = [...selectedTableIds].map((id) => tablesById.get(id)).filter((table) => table != null);
+    // Deselecting (closing the card, tapping an empty table) leaves the zoom where it is.
+    if (focus.length === 0) {
+      return;
+    }
     const fitted = fitTablesTransform(focus, content, {
       width: viewport.width,
       height: Math.max(viewport.height - bottomInset, viewport.height / 2),
     });
     // Fitting against the shorter frame centres the tables above the overlay;
     // clamping against the real one keeps the map covering the whole viewport.
-    applyTransform(focus.length > 0 ? clampTransform(fitted, content, viewport) : fitted, true);
+    applyTransform(clampTransform(fitted, content, viewport), true);
     // Only a new focus target moves the map; highlight-only changes leave the user's zoom alone.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusKey, viewportWidth]);
@@ -152,35 +162,41 @@ export function EventFloorMap({
   const contentWidth = content.width;
   const contentHeight = content.height;
   const viewportW = viewport.width;
+  const viewportH = viewport.height;
 
+  // The point under the fingers stays under the fingers: anchor to where the
+  // pinch started, and leave the edges loose until release (clamping every
+  // frame shoved the map sideways while it was narrower than the frame).
   const pinch = Gesture.Pinch()
-    .onStart(() => {
+    .onStart((event) => {
       startScale.value = scale.value;
       startX.value = translateX.value;
       startY.value = translateY.value;
+      focalX.value = event.focalX;
+      focalY.value = event.focalY;
     })
     .onUpdate((event) => {
       const nextScale = Math.min(MAP_MAX_SCALE, Math.max(1, startScale.value * event.scale));
       const ratio = nextScale / startScale.value;
-      const next = clampTransform(
-        {
-          scale: nextScale,
-          translateX: event.focalX - (event.focalX - startX.value) * ratio,
-          translateY: event.focalY - (event.focalY - startY.value) * ratio,
-        },
-        { width: contentWidth, height: contentHeight },
-        { width: viewportW, height: VIEWPORT_HEIGHT },
-      );
-      scale.value = next.scale;
-      translateX.value = next.translateX;
-      translateY.value = next.translateY;
+      scale.value = nextScale;
+      translateX.value = event.focalX - (focalX.value - startX.value) * ratio;
+      translateY.value = event.focalY - (focalY.value - startY.value) * ratio;
     })
     .onEnd(() => {
-      runOnJS(commitZoom)(scale.value);
+      const settled = clampTransform(
+        { scale: scale.value, translateX: translateX.value, translateY: translateY.value },
+        { width: contentWidth, height: contentHeight },
+        { width: viewportW, height: viewportH },
+      );
+      translateX.value = withTiming(settled.translateX, ANIMATION);
+      translateY.value = withTiming(settled.translateY, ANIMATION);
+      runOnJS(commitZoom)(settled.scale);
     });
 
   // Unzoomed, a drag belongs to the page scroll; only a zoomed map pans.
   const pan = Gesture.Pan()
+    // Two fingers belong to the pinch, which already moves the map with them.
+    .maxPointers(1)
     .manualActivation(true)
     .onTouchesMove((_event, state) => {
       if (scale.value > 1.01) {
@@ -201,7 +217,7 @@ export function EventFloorMap({
           translateY: startY.value + event.translationY,
         },
         { width: contentWidth, height: contentHeight },
-        { width: viewportW, height: VIEWPORT_HEIGHT },
+        { width: viewportW, height: viewportH },
       );
       translateX.value = next.translateX;
       translateY.value = next.translateY;
@@ -213,8 +229,8 @@ export function EventFloorMap({
   const doubleTap = Gesture.Tap()
     .numberOfTaps(2)
     .onEnd((event) => {
-      const zoomIn = scale.value < DOUBLE_TAP_SCALE - 0.1;
-      const nextScale = zoomIn ? DOUBLE_TAP_SCALE : 1;
+      // Zoom in only, from the current level; pinch is how you zoom out.
+      const nextScale = Math.min(MAP_MAX_SCALE, scale.value * DOUBLE_TAP_ZOOM_FACTOR);
       const ratio = nextScale / scale.value;
       const next = clampTransform(
         {
@@ -223,7 +239,7 @@ export function EventFloorMap({
           translateY: event.y - (event.y - translateY.value) * ratio,
         },
         { width: contentWidth, height: contentHeight },
-        { width: viewportW, height: VIEWPORT_HEIGHT },
+        { width: viewportW, height: viewportH },
       );
       scale.value = withTiming(next.scale, ANIMATION, (finished) => {
         if (finished) {
@@ -263,7 +279,7 @@ export function EventFloorMap({
   return (
     <View
       onLayout={onLayout}
-      style={[styles.viewport, { backgroundColor: theme.colors.gray50, borderColor: theme.colors.gray200 }]}
+      style={[styles.viewport, { height: viewportHeight, backgroundColor: theme.colors.gray50, borderColor: theme.colors.gray200 }]}
       testID={testID}
     >
       {viewportWidth > 0 ? (
@@ -494,7 +510,6 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     borderRadius: radii.lg,
     borderWidth: borderWidths.containerRule,
-    height: VIEWPORT_HEIGHT,
     overflow: 'hidden',
   },
   content: {
