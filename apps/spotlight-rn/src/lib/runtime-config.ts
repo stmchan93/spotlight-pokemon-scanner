@@ -130,14 +130,15 @@ export function resolveShowMatchedVariantImage() {
  * Ekalight, Coming up + calendar, Card news + News page). Top Trends, posts and
  * market alerts are NOT behind it.
  */
-// On in development and staging, off in production until they ship; the env
-// overrides either way. Defaulted here, not in eas.json, because eas.json is a
-// native-fingerprint input and editing it blocks OTAs.
+// Hidden in every build until they ship; set
+// EXPO_PUBLIC_SPOTLIGHT_FEED_MARKET_BLOCKS=1 locally to work on them. Defaulted
+// here, not in eas.json, because eas.json is a native-fingerprint input and
+// editing it blocks OTAs.
 export function resolveFeedMarketBlocksEnabled() {
   return resolveRuntimeBoolean(
     ['EXPO_PUBLIC_SPOTLIGHT_FEED_MARKET_BLOCKS'],
     ['spotlightFeedMarketBlocks'],
-    resolveRuntimeAppEnv() !== 'production',
+    false,
   );
 }
 

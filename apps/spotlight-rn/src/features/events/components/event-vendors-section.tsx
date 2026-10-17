@@ -5,6 +5,7 @@ import { Instagram, Search, Xmark } from 'iconoir-react-native';
 
 import type { SpotlightEventMap, SpotlightEventMapVendor } from '@spotlight/api-client';
 import {
+  Avatar,
   Button,
   IconButton,
   PillButton,
@@ -31,6 +32,28 @@ const CARD_OVERLAY_HEIGHT = 96;
 /** The unfiltered list starts short; 180 rows in a non-virtualized page is a lot of layout. */
 const COLLAPSED_ROWS = 25;
 const ICON_SIZE = 18;
+const ROW_AVATAR_SIZE = 36;
+const CARD_AVATAR_SIZE = 44;
+
+/** "Main Street Cards" -> "MS", "3vilCollections" -> "3". */
+function vendorInitials(name: string) {
+  const words = name.match(/[A-Za-z0-9]+/g) ?? [];
+  return words.slice(0, 2).map((word) => word[0]).join('').toUpperCase() || '?';
+}
+
+function VendorAvatar({ vendor, size }: { vendor: SpotlightEventMapVendor; size: number }) {
+  const theme = useSpotlightTheme();
+  return (
+    <Avatar
+      initials={vendorInitials(vendor.name)}
+      size={size}
+      // Logos are often transparent; a light plate keeps them off the row colour.
+      style={vendor.logoUrl ? { backgroundColor: theme.colors.gray50 } : null}
+      testID={`event-vendor-avatar-${vendor.id}`}
+      uri={vendor.logoUrl}
+    />
+  );
+}
 
 type EventVendorsSectionProps = {
   floorMapUrl: string;
@@ -96,6 +119,32 @@ function EventVendorsBody({
   return (
     <View style={styles.section} testID="event-vendors">
       {renderTitle('Vendors')}
+      <View>
+        <EventFloorMap
+          bottomInset={selected ? CARD_OVERLAY_HEIGHT : 0}
+          focusKey={selected?.id ?? null}
+          map={map}
+          matchedTableIds={matchedTableIds}
+          onTablePress={handleTablePress}
+          scrollGesture={scrollGesture}
+          selectedTableIds={selectedTableIds}
+        />
+        {/* On the map, not below it: below, a tapped table's vendor landed off-screen. */}
+        {selected ? (
+          <View pointerEvents="box-none" style={styles.cardOverlay}>
+            <SelectedVendorCard onClose={() => setSelectedId(null)} vendor={selected} />
+          </View>
+        ) : null}
+      </View>
+      <Text style={[theme.typography.caption, { color: theme.colors.gray500 }]}>
+        {'Pinch to zoom · tap a table to see who\'s there'}
+      </Text>
+
+      <Text style={[theme.typography.label, { color: theme.colors.gray600 }]} testID="event-vendors-count">
+        {isFiltering
+          ? `${matches.length} of ${map.vendors.length} vendors`
+          : `${map.vendors.length} vendors`}
+      </Text>
       <SearchField
         accessibilityLabel="Search vendors"
         autoCapitalize="none"
@@ -138,32 +187,6 @@ function EventVendorsBody({
         </ScrollView>
       ) : null}
 
-      <View>
-        <EventFloorMap
-          bottomInset={selected ? CARD_OVERLAY_HEIGHT : 0}
-          focusKey={selected?.id ?? null}
-          map={map}
-          matchedTableIds={matchedTableIds}
-          onTablePress={handleTablePress}
-          scrollGesture={scrollGesture}
-          selectedTableIds={selectedTableIds}
-        />
-        {/* On the map, not below it: below, a tapped table's vendor landed off-screen. */}
-        {selected ? (
-          <View pointerEvents="box-none" style={styles.cardOverlay}>
-            <SelectedVendorCard onClose={() => setSelectedId(null)} vendor={selected} />
-          </View>
-        ) : null}
-      </View>
-      <Text style={[theme.typography.caption, { color: theme.colors.gray500 }]}>
-        {'Pinch to zoom · tap a table to see who\'s there'}
-      </Text>
-
-      <Text style={[theme.typography.label, { color: theme.colors.gray600 }]} testID="event-vendors-count">
-        {isFiltering
-          ? `${matches.length} of ${map.vendors.length} vendors`
-          : `${map.vendors.length} vendors`}
-      </Text>
       <View style={styles.list}>
         {rows.map((vendor) => (
           <VendorRow key={vendor.id} onPress={select} selected={vendor.id === selectedId} vendor={vendor} />
@@ -207,10 +230,11 @@ function VendorRow({
       style={[
         styles.row,
         { borderBottomColor: theme.colors.gray200 },
-        selected ? { backgroundColor: theme.colors.purple50 } : null,
+        selected ? [styles.rowSelected, { backgroundColor: theme.colors.purple50 }] : null,
       ]}
       testID={`event-vendor-${vendor.id}`}
     >
+      <VendorAvatar size={ROW_AVATAR_SIZE} vendor={vendor} />
       <View style={styles.rowText}>
         <Text numberOfLines={1} style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}>
           {vendor.name}
@@ -234,6 +258,7 @@ function SelectedVendorCard({ vendor, onClose }: { vendor: SpotlightEventMapVend
   return (
     <SurfaceCard padding={spacing.xs} style={shadows.card} testID="event-vendor-card" variant="elevated">
       <View style={styles.cardHeader}>
+        <VendorAvatar size={CARD_AVATAR_SIZE} vendor={vendor} />
         <View style={styles.rowText}>
           <Text numberOfLines={1} style={theme.typography.titleCompact} testID="event-vendor-card-name">
             {vendor.name}
@@ -281,14 +306,21 @@ const styles = StyleSheet.create({
     borderBottomWidth: borderWidths.rule,
     flexDirection: 'row',
     gap: spacing.xs,
+    // Inset so the selected row's fill doesn't run flush to the text.
+    paddingHorizontal: spacing.xs,
     paddingVertical: spacing.xs,
+  },
+  rowSelected: {
+    borderBottomColor: 'transparent',
+    borderCurve: 'continuous',
+    borderRadius: radii.md,
   },
   rowText: {
     flex: 1,
     gap: spacing.xxxs,
   },
   cardHeader: {
-    alignItems: 'flex-start',
+    alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.xs,
   },

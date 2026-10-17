@@ -298,6 +298,9 @@ describe('EventDetailScreen vendors', () => {
     fireEvent.press(screen.getByTestId('event-vendor-dokidoki-collectibles'));
 
     expect(screen.getByTestId('event-vendor-card-name').props.children).toBe('DokiDokiCollectibles');
+    // No logo -> initials, beside the name in both the row and the card.
+    expect(screen.getAllByTestId('event-vendor-avatar-dokidoki-collectibles')).toHaveLength(2);
+    expect(screen.getAllByText('D').length).toBeGreaterThan(0);
     expect(screen.getByTestId('event-floor-map-highlight-A1')).toBeTruthy();
     expect(screen.getByTestId('event-floor-map-highlight-A2')).toBeTruthy();
     expect(screen.queryByTestId('event-floor-map-highlight-C14')).toBeNull();

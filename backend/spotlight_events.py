@@ -351,6 +351,8 @@ def floor_map_payload(
         return None
     payload = {k: v for k, v in document.items() if k != "imageFile"}
     payload["eventId"] = event_id
+    logos = _logos_dir(event_id, Path(maps_dir or MAPS_DIR))
+    payload["vendors"] = [{**vendor, "logoUrl": _vendor_logo_url(event_id, vendor, logos)} for vendor in document["vendors"]]
     payload["imageUrl"] = floor_map_image_url(event_id)
     # The app draws tables/labels itself over a walls-only image; without that
     # image it falls back to the flat `imageUrl`.
@@ -384,6 +386,35 @@ def floor_map_base_image_file(
     document = _load_map(event_id, maps)
     base_name = _vector_base_name(document) if document else None
     return _map_image_path(document, maps, base_name) if document and base_name else None
+
+
+def _logos_dir(event_id: str, maps_dir: Path) -> Path:
+    """Square WebP logos keyed by vendor id (tools/build_event_vendor_logos.py), kept apart
+    from the map JSON so a Figma rebuild doesn't drop them."""
+    return maps_dir / f"{event_id}-logos"
+
+
+def _vendor_logo_path(logos: Path, vendor_id: object) -> Path | None:
+    if not isinstance(vendor_id, str) or not _ID_RE.match(vendor_id):
+        return None
+    path = logos / f"{vendor_id}.webp"
+    return path if path.is_file() else None
+
+
+def _vendor_logo_url(event_id: str, vendor: Any, logos: Path) -> str | None:
+    path = _vendor_logo_path(logos, vendor.get("id") if isinstance(vendor, dict) else None)
+    if path is None:
+        return None
+    # Served with a long cache; the mtime busts it when a vendor sends a new logo.
+    return f"/api/v1/events/{event_id}/vendor-logos/{vendor['id']}?v={int(path.stat().st_mtime)}"
+
+
+def floor_map_vendor_logo_file(
+    event_id: str, vendor_id: str, *, events_path: Path | None = None, maps_dir: Path | None = None
+) -> Path | None:
+    if not _ID_RE.match(event_id) or not any(e["id"] == event_id for e in load_events(events_path)):
+        return None
+    return _vendor_logo_path(_logos_dir(event_id, Path(maps_dir or MAPS_DIR)), vendor_id)
 
 
 def clear_cache() -> None:

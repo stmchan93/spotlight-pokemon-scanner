@@ -291,7 +291,8 @@ export function EventFloorMap({
                 testID={testID}
                 translateX={translateX}
                 translateY={translateY}
-                visible={zoom === shownZoom && layerZooms.length === 1}
+                // The old zoom stays up until the new one is laid out; hiding both blinked the tables off.
+                visible={zoom === shownZoom}
                 zoom={zoom}
               />
             ))}

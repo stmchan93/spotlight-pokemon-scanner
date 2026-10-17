@@ -242,6 +242,33 @@ class SpotlightEventsTests(unittest.TestCase):
         self.assertIsNone(missing["vector"])
         self.assertIsNone(spotlight_events.floor_map_base_image_file("no-base", **kwargs))
 
+    def test_vendor_logo_url_only_when_logo_file_exists(self) -> None:
+        self._write([_event(id="mapped")])
+        vendors = [
+            {"id": "main-street", "name": "Main Street", "location": "C1", "tableIds": ["C1"], "tags": []},
+            {"id": "no-logo", "name": "No Logo", "location": "C1", "tableIds": ["C1"], "tags": []},
+        ]
+        (self.maps_dir / "mapped.json").write_text(
+            json.dumps(_map_doc(imageFile="mapped.png", vendors=vendors)), encoding="utf-8"
+        )
+        (self.maps_dir / "mapped.png").write_bytes(PNG_BYTES)
+        logos = self.maps_dir / "mapped-logos"
+        logos.mkdir()
+        (logos / "main-street.webp").write_bytes(b"RIFFfakeWEBP")
+        kwargs = {"events_path": self.events_path, "maps_dir": self.maps_dir}
+
+        payload = spotlight_events.floor_map_payload("mapped", **kwargs)
+        assert payload is not None
+        by_id = {v["id"]: v for v in payload["vendors"]}
+        self.assertRegex(by_id["main-street"]["logoUrl"], r"^/api/v1/events/mapped/vendor-logos/main-street\?v=\d+$")
+        self.assertIsNone(by_id["no-logo"]["logoUrl"])
+        self.assertEqual(
+            spotlight_events.floor_map_vendor_logo_file("mapped", "main-street", **kwargs),
+            logos / "main-street.webp",
+        )
+        for event_id, vendor_id in (("mapped", "no-logo"), ("mapped", "../mapped"), ("unknown", "main-street")):
+            self.assertIsNone(spotlight_events.floor_map_vendor_logo_file(event_id, vendor_id, **kwargs))
+
     def test_floor_map_image_name_cannot_escape_the_maps_dir(self) -> None:
         self._write([_event(id="sneaky")])
         (self.maps_dir / "sneaky.json").write_text(
@@ -345,6 +372,11 @@ class SpotlightEventsRouteTests(unittest.TestCase):
         self.assertNotIn("imageFile", payload)
         ((kind, (body, kw)),) = self._get("/api/v1/events/ontario-2026-08/map-image")
         self.assertEqual((kind, body, kw), ("image", PNG_BYTES, {"content_type": "image/png", "max_age": 600}))
+        logos = spotlight_events.MAPS_DIR / "ontario-2026-08-logos"
+        logos.mkdir()
+        (logos / "main-street.webp").write_bytes(b"RIFFfakeWEBP")
+        ((kind, (body, kw)),) = self._get("/api/v1/events/ontario-2026-08/vendor-logos/main-street")
+        self.assertEqual((kind, body, kw), ("image", b"RIFFfakeWEBP", {"content_type": "image/webp", "max_age": 86400}))
         for path in (
             "/api/v1/events/no-flyer/map",
             "/api/v1/events/no-flyer/map-image",
@@ -352,6 +384,9 @@ class SpotlightEventsRouteTests(unittest.TestCase):
             "/api/v1/events/unknown/map",
             "/api/v1/events//map",
             "/api/v1/events/..%2F..%2Fserver.py/map-image",
+            "/api/v1/events/ontario-2026-08/vendor-logos/nobody",
+            "/api/v1/events/ontario-2026-08/vendor-logos/..%2F..%2Fserver",
+            "/api/v1/events/unknown/vendor-logos/main-street",
         ):
             with self.subTest(path=path):
                 ((kind, (status, payload)),) = self._get(path)

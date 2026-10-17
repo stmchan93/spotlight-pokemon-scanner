@@ -211,6 +211,8 @@ export type SpotlightEventMapVendor = {
   tags: string[];
   /** Bare handle, no "@". */
   instagram: string | null;
+  /** Square logo from their vendor application; absent -> show initials. */
+  logoUrl: string | null;
 };
 
 /** A box in the map's fractional space (0..1 of the floor's width/height, top-left origin). */
@@ -282,7 +284,11 @@ function parseMapTable(value: unknown): SpotlightEventMapTable | null {
   return { id, block: str(raw.block) ?? '', number: finite(raw.number) ?? 0, x, y, width, height };
 }
 
-function parseMapVendor(value: unknown, tableIds: ReadonlySet<string>): SpotlightEventMapVendor | null {
+function parseMapVendor(
+  value: unknown,
+  tableIds: ReadonlySet<string>,
+  baseUrl: string,
+): SpotlightEventMapVendor | null {
   if (!value || typeof value !== 'object') {
     return null;
   }
@@ -301,6 +307,7 @@ function parseMapVendor(value: unknown, tableIds: ReadonlySet<string>): Spotligh
     tableIds: strings(raw.tableIds).filter((tableId) => tableIds.has(tableId)),
     tags: strings(raw.tags),
     instagram: instagram && /^[A-Za-z0-9._]+$/.test(instagram) ? instagram : null,
+    logoUrl: resolveUrl(raw.logoUrl, baseUrl),
   };
 }
 
@@ -378,7 +385,7 @@ export function parseSpotlightEventMap(value: unknown, baseUrl = ''): SpotlightE
   const known = new Set(tables.map((table) => table.id));
   const vendors = Array.isArray(raw.vendors)
     ? raw.vendors
-        .map((item) => parseMapVendor(item, known))
+        .map((item) => parseMapVendor(item, known, baseUrl))
         .filter((item): item is SpotlightEventMapVendor => item != null)
     : [];
   return {
@@ -413,6 +420,7 @@ export const mockSpotlightEventMap: SpotlightEventMap = {
       tableIds: ['FOOD1'],
       tags: ['Food'],
       instagram: null,
+      logoUrl: null,
     },
     {
       id: 'dokidoki-collectibles',
@@ -421,6 +429,7 @@ export const mockSpotlightEventMap: SpotlightEventMap = {
       tableIds: ['A1', 'A2'],
       tags: ['Pokémon', 'Graded'],
       instagram: 'dokidokicollectibles',
+      logoUrl: null,
     },
     {
       id: 'main-street-cards',
@@ -429,6 +438,7 @@ export const mockSpotlightEventMap: SpotlightEventMap = {
       tableIds: ['C14'],
       tags: ['One Piece', 'Sealed'],
       instagram: 'mainstreetcards',
+      logoUrl: null,
     },
   ],
   tags: ['Pokémon', 'Graded', 'One Piece', 'Sealed', 'Food'],

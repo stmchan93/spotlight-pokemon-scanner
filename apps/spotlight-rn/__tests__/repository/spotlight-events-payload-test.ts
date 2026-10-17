@@ -151,6 +151,7 @@ describe('parseSpotlightEventMap', () => {
         tableIds: ['C14', 'C15', 'Z9'],
         tags: ['Pokémon', 'Graded'],
         instagram: '@mainstreetcards',
+        logoUrl: '/api/v1/events/hawaii-2026-10/vendor-logos/main-street-cards?v=1',
       },
       { id: 'no-name' },
       { id: 'odd-ig', name: 'Odd IG', location: 'C14', tableIds: ['C14'], tags: [], instagram: 'https://evil' },
@@ -169,6 +170,10 @@ describe('parseSpotlightEventMap', () => {
     // Unknown tables are dropped from a vendor; "@" is stripped; a non-handle is rejected.
     expect(map?.vendors[0]).toMatchObject({ tableIds: ['C14', 'C15'], instagram: 'mainstreetcards' });
     expect(map?.vendors[1].instagram).toBeNull();
+    expect(map?.vendors[0].logoUrl).toBe(
+      'https://api.example.com/api/v1/events/hawaii-2026-10/vendor-logos/main-street-cards?v=1',
+    );
+    expect(map?.vendors[1].logoUrl).toBeNull();
   });
 
   it('parses the drawable pieces, skipping bad rows, and falls back to null when the base image is missing', () => {

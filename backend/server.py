@@ -26568,6 +26568,19 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, payload)
             return
 
+        if parsed.path.startswith("/api/v1/events/") and "/vendor-logos/" in parsed.path:
+            event_id, _, vendor_id = unquote(parsed.path[len("/api/v1/events/"):]).partition("/vendor-logos/")
+            logo = spotlight_events.floor_map_vendor_logo_file(event_id, vendor_id) if event_id else None
+            try:
+                body = logo.read_bytes() if logo else None
+            except OSError:
+                body = None
+            if body is None:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+                return
+            self._write_public_image(body, content_type="image/webp", max_age=86400)
+            return
+
         if parsed.path.startswith("/api/v1/events/") and parsed.path.endswith("/map"):
             event_id = unquote(parsed.path[len("/api/v1/events/"):-len("/map")])
             payload = spotlight_events.floor_map_payload(event_id) if event_id else None
