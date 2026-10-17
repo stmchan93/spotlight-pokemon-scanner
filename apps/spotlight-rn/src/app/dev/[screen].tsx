@@ -9,11 +9,14 @@ import { Redirect, useLocalSearchParams } from 'expo-router';
  */
 export default function DevScreenRoute() {
   const { screen } = useLocalSearchParams<{ screen: string }>();
-  if (!__DEV__) {
-    return <Redirect href="/" />;
+  // The require must sit INSIDE `if (__DEV__)`: Metro folds that branch away in
+  // release builds, but not code after an early `return`, which bundled the dev
+  // host and its scanner PNGs into every OTA.
+  if (__DEV__) {
+    const { DevScreenHost } =
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy on purpose: static import would pull the dev host + mocks into release bundles
+      require('@/dev/dev-screen-host') as typeof import('@/dev/dev-screen-host');
+    return <DevScreenHost screen={typeof screen === 'string' ? screen : ''} />;
   }
-  const { DevScreenHost } =
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy on purpose: static import would pull the dev host + mocks into release bundles
-    require('@/dev/dev-screen-host') as typeof import('@/dev/dev-screen-host');
-  return <DevScreenHost screen={typeof screen === 'string' ? screen : ''} />;
+  return <Redirect href="/" />;
 }

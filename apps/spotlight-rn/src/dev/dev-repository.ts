@@ -4,8 +4,11 @@ import {
   type CardDetailRecord,
   type CardFavoriteEntry,
   type CardPriceTrendList,
+  type CardPriceTrendMode,
+  type CardPriceTrendRow,
   type PortfolioPerformance,
   type PortfolioPerformanceRow,
+  type RawPricingMatrix,
   type SpotlightRepository,
   type TopMovers,
 } from '@spotlight/api-client';
@@ -184,6 +187,134 @@ const devSealedPriceTrends: CardPriceTrendList = {
   }],
 };
 
+// Graded PDP (`price-trend-graded`): the Price Trend block in the PSA lane — the
+// full PSA 10 → PSA 1 ladder under the eBay mark — for App Store screenshots.
+// Served whole like the sealed PDP (the mock catalog has no graded pricing);
+// `gradedReference` is what flips the page's default lane from Raw to PSA. The
+// raw rows stay populated so the Raw chip still reads true.
+export const DEV_GRADED_CARD_ID = 'base1-4';
+
+const devGradedLadder: readonly [grade: string, price: number][] = [
+  ['10', 4357.28],
+  ['9', 2294.52],
+  ['8.5', 1665.46],
+  ['8', 1992.71],
+  ['7', 1756.81],
+  ['6', 1569.21],
+  ['5', 1354.2],
+  ['4', 1286.41],
+  ['3', 1132.71],
+  ['2', 1358.21],
+  ['1.5', 1300],
+  ['1', 1825],
+];
+
+const devGradedRawLadder: readonly [code: string, label: string, price: number][] = [
+  ['near_mint', 'Near Mint', 246.73],
+  ['lightly_played', 'Lightly Played', 185.42],
+  ['moderately_played', 'Moderately Played', 142.1],
+  ['heavily_played', 'Heavily Played', 98.5],
+  ['damaged', 'Damaged', 61.2],
+];
+
+// A gently rising stair-step the way real graded comps read: flat runs broken
+// by small jumps, the odd dip, landing exactly on `end`. Seeded from the row
+// key so every reload draws the same lines.
+function stairStepSeries(end: number, seed: string, length = 60): number[] {
+  let state = 2166136261;
+  for (const char of seed) {
+    state = Math.imul(state ^ char.charCodeAt(0), 16777619) >>> 0;
+  }
+  const rand = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+  const walk = [0];
+  for (let index = 1; index < length; index += 1) {
+    const roll = rand();
+    const step = roll < 0.2 ? 0.06 + rand() * 0.18 : roll < 0.3 ? -(rand() * 0.05) : 0;
+    walk.push(walk[index - 1] + step);
+  }
+  const start = end * (0.72 + rand() * 0.1);
+  const total = Math.max(walk[length - 1], 0.25);
+  const points = walk.map((value) => Number((start + (end - start) * (value / total)).toFixed(2)));
+  points[length - 1] = end;
+  return points;
+}
+
+function devTrendRow(label: string, key: string, currentPrice: number): CardPriceTrendRow {
+  const points = stairStepSeries(currentPrice, key);
+  return {
+    label,
+    key,
+    currentPrice,
+    currencyCode: 'USD',
+    points,
+    trendPct: Math.round((currentPrice / points[0] - 1) * 100),
+  };
+}
+
+function devGradedPriceTrends(mode: CardPriceTrendMode): CardPriceTrendList {
+  if (mode === 'graded') {
+    // Graded keys carry the pipe shape the PDP parses: "<grader>|<grade>|<variantKey>".
+    return {
+      mode,
+      provider: 'ebay',
+      rows: devGradedLadder.map(([grade, price]) => devTrendRow(`PSA ${grade}`, `PSA|${grade}|holofoil`, price)),
+    };
+  }
+  return {
+    mode,
+    provider: 'tcgplayer',
+    rows: devGradedRawLadder.map(([code, label, price]) => devTrendRow(label, `holofoil|${code}`, price)),
+  };
+}
+
+const devGradedRawPoints = stairStepSeries(devGradedRawLadder[0][2], 'base1-4-raw', 8);
+
+const devGradedDetail: CardDetailRecord = {
+  cardId: DEV_GRADED_CARD_ID,
+  game: 'pokemon',
+  name: 'Darkrai & Cresselia LEGEND',
+  cardNumber: '#99/102',
+  setName: 'HS—Triumphant',
+  imageUrl: 'https://images.scrydex.com/pokemon/base1-4/small',
+  largeImageUrl: 'https://images.scrydex.com/pokemon/base1-4/large',
+  marketPrice: devGradedRawLadder[0][2],
+  currencyCode: 'USD',
+  marketplaceLabel: 'TCGplayer',
+  marketHistory: {
+    currencyCode: 'USD',
+    currentPrice: devGradedRawLadder[0][2],
+    points: devGradedRawPoints.map((value, index) => ({
+      isoDate: `2026-04-${String(14 + index).padStart(2, '0')}`,
+      shortLabel: `Apr ${14 + index}`,
+      value,
+    })),
+    availableVariants: [{ id: 'holofoil', label: 'Holofoil' }],
+    availableConditions: devGradedRawLadder.map(([id, label, currentPrice]) => ({ id, label, currentPrice })),
+    selectedVariant: 'holofoil',
+    selectedCondition: 'near_mint',
+    insights: [],
+  },
+  ownedEntries: [],
+  variantOptions: [{ id: 'holofoil', label: 'Holofoil' }],
+  isFavorite: false,
+  likeCount: 2840,
+  language: 'english',
+  counterpartCardId: null,
+  counterpartLanguage: null,
+  artist: 'Shinji Higuchi + Noriko Takaya',
+  releaseDate: '2010-11-03',
+  gradedReference: {
+    grader: 'PSA',
+    grade: '10',
+    market: devGradedLadder[0][1],
+    currencyCode: 'USD',
+    label: 'PSA 10',
+  },
+};
+
 // Insights overrides: the mock's derived rows are all raw/NM with empty
 // sparklines — these cover the graded, variant, long-name, up/down shapes.
 // entry-5 stays untouched as the null-history "—" row.
@@ -360,7 +491,10 @@ function rewriteImageUrls<T>(value: T): T {
   return value;
 }
 
-function withLocalImages(repository: SpotlightRepository): SpotlightRepository {
+function withLocalImages(
+  repository: SpotlightRepository,
+  rawPricingMatrices: Readonly<Record<string, RawPricingMatrix>> = {},
+): SpotlightRepository {
   return new Proxy(repository, {
     get(target, property, receiver) {
       // Served wholesale rather than derived from the mock's catalog: the mock
@@ -420,6 +554,24 @@ function withLocalImages(repository: SpotlightRepository): SpotlightRepository {
         if (sealedQuery && property === 'getCardPriceTrends') {
           return Promise.resolve(devSealedPriceTrends);
         }
+        // The graded PDP is served whole too, but through the image rewrite:
+        // its art is card-shaped, so the bundled placeholder fits.
+        const gradedQuery = (args[0] as { cardId?: string } | undefined)?.cardId === DEV_GRADED_CARD_ID;
+        if (gradedQuery && property === 'getCardDetail') {
+          return Promise.resolve(rewriteImageUrls(devGradedDetail));
+        }
+        if (gradedQuery && property === 'getCardPriceTrends') {
+          const mode = (args[0] as { mode?: CardPriceTrendMode }).mode === 'graded' ? 'graded' : 'raw';
+          return Promise.resolve(devGradedPriceTrends(mode));
+        }
+        // Scanner dev screens: fixture cards are not in the mock catalog, so
+        // their printings are served whole (dev-scanner-screen.tsx).
+        if (property === 'getRawPricingMatrix') {
+          const matrix = rawPricingMatrices[String(args[0])];
+          if (matrix) {
+            return Promise.resolve(matrix);
+          }
+        }
         const result = original.apply(target, args);
         if (result instanceof Promise) {
           return result.then(applyOverrides);
@@ -431,7 +583,14 @@ function withLocalImages(repository: SpotlightRepository): SpotlightRepository {
 }
 
 export async function createDevRepository(
-  { seedFavorites = true }: { seedFavorites?: boolean } = {},
+  {
+    rawPricingMatrices,
+    seedFavorites = true,
+  }: {
+    /** Printings served by card id ahead of the mock (scanner dev screens). */
+    rawPricingMatrices?: Readonly<Record<string, RawPricingMatrix>>;
+    seedFavorites?: boolean;
+  } = {},
 ): Promise<SpotlightRepository> {
   const mock = new MockSpotlightRepository();
   // Private-field poke: the mock has no API for seeding favorites at a fixed
@@ -442,5 +601,5 @@ export async function createDevRepository(
   for (const [cardId, variant, favoritedAt] of seedFavorites ? seededFavorites : []) {
     favoriteTimestamps.set(buildWatchKey(cardId, variant), favoritedAt);
   }
-  return withLocalImages(mock);
+  return withLocalImages(mock, rawPricingMatrices);
 }

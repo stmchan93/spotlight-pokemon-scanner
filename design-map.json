@@ -55,6 +55,12 @@
           "figmaNodeId": "TODO",
           "deepLink": "spotlight://dev/card-detail-owned",
           "how": "owned card (mcdonalds25-21): Inventory panel, SAVE/CANCEL footer"
+        },
+        {
+          "name": "graded-price-trend",
+          "figmaNodeId": "1640:4077",
+          "deepLink": "spotlight://dev/price-trend-graded",
+          "how": "graded-lane PDP (DEV_GRADED_CARD_ID, served whole by dev-repository): gradedReference opens on PSA, Price Trend shows the PSA 10 -> PSA 1 ladder under the eBay mark; built 2026-10-15 for App Store screenshots. No POP REPORT block exists in the app."
         }
       ]
     },
@@ -145,9 +151,9 @@
         "apps/spotlight-rn/src/features/scanner/raw-scanner-capture-surface.tsx",
         "apps/spotlight-rn/src/app/(tabs)/scan.tsx"
       ],
-      "deepLink": "TODO(dev route)",
-      "mockData": null,
-      "notes": "Live camera feed — not pixel-reproducible. A dev route would need shouldMountCamera=false and would only verify overlay chrome. 'Scan-1' in the 'Scan' section. Scan-0 (pre-scan) alternate: 1041:4238. RETICLE 2026-09-09: one closed rounded outline at both scales — 1px Color/purple/200, radius 12 (5085:15171); the four corner brackets are gone. The binder page's interior thirds lines are drawn in the SAME Color/purple/200 1px as the frame — Figma draws them Color/purple/50 (5085:15377 vertical, 5085:15380 horizontal) and we depart: that value is near-white and vanishes over a live viewfinder, and it left the frame dominant with the 3x3 reading as a faint hint (the corner-bracket era it replaced drew a 2pt purple300 grid). Figma's 40% white fill inside the frame is intentionally not drawn — it scrims the live viewfinder."
+      "deepLink": "spotlight://dev/scanner",
+      "mockData": "apps/spotlight-rn/src/dev/dev-scanner-screen.tsx",
+      "notes": "Dev route (2026-10-15): the real ScannerScreen over a still photo via `devPreview` → RawScannerCaptureSurface `previewOverride` (fixtures: apps/spotlight-rn/src/dev/dev-scanner-fixtures.ts), tray pre-filled; `spotlight://dev/scanner-binder` is the 3x3 page with nine rows. Built for App Store screenshots on the camera-less simulator — the live camera path itself stays non-reproducible. 'Scan-1' in the 'Scan' section. Scan-0 (pre-scan) alternate: 1041:4238. RETICLE 2026-09-09: one closed rounded outline at both scales — 1px Color/purple/200, radius 12 (5085:15171); the four corner brackets are gone. The binder page's interior thirds lines are drawn in the SAME Color/purple/200 1px as the frame — Figma draws them Color/purple/50 (5085:15377 vertical, 5085:15380 horizontal) and we depart: that value is near-white and vanishes over a live viewfinder, and it left the frame dominant with the 3x3 reading as a faint hint (the corner-bracket era it replaced drew a 2pt purple300 grid). Figma's 40% white fill inside the frame is intentionally not drawn — it scrims the live viewfinder."
     },
     {
       "figmaNodeId": "TODO",

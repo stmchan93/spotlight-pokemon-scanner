@@ -4,6 +4,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import type { ReactNode, RefObject } from 'react';
 import { useCallback, useEffect, useImperativeHandle, useState } from 'react';
 import {
+  Image,
   Platform,
   Pressable,
   StyleSheet,
@@ -135,6 +136,27 @@ export type RawScannerCaptureLayout = {
   };
 };
 
+export type RawScannerFrameRect = RawScannerCaptureLayout['reticle'];
+
+/**
+ * DEV ONLY — `spotlight://dev/scanner*` (src/dev/dev-scanner-screen.tsx).
+ * A static image stands in for the live `<Camera>` so the scanner chrome can be
+ * screenshotted on the camera-less iOS Simulator for App Store listings.
+ * Never set in production: the prop is undefined there and the camera branch
+ * below is byte-for-byte what it was.
+ */
+export type RawScannerPreviewOverride = {
+  /** Bundled asset (`require(...)`) drawn full-bleed where the feed would be. */
+  source: number;
+  /**
+   * Drawn over that image, UNDER the scrim and reticle, in preview coordinates.
+   * Receives the frame the reticle draws — the page crop rect in binder mode,
+   * the visible reticle otherwise — so a scene can place cards exactly where a
+   * real capture would frame them.
+   */
+  renderScene?: (frameRect: RawScannerFrameRect) => ReactNode;
+};
+
 type RawScannerCaptureSurfaceProps = {
   cameraRef: RefObject<RawScannerCameraHandle | null>;
   canCapture: boolean;
@@ -142,6 +164,8 @@ type RawScannerCaptureSurfaceProps = {
   hasCameraPermission: boolean;
   isTrayExpanded?: boolean;
   layout: RawScannerCaptureLayout;
+  /** See `RawScannerPreviewOverride`. Undefined outside dev screenshot routes. */
+  previewOverride?: RawScannerPreviewOverride;
   onCameraError?: (error: unknown) => void;
   onCameraReady: () => void;
   onCameraStopped?: () => void;
@@ -356,6 +380,7 @@ export function RawScannerCaptureSurface({
   onCaptureBlocked,
   captureResolution = 'card',
   pageGrid = null,
+  previewOverride,
   prompt,
   reticleLockProgress,
   shouldMountCamera,
@@ -614,7 +639,20 @@ export function RawScannerCaptureSurface({
 
   return (
     <View style={styles.previewCanvas}>
-      {isCameraMounted ? (
+      {previewOverride ? (
+        // Dev screenshot route: a still photo plays the camera feed. The scene
+        // sits under the scrim so the frame dims it exactly as it would a
+        // live viewfinder.
+        <>
+          <Image
+            resizeMode="cover"
+            source={previewOverride.source}
+            style={StyleSheet.absoluteFillObject}
+            testID={`${testIDPrefix}-camera-preview-override`}
+          />
+          {previewOverride.renderScene?.(frameRect)}
+        </>
+      ) : isCameraMounted ? (
         <Camera
           device={device}
           isActive={shouldMountCamera && !suspendPreview}

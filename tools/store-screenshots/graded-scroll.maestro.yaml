@@ -1,0 +1,13 @@
+appId: com.ekalight.app.staging
+---
+- openLink: spotlight://dev/price-trend-graded
+- waitForAnimationToEnd
+- scrollUntilVisible:
+    element:
+      text: "Price Trend"
+    direction: DOWN
+    timeout: 8000
+- swipe:
+    direction: UP
+    duration: 400
+- waitForAnimationToEnd

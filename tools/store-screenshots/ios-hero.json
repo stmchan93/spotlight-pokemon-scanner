@@ -1,0 +1,88 @@
+[
+ {
+  "src": ".design-sync/store/scanner.png",
+  "out": "01-scan.png",
+  "head": [
+   [
+    [
+     "Any card, priced",
+     "w"
+    ]
+   ],
+   [
+    [
+     "in a second.",
+     "a"
+    ]
+   ]
+  ],
+  "sub": [
+   "No more guessing at the table. Free, unlimited scans."
+  ],
+  "callout": {
+   "title": "Mega Charizard X ex",
+   "sub": "125/094 \u00b7 Phantasmal Flames",
+   "value": "$619.14",
+   "y": 1980,
+   "side": "left"
+  }
+ },
+ {
+  "src": ".design-sync/store/scanner-binder.png",
+  "out": "02-binder.png",
+  "head": [
+   [
+    [
+     "Price a whole page",
+     "w"
+    ]
+   ],
+   [
+    [
+     "at once.",
+     "a"
+    ]
+   ]
+  ],
+  "sub": [
+   "Nine cards, one tap. Not one card at a time."
+  ],
+  "callout": {
+   "title": "Page total",
+   "sub": "9 cards, one tap",
+   "value": "$1,524.78",
+   "y": 1980,
+   "side": "right"
+  }
+ },
+ {
+  "src": ".design-sync/store/graded.png",
+  "out": "03-graded.png",
+  "head": [
+   [
+    [
+     "See what it's",
+     "w"
+    ]
+   ],
+   [
+    [
+     "worth graded.",
+     "a"
+    ]
+   ]
+  ],
+  "sub": [
+   "Every PSA grade from real sold comps,",
+   "before you pay the fee."
+  ],
+  "callout": {
+   "title": "PSA 10",
+   "sub": "Recent eBay sold comps",
+   "value": "$4,357",
+   "y": 1090,
+   "side": "left"
+  },
+  "crop_top": 0
+ }
+]

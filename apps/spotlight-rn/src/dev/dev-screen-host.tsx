@@ -38,8 +38,9 @@ import { setDevFeedItemsOverride } from '@/features/social/social-service';
 import { useTopMovers } from '@/features/social/use-top-movers';
 import { TargetPriceSheet } from '@/features/wishlist/components/target-price-sheet';
 import { WishlistScreen } from '@/features/wishlist/screens/wishlist-screen';
-import { createDevRepository, DEV_SEALED_CARD_ID } from '@/dev/dev-repository';
+import { createDevRepository, DEV_GRADED_CARD_ID, DEV_SEALED_CARD_ID } from '@/dev/dev-repository';
 import { devFeedItems } from '@/dev/dev-feed-data';
+import { DevScannerScreen, devScannerPricingMatrices } from '@/dev/dev-scanner-screen';
 import { AppProviders } from '@/providers/app-providers';
 
 /**
@@ -70,6 +71,12 @@ const devScreens: Record<string, () => ReactElement> = {
   // dev repository's sealed override, not mock-data.
   'card-detail-sealed': () => (
     <CardDetailScreen cardId={DEV_SEALED_CARD_ID} onBack={() => undefined} />
+  ),
+  // App Store screenshots: the PDP opened on the PSA lane, so the Price Trend
+  // block shows the full PSA 10 → PSA 1 ladder under the eBay mark. Served by
+  // the dev repository's graded override (gradedReference picks the lane).
+  'price-trend-graded': () => (
+    <CardDetailScreen cardId={DEV_GRADED_CARD_ID} onBack={() => undefined} />
   ),
   // Feed data comes from the social-service override installed on mount below,
   // not the mock repository — the feed reads Supabase-direct.
@@ -107,6 +114,11 @@ const devScreens: Record<string, () => ReactElement> = {
   // and the edit sheet a Watchlist long-press opens.
   'target-sheet': () => <DevTargetSheetScreen mode="afterWatch" />,
   'target-sheet-edit': () => <DevTargetSheetScreen mode="edit" />,
+  // App Store screenshots: the real scanner over a still photo (the simulator
+  // has no camera), tray pre-filled from dev-scanner-fixtures.ts. Single card
+  // in the reticle, and the 3x3 binder page with all nine rows.
+  scanner: () => <DevScannerScreen mode="single" />,
+  'scanner-binder': () => <DevScannerScreen mode="binder" />,
 };
 
 function DevTargetSheetScreen({ mode }: { mode: 'afterWatch' | 'edit' }) {
@@ -189,7 +201,10 @@ export function DevScreenHost({ screen }: { screen: string }) {
     // The PDP's module-level caches are keyed by cardId only — clear them so a
     // real session's data never bleeds into a dev screenshot (or vice versa).
     clearCardDetailCache();
-    void createDevRepository({ seedFavorites: screen !== 'watchlist-empty' }).then((repo) => {
+    void createDevRepository({
+      rawPricingMatrices: devScannerPricingMatrices,
+      seedFavorites: screen !== 'watchlist-empty',
+    }).then((repo) => {
       if (!cancelled) {
         setRepository(repo);
       }

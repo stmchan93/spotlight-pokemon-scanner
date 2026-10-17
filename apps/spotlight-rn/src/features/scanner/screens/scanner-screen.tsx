@@ -123,6 +123,7 @@ import {
   makeRawScannerCaptureLayout,
   type RawScannerCameraHandle,
   RawScannerCaptureSurface,
+  type RawScannerPreviewOverride,
   rawScannerTrayEmptyPeekHeight,
   rawScannerTrayHeaderHeight,
   rawVisualCaptureQuality,
@@ -366,7 +367,25 @@ function releaseCaptureScanUris(capture: RecentCapture): string[] {
   return [...new Set(uris)];
 }
 
+/**
+ * DEV ONLY — `spotlight://dev/scanner` and `/dev/scanner-binder`
+ * (src/dev/dev-scanner-screen.tsx): the real scanner chrome over a still image
+ * with the tray pre-filled, so App Store screenshots come off the camera-less
+ * iOS Simulator. Undefined in production; every read of it below falls through
+ * to the live behaviour (camera, permission prompt, tray rehydrate) when unset.
+ */
+export type ScannerDevPreview = {
+  mode: 'single' | 'binder';
+  /** Still image standing in for the camera feed (see `RawScannerPreviewOverride`). */
+  surface: number;
+  renderScene?: RawScannerPreviewOverride['renderScene'];
+  /** Tray rows as if the scan just resolved — newest first, like the store. */
+  tray: RecentCapture[];
+  priceSelections?: TrayPriceSelections;
+};
+
 type ScannerScreenProps = {
+  devPreview?: ScannerDevPreview;
   onExitToPortfolio?: () => void;
   onTopLevelSwipeEnabledChange?: (enabled: boolean) => void;
 };
@@ -995,10 +1014,12 @@ const emptyPriceSelections: TrayPriceSelections = new Map();
 const selectNoPriceSelections = () => emptyPriceSelections;
 
 export function ScannerScreen({
+  devPreview,
   onExitToPortfolio,
   onTopLevelSwipeEnabledChange,
 }: ScannerScreenProps = {}) {
   const isTestEnv = process.env.NODE_ENV === 'test';
+  const isDevPreview = devPreview != null;
   const { activePage } = useTabsPage();
   const isActiveTab = activePage === 'scanner';
   const router = useRouter();
@@ -1023,7 +1044,7 @@ export function ScannerScreen({
    * one shutter tap → nine pocket scans. Dev builds only for now — the toggle
    * never renders in a store binary, so the flag can't be reached there.
    */
-  const [isBinderPageMode, setIsBinderPageMode] = useState(false);
+  const [isBinderPageMode, setIsBinderPageMode] = useState(devPreview?.mode === 'binder');
   // Which page framing is armed while in page mode: 9 / 12 / 18 pockets.
   const [binderPageLayoutId, setBinderPageLayoutId] = useState<BinderPageLayoutId>(defaultBinderPageLayoutId);
   const binderPageLayout = binderPageLayoutById(binderPageLayoutId);
@@ -1132,7 +1153,8 @@ export function ScannerScreen({
     // mount at boot (Collection is the landing tab), so an unconditional arm
     // used to show the tooltip invisibly on the hidden page and let the 10s
     // timer burn it — the seen-flag was written before the user ever swiped over.
-    if (!isActiveTab) {
+    // Dev screenshot routes never arm it: a coach mark would vary the capture.
+    if (!isActiveTab || isDevPreview) {
       return undefined;
     }
     let cancelled = false;
@@ -1167,7 +1189,7 @@ export function ScannerScreen({
     return () => {
       cancelled = true;
     };
-  }, [isActiveTab, languageTooltipSecureSeenKey, languageTooltipSeenKey]);
+  }, [isActiveTab, isDevPreview, languageTooltipSecureSeenKey, languageTooltipSeenKey]);
   useEffect(() => {
     if (!showLanguageTooltip || !isActiveTab) {
       return undefined;
@@ -1196,7 +1218,8 @@ export function ScannerScreen({
   const [inventoryEntries, setInventoryEntries] = useState<InventoryCardEntry[]>([]);
   // The tray's rows + price picks live in a per-screen store (tray-store.ts);
   // the screen subscribes only to the id list and the values it draws.
-  const [trayStore] = useState(() => createTrayStore());
+  // Dev screenshot routes seed the rows up front; the store starts empty otherwise.
+  const [trayStore] = useState(() => createTrayStore(devPreview?.tray, devPreview?.priceSelections));
   const trayIds = useTrayIds(trayStore);
   const trayCount = trayIds.length;
   // The COMMITTED tray, mirrored by <TrayCommitEffects> after each commit, so
@@ -1288,6 +1311,11 @@ export function ScannerScreen({
   // backing out flushed the never-hydrated [] over a full tray.
   const hasHydratedTrayRef = useRef(false);
   useEffect(() => {
+    // Dev screenshot routes keep their seeded tray: no disk read, and with the
+    // hydrated flag never set, nothing below ever persists the fixture rows.
+    if (isDevPreview) {
+      return undefined;
+    }
     let cancelled = false;
     // Stamp the active account synchronously before any load/write so the tray load
     // can detect an account switch (and clear) and writes are tagged with the right owner.
@@ -1326,7 +1354,7 @@ export function ScannerScreen({
     return () => {
       cancelled = true;
     };
-  }, [trayOwnerKey, trayStore]);
+  }, [isDevPreview, trayOwnerKey, trayStore]);
 
   // Persist on every tray change, debounced inside the module so rapid scans
   // coalesce into one tray-DB transaction. Loading items are skipped by the
@@ -1440,7 +1468,8 @@ export function ScannerScreen({
     x: captureSurfaceLayout.captureCropRect.x,
     y: captureSurfaceLayout.captureCropRect.y,
   };
-  const hasCameraPermission = hasPermission;
+  // Dev screenshot routes never touch the camera, so there is nothing to ask for.
+  const hasCameraPermission = isDevPreview || hasPermission;
   const shouldMountCamera = hasCameraPermission && isActiveTab && isForeground && isScreenFocused;
   const scannerSmokeEnabled = resolveStagingSmokeModeEnabled({ allowDevelopment: true });
   const canCapture = shouldMountCamera
@@ -1644,7 +1673,7 @@ export function ScannerScreen({
   }, [dataVersion, shouldLoadInventory, spotlightRepository]);
 
   useEffect(() => {
-    if (hasPermission || hasPromptedForPermissionRef.current) {
+    if (isDevPreview || hasPermission || hasPromptedForPermissionRef.current) {
       return;
     }
 
@@ -1662,7 +1691,7 @@ export function ScannerScreen({
     }).catch(() => {
       capturePostHogEvent('scan_camera_permission_result', { granted: false, errored: true });
     });
-  }, [hasPermission, requestPermission]);
+  }, [hasPermission, isDevPreview, requestPermission]);
 
   useEffect(() => {
     if (Platform.OS === 'android') {
@@ -4435,7 +4464,7 @@ export function ScannerScreen({
   // the card being framed. Only the two states that carry information — no
   // camera permission, and a capture in flight — still put text on the
   // viewfinder.
-  const promptCopy = !hasPermission
+  const promptCopy = !hasCameraPermission
     ? 'Allow camera access to scan'
     : isCapturing
       ? 'Capturing scan...'
@@ -4615,6 +4644,9 @@ export function ScannerScreen({
         pageGrid={isBinderPageMode ? binderPageLayout : null}
         isTrayExpanded={isTrayExpanded}
         layout={captureSurfaceLayout}
+        previewOverride={devPreview
+          ? { renderScene: devPreview.renderScene, source: devPreview.surface }
+          : undefined}
         reticleLockProgress={reticleLockProgress}
         onCameraError={(error) => {
           // A session error (e.g. an unrecoverable interruption) — drop the gate
@@ -4656,7 +4688,7 @@ export function ScannerScreen({
           the only route back was the OS settings app — which nothing told the
           user about. This is the way out.
         */}
-        {!hasPermission ? (
+        {!hasCameraPermission ? (
           // Centred in the empty reticle: flowing from the top of the surface
           // put the card under the header row, which covered OPEN SETTINGS.
           <View
