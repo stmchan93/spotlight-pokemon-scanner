@@ -146,6 +146,11 @@ class BuildMapTests(unittest.TestCase):
 
 
 class EnrichmentTests(unittest.TestCase):
+    def test_tag_override_replaces_keyword_tags(self) -> None:
+        from tools.build_event_floor_map import TAG_OVERRIDES, _norm
+
+        self.assertEqual(TAG_OVERRIDES[_norm("Diamond Shields")], ["Pokémon"])
+
     def test_filter_tags_fold_the_rest_into_misc(self) -> None:
         from tools.build_event_floor_map import filter_tags
 

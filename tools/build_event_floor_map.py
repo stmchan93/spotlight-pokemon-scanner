@@ -82,6 +82,12 @@ TAG_PATTERNS: list[tuple[str, str]] = [
     ("Supplies", r"supplies|sleeve|toploader|accessor|binder"),
 ]
 
+# Organizer calls for vendors whose free-text answer names no game
+# (Diamond Shields: "Low Pop. Niche. Rare."), keyed by normalized vendor name.
+TAG_OVERRIDES: dict[str, list[str]] = {
+    "diamondshields": ["Pokémon"],
+}
+
 
 # ---------------------------------------------------------------------------
 # Figma
@@ -430,7 +436,7 @@ def build_map(
         raw_tags = tags_for(row["inventory"]) if row else []
         if any(i.startswith(FOOD_BLOCK) for i in ids) or (row and "food" in row["purchase"].lower()):
             raw_tags.append("Food")
-        tags = filter_tags(raw_tags)
+        tags = TAG_OVERRIDES.get(_norm(name)) or filter_tags(raw_tags)
         if csv_rows and row is None:
             report["noCsvMatch"].append(name)
 
