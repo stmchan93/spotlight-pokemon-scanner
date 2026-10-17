@@ -18,7 +18,7 @@ Re-run after every Figma edit, then deploy the backend; no app release needed.
 
     python3 tools/build_event_floor_map.py \\
         --event-id hawaii-2026-10 \\
-        --figma 'https://www.figma.com/design/<key>/...?node-id=2381-2048' \\
+        --figma 'https://www.figma.com/design/<key>/...?node-id=2414-2' \\
         --vendors-csv ~/Downloads/vendors-....csv
 
 The CSV (the ticketing export) only adds tags and Instagram handles; phone and
