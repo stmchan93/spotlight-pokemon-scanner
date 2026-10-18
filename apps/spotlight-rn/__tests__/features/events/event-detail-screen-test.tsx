@@ -164,15 +164,12 @@ describe('EventDetailScreen', () => {
     expect(save().props.accessibilityLabel).toBe('Save event');
   });
 
-  it('shares with the url when the event has a share link', async () => {
+  it('shares just the link when the event has a share link', async () => {
     const share = jest.spyOn(Share, 'share').mockResolvedValue({ action: Share.sharedAction });
     renderDetail('tba-2027-03');
     await screen.findByTestId('event-detail-title');
     fireEvent.press(screen.getByTestId('event-detail-share'));
-    expect(share).toHaveBeenCalledWith({
-      message: expect.stringContaining('Spotlight at a Venue TBA'),
-      url: 'https://example.com/e/tba',
-    });
+    expect(share).toHaveBeenCalledWith({ url: 'https://example.com/e/tba' });
   });
 
   it('shares a message only (with the ticket link inside) when there is no share link', async () => {

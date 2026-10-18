@@ -17,7 +17,7 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { CachedImage } from '@/components/cached-image';
+import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { EventFloorMap } from '@/features/events/components/event-floor-map';
 import { filterVendors, floorMapViewportHeight, vendorForTable } from '@/features/events/event-floor-map-model';
 import { useSpotlightEventMap } from '@/features/events/hooks/use-spotlight-event-map';
@@ -46,7 +46,7 @@ function vendorInitials(name: string) {
   return words.slice(0, 2).map((word) => word[0]).join('').toUpperCase() || '?';
 }
 
-/** Gray plate with the vendor's logo inset, or their initials when there is none. */
+/** The vendor's logo filling the circle, or their initials on a gray plate when there is none. */
 function VendorLogo({ vendor, size }: { vendor: SpotlightEventMapVendor; size: number }) {
   const theme = useSpotlightTheme();
   const inner = Math.round(size * (1 - 2 * LOGO_INSET_RATIO));
@@ -54,12 +54,23 @@ function VendorLogo({ vendor, size }: { vendor: SpotlightEventMapVendor; size: n
     <View
       style={[
         styles.logo,
-        { backgroundColor: theme.colors.gray300, borderRadius: size / 2, height: size, width: size },
+        {
+          // Gray only behind initials: an inset logo left a gray ring around square artwork.
+          backgroundColor: vendor.logoUrl ? theme.colors.gray0 : theme.colors.gray300,
+          borderRadius: size / 2,
+          height: size,
+          width: size,
+        },
       ]}
       testID={`event-vendor-avatar-${vendor.id}`}
     >
       {vendor.logoUrl ? (
-        <CachedImage contentFit="contain" source={{ uri: vendor.logoUrl }} style={{ height: inner, width: inner }} />
+        <CachedImage
+          cachePolicy={imageCachePolicy.full}
+          contentFit="cover"
+          source={{ uri: vendor.logoUrl }}
+          style={{ height: size, width: size }}
+        />
       ) : (
         // Initials scale with the plate, as `Avatar` does.
         <Text style={[theme.typography.captionStrong, { color: theme.colors.gray900, fontSize: inner * 0.55, lineHeight: inner }]}>

@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Image,
   Platform,
@@ -65,6 +65,8 @@ const LOGO_HEIGHT = 170;
 const LOGO_TOP_BELOW_STATUS_BAR = spacing.xxs;
 const LOGO_CENTER_OFFSET = -11;
 const SEARCH_ICON_SIZE = 16;
+/** Room left above the sheet for the floating toolbar when search scrolls it up. */
+const SEARCH_SCROLL_CLEARANCE = 64;
 
 const headerImage = require('../../../../assets/images/events/events-header.jpg');
 const showLogo = require('../../../../assets/images/events/spotlight-card-show-logo.png');
@@ -99,6 +101,7 @@ export function EventsScreen() {
   const [tab, setTab] = useState<EventsTab>('events');
   const [region, setRegion] = useState<string>(ALL_REGIONS);
   const [searchOpen, setSearchOpen] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
   const [query, setQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -136,10 +139,13 @@ export function EventsScreen() {
     setSearchOpen((open) => {
       if (open) {
         setQuery('');
+      } else {
+        // Bring the field up under the toolbar so the keyboard opens below it, not over it.
+        scrollRef.current?.scrollTo({ y: Math.max(0, sheetTop - insets.top - SEARCH_SCROLL_CLEARANCE), animated: true });
       }
       return !open;
     });
-  }, []);
+  }, [insets.top, sheetTop]);
 
   const renderCard = (event: SpotlightEvent, onPress: () => void = () => openEvent(event)) => (
     <EventListCard
@@ -208,6 +214,7 @@ export function EventsScreen() {
         contentContainerStyle={{ paddingBottom: tabBarBottomFadeHeight + (Platform.OS === 'ios' ? insets.bottom : 0) }}
         contentInsetAdjustmentBehavior="never"
         keyboardShouldPersistTaps="handled"
+        ref={scrollRef}
         refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={refreshing} tintColor={theme.colors.gray0} />}
         showsVerticalScrollIndicator={false}
         testID="events-scroll"

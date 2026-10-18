@@ -82,10 +82,13 @@ export function EventDetailScreen({ eventId, onBack }: EventDetailScreenProps) {
     if (!event) {
       return;
     }
-    const message = formatEventShareMessage(event);
     const url = event.shareUrl;
-    // iOS shares `url` as a rich link; Android ignores it, so the link rides in the text there.
-    const payload = !url ? { message } : Platform.OS === 'ios' ? { message, url } : { message: `${message}\n${url}` };
+    // Just the link when there is one (the page previews itself); Android has no `url` field.
+    const payload = !url
+      ? { message: formatEventShareMessage(event) }
+      : Platform.OS === 'ios'
+        ? { url }
+        : { message: url };
     void Share.share(payload).catch(() => undefined);
   }, [event]);
 
