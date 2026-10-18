@@ -105,6 +105,14 @@ TAG_PATTERNS: list[tuple[str, str]] = [
 # (Diamond Shields: "Low Pop. Niche. Rare."), keyed by normalized vendor name.
 TAG_OVERRIDES: dict[str, list[str]] = {
     "diamondshields": ["Pokémon"],
+    # Signing up but has no Treasure profile yet.
+    "hnlcardfest": ["Pokémon"],
+}
+
+# Display names for layout rows that aren't a business name (the layout lists
+# KenKar by the owner's email), keyed by normalized layout name.
+NAME_OVERRIDES: dict[str, str] = {
+    "kenriclhawaiiedu": "KenKar Collectibles",
 }
 
 
@@ -447,6 +455,7 @@ def build_map(
     vendors: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     for name, location in extract_vendor_rows(frame):
+        name = NAME_OVERRIDES.get(_norm(name), name)
         try:
             ids = parse_location(location)
         except ValueError as error:

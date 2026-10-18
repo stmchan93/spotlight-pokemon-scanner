@@ -4915,13 +4915,21 @@
    "instagram": "Kenigton_kalua"
   },
   {
-   "id": "kenricl-hawaii-edu",
-   "name": "kenricl@hawaii.edu",
+   "id": "kenkar-collectibles",
+   "name": "KenKar Collectibles",
    "location": "F9",
    "tableIds": [
     "F9"
    ],
-   "tags": [],
+   "tags": [
+    "Pokémon",
+    "One Piece",
+    "Riftbound",
+    "Dragon Ball",
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
    "instagram": null
   },
   {
@@ -6572,5 +6580,5 @@
   "tableColor": "#BFFEAC",
   "tableNumberSize": 0.00379
  },
- "updatedAt": "2026-10-18T17:59:58Z"
+ "updatedAt": "2026-10-18T18:17:26Z"
 }
