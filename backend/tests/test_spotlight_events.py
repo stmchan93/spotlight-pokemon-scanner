@@ -25,7 +25,7 @@ from server import SpotlightRequestHandler, SpotlightScanService  # noqa: E402
 ITEM_KEYS = {
     "id", "title", "shortTitle", "venue", "city", "address", "latitude", "longitude",
     "startDate", "endDate", "timezone", "openTime", "closeTime", "tableCount", "categories",
-    "about", "flyerUrl", "ticketUrl", "shareUrl", "featured", "accentColor", "status", "floorMapUrl",
+    "about", "pricing", "flyerUrl", "ticketUrl", "shareUrl", "featured", "accentColor", "status", "floorMapUrl",
 }
 PNG_BYTES = b"\x89PNG\r\n\x1a\nfake"
 
@@ -122,6 +122,9 @@ class SpotlightEventsTests(unittest.TestCase):
             "flyer ext": _event(id="k", flyer="notes.txt"),
             "featured str": _event(id="l", featured="yes"),
             "half coords": _event(id="m", longitude=None),
+            "pricing not object": _event(id="n", pricing="$10"),
+            "pricing no general": _event(id="o", pricing={"doorPrice": "$15"}),
+            "pricing bad notes": _event(id="p", pricing={"general": "$10", "notes": ["VIP", 20]}),
             "not object": "nope",
         }
         good = _event(id="ok")
@@ -143,6 +146,15 @@ class SpotlightEventsTests(unittest.TestCase):
         self.assertEqual(item["shortTitle"], row["title"])
         self.assertEqual(item["categories"], [])
         self.assertIs(item["featured"], False)
+        self.assertIsNone(item["pricing"])
+
+    def test_pricing_is_normalized(self) -> None:
+        self._write([_event(id="p", pricing={"general": " $10 general ", "notes": [" VIP - $20 "]})])
+        (item,) = self._build(_utc(2026, 1, 1))["items"]
+        self.assertEqual(
+            item["pricing"],
+            {"general": "$10 general", "doorPrice": None, "notes": ["VIP - $20"], "disclaimer": None},
+        )
 
     def test_status_and_order(self) -> None:
         self._write([

@@ -110,6 +110,26 @@ def _https_url(row: dict[str, Any], field: str) -> str | None:
     return value
 
 
+def _pricing(row: dict[str, Any]) -> dict[str, Any] | None:
+    """Optional ticket pricing copy; ``general`` is the only required line."""
+    value = row.get("pricing")
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise _Invalid("pricing must be an object or null")
+    notes = value.get("notes", [])
+    if notes is None:
+        notes = []
+    if not isinstance(notes, list) or not all(isinstance(n, str) and n.strip() for n in notes):
+        raise _Invalid("pricing.notes must be a list of non-empty strings")
+    return {
+        "general": _required_str(value, "general"),
+        "doorPrice": _optional_str(value, "doorPrice"),
+        "notes": [n.strip() for n in notes],
+        "disclaimer": _optional_str(value, "disclaimer"),
+    }
+
+
 def _validate_event(row: object) -> dict[str, Any]:
     """One JSON row -> stored event (still carrying ``flyer``); raises _Invalid."""
     if not isinstance(row, dict):
@@ -168,6 +188,7 @@ def _validate_event(row: object) -> dict[str, Any]:
         "tableCount": table_count,
         "categories": [c.strip() for c in categories],
         "about": _optional_str(row, "about"),
+        "pricing": _pricing(row),
         "flyer": flyer,
         "ticketUrl": _https_url(row, "ticketUrl"),
         "shareUrl": _https_url(row, "shareUrl"),

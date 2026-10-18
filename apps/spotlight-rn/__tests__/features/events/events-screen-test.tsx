@@ -7,6 +7,7 @@ import { resetSavedEventsForTests } from '@/features/events/saved-events-store';
 import {
   EventsScreen,
   buildEventsShareMessage,
+  searchEvents,
   selectTicketEvents,
 } from '@/features/events/screens/events-screen';
 import { openLinkOut } from '@/features/meta-feed/screens/components/open-link-out';
@@ -14,8 +15,6 @@ import { useAppDrawer } from '@/providers/app-drawer-provider';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../../test-utils';
 import { makeEvent, pastFeatured, upcomingFeatured } from './event-fixtures';
-
-type HostNode = typeof screen.root;
 
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
@@ -126,38 +125,62 @@ describe('EventsScreen', () => {
     expect(screen.queryByTestId('events-featured')).toBeNull();
   });
 
-  it('lists upcoming events, then a Past events header, then past events', async () => {
+  it('EVENTS lists only upcoming shows; PAST EVENTS lists the rest', async () => {
     renderEvents();
     await screen.findByTestId('event-card-hawaii-2026-10');
     expect(cardIds()).toEqual([
       'event-card-hawaii-2026-10',
       'event-card-pomona-2026-12',
       'event-card-irvine-2027-01',
-      'event-card-ontario-2026-08',
     ]);
+    expect(screen.getByTestId('events-title').props.children).toBe('Upcoming Spotlight events');
 
-    // Document order: the header sits between the last upcoming and first past card.
-    const marks = [
-      screen.getByTestId('event-card-irvine-2027-01'),
-      screen.getByText('Past events'),
-      screen.getByTestId('event-card-ontario-2026-08'),
-    ];
-    const order: number[] = [];
-    const walk = (node: HostNode) => {
-      const at = marks.indexOf(node);
-      if (at >= 0) {
-        order.push(at);
-      }
-      node.children.forEach((child: HostNode | string) => typeof child !== 'string' && walk(child));
-    };
-    walk(screen.root);
-    expect(order).toEqual([0, 1, 2]);
+    fireEvent.press(screen.getByTestId('events-tabs-tab-past'));
+    expect(cardIds()).toEqual(['event-card-ontario-2026-08']);
+    expect(screen.getByTestId('events-title').props.children).toBe('Past Spotlight events');
   });
 
-  it('omits the Past events header when nothing is past', async () => {
+  it('PAST EVENTS shows an empty state when nothing is past', async () => {
     renderEvents(async () => ({ items: [upcomingFeatured] }));
     await screen.findByTestId('event-card-hawaii-2026-10');
-    expect(screen.queryByText('Past events')).toBeNull();
+    fireEvent.press(screen.getByTestId('events-tabs-tab-past'));
+    expect(screen.getByTestId('events-past-empty')).toBeTruthy();
+  });
+
+  it('renders a region tab per state in the feed and filters by it', async () => {
+    renderEvents();
+    await screen.findByTestId('event-card-hawaii-2026-10');
+    expect(screen.getByTestId('events-regions-tab-all')).toBeTruthy();
+    expect(screen.getByTestId('events-regions-tab-HI')).toBeTruthy();
+    expect(screen.getByTestId('events-regions-tab-CA')).toBeTruthy();
+    expect(screen.queryByTestId('events-regions-tab-TX')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('events-regions-tab-CA'));
+    expect(cardIds()).toEqual(['event-card-pomona-2026-12', 'event-card-irvine-2027-01']);
+    // The region sticks across chips.
+    fireEvent.press(screen.getByTestId('events-tabs-tab-past'));
+    expect(cardIds()).toEqual(['event-card-ontario-2026-08']);
+    fireEvent.press(screen.getByTestId('events-regions-tab-HI'));
+    expect(screen.getByTestId('events-past-empty')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('events-tabs-tab-events'));
+    fireEvent.press(screen.getByTestId('events-regions-tab-all'));
+    expect(cardIds()).toHaveLength(3);
+  });
+
+  it('the toolbar search opens a field that filters by show, venue or city', async () => {
+    renderEvents();
+    await screen.findByTestId('event-card-hawaii-2026-10');
+    expect(screen.queryByTestId('events-search-field')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('events-search'));
+    fireEvent.changeText(screen.getByTestId('events-search-field'), 'pomona');
+    expect(cardIds()).toEqual(['event-card-pomona-2026-12']);
+
+    // Closing clears the query.
+    fireEvent.press(screen.getByTestId('events-search'));
+    expect(screen.queryByTestId('events-search-field')).toBeNull();
+    expect(cardIds()).toHaveLength(3);
   });
 
   it('pushes the detail route when a card is pressed', async () => {
@@ -252,6 +275,12 @@ describe('EventsScreen', () => {
 describe('events-screen selectors', () => {
   it('selectTicketEvents keeps non-past events with a ticket link', () => {
     expect(selectTicketEvents(FEED.items).map((event) => event.id)).toEqual(['hawaii-2026-10', 'pomona-2026-12']);
+  });
+
+  it('searchEvents matches title, venue and city, case-insensitively', () => {
+    expect(searchEvents(FEED.items, 'FAIRPLEX').map((event) => event.id)).toEqual(['pomona-2026-12']);
+    expect(searchEvents(FEED.items, 'oahu').map((event) => event.id)).toEqual(['hawaii-2026-10']);
+    expect(searchEvents(FEED.items, '  ')).toBe(FEED.items);
   });
 
   it('buildEventsShareMessage lists only upcoming events', () => {

@@ -75,6 +75,7 @@ export function DesignSystemCatalogScreen({
       { key: 'bodyStrong', label: 'Body Strong', style: theme.typography.bodyStrong, sample: 'Strong supporting copy.' },
       { key: 'control', label: 'Control', style: theme.typography.control, sample: 'Interactive Label' },
       { key: 'caption', label: 'Caption', style: theme.typography.caption, sample: 'Secondary caption style.' },
+      { key: 'captionRegular', label: 'Caption Regular', style: theme.typography.captionRegular, sample: 'Figma "Overline" — 12/400 meta line.' },
       { key: 'micro', label: 'Micro', style: theme.typography.micro, sample: 'META LABEL' },
     ];
   }, [theme]);

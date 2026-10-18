@@ -388,6 +388,16 @@ export const textStyles = {
     lineHeight: 21,
     color: colors.gray900,
   } satisfies TextStyle,
+  // Figma "Overline" — 12/400/140% gray-700. Regular-weight sibling of
+  // `captionMedium`: the Events list card's venue/date lines and the ticket
+  // disclaimer (Figma 5865:9378, 5882:12633).
+  captionRegular: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyRegular,
+    fontSize: 12,
+    lineHeight: 16.8,
+    color: colors.gray700,
+  } satisfies TextStyle,
   // Figma "Caption-medium" — 12/500/140% gray-600
   captionMedium: {
     ...numericFontVariant,

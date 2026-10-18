@@ -1,5 +1,5 @@
 {
-  "$comment": "Screen ↔ Figma registry for /sync-design (.claude/commands/sync-design.md). figmaNodeId/figmaUrl are filled by hand from the Figma file (node-id URL param; '-' and ':' forms are equivalent). deepLink is how the simulator opens the screen deterministically — spotlight://dev/<slug> routes render with mock data (registry: apps/spotlight-rn/src/dev/dev-screen-host.tsx); 'TODO(dev route)' means the mock registry entry hasn't been built yet, and /sync-design will help add it. mockData is the module seeding that screen's deterministic data.",
+  "$comment": "Screen \u2194 Figma registry for /sync-design (.claude/commands/sync-design.md). figmaNodeId/figmaUrl are filled by hand from the Figma file (node-id URL param; '-' and ':' forms are equivalent). deepLink is how the simulator opens the screen deterministically \u2014 spotlight://dev/<slug> routes render with mock data (registry: apps/spotlight-rn/src/dev/dev-screen-host.tsx); 'TODO(dev route)' means the mock registry entry hasn't been built yet, and /sync-design will help add it. mockData is the module seeding that screen's deterministic data.",
   "screens": [
     {
       "figmaNodeId": "4173:82045",
@@ -14,7 +14,7 @@
       ],
       "deepLink": "spotlight://dev/wishlist",
       "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts",
-      "notes": "List view frame. Grid-view alternate: 1874:21732. Toolbar glass (GlassNavBubble/GlassButtonGroup) matches Figma structurally but renders its solid-white fallback on iOS < 26; real Liquid Glass needs an iOS 26 DEVICE — iOS 26 sims can't run the app until GoogleMLKit pods gain arm64-simulator slices. Crop the toolbar from diffs until then.",
+      "notes": "List view frame. Grid-view alternate: 1874:21732. Toolbar glass (GlassNavBubble/GlassButtonGroup) matches Figma structurally but renders its solid-white fallback on iOS < 26; real Liquid Glass needs an iOS 26 DEVICE \u2014 iOS 26 sims can't run the app until GoogleMLKit pods gain arm64-simulator slices. Crop the toolbar from diffs until then.",
       "states": [
         {
           "name": "list",
@@ -42,7 +42,7 @@
       ],
       "deepLink": "spotlight://dev/card-detail",
       "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts",
-      "notes": "Raw PDP (full scroll, 393x1811) from 'Scanner to PDP - Raw'. Graded alternates: 1640:4077, 4173:80900 ('Profile - PDP'). Language chip row renders only when an EN/JP counterpart exists (feature gated on the unrun Phase-B link script). Like-count formats 9999+ (app) vs 10.1k (Figma mock) — formatter rule needs a designer decision. POP REPORT is graded-lane only (user ruling 2026-08-19; the app is correct) — the Figma RAW frame showing it is stale and should be fixed in the design file.",
+      "notes": "Raw PDP (full scroll, 393x1811) from 'Scanner to PDP - Raw'. Graded alternates: 1640:4077, 4173:80900 ('Profile - PDP'). Language chip row renders only when an EN/JP counterpart exists (feature gated on the unrun Phase-B link script). Like-count formats 9999+ (app) vs 10.1k (Figma mock) \u2014 formatter rule needs a designer decision. POP REPORT is graded-lane only (user ruling 2026-08-19; the app is correct) \u2014 the Figma RAW frame showing it is stale and should be fixed in the design file.",
       "states": [
         {
           "name": "browse-unowned",
@@ -74,7 +74,7 @@
       ],
       "deepLink": "spotlight://dev/portfolio",
       "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts",
-      "notes": "Dev route renders without the native tab bar — crop comparisons to content area. One of 5 'Collection-Portfolio' iterations in the 'You' section (3670:47219) — CONFIRM which is current: 4067:23632, 4134:48866, 4134:49488, 4134:50566, 4134:50940. Profile header rebuilt 2026-08-19 to the cover-overlay design (4134:48866): content over the cover, white text, plain-text stats, dark gray800 fallback when no cover, white sheet lip r16. States: 48866 list-rest (synced), 50940 mid-scrub, 49488/50566 grid, 4067:23632 stale."
+      "notes": "Dev route renders without the native tab bar \u2014 crop comparisons to content area. One of 5 'Collection-Portfolio' iterations in the 'You' section (3670:47219) \u2014 CONFIRM which is current: 4067:23632, 4134:48866, 4134:49488, 4134:50566, 4134:50940. Profile header rebuilt 2026-08-19 to the cover-overlay design (4134:48866): content over the cover, white text, plain-text stats, dark gray800 fallback when no cover, white sheet lip r16. States: 48866 list-rest (synced), 50940 mid-scrub, 49488/50566 grid, 4067:23632 stale."
     },
     {
       "figmaNodeId": "TODO",
@@ -101,7 +101,7 @@
       ],
       "deepLink": "spotlight://dev/feed",
       "mockData": "apps/spotlight-rn/src/dev/dev-feed-data.ts",
-      "notes": "CURRENT 2026-09-10: 5085:15398 (Home with Top Trends). Supersedes 4299:95117 for spacing — the post rhythm changed from a flat 10 to header→body 8 / body→image 8 / image→metrics 10, and the band seams from 12/12 to content-bottom 10 / band 4 / next-content 8. NOT BUILT from this frame: the carousel pagination dots under the rail (5085:15541, replacing our game caption above it) and the per-post Follow button (5085:15452). Frame text line-heights are Auto/intrinsic — token line heights are NOT mismatches. Post photos are mock content; crop 3:4 image regions and the bottom 95pt (no tab bar in dev route). 4299:94902 = wordmark logo-form alternate; 4037:15535 stale.",
+      "notes": "CURRENT 2026-09-10: 5085:15398 (Home with Top Trends). Supersedes 4299:95117 for spacing \u2014 the post rhythm changed from a flat 10 to header\u2192body 8 / body\u2192image 8 / image\u2192metrics 10, and the band seams from 12/12 to content-bottom 10 / band 4 / next-content 8. NOT BUILT from this frame: the carousel pagination dots under the rail (5085:15541, replacing our game caption above it) and the per-post Follow button (5085:15452). Frame text line-heights are Auto/intrinsic \u2014 token line heights are NOT mismatches. Post photos are mock content; crop 3:4 image regions and the bottom 95pt (no tab bar in dev route). 4299:94902 = wordmark logo-form alternate; 4037:15535 stale.",
       "states": [
         {
           "name": "resting",
@@ -128,7 +128,7 @@
       ],
       "deepLink": "spotlight://dev/top-trends",
       "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts (devTopMovers)",
-      "notes": "Home feed section between the compose prompt and the first post: title row + one horizontal rail of 354x142 mover tiles per game (CARD_GAMES order, empty games skipped). Dev route renders the block alone on white with a 59pt status-bar inset — crop to the block for diffs. In the feed the closing 4pt band is drawn by the first post cell once posts exist (Android seam shave), by the block itself otherwise.",
+      "notes": "Home feed section between the compose prompt and the first post: title row + one horizontal rail of 354x142 mover tiles per game (CARD_GAMES order, empty games skipped). Dev route renders the block alone on white with a 59pt status-bar inset \u2014 crop to the block for diffs. In the feed the closing 4pt band is drawn by the first post cell once posts exist (Android seam shave), by the block itself otherwise.",
       "states": [
         {
           "name": "title-content",
@@ -138,7 +138,7 @@
         {
           "name": "tile",
           "figmaNodeId": "4969:4105",
-          "how": "a single mover tile (TopMoverTile) — compare any tile in the rail"
+          "how": "a single mover tile (TopMoverTile) \u2014 compare any tile in the rail"
         }
       ]
     },
@@ -153,7 +153,7 @@
       ],
       "deepLink": "spotlight://dev/scanner",
       "mockData": "apps/spotlight-rn/src/dev/dev-scanner-screen.tsx",
-      "notes": "Dev route (2026-10-15): the real ScannerScreen over a still photo via `devPreview` → RawScannerCaptureSurface `previewOverride` (fixtures: apps/spotlight-rn/src/dev/dev-scanner-fixtures.ts), tray pre-filled; `spotlight://dev/scanner-binder` is the 3x3 page with nine rows. Built for App Store screenshots on the camera-less simulator — the live camera path itself stays non-reproducible. 'Scan-1' in the 'Scan' section. Scan-0 (pre-scan) alternate: 1041:4238. RETICLE 2026-09-09: one closed rounded outline at both scales — 1px Color/purple/200, radius 12 (5085:15171); the four corner brackets are gone. The binder page's interior thirds lines are drawn in the SAME Color/purple/200 1px as the frame — Figma draws them Color/purple/50 (5085:15377 vertical, 5085:15380 horizontal) and we depart: that value is near-white and vanishes over a live viewfinder, and it left the frame dominant with the 3x3 reading as a faint hint (the corner-bracket era it replaced drew a 2pt purple300 grid). Figma's 40% white fill inside the frame is intentionally not drawn — it scrims the live viewfinder."
+      "notes": "Dev route (2026-10-15): the real ScannerScreen over a still photo via `devPreview` \u2192 RawScannerCaptureSurface `previewOverride` (fixtures: apps/spotlight-rn/src/dev/dev-scanner-fixtures.ts), tray pre-filled; `spotlight://dev/scanner-binder` is the 3x3 page with nine rows. Built for App Store screenshots on the camera-less simulator \u2014 the live camera path itself stays non-reproducible. 'Scan-1' in the 'Scan' section. Scan-0 (pre-scan) alternate: 1041:4238. RETICLE 2026-09-09: one closed rounded outline at both scales \u2014 1px Color/purple/200, radius 12 (5085:15171); the four corner brackets are gone. The binder page's interior thirds lines are drawn in the SAME Color/purple/200 1px as the frame \u2014 Figma draws them Color/purple/50 (5085:15377 vertical, 5085:15380 horizontal) and we depart: that value is near-white and vanishes over a live viewfinder, and it left the frame dominant with the 3x3 reading as a faint hint (the corner-bracket era it replaced drew a 2pt purple300 grid). Figma's 40% white fill inside the frame is intentionally not drawn \u2014 it scrims the live viewfinder."
     },
     {
       "figmaNodeId": "TODO",
@@ -179,7 +179,7 @@
       ],
       "deepLink": "spotlight://dev/insights",
       "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts (devPerformanceRowOverrides)",
-      "notes": "'Highlights' frame. 2625:23848 is a pixel-identical duplicate; 2664:24720 = Filter By sheet open; 2664:25051 = the sheet component alone. Frame has the iOS26 glass toolbar and a category chevron the app deliberately omits; table pans horizontally — crop right of x=393 when diffing. Sheet copy 'Today' is stale in Figma (app is Monthly, matches 1M columns)."
+      "notes": "'Highlights' frame. 2625:23848 is a pixel-identical duplicate; 2664:24720 = Filter By sheet open; 2664:25051 = the sheet component alone. Frame has the iOS26 glass toolbar and a category chevron the app deliberately omits; table pans horizontally \u2014 crop right of x=393 when diffing. Sheet copy 'Today' is stale in Figma (app is Monthly, matches 1M columns)."
     },
     {
       "figmaNodeId": "TODO",
@@ -191,7 +191,7 @@
       ],
       "deepLink": "TODO(dev route)",
       "mockData": null,
-      "notes": "CONFIRMED MISMATCH 2026-08-19: frame 1874:22334 'Transactions' is the FUTURE marketplace transaction ledger (buy/sell/trade lots, day grouping, signed amounts) — not this per-card sales screen. No current frame exists for sales-history; 1874:22334 becomes the spec when the marketplace ledger is built. Candidate exports in .design-sync/SalesHistory/."
+      "notes": "CONFIRMED MISMATCH 2026-08-19: frame 1874:22334 'Transactions' is the FUTURE marketplace transaction ledger (buy/sell/trade lots, day grouping, signed amounts) \u2014 not this per-card sales screen. No current frame exists for sales-history; 1874:22334 becomes the spec when the marketplace ledger is built. Candidate exports in .design-sync/SalesHistory/."
     },
     {
       "figmaNodeId": "4164:77948",
@@ -203,7 +203,7 @@
       ],
       "deepLink": "TODO(dev route)",
       "mockData": null,
-      "notes": "SYNCED 2026-08-19 (numeric; 4164:77948 filled + 4167:78756 empty). Figma is a bottom sheet; app is a full-page push — structural divergence deferred. TextField hairline fixed to borderWidths.rule. Dev-route wiring staged in .design-sync/patches/agent-editprofile-patches.md."
+      "notes": "SYNCED 2026-08-19 (numeric; 4164:77948 filled + 4167:78756 empty). Figma is a bottom sheet; app is a full-page push \u2014 structural divergence deferred. TextField hairline fixed to borderWidths.rule. Dev-route wiring staged in .design-sync/patches/agent-editprofile-patches.md."
     },
     {
       "figmaNodeId": "4157:74954",
@@ -251,7 +251,7 @@
       ],
       "deepLink": "TODO(dev route)",
       "mockData": null,
-      "notes": "SYNCED 2026-08-19 (numeric; canonical composer spec 3656:40116; 4167:79261/79465 sheet states). Figma is a HALF-SHEET composer vs app full-page modal — structural redesign deferred (details in .design-sync/patches/agent-social2-patches.md). Figma max-length 160 vs backend 500 — data rule, not synced."
+      "notes": "SYNCED 2026-08-19 (numeric; canonical composer spec 3656:40116; 4167:79261/79465 sheet states). Figma is a HALF-SHEET composer vs app full-page modal \u2014 structural redesign deferred (details in .design-sync/patches/agent-social2-patches.md). Figma max-length 160 vs backend 500 \u2014 data rule, not synced."
     },
     {
       "figmaNodeId": "TODO",
@@ -263,7 +263,7 @@
       ],
       "deepLink": "TODO(dev route)",
       "mockData": null,
-      "notes": "NO FIGMA DESIGN EXISTS (confirmed 2026-08-19 — 4299:94427 is the profile Activity TAB, not this screen). Cleared the wrong node id. Dev-route + mock staged in .design-sync/patches/agent-social2-patches.md."
+      "notes": "NO FIGMA DESIGN EXISTS (confirmed 2026-08-19 \u2014 4299:94427 is the profile Activity TAB, not this screen). Cleared the wrong node id. Dev-route + mock staged in .design-sync/patches/agent-social2-patches.md."
     },
     {
       "figmaNodeId": "TODO",
@@ -399,30 +399,45 @@
       "mockData": null
     },
     {
-      "figmaNodeId": "5476:7127",
-      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=5476-7127",
+      "figmaNodeId": "5865:9330",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=5865-9330",
       "screenName": "Events",
       "componentPaths": [
         "apps/spotlight-rn/src/features/events/screens/events-screen.tsx",
         "apps/spotlight-rn/src/features/events/components/event-list-card.tsx",
+        "packages/design-system/src/components/page-tabs.tsx",
         "apps/spotlight-rn/src/app/(tabs)/events.tsx"
       ],
       "deepLink": "spotlight://dev/events",
       "mockData": "packages/api-client/src/spotlight/spotlight-events.ts",
-      "notes": "Saved segment is an addition not in the frame (user asked for a separate saved list). Mock events have no flyer, so flyer slots render the placeholder."
+      "notes": "Chip row EVENTS / TICKETS / SAVED / PAST EVENTS over the photo; region tabs (ALL + states derived from city) are PageTabs size=compact scrollable. The toolbar search bubble opens an inline search field (not in the frame). Mock Hawaii/Ontario events point flyerUrl at the staging flyer route so the card image slot is exercised. Synced 2026-10-17: numeric pass clean after uppercasing region tab labels; visual match vs Figma, status bar/tab bar ignored."
     },
     {
-      "figmaNodeId": "5528:730",
-      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=5528-730",
+      "figmaNodeId": "5882:12594",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=5882-12594",
       "screenName": "Event Detail",
       "componentPaths": [
         "apps/spotlight-rn/src/features/events/screens/event-detail-screen.tsx",
-        "apps/spotlight-rn/src/features/events/components/event-map.tsx",
+        "apps/spotlight-rn/src/features/events/components/event-vendors-section.tsx",
+        "apps/spotlight-rn/src/features/events/components/event-floor-map.tsx",
+        "apps/spotlight-rn/src/features/events/event-accent.ts",
         "apps/spotlight-rn/src/app/(stack)/events/[eventId].tsx"
       ],
       "deepLink": "spotlight://dev/event-detail",
       "mockData": "packages/api-client/src/spotlight/spotlight-events.ts",
-      "notes": "Apple Wallet button intentionally omitted (no Wallet integration). Map needs a native build with react-native-maps; older binaries show the tap-to-open fallback."
+      "notes": "Gradient stops derived from accentColor (event-accent.ts). PRICING section reads the optional `pricing` block in backend/data/spotlight_events.json and hides when absent. Buy Tickets footer is kept from the earlier frame (not in 5882:12594). Floor map height comes from floorMapViewportHeight (~554 on an 852 screen vs Figma 542). Synced 2026-10-17: numeric pass clean; visual match. Known deviations: Plus Jakarta Light not bundled (pricing bullets/disclaimer/search placeholder render Regular), vendor chips use PillButton 13/500 vs Figma 12/400, floor map height from floorMapViewportHeight."
+    },
+    {
+      "figmaNodeId": "5865:10752",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=5865-10752",
+      "screenName": "Event Detail (vendor selected)",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/events/components/event-vendors-section.tsx",
+        "apps/spotlight-rn/src/features/events/components/event-floor-map.tsx"
+      ],
+      "deepLink": "spotlight://dev/event-detail",
+      "mockData": "packages/api-client/src/spotlight/spotlight-events.ts",
+      "notes": "Tap a table or a vendor row on the dev route to reach this state: white card docked in the map, gray-900 row shell in the list. Tapping the row/table again or the map background deselects. Synced 2026-10-17: docked card + gray-900 row match; Instagram icon only renders when the vendor has a handle; selecting a table zooms the map (existing behaviour, not in frame)."
     }
   ]
 }

@@ -5,6 +5,17 @@
 
 export type SpotlightEventStatus = 'upcoming' | 'live' | 'past';
 
+/** Ticket pricing copy for the detail page's PRICING section (Figma 5882:12621). */
+export type SpotlightEventPricing = {
+  /** "$10 General". */
+  general: string;
+  /** "$15 at the door", or null when the price is the same at the door. */
+  doorPrice: string | null;
+  /** Bullet lines under the headline price (VIP, kids, military...). */
+  notes: string[];
+  disclaimer: string | null;
+};
+
 export type SpotlightEvent = {
   id: string;
   /** Full title for the detail page ("Spotlight at the Ontario Convention Center"). */
@@ -27,6 +38,8 @@ export type SpotlightEvent = {
   tableCount: number | null;
   categories: string[];
   about: string | null;
+  /** Null hides the PRICING section. */
+  pricing: SpotlightEventPricing | null;
   /** Absolute URL (resolved against the API base) or null. */
   flyerUrl: string | null;
   ticketUrl: string | null;
@@ -73,6 +86,23 @@ function resolveUrl(value: unknown, baseUrl: string): string | null {
   return httpUrl(url);
 }
 
+function parsePricing(value: unknown): SpotlightEventPricing | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const raw = value as Raw;
+  const general = str(raw.general);
+  if (!general) {
+    return null;
+  }
+  return {
+    general,
+    doorPrice: str(raw.doorPrice),
+    notes: Array.isArray(raw.notes) ? raw.notes.map(str).filter((item): item is string => item != null) : [],
+    disclaimer: str(raw.disclaimer),
+  };
+}
+
 function parseSpotlightEvent(value: unknown, baseUrl: string): SpotlightEvent | null {
   if (!value || typeof value !== 'object') {
     return null;
@@ -111,6 +141,7 @@ function parseSpotlightEvent(value: unknown, baseUrl: string): SpotlightEvent | 
       ? raw.categories.map(str).filter((item): item is string => item != null)
       : [],
     about: str(raw.about),
+    pricing: parsePricing(raw.pricing),
     flyerUrl: resolveUrl(raw.flyerUrl, baseUrl),
     ticketUrl: httpUrl(raw.ticketUrl),
     shareUrl: httpUrl(raw.shareUrl),
@@ -132,6 +163,13 @@ export function parseSpotlightEventsPayload(value: unknown, baseUrl = ''): Spotl
   };
 }
 
+export const mockSpotlightEventPricing: SpotlightEventPricing = {
+  general: '$10 general',
+  doorPrice: '$15 at the door',
+  notes: ['VIP (early entry at 10AM) - $20 for 1-day', 'Kids 13 & under - free w/ adult', 'Military - 50% off w/ military ID'],
+  disclaimer: 'All ticket sales are final. No refunds or exchanges unless the event is canceled or rescheduled.',
+};
+
 export const mockSpotlightEventsFeed: SpotlightEventsFeed = {
   items: [
     {
@@ -148,15 +186,17 @@ export const mockSpotlightEventsFeed: SpotlightEventsFeed = {
       timezone: 'Pacific/Honolulu',
       openTime: '10:00',
       closeTime: '17:00',
-      tableCount: null,
+      tableCount: 275,
       categories: ['Pokemon', 'Sports', 'One Piece', 'Yu-Gi-Oh', 'Magic The Gathering', 'Lorcana'],
       about: null,
-      flyerUrl: null,
+      pricing: mockSpotlightEventPricing,
+      flyerUrl: 'https://looty.34.134.72.20.sslip.io/api/v1/events/hawaii-2026-10/flyer',
       ticketUrl: 'https://example.com/tickets/hawaii',
       shareUrl: null,
       featured: true,
       accentColor: '#FFB000',
-      floorMapUrl: null,
+      // Points at `mockSpotlightEventMap`, so the dev route shows the vendors section.
+      floorMapUrl: 'https://example.com/api/v1/events/hawaii-2026-10/map',
       status: 'upcoming',
     },
     {
@@ -176,7 +216,8 @@ export const mockSpotlightEventsFeed: SpotlightEventsFeed = {
       tableCount: 275,
       categories: ['Pokemon', 'Sports', 'One Piece', 'Yu-Gi-Oh', 'Magic The Gathering', 'Lorcana'],
       about: null,
-      flyerUrl: null,
+      pricing: null,
+      flyerUrl: 'https://looty.34.134.72.20.sslip.io/api/v1/events/ontario-2026-08/flyer',
       ticketUrl: null,
       shareUrl: null,
       featured: true,

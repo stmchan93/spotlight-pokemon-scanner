@@ -979,6 +979,10 @@ Current API concepts:
 - a full-bleed `gray200` rail runs edge to edge under all tabs; the active underline shares its
   baseline and paints over it. The rail is **not** inset by the page gutter, so render `PageTabs`
   full-bleed rather than inside a horizontally padded wrapper.
+- `size="compact"` — the Figma "Collection Tabs" rail (5862:6907, Events region tabs): 14/500
+  labels boxed by 16pt side padding, 6pt word-to-underline, inactive `gray500`, on a `gray100`
+  rail; always left-aligned on the page gutter
+- `scrollable` — wraps the row in a horizontal `ScrollView` for sets that can outgrow the screen
 
 ### FloatingBottomNav
 

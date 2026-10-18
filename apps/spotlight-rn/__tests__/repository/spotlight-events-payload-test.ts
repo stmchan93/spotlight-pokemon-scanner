@@ -121,6 +121,35 @@ describe('parseSpotlightEventsPayload', () => {
   });
 });
 
+describe('pricing', () => {
+  it('parses the optional pricing block and defaults to null', () => {
+    expect(parseOne().pricing).toBeNull();
+    expect(
+      parseOne({
+        pricing: {
+          general: '$10 general',
+          doorPrice: '$15 at the door',
+          notes: ['VIP - $20', '', 4, 'Kids free'],
+          disclaimer: 'All sales final.',
+        },
+      }).pricing,
+    ).toEqual({
+      general: '$10 general',
+      doorPrice: '$15 at the door',
+      notes: ['VIP - $20', 'Kids free'],
+      disclaimer: 'All sales final.',
+    });
+    // A block with no headline price is as good as none.
+    expect(parseOne({ pricing: { doorPrice: '$15' } }).pricing).toBeNull();
+    expect(parseOne({ pricing: { general: '$10' } }).pricing).toEqual({
+      general: '$10',
+      doorPrice: null,
+      notes: [],
+      disclaimer: null,
+    });
+  });
+});
+
 describe('floorMapUrl', () => {
   it('resolves a relative floorMapUrl and defaults to null', () => {
     expect(parseOne({ floorMapUrl: '/api/v1/events/pomona-2026-12/map' }).floorMapUrl).toBe(

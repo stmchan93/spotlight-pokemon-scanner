@@ -144,4 +144,14 @@ describe('PageTabs', () => {
     expect(screen.getByTestId('page-tabs-tab-recent-sales')).toBeTruthy();
     expect(screen.getByTestId('page-tabs-tab-favorites')).toBeTruthy();
   });
+
+  // Events region tabs (Figma 5862:6907): a compact rail that can outgrow the screen.
+  it('compact + scrollable wraps the row in a horizontal scroll over a gray-100 rail', () => {
+    renderWithProviders(
+      <PageTabs<TabValue> scrollable size="compact" tabs={TABS} value="portfolio" onChange={jest.fn()} testID="page-tabs" />,
+    );
+    expect(screen.getByTestId('page-tabs-scroll').props.horizontal).toBe(true);
+    expect(StyleSheet.flatten(screen.getByTestId('page-tabs-rail').props.style).backgroundColor).toBe(colors.gray100);
+    expect(StyleSheet.flatten(screen.getByTestId('page-tabs-tab-favorites').props.style).paddingHorizontal).toBe(16);
+  });
 });

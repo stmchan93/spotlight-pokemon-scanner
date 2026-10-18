@@ -2,9 +2,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fireEvent, screen, within } from '@testing-library/react-native';
 import { Linking, Platform, Share } from 'react-native';
 
-import { mockSpotlightEventMap, type SpotlightEventsFeed } from '@spotlight/api-client';
+import { mockSpotlightEventMap, mockSpotlightEventPricing, type SpotlightEventsFeed } from '@spotlight/api-client';
 import { resetSavedEventsForTests } from '@/features/events/saved-events-store';
-import { EventDetailScreen, openEventInMaps } from '@/features/events/screens/event-detail-screen';
+import { EventDetailScreen, formatTicketPrice, openEventInMaps } from '@/features/events/screens/event-detail-screen';
 import { openLinkOut } from '@/features/meta-feed/screens/components/open-link-out';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../../test-utils';
@@ -103,9 +103,25 @@ describe('EventDetailScreen', () => {
     for (const category of upcomingFeatured.categories) {
       expect(within(categories).getByText(category)).toBeTruthy();
     }
-    expect(screen.queryByText(/Tables$/)).toBeNull();
+    expect(screen.getByText('275+ Tables')).toBeTruthy();
     expect(screen.getByText(upcomingFeatured.address)).toBeTruthy();
     expect(screen.queryByTestId('event-detail-map')).toBeNull();
+  });
+
+  it('renders the PRICING section from the event pricing block, and hides it when absent', async () => {
+    renderDetail('hawaii-2026-10');
+    await screen.findByTestId('event-detail-title');
+    const pricing = screen.getByTestId('event-detail-pricing');
+    expect(within(pricing).getByText('$10 general ($15 at the door)')).toBeTruthy();
+    for (const note of mockSpotlightEventPricing.notes) {
+      expect(within(pricing).getByText(note)).toBeTruthy();
+    }
+    expect(within(pricing).getByText(mockSpotlightEventPricing.disclaimer ?? '')).toBeTruthy();
+
+    screen.unmount();
+    renderDetail('ontario-2026-08');
+    await screen.findByTestId('event-detail-title');
+    expect(screen.queryByTestId('event-detail-pricing')).toBeNull();
   });
 
   it('shows Buy Tickets for an upcoming ticketed event and opens the link', async () => {
@@ -188,6 +204,13 @@ describe('EventDetailScreen', () => {
     await screen.findByTestId('event-detail-title');
     fireEvent.press(screen.getByTestId('event-detail-address'));
     expect(openURL).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('formatTicketPrice', () => {
+  it('appends the door price in parentheses when there is one', () => {
+    expect(formatTicketPrice({ general: '$10 general', doorPrice: '$15 at the door' })).toBe('$10 general ($15 at the door)');
+    expect(formatTicketPrice({ general: '$10 general', doorPrice: null })).toBe('$10 general');
   });
 });
 
@@ -276,12 +299,13 @@ describe('EventDetailScreen vendors', () => {
     const { fetchSpotlightEventMap } = renderWithMap();
     expect(await screen.findByTestId('event-vendors')).toBeTruthy();
     expect(fetchSpotlightEventMap).toHaveBeenCalledWith(withMap.floorMapUrl);
-    expect(screen.getByTestId('event-vendors-count').props.children).toBe('3 vendors');
+    for (const vendor of mockSpotlightEventMap.vendors) {
+      expect(screen.getByTestId(`event-vendor-${vendor.id}`)).toBeTruthy();
+    }
 
     fireEvent.changeText(screen.getByTestId('event-vendors-search'), 'main');
     expect(screen.getByTestId('event-vendor-main-street-cards')).toBeTruthy();
     expect(screen.queryByTestId('event-vendor-aloha-puddin')).toBeNull();
-    expect(screen.getByTestId('event-vendors-count').props.children).toBe('1 of 3 vendors');
 
     fireEvent.changeText(screen.getByTestId('event-vendors-search'), '');
     fireEvent.press(screen.getByTestId('event-vendors-tag-Food'));
@@ -289,7 +313,7 @@ describe('EventDetailScreen vendors', () => {
     expect(screen.queryByTestId('event-vendor-main-street-cards')).toBeNull();
   });
 
-  it('selecting a vendor shows its card, highlights its tables and opens Instagram', async () => {
+  it('selecting a vendor shows its card, highlights its tables, opens Instagram, and a second tap deselects', async () => {
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
     renderWithMap();
     fireEvent(await screen.findByTestId('event-floor-map'), 'layout', {
@@ -305,10 +329,15 @@ describe('EventDetailScreen vendors', () => {
     expect(screen.getByTestId('event-floor-map-highlight-A2')).toBeTruthy();
     expect(screen.queryByTestId('event-floor-map-highlight-C14')).toBeNull();
 
+    expect(screen.getByText('Table A1-A2')).toBeTruthy();
+    expect(screen.getByTestId('event-vendor-dokidoki-collectibles').props.accessibilityState).toMatchObject({
+      selected: true,
+    });
+
     fireEvent.press(screen.getByTestId('event-vendor-card-instagram'));
     expect(openURL).toHaveBeenCalledWith('https://instagram.com/dokidokicollectibles');
 
-    fireEvent.press(screen.getByTestId('event-vendor-card-close'));
+    fireEvent.press(screen.getByTestId('event-vendor-dokidoki-collectibles'));
     expect(screen.queryByTestId('event-vendor-card')).toBeNull();
   });
 

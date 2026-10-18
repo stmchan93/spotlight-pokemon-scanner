@@ -25,6 +25,16 @@
         "Lorcana"
       ],
       "about": null,
+      "pricing": {
+        "general": "$10 general",
+        "doorPrice": "$15 at the door",
+        "notes": [
+          "VIP (early entry at 10AM) - $20 for 1-day",
+          "Kids 13 & under - free w/ adult",
+          "Military - 50% off w/ military ID"
+        ],
+        "disclaimer": "All ticket sales are final. No refunds or exchanges unless the event is canceled or rescheduled."
+      },
       "flyer": "ontario-2026-08.png",
       "ticketUrl": null,
       "shareUrl": null,
@@ -55,6 +65,16 @@
         "Lorcana"
       ],
       "about": null,
+      "pricing": {
+        "general": "$10 general",
+        "doorPrice": "$15 at the door",
+        "notes": [
+          "VIP (early entry at 10AM) - $20 for 1-day",
+          "Kids 13 & under - free w/ adult",
+          "Military - 50% off w/ military ID"
+        ],
+        "disclaimer": "All ticket sales are final. No refunds or exchanges unless the event is canceled or rescheduled."
+      },
       "flyer": "hawaii-2026-10.png",
       "ticketUrl": null,
       "shareUrl": null,
@@ -85,6 +105,16 @@
         "Lorcana"
       ],
       "about": null,
+      "pricing": {
+        "general": "$10 general",
+        "doorPrice": "$15 at the door",
+        "notes": [
+          "VIP (early entry at 10AM) - $20 for 1-day",
+          "Kids 13 & under - free w/ adult",
+          "Military - 50% off w/ military ID"
+        ],
+        "disclaimer": "All ticket sales are final. No refunds or exchanges unless the event is canceled or rescheduled."
+      },
       "flyer": "seattle-2026-12.png",
       "ticketUrl": null,
       "shareUrl": null,

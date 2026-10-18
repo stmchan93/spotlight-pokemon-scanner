@@ -1,12 +1,15 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Text } from './scaled-text';
 import { useSpotlightTheme } from '../theme';
+import { spacing } from '../tokens';
 
 export type PageTab<V extends string> = {
   value: V;
   label: string;
 };
+
+export type PageTabsSize = 'default' | 'compact';
 
 export type PageTabsProps<V extends string> = {
   tabs: ReadonlyArray<PageTab<V>>;
@@ -14,6 +17,15 @@ export type PageTabsProps<V extends string> = {
   onChange: (value: V) => void;
   /** `start` = left-aligned tabs on the page gutter (Figma Events 5476:7154). */
   align?: 'center' | 'start';
+  /**
+   * `compact` = the Figma "Collection Tabs" rail (5862:6907): 14/500 labels
+   * boxed by 16pt side padding, 6pt word-to-underline, inactive gray-500, on a
+   * gray-100 hairline. Always left-aligned; pass `scrollable` when the set can
+   * outgrow the screen.
+   */
+  size?: PageTabsSize;
+  /** Horizontal scroll instead of squeezing; the rail stays full-bleed. */
+  scrollable?: boolean;
   testID?: string;
 };
 
@@ -22,9 +34,69 @@ export function PageTabs<V extends string>({
   value,
   onChange,
   align = 'center',
+  size = 'default',
+  scrollable = false,
   testID,
 }: PageTabsProps<V>) {
   const theme = useSpotlightTheme();
+  const compact = size === 'compact';
+
+  const row = (
+    <View
+      style={[
+        styles.container,
+        compact ? styles.containerCompact : align === 'start' && styles.containerStart,
+      ]}
+    >
+      {tabs.map((tab) => {
+        const selected = tab.value === value;
+        return (
+          <Pressable
+            key={tab.value}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+            onPress={() => onChange(tab.value)}
+            style={({ pressed }) => [
+              compact ? styles.tabCompact : styles.tab,
+              { opacity: pressed ? 0.7 : 1 },
+            ]}
+            testID={testID ? `${testID}-tab-${tab.value}` : undefined}
+          >
+            <Text
+              style={[
+                theme.typography.bodyMedium,
+                compact ? styles.labelCompact : styles.label,
+                {
+                  // Active tab is medium/gray-900; inactive stays regular-weight
+                  // gray-600 (Figma 3184-17337). Compact keeps medium on both and
+                  // drops the inactive colour to gray-500 (Figma 5862:6915).
+                  fontFamily: selected || compact
+                    ? theme.typography.bodyMedium.fontFamily
+                    : theme.typography.body.fontFamily,
+                  color: selected
+                    ? theme.colors.textPrimary
+                    : compact
+                      ? theme.colors.gray500
+                      : theme.colors.gray600,
+                },
+              ]}
+            >
+              {tab.label}
+            </Text>
+            <View
+              style={[
+                styles.underline,
+                {
+                  backgroundColor: selected ? theme.colors.textPrimary : 'transparent',
+                },
+              ]}
+              testID={testID ? `${testID}-tab-${tab.value}-underline` : undefined}
+            />
+          </Pressable>
+        );
+      })}
+    </View>
+  );
 
   return (
     <View style={styles.root} testID={testID}>
@@ -34,56 +106,24 @@ export function PageTabs<V extends string>({
         style={[
           styles.rail,
           {
-            backgroundColor: theme.colors.gray300,
+            backgroundColor: compact ? theme.colors.gray100 : theme.colors.gray300,
             height: theme.borderWidths.containerRule,
           },
         ]}
         testID={testID ? `${testID}-rail` : undefined}
       />
-      <View style={[styles.container, align === 'start' && styles.containerStart]}>
-        {tabs.map((tab) => {
-          const selected = tab.value === value;
-          return (
-            <Pressable
-              key={tab.value}
-              accessibilityRole="button"
-              accessibilityState={{ selected }}
-              onPress={() => onChange(tab.value)}
-              style={({ pressed }) => [
-                styles.tab,
-                { opacity: pressed ? 0.7 : 1 },
-              ]}
-              testID={testID ? `${testID}-tab-${tab.value}` : undefined}
-            >
-              <Text
-                style={[
-                  theme.typography.bodyMedium,
-                  styles.label,
-                  {
-                    // Active tab is medium/gray-900; inactive stays regular-weight
-                    // gray-600 (Figma 3184-17337).
-                    fontFamily: selected
-                      ? theme.typography.bodyMedium.fontFamily
-                      : theme.typography.body.fontFamily,
-                    color: selected ? theme.colors.textPrimary : theme.colors.gray600,
-                  },
-                ]}
-              >
-                {tab.label}
-              </Text>
-              <View
-                style={[
-                  styles.underline,
-                  {
-                    backgroundColor: selected ? theme.colors.textPrimary : 'transparent',
-                  },
-                ]}
-                testID={testID ? `${testID}-tab-${tab.value}-underline` : undefined}
-              />
-            </Pressable>
-          );
-        })}
-      </View>
+      {scrollable ? (
+        <ScrollView
+          horizontal
+          keyboardShouldPersistTaps="handled"
+          showsHorizontalScrollIndicator={false}
+          testID={testID ? `${testID}-scroll` : undefined}
+        >
+          {row}
+        </ScrollView>
+      ) : (
+        row
+      )}
     </View>
   );
 }
@@ -139,6 +179,13 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingHorizontal: 14,
   },
+  // Figma 5862:6907: the rail is inset by the page gutter and each tab box
+  // carries its own 16 per side, so boxes sit flush (no gap).
+  containerCompact: {
+    justifyContent: 'flex-start',
+    gap: 0,
+    paddingHorizontal: spacing.sm,
+  },
   tab: {
     alignItems: 'center',
     justifyContent: 'flex-end',
@@ -149,6 +196,11 @@ const styles = StyleSheet.create({
     // matching Figma, where the gap is measured box-to-box, not word-to-word.
     paddingHorizontal: TAB_HORIZONTAL_PADDING,
   },
+  tabCompact: {
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingHorizontal: spacing.sm,
+  },
   label: {
     textAlign: 'center',
     // 8 word-to-underline (Figma 4067:26938: 18pt text box, underline at y26).
@@ -158,6 +210,12 @@ const styles = StyleSheet.create({
     // bodyMedium's 21pt line box floats the 14pt word ~3.5pt below the bar's
     // 16pt padding. Figma's tab box (4067:26807) uses normal leading — 18 here
     // reproduces it, so the word itself sits 16 from the bar's top edge.
+    lineHeight: 18,
+  },
+  // Figma 5862:6911: 14pt label on normal leading, 6 to the underline.
+  labelCompact: {
+    textAlign: 'center',
+    marginBottom: 6,
     lineHeight: 18,
   },
   underline: {

@@ -1,4 +1,6 @@
 import {
+  eventRegion,
+  eventRegions,
   formatEventDateRange,
   formatEventHours,
   formatEventNumericDateRange,
@@ -90,5 +92,25 @@ describe('formatEventShareMessage', () => {
 
   it('has no trailing line when there is neither link', () => {
     expect(formatEventShareMessage(makeEvent({ ticketUrl: null })).split('\n')).toHaveLength(2);
+  });
+});
+
+describe('eventRegion', () => {
+  it('maps the state code at the end of the city to a region tab', () => {
+    expect(eventRegion({ city: 'Oahu, HI' })).toEqual({ value: 'HI', label: 'Hawaii' });
+    expect(eventRegion({ city: 'Ontario, CA' })).toEqual({ value: 'CA', label: 'California' });
+    expect(eventRegion({ city: 'Austin, tx' })).toEqual({ value: 'TX', label: 'Texas' });
+    expect(eventRegion({ city: 'Seattle, WA' })).toEqual({ value: 'WA', label: 'Washington' });
+    // Unknown states still get a tab, labelled by their code.
+    expect(eventRegion({ city: 'Las Vegas, NV' })).toEqual({ value: 'NV', label: 'NV' });
+    expect(eventRegion({ city: 'Tokyo' })).toBeNull();
+  });
+
+  it('eventRegions lists each region once, in feed order', () => {
+    expect(
+      eventRegions([{ city: 'Ontario, CA' }, { city: 'Oahu, HI' }, { city: 'Pomona, CA' }, { city: 'Tokyo' }]).map(
+        (region) => region.value,
+      ),
+    ).toEqual(['CA', 'HI']);
   });
 });

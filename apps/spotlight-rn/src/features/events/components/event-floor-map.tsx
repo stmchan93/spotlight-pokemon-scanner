@@ -44,6 +44,8 @@ type EventFloorMapProps = {
   /** Height at the bottom covered by an overlay; a fitted selection is centred above it. */
   bottomInset?: number;
   onTablePress: (tableId: string) => void;
+  /** A tap that lands on no table (clears a selection). */
+  onBackgroundPress?: () => void;
   /** The enclosing scroll view, so panning a zoomed map doesn't also scroll the page. */
   scrollGesture?: GestureType | React.RefObject<unknown>;
   testID?: string;
@@ -56,6 +58,7 @@ export function EventFloorMap({
   focusKey,
   bottomInset = 0,
   onTablePress,
+  onBackgroundPress,
   scrollGesture,
   testID = 'event-floor-map',
 }: EventFloorMapProps) {
@@ -157,9 +160,11 @@ export function EventFloorMap({
       );
       if (table) {
         onTablePress(table.id);
+      } else {
+        onBackgroundPress?.();
       }
     },
-    [content, map.tables, onTablePress],
+    [content, map.tables, onBackgroundPress, onTablePress],
   );
 
   const contentWidth = content.width;
@@ -301,7 +306,8 @@ export function EventFloorMap({
   return (
     <View
       onLayout={onLayout}
-      style={[styles.viewport, { height: viewportHeight, backgroundColor: theme.colors.gray50, borderColor: theme.colors.gray200 }]}
+      // Figma 5882:12658: gray-50 frame with a gray-50 stroke at radius 8.
+      style={[styles.viewport, { height: viewportHeight, backgroundColor: theme.colors.gray50, borderColor: theme.colors.gray50 }]}
       testID={testID}
     >
       {viewportWidth > 0 ? (
@@ -530,7 +536,7 @@ const FloorDrawing = memo(function FloorDrawing({
 const styles = StyleSheet.create({
   viewport: {
     borderCurve: 'continuous',
-    borderRadius: radii.lg,
+    borderRadius: radii.sm,
     borderWidth: borderWidths.containerRule,
     overflow: 'hidden',
   },

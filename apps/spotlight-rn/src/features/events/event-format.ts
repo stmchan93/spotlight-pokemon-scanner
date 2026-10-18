@@ -72,6 +72,40 @@ export function formatEventSchedule(event: SpotlightEvent): string {
   return hours ? `${dates}, ${hours}` : dates;
 }
 
+const REGION_LABELS: Record<string, string> = {
+  HI: 'Hawaii',
+  CA: 'California',
+  TX: 'Texas',
+  WA: 'Washington',
+};
+
+export type EventRegion = { value: string; label: string };
+
+/**
+ * The Events list's region tab for a show, from the state code at the end of
+ * `city` ("Oahu, HI" -> Hawaii). Null when the city carries no state.
+ */
+export function eventRegion(event: Pick<SpotlightEvent, 'city'>): EventRegion | null {
+  const match = /,\s*([A-Za-z]{2})\s*$/.exec(event.city);
+  if (!match) {
+    return null;
+  }
+  const code = match[1].toUpperCase();
+  return { value: code, label: REGION_LABELS[code] ?? code };
+}
+
+/** Distinct regions in feed order, for the ALL / HAWAII / CALIFORNIA... tabs. */
+export function eventRegions(events: readonly Pick<SpotlightEvent, 'city'>[]): EventRegion[] {
+  const seen = new Map<string, EventRegion>();
+  for (const event of events) {
+    const region = eventRegion(event);
+    if (region && !seen.has(region.value)) {
+      seen.set(region.value, region);
+    }
+  }
+  return [...seen.values()];
+}
+
 export function formatEventShareMessage(event: SpotlightEvent): string {
   return [
     event.title,
