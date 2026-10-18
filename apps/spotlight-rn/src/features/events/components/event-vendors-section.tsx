@@ -174,6 +174,26 @@ function EventVendorsBody({
   return (
     <View style={styles.section} testID="event-vendors">
       {renderTitle('Vendors')}
+      <View>
+        <EventFloorMap
+          bottomInset={selected ? CARD_OVERLAY_HEIGHT : 0}
+          focusKey={selected?.id ?? null}
+          map={map}
+          matchedTableIds={matchedTableIds}
+          onBackgroundPress={deselect}
+          onTablePress={handleTablePress}
+          scrollGesture={scrollGesture}
+          selectedTableIds={selectedTableIds}
+        />
+        {/* Docked inside the map (Figma 5865:11358): below it, a tapped table's vendor landed off-screen. */}
+        {selected ? (
+          <View pointerEvents="box-none" style={styles.cardOverlay}>
+            <SelectedVendorCard onClose={deselect} vendor={selected} />
+          </View>
+        ) : null}
+      </View>
+
+      {/* Under the map: the map is the first thing you see; search and filters drive the list below. */}
       <View style={styles.controls}>
         <SearchField
           accessibilityLabel="Search vendors"
@@ -215,25 +235,6 @@ function EventVendorsBody({
               />
             ))}
           </ScrollView>
-        ) : null}
-      </View>
-
-      <View>
-        <EventFloorMap
-          bottomInset={selected ? CARD_OVERLAY_HEIGHT : 0}
-          focusKey={selected?.id ?? null}
-          map={map}
-          matchedTableIds={matchedTableIds}
-          onBackgroundPress={deselect}
-          onTablePress={handleTablePress}
-          scrollGesture={scrollGesture}
-          selectedTableIds={selectedTableIds}
-        />
-        {/* Docked inside the map (Figma 5865:11358): below it, a tapped table's vendor landed off-screen. */}
-        {selected ? (
-          <View pointerEvents="box-none" style={styles.cardOverlay}>
-            <SelectedVendorCard onClose={deselect} vendor={selected} />
-          </View>
         ) : null}
       </View>
 
