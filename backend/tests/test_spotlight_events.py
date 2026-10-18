@@ -80,6 +80,8 @@ def _utc(*args: int) -> datetime:
 
 class SpotlightEventsTests(unittest.TestCase):
     def setUp(self) -> None:
+        # File-only behaviour: no admin overrides from whichever service another test built.
+        spotlight_events.configure_admin(None)
         spotlight_events.clear_cache()
         self.addCleanup(spotlight_events.clear_cache)
         self.tempdir = tempfile.TemporaryDirectory()
@@ -192,7 +194,7 @@ class SpotlightEventsTests(unittest.TestCase):
                      _event(id="no-flyer", flyer=None)])
         (self.flyers_dir / "a.png").write_bytes(PNG_BYTES)
         items = {i["id"]: i for i in self._build(_utc(2026, 1, 1))["items"]}
-        self.assertEqual(items["with-file"]["flyerUrl"], "/api/v1/events/with-file/flyer")
+        self.assertRegex(items["with-file"]["flyerUrl"], r"^/api/v1/events/with-file/flyer\?v=\d+$")
         self.assertIsNone(items["no-file"]["flyerUrl"])
         self.assertIsNone(items["no-flyer"]["flyerUrl"])
         for item in items.values():
@@ -352,7 +354,7 @@ class SpotlightEventsRouteTests(unittest.TestCase):
         self.assertEqual(set(items), {"ontario-2026-08", "no-flyer"})
         for item in items.values():
             self.assertEqual(set(item), ITEM_KEYS)
-        self.assertEqual(items["ontario-2026-08"]["flyerUrl"], "/api/v1/events/ontario-2026-08/flyer")
+        self.assertRegex(items["ontario-2026-08"]["flyerUrl"], r"^/api/v1/events/ontario-2026-08/flyer\?v=\d+$")
         self.assertIsNone(items["no-flyer"]["flyerUrl"])
 
     def test_events_route_500_on_failure(self) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import hmac
 import os
 import re
 import sqlite3
@@ -192,6 +193,7 @@ import printing_images
 import set_spotlight
 import similar_cards
 import spotlight_events
+import spotlight_events_admin
 import watch_signals
 import watchlist_suggestions
 import youtube_feed
@@ -2424,6 +2426,7 @@ class SpotlightScanService:
             # Small result tables for the feed jobs; no big-table indexes here.
             meta_pulse.ensure_schema(bootstrap_connection)
             hot_cards.ensure_schema(bootstrap_connection)
+            spotlight_events_admin.ensure_schema(bootstrap_connection)
             set_spotlight.ensure_schema(bootstrap_connection)
             youtube_feed.ensure_schema(bootstrap_connection)  # includes news_feed's tables
             # Alert prefs/timezone columns + the market-alert ledger (after the deal-radar patch).
@@ -2432,6 +2435,9 @@ class SpotlightScanService:
             self.index = load_index(bootstrap_connection)
         finally:
             bootstrap_connection.close()
+        # Browser-edited shows layered over data/spotlight_events.json (/admin/events).
+        self.events_admin = spotlight_events_admin.EventsAdmin(lambda: connect(self.database_path))
+        spotlight_events.configure_admin(self.events_admin)
         self._card_lookup_cache: dict[str, dict[str, Any] | None] = {}
         self._raw_visual_matcher: Any | None = None
         self._pending_visual_scans: dict[str, PendingVisualScan] = {}
@@ -26616,8 +26622,23 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_public_image(body, content_type="image/png", max_age=600)
             return
 
+        if parsed.path == "/admin/events":
+            # The page is static; every call it makes is token-checked.
+            self._write_html(HTTPStatus.OK, spotlight_events_admin.admin_page())
+            return
+
+        if parsed.path == "/api/v1/admin/events":
+            if not self._events_admin_authorized():
+                return
+            self._write_json(HTTPStatus.OK, self._events_admin_listing())
+            return
+
         if parsed.path.startswith("/api/v1/events/") and parsed.path.endswith("/flyer"):
             event_id = unquote(parsed.path[len("/api/v1/events/"):-len("/flyer")])
+            uploaded = spotlight_events.admin_flyer(event_id) if event_id else None
+            if uploaded is not None:
+                self._write_public_image(uploaded[0], content_type=uploaded[1], max_age=3600)
+                return
             # Lookup is by validated id only; the file path comes from metadata.
             flyer = spotlight_events.flyer_file(event_id) if event_id else None
             try:
@@ -27062,6 +27083,10 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+
+        if parsed.path.startswith("/api/v1/admin/events"):
+            self._handle_events_admin_post(parsed.path)
+            return
 
         if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith("/refresh-pricing"):
             card_id = parsed.path.removeprefix("/api/v1/cards/").removesuffix("/refresh-pricing").rstrip("/")
@@ -28797,6 +28822,17 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:
         parsed = urlparse(self.path)
 
+        if parsed.path.startswith("/api/v1/admin/events/"):
+            if not self._events_admin_authorized():
+                return
+            event_id = unquote(parsed.path.removeprefix("/api/v1/admin/events/").strip("/"))
+            if not event_id or "/" in event_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            self.service.events_admin.reset(event_id)
+            self._write_json(HTTPStatus.OK, {"reset": event_id})
+            return
+
         if (
             parsed.path.startswith("/api/v1/card-transactions/")
             and not parsed.path.endswith("/photo")
@@ -28949,6 +28985,86 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._json_body_error_message = "image body is required"
             return None
         return body
+
+    def _events_admin_authorized(self) -> bool:
+        """Events admin needs the ops token, and is OFF when none is configured:
+        unlike the read-only ops routes, these edit what every user sees."""
+        expected = str(os.environ.get("SPOTLIGHT_OPS_REFRESH_TOKEN") or "").strip()
+        provided = str(self.headers.get("X-Ops-Token") or "").strip()
+        if not provided:
+            provided = parse_qs(urlparse(self.path).query).get("token", [""])[0].strip()
+        if not expected:
+            self._write_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "events admin is disabled (no ops token set)"})
+            return False
+        if not hmac.compare_digest(provided, expected):
+            self._write_json(HTTPStatus.UNAUTHORIZED, {"error": "invalid ops token"})
+            return False
+        return True
+
+    def _handle_events_admin_post(self, path: str) -> None:
+        if not self._events_admin_authorized():
+            return
+        admin = self.service.events_admin
+        if path == "/api/v1/admin/events":
+            payload = self._read_json_body()
+            if payload is None:
+                self._write_json(self._json_body_error_status or HTTPStatus.BAD_REQUEST,
+                                 {"error": self._json_body_error_message or "invalid body"})
+                return
+            try:
+                event = admin.save_event(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            self._write_json(HTTPStatus.OK, {"event": event})
+            return
+        rest = path.removeprefix("/api/v1/admin/events/")
+        event_id, _, action = rest.partition("/")
+        event_id = unquote(event_id)
+        known = {event["id"]: event for event in spotlight_events.load_events(include_hidden=True)}
+        if event_id not in known:
+            self._write_json(HTTPStatus.NOT_FOUND, {"error": "unknown event"})
+            return
+        if action == "flyer":
+            body = self._read_raw_image_body()
+            if body is None:
+                self._write_json(self._json_body_error_status or HTTPStatus.BAD_REQUEST,
+                                 {"error": self._json_body_error_message or "image body is required"})
+                return
+            try:
+                size = admin.save_flyer(event_id, body)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            self._write_json(HTTPStatus.OK, {"bytes": size})
+            return
+        if action == "visibility":
+            payload = self._read_json_body() or {}
+            hidden = payload.get("hidden")
+            if not isinstance(hidden, bool):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "hidden must be a boolean"})
+                return
+            admin.set_hidden(event_id, hidden)
+            self._write_json(HTTPStatus.OK, {"hidden": hidden})
+            return
+        self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+
+    def _events_admin_listing(self) -> dict[str, Any]:
+        overrides, _ = self.service.events_admin.overrides()
+        override_ids = {row["event_id"] for row in overrides}
+        file_ids = {event["id"] for event in spotlight_events._load_file_events()}
+        flyers = {item["id"]: item["flyerUrl"] for item in spotlight_events.build_events_payload()["items"]}
+        rows = []
+        for event in spotlight_events.load_events(include_hidden=True):
+            event_id = event["id"]
+            source = "both" if event_id in file_ids and event_id in override_ids else (
+                "admin" if event_id in override_ids else "file"
+            )
+            row = {k: v for k, v in event.items() if k not in {"flyer", "_flyerVersion"}}
+            row.update({"source": source, "hidden": bool(event.get("hidden")), "flyerUrl": flyers.get(event_id)})
+            rows.append(row)
+        rows.sort(key=lambda r: r["startDate"], reverse=True)
+        return {"events": rows}
 
     def _read_json_body(self) -> dict[str, Any] | None:
         self._json_body_error_status = None

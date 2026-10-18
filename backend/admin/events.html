@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Spotlight Events Admin</title>
+<style>
+  :root { --bg:#f7f7f7; --card:#fff; --ink:#1a1a1a; --muted:#6b6b6b; --line:#e4e4e4; --accent:#7c3aed; --danger:#c62828; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:16px; background:var(--card); border-bottom:1px solid var(--line); display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0 auto 0 0; }
+  main { max-width:960px; margin:0 auto; padding:16px; display:grid; gap:16px; grid-template-columns: 300px 1fr; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .list button { display:block; width:100%; text-align:left; padding:10px; margin:0 0 6px; border:1px solid var(--line); border-radius:8px; background:#fff; cursor:pointer; }
+  .list button.active { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+  .list small { color:var(--muted); display:block; }
+  .tag { font-size:11px; padding:1px 6px; border-radius:6px; background:#eee; margin-left:4px; }
+  .tag.hidden { background:#fde2e2; color:var(--danger); }
+  label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
+  input, textarea, select { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font:inherit; background:#fff; }
+  textarea { min-height:70px; }
+  .row { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; }
+  button.primary { background:var(--ink); color:#fff; border:0; border-radius:8px; padding:10px 16px; font:inherit; cursor:pointer; }
+  button.secondary { background:#fff; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:10px 16px; font:inherit; cursor:pointer; }
+  button.danger { color:var(--danger); }
+  #status { min-height:20px; font-size:13px; margin-top:10px; }
+  #status.err { color:var(--danger); }
+  img.flyer { max-width:160px; border-radius:8px; border:1px solid var(--line); display:block; margin-top:8px; }
+  .hint { font-size:12px; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Spotlight Events</h1>
+  <input id="token" type="password" placeholder="Ops token" style="max-width:260px">
+  <button class="secondary" id="saveToken">Use token</button>
+</header>
+<main>
+  <section class="card">
+    <button class="primary" id="newEvent" style="width:100%;margin-bottom:12px">+ New event</button>
+    <div class="list" id="list"><p class="hint">Enter the ops token to load events.</p></div>
+  </section>
+  <section class="card">
+    <form id="form" autocomplete="off">
+      <div class="row">
+        <div><label>ID (lowercase-with-dashes, e.g. seattle-2026-12)</label><input name="id" required></div>
+        <div><label>Featured</label><select name="featured"><option value="false">No</option><option value="true">Yes</option></select></div>
+      </div>
+      <label>Title</label><input name="title" required placeholder="Spotlight at the Hawaii Convention Center">
+      <label>Short title</label><input name="shortTitle" placeholder="Spotlight Hawaii">
+      <div class="row">
+        <div><label>Venue</label><input name="venue" required></div>
+        <div><label>City</label><input name="city" required placeholder="Honolulu, HI"></div>
+      </div>
+      <label>Address</label><input name="address" required>
+      <div class="row">
+        <div><label>Latitude</label><input name="latitude" inputmode="decimal"></div>
+        <div><label>Longitude</label><input name="longitude" inputmode="decimal"></div>
+      </div>
+      <div class="row">
+        <div><label>Start date</label><input name="startDate" type="date" required></div>
+        <div><label>End date</label><input name="endDate" type="date" required></div>
+      </div>
+      <div class="row">
+        <div><label>Opens</label><input name="openTime" type="time"></div>
+        <div><label>Closes</label><input name="closeTime" type="time"></div>
+      </div>
+      <div class="row">
+        <div><label>Time zone</label>
+          <select name="timezone">
+            <option>America/Los_Angeles</option><option>Pacific/Honolulu</option><option>America/Denver</option>
+            <option>America/Phoenix</option><option>America/Chicago</option><option>America/New_York</option>
+          </select>
+        </div>
+        <div><label>Tables (shown as “N+ Tables”)</label><input name="tableCount" type="number" min="0"></div>
+      </div>
+      <label>Categories (comma-separated)</label><input name="categories" placeholder="Pokemon, Sports, One Piece">
+      <label>About</label><textarea name="about"></textarea>
+      <div class="row">
+        <div><label>Ticket link</label><input name="ticketUrl" type="url" placeholder="https://"></div>
+        <div><label>Share link</label><input name="shareUrl" type="url" placeholder="https://spotlightcardshow.com/…"></div>
+      </div>
+      <div class="row">
+        <div><label>Accent colour</label><input name="accentColor" type="color" value="#7c3aed"></div>
+        <div><label>Use accent colour</label><select name="useAccent"><option value="true">Yes</option><option value="false">No</option></select></div>
+      </div>
+      <label>Pricing: general (blank = no pricing section)</label><input name="pricingGeneral" placeholder="$10 General">
+      <div class="row">
+        <div><label>Pricing: at the door</label><input name="pricingDoor" placeholder="$15 at the door"></div>
+        <div><label>Pricing: disclaimer</label><input name="pricingDisclaimer"></div>
+      </div>
+      <label>Pricing: notes (one per line)</label><textarea name="pricingNotes"></textarea>
+
+      <label>Flyer</label>
+      <input id="flyerFile" type="file" accept="image/*">
+      <p class="hint">Saved as a 720px JPEG. Upload after the event has been saved.</p>
+      <img class="flyer" id="flyerPreview" alt="" hidden>
+
+      <div class="actions">
+        <button class="primary" type="submit">Save event</button>
+        <button class="secondary" type="button" id="uploadFlyer">Upload flyer</button>
+        <button class="secondary" type="button" id="toggleHidden">Hide from app</button>
+        <button class="secondary danger" type="button" id="reset">Reset to shipped version</button>
+      </div>
+      <div id="status"></div>
+    </form>
+  </section>
+</main>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const form = $('form');
+  const status = (msg, err) => { $('status').textContent = msg; $('status').className = err ? 'err' : ''; };
+  let events = [];
+  let current = null;
+
+  const token = () => { try { return localStorage.getItem('opsToken') || ''; } catch { return ''; } };
+  $('token').value = token();
+  $('saveToken').onclick = () => { try { localStorage.setItem('opsToken', $('token').value.trim()); } catch {} load(); };
+
+  async function api(path, opts = {}) {
+    const res = await fetch(path, { ...opts, headers: { 'X-Ops-Token': token(), ...(opts.headers || {}) } });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    return body;
+  }
+
+  async function load(selectId) {
+    try {
+      const data = await api('/api/v1/admin/events');
+      events = data.events;
+      renderList();
+      const pick = events.find((e) => e.id === (selectId || (current && current.id)));
+      if (pick) fill(pick);
+      status('');
+    } catch (e) { status('Could not load: ' + e.message, true); }
+  }
+
+  function renderList() {
+    $('list').innerHTML = '';
+    for (const e of events) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      if (current && current.id === e.id) b.className = 'active';
+      b.innerHTML = `<strong></strong> <span class="tag"></span>${e.hidden ? '<span class="tag hidden">hidden</span>' : ''}<small></small>`;
+      b.querySelector('strong').textContent = e.shortTitle || e.title;
+      b.querySelector('.tag').textContent = e.source;
+      b.querySelector('small').textContent = `${e.startDate} · ${e.city}`;
+      b.onclick = () => fill(e);
+      $('list').appendChild(b);
+    }
+  }
+
+  function fill(e) {
+    current = e;
+    const f = form.elements;
+    for (const k of ['id','title','shortTitle','venue','city','address','startDate','endDate','openTime','closeTime','timezone','about','ticketUrl','shareUrl']) f[k].value = e[k] ?? '';
+    f.latitude.value = e.latitude ?? ''; f.longitude.value = e.longitude ?? '';
+    f.tableCount.value = e.tableCount ?? '';
+    f.categories.value = (e.categories || []).join(', ');
+    f.featured.value = String(!!e.featured);
+    f.useAccent.value = String(!!e.accentColor);
+    f.accentColor.value = (e.accentColor || '#7c3aed').toLowerCase();
+    const p = e.pricing || {};
+    f.pricingGeneral.value = p.general || ''; f.pricingDoor.value = p.doorPrice || '';
+    f.pricingDisclaimer.value = p.disclaimer || ''; f.pricingNotes.value = (p.notes || []).join('\n');
+    f.id.readOnly = true;
+    $('toggleHidden').textContent = e.hidden ? 'Show in app' : 'Hide from app';
+    $('reset').hidden = e.source === 'file';
+    const img = $('flyerPreview');
+    if (e.flyerUrl) { img.src = e.flyerUrl + '?t=' + Date.now(); img.hidden = false; } else { img.hidden = true; }
+    renderList();
+  }
+
+  $('newEvent').onclick = () => {
+    current = null; form.reset(); form.elements.id.readOnly = false;
+    $('flyerPreview').hidden = true; $('reset').hidden = true; status('New event: fill it in and save.');
+    renderList();
+  };
+
+  const num = (v) => (v === '' ? null : Number(v));
+  const str = (v) => (v.trim() === '' ? null : v.trim());
+
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const f = form.elements;
+    const general = str(f.pricingGeneral.value);
+    const row = {
+      id: f.id.value.trim(), title: f.title.value.trim(), shortTitle: str(f.shortTitle.value),
+      venue: f.venue.value.trim(), city: f.city.value.trim(), address: f.address.value.trim(),
+      latitude: num(f.latitude.value), longitude: num(f.longitude.value),
+      startDate: f.startDate.value, endDate: f.endDate.value, timezone: f.timezone.value,
+      openTime: str(f.openTime.value), closeTime: str(f.closeTime.value), tableCount: num(f.tableCount.value),
+      categories: f.categories.value.split(',').map((s) => s.trim()).filter(Boolean),
+      about: str(f.about.value), ticketUrl: str(f.ticketUrl.value), shareUrl: str(f.shareUrl.value),
+      featured: f.featured.value === 'true',
+      accentColor: f.useAccent.value === 'true' ? f.accentColor.value.toUpperCase() : null,
+      pricing: general ? {
+        general, doorPrice: str(f.pricingDoor.value), disclaimer: str(f.pricingDisclaimer.value),
+        notes: f.pricingNotes.value.split('\n').map((s) => s.trim()).filter(Boolean),
+      } : null,
+    };
+    try {
+      await api('/api/v1/admin/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(row) });
+      status('Saved. It shows in the app within about a minute.');
+      await load(row.id);
+    } catch (e) { status('Not saved: ' + e.message, true); }
+  };
+
+  $('uploadFlyer').onclick = async () => {
+    const file = $('flyerFile').files[0];
+    if (!current) return status('Save the event first.', true);
+    if (!file) return status('Choose an image first.', true);
+    try {
+      await api(`/api/v1/admin/events/${encodeURIComponent(current.id)}/flyer`, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+      status('Flyer uploaded.');
+      await load(current.id);
+    } catch (e) { status('Upload failed: ' + e.message, true); }
+  };
+
+  $('toggleHidden').onclick = async () => {
+    if (!current) return;
+    try {
+      await api(`/api/v1/admin/events/${encodeURIComponent(current.id)}/visibility`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hidden: !current.hidden }) });
+      await load(current.id);
+      status(current.hidden ? 'Hidden from the app.' : 'Back in the app.');
+    } catch (e) { status(e.message, true); }
+  };
+
+  $('reset').onclick = async () => {
+    if (!current || !confirm('Drop your edits and uploaded flyer for this event?')) return;
+    try {
+      await api(`/api/v1/admin/events/${encodeURIComponent(current.id)}`, { method: 'DELETE' });
+      status('Reset.');
+      current = null; await load();
+    } catch (e) { status(e.message, true); }
+  };
+
+  if (token()) load();
+})();
+</script>
+</body>
+</html>

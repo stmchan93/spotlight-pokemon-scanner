@@ -197,8 +197,79 @@ def _validate_event(row: object) -> dict[str, Any]:
     }
 
 
-def load_events(path: Path | None = None) -> list[dict[str, Any]]:
-    """Validated events; re-read whenever the file's mtime changes."""
+# Browser-edited overrides (spotlight_events_admin.EventsAdmin), registered by
+# the server at startup. Unset in tests and tools: the file alone is the truth.
+_admin: Any = None
+# Marks an event whose flyer is the admin-uploaded one in the database.
+DB_FLYER = "@admin-upload"
+
+InvalidEvent = _Invalid
+
+
+def validate_event(row: object) -> dict[str, Any]:
+    """Public entry to the file's validation, for the admin editor."""
+    return _validate_event(row)
+
+
+def configure_admin(admin: Any) -> None:
+    global _admin
+    _admin = admin
+
+
+def load_events(path: Path | None = None, *, include_hidden: bool = False) -> list[dict[str, Any]]:
+    """The file's events with any admin overrides merged on top (see
+    spotlight_events_admin): an override replaces or adds by id, `hidden` drops
+    it, and an uploaded flyer wins over the shipped one."""
+    events = _load_file_events(path)
+    if _admin is None:
+        return events
+    try:
+        overrides, db_flyers = _admin.overrides()
+    except Exception as error:  # noqa: BLE001 - the file still serves if the DB read fails
+        LOGGER.warning("spotlight event overrides unreadable: %s", error)
+        return events
+    by_id = {event["id"]: event for event in events}
+    order = [event["id"] for event in events]
+    for row in overrides:
+        event_id = row["event_id"]
+        payload = row["payload"]
+        if isinstance(payload, dict) and payload.get("title"):
+            try:
+                event = _validate_event({**payload, "id": event_id})
+            except _Invalid as error:
+                LOGGER.warning("spotlight event override %s skipped: %s", event_id, error)
+                continue
+            # A replaced file event keeps its shipped flyer unless one is uploaded.
+            if event_id in by_id and not event.get("flyer"):
+                event["flyer"] = by_id[event_id].get("flyer")
+            by_id[event_id] = event
+            if event_id not in order:
+                order.append(event_id)
+        if row["hidden"] and event_id in by_id:
+            if include_hidden:
+                by_id[event_id]["hidden"] = True
+            else:
+                by_id.pop(event_id)
+    merged = [by_id[event_id] for event_id in order if event_id in by_id]
+    for event in merged:
+        if event["id"] in db_flyers:
+            event["flyer"] = DB_FLYER
+            event["_flyerVersion"] = db_flyers[event["id"]]
+    return merged
+
+
+def admin_flyer(event_id: str) -> tuple[bytes, str] | None:
+    """An uploaded flyer's (bytes, content type), only for an event that is live."""
+    if _admin is None:
+        return None
+    event = next((e for e in load_events() if e["id"] == event_id), None)
+    if event is None or event.get("flyer") != DB_FLYER:
+        return None
+    return _admin.flyer(event_id)
+
+
+def _load_file_events(path: Path | None = None) -> list[dict[str, Any]]:
+    """Validated events from the JSON file; re-read whenever its mtime changes."""
     target = Path(path or EVENTS_PATH)
     try:
         mtime = target.stat().st_mtime
@@ -249,7 +320,7 @@ def event_status(event: dict[str, Any], now: datetime | None = None) -> str:
 
 def _flyer_path(event: dict[str, Any], flyers_dir: Path) -> Path | None:
     name = event.get("flyer")
-    if not name:
+    if not name or name == DB_FLYER:
         return None
     root = flyers_dir.resolve()
     candidate = (root / name).resolve()
@@ -257,6 +328,19 @@ def _flyer_path(event: dict[str, Any], flyers_dir: Path) -> Path | None:
     if candidate.parent != root or not candidate.is_file():
         return None
     return candidate
+
+
+def _flyer_version(event: dict[str, Any], flyers_dir: Path) -> str | None:
+    """Changes whenever the served flyer does; None when there is no flyer."""
+    if event.get("flyer") == DB_FLYER:
+        return re.sub(r"[^0-9]", "", str(event.get("_flyerVersion") or "")) or "1"
+    path = _flyer_path(event, flyers_dir)
+    if path is None:
+        return None
+    try:
+        return str(int(path.stat().st_mtime))
+    except OSError:
+        return None
 
 
 def flyer_url(event_id: str) -> str:
@@ -274,9 +358,10 @@ def build_events_payload(
     maps = Path(maps_dir or MAPS_DIR)
     buckets: dict[str, list[dict[str, Any]]] = {status: [] for status in STATUSES}
     for event in load_events(events_path):
-        has_flyer = _flyer_path(event, flyers) is not None
-        item = {k: v for k, v in event.items() if k != "flyer"}
-        item["flyerUrl"] = flyer_url(event["id"]) if has_flyer else None
+        version = _flyer_version(event, flyers)
+        item = {k: v for k, v in event.items() if k not in {"flyer", "hidden", "_flyerVersion"}}
+        # Versioned so a replaced flyer is a new URL: apps cache images by URL.
+        item["flyerUrl"] = f"{flyer_url(event['id'])}?v={version}" if version else None
         item["floorMapUrl"] = floor_map_url(event["id"]) if _load_map(event["id"], maps) else None
         item["status"] = event_status(event, now)
         buckets[item["status"]].append(item)
