@@ -116,12 +116,12 @@ class BuildMapTests(unittest.TestCase):
         self.assertNotIn("VENDOR", self.vendors)
         main = self.vendors["Main Street Cards"]
         self.assertEqual(main["tableIds"], ["C1", "C2"])
-        self.assertEqual(main["tags"], ["Pokémon", "Sealed", "Graded"])
+        self.assertEqual(main["tags"], ["Pokémon", "Graded", "Sealed"])
         self.assertEqual(main["instagram"], "mainstreet")
         self.assertEqual(self.vendors["PeteLocks"]["tableIds"], ["HA1", "HA2"])
         self.assertEqual(self.vendors["Chazer808"]["instagram"], "chazer808")
         self.assertEqual(self.vendors["Aloha Puddin"]["tags"], ["Food"])
-        self.assertEqual(self.doc["tags"], ["Pokémon", "One Piece", "Singles", "Sealed", "Graded", "Food", "Misc"])
+        self.assertEqual(self.doc["tags"], ["Pokémon", "One Piece", "Graded", "Singles", "Sealed", "Food"])
 
     def test_report_flags_what_a_human_must_fix(self) -> None:
         self.assertEqual(self.report["unknownTables"], ["Ghost Booth (K26): K26"])
@@ -151,13 +151,37 @@ class EnrichmentTests(unittest.TestCase):
 
         self.assertEqual(TAG_OVERRIDES[_norm("Diamond Shields")], ["Pokémon"])
 
-    def test_filter_tags_fold_the_rest_into_misc(self) -> None:
+    def test_filter_tags_keep_chip_order_and_drop_the_rest(self) -> None:
         from tools.build_event_floor_map import filter_tags
 
-        self.assertEqual(filter_tags(["Graded", "Pokémon", "Vintage"]), ["Pokémon", "Graded"])
-        self.assertEqual(filter_tags(["Pokémon", "Magic"]), ["Pokémon", "Misc"])
-        self.assertEqual(filter_tags(["Riftbound", "Supplies"]), ["Riftbound", "Misc"])
-        self.assertEqual(filter_tags([]), ["Misc"])
+        self.assertEqual(filter_tags(["Vintage", "Graded", "Pokémon", "Supplies"]), ["Pokémon", "Graded", "Vintage"])
+        self.assertEqual(filter_tags([]), [])
+
+    def test_treasure_tags_map_to_chips(self) -> None:
+        from tools.build_event_floor_map import treasure_chips
+
+        self.assertEqual(
+            treasure_chips("One-Piece|TCG|Lorcana|Pokemon|Funko Pop!|Football|Anime TCG"),
+            ["One Piece", "Lorcana", "Pokémon", "Collectibles/Toys", "Sports"],
+        )
+
+    def test_treasure_tags_join_the_text_tags(self) -> None:
+        tag_rows = [
+            {"business_name": "PeteLocks", "name": "", "instagram": "@pete_locks", "tags": "Pokemon|Dragon Ball|Plushies"},
+            {"business_name": "Main Street Cards", "name": "", "instagram": "", "tags": "Lorcana|TCG"},
+        ]
+        doc, report = build_map(
+            _layout(), event_id="show", image_file="show.png", image_size=(800, 400),
+            csv_rows=CSV_ROWS, tag_rows=tag_rows,
+        )
+        vendors = {v["name"]: v for v in doc["vendors"]}
+        # Text found Pokémon/Graded/Sealed; the profile adds Lorcana; "TCG" maps to nothing.
+        self.assertEqual(vendors["Main Street Cards"]["tags"], ["Pokémon", "Lorcana", "Graded", "Sealed"])
+        # No application row at all: the profile alone supplies tags and the handle.
+        self.assertEqual(vendors["PeteLocks"]["tags"], ["Pokémon", "Dragon Ball", "Collectibles/Toys"])
+        self.assertEqual(vendors["PeteLocks"]["instagram"], "pete_locks")
+        self.assertIn("Chazer808", report["noTagsMatch"])
+        self.assertNotIn("Aloha Puddin", report["noTagsMatch"])
 
     def test_tags(self) -> None:
         self.assertEqual(tags_for("We sell WOTC vintage, PSA slabs"), ["Graded", "Vintage"])

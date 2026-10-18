@@ -23,7 +23,7 @@ import { filterVendors, floorMapViewportHeight, vendorForTable } from '@/feature
 import { useSpotlightEventMap } from '@/features/events/hooks/use-spotlight-event-map';
 
 /** The server sends the chip set in display order (tools/build_event_floor_map.py FILTER_TAGS); this only guards a runaway list. */
-const MAX_TAG_CHIPS = 12;
+const MAX_TAG_CHIPS = 20;
 /** Map space the floating vendor card covers; a fitted vendor is centred above it. */
 const CARD_OVERLAY_HEIGHT = 96;
 /** The unfiltered list starts short; 180 rows in a non-virtualized page is a lot of layout. */
@@ -136,6 +136,16 @@ function EventVendorsBody({
     [isFiltering, matches],
   );
   const chips = map.tags.slice(0, MAX_TAG_CHIPS);
+  // Shown on each chip so it's clear how much a filter narrows the floor.
+  const tagCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const vendor of map.vendors) {
+      for (const item of vendor.tags) {
+        counts.set(item, (counts.get(item) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [map.vendors]);
   const rows = isFiltering || expanded ? matches : matches.slice(0, COLLAPSED_ROWS);
 
   const select = useCallback((vendor: SpotlightEventMapVendor) => {
@@ -238,7 +248,7 @@ function EventVendorsBody({
             {chips.map((item) => (
               <PillButton
                 key={item}
-                label={item.toUpperCase()}
+                label={`${item.toUpperCase()} ${tagCounts.get(item) ?? 0}`}
                 onPress={() => setTag((current) => (current === item ? null : item))}
                 selected={tag === item}
                 testID={`event-vendors-tag-${item}`}

@@ -57,12 +57,31 @@ _LOCATION_TOKEN_RE = re.compile(
     r"^(?P<b1>HA|[A-Z])?\s*(?P<n1>\d+)\s*(?:[-–]\s*(?P<b2>HA|[A-Z])?\s*(?P<n2>\d+))?$"
 )
 
-# The app's filter chips, in display order. Anything a vendor sells outside the
-# named games/formats (supplies, Magic, Yu-Gi-Oh...) folds into "Misc".
+# The app's filter chips, in display order (decided from the Hawaii 2026-10
+# comparison). Games and Collectibles/Toys come mainly from the vendor's own
+# Treasure tags, which found ~1.5-2x what the free text did; formats only exist
+# in the free text.
 FILTER_TAGS = [
-    "Pokémon", "One Piece", "Lorcana", "Riftbound", "Sports", "Singles", "Sealed", "Graded", "Food", "Misc",
+    "Pokémon", "One Piece", "Sports", "Riftbound", "Lorcana", "Dragon Ball", "Yu-Gi-Oh", "Magic",
+    "Graded", "Singles", "Sealed", "Vintage", "Japanese", "Collectibles/Toys", "Food",
 ]
-MISC_TAG = "Misc"
+
+# Treasure profile tag (lowercased) -> chip. Broad tags ("TCG", "Non-Sports",
+# "Anime TCG") narrow nothing and map to no chip.
+TREASURE_TAGS: dict[str, str] = {
+    "pokemon": "Pokémon",
+    "one-piece": "One Piece",
+    "sports": "Sports", "football": "Sports", "other sport": "Sports", "wrestling": "Sports",
+    "riftbound": "Riftbound",
+    "lorcana": "Lorcana",
+    "dragon ball": "Dragon Ball",
+    "yu-gi-oh!": "Yu-Gi-Oh",
+    "magic: the gathering": "Magic",
+    **{tag: "Collectibles/Toys" for tag in (
+        "collectibles", "toys", "plushies", "funko pop!", "blind boxes", "memorabillia", "memorabilia",
+        "autographs", "disney", "comics", "cosplay", "anime",
+    )},
+}
 
 # Keyword -> tag, matched against the CSV's free-text "inventory" answer.
 TAG_PATTERNS: list[tuple[str, str]] = [
@@ -349,16 +368,21 @@ def tags_for(inventory: str) -> list[str]:
     return [tag for tag, pattern in TAG_PATTERNS if re.search(pattern, inventory, re.I)]
 
 
-# Attributes of what they already sell, not a separate line of goods.
-_NOT_MISC = {"Vintage", "Japanese"}
-
-
 def filter_tags(raw: list[str]) -> list[str]:
-    """Raw keyword tags -> the chip vocabulary, in chip order."""
-    tags = [t for t in FILTER_TAGS if t in raw]
-    if any(t not in FILTER_TAGS and t not in _NOT_MISC for t in raw) or not raw:
-        tags.append(MISC_TAG)
-    return tags
+    """Raw tags -> the chip vocabulary, in chip order (anything else is dropped)."""
+    return [t for t in FILTER_TAGS if t in raw]
+
+
+def treasure_chips(tags: str) -> list[str]:
+    """A Treasure export's "A|B|C" tag string -> chips."""
+    return [TREASURE_TAGS[t] for t in (part.strip().lower() for part in tags.split("|")) if t in TREASURE_TAGS]
+
+
+def load_vendor_tags(path: Path) -> list[dict[str, str]]:
+    """Rows of business_name,name,instagram,tags (tags "|"-separated), from Treasure profiles."""
+    keep = ("business_name", "name", "instagram", "tags")
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        return [{k: (row.get(k) or "") for k in keep} for row in csv.DictReader(handle)]
 
 
 def load_csv(path: Path) -> list[dict[str, str]]:
@@ -402,13 +426,14 @@ def build_map(
     image_size: tuple[int, int],
     base_image_file: str | None = None,
     csv_rows: list[dict[str, str]] | None = None,
+    tag_rows: list[dict[str, str]] | None = None,
     now: datetime | None = None,
 ) -> tuple[dict[str, Any], dict[str, list[str]]]:
     """(map document, report of things a human should look at)."""
     tables, map_node = extract_tables(frame)
     mx, my, mw, mh = _box(map_node)
     table_ids = {t["id"] for t in tables}
-    report: dict[str, list[str]] = {"unknownTables": [], "badLocations": [], "noCsvMatch": []}
+    report: dict[str, list[str]] = {"unknownTables": [], "badLocations": [], "noCsvMatch": [], "noTagsMatch": []}
 
     out_tables = []
     for t in sorted(tables, key=lambda t: (t["block"], t["number"])):
@@ -436,7 +461,16 @@ def build_map(
         raw_tags = tags_for(row["inventory"]) if row else []
         if any(i.startswith(FOOD_BLOCK) for i in ids) or (row and "food" in row["purchase"].lower()):
             raw_tags.append("Food")
-        tags = TAG_OVERRIDES.get(_norm(name)) or filter_tags(raw_tags)
+        is_food = "Food" in raw_tags
+        tag_row = match_csv(name, tag_rows) if tag_rows else None
+        if tag_row is not None:
+            raw_tags.extend(treasure_chips(tag_row["tags"]))
+            # Instagram from the profile when the application left it blank.
+            if row is None:
+                row = {"instagram": tag_row["instagram"], "inventory": "", "purchase": ""}
+        elif tag_rows and not is_food:
+            report["noTagsMatch"].append(name)
+        tags = filter_tags(raw_tags + TAG_OVERRIDES.get(_norm(name), []))
         if csv_rows and row is None:
             report["noCsvMatch"].append(name)
 
@@ -498,6 +532,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--event-id", required=True, help="id in backend/data/spotlight_events.json")
     parser.add_argument("--figma", required=True, help="Figma link to the layout frame (with node-id)")
     parser.add_argument("--vendors-csv", type=Path, help="ticketing vendor export, for tags + Instagram")
+    parser.add_argument("--vendor-tags", type=Path, help="business_name,name,instagram,tags from Treasure profiles")
     parser.add_argument("--out-dir", type=Path, default=OUT_DIR)
     args = parser.parse_args(argv)
 
@@ -518,11 +553,12 @@ def main(argv: list[str] | None = None) -> int:
         base_png = export_png(key, base["id"], base_scale, token)
 
     csv_rows = load_csv(args.vendors_csv.expanduser()) if args.vendors_csv else None
+    tag_rows = load_vendor_tags(args.vendor_tags.expanduser()) if args.vendor_tags else None
     image_file = f"{args.event_id}.png"
     base_image_file = f"{args.event_id}-base.png" if base_png else None
     document, report = build_map(
         frame, event_id=args.event_id, image_file=image_file, image_size=_png_size(png),
-        base_image_file=base_image_file, csv_rows=csv_rows,
+        base_image_file=base_image_file, csv_rows=csv_rows, tag_rows=tag_rows,
     )
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
