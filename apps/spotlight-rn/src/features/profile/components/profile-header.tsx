@@ -78,6 +78,15 @@ const AVATAR_SIZE = 80;
  * "Collection". 16 also lets the 16pt corner radius span the full lip.
  */
 const SHEET_LIP_HEIGHT = 16;
+
+/**
+ * Where the white sheet under a resting profile header begins, from the top of
+ * the screen. Other cover-and-sheet tabs (Events) start their sheet on the same
+ * line so switching tabs doesn't make it jump.
+ */
+export function profileHeaderSheetTop(insetsTop: number): number {
+  return insetsTop + MIN_CONTENT_HEIGHT - SHEET_LIP_HEIGHT;
+}
 /**
  * Visible gap between the last thing in the header and the tab bar's labels.
  *

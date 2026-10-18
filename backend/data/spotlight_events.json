@@ -35,7 +35,7 @@
         ],
         "disclaimer": "All ticket sales are final. No refunds or exchanges unless the event is canceled or rescheduled."
       },
-      "flyer": "ontario-2026-08.png",
+      "flyer": "ontario-2026-08.jpg",
       "ticketUrl": null,
       "shareUrl": null,
       "featured": true,
@@ -75,9 +75,9 @@
         ],
         "disclaimer": "All ticket sales are final. No refunds or exchanges unless the event is canceled or rescheduled."
       },
-      "flyer": "hawaii-2026-10.png",
+      "flyer": "hawaii-2026-10.jpg",
       "ticketUrl": null,
-      "shareUrl": null,
+      "shareUrl": "https://spotlightcardshow.com/honolulu-card-show",
       "featured": true,
       "accentColor": "#FF0F80"
     },
@@ -115,9 +115,9 @@
         ],
         "disclaimer": "All ticket sales are final. No refunds or exchanges unless the event is canceled or rescheduled."
       },
-      "flyer": "seattle-2026-12.png",
+      "flyer": "seattle-2026-12.jpg",
       "ticketUrl": null,
-      "shareUrl": null,
+      "shareUrl": "https://spotlightcardshow.com/seattle-card-show",
       "featured": true,
       "accentColor": "#7519FF"
     }

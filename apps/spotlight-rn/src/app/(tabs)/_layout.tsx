@@ -338,7 +338,8 @@ export default function TabsLayout() {
         <Label>Scan</Label>
       </Trigger>
       <Trigger name="events">
-        <Icon md="event" sf={{ default: 'calendar', selected: 'calendar' }} />
+        {/* Figma 5892:16558's calendar, not the SF Symbol; one glyph for both states. */}
+        <Icon renderingMode="template" src={require('../../../assets/images/tab-icons/events.png')} />
         <Label>Events</Label>
       </Trigger>
       <Trigger name="social">

@@ -62,36 +62,39 @@ export function PageTabs<V extends string>({
             ]}
             testID={testID ? `${testID}-tab-${tab.value}` : undefined}
           >
-            <Text
-              style={[
-                theme.typography.bodyMedium,
-                compact ? styles.labelCompact : styles.label,
-                {
-                  // Active tab is medium/gray-900; inactive stays regular-weight
-                  // gray-600 (Figma 3184-17337). Compact keeps medium on both and
-                  // drops the inactive colour to gray-500 (Figma 5862:6915).
-                  fontFamily: selected || compact
-                    ? theme.typography.bodyMedium.fontFamily
-                    : theme.typography.body.fontFamily,
-                  color: selected
-                    ? theme.colors.textPrimary
-                    : compact
-                      ? theme.colors.gray500
-                      : theme.colors.gray600,
-                },
-              ]}
-            >
-              {tab.label}
-            </Text>
-            <View
-              style={[
-                styles.underline,
-                {
-                  backgroundColor: selected ? theme.colors.textPrimary : 'transparent',
-                },
-              ]}
-              testID={testID ? `${testID}-tab-${tab.value}-underline` : undefined}
-            />
+            {/* Compact: the underline hugs the word, not the tab's padded box. */}
+            <View style={compact ? styles.labelBox : styles.labelBoxFull}>
+              <Text
+                style={[
+                  theme.typography.bodyMedium,
+                  compact ? styles.labelCompact : styles.label,
+                  {
+                    // Active tab is medium/gray-900; inactive stays regular-weight
+                    // gray-600 (Figma 3184-17337). Compact keeps medium on both and
+                    // drops the inactive colour to gray-500 (Figma 5862:6915).
+                    fontFamily: selected || compact
+                      ? theme.typography.bodyMedium.fontFamily
+                      : theme.typography.body.fontFamily,
+                    color: selected
+                      ? theme.colors.textPrimary
+                      : compact
+                        ? theme.colors.gray500
+                        : theme.colors.gray600,
+                  },
+                ]}
+              >
+                {tab.label}
+              </Text>
+              <View
+                style={[
+                  styles.underline,
+                  {
+                    backgroundColor: selected ? theme.colors.textPrimary : 'transparent',
+                  },
+                ]}
+                testID={testID ? `${testID}-tab-${tab.value}-underline` : undefined}
+              />
+            </View>
           </Pressable>
         );
       })}
@@ -217,6 +220,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 6,
     lineHeight: 18,
+  },
+  labelBox: {
+    alignItems: 'stretch',
+  },
+  labelBoxFull: {
+    alignItems: 'stretch',
+    alignSelf: 'stretch',
   },
   underline: {
     height: 2,

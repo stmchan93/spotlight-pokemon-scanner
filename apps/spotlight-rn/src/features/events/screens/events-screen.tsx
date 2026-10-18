@@ -34,6 +34,7 @@ import {
 } from '@spotlight/design-system';
 
 import { EventListCard } from '@/features/events/components/event-list-card';
+import { profileHeaderSheetTop } from '@/features/profile/components/profile-header';
 import { eventRegion, eventRegions, formatEventDateRange } from '@/features/events/event-format';
 import { useSpotlightEvents } from '@/features/events/hooks/use-spotlight-events';
 import { useSavedEvents } from '@/features/events/saved-events-store';
@@ -52,10 +53,11 @@ const ALL_REGIONS = 'all';
 
 // Figma 5865:9330. The photo runs 328 tall under a 348 scrim; the chip row sits
 // at 256 and the white sheet laps the photo at 304.
-const HEADER_IMAGE_HEIGHT = 328;
-const HEADER_SCRIM_HEIGHT = 348;
-const SHEET_TOP = 304;
-const CHIP_ROW_TOP = 256;
+// Figma measures these on a 59pt status bar; the sheet itself follows the
+// Collection tab's (`profileHeaderSheetTop`), and the photo and chips keep
+// their Figma distances to it.
+const HEADER_IMAGE_BELOW_SHEET = 24;
+const CHIP_ROW_ABOVE_SHEET = 48;
 const SHEET_RADIUS = radii.xl;
 // Logo 203×170, sitting 8 under the status bar and 11 left of center.
 const LOGO_WIDTH = 203;
@@ -88,6 +90,8 @@ export function EventsScreen() {
   const theme = useSpotlightTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const sheetTop = profileHeaderSheetTop(insets.top);
+  const headerImageHeight = sheetTop + HEADER_IMAGE_BELOW_SHEET;
   const { width: windowWidth } = useWindowDimensions();
   const { openDrawer } = useAppDrawer();
   const { events, failed, refresh } = useSpotlightEvents();
@@ -208,10 +212,10 @@ export function EventsScreen() {
         showsVerticalScrollIndicator={false}
         testID="events-scroll"
       >
-        <View style={{ height: SHEET_TOP }}>
-          <Image accessibilityIgnoresInvertColors resizeMode="cover" source={headerImage} style={styles.headerImage} />
+        <View style={{ height: sheetTop }}>
+          <Image accessibilityIgnoresInvertColors resizeMode="cover" source={headerImage} style={[styles.headerImage, { height: headerImageHeight }]} />
           {/* Darkens toward the sheet so the white logo and chips hold up (Figma 5865:9332). */}
-          <Svg height={HEADER_SCRIM_HEIGHT} style={styles.scrim} width="100%">
+          <Svg height={headerImageHeight} style={styles.scrim} width="100%">
             <Defs>
               <LinearGradient id="eventsHeaderScrim" x1="0" x2="0" y1="0" y2="1">
                 <Stop offset="0" stopColor="#666666" stopOpacity="0" />
@@ -219,7 +223,7 @@ export function EventsScreen() {
                 <Stop offset="1" stopColor="#000000" stopOpacity="0.5" />
               </LinearGradient>
             </Defs>
-            <Rect fill="url(#eventsHeaderScrim)" height={HEADER_SCRIM_HEIGHT} width="100%" x="0" y="0" />
+            <Rect fill="url(#eventsHeaderScrim)" height={headerImageHeight} width="100%" x="0" y="0" />
           </Svg>
           <Image
             accessibilityLabel="Spotlight Card Show"
@@ -239,7 +243,7 @@ export function EventsScreen() {
             horizontal
             keyboardShouldPersistTaps="handled"
             showsHorizontalScrollIndicator={false}
-            style={styles.chipRow}
+            style={[styles.chipRow, { top: sheetTop - CHIP_ROW_ABOVE_SHEET }]}
             testID="events-tabs"
           >
             {TABS.map((item) => {
@@ -350,7 +354,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerImage: {
-    height: HEADER_IMAGE_HEIGHT,
     left: 0,
     position: 'absolute',
     right: 0,
@@ -370,7 +373,6 @@ const styles = StyleSheet.create({
     left: 0,
     position: 'absolute',
     right: 0,
-    top: CHIP_ROW_TOP,
   },
   chips: {
     gap: spacing.xxs,

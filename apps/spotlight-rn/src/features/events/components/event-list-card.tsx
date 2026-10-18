@@ -10,8 +10,9 @@ import { EventFlyer } from './event-flyer';
 
 // Figma 5865:9373 — white card, 10 padding, 117×123 flyer at 6pt corners.
 const CARD_PADDING = 10;
-const FLYER_WIDTH = 117;
 const FLYER_HEIGHT = 123;
+// The flyers are 4:5 portrait; a squarer box cropped their top and bottom.
+const FLYER_WIDTH = Math.round((FLYER_HEIGHT * 4) / 5);
 const FLYER_RADIUS = 6;
 const HEART_SIZE = 20;
 const PIN_SIZE = 16;

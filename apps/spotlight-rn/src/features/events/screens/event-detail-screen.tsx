@@ -83,7 +83,10 @@ export function EventDetailScreen({ eventId, onBack }: EventDetailScreenProps) {
       return;
     }
     const message = formatEventShareMessage(event);
-    void Share.share(event.shareUrl ? { message, url: event.shareUrl } : { message }).catch(() => undefined);
+    const url = event.shareUrl;
+    // iOS shares `url` as a rich link; Android ignores it, so the link rides in the text there.
+    const payload = !url ? { message } : Platform.OS === 'ios' ? { message, url } : { message: `${message}\n${url}` };
+    void Share.share(payload).catch(() => undefined);
   }, [event]);
 
   const rowText = [theme.typography.bodySmall, styles.upper, { color: theme.colors.gray700 }];
