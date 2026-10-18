@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { EditPencil, Eye, ShareIos, Trash } from 'iconoir-react-native';
+import { CheckCircle, EditPencil, Eye, ShareIos, Trash } from 'iconoir-react-native';
 
 import { Text, useSpotlightTheme } from '@spotlight/design-system';
 
@@ -33,6 +33,8 @@ type CardActionsSheetProps = {
   onShare: () => void;
   onWishlist: () => void;
   onDelete: () => void;
+  /** Adds a first "Select" row that starts multi-select with this card picked. */
+  onSelect?: () => void;
   testID?: string;
 };
 
@@ -60,6 +62,7 @@ export function CardActionsSheet({
   onShare,
   onWishlist,
   onDelete,
+  onSelect,
   testID = 'card-actions-sheet',
 }: CardActionsSheetProps) {
   const theme = useSpotlightTheme();
@@ -170,12 +173,13 @@ export function CardActionsSheet({
 
   const actions = useMemo(
     () => [
+      ...(onSelect ? [{ key: 'select', label: 'Select', Icon: CheckCircle, onPress: onSelect, destructive: false }] : []),
       { key: 'edit', label: 'Edit', Icon: EditPencil, onPress: onEdit, destructive: false },
       { key: 'share', label: 'Share', Icon: ShareIos, onPress: onShare, destructive: false },
       { key: 'wishlist', label: 'Watchlist', Icon: Eye, onPress: onWishlist, destructive: false },
       { key: 'delete', label: 'Delete', Icon: Trash, onPress: onDelete, destructive: true },
     ],
-    [onDelete, onEdit, onShare, onWishlist],
+    [onDelete, onEdit, onSelect, onShare, onWishlist],
   );
 
   if (!isRendered) {

@@ -26,7 +26,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useRouter } from 'expo-router';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from 'react-native-svg';
-import { CheckCircle, Trash } from 'iconoir-react-native';
+import { CheckCircle, Trash, Xmark } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ALL_COLLECTIONS_ID, CARD_GAMES, DEFAULT_CARD_GAME } from '@spotlight/api-client';
@@ -1075,6 +1075,12 @@ export function PortfolioScreen({
       : new Set(visibleInventory.map((entry) => entry.id)));
   }, [allVisibleSelected, visibleInventory]);
 
+  const handleExitSelect = useCallback(() => {
+    setEditMode(false);
+    setSelectedIds(new Set());
+    setDeleteError(null);
+  }, []);
+
   const selectedCount = selectedIds.size;
   const deleteMessage = `You're about to delete ${selectedCount} item${selectedCount === 1 ? '' : 's'} `
     + "from your Portfolio. This can't be undone, and your Portfolio value and Insights will be recalculated.";
@@ -1133,16 +1139,31 @@ export function PortfolioScreen({
 
   // Press-and-hold a card → a "click" haptic + the actions menu (skipped during
   // multi-select edit mode, where a tap toggles selection instead).
+  // The id multi-select tracks for the held card (the grid's, not the cross-collection original's).
+  const heldEntryIdRef = useRef<string | null>(null);
   const handleLongPressEntry = useCallback(
     (entry: InventoryCardEntry) => {
       if (editMode) {
         return;
       }
       triggerSelectionHaptic();
+      heldEntryIdRef.current = entry.id;
       setActionMenuEntry(crossCollectionOriginals.get(entry.id) ?? entry);
     },
     [crossCollectionOriginals, editMode],
   );
+
+  // "Select" in the hold menu: the only way into multi-select since the
+  // Select/Done toggle left the search row (Aug 2026).
+  const handleMenuSelect = useCallback(() => {
+    const id = heldEntryIdRef.current;
+    setActionMenuEntry(null);
+    if (!id) {
+      return;
+    }
+    setSelectedIds(new Set([id]));
+    setEditMode(true);
+  }, []);
 
   const closeActionMenu = useCallback(() => setActionMenuEntry(null), []);
 
@@ -2203,6 +2224,17 @@ export function PortfolioScreen({
             {`${selectedCount} item${selectedCount === 1 ? '' : 's'} selected`}
           </Text>
           <View style={styles.editActions}>
+            {/* Select mode hides the tab bar, so this is the way back out. */}
+            <Pressable
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={handleExitSelect}
+              style={styles.editAction}
+              testID="portfolio-edit-done"
+            >
+              <Xmark color={theme.colors.gray900} height={22} width={22} />
+              <Text style={[theme.typography.navLabel, { color: theme.colors.gray900 }]}>Done</Text>
+            </Pressable>
             <Pressable
               accessibilityRole="button"
               hitSlop={8}
@@ -2246,6 +2278,7 @@ export function PortfolioScreen({
         onDismiss={handleActionMenuDismissed}
         onDelete={handleMenuDelete}
         onEdit={handleMenuEdit}
+        onSelect={handleMenuSelect}
         onShare={handleMenuShare}
         onWishlist={handleMenuWishlist}
         testID="collection-card-actions"

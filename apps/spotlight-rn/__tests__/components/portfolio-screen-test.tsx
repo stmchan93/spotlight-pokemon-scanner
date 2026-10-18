@@ -1389,7 +1389,7 @@ describe('PortfolioScreen', () => {
     // Menu opens, titled with the card name, listing the four actions.
     const sheet = await screen.findByTestId('collection-card-actions');
     expect(within(sheet).getByText('Gengar VMAX')).toBeTruthy();
-    ['edit', 'share', 'wishlist', 'delete'].forEach((key) => {
+    ['select', 'edit', 'share', 'wishlist', 'delete'].forEach((key) => {
       expect(screen.getByTestId(`collection-card-actions-${key}`)).toBeTruthy();
     });
 
@@ -1400,6 +1400,40 @@ describe('PortfolioScreen', () => {
     expect(setCardFavorite).toHaveBeenCalledWith('card-lp-1', true, { variant: 'Reverse Holofoil' });
     // The write is invisible on the Collection row itself, so it has to say so.
     expect(await screen.findByText('Added to Watchlist')).toBeTruthy();
+  });
+
+  it('hold → Select starts multi-select with that card picked; Done leaves it', async () => {
+    const inventory = [
+      buildInventoryEntry({ id: 'ms-1', name: 'Gengar VMAX', cardId: 'card-ms-1' }),
+      buildInventoryEntry({ id: 'ms-2', name: 'Pikachu', cardId: 'card-ms-2' }),
+    ];
+    const dashboard = buildDashboardWithInventory(inventory);
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: inventory, errorMessage: null }),
+      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+    });
+
+    renderPortfolioScreen({ repository });
+
+    const tile = await screen.findByTestId('collection-masonry-grid-tile-ms-1');
+    await act(async () => {
+      fireEvent(tile, 'longPress');
+    });
+    const select = await screen.findByTestId('collection-card-actions-select');
+    await act(async () => {
+      fireEvent.press(select);
+    });
+    expect(await screen.findByText('1 item selected')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('collection-masonry-grid-tile-ms-2'));
+    });
+    expect(screen.getByText('2 items selected')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('portfolio-edit-done'));
+    });
+    expect(screen.queryByTestId('portfolio-edit-bar')).toBeNull();
   });
 
   it('omits Duplicate from the card actions menu', async () => {
