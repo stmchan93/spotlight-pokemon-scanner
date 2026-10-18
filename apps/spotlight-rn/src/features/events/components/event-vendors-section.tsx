@@ -232,7 +232,7 @@ function EventVendorsBody({
         {/* Docked inside the map (Figma 5865:11358): below it, a tapped table's vendor landed off-screen. */}
         {selected ? (
           <View pointerEvents="box-none" style={styles.cardOverlay}>
-            <SelectedVendorCard vendor={selected} />
+            <SelectedVendorCard onClose={deselect} vendor={selected} />
           </View>
         ) : null}
       </View>
@@ -320,7 +320,7 @@ function VendorRow({ vendor, selected, onPress, ref }: VendorRowProps) {
 }
 
 /** Figma 5865:11358 — the white card docked at the bottom of the map. */
-function SelectedVendorCard({ vendor }: { vendor: SpotlightEventMapVendor }) {
+function SelectedVendorCard({ vendor, onClose }: { vendor: SpotlightEventMapVendor; onClose: () => void }) {
   const theme = useSpotlightTheme();
   const instagram = vendor.instagram;
   return (
@@ -348,6 +348,15 @@ function SelectedVendorCard({ vendor }: { vendor: SpotlightEventMapVendor }) {
           <Instagram color={theme.colors.gray900} height={INSTAGRAM_ICON_SIZE} width={INSTAGRAM_ICON_SIZE} />
         </Pressable>
       ) : null}
+      <Pressable
+        accessibilityLabel="Close vendor"
+        accessibilityRole="button"
+        hitSlop={spacing.xxs}
+        onPress={onClose}
+        testID="event-vendor-card-close"
+      >
+        <Xmark color={theme.colors.gray600} height={INSTAGRAM_ICON_SIZE} width={INSTAGRAM_ICON_SIZE} />
+      </Pressable>
     </View>
   );
 }

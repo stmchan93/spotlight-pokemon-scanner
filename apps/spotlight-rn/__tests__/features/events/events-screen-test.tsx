@@ -8,7 +8,6 @@ import {
   EventsScreen,
   buildEventsShareMessage,
   searchEvents,
-  selectTicketEvents,
 } from '@/features/events/screens/events-screen';
 import { openLinkOut } from '@/features/meta-feed/screens/components/open-link-out';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
@@ -189,24 +188,6 @@ describe('EventsScreen', () => {
     expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/events/[eventId]', params: { eventId: 'pomona-2026-12' } });
   });
 
-  it('Tickets tab shows only purchasable events and opens the ticket link', async () => {
-    renderEvents();
-    await screen.findByTestId('event-card-hawaii-2026-10');
-    fireEvent.press(screen.getByTestId('events-tabs-tab-tickets'));
-
-    expect(cardIds()).toEqual(['event-card-hawaii-2026-10', 'event-card-pomona-2026-12']);
-    fireEvent.press(screen.getByTestId('event-card-pomona-2026-12'));
-    expect(openLinkOut).toHaveBeenCalledWith('https://example.com/tickets/pomona');
-    expect(mockPush).not.toHaveBeenCalled();
-  });
-
-  it('Tickets tab shows an empty state when nothing is on sale', async () => {
-    renderEvents(async () => ({ items: [upcomingNoTickets, pastTicketed] }));
-    await screen.findByTestId('event-card-irvine-2027-01');
-    fireEvent.press(screen.getByTestId('events-tabs-tab-tickets'));
-    expect(screen.getByTestId('events-tickets-empty')).toBeTruthy();
-  });
-
   it('Saved tab starts empty and fills when a card heart is tapped', async () => {
     renderEvents();
     await screen.findByTestId('event-card-hawaii-2026-10');
@@ -273,10 +254,6 @@ describe('EventsScreen', () => {
 });
 
 describe('events-screen selectors', () => {
-  it('selectTicketEvents keeps non-past events with a ticket link', () => {
-    expect(selectTicketEvents(FEED.items).map((event) => event.id)).toEqual(['hawaii-2026-10', 'pomona-2026-12']);
-  });
-
   it('searchEvents matches title, venue and city, case-insensitively', () => {
     expect(searchEvents(FEED.items, 'FAIRPLEX').map((event) => event.id)).toEqual(['pomona-2026-12']);
     expect(searchEvents(FEED.items, 'oahu').map((event) => event.id)).toEqual(['hawaii-2026-10']);

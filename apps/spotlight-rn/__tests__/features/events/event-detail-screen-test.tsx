@@ -347,4 +347,12 @@ describe('EventDetailScreen vendors', () => {
     expect(screen.getByTestId('event-vendor-card')).toBeTruthy();
     expect(screen.queryByTestId('event-vendor-card-instagram')).toBeNull();
   });
+
+  it('closes the vendor card with its X', async () => {
+    renderWithMap();
+    fireEvent.press(await screen.findByTestId('event-vendor-aloha-puddin'));
+    fireEvent.press(screen.getByTestId('event-vendor-card-close'));
+    expect(screen.queryByTestId('event-vendor-card')).toBeNull();
+    expect(screen.queryByTestId('event-floor-map-highlight-FOOD1')).toBeNull();
+  });
 });

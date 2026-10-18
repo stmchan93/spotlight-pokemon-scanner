@@ -37,15 +37,13 @@ import { EventListCard } from '@/features/events/components/event-list-card';
 import { eventRegion, eventRegions, formatEventDateRange } from '@/features/events/event-format';
 import { useSpotlightEvents } from '@/features/events/hooks/use-spotlight-events';
 import { useSavedEvents } from '@/features/events/saved-events-store';
-import { openLinkOut } from '@/features/meta-feed/screens/components/open-link-out';
 import { tabBarBottomFadeHeight } from '@/lib/tab-bar-insets';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 
-export type EventsTab = 'events' | 'tickets' | 'saved' | 'past';
+export type EventsTab = 'events' | 'saved' | 'past';
 
 const TABS: readonly { value: EventsTab; label: string; title: string }[] = [
   { value: 'events', label: 'Events', title: 'Upcoming Spotlight events' },
-  { value: 'tickets', label: 'Tickets', title: 'Tickets on sale' },
   { value: 'saved', label: 'Saved', title: 'Saved events' },
   { value: 'past', label: 'Past events', title: 'Past Spotlight events' },
 ];
@@ -68,11 +66,6 @@ const SEARCH_ICON_SIZE = 16;
 
 const headerImage = require('../../../../assets/images/events/events-header.jpg');
 const showLogo = require('../../../../assets/images/events/spotlight-card-show-logo.png');
-
-/** Events with a ticket link that can still be bought. */
-export function selectTicketEvents(events: SpotlightEvent[]): SpotlightEvent[] {
-  return events.filter((event) => event.ticketUrl && event.status !== 'past');
-}
 
 export function buildEventsShareMessage(events: SpotlightEvent[]): string {
   const upcoming = events.filter((event) => event.status !== 'past');
@@ -107,7 +100,6 @@ export function EventsScreen() {
 
   const upcoming = useMemo(() => events.filter((event) => event.status !== 'past'), [events]);
   const past = useMemo(() => events.filter((event) => event.status === 'past'), [events]);
-  const tickets = useMemo(() => selectTicketEvents(events), [events]);
   const saved = useMemo(() => events.filter((event) => savedIds.has(event.id)), [events, savedIds]);
 
   // Region tabs come from the whole feed, so they don't jump as the chip changes.
@@ -178,17 +170,6 @@ export function EventsScreen() {
             <SkeletonBlock key={key} height={143} radius={radii.sm} width="100%" />
           ))}
         </View>
-      );
-    }
-    if (tab === 'tickets') {
-      const rows = visible(tickets);
-      return rows.length > 0 ? (
-        // Tickets are sold on the web; the row goes straight to the checkout.
-        <View style={styles.list}>
-          {rows.map((event) => renderCard(event, () => void openLinkOut(event.ticketUrl ?? '')))}
-        </View>
-      ) : (
-        <StateCard message="Check back closer to the next show." testID="events-tickets-empty" title="No tickets on sale yet" />
       );
     }
     if (tab === 'saved') {
