@@ -16,7 +16,7 @@ import type { EdgeInsets } from 'react-native-safe-area-context';
 import { initialWindowMetrics, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Camera, Globe, MediaImage, NavArrowDown, Xmark } from 'iconoir-react-native';
 
-import { Avatar, Button, IconButton, SheetHeader, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Avatar, Button, IconButton, SheetHeader, Text, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
@@ -219,7 +219,7 @@ function ControlChip({
       testID={testID}
     >
       {icon}
-      <Text style={[theme.typography.label, { color: labelColor }]}>{label}</Text>
+      <Text style={[theme.typography.captionMedium, { color: labelColor }]}>{label}</Text>
       {trailing}
     </Pressable>
   );
@@ -603,9 +603,9 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             </IconButton>
           }
           style={styles.header}
-          title="New Post"
-          // Figma 3147:10838 — compact 14/600 gray-900 sheet title.
-          titleStyle={theme.typography.titleXsmall}
+          title="NEW POST"
+          // Figma 5938:34884 — NEW POST is raw SemiBold 13 (`labelStrong`) gray-900.
+          titleStyle={[theme.typography.labelStrong, { color: theme.colors.gray900 }]}
         />
 
         <ScrollView
@@ -630,18 +630,18 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             maxLength={BODY_MAX_LENGTH}
             multiline
             onChangeText={setBody}
-            placeholder="What's on your mind?"
+            placeholder="WHAT'S ON YOUR MIND?"
             placeholderTextColor={theme.colors.gray400}
-            // Typed text is 14/500 gray-800; the empty placeholder is 14/400
-            // gray-400 — two states in the frames, hence the conditional. RN
-            // has no separate placeholder font, so the style swaps with content.
+            // Typed text is 14/500 gray-800; the empty placeholder is the shared
+            // Light 13 placeholder token. RN has no separate placeholder font,
+            // so the style swaps with content.
             style={[
               styles.bodyInput,
               // With a photo attached the field stops reserving its full empty
               // height, so the preview sits right under what you typed instead
               // of under the full-height box with one line in it.
               imageUri ? styles.bodyInputWithImage : null,
-              body.length > 0 ? theme.typography.bodyMedium : theme.typography.bodySmall,
+              body.length > 0 ? theme.typography.bodyMedium : textStyles.placeholder,
               {
                 backgroundColor: theme.colors.gray50,
                 borderCurve: 'continuous',
@@ -689,7 +689,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
         >
           {/* Character counter sits bottom-right, directly above the control chips. */}
           <View style={styles.counterRow}>
-            <Text style={[theme.typography.label, { color: counterColor }]}>
+            <Text style={[theme.typography.caption, { color: counterColor }]}>
               {body.length}/{BODY_MAX_LENGTH}
             </Text>
           </View>
@@ -697,7 +697,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
           <View style={styles.controlRow}>
             <ControlChip
               icon={<Globe color={theme.colors.gray900} height={18} width={18} />}
-              label="Public"
+              label="PUBLIC"
               labelColor={theme.colors.gray900}
               onPress={handlePrivacy}
               testID={`${testID}-privacy`}
@@ -708,7 +708,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
               <>
                 <ControlChip
                   icon={<MediaImage color={theme.colors.gray900} height={18} width={18} />}
-                  label="Photo"
+                  label="PHOTO"
                   labelColor={theme.colors.gray900}
                   onPress={() => {
                     void handlePickImage();
@@ -718,7 +718,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
 
                 <ControlChip
                   icon={<Camera color={theme.colors.gray900} height={18} width={18} />}
-                  label="Camera"
+                  label="CAMERA"
                   labelColor={theme.colors.gray900}
                   onPress={() => {
                     void handleCaptureImage();
@@ -735,6 +735,8 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             // unpressable for the whole dismissal rather than flicking back to
             // an inviting POST as the screen slides away.
             label={submitState === 'idle' ? 'POST' : 'POSTING…'}
+            // Figma 5938:34885 — POST is raw SemiBold 13, like the header row.
+            labelStyle={theme.typography.labelStrong}
             onPress={() => {
               void handleSubmit();
             }}

@@ -97,16 +97,22 @@ export function CardProductDetails({ cardText, testID }: CardProductDetailsProps
   }
 
   return (
-    <View style={[styles.root, { gap: theme.spacing.xs }]} testID={testID}>
-      <Text style={theme.typography.titleMedium}>Product Details</Text>
-      <View style={[styles.lines, { gap: theme.spacing.xxs }]}>
+    // Figma 5938:2633 "Product Info": 16 title→lines, 6 between lines.
+    <View style={[styles.root, { gap: theme.spacing.sm }]} testID={testID}>
+      {/* "PRODUCT DETAILS" is raw Medium 16 in Figma (5938:2634, no library
+          style): headlineMedium matches it exactly. */}
+      <Text style={[theme.typography.headlineMedium, { color: theme.colors.gray900 }]}>
+        PRODUCT DETAILS
+      </Text>
+      <View style={styles.lines}>
         {lines.map((line) => (
           <Fragment key={line.key}>
             <Text
-              style={[theme.typography.body, { color: theme.colors.textSecondary }]}
+              style={[theme.typography.body, { color: theme.colors.gray600 }]}
               testID={testID ? `${testID}-${line.key}` : undefined}
             >
-              <Text style={[theme.typography.bodyStrong, { color: theme.colors.textPrimary }]}>
+              {/* Inline label is a raw Bold 15 span at gray800 (5938:2636). */}
+              <Text style={[theme.typography.feedRowTitle, { color: theme.colors.gray800 }]}>
                 {line.label}:{' '}
               </Text>
               {line.value}
@@ -120,6 +126,7 @@ export function CardProductDetails({ cardText, testID }: CardProductDetailsProps
 
 const styles = StyleSheet.create({
   lines: {
+    gap: 6,
     width: '100%',
   },
   root: {

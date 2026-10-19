@@ -58,6 +58,7 @@ export * from './components/top-mover-tile';
 export * from './components/top-trends-rail';
 export * from './components/trend-pill';
 export * from './components/trend-triangle';
+export * from './components/use-placeholder-typography';
 export * from './components/video-tile';
 export * from './theme';
 export * from './tokens';

@@ -59,10 +59,12 @@ const ALL_REGIONS = 'all';
 const HEADER_IMAGE_BELOW_SHEET = 24;
 const CHIP_ROW_ABOVE_SHEET = 48;
 const SHEET_RADIUS = radii.xl;
-// Logo 203×170, sitting 8 under the status bar and 11 left of center.
-const LOGO_WIDTH = 203;
-const LOGO_HEIGHT = 170;
-const LOGO_TOP_BELOW_STATUS_BAR = spacing.xxs;
+// Figma's 203×170 logo scaled up ~15% (aspect kept), 11 left of center. Its
+// bottom is pinned 20 above the chips, so its top lands ~6 under the status
+// bar; the artwork's empty top corners keep it clear of the toolbar bubbles.
+const LOGO_WIDTH = 234;
+const LOGO_HEIGHT = 196;
+const LOGO_ABOVE_CHIP_ROW = spacing.md;
 const LOGO_CENTER_OFFSET = -11;
 const SEARCH_ICON_SIZE = 16;
 /** Room left above the sheet for the floating toolbar when search scrolls it up. */
@@ -94,6 +96,7 @@ export function EventsScreen() {
   const insets = useSafeAreaInsets();
   const sheetTop = profileHeaderSheetTop(insets.top);
   const headerImageHeight = sheetTop + HEADER_IMAGE_BELOW_SHEET;
+  const chipRowTop = sheetTop - CHIP_ROW_ABOVE_SHEET;
   const { width: windowWidth } = useWindowDimensions();
   const { openDrawer } = useAppDrawer();
   const { events, failed, refresh } = useSpotlightEvents();
@@ -239,7 +242,7 @@ export function EventsScreen() {
             style={[
               styles.logo,
               {
-                top: insets.top + LOGO_TOP_BELOW_STATUS_BAR,
+                top: chipRowTop - LOGO_ABOVE_CHIP_ROW - LOGO_HEIGHT,
                 left: (windowWidth - LOGO_WIDTH) / 2 + LOGO_CENTER_OFFSET,
               },
             ]}
@@ -250,7 +253,7 @@ export function EventsScreen() {
             horizontal
             keyboardShouldPersistTaps="handled"
             showsHorizontalScrollIndicator={false}
-            style={[styles.chipRow, { top: sheetTop - CHIP_ROW_ABOVE_SHEET }]}
+            style={[styles.chipRow, { top: chipRowTop }]}
             testID="events-tabs"
           >
             {TABS.map((item) => {
@@ -273,10 +276,10 @@ export function EventsScreen() {
 
         <View style={[styles.sheet, { backgroundColor: theme.colors.gray0 }]}>
           <Text
-            style={[theme.typography.headline, styles.title, { color: theme.colors.gray900, paddingHorizontal: gutter }]}
+            style={[theme.typography.headline, { color: theme.colors.gray900, paddingHorizontal: gutter }]}
             testID="events-title"
           >
-            {title}
+            {title.toUpperCase()}
           </Text>
           {searchOpen ? (
             <View style={{ paddingHorizontal: gutter }}>
@@ -390,9 +393,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: SHEET_RADIUS,
     gap: spacing.lg,
     paddingTop: spacing.lg,
-  },
-  title: {
-    textTransform: 'uppercase',
   },
   listArea: {
     paddingTop: spacing.sm,

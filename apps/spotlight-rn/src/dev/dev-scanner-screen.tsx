@@ -1,6 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import { useMemo } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
+import type { ImageSourcePropType } from 'react-native';
 
 import type { CatalogSearchResult, RawPricingMatrix } from '@spotlight/api-client';
 import { colors, radii, shadows, spacing } from '@spotlight/design-system';
@@ -53,7 +54,8 @@ function variantKeyFor(printing: string): string {
   return printing.toLowerCase().replace(/\s+/g, '-');
 }
 
-function candidateFor(card: DevScanCard): CatalogSearchResult {
+/** A fixture card as the catalog candidate the tray / scan review render. */
+export function candidateFor(card: DevScanCard): CatalogSearchResult {
   // Metro serves the bundled PNG over http in dev, which is what the tray's
   // CachedImage (expo-image) expects for a candidate URL. Null when the asset
   // id is unregistered (jest's asset transform), so the thumb simply stays blank.
@@ -75,10 +77,17 @@ function candidateFor(card: DevScanCard): CatalogSearchResult {
   };
 }
 
-function rowFor(card: DevScanCard, id: string, binderPage: BinderPageRef | null): RecentCapture {
+function rowFor(
+  card: DevScanCard,
+  id: string,
+  binderPage: BinderPageRef | null,
+  // Runner-up matches: with more than one candidate the row draws its CHANGE
+  // chip, so the Change Card overlay can be opened on the simulator.
+  alternates: readonly DevScanCard[] = [],
+): RecentCapture {
   return {
     activeCandidateIndex: 0,
-    candidates: [candidateFor(card)],
+    candidates: [card, ...alternates].map(candidateFor),
     // Already "tracked": the terminal scan_row_resolved event must not fire for a fixture.
     hasTrackedSelectionEvent: true,
     id,
@@ -90,7 +99,8 @@ function rowFor(card: DevScanCard, id: string, binderPage: BinderPageRef | null)
     matchReviewReason: null,
     mode: 'raw',
     normalizedImageDimensions: null,
-    normalizedImageUri: null,
+    // The still stands in for the capture, so "Your Photo" has something to show.
+    normalizedImageUri: alternates.length > 0 ? Image.resolveAssetSource(card.image)?.uri ?? null : null,
     recentlyAdded: false,
     scanID: id,
     shownAtMs: DEV_SCAN_SHOWN_AT_MS,
@@ -98,7 +108,7 @@ function rowFor(card: DevScanCard, id: string, binderPage: BinderPageRef | null)
     sourceImageCrop: null,
     sourceImageDimensions: null,
     sourceImageRotationDegrees: 0,
-    totalCandidateCount: 1,
+    totalCandidateCount: 1 + alternates.length,
     uri: '',
     ...(binderPage ? { binderPage } : {}),
   };
@@ -154,7 +164,7 @@ function DevSceneCard({
   rect,
   tiltDegrees = 0,
 }: {
-  image: number;
+  image: ImageSourcePropType;
   rect: RawScannerFrameRect;
   tiltDegrees?: number;
 }) {
@@ -233,7 +243,7 @@ function DevScannerScene({ frame, mode }: { frame: RawScannerFrameRect; mode: De
 
 export function buildDevScannerPreview(mode: DevScannerMode): ScannerDevPreview {
   const rows = mode === 'single'
-    ? [rowFor(DEV_SCAN_SINGLE, 'dev-scan-single', null)]
+    ? [rowFor(DEV_SCAN_SINGLE, 'dev-scan-single', null, DEV_SCAN_BINDER.slice(0, 3))]
     // Pocket order, like `insertBinderPocketRows` leaves a finished page.
     : DEV_SCAN_BINDER.map((card, pocketIndex) => rowFor(
         card,

@@ -72,8 +72,9 @@ describe('BlockedAccountsScreen', () => {
     // The tap opens the confirmation, it does NOT unblock.
     expect(unblockUser).not.toHaveBeenCalled();
     expect(screen.getByTestId('blocked-accounts-confirm')).toBeTruthy();
-    expect(screen.getByText('Unblock account?')).toBeTruthy();
-    expect(screen.getByText(/Ash will be able to see your posts/)).toBeTruthy();
+    // The options sheet renders its copy in capitals.
+    expect(screen.getByText('UNBLOCK ACCOUNT?')).toBeTruthy();
+    expect(screen.getByText(/Ash will be able to see your posts/i)).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('blocked-accounts-confirm-confirm'));
 

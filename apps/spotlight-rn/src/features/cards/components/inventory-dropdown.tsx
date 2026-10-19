@@ -95,8 +95,9 @@ export function InventoryDropdown({
       >
         <View style={styles.headerTitle}>
           <BoxIso color={theme.colors.gray900} height={16} width={16} />
-          <AppText color="gray900" variant="bodyMedium">
-            Inventory
+          {/* "INVENTORY" — Caption-medium, uppercase (Figma 5938:25303 / 3656:41631). */}
+          <AppText color="gray900" variant="captionMedium">
+            INVENTORY
           </AppText>
         </View>
         <Chevron color={theme.colors.gray900} height={20} width={20} />
@@ -141,7 +142,7 @@ export function InventoryDropdown({
                           color="gray900"
                           numberOfLines={1}
                           style={styles.entrySummaryText}
-                          variant="label"
+                          variant="captionMedium"
                         >
                           {summary}
                         </AppText>

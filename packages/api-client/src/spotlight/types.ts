@@ -597,6 +597,13 @@ export type PortfolioPerformanceRow = {
   monthGainPercent: number | null; // per-unit % change over ~30 days
   isFavorite: boolean; // wishlist heart — drives the Insights "Likes" chip
   sparkline: number[]; // oldest → newest; [] when no history
+  /**
+   * Which TCG this row is from — drives the Insights game switcher. Always set
+   * by the repository mappers (from the wire field when the server sends one,
+   * else from the card id's game namespace); optional only so older cached
+   * payloads still type-check. Undefined means Pokémon.
+   */
+  game?: CardGame;
 } & PrintingImageFields;
 
 export type PortfolioPerformance = {
@@ -799,6 +806,33 @@ export const CARD_GAMES: readonly CardGame[] = [
 ];
 
 /**
+ * Non-Pokémon catalog ids are namespaced `<game>~<provider id>` (backend
+ * `catalog_tools.namespaced_catalog_id`); Pokémon ids carry no prefix. Longest
+ * prefix first, mirroring `_GAME_ID_NAMESPACE_PREFIXES`, so a future game id
+ * that prefixes another can never shadow it.
+ */
+const CARD_ID_GAME_PREFIXES: readonly (readonly [string, CardGame])[] = CARD_GAMES
+  .filter((game) => game !== DEFAULT_CARD_GAME)
+  .map((game) => [`${game}~`, game] as const)
+  .sort((a, b) => b[0].length - a[0].length);
+
+/**
+ * Which game a stored catalog id belongs to — the client half of the backend's
+ * `game_for_catalog_id`. Unnamespaced ids are Pokémon's by construction, so
+ * this answers for payloads that predate a per-record `game` field without a
+ * round trip.
+ */
+export function gameForCardId(cardId: string | null | undefined): CardGame {
+  const text = (cardId ?? '').trim();
+  for (const [prefix, game] of CARD_ID_GAME_PREFIXES) {
+    if (text.startsWith(prefix)) {
+      return game;
+    }
+  }
+  return DEFAULT_CARD_GAME;
+}
+
+/**
  * What a game HAS — the client-side half of the backend's game descriptor table
  * (`GAMES` in backend/catalog_tools.py). Only the fields the UI actually needs
  * are mirrored; the Scrydex path segments, rarity ladders and sync labels stay
@@ -908,6 +942,7 @@ export const CARD_GAME_CAPABILITIES: Record<CardGame, CardGameCapabilities> = {
     // English-only catalog: Lorcana ships in several languages, but Scrydex
     // serves it under one path and we sync EN.
     hasLanguageLanes: false,
+    singleLanguageTag: 'EN',
     // Ordered by real coverage: PSA 1,488 cards, CGC 770, SGC 267, BGS 232,
     // TAG 202, ACE 82, AGS 11, CCIC 6.
     graders: ['Raw', 'PSA', 'CGC', 'SGC', 'BGS', 'TAG', 'ACE', 'AGS', 'CCIC'],
@@ -919,6 +954,8 @@ export const CARD_GAME_CAPABILITIES: Record<CardGame, CardGameCapabilities> = {
     hasGradedData: false,
     hasListingsData: false,
     hasLanguageLanes: false,
+    // English-only index, same as One Piece: the scanner label says so.
+    singleLanguageTag: 'EN',
     graders: ['Raw'],
   },
   gundam: {
@@ -928,6 +965,8 @@ export const CARD_GAME_CAPABILITIES: Record<CardGame, CardGameCapabilities> = {
     hasGradedData: false,
     hasListingsData: false,
     hasLanguageLanes: false,
+    // English-only index, same as One Piece: the scanner label says so.
+    singleLanguageTag: 'EN',
     graders: ['Raw'],
   },
 };

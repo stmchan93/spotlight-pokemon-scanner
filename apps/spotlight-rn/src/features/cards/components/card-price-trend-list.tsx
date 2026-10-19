@@ -64,7 +64,11 @@ export function CardPriceTrendList({
   return (
     <View style={styles.root} testID={testID}>
       <View style={styles.header}>
-        <Text style={theme.typography.titleMedium}>Price Trend</Text>
+        {/* Figma 5768:22088 draws "PRICE TREND" raw Medium 16 (no library
+            style) — headlineMedium (Medium 16) matches it exactly. */}
+        <Text style={[theme.typography.headlineMedium, { color: theme.colors.gray900 }]}>
+          PRICE TREND
+        </Text>
         {onProviderPress ? (
           <Pressable
             accessibilityLabel={`Open on ${providerLabel}`}
@@ -98,8 +102,17 @@ export function CardPriceTrendList({
         const rowContent = (
           <>
             <View style={styles.label}>
-              <Text style={[theme.typography.body, styles.gradeLabel]} numberOfLines={1}>
-                {row.label}
+              {/* Graded rows "PSA 10" = Body gray700 (5768:22092); raw
+                  condition rows "NEAR MINT" = Caption UPPERCASE gray700
+                  (5768:23500). */}
+              <Text
+                numberOfLines={1}
+                style={[
+                  isAccordion ? theme.typography.body : theme.typography.caption,
+                  styles.gradeLabel,
+                ]}
+              >
+                {isAccordion ? row.label : row.label.toUpperCase()}
               </Text>
             </View>
             {/* Sparkline + price as one right-aligned group (Figma 1664:1090
@@ -209,12 +222,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 12,
   },
-  // Figma 1664:1090 grade label: Body (Plus Jakarta Regular) at 14/gray-700,
-  // muted so the price stays the emphasis.
+  // Grade / condition label at gray-700, muted so the price stays the emphasis.
   gradeLabel: {
     color: colors.gray700,
-    fontSize: 14,
-    lineHeight: 21,
   },
   label: {
     flex: 1,

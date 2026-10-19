@@ -248,7 +248,7 @@ export function TargetPriceSheet({ entry, onClose, onSubmit, mode = 'edit' }: Ta
                   {sheetEntry.name}
                 </Text>
                 {marketLabel ? (
-                  <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
+                  <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]}>
                     {`Market ${marketLabel}`}
                   </Text>
                 ) : null}
@@ -371,8 +371,9 @@ const styles = StyleSheet.create({
   },
   sheet: {
     borderCurve: 'continuous',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
+    borderTopLeftRadius: radii.sheet,
+    borderTopRightRadius: radii.sheet,
+    overflow: 'hidden',
     paddingTop: 10,
   },
   title: {

@@ -387,6 +387,7 @@ export function CatalogSearchScreen({
           onChangeText={setQuery}
           placeholder="Search by name, set, or number"
           returnKeyType="search"
+          uppercasePlaceholder
           value={query}
         />
 
@@ -404,19 +405,23 @@ export function CatalogSearchScreen({
         >
           <PillButton
             label="Sealed"
+            labelRole="caption"
             onPress={() => toggleFilter(SEALED_FILTER)}
             selected={sealedActive}
             testID="catalog-sealed-chip"
             tone="filter"
+            uppercase
           />
           {RARITY_FILTER_BUCKETS.map((key) => (
             <PillButton
               key={key}
               label={RARITY_BUCKET_LABELS[key]}
+              labelRole="caption"
               onPress={() => toggleFilter(key)}
               selected={activeRarity === key}
               testID={`catalog-rarity-chip-${key}`}
               tone="filter"
+              uppercase
             />
           ))}
         </ScrollView>

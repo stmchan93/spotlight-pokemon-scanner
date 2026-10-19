@@ -96,7 +96,13 @@ export function BinderBatchActionRow({
     }
   };
 
-  const variantOptions: AnchoredOption[] = printingOptions.map((label) => ({ key: slug(label), label }));
+  // Caps like the scanner's other chips; the key (slug) and the label handed
+  // back to the caller keep the printing's own spelling.
+  const variantOptions: AnchoredOption[] = printingOptions.map((label) => ({
+    key: slug(label),
+    label: label.toUpperCase(),
+  }));
+  const printingFor = (key: string) => printingOptions.find((candidate) => slug(candidate) === key);
 
   return (
     <View
@@ -113,7 +119,7 @@ export function BinderBatchActionRow({
             style={({ pressed }) => [styles.pill, open || pressed ? styles.pillActive : null]}
             testID={`${testID}-variant`}
           >
-            <Text style={styles.pillLabel}>Variant</Text>
+            <Text style={styles.pillLabel}>VARIANT</Text>
             <IconChevronDown color={colors.gray900} size={14} strokeWidth={2.2} />
           </Pressable>
         </View>
@@ -124,17 +130,17 @@ export function BinderBatchActionRow({
           style={({ pressed }) => [styles.done, pressed ? styles.donePressed : null]}
           testID={`${testID}-done`}
         >
-          <Text style={styles.doneLabel}>Done</Text>
+          <Text style={styles.doneLabel}>DONE</Text>
         </Pressable>
         {busy ? <ActivityIndicator color={colors.scannerTextPrimary} size="small" /> : null}
       </View>
       <AnchoredOptionMenu
-        accessibilityLabelFor={(option) => `Set the variant to ${option.label}`}
+        accessibilityLabelFor={(option) => `Set the variant to ${printingFor(option.key) ?? option.label}`}
         anchor={anchor}
         onClose={() => setOpen(false)}
         onSelect={(option) => {
           setOpen(false);
-          const label = printingOptions.find((candidate) => slug(candidate) === option.key);
+          const label = printingFor(option.key);
           if (label) {
             onSelectPrinting(label);
           }
@@ -161,7 +167,6 @@ const styles = StyleSheet.create({
   doneLabel: {
     ...textStyles.labelStrong,
     color: colors.gray0,
-    fontSize: 13,
   },
   donePressed: {
     opacity: 0.85,
@@ -189,9 +194,8 @@ const styles = StyleSheet.create({
   pillLabel: {
     // Matches the scan-mode pill on the camera — one dropdown shape in the
     // scanner, whichever screen it is on.
-    ...textStyles.labelStrong,
+    ...textStyles.captionMedium,
     color: colors.gray900,
-    fontSize: 12,
   },
   root: {
     // 16 clear of the header above and the first row of pockets below. The left

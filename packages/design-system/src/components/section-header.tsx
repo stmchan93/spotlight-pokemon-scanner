@@ -13,7 +13,8 @@ type SectionHeaderProps = {
   onActionPress?: () => void;
   onPress?: () => void;
   /**
-   * `default` = 25px display title for top-level page sections.
+   * `default` = Figma Title-medium (19/600) for top-level page sections; count
+   * in Body-medium.
    * `compact` = Figma Title-small (17/600) for a heading INSIDE a page, e.g. the
    * Watchlist's Deals band; its count drops to `captionMedium` and sits on the
    * title's baseline.
@@ -24,6 +25,13 @@ type SectionHeaderProps = {
   title: string;
   /** Small status mark (e.g. an unread dot) between the title and the count, vertically centred. */
   titleAccessory?: ReactNode;
+  /**
+   * Sets the title and the action label in capitals, as the Figma frames draw
+   * section headers ("SEALED PRODUCTS", "TOP TRENDS" on 5768:27092). Applied to
+   * the strings rather than via `textTransform`: iOS measures a row-flexed Text
+   * from the untransformed string, so the wider capitals would clip.
+   */
+  uppercase?: boolean;
 };
 
 function ChevronGlyph({
@@ -55,11 +63,14 @@ export function SectionHeader({
   testID,
   title,
   titleAccessory,
+  uppercase = false,
 }: SectionHeaderProps) {
   const theme = useSpotlightTheme();
   const hasChevron = typeof onPress === 'function';
   const headerCopyGap = subtitle ? theme.layout.titleBodyGap : 0;
   const compact = size === 'compact';
+  const titleText = uppercase ? title.toUpperCase() : title;
+  const actionText = uppercase && actionLabel ? actionLabel.toUpperCase() : actionLabel;
 
   const titleBlock = (
     <View style={[styles.copy, { gap: headerCopyGap }]}>
@@ -68,10 +79,10 @@ export function SectionHeader({
         testID={testID ? `${testID}-title-row` : undefined}
       >
         <Text
-          style={compact ? theme.typography.titleSmall : theme.typography.title}
+          style={compact ? theme.typography.titleSmall : theme.typography.titleMedium}
           testID={testID ? `${testID}-title` : undefined}
         >
-          {title}
+          {titleText}
         </Text>
         {titleAccessory ? <View style={styles.centeredSlot}>{titleAccessory}</View> : null}
         {countText ? (
@@ -79,7 +90,7 @@ export function SectionHeader({
             style={
               compact
                 ? [theme.typography.captionMedium, { color: theme.colors.gray600 }]
-                : [theme.typography.bodyStrong, styles.countText, { color: theme.colors.textSecondary }]
+                : [theme.typography.bodyMedium, styles.countText, { color: theme.colors.textSecondary }]
             }
             testID={testID ? `${testID}-count` : undefined}
           >
@@ -130,7 +141,7 @@ export function SectionHeader({
           ]}
           testID={actionTestID}
         >
-          <Text style={[theme.typography.control, { color: theme.colors.textPrimary }]}>{actionLabel}</Text>
+          <Text style={[theme.typography.label, { color: theme.colors.textPrimary }]}>{actionText}</Text>
         </Pressable>
       ) : null}
     </View>

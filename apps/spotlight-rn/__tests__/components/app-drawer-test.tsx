@@ -227,7 +227,7 @@ describe('AppDrawer', () => {
     });
 
     expect(screen.getByText('Spotlight Collector')).toBeTruthy();
-    expect(screen.getByText('Member since Jan 2024')).toBeTruthy();
+    expect(screen.getByText('MEMBER SINCE JAN 2024')).toBeTruthy();
   });
 
   it('opens the account screen when the profile row is tapped', async () => {

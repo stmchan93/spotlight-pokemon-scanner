@@ -90,6 +90,10 @@ export function AccountScreen() {
   const router = useRouter();
   const buildStamp = resolveBuildStamp();
   const theme = useSpotlightTheme();
+  // Section headers follow the Sign-in group labels: capitals (Figma 4255:88478).
+  // The strings are written in capitals rather than transformed, so iOS
+  // measures what it draws.
+  const sectionTitle = [theme.typography.titleSmall, { color: theme.colors.textPrimary }];
   const insets = useSafeAreaInsets();
   const auth = useAuth();
   const user = auth.currentUser;
@@ -337,13 +341,13 @@ export function AccountScreen() {
                 },
               ]}
             >
-              <Text style={[theme.typography.headline, { color: theme.colors.textPrimary }]}>
+              <Text style={[theme.typography.titleSmall, { color: theme.colors.textPrimary }]}>
                 {user ? getUserInitials(user) : '?'}
               </Text>
             </View>
 
             <View style={styles.identityCopy}>
-              <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
+              <Text style={[theme.typography.titleSmall, { color: theme.colors.textPrimary }]}>
                 {user ? getResolvedDisplayName(user) : 'Collector'}
               </Text>
               {user?.email ? (
@@ -358,8 +362,8 @@ export function AccountScreen() {
         <SurfaceCard padding={20} radius={28}>
           <View style={styles.collectionDataCard}>
             <View style={styles.showModeCopy}>
-              <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
-                Collection data
+              <Text style={sectionTitle}>
+                COLLECTION DATA
               </Text>
               <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
                 Export your collection
@@ -383,8 +387,8 @@ export function AccountScreen() {
         <SurfaceCard padding={20} radius={28}>
           <View style={styles.collectionDataCard}>
             <View style={styles.showModeCopy}>
-              <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
-                Contact & support
+              <Text style={sectionTitle}>
+                CONTACT & SUPPORT
               </Text>
               <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
                 Email us to report content or get help.
@@ -408,7 +412,7 @@ export function AccountScreen() {
                   </Text>
                   <Text
                     selectable
-                    style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}
+                    style={[theme.typography.titleSmall, { color: theme.colors.textPrimary }]}
                     testID="account-support-email"
                   >
                     {SUPPORT_EMAIL}
@@ -437,8 +441,8 @@ export function AccountScreen() {
         <SurfaceCard padding={20} radius={28}>
           <View style={styles.collectionDataCard}>
             <View style={styles.showModeCopy}>
-              <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
-                Safety
+              <Text style={sectionTitle}>
+                SAFETY
               </Text>
               <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
                 See who you&apos;ve blocked and unblock them.
@@ -460,8 +464,8 @@ export function AccountScreen() {
 
         <SurfaceCard padding={20} radius={28}>
           <View style={styles.showModeCopy}>
-            <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
-              Alerts
+            <Text style={sectionTitle}>
+              ALERTS
             </Text>
           </View>
           <AlertSettingsSection />
@@ -475,8 +479,8 @@ export function AccountScreen() {
         <SurfaceCard padding={20} radius={28}>
           <View style={styles.collectionDataCard}>
             <View style={styles.showModeCopy}>
-              <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
-                Legal
+              <Text style={sectionTitle}>
+                LEGAL
               </Text>
               <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
                 The agreements that govern your use of Ekalight.
@@ -509,8 +513,8 @@ export function AccountScreen() {
           <SurfaceCard padding={20} radius={28}>
             <View style={styles.showModeRow}>
               <View style={styles.showModeCopy}>
-                <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
-                  Card show mode
+                <Text style={sectionTitle}>
+                  CARD SHOW MODE
                 </Text>
                 <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
                   Opens the access gate so everyone can use the app.
@@ -532,8 +536,8 @@ export function AccountScreen() {
           <SurfaceCard padding={20} radius={28}>
             <View style={styles.whitelistCard}>
               <View style={styles.showModeCopy}>
-                <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
-                  Early-access whitelist
+                <Text style={sectionTitle}>
+                  EARLY-ACCESS WHITELIST
                 </Text>
                 <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
                   These emails always have access, even when the gate is closed.
@@ -588,7 +592,7 @@ export function AccountScreen() {
                         }}
                         testID={`account-whitelist-remove-${email}`}
                       >
-                        <Text style={[theme.typography.control, { color: theme.colors.danger }]}>
+                        <Text style={[theme.typography.bodyMedium, { color: theme.colors.danger }]}>
                           Remove
                         </Text>
                       </Pressable>
@@ -626,7 +630,7 @@ export function AccountScreen() {
           ]}
           testID="account-sign-out"
         >
-          <Text style={[theme.typography.control, { color: theme.colors.textPrimary }]}>
+          <Text style={[theme.typography.bodyMedium, { color: theme.colors.textPrimary }]}>
             Sign out
           </Text>
         </Pressable>

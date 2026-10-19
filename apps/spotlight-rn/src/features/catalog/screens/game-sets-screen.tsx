@@ -212,6 +212,7 @@ export function GameSetsScreen({
           placeholder="Search by name, set, or number"
           returnKeyType="search"
           testID="game-sets-search"
+          uppercasePlaceholder
           value={search.query}
         />
         {search.hasActiveQuery ? renderSearchState() : renderSetsState()}

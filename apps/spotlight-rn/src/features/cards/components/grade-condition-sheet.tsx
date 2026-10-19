@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Text, useSpotlightTheme } from '@spotlight/design-system';
+import { radii, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import { SheetDismissHandle } from '@/components/sheet-dismiss-handle';
 
@@ -128,8 +128,8 @@ export function GradeConditionSheet({
           onDismiss={onClose}
           testID={`${testID}-handle`}
         />
-        <Text style={[theme.typography.titleSmall, styles.title, { color: theme.colors.gray900 }]}>
-          {title}
+        <Text style={[theme.typography.labelStrong, styles.title, { color: theme.colors.gray900 }]}>
+          {title.toUpperCase()}
         </Text>
         <ScrollView
           contentContainerStyle={styles.listContent}
@@ -148,8 +148,8 @@ export function GradeConditionSheet({
                   onSelect(option.id);
                   onClose();
                 }}
-                // Selected = full-width pale-purple band (Figma 1664:2597); dark
-                // text either way, no checkmark — the fill alone marks selection.
+                // Selected = full-width pale-purple band (Figma 1664:2597) with
+                // the row stepping up to Label; dark text either way, no checkmark.
                 style={({ pressed }) => [
                   styles.row,
                   selected && { backgroundColor: theme.colors.purple50 },
@@ -157,8 +157,13 @@ export function GradeConditionSheet({
                 ]}
                 testID={`${testID}-option-${option.id}`}
               >
-                <Text style={[theme.typography.body, { color: theme.colors.gray900 }]}>
-                  {option.label}
+                <Text
+                  style={[
+                    selected ? theme.typography.label : theme.typography.body,
+                    { color: theme.colors.gray900 },
+                  ]}
+                >
+                  {option.label.toUpperCase()}
                 </Text>
               </Pressable>
             );
@@ -199,8 +204,9 @@ const styles = StyleSheet.create({
   },
   sheet: {
     borderCurve: 'continuous',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
+    borderTopLeftRadius: radii.sheet,
+    borderTopRightRadius: radii.sheet,
+    overflow: 'hidden',
     maxHeight: '70%',
     paddingTop: 10,
   },

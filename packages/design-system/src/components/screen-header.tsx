@@ -42,7 +42,7 @@ export function ScreenHeader({
   const copy = (
     <View style={layout === 'stacked' ? styles.stackedCopy : styles.copy}>
       {eyebrow ? (
-        <Text style={[theme.typography.micro, styles.eyebrow]}>{eyebrow}</Text>
+        <Text style={theme.typography.overline}>{eyebrow.toUpperCase()}</Text>
       ) : null}
       <Text style={theme.typography.display}>{title}</Text>
       {subtitle ? (
@@ -95,9 +95,6 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 8,
     minWidth: 0,
-  },
-  eyebrow: {
-    letterSpacing: 1.4,
   },
   header: {
     gap: 12,

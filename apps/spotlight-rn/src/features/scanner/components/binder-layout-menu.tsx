@@ -118,8 +118,8 @@ export function BinderLayoutMenu({
               ]}
               testID={`${testID}-${row.id}`}
             >
-              <Text style={[theme.typography.body, styles.label, { color: theme.colors.gray900 }]}>
-                {row.label}
+              <Text style={[theme.typography.label, styles.label, { color: theme.colors.gray900 }]}>
+                {row.label.toUpperCase()}
               </Text>
               {isSelected ? (
                 <IconCheck color={theme.colors.gray900} size={18} strokeWidth={2.2} />

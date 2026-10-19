@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { Avatar, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Avatar, Text, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 import type { InventoryCardEntry, SpotlightRepository } from '@spotlight/api-client';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
@@ -441,10 +441,11 @@ const styles = StyleSheet.create({
   skeletonFooter: {
     borderCurve: 'continuous',
     borderRadius: 4,
-    // 16, not 14: the resolved footer is `typography.caption`, whose lineHeight
-    // is 16. Two off is invisible on one card and a 2pt nudge per card once a
-    // thread holds several — the same class of drift as the old 220pt box.
-    height: 16,
+    // The resolved footer is `typography.caption`; the skeleton holds exactly
+    // its line box. A couple of points off is invisible on one card and a
+    // nudge per card once a thread holds several — the same class of drift as
+    // the old 220pt box.
+    height: textStyles.caption.lineHeight,
     width: 64,
   },
   skeletonLine: {

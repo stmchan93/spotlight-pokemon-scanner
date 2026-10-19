@@ -8,7 +8,7 @@ import {
   RollingNumberText,
   Text,
   colors,
-  fontFamilies,
+  textStyles,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -49,6 +49,8 @@ type PortfolioBalanceHeaderProps = {
    * than something inferred from the number.
    */
   isValueKnown?: boolean;
+  /** Eyebrow over the balance — the active collection's name (Figma 5938:16783). */
+  label?: string;
   onToggleHidden: () => void;
   testIDPrefix?: string;
 };
@@ -73,6 +75,7 @@ export function PortfolioBalanceHeader({
   activeChartPoint,
   isSummaryHidden,
   isValueKnown = true,
+  label = 'Portfolio',
   onToggleHidden,
   testIDPrefix = 'portfolio',
 }: PortfolioBalanceHeaderProps) {
@@ -124,8 +127,8 @@ export function PortfolioBalanceHeader({
       testID={`${testIDPrefix}-balance-header`}
     >
       <View style={styles.topGroup}>
-        <Text style={styles.portfolioLabel} testID={`${testIDPrefix}-balance-label`}>
-          Portfolio
+        <Text numberOfLines={1} style={styles.portfolioLabel} testID={`${testIDPrefix}-balance-label`}>
+          {label.toUpperCase()}
         </Text>
         <View style={styles.valueRow}>
           <RollingNumberText
@@ -210,22 +213,20 @@ const styles = StyleSheet.create({
   topGroup: {
     gap: 2,
   },
+  // Figma 5938:18043 draws this raw Light 12.
   portfolioLabel: {
-    color: colors.gray500,
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 12,
-    lineHeight: 16.8,
+    ...textStyles.overlineLight,
+    color: colors.gray600,
   },
   valueRow: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 8,
   },
+  // Figma "Display" (Bold 29).
   value: {
+    ...textStyles.display,
     flexShrink: 1,
-    fontFamily: fontFamilies.bodyBold,
-    fontSize: 28,
-    lineHeight: 33.6,
   },
   changeRow: {
     alignItems: 'center',
@@ -244,16 +245,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
   },
+  // Figma draws the delta raw SemiBold 14 (no library style yet).
   changeText: {
-    fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 14,
-    lineHeight: 21,
+    ...textStyles.titleXsmall,
   },
   // The scrub date stays visually secondary (the Figma frame doesn't include
-  // it — kept for scrub UX at the pre-redesign weight).
+  // it — kept for scrub UX on the same role as the balance label).
   dateText: {
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 12,
-    lineHeight: 16.8,
+    ...textStyles.overline,
   },
 });

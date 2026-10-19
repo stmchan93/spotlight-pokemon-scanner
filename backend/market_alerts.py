@@ -480,6 +480,10 @@ class WeeklySummary:
 class MilestoneCrossing:
     milestone_usd: int
     value_usd: float
+    # The headline sums EVERY collection while the app shows one at a time, so
+    # the push must say which total it celebrated (user hit $5k across two
+    # collections while looking at a $2.9k one, 2026-10-18).
+    collection_count: int = 1
 
 
 @dataclass(frozen=True)
@@ -695,10 +699,13 @@ def build_milestone_push(crossing: MilestoneCrossing | None) -> PlannedPush | No
         f"Achievement unlocked: {amount} collection \U0001F3C6",
     ), str(crossing.milestone_usd))
     data = {"type": DATA_TYPE_MILESTONE, "url": COLLECTION_DEEP_LINK, "milestoneUsd": crossing.milestone_usd}
-    return PlannedPush(
-        KIND_MILESTONE, title, "Congratulations! Your collection is growing!", data, MARKET_CHANNEL_ID,
-        milestone_usd=crossing.milestone_usd,
+    value = f"${crossing.value_usd:,.2f}"
+    body = (
+        f"All {crossing.collection_count} of your collections together are now worth {value}."
+        if crossing.collection_count > 1
+        else f"Your collection is now worth {value}."
     )
+    return PlannedPush(KIND_MILESTONE, title, body, data, MARKET_CHANNEL_ID, milestone_usd=crossing.milestone_usd)
 
 
 @dataclass
@@ -1102,6 +1109,17 @@ def weekly_summary_for_owner(
     )
 
 
+def _collection_count(connection: sqlite3.Connection, owner: str) -> int:
+    """Visible collections the headline sums; 1 when the table is absent (tests)."""
+    try:
+        row = connection.execute(
+            "SELECT COUNT(*) FROM collections WHERE owner_user_id = ? AND hidden = 0", (owner,)
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return 1
+    return max(1, int((row or [0])[0] or 0))
+
+
 def milestone_for_owner(
     connection: sqlite3.Connection,
     owner: str,
@@ -1128,7 +1146,7 @@ def milestone_for_owner(
         return None
     reached = milestone_reached(value)
     if row is not None and reached > int(row[0] or 0):
-        return MilestoneCrossing(reached, float(value))
+        return MilestoneCrossing(reached, float(value), collection_count=_collection_count(connection, owner))
     if not dry_run:
         connection.execute(
             """

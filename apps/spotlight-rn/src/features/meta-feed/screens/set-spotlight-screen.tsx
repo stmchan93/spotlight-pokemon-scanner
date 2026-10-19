@@ -272,7 +272,7 @@ function SetSpotlightBody({
               style={styles.showAll}
               testID="set-top-toggle"
             >
-              <Text style={[theme.typography.control, { color: theme.colors.brandStrong }]}>
+              <Text style={[theme.typography.bodyMedium, { color: theme.colors.brandStrong }]}>
                 {expanded ? 'Show fewer' : `Show all ${cards.length}`}
               </Text>
             </Pressable>

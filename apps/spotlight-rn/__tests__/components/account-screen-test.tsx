@@ -82,10 +82,11 @@ describe('AccountScreen', () => {
     expect(screen.queryByTestId('account-import-collectr')).toBeNull();
     expect(screen.queryByText('Import from TCGplayer')).toBeNull();
     expect(screen.queryByText('Import from Collectr')).toBeNull();
+    // Control labels are Figma Body-medium (Medium 14) since the type-scale re-cut.
     expect(StyleSheet.flatten(screen.getByText('Sign out').props.style)).toMatchObject({
-      fontFamily: 'SpotlightBodySemiBold',
-      fontSize: 15,
-      lineHeight: 20,
+      fontFamily: 'SpotlightBodyMedium',
+      fontSize: 14,
+      lineHeight: 18,
     });
     expect(screen.queryByTestId('account-label-session')).toBeNull();
   });
@@ -97,7 +98,7 @@ describe('AccountScreen', () => {
     renderWithProviders(<AccountScreen />);
 
     expect(screen.getByTestId('account-contact-support')).toBeTruthy();
-    expect(screen.getByText('Contact & support')).toBeTruthy();
+    expect(screen.getByText('CONTACT & SUPPORT')).toBeTruthy();
     expect(screen.getByText('Contact support')).toBeTruthy();
     // The raw address stays hidden until we know mail can't be opened.
     expect(screen.queryByTestId('account-support-email')).not.toBeOnTheScreen();
@@ -106,7 +107,7 @@ describe('AccountScreen', () => {
   it('routes to the blocked-accounts list — the only way to lift a block', () => {
     renderWithProviders(<AccountScreen />);
 
-    expect(screen.getByText('Safety')).toBeTruthy();
+    expect(screen.getByText('SAFETY')).toBeTruthy();
     fireEvent.press(screen.getByTestId('account-blocked-accounts'));
     expect(push).toHaveBeenCalledWith('/account/blocked');
   });
@@ -176,7 +177,7 @@ describe('AccountScreen', () => {
   it('opens the hosted Terms and Privacy pages from the Legal section', () => {
     renderWithProviders(<AccountScreen />);
 
-    expect(screen.getByText('Legal')).toBeTruthy();
+    expect(screen.getByText('LEGAL')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('account-terms'));
     expect(mockOpenURL).toHaveBeenCalledWith(

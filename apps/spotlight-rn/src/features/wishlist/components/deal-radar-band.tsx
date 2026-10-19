@@ -199,7 +199,7 @@ function DealRadarRow({
       testID={`wishlist-deal-dismiss-${alertId}`}
     >
       <Xmark color={theme.colors.gray0} height={20} width={20} />
-      <Text style={[theme.typography.caption, { color: theme.colors.gray0 }]}>Dismiss</Text>
+      <Text style={[theme.typography.captionMedium, { color: theme.colors.gray0 }]}>Dismiss</Text>
     </Pressable>
   );
 
@@ -250,7 +250,7 @@ function DealRadarRow({
               {printing ? (
                 <Text
                   numberOfLines={1}
-                  style={[theme.typography.label, { color: theme.colors.gray600 }]}
+                  style={[theme.typography.caption, { color: theme.colors.gray600 }]}
                   testID={`wishlist-deal-printing-${alert.id}`}
                 >
                   {printing}
@@ -260,7 +260,7 @@ function DealRadarRow({
                 {watchLine ? (
                   <Text
                     numberOfLines={1}
-                    style={[theme.typography.label, { color: theme.colors.gray600 }]}
+                    style={[theme.typography.caption, { color: theme.colors.gray600 }]}
                     testID={`wishlist-deal-watch-price-${alert.id}`}
                   >
                     {watchLine}
@@ -268,7 +268,7 @@ function DealRadarRow({
                 ) : null}
                 <Text
                   numberOfLines={2}
-                  style={[theme.typography.label, { color: theme.colors.gray600 }]}
+                  style={[theme.typography.caption, { color: theme.colors.gray600 }]}
                   testID={`wishlist-deal-list-price-${alert.id}`}
                 >
                   {'List Price: '}

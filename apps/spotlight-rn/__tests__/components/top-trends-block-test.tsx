@@ -125,7 +125,7 @@ describe('TopTrendsBlock', () => {
   it('renders nothing while the first read is in flight — no placeholder that can vanish', () => {
     renderBlock(<TopTrendsBlock loading movers={null} testID="trends" />);
     expect(screen.queryByTestId('trends')).toBeNull();
-    expect(screen.queryByText('Top Trends')).toBeNull();
+    expect(screen.queryByText('TOP TRENDS')).toBeNull();
     expect(hasTopTrendsContent(null, true)).toBe(false);
   });
 
@@ -151,9 +151,9 @@ describe('TopTrendsBlock', () => {
       'trends-tile-sv8-238',
     ]);
     // The caption names the game on screen — the biggest mover's, to start.
-    expect(screen.getByTestId('trends-rail-caption').props.children).toBe('Disney Lorcana');
+    expect(screen.getByTestId('trends-game').props.children).toBe('DISNEY LORCANA');
     expect(screen.queryByText('One Piece')).toBeNull();
-    expect(screen.getByText('past 30 days')).toBeTruthy();
+    expect(screen.getByText('PAST 30 DAYS')).toBeTruthy();
   });
 
   it('flips to the next game every interval and wraps, with the caption following', () => {
@@ -166,16 +166,16 @@ describe('TopTrendsBlock', () => {
       renderBlock(
         <TopTrendsBlock autoAdvanceIntervalMs={5_000} loading={false} movers={movers} testID="trends" />,
       );
-      const caption = () => screen.getByTestId('trends-rail-caption').props.children;
-      expect(caption()).toBe('One Piece');
+      const caption = () => screen.getByTestId('trends-game').props.children;
+      expect(caption()).toBe('ONE PIECE');
       act(() => {
         jest.advanceTimersByTime(5_000);
       });
-      expect(caption()).toBe('Pokémon');
+      expect(caption()).toBe('POKÉMON');
       act(() => {
         jest.advanceTimersByTime(5_000);
       });
-      expect(caption()).toBe('One Piece');
+      expect(caption()).toBe('ONE PIECE');
     } finally {
       jest.useRealTimers();
     }
@@ -192,7 +192,7 @@ describe('TopTrendsBlock', () => {
     fireEvent(screen.getByTestId('trends-rail-scroll'), 'momentumScrollEnd', {
       nativeEvent: { contentOffset: { x: 724, y: 0 } },
     });
-    expect(screen.getByTestId('trends-rail-caption').props.children).toBe('Pokémon');
+    expect(screen.getByTestId('trends-game').props.children).toBe('POKÉMON');
   });
 
   it('loops: a swipe past the last tile lands on the first, and past the first on the last', () => {
@@ -201,7 +201,7 @@ describe('TopTrendsBlock', () => {
       { game: 'onepiece', items: [buildItem({ game: 'onepiece', cardId: 'op-1', changePercent: 80 })] },
     ]);
     renderBlock(<TopTrendsBlock autoAdvanceIntervalMs={0} loading={false} movers={movers} testID="trends" />);
-    const caption = () => screen.getByTestId('trends-rail-caption').props.children;
+    const caption = () => screen.getByTestId('trends-game').props.children;
     const scroll = screen.getByTestId('trends-rail-scroll');
     // Rests one slot in, so the clone before the first tile is off screen.
     expect(scroll.props.contentOffset).toEqual({ x: 362, y: 0 });
@@ -210,10 +210,10 @@ describe('TopTrendsBlock', () => {
 
     // Forward off Pokémon (slot 2, the last real tile) onto the tail clone (slot 3) → One Piece.
     fireEvent(scroll, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 3 * 362, y: 0 } } });
-    expect(caption()).toBe('One Piece');
+    expect(caption()).toBe('ONE PIECE');
     // Back off One Piece (slot 1) onto the head clone (slot 0) → Pokémon.
     fireEvent(scroll, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 0, y: 0 } } });
-    expect(caption()).toBe('Pokémon');
+    expect(caption()).toBe('POKÉMON');
   });
 
   it('closes with the 4pt gray100 band by default, and not when told to hand it off', () => {

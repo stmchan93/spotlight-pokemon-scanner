@@ -63,7 +63,7 @@ export function ListRow({
       {leading ? <View style={styles.leading}>{leading}</View> : null}
       <View style={styles.copy}>
         <View style={styles.titleRow}>
-          <AppText numberOfLines={1} style={styles.title} variant="bodyStrong">
+          <AppText numberOfLines={1} style={styles.title} variant="bodyMedium">
             {title}
           </AppText>
           {meta ? (

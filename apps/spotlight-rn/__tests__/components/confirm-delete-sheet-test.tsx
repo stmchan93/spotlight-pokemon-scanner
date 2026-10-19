@@ -26,8 +26,8 @@ describe('ConfirmDeleteSheet', () => {
 
   it('lets an explicit message override the quantity copy (e.g. bulk delete)', () => {
     renderWithProviders(
-      <ConfirmDeleteSheet {...baseProps} quantity={5} message="Delete 3 selected items?" />,
+      <ConfirmDeleteSheet {...baseProps} quantity={5} message="DELETE 3 SELECTED ITEMS?" />,
     );
-    expect(screen.getByText('Delete 3 selected items?')).toBeTruthy();
+    expect(screen.getByText('DELETE 3 SELECTED ITEMS?')).toBeTruthy();
   });
 });

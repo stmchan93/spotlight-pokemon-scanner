@@ -16,6 +16,7 @@ import {
   Text,
   TextField,
   SurfaceCard,
+  radii,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -102,7 +103,7 @@ export function SalePriceEditSheet({
                   size={36}
                   testID="edit-sale-close"
                 >
-                  <Text style={[theme.typography.headline, styles.closeGlyph, { color: theme.colors.textPrimary }]}>
+                  <Text style={[theme.typography.headline, { color: theme.colors.textPrimary }]}>
                     ×
                   </Text>
                 </IconButton>
@@ -121,7 +122,7 @@ export function SalePriceEditSheet({
                 label="Sale Price"
                 onChangeText={onChangePriceText}
                 placeholder="$0.00"
-                inputStyle={[theme.typography.display, styles.priceFieldInput]}
+                inputStyle={theme.typography.display}
                 testID="edit-sale-price-input"
                 value={priceText}
               />
@@ -147,9 +148,6 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(15, 15, 18, 0.32)',
   },
-  closeGlyph: {
-    lineHeight: 20,
-  },
   confirmButton: {
     marginTop: 20,
     width: '100%',
@@ -165,9 +163,6 @@ const styles = StyleSheet.create({
   priceField: {
     minHeight: 64,
   },
-  priceFieldInput: {
-    lineHeight: 40,
-  },
   saleArt: {
     borderCurve: 'continuous',
     borderRadius: 10,
@@ -176,8 +171,12 @@ const styles = StyleSheet.create({
     width: 52,
   },
   sheet: {
+    borderCurve: 'continuous',
+    borderTopLeftRadius: radii.sheet,
+    borderTopRightRadius: radii.sheet,
     marginHorizontal: 16,
     marginBottom: 24,
+    overflow: 'hidden',
   },
   sheetWrap: {
     justifyContent: 'flex-end',

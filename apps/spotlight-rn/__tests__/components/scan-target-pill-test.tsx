@@ -24,23 +24,24 @@ function surfaceFill(testID: string): unknown {
 }
 
 describe('ScanTargetPill', () => {
-  it('labels the target in REGULAR 16, not the SemiBold every other pill uses', () => {
+  it('labels the target in the Figma Label role, not the SemiBold the SCAN/TOTAL pills use', () => {
     /*
-      Figma 5085:15158 asks for Plus Jakarta Sans Regular 16 here, against the
-      design system's own default that a tappable control takes the SemiBold
-      `control` role. The reason outlives the spec: this label is the NAME of
-      what you are scanning, not a command, so SemiBold reads as an instruction.
-      Pinned because a later sweep that "fixes" pills to `control` would undo it
-      silently.
+      Every Scan-1 frame styles this pill as the library "Label" (Medium 14) —
+      type-scale migration 2026-10-18, superseding the Regular 16 of 5085:15158.
+      This label is the NAME of what you are scanning, not a command, so the
+      SemiBold `labelStrong` of the tray pills would read as an instruction.
+      Pinned because a later sweep that "fixes" pills to `labelStrong` would undo
+      it silently.
     */
     render(<ScanTargetPill flag="en" label="Pokémon EN" onPress={() => {}} testID="pill" />);
 
     const label = StyleSheet.flatten(
-      screen.getByText('Pokémon EN').props.style as never,
+      screen.getByText('POKÉMON EN').props.style as never,
     ) as Record<string, unknown>;
-    expect(label.fontFamily).toBe(fontFamilies.bodyRegular);
-    expect(label.fontSize).toBe(16);
-    expect(label.fontFamily).not.toBe(textStyles.control.fontFamily);
+    expect(label.fontFamily).toBe(textStyles.label.fontFamily);
+    expect(label.fontFamily).toBe(fontFamilies.bodyMedium);
+    expect(label.fontSize).toBe(textStyles.label.fontSize);
+    expect(label.fontFamily).not.toBe(textStyles.labelStrong.fontFamily);
   });
 
   it('falls back to the shared light glass fill when glass is unavailable', () => {
@@ -67,7 +68,7 @@ describe('ScanTargetPill', () => {
     render(<ScanTargetPill flag="en" label="Pokémon EN" onPress={onPress} testID="pill" />);
 
     // The material must not swallow the content it wraps.
-    expect(screen.getByText('Pokémon EN')).toBeTruthy();
+    expect(screen.getByText('POKÉMON EN')).toBeTruthy();
     expect(screen.getByTestId('pill')).toBeTruthy();
     expect(screen.getByTestId('pill').props.accessibilityLabel).toBe(
       'Scanning for Pokémon EN. Change scan target',

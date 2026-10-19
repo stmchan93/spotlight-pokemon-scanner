@@ -52,14 +52,14 @@ describe('ScanBulkConfirmSheet', () => {
     renderSheet();
 
     expect(screen.getByTestId('scan-bulk-confirm-sheet-title')).toHaveTextContent(
-      'Add 3 items to Collections?',
+      'ADD 3 ITEMS TO COLLECTIONS?',
     );
     expect(screen.getByTestId('scan-bulk-confirm-sheet-description')).toHaveTextContent(
-      'These items will be added to your Collections using their current scan details.',
+      'THESE ITEMS WILL BE ADDED TO YOUR COLLECTIONS USING THEIR CURRENT SCAN DETAILS.',
     );
     expect(screen.getByTestId('scan-bulk-confirm-sheet-confirm')).toBeTruthy();
-    expect(screen.getByText('Add All')).toBeTruthy();
-    expect(screen.getByText('Cancel')).toBeTruthy();
+    expect(screen.getByText('ADD ALL')).toBeTruthy();
+    expect(screen.getByText('CANCEL')).toBeTruthy();
   });
 
   it('fires onConfirm when the confirm button is pressed', () => {

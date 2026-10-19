@@ -28,7 +28,7 @@ export function PriceText({
   muted = false,
   prefix,
   testID,
-  variant = 'titleCompact',
+  variant = 'titleMedium',
 }: PriceTextProps) {
   const formatted = formatAmount(amount, currency);
 

@@ -132,8 +132,8 @@ export function AddAllMenu({
           testID={`${testID}-collection`}
         >
           <GridPlus color={theme.colors.gray900} height={20} width={20} />
-          <Text style={[theme.typography.body, styles.label, { color: theme.colors.gray900 }]}>
-            Collection
+          <Text style={[theme.typography.label, styles.label, { color: theme.colors.gray900 }]}>
+            COLLECTION
           </Text>
         </Pressable>
         ) : null}
@@ -150,8 +150,8 @@ export function AddAllMenu({
           testID={`${testID}-wishlist`}
         >
           <Bookmark color={theme.colors.gray900} height={20} width={20} />
-          <Text style={[theme.typography.body, styles.label, { color: theme.colors.gray900 }]}>
-            Watchlist
+          <Text style={[theme.typography.label, styles.label, { color: theme.colors.gray900 }]}>
+            WISHLIST
           </Text>
         </Pressable>
         ) : null}
@@ -168,8 +168,8 @@ export function AddAllMenu({
           testID={`${testID}-remove`}
         >
           <Trash color={theme.colors.deltaDownText} height={20} width={20} />
-          <Text style={[theme.typography.body, styles.label, { color: theme.colors.deltaDownText }]}>
-            Clear
+          <Text style={[theme.typography.label, styles.label, { color: theme.colors.deltaDownText }]}>
+            CLEAR
           </Text>
         </Pressable>
         ) : null}

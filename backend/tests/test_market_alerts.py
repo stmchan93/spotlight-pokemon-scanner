@@ -495,13 +495,28 @@ class MilestoneTests(MarketAlertsTestCase):
         self.run_job()
         (message,) = self.sender.messages
         self.assertIn("$1,000", message.title)
-        self.assertEqual(message.body, "Congratulations! Your collection is growing!")
+        self.assertEqual(message.body, "Your collection is now worth $1,040.00.")
         self.assertEqual(message.data["url"], "/")
         self.assertEqual(message.data["type"], ma.DATA_TYPE_MILESTONE)
         self.assertEqual(self.stored("u1"), 1_000)
         self.assertEqual([r["kind"] for r in self.ledger("u1")], [ma.KIND_MILESTONE])
         self.run_job(NOW + timedelta(days=1))
         self.assertEqual(len(self.sender.messages), 1)
+
+    def test_body_names_the_all_collections_total(self) -> None:
+        # The app shows one collection at a time; the headline sums them all.
+        self.connection.executemany(
+            "INSERT INTO collections (id, owner_user_id, name, hidden, created_at) VALUES (?, ?, ?, ?, '2026-01-01')",
+            [("c1", "u1", "Main", 0), ("c2", "u1", "Newe", 0), ("c3", "u1", "Old", 1), ("c4", "u2", "Other", 0)],
+        )
+        self.token("u1")
+        self.seed("u1", 3_800.0)
+        self.values["u1"] = 5_886.33
+        self.run_job()
+        (message,) = self.sender.messages
+        self.assertIn("$5,000", message.title)
+        self.assertEqual(message.body, "All 2 of your collections together are now worth $5,886.33.")
+        self.assertEqual(self.stored("u1"), 5_000)
 
     def test_recrossing_after_a_dip_does_nothing(self) -> None:
         self.token("u1")

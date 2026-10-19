@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, Dimensions, Easing, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Button, radii, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 /**
  * How loudly a row is styled. The menu carries actions of genuinely different
@@ -69,6 +69,8 @@ const SCREEN_HEIGHT = Dimensions.get('window').height;
  * in-tree overlay has no view controller to collide with. Render it last inside
  * the caller's overlay so it paints above the rest.
  */
+// Every string on this sheet renders in capitals (user, 2026-10-19): the
+// "…" menu, its block/report confirmations and Cancel all match the frames.
 export function OptionsSheet({
   visible,
   onClose,
@@ -158,14 +160,14 @@ export function OptionsSheet({
             <Text
               style={[theme.typography.bodyMedium, styles.title, { color: theme.colors.gray900 }]}
             >
-              {title}
+              {title.toUpperCase()}
             </Text>
           ) : null}
         </View>
 
         {message ? (
           <Text style={[theme.typography.body, styles.message, { color: theme.colors.gray900 }]}>
-            {message}
+            {message.toUpperCase()}
           </Text>
         ) : null}
 
@@ -174,7 +176,7 @@ export function OptionsSheet({
           {actions.map((action) => (
             <Button
               key={action.key}
-              label={action.label}
+              label={action.label.toUpperCase()}
               // `caution` keeps the neutral shell and turns only the LABEL red —
               // see `OptionsSheetActionTone`.
               labelStyle={
@@ -189,7 +191,7 @@ export function OptionsSheet({
             />
           ))}
           <Button
-            label={cancelLabel}
+            label={cancelLabel.toUpperCase()}
             labelStyleVariant="label"
             onPress={onClose}
             shape="rounded"
@@ -247,8 +249,9 @@ const styles = StyleSheet.create({
   },
   sheet: {
     borderCurve: 'continuous',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
+    borderTopLeftRadius: radii.sheet,
+    borderTopRightRadius: radii.sheet,
+    overflow: 'hidden',
     paddingTop: 10,
   },
   title: {

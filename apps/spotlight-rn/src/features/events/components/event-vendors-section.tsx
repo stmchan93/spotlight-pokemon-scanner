@@ -328,9 +328,9 @@ function VendorRow({ vendor, selected, onPress, ref }: VendorRowProps) {
         {vendor.tags.length > 0 ? (
           <Text
             numberOfLines={1}
-            style={[theme.typography.cardMeta, styles.upper, { color: selected ? theme.colors.gray400 : theme.colors.gray600 }]}
+            style={[theme.typography.cardMeta, { color: selected ? theme.colors.gray400 : theme.colors.gray600 }]}
           >
-            {vendor.tags.join(' · ')}
+            {vendor.tags.join(' · ').toUpperCase()}
           </Text>
         ) : null}
       </View>
@@ -353,8 +353,8 @@ function SelectedVendorCard({ vendor, onClose }: { vendor: SpotlightEventMapVend
           {vendor.name}
         </Text>
         {vendor.tags.length > 0 ? (
-          <Text numberOfLines={1} style={[theme.typography.cardMeta, styles.upper, { color: theme.colors.gray600 }]}>
-            {vendor.tags.join(' · ')}
+          <Text numberOfLines={1} style={[theme.typography.cardMeta, { color: theme.colors.gray600 }]}>
+            {vendor.tags.join(' · ').toUpperCase()}
           </Text>
         ) : null}
         <Text style={[theme.typography.label, { color: theme.colors.gray700 }]}>{`Table ${vendor.location}`}</Text>
@@ -418,14 +418,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  upper: {
-    textTransform: 'uppercase',
-  },
   list: {
     gap: LIST_GAP,
   },
+  // Pixel-snapped: a raw 0.5pt rule alternated 1px/2px down the list.
   divider: {
-    height: borderWidths.rule,
+    height: borderWidths.ruleSnapped,
   },
   // Rows sit 8 in from the section edge (Figma: 345 wide in a 361 column).
   row: {

@@ -1,5 +1,5 @@
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { DataTransferBoth, Eye } from 'iconoir-react-native';
+import { DataTransferBoth, Heart } from 'iconoir-react-native';
 
 import { PillButton, useSpotlightTheme } from '@spotlight/design-system';
 
@@ -26,7 +26,7 @@ export const INSIGHTS_FILTER_ORDER: InsightsFilterKey[] = [
 
 const FILTER_LABELS: Record<InsightsFilterKey, string> = {
   all: 'All',
-  favorites: 'Watching',
+  favorites: 'Likes',
   price: 'Price',
   az: 'A-Z',
   ungraded: 'Ungraded',
@@ -49,7 +49,7 @@ export function InsightsFilterChipRow({
   const chipIcon = (key: InsightsFilterKey, selected: boolean) => {
     const color = selected ? theme.colors.gray0 : theme.colors.gray900;
     if (key === 'favorites') {
-      return <Eye color={color} height={16} width={16} />;
+      return <Heart color={color} height={16} width={16} />;
     }
     if (key === 'price') {
       return <DataTransferBoth color={color} height={16} width={16} />;
@@ -69,11 +69,13 @@ export function InsightsFilterChipRow({
           <PillButton
             key={key}
             label={FILTER_LABELS[key]}
+            labelRole="caption"
             leading={chipIcon(key, activeFilter === key)}
             onPress={() => onFilterChange(key)}
             selected={activeFilter === key}
             testID={`${testID}-${key}`}
             tone="filled"
+            uppercase
           />
         ))}
       </View>

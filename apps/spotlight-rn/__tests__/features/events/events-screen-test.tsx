@@ -132,11 +132,11 @@ describe('EventsScreen', () => {
       'event-card-pomona-2026-12',
       'event-card-irvine-2027-01',
     ]);
-    expect(screen.getByTestId('events-title').props.children).toBe('Upcoming Spotlight events');
+    expect(screen.getByTestId('events-title').props.children).toBe('UPCOMING SPOTLIGHT EVENTS');
 
     fireEvent.press(screen.getByTestId('events-tabs-tab-past'));
     expect(cardIds()).toEqual(['event-card-ontario-2026-08']);
-    expect(screen.getByTestId('events-title').props.children).toBe('Past Spotlight events');
+    expect(screen.getByTestId('events-title').props.children).toBe('PAST SPOTLIGHT EVENTS');
   });
 
   it('PAST EVENTS shows an empty state when nothing is past', async () => {

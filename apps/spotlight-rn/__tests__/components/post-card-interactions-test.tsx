@@ -255,8 +255,8 @@ describe('PostCard report and block', () => {
     fireEvent.press(screen.getByTestId('post-card-more-button'));
 
     expect(screen.getByTestId(OPTIONS)).toBeTruthy();
-    expect(screen.getByText('Report post')).toBeTruthy();
-    expect(screen.getByText('Block Ash Ketchum')).toBeTruthy();
+    expect(screen.getByText('REPORT POST')).toBeTruthy();
+    expect(screen.getByText('BLOCK ASH KETCHUM')).toBeTruthy();
     expect(screen.getByTestId(`${OPTIONS}-cancel`)).toBeTruthy();
   });
 
@@ -299,8 +299,8 @@ describe('PostCard report and block', () => {
 
     expect(fill(`${OPTIONS}-block`)).toBe('#D93025');
     expect(fill(`${OPTIONS}-report`)).toBe(fill(`${OPTIONS}-cancel`));
-    expect(labelColor('Report post')).toBe('#D93025');
-    expect(labelColor('Cancel')).not.toBe('#D93025');
+    expect(labelColor('REPORT POST')).toBe('#D93025');
+    expect(labelColor('CANCEL')).not.toBe('#D93025');
   });
 
   it('files a report against the post and its author', async () => {
@@ -346,12 +346,12 @@ describe('PostCard report and block', () => {
     expect(blockUser as jest.Mock).not.toHaveBeenCalled();
     expect(screen.queryByTestId(OPTIONS)).toBeNull();
     expect(screen.getByTestId(BLOCK_CONFIRM)).toBeTruthy();
-    expect(screen.getByText('Block Ash Ketchum?')).toBeTruthy();
+    expect(screen.getByText('BLOCK ASH KETCHUM?')).toBeTruthy();
     // The half of the anonymity promise that belongs to blocking is here, and
     // it is the comment thread's wording verbatim.
     expect(
       screen.getByText(
-        'Their posts and comments disappear from your feed, and yours disappear from theirs. They are not told that you blocked them.',
+        'THEIR POSTS AND COMMENTS DISAPPEAR FROM YOUR FEED, AND YOURS DISAPPEAR FROM THEIRS. THEY ARE NOT TOLD THAT YOU BLOCKED THEM.',
       ),
     ).toBeTruthy();
 

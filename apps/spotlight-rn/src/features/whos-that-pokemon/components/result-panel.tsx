@@ -76,7 +76,7 @@ function ConfidencePill({ confidence, testID }: { confidence: number; testID?: s
       testID={testID}
     >
       <AppText style={[theme.typography.captionMedium, { color: level.chipText }]}>
-        {`${Math.round(confidence * 100)}% match`}
+        {`${Math.round(confidence * 100)}% MATCH`}
       </AppText>
     </View>
   );
@@ -153,7 +153,7 @@ export function ResultPanel({
                 <View style={[styles.compareThumb, { backgroundColor: theme.colors.surfaceMuted }]} />
               )}
               <AppText style={[theme.typography.captionMedium, { color: theme.colors.textSecondary }]}>
-                You
+                YOU
               </AppText>
             </View>
             <AppText style={[theme.typography.titleSmall, { color: theme.colors.textSecondary }]}>

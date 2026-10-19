@@ -29,7 +29,7 @@ type ProfileHeaderProps = {
    */
   actionRow?: ReactNode;
   bio?: string | null;
-  /** Own profile only: with no bio, show a "Tell us about yourself!" prompt that calls this. */
+  /** Own profile only: with no bio, show the "Add a short bio" prompt that calls this. */
   onAddBioPress?: () => void;
   socialLink?: string | null;
   avatarUrl?: string | null;
@@ -139,9 +139,9 @@ export function ProfileHeader({
         styles.block,
         {
           minHeight: MIN_CONTENT_HEIGHT + insets.top,
-          // White text needs a dark ground even before the photo decodes (or
-          // when the profile has no cover at all).
-          backgroundColor: theme.colors.gray800,
+          // Ground under the scrim before the photo decodes, or with no cover
+          // (Figma 4134:50938).
+          backgroundColor: theme.colors.gray500,
         },
       ]}
       testID={testID}
@@ -172,12 +172,11 @@ export function ProfileHeader({
       <Svg pointerEvents="none" style={StyleSheet.absoluteFill} testID={`${testID}-scrim`}>
         <Defs>
           <LinearGradient id="profileScrim" x1="0" x2="0" y1="0" y2="1">
-            {/* Figma 4134:49492 "Header Overlay": clear at the top, black 50%
-                at the bottom — the pucks carry status-bar contrast, the sheet
-                edge gets the weight. */}
+            {/* Figma 5938:21730 "Header Overlay": clear at the top, black 70%
+                at the bottom; the 35% stop sits 70% up from the bottom. */}
             <Stop offset="0" stopColor="#666666" stopOpacity="0" />
-            <Stop offset="0.3" stopColor="#414141" stopOpacity="0.25" />
-            <Stop offset="1" stopColor="#000000" stopOpacity="0.5" />
+            <Stop offset="0.3" stopColor="#414141" stopOpacity="0.35" />
+            <Stop offset="1" stopColor="#000000" stopOpacity="0.7" />
           </LinearGradient>
         </Defs>
         <Rect fill="url(#profileScrim)" height="100%" width="100%" />
@@ -211,7 +210,8 @@ export function ProfileHeader({
                 style={[theme.typography.titleMedium, { color: theme.colors.gray0 }]}
                 testID={`${testID}-name`}
               >
-                {displayName}
+                {/* Figma 5938:21730: the @handle leads (no "@"), the person's name sits under it. */}
+                {handle || displayName}
               </Text>
               {isVerified ? (
                 <CheckCircle
@@ -223,12 +223,12 @@ export function ProfileHeader({
               ) : null}
             </View>
 
-            {handle ? (
+            {handle && displayName ? (
               <Text
-                style={[theme.typography.label, { color: theme.colors.gray200 }]}
-                testID={`${testID}-handle`}
+                style={[theme.typography.body, { color: theme.colors.gray100 }]}
+                testID={`${testID}-display-name`}
               >
-                @{handle}
+                {displayName.toUpperCase()}
               </Text>
             ) : null}
 
@@ -239,10 +239,10 @@ export function ProfileHeader({
                   style={styles.socialRow}
                   testID={`${testID}-social-link`}
                 >
-                  <Link color={theme.colors.linkOnDark} height={16} width={16} />
+                  <Link color={theme.colors.blue100} height={20} width={20} />
                   <Text
                     numberOfLines={1}
-                    style={[theme.typography.label, { color: theme.colors.linkOnDark }]}
+                    style={[theme.typography.label, { color: theme.colors.blue100 }]}
                   >
                     {socialLink}
                   </Text>
@@ -280,15 +280,17 @@ export function ProfileHeader({
         {bio ? (
           <Text
             numberOfLines={2}
-            style={[theme.typography.label, styles.bio, { color: theme.colors.gray0 }]}
+            // A written bio keeps its own casing (Figma 5938:32715); only the
+            // placeholder prompt below reads in capitals.
+            style={[theme.typography.labelLight, styles.bio, styles.bioWritten, { color: theme.colors.gray0 }]}
             testID={`${testID}-bio`}
           >
             {bio}
           </Text>
         ) : onAddBioPress ? (
           <Pressable accessibilityRole="button" onPress={onAddBioPress} testID={`${testID}-bio-placeholder`}>
-            <Text style={[theme.typography.label, styles.bio, { color: theme.colors.gray300 }]}>
-              Tell us about yourself!
+            <Text style={[theme.typography.labelLight, styles.bio, { color: theme.colors.gray0 }]}>
+              Add a short bio. Tell collectors what you chase, sell, or trade.
             </Text>
           </Pressable>
         ) : null}
@@ -367,16 +369,9 @@ function StatText({
   const theme = useSpotlightTheme();
 
   const content = (
-    <View style={styles.statItem}>
-      <Text
-        style={[theme.typography.headline, styles.statCount, { color: theme.colors.gray0 }]}
-      >
-        {count}
-      </Text>
-      <Text style={[theme.typography.bodySmall, styles.statLabel, { color: theme.colors.gray0 }]}>
-        {label}
-      </Text>
-    </View>
+    <Text style={[theme.typography.label, { color: theme.colors.gray0 }]}>
+      <Text>{count}</Text> {label.toUpperCase()}
+    </Text>
   );
 
   if (onPress) {
@@ -401,6 +396,9 @@ const styles = StyleSheet.create({
   },
   bio: {
     marginTop: 8,
+  },
+  bioWritten: {
+    textTransform: 'none',
   },
   block: {
     overflow: 'hidden',
@@ -433,19 +431,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 4,
-  },
-  statCount: {
-    fontSize: 16,
-    lineHeight: 20.2,
-  },
-  statItem: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 4,
-  },
-  statLabel: {
-    fontSize: 14,
-    lineHeight: 17.6,
   },
   statsRow: {
     flexDirection: 'row',

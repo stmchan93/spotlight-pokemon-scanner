@@ -185,7 +185,7 @@ export function PeopleSearchScreen({ testID = 'people-search' }: { testID?: stri
             {handle ? (
               <Text
                 numberOfLines={1}
-                style={[theme.typography.label, { color: theme.colors.gray600 }]}
+                style={[theme.typography.overline, { color: theme.colors.gray600 }]}
               >
                 @{handle}
               </Text>

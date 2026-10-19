@@ -186,9 +186,9 @@ export function AnchoredOptionMenu({
               >
                 <Text
                   numberOfLines={1}
-                  style={[theme.typography.body, styles.label, { color: theme.colors.gray900 }]}
+                  style={[theme.typography.label, styles.label, { color: theme.colors.gray900 }]}
                 >
-                  {option.label}
+                  {option.label.toUpperCase()}
                 </Text>
                 {isSelected ? (
                   <IconCheck color={theme.colors.purple500} size={18} strokeWidth={2.2} />

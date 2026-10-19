@@ -21,7 +21,7 @@ describe('InventoryBrowserScreen', () => {
 
     expect(await screen.findByText('View all cards')).toBeTruthy();
 
-    fireEvent.changeText(screen.getByPlaceholderText('Search collection cards'), 'tree');
+    fireEvent.changeText(screen.getByPlaceholderText('SEARCH COLLECTION CARDS'), 'tree');
     expect(await screen.findByText('No cards match that search')).toBeTruthy();
     expect(
       screen.getByText('Try a different name, set, card number, or collection filter.'),

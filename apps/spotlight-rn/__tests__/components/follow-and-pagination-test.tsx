@@ -50,7 +50,7 @@ describe('FollowButton', () => {
     expect(screen.getByLabelText('Following')).toBeTruthy();
   });
 
-  it('inverts its weight between the two states (quiet invite, loud confirmation)', () => {
+  it('outlines the invite and settles the confirmation into a light fill (Figma 5768:27191)', () => {
     const { rerender } = renderWithTheme(<FollowButton following={false} testID="follow" />);
     expect(flatten(screen.getByTestId('follow'))).toMatchObject({
       backgroundColor: colors.canvasElevated,
@@ -63,9 +63,10 @@ describe('FollowButton', () => {
       </SpotlightThemeProvider>,
     );
     expect(flatten(screen.getByTestId('follow'))).toMatchObject({
-      backgroundColor: colors.gray900,
-      borderColor: colors.gray900,
+      backgroundColor: colors.gray50,
+      borderColor: colors.gray50,
     });
+    expect(flatten(screen.getByText('FOLLOWING'))).toMatchObject({ color: colors.gray900 });
   });
 });
 

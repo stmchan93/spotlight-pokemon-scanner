@@ -104,7 +104,7 @@ describe('Watchlist empty state', () => {
     renderWithProviders(<WishlistScreen />, { spotlightRepository: repository });
 
     await screen.findByText('Treecko');
-    fireEvent.changeText(screen.getByPlaceholderText('Search your watchlist'), 'zzz-no-match');
+    fireEvent.changeText(screen.getByPlaceholderText('SEARCH YOUR WATCHLIST'), 'zzz-no-match');
 
     await screen.findByText('No cards match your filters.');
     expect(screen.queryByTestId('watchlist-empty-example')).toBeNull();

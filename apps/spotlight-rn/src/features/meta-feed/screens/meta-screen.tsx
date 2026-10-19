@@ -246,10 +246,10 @@ function HeadlineCard({ pulse }: { pulse: MetaPulse }) {
       style={[styles.headlineCard, { backgroundColor: theme.colors.purple50 }]}
       testID="meta-headline"
     >
-      <Text style={[theme.typography.feedEyebrow, styles.overline, { color: theme.colors.brandStrong }]}>
-        {readLabel(pulse.windowDays)}
+      <Text style={[theme.typography.overline, { color: theme.colors.brandStrong }]}>
+        {readLabel(pulse.windowDays).toUpperCase()}
       </Text>
-      <Text style={[theme.typography.feedTitle, styles.headlineTitle, { color: theme.colors.gray900 }]}>
+      <Text style={[theme.typography.titleMedium, styles.headlineTitle, { color: theme.colors.gray900 }]}>
         {pulse.headline.title}
       </Text>
       <View style={styles.statRow}>
@@ -295,7 +295,7 @@ function StatTile({
       testID={testID}
     >
       <Text style={theme.typography.captionMedium}>{label}</Text>
-      <Text numberOfLines={1} style={[theme.typography.feedTitle, { color }]}>
+      <Text numberOfLines={1} style={[theme.typography.titleMedium, { color }]}>
         {value}
       </Text>
       <Text numberOfLines={1} style={[theme.typography.captionMedium, { color }]}>
@@ -339,9 +339,6 @@ const styles = StyleSheet.create({
   lists: {
     paddingHorizontal: layout.pageGutter,
     paddingTop: spacing.md,
-  },
-  overline: {
-    textTransform: 'uppercase',
   },
   safeArea: {
     flex: 1,

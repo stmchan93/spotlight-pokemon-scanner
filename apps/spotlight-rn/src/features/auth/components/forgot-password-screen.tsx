@@ -1,6 +1,6 @@
 import { StyleSheet, View } from 'react-native';
 
-import { Text, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
+import { Text, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import { AuthScreenLayout } from './auth-screen-layout';
 import {
@@ -81,9 +81,8 @@ const styles = StyleSheet.create({
   heading: {
     gap: 8,
   },
+  // Body (Figma 4255:90140 reset message).
   subtitle: {
-    fontFamily: fontFamilies.bodyRegular,
-    fontSize: 14,
-    lineHeight: 21,
+    ...textStyles.body,
   },
 });

@@ -101,7 +101,7 @@ function SortRow({
 
   return (
     <View style={styles.controlGroup}>
-      <Text style={[theme.typography.micro, styles.sectionLabel]}>SORT</Text>
+      <Text style={theme.typography.overline}>SORT</Text>
       <ScrollView
         horizontal
         contentContainerStyle={styles.chipRow}
@@ -230,8 +230,8 @@ export function InventoryBrowserScreen({
       <View style={[styles.screen, { paddingBottom: insets.bottom + 24 }]}>
         <View style={styles.navRow}>
           <ChromeBackButton onPress={onBack} testID="inventory-back" />
-          <Text style={[theme.typography.headline, { color: theme.colors.textSecondary }]}>
-            Collection
+          <Text style={[theme.typography.titleXsmall, { color: theme.colors.gray900 }]}>
+            COLLECTION
           </Text>
           <View style={styles.navSpacer} />
         </View>
@@ -246,7 +246,6 @@ export function InventoryBrowserScreen({
         <View style={styles.actionRow}>
           <Button
             label="Add Card"
-            labelStyleVariant="control"
             onPress={() => onOpenAddCard?.()}
             size="sm"
             style={styles.actionButton}
@@ -260,7 +259,9 @@ export function InventoryBrowserScreen({
           onChangeText={setSearchQuery}
           placeholder="Search collection cards"
           returnKeyType="search"
-          size="compact"
+          size="collection"
+          surface="muted"
+          uppercasePlaceholder
           value={searchQuery}
           trailing={(
             <Pressable
@@ -285,10 +286,13 @@ export function InventoryBrowserScreen({
               <PillButton
                 key={option.value}
                 label={option.label}
+                labelRole="caption"
                 onPress={() => setSortOption(option.value)}
                 selected={sortOption === option.value}
                 style={styles.sortPill}
                 testID={`inventory-sort-${option.value}`}
+                tone="filled"
+                uppercase
               />
             ))}
           </SortRow>
@@ -333,6 +337,7 @@ export function InventoryBrowserScreen({
                         quantity={entry.quantity}
                         setName={entry.setName}
                         testID={makeInventorySmokeTestID(entry)}
+                        textPreset="collection"
                       />
                     </View>
                   </View>
@@ -369,7 +374,7 @@ export function InventoryBrowserScreen({
               ]}
               testID="inventory-filter-menu"
             >
-              <Text style={[theme.typography.micro, styles.filterSheetTitle]}>FILTER</Text>
+              <Text style={[theme.typography.overline, styles.filterSheetTitle]}>FILTER</Text>
               {filterOptions.map((option) => {
                 const isActive = filterOption === option.value;
                 return (
@@ -461,7 +466,6 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   filterSheetTitle: {
-    letterSpacing: 1.8,
     marginBottom: 6,
     paddingHorizontal: 14,
   },
@@ -495,9 +499,6 @@ const styles = StyleSheet.create({
     paddingBottom: 120,
   },
   searchField: {},
-  sectionLabel: {
-    letterSpacing: 1.8,
-  },
   sortPill: {
     height: 32,
     paddingVertical: 0,

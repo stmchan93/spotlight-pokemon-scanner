@@ -1537,7 +1537,7 @@ describe('CardDetailScreen', () => {
     );
 
     expect(await screen.findByTestId('detail-product-details')).toBeTruthy();
-    expect(screen.getByText('Product Details')).toBeTruthy();
+    expect(screen.getByText('PRODUCT DETAILS')).toBeTruthy();
   });
 
   it('omits Product Details when the card detail has no cardText', async () => {
@@ -3143,8 +3143,8 @@ describe('CardDetailScreen', () => {
 
       // One "Market Price" row (no condition label) carrying the price.
       expect(await screen.findByTestId('detail-price-trends')).toBeTruthy();
-      expect(screen.getByText('Market Price')).toBeTruthy();
-      expect(screen.queryByText('Near Mint')).toBeNull();
+      expect(screen.getByText('MARKET PRICE')).toBeTruthy();
+      expect(screen.queryByText('NEAR MINT')).toBeNull();
       expect(screen.getByTestId('detail-price-trends-price-NM').props.children).toBe('$62.75');
 
       // Square product framing, not the 5:7 card frame.
@@ -3339,7 +3339,7 @@ describe('CardDetailScreen', () => {
         },
       );
 
-      expect(await screen.findByText('Market Price')).toBeTruthy();
+      expect(await screen.findByText('MARKET PRICE')).toBeTruthy();
       expect(screen.getByTestId('detail-price-trends-price-market').props.children).toBe('$62.75');
     });
   });

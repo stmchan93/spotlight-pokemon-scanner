@@ -7,7 +7,13 @@ import { useSpotlightTheme } from '../theme';
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'outline' | 'accent' | 'dark' | 'destructive';
 export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg';
 export type ButtonShape = 'pill' | 'rounded';
-export type ButtonLabelStyleVariant = 'body' | 'bodyStrong' | 'caption' | 'control' | 'label';
+/**
+ * Label role. `bodyMedium` (Figma Body-medium 14/500) is the default button
+ * label; `control` is its legacy alias and `bodyStrong` folds into it (there is
+ * no SemiBold-15 button in Figma). `label` is Label 14 for chip-style actions,
+ * `caption` is Caption 13 Regular (the FOLLOW-style quiet button).
+ */
+export type ButtonLabelStyleVariant = 'body' | 'bodyMedium' | 'bodyStrong' | 'caption' | 'control' | 'label';
 
 type ButtonProps = {
   contentStyle?: StyleProp<ViewStyle>;
@@ -22,6 +28,12 @@ type ButtonProps = {
   style?: StyleProp<ViewStyle>;
   testID?: string;
   trailingAccessory?: ReactNode;
+  /**
+   * Render the label in capitals. Figma's full-width form CTAs ("Continue",
+   * "Sign Up") are mixed case; its compact actions (ADD, POST, FOLLOW, the
+   * Edit Profile CANCEL / SAVE pair) are uppercase. Opt in per call site.
+   */
+  uppercase?: boolean;
   variant?: ButtonVariant;
 };
 
@@ -55,7 +67,7 @@ export function Button({
   disabled = false,
   label,
   labelStyle,
-  labelStyleVariant = 'control',
+  labelStyleVariant = 'bodyMedium',
   leadingAccessory,
   onPress,
   shape = 'pill',
@@ -63,6 +75,7 @@ export function Button({
   style,
   testID,
   trailingAccessory,
+  uppercase = false,
   variant = 'primary',
 }: ButtonProps) {
   const theme = useSpotlightTheme();
@@ -70,13 +83,11 @@ export function Button({
   const textStyle =
     labelStyleVariant === 'caption'
       ? theme.typography.caption
-      : labelStyleVariant === 'control'
-        ? theme.typography.control
       : labelStyleVariant === 'body'
         ? theme.typography.body
       : labelStyleVariant === 'label'
         ? theme.typography.label
-        : theme.typography.bodyStrong;
+        : theme.typography.bodyMedium;
 
   // Light/bordered variants fade when disabled via colors with the alpha BAKED
   // IN, not layer opacity: a semi-transparent layer's overlapping border+fill
@@ -186,7 +197,9 @@ export function Button({
             labelStyle,
           ]}
         >
-          {label}
+          {/* Uppercased in JS, not `textTransform`: iOS measures the line box
+              from the untransformed string, so capitals clip in a tight pill. */}
+          {uppercase ? label.toUpperCase() : label}
         </Text>
         {trailingAccessory ? <View style={styles.accessory}>{trailingAccessory}</View> : null}
       </View>

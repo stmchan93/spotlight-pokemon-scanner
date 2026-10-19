@@ -109,11 +109,12 @@ describe('AuthGate', () => {
 
     expect(screen.getByText('Finish your profile')).toBeTruthy();
     expect(screen.getByText('Signed in as collector@example.com')).toBeTruthy();
-    // Filled CTA label per the updated Figma (2368:44111 — 14px Body-medium).
+    // Filled CTA label per the updated Figma (2368:44111 — Body-medium, Medium 14
+    // on the token's 18 line box).
     expect(StyleSheet.flatten(screen.getByText('Continue').props.style)).toMatchObject({
       fontFamily: 'SpotlightBodyMedium',
       fontSize: 14,
-      lineHeight: 21,
+      lineHeight: 18,
     });
 
     fireEvent.changeText(screen.getByTestId('auth-profile-input'), 'Stephen');

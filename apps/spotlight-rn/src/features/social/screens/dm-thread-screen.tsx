@@ -792,10 +792,10 @@ export function DmThreadScreen({
           */}
           {timeSeparatorIds.has(item.id) ? (
             <Text
-              style={[theme.typography.micro, styles.timeSeparator, { color: theme.colors.gray600 }]}
+              style={[theme.typography.overline, styles.timeSeparator, { color: theme.colors.gray600 }]}
               testID={`${testID}-time-${item.id}`}
             >
-              {formatTimeSeparator(item.createdAt)}
+              {formatTimeSeparator(item.createdAt).toUpperCase()}
             </Text>
           ) : null}
           <View
@@ -908,7 +908,7 @@ export function DmThreadScreen({
               {item.failed ? (
                 <Text
                   style={[
-                    theme.typography.micro,
+                    theme.typography.overline,
                     styles.failedNote,
                     { color: theme.colors.dangerStrong },
                   ]}
@@ -939,7 +939,7 @@ export function DmThreadScreen({
               </View>
             ) : (
               <Text
-                style={[theme.typography.micro, styles.seenNote, { color: theme.colors.gray600 }]}
+                style={[theme.typography.overline, styles.seenNote, { color: theme.colors.gray600 }]}
                 testID={`${testID}-sent-${item.id}`}
               >
                 {formatSentAgo(item.createdAt)}
@@ -1005,7 +1005,7 @@ export function DmThreadScreen({
             uri={otherUser?.avatarUrl ?? undefined}
           />
           <View style={styles.headerCopy}>
-            <Text numberOfLines={1} style={theme.typography.titleXsmall}>
+            <Text numberOfLines={1} style={theme.typography.titleSmall}>
               {headerName}
             </Text>
             {otherUser?.handle ? (

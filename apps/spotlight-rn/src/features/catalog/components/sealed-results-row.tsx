@@ -35,6 +35,7 @@ export function SealedResultsRow({
         actionTestID="catalog-sealed-see-all"
         onActionPress={onSeeAll}
         title="Sealed products"
+        uppercase
       />
       <FlatList
         contentContainerStyle={styles.rowContent}
@@ -62,7 +63,7 @@ export function SealedResultsRow({
       />
       {showCardsHeading ? (
         <View style={styles.cardsHeading}>
-          <SectionHeader testID="catalog-cards-heading" title="Cards" />
+          <SectionHeader testID="catalog-cards-heading" title="Cards" uppercase />
         </View>
       ) : null}
     </View>

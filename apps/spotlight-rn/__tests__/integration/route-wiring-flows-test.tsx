@@ -166,7 +166,7 @@ describe('route wiring flows', () => {
     fireEvent.press(await screen.findByTestId('inventory-add-card'));
     expect(await screen.findByText('Search Cards')).toBeTruthy();
 
-    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
+    fireEvent.changeText(screen.getByPlaceholderText(/search by name, set, or number/i), 'tree');
 
     // The harness debounces the query by 275ms. Wait it out on the real clock:
     // faking timers here would freeze the same clock `findBy*` polls on.

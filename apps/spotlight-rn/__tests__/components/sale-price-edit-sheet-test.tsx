@@ -2,6 +2,7 @@ import { fireEvent, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import type { RecentSaleRecord } from '@spotlight/api-client';
+import { textStyles } from '@spotlight/design-system';
 
 import { SalePriceEditSheet } from '@/features/portfolio/components/sale-price-edit-sheet';
 
@@ -44,13 +45,15 @@ describe('SalePriceEditSheet', () => {
       uri: sale.imageUrl,
     });
     expect(screen.getByText('Previous $12.50')).toBeTruthy();
+    // Price input is the Figma "Display" role; the confirm label is the Button's default control role.
     expect(StyleSheet.flatten(screen.getByTestId('edit-sale-price-input').props.style)).toMatchObject({
-      fontSize: 36,
-      lineHeight: 40,
+      fontFamily: textStyles.display.fontFamily,
+      fontSize: textStyles.display.fontSize,
+      lineHeight: textStyles.display.lineHeight,
     });
     expect(StyleSheet.flatten(screen.getByText('Confirm price').props.style)).toMatchObject({
-      fontSize: 15,
-      lineHeight: 20,
+      fontSize: textStyles.control.fontSize,
+      lineHeight: textStyles.control.lineHeight,
     });
 
     fireEvent.changeText(screen.getByTestId('edit-sale-price-input'), '14.75');

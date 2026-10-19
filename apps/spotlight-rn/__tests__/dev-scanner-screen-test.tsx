@@ -187,7 +187,7 @@ describe('ScannerScreen dev preview', () => {
     // The printing link needs the card's matrix, which the dev repository serves.
     expect(getRawPricingMatrix).toHaveBeenCalledWith(DEV_SCAN_SINGLE.cardId);
     expect(screen.getByTestId('scanner-tray-printing-dev-scan-single-label')).toHaveTextContent(
-      DEV_SCAN_SINGLE.printing,
+      DEV_SCAN_SINGLE.printing.toUpperCase(),
     );
     // The persisted tray stayed on disk — the preview never rehydrates.
     expect(screen.queryByTestId('scanner-tray-row-persisted-scan')).toBeNull();

@@ -71,7 +71,6 @@ import {
   GlassSurface,
   Text,
   colors,
-  fontFamilies,
   radii,
   textStyles,
   useSpotlightTheme,
@@ -515,7 +514,7 @@ function PocketBadge({ binderPage }: { binderPage: BinderPageRef }) {
           />
         ))}
       </View>
-      <Text style={styles.pocketBadgeLabel}>{`Pocket ${pocketIndex + 1}`}</Text>
+      <Text style={styles.pocketBadgeLabel}>{`POCKET ${pocketIndex + 1}`}</Text>
     </View>
   );
 }
@@ -670,7 +669,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                 ]}
                 testID={`scanner-tray-change-${capture.id}`}
               >
-                <Text style={styles.captureChangeLabel}>Change</Text>
+                <Text style={styles.captureChangeLabel}>CHANGE</Text>
               </ArenaPressable>
             ) : null}
           </View>
@@ -694,17 +693,17 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
             <View style={styles.captureCopy}>
               {capture.binderPage?.empty ? (
                 <>
-                  <Text numberOfLines={1} style={styles.captureTitle}>Empty pocket</Text>
-                  <Text numberOfLines={1} style={styles.captureSubtitle}>No card found in this pocket</Text>
+                  <Text numberOfLines={1} style={styles.captureTitle}>EMPTY POCKET</Text>
+                  <Text numberOfLines={1} style={styles.captureSubtitle}>NO CARD FOUND IN THIS POCKET</Text>
                   <PocketBadge binderPage={capture.binderPage} />
                 </>
               ) : capture.isLoadingCandidates ? (
                 <>
                   <View style={styles.captureLoadingRow}>
                     <ActivityIndicator color={theme.colors.brand} size="small" />
-                    <Text style={styles.captureTitle}>Finding match</Text>
+                    <Text style={styles.captureTitle}>FINDING MATCH</Text>
                   </View>
-                  <Text style={styles.captureSubtitle}>Photo captured and queued for scan review</Text>
+                  <Text style={styles.captureSubtitle}>PHOTO CAPTURED AND QUEUED FOR SCAN REVIEW</Text>
                   {capture.binderPage ? <PocketBadge binderPage={capture.binderPage} /> : null}
                 </>
               ) : candidate ? (
@@ -764,7 +763,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                         style={styles.capturePrintingLabel}
                         testID={`scanner-tray-printing-${capture.id}-label`}
                       >
-                        {activeVariantLabel ?? 'Default'}
+                        {(activeVariantLabel ?? 'Default').toUpperCase()}
                       </Text>
                       <IconChevronDown color={colors.purple500} size={14} strokeWidth={2.2} />
                     </ArenaPressable>
@@ -1248,6 +1247,7 @@ export function ScannerScreen({
   const [rowMenuAnchor, setRowMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const addAllTriggerRef = useRef<View | null>(null);
   const lastBulkActionRef = useRef<AddAllMenuAction>('collection');
+  // Capitals like every other scanner label (user, 2026-10-19).
   // Worded the way a show floor actually talks: "I'll do 80% of book", never
   // "20% off". The state stays a discount so the arithmetic reads plainly;
   // only the labels flip. 5% steps down to 65% of market (35% off) covers the
@@ -1255,15 +1255,15 @@ export function ScannerScreen({
   // row's own printing and condition already settle.
   const discountOptions = useMemo(
     () => [
-      { key: '0', label: 'Full price' },
+      { key: '0', label: 'FULL PRICE' },
       // SECOND, not last. At the bottom of an eight-row list it sat below the
       // menu's six-row fold and went unnoticed for weeks — and it is the row
       // that covers every deal the presets do not, so it earns the spot next
       // to the one everyone starts from.
-      { key: 'custom', label: 'Custom…' },
+      { key: 'custom', label: 'CUSTOM…' },
       ...[10, 15, 20, 25, 30, 35].map((percent) => ({
         key: String(percent),
-        label: `${100 - percent}% of market`,
+        label: `${100 - percent}% OF MARKET`,
       })),
     ],
     [],
@@ -4775,7 +4775,9 @@ export function ScannerScreen({
             <Rect fill="url(#scannerTopFade)" height="100%" width="100%" x="0" y="0" />
           </Svg>
         </View>
-        <View pointerEvents="none" style={styles.cameraBottomFade}>
+        {/* Only as tall as the collapsed tray (Figma 5753:18593): the fade stops
+            at the handle, so the mode/zoom pills sit on the live viewfinder. */}
+        <View pointerEvents="none" style={[styles.cameraBottomFade, { height: footerReservedHeight }]}>
           {/*
             Figma 5938:14965 "Bottom gradient": a 2px backdrop blur under white
             0% -> 20% (top -> bottom), behind the zoom controls and the tray.
@@ -4918,7 +4920,7 @@ export function ScannerScreen({
               />
               <View style={styles.binderModePillContent}>
                 <Text style={styles.binderModePillLabel}>
-                  {isBinderPageMode ? binderPageLayout.label : 'Single'}
+                  {(isBinderPageMode ? binderPageLayout.label : 'Single').toUpperCase()}
                 </Text>
                 <IconChevronDown color={colors.gray900} size={14} strokeWidth={2.2} />
               </View>
@@ -5476,8 +5478,6 @@ const styles = StyleSheet.create({
   },
   cameraBottomFade: {
     bottom: 0,
-    // Figma 4911:8693 — the mock's frame height, includes the home-indicator area.
-    height: 258,
     left: 0,
     position: 'absolute',
     right: 0,
@@ -5532,11 +5532,8 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   binderPageHeaderLabel: {
+    ...textStyles.overline,
     color: colors.scannerTextPrimary,
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 12,
-    letterSpacing: 0.6,
-    lineHeight: 16,
     opacity: 0.85,
   },
   binderPageHeaderActions: {
@@ -5558,10 +5555,8 @@ const styles = StyleSheet.create({
     color: colors.gray0,
   },
   binderPageHeaderButtonLabel: {
+    ...textStyles.chipLabel,
     color: colors.scannerTextPrimary,
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 11,
-    lineHeight: 14,
   },
   pocketBadge: {
     alignItems: 'center',
@@ -5584,10 +5579,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.purple500,
   },
   pocketBadgeLabel: {
+    ...textStyles.chipLabel,
     color: colors.scannerTextPrimary,
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 11,
-    lineHeight: 14,
     opacity: 0.85,
   },
   // Single ↔ 3×3 toggle pill: always on the zoom dock's light glass chip —
@@ -5614,11 +5607,10 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   binderModePillLabel: {
-    // labelStrong to match the SCAN/TOTAL pill weight.
-    ...textStyles.labelStrong,
+    // Figma Caption-medium (Medium 13) on every Scan-1 frame; pairs with the zoom factors.
+    ...textStyles.captionMedium,
     // Dark on the white chip (was white on dark glass).
     color: colors.gray900,
-    fontSize: 12,
   },
   zoomDock: {
     alignItems: 'center',
@@ -5647,11 +5639,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   zoomPillLabel: {
-    // labelStrong to match the SCAN/TOTAL pill weight (was plain label).
-    ...textStyles.labelStrong,
+    // Figma Caption-medium (Medium 13), same as the Single/3×3 pill.
+    ...textStyles.captionMedium,
     // Dark on the white chip.
     color: colors.gray900,
-    fontSize: 12,
   },
   // Unselected factor: white over the camera, shadowed so it survives a
   // bright wall behind it.
@@ -5671,7 +5662,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   captureMeta: {
-    ...textStyles.caption,
+    // Figma Label (Medium 14) — the "RAW" lane line.
+    ...textStyles.label,
     color: colors.scannerTextMuted,
   },
   captureMainButton: {
@@ -5687,7 +5679,8 @@ const styles = StyleSheet.create({
     width: 21,
   },
   capturePriceValue: {
-    ...textStyles.headline,
+    // Figma Title-small (SemiBold 17), same role as the card name.
+    ...textStyles.titleSmall,
     color: colors.scannerTextPrimary,
     textAlign: 'right',
   },
@@ -5720,11 +5713,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   captureSubtitle: {
-    ...textStyles.caption,
+    // Figma Label (Medium 14) — "038/088 · Perfect Order".
+    ...textStyles.label,
     color: colors.scannerTextPrimary,
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 13,
-    lineHeight: 16.4,
   },
   captureModeRow: {
     alignItems: 'center',
@@ -5749,10 +5740,10 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   capturePrintingLabel: {
-    ...textStyles.labelStrong,
+    // Figma Label (Medium 14), uppercased like the "RAW" line it replaces.
+    ...textStyles.label,
     color: colors.purple500,
     flexShrink: 1,
-    fontSize: 12,
   },
   captureThumb: {
     // Figma 3594:25986 — 58x80 at radius 2.695, which is a real card's corner
@@ -5808,13 +5799,13 @@ const styles = StyleSheet.create({
     color: colors.gray0,
   },
   captureChangeChip: {
-    // Recessive dark gray, not the scanner's purple action fill: the row's
-    // purple now belongs to the printing link and the ADD pill, and CHANGE is
-    // the rarer path — the printing that used to send people to the change
-    // screen is editable in the row itself. White on gray800 still clears AA.
+    // Recessive dark gray (Figma gray/700), not the scanner's purple action
+    // fill: the row's purple now belongs to the printing link and the ADD
+    // pill, and CHANGE is the rarer path — the printing that used to send
+    // people to the change screen is editable in the row itself.
     alignItems: 'center',
     alignSelf: 'stretch',
-    backgroundColor: colors.gray800,
+    backgroundColor: colors.gray700,
     borderCurve: 'continuous',
     borderRadius: 4,
     height: 18,
@@ -5825,25 +5816,23 @@ const styles = StyleSheet.create({
     opacity: 0.78,
   },
   captureChangeLabel: {
+    // Figma draws CHANGE raw Medium 10; navLabel is the nearest Medium token.
+    ...textStyles.navLabel,
     color: colors.scannerTextPrimary,
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 11,
-    lineHeight: 14.3,
   },
   captureGradedRefChip: {
+    ...textStyles.chipLabel,
     backgroundColor: colors.scannerConditionPill,
     borderCurve: 'continuous',
     borderRadius: 4,
     color: colors.scannerTextPrimary,
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 11,
-    lineHeight: 14.3,
     overflow: 'hidden',
     paddingHorizontal: 5,
     paddingVertical: 2,
   },
   captureTitle: {
-    ...textStyles.headline,
+    // Figma Title-small (SemiBold 17).
+    ...textStyles.titleSmall,
     color: colors.scannerTextPrimary,
   },
   capturePriceColumn: {
@@ -5875,10 +5864,8 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.94 }],
   },
   captureAddPillLabel: {
+    ...textStyles.labelStrong,
     color: colors.scannerTextPrimary,
-    fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 13,
-    lineHeight: 18.2,
   },
   recentScansRow: {
     alignItems: 'center',
@@ -5980,7 +5967,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   matchesPanelTitle: {
-    ...textStyles.control,
+    ...textStyles.label,
     color: colors.scannerTextPrimary,
   },
   matchOptionCopy: {

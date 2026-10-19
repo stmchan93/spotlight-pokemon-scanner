@@ -22,21 +22,18 @@ type SegmentedControlProps<T extends string> = {
 const sizeMetrics = {
   lg: {
     containerPadding: 6,
-    fontSize: undefined,
     minHeight: 50,
     paddingHorizontal: 22,
     paddingVertical: 10,
   },
   md: {
     containerPadding: 4,
-    fontSize: undefined,
     minHeight: 34,
     paddingHorizontal: 10,
     paddingVertical: 7,
   },
   scanner: {
     containerPadding: 2,
-    fontSize: 13,
     minHeight: undefined,
     paddingHorizontal: 8,
     paddingVertical: 5,
@@ -78,7 +75,9 @@ export function SegmentedControl<T extends string>({
         textColor: theme.colors.textPrimary,
       };
 
-  const labelStyle = size === 'scanner' ? theme.typography.label : theme.typography.control;
+  // Scanner segments are Caption-medium 13 (the frames draw them Medium 13);
+  // md/lg are Body-medium 14 like every other control label.
+  const labelStyle = size === 'scanner' ? theme.typography.captionMedium : theme.typography.bodyMedium;
 
   return (
     <View
@@ -125,7 +124,6 @@ export function SegmentedControl<T extends string>({
                 labelStyle,
                 {
                   color: selected ? shell.selectedTextColor : shell.textColor,
-                  ...(metrics.fontSize != null ? { fontSize: metrics.fontSize } : {}),
                 },
               ]}
             >

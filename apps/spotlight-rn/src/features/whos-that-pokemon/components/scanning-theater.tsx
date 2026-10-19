@@ -202,13 +202,13 @@ export function ScanningTheater({ selfieUri, palette, testID = 'wtp-theater' }: 
           ))}
         </View>
         <AppText style={styles.sampleCaption} testID={`${testID}-sample-count`}>
-          {`${sampledCount} of ${swatchCount} tones sampled`}
+          {`${sampledCount} OF ${swatchCount} TONES SAMPLED`}
         </AppText>
       </View>
 
       <Animated.View style={[styles.statusBlock, statusStyle]}>
         <AppText style={styles.statusText} testID={`${testID}-status`}>
-          {STATUS_LINES[statusIndex]}
+          {STATUS_LINES[statusIndex].toUpperCase()}
         </AppText>
       </Animated.View>
     </View>
@@ -299,6 +299,8 @@ const styles = StyleSheet.create({
     height: 26,
     width: 26,
   },
+  // Status captions on the scanner canvas read in caps, like the scanner's own
+  // meta pills ("SCAN: 0", Figma 5753:18575).
   sampleCaption: {
     ...textStyles.captionMedium,
     color: colors.scannerTextMuted,

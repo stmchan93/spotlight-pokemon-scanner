@@ -117,7 +117,7 @@ export function BetweenShowsScreen() {
           <SurfaceCard padding={20} radius={28}>
             {waitlistJoined ? (
               <View style={styles.cardCopy}>
-                <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
+                <Text style={[theme.typography.titleMedium, { color: theme.colors.textPrimary }]}>
                   You&apos;re on the list.
                 </Text>
                 <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
@@ -155,7 +155,7 @@ export function BetweenShowsScreen() {
 
           <SurfaceCard padding={20} radius={28}>
             <View style={styles.cardCopy}>
-              <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
+              <Text style={[theme.typography.titleMedium, { color: theme.colors.textPrimary }]}>
                 Have an invite code?
               </Text>
               <TextField
@@ -205,7 +205,7 @@ export function BetweenShowsScreen() {
             ]}
             testID="between-shows-sign-out"
           >
-            <Text style={[theme.typography.control, { color: theme.colors.textSecondary }]}>
+            <Text style={[theme.typography.bodyMedium, { color: theme.colors.textSecondary }]}>
               Sign out
             </Text>
           </Pressable>

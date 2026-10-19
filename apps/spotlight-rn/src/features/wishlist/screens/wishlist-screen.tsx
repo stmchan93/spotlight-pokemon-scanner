@@ -38,6 +38,7 @@ import {
   colors,
   layout,
   spacing,
+  textStyles,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -846,6 +847,7 @@ export function WishlistScreen() {
               returnKeyType="search"
               size="collection"
               surface="muted"
+              uppercasePlaceholder
               value={query}
             />
           </View>
@@ -882,6 +884,8 @@ export function WishlistScreen() {
               <PillButton
                 key={filter.key}
                 label={filter.label}
+                labelRole="caption"
+                uppercase
                 leading={filter.hasArrow ? (
                   // Down, because the sort is descending (highest price first).
                   <ArrowDown
@@ -1056,7 +1060,7 @@ export function WishlistScreen() {
               testID="wishlist-edit-select-all"
             >
               <CheckCircle color={theme.colors.gray900} height={22} width={22} />
-              <Text style={[theme.typography.navLabel, { color: theme.colors.gray900 }]}>
+              <Text style={[theme.typography.caption, { color: theme.colors.gray900 }]}>
                 {allVisibleSelected ? 'Unselect All' : 'Select All'}
               </Text>
             </Pressable>
@@ -1069,7 +1073,7 @@ export function WishlistScreen() {
               testID="wishlist-edit-delete"
             >
               <Trash color={theme.colors.dangerStrong} height={22} width={22} />
-              <Text style={[theme.typography.navLabel, { color: theme.colors.dangerStrong }]}>
+              <Text style={[theme.typography.caption, { color: theme.colors.dangerStrong }]}>
                 Delete
               </Text>
             </Pressable>
@@ -1192,6 +1196,7 @@ function WishlistListRow({
       delayLongPress={350}
       firstInSection={firstInSection}
       footnote={targetLabel}
+      textPreset="collection"
       // Condition/grade line per Figma 4173:82045 ("PSA 10" / "Near Mint").
       // The line labels the lane the row's PRICE resolved on: graded copies
       // their grade, owned raw copies their stored condition, and every other
@@ -1246,7 +1251,7 @@ function WishlistListRow({
       testID={`wishlist-row-delete-${rowTestKey(entry)}`}
     >
       <Trash color={theme.colors.gray0} height={20} width={20} />
-      <Text style={[theme.typography.caption, { color: theme.colors.gray0 }]}>Delete</Text>
+      <Text style={[theme.typography.captionMedium, { color: theme.colors.gray0 }]}>Delete</Text>
     </Pressable>
   );
 
@@ -1399,6 +1404,7 @@ function WishlistGridTile({
     <InventoryCardTile
       bordered={false}
       footnote={targetLabel}
+      textPreset="collection"
       imageUrl={getCardImageUrl(entry, 'small')}
       name={entry.name}
       setName={entry.setName ?? ''}
@@ -1447,8 +1453,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   controls: {
-    // 16px between the search row and the filter chip row (Figma 1874-21756).
-    gap: 16,
+    // 8 between the search row and the filter chips, same as Collection (Figma 5938:21808).
+    gap: 8,
     marginTop: 24,
   },
   // Same 24 rhythm the controls block uses, so the band reads as the first
@@ -1481,9 +1487,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   emptyText: {
-    fontFamily: 'SpotlightBodyRegular',
-    fontSize: 14,
-    lineHeight: 20,
+    ...textStyles.body,
     paddingHorizontal: 16,
     paddingVertical: 32,
     textAlign: 'center',

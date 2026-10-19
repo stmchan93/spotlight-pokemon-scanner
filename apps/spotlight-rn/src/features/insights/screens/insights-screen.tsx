@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Pressable,
   RefreshControl,
   Share,
   StyleSheet,
@@ -9,9 +10,17 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Filter, NavArrowLeft, ShareIos } from 'iconoir-react-native';
+import { Filter, NavArrowDown, NavArrowLeft, ShareIos } from 'iconoir-react-native';
 
-import type { PortfolioPerformance, PortfolioPerformanceRow } from '@spotlight/api-client';
+import {
+  CARD_GAMES,
+  DEFAULT_CARD_GAME,
+  gameDisplayName,
+  gameForCardId,
+  type CardGame,
+  type PortfolioPerformance,
+  type PortfolioPerformanceRow,
+} from '@spotlight/api-client';
 import {
   GlassNavBubble,
   IconButton,
@@ -34,6 +43,7 @@ import {
   InsightsFilterChipRow,
   type InsightsFilterKey,
 } from '@/features/insights/components/insights-filter-chip-row';
+import { InsightsGameSheet } from '@/features/insights/components/insights-game-sheet';
 import {
   InsightsSortSheet,
   type InsightsSortKey,
@@ -44,6 +54,46 @@ import {
   PerformanceTableSkeleton,
   allTimeGrowthPercent,
 } from '@/features/insights/components/performance-table';
+
+// Rows from a server that predates the per-row `game` field still carry the
+// game in their id namespace, so this never has to guess.
+export function performanceRowGame(row: PortfolioPerformanceRow): CardGame {
+  return row.game ?? gameForCardId(row.cardId);
+}
+
+/** Games with at least one row, in CARD_GAMES (picker) order. */
+export function insightsGamesWithEntries(rows: PortfolioPerformanceRow[]): CardGame[] {
+  const present = new Set(rows.map(performanceRowGame));
+  return CARD_GAMES.filter((game) => present.has(game));
+}
+
+// The switcher's default is the game with the most entries (ties → picker
+// order), so a mostly-Pokémon portfolio opens on Pokémon even after a One
+// Piece card is added. An empty portfolio still reads "POKÉMON".
+export function defaultInsightsGame(rows: PortfolioPerformanceRow[]): CardGame {
+  const counts = new Map<CardGame, number>();
+  for (const row of rows) {
+    const game = performanceRowGame(row);
+    counts.set(game, (counts.get(game) ?? 0) + 1);
+  }
+  let best: CardGame = DEFAULT_CARD_GAME;
+  let bestCount = 0;
+  for (const game of CARD_GAMES) {
+    const count = counts.get(game) ?? 0;
+    if (count > bestCount) {
+      best = game;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+export function applyInsightsGame(
+  rows: PortfolioPerformanceRow[],
+  game: CardGame,
+): PortfolioPerformanceRow[] {
+  return rows.filter((row) => performanceRowGame(row) === game);
+}
 
 // Chip semantics mirror the Collection screen's applyCollectionFilter, mapped
 // onto performance rows: Likes/Ungraded/Graded filter, Price/A-Z re-sort, All
@@ -120,8 +170,9 @@ export function applyInsightsSort(
 }
 
 /**
- * Insights (Figma 2206-20251): the per-card performance tracker. A "Pokemon"
- * category header, collection search, filter chips, and a "Filter By" sort
+ * Insights (Figma 2206-20251): the per-card performance tracker. A game
+ * switcher header ("POKÉMON ˅", Figma 5689:18276 — opens a sheet of the games
+ * the portfolio holds), collection search, filter chips, and a "Filter By" sort
  * sheet sit above the virtualized performance table (Chart/Current/month G/L/
  * totals/cost pan horizontally; rows scroll vertically under a pinned column
  * header). All filtering/sorting is client-side over the one batched
@@ -147,6 +198,8 @@ export function InsightsScreen() {
     dataVersion,
     portfolioPerformanceCache,
     setPortfolioPerformanceCache,
+    insightsGame,
+    setInsightsGame,
   } = useAppServices();
 
   const [performance, setPerformance] = useState<PortfolioPerformance | null>(
@@ -160,6 +213,7 @@ export function InsightsScreen() {
   const [activeFilter, setActiveFilter] = useState<InsightsFilterKey>('all');
   const [sortKey, setSortKey] = useState<InsightsSortKey>('default');
   const [sortSheetVisible, setSortSheetVisible] = useState(false);
+  const [gameSheetVisible, setGameSheetVisible] = useState(false);
 
   const listRef = useRef<FlatList<PortfolioPerformanceRow>>(null);
   // No "Back to top" FAB — removed app-wide 2026-09-10 (user request). The
@@ -204,6 +258,14 @@ export function InsightsScreen() {
     setSortSheetVisible(false);
   }, []);
 
+  const handleSelectGame = useCallback(
+    (next: CardGame) => {
+      setInsightsGame(next);
+      setGameSheetVisible(false);
+    },
+    [setInsightsGame],
+  );
+
   const handleSelectRow = useCallback(
     (row: PortfolioPerformanceRow) => {
       prefetchCardDetail(spotlightRepository, row.cardId, undefined, row.imageUrl);
@@ -235,16 +297,29 @@ export function InsightsScreen() {
   // clear the home indicator.
   const bottomNavClearance = Math.max(insets.bottom, 0);
 
+  const allRows = performance?.rows;
+  const availableGames = useMemo(() => insightsGamesWithEntries(allRows ?? []), [allRows]);
+  // A remembered choice only holds while that game still has entries; once its
+  // last card is sold the header falls back to the biggest game rather than
+  // showing an empty table under a stale label.
+  const activeGame =
+    insightsGame && availableGames.includes(insightsGame)
+      ? insightsGame
+      : defaultInsightsGame(allRows ?? []);
+  // The sheet always lists something to pick: an empty portfolio shows the
+  // default game as its one (already selected) row.
+  const pickerGames = availableGames.length > 0 ? availableGames : [activeGame];
+
   const rows = useMemo(
     () =>
       applyInsightsSort(
         applyInsightsSearch(
-          applyInsightsFilter(performance?.rows ?? [], activeFilter),
+          applyInsightsFilter(applyInsightsGame(allRows ?? [], activeGame), activeFilter),
           searchQuery,
         ),
         sortKey,
       ),
-    [performance, activeFilter, searchQuery, sortKey],
+    [allRows, activeGame, activeFilter, searchQuery, sortKey],
   );
   const currencyCode = performance?.currencyCode ?? 'USD';
   const itemCount = rows.length;
@@ -284,7 +359,7 @@ export function InsightsScreen() {
           />
         </GlassNavBubble>
         <Text style={styles.headerTitle} testID="insights-header-title">
-          Insights
+          INSIGHTS
         </Text>
         <GlassNavBubble
           accessibilityLabel="Share insights"
@@ -303,17 +378,28 @@ export function InsightsScreen() {
       </View>
 
       <View style={styles.pageBody}>
-        {/* Category header — chevron intentionally omitted per the Figma
-            annotation until more TCG categories exist. */}
+        {/* Game switcher (Figma 5689:18276): the same label + NavArrowDown
+            pattern as the Collection summary row's collection picker. */}
         <View style={[styles.categoryRow, styles.gutter]}>
-          <Text
-            style={[theme.typography.titleMedium, { color: theme.colors.gray900 }]}
-            testID="insights-category-title"
+          <Pressable
+            accessibilityLabel={`Game: ${gameDisplayName(activeGame)}`}
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => setGameSheetVisible(true)}
+            style={styles.categoryPicker}
+            testID="insights-category-picker"
           >
-            Pokemon
-          </Text>
-          <Text style={[theme.typography.label, { color: theme.colors.gray500 }]}>
-            {`${itemCount} Item${itemCount === 1 ? '' : 's'}`}
+            <Text
+              numberOfLines={1}
+              style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}
+              testID="insights-category-title"
+            >
+              {gameDisplayName(activeGame).toUpperCase()}
+            </Text>
+            <NavArrowDown color={colors.gray900} height={24} width={24} />
+          </Pressable>
+          <Text style={[theme.typography.caption, { color: theme.colors.gray500 }]}>
+            {`${itemCount} Item${itemCount === 1 ? '' : 's'}`.toUpperCase()}
           </Text>
         </View>
 
@@ -331,6 +417,7 @@ export function InsightsScreen() {
                 returnKeyType="search"
                 size="collection"
                 surface="muted"
+                uppercasePlaceholder
                 value={searchQuery}
               />
             </View>
@@ -426,6 +513,14 @@ export function InsightsScreen() {
         visible={sortSheetVisible}
       />
 
+      <InsightsGameSheet
+        games={pickerGames}
+        onClose={() => setGameSheetVisible(false)}
+        onSelect={handleSelectGame}
+        selectedGame={activeGame}
+        visible={gameSheetVisible}
+      />
+
       <CollectionAddFab />
     </SafeAreaView>
   );
@@ -452,8 +547,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  // Figma draws toolbar titles raw SemiBold 14 (no library style yet).
   headerTitle: {
-    ...textStyles.titleMedium,
+    ...textStyles.titleXsmall,
     color: colors.gray900,
     flex: 1,
     textAlign: 'center',
@@ -470,6 +566,13 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  categoryPicker: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    // No gap — the 24px chevron glyph carries its own optical padding, which is
+    // how it sits flush against the label in Figma 5689:18276.
+    flexShrink: 1,
   },
   searchGroup: {
     gap: 10,

@@ -56,7 +56,7 @@ export function ExpansionCell({ expansion, onPress, testID }: ExpansionCellProps
         {expansion.name}
       </Text>
       {expansion.releaseDate ? (
-        <Text numberOfLines={1} style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
+        <Text numberOfLines={1} style={[styles.meta, theme.typography.caption, { color: theme.colors.textSecondary }]}>
           {expansion.releaseDate}
         </Text>
       ) : null}
@@ -91,6 +91,13 @@ const styles = StyleSheet.create({
   },
   expansionName: {
     textAlign: 'center',
+    width: '100%',
+  },
+  // Same slot as the game tile's count line: meta in caps, set name as written.
+  // Full width so the one-line caps text is never measured pre-transform.
+  meta: {
+    textAlign: 'center',
+    textTransform: 'uppercase',
     width: '100%',
   },
 });

@@ -56,7 +56,7 @@ export function MetaBarList({
         <AppText
           color={direction === 'up' ? 'deltaUpText' : 'deltaDownText'}
           testID={`${testID}-label`}
-          variant="feedEyebrow"
+          variant="overline"
         >
           {META_DIRECTION_LABEL[direction]}
         </AppText>

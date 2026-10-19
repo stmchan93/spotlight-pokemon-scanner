@@ -3,9 +3,12 @@ import {
   buildWatchKey,
   type CardDetailRecord,
   type CardFavoriteEntry,
+  type CardGame,
   type CardPriceTrendList,
   type CardPriceTrendMode,
   type CardPriceTrendRow,
+  type CatalogSearchResult,
+  type ExpansionRecord,
   type PortfolioPerformance,
   type PortfolioPerformanceRow,
   type RawPricingMatrix,
@@ -88,6 +91,19 @@ function withDevSinceAdded(value: unknown): unknown {
       const override = devSinceAddedShapes[index % devSinceAddedShapes.length];
       if (!entry || typeof entry !== 'object') {
         return entry;
+      }
+      // Every fifth row has no market price (a Lorcana-style unpriced card):
+      // the list row draws "—" and keeps the quantity at the bottom right.
+      if (index % 5 === 4) {
+        return {
+          ...entry,
+          hasMarketPrice: false,
+          marketPrice: null,
+          sinceAddedBaselinePrice: null,
+          sinceAddedChangeAmount: null,
+          sinceAddedChangePercent: null,
+          sinceAddedPoints: undefined,
+        };
       }
       const price = (entry as { marketPrice?: number | null }).marketPrice;
       // Scale the shape onto the entry's own price so the numbers read true.
@@ -356,6 +372,68 @@ const devPerformanceRowOverrides: Record<string, Partial<PortfolioPerformanceRow
   },
 };
 
+// The mock inventory is all Pokémon; these One Piece rows are appended to the
+// Insights payload so the game switcher has a second game to offer. Ids carry
+// the backend's `<game>~` namespace, which is how the row's game is read.
+const devExtraPerformanceRows: PortfolioPerformanceRow[] = [
+  {
+    entryId: 'entry-op-1',
+    cardId: 'onepiece~OP05-119',
+    game: 'onepiece',
+    name: 'Monkey.D.Luffy',
+    cardNumber: 'OP05-119',
+    setName: 'Awakening of the New Era',
+    imageUrl: 'https://images.pokemontcg.io/sm7/1.png',
+    smallImageUrl: 'https://images.pokemontcg.io/sm7/1.png',
+    quantity: 1,
+    kind: 'raw',
+    grade: null,
+    variantName: null,
+    condition: 'Near Mint',
+    currentPrice: 486,
+    currentValue: 486,
+    costBasisTotal: 312.75,
+    jan1Price: 312.75,
+    yearStartValue: 312.75,
+    ytdGainDollar: 173.25,
+    ytdGainPercent: 55.4,
+    todayGainDollar: 4.2,
+    todayGainPercent: 0.9,
+    monthGainDollar: 30.8,
+    monthGainPercent: 6.8,
+    isFavorite: false,
+    sparkline: [312.75, 330, 358.5, 401, 455.2, 486],
+  },
+  {
+    entryId: 'entry-op-2',
+    cardId: 'onepiece~OP01-120',
+    game: 'onepiece',
+    name: 'Shanks',
+    cardNumber: 'OP01-120',
+    setName: 'Romance Dawn',
+    imageUrl: 'https://images.pokemontcg.io/xyp/XY111.png',
+    smallImageUrl: 'https://images.pokemontcg.io/xyp/XY111.png',
+    quantity: 2,
+    kind: 'raw',
+    grade: null,
+    variantName: null,
+    condition: 'Near Mint',
+    currentPrice: 129.99,
+    currentValue: 259.98,
+    costBasisTotal: null,
+    jan1Price: 98.4,
+    yearStartValue: 196.8,
+    ytdGainDollar: 63.18,
+    ytdGainPercent: 32.1,
+    todayGainDollar: -1.1,
+    todayGainPercent: -0.4,
+    monthGainDollar: 10.98,
+    monthGainPercent: 4.4,
+    isFavorite: true,
+    sparkline: [98.4, 101.2, 110.9, 118, 124.5, 129.99],
+  },
+];
+
 // Top Trends (Figma 4969:4101): two games x three movers, covering the label
 // shapes the tiles must handle — a three-digit move (no decimal), a modest
 // one (one decimal), a decline, a JP printing (" · JP" marker), a set with no
@@ -469,6 +547,80 @@ const devTopMovers: TopMovers = {
   ],
 };
 
+// Catalog browse (`expansion-browser`, `catalog-search`, `expansion-detail`):
+// the mock's listExpansions is empty and listCardsInExpansion needs a query, so
+// both are served whole. Three games with sets → three mosaic tiles; set logos
+// and card art go through the image rewrite like everything else.
+export const DEV_EXPANSION_ID = 'sm7';
+export const DEV_EXPANSION_NAME = 'Celestial Storm';
+
+function expansion(
+  id: string,
+  name: string,
+  series: string | null,
+  code: string | null,
+  releaseDate: string,
+  language: string | null = 'English',
+): ExpansionRecord {
+  return {
+    id,
+    name,
+    series,
+    code,
+    language,
+    releaseDate,
+    imageUrl: `https://images.pokemontcg.io/${id}/logo.png`,
+  };
+}
+
+const devExpansionsByGame: Partial<Record<CardGame, ExpansionRecord[]>> = {
+  pokemon: [
+    expansion('sv8pt5', 'Prismatic Evolutions', 'Scarlet & Violet', 'PRE', '2025-01-17'),
+    expansion('sv8', 'Surging Sparks', 'Scarlet & Violet', 'SSP', '2024-11-08'),
+    expansion('sv3pt5', '151', 'Scarlet & Violet', 'MEW', '2023-09-22'),
+    expansion(DEV_EXPANSION_ID, DEV_EXPANSION_NAME, 'Sun & Moon', 'CES', '2018-08-03'),
+    expansion('swsh12pt5', 'Crown Zenith', 'Sword & Shield', 'CRZ', '2023-01-20'),
+    expansion('base1', 'Base', 'Base', 'BS', '1999-01-09'),
+    expansion('m2_ja', 'インフェルノX', 'Mega Evolution', 'M2', '2025-09-26', 'Japanese'),
+    expansion('sv2a_ja', 'ポケモンカード151', 'Scarlet & Violet', 'SV2a', '2023-06-16', 'Japanese'),
+  ],
+  onepiece: [
+    expansion('op05', 'Awakening of the New Era', null, 'OP05', '2023-12-08', null),
+    expansion('op01', 'Romance Dawn', null, 'OP01', '2022-12-02', null),
+    expansion('op03', 'Pillars of Strength', null, 'OP03', '2023-06-30', null),
+  ],
+  lorcana: [
+    expansion('tfc', 'The First Chapter', null, 'TFC', '2023-08-18', null),
+    expansion('rof', 'Rise of the Floodborn', null, 'ROF', '2023-11-17', null),
+  ],
+};
+
+// Celestial Storm's first ten cards, real names/numbers; prices are placeholders.
+const devExpansionCards: CatalogSearchResult[] = (
+  [
+    ['1', 'Treecko', 0.31],
+    ['2', 'Treecko', 0.28],
+    ['3', 'Grovyle', 0.35],
+    ['4', 'Sceptile', 1.12],
+    ['5', 'Shroomish', 0.19],
+    ['6', 'Breloom', 0.42],
+    ['7', 'Seedot', 0.17],
+    ['8', 'Nuzleaf', 0.21],
+    ['9', 'Shiftry', 0.88],
+    ['10', 'Nincada', 0.15],
+  ] as const
+).map(([number, name, marketPrice]) => ({
+  id: `sm7-${number}`,
+  cardId: `sm7-${number}`,
+  name,
+  cardNumber: `#${number.padStart(3, '0')}/168`,
+  setName: DEV_EXPANSION_NAME,
+  imageUrl: `https://images.pokemontcg.io/sm7/${number}.png`,
+  marketPrice,
+  currencyCode: 'USD',
+  game: 'pokemon' as const,
+}));
+
 const imageUrlKeyPattern = /image.*url|url.*image|avatarurl/i;
 
 function rewriteImageUrls<T>(value: T): T {
@@ -503,6 +655,21 @@ function withLocalImages(
       if (property === 'getTopMovers') {
         return async () => rewriteImageUrls(devTopMovers);
       }
+      if (property === 'listExpansions') {
+        return async (game?: CardGame) => rewriteImageUrls(devExpansionsByGame[game ?? 'pokemon'] ?? []);
+      }
+      if (property === 'listCardsInExpansion') {
+        return async (expansionId: string, query?: string, limit = 60) => {
+          if (expansionId !== DEV_EXPANSION_ID) {
+            return [];
+          }
+          const needle = query?.trim().toLowerCase() ?? '';
+          const matched = needle
+            ? devExpansionCards.filter((card) => `${card.name} ${card.cardNumber}`.toLowerCase().includes(needle))
+            : devExpansionCards;
+          return rewriteImageUrls(matched.slice(0, limit));
+        };
+      }
       const original = Reflect.get(target, property, receiver);
       if (typeof original !== 'function') {
         return original;
@@ -535,13 +702,14 @@ function withLocalImages(
           'rows' in rewritten
         ) {
           const performance = rewritten as PortfolioPerformance;
-          return {
-            ...performance,
-            rows: performance.rows.map((perfRow) => {
+          const rows = [
+            ...performance.rows.map((perfRow) => {
               const override = devPerformanceRowOverrides[perfRow.entryId];
               return override ? { ...perfRow, ...override } : perfRow;
             }),
-          };
+            ...rewriteImageUrls(devExtraPerformanceRows),
+          ];
+          return { ...performance, itemCount: rows.length, rows };
         }
         return rewritten;
       };

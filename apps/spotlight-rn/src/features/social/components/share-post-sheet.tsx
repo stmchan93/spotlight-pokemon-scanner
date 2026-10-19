@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Avatar, SearchField, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Avatar, radii, SearchField, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import { searchUsers } from '@/features/profile/profile-service';
 import type { UserProfile } from '@/features/auth/auth-models';
@@ -501,6 +501,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sheet: {
+    borderCurve: 'continuous',
+    borderTopLeftRadius: radii.sheet,
+    borderTopRightRadius: radii.sheet,
+    overflow: 'hidden',
     paddingTop: 10,
   },
   title: {

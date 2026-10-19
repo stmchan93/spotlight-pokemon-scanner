@@ -199,7 +199,7 @@ export function NotificationsScreen({ testID = 'notifications' }: { testID?: str
                 </Text>
               ) : null}
               <Text style={{ color: theme.colors.gray500 }}>
-                {` ${formatNotificationDate(item.createdAt)}`}
+                {` ${formatNotificationDate(item.createdAt).toUpperCase()}`}
               </Text>
             </Text>
           </View>
@@ -237,7 +237,7 @@ export function NotificationsScreen({ testID = 'notifications' }: { testID?: str
     >
       <View style={styles.header}>
         <ChromeBackButton onPress={() => router.back()} testID={`${testID}-back`} />
-        <Text style={[theme.typography.titleXsmall, styles.title]}>Notifications</Text>
+        <Text style={[theme.typography.titleSmall, styles.title]}>Notifications</Text>
         <View style={styles.headerSpacer} />
       </View>
 

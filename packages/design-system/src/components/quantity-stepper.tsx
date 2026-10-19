@@ -53,9 +53,9 @@ export function QuantityStepper({
         testID={testID ? `${testID}-decrement` : undefined}
         variant="ghost"
       >
-        <AppText variant="titleCompact">-</AppText>
+        <AppText variant="titleMedium">-</AppText>
       </IconButton>
-      <AppText style={styles.value} testID={testID ? `${testID}-value` : undefined} variant="bodyStrong">
+      <AppText style={styles.value} testID={testID ? `${testID}-value` : undefined} variant="bodyMedium">
         {value}
       </AppText>
       <IconButton
@@ -66,7 +66,7 @@ export function QuantityStepper({
         testID={testID ? `${testID}-increment` : undefined}
         variant="ghost"
       >
-        <AppText variant="titleCompact">+</AppText>
+        <AppText variant="titleMedium">+</AppText>
       </IconButton>
     </View>
   );

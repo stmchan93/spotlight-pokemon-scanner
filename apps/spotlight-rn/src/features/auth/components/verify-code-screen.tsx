@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { Text, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
+import { Text, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import { AuthScreenLayout } from './auth-screen-layout';
 import {
@@ -127,8 +127,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   subtitle: {
-    fontFamily: fontFamilies.bodyRegular,
-    fontSize: 14,
-    lineHeight: 21,
+    ...textStyles.body,
   },
 });

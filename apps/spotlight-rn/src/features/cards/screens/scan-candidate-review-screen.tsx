@@ -159,15 +159,15 @@ export function ScanCandidateReviewScreen({
               />
 
               <View style={styles.scanCandidateCopy}>
-                <Text numberOfLines={1} style={[theme.typography.caption, styles.scanCandidateMeta]}>
+                <Text numberOfLines={1} style={[theme.typography.caption, { color: theme.colors.gray600 }]}>
                   {closestMatch.setName.toUpperCase()}
                 </Text>
-                <Text numberOfLines={2} style={[theme.typography.bodyStrong, styles.scanCandidateTitle]}>
+                <Text numberOfLines={2} style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}>
                   {closestMatch.name}
                   {' '}
                   {resultNumberLabel(closestMatch)}
                 </Text>
-                <Text style={[theme.typography.body, styles.scanCandidateValue]}>
+                <Text style={[theme.typography.body, { color: theme.colors.gray900 }]}>
                   EST VALUE
                   {' '}
                   {closestMatch.marketPrice != null
@@ -176,7 +176,7 @@ export function ScanCandidateReviewScreen({
                 </Text>
               </View>
 
-              <Text style={[theme.typography.bodyStrong, styles.scanCandidateChevron]}>›</Text>
+              <Text style={[theme.typography.titleLarge, styles.scanCandidateChevron, { color: theme.colors.gray600 }]}>›</Text>
             </Pressable>
           </View>
         ) : null}
@@ -203,15 +203,15 @@ export function ScanCandidateReviewScreen({
                   />
 
                   <View style={styles.scanCandidateCopy}>
-                    <Text numberOfLines={1} style={[theme.typography.caption, styles.scanCandidateMeta]}>
+                    <Text numberOfLines={1} style={[theme.typography.caption, { color: theme.colors.gray600 }]}>
                       {candidate.setName.toUpperCase()}
                     </Text>
-                    <Text numberOfLines={2} style={[theme.typography.bodyStrong, styles.scanCandidateTitle]}>
+                    <Text numberOfLines={2} style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}>
                       {candidate.name}
                       {' '}
                       {resultNumberLabel(candidate)}
                     </Text>
-                    <Text style={[theme.typography.body, styles.scanCandidateValue]}>
+                    <Text style={[theme.typography.body, { color: theme.colors.gray900 }]}>
                       EST VALUE
                       {' '}
                       {candidate.marketPrice != null
@@ -220,7 +220,7 @@ export function ScanCandidateReviewScreen({
                     </Text>
                   </View>
 
-                  <Text style={[theme.typography.bodyStrong, styles.scanCandidateChevron]}>›</Text>
+                  <Text style={[theme.typography.titleLarge, styles.scanCandidateChevron, { color: theme.colors.gray600 }]}>›</Text>
                 </Pressable>
               ))}
             </View>
@@ -294,27 +294,9 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 6,
   },
-  scanCandidateMeta: {
-    color: '#6F7078',
-    fontSize: 15,
-    letterSpacing: 0.6,
-    lineHeight: 20,
-    textTransform: 'uppercase',
-  },
-  scanCandidateTitle: {
-    color: '#0F0F12',
-    fontSize: 15,
-    lineHeight: 20,
-  },
-  scanCandidateValue: {
-    color: '#0F0F12',
-    fontSize: 15,
-    lineHeight: 20,
-  },
+  // Text glyph "›" sized by the title role; no design-system chevron is used
+  // on this screen yet.
   scanCandidateChevron: {
-    color: '#6F7078',
-    fontSize: 24,
-    lineHeight: 24,
     marginLeft: 8,
   },
 });

@@ -1,4 +1,5 @@
 import { ScrollView, StyleSheet, View } from 'react-native';
+import { Heart } from 'iconoir-react-native';
 
 import {
   type CardGame,
@@ -8,7 +9,7 @@ import {
   RARITY_FILTER_BUCKETS,
   type RarityFilterBucket,
 } from '@spotlight/api-client';
-import { PillButton } from '@spotlight/design-system';
+import { PillButton, useSpotlightTheme } from '@spotlight/design-system';
 
 /**
  * A per-game filter key, e.g. `game:onepiece`. Namespaced rather than using the
@@ -30,9 +31,9 @@ export type CollectionFilterKey =
 /** The fixed chips, in order. Game chips are inserted after these — see below. */
 export const COLLECTION_FILTER_ORDER: CollectionFilterKey[] = [
   'all',
+  'favorites',
   'az',
   'price',
-  'favorites',
   'ungraded',
   'graded',
   ...RARITY_FILTER_BUCKETS,
@@ -58,8 +59,7 @@ export function gameFromFilterKey(key: CollectionFilterKey): CardGame | null {
 const FILTER_LABELS: Record<Exclude<CollectionFilterKey, GameFilterKey>, string> = {
   all: 'All',
   az: 'A-Z',
-  // The sort is highest-first, so the label leads with the expensive end.
-  price: '$$$',
+  price: 'Price',
   favorites: 'Likes',
   ungraded: 'Ungraded',
   graded: 'Graded',
@@ -93,6 +93,7 @@ export function CollectionFilterChipRow({
   onFilterChange,
   testID = 'collection-filter-chip-row',
 }: CollectionFilterChipRowProps) {
+  const theme = useSpotlightTheme();
   const gameKeys: CollectionFilterKey[] = games.length > 1
     ? CARD_GAMES.filter((game) => games.includes(game)).map(gameFilterKey)
     : [];
@@ -117,10 +118,19 @@ export function CollectionFilterChipRow({
           <PillButton
             key={key}
             label={chipLabel(key)}
+            labelRole="caption"
+            leading={key === 'favorites' ? (
+              <Heart
+                color={activeFilter === key ? theme.colors.gray0 : theme.colors.gray900}
+                height={16}
+                width={16}
+              />
+            ) : undefined}
             onPress={() => onFilterChange(key)}
             selected={activeFilter === key}
             testID={`${testID}-${key}`}
             tone="filled"
+            uppercase
           />
         ))}
       </View>

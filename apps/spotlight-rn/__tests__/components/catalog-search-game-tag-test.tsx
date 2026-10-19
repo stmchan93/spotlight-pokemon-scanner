@@ -68,7 +68,7 @@ describe('catalog search game tags', () => {
 
     renderWithProviders(<CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />);
 
-    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'ace');
+    fireEvent.changeText(screen.getByPlaceholderText(/search by name, set, or number/i), 'ace');
     await advanceDebounce();
     await act(async () => {
       await Promise.resolve();
@@ -93,7 +93,7 @@ describe('catalog search game tags', () => {
 
     renderWithProviders(<CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />);
 
-    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'sk');
+    fireEvent.changeText(screen.getByPlaceholderText(/search by name, set, or number/i), 'sk');
     await advanceDebounce();
     await act(async () => {
       await Promise.resolve();

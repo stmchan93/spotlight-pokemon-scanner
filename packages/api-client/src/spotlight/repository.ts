@@ -44,6 +44,7 @@ import {
   ALL_COLLECTIONS_ID,
   CARD_GAMES,
   DEFAULT_CARD_GAME,
+  gameForCardId,
   labelingSessionAngleLabels,
   marketplaceKeywordForGame,
   RARITY_BUCKET_VALUES,
@@ -3921,6 +3922,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
         monthGainPercent: null,
         isFavorite: entry.isFavorite === true,
         sparkline: [],
+        game: entry.game ?? gameForCardId(entry.cardId),
       };
     });
     return {
@@ -8129,6 +8131,9 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       sparkline: Array.isArray(r.sparkline)
         ? r.sparkline.filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
         : [],
+      // The performance payload carries no `game` today; the id namespace is
+      // authoritative either way, so the wire field only ever confirms it.
+      game: normalizeCardGame(r.game) ?? gameForCardId(String(r.cardId ?? '')),
       ...normalizePrintingImageFields(r),
     }));
     return {

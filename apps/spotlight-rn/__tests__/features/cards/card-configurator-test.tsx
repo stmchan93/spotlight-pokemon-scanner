@@ -24,7 +24,7 @@ describe('CardConfigurator variant chips', () => {
       />,
     );
 
-    const label = within(screen.getByTestId('configurator-variant-third')).getByText('Third Anniversary');
+    const label = within(screen.getByTestId('configurator-variant-third')).getByText('THIRD ANNIVERSARY');
     expect(label.props.numberOfLines).toBe(1);
   });
 });

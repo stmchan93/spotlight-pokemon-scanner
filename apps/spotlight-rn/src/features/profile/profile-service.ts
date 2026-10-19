@@ -80,6 +80,23 @@ function mapPublicProfile(row: PublicProfileRow): UserProfile {
 }
 
 /**
+ * Dev-screens seam (spotlight://dev/public-profile, /follow-list): non-null
+ * answers the profile and follow-list reads from fixtures instead of Supabase.
+ * Same shape as `setDevFeedItemsOverride` in social-service.
+ */
+export type DevProfileOverrides = {
+  profiles: readonly UserProfile[];
+  followers: readonly UserProfile[];
+  following: readonly UserProfile[];
+};
+
+let devProfileOverrides: DevProfileOverrides | null = null;
+
+export function setDevProfileOverrides(overrides: DevProfileOverrides | null): void {
+  devProfileOverrides = __DEV__ ? overrides : null;
+}
+
+/**
  * Read one row from the public profile view by an equality filter. Returns null
  * for every failure mode, including "no such row" and "row filtered out by
  * moderation state" — the caller cannot distinguish them, by design.
@@ -88,6 +105,13 @@ async function fetchPublicProfileBy(
   column: 'handle' | 'user_id',
   value: string,
 ): Promise<UserProfile | null> {
+  if (__DEV__ && devProfileOverrides) {
+    return (
+      devProfileOverrides.profiles.find((profile) =>
+        column === 'handle' ? profile.handle === value : profile.userID === value,
+      ) ?? null
+    );
+  }
   if (!supabase || !value) {
     return null;
   }
@@ -255,6 +279,11 @@ async function fetchFollowList(
   userID: string,
   limit: number,
 ): Promise<UserProfile[]> {
+  if (__DEV__ && devProfileOverrides) {
+    // `fetchFollowers` filters on followee_id; `fetchFollowing` on follower_id.
+    const list = filterColumn === 'followee_id' ? devProfileOverrides.followers : devProfileOverrides.following;
+    return list.slice(0, limit);
+  }
   if (!supabase || !userID) {
     return [];
   }

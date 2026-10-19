@@ -61,7 +61,7 @@ export function CalendarEventRow({
       ]}
       testID={testID ? `${testID}-kind` : undefined}
     >
-      <AppText color="gray900" numberOfLines={1} variant="feedTag">
+      <AppText color="gray900" numberOfLines={1} variant="chipLabel">
         {kindLabel}
       </AppText>
     </View>
@@ -91,10 +91,10 @@ export function CalendarEventRow({
         ]}
         testID={testID ? `${testID}-date` : undefined}
       >
-        <AppText color="gray600" style={styles.center} variant="feedTag">
+        <AppText color="gray600" style={styles.center} variant="chipLabel">
           {monthLabel}
         </AppText>
-        <AppText color="gray900" style={styles.center} variant={full ? 'titleLarge' : 'feedDelta'}>
+        <AppText color="gray900" style={styles.center} variant={full ? 'titleLarge' : 'titleSmall'}>
           {dayLabel}
         </AppText>
       </View>

@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { CheckCircle, CheckCircleSolid, Eye, EyeClosed } from 'iconoir-react-native';
 
-import { Text, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
+import { Text, textStyles, usePlaceholderTypography, useSpotlightTheme } from '@spotlight/design-system';
 
 import {
   PRIVACY_POLICY_URL,
@@ -25,7 +25,7 @@ import {
 type SecondaryFieldProps = Omit<TextInputProps, 'style'> & {
   /**
    * Floating mini-label shown above the value once the field is non-empty
-   * (Figma 216:147 — 11px uppercase gray500, e.g. "EMAIL"). Falls back to the
+   * (Figma 216:147 — Overline, uppercase gray500, e.g. "EMAIL"). Falls back to the
    * uppercased placeholder when omitted.
    */
   label?: string;
@@ -46,6 +46,7 @@ export function SecondaryField({
   const theme = useSpotlightTheme();
   const showLabel = (value ?? '').length > 0;
   const labelText = (label ?? placeholder ?? '').toUpperCase();
+  const { onChangeText, placeholderStyle } = usePlaceholderTypography({ ...inputProps, value });
 
   return (
     <View style={[styles.fieldShell, { borderBottomColor: theme.colors.gray300 }]}>
@@ -56,10 +57,11 @@ export function SecondaryField({
         <TextInput
           placeholder={placeholder}
           placeholderTextColor={theme.colors.gray400}
-          style={[styles.input, { color: theme.colors.gray900 }]}
+          style={[styles.input, placeholderStyle, { color: theme.colors.gray900 }]}
           testID={testID}
           value={value}
           {...inputProps}
+          onChangeText={onChangeText}
         />
       </View>
       {trailing ? <View style={styles.trailing}>{trailing}</View> : null}
@@ -213,7 +215,7 @@ export function TertiaryButton({ disabled = false, label, onPress, testID }: Ter
   );
 }
 
-/** Screen section title, e.g. "LOG IN" / "SIGN UP" / "PASSWORD RESET" (15px). */
+/** Screen section title, e.g. "LOG IN" / "SIGN UP" / "PASSWORD RESET" (Body-large). */
 export function AuthSectionTitle({ children }: { children: string }) {
   const theme = useSpotlightTheme();
   return (
@@ -316,8 +318,11 @@ export function AuthErrorLine({ message }: { message: string }) {
   );
 }
 
-// Sizes track the current Figma frames (4255:88306-89139): 40px buttons, 14px
-// labels on filled, tertiary, and outline alike; fields stay at 48px.
+// Sizes track the current Figma frames (4255:88306-89139): 40px buttons with
+// Body-medium labels on filled, tertiary, and outline alike; fields stay at
+// 48px. Type comes from the library roles in `textStyles`; call sites set color.
+const { lineHeight: _bodyLineHeight, ...singleLineBody } = textStyles.body;
+
 const styles = StyleSheet.create({
   button: {
     alignItems: 'center',
@@ -333,43 +338,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Figma button instances (36:654/656/667/705) carry Body-medium.
   buttonLabel: {
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 14,
-    lineHeight: 21,
+    ...textStyles.bodyMedium,
   },
   buttonLabelOutline: {
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 14,
-    lineHeight: 21,
+    ...textStyles.bodyMedium,
   },
   divider: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 8,
   },
+  // "OR" is Label 14 gray-500 on the Log In frame (4255:88306).
   dividerLabel: {
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 13,
-    lineHeight: 18,
+    ...textStyles.label,
   },
   dividerLine: {
     flex: 1,
     height: 1,
   },
   errorLine: {
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 13,
-    lineHeight: 18,
+    ...textStyles.captionMedium,
   },
   fieldColumn: {
     flex: 1,
     justifyContent: 'center',
   },
+  // Floating uppercase mini-label above a filled field — Overline.
   fieldLabel: {
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 11,
-    lineHeight: 14,
+    ...textStyles.overline,
   },
   fieldShell: {
     alignItems: 'center',
@@ -379,25 +377,21 @@ const styles = StyleSheet.create({
     height: 48,
     paddingRight: 4,
   },
+  // "NEW ACCOUNT" / "LOG IN" group labels — Label 14 gray-900.
   groupLabel: {
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 13,
-    lineHeight: 18,
+    ...textStyles.label,
   },
-  // 14px per the Figma input spec (2161:1636). No explicit lineHeight: on iOS a
+  // Body per the Figma input spec (2161:1636) MINUS its lineHeight: on iOS a
   // lineHeight near the fontSize clips the custom font's descenders inside
   // TextInput (the "cut off text" bug); let the font's own metrics size the
   // line, with minHeight guarding the row.
   input: {
-    fontFamily: fontFamilies.bodyRegular,
-    fontSize: 14,
+    ...singleLineBody,
     minHeight: 21,
     padding: 0,
   },
   ruleLabel: {
-    fontFamily: fontFamilies.bodyRegular,
-    fontSize: 13,
-    lineHeight: 18,
+    ...textStyles.caption,
   },
   ruleRow: {
     alignItems: 'center',
@@ -407,15 +401,13 @@ const styles = StyleSheet.create({
   rules: {
     gap: 6,
   },
+  // "LOG IN" / "SIGN UP" / "PASSWORD RESET" — Body-large (the only Body-large in the file).
   sectionTitle: {
-    fontFamily: fontFamilies.bodyRegular,
-    fontSize: 15,
-    lineHeight: 23,
+    ...textStyles.bodyLarge,
   },
+  // Terms / Privacy footer — Overline 12 Regular.
   terms: {
-    fontFamily: fontFamilies.bodyRegular,
-    fontSize: 12,
-    lineHeight: 17,
+    ...textStyles.overline,
     textAlign: 'center',
   },
   termsLink: {
@@ -427,9 +419,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   tertiaryLabel: {
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 14,
-    lineHeight: 21,
+    ...textStyles.bodyMedium,
   },
   trailing: {
     alignItems: 'center',

@@ -132,7 +132,7 @@ export function BlockedAccountsScreen({
             uri={item.avatarURL}
           />
           <View style={styles.rowCopy}>
-            <Text numberOfLines={1} style={theme.typography.bodyStrong}>
+            <Text numberOfLines={1} style={theme.typography.bodyMedium}>
               {name}
             </Text>
             {handle && item.displayName?.trim() ? (
@@ -152,6 +152,7 @@ export function BlockedAccountsScreen({
             shape="rounded"
             size="sm"
             testID={`${testID}-row-${item.userID}-unblock`}
+            uppercase
             variant="outline"
           />
         </View>

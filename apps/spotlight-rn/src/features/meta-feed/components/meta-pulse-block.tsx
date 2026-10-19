@@ -87,7 +87,7 @@ export function MetaPulseBlock({
         {metaPulseCaption(pulse)}
       </AppText>
       {pulse.headline.title ? (
-        <AppText color="gray900" style={styles.headline} testID={`${testID}-headline`} variant="feedTitle">
+        <AppText color="gray900" style={styles.headline} testID={`${testID}-headline`} variant="titleMedium">
           {pulse.headline.title}
         </AppText>
       ) : null}

@@ -29,8 +29,8 @@
       ]
     },
     {
-      "figmaNodeId": "4211:86063",
-      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=4211-86063",
+      "figmaNodeId": "5768:21988",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=5768-21988",
       "screenName": "CardDetail",
       "componentPaths": [
         "apps/spotlight-rn/src/features/cards/screens/card-detail-screen.tsx",
@@ -42,25 +42,25 @@
       ],
       "deepLink": "spotlight://dev/card-detail",
       "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts",
-      "notes": "Raw PDP (full scroll, 393x1811) from 'Scanner to PDP - Raw'. Graded alternates: 1640:4077, 4173:80900 ('Profile - PDP'). Language chip row renders only when an EN/JP counterpart exists (feature gated on the unrun Phase-B link script). Like-count formats 9999+ (app) vs 10.1k (Figma mock) \u2014 formatter rule needs a designer decision. POP REPORT is graded-lane only (user ruling 2026-08-19; the app is correct) \u2014 the Figma RAW frame showing it is stale and should be fixed in the design file.",
+      "notes": "REFERENCE = 5768:21988 (Graded PDP, page '4. Product Details Page', 393x1816): uppercase Label-14 option headers (LANGUAGE/VARIANT/GRADER), Caption-13 uppercase chips, raw Medium-16 uppercase 'PRICE TREND'/'PRODUCT DETAILS', Body grade rows, Body-medium prices, Title-large name, Title-medium nav title. Newest sibling 5938:7158 (Graded) and 5938:25164 / 5938:25794 (Profile -> PDP) agree with it. Raw lane = 5768:23400 (same convention; condition rows Caption-13 uppercase). NOT the reference: 5768:22713 / 5768:23886 / 5753:10734 (sentence-case Title-small headers, Medium-14 chips) and the older 4211:86063 / 1640:4077. Re-synced 2026-10-18. Language chip row renders only when an EN/JP counterpart exists (counterpartCardId). Like-count formats 9999+ (app) vs 10.1k (Figma mock) - formatter rule needs a designer decision. POP REPORT was removed from the product - do not build, even though the frames still draw it. 'PRICE TREND'/'PRODUCT DETAILS' are Medium 16 in Figma with no library style; app uses bodyLarge (Regular 16) - weight flagged for the designer.",
       "states": [
         {
           "name": "browse-unowned",
-          "figmaNodeId": "4211:86063",
+          "figmaNodeId": "5768:23400",
           "deepLink": "spotlight://dev/card-detail",
-          "how": "unowned card (sm7-1): ADD ITEM/SHARE footer, trend list"
+          "how": "unowned raw card (sm7-1): ADD ITEM/SHARE footer, condition trend list; Figma 5768:23400 'Raw'"
         },
         {
           "name": "owned-edit",
-          "figmaNodeId": "TODO",
+          "figmaNodeId": "5938:25164",
           "deepLink": "spotlight://dev/card-detail-owned",
-          "how": "owned card (mcdonalds25-21): Inventory panel, SAVE/CANCEL footer"
+          "how": "owned card (mcdonalds25-21): Inventory panel (5938:25303 'INVENTORY' Caption-medium uppercase), SAVE/CANCEL footer; Figma 5938:25164 / 5938:25794 'Profile -> PDP'"
         },
         {
           "name": "graded-price-trend",
-          "figmaNodeId": "1640:4077",
+          "figmaNodeId": "5768:21988",
           "deepLink": "spotlight://dev/price-trend-graded",
-          "how": "graded-lane PDP (DEV_GRADED_CARD_ID, served whole by dev-repository): gradedReference opens on PSA, Price Trend shows the PSA 10 -> PSA 1 ladder under the eBay mark; built 2026-10-15 for App Store screenshots. No POP REPORT block exists in the app."
+          "how": "graded-lane PDP (DEV_GRADED_CARD_ID, served whole by dev-repository): gradedReference opens on PSA, Price Trend shows the PSA 10 -> PSA 1 ladder under the eBay mark; built 2026-10-15 for App Store screenshots. Figma 5768:21988 (newest sibling 5938:7158). No POP REPORT block exists in the app (removed from product)."
         }
       ]
     },
@@ -163,8 +163,8 @@
         "apps/spotlight-rn/src/features/inventory/screens/inventory-browser-screen.tsx",
         "apps/spotlight-rn/src/app/(stack)/inventory/index.tsx"
       ],
-      "deepLink": "TODO(dev route)",
-      "mockData": null
+      "deepLink": "spotlight://dev/inventory",
+      "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts"
     },
     {
       "figmaNodeId": "4196:83062",
@@ -189,8 +189,8 @@
         "apps/spotlight-rn/src/features/portfolio/screens/sales-history-screen.tsx",
         "apps/spotlight-rn/src/app/(stack)/sales-history.tsx"
       ],
-      "deepLink": "TODO(dev route)",
-      "mockData": null,
+      "deepLink": "spotlight://dev/sales-history",
+      "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts",
       "notes": "CONFIRMED MISMATCH 2026-08-19: frame 1874:22334 'Transactions' is the FUTURE marketplace transaction ledger (buy/sell/trade lots, day grouping, signed amounts) \u2014 not this per-card sales screen. No current frame exists for sales-history; 1874:22334 becomes the spec when the marketplace ledger is built. Candidate exports in .design-sync/SalesHistory/."
     },
     {
@@ -201,7 +201,7 @@
         "apps/spotlight-rn/src/features/profile/screens/edit-profile-screen.tsx",
         "apps/spotlight-rn/src/app/(stack)/edit-profile.tsx"
       ],
-      "deepLink": "TODO(dev route)",
+      "deepLink": "spotlight://dev/edit-profile",
       "mockData": null,
       "notes": "SYNCED 2026-08-19 (numeric; 4164:77948 filled + 4167:78756 empty). Figma is a bottom sheet; app is a full-page push \u2014 structural divergence deferred. TextField hairline fixed to borderWidths.rule. Dev-route wiring staged in .design-sync/patches/agent-editprofile-patches.md."
     },
@@ -213,8 +213,8 @@
         "apps/spotlight-rn/src/features/profile/screens/public-profile-screen.tsx",
         "apps/spotlight-rn/src/app/(stack)/u/[handle].tsx"
       ],
-      "deepLink": "TODO(dev route)",
-      "mockData": null,
+      "deepLink": "spotlight://dev/public-profile",
+      "mockData": "apps/spotlight-rn/src/dev/dev-social-data.ts",
       "notes": "SYNCED 2026-08-19. 4157:74155 = Collection tab/not-following, 4157:74954 = For Sale tab (STATES). No following-state frame. Action-row-on-cover + For-Sale header block deferred (structural). Dev-route wiring staged in .design-sync/patches/agent-publicprofile-patches.md."
     },
     {
@@ -226,8 +226,8 @@
         "apps/spotlight-rn/src/app/(stack)/u/[handle]/followers.tsx",
         "apps/spotlight-rn/src/app/(stack)/u/[handle]/following.tsx"
       ],
-      "deepLink": "TODO(dev route)",
-      "mockData": null,
+      "deepLink": "spotlight://dev/follow-list",
+      "mockData": "apps/spotlight-rn/src/dev/dev-social-data.ts",
       "notes": "SYNCED 2026-08-19 (toolbar rebuilt to one-row centered title, rows 40pt/gap8/no dividers). 92461 Followers / 93084 Following / 93336 overflow-menu-open. Tabs-with-counts + search + Unfollow/Block/Mute menu deferred (needs service capabilities)."
     },
     {
@@ -238,8 +238,8 @@
         "apps/spotlight-rn/src/features/social/screens/post-detail-screen.tsx",
         "apps/spotlight-rn/src/app/(stack)/post/[postId].tsx"
       ],
-      "deepLink": "TODO(dev route)",
-      "mockData": null
+      "deepLink": "spotlight://dev/post-detail",
+      "mockData": "apps/spotlight-rn/src/dev/dev-social-data.ts"
     },
     {
       "figmaNodeId": "4167:78849",
@@ -249,7 +249,7 @@
         "apps/spotlight-rn/src/features/social/screens/new-post-screen.tsx",
         "apps/spotlight-rn/src/app/new-post.tsx"
       ],
-      "deepLink": "TODO(dev route)",
+      "deepLink": "spotlight://dev/new-post",
       "mockData": null,
       "notes": "SYNCED 2026-08-19 (numeric; canonical composer spec 3656:40116; 4167:79261/79465 sheet states). Figma is a HALF-SHEET composer vs app full-page modal \u2014 structural redesign deferred (details in .design-sync/patches/agent-social2-patches.md). Figma max-length 160 vs backend 500 \u2014 data rule, not synced."
     },
@@ -261,8 +261,8 @@
         "apps/spotlight-rn/src/features/social/screens/notifications-screen.tsx",
         "apps/spotlight-rn/src/app/notifications.tsx"
       ],
-      "deepLink": "TODO(dev route)",
-      "mockData": null,
+      "deepLink": "spotlight://dev/notifications",
+      "mockData": "apps/spotlight-rn/src/dev/dev-social-data.ts",
       "notes": "NO FIGMA DESIGN EXISTS (confirmed 2026-08-19 \u2014 4299:94427 is the profile Activity TAB, not this screen). Cleared the wrong node id. Dev-route + mock staged in .design-sync/patches/agent-social2-patches.md."
     },
     {
@@ -273,8 +273,8 @@
         "apps/spotlight-rn/src/features/social/screens/dm-inbox-screen.tsx",
         "apps/spotlight-rn/src/app/messages.tsx"
       ],
-      "deepLink": "TODO(dev route)",
-      "mockData": null
+      "deepLink": "spotlight://dev/messages",
+      "mockData": "apps/spotlight-rn/src/dev/dev-social-data.ts"
     },
     {
       "figmaNodeId": "TODO",
@@ -284,8 +284,8 @@
         "apps/spotlight-rn/src/features/social/screens/dm-thread-screen.tsx",
         "apps/spotlight-rn/src/app/messages/[conversationId].tsx"
       ],
-      "deepLink": "TODO(dev route)",
-      "mockData": null
+      "deepLink": "spotlight://dev/conversation",
+      "mockData": "apps/spotlight-rn/src/dev/dev-social-data.ts"
     },
     {
       "figmaNodeId": "TODO",
@@ -295,8 +295,8 @@
         "apps/spotlight-rn/src/features/catalog/screens/catalog-search-screen.tsx",
         "apps/spotlight-rn/src/app/(sheet)/catalog/search.tsx"
       ],
-      "deepLink": "TODO(dev route)",
-      "mockData": null
+      "deepLink": "spotlight://dev/catalog-search",
+      "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts"
     },
     {
       "figmaNodeId": "TODO",
@@ -306,8 +306,8 @@
         "apps/spotlight-rn/src/features/catalog/screens/expansion-browser-screen.tsx",
         "apps/spotlight-rn/src/app/(sheet)/catalog/expansion-browser.tsx"
       ],
-      "deepLink": "TODO(dev route)",
-      "mockData": null
+      "deepLink": "spotlight://dev/expansion-browser",
+      "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts"
     },
     {
       "figmaNodeId": "TODO",
@@ -317,8 +317,8 @@
         "apps/spotlight-rn/src/features/catalog/screens/expansion-detail-screen.tsx",
         "apps/spotlight-rn/src/app/(sheet)/catalog/expansion/[expansionId].tsx"
       ],
-      "deepLink": "TODO(dev route)",
-      "mockData": null
+      "deepLink": "spotlight://dev/expansion-detail",
+      "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts"
     },
     {
       "figmaNodeId": "4255:88306",
@@ -328,7 +328,7 @@
         "apps/spotlight-rn/src/features/auth/components/signed-out-flow.tsx",
         "apps/spotlight-rn/src/app/(modal)/login.tsx"
       ],
-      "deepLink": "TODO(dev route)",
+      "deepLink": "spotlight://dev/login",
       "mockData": null,
       "notes": "SYNCED 2026-08-19 (numeric). Current frames: 4255:88306/88511 (LogIn empty/filled), 4255:88782/89139 (SignUp empty/filled+checklist), 4255:89937/90171 (Reset). 2161:* frames stale. No frame for verify/OTP. Dev-route wiring staged in .design-sync/patches/agent-login-patches.md."
     },
@@ -340,8 +340,8 @@
         "apps/spotlight-rn/src/features/auth/screens/account-screen.tsx",
         "apps/spotlight-rn/src/app/(modal)/account.tsx"
       ],
-      "deepLink": "TODO(dev route)",
-      "mockData": null
+      "deepLink": "spotlight://dev/account",
+      "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts"
     },
     {
       "figmaNodeId": "TODO",
@@ -351,7 +351,7 @@
         "apps/spotlight-rn/src/features/portfolio-import/screens/portfolio-import-screen.tsx",
         "apps/spotlight-rn/src/app/(modal)/account/import.tsx"
       ],
-      "deepLink": "TODO(dev route)",
+      "deepLink": "TODO(dev route): component missing \u2014 apps/spotlight-rn/src/features/portfolio-import/ and app/(modal)/account/import.tsx are not in the tree (componentPaths stale)",
       "mockData": null
     },
     {
@@ -362,8 +362,8 @@
         "apps/spotlight-rn/src/features/social/screens/blocked-accounts-screen.tsx",
         "apps/spotlight-rn/src/app/(modal)/account/blocked.tsx"
       ],
-      "deepLink": "TODO(dev route)",
-      "mockData": null
+      "deepLink": "spotlight://dev/blocked-accounts",
+      "mockData": "apps/spotlight-rn/src/dev/dev-social-data.ts"
     },
     {
       "figmaNodeId": "TODO",
@@ -373,7 +373,7 @@
         "apps/spotlight-rn/src/features/auth/screens/change-password-screen.tsx",
         "apps/spotlight-rn/src/app/(modal)/change-password.tsx"
       ],
-      "deepLink": "TODO(dev route)",
+      "deepLink": "spotlight://dev/change-password",
       "mockData": null
     },
     {
@@ -384,8 +384,8 @@
         "apps/spotlight-rn/src/features/cards/screens/scan-candidate-review-screen.tsx",
         "apps/spotlight-rn/src/app/(modal)/cards/[cardId]/scan-review.tsx"
       ],
-      "deepLink": "TODO(dev route)",
-      "mockData": null
+      "deepLink": "spotlight://dev/scan-review",
+      "mockData": "apps/spotlight-rn/src/dev/dev-scanner-fixtures.ts"
     },
     {
       "figmaNodeId": "TODO",
@@ -395,7 +395,7 @@
         "apps/spotlight-rn/src/features/whos-that-pokemon/screens/whos-that-pokemon-screen.tsx",
         "apps/spotlight-rn/src/app/(stack)/whos-that-pokemon/index.tsx"
       ],
-      "deepLink": "TODO(dev route)",
+      "deepLink": "TODO(dev route): mounts react-native-vision-camera (useVisionCameraCapture) and requests camera permission on mount; the simulator has no device, so the route would screenshot a permission prompt",
       "mockData": null
     },
     {

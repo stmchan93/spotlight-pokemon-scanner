@@ -651,10 +651,9 @@ export function PostCard({
               >
                 <Text
                   numberOfLines={1}
-                  // +1 over bodyStrong (Figma says 15/600): user-requested bump
-                  // for feed legibility, 2026-09-03. Local to the post card —
-                  // update Figma before propagating anywhere else.
-                  style={[theme.typography.bodyStrong, styles.authorNameBump]}
+                  // Figma 5768:21655 draws the author raw SemiBold 16 — `headline`
+                  // carries those metrics (no library style yet; flagged).
+                  style={theme.typography.headline}
                   testID={`${testID}-author-name`}
                 >
                   {displayName}
@@ -671,11 +670,11 @@ export function PostCard({
             </View>
             {postDate ? (
               <Text
-                // Figma 4299:94902 sets the date at 11pt Regular — `cardMeta`.
-                style={[theme.typography.cardMeta, { color: theme.colors.gray600 }]}
+                // Figma 5768:27189: Overline 12 Regular gray-600, set in capitals.
+                style={[theme.typography.overline, { color: theme.colors.gray600 }]}
                 testID={`${testID}-date`}
               >
-                {postDate}
+                {postDate.toUpperCase()}
               </Text>
             ) : null}
           </View>
@@ -715,8 +714,8 @@ export function PostCard({
 
         {post.body ? (
           <Text
-            // Figma 4299:94902 sets the post body at 14 Medium — `bodyMedium`.
-            style={[styles.bodyText, theme.typography.bodyMedium, styles.postBodyBump, { color: theme.colors.gray800 }]}
+            // Figma 5768:27193: Body-medium 15/500 gray-800.
+            style={[styles.bodyText, theme.typography.postBody, { color: theme.colors.gray800 }]}
             testID={`${testID}-body`}
           >
             {post.body}
@@ -969,16 +968,6 @@ export function PostCard({
 const styles = StyleSheet.create({
   bodyText: {
     paddingHorizontal: 16,
-  },
-  // Feed-legibility bumps (+1 each over bodyStrong 15 / bodyMedium 14) —
-  // local divergence from Figma, see author-name comment.
-  authorNameBump: {
-    fontSize: 16,
-    lineHeight: 21,
-  },
-  postBodyBump: {
-    fontSize: 15,
-    lineHeight: 22.5,
   },
   // The 4pt separator band, full-bleed across the card. Color comes from the
   // theme at the render site, mirroring the old divider.

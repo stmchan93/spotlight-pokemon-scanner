@@ -41,7 +41,7 @@ export function ScanTargetPill({
         style={styles.pill}
         testID={testID ? `${testID}-surface` : undefined}
       >
-        <Text style={styles.label}>{label}</Text>
+        <Text style={styles.label}>{label.toUpperCase()}</Text>
         {flag ? <RoundFlag language={flag} size={14} /> : null}
         <IconChevronDown color={colors.gray900} size={20} strokeWidth={2} />
       </GlassSurface>
@@ -50,14 +50,10 @@ export function ScanTargetPill({
 }
 
 const styles = StyleSheet.create({
-  /*
-    `bodyLarge`, not the `control` role every other pill uses. Figma 5085:15158
-    specifies Plus Jakarta Sans REGULAR 16 here, and the reason survives the
-    spec: this label is the name of what you are scanning, not a command, so the
-    SemiBold that suits "ADD" or "Set all" would read as an instruction.
-  */
+  // Figma Label (Medium 14) on every Scan-1 frame (type-scale migration
+  // 2026-10-18); the earlier REGULAR 16 spec (5085:15158) is superseded.
   label: {
-    ...textStyles.bodyLarge,
+    ...textStyles.label,
     color: colors.gray900,
   },
   pressable: {

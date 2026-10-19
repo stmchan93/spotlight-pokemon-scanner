@@ -482,7 +482,27 @@ async function fetchUnreadCounts(): Promise<Map<string, number>> {
  * UPDATE regardless of how many messages you just scrolled past, and makes
  * unread a range scan rather than a join.
  */
+/**
+ * Dev-screens seam (spotlight://dev/messages, /conversation): non-null answers
+ * the inbox and thread reads from fixtures instead of Supabase. Same shape as
+ * `setDevFeedItemsOverride` in social-service.
+ */
+export type DevDmOverrides = {
+  conversations: readonly DmConversation[];
+  /** Thread messages by conversation id, oldest first (the order `fetchMessages` returns). */
+  messages: Readonly<Record<string, readonly DmMessage[]>>;
+};
+
+let devDmOverrides: DevDmOverrides | null = null;
+
+export function setDevDmOverrides(overrides: DevDmOverrides | null): void {
+  devDmOverrides = __DEV__ ? overrides : null;
+}
+
 export async function fetchConversations(limit = DEFAULT_CONVERSATION_LIMIT): Promise<DmConversation[]> {
+  if (__DEV__ && devDmOverrides) {
+    return devDmOverrides.conversations.slice(0, limit);
+  }
   const me = await currentUserId();
   if (!supabase || !me) {
     return [];
@@ -600,6 +620,9 @@ export async function fetchMessages(
   limit = DEFAULT_MESSAGE_LIMIT,
 ): Promise<DmMessage[]> {
   const trimmed = (conversationId ?? '').trim();
+  if (__DEV__ && devDmOverrides) {
+    return (devDmOverrides.messages[trimmed] ?? []).slice(-limit);
+  }
   if (!supabase || !trimmed) {
     return [];
   }
@@ -671,6 +694,9 @@ const CONVERSATION_HAS_BLOCK_RPC = 'conversation_has_block';
  * for someone else, and must never be asked to.
  */
 export async function fetchConversationBlocked(conversationId: string): Promise<boolean | null> {
+  if (__DEV__ && devDmOverrides) {
+    return false;
+  }
   const trimmed = (conversationId ?? '').trim();
   if (!supabase || !trimmed || typeof supabase.rpc !== 'function') {
     return null;
@@ -821,6 +847,11 @@ export async function sendMessage(
 export async function fetchConversationReadState(
   conversationId: string,
 ): Promise<{ otherLastReadAt: string | null } | null> {
+  if (__DEV__ && devDmOverrides) {
+    // Fixture threads read as fully seen: the last message's timestamp.
+    const thread = devDmOverrides.messages[(conversationId ?? '').trim()] ?? [];
+    return { otherLastReadAt: thread[thread.length - 1]?.createdAt ?? null };
+  }
   const me = await currentUserId();
   const trimmed = (conversationId ?? '').trim();
   if (!supabase || !me || !trimmed) {
@@ -855,6 +886,9 @@ export async function fetchConversationReadState(
  * write your own row; you cannot mark a thread read on someone else's behalf.
  */
 export async function markConversationRead(conversationId: string): Promise<boolean> {
+  if (__DEV__ && devDmOverrides) {
+    return true;
+  }
   const me = await currentUserId();
   const trimmed = (conversationId ?? '').trim();
   if (!supabase || !me || !trimmed) {

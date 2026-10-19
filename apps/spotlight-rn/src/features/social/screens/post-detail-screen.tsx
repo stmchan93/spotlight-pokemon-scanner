@@ -101,7 +101,7 @@ export function PostDetailScreen({
     >
       <View style={styles.header}>
         <ChromeBackButton onPress={() => router.back()} testID={`${testID}-back`} />
-        <Text style={[theme.typography.titleXsmall, styles.title]}>Post</Text>
+        <Text style={[theme.typography.titleSmall, styles.title]}>Post</Text>
         <View style={styles.headerSpacer} />
       </View>
 

@@ -74,7 +74,7 @@ export function CalendarScreen({ onBack, onOpenEvent }: CalendarScreenProps) {
           <View key={month.key} testID={`calendar-month-${month.key}`}>
             <Text
               accessibilityRole="header"
-              style={[theme.typography.feedEyebrow, styles.monthTitle, { color: theme.colors.gray600 }]}
+              style={[theme.typography.overline, styles.monthTitle, { color: theme.colors.gray600 }]}
             >
               {month.title.toUpperCase()}
             </Text>

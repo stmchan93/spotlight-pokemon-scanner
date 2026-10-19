@@ -13,6 +13,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { InventoryCardEntry, ProfilePortfolioSummary } from '@spotlight/api-client';
 import {
   SearchField,
+  spacing,
   Button,
   InlineLoader,
   PageTabs,
@@ -21,6 +22,7 @@ import {
   Text,
   Toast,
   useSpotlightTheme,
+  radii,
 } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
@@ -573,8 +575,10 @@ export function PublicProfileScreen({
     return {
       handle: handleSlug && handleSlug.length > 0 ? handleSlug : targetUserId,
       userId: targetUserId,
+      // The follow list is titled with the profile's name (Figma 5753:13043).
+      ...(profile ? { title: getProfileDisplayName(profile) } : {}),
     };
-  }, [profile?.handle, targetUserId]);
+  }, [profile, targetUserId]);
 
   const handleOpenFollowers = useCallback(() => {
     if (followListParams) {
@@ -881,15 +885,18 @@ export function PublicProfileScreen({
       style={{
         backgroundColor: theme.colors.gray0,
         borderCurve: 'continuous',
-        borderTopLeftRadius: 16,
-        borderTopRightRadius: 16,
+        // Figma 5938:21765: the profile's white sheet has 20pt top corners.
+        borderTopLeftRadius: radii.xl,
+        borderTopRightRadius: radii.xl,
         paddingTop: 16,
       }}
     >
       <PageTabs
+        labelSize="caption"
         onChange={setActiveTab}
         tabs={PROFILE_TABS}
         testID={`${testID}-tabs`}
+        uppercase
         value={activeTab}
       />
     </View>
@@ -919,9 +926,12 @@ export function PublicProfileScreen({
           testID={`${testID}-total`}
         >
           <View style={styles.collectionSummaryRow}>
-            <Text style={theme.typography.bodyMedium}>Main Collection</Text>
-            <Text style={theme.typography.bodyMedium} testID={`${testID}-total-value`}>
-              {totalLabel ? `Total Value: ${totalLabel}` : `${summary?.cardCount ?? entries.length} cards`}
+            <Text style={theme.typography.caption}>MAIN COLLECTION</Text>
+            <Text
+              style={theme.typography.caption}
+              testID={`${testID}-total-value`}
+            >
+              {(totalLabel ? `Total: ${totalLabel}` : `${summary?.cardCount ?? entries.length} cards`).toUpperCase()}
             </Text>
           </View>
           <SearchField
@@ -933,6 +943,7 @@ export function PublicProfileScreen({
             returnKeyType="search"
             size="collection"
             surface="muted"
+            uppercasePlaceholder
             value={collectionQuery}
           />
         </View>
@@ -1226,7 +1237,8 @@ const styles = StyleSheet.create({
   stateCard: {
     marginTop: 12,
   },
+  // Figma 5938:16815: 8 between the summary row and the search field.
   totalBlock: {
-    gap: 4,
+    gap: spacing.xxs,
   },
 });

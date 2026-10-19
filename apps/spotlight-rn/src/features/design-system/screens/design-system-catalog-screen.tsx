@@ -64,19 +64,48 @@ export function DesignSystemCatalogScreen({
   const [segmentValue, setSegmentValue] = useState<'portfolio' | 'scan'>('portfolio');
   const [visibleRows, setVisibleRows] = useState(6);
 
+  // The eleven Figma library styles first, then the non-library roles the
+  // frames still draw raw (flagged for the designer in
+  // docs/type-scale-migration/README.md).
   const typographySamples = useMemo(() => {
     return [
-      { key: 'display', label: 'Display', style: theme.typography.display, sample: 'Design System' },
-      { key: 'title', label: 'Title', style: theme.typography.title, sample: 'Shared Primitive' },
-      { key: 'titleCompact', label: 'Title Compact', style: theme.typography.titleCompact, sample: 'Compact Title' },
-      { key: 'headline', label: 'Headline', style: theme.typography.headline, sample: 'Headline Sample' },
-      { key: 'body', label: 'Body', style: theme.typography.body, sample: 'Body copy for supporting information.' },
-      { key: 'bodySmall', label: 'Body Small', style: theme.typography.bodySmall, sample: 'Figma "Body" — 14/400 long-form copy.' },
-      { key: 'bodyStrong', label: 'Body Strong', style: theme.typography.bodyStrong, sample: 'Strong supporting copy.' },
-      { key: 'control', label: 'Control', style: theme.typography.control, sample: 'Interactive Label' },
-      { key: 'caption', label: 'Caption', style: theme.typography.caption, sample: 'Secondary caption style.' },
-      { key: 'captionRegular', label: 'Caption Regular', style: theme.typography.captionRegular, sample: 'Figma "Overline" — 12/400 meta line.' },
-      { key: 'micro', label: 'Micro', style: theme.typography.micro, sample: 'META LABEL' },
+      { key: 'display', label: 'Display · Bold 29', style: theme.typography.display, sample: 'Design System' },
+      { key: 'titleLarge', label: 'Title-large · Bold 23', style: theme.typography.titleLarge, sample: 'Shared Primitive' },
+      { key: 'titleMedium', label: 'Title-medium · SemiBold 19', style: theme.typography.titleMedium, sample: 'Section Title' },
+      { key: 'titleSmall', label: 'Title-small · SemiBold 17', style: theme.typography.titleSmall, sample: 'Heading inside a page' },
+      { key: 'bodyLarge', label: 'Body-large · Regular 16', style: theme.typography.bodyLarge, sample: 'LOG IN' },
+      { key: 'body', label: 'Body · Regular 14', style: theme.typography.body, sample: 'Body copy for supporting information.' },
+      { key: 'bodyMedium', label: 'Body-medium · Medium 14', style: theme.typography.bodyMedium, sample: 'Button and control labels' },
+      { key: 'label', label: 'Label · Medium 14', style: [theme.typography.label, { color: theme.colors.gray900 }], sample: 'Chips, group labels' },
+      { key: 'caption', label: 'Caption · Regular 13', style: theme.typography.caption, sample: 'Secondary caption style.' },
+      { key: 'captionMedium', label: 'Caption-medium · Medium 13', style: theme.typography.captionMedium, sample: 'Helper text with a little weight.' },
+      { key: 'overline', label: 'Overline · Regular 12', style: theme.typography.overline, sample: 'META LINE · 2H AGO' },
+      // Casing is a STYLE, not the string: the frames set small labels (chips,
+      // section labels, tabs, condition/meta lines) in caps via textTransform,
+      // while card and set names keep their own casing.
+      {
+        key: 'labelUppercase',
+        label: 'Label · Medium 14 · uppercase (section labels)',
+        style: [theme.typography.label, styles.uppercase, { color: theme.colors.gray900 }],
+        sample: 'Language',
+      },
+      {
+        key: 'captionUppercase',
+        label: 'Caption · Regular 13 · uppercase (chips, meta)',
+        style: [theme.typography.caption, styles.uppercase],
+        sample: 'Ungraded · 193/162',
+      },
+      { key: 'headline', label: 'headline (raw SemiBold 16)', style: theme.typography.headline, sample: 'Post author name' },
+      { key: 'bodyStrong', label: 'bodyStrong (raw SemiBold 15)', style: theme.typography.bodyStrong, sample: '$1,450.12 mover price' },
+      { key: 'titleXsmall', label: 'titleXsmall (raw SemiBold 14)', style: theme.typography.titleXsmall, sample: 'WISHLIST' },
+      { key: 'labelStrong', label: 'labelStrong (raw SemiBold 13)', style: [theme.typography.labelStrong, { color: theme.colors.gray900 }], sample: 'NEW POST · 12 likes' },
+      { key: 'feedRowTitle', label: 'feedRowTitle (raw Bold 15)', style: [theme.typography.feedRowTitle, { color: theme.colors.gray900 }], sample: '$1,450.12' },
+      { key: 'detailTitleBold', label: 'detailTitleBold (raw Bold 19)', style: theme.typography.detailTitleBold, sample: 'Event detail title' },
+      { key: 'captionStrong', label: 'captionStrong (raw SemiBold 12)', style: [theme.typography.captionStrong, { color: theme.colors.gray900 }], sample: 'See the meta ›' },
+      { key: 'micro', label: 'micro (SemiBold 11, tracked)', style: theme.typography.micro, sample: 'META LABEL' },
+      { key: 'cardMeta', label: 'cardMeta (raw Regular 11)', style: theme.typography.cardMeta, sample: 'PokéBeach · 2h' },
+      { key: 'chipLabel', label: 'chipLabel (SemiBold 11)', style: [theme.typography.chipLabel, { color: theme.colors.gray900 }], sample: '+18.4%' },
+      { key: 'tag', label: 'tag (Bold 10)', style: [theme.typography.tag, { color: theme.colors.gray900 }], sample: 'RAW' },
     ];
   }, [theme]);
 
@@ -201,7 +230,7 @@ export function DesignSystemCatalogScreen({
 
             <View style={styles.iconRow}>
               <IconButton accessibilityLabel="Back sample" testID="catalog-icon-button">
-                <Text style={theme.typography.titleCompact}>‹</Text>
+                <Text style={theme.typography.titleMedium}>‹</Text>
               </IconButton>
               <PillButton label="Pill Button" selected testID="catalog-pill-button" />
               <PillButton
@@ -452,7 +481,7 @@ export function DesignSystemCatalogScreen({
             <EmptyStatePrompt
               actionLabel="Scan to add"
               actionTestID="catalog-empty-state-prompt-action"
-              illustration={<Text style={theme.typography.displayLarge}>◎</Text>}
+              illustration={<Text style={theme.typography.display}>◎</Text>}
               message="Let’s build your collection"
               onActionPress={() => {}}
               testID="catalog-empty-state-prompt"
@@ -612,5 +641,8 @@ const styles = StyleSheet.create({
   },
   typographyRow: {
     gap: 4,
+  },
+  uppercase: {
+    textTransform: 'uppercase',
   },
 });

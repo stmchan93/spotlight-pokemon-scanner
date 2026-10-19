@@ -1,4 +1,5 @@
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { BoxIso } from 'iconoir-react-native';
 
 import { useSpotlightTheme } from '../theme';
 import { borderWidths, layout, textStyles } from '../tokens';
@@ -102,6 +103,13 @@ export type CardListRowProps = {
   onLongPress?: () => void;
   /** Long-press delay in ms; defaults to the Pressable default (~500). */
   delayLongPress?: number;
+  /**
+   * Copy roles. `collection` is the Figma Wishlist / Collection list row
+   * (5656:9924): number · set, footnote and quantity in Caption 13, the
+   * condition or grade line in capitals ("NEAR MINT", "PSA 10"). Default keeps
+   * Label 14 everywhere.
+   */
+  textPreset?: 'default' | 'collection';
   testID?: string;
 };
 
@@ -161,9 +169,12 @@ export function CardListRow({
   onPress,
   onLongPress,
   delayLongPress,
+  textPreset = 'default',
   testID,
 }: CardListRowProps) {
   const theme = useSpotlightTheme();
+  const collectionCopy = textPreset === 'collection';
+  const metaVariant = collectionCopy ? 'caption' : 'label';
 
   // Figma rows (Wishlist 4173:82045, Collection 4134:50940) rule in gray-300.
   // Width is containerRule (1pt), not the 0.5pt `rule`: at 0.5 the gray-300
@@ -326,7 +337,7 @@ export function CardListRow({
             {name}
           </AppText>
           {metaLine ? (
-            <AppText color="gray600" numberOfLines={1} variant="label">
+            <AppText color="gray600" numberOfLines={1} variant={metaVariant}>
               {metaLine}
             </AppText>
           ) : null}
@@ -340,7 +351,7 @@ export function CardListRow({
               color="gray600"
               numberOfLines={1}
               testID={testID ? `${testID}-footnote` : undefined}
-              variant="label"
+              variant={metaVariant}
             >
               {footnoteText}
             </AppText>
@@ -349,18 +360,14 @@ export function CardListRow({
         {gradeText || showQuantity ? (
           <View style={styles.copyGroup}>
             {gradeText ? (
-              <AppText color="gray600" numberOfLines={1} variant="label">
-                {gradeText}
-              </AppText>
-            ) : null}
-            {showQuantity ? (
               <AppText
                 color="gray600"
                 numberOfLines={1}
-                testID={testID ? `${testID}-quantity` : undefined}
-                variant="label"
+                variant={metaVariant}
               >
-                {`Qty: ${quantity}`}
+                {/* Capitals on the string, not `textTransform`: a one-line Text
+                    is measured from the source on iOS and ellipsizes the caps. */}
+                {collectionCopy ? gradeText.toUpperCase() : gradeText}
               </AppText>
             ) : null}
           </View>
@@ -368,17 +375,15 @@ export function CardListRow({
       </View>
 
       <View style={styles.right}>
-        {hasPrice ? (
-          <AppText
-            color="gray900"
-            numberOfLines={1}
-            style={styles.priceText}
-            testID={testID ? `${testID}-price` : undefined}
-            variant="bodyStrong"
-          >
-            {formatCurrency(marketPrice as number, currencyCode)}
-          </AppText>
-        ) : null}
+        <AppText
+          color={hasPrice ? 'gray900' : 'gray500'}
+          numberOfLines={1}
+          style={styles.priceText}
+          testID={testID ? `${testID}-price` : undefined}
+          variant="feedRowTitle"
+        >
+          {hasPrice ? formatCurrency(marketPrice as number, currencyCode) : '—'}
+        </AppText>
 
         {/* Right-aligned under the price, between it and the trend line. */}
         {showSparkline ? (
@@ -391,26 +396,35 @@ export function CardListRow({
         ) : null}
 
         {showTrend ? (
-          <AppText
-            numberOfLines={1}
-            // A suffixed label ("since added") hangs left from the column's
-            // bottom edge instead of widening it, so it never squeezes the
-            // name/set copy.
-            style={[styles.trendLabel, trendSuffix ? styles.trendLabelHanging : null, { color: trendColor }]}
-            testID={testID ? `${testID}-trend` : undefined}
-            variant="label"
-          >
-            {trendLabel}
-            {trendSuffix ? (
-              // The suffix reads in the condition line's label type, in the
-              // percent's color.
-              <Text style={styles.trendSuffix}>{` ${trendSuffix}`}</Text>
-            ) : null}
-          </AppText>
+          // A suffixed label ("since added") hangs left out of a zero-width,
+          // line-high holder: it keeps its slot in the column without widening
+          // it, so it never squeezes the name/set copy or covers the quantity.
+          <View style={trendSuffix ? styles.trendLineHolder : null}>
+            <AppText
+              numberOfLines={1}
+              style={[styles.trendLabel, trendSuffix ? styles.trendLabelHanging : null, { color: trendColor }]}
+              testID={testID ? `${testID}-trend` : undefined}
+              variant="label"
+            >
+              {trendLabel}
+              {trendSuffix ? (
+                // Uppercase Medium 12 suffix, in the percent's color.
+                <Text style={styles.trendSuffix}>{` ${trendSuffix}`}</Text>
+              ) : null}
+            </AppText>
+          </View>
         ) : null}
-        {/* Holds the bottom line's height while the hanging label is absolute,
-            so the sparkline stays in the middle. */}
-        {showTrend && trendSuffix && showSparkline ? <View style={styles.trendLineSpacer} /> : null}
+
+        {/* Owned count + box icon at the column's bottom-right (Figma
+            5938:18563/18564), the same group the collection tile draws. */}
+        {showQuantity ? (
+          <View style={styles.quantityGroup} testID={testID ? `${testID}-quantity` : undefined}>
+            <AppText color="gray700" variant="label">
+              {String(quantity)}
+            </AppText>
+            <BoxIso color={theme.colors.gray700} height={16} width={16} />
+          </View>
+        ) : null}
       </View>
     </Container>
   );
@@ -428,19 +442,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     minWidth: 0,
   },
-  // Price: 14px BOLD gray900 / 150%. The current Figma frames (4173:82045,
-  // 4134:50940) spec Regular-400 here, but the user overruled that on
-  // 2026-08-18 — bold is the intended weight (matches the older Figma
-  // 992:10059). Update the frames, not this, if the design ever changes.
+  // Price: Bold gray900 (`feedRowTitle`, the Bold-15 list-price role). The
+  // current Figma frames (4173:82045, 4134:50940) spec Regular-400 here, but
+  // the user overruled that on 2026-08-18 — bold is the intended weight
+  // (matches the older Figma 992:10059). Update the frames, not this, if the
+  // design ever changes.
   priceText: {
-    fontFamily: 'SpotlightBodyBold',
-    fontSize: 14,
-    lineHeight: 21,
+    ...textStyles.feedRowTitle,
     textAlign: 'right',
   },
   // Price column matches the Figma rows (Wishlist 4173:82045, Collection
   // 4134:50940): stretch the row and SPACE_BETWEEN so the price top-aligns
   // with the title and the trend line sits at the bottom, not centered.
+  quantityGroup: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 2,
+  },
   right: {
     alignItems: 'flex-end',
     alignSelf: 'stretch',
@@ -477,8 +495,8 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
-  // Signed since-added percent under the price: 14 SemiBold, green400/red400
-  // inline (Robinhood-style stacked value + return).
+  // Signed since-added percent under the price: SemiBold 14 (`titleXsmall`),
+  // green400/red400 inline (Robinhood-style stacked value + return).
   // Fixed width so the absolute label measures past the price column; the
   // text is right-aligned, so only its own glyphs cover the row.
   trendLabelHanging: {
@@ -488,16 +506,18 @@ const styles = StyleSheet.create({
     width: 220,
   },
   trendLabel: {
-    fontFamily: 'SpotlightBodySemiBold',
-    fontSize: 14,
-    lineHeight: 21,
+    ...textStyles.titleXsmall,
     textAlign: 'right',
   },
-  trendLineSpacer: {
-    height: 21,
+  trendLineHolder: {
+    alignSelf: 'flex-end',
+    height: textStyles.titleXsmall.lineHeight,
+    width: 0,
   },
+  // Font + size only, so it sits on the percent's line height in its color.
   trendSuffix: {
-    fontFamily: textStyles.label.fontFamily,
-    fontSize: textStyles.label.fontSize,
+    fontFamily: textStyles.overlineMedium.fontFamily,
+    fontSize: textStyles.overlineMedium.fontSize,
+    textTransform: 'uppercase',
   },
 });

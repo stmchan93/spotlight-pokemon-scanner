@@ -20,7 +20,7 @@ import { Camera, NavArrowRight } from 'iconoir-react-native';
 
 import { ChromeBackButton, chromeBackButtonSize } from '@/components/chrome-back-button';
 
-import { Avatar, Button, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Avatar, Button, Text, textStyles, usePlaceholderTypography, useSpotlightTheme } from '@spotlight/design-system';
 
 import {
   getUserInitials,
@@ -40,6 +40,9 @@ import { useAuth } from '@/providers/auth-provider';
 const KEYBOARD_ACTION_GAP = 12;
 
 const BIO_MAX_LENGTH = 150;
+// Same trick as the shared TextField: a single-line TextInput takes Body minus
+// its line box, which would otherwise float the value off its centerline.
+const { lineHeight: _bodyLineHeight, ...singleLineBody } = textStyles.body;
 const COVER_HEIGHT = 176;
 const AVATAR_SIZE = 80;
 /**
@@ -111,6 +114,7 @@ function UnderlineField({
 }: UnderlineFieldProps) {
   const theme = useSpotlightTheme();
   const hasValue = value.length > 0;
+  const { placeholderStyle } = usePlaceholderTypography({ value });
   return (
     <View
       style={[
@@ -132,7 +136,7 @@ function UnderlineField({
           onChangeText={onChangeText}
           placeholder={placeholder}
           placeholderTextColor={theme.colors.gray400}
-          style={[styles.fieldInput, { color: valueColor ?? theme.colors.gray900 }, valueStyle]}
+          style={[styles.fieldInput, placeholderStyle, { color: valueColor ?? theme.colors.gray900 }, hasValue ? valueStyle : null]}
           testID={testID}
           value={value}
         />
@@ -179,6 +183,7 @@ export function EditProfileScreen() {
   const [socialLink, setSocialLink] = useState(user?.socialLink ?? '');
   const [location, setLocation] = useState(user?.location ?? '');
   const [bio, setBio] = useState(user?.bio ?? '');
+  const { placeholderStyle: bioPlaceholderStyle } = usePlaceholderTypography({ value: bio });
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarURL ?? null);
   const [coverUrl, setCoverUrl] = useState(user?.coverURL ?? null);
   // Resize + upload takes seconds on a real photo. Without this the banner sat
@@ -531,7 +536,7 @@ export function EditProfileScreen() {
                 ]}
                 testID="edit-profile-title"
               >
-                Edit Profile
+                EDIT PROFILE
               </Text>
               <View style={styles.coverBarSpacer} />
             </SafeAreaView>
@@ -602,9 +607,9 @@ export function EditProfileScreen() {
 
             <View style={styles.bioField}>
               <View style={styles.bioLabelRow}>
-                {/* The Bio row sits at 12px, unlike the 11px floating labels on
-                    the underline fields above (Figma "Bio Info"). */}
-                <Text style={[theme.typography.caption, { color: theme.colors.gray900 }]}>
+                {/* Figma draws "Bio" raw Medium 12 next to a Caption counter;
+                    Overline is the nearest library role. */}
+                <Text style={[theme.typography.overline, { color: theme.colors.gray900 }]}>
                   Bio
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]}>
@@ -620,6 +625,7 @@ export function EditProfileScreen() {
                 placeholderTextColor={theme.colors.gray400}
                 style={[
                   styles.bioInput,
+                  bioPlaceholderStyle,
                   {
                     // Figma "Bio Text Container" (3083:12773): a flat gray100
                     // fill, no border, with gray body text.
@@ -762,13 +768,11 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   bioInput: {
-    // Figma "Bio Text Container": radius 12, even 16 padding, 104 tall, 14px
-    // Regular body on a flat fill (no border).
+    // Figma "Bio Text Container": radius 12, even 16 padding, 104 tall, Body
+    // on a flat fill (no border).
+    ...textStyles.body,
     borderCurve: 'continuous',
     borderRadius: 12,
-    fontFamily: 'SpotlightBodyRegular',
-    fontSize: 14,
-    lineHeight: 18,
     minHeight: 104,
     padding: 16,
   },
@@ -796,12 +800,10 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     paddingBottom: 6,
   },
+  // Figma "Body". Single-line inputs drop the line box like the shared TextField does.
   fieldInput: {
+    ...singleLineBody,
     flex: 1,
-    fontFamily: 'SpotlightBodyRegular',
-    // 14px Regular — Figma's "Body" role. Was 16, which is what made every value
-    // on this form read a size too large.
-    fontSize: 14,
     paddingVertical: 0,
   },
   fieldInputRow: {
@@ -811,10 +813,10 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   fieldInputLink: {
-    // Social link value: 13px Medium (Figma 3083:9399), not the 14px Regular the
+    // Social link value: Caption-medium (Figma 3083:9399), not the Body the
     // other field values use.
-    fontFamily: 'SpotlightBodyMedium',
-    fontSize: 13,
+    fontFamily: textStyles.captionMedium.fontFamily,
+    fontSize: textStyles.captionMedium.fontSize,
   },
   coverBar: {
     alignItems: 'center',

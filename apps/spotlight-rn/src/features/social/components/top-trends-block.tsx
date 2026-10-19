@@ -9,6 +9,7 @@ import {
 } from '@spotlight/api-client';
 import {
   Text,
+  TopTrendsGameChip,
   TopTrendsRail,
   useSpotlightTheme,
   type TopMoverTileProps,
@@ -113,7 +114,7 @@ export function hasTopTrendsContent(movers: TopMovers | null, _loading: boolean)
 }
 
 /**
- * Home "Top Trends" (Figma 4969:4101 "Title content"): a title row, a caption
+ * Home "Top Trends" (Figma 4969:4101 "Title content"): a title row with a chip
  * naming the game on screen, and ONE carousel with a slide per game — each
  * game's top gainer, biggest first — that flips to the next game every 10s
  * and can be swiped by hand, looping end to start in both directions.
@@ -152,19 +153,22 @@ export function TopTrendsBlock({
       testID={testID}
     >
       <View style={styles.titleRow}>
-        <Text style={[theme.typography.titleXsmall, { color: theme.colors.gray900 }]}>
-          Top Trends
-        </Text>
+        {/* Figma 5768:27138: the game chip rides beside the heading, 8 apart. */}
+        <View style={styles.titleGroup}>
+          <Text style={[theme.typography.label, { color: theme.colors.gray900 }]}>
+            TOP TRENDS
+          </Text>
+          <TopTrendsGameChip label={gameDisplayName(activeSlide.game)} testID={`${testID}-game`} />
+        </View>
         <Text
-          style={[theme.typography.captionMedium, { color: theme.colors.gray500 }]}
+          style={[theme.typography.overline, { color: theme.colors.gray600 }]}
           testID={`${testID}-window`}
         >
-          past {windowDays} days
+          {`past ${windowDays} days`.toUpperCase()}
         </Text>
       </View>
       <TopTrendsRail
         autoAdvanceIntervalMs={autoAdvanceIntervalMs}
-        caption={gameDisplayName(activeSlide.game)}
         items={slides.map(({ item }) => toTopMoverTileProps(item, onPressCard, testID))}
         onActiveIndexChange={setActiveIndex}
         testID={`${testID}-rail`}
@@ -186,10 +190,15 @@ const styles = StyleSheet.create({
   // Title left, window caption right, on the feed's 16 page gutter (the list
   // itself is unpadded — the rail bleeds to the edge and insets its own tiles).
   titleRow: {
-    alignItems: 'baseline',
+    alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 6,
     paddingHorizontal: 16,
+  },
+  titleGroup: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
   },
 });

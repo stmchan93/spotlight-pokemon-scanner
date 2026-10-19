@@ -170,11 +170,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warning,
   },
   message: {
-    ...textStyles.caption,
+    ...textStyles.captionMedium,
     flex: 1,
   },
   dismiss: {
-    ...textStyles.headline,
-    lineHeight: 20,
+    ...textStyles.bodyMedium,
   },
 });

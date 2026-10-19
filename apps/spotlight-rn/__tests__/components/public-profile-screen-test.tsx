@@ -169,8 +169,8 @@ describe('PublicProfileScreen', () => {
       expect(screen.getByTestId('public-profile-header')).toBeTruthy();
     });
 
-    expect(screen.getByText('Ash Ketchum')).toBeTruthy();
-    expect(screen.getByText('@ash')).toBeTruthy();
+    expect(screen.getByText('ASH KETCHUM')).toBeTruthy();
+    expect(screen.getByTestId('public-profile-header-name').props.children).toBe('ash');
     expect(screen.getByText('12')).toBeTruthy();
     expect(screen.getByText('34')).toBeTruthy();
     expect(screen.getByText('56')).toBeTruthy();
@@ -199,9 +199,9 @@ describe('PublicProfileScreen', () => {
 
     // Figma 4157:74912/74917 collapsed the old two-line headline into one
     // compact "Main Collection / Total Value" row — no separate count line.
-    expect(screen.getByText('Main Collection')).toBeTruthy();
+    expect(screen.getByText('MAIN COLLECTION')).toBeTruthy();
     expect(screen.getByTestId('public-profile-total-value')).toHaveTextContent(
-      'Total Value: $1,234.50',
+      'TOTAL: $1,234.50',
     );
     expect(screen.getByTestId('public-profile-collection-grid-row-0')).toBeTruthy();
     expect(screen.getByText('Pikachu')).toBeTruthy();

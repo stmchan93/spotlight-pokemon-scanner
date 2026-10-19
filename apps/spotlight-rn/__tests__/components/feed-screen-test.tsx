@@ -339,7 +339,7 @@ describe('FeedScreen', () => {
     expect(rows).toHaveLength(3);
     expect(rows[0].props.testID).toBe('feed-compose-prompt');
 
-    expect(screen.getByText('What’s on your mind?')).toBeTruthy();
+    expect(screen.getByText('WHAT’S ON YOUR MIND?')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('feed-compose-prompt'));
     expect(push).toHaveBeenCalledWith('/new-post');
@@ -387,7 +387,7 @@ describe('FeedScreen', () => {
   });
 
   /*
-    TOP TRENDS (Figma 4969:4101): market movers per game, as a list-header
+    Top Trends (Figma 4969:4101): market movers per game, as a list-header
     section BELOW the composer and ABOVE the first post. It is decoration on
     the feed, so a failed read leaves no trace — no error card, no empty rail.
   */
@@ -406,15 +406,15 @@ describe('FeedScreen', () => {
         'feed-top-trends',
         'feed-post-body',
       ]);
-      expect(screen.getByText('Top Trends')).toBeTruthy();
-      expect(screen.getByText('past 30 days')).toBeTruthy();
+      expect(screen.getByText('TOP TRENDS')).toBeTruthy();
+      expect(screen.getByText('PAST 30 DAYS')).toBeTruthy();
 
       // ONE carousel: each game's top gainer, biggest first; the caption
       // names the game on screen.
       expect(screen.getAllByTestId(/^feed-top-trends-rail$/)).toHaveLength(1);
       const tiles = screen.getAllByTestId(/^feed-top-trends-tile-(?!.*-(art|image|change|sparkline)$).+$/);
       expect(tiles).toHaveLength(2);
-      expect(screen.getByTestId('feed-top-trends-rail-caption')).toBeTruthy();
+      expect(screen.getByTestId('feed-top-trends-game')).toBeTruthy();
 
       // With the block as the header's last section, the composer's own band
       // is off and the first cell's band carries no extra margin: the seam to
@@ -452,7 +452,7 @@ describe('FeedScreen', () => {
       await waitFor(() => expect(getTopMovers).toHaveBeenCalled());
 
       expect(screen.queryByTestId('feed-top-trends')).toBeNull();
-      expect(screen.queryByText('Top Trends')).toBeNull();
+      expect(screen.queryByText('TOP TRENDS')).toBeNull();
       // The composer/first-post seam is exactly what it was without the block.
       const band = StyleSheet.flatten(screen.getByTestId('feed-first-cell-rule').props.style);
       expect(band.marginBottom).toBe(8);
@@ -956,8 +956,8 @@ describe('FeedScreen', () => {
       expect(screen.queryByTestId('feed-delete-confirm')).toBeNull();
       expect(alertSpy).not.toHaveBeenCalled();
       expect(screen.getByTestId('feed-post-options')).toBeTruthy();
-      expect(screen.getByText('Report post')).toBeTruthy();
-      expect(screen.getByText('Block Collector theirs')).toBeTruthy();
+      expect(screen.getByText('REPORT POST')).toBeTruthy();
+      expect(screen.getByText('BLOCK COLLECTOR THEIRS')).toBeTruthy();
       expect(screen.getByTestId('feed-post-options-cancel')).toBeTruthy();
       alertSpy.mockRestore();
     });
@@ -1137,7 +1137,7 @@ describe('FeedScreen', () => {
       );
     });
     await act(async () => {
-      fireEvent.press(screen.getByText('Block Collector theirs'));
+      fireEvent.press(screen.getByText('BLOCK COLLECTOR THEIRS'));
     });
     await act(async () => {
       fireEvent.press(screen.getByTestId('feed-post-block-confirm-confirm'));

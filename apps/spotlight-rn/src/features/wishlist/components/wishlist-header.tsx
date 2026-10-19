@@ -118,7 +118,8 @@ const BUTTON_ICON_STROKE = glassNavBubbleGlyphStrokeWidth;
 // ShareIos is a tall glyph, drawn 0.9× wide so it sits optically level with
 // the pencil beside it. Same numbers there and here, or the two bars' share
 // glyphs read as two sizes.
-const SHARE_ICON_WIDTH = Math.round(BUTTON_ICON_SIZE * 0.9);
+// Full size, same as the Events toolbar's share glyph (user, 2026-10-18).
+const SHARE_ICON_WIDTH = BUTTON_ICON_SIZE;
 const SHARE_ICON_HEIGHT = BUTTON_ICON_SIZE;
 /**
  * 0 to match `HomeHeader`: every tab bar hangs its control row directly off the
@@ -262,9 +263,9 @@ export function WishlistHeader({
             numberOfLines={1}
             style={styles.headerTitle}
             testID="wishlist-header-title"
-            variant="titleMedium"
+            variant="titleXsmall"
           >
-            Watchlist
+            WATCHLIST
           </AppText>
         </Animated.View>
       </View>

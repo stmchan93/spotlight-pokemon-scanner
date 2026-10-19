@@ -23,11 +23,11 @@ type CardConfiguratorProps = {
 };
 
 /**
- * Solid-dark-when-selected option chip matching the Figma card-detail design:
- * selected = gray900 fill + white label, unselected = gray50 fill + dark
- * label. PillButton's tones don't express the dark-selected state, so this
- * local chip drives the variant / grader rows while still using shared tokens
- * and the 13/medium `label` typography role (color overridden).
+ * Solid-dark-when-selected option chip matching the Figma PDP (5768:21988
+ * "Option Item"): selected = gray900 fill + white label, unselected = gray50
+ * fill + dark label; the label is Caption (Regular 13) drawn UPPERCASE in both
+ * states — selection changes color only, not weight. PillButton's tones don't
+ * express the dark-selected state, so this local chip drives the rows.
  */
 function OptionChip({
   label,
@@ -64,20 +64,25 @@ function OptionChip({
       <Text
         numberOfLines={1}
         style={[
-          theme.typography.label,
+          theme.typography.caption,
           { color: selected ? theme.colors.gray0 : theme.colors.gray900 },
         ]}
       >
-        {label}
+        {/* Capitals on the string: iOS measures the one-line chip from the
+            untransformed label and clips a `textTransform`. */}
+        {label.toUpperCase()}
       </Text>
     </Pressable>
   );
 }
 
+// Option-group header per Figma 5768:21988 "Option Container": Label (Medium
+// 14) gray900, UPPERCASE ("LANGUAGE" / "VARIANT" / "GRADER"). The sentence-case
+// Title-small frames (5768:22713 / 5768:23886) are NOT the reference.
 function GroupTitle({ children, theme }: { children: string; theme: SpotlightTheme }) {
   return (
-    <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
-      {children}
+    <Text style={[theme.typography.label, { color: theme.colors.gray900 }]}>
+      {children.toUpperCase()}
     </Text>
   );
 }

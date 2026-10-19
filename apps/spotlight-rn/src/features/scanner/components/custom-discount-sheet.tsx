@@ -68,7 +68,7 @@ export function CustomDiscountSheet({
             rate (user, 2026-09-11).
           */}
           <Text style={[theme.typography.titleSmall, styles.title, { color: theme.colors.gray900 }]}>
-            Percent of market
+            PERCENT OF MARKET
           </Text>
 
           <TextField

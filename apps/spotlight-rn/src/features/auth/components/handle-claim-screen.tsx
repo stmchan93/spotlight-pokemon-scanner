@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { Text, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
+import { Text, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import {
   type AppUser,
@@ -148,23 +148,16 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   helper: {
-    fontFamily: fontFamilies.bodyRegular,
-    fontSize: 13,
-    lineHeight: 18,
+    ...textStyles.caption,
   },
   signedInAs: {
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 13,
-    lineHeight: 18,
+    ...textStyles.captionMedium,
   },
   subtitle: {
-    fontFamily: fontFamilies.bodyRegular,
-    fontSize: 13,
-    lineHeight: 18,
+    ...textStyles.caption,
   },
+  // Title-large; no Figma frame, nearest library role to the old Bold 22.
   title: {
-    fontFamily: fontFamilies.bodyBold,
-    fontSize: 22,
-    lineHeight: 28,
+    ...textStyles.titleLarge,
   },
 });

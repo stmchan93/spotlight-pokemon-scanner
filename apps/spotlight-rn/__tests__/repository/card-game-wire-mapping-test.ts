@@ -249,4 +249,31 @@ describe('game carried off the wire', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].game).toBeUndefined();
   });
+
+  it('reads the game of Insights performance rows from the id namespace', async () => {
+    // The performance payload carries no `game` field, so the Insights game
+    // switcher relies on the `<game>~` id namespace the backend stamps on every
+    // non-Pokémon catalog id. An unnamespaced id is Pokémon's by construction.
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/portfolio/performance')) {
+        return jsonResponse(200, {
+          itemCount: 3,
+          currencyCode: 'USD',
+          refreshedAt: '2026-10-18T00:00:00Z',
+          rows: [
+            { entryId: 'e1', cardId: 'sv1-201', name: 'Skwovet' },
+            { entryId: 'e2', cardId: 'onepiece~OP05-119', name: 'Monkey.D.Luffy' },
+            // A server that does send `game` is trusted when it is a known one.
+            { entryId: 'e3', cardId: 'lorcana~1-001', game: 'lorcana', name: 'Ariel' },
+          ],
+        });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const performance = await repository.getPortfolioPerformance();
+
+    expect(performance.rows.map((row) => row.game)).toEqual(['pokemon', 'onepiece', 'lorcana']);
+  });
 });

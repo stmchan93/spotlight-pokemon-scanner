@@ -425,7 +425,7 @@ describe('Watchlist deal radar', () => {
         padding: spacing.xs,
       });
 
-      // Text roles match the list row: titleSmall name, gray600 label meta.
+      // Text roles match the list row: titleSmall name, gray600 Caption meta.
       expect(StyleSheet.flatten(screen.getByTestId('wishlist-deal-name-deal-1').props.style)).toMatchObject({
         fontFamily: textStyles.titleSmall.fontFamily,
         fontSize: textStyles.titleSmall.fontSize,
@@ -437,7 +437,8 @@ describe('Watchlist deal radar', () => {
       ]) {
         expect(StyleSheet.flatten(screen.getByTestId(id).props.style)).toMatchObject({
           color: colors.gray600,
-          fontSize: textStyles.label.fontSize,
+          fontFamily: textStyles.caption.fontFamily,
+          fontSize: textStyles.caption.fontSize,
         });
       }
 
@@ -834,8 +835,8 @@ describe('Watchlist deal radar', () => {
       // The condition line says only what lane the price resolved on. It used
       // to carry both as "Near Mint · Target $40.00", which read as one claim
       // about the copy instead of two unrelated facts.
-      expect(screen.getByText('Near Mint')).toBeTruthy();
-      expect(screen.queryByText('Near Mint · Target $40.00')).toBeNull();
+      expect(screen.getByText('NEAR MINT')).toBeTruthy();
+      expect(screen.queryByText('NEAR MINT · TARGET $40.00')).toBeNull();
     });
 
     it('opens the sheet from a long-press in GRID view too, and shows the target on the tile', async () => {

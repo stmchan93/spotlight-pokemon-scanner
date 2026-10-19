@@ -128,8 +128,8 @@ export function scanTargetPillLabel(lane: ScannerLane): string {
 }
 
 /**
- * The round flag shown next to the pill/row label, or undefined for games with
- * no language split (a flag there would claim a choice that doesn't exist).
+ * The round flag shown next to the pill/row label: the lane's language, or the
+ * single-language tag for games without a split; undefined only if neither.
  */
 export function scanTargetFlag(lane: ScannerLane): 'en' | 'jp' | undefined {
   if (!gameHasLanguageLanes(lane.game)) {

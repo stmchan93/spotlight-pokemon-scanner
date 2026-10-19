@@ -89,11 +89,11 @@ describe('NotificationsScreen', () => {
     expect(screen.getByText(/@schan93_/)).toBeTruthy();
     // Calendar date, inline — not a "2d" relative clock on its own line. Derived
     // rather than hardcoded: "Aug 1" in UTC is "Jul 31" in US Pacific, and the
-    // point being pinned is the FORMAT, not this machine's timezone.
-    const expectedDate = new Date('2026-08-01T00:00:00.000Z').toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-    });
+    // point being pinned is the FORMAT, not this machine's timezone. Set in
+    // capitals, like the feed's post dates ("JUL 16, 2026").
+    const expectedDate = new Date('2026-08-01T00:00:00.000Z')
+      .toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+      .toUpperCase();
     expect(screen.getByText(new RegExp(`${expectedDate}\\s*$`))).toBeTruthy();
     expect(screen.queryByText(/\b\d+[mhd]\b/)).toBeNull();
     expect(screen.getByTestId('notifications-row-n-1-thumbnail')).toBeTruthy();

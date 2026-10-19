@@ -54,7 +54,7 @@ describe('InventoryDropdown', () => {
   it('starts collapsed and expands when the header is tapped', () => {
     renderDropdown();
 
-    expect(screen.getByText('Inventory')).toBeTruthy();
+    expect(screen.getByText('INVENTORY')).toBeTruthy();
     expect(screen.queryByTestId('detail-inventory-row-entry-1')).toBeNull();
 
     fireEvent.press(screen.getByTestId('detail-inventory-header'));

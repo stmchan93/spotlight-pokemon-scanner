@@ -13,7 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Minus, NavArrowDown, Plus } from 'iconoir-react-native';
 
-import { Button, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Button, radii, Text, useSpotlightTheme } from '@spotlight/design-system';
 import type { MarketHistoryOption } from '@spotlight/api-client';
 
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
@@ -225,8 +225,8 @@ export function AddToCollectionSheet({
             >
               <View style={[styles.handleBar, { backgroundColor: theme.colors.gray200 }]} />
             </Pressable>
-            <Text style={[theme.typography.bodyMedium, styles.title, { color: theme.colors.gray600 }]}>
-              {title}
+            <Text style={[theme.typography.labelStrong, styles.title, { color: theme.colors.gray600 }]}>
+              {title.toUpperCase()}
             </Text>
           </View>
 
@@ -252,7 +252,7 @@ export function AddToCollectionSheet({
                 />
 
                 <View style={styles.group}>
-                  <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
+                  <Text style={[theme.typography.label, styles.groupTitle, { color: theme.colors.gray900 }]}>
                     {gradeTitle}
                   </Text>
                   <Pressable
@@ -265,8 +265,8 @@ export function AddToCollectionSheet({
                     ]}
                     testID={`${testID}-grade-trigger`}
                   >
-                    <Text style={[theme.typography.label, { color: theme.colors.gray700 }]}>
-                      {gradeLabel ?? 'Select'}
+                    <Text style={[theme.typography.caption, { color: theme.colors.gray700 }]}>
+                      {(gradeLabel ?? 'Select').toUpperCase()}
                     </Text>
                     <NavArrowDown color={theme.colors.gray700} height={24} width={24} />
                   </Pressable>
@@ -275,7 +275,7 @@ export function AddToCollectionSheet({
             )}
 
             <View style={styles.group}>
-              <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
+              <Text style={[theme.typography.label, styles.groupTitle, { color: theme.colors.gray900 }]}>
                 Quantity
               </Text>
               <View style={styles.stepper}>
@@ -350,6 +350,10 @@ export function AddToCollectionSheet({
 }
 
 const styles = StyleSheet.create({
+  // Label-UPPERCASE group header, same as CardConfigurator (Figma 4211:84974).
+  groupTitle: {
+    textTransform: 'uppercase',
+  },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
@@ -404,8 +408,9 @@ const styles = StyleSheet.create({
   },
   sheet: {
     borderCurve: 'continuous',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
+    borderTopLeftRadius: radii.sheet,
+    borderTopRightRadius: radii.sheet,
+    overflow: 'hidden',
     maxHeight: '88%',
     paddingTop: 10,
   },

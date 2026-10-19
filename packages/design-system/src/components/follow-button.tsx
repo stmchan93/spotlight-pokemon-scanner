@@ -13,18 +13,17 @@ import { useSpotlightTheme } from '../theme';
  * out) reads as broken rather than as settled. Unfollowing lives on the
  * person's profile, where the consequence is visible and deliberate.
  *
- * The two states deliberately inverse each other's weight — the invitation is
- * quiet (white, gray label) and the confirmation is loud (black, white label),
- * which is the reverse of the usual convention and is what the product asked
- * for: a followed row should be unmistakable while scrolling past it.
+ * Figma 5080:6917/6919 (instance 5768:27191): the invitation is a white box
+ * with a gray200 hairline and a gray600 label; the confirmation is a borderless
+ * gray50 fill with a gray900 label — settled, not shouting.
  */
 
-// Figma 5080:6921: 65x30 with the label inset 10 across and its 18pt line box
-// centred. The 1pt border is inside that 30, so the vertical padding carries 5
-// rather than the frame's 6.
+// Figma 5080:6921: 65x30 with the label inset 10 across. The 1pt border is
+// inside that 30, so the vertical padding carries 5 rather than the frame's 6;
+// `minHeight` holds the 30 regardless of the label's own line box.
 const PADDING_HORIZONTAL = 9;
 const PADDING_VERTICAL = 5;
-const LABEL_LINE_HEIGHT = 18;
+const BOX_HEIGHT = 30;
 
 export type FollowButtonProps = {
   /** Whether the viewer already follows this person. */
@@ -38,22 +37,25 @@ export type FollowButtonProps = {
 
 export function FollowButton({ following, onPress, personLabel, testID }: FollowButtonProps) {
   const theme = useSpotlightTheme();
-  const label = following ? 'Following' : 'Follow';
+  // Figma 5080:6916/6920 set the label in capitals: FOLLOW / FOLLOWING.
+  const label = following ? 'FOLLOWING' : 'FOLLOW';
 
   const box = [
     styles.box,
     following
-      ? { backgroundColor: theme.colors.gray900, borderColor: theme.colors.gray900 }
+      ? // Borderless in Figma; the border takes the fill colour so both states keep one size.
+        { backgroundColor: theme.colors.gray50, borderColor: theme.colors.gray50 }
       : { backgroundColor: theme.colors.canvasElevated, borderColor: theme.colors.gray200 },
     { borderRadius: theme.radii.sm },
   ];
   const text = (
     <Text
       numberOfLines={1}
+      // Figma 5080:6916: Caption 13 Regular — the one Regular-weight button
+      // label in the file.
       style={[
-        theme.typography.bodyMedium,
-        styles.label,
-        { color: following ? theme.colors.gray0 : theme.colors.gray600 },
+        theme.typography.caption,
+        { color: following ? theme.colors.gray900 : theme.colors.gray600 },
       ]}
     >
       {label}
@@ -95,12 +97,8 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     borderWidth: 1,
     justifyContent: 'center',
+    minHeight: BOX_HEIGHT,
     paddingHorizontal: PADDING_HORIZONTAL,
     paddingVertical: PADDING_VERTICAL,
-  },
-  label: {
-    // Figma sets the label's line box at 18; the token's own 21 would push the
-    // control past its 30pt frame.
-    lineHeight: LABEL_LINE_HEIGHT,
   },
 });

@@ -16,6 +16,7 @@ import {
   ALL_COLLECTIONS_ID,
   HttpSpotlightRepository,
   MockSpotlightRepository,
+  type CardGame,
   type InventoryCardEntry,
   type PortfolioDashboard,
   type PortfolioPerformance,
@@ -202,6 +203,14 @@ type AppServices = {
   portfolioPerformanceCache: PortfolioPerformance | null;
   setPortfolioPerformanceCache: Dispatch<SetStateAction<PortfolioPerformance | null>>;
   /**
+   * The game the Insights switcher was last set to, scoped to the active
+   * account so it survives leaving and re-opening the (pushed) Insights screen
+   * for the session. Null = never chosen → the screen picks the game with the
+   * most entries.
+   */
+  insightsGame: CardGame | null;
+  setInsightsGame: (game: CardGame | null) => void;
+  /**
    * Last successful Top Trends (market top movers) read for the Home feed.
    * NOT owner-scoped: the payload is catalog-wide market data, identical for
    * every account, so it survives sign-in/out and paints instantly on the
@@ -300,6 +309,7 @@ export function AppProviders({
   const [inventoryEntriesCacheState, setInventoryEntriesCacheState] = useState<ScopedCache<InventoryCardEntry[]> | null>(null);
   const [portfolioDashboardCacheState, setPortfolioDashboardCacheState] = useState<ScopedCache<PortfolioDashboard> | null>(null);
   const [portfolioPerformanceCacheState, setPortfolioPerformanceCacheState] = useState<ScopedCache<PortfolioPerformance> | null>(null);
+  const [insightsGameState, setInsightsGameState] = useState<ScopedCache<CardGame> | null>(null);
   const [activeCollectionState, setActiveCollectionState] = useState<ScopedCache<string> | null>(null);
   // Plain state, not ScopedCache — see the AppServices doc comment.
   const [topMoversCache, setTopMoversCache] = useState<TopMovers | null>(null);
@@ -427,6 +437,15 @@ export function AppProviders({
       const nextValue = typeof value === 'function' ? value(currentValue) : value;
       return nextValue ? { ownerKey: activeSessionOwnerKey, value: nextValue } : null;
     });
+  }, [activeSessionOwnerKey]);
+
+  const insightsGame = useMemo(
+    () => (insightsGameState?.ownerKey === activeSessionOwnerKey ? insightsGameState.value : null),
+    [activeSessionOwnerKey, insightsGameState],
+  );
+
+  const setInsightsGame = useCallback((game: CardGame | null) => {
+    setInsightsGameState(game ? { ownerKey: activeSessionOwnerKey, value: game } : null);
   }, [activeSessionOwnerKey]);
 
   // Refs, not state: deferral bookkeeping must never itself re-render the tree.
@@ -558,6 +577,8 @@ export function AppProviders({
       setPortfolioDashboardCache,
       portfolioPerformanceCache,
       setPortfolioPerformanceCache,
+      insightsGame,
+      setInsightsGame,
       topMoversCache,
       setTopMoversCache,
       metaFeedCache,
@@ -580,6 +601,8 @@ export function AppProviders({
     portfolioDashboardCache,
     portfolioPerformanceCache,
     setPortfolioPerformanceCache,
+    insightsGame,
+    setInsightsGame,
     topMoversCache,
     metaFeedCache,
     setMetaFeedCacheEntry,

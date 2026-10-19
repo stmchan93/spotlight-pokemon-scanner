@@ -146,12 +146,12 @@ describe('CommentsSheet ⋯ options', () => {
 
     // The post-delete sheet's own shape: title, consequence, Cancel + red Delete.
     expect(screen.getByTestId(DELETE_CONFIRM)).toBeTruthy();
-    expect(screen.getByText('Delete comment?')).toBeTruthy();
+    expect(screen.getByText('DELETE COMMENT?')).toBeTruthy();
     // Nothing hangs off this comment, and it still does not disappear — a delete
     // always leaves a "was deleted" line now, so the confirmation says so.
     expect(
       screen.getByText(
-        "Your comment will be removed and the thread will show it was deleted. This can't be undone.",
+        "YOUR COMMENT WILL BE REMOVED AND THE THREAD WILL SHOW IT WAS DELETED. THIS CAN'T BE UNDONE.",
       ),
     ).toBeTruthy();
     expect(screen.getByTestId(`${DELETE_CONFIRM}-cancel`)).toBeTruthy();
@@ -169,7 +169,7 @@ describe('CommentsSheet ⋯ options', () => {
     renderSheet();
 
     fireEvent(await screen.findByTestId('comments-sheet-comment-c1'), 'longPress');
-    expect(screen.getByText('Delete comment?')).toBeTruthy();
+    expect(screen.getByText('DELETE COMMENT?')).toBeTruthy();
   });
 
   it('offers Report AND Block on someone else’s comment, and never delete', async () => {
@@ -193,8 +193,8 @@ describe('CommentsSheet ⋯ options', () => {
     // viewer still reading what they just reported. `reportContent`'s own
     // contract spells this out.
     expect(screen.getByTestId(`${OPTIONS}-report`)).toBeTruthy();
-    expect(screen.getByText('Report comment')).toBeTruthy();
-    expect(screen.getByText('Block Misty')).toBeTruthy();
+    expect(screen.getByText('REPORT COMMENT')).toBeTruthy();
+    expect(screen.getByText('BLOCK MISTY')).toBeTruthy();
     expect(screen.getByTestId(`${OPTIONS}-cancel`)).toBeTruthy();
     expect(screen.queryByTestId(DELETE_CONFIRM)).toBeNull();
     expect(reportContent as jest.Mock).not.toHaveBeenCalled();
@@ -247,8 +247,8 @@ describe('CommentsSheet ⋯ options', () => {
     expect(fill(`${OPTIONS}-report`)).toBe(fill(`${OPTIONS}-cancel`));
     expect(fill(`${OPTIONS}-report`)).not.toBe('#D93025');
     // …and is told apart from it by a red LABEL, not a red slab.
-    expect(labelColor('Report comment')).toBe('#D93025');
-    expect(labelColor('Cancel')).not.toBe('#D93025');
+    expect(labelColor('REPORT COMMENT')).toBe('#D93025');
+    expect(labelColor('CANCEL')).not.toBe('#D93025');
   });
 
   it('blocks the comment author from the same menu, after confirming', async () => {
@@ -262,7 +262,7 @@ describe('CommentsSheet ⋯ options', () => {
     // action here that changes what another account can see. Same sheet shape as
     // the delete confirmation, so the surface never mixes idioms.
     expect(screen.getByTestId(BLOCK_CONFIRM)).toBeTruthy();
-    expect(screen.getByText('Block Misty?')).toBeTruthy();
+    expect(screen.getByText('BLOCK MISTY?')).toBeTruthy();
     expect(screen.getByTestId(`${BLOCK_CONFIRM}-cancel`)).toBeTruthy();
     // The menu it replaced is gone.
     expect(screen.queryByTestId(OPTIONS)).toBeNull();
@@ -328,7 +328,7 @@ describe('CommentsSheet ⋯ options', () => {
   });
 
   // The menu has no title to carry the noun any more, so the ACTION has to: a
-  // reply's ⋯ must offer "Report reply", not "Report comment".
+  // reply's ⋯ must offer "REPORT REPLY", not "REPORT COMMENT".
   it('names the row a reply in the action itself when the row is a reply', async () => {
     (fetchComments as jest.Mock).mockResolvedValue([
       mine(),
@@ -340,8 +340,8 @@ describe('CommentsSheet ⋯ options', () => {
     fireEvent.press(await screen.findByTestId('comments-sheet-comment-r1-more-button'));
 
     expect(screen.queryByText('Reply options')).toBeNull();
-    expect(screen.getByText('Report reply')).toBeTruthy();
-    expect(screen.getByText('Block Misty')).toBeTruthy();
+    expect(screen.getByText('REPORT REPLY')).toBeTruthy();
+    expect(screen.getByText('BLOCK MISTY')).toBeTruthy();
   });
 
   it('files one report even when ⋯ is confirmed twice before the write lands', async () => {

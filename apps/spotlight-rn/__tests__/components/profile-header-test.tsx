@@ -123,8 +123,9 @@ describe('ProfileHeader', () => {
     expect(screen.queryByTestId('profile-header-edit')).toBeNull();
     expect(screen.queryByLabelText('Edit profile')).toBeNull();
     // The identity it used to sit next to is untouched.
-    expect(screen.getByText('Ash Ketchum')).toBeTruthy();
-    expect(screen.getByText('@ash')).toBeTruthy();
+    // Handle leads (Figma 5938:21730); the person's name sits under it.
+    expect(screen.getByTestId('profile-header-name').props.children).toBe('ash');
+    expect(screen.getByText('ASH KETCHUM')).toBeTruthy();
   });
 
   it('renders the Verified badge when isVerified is set', () => {
@@ -150,7 +151,7 @@ describe('ProfileHeader', () => {
     const onAddBioPress = jest.fn();
     renderHeader(<ProfileHeader displayName="Ash Ketchum" initials="AK" onAddBioPress={onAddBioPress} />);
 
-    fireEvent.press(screen.getByText('Tell us about yourself!'));
+    fireEvent.press(screen.getByText('Add a short bio. Tell collectors what you chase, sell, or trade.'));
     expect(onAddBioPress).toHaveBeenCalledTimes(1);
   });
 
@@ -158,7 +159,7 @@ describe('ProfileHeader', () => {
     const { rerender } = renderHeader(
       <ProfileHeader bio="Gotta collect them all." displayName="Ash Ketchum" initials="AK" onAddBioPress={jest.fn()} />,
     );
-    expect(screen.queryByText('Tell us about yourself!')).toBeNull();
+    expect(screen.queryByText('Add a short bio. Tell collectors what you chase, sell, or trade.')).toBeNull();
 
     rerender(
       <SafeAreaProvider>
@@ -167,7 +168,7 @@ describe('ProfileHeader', () => {
         </SpotlightThemeProvider>
       </SafeAreaProvider>,
     );
-    expect(screen.queryByText('Tell us about yourself!')).toBeNull();
+    expect(screen.queryByText('Add a short bio. Tell collectors what you chase, sell, or trade.')).toBeNull();
   });
 
   it('renders the three stat counts', () => {
@@ -192,12 +193,12 @@ describe('ProfileHeader', () => {
     expect(screen.getByText('AK')).toBeTruthy();
   });
 
-  it('falls back to a dark backdrop so the white overlay text stays readable', () => {
+  it('falls back to the gray-500 backdrop under the scrim', () => {
     renderHeader(<ProfileHeader displayName="Ash Ketchum" initials="AK" />);
 
     expect(screen.getByTestId('profile-header-cover-placeholder')).toBeTruthy();
     const block = StyleSheet.flatten(screen.getByTestId('profile-header').props.style);
-    expect(block.backgroundColor).toBe(colors.gray800);
+    expect(block.backgroundColor).toBe(colors.gray500);
   });
 
   it('renders the uploaded cover banner instead of the placeholder', async () => {
@@ -266,7 +267,7 @@ describe('ProfileHeader', () => {
     // backdrop a cover-less profile shows.
     expect(screen.queryByTestId('profile-header-cover-skeleton')).toBeNull();
     const block = screen.getByTestId('profile-header');
-    expect(StyleSheet.flatten(block.props.style).backgroundColor).toBe(colors.gray800);
+    expect(StyleSheet.flatten(block.props.style).backgroundColor).toBe(colors.gray500);
   });
 
   it('re-enters the loading state when a newly uploaded cover replaces the old one', async () => {

@@ -29,7 +29,7 @@ import {
 import { ALL_COLLECTIONS_ID, type Collection } from '@spotlight/api-client';
 
 import { HIDDEN_VALUE_MASK } from '@/features/portfolio/components/portfolio-formatting';
-import { Text, TextField, colors, textStyles } from '@spotlight/design-system';
+import { Text, TextField, colors, radii, textStyles } from '@spotlight/design-system';
 
 /** Figma 3377:3089 — every collection row is 57pt with a 0.5pt rule beneath. */
 const ROW_HEIGHT = 57;
@@ -651,7 +651,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
   error: {
-    ...textStyles.label,
+    ...textStyles.caption,
     color: colors.red500,
   },
   form: {
@@ -740,11 +740,15 @@ const styles = StyleSheet.create({
     color: colors.gray900,
   },
   rowValue: {
-    ...textStyles.label,
+    ...textStyles.caption,
     color: colors.gray600,
   },
   sheet: {
     backgroundColor: colors.gray0,
+    borderCurve: 'continuous',
+    borderTopLeftRadius: radii.sheet,
+    borderTopRightRadius: radii.sheet,
+    overflow: 'hidden',
     // Handle top edge. With HEADER_GAP below it this puts the header row at 26pt
     // from the top of the sheet, which is where Figma places it.
     paddingTop: SHEET_PADDING_TOP,

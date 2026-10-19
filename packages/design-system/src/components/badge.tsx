@@ -51,8 +51,10 @@ export function Badge({
       ]}
       testID={testID}
     >
-      <AppText style={[styles.label, { color: toneStyle.color }]} variant="micro">
-        {label}
+      {/* Capitals applied to the string: a `textTransform` is measured from the
+          untransformed text on iOS and clips inside the content-sized pill. */}
+      <AppText style={{ color: toneStyle.color }} variant="overline">
+        {label.toUpperCase()}
       </AppText>
     </View>
   );
@@ -74,9 +76,5 @@ const styles = StyleSheet.create({
     minHeight: 22,
     paddingHorizontal: 8,
     paddingVertical: 3,
-  },
-  label: {
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
   },
 });

@@ -3,6 +3,7 @@ import { ArrowUp, ArrowDown, Minus, Plus } from 'iconoir-react-native';
 
 import { Text } from './scaled-text';
 import { useSpotlightTheme } from '../theme';
+import { textStyles } from '../tokens';
 
 export type TrendPillDirection = 'up' | 'down' | 'flat' | 'plus';
 export type TrendPillTone = 'positive' | 'negative' | 'neutral';
@@ -91,14 +92,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
+  // SemiBold 11 / 13 — the chip and strong-label roles; color applied inline.
   labelSm: {
-    fontFamily: 'SpotlightBodySemiBold',
-    fontSize: 11,
-    lineHeight: 14,
+    ...textStyles.chipLabel,
   },
   labelMd: {
-    fontFamily: 'SpotlightBodySemiBold',
-    fontSize: 13,
-    lineHeight: 16,
+    ...textStyles.labelStrong,
   },
 });

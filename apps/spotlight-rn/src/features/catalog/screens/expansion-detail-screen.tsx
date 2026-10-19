@@ -78,7 +78,10 @@ function CardCell({
       <Text numberOfLines={1} style={[styles.cardName, theme.typography.caption, { color: theme.colors.textPrimary }]}>
         {result.name}
       </Text>
-      <Text numberOfLines={1} style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
+      <Text
+        numberOfLines={1}
+        style={[styles.cardMeta, theme.typography.caption, { color: theme.colors.textSecondary }]}
+      >
         {result.cardNumber}
       </Text>
     </Pressable>
@@ -211,6 +214,7 @@ export function ExpansionDetailScreen({
               onChangeText={setCardQuery}
               placeholder="Search by name or number"
               returnKeyType="search"
+              uppercasePlaceholder
               value={cardQuery}
             />
             {renderCardsState()}
@@ -281,6 +285,15 @@ const styles = StyleSheet.create({
   cardListContent: {
     paddingBottom: 24,
     paddingHorizontal: 10,
+  },
+  // Meta line under the name: the Figma tiles set small labels in caps
+  // (Collection 5938:16740 "NEAR MINT"); the name above stays a proper noun.
+  // Full width like `cardName`: a content-sized one-line text is measured
+  // before the transform on iOS and ellipsizes the wider caps.
+  cardMeta: {
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    width: '100%',
   },
   cardName: {
     textAlign: 'center',

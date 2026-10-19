@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
-import { Text, fontFamilies, colors } from '@spotlight/design-system';
+import { Text, colors, textStyles } from '@spotlight/design-system';
 
 // Speech-bubble tail from the Figma asset (2302:29022) — a 56×13 curved swoosh
 // pointing down at the language pill.
@@ -112,10 +112,8 @@ const styles = StyleSheet.create({
     shadowRadius: 25,
   },
   copy: {
+    ...textStyles.body,
     color: colors.gray900,
-    fontFamily: fontFamilies.bodyRegular,
-    fontSize: 15,
-    lineHeight: 20,
   },
   tail: {
     marginLeft: 2,

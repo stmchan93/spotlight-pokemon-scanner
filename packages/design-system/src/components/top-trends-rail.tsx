@@ -8,6 +8,7 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 
+import { borderWidths, colors, radii } from '../tokens';
 import { AppText } from './app-text';
 import { CarouselPagination } from './carousel-pagination';
 import {
@@ -33,6 +34,21 @@ export type TopTrendsRailProps = {
   onActiveIndexChange?: (index: number) => void;
   testID?: string;
 };
+
+/**
+ * The game named by the active Top Trends slide (Figma 5768:27140): a
+ * hairline-outlined white pill, Regular 10 gray600, label in capitals. The
+ * feed sets it beside the "TOP TRENDS" heading rather than above the rail.
+ */
+export function TopTrendsGameChip({ label, testID }: { label: string; testID?: string }) {
+  return (
+    <View style={styles.captionPill}>
+      <AppText color="gray600" testID={testID} variant="captionTiny">
+        {label.toUpperCase()}
+      </AppText>
+    </View>
+  );
+}
 
 const RAIL_GUTTER = 16;
 const TILE_GAP = 8;
@@ -203,14 +219,9 @@ export function TopTrendsRail({
   return (
     <View testID={testID}>
       {caption ? (
-        <AppText
-          color="gray600"
-          style={styles.caption}
-          testID={testID ? `${testID}-caption` : undefined}
-          variant="captionMedium"
-        >
-          {caption}
-        </AppText>
+        <View style={styles.captionRow}>
+          <TopTrendsGameChip label={caption} testID={testID ? `${testID}-caption` : undefined} />
+        </View>
       ) : null}
       <ScrollView
         contentContainerStyle={[styles.content, { paddingRight: trailingGutter }]}
@@ -256,9 +267,19 @@ export function TopTrendsRail({
 }
 
 const styles = StyleSheet.create({
-  caption: {
-    paddingHorizontal: RAIL_GUTTER,
+  captionPill: {
+    backgroundColor: colors.gray0,
+    borderColor: colors.gray200,
+    borderCurve: 'continuous',
+    borderRadius: radii.pill,
+    borderWidth: borderWidths.rule,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  captionRow: {
+    alignItems: 'flex-start',
     marginBottom: 8,
+    paddingHorizontal: RAIL_GUTTER,
   },
   content: {
     paddingLeft: RAIL_GUTTER,

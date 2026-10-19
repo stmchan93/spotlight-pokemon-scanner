@@ -66,8 +66,9 @@ export function CardPriceTrendSkeleton({
 
   return (
     <View style={[styles.root, { gap: 10 }]} testID={testID}>
-      <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
-        Price Trend
+      {/* Same treatment as the live list header (Figma 5768:22088, raw Medium 16). */}
+      <Text style={[theme.typography.headlineMedium, { color: theme.colors.gray900 }]}>
+        PRICE TREND
       </Text>
       <Animated.View style={[styles.rows, pulseStyle]}>
         {Array.from({ length: rowCount }, (_, index) => (

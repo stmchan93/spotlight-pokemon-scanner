@@ -3,7 +3,7 @@ import type { ReactNode, RefObject } from 'react';
 import type { TextInput, TextInputProps } from 'react-native';
 import { NavArrowDown, Search as SearchIcon } from 'iconoir-react-native';
 
-import { IconButton, SearchField, Text, colors, textStyles } from '@spotlight/design-system';
+import { IconButton, SearchField, Text, colors, spacing, textStyles } from '@spotlight/design-system';
 
 import { GridViewIcon, ListViewIcon } from '../../../components/view-toggle-icons';
 
@@ -79,13 +79,13 @@ export function CollectionSearchRow({
           testID={`${testID}-collection`}
         >
           <Text numberOfLines={1} style={styles.summaryText}>
-            {collectionName}
+            {collectionName.toUpperCase()}
           </Text>
           <NavArrowDown color={colors.gray900} height={24} width={24} />
         </Pressable>
         {totalValueLabel ? (
           <Text style={styles.summaryText} testID={`${testID}-total-value`}>
-            {`Total Value: ${totalValueLabel}`}
+            {`Total: ${totalValueLabel}`.toUpperCase()}
           </Text>
         ) : null}
       </View>
@@ -104,6 +104,7 @@ export function CollectionSearchRow({
             returnKeyType="search"
             size="collection"
             surface="muted"
+            uppercasePlaceholder
             value={query}
           />
         </View>
@@ -138,8 +139,9 @@ export function CollectionSearchRow({
 }
 
 const styles = StyleSheet.create({
+  // Figma 5938:16815: 8 between the summary row and the search row.
   container: {
-    gap: 10,
+    gap: spacing.xxs,
     paddingHorizontal: 16,
   },
   row: {
@@ -163,7 +165,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   summaryText: {
-    ...textStyles.bodyMedium,
+    ...textStyles.caption,
     color: colors.gray900,
   },
 });

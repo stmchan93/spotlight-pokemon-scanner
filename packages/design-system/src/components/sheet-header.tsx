@@ -12,6 +12,7 @@ type SheetHeaderProps = {
   style?: StyleProp<ViewStyle>;
   subtitle?: string;
   title: string;
+  /** `titleCompact` (default) = Figma Title-medium 19; `title` = Title-large 23. */
   titleStyleVariant?: 'title' | 'titleCompact';
   /**
    * Override the title text style outright (e.g. a compact 14/600 sheet title).
@@ -33,7 +34,7 @@ export function SheetHeader({
 }: SheetHeaderProps) {
   const theme = useSpotlightTheme();
   const resolvedTitleStyle =
-    titleStyle ?? (titleStyleVariant === 'title' ? theme.typography.title : theme.typography.titleCompact);
+    titleStyle ?? (titleStyleVariant === 'title' ? theme.typography.titleLarge : theme.typography.titleMedium);
 
   return (
     <View style={[styles.header, style]}>

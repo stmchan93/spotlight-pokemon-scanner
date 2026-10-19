@@ -72,7 +72,7 @@ describe('NewPostScreen', () => {
 
     // Nothing may schedule focus behind the scenes either.
     expect(screen.getByTestId('new-post-body-input').props.value).toBe('');
-    expect(screen.getByPlaceholderText("What's on your mind?")).toBeTruthy();
+    expect(screen.getByPlaceholderText("WHAT'S ON YOUR MIND?")).toBeTruthy();
 
     // The full opening state is on screen — not hidden behind a keyboard.
     expect(screen.getByTestId('new-post-privacy')).toBeTruthy();

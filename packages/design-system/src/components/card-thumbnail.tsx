@@ -51,7 +51,7 @@ export function CardThumbnail({
           style={[StyleSheet.absoluteFill, { borderRadius: metrics.radius }]}
         />
       ) : (
-        <AppText color="textSecondary" style={styles.placeholder} variant="micro">
+        <AppText color="textSecondary" variant="overline">
           CARD
         </AppText>
       )}
@@ -65,8 +65,5 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     justifyContent: 'center',
     overflow: 'hidden',
-  },
-  placeholder: {
-    letterSpacing: 0.8,
   },
 });

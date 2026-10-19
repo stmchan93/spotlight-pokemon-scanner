@@ -2,11 +2,10 @@ import { useCallback, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
-import { Text, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
-
 import { AuthScreenLayout } from '@/features/auth/components/auth-screen-layout';
 import {
   AuthErrorLine,
+  AuthSectionTitle,
   PasswordField,
   PasswordRules,
   PrimaryButton,
@@ -22,7 +21,6 @@ import { useAuth } from '@/providers/auth-provider';
  * round-trip is needed here.
  */
 export function ChangePasswordScreen() {
-  const theme = useSpotlightTheme();
   const router = useRouter();
   const auth = useAuth();
   const [currentPassword, setCurrentPassword] = useState('');
@@ -54,7 +52,7 @@ export function ChangePasswordScreen() {
       testID="change-password-screen"
     >
       <View style={styles.heading}>
-        <Text style={[styles.title, { color: theme.colors.gray900 }]}>Change password</Text>
+        <AuthSectionTitle>CHANGE PASSWORD</AuthSectionTitle>
       </View>
 
       <View style={styles.form}>
@@ -97,10 +95,5 @@ const styles = StyleSheet.create({
   heading: {
     gap: 8,
     marginTop: 8,
-  },
-  title: {
-    fontFamily: fontFamilies.bodyBold,
-    fontSize: 22,
-    lineHeight: 28,
   },
 });

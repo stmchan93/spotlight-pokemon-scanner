@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { ArrowDown, ArrowUp, Minus, NavArrowDown, Plus } from 'iconoir-react-native';
 
-import { Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Text, usePlaceholderTypography, useSpotlightTheme } from '@spotlight/design-system';
 
 type OwnedEntryEditFieldsProps = {
   /** Section title for the grade/condition selector ("Condition"). */
@@ -58,13 +58,14 @@ export function OwnedEntryEditFields({
   const gainSurface = gainPositive ? theme.colors.deltaUpSurface : theme.colors.deltaDownSurface;
   const gainColor = gainPositive ? theme.colors.deltaUpText : theme.colors.deltaDownText;
   const hasValue = costBasisText.trim().length > 0;
+  const { placeholderStyle: costBasisPlaceholderStyle } = usePlaceholderTypography({ value: costBasisText });
   const showGain = gainPerUnit != null && gainLabel != null;
 
   return (
     <View style={styles.root} testID={testID}>
       {showGrade ? (
       <View style={styles.group}>
-        <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
+        <Text style={[theme.typography.label, styles.groupTitle, { color: theme.colors.gray900 }]}>
           {gradeTitle}
         </Text>
         <Pressable
@@ -77,7 +78,7 @@ export function OwnedEntryEditFields({
           ]}
           testID={`${testID}-grade-trigger`}
         >
-          <Text style={[theme.typography.label, { color: theme.colors.gray900 }]}>
+          <Text style={[theme.typography.caption, { color: theme.colors.gray900 }]}>
             {gradeLabel ?? 'Select'}
           </Text>
           <NavArrowDown color={theme.colors.gray400} height={24} width={24} />
@@ -86,7 +87,7 @@ export function OwnedEntryEditFields({
       ) : null}
 
       <View style={styles.group}>
-        <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
+        <Text style={[theme.typography.label, styles.groupTitle, { color: theme.colors.gray900 }]}>
           Quantity
         </Text>
         <View style={styles.stepper}>
@@ -126,7 +127,7 @@ export function OwnedEntryEditFields({
       </View>
 
       <View style={styles.group}>
-        <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
+        <Text style={[theme.typography.label, styles.groupTitle, { color: theme.colors.gray900 }]}>
           Cost Basis
         </Text>
         <View style={[styles.costBasisRow, { borderBottomColor: theme.colors.gray200 }]}>
@@ -142,7 +143,7 @@ export function OwnedEntryEditFields({
               */}
               <Text
                 style={[
-                  theme.typography.bodyMedium,
+                  theme.typography.body,
                   { color: theme.colors.gray900, lineHeight: undefined, opacity: hasValue ? 1 : 0 },
                 ]}
               >
@@ -156,8 +157,9 @@ export function OwnedEntryEditFields({
                 placeholder="$0.00 (or value if traded or gifted)"
                 placeholderTextColor={theme.colors.gray400}
                 style={[
-                  theme.typography.bodyMedium,
+                  theme.typography.body,
                   styles.costBasisInput,
+                  costBasisPlaceholderStyle,
                   { color: theme.colors.gray900, lineHeight: undefined },
                 ]}
                 testID={`${testID}-cost-basis-input`}
@@ -187,6 +189,11 @@ export function OwnedEntryEditFields({
 }
 
 const styles = StyleSheet.create({
+  // Same Label-UPPERCASE header as the PDP option groups (Figma 5768:21988 /
+  // add-to-collection 4211:84974 "GRADE" / "QUANTITY" / "COST BASIS").
+  groupTitle: {
+    textTransform: 'uppercase',
+  },
   costBasisInput: {
     /*
       ALWAYS flexed, never conditionally. The flex used to be dropped the

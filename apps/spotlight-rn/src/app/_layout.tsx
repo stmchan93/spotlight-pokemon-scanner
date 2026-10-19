@@ -116,6 +116,7 @@ const navigationTheme: Theme = {
 function RootNavigator() {
   const [fontsLoaded] = useFonts({
     [fontFamilies.display]: require('../../assets/fonts/PlusJakartaSans-ExtraBold.ttf'),
+    [fontFamilies.bodyLight]: require('../../assets/fonts/PlusJakartaSans-Light.ttf'),
     [fontFamilies.bodyRegular]: require('../../assets/fonts/PlusJakartaSans-Regular.ttf'),
     [fontFamilies.bodyMedium]: require('../../assets/fonts/PlusJakartaSans-Medium.ttf'),
     [fontFamilies.bodySemiBold]: require('../../assets/fonts/PlusJakartaSans-SemiBold.ttf'),

@@ -27,11 +27,11 @@ describe('ScanTargetPill round flag (Figma 2302:28968)', () => {
       <ScanTargetPill flag="en" label="Pokémon EN" onPress={jest.fn()} testID="pill" />,
     );
     expect(screen.getByTestId('round-flag-en')).toBeTruthy();
-    expect(screen.getByText('Pokémon EN')).toBeTruthy();
+    expect(screen.getByText('POKÉMON EN')).toBeTruthy();
 
     rerender(<ScanTargetPill flag="jp" label="Pokémon JP" onPress={jest.fn()} testID="pill" />);
     expect(screen.getByTestId('round-flag-jp')).toBeTruthy();
-    expect(screen.getByText('Pokémon JP')).toBeTruthy();
+    expect(screen.getByText('POKÉMON JP')).toBeTruthy();
   });
 });
 

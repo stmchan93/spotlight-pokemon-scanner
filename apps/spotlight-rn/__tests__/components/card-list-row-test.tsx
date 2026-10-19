@@ -40,7 +40,7 @@ describe('CardListRow', () => {
     expect(screen.getByText('100/101 · Dragon Frontiers')).toBeTruthy();
     expect(screen.getByText('PSA 10')).toBeTruthy();
     expect(screen.getByText('$129,198.30')).toBeTruthy();
-    expect(screen.getByText('Qty: 2')).toBeTruthy();
+    expect(screen.getByText('2')).toBeTruthy();
   });
 
   it('invokes onPress when the row is pressed', () => {
@@ -185,10 +185,10 @@ describe('CardListRow', () => {
     expect(screen.queryByTestId('row-image')).toBeNull();
   });
 
-  it('does not render the price block when marketPrice is null', () => {
+  it('renders a dash in the price slot when marketPrice is null', () => {
     renderRow({ marketPrice: null });
 
-    expect(screen.queryByTestId('row-price')).toBeNull();
+    expect(screen.getByTestId('row-price')).toHaveTextContent('—');
   });
 
   it('omits the grade line when gradeLabel is null', () => {
@@ -215,7 +215,7 @@ describe('CardListRow', () => {
     renderRow({ quantity: 3 });
 
     expect(screen.getByTestId('row-quantity')).toBeTruthy();
-    expect(screen.getByText('Qty: 3')).toBeTruthy();
+    expect(screen.getByText('3')).toBeTruthy();
   });
 
   it('hides quantity when showQuantity is false (wishlist rows)', () => {
@@ -266,7 +266,7 @@ describe('CardListRow', () => {
 
     expect(screen.getByText('Charizard ex')).toBeTruthy();
     expect(screen.getByText('$129,198.30')).toBeTruthy();
-    expect(screen.getByText('Qty: 2')).toBeTruthy();
+    expect(screen.getByText('2')).toBeTruthy();
     expect(screen.getByTestId('row-trend')).toBeTruthy();
   });
 

@@ -19,7 +19,7 @@ const SLAB_ASPECT = 84 / 136;
 const CARD_FRAME_ASPECT = 0.716;
 
 import { useSpotlightTheme } from '../theme';
-import { fontFamilies, textStyles } from '../tokens';
+import { textStyles } from '../tokens';
 import { AppText } from './app-text';
 import { SelectionCheckCircle } from './selection-check-circle';
 import { TrendTriangle } from './trend-triangle';
@@ -151,6 +151,13 @@ export type InventoryCardTileProps = {
    * URL in an external browser).
    */
   onOpenListing?: () => void;
+  /**
+   * Copy roles. `collection` is the Figma Collection card (5938:17307): name
+   * Title-small 17, set / variant lines Caption 13, and the condition or grade
+   * line in capitals ("NEAR MINT", "PSA 10"). Default keeps headline 16 / Label 14
+   * for the catalog results grid.
+   */
+  textPreset?: 'default' | 'collection';
   testID?: string;
 };
 
@@ -228,9 +235,13 @@ export function InventoryCardTile({
   delayLongPress = 220,
   liveOnEbay = false,
   onOpenListing,
+  textPreset = 'default',
   testID,
 }: InventoryCardTileProps) {
   const theme = useSpotlightTheme();
+  const collectionCopy = textPreset === 'collection';
+  const nameVariant = collectionCopy ? 'titleSmall' : 'headline';
+  const metaVariant = collectionCopy ? 'caption' : 'label';
 
   // Art radius is per-kind (Figma 2609:7016 / 2609:6977): raw scans get a
   // subtle rounding, slab photos stay square (the PSA case in the photo has
@@ -401,7 +412,7 @@ export function InventoryCardTile({
           <AppText
             color="textPrimary"
             numberOfLines={1}
-            variant="headline"
+            variant={nameVariant}
           >
             {name}
           </AppText>
@@ -411,7 +422,7 @@ export function InventoryCardTile({
               <AppText
                 color="gray600"
                 numberOfLines={1}
-                variant="label"
+                variant={metaVariant}
               >
                 {setLine}
               </AppText>
@@ -421,7 +432,7 @@ export function InventoryCardTile({
               <AppText
                 color="gray600"
                 numberOfLines={1}
-                variant="label"
+                variant={metaVariant}
               >
                 {(variantName ?? '').trim()}
               </AppText>
@@ -431,9 +442,11 @@ export function InventoryCardTile({
               <AppText
                 color="gray600"
                 numberOfLines={1}
-                variant="label"
+                variant={metaVariant}
               >
-                {qualityLine}
+                {/* Capitals on the string, not `textTransform`: a one-line Text
+                    is measured from the source on iOS and ellipsizes the caps. */}
+                {collectionCopy ? qualityLine.toUpperCase() : qualityLine}
               </AppText>
             ) : null}
           </View>
@@ -444,7 +457,7 @@ export function InventoryCardTile({
                 color="textPrimary"
                 numberOfLines={1}
                 style={styles.price}
-                variant="priceCaption"
+                variant="feedRowTitle"
               >
                 {priceLabel ?? '—'}
               </AppText>
@@ -523,7 +536,7 @@ export function InventoryCardTile({
               >
                 {trendLabel}
                 {trendSuffix ? (
-                  // Condition-line type (label), in the percent's color.
+                  // Uppercase Medium 12 suffix, in the percent's color.
                   <Text style={styles.trendSuffix}>{` ${trendSuffix}`}</Text>
                 ) : null}
               </AppText>
@@ -693,12 +706,9 @@ const styles = StyleSheet.create({
     position: 'relative',
     width: '100%',
   },
+  // Figma 2489:6459 — Bold price; `feedRowTitle` is the Bold-15 list-price role.
   price: {
     flexShrink: 1,
-    // Figma 2489:6459 — Bold 14/150% (priceCaption variant supplies the Bold
-    // family; this bumps the size from the 12px catalog default to 14).
-    fontSize: 14,
-    lineHeight: 21,
   },
   priceRow: {
     alignItems: 'flex-start',
@@ -723,13 +733,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
+  // SemiBold 12 — `captionStrong` carries the pill's exact metrics.
   dayChangeText: {
-    ...textStyles.deltaPill,
-    fontSize: 12,
+    ...textStyles.captionStrong,
   },
+  // Font + size only, so it sits on the percent's line height in its color.
   trendSuffix: {
-    fontFamily: textStyles.label.fontFamily,
-    fontSize: textStyles.label.fontSize,
+    fontFamily: textStyles.overlineMedium.fontFamily,
+    fontSize: textStyles.overlineMedium.fontSize,
+    textTransform: 'uppercase',
   },
   trendGroup: {
     alignItems: 'center',
@@ -737,13 +749,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 2,
   },
-  // Signed change under the price: 14 SemiBold (same as CardListRow's trend
-  // line, so card and list views match), green400/red400, gray600 when flat.
+  // Signed change under the price: SemiBold 14 (`titleXsmall`, same as
+  // CardListRow's trend line so card and list views match), green400/red400,
+  // gray600 when flat.
   trendText: {
+    ...textStyles.titleXsmall,
     flexShrink: 1,
-    fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 14,
-    lineHeight: 21,
   },
   starBadge: {
     // Padding moved off the Pressable, so bake it into the offset (16 + 8) to

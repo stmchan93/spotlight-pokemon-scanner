@@ -121,7 +121,7 @@ export function MetaBarRow({
           numberOfLines={1}
           style={styles.alignEnd}
           testID={testID ? `${testID}-change` : undefined}
-          variant="feedDelta"
+          variant="titleSmall"
         >
           {changeLabel}
         </AppText>

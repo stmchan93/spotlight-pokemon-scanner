@@ -66,9 +66,8 @@ const PILL_HEIGHT = 44;
  * shadow could never be. It is the token the design system already keeps for
  * exactly this (`SearchField`'s `compact` variant uses it at the same width).
  *
- * The label is `bodySmall` in `gray600` for the same reason: the frame
- * specifies 14pt Regular `#717171`, which is exactly `bodySmall` — despite the
- * name, it is the 14pt REGULAR role (`body` is 15pt). The `label`/`gray500` it
+ * The label is `body` (Figma Body, 14 Regular) in `gray600` for the same
+ * reason: the frame specifies 14pt Regular `#717171`. The `label`/`gray500` it
  * drifted to measured 2.44:1, under WCAG AA. The design was already right.
  */
 export function SearchEntryPill({
@@ -125,7 +124,7 @@ export function SearchEntryPill({
       <Text
         numberOfLines={1}
         style={[
-          theme.typography.bodySmall,
+          theme.typography.body,
           styles.label,
           { color: onDark ? theme.colors.gray200 : theme.colors.gray600 },
         ]}

@@ -75,7 +75,7 @@ function ControlGroup({
 
   return (
     <View style={styles.controlGroup}>
-      <Text style={[theme.typography.micro, styles.sectionLabel]}>{title}</Text>
+      <Text style={theme.typography.overline}>{title}</Text>
       <ScrollView
         horizontal
         contentContainerStyle={styles.chipRow}
@@ -131,19 +131,19 @@ function SaleCard({
           <View style={styles.saleTitleRow}>
             <Text
               numberOfLines={1}
-              style={[theme.typography.headline, styles.saleTitleText, { color: theme.colors.textPrimary }]}
+              style={[theme.typography.label, styles.saleTitleText, { color: theme.colors.textPrimary }]}
             >
               {sale.name}
             </Text>
-            <Text style={[theme.typography.headline, styles.salePriceText, { color: theme.colors.textPrimary }]}>
+            <Text style={[theme.typography.bodyLarge, styles.salePriceText, { color: theme.colors.textPrimary }]}>
               {formatCurrency(sale.soldPrice, sale.currencyCode)}
             </Text>
           </View>
-          <Text numberOfLines={2} style={[theme.typography.label, { color: theme.colors.gray600 }]}>
+          <Text numberOfLines={2} style={[theme.typography.caption, { color: theme.colors.gray600 }]}>
             {[formatCardNumber(sale.cardNumber), sale.setName].filter(Boolean).join(' • ')}
           </Text>
           <View style={styles.saleDetailRow}>
-            <Text style={[theme.typography.label, styles.saleDate, { color: theme.colors.gray600 }]}>
+            <Text style={[theme.typography.caption, styles.saleDate, { color: theme.colors.gray600 }]}>
               {sale.soldAtLabel}
             </Text>
             {canEdit ? (
@@ -282,7 +282,8 @@ export function SalesHistoryScreen({ onBack }: SalesHistoryScreenProps) {
       <View style={[styles.screen, { paddingBottom: insets.bottom + 24 }]}>
         <View style={styles.navRow}>
           <ChromeBackButton onPress={onBack} testID="sales-history-back" />
-          <Text style={[theme.typography.headline, { color: theme.colors.textSecondary }]}>Transactions</Text>
+          {/* Toolbar titles read in capitals on every list frame (Figma 1874:22334 "TRANSACTIONS"). */}
+          <Text style={[theme.typography.titleXsmall, { color: theme.colors.textSecondary }]}>TRANSACTIONS</Text>
           <View style={styles.navSpacer} />
         </View>
 
@@ -298,6 +299,7 @@ export function SalesHistoryScreen({ onBack }: SalesHistoryScreenProps) {
           onChangeText={setSearchQuery}
           placeholder="Search transactions"
           returnKeyType="search"
+          uppercasePlaceholder
           value={searchQuery}
         />
 
@@ -310,7 +312,7 @@ export function SalesHistoryScreen({ onBack }: SalesHistoryScreenProps) {
             <View style={styles.listHeader}>
               {todaySummary ? (
                 <SurfaceCard padding={16} radius={20} style={styles.todayCard} testID="sales-history-today-card">
-                  <Text style={[theme.typography.caption, styles.sectionLabel, { color: theme.colors.textSecondary }]}>Today</Text>
+                  <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>Today</Text>
                   <View style={styles.todayCardStatsRow}>
                     <View style={styles.todayCardStatItem}>
                       <Text style={theme.typography.display}>{todaySummary.count}</Text>
@@ -355,9 +357,12 @@ export function SalesHistoryScreen({ onBack }: SalesHistoryScreenProps) {
                     <PillButton
                       key={option.value}
                       label={option.label}
+                      labelRole="caption"
                       onPress={() => setSortOption(option.value)}
                       selected={sortOption === option.value}
                       testID={`sales-sort-${option.value}`}
+                      tone="filled"
+                      uppercase
                     />
                   ))}
                 </ControlGroup>
@@ -367,9 +372,12 @@ export function SalesHistoryScreen({ onBack }: SalesHistoryScreenProps) {
                     <PillButton
                       key={option.value}
                       label={option.label}
+                      labelRole="caption"
                       onPress={() => setFilterOption(option.value)}
                       selected={filterOption === option.value}
                       testID={`sales-filter-${option.value}`}
+                      tone="filled"
+                      uppercase
                     />
                   ))}
                 </ControlGroup>
@@ -528,9 +536,6 @@ const styles = StyleSheet.create({
     height: 10,
   },
   searchField: {
-  },
-  sectionLabel: {
-    letterSpacing: 1.8,
   },
   skeletonLineMedium: {
     borderCurve: 'continuous',

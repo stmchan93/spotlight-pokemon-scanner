@@ -18,14 +18,22 @@ export type PageTabsProps<V extends string> = {
   /** `start` = left-aligned tabs on the page gutter (Figma Events 5476:7154). */
   align?: 'center' | 'start';
   /**
-   * `compact` = the Figma "Collection Tabs" rail (5862:6907): 14/500 labels
-   * boxed by 16pt side padding, 6pt word-to-underline, inactive gray-500, on a
-   * gray-100 hairline. Always left-aligned; pass `scrollable` when the set can
-   * outgrow the screen.
+   * `compact` = the Figma "Collection Tabs" rail (5862:6907): Label 14 (same
+   * metrics as Body-medium) boxed by 16pt side padding, 6pt word-to-underline,
+   * inactive gray-500, on a gray-100 hairline. Always left-aligned; pass
+   * `scrollable` when the set can outgrow the screen.
    */
   size?: PageTabsSize;
   /** Horizontal scroll instead of squeezing; the rail stays full-bleed. */
   scrollable?: boolean;
+  /**
+   * `caption` = the Figma profile tab rail (5938:16814): Caption-medium 13 on
+   * the active tab, Caption 13 Regular gray-600 on the rest. Default keeps
+   * Body-medium 14.
+   */
+  labelSize?: 'default' | 'caption';
+  /** Renders the labels in capitals (Figma COLLECTION / FOR SALE / ACTIVITY). */
+  uppercase?: boolean;
   testID?: string;
 };
 
@@ -36,10 +44,15 @@ export function PageTabs<V extends string>({
   align = 'center',
   size = 'default',
   scrollable = false,
+  labelSize = 'default',
+  uppercase = false,
   testID,
 }: PageTabsProps<V>) {
   const theme = useSpotlightTheme();
   const compact = size === 'compact';
+  const captionLabels = labelSize === 'caption';
+  const selectedRole = captionLabels ? theme.typography.captionMedium : theme.typography.bodyMedium;
+  const inactiveRole = captionLabels ? theme.typography.caption : theme.typography.body;
 
   const row = (
     <View
@@ -62,19 +75,19 @@ export function PageTabs<V extends string>({
             ]}
             testID={testID ? `${testID}-tab-${tab.value}` : undefined}
           >
-            {/* Compact: the underline hugs the word, not the tab's padded box. */}
+            {/* The underline tracks the word (plus UNDERLINE_OVERHANG), not the tab's padded box. */}
             <View style={compact ? styles.labelBox : styles.labelBoxFull}>
               <Text
                 style={[
-                  theme.typography.bodyMedium,
+                  selectedRole,
                   compact ? styles.labelCompact : styles.label,
                   {
                     // Active tab is medium/gray-900; inactive stays regular-weight
                     // gray-600 (Figma 3184-17337). Compact keeps medium on both and
                     // drops the inactive colour to gray-500 (Figma 5862:6915).
                     fontFamily: selected || compact
-                      ? theme.typography.bodyMedium.fontFamily
-                      : theme.typography.body.fontFamily,
+                      ? selectedRole.fontFamily
+                      : inactiveRole.fontFamily,
                     color: selected
                       ? theme.colors.textPrimary
                       : compact
@@ -83,11 +96,14 @@ export function PageTabs<V extends string>({
                   },
                 ]}
               >
-                {tab.label}
+                {/* Uppercased in JS, not `textTransform`: iOS measures the line
+                    box from the untransformed string and clips the capitals. */}
+                {uppercase ? tab.label.toUpperCase() : tab.label}
               </Text>
               <View
                 style={[
                   styles.underline,
+                  styles.underlineOverhang,
                   {
                     backgroundColor: selected ? theme.colors.textPrimary : 'transparent',
                   },
@@ -146,7 +162,9 @@ export function PageTabs<V extends string>({
  * on the tab. That read as a rule clipped to the word rather than one marking
  * the tab, which is what "the underline should be this long" was about.
  */
-const TAB_HORIZONTAL_PADDING = 10;
+const TAB_HORIZONTAL_PADDING = 12;
+/** The underline runs this far past the word on each side, every size (user, 2026-10-18). */
+const UNDERLINE_OVERHANG = 12;
 
 const styles = StyleSheet.create({
   root: {
@@ -204,22 +222,18 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     paddingHorizontal: spacing.sm,
   },
+  // Type is the token's own Body-medium / Body 14 on an 18 line box (Figma
+  // 4067:26938: 18pt text box, underline at y26) — the old +1 size bump and
+  // lineHeight literal went with the 2026-10-18 type-scale re-cut.
   label: {
     textAlign: 'center',
-    // 8 word-to-underline (Figma 4067:26938: 18pt text box, underline at y26).
+    // 8 word-to-underline.
     marginBottom: 8,
-    // +1 over the Figma 14 (user request 2026-09-04: tabs read too small).
-    fontSize: 15,
-    // bodyMedium's 21pt line box floats the 14pt word ~3.5pt below the bar's
-    // 16pt padding. Figma's tab box (4067:26807) uses normal leading — 18 here
-    // reproduces it, so the word itself sits 16 from the bar's top edge.
-    lineHeight: 18,
   },
   // Figma 5862:6911: 14pt label on normal leading, 6 to the underline.
   labelCompact: {
     textAlign: 'center',
     marginBottom: 6,
-    lineHeight: 18,
   },
   labelBox: {
     alignItems: 'stretch',
@@ -227,6 +241,9 @@ const styles = StyleSheet.create({
   labelBoxFull: {
     alignItems: 'stretch',
     alignSelf: 'stretch',
+  },
+  underlineOverhang: {
+    marginHorizontal: -UNDERLINE_OVERHANG,
   },
   underline: {
     height: 2,

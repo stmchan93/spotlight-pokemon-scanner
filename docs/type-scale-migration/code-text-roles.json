@@ -1,0 +1,254 @@
+{
+ "display": {
+  "family": "display",
+  "size": "36",
+  "lineHeight": null,
+  "letterSpacing": "-0.9"
+ },
+ "displayLarge": {
+  "family": "bodyBold",
+  "size": "28",
+  "lineHeight": "33.6",
+  "letterSpacing": null
+ },
+ "titleLarge": {
+  "family": "bodyBold",
+  "size": "22",
+  "lineHeight": "27.5",
+  "letterSpacing": null
+ },
+ "titleMedium": {
+  "family": "bodySemiBold",
+  "size": "18",
+  "lineHeight": "23.4",
+  "letterSpacing": null
+ },
+ "titleSmall": {
+  "family": "bodySemiBold",
+  "size": "17",
+  "lineHeight": "22.95",
+  "letterSpacing": null
+ },
+ "sectionTitleBold": {
+  "family": "bodyBold",
+  "size": "17",
+  "lineHeight": "22",
+  "letterSpacing": null
+ },
+ "detailTitleBold": {
+  "family": "bodyBold",
+  "size": "19",
+  "lineHeight": "24",
+  "letterSpacing": null
+ },
+ "titleXsmall": {
+  "family": "bodySemiBold",
+  "size": "14",
+  "lineHeight": "21",
+  "letterSpacing": null
+ },
+ "bodyMedium": {
+  "family": "bodyMedium",
+  "size": "14",
+  "lineHeight": "21",
+  "letterSpacing": null
+ },
+ "bodySmall": {
+  "family": "bodyRegular",
+  "size": "14",
+  "lineHeight": "21",
+  "letterSpacing": null
+ },
+ "captionRegular": {
+  "family": "bodyRegular",
+  "size": "12",
+  "lineHeight": "16.8",
+  "letterSpacing": null
+ },
+ "captionMedium": {
+  "family": "bodyMedium",
+  "size": "12",
+  "lineHeight": "16.8",
+  "letterSpacing": null
+ },
+ "captionStrong": {
+  "family": "bodySemiBold",
+  "size": "12",
+  "lineHeight": "16.8",
+  "letterSpacing": null
+ },
+ "title": {
+  "family": "display",
+  "size": "25",
+  "lineHeight": "30",
+  "letterSpacing": "-0.55"
+ },
+ "titleCompact": {
+  "family": "display",
+  "size": "21",
+  "lineHeight": "26",
+  "letterSpacing": "-0.35"
+ },
+ "headline": {
+  "family": "bodySemiBold",
+  "size": "16",
+  "lineHeight": "21.6",
+  "letterSpacing": null
+ },
+ "body": {
+  "family": "bodyRegular",
+  "size": "15",
+  "lineHeight": "20",
+  "letterSpacing": null
+ },
+ "bodyLarge": {
+  "family": "bodyRegular",
+  "size": "16",
+  "lineHeight": "21.6",
+  "letterSpacing": null
+ },
+ "bodyStrong": {
+  "family": "bodySemiBold",
+  "size": "15",
+  "lineHeight": "20",
+  "letterSpacing": null
+ },
+ "control": {
+  "family": "bodySemiBold",
+  "size": "15",
+  "lineHeight": "20",
+  "letterSpacing": null
+ },
+ "caption": {
+  "family": "bodyMedium",
+  "size": "12",
+  "lineHeight": "16",
+  "letterSpacing": null
+ },
+ "micro": {
+  "family": "bodySemiBold",
+  "size": "11",
+  "lineHeight": "14",
+  "letterSpacing": "0.8"
+ },
+ "overline": {
+  "family": "bodyMedium",
+  "size": "11",
+  "lineHeight": "14.3",
+  "letterSpacing": "0"
+ },
+ "cardMeta": {
+  "family": "bodyRegular",
+  "size": "11",
+  "lineHeight": "14.3",
+  "letterSpacing": null
+ },
+ "cardMetaStrong": {
+  "family": "bodySemiBold",
+  "size": "11",
+  "lineHeight": "14.3",
+  "letterSpacing": null
+ },
+ "deltaPill": {
+  "family": "bodySemiBold",
+  "size": "9.76",
+  "lineHeight": null,
+  "letterSpacing": "0"
+ },
+ "chipLabel": {
+  "family": "bodySemiBold",
+  "size": "11",
+  "lineHeight": "14",
+  "letterSpacing": null
+ },
+ "tag": {
+  "family": "bodyBold",
+  "size": "10",
+  "lineHeight": "13",
+  "letterSpacing": null
+ },
+ "feedTitle": {
+  "family": "display",
+  "size": "20",
+  "lineHeight": "26",
+  "letterSpacing": "-0.3"
+ },
+ "feedPageTitle": {
+  "family": "display",
+  "size": "24",
+  "lineHeight": "30",
+  "letterSpacing": "-0.3"
+ },
+ "feedSectionTitle": {
+  "family": "display",
+  "size": "17",
+  "lineHeight": "22",
+  "letterSpacing": null
+ },
+ "feedDeltaLarge": {
+  "family": "display",
+  "size": "34",
+  "lineHeight": "40",
+  "letterSpacing": null
+ },
+ "feedDelta": {
+  "family": "display",
+  "size": "18",
+  "lineHeight": "22",
+  "letterSpacing": null
+ },
+ "feedRowTitle": {
+  "family": "bodyBold",
+  "size": "15",
+  "lineHeight": "20",
+  "letterSpacing": null
+ },
+ "feedEyebrow": {
+  "family": "display",
+  "size": "12",
+  "lineHeight": "16",
+  "letterSpacing": "0.6"
+ },
+ "feedTag": {
+  "family": "display",
+  "size": "11",
+  "lineHeight": "14",
+  "letterSpacing": null
+ },
+ "label": {
+  "family": "bodyMedium",
+  "size": "13",
+  "lineHeight": "18.2",
+  "letterSpacing": null
+ },
+ "labelLight": {
+  "family": "bodyLight",
+  "size": "13",
+  "lineHeight": "16.4",
+  "letterSpacing": null
+ },
+ "labelStrong": {
+  "family": "bodySemiBold",
+  "size": "13",
+  "lineHeight": "18.2",
+  "letterSpacing": null
+ },
+ "priceCaption": {
+  "family": "bodyBold",
+  "size": "12",
+  "lineHeight": "16.8",
+  "letterSpacing": null
+ },
+ "navLabel": {
+  "family": "bodyMedium",
+  "size": "11",
+  "lineHeight": null,
+  "letterSpacing": null
+ },
+ "navLabelSelected": {
+  "family": "bodySemiBold",
+  "size": "11",
+  "lineHeight": null,
+  "letterSpacing": null
+ }
+}

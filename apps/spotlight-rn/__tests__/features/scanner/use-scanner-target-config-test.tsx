@@ -252,12 +252,17 @@ describe('useScannerTargetConfig', () => {
     // A single-language game names itself and sends no language hint (the user
     // never chose one). One Piece's EN-only index WEARS the EN tag + flag
     // (user decision 2026-08-31) so a JP card's miss reads as language, not
-    // breakage; games without a declared tag stay bare.
+    // breakage. Lorcana, Riftbound and Gundam are English-only too and wear
+    // the same tag.
     expect(scannerLaneLabel({ game: 'onepiece', language: 'english' })).toBe('One Piece EN');
-    expect(scannerLaneLabel({ game: 'lorcana', language: 'english' })).toBe('Disney Lorcana');
-    expect(scanTargetPillLabel({ game: 'lorcana', language: 'english' })).toBe('Disney Lorcana');
+    expect(scannerLaneLabel({ game: 'lorcana', language: 'english' })).toBe('Disney Lorcana EN');
+    expect(scannerLaneLabel({ game: 'riftbound', language: 'english' })).toBe('Riftbound EN');
+    expect(scannerLaneLabel({ game: 'gundam', language: 'english' })).toBe('Gundam EN');
+    expect(scanTargetPillLabel({ game: 'lorcana', language: 'english' })).toBe('Disney Lorcana EN');
     expect(scanTargetFlag({ game: 'onepiece', language: 'english' })).toBe('en');
-    expect(scanTargetFlag({ game: 'lorcana', language: 'english' })).toBeUndefined();
+    expect(scanTargetFlag({ game: 'lorcana', language: 'english' })).toBe('en');
+    expect(scanTargetFlag({ game: 'riftbound', language: 'english' })).toBe('en');
+    expect(scanTargetFlag({ game: 'gundam', language: 'english' })).toBe('en');
     expect(scanCardLanguageForLane({ game: 'onepiece', language: 'english' })).toBeNull();
   });
 });

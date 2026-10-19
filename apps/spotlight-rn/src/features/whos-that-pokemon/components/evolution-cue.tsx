@@ -266,7 +266,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   name: {
-    ...textStyles.displayLarge,
+    ...textStyles.display,
     color: colors.scannerTextPrimary,
     textAlign: 'center',
   },

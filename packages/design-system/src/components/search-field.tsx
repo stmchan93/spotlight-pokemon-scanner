@@ -12,6 +12,7 @@ import { Search as SearchIcon } from 'iconoir-react-native';
 
 import { useSpotlightTheme } from '../theme';
 import { MAX_FONT_SIZE_MULTIPLIER, radii } from '../tokens';
+import { usePlaceholderTypography } from './use-placeholder-typography';
 
 export type SearchFieldSize = 'default' | 'compact' | 'collection';
 export type SearchFieldSurface = 'default' | 'muted';
@@ -28,6 +29,12 @@ type SearchFieldProps = Omit<TextInputProps, 'style'> & {
    * the gray/100 bg with no border (Collection / Sales section search).
    */
   surface?: SearchFieldSurface;
+  /**
+   * Capitalises the placeholder only (Figma 5938:16825 "SEARCH BY VENDOR OR
+   * HOBBY"); typed text keeps the user's casing. A `textTransform` on the input
+   * would uppercase the value too, so the string itself is transformed.
+   */
+  uppercasePlaceholder?: boolean;
 };
 
 export const SearchField = forwardRef<TextInput, SearchFieldProps>(function SearchField({
@@ -37,8 +44,10 @@ export const SearchField = forwardRef<TextInput, SearchFieldProps>(function Sear
   leading,
   trailing,
   placeholderTextColor,
+  placeholder,
   size = 'default',
   surface = 'default',
+  uppercasePlaceholder = false,
   ...inputProps
 }, ref) {
   const theme = useSpotlightTheme();
@@ -80,6 +89,8 @@ export const SearchField = forwardRef<TextInput, SearchFieldProps>(function Sear
   const inputTypography = isCollection ? theme.typography.label : theme.typography.body;
   const inputTextStyle = { ...inputTypography, lineHeight: undefined };
 
+  const { onChangeText, placeholderStyle } = usePlaceholderTypography(inputProps);
+
   const iconColor = isMuted ? theme.colors.gray500 : theme.colors.gray400;
   const placeholderColor = placeholderTextColor ?? (isMuted ? theme.colors.gray500 : theme.colors.gray400);
 
@@ -100,15 +111,18 @@ export const SearchField = forwardRef<TextInput, SearchFieldProps>(function Sear
       <TextInput
         ref={ref}
         maxFontSizeMultiplier={MAX_FONT_SIZE_MULTIPLIER}
+        placeholder={uppercasePlaceholder ? placeholder?.toUpperCase() : placeholder}
         placeholderTextColor={placeholderColor}
         style={[
           inputTextStyle,
           { color: theme.colors.textPrimary },
           styles.input,
           inputSizeStyle,
+          placeholderStyle,
           inputStyle,
         ]}
         {...inputProps}
+        onChangeText={onChangeText}
       />
       {trailing}
     </View>

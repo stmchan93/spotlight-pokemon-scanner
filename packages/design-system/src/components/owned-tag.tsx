@@ -25,7 +25,7 @@ export function OwnedTag({ label, style, testID }: OwnedTagProps) {
       ]}
       testID={testID}
     >
-      <AppText color="brandStrong" numberOfLines={1} variant="feedTag">
+      <AppText color="brandStrong" numberOfLines={1} variant="chipLabel">
         {label}
       </AppText>
     </View>

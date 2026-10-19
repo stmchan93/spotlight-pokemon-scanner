@@ -3,12 +3,14 @@ import { useDeferredValue } from 'react';
 import { Platform } from 'react-native';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 
-import { colors } from '@spotlight/design-system';
+import { colors, fontFamilies } from '@spotlight/design-system';
 
 import { useCircularTabAvatar } from '@/components/circular-tab-avatar';
 import { rememberActiveTab } from '@/lib/last-active-tab';
 import { NativeTabScreenProvider } from '@/lib/tab-bar-insets';
 import { useKeyboardVisible } from '@/lib/use-keyboard-visible';
+
+const TAB_LABEL_FONT_SIZE = 9;
 
 const { Trigger } = NativeTabs;
 const { Icon, Label } = Trigger;
@@ -209,9 +211,17 @@ export default function TabsLayout() {
         Android-only: iOS keeps its own glass defaults, and setting `iconColor`
         there would only re-state the template tint the icons already declare.
       */
-      {...(Platform.OS === 'android'
-        ? { iconColor: colors.gray600, labelStyle: { color: colors.gray600 } }
-        : {})}
+      {...(Platform.OS === 'android' ? { iconColor: colors.gray600 } : {})}
+      /*
+        Figma 5938:18263..18289: tab labels are SemiBold 9 in capitals on both
+        platforms (the capitals are the Label strings below; native tabs have
+        no textTransform). Android also pins the unselected colour, see above.
+      */
+      labelStyle={{
+        fontFamily: fontFamilies.bodySemiBold,
+        fontSize: TAB_LABEL_FONT_SIZE,
+        ...(Platform.OS === 'android' ? { color: colors.gray600 } : {}),
+      }}
     >
       {/*
         Home / Wishlist / Scan / Events / Social, in that order (Figma puts
@@ -282,7 +292,7 @@ export default function TabsLayout() {
             selected: require('../../../assets/images/tab-icons/home-filled.png'),
           }}
         />
-        <Label>Home</Label>
+        <Label>HOME</Label>
       </Trigger>
       <Trigger name="wishlist">
         <Icon
@@ -292,7 +302,7 @@ export default function TabsLayout() {
             selected: require('../../../assets/images/tab-icons/wishlist-filled.png'),
           }}
         />
-        <Label>Watchlist</Label>
+        <Label>WISHLIST</Label>
       </Trigger>
       {/*
         NO BOTTOM INSET ON THE SCANNER.
@@ -335,12 +345,18 @@ export default function TabsLayout() {
         name="scan"
       >
         <Icon md="qr_code_scanner" sf={{ default: 'viewfinder', selected: 'viewfinder' }} />
-        <Label>Scan</Label>
+        <Label>SCAN</Label>
       </Trigger>
       <Trigger name="events">
-        {/* Figma 5892:16558's calendar, not the SF Symbol; one glyph for both states. */}
-        <Icon renderingMode="template" src={require('../../../assets/images/tab-icons/events.png')} />
-        <Label>Events</Label>
+        {/* Figma 5892:16558's calendar; solid when selected, like Home and Watchlist. */}
+        <Icon
+          renderingMode="template"
+          src={{
+            default: require('../../../assets/images/tab-icons/events.png'),
+            selected: require('../../../assets/images/tab-icons/events-filled.png'),
+          }}
+        />
+        <Label>EVENTS</Label>
       </Trigger>
       <Trigger name="social">
         {/*
@@ -399,7 +415,7 @@ export default function TabsLayout() {
         ) : (
           <Icon md="account_circle" sf={{ default: 'person.crop.circle', selected: 'person.crop.circle.fill' }} />
         )}
-        <Label>Social</Label>
+        <Label>SOCIAL</Label>
       </Trigger>
     </NativeTabs>
     </NativeTabScreenProvider>

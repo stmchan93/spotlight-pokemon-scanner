@@ -37,10 +37,23 @@ type PillButtonProps = {
    * standalone control.
    */
   tone?: PillButtonTone;
+  /**
+   * Label role for the 'filter' / 'filled' chips. 'label' (default) is Label 14;
+   * 'caption' is Caption 13 Regular — the Figma "Secondary" filter chip
+   * (5938:16830) on Collection / Wishlist / Insights.
+   */
+  labelRole?: 'label' | 'caption';
+  /**
+   * Renders the label in capitals (Figma filter chips read ALL / LIKES / A-Z).
+   * Applied to the string, not via `textTransform`: iOS measures the line box
+   * from the untransformed text, so capitals clip inside a content-sized pill.
+   */
+  uppercase?: boolean;
 };
 
 export function PillButton({
   label,
+  labelRole = 'label',
   leading,
   minWidth,
   onPress,
@@ -48,6 +61,7 @@ export function PillButton({
   style,
   testID,
   tone = 'default',
+  uppercase = false,
 }: PillButtonProps) {
   const theme = useSpotlightTheme();
 
@@ -61,13 +75,13 @@ export function PillButton({
         ? styles.optionContainer
         : styles.container;
 
+  // Figma: chips are Label 14, the compact option chip Caption-medium 13,
+  // everything else Body-medium 14.
   const labelStyle = isFilterChip
-    ? theme.typography.label
-    : tone === 'soft'
-      ? theme.typography.bodyMedium
-      : tone === 'option'
-        ? theme.typography.caption
-        : theme.typography.control;
+    ? (labelRole === 'caption' ? theme.typography.caption : theme.typography.label)
+    : tone === 'option'
+      ? theme.typography.captionMedium
+      : theme.typography.bodyMedium;
 
   const backgroundColor = tone === 'filter'
     ? (selected ? theme.colors.gray900 : theme.colors.gray0)
@@ -124,7 +138,7 @@ export function PillButton({
           },
         ]}
       >
-        {label}
+        {uppercase ? label.toUpperCase() : label}
       </Text>
     </Pressable>
   );
@@ -175,8 +189,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Figma scanner "Option Item" (5085:10859): radius 8, 8/4 padding, 12/500
-  // label — a 24pt-tall chip that sits in a scrolling rail under a card row.
+  // Figma scanner "Option Item" (5085:10859): radius 8, 8/4 padding,
+  // Caption-medium label — a compact chip that sits in a scrolling rail under
+  // a card row.
   optionContainer: {
     alignItems: 'center',
     borderCurve: 'continuous',

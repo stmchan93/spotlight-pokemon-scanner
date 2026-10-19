@@ -120,7 +120,7 @@ export function ScanningForSheet({
 
           <View style={styles.header}>
             <View style={styles.headerPill}>
-              <AppText color="gray400" variant="labelStrong">
+              <AppText color="gray0" variant="labelStrong">
                 SCANNING FOR
               </AppText>
             </View>
@@ -199,9 +199,8 @@ function LaneRow({
 }: {
   label: string;
   /**
-   * Round language flag rendered after the label (mirrors the pill). Undefined
-   * for games with a single-language catalog — a flag there would advertise a
-   * choice that does not exist.
+   * Round language flag rendered after the label (mirrors the pill). Set for
+   * every game with a declared language, including English-only ones.
    */
   flag?: 'en' | 'jp';
   selected: boolean;
@@ -217,8 +216,11 @@ function LaneRow({
       testID={testID}
     >
       <View style={styles.rowLabelGroup}>
-        <AppText color="gray0" variant="body">
-          {label}
+        {/* Figma 5753:18889 draws every lane in caps ("POKEMON EN"); string
+            casing rather than textTransform so the flex row measures the
+            capitals (iOS clips textTransform'd text in tight rows). */}
+        <AppText color="gray0" variant="caption">
+          {label.toUpperCase()}
         </AppText>
         {flag ? <RoundFlag language={flag} size={13} /> : null}
       </View>
@@ -230,12 +232,12 @@ function LaneRow({
 function ComingSoonRow({ label }: { label: string }) {
   return (
     <View style={styles.row}>
-      <AppText color="gray600" style={styles.rowLabel} variant="body">
-        {label}
+      <AppText color="gray600" style={styles.rowLabel} variant="caption">
+        {label.toUpperCase()}
       </AppText>
       <View style={styles.comingSoonTag}>
         <AppText color="gray400" variant="overline">
-          Coming Soon
+          COMING SOON
         </AppText>
       </View>
     </View>
@@ -272,11 +274,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
+  // Figma 5753:18924: a glass pill on the dark sheet — translucent white fill
+  // with a faint highlight edge, not a solid gray900 lozenge.
   headerPill: {
     alignItems: 'center',
-    backgroundColor: colors.gray900,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: 'rgba(255, 255, 255, 0.22)',
     borderCurve: 'continuous',
     borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth * 2,
     justifyContent: 'center',
     paddingHorizontal: 10,
     paddingVertical: 4,

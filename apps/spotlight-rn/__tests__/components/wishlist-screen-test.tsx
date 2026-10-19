@@ -567,8 +567,8 @@ describe('WishlistScreen', () => {
       const holo = await screen.findByTestId('wishlist-row-charizard:Holofoil');
       const reverse = screen.getByTestId('wishlist-row-charizard:Reverse Holofoil');
       // The printing leads the existing condition line.
-      expect(within(holo).getByText('Holofoil · Near Mint')).toBeOnTheScreen();
-      expect(within(reverse).getByText('Reverse Holofoil · Near Mint')).toBeOnTheScreen();
+      expect(within(holo).getByText('HOLOFOIL · NEAR MINT')).toBeOnTheScreen();
+      expect(within(reverse).getByText('REVERSE HOLOFOIL · NEAR MINT')).toBeOnTheScreen();
     });
 
     it('shows the printing on grid tiles too', async () => {

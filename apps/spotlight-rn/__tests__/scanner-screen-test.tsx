@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import Constants from 'expo-constants';
 import type { ComponentProps } from 'react';
 import { AppState, Keyboard, LayoutAnimation, StyleSheet } from 'react-native';
@@ -6,7 +6,7 @@ import { AppState, Keyboard, LayoutAnimation, StyleSheet } from 'react-native';
 import { SpotlightRepositoryRequestError } from '@spotlight/api-client';
 
 import { clearCardDetailCache } from '@/features/cards/card-detail-prefetch';
-import { colors } from '@spotlight/design-system';
+import { colors, textStyles } from '@spotlight/design-system';
 
 import { TabsPageContext } from '@/contexts/tabs-page-context';
 import { rawScannerTrayEmptyPeekHeight } from '@/features/scanner/raw-scanner-capture-surface';
@@ -350,12 +350,12 @@ describe('ScannerScreen', () => {
       minHeight: rawScannerTrayEmptyPeekHeight,
     });
     expect(StyleSheet.flatten(screen.getByTestId('scanner-recent-title').props.style)).toMatchObject({
-      fontSize: 13,
-      lineHeight: 18.2,
+      fontSize: textStyles.labelStrong.fontSize,
+      lineHeight: textStyles.labelStrong.lineHeight,
     });
     expect(StyleSheet.flatten(screen.getByTestId('scanner-value-pill-text').props.style)).toMatchObject({
-      fontSize: 13,
-      lineHeight: 18.2,
+      fontSize: textStyles.labelStrong.fontSize,
+      lineHeight: textStyles.labelStrong.lineHeight,
     });
     expect(screen.queryByTestId('scanner-smoke-fixture-trigger')).toBeNull();
   });
@@ -656,14 +656,15 @@ describe('ScannerScreen', () => {
   it('names the active game in the scan-target pill', async () => {
     renderScannerScreen();
 
-    expect(screen.getByTestId('scanner-target-pill')).toHaveTextContent('Pokémon EN');
+    expect(screen.getByTestId('scanner-target-pill')).toHaveTextContent('POKÉMON EN');
 
     fireEvent.press(screen.getByTestId('scanner-target-pill'));
     fireEvent.press(screen.getByTestId('scanning-for-sheet-type-lorcana'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-target-pill')).toHaveTextContent('Disney Lorcana');
+      expect(screen.getByTestId('scanner-target-pill')).toHaveTextContent('DISNEY LORCANA EN');
     });
+    expect(within(screen.getByTestId('scanner-target-pill')).getByTestId('round-flag-en')).toBeTruthy();
   });
 
   it('explains a lane whose visual index is not built yet instead of a bare failure', async () => {
@@ -994,7 +995,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-tray-clear-all-header'));
     // The SAME confirm the ADD ALL menu's Clear row opens.
     expect((await screen.findByTestId('scan-bulk-confirm-sheet-title')).props.children)
-      .toContain('Clear');
+      .toContain('CLEAR');
     fireEvent.press(screen.getByTestId('scan-bulk-confirm-sheet-confirm'));
 
     await waitFor(() => {
@@ -1045,7 +1046,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-tray-discount-trigger'));
     fireEvent.press(await screen.findByTestId('discount-menu-custom'));
 
-    expect(await screen.findByText('Percent of market')).toBeTruthy();
+    expect(await screen.findByText('PERCENT OF MARKET')).toBeTruthy();
     expect(screen.queryByText(/What the customer pays/)).toBeNull();
     expect(screen.queryByText(/share of \$/)).toBeNull();
 
@@ -1112,7 +1113,7 @@ describe('ScannerScreen', () => {
 
     // Untouched row: the write carries the printing the pill names.
     await waitFor(() => {
-      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('Normal');
+      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('NORMAL');
     });
     fireEvent.press(screen.getByTestId(trayTestId('add', 0)), {
       nativeEvent: { pageX: 180, pageY: 640 },
@@ -1198,7 +1199,7 @@ describe('ScannerScreen', () => {
     // Confirmation sheet with the count + wishlist copy.
     expect(await screen.findByTestId('scan-bulk-confirm-sheet')).toBeTruthy();
     expect(screen.getByTestId('scan-bulk-confirm-sheet-title').props.children)
-      .toBe('Add 1 item to Watchlist?');
+      .toBe('ADD 1 ITEM TO WATCHLIST?');
 
     fireEvent.press(screen.getByTestId('scan-bulk-confirm-sheet-confirm'));
 
@@ -1333,7 +1334,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     expect(trayRow(0)).toBeTruthy();
-    expect(screen.getByText('Finding match')).toBeTruthy();
+    expect(screen.getByText('FINDING MATCH')).toBeTruthy();
 
     await waitFor(() => {
       expect(resolveMatch).toBeTruthy();
@@ -1377,7 +1378,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     expect(trayRow(0)).toBeTruthy();
-    expect(screen.getByText('Finding match')).toBeTruthy();
+    expect(screen.getByText('FINDING MATCH')).toBeTruthy();
 
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
@@ -1505,15 +1506,15 @@ describe('ScannerScreen', () => {
     expect(await screen.findByText('Oshawott')).toBeTruthy();
     fireEvent.press(screen.getByTestId(trayTestId('change', 0)));
 
-    // The sheet reads CHANGE, not SWITCH.
-    expect(await screen.findByText('CHANGE')).toBeTruthy();
+    // The sheet reads CHANGE, not SWITCH (the tray's own CHANGE chip is still mounted behind it).
+    expect((await screen.findAllByText('CHANGE')).length).toBeGreaterThan(0);
     expect(screen.queryByText('SWITCH')).toBeNull();
 
     // Exactly one percentage on screen: the hero. The 44% candidate row below
     // it carries no badge of its own.
-    expect(screen.getAllByText(/% Match$/)).toHaveLength(1);
-    expect(screen.getByText('91% Match')).toBeTruthy();
-    expect(screen.queryByText('44% Match')).toBeNull();
+    expect(screen.getAllByText(/% MATCH$/)).toHaveLength(1);
+    expect(screen.getByText('91% MATCH')).toBeTruthy();
+    expect(screen.queryByText('44% MATCH')).toBeNull();
 
     // Printing chips hang off the selected row only.
     expect(await screen.findByTestId('change-card-picker-variants-0')).toBeTruthy();
@@ -2229,7 +2230,7 @@ describe('ScannerScreen', () => {
 
     // The printing pill replaces the old flat "RAW" tag outright.
     await waitFor(() => {
-      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('Holofoil');
+      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('HOLOFOIL');
     });
     expect(screen.queryByText('RAW')).toBeNull();
 
@@ -2289,7 +2290,7 @@ describe('ScannerScreen', () => {
 
     // The pill names the printing the price assumes; its menu lists the rest.
     await waitFor(() => {
-      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('Holofoil');
+      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('HOLOFOIL');
     });
 
     fireEvent.press(screen.getByTestId(trayTestId('printing', 0)));
@@ -2352,7 +2353,7 @@ describe('ScannerScreen', () => {
     expect(await screen.findByText('Froakie')).toBeTruthy();
 
     await waitFor(() => {
-      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('Reverse Holofoil');
+      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('REVERSE HOLOFOIL');
     });
     await waitFor(() => {
       expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $4.20');
@@ -2372,7 +2373,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(await screen.findByTestId('printing-menu-holofoil'));
 
     await waitFor(() => {
-      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('Holofoil');
+      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('HOLOFOIL');
     });
     expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.55');
     // Another printing has no art of its own: the card's image comes back.
@@ -2558,13 +2559,13 @@ describe('ScannerScreen', () => {
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
-    // The row lands in the tray and leaves its "Finding match" state through the
+    // The row lands in the tray and leaves its "FINDING MATCH" state through the
     // normal scan-failure path — no crash, no dropped capture, no doomed 401.
     await waitFor(() => {
       expect(trayRow(0)).toBeTruthy();
     });
     await waitFor(() => {
-      expect(screen.queryByText('Finding match')).not.toBeOnTheScreen();
+      expect(screen.queryByText('FINDING MATCH')).not.toBeOnTheScreen();
     });
     expect(mockEnsureGuestSession).toHaveBeenCalledTimes(1);
     expect(payloads).toHaveLength(0);

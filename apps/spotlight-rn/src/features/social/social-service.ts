@@ -323,6 +323,9 @@ async function fetchPosts(
  * resolve the relationship, two when it cannot.
  */
 export async function fetchPostById(postId: string): Promise<FeedPost | null> {
+  if (__DEV__ && devSocialOverrides) {
+    return devSocialOverrides.posts.find((post) => post.id === postId) ?? null;
+  }
   if (!supabase || !postId) {
     return null;
   }
@@ -452,6 +455,24 @@ let devFeedItemsOverride: FeedItem[] | null = null;
 /** Dev-screens seam (spotlight://dev/feed): non-null replaces every global-feed read. */
 export function setDevFeedItemsOverride(items: FeedItem[] | null): void {
   devFeedItemsOverride = __DEV__ ? items : null;
+}
+
+/**
+ * Dev-screens seam for the single-post, notifications, blocked-accounts and
+ * profile-activity reads (spotlight://dev/post-detail, /notifications,
+ * /blocked-accounts, /public-profile). Non-null answers them from fixtures so
+ * the screens render populated without a Supabase session.
+ */
+export type DevSocialOverrides = {
+  posts: readonly FeedPost[];
+  notifications: readonly AppNotification[];
+  blockedProfiles: readonly BlockedProfile[];
+};
+
+let devSocialOverrides: DevSocialOverrides | null = null;
+
+export function setDevSocialOverrides(overrides: DevSocialOverrides | null): void {
+  devSocialOverrides = __DEV__ ? overrides : null;
 }
 
 export async function fetchGlobalFeedItems(
@@ -606,6 +627,12 @@ export async function fetchAuthorActivity(
     return [];
   }
   const limit = options.limit ?? DEFAULT_LIMIT;
+  if (__DEV__ && devSocialOverrides) {
+    return devSocialOverrides.posts
+      .filter((post) => post.authorId === trimmed)
+      .slice(0, limit)
+      .map((post) => ({ post, repostedAt: null }));
+  }
   const authored = await fetchAuthorPosts(trimmed, options);
 
   if (!supabase) {
@@ -1368,6 +1395,9 @@ export async function fetchUnreadNotificationCount(): Promise<number> {
  * the schema allows `mention`/`message`, and a future migration could add more.
  */
 export async function fetchNotifications(limit = 50): Promise<AppNotification[]> {
+  if (__DEV__ && devSocialOverrides) {
+    return devSocialOverrides.notifications.slice(0, limit);
+  }
   const me = await currentUserId();
   if (!supabase || !me) {
     return [];
@@ -1497,6 +1527,9 @@ export async function fetchNotifications(limit = 50): Promise<AppNotification[]>
  * list can't rewrite timestamps on history you already saw.
  */
 export async function markAllNotificationsRead(): Promise<boolean> {
+  if (__DEV__ && devSocialOverrides) {
+    return true;
+  }
   const me = await currentUserId();
   if (!supabase || !me) {
     return false;
@@ -1717,6 +1750,9 @@ function mapBlockedProfile(row: BlockedProfileRow): BlockedProfile {
  * Never throws — resolves to `[]` on any failure, like every read in this file.
  */
 export async function fetchBlockedProfiles(): Promise<BlockedProfile[]> {
+  if (__DEV__ && devSocialOverrides) {
+    return [...devSocialOverrides.blockedProfiles];
+  }
   const me = await currentUserId();
   if (!supabase || !me) {
     return [];

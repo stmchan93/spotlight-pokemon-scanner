@@ -12,6 +12,7 @@ import {
 
 import { useSpotlightTheme } from '../theme';
 import { MAX_FONT_SIZE_MULTIPLIER } from '../tokens';
+import { usePlaceholderTypography } from './use-placeholder-typography';
 
 /**
  * `filled` is the default rounded, tinted field used across forms and sheets.
@@ -48,8 +49,8 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
     `typography.body` MINUS its lineHeight.
 
     iOS lays a TextInput's text on exactly the line box it is given, and the
-    token's 20pt box against a 15pt font leaves the descenders of "g", "y" and
-    "p" clipped off at the bottom of the field. `Text` is unaffected and keeps
+    token's tight box leaves the descenders of "g", "y" and "p" clipped off at
+    the bottom of the field. `Text` is unaffected and keeps
     the token as written — only an input needs the platform's own line box.
 
     Multiline keeps the token: the clip is a single-line problem, and without a
@@ -57,12 +58,15 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
   */
   const { lineHeight: _lineHeight, ...singleLineTypography } = theme.typography.body;
   const inputTypography = inputProps.multiline ? theme.typography.body : singleLineTypography;
+  const { onChangeText, placeholderStyle } = usePlaceholderTypography(inputProps);
 
   return (
     <View style={styles.fieldWrap}>
       {label ? (
-        <Text maxFontSizeMultiplier={MAX_FONT_SIZE_MULTIPLIER} style={[theme.typography.micro, styles.label]}>
-          {label}
+        <Text maxFontSizeMultiplier={MAX_FONT_SIZE_MULTIPLIER} style={theme.typography.overline}>
+          {/* Field eyebrows are Overline set in capitals (Figma 216:147 "EMAIL");
+              uppercased in JS so iOS measures the capitals, not the source. */}
+          {label.toUpperCase()}
         </Text>
       ) : null}
       <View
@@ -92,8 +96,9 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
           maxFontSizeMultiplier={MAX_FONT_SIZE_MULTIPLIER}
           ref={ref}
           placeholderTextColor={placeholderTextColor ?? theme.colors.textSecondary}
-          style={[inputTypography, styles.input, inputStyle]}
+          style={[inputTypography, styles.input, placeholderStyle, inputStyle]}
           {...inputProps}
+          onChangeText={onChangeText}
         />
         {trailing}
       </View>
@@ -123,8 +128,5 @@ const styles = StyleSheet.create({
   helperText: {},
   input: {
     flex: 1,
-  },
-  label: {
-    letterSpacing: 1.2,
   },
 });

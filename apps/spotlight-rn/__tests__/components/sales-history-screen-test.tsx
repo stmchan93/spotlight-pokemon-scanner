@@ -28,9 +28,9 @@ describe('SalesHistoryScreen', () => {
     renderSalesHistoryScreen({ onBack: jest.fn() });
 
     expect(await screen.findByText('All Transactions')).toBeTruthy();
-    expect(screen.getByText('Transactions')).toBeTruthy();
+    expect(screen.getByText('TRANSACTIONS')).toBeTruthy();
     expect(screen.getByText('9 shown')).toBeTruthy();
-    expect(screen.getByPlaceholderText('Search transactions')).toBeTruthy();
+    expect(screen.getByPlaceholderText(/search transactions/i)).toBeTruthy();
     expect(screen.getByTestId('sales-sort-recent')).toBeTruthy();
     expect(screen.getByTestId('sales-filter-all')).toBeTruthy();
     expect(screen.queryByText('All Sales')).toBeNull();
@@ -46,7 +46,7 @@ describe('SalesHistoryScreen', () => {
     expect(screen.getByText('3 shown')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('sales-filter-all'));
-    fireEvent.changeText(screen.getByPlaceholderText('Search transactions'), 'oshawott');
+    fireEvent.changeText(screen.getByPlaceholderText(/search transactions/i), 'oshawott');
 
     expect(screen.getByText('1 shown')).toBeTruthy();
     expect(screen.getByText('Oshawott')).toBeTruthy();

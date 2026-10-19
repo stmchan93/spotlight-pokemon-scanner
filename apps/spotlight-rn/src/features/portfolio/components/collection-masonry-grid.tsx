@@ -240,6 +240,7 @@ function CollectionTileSlot({
       delayLongPress={delayLongPress}
       liveOnEbay={liveOnEbay}
       onOpenListing={handleOpenListing}
+      textPreset="collection"
       testID={`${testIDPrefix}-${entry.id}`}
     />
   );

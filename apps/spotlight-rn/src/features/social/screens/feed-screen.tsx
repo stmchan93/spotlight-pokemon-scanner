@@ -683,8 +683,8 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         testID={`${testID}-compose-prompt`}
       >
         <Avatar initials={profileInitials} size={24} uri={currentUser?.avatarURL} />
-        <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
-          What&rsquo;s on your mind?
+        <Text style={[theme.typography.caption, { color: theme.colors.gray500 }]}>
+          WHAT&rsquo;S ON YOUR MIND?
         </Text>
       </Pressable>
     </View>

@@ -20,7 +20,7 @@ import { useRouter } from 'expo-router';
 import { ChatBubbleEmpty, MoreHoriz, SendDiagonal, ThumbsUp } from 'iconoir-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Avatar, Text, TextField, useSpotlightTheme } from '@spotlight/design-system';
+import { Avatar, radii, Text, TextField, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
 import { OptionsSheet } from '@/features/social/components/options-sheet';
@@ -2339,7 +2339,7 @@ export function CommentsSheet({
             >
               <View style={[styles.handleBar, { backgroundColor: theme.colors.gray200 }]} />
             </Pressable>
-            <Text style={[theme.typography.bodyStrong, styles.title, { color: theme.colors.gray900 }]}>
+            <Text style={[theme.typography.bodyMedium, styles.title, { color: theme.colors.gray900 }]}>
               Comments
             </Text>
           </View>
@@ -2829,8 +2829,9 @@ const styles = StyleSheet.create({
   },
   sheet: {
     borderCurve: 'continuous',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
+    borderTopLeftRadius: radii.sheet,
+    borderTopRightRadius: radii.sheet,
+    overflow: 'hidden',
     // height is applied inline — it animates between the resting and
     // keyboard-up heights.
     paddingTop: 10,

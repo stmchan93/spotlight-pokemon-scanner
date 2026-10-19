@@ -114,13 +114,14 @@ describe('Button', () => {
   });
 
   describe("labelStyleVariant='label'", () => {
-    it('uses the 13px label typography', () => {
+    it('uses the Figma Label typography (Medium 14)', () => {
       renderButton(
         <Button label="Labeled" labelStyleVariant="label" testID="label-style" variant="accent" />,
       );
 
       const label = labelStyleFor('label-style');
-      expect(label.fontSize).toBe(13);
+      expect(label.fontSize).toBe(14);
+      expect(label.fontFamily).toBe('SpotlightBodyMedium');
     });
   });
 });

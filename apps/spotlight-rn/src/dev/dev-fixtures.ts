@@ -1,5 +1,7 @@
 import { Image } from 'react-native';
 
+import { devImageUriFor } from '@/dev/dev-image-uri';
+
 /**
  * Deterministic placeholder art for dev screen routes (`spotlight://dev/*`).
  *
@@ -19,16 +21,9 @@ const placeholderCards = [
   require('@/assets/dev/card-placeholder-5.png'),
 ] as const;
 
-/** djb2 — stable across runs/platforms, so a URL always maps to the same asset. */
-function stableHash(value: string): number {
-  let hash = 5381;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = ((hash << 5) + hash + value.charCodeAt(index)) >>> 0;
-  }
-  return hash;
-}
+let placeholderUris: readonly string[] | null = null;
 
 export function devImageUriForUrl(url: string): string {
-  const asset = placeholderCards[stableHash(url) % placeholderCards.length];
-  return Image.resolveAssetSource(asset).uri;
+  placeholderUris ??= placeholderCards.map((asset) => Image.resolveAssetSource(asset).uri);
+  return devImageUriFor(url, placeholderUris);
 }

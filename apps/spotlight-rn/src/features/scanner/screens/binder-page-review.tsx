@@ -12,7 +12,7 @@ import { BlurView } from 'expo-blur';
 import { IconChevronLeft } from '@tabler/icons-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button, Text, Toast, colors, fontFamilies, spacing, textStyles } from '@spotlight/design-system';
+import { Button, Text, Toast, colors, spacing, textStyles } from '@spotlight/design-system';
 
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 
@@ -77,7 +77,8 @@ const androidGhostTabBarHeight = 0;
 // printing rides on the price row rather than adding a line of its own, so a
 // batch never resizes the cards or pushes the grid into a scroll
 // (user, 2026-09-10: "it kinda makes the ui kinda like moves").
-const captionHeight = 15 + 13 + 15 + 6 + 2;
+const captionHeight =
+  textStyles.captionStrong.lineHeight + textStyles.cardMeta.lineHeight + textStyles.captionStrong.lineHeight + 6 + 2;
 /**
  * The binder page as the scan result — but drawn with what we MATCHED, not
  * what we photographed. The user is holding the real page; the photo tells
@@ -279,7 +280,9 @@ export const BinderPageReview = memo(function BinderPageReview({
             <IconChevronLeft color={colors.scannerTextPrimary} size={24} strokeWidth={2} />
           </Pressable>
           <View style={styles.headerCopy}>
-            <Text style={styles.title}>Binder page</Text>
+            {/* Caps like every other scanner label; string casing, not
+                textTransform, so iOS measures the capitals (tight rows clip). */}
+            <Text style={styles.title}>BINDER PAGE</Text>
             {/*
               The hold gesture is the only way to the variant/condition
               dropdowns, so the screen says so out loud — while it is still
@@ -289,11 +292,11 @@ export const BinderPageReview = memo(function BinderPageReview({
             */}
             {pending > 0 ? (
               <Text style={styles.subtitle} testID={`${testID}-status`}>
-                {`Identifying ${pending} of ${pocketCount}…`}
+                {`IDENTIFYING ${pending} OF ${pocketCount}…`}
               </Text>
             ) : selecting ? null : (
               <Text style={styles.subtitle} testID={`${testID}-hint`}>
-                Hold to edit
+                HOLD TO EDIT
               </Text>
             )}
           </View>
@@ -376,6 +379,7 @@ export const BinderPageReview = memo(function BinderPageReview({
             onPress={onAddAll}
             size="lg"
             testID={`${testID}-add-all`}
+            uppercase
           />
         </View>
       </SafeAreaView>
@@ -441,9 +445,9 @@ function PocketTile({
   // Only a printing the user MOVED earns a label — it is confirmation that a
   // batch changed something, not a control. On the card's own printing the
   // price already says everything the label would. Abbreviated because it
-  // shares the price row.
+  // shares the price row. Caps like the tray row's printing link.
   const printingLabel = selection?.variantIsNonDefault && capture?.mode === 'raw'
-    ? printingAbbreviation(printingChipLabel(candidate, selection))
+    ? printingAbbreviation(printingChipLabel(candidate, selection)).toUpperCase()
     : null;
   const selectable = !!capture && !isLoading && !isEmpty;
 
@@ -515,7 +519,7 @@ function PocketTile({
       </View>
       <View style={styles.caption}>
         {isLoading ? (
-          <Text numberOfLines={1} style={styles.captionMeta}>Identifying…</Text>
+          <Text numberOfLines={1} style={styles.captionMeta}>IDENTIFYING…</Text>
         ) : candidate ? (
           <>
             <Text numberOfLines={1} style={styles.captionTitle}>{candidate.name}</Text>
@@ -532,14 +536,14 @@ function PocketTile({
         ) : isEmpty ? (
           // Same weight as a matched card's name — the pocket's state is the
           // headline here, not a footnote.
-          <Text numberOfLines={1} style={styles.captionTitle}>Empty</Text>
+          <Text numberOfLines={1} style={styles.captionTitle}>EMPTY</Text>
         ) : isLost ? (
-          // Headline weight, like "Empty": this is the pocket's state.
+          // Headline weight, like "EMPTY": this is the pocket's state.
           <Text numberOfLines={2} style={styles.captionTitle} testID={`${testID}-unidentified`}>
-            Couldn&apos;t identify
+            COULDN&apos;T IDENTIFY
           </Text>
         ) : (
-          <Text numberOfLines={2} style={styles.captionMeta}>No match · tap to search</Text>
+          <Text numberOfLines={2} style={styles.captionMeta}>NO MATCH · TAP TO SEARCH</Text>
         )}
       </View>
     </Pressable>
@@ -585,9 +589,8 @@ const styles = StyleSheet.create({
     color: colors.scannerTextPrimary,
   },
   subtitle: {
-    ...textStyles.caption,
+    ...textStyles.captionMedium,
     color: colors.scannerTextPrimary,
-    fontFamily: fontFamilies.bodyMedium,
     opacity: 0.8,
   },
   frame: {
@@ -648,26 +651,22 @@ const styles = StyleSheet.create({
     width: 18,
   },
   pocketNumberLabel: {
+    ...textStyles.chipLabel,
     color: colors.scannerTextPrimary,
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 11,
-    lineHeight: 14,
   },
   caption: {
     gap: 2,
     height: captionHeight,
   },
+  // No Figma frame for this grid; roles are the nearest tokens to the old
+  // 12/10/12 literals. `captionHeight` above sums these line boxes.
   captionTitle: {
+    ...textStyles.captionStrong,
     color: colors.scannerTextPrimary,
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 12,
-    lineHeight: 15,
   },
   captionMeta: {
+    ...textStyles.cardMeta,
     color: colors.scannerTextPrimary,
-    fontFamily: fontFamilies.bodyRegular,
-    fontSize: 10,
-    lineHeight: 13,
     opacity: 0.75,
   },
   captionPriceRow: {
@@ -709,11 +708,9 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   captionPrice: {
+    ...textStyles.captionStrong,
     color: colors.scannerTextPrimary,
     flexShrink: 1,
-    fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 12,
-    lineHeight: 15,
   },
   footer: {
     gap: 10,

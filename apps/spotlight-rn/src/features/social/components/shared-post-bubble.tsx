@@ -221,7 +221,7 @@ export function SharedPostBubble({
       {post.body ? (
         <Text
           numberOfLines={2}
-          style={[theme.typography.bodySmall, styles.caption, { color: theme.colors.gray900 }]}
+          style={[theme.typography.body, styles.caption, { color: theme.colors.gray900 }]}
         >
           {post.body}
         </Text>

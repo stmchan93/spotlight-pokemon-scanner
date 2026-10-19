@@ -209,8 +209,7 @@ export function FloatingBottomNav({
               {!isScannerSurface ? (
                 <Text
                   style={[
-                    theme.typography.control,
-                    styles.defaultLabel,
+                    theme.typography.bodyMedium,
                     {
                       color: selected
                         ? metrics.labelColor
@@ -271,9 +270,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     width: '100%',
-  },
-  defaultLabel: {
-    letterSpacing: 0,
   },
   emphasizedPlate: {
     borderWidth: 1,

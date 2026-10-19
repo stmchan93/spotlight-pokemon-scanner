@@ -1332,12 +1332,12 @@ describe('CommentsSheet', () => {
       // The post-delete sheet's shape: a title, the consequence, then Cancel and
       // a red Delete — NOT an OS alert.
       expect(screen.getByTestId(DELETE_CONFIRM)).toBeTruthy();
-      expect(screen.getByText('Delete comment?')).toBeTruthy();
+      expect(screen.getByText('DELETE COMMENT?')).toBeTruthy();
       // No replies to promise about — but the row does not disappear either, and
       // the confirmation has to say so now that it leaves a tombstone.
       expect(
         screen.getByText(
-          "Your comment will be removed and the thread will show it was deleted. This can't be undone.",
+          "YOUR COMMENT WILL BE REMOVED AND THE THREAD WILL SHOW IT WAS DELETED. THIS CAN'T BE UNDONE.",
         ),
       ).toBeTruthy();
       expect(screen.getByTestId(`${DELETE_CONFIRM}-cancel`)).toBeTruthy();
@@ -1463,10 +1463,10 @@ describe('CommentsSheet', () => {
 
       // The old copy ("This also deletes the 2 replies underneath it") described
       // a cascade that no longer happens.
-      expect(screen.queryByText(/also deletes/)).toBeNull();
+      expect(screen.queryByText(/also deletes/i)).toBeNull();
       expect(
         screen.getByText(
-          'Your comment will be removed but the replies will remain. Are you sure you want to continue?',
+          'YOUR COMMENT WILL BE REMOVED BUT THE REPLIES WILL REMAIN. ARE YOU SURE YOU WANT TO CONTINUE?',
         ),
       ).toBeTruthy();
       // No reply count and no quoted tombstone line in the copy — precision
@@ -1474,8 +1474,8 @@ describe('CommentsSheet', () => {
       // (Scoped to the confirmation: "2 replies" legitimately appears on the
       // thread's own replies toggle behind it.)
       const confirm = within(screen.getByTestId('comments-sheet-delete-confirm'));
-      expect(confirm.queryByText(/replies underneath/)).toBeNull();
-      expect(confirm.queryByText(/was deleted/)).toBeNull();
+      expect(confirm.queryByText(/replies underneath/i)).toBeNull();
+      expect(confirm.queryByText(/was deleted/i)).toBeNull();
     });
 
     it('leaves a tombstone in place of a parent, keeping other people’s replies readable', async () => {
@@ -1547,7 +1547,7 @@ describe('CommentsSheet', () => {
       fireEvent.press(await screen.findByTestId('comments-sheet-comment-c2-replies-toggle'));
 
       fireEvent(await screen.findByTestId('comments-sheet-comment-r1'), 'longPress');
-      expect(screen.getByText('Delete reply?')).toBeTruthy();
+      expect(screen.getByText('DELETE REPLY?')).toBeTruthy();
     });
 
     // The confirmation quotes the tombstone it is about to leave behind, so the
@@ -1573,7 +1573,7 @@ describe('CommentsSheet', () => {
       // the confirmation never calls a reply a comment.
       expect(
         screen.getByText(
-          'Your reply will be removed but the replies will remain. Are you sure you want to continue?',
+          'YOUR REPLY WILL BE REMOVED BUT THE REPLIES WILL REMAIN. ARE YOU SURE YOU WANT TO CONTINUE?',
         ),
       ).toBeTruthy();
 

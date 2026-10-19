@@ -72,15 +72,18 @@ export const slabLabelDividerRatio = 0.28;
 export const slabLabelAnalysisBottomRatio = 0.34;
 export const scannerReticleGuideStrokeWidth = 1.7;
 /**
- * Resting reticle outline colour — Figma 5085:15171, whose 1px stroke is
- * `Color/purple/200` exactly. Exported so it can be asserted: this frame has
+ * Resting reticle outline colour — Figma 5559:7112, a 1px `Color/purple/500`
+ * stroke (it was purple/200 per 5085:15171). Exported so it can be asserted: this frame has
  * gone purple → white → purple and then from four corner brackets to a closed
  * outline, so it drifts, and a value buried in a private `StyleSheet.create` is
  * a value nobody can guard.
  */
-export const reticleRestingOutlineColor = colors.purple200;
+export const reticleRestingOutlineColor = colors.purple500;
 /** Capture-pulse outline colour — Figma 2227:22140, the "locked" frame. */
-export const reticleLockedOutlineColor = colors.purple500;
+// White now that the resting frame is purple 500: the same purple pulsed into nothing.
+export const reticleLockedOutlineColor = colors.gray0;
+/** Binder pocket lines stay the pale lilac so the 3x3 reads as a hint under the frame. */
+export const reticleBinderGridColor = colors.purple200;
 export const scannerReticleOutlineStrokeWidth = 1;
 export const scannerReticleCornerRadius = 12;
 export const slabGuideHorizontalInset = 8;
@@ -898,7 +901,7 @@ const styles = StyleSheet.create({
     before reaching for a darker colour.
   */
   pageGridLine: {
-    backgroundColor: reticleRestingOutlineColor,
+    backgroundColor: reticleBinderGridColor,
     position: 'absolute',
   },
   reticleShell: {

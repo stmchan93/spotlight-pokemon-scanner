@@ -290,7 +290,7 @@ export function DmInboxScreen({ testID = 'dm-inbox' }: { testID?: string }) {
                 ]}
                 testID={`${testID}-unread-${item.id}`}
               >
-                <Text style={[theme.typography.micro, { color: theme.colors.gray0 }]}>
+                <Text style={[theme.typography.overline, { color: theme.colors.gray0 }]}>
                   {item.unreadCount > UNREAD_BADGE_MAX ? `${UNREAD_BADGE_MAX}+` : item.unreadCount}
                 </Text>
               </View>
@@ -310,7 +310,7 @@ export function DmInboxScreen({ testID = 'dm-inbox' }: { testID?: string }) {
     >
       <View style={styles.header}>
         <ChromeBackButton onPress={() => router.back()} testID={`${testID}-back`} />
-        <Text style={[theme.typography.titleXsmall, styles.title]}>Messages</Text>
+        <Text style={[theme.typography.titleSmall, styles.title]}>Messages</Text>
         <View style={styles.headerSpacer} />
       </View>
 

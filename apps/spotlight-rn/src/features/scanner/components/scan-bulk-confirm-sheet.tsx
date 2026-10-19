@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Button, radii, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import { SheetDismissHandle } from '@/components/sheet-dismiss-handle';
 
@@ -131,20 +131,20 @@ export function ScanBulkConfirmSheet({
 
           <View style={styles.body}>
             <Text
-              style={[theme.typography.titleSmall, styles.title, { color: theme.colors.gray900 }]}
+              style={[theme.typography.labelStrong, styles.title, { color: theme.colors.gray900 }]}
               testID={`${testID}-title`}
             >
-              {title}
+              {title.toUpperCase()}
             </Text>
             <Text
               style={[
-                theme.typography.body,
+                theme.typography.caption,
                 styles.description,
-                { color: theme.colors.gray500 },
+                { color: theme.colors.gray700 },
               ]}
               testID={`${testID}-description`}
             >
-              {description}
+              {description.toUpperCase()}
             </Text>
           </View>
 
@@ -155,8 +155,9 @@ export function ScanBulkConfirmSheet({
               labelStyleVariant="label"
               onPress={onConfirm}
               shape="rounded"
-              size="md"
+              size="xs"
               testID={`${testID}-confirm`}
+              uppercase
               variant={confirmVariant}
             />
             <Button
@@ -165,9 +166,10 @@ export function ScanBulkConfirmSheet({
               labelStyleVariant="label"
               onPress={onCancel}
               shape="rounded"
-              size="md"
+              size="xs"
               testID={`${testID}-cancel`}
-              variant="ghost"
+              uppercase
+              variant="outline"
             />
           </View>
         </Animated.View>
@@ -182,17 +184,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
   body: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
     paddingTop: 8,
   },
   description: {
-    marginTop: 8,
+    marginTop: 12,
     textAlign: 'center',
   },
   footer: {
-    gap: 8,
+    gap: 12,
     paddingHorizontal: 16,
-    paddingTop: 20,
+    paddingTop: 24,
   },
   root: {
     flex: 1,
@@ -200,8 +202,9 @@ const styles = StyleSheet.create({
   },
   sheet: {
     borderCurve: 'continuous',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
+    borderTopLeftRadius: radii.sheet,
+    borderTopRightRadius: radii.sheet,
+    overflow: 'hidden',
     paddingTop: 10,
   },
   title: {

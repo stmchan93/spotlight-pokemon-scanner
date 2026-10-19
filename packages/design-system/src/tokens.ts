@@ -1,7 +1,8 @@
-import { Platform, type TextStyle, type ViewStyle } from 'react-native';
+import { PixelRatio, Platform, type TextStyle, type ViewStyle } from 'react-native';
 
 export const fontFamilies = {
   display: 'SpotlightDisplay',
+  bodyLight: 'SpotlightBodyLight',
   bodyRegular: 'SpotlightBodyRegular',
   bodyMedium: 'SpotlightBodyMedium',
   bodySemiBold: 'SpotlightBodySemiBold',
@@ -198,6 +199,8 @@ export const radii = {
   lg: 16,
   xl: 20,
   xxl: 24,
+  // Bottom sheets: TOP corners only, bottom square (Figma 5753:18889).
+  sheet: 20,
   pill: 999,
 } as const;
 
@@ -206,6 +209,10 @@ export const borderWidths = {
   // dividers). Literal 0.5 — NOT StyleSheet.hairlineWidth, which is 1 physical
   // pixel (≈0.33pt on 3x devices) and renders lighter than the spec.
   rule: 0.5,
+  // `rule` snapped to whole physical pixels (2px on 3x, 1px on 2x). Use for
+  // stacked list dividers: Yoga rounds a 1.5px line to 1px or 2px depending on
+  // its y-offset, so plain `rule` rows alternate light/dark.
+  ruleSnapped: PixelRatio.roundToNearestPixel(0.5),
   // Standard 1pt container stroke (inventory dropdown shell).
   containerRule: 1,
   // Thick gray-100 band between Social feed blocks and between sections of
@@ -296,172 +303,154 @@ const numericFontVariant = {
 export const MAX_FONT_SIZE_MULTIPLIER = 1.2;
 
 export const textStyles = {
+  /*
+    Figma library scale (2026-10-18): Plus Jakarta Sans, AUTO line height,
+    0 tracking. Line boxes here are round(size × 1.3) so Android never clips a
+    descender. The eleven library roles keep their Figma names; everything after
+    "non-library" matches text the frames still draw RAW (SemiBold 13/14/15/16,
+    Bold 15 prices) and is flagged for the designer in
+    docs/type-scale-migration/README.md. Legacy roles alias the nearest library
+    role so call sites keep compiling until they are re-roled per screen.
+  */
+  // Figma "Display" — 29/700. Was ExtraBold 36 with -0.9 tracking.
   display: {
     ...numericFontVariant,
-    fontFamily: fontFamilies.display,
-    fontSize: 36,
-    /*
-      Android needs the font's REAL line box; iOS keeps the tight 40.
-
-      Jakarta ExtraBold's metrics ask for ~1.34em (≈48pt at 36), and Android
-      centers glyphs inside whatever lineHeight it is given, clipping ink that
-      doesn't fit — which cut the descender off the g in the "Following" header.
-      iOS lets tight lines overflow instead of clipping, so it can keep the
-      compact look safely.
-    */
-    lineHeight: Platform.select({ android: 48, default: 40 }),
-    letterSpacing: -0.9,
+    fontFamily: fontFamilies.bodyBold,
+    fontSize: 29,
+    lineHeight: 38,
     color: colors.textPrimary,
   } satisfies TextStyle,
-  // Figma "Display" — 28/700/120% gray-900
-  displayLarge: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.bodyBold,
-    fontSize: 28,
-    lineHeight: 33.6,
-    color: colors.gray900,
-  } satisfies TextStyle,
-  // Figma "Title-medium" — 18/600/130% gray-900
-  // Figma "Title-large" — 22/700/125% gray-900
+  // Figma "Title-large" — 23/700
   titleLarge: {
     ...numericFontVariant,
     fontFamily: fontFamilies.bodyBold,
-    fontSize: 22,
-    lineHeight: 27.5,
+    fontSize: 23,
+    lineHeight: 30,
     color: colors.gray900,
   } satisfies TextStyle,
+  // Figma "Title-medium" — 19/600
   titleMedium: {
     ...numericFontVariant,
     fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 18,
-    lineHeight: 23.4,
+    fontSize: 19,
+    lineHeight: 25,
     color: colors.gray900,
   } satisfies TextStyle,
-  // Figma "Title-small" — 17/600/135% gray-900
+  // Figma "Title-small" — 17/600
   titleSmall: {
     ...numericFontVariant,
     fontFamily: fontFamilies.bodySemiBold,
     fontSize: 17,
-    lineHeight: 22.95,
-    color: colors.gray900,
-  } satisfies TextStyle,
-  // Bold section title — 17/700 (Figma Events "Featured Spotlight Events" 5476:7198).
-  sectionTitleBold: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.bodyBold,
-    fontSize: 17,
     lineHeight: 22,
     color: colors.gray900,
   } satisfies TextStyle,
-  // Detail page title — 19/700 (Figma Events Details 5528:800).
-  detailTitleBold: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.bodyBold,
-    fontSize: 19,
-    lineHeight: 24,
-    color: colors.gray900,
-  } satisfies TextStyle,
-  // Compact sheet title — 14/600 gray-900 (Figma New Post header 3147:10838).
-  titleXsmall: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 14,
-    lineHeight: 21,
-    color: colors.gray900,
-  } satisfies TextStyle,
-  // Figma "Body-medium" — 14/500/150% gray-900
-  bodyMedium: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 14,
-    lineHeight: 21,
-    color: colors.gray900,
-  } satisfies TextStyle,
-  // Figma "Body" — 14/400/150% gray-900. The regular-weight sibling of
-  // `bodyMedium`, and a genuinely different role from `body` (15/400): Figma
-  // uses it for long-form copy that sits UNDER a 14/500 label, e.g. the social
-  // post body under the author name (Figma 3505:14436).
-  bodySmall: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.bodyRegular,
-    fontSize: 14,
-    lineHeight: 21,
-    color: colors.gray900,
-  } satisfies TextStyle,
-  // Figma "Overline" — 12/400/140% gray-700. Regular-weight sibling of
-  // `captionMedium`: the Events list card's venue/date lines and the ticket
-  // disclaimer (Figma 5865:9378, 5882:12633).
-  captionRegular: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.bodyRegular,
-    fontSize: 12,
-    lineHeight: 16.8,
-    color: colors.gray700,
-  } satisfies TextStyle,
-  // Figma "Caption-medium" — 12/500/140% gray-600
-  captionMedium: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 12,
-    lineHeight: 16.8,
-    color: colors.gray600,
-  } satisfies TextStyle,
-  // SemiBold sibling of `captionMedium` — 12/600, color applied separately.
-  // Section links on the feed blocks ("See the meta ›").
-  captionStrong: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 12,
-    lineHeight: 16.8,
-  } satisfies TextStyle,
-  title: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.display,
-    fontSize: 25,
-    lineHeight: 30,
-    letterSpacing: -0.55,
-    color: colors.textPrimary,
-  } satisfies TextStyle,
-  titleCompact: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.display,
-    fontSize: 21,
-    lineHeight: 26,
-    letterSpacing: -0.35,
-    color: colors.textPrimary,
-  } satisfies TextStyle,
-  headline: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 16,
-    lineHeight: 21.6,
-    color: colors.textPrimary,
-  } satisfies TextStyle,
-  body: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.bodyRegular,
-    fontSize: 15,
-    lineHeight: 20,
-    color: colors.textPrimary,
-  } satisfies TextStyle,
-  /**
-   * Figma's "Body-large" — `body` one step up, at `headline`'s size but in
-   * Regular rather than SemiBold. Both halves matter: it is what Figma asks for
-   * on a control whose label is a NAME rather than a command (the scanner's
-   * "Pokémon EN" target pill, 5085:15158), where the `control` role's SemiBold
-   * would read as a verb.
-   *
-   * The line height is `headline`'s, not the 100% the frame reports. Figma's
-   * text line-heights are intrinsic and a 1.0 ratio clips descenders on Android
-   * — same reason the rest of this scale sits near 1.35.
-   */
+  // Figma "Body-large" — 16/400
   bodyLarge: {
     ...numericFontVariant,
     fontFamily: fontFamilies.bodyRegular,
     fontSize: 16,
-    lineHeight: 21.6,
+    lineHeight: 21,
     color: colors.textPrimary,
   } satisfies TextStyle,
+  // Figma "Body" — 14/400 (was 15/20)
+  body: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyRegular,
+    fontSize: 14,
+    lineHeight: 18,
+    color: colors.textPrimary,
+  } satisfies TextStyle,
+  // Figma "Body-medium" — 14/500
+  bodyMedium: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 14,
+    lineHeight: 18,
+    color: colors.gray900,
+  } satisfies TextStyle,
+  // Figma "Label" — 14/500 (was 13). Color stays the placeholder gray; sites override.
+  label: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 14,
+    lineHeight: 18,
+    color: colors.gray400,
+  } satisfies TextStyle,
+  // Figma "Caption" — 13/400 (was Medium 12)
+  caption: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyRegular,
+    fontSize: 13,
+    lineHeight: 17,
+    color: colors.textSecondary,
+  } satisfies TextStyle,
+  // Figma "Caption-medium" — 13/500 (was 12)
+  captionMedium: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 13,
+    lineHeight: 17,
+    color: colors.gray600,
+  } satisfies TextStyle,
+  // Figma "Overline" — 12/400 (was Medium 11)
+  overline: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyRegular,
+    fontSize: 12,
+    lineHeight: 16,
+    letterSpacing: 0,
+    color: colors.textSecondary,
+  } satisfies TextStyle,
+  // --- non-library: metrics the frames draw raw; no Figma style yet ---
+  // Raw Light 12 (Collection balance eyebrow "MAIN COLLECTION", Figma 5938:18043).
+  overlineLight: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyLight,
+    fontSize: 12,
+    lineHeight: 16,
+    color: colors.gray600,
+  } satisfies TextStyle,
+  // Medium 12 — the uppercase "since added"/"since watched" trend suffix.
+  overlineMedium: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: colors.gray600,
+  } satisfies TextStyle,
+  // Raw Regular 10 (Top Trends game caption "Pokemon", Figma 5768:27141).
+  captionTiny: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyRegular,
+    fontSize: 10,
+    lineHeight: 13,
+    color: colors.gray600,
+  } satisfies TextStyle,
+  // Figma "Body-medium" as set on social post text — 15/500 (5768:27193).
+  postBody: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 15,
+    lineHeight: 20,
+    color: colors.gray800,
+  } satisfies TextStyle,
+  // Raw Medium 16, uppercase on the PDP ("PRICE TREND", "PRODUCT DETAILS", Figma 5768:21988).
+  headlineMedium: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 16,
+    lineHeight: 21,
+    color: colors.gray900,
+  } satisfies TextStyle,
+  // Raw SemiBold 16 (post author, section titles). Tray rows should move to titleSmall.
+  headline: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 16,
+    lineHeight: 21,
+    color: colors.textPrimary,
+  } satisfies TextStyle,
+  // Raw SemiBold 15 (mover-tile price, drawer stats)
   bodyStrong: {
     ...numericFontVariant,
     fontFamily: fontFamilies.bodySemiBold,
@@ -469,19 +458,65 @@ export const textStyles = {
     lineHeight: 20,
     color: colors.textPrimary,
   } satisfies TextStyle,
-  control: {
+  // Raw SemiBold 14 (toolbar titles "WISHLIST", sheet headers)
+  titleXsmall: {
     ...numericFontVariant,
     fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 14,
+    lineHeight: 18,
+    color: colors.gray900,
+  } satisfies TextStyle,
+  // Raw SemiBold 13 (scanner pills, sheet actions, sold comps). Color applied separately.
+  labelStrong: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 13,
+    lineHeight: 17,
+  } satisfies TextStyle,
+  // Raw Bold 15 (list prices "$1,450.12", event card titles). Color applied separately.
+  feedRowTitle: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyBold,
     fontSize: 15,
     lineHeight: 20,
-    color: colors.textPrimary,
   } satisfies TextStyle,
-  caption: {
+  // Raw Bold 19 (event detail title)
+  detailTitleBold: {
     ...numericFontVariant,
-    fontFamily: fontFamilies.bodyMedium,
+    fontFamily: fontFamilies.bodyBold,
+    fontSize: 19,
+    lineHeight: 25,
+    color: colors.gray900,
+  } satisfies TextStyle,
+  // Raw SemiBold 12 (vendor table ids, feed section links). Color applied separately.
+  captionStrong: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodySemiBold,
     fontSize: 12,
     lineHeight: 16,
-    color: colors.textSecondary,
+  } satisfies TextStyle,
+  // Light sibling of "label" — 13/300/normal, uppercase (profile bio, Figma 5938:19528)
+  labelLight: {
+    fontFamily: fontFamilies.bodyLight,
+    fontSize: 13,
+    lineHeight: 17,
+    textTransform: 'uppercase',
+  } satisfies TextStyle,
+  // Input placeholder — Light 13 (Figma 5938:21811 "Placeholder Text"). TextInput
+  // can't style the placeholder alone, so fields apply this only while empty.
+  // Color stays with each field's placeholderTextColor.
+  placeholder: {
+    fontFamily: fontFamilies.bodyLight,
+    fontSize: 13,
+    lineHeight: 17,
+  } satisfies TextStyle,
+  // Bold 12 inventory-tile price
+  priceCaption: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyBold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: colors.textPrimary,
   } satisfies TextStyle,
   micro: {
     ...numericFontVariant,
@@ -491,28 +526,20 @@ export const textStyles = {
     letterSpacing: 0.8,
     color: colors.textSecondary,
   } satisfies TextStyle,
-  overline: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 11,
-    lineHeight: 14.3,
-    letterSpacing: 0,
-    color: colors.textSecondary,
-  } satisfies TextStyle,
+  // Raw Regular 11 (vendor tags, news meta)
   cardMeta: {
     ...numericFontVariant,
     fontFamily: fontFamilies.bodyRegular,
     fontSize: 11,
-    lineHeight: 14.3,
+    lineHeight: 14,
     color: colors.textMuted,
   } satisfies TextStyle,
-  // SemiBold sibling of `cardMeta` — a news row's "Source · 2h" line, a hot
-  // tile's "4.2× usual checks". Color applied separately.
+  // SemiBold sibling of cardMeta. Color applied separately.
   cardMetaStrong: {
     ...numericFontVariant,
     fontFamily: fontFamilies.bodySemiBold,
     fontSize: 11,
-    lineHeight: 14.3,
+    lineHeight: 14,
   } satisfies TextStyle,
   deltaPill: {
     ...numericFontVariant,
@@ -522,121 +549,138 @@ export const textStyles = {
     color: colors.textPrimary,
   } satisfies TextStyle,
   // Delta pills and outlined chips — 11/600, color applied separately
-  // (DeltaPill, NewsRow tag chips).
   chipLabel: {
     ...numericFontVariant,
     fontFamily: fontFamilies.bodySemiBold,
     fontSize: 11,
     lineHeight: 14,
   } satisfies TextStyle,
-  // Uppercase status tag — 10/700 (LaneTag RAW / GRADED).
+  // Uppercase status tag — 10/700 (LaneTag RAW / GRADED)
   tag: {
     ...numericFontVariant,
     fontFamily: fontFamilies.bodyBold,
     fontSize: 10,
     lineHeight: 13,
   } satisfies TextStyle,
-  /*
-    Meta feed v2 scale (docs/meta-feed-mockup/v2/*.dc.html): ExtraBold display
-    titles and numbers, a Bold row title, and ExtraBold eyebrows/tags. Color is
-    applied by the host.
-  */
-  // Feed block title + Meta headline — 20/800 ("Meta pulse", "Coming up").
-  feedTitle: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.display,
-    fontSize: 20,
-    lineHeight: 26,
-    letterSpacing: -0.3,
-  } satisfies TextStyle,
-  // Page title of the group page — 24/800.
-  feedPageTitle: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.display,
-    fontSize: 24,
-    lineHeight: 30,
-    letterSpacing: -0.3,
-  } satisfies TextStyle,
-  // Section title on the group page — 17/800 ("Biggest movers").
-  feedSectionTitle: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.display,
-    fontSize: 17,
-    lineHeight: 22,
-  } satisfies TextStyle,
-  // Hero change on the group page — 34/800.
-  feedDeltaLarge: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.display,
-    fontSize: 34,
-    lineHeight: 40,
-  } satisfies TextStyle,
-  // Bar-row change + date-tile day — 18/800.
-  feedDelta: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.display,
-    fontSize: 18,
-    lineHeight: 22,
-  } satisfies TextStyle,
-  // Group / card / event name in feed rows — 15/700.
-  feedRowTitle: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.bodyBold,
-    fontSize: 15,
-    lineHeight: 20,
-  } satisfies TextStyle,
-  // Uppercase list eyebrow — 12/800, tracked ("ON THE WAY UP").
-  feedEyebrow: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.display,
-    fontSize: 12,
-    lineHeight: 16,
-    letterSpacing: 0.6,
-  } satisfies TextStyle,
-  // Pill tags and kind chips — 11/800 ("You own 4", "Release").
-  feedTag: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.display,
-    fontSize: 11,
-    lineHeight: 14,
-  } satisfies TextStyle,
-  // Search field placeholder + input — 13/500/140% gray-400 per Figma "Label"
-  label: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 13,
-    lineHeight: 18.2,
-    color: colors.gray400,
-  } satisfies TextStyle,
-  // SemiBold sibling of "label" — 13/600/140%, color applied separately
-  labelStrong: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 13,
-    lineHeight: 18.2,
-  } satisfies TextStyle,
-  // Bold caption used for the inventory tile market price — 12/700/140% gray-900
-  priceCaption: {
-    ...numericFontVariant,
-    fontFamily: fontFamilies.bodyBold,
-    fontSize: 12,
-    lineHeight: 16.8,
-    color: colors.textPrimary,
-  } satisfies TextStyle,
-  // Bottom-tab label, unselected — 11/500 (Medium) per Figma nav spec.
+  // Bottom-tab labels (Figma draws them raw SemiBold 10; native tabs own the real bar).
   navLabel: {
     ...numericFontVariant,
     fontFamily: fontFamilies.bodyMedium,
     fontSize: 11,
     color: colors.textPrimary,
   } satisfies TextStyle,
-  // Bottom-tab label, selected — 11/600 (SemiBold). Same color; weight conveys
-  // selection alongside the filled icon.
   navLabelSelected: {
     ...numericFontVariant,
     fontFamily: fontFamilies.bodySemiBold,
     fontSize: 11,
     color: colors.textPrimary,
+  } satisfies TextStyle,
+  // --- legacy aliases: same metrics as a library role; re-role call sites, then delete ---
+  // = display
+  displayLarge: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyBold,
+    fontSize: 29,
+    lineHeight: 38,
+    color: colors.gray900,
+  } satisfies TextStyle,
+  // = titleLarge (was ExtraBold 25)
+  title: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyBold,
+    fontSize: 23,
+    lineHeight: 30,
+    color: colors.textPrimary,
+  } satisfies TextStyle,
+  // = titleMedium (was ExtraBold 21)
+  titleCompact: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 19,
+    lineHeight: 25,
+    color: colors.textPrimary,
+  } satisfies TextStyle,
+  // = titleSmall (was Bold 17)
+  sectionTitleBold: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 17,
+    lineHeight: 22,
+    color: colors.gray900,
+  } satisfies TextStyle,
+  // = body
+  bodySmall: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyRegular,
+    fontSize: 14,
+    lineHeight: 18,
+    color: colors.gray900,
+  } satisfies TextStyle,
+  // = bodyMedium: Figma buttons are Medium 14 (was SemiBold 15)
+  control: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 14,
+    lineHeight: 18,
+    color: colors.textPrimary,
+  } satisfies TextStyle,
+  // = overline
+  captionRegular: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyRegular,
+    fontSize: 12,
+    lineHeight: 16,
+    color: colors.gray700,
+  } satisfies TextStyle,
+  // = titleMedium (was ExtraBold 20)
+  feedTitle: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 19,
+    lineHeight: 25,
+  } satisfies TextStyle,
+  // = titleLarge (was ExtraBold 24)
+  feedPageTitle: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyBold,
+    fontSize: 23,
+    lineHeight: 30,
+  } satisfies TextStyle,
+  // = titleSmall (was ExtraBold 17)
+  feedSectionTitle: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 17,
+    lineHeight: 22,
+  } satisfies TextStyle,
+  // = display (was ExtraBold 34)
+  feedDeltaLarge: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyBold,
+    fontSize: 29,
+    lineHeight: 38,
+  } satisfies TextStyle,
+  // = titleSmall (was ExtraBold 18)
+  feedDelta: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 17,
+    lineHeight: 22,
+  } satisfies TextStyle,
+  // = overline (was ExtraBold 12 tracked)
+  feedEyebrow: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyRegular,
+    fontSize: 12,
+    lineHeight: 16,
+    letterSpacing: 0,
+  } satisfies TextStyle,
+  // = chipLabel (was ExtraBold 11)
+  feedTag: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 11,
+    lineHeight: 14,
   } satisfies TextStyle,
 } as const;
 

@@ -17,13 +17,13 @@ import {
   token itself were repointed, which is exactly the drift worth catching.
 */
 describe('reticle outline colours', () => {
-  it('rests on the pale lilac stroke, per Figma 5085:15171 Color/purple/200', () => {
-    expect(reticleRestingOutlineColor).toBe('#D9AEFF');
+  it('rests on the purple 500 stroke, per Figma 5559:7112', () => {
+    expect(reticleRestingOutlineColor).toBe('#A54BFA');
     expect(reticleRestingOutlineColor).not.toBe(colors.scannerTextPrimary);
   });
 
-  it('pulses to the saturated brand purple on capture', () => {
-    expect(reticleLockedOutlineColor).toBe('#A54BFA');
+  it('pulses white on capture, against the purple 500 frame', () => {
+    expect(reticleLockedOutlineColor).toBe('#FFFFFF');
   });
 
   it('keeps the two states distinguishable, or the capture pulse says nothing', () => {

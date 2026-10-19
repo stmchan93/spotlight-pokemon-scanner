@@ -314,7 +314,7 @@ describe('PortfolioScreen', () => {
 
     // Figma 2749:4749 — collection picker on the left, running total on the right.
     expect(screen.getByTestId('collection-search-row-collection')).toBeTruthy();
-    expect(screen.getByText('Main Collection')).toBeTruthy();
+    expect(within(screen.getByTestId('collection-search-row-collection')).getByText('MAIN COLLECTION')).toBeTruthy();
     /*
       The total is a PLACEHOLDER until it is real, and only then a number. The
       old assertion allowed either, because `$0` satisfies a currency pattern —
@@ -322,10 +322,10 @@ describe('PortfolioScreen', () => {
       between switching collections and the refetch landing.
     */
     expect(screen.getByTestId('collection-search-row-total-value').props.children)
-      .toBe('Total Value: —');
+      .toBe('TOTAL: —');
     await waitFor(() => {
       expect(screen.getByTestId('collection-search-row-total-value').props.children).toMatch(
-        /^Total Value: \$[\d.,]+k?$/,
+        /^TOTAL: \$[\d.,]+K?$/,
       );
     });
     expect(screen.queryByText('My Portfolio')).toBeNull();
@@ -360,7 +360,7 @@ describe('PortfolioScreen', () => {
     });
     // Creating switches the tab to the new (empty) collection.
     await waitFor(() => {
-      expect(screen.getByText('Grails')).toBeTruthy();
+      expect(within(screen.getByTestId('collection-search-row-collection')).getByText('GRAILS')).toBeTruthy();
     });
   });
 
@@ -384,7 +384,7 @@ describe('PortfolioScreen', () => {
         expect(screen.getByTestId('portfolio-summary-value')).toHaveTextContent('$42.00');
       });
       // The name and the money have to agree — that is the whole complaint.
-      expect(screen.getByText('Grails')).toBeTruthy();
+      expect(within(screen.getByTestId('collection-search-row-collection')).getByText('GRAILS')).toBeTruthy();
     });
 
     it('drops the old collection\'s money the moment you switch, not when the refetch lands', async () => {
@@ -512,7 +512,7 @@ describe('PortfolioScreen', () => {
       });
 
       // Its money must not reappear under the name of the collection you picked.
-      expect(screen.getByText('Grails')).toBeTruthy();
+      expect(within(screen.getByTestId('collection-search-row-collection')).getByText('GRAILS')).toBeTruthy();
       expect(screen.getByTestId('portfolio-summary-value')).toHaveTextContent('$42.00');
       // Its cards must not either — the late read merged them in even when the
       // headline number happened to survive.
@@ -571,7 +571,7 @@ describe('PortfolioScreen', () => {
       await waitFor(() => {
         expect(screen.getByTestId('portfolio-summary-value')).toHaveTextContent('$42.00');
       });
-      expect(screen.getByText('Grails')).toBeTruthy();
+      expect(within(screen.getByTestId('collection-search-row-collection')).getByText('GRAILS')).toBeTruthy();
     });
 
     it('fetches the dashboard ONCE on a cold start, under the resolved collection', async () => {
@@ -639,7 +639,7 @@ describe('PortfolioScreen', () => {
       // Deleting takes the collection's cards with it, so the copy says so —
       // by name, without making the user parse a count.
       expect(
-        within(confirm).getByText(/will be deleted along with all of its cards/),
+        within(confirm).getByText(/will be deleted along with all of its cards/i),
       ).toBeTruthy();
       expect(deleteCollection).not.toHaveBeenCalled();
 
@@ -899,7 +899,7 @@ describe('PortfolioScreen', () => {
     await waitFor(() =>
       expect(
         screen.getByTestId('collection-search-row-total-value').props.children,
-      ).toBe('Total Value: *****'),
+      ).toBe('TOTAL: *****'),
     );
   });
 

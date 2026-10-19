@@ -158,7 +158,7 @@ function CardSummary({
           {card.setName}
         </Text>
         <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
-          {cardNumberLabel(card)}
+          {cardNumberLabel(card).toUpperCase()}
         </Text>
       </View>
     </SurfaceCard>
@@ -207,10 +207,10 @@ function SearchResultRow({
           {result.setName}
         </Text>
         <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
-          {cardNumberLabel(result)}
+          {cardNumberLabel(result).toUpperCase()}
         </Text>
       </View>
-      <Text style={[theme.typography.titleCompact, { color: theme.colors.textSecondary }]}>›</Text>
+      <Text style={[theme.typography.titleMedium, { color: theme.colors.textSecondary }]}>›</Text>
     </Pressable>
   );
 }
@@ -254,7 +254,7 @@ function AngleProgress({
                 },
               ]}
             >
-              {angle.title}
+              {angle.title.toUpperCase()}
             </Text>
           </View>
         );
@@ -579,7 +579,7 @@ export function LabelingSessionScreen() {
     <View style={styles.header}>
       <ChromeBackButton onPress={handleBack} testID="labeler-back-button" />
       <View style={styles.headerCopy}>
-        <Text style={[theme.typography.title, { color: theme.colors.textPrimary }]}>{title}</Text>
+        <Text style={[theme.typography.titleLarge, { color: theme.colors.textPrimary }]}>{title}</Text>
         {subtitle ? (
           <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>{subtitle}</Text>
         ) : null}
@@ -659,7 +659,7 @@ export function LabelingSessionScreen() {
                   {[selectedCard.setName, cardNumberLabel(selectedCard)].filter(Boolean).join(' • ')}
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.scannerTextSecondary }]}>
-                  {currentAngleIndex + 1} of {requiredAngles.length}
+                  {currentAngleIndex + 1} OF {requiredAngles.length}
                 </Text>
               </View>
 
@@ -806,7 +806,7 @@ export function LabelingSessionScreen() {
                         {angle.title}
                       </Text>
                       <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
-                        {capture ? 'Captured' : 'Missing'}
+                        {capture ? 'CAPTURED' : 'MISSING'}
                       </Text>
                     </View>
                     <Button

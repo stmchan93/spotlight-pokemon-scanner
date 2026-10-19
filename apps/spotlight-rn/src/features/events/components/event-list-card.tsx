@@ -29,7 +29,7 @@ type EventListCardProps = {
 export function EventListCard({ event, saved, onPress, onToggleSaved }: EventListCardProps) {
   const theme = useSpotlightTheme();
   const hours = formatEventHours(event);
-  const meta = [theme.typography.captionRegular, styles.upper, { color: theme.colors.gray700 }];
+  const meta = [theme.typography.overline, { color: theme.colors.gray700 }];
 
   return (
     <Pressable
@@ -44,27 +44,27 @@ export function EventListCard({ event, saved, onPress, onToggleSaved }: EventLis
         <View style={styles.summary}>
           <Text
             numberOfLines={1}
-            style={[theme.typography.feedRowTitle, styles.upper, { color: theme.colors.gray900 }]}
+            style={[theme.typography.feedRowTitle, { color: theme.colors.gray900 }]}
           >
-            {event.shortTitle}
+            {event.shortTitle.toUpperCase()}
           </Text>
           <Text numberOfLines={1} style={meta}>
-            {event.venue}
+            {event.venue.toUpperCase()}
           </Text>
           <View style={styles.timing}>
-            <Text style={meta}>{formatEventDateRange(event)}</Text>
+            <Text style={meta}>{formatEventDateRange(event).toUpperCase()}</Text>
             {hours ? (
               <>
                 <View style={[styles.divider, { backgroundColor: theme.colors.gray300 }]} />
-                <Text style={meta}>{hours}</Text>
+                <Text style={meta}>{hours.toUpperCase()}</Text>
               </>
             ) : null}
           </View>
         </View>
         <View style={styles.location}>
           <MapPin color={theme.colors.gray700} height={PIN_SIZE} strokeWidth={1.5} width={PIN_SIZE} />
-          <Text numberOfLines={1} style={[theme.typography.bodySmall, styles.upper, { color: theme.colors.gray700 }]}>
-            {event.city}
+          <Text numberOfLines={1} style={[theme.typography.body, { color: theme.colors.gray700 }]}>
+            {event.city.toUpperCase()}
           </Text>
         </View>
       </View>
@@ -104,9 +104,6 @@ const styles = StyleSheet.create({
     gap: spacing.xxxs,
     // Keep the title clear of the heart.
     paddingRight: HEART_SIZE + spacing.xxxs,
-  },
-  upper: {
-    textTransform: 'uppercase',
   },
   timing: {
     alignItems: 'center',

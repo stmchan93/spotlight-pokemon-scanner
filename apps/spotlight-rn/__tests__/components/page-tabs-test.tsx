@@ -51,7 +51,7 @@ describe('PageTabs', () => {
   // negative margin, which read as clipped to the word rather than marking the
   // tab. Padding on the TAB is what sets the width now, so the underline must
   // stretch and must NOT claw any of it back.
-  it('runs the underline the full width of the tab, not just the label', () => {
+  it('runs the underline 12pt past the label on each side', () => {
     renderWithProviders(
       <PageTabs<TabValue>
         tabs={TABS}
@@ -64,14 +64,13 @@ describe('PageTabs', () => {
     const tabStyle = StyleSheet.flatten(
       screen.getByTestId('page-tabs-tab-portfolio').props.style,
     );
-    expect(tabStyle.paddingHorizontal).toBe(10);
+    expect(tabStyle.paddingHorizontal).toBe(12);
 
     const underlineStyle = StyleSheet.flatten(
       screen.getByTestId('page-tabs-tab-portfolio-underline').props.style,
     );
     expect(underlineStyle.alignSelf).toBe('stretch');
-    // The negative margin that made it hug the word is gone.
-    expect(underlineStyle.marginHorizontal).toBeUndefined();
+    expect(underlineStyle.marginHorizontal).toBe(-12);
     expect(underlineStyle.height).toBe(2);
   });
 

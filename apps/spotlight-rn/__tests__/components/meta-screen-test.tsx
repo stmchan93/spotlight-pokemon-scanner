@@ -42,7 +42,7 @@ describe('MetaScreen', () => {
     renderMeta(async () => mockMetaPulse);
 
     expect(await screen.findByText(mockMetaPulse.headline.title)).toBeTruthy();
-    expect(screen.getByText("This week's read")).toBeTruthy();
+    expect(screen.getByText("THIS WEEK'S READ")).toBeTruthy();
     expect(screen.getByTestId('meta-stat-graded')).toBeTruthy();
     expect(screen.getByTestId('meta-stat-raw')).toBeTruthy();
     expect(screen.getByText('+6.8%')).toBeTruthy();

@@ -92,7 +92,7 @@ export function EventDetailScreen({ eventId, onBack }: EventDetailScreenProps) {
     void Share.share(payload).catch(() => undefined);
   }, [event]);
 
-  const rowText = [theme.typography.bodySmall, styles.upper, { color: theme.colors.gray700 }];
+  const rowText = [theme.typography.body, { color: theme.colors.gray700 }];
 
   const renderPricing = (pricing: SpotlightEventPricing) => (
     <View style={styles.pricing} testID="event-detail-pricing">
@@ -104,8 +104,8 @@ export function EventDetailScreen({ eventId, onBack }: EventDetailScreenProps) {
             source={ticketIcon}
             style={[styles.ticketIcon, { tintColor: theme.colors.gray900 }]}
           />
-          <Text style={[theme.typography.bodyMedium, styles.upper, { color: theme.colors.gray900 }]}>
-            {formatTicketPrice(pricing)}
+          <Text style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}>
+            {formatTicketPrice(pricing).toUpperCase()}
           </Text>
         </View>
         {pricing.notes.map((note) => (
@@ -113,16 +113,16 @@ export function EventDetailScreen({ eventId, onBack }: EventDetailScreenProps) {
             <Text style={[theme.typography.body, styles.noteText, styles.bullet, { color: theme.colors.gray700 }]}>
               {'•'}
             </Text>
-            <Text style={[theme.typography.body, styles.noteText, styles.upper, styles.shrink, { color: theme.colors.gray700 }]}>
-              {note}
+            <Text style={[theme.typography.body, styles.noteText, styles.shrink, { color: theme.colors.gray700 }]}>
+              {note.toUpperCase()}
             </Text>
           </View>
         ))}
       </View>
       {pricing.disclaimer ? (
         <View style={[styles.disclaimer, { backgroundColor: theme.colors.gray100 }]}>
-          <Text style={[theme.typography.captionRegular, styles.upper, styles.shrink, { color: theme.colors.gray800 }]}>
-            {pricing.disclaimer}
+          <Text style={[theme.typography.overline, styles.shrink, { color: theme.colors.gray800 }]}>
+            {pricing.disclaimer.toUpperCase()}
           </Text>
         </View>
       ) : null}
@@ -150,13 +150,13 @@ export function EventDetailScreen({ eventId, onBack }: EventDetailScreenProps) {
       <>
         {/* Figma 5882:12716 — title, schedule rows, category tags. */}
         <View style={styles.details}>
-          <Text style={[theme.typography.detailTitleBold, styles.upper]} testID="event-detail-title">
-            {event.title}
+          <Text style={theme.typography.detailTitleBold} testID="event-detail-title">
+            {event.title.toUpperCase()}
           </Text>
           <View style={styles.rows}>
             <View style={styles.row}>
               <Clock color={theme.colors.gray700} height={ICON_SIZE} strokeWidth={1.5} width={ICON_SIZE} />
-              <Text style={rowText}>{formatEventSchedule(event)}</Text>
+              <Text style={rowText}>{formatEventSchedule(event).toUpperCase()}</Text>
             </View>
             <Pressable
               accessibilityHint="Opens in Maps"
@@ -166,27 +166,19 @@ export function EventDetailScreen({ eventId, onBack }: EventDetailScreenProps) {
               testID="event-detail-address"
             >
               <MapsArrowDiagonal color={theme.colors.gray700} height={ICON_SIZE} strokeWidth={1.5} width={ICON_SIZE} />
-              <Text style={[rowText, styles.shrink]}>{event.address}</Text>
+              <Text style={[rowText, styles.shrink]}>{event.address.toUpperCase()}</Text>
             </Pressable>
             {event.tableCount ? (
               <View style={styles.row}>
                 <PeopleTag color={theme.colors.gray700} height={ICON_SIZE} strokeWidth={1.5} width={ICON_SIZE} />
-                <Text style={rowText}>{`${event.tableCount}+ Tables`}</Text>
+                <Text style={rowText}>{`${event.tableCount}+ TABLES`}</Text>
               </View>
             ) : null}
             {event.about ? (
-              <Text style={[theme.typography.bodySmall, { color: theme.colors.gray700 }]}>{event.about}</Text>
+              <Text style={[theme.typography.body, { color: theme.colors.gray700 }]}>{event.about}</Text>
             ) : null}
           </View>
-          {event.categories.length > 0 ? (
-            <View style={styles.tags} testID="event-detail-categories">
-              {event.categories.map((category) => (
-                <View key={category} style={[styles.tag, { backgroundColor: theme.colors.gray100 }]}>
-                  <Text style={[theme.typography.caption, styles.upper, { color: theme.colors.gray900 }]}>{category}</Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
+          {/* No category chips (Pokemon, Sports…) under the details: user call, 2026-10-18. */}
         </View>
 
         {event.pricing ? renderPricing(event.pricing) : null}
@@ -300,6 +292,7 @@ export function EventDetailScreen({ eventId, onBack }: EventDetailScreenProps) {
             size="xs"
             style={styles.buy}
             testID="event-detail-buy"
+            uppercase
             variant="accent"
           />
         </View>
@@ -313,7 +306,7 @@ function SectionTitle({ title }: { title: string }) {
   const theme = useSpotlightTheme();
   return (
     <View style={styles.sectionTitle}>
-      <Text style={[theme.typography.feedRowTitle, styles.upper, { color: theme.colors.gray800 }]}>{title}</Text>
+      <Text style={[theme.typography.feedRowTitle, { color: theme.colors.gray800 }]}>{title.toUpperCase()}</Text>
       <View style={[styles.rule, { backgroundColor: theme.colors.gray200 }]} />
     </View>
   );
@@ -338,9 +331,6 @@ const styles = StyleSheet.create({
   },
   loading: {
     gap: spacing.xs,
-  },
-  upper: {
-    textTransform: 'uppercase',
   },
   details: {
     gap: spacing.sm,

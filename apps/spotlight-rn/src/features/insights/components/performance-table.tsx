@@ -2,7 +2,7 @@ import { forwardRef, useCallback } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import type { ListRenderItemInfo, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 
-import { borderWidths, PriceSparkline, radii, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { borderWidths, PriceSparkline, Text, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 import type { PortfolioPerformanceRow } from '@spotlight/api-client';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
@@ -87,7 +87,7 @@ export function PortfolioTag() {
   const theme = useSpotlightTheme();
   return (
     <View style={[styles.portfolioTag, { backgroundColor: theme.colors.gray900 }]}>
-      <Text style={[theme.typography.captionMedium, { color: theme.colors.gray0 }]}>
+      <Text style={[theme.typography.caption, { color: theme.colors.gray0 }]}>
         PORTFOLIO
       </Text>
     </View>
@@ -115,7 +115,9 @@ function TableHeaderBand() {
           key={label}
           numberOfLines={1}
           style={[
-            theme.typography.captionMedium,
+            // Figma draws these raw Medium 12; the 12pt library role is Overline.
+            // Caption-medium (13) no longer fits "CURRENT" in CELL_W.
+            theme.typography.overline,
             styles.headerLabel,
             { color: theme.colors.gray900, width: label === 'Graph' ? CHART_W : CELL_W },
           ]}
@@ -259,13 +261,13 @@ export const PerformanceTable = forwardRef<
               <View style={styles.cardTextBlock}>
                 <Text
                   numberOfLines={2}
-                  style={[theme.typography.label, { color: theme.colors.gray900 }]}
+                  style={[theme.typography.label, styles.rowName, { color: theme.colors.gray900 }]}
                 >
                   {row.name}
                 </Text>
                 <Text
                   numberOfLines={1}
-                  style={[theme.typography.label, { color: theme.colors.gray500 }]}
+                  style={[theme.typography.caption, { color: theme.colors.gray700 }]}
                 >
                   {row.cardNumber}
                 </Text>
@@ -275,19 +277,19 @@ export const PerformanceTable = forwardRef<
                   {subtitleLines.primary ? (
                     <Text
                       numberOfLines={1}
-                      style={[theme.typography.label, { color: theme.colors.gray900 }]}
+                      style={[theme.typography.overline, { color: theme.colors.gray900 }]}
                       testID={`${testID}-subtitle-${row.entryId}`}
                     >
-                      {subtitleLines.primary}
+                      {subtitleLines.primary.toUpperCase()}
                     </Text>
                   ) : null}
                   {subtitleLines.secondary ? (
                     <Text
                       numberOfLines={1}
-                      style={[theme.typography.label, { color: theme.colors.gray900 }]}
+                      style={[theme.typography.overline, { color: theme.colors.gray900 }]}
                       testID={`${testID}-subtitle2-${row.entryId}`}
                     >
-                      {subtitleLines.secondary}
+                      {subtitleLines.secondary.toUpperCase()}
                     </Text>
                   ) : null}
                 </View>
@@ -299,28 +301,28 @@ export const PerformanceTable = forwardRef<
             {row.sparkline.length > 1 ? (
               <PriceSparkline points={row.sparkline} trendPct={row.ytdGainPercent} />
             ) : (
-              <Text style={[theme.typography.bodySmall, { color: theme.colors.gray400 }]}>—</Text>
+              <Text style={[theme.typography.body, { color: theme.colors.gray400 }]}>—</Text>
             )}
           </View>
           {/* Current = unit price × quantity (backend `currentValue`), not the
               per-unit price — a 3× Near Mint entry shows the position's worth.
               The $ G/L column is likewise quantity-scaled backend-side. */}
-          <Text numberOfLines={1} style={[theme.typography.bodySmall, styles.cell, { color: theme.colors.gray900 }]}>
+          <Text numberOfLines={1} style={[theme.typography.body, styles.cell, { color: theme.colors.gray900 }]}>
             {money(row.currentValue)}
           </Text>
-          <Text numberOfLines={1} style={[theme.typography.bodySmall, styles.cell, { color: dollarDeltaColor(row.monthGainDollar) }]}>
+          <Text numberOfLines={1} style={[theme.typography.body, styles.cell, { color: dollarDeltaColor(row.monthGainDollar) }]}>
             {gainMoney(row.monthGainDollar)}
           </Text>
-          <Text numberOfLines={1} style={[theme.typography.bodySmall, styles.cell, { color: deltaColor(row.monthGainPercent) }]}>
+          <Text numberOfLines={1} style={[theme.typography.body, styles.cell, { color: deltaColor(row.monthGainPercent) }]}>
             {percent(row.monthGainPercent)}
           </Text>
-          <Text numberOfLines={1} style={[theme.typography.bodySmall, styles.cell, { color: dollarDeltaColor(totalDollar) }]}>
+          <Text numberOfLines={1} style={[theme.typography.body, styles.cell, { color: dollarDeltaColor(totalDollar) }]}>
             {gainMoney(totalDollar)}
           </Text>
-          <Text numberOfLines={1} style={[theme.typography.bodySmall, styles.cell, { color: deltaColor(totalPercent) }]}>
+          <Text numberOfLines={1} style={[theme.typography.body, styles.cell, { color: deltaColor(totalPercent) }]}>
             {percent(totalPercent)}
           </Text>
-          <Text numberOfLines={1} style={[theme.typography.bodySmall, styles.cell, { color: theme.colors.gray900 }]}>
+          <Text numberOfLines={1} style={[theme.typography.body, styles.cell, { color: theme.colors.gray900 }]}>
             {money(row.costBasisTotal)}
           </Text>
         </View>
@@ -337,10 +339,12 @@ export const PerformanceTable = forwardRef<
       theme.colors.gray100,
       theme.colors.gray300,
       theme.colors.gray400,
-      theme.colors.gray500,
+      theme.colors.gray700,
       theme.colors.gray900,
-      theme.typography.bodySmall,
+      theme.typography.body,
+      theme.typography.caption,
       theme.typography.label,
+      theme.typography.overline,
     ],
   );
 
@@ -464,13 +468,18 @@ const styles = StyleSheet.create({
     // (much wider) column edge.
     alignItems: 'center',
     borderCurve: 'continuous',
-    borderRadius: radii.pill,
+    borderRadius: 4,
     paddingHorizontal: 4,
-    paddingVertical: 2,
+    paddingVertical: 4,
     width: CARD_COL_WIDTH,
   },
   headerLabel: {
     textTransform: 'uppercase',
+  },
+  // Figma 5689:18323 draws the name Bold 14; there is no Bold-14 role, so the
+  // Label size carries the Bold family from the list-price role.
+  rowName: {
+    fontFamily: textStyles.feedRowTitle.fontFamily,
   },
   dataRow: {
     alignItems: 'center',

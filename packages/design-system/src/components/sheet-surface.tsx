@@ -43,8 +43,11 @@ export function SheetSurface({
           backgroundColor: surfaceColor,
           borderColor,
           borderCurve: 'continuous',
-          borderTopLeftRadius: 0,
-          borderTopRightRadius: 0,
+          borderTopLeftRadius: theme.radii.sheet,
+          borderTopRightRadius: theme.radii.sheet,
+          borderBottomLeftRadius: 0,
+          borderBottomRightRadius: 0,
+          overflow: 'hidden',
         },
         style,
       ]}

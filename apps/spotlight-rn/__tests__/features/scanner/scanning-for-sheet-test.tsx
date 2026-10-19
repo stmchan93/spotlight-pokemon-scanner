@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen, within } from '@testing-library/react-native';
 import type { PropsWithChildren } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -56,10 +56,10 @@ describe('ScanningForSheet', () => {
   it('offers every shipped game as a real, selectable lane', () => {
     const props = renderSheet();
 
-    expect(screen.getByText('One Piece EN')).toBeTruthy();
-    expect(screen.getByText('Disney Lorcana')).toBeTruthy();
-    expect(screen.getByText('Riftbound')).toBeTruthy();
-    expect(screen.getByText('Gundam')).toBeTruthy();
+    expect(screen.getByText('ONE PIECE EN')).toBeTruthy();
+    expect(screen.getByText('DISNEY LORCANA EN')).toBeTruthy();
+    expect(screen.getByText('RIFTBOUND EN')).toBeTruthy();
+    expect(screen.getByText('GUNDAM EN')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('scanning-for-sheet-type-onepiece'));
     expect(props.onSelectLane).toHaveBeenCalledWith({ game: 'onepiece', language: 'english' });
@@ -76,10 +76,23 @@ describe('ScanningForSheet', () => {
     expect(screen.queryByTestId('scanning-for-sheet-type-lorcana-jp')).toBeNull();
     expect(screen.queryByTestId('scanning-for-sheet-type-riftbound-jp')).toBeNull();
     expect(screen.queryByTestId('scanning-for-sheet-type-gundam-jp')).toBeNull();
-    expect(screen.queryByText('One Piece JP')).toBeNull();
+    expect(screen.queryByText('ONE PIECE JP')).toBeNull();
     // One Piece's EN-only index now WEARS the EN tag (user decision 2026-08-31)
     // without offering a language toggle.
-    expect(screen.queryByText('One Piece EN')).not.toBeNull();
+    expect(screen.queryByText('ONE PIECE EN')).not.toBeNull();
+  });
+
+  it('tags every English-only game with EN and the US flag', () => {
+    renderSheet();
+
+    for (const game of ['onepiece', 'lorcana', 'riftbound', 'gundam']) {
+      const row = screen.getByTestId(`scanning-for-sheet-type-${game}`);
+      expect(within(row).getByTestId('round-flag-en')).toBeTruthy();
+      expect(within(row).queryByTestId('round-flag-jp')).toBeNull();
+    }
+    expect(screen.getByText('DISNEY LORCANA EN')).toBeTruthy();
+    expect(screen.getByText('RIFTBOUND EN')).toBeTruthy();
+    expect(screen.getByText('GUNDAM EN')).toBeTruthy();
   });
 
   it('reflects the selected lane via the radio accessibility state', () => {
@@ -99,10 +112,10 @@ describe('ScanningForSheet', () => {
   it('renders disabled "Coming Soon" rows only for games we have no catalog for', () => {
     renderSheet();
 
-    expect(screen.getAllByText('Coming Soon').length).toBe(3);
-    expect(screen.getByText('Magic: The Gathering')).toBeTruthy();
-    expect(screen.getByText('Sports')).toBeTruthy();
-    expect(screen.getByText('Yu-Gi-Oh')).toBeTruthy();
+    expect(screen.getAllByText('COMING SOON').length).toBe(3);
+    expect(screen.getByText('MAGIC: THE GATHERING')).toBeTruthy();
+    expect(screen.getByText('SPORTS')).toBeTruthy();
+    expect(screen.getByText('YU-GI-OH')).toBeTruthy();
     // …and the rows are not interactive (no radio control / testID).
     expect(screen.queryByTestId('scanning-for-sheet-type-yugioh')).toBeNull();
   });

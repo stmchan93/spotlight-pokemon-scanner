@@ -57,9 +57,9 @@ describe('FollowListScreen', () => {
     });
     expect(fetchFollowers).toHaveBeenCalledWith('owner');
     expect(fetchFollowing).not.toHaveBeenCalled();
-    expect(screen.getByText('@ash')).toBeTruthy();
+    expect(screen.getByText('@ASH')).toBeTruthy();
     expect(screen.getByText('Misty')).toBeTruthy();
-    expect(screen.getByText('@misty')).toBeTruthy();
+    expect(screen.getByText('@MISTY')).toBeTruthy();
   });
 
   /*

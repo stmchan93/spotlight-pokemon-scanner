@@ -32,11 +32,11 @@ describe('AddAllMenu', () => {
     expect(screen.getByTestId('add-all-menu-collection')).toBeTruthy();
     expect(screen.getByTestId('add-all-menu-wishlist')).toBeTruthy();
     expect(screen.getByTestId('add-all-menu-remove')).toBeTruthy();
-    expect(screen.getByText('Collection')).toBeTruthy();
-    expect(screen.getByText('Watchlist')).toBeTruthy();
+    expect(screen.getByText('COLLECTION')).toBeTruthy();
+    expect(screen.getByText('WISHLIST')).toBeTruthy();
     // Bulk row is CLEAR (swipe-to-Delete is the single-row action); it opens
     // the same "Clear all scans?" confirm the tray header does.
-    expect(screen.getByText('Clear')).toBeTruthy();
+    expect(screen.getByText('CLEAR')).toBeTruthy();
   });
 
   it.each(['collection', 'wishlist', 'remove'] as const)(

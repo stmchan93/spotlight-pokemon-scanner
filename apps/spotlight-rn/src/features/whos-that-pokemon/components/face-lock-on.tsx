@@ -282,7 +282,7 @@ export function FaceLockOn({
             testID={`${testID}-caption-layer`}
           >
             <AppText style={styles.caption} testID={`${testID}-caption`}>
-              {isMeasured ? 'Face geometry locked' : 'Estimating your frame'}
+              {isMeasured ? 'FACE GEOMETRY LOCKED' : 'ESTIMATING YOUR FRAME'}
             </AppText>
           </Animated.View>
         </>
@@ -309,6 +309,7 @@ const styles = StyleSheet.create({
     height: REVEAL_ARTWORK_HEIGHT_PCT,
     width: REVEAL_ARTWORK_WIDTH_PCT,
   },
+  // Scanner-canvas status caption, in caps like the theater's status line.
   caption: {
     ...textStyles.captionMedium,
     bottom: spacing.xxxl,

@@ -99,7 +99,7 @@ export function GameMosaicTile({
       </Text>
       <Text
         numberOfLines={1}
-        style={[theme.typography.caption, { color: theme.colors.textSecondary }]}
+        style={[styles.meta, theme.typography.caption, { color: theme.colors.textSecondary }]}
       >
         {loading ? 'Loading sets…' : `${setCount} ${setCount === 1 ? 'set' : 'sets'}`}
       </Text>
@@ -154,6 +154,15 @@ const styles = StyleSheet.create({
   },
   name: {
     textAlign: 'center',
+    width: '100%',
+  },
+  // Count line in caps, like the Figma summary rows ("2 FOLLOWERS", "TOTAL:
+  // $10.3k" — Collection 5938:16740); the game name above keeps its casing.
+  // Full width, not content-sized: iOS measures a `numberOfLines` text before
+  // the transform and ellipsizes the wider caps ("8 SE…").
+  meta: {
+    textAlign: 'center',
+    textTransform: 'uppercase',
     width: '100%',
   },
 });

@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Button, radii, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 type ConfirmDeleteSheetProps = {
   visible: boolean;
@@ -187,20 +187,20 @@ export function ConfirmDeleteSheet({
             <View style={[styles.handleBar, { backgroundColor: theme.colors.gray200 }]} />
           </Pressable>
           <Text
-            style={[theme.typography.bodyMedium, styles.title, { color: theme.colors.gray900 }]}
+            style={[theme.typography.labelStrong, styles.title, { color: theme.colors.gray900 }]}
           >
-            {title}
+            {title.toUpperCase()}
           </Text>
         </View>
 
-        <Text style={[theme.typography.body, styles.message, { color: theme.colors.gray900 }]}>
-          {resolvedMessage}
+        <Text style={[theme.typography.caption, styles.message, { color: theme.colors.gray900 }]}>
+          {resolvedMessage.toUpperCase()}
         </Text>
 
         <View style={styles.actions}>
           <Button
             disabled={confirmPending}
-            label={confirmLabel}
+            label={confirmLabel.toUpperCase()}
             labelStyleVariant="label"
             onPress={onConfirm}
             shape="rounded"
@@ -210,7 +210,7 @@ export function ConfirmDeleteSheet({
           />
           <Button
             disabled={confirmPending}
-            label={cancelLabel}
+            label={cancelLabel.toUpperCase()}
             labelStyleVariant="label"
             onPress={onClose}
             shape="rounded"
@@ -289,8 +289,9 @@ const styles = StyleSheet.create({
   },
   sheet: {
     borderCurve: 'continuous',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
+    borderTopLeftRadius: radii.sheet,
+    borderTopRightRadius: radii.sheet,
+    overflow: 'hidden',
     paddingTop: 10,
   },
   title: {

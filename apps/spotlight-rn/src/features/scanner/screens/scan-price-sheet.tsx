@@ -26,6 +26,7 @@ import {
   SurfaceCard,
   Text,
   colors,
+  radii,
   textStyles,
   useSpotlightTheme,
 } from '@spotlight/design-system';
@@ -262,7 +263,7 @@ export function ScanPriceSheet({
                   size={36}
                   testID={`${testID}-close`}
                 >
-                  <Text style={[theme.typography.headline, styles.closeGlyph, { color: theme.colors.textPrimary }]}>
+                  <Text style={[theme.typography.headline, { color: theme.colors.textPrimary }]}>
                     ×
                   </Text>
                 </IconButton>
@@ -422,9 +423,6 @@ const styles = StyleSheet.create({
     gap: 14,
     marginTop: 14,
   },
-  closeGlyph: {
-    lineHeight: 20,
-  },
   disclaimer: {
     ...textStyles.caption,
     color: colors.textSecondary,
@@ -439,7 +437,7 @@ const styles = StyleSheet.create({
     width: 18,
   },
   linkLabel: {
-    ...textStyles.control,
+    ...textStyles.label,
     color: colors.textPrimary,
   },
   linkRow: {
@@ -503,8 +501,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sheet: {
+    borderCurve: 'continuous',
+    borderTopLeftRadius: radii.sheet,
+    borderTopRightRadius: radii.sheet,
     marginBottom: 16,
     marginHorizontal: 16,
+    overflow: 'hidden',
   },
   sheetWrap: {
     justifyContent: 'flex-end',

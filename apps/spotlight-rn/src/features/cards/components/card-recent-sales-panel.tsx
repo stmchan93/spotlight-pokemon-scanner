@@ -125,7 +125,7 @@ function SaleRow({
           {displayTitle}
         </Text>
         {dateText ? (
-          <Text style={[theme.typography.label, { color: theme.colors.gray500 }]}>
+          <Text style={[theme.typography.captionMedium, { color: theme.colors.gray500 }]}>
             {dateText}
           </Text>
         ) : null}
@@ -175,7 +175,7 @@ export function CardRecentSalesPanel({
   // way out, so they share one renderer.
   const renderNothingFound = (branchTestID: string) => (
     <View style={styles.panel} testID={branchTestID}>
-      <Text style={[theme.typography.label, { color: theme.colors.gray500 }]}>
+      <Text style={[theme.typography.caption, { color: theme.colors.gray500 }]}>
         No recent eBay sales found.
       </Text>
       {onSeeMoreOnEbayPress ? (

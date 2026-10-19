@@ -73,6 +73,7 @@ export function CollectionListRow({
       selectable={selectable}
       selected={selected}
       setName={entry.setName}
+      textPreset="collection"
       // Since added: the % under the price, and a sparkline from the add date
       // with the added-at price dashed across it (same as the Watchlist).
       sparkBaseline={COLLECTION_TREND_ACCESS === 'full' ? entry.sinceAddedBaselinePrice ?? null : null}

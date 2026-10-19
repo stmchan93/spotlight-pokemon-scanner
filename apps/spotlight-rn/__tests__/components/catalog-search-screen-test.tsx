@@ -88,7 +88,7 @@ describe('CatalogSearchScreen', () => {
     fireEvent.press(screen.getByTestId('catalog-close'));
     expect(onClose).toHaveBeenCalledTimes(1);
 
-    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
+    fireEvent.changeText(screen.getByPlaceholderText(/search by name, set, or number/i), 'tree');
     await advanceDebounce();
 
     expect(await screen.findByText('Searching catalog')).toBeTruthy();
@@ -162,7 +162,7 @@ describe('CatalogSearchScreen', () => {
 
     // The Cards/People `SegmentedControl` used to appear at exactly this point:
     // a text query of 2+ characters. Typing must now only ever search cards.
-    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
+    fireEvent.changeText(screen.getByPlaceholderText(/search by name, set, or number/i), 'tree');
     await advanceDebounce();
 
     expect(screen.queryByTestId('catalog-search-tabs')).toBeNull();
@@ -195,7 +195,7 @@ describe('CatalogSearchScreen', () => {
       <CatalogSearchScreen onClose={jest.fn()} onOpenCard={onOpenCard} />,
     );
 
-    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
+    fireEvent.changeText(screen.getByPlaceholderText(/search by name, set, or number/i), 'tree');
     await advanceDebounce();
 
     const resultRow = await screen.findByTestId('catalog-result-smoke-sm7-1');
@@ -222,7 +222,7 @@ describe('CatalogSearchScreen', () => {
       <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
     );
 
-    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'zzz');
+    fireEvent.changeText(screen.getByPlaceholderText(/search by name, set, or number/i), 'zzz');
     await advanceDebounce();
 
     expect(await screen.findByText('No matching cards')).toBeTruthy();
@@ -241,7 +241,7 @@ describe('CatalogSearchScreen', () => {
       <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
     );
 
-    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
+    fireEvent.changeText(screen.getByPlaceholderText(/search by name, set, or number/i), 'tree');
     await advanceDebounce();
 
     // Page 1 rendered; page 2 not yet.
@@ -280,7 +280,7 @@ describe('CatalogSearchScreen', () => {
       <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
     );
 
-    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'fallback');
+    fireEvent.changeText(screen.getByPlaceholderText(/search by name, set, or number/i), 'fallback');
     await advanceDebounce();
 
     expect(await screen.findByTestId('catalog-result-fallback-1')).toBeTruthy();
@@ -306,7 +306,7 @@ describe('CatalogSearchScreen', () => {
     expect(await screen.findByTestId('catalog-result-sm7-1')).toBeTruthy();
 
     // Text + chip combine into one search request.
-    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
+    fireEvent.changeText(screen.getByPlaceholderText(/search by name, set, or number/i), 'tree');
     await advanceDebounce();
     expect(searchSpy).toHaveBeenCalledWith('tree', expect.any(Number), 0, { game: 'all', rarityBucket: 'sir' });
 
@@ -364,7 +364,7 @@ describe('CatalogSearchScreen', () => {
         <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
       );
 
-      fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'prismatic');
+      fireEvent.changeText(screen.getByPlaceholderText(/search by name, set, or number/i), 'prismatic');
       fireEvent.press(screen.getByTestId('catalog-rarity-chip-sir'));
       await advanceDebounce();
       expect(searchSpy).toHaveBeenLastCalledWith('prismatic', expect.any(Number), 0, { game: 'all', rarityBucket: 'sir' });
@@ -401,7 +401,7 @@ describe('CatalogSearchScreen', () => {
     const sealedPage = { cards: mockSealedCatalogResults, hasMore: false };
 
     function typeQuery(value: string) {
-      fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), value);
+      fireEvent.changeText(screen.getByPlaceholderText(/search by name, set, or number/i), value);
     }
 
     it('shows sealed matches in a row above the card grid', async () => {
@@ -415,7 +415,7 @@ describe('CatalogSearchScreen', () => {
       expect(searchSpy).toHaveBeenCalledWith('prismatic', 10, 0, { game: 'all', kind: 'sealed' });
 
       expect(await screen.findByTestId('catalog-sealed-section')).toBeTruthy();
-      expect(screen.getByText('Sealed products')).toBeTruthy();
+      expect(screen.getByText('SEALED PRODUCTS')).toBeTruthy();
       expect(screen.getByTestId(`catalog-sealed-row-${etb.id}`)).toBeTruthy();
       // A "Cards" heading separates the row from the card grid.
       expect(screen.getByTestId('catalog-cards-heading')).toBeTruthy();
@@ -542,7 +542,7 @@ describe('CatalogSearchScreen', () => {
       <CatalogSearchScreen game="onepiece" onClose={jest.fn()} onOpenCard={jest.fn()} />,
     );
 
-    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'darkrai');
+    fireEvent.changeText(screen.getByPlaceholderText(/search by name, set, or number/i), 'darkrai');
     await advanceDebounce();
 
     expect(searchSpy).toHaveBeenCalledWith('darkrai', expect.any(Number), 0, { game: 'all' });
@@ -558,7 +558,7 @@ describe('CatalogSearchScreen', () => {
       <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
     );
 
-    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
+    fireEvent.changeText(screen.getByPlaceholderText(/search by name, set, or number/i), 'tree');
     await advanceDebounce();
 
     /*
@@ -580,7 +580,7 @@ describe('CatalogSearchScreen', () => {
         <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
       );
 
-      fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
+      fireEvent.changeText(screen.getByPlaceholderText(/search by name, set, or number/i), 'tree');
       await advanceDebounce();
 
       await screen.findByTestId('catalog-result-sm7-1');
@@ -614,7 +614,7 @@ describe('CatalogSearchScreen', () => {
         <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
       );
 
-      fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
+      fireEvent.changeText(screen.getByPlaceholderText(/search by name, set, or number/i), 'tree');
       await advanceDebounce();
 
       await screen.findByTestId('catalog-result-sm7-1');
@@ -634,7 +634,7 @@ describe('CatalogSearchScreen', () => {
       <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
     );
 
-    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
+    fireEvent.changeText(screen.getByPlaceholderText(/search by name, set, or number/i), 'tree');
     await advanceDebounce();
 
     expect(await screen.findByText('Search unavailable')).toBeTruthy();
@@ -740,7 +740,7 @@ describe('CatalogSearchScreen', () => {
       );
 
       expect(
-        screen.getByPlaceholderText('Search by name, set, or number').props.value,
+        screen.getByPlaceholderText(/search by name, set, or number/i).props.value,
       ).toBe('');
       expect(dismiss).toHaveBeenCalled();
       dismiss.mockRestore();
@@ -760,7 +760,7 @@ describe('CatalogSearchScreen', () => {
         <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
       );
       fireEvent.changeText(
-        screen.getByPlaceholderText('Search by name, set, or number'),
+        screen.getByPlaceholderText(/search by name, set, or number/i),
         'tree',
       );
       await advanceDebounce();

@@ -124,7 +124,7 @@ describe('ScanningTheater', () => {
     renderWithProviders(<ScanningTheater palette={PALETTE} selfieUri="file:///selfie.jpg" />);
 
     const caption = await screen.findByTestId('wtp-theater-sample-count');
-    expect(caption.props.children).toBe(`${PALETTE.length} of ${PALETTE.length} tones sampled`);
+    expect(caption.props.children).toBe(`${PALETTE.length} OF ${PALETTE.length} TONES SAMPLED`);
   });
 
   it('drops the sweep line under reduce motion', async () => {
@@ -162,7 +162,7 @@ describe('FaceLockOn', () => {
     // The caption is the whole readout now: the bracket that used to draw the
     // head box was removed because a box that is off — or estimated — puts a
     // rectangle visibly wrong on your face and advertises the miss.
-    expect(get('wtp-lockon-caption').props.children).toBe('Face geometry locked');
+    expect(get('wtp-lockon-caption').props.children).toBe('FACE GEOMETRY LOCKED');
     expect(query('wtp-lockon-head-frame')).toBeNull();
   });
 
@@ -191,7 +191,7 @@ describe('FaceLockOn', () => {
 
     expect(await screen.findByTestId('wtp-lockon')).toBeTruthy();
     // Says "estimating" rather than claiming a lock it does not have.
-    expect(get('wtp-lockon-caption').props.children).toBe('Estimating your frame');
+    expect(get('wtp-lockon-caption').props.children).toBe('ESTIMATING YOUR FRAME');
     expect(get('wtp-lockon-silhouette')).toBeTruthy();
   });
 

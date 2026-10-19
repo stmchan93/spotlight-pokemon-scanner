@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { useSpotlightTheme } from '../theme';
+import { fontFamilies } from '../tokens';
 import { Text } from './scaled-text';
 
 type AvatarProps = {
@@ -70,7 +71,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
+  // Size scales with the avatar (0.4 × diameter), so only the family is fixed.
   initials: {
-    fontWeight: '600',
+    fontFamily: fontFamilies.bodySemiBold,
   },
 });

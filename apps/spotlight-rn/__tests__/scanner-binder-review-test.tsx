@@ -233,7 +233,7 @@ describe('ScannerScreen binder page review — batch editing', () => {
     }
     // And the hold gesture is advertised, since nothing else hints at it —
     // the page at rest carries NO dropdowns; they arrive with a selection.
-    expect(screen.getByTestId(`${REVIEW}-hint`)).toHaveTextContent(/Hold to edit/);
+    expect(screen.getByTestId(`${REVIEW}-hint`)).toHaveTextContent(/HOLD TO EDIT/);
     expect(screen.queryByTestId(`${REVIEW}-batch`)).toBeNull();
   });
 
@@ -263,7 +263,7 @@ describe('ScannerScreen binder page review — batch editing', () => {
 
     expect(await screen.findByText('Applied to 3 of 3')).toBeTruthy();
     // NM prices for the Normal printing: 10 + 20 + 1
-    expect(screen.getByTestId(`${REVIEW}-add-all`)).toHaveTextContent('Add 3 · $31.00');
+    expect(screen.getByTestId(`${REVIEW}-add-all`)).toHaveTextContent('ADD 3 · $31.00');
     // Normal is every one of these cards' OWN printing, so it earns no line —
     // the batch landed (the prices say so) without labelling a non-change.
     expect(screen.queryByTestId(`${REVIEW}-pocket-0-printing`)).toBeNull();
@@ -284,7 +284,7 @@ describe('ScannerScreen binder page review — batch editing', () => {
     __resetRecentCapturesPersistenceForTests();
     renderScannerWithPage();
     await openPageReview();
-    expect(screen.getByTestId(`${REVIEW}-add-all`)).toHaveTextContent('Add 3 · $31.00');
+    expect(screen.getByTestId(`${REVIEW}-add-all`)).toHaveTextContent('ADD 3 · $31.00');
   });
 
   it('"Variant" applies only where that variant exists and reports the skips', async () => {
@@ -297,15 +297,15 @@ describe('ScannerScreen binder page review — batch editing', () => {
     fireEvent.press(await screen.findByTestId(`${REVIEW}-batch-variant-menu-holofoil`));
 
     await waitFor(() => {
-      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing`)).toHaveTextContent('Holo');
-      expect(screen.getByTestId(`${REVIEW}-pocket-1-printing`)).toHaveTextContent('Holo');
+      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing`)).toHaveTextContent('HOLO');
+      expect(screen.getByTestId(`${REVIEW}-pocket-1-printing`)).toHaveTextContent('HOLO');
     });
     // Charmander has no Holofoil printing: left on its default (so it shows no
     // printing line at all), and counted in the notice.
     expect(screen.queryByTestId(`${REVIEW}-pocket-2-printing`)).toBeNull();
     expect(await screen.findByText('Applied to 2 of 3 · 1 has no Holofoil variant')).toBeTruthy();
     // 50 + 100 + 1
-    expect(screen.getByTestId(`${REVIEW}-add-all`)).toHaveTextContent('Add 3 · $151.00');
+    expect(screen.getByTestId(`${REVIEW}-add-all`)).toHaveTextContent('ADD 3 · $151.00');
 
     // A second batch reuses the cached matrices — no refetch. Going back to
     // Normal is a return to each card's own printing, so the lines go away.
@@ -313,7 +313,7 @@ describe('ScannerScreen binder page review — batch editing', () => {
     fireEvent.press(screen.getByTestId(`${REVIEW}-batch-variant`));
     fireEvent.press(await screen.findByTestId(`${REVIEW}-batch-variant-menu-normal`));
     await waitFor(() => {
-      expect(screen.getByTestId(`${REVIEW}-add-all`)).toHaveTextContent('Add 3 · $31.00');
+      expect(screen.getByTestId(`${REVIEW}-add-all`)).toHaveTextContent('ADD 3 · $31.00');
     });
     expect(screen.queryByTestId(`${REVIEW}-pocket-0-printing`)).toBeNull();
     expect(screen.queryByTestId(`${REVIEW}-pocket-2-printing`)).toBeNull();
@@ -340,7 +340,7 @@ describe('ScannerScreen binder page review — batch editing', () => {
 
     // Alakazam took the Holofoil price; Charmander has none and was skipped.
     await waitFor(() => {
-      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing`)).toHaveTextContent('Holo');
+      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing`)).toHaveTextContent('HOLO');
     });
     // The pocket nobody picked is untouched — and the count reports the two.
     expect(screen.queryByTestId(`${REVIEW}-pocket-1-printing`)).toBeNull();
@@ -350,7 +350,7 @@ describe('ScannerScreen binder page review — batch editing', () => {
     // Done clears the selection and the toolbar leaves with it; the hint is back.
     fireEvent.press(screen.getByTestId(`${REVIEW}-batch-done`));
     expect(screen.queryByTestId(`${REVIEW}-batch`)).toBeNull();
-    expect(screen.getByTestId(`${REVIEW}-hint`)).toHaveTextContent(/Hold to edit/);
+    expect(screen.getByTestId(`${REVIEW}-hint`)).toHaveTextContent(/HOLD TO EDIT/);
   });
 
   it('starts the selection toolbar on the first card, not on the screen gutter', async () => {
@@ -384,7 +384,7 @@ describe('ScannerScreen binder page review — batch editing', () => {
     fireEvent.press(await screen.findByTestId(`${REVIEW}-batch-variant-menu-holofoil`));
 
     await waitFor(() => {
-      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing`)).toHaveTextContent('Holo');
+      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing`)).toHaveTextContent('HOLO');
     });
     // Charmander has no Holofoil, so it keeps its own printing and no label.
     expect(screen.queryByTestId(`${REVIEW}-pocket-2-printing`)).toBeNull();
@@ -404,7 +404,7 @@ describe('ScannerScreen binder page review — batch editing', () => {
     fireEvent.press(screen.getByTestId(`${REVIEW}-batch-variant`));
     fireEvent.press(await screen.findByTestId(`${REVIEW}-batch-variant-menu-holofoil`));
     await waitFor(() => {
-      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing`)).toHaveTextContent('Holo');
+      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing`)).toHaveTextContent('HOLO');
     });
 
     // The label rides the price row, so nothing resizes and nothing scrolls.

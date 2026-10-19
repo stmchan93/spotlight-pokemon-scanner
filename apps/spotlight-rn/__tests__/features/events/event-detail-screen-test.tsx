@@ -93,18 +93,15 @@ describe('EventDetailScreen', () => {
     jest.restoreAllMocks();
   });
 
-  it('renders title, schedule, categories and the map for an upcoming event', async () => {
+  it('renders title, schedule and the map for an upcoming event, with no category chips', async () => {
     renderDetail('hawaii-2026-10');
     expect((await screen.findByTestId('event-detail-title')).props.children).toBe(
-      'Spotlight at the Hawaii Convention Center',
+      'SPOTLIGHT AT THE HAWAII CONVENTION CENTER',
     );
     expect(screen.getAllByText('10/24–10/25, 10:00AM - 5:00PM').length).toBeGreaterThan(0);
-    const categories = screen.getByTestId('event-detail-categories');
-    for (const category of upcomingFeatured.categories) {
-      expect(within(categories).getByText(category)).toBeTruthy();
-    }
-    expect(screen.getByText('275+ Tables')).toBeTruthy();
-    expect(screen.getByText(upcomingFeatured.address)).toBeTruthy();
+    expect(screen.queryByTestId('event-detail-categories')).toBeNull();
+    expect(screen.getByText('275+ TABLES')).toBeTruthy();
+    expect(screen.getByText(upcomingFeatured.address.toUpperCase())).toBeTruthy();
     expect(screen.queryByTestId('event-detail-map')).toBeNull();
   });
 
@@ -112,11 +109,11 @@ describe('EventDetailScreen', () => {
     renderDetail('hawaii-2026-10');
     await screen.findByTestId('event-detail-title');
     const pricing = screen.getByTestId('event-detail-pricing');
-    expect(within(pricing).getByText('$10 general ($15 at the door)')).toBeTruthy();
+    expect(within(pricing).getByText('$10 GENERAL ($15 AT THE DOOR)')).toBeTruthy();
     for (const note of mockSpotlightEventPricing.notes) {
-      expect(within(pricing).getByText(note)).toBeTruthy();
+      expect(within(pricing).getByText(note.toUpperCase())).toBeTruthy();
     }
-    expect(within(pricing).getByText(mockSpotlightEventPricing.disclaimer ?? '')).toBeTruthy();
+    expect(within(pricing).getByText((mockSpotlightEventPricing.disclaimer ?? '').toUpperCase())).toBeTruthy();
 
     screen.unmount();
     renderDetail('ontario-2026-08');
@@ -135,7 +132,7 @@ describe('EventDetailScreen', () => {
       items: [{ ...pastFeatured, ticketUrl: 'https://example.com/tickets/ontario' }],
     }));
     await screen.findByTestId('event-detail-title');
-    expect(screen.getByText('275+ Tables')).toBeTruthy();
+    expect(screen.getByText('275+ TABLES')).toBeTruthy();
     expect(screen.queryByTestId('event-detail-buy')).toBeNull();
   });
 

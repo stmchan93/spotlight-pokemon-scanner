@@ -150,7 +150,7 @@ export function AlertSettingsSection({ testID = 'alert-settings' }: AlertSetting
           ]}
         >
           <View style={styles.copy}>
-            <Text style={[theme.typography.bodyStrong, { color: theme.colors.textPrimary }]}>
+            <Text style={[theme.typography.bodyMedium, { color: theme.colors.textPrimary }]}>
               {row.title}
             </Text>
             <Text style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}>

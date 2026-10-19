@@ -176,12 +176,12 @@ function GroupBody({
   return (
     <View testID="meta-group-content">
       <View style={[styles.hero, { borderBottomColor: theme.colors.gray100 }]} testID="meta-group-hero">
-        <Text style={[theme.typography.feedEyebrow, { color }]} testID="meta-group-direction">
+        <Text style={[theme.typography.overline, { color }]} testID="meta-group-direction">
           {`${META_DIRECTION_LABEL[rising ? 'up' : 'down']} · PAST ${detail.windowDays} DAYS`}
         </Text>
         <Text
           accessibilityRole="header"
-          style={[theme.typography.feedPageTitle, styles.title, { color: theme.colors.gray900 }]}
+          style={[theme.typography.titleLarge, styles.title, { color: theme.colors.gray900 }]}
         >
           {group.label}
         </Text>
@@ -189,7 +189,7 @@ function GroupBody({
           <Text style={[theme.typography.captionMedium, styles.description]}>{group.description}</Text>
         ) : null}
         <View style={styles.moveRow}>
-          <Text style={[theme.typography.feedDeltaLarge, { color }]} testID="meta-group-change">
+          <Text style={[theme.typography.display, { color }]} testID="meta-group-change">
             {formatSignedPercent(group.medianChangePercent)}
           </Text>
           <Text style={[theme.typography.headline, { color }]} testID="meta-group-value">
@@ -225,7 +225,7 @@ function GroupBody({
 
       {showMovers ? (
       <View style={styles.section} testID="meta-group-movers">
-        <Text accessibilityRole="header" style={[theme.typography.feedSectionTitle, { color: theme.colors.gray900 }]}>
+        <Text accessibilityRole="header" style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
           Biggest movers
         </Text>
         {group.topCards.length > 0 ? (
@@ -281,12 +281,12 @@ function OwnedSection({
       style={[styles.section, { borderBottomColor: theme.colors.gray100, borderBottomWidth: borderWidths.sectionBand }]}
       testID="meta-group-owned"
     >
-      <Text accessibilityRole="header" style={[theme.typography.feedSectionTitle, { color: theme.colors.gray900 }]}>
+      <Text accessibilityRole="header" style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
         Your cards in this group
       </Text>
       <Text style={[theme.typography.captionMedium, styles.description]} testID="meta-group-owned-summary">
         {`${formatCount(ownedCount)} ${ownedCount === 1 ? 'card' : 'cards'} · `}
-        <Text style={[theme.typography.feedTag, { color: valueColor }]}>{formatSignedCompactUsd(valueChangeUsd)}</Text>
+        <Text style={[theme.typography.chipLabel, { color: valueColor }]}>{formatSignedCompactUsd(valueChangeUsd)}</Text>
         {` ${period}`}
       </Text>
       {shown.map((card, index) => (

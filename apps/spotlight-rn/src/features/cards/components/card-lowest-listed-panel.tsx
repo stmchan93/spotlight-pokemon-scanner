@@ -107,7 +107,7 @@ function ListingRow({
           {displayTitle}
         </Text>
         {typeText ? (
-          <Text style={[theme.typography.label, { color: theme.colors.gray500 }]}>
+          <Text style={[theme.typography.captionMedium, { color: theme.colors.gray500 }]}>
             {typeText}
           </Text>
         ) : null}
@@ -156,7 +156,7 @@ export function CardLowestListedPanel({
   // out. See the twin helper in `card-recent-sales-panel.tsx`.
   const renderNothingFound = (branchTestID: string) => (
     <View style={styles.panel} testID={branchTestID}>
-      <Text style={[theme.typography.label, { color: theme.colors.gray500 }]}>
+      <Text style={[theme.typography.caption, { color: theme.colors.gray500 }]}>
         No active eBay listings found.
       </Text>
       {onSeeMoreOnEbayPress ? (

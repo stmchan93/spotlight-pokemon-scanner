@@ -126,6 +126,9 @@ describe('LabelingSessionScreen', () => {
     expect(useKeepAwake).toHaveBeenCalledWith('labeling-session');
 
     await searchAndConfirmCard();
+    // Angle chips are set in caps on the string itself (iOS measures the
+    // untransformed text, so a textTransform would clip the capitals).
+    expect(screen.getByText('FRONT')).toBeTruthy();
     const previewStyle = StyleSheet.flatten(screen.getByTestId('labeler-preview').props.style);
     const reticleStyle = StyleSheet.flatten(screen.getByTestId('labeler-reticle').props.style);
     expect(previewStyle).toMatchObject({

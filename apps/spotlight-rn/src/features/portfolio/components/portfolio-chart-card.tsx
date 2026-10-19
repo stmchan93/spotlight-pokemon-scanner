@@ -34,7 +34,7 @@ import type {
   PortfolioHistoryRange,
   RecentSaleRecord,
 } from '@spotlight/api-client';
-import { fontFamilies, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Text, layout, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import {
   formatCurrency,
@@ -1131,12 +1131,14 @@ const styles = StyleSheet.create({
   chartTouchTarget: {
     ...StyleSheet.absoluteFillObject,
   },
+  // Figma 5938:21789: left-aligned on the page gutter, so the first pill lines
+  // up with the portfolio value above; 8 between pills.
   rangeRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 24,
-    justifyContent: 'center',
-    marginHorizontal: 16,
+    gap: 8,
+    justifyContent: 'flex-start',
+    marginHorizontal: layout.pageGutter,
   },
   rangeRowHidden: {
     opacity: 0,
@@ -1150,23 +1152,21 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     position: 'absolute',
   },
+  // Tooltip is not in the Figma frame; nearest roles to the old SB 10 / Reg 12.
   tooltipDate: {
-    fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 10,
-    lineHeight: 13,
+    ...textStyles.cardMetaStrong,
   },
   tooltipValue: {
-    fontFamily: fontFamilies.bodyRegular,
-    fontSize: 12,
-    lineHeight: 15.6,
+    ...textStyles.overline,
   },
+  // Same box selected or not, so switching ranges never shifts the row.
   rangePill: {
     alignItems: 'center',
     borderCurve: 'continuous',
     borderRadius: 4,
     justifyContent: 'center',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
   },
   rangePillSelected: {
     alignItems: 'center',
@@ -1176,15 +1176,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 4,
   },
+  // Figma "Label" (Medium 14). The selected pill keeps its SemiBold weight on
+  // the raw SB-14 role until the designer styles a selected state.
   rangePillLabel: {
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 13,
-    lineHeight: 16.4,
+    ...textStyles.label,
     textAlign: 'center',
   },
   rangePillLabelSelected: {
-    fontFamily: fontFamilies.bodySemiBold,
-    lineHeight: 18.2,
+    ...textStyles.titleXsmall,
   },
   skeletonBar: {
     borderCurve: 'continuous',

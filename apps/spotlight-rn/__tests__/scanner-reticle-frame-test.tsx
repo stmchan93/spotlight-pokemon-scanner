@@ -49,12 +49,12 @@ function renderSurface(pageGrid: { columns: number; rows: number } | null) {
 }
 
 describe('the scanner frame', () => {
-  it('is one closed rounded outline, per Figma 5085:15171', () => {
+  it('is one closed rounded outline, per Figma 5559:7112', () => {
     renderSurface(null);
 
     const outline = StyleSheet.flatten(screen.getByTestId('frame-reticle-outline').props.style);
     expect(outline).toMatchObject({
-      borderColor: colors.purple200,
+      borderColor: colors.purple500,
       borderRadius: 12,
       borderWidth: scannerReticleOutlineStrokeWidth,
     });
@@ -104,7 +104,7 @@ describe('the pocket grid', () => {
     ]);
   });
 
-  it('is the same ink as the frame, so the two read as one object', () => {
+  it('stays pale lilac under the purple 500 frame, so the 3x3 reads as a hint', () => {
     /*
       Figma draws these lines in the near-white `purple50` (5085:15377 /
       5085:15380) and we deliberately don't — over a live viewfinder that

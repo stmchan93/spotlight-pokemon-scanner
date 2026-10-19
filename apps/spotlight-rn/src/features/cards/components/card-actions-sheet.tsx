@@ -13,7 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CheckCircle, EditPencil, Eye, ShareIos, Trash } from 'iconoir-react-native';
 
-import { Text, useSpotlightTheme } from '@spotlight/design-system';
+import { radii, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 type CardActionsSheetProps = {
   visible: boolean;
@@ -176,7 +176,7 @@ export function CardActionsSheet({
       ...(onSelect ? [{ key: 'select', label: 'Select', Icon: CheckCircle, onPress: onSelect, destructive: false }] : []),
       { key: 'edit', label: 'Edit', Icon: EditPencil, onPress: onEdit, destructive: false },
       { key: 'share', label: 'Share', Icon: ShareIos, onPress: onShare, destructive: false },
-      { key: 'wishlist', label: 'Watchlist', Icon: Eye, onPress: onWishlist, destructive: false },
+      { key: 'wishlist', label: 'Wishlist', Icon: Eye, onPress: onWishlist, destructive: false },
       { key: 'delete', label: 'Delete', Icon: Trash, onPress: onDelete, destructive: true },
     ],
     [onDelete, onEdit, onSelect, onShare, onWishlist],
@@ -253,7 +253,9 @@ export function CardActionsSheet({
                   testID={`${testID}-${key}`}
                 >
                   <Icon color={color} height={20} width={20} />
-                  <Text style={[theme.typography.body, { color }]}>{label}</Text>
+                  {/* Figma 5768:20584: Label 14 in caps; string casing so the row
+                      measures the capitals (iOS clips textTransform'd text). */}
+                  <Text style={[theme.typography.label, { color }]}>{label.toUpperCase()}</Text>
                 </Pressable>
               );
             })}
@@ -299,8 +301,9 @@ const styles = StyleSheet.create({
   },
   sheet: {
     borderCurve: 'continuous',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
+    borderTopLeftRadius: radii.sheet,
+    borderTopRightRadius: radii.sheet,
+    overflow: 'hidden',
     paddingTop: 10,
   },
   title: {

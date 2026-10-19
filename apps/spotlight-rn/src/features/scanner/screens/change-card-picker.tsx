@@ -20,7 +20,7 @@ import type {
   DeckConditionCode,
   RawPricingMatrixVariant,
 } from '@spotlight/api-client';
-import { PillButton, Text, colors } from '@spotlight/design-system';
+import { PillButton, Text, colors, textStyles } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import {
@@ -351,10 +351,10 @@ export function ChangeCardPicker({
               />
               <View style={styles.infoHeader}>
                 <View style={styles.infoPill}>
-                  <Text style={styles.infoPillText}>CHANGE</Text>
+                  <Text style={styles.infoPillTitle}>CHANGE</Text>
                 </View>
                 <View style={styles.infoPill}>
-                  <Text style={styles.infoPillText}>{`${resolvedTotal} SIMILAR`}</Text>
+                  <Text style={styles.infoPillCount}>{`${resolvedTotal} SIMILAR`}</Text>
                 </View>
               </View>
             </View>
@@ -369,7 +369,7 @@ export function ChangeCardPicker({
                       resizeMode="cover"
                       testID={`${testID}-capture`}
                     />
-                    <Text style={styles.heroCaption}>Your Photo</Text>
+                    <Text style={styles.heroCaption}>YOUR PHOTO</Text>
                   </View>
                 ) : null}
 
@@ -403,7 +403,7 @@ export function ChangeCardPicker({
                     <Text
                       style={[styles.heroCaption, { color: matchConfidenceColor(heroMatchPct) }]}
                     >
-                      {`${heroMatchPct}% Match`}
+                      {`${heroMatchPct}% MATCH`}
                     </Text>
                   ) : null}
                 </View>
@@ -602,11 +602,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
-  infoPillText: {
-    color: colors.gray400,
-    fontFamily: 'SpotlightBodySemiBold',
-    fontSize: 13,
-    lineHeight: 18.2,
+  // Figma 5753:18117 sets the two header pills differently: "CHANGE" is the
+  // Overline role, "12 SIMILAR" raw SemiBold 13; both white.
+  infoPillTitle: {
+    ...textStyles.overline,
+    color: colors.gray0,
+  },
+  infoPillCount: {
+    ...textStyles.labelStrong,
+    color: colors.gray0,
   },
   heroBox: {
     backgroundColor: 'rgba(243, 235, 255, 0.15)',
@@ -625,10 +629,10 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 8,
   },
+  // Figma Overline (Regular 12) — "YOUR PHOTO" / "71% MATCH".
   heroCaption: {
+    ...textStyles.overline,
     color: colors.gray0,
-    fontFamily: 'SpotlightBodySemiBold',
-    fontSize: 13,
     textAlign: 'center',
   },
   heroImage: {
@@ -702,17 +706,14 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 4,
   },
+  // Figma Title-small / Label, matching the scan-tray row.
   rowTitle: {
+    ...textStyles.titleSmall,
     color: colors.gray0,
-    fontFamily: 'SpotlightBodySemiBold',
-    fontSize: 16,
-    lineHeight: 21.6,
   },
   rowMeta: {
+    ...textStyles.label,
     color: colors.gray400,
-    fontFamily: 'SpotlightBodyMedium',
-    fontSize: 13,
-    lineHeight: 18.2,
   },
   // Figma 5085:10858 — the Option List starts 8px under the card thumb and
   // scrolls horizontally; four printings already overflow a 361pt row.
@@ -740,9 +741,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   loadMoreLabel: {
+    ...textStyles.label,
     color: colors.purple300,
-    fontFamily: 'SpotlightBodyMedium',
-    fontSize: 13,
-    lineHeight: 18.2,
   },
 });

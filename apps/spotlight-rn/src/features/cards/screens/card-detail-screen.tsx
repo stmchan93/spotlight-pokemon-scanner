@@ -46,7 +46,6 @@ import {
   Text,
   TrendTriangle,
   colors,
-  fontFamilies,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 import { NavArrowLeft, ShareIos, Trash } from 'iconoir-react-native';
@@ -2736,7 +2735,7 @@ export function CardDetailScreen({
     return (
       <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.gray0 }]}>
         <View style={styles.loadingState}>
-          <Text style={theme.typography.headline}>Loading card...</Text>
+          <Text style={theme.typography.titleSmall}>Loading card...</Text>
         </View>
       </SafeAreaView>
     );
@@ -2746,7 +2745,7 @@ export function CardDetailScreen({
     return (
       <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.gray0 }]}>
         <View style={styles.loadingState}>
-          <Text style={theme.typography.headline}>Card unavailable</Text>
+          <Text style={theme.typography.titleSmall}>Card unavailable</Text>
           <Text style={[theme.typography.body, styles.errorCopy]}>{errorMessage}</Text>
         </View>
       </SafeAreaView>
@@ -2814,7 +2813,7 @@ export function CardDetailScreen({
                   />
                 ) : null}
                 <Text
-                  style={[styles.sinceAddedAmount, { color: sinceAddedDisplay.color }]}
+                  style={[theme.typography.titleXsmall, { color: sinceAddedDisplay.color }]}
                   testID="detail-since-added-amount"
                 >
                   {sinceAddedDisplay.amountLabel}
@@ -3304,13 +3303,6 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flex: 1,
-  },
-  // Position line: 14 SemiBold change amount matching the portfolio header's
-  // delta row treatment.
-  sinceAddedAmount: {
-    fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 14,
-    lineHeight: 21,
   },
   watchingPrintingLink: {
     textDecorationLine: 'underline',

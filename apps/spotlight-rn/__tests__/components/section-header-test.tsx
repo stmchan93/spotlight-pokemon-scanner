@@ -84,10 +84,17 @@ describe('SectionHeader', () => {
     expect(screen.getByTestId('deals-header-title-row').children).toHaveLength(2);
   });
 
-  it('default size keeps the display title and a centred row', () => {
+  it('default size uses the Title-medium role and a centred row', () => {
     renderWithProviders(<SectionHeader countText="3" testID="inv" title="Inventory" />);
 
-    expect(StyleSheet.flatten(screen.getByTestId('inv-title').props.style)).toMatchObject({ fontSize: 25 });
+    expect(StyleSheet.flatten(screen.getByTestId('inv-title').props.style)).toMatchObject({
+      fontFamily: textStyles.titleMedium.fontFamily,
+      fontSize: textStyles.titleMedium.fontSize,
+    });
+    expect(StyleSheet.flatten(screen.getByTestId('inv-count').props.style)).toMatchObject({
+      fontFamily: textStyles.bodyMedium.fontFamily,
+      fontSize: textStyles.bodyMedium.fontSize,
+    });
     expect(StyleSheet.flatten(screen.getByTestId('inv-title-row').props.style)).toMatchObject({
       alignItems: 'center',
     });

@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 
 import { CARD_GAMES, MockSpotlightRepository, type CardGame, type ExpansionRecord } from '@spotlight/api-client';
 
@@ -65,6 +66,17 @@ describe('ExpansionBrowserScreen', () => {
     expect(screen.queryByText('Romance Dawn')).toBeNull();
   });
 
+  it('sets the count line in caps and leaves the game name as written', async () => {
+    mockListExpansions();
+
+    renderWithProviders(<ExpansionBrowserScreen onClose={jest.fn()} onSelectGame={jest.fn()} />);
+
+    // Casing is a style, never a rewrite of the string.
+    const count = await screen.findByText('3 sets');
+    expect(StyleSheet.flatten(count.props.style)).toMatchObject({ textTransform: 'uppercase' });
+    expect(StyleSheet.flatten(screen.getByText('Pokémon').props.style).textTransform).toBeUndefined();
+  });
+
   it('hands the picked game to the caller to push', async () => {
     mockListExpansions();
     const onSelectGame = jest.fn();
@@ -107,11 +119,17 @@ describe('GameSetsScreen', () => {
       Japanese set now sits wherever its release date puts it, above Celestial
       Storm here.
     */
-    expect(screen.getByPlaceholderText('Search by name, set, or number')).toBeTruthy();
+    expect(screen.getByPlaceholderText(/search by name, set, or number/i)).toBeTruthy();
     expect(screen.queryByPlaceholderText('Search by sets')).toBeNull();
     expect(screen.queryByTestId('browse-set-language-English')).toBeNull();
     expect(screen.queryByTestId('browse-set-language-Japanese')).toBeNull();
     expect(screen.getByTestId('game-sets-expansion-sv-jp-1')).toBeTruthy();
+
+    // The set tile: release date in caps (meta line), set name as written.
+    expect(StyleSheet.flatten(screen.getByText('2024-11-08').props.style)).toMatchObject({
+      textTransform: 'uppercase',
+    });
+    expect(StyleSheet.flatten(screen.getByText('Surging Sparks').props.style).textTransform).toBeUndefined();
   });
 
   it('carries the game with the chosen set', async () => {
@@ -153,7 +171,7 @@ describe('GameSetsScreen', () => {
     );
 
     fireEvent.changeText(
-      await screen.findByPlaceholderText('Search by name, set, or number'),
+      await screen.findByPlaceholderText(/search by name, set, or number/i),
       'ace',
     );
     /*
@@ -199,7 +217,7 @@ describe('GameSetsScreen', () => {
     expect(await screen.findByTestId('game-sets-grid')).toBeTruthy();
 
     fireEvent.changeText(
-      screen.getByPlaceholderText('Search by name, set, or number'),
+      screen.getByPlaceholderText(/search by name, set, or number/i),
       'maui',
     );
     // One list at a time: the sets are what you browse, the results are what

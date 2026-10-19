@@ -31,21 +31,21 @@ describe('CollectionFilterChipRow', () => {
 
     expect(COLLECTION_FILTER_ORDER.slice(6)).toEqual(['sir', 'illustration', 'ultra', 'secret', 'shiny']);
     expect(screen.getByText('SIR')).toBeTruthy();
-    expect(screen.getByText('Illus. Rare')).toBeTruthy();
-    expect(screen.getByText('Full Art')).toBeTruthy();
-    expect(screen.getByText('Secret')).toBeTruthy();
-    expect(screen.getByText('Shiny')).toBeTruthy();
+    expect(screen.getByText('ILLUS. RARE')).toBeTruthy();
+    expect(screen.getByText('FULL ART')).toBeTruthy();
+    expect(screen.getByText('SECRET')).toBeTruthy();
+    expect(screen.getByText('SHINY')).toBeTruthy();
   });
 
-  it('labels the price chip "$$$" — the sort is highest-first', () => {
+  it('labels the price chip "Price" (Figma 5938:16835)', () => {
     render(
       <SpotlightThemeProvider>
         <CollectionFilterChipRow activeFilter="all" onFilterChange={jest.fn()} />
       </SpotlightThemeProvider>,
     );
 
-    expect(screen.getByText('$$$')).toBeTruthy();
-    expect(screen.queryByText('$-$$$')).toBeNull();
+    expect(screen.getByText('PRICE')).toBeTruthy();
+    expect(screen.queryByText('$$$')).toBeNull();
   });
 
   it('fires onFilterChange with the correct key when a chip is tapped', () => {
@@ -106,8 +106,8 @@ describe('CollectionFilterChipRow', () => {
     );
 
     // Labelled from the capability table, so "onepiece" reads as "One Piece".
-    expect(screen.getByText('One Piece')).toBeTruthy();
-    expect(screen.getByText('Pokémon')).toBeTruthy();
+    expect(screen.getByText('ONE PIECE')).toBeTruthy();
+    expect(screen.getByText('POKÉMON')).toBeTruthy();
     // A game the user owns nothing from is not offered.
     expect(screen.queryByTestId('collection-filter-chip-row-game:lorcana')).toBeNull();
 
@@ -136,9 +136,9 @@ describe('CollectionFilterChipRow', () => {
     expect(row).toBeTruthy();
     expect(keys).toEqual([
       'all',
+      'favorites',
       'az',
       'price',
-      'favorites',
       'ungraded',
       'graded',
       'game:pokemon',

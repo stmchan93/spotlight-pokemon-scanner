@@ -153,7 +153,8 @@ const BUTTON_ICON_SIZE = glassNavBubbleGlyphSize;
  * it does not stretch into a square.
  */
 const EDIT_ICON_SIZE = BUTTON_ICON_SIZE;
-const SHARE_ICON_WIDTH = Math.round(BUTTON_ICON_SIZE * 0.9);
+// Full size, same as the Events toolbar's share glyph (user, 2026-10-18).
+const SHARE_ICON_WIDTH = BUTTON_ICON_SIZE;
 const SHARE_ICON_HEIGHT = BUTTON_ICON_SIZE;
 /**
  * The app-mark badge inside the profile bar's search pill, sized so the mark

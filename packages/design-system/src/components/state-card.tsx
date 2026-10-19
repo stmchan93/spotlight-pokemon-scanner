@@ -39,7 +39,7 @@ export function StateCard({
       <View style={[styles.content, centered ? styles.contentCentered : null]}>
         {loading ? <ActivityIndicator color={theme.colors.brand} /> : null}
         <View style={[styles.copy, centered ? styles.copyCentered : null]}>
-          <Text style={[theme.typography.headline, centered ? styles.textCentered : null]}>{title}</Text>
+          <Text style={[theme.typography.titleSmall, centered ? styles.textCentered : null]}>{title}</Text>
           <Text
             style={[
               theme.typography.body,

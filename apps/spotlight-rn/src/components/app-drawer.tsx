@@ -24,7 +24,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 
-import { colors, fontFamilies, radii, Text, textStyles } from '@spotlight/design-system';
+import { colors, radii, Text, textStyles } from '@spotlight/design-system';
 
 import { fetchTotalUnreadMessageCount } from '@/features/social/dm-service';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
@@ -343,7 +343,7 @@ export function AppDrawer() {
               </Text>
               {memberSince ? (
                 <Text numberOfLines={1} style={styles.profileMeta}>
-                  {memberSince}
+                  {memberSince.toUpperCase()}
                 </Text>
               ) : null}
             </View>
@@ -351,11 +351,11 @@ export function AppDrawer() {
 
           <View style={styles.statsRow}>
             <View style={styles.statTile}>
-              <Text style={styles.statLabel}>Portfolio Value</Text>
+              <Text style={styles.statLabel}>PORTFOLIO VALUE</Text>
               <Text style={styles.statValue}>{portfolioValue}</Text>
             </View>
             <View style={styles.statTile}>
-              <Text style={styles.statLabel}>Total Items</Text>
+              <Text style={styles.statLabel}>TOTAL ITEMS</Text>
               <Text style={styles.statValue}>{totalItems}</Text>
             </View>
           </View>
@@ -472,7 +472,7 @@ function DrawerNavItem({ badgeCount, icon: Icon, label, selected, onPress, testI
       testID={testID}
     >
       <Icon color={colors.gray900} height={20} width={20} />
-      <Text style={styles.navLabel}>{label}</Text>
+      <Text style={styles.navLabel}>{label.toUpperCase()}</Text>
       {badgeCount != null && badgeCount > 0 ? (
         /*
           The same purple pill the inbox draws on each unread thread, totalled.
@@ -520,9 +520,9 @@ const styles = StyleSheet.create({
   },
   avatar: {
     borderCurve: 'continuous',
-    borderRadius: 21,
-    height: 42,
-    width: 42,
+    borderRadius: 20,
+    height: 40,
+    width: 40,
   },
   avatarFallback: {
     alignItems: 'center',
@@ -530,23 +530,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   avatarInitials: {
-    ...textStyles.bodyMedium,
+    ...textStyles.bodyLarge,
     color: colors.gray900,
-    fontSize: 16,
   },
   profileCopy: {
     flex: 1,
     gap: 2,
   },
+  // Figma draws the name and stat values raw SemiBold 15 (no library style yet).
   profileName: {
-    ...textStyles.titleMedium,
+    ...textStyles.bodyStrong,
     color: colors.gray900,
   },
   profileMeta: {
-    color: colors.gray500,
-    fontFamily: fontFamilies.bodyRegular,
-    fontSize: 12,
-    lineHeight: 16.8,
+    ...textStyles.overline,
+    color: colors.gray600,
   },
   statsRow: {
     flexDirection: 'row',
@@ -556,7 +554,7 @@ const styles = StyleSheet.create({
   statTile: {
     backgroundColor: colors.gray50,
     borderCurve: 'continuous',
-    borderRadius: 12,
+    borderRadius: radii.sm,
     flex: 1,
     gap: 4,
     padding: 16,
@@ -566,7 +564,7 @@ const styles = StyleSheet.create({
     color: colors.gray600,
   },
   statValue: {
-    ...textStyles.titleMedium,
+    ...textStyles.bodyStrong,
     color: colors.gray900,
   },
   divider: {
@@ -575,7 +573,7 @@ const styles = StyleSheet.create({
     marginVertical: 16,
   },
   navSection: {
-    gap: 20,
+    gap: 24,
   },
   navItem: {
     alignItems: 'center',
@@ -586,7 +584,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   navLabel: {
-    ...textStyles.bodyMedium,
+    ...textStyles.captionMedium,
     color: colors.gray900,
   },
   navBadge: {

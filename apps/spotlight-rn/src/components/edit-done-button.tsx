@@ -10,7 +10,7 @@ type EditDoneButtonProps = {
 
 /**
  * "Done" pill that exits an edit / multi-select mode: a gray-50 fully-rounded
- * 40pt pill with a 14px SemiBold purple-500 label. Shared by the Collection and
+ * 40pt pill with a SemiBold 14 (`titleXsmall`) purple-500 label. Shared by the Collection and
  * Wishlist headers so the two read identically.
  *
  * 40 because this pill SWAPS INTO a bar's trailing slot beside a `size="compact"`
@@ -40,7 +40,7 @@ export function EditDoneButton({
       ]}
       testID={testID}
     >
-      <Text style={[theme.typography.bodyStrong, styles.label, { color: theme.colors.purple500 }]}>
+      <Text style={[theme.typography.titleXsmall, { color: theme.colors.purple500 }]}>
         Done
       </Text>
     </Pressable>
@@ -48,10 +48,6 @@ export function EditDoneButton({
 }
 
 const styles = StyleSheet.create({
-  label: {
-    fontSize: 14,
-    lineHeight: 21,
-  },
   pill: {
     alignItems: 'center',
     borderCurve: 'continuous',

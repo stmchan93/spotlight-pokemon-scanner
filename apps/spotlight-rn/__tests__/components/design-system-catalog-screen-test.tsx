@@ -1,4 +1,5 @@
 import { fireEvent, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 
 import { DesignSystemCatalogScreen } from '@/features/design-system/screens/design-system-catalog-screen';
 
@@ -17,6 +18,13 @@ describe('DesignSystemCatalogScreen', () => {
     expect(screen.getByText('Colors')).toBeTruthy();
     expect(screen.getByText('Spacing')).toBeTruthy();
     expect(screen.getByText('Font Families')).toBeTruthy();
+    // The uppercase-label rows: casing is a style on the role, the sample
+    // string itself stays mixed-case.
+    for (const sample of ['Language', 'Ungraded · 193/162']) {
+      expect(StyleSheet.flatten(screen.getByText(sample).props.style)).toMatchObject({
+        textTransform: 'uppercase',
+      });
+    }
     expect(screen.getByTestId('catalog-button-primary')).toBeTruthy();
     expect(screen.getByTestId('catalog-button-secondary')).toBeTruthy();
     expect(screen.getByTestId('catalog-button-ghost')).toBeTruthy();

@@ -43,10 +43,11 @@ Defined in `src/tokens.ts`:
 - `colors`
 - `spacing`
 - `radii` — always paired with `borderCurve: 'continuous'` (iOS smooth corners ≈ Figma 60% smoothing; not valid on Image styles — clip via the wrapper View)
+  - `radii.sheet` (20) — **rule: every bottom/sliding sheet uses `radii.sheet` on its top corners and square (0) bottom corners** (`border-radius: 20px 20px 0 0`, Figma 5753:18889), with `overflow: 'hidden'`. `SheetSurface` applies it; hand-built sheets set `borderTopLeftRadius`/`borderTopRightRadius: radii.sheet`. Centered dialogs and popover menus are not sheets.
 - `layout` — includes `rowThumbnailWidth`/`rowThumbnailHeight` (58x80, the `CardListRow` raw art slot; radius `inventoryArtRadiusRaw`) and `swipeActionWidth` (88, the action behind a swipe-left row)
 - `shadows`
 - `textStyles`
-- `borderWidths`
+- `borderWidths` — `rule` (0.5pt hairline); `ruleSnapped` is the same line snapped to whole physical pixels, for stacked list dividers (a raw 0.5pt line renders 1px or 2px depending on its y-offset, so lists zebra)
 - `cardGridRule` — the one rule a CARD-VIEW GRID draws between its cells (`{ color, width }`). Collection and Wishlist render the same tile in the same grid, so they draw the same line; before this token they had drifted to gray-400 at 0.5 and gray-100 at 1 while the frames called for gray-300 at 1. New card grids consume it rather than picking a gray.
 - `MAX_FONT_SIZE_MULTIPLIER`
 - `colors.mediaScrim` / `colors.mediaPlayButton` — chrome over video thumbnails (`VideoTile`)
@@ -55,28 +56,43 @@ Defined in `src/tokens.ts`:
 
 iOS/Android Dynamic Type ("Larger Text") is **capped at `MAX_FONT_SIZE_MULTIPLIER` (1.2)**, not disabled — text still grows up to ~20% for accessibility but never blows up our fixed `fontSize` + baked-`lineHeight` layouts. The cap is applied globally at the app root (`apps/spotlight-rn/src/lib/text-scaling.ts` sets `Text`/`TextInput` `defaultProps.maxFontSizeMultiplier`) and is also set explicitly on the shared text primitives (`AppText`, `TextField`, `SearchField`). Precisely-measured elements that can't follow scaling (`RollingNumberText`, auth OTP cells) opt out with `allowFontScaling={false}`. To adjust the ceiling, change the single constant in `src/tokens.ts`.
 
-Current typography roles:
+Current typography roles (Figma library scale, 2026-10-18 — Plus Jakarta Sans,
+0 tracking, line box = round(size × 1.3); see `docs/type-scale-migration/`):
 
-- `display`
-- `title`
-- `titleCompact`
-- `headline`
-- `body`
-- `bodyLarge` — Regular at `headline`'s size, for a control whose label names a
-  thing rather than issuing a command (the scanner's scan-target pill)
-- `bodyStrong`
-- `control`
-- `caption`
-- `micro`
-- `captionStrong` — 12/600, section links on the feed blocks ("See the meta ›")
-- `cardMetaStrong` — 11/600, a news row's "Source · 2h", a hot tile's "4.2× usual checks"
-- `chipLabel` — 11/600, `DeltaPill`, `RankBadge` and outlined tag chips
+- `display` — Bold 29, the page headline (`ScreenHeader`, Account, balance)
+- `titleLarge` — Bold 23, sheet titles (`SheetHeader` `title`), onboarding titles
+- `titleMedium` — SemiBold 19, `SectionHeader` default, `SheetHeader` default, `PriceText` default
+- `titleSmall` — SemiBold 17, headings inside a page, `StateCard` title, nav titles
+- `bodyLarge` — Regular 16, the auth section titles ("LOG IN")
+- `body` — Regular 14, long-form copy, inputs, `SearchEntryPill`
+- `bodyMedium` — Medium 14, the default label for every tappable control
+  (`Button`, `PillButton`, `SegmentedControl`, `FloatingBottomNav`, `PageTabs`)
+- `label` — Medium 14, chips, group labels, collection search; placeholder-gray
+  color by default, sites override
+- `caption` — Regular 13, helper text, `FollowButton`
+- `captionMedium` — Medium 13, helper text with weight, scanner segments, `Toast`
+- `overline` — Regular 12, meta lines, eyebrows, badges, time separators
+
+Non-library roles (metrics the Figma frames still draw raw — flagged to the
+designer; keep using them where the frame does):
+
+- `headline` — SemiBold 16, post author, Events section title
+- `bodyStrong` — SemiBold 15, mover-tile price
+- `titleXsmall` — SemiBold 14, toolbar titles ("WISHLIST"), list/tile trend lines, `EditDoneButton`
+- `labelStrong` — SemiBold 13, reaction counts, NEW POST / POST, `TrendPill` md
+- `feedRowTitle` — Bold 15, list prices (`CardListRow`, `InventoryCardTile`), event card titles
+- `detailTitleBold` — Bold 19, event detail title
+- `captionStrong` — 12/600, section links on the feed blocks ("See the meta ›"), the tile day-change pill
+- `micro` — SemiBold 11 tracked (scanner chrome only)
+- `cardMeta` / `cardMetaStrong` — 11/400 and 11/600, a news row's "Source · 2h"
+- `chipLabel` — 11/600, `DeltaPill`, `RankBadge`, `OwnedTag`, `TrendPill` sm, outlined tag chips
 - `tag` — 10/700, `LaneTag` and the video duration badge
-- Meta feed v2 scale (`docs/meta-feed-mockup/v2`): `feedTitle` 20/800 (block
-  titles, Meta headline), `feedPageTitle` 24/800, `feedSectionTitle` 17/800,
-  `feedDeltaLarge` 34/800, `feedDelta` 18/800 (bar-row %, date-tile day),
-  `feedRowTitle` 15/700, `feedEyebrow` 12/800 tracked ("ON THE WAY UP"),
-  `feedTag` 11/800 (`OwnedTag`, kind chips)
+- `navLabel` / `navLabelSelected` — 11, native tabs own the real bar
+
+Legacy aliases (`title`, `titleCompact`, `control`, `bodySmall`, `captionRegular`,
+`displayLarge`, `sectionTitleBold`, `feed*`) resolve to the library role with the
+same metrics and are being removed as call sites are re-roled. Do not use them in
+new code.
 
 Current scanner surface tokens:
 
@@ -120,14 +136,17 @@ Current API concepts:
 - shape (defaults to `pill`):
   - `pill` — fully rounded (radius 999), the historical default
   - `rounded` — `radii.sm` (8) corners
-- label styles:
-  - `control`
-  - `body`
-  - `bodyStrong`
-  - `caption`
-  - `label` — 13px Medium (`typography.label`)
+- label styles (`labelStyleVariant`):
+  - `bodyMedium` (default) — Figma Body-medium, Medium 14; `control` and
+    `bodyStrong` are legacy aliases that resolve to it
+  - `body` — Regular 14
+  - `label` — Figma Label, Medium 14 (chip-style actions)
+  - `caption` — Figma Caption, Regular 13
 - optional `leadingAccessory`
 - optional `trailingAccessory`
+- `uppercase` — sets the label in capitals. Figma's full-width form CTAs ("Continue", "Sign Up")
+  are mixed case; its compact actions (ADD, POST, FOLLOW, CANCEL / SAVE, UNBLOCK) are uppercase.
+  Off by default; opt in per call site.
 - `disabled` — filled variants (`primary` / `dark` / `accent` / `destructive`) collapse to the disabled token: a flat `gray400` (#BEBEBE) fill, white label, **no border** (Figma 3147:10840). Light/bordered variants keep a subtle premixed-alpha fade. (Borders are drawn transparent rather than as a translucent same-color ring, which used to composite into a dark outline.)
 
 PDP usage: `<Button variant="outline" shape="rounded" labelStyleVariant="label" … />` and
@@ -183,7 +202,7 @@ Current API concepts:
   stroke; `glass` — the `GlassNavBubble` Liquid Glass shell (Figma 4134:49518),
   `glassFallback` fill + `glassPill` lift and no stroke where real glass is
   unavailable. The profile (You) top bar uses `glass`
-- label role: `typography.bodySmall` in `gray600`, left-aligned
+- label role: `typography.body` (Figma Body, Regular 14) in `gray600`, left-aligned
 - `leading?: ReactNode` — optional badge at the leading edge (the app mark in the
   feed top bar). In flow, not absolute: badge and label are ONE group starting
   8pt in from the pill's left edge with 4pt between them, which is what the
@@ -241,10 +260,13 @@ Current API concepts:
 - optional right-side action
 - optional collapse/expand interaction
 - size:
-  - `default`: 25px display `title` for top-level page sections; count in `bodyStrong`
+  - `default`: Figma Title-medium (`titleMedium`, 19/600) for top-level page sections; count in `bodyMedium`; action label in `label`
   - `compact`: Figma Title-small (`titleSmall`, 17/600) for a heading inside a page (e.g. the Watchlist Deals band); count in `captionMedium` gray-600, baseline-aligned with the title
 - optional `titleAccessory`: a small non-text mark (e.g. an unread dot) rendered between the title and the count, vertically centred
+- optional `uppercase`: sets the title and the action label in capitals, as the Figma frames draw section headers ("SEALED PRODUCTS" / "SEE ALL", "TOP TRENDS"). Opt-in per call site; the count and subtitle keep their casing
 - with a `testID`, the parts carry `${testID}-title-row`, `${testID}-title`, `${testID}-count`
+
+Casing rule for every primitive with an `uppercase` option (`Button`, `PillButton`, `PageTabs`, `SectionHeader`, `Badge`, `ScreenHeader` eyebrow, `TextField` label, the collection meta lines in `CardListRow` / `InventoryCardTile`): the capitals are applied to the **string** (`label.toUpperCase()`), never via `textTransform: 'uppercase'`. iOS measures a `Text` from the untransformed string, so a one-line, row-flexed or content-sized label renders the wider capitals into a box sized for the source and clips or ellipsizes. Screens should follow the same rule.
 
 ### SheetHeader
 
@@ -262,8 +284,8 @@ Current API concepts:
 - optional right accessory
 - optional subtitle
 - title style:
-  - `titleStyleVariant`: `title` | `titleCompact`
-  - `titleStyle`: a full `TextStyle` override that wins over the variant (e.g. `typography.titleXsmall` for a compact 14/600 sheet title)
+  - `titleStyleVariant`: `titleCompact` (default, Figma Title-medium 19) | `title` (Title-large 23)
+  - `titleStyle`: a full `TextStyle` override that wins over the variant (e.g. `typography.labelStrong` for the New Post header's raw SemiBold 13)
 
 ### SheetSurface
 
@@ -681,8 +703,10 @@ rails and skeletons stay in step with the tile.
 File: `src/components/top-trends-rail.tsx`
 
 Horizontal, snapping carousel of `TopMoverTile`s (16pt gutters, 8pt between
-tiles, snaps every 362pt) with an optional `captionMedium` gray-600 caption
-above it. With `autoAdvanceIntervalMs` set it moves one tile on every tick,
+tiles, snaps every 362pt) with an optional `TopTrendsGameChip` caption above
+it. The feed's Top Trends block passes no caption and instead sets
+`TopTrendsGameChip` (Figma 5768:27140 — white pill, gray-200 hairline,
+`captionTiny` gray-600, label uppercased) beside its "TOP TRENDS" heading. With `autoAdvanceIntervalMs` set it moves one tile on every tick,
 wrapping after the last, pausing while the user drags and resuming from
 wherever they let go. Renders nothing when `items` is empty — the host screen
 should not reserve space for it.
@@ -755,9 +779,9 @@ File: `src/components/meta-bar-row.tsx`. One rising/cooling group as a bar row
 (Meta pulse v4, Meta page v4): 34×47 lead-card thumb, `feedRowTitle` name +
 optional `OwnedTag` over an 8pt `gray100` track whose `green500` / `red500`
 fill the HOST scales, a 48×16 `PriceSparkline`, then a 74pt column with the
-`feedDelta` % (`deltaUpText` / `deltaDownText`) over the signed $ line. Rows
+`titleSmall` % (`deltaUpText` / `deltaDownText`) over the signed $ line. Rows
 are unframed (10pt vertical padding); the host stacks them under a
-`feedEyebrow` label.
+`overline` label.
 
 | Prop | Type | Notes |
 | --- | --- | --- |
@@ -790,13 +814,13 @@ thumbs (−8° / +6°), `feedRowTitle` title with one tinted substring, and a
 #### OwnedTag
 
 File: `src/components/owned-tag.tsx`. 20pt `purple50` pill with a `brandStrong`
-`feedTag` label — `You own 4` on bar rows, `In your collection` on card rows.
+`chipLabel` label — `You own 4` on bar rows, `In your collection` on card rows.
 Props: `label`, `style`, `testID`.
 
 #### CalendarEventRow
 
 File: `src/components/calendar-event-row.tsx`. One upcoming date ("Coming up"
-block and page): a `gray50` date tile (`feedTag` month over the day), the title,
+block and page): a `gray50` date tile (`chipLabel` month over the day), the title,
 and a kind chip tinted by `kindTone` (release `deltaUpSurface`, ban list
 `deltaDownSurface`, reveal `purple50`, event `gray100`).
 
@@ -889,15 +913,11 @@ Follow control for a person the viewer has come across — a feed author, a sear
 result (Figma 5080:6921, 65x30).
 
 ONE-WAY BY DESIGN. `following={false}` is a pressable white button with a
-gray-200 border and a gray-600 "Follow"; `following={true}` is a plain, inert
-`View` — black fill, white "Following". There is deliberately no unfollow here:
+gray-200 border and a gray-600 "FOLLOW"; `following={true}` is a plain, inert
+`View` — borderless gray-50 fill, gray-900 "FOLLOWING" (Figma 5768:27191). There is deliberately no unfollow here:
 unfollowing belongs on the person's profile, where the consequence is visible.
 The followed state is a `View` rather than a disabled button so it reads as
 settled rather than as broken or greyed out.
-
-The two states deliberately invert each other's weight (quiet invitation, loud
-confirmation), which is the reverse of the usual convention and is what the
-product asked for.
 
 | Prop | Type | Notes |
 | --- | --- | --- |
@@ -945,7 +965,7 @@ Use for compact single-action chips and option toggles.
 
 Current label role:
 
-- `typography.control` (`default` tone) / `typography.label` (`filter` tone) / `typography.bodyMedium` (`soft` tone) / `typography.caption` (`option` tone)
+- `typography.bodyMedium` (`default` and `soft` tones) / `typography.label` (`filter` / `filled` chips, Label 14) / `typography.captionMedium` (`option` tone)
 - tones:
   - `default` — brand-yellow pill (chart range pills, filter modal)
   - `filter` — white chip with a `gray300` border when inactive, solid gray900 with white label when selected (catalog, meta, news)
@@ -962,7 +982,7 @@ Use for mutually exclusive short option groups.
 
 Current label role:
 
-- `typography.control`
+- `typography.bodyMedium` (`md` / `lg`); `typography.captionMedium` for `size="scanner"`
 
 ### PageTabs
 
@@ -1167,7 +1187,7 @@ neighbour.
 ## Design-System Editing Rules
 
 - Prefer editing tokens or shared primitives before patching individual screens.
-- Interactive labels should use `typography.control` by default unless a control is intentionally demoted into helper/meta text.
+- Interactive labels should use `typography.bodyMedium` (Figma Body-medium) by default — `label` for chip-style actions — unless a control is intentionally demoted into helper/meta text.
 - Scanner UI is not a free-form exception. Distinct scanner surfaces should still consume shared scanner tokens and reusable primitives where possible.
 - If the same visual pattern appears in multiple screens, consider whether it should move into this package.
 - Prefer named props like `variant`, `size`, and `labelStyleVariant` over repeated inline style overrides.

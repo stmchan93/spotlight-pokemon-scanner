@@ -46,6 +46,7 @@ import {
   Text,
   Toast,
   useSpotlightTheme,
+  radii,
 } from '@spotlight/design-system';
 
 import {
@@ -210,6 +211,7 @@ const SEARCH_FOCUS_TOP_GAP = 12;
 // balance. This used to be 8 because the shared header wrapper contributed a
 // 16px inter-child gap on top of it; the tab bar now lives in the pinned chrome
 // ABOVE the page, so this carries the whole gap on its own.
+const SEARCH_TO_CHIPS_GAP = 8;
 const TABS_TO_BALANCE_GAP = 24;
 
 type PortfolioScreenProps = {
@@ -406,8 +408,10 @@ export function PortfolioScreen({
     return {
       handle: handleSlug && handleSlug.length > 0 ? handleSlug : ownerId,
       userId: ownerId,
+      // The follow list is titled with the profile's name (Figma 5753:13043).
+      title: getResolvedDisplayName(currentUser),
     };
-  }, [currentUser?.handle, currentUser?.id]);
+  }, [currentUser]);
 
   const handleOpenFollowers = useCallback(() => {
     if (ownFollowListParams) {
@@ -1690,15 +1694,18 @@ export function PortfolioScreen({
       style={{
         backgroundColor: theme.colors.gray0,
         borderCurve: 'continuous',
-        borderTopLeftRadius: 16,
-        borderTopRightRadius: 16,
+        // Figma 5938:21765: the profile's white sheet has 20pt top corners.
+        borderTopLeftRadius: radii.xl,
+        borderTopRightRadius: radii.xl,
         paddingTop: 16,
       }}
     >
       <PageTabs
+        labelSize="caption"
         onChange={setActiveProfileTab}
         tabs={PROFILE_TABS}
         testID="portfolio-profile-tabs"
+        uppercase
         value={activeProfileTab}
       />
     </View>
@@ -1722,6 +1729,7 @@ export function PortfolioScreen({
         <>
           <View style={{ marginTop: TABS_TO_BALANCE_GAP }}>
             <PortfolioBalanceHeader
+              label={activeCollectionName}
               summary={summary}
               rangeSummary={model.selectedRangeSummary}
               rangeCaption={rangeCaption}
@@ -1763,7 +1771,8 @@ export function PortfolioScreen({
               Select / Done edit-mode toggle was removed alongside it. Edit mode
               itself is still wired below — it just has no entry point on this
               row right now. */}
-          <View onLayout={handleSearchRowLayout}>
+          {/* Figma 5938:21808: 8 from the search to the filter chips, not chrome's 16. */}
+          <View onLayout={handleSearchRowLayout} style={styles.searchRowWrap}>
             <CollectionSearchRow
               collectionName={activeCollectionName}
               inputRef={searchInputRef}
@@ -2233,7 +2242,7 @@ export function PortfolioScreen({
               testID="portfolio-edit-done"
             >
               <Xmark color={theme.colors.gray900} height={22} width={22} />
-              <Text style={[theme.typography.navLabel, { color: theme.colors.gray900 }]}>Done</Text>
+              <Text style={[theme.typography.caption, { color: theme.colors.gray900 }]}>Done</Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
@@ -2243,7 +2252,7 @@ export function PortfolioScreen({
               testID="portfolio-edit-select-all"
             >
               <CheckCircle color={theme.colors.gray900} height={22} width={22} />
-              <Text style={[theme.typography.navLabel, { color: theme.colors.gray900 }]}>
+              <Text style={[theme.typography.caption, { color: theme.colors.gray900 }]}>
                 {allVisibleSelected ? 'Unselect All' : 'Select All'}
               </Text>
             </Pressable>
@@ -2256,7 +2265,7 @@ export function PortfolioScreen({
               testID="portfolio-edit-delete"
             >
               <Trash color={theme.colors.dangerStrong} height={22} width={22} />
-              <Text style={[theme.typography.navLabel, { color: theme.colors.dangerStrong }]}>
+              <Text style={[theme.typography.caption, { color: theme.colors.dangerStrong }]}>
                 Delete
               </Text>
             </Pressable>
@@ -2413,6 +2422,9 @@ const styles = StyleSheet.create({
     // block).
     marginTop: 16,
     marginBottom: 16,
+  },
+  searchRowWrap: {
+    marginBottom: SEARCH_TO_CHIPS_GAP - 16,
   },
   chrome: {
     // Mirror the legacy ScrollView `content` gap so the balance/chart/search/
