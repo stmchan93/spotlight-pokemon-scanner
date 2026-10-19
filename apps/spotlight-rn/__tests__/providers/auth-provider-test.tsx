@@ -73,6 +73,7 @@ describe('AuthProvider', () => {
         error?.code === 'identity_already_exists'
         || (typeof error?.message === 'string' && error.message.toLowerCase().includes('already linked'))),
       fetchAuthUserError: jest.fn(async () => null),
+      fetchProfile: jest.fn(async () => null),
       clearStoredSession: jest.fn(async () => {}),
       signInAnonymously: jest.fn(async () => null),
       signUpWithEmail: jest.fn(async () => ({ needsCode: true, session: null })),
@@ -156,6 +157,9 @@ describe('AuthProvider', () => {
           React.createElement(Text, { testID: 'state' }, `state:${auth.state}`),
           React.createElement(Text, { testID: 'user' }, `user:${auth.currentUser?.id ?? 'none'}`),
           React.createElement(Text, { testID: 'handle' }, `handle:${auth.currentUser?.handle ?? 'none'}`),
+          React.createElement(Text, { testID: 'followers' }, `followers:${auth.currentUser?.followerCount ?? 'unset'}`),
+          React.createElement(Text, { testID: 'following' }, `following:${auth.currentUser?.followingCount ?? 'unset'}`),
+          React.createElement(Text, { testID: 'cover' }, `cover:${auth.currentUser?.coverURL ?? 'none'}`),
           React.createElement(Text, { testID: 'profile' }, `profile:${auth.profileDraftName || '<empty>'}`),
           React.createElement(Text, { testID: 'error' }, `error:${auth.errorMessage ?? 'none'}`),
           React.createElement(Text, { testID: 'apple' }, `apple:${String(auth.appleSignInAvailable)}`),
@@ -201,6 +205,8 @@ describe('AuthProvider', () => {
           React.createElement(Pressable, { testID: 'set-profile-name', onPress: () => auth.setProfileDraftName('  Misty  ') }),
           React.createElement(Pressable, { testID: 'submit-profile', onPress: () => { void auth.submitProfile(); } }),
           React.createElement(Pressable, { testID: 'submit-handle', onPress: () => { void auth.submitHandle('misty'); } }),
+          React.createElement(Pressable, { testID: 'refresh-user', onPress: () => { void auth.refreshCurrentUser(); } }),
+          React.createElement(Pressable, { testID: 'follow-one', onPress: () => auth.applyFollowingDelta(1) }),
         );
       }
 
@@ -352,7 +358,10 @@ describe('AuthProvider', () => {
     });
 
     await waitFor(() => {
-      expect(resolveAppUserFromSession).toHaveBeenCalledWith(currentSession);
+      expect(resolveAppUserFromSession).toHaveBeenCalledWith(
+        currentSession,
+        expect.objectContaining({ onLateProfile: expect.any(Function) }),
+      );
     });
 
     fireEvent.press(getByTestId('sign-out'));
@@ -1479,6 +1488,248 @@ describe('AuthProvider', () => {
     // The failed save must not have refreshed the handle.
     expect(getByText('handle:none')).toBeTruthy();
     expect(authService.updateProfile).toHaveBeenCalledWith('user-1', { handle: 'misty' });
+  });
+
+  /*
+    THE COLD-LAUNCH HEADER BUG. `resolveAppUserFromSession` caps its profile read
+    so launch never stalls, and when the cap wins the user lands with zero
+    counts and no cover. The service hands the row back late through
+    `onLateProfile`; these pin that the provider overlays it onto the RIGHT
+    user and leaves anyone else alone.
+  */
+  function bareUser(session: any) {
+    return {
+      adminEnabled: false,
+      avatarURL: null,
+      displayName: 'Collector' as string | null,
+      email: session?.user?.email ?? 'collector@example.com',
+      id: session?.user?.id ?? 'user-1',
+      labelerEnabled: false,
+      providers: ['google'],
+      handleKnown: false,
+      handle: null,
+      coverURL: null,
+      followerCount: 0,
+      followingCount: 0,
+      reputation: 0,
+    };
+  }
+
+  const LATE_PROFILE = {
+    userID: 'user-1',
+    displayName: 'Collector',
+    avatarURL: null,
+    labelerEnabled: false,
+    adminEnabled: false,
+    handleKnown: true,
+    handle: 'collector',
+    coverURL: 'https://cdn.test/cover.jpg',
+    followerCount: 12,
+    followingCount: 7,
+    reputation: 340,
+  };
+
+  // Captures the service's late-profile hook per session so a test can fire it
+  // whenever it likes, as the real fetch would once Supabase finally answers.
+  function timedOutResolver() {
+    const lateHandlers = new Map<string, (profile: unknown) => void>();
+    const resolveAppUserFromSession = jest.fn(async (session: any, options?: { onLateProfile?: (profile: unknown) => void }) => {
+      if (options?.onLateProfile) {
+        lateHandlers.set(session.user.id, options.onLateProfile);
+      }
+      return bareUser(session);
+    });
+    return { lateHandlers, resolveAppUserFromSession };
+  }
+
+  it('LATE PROFILE: a row that lands after the launch timeout fills in the counts and cover', async () => {
+    const { lateHandlers, resolveAppUserFromSession } = timedOutResolver();
+    const { act, defaultSession, getByText, waitFor } = renderAuthProvider({
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => defaultSession),
+        getNeedsProfile: jest.fn(() => false),
+        resolveAppUserFromSession,
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedIn')).toBeTruthy();
+    });
+    // Launch did not wait: the header renders from the bare user…
+    expect(getByText('followers:0')).toBeTruthy();
+    expect(getByText('cover:none')).toBeTruthy();
+    expect(getByText('handle:none')).toBeTruthy();
+
+    // …and the row is overlaid the moment the still-running read settles.
+    await act(async () => {
+      lateHandlers.get('user-1')!(LATE_PROFILE);
+    });
+
+    expect(getByText('followers:12')).toBeTruthy();
+    expect(getByText('following:7')).toBeTruthy();
+    expect(getByText('cover:https://cdn.test/cover.jpg')).toBeTruthy();
+    expect(getByText('handle:collector')).toBeTruthy();
+    expect(getByText('state:signedIn')).toBeTruthy();
+  });
+
+  it('LATE PROFILE: re-evaluates the profile-completion gate from the real row', async () => {
+    const { lateHandlers, resolveAppUserFromSession } = timedOutResolver();
+    const { act, defaultSession, getByText, waitFor } = renderAuthProvider({
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => defaultSession),
+        // The bare user has no display name → gate; the late row brings one.
+        resolveAppUserFromSession: resolveAppUserFromSession.mockImplementation(async (session: any, options?: any) => {
+          lateHandlers.set(session.user.id, options.onLateProfile);
+          return { ...bareUser(session), displayName: null };
+        }),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:needsProfile')).toBeTruthy();
+    });
+
+    await act(async () => {
+      lateHandlers.get('user-1')!({ ...LATE_PROFILE, displayName: 'Ash Ketchum' });
+    });
+
+    expect(getByText('state:signedIn')).toBeTruthy();
+    expect(getByText('profile:Ash Ketchum')).toBeTruthy();
+  });
+
+  it('LATE PROFILE: a row from an EARLIER session never lands on the account signed in now', async () => {
+    const { lateHandlers, resolveAppUserFromSession } = timedOutResolver();
+    const { act, authStateChangeHandler, defaultSession, getByText, waitFor } = renderAuthProvider({
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => defaultSession),
+        getNeedsProfile: jest.fn(() => false),
+        resolveAppUserFromSession,
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('user:user-1')).toBeTruthy();
+    });
+
+    // Account switch while user-1's profile read is still in flight.
+    const nextSession = {
+      access_token: 'next-token',
+      user: { email: 'misty@example.com', id: 'user-2' },
+    } as any;
+    const emitAuthChange = authStateChangeHandler as ((event: string, session: any) => void) | null;
+    await act(async () => {
+      emitAuthChange!('SIGNED_IN', nextSession);
+    });
+    await waitFor(() => {
+      expect(getByText('user:user-2')).toBeTruthy();
+    });
+
+    await act(async () => {
+      lateHandlers.get('user-1')!(LATE_PROFILE);
+    });
+
+    // user-2 keeps their own (bare) profile; user-1's row went nowhere.
+    expect(getByText('user:user-2')).toBeTruthy();
+    expect(getByText('followers:0')).toBeTruthy();
+    expect(getByText('cover:none')).toBeTruthy();
+    expect(getByText('handle:none')).toBeTruthy();
+  });
+
+  it('LATE PROFILE: a row that lands after sign-out is dropped', async () => {
+    const { lateHandlers, resolveAppUserFromSession } = timedOutResolver();
+    const { act, defaultSession, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => defaultSession),
+        getNeedsProfile: jest.fn(() => false),
+        resolveAppUserFromSession,
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('user:user-1')).toBeTruthy();
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId('sign-out'));
+    });
+    await waitFor(() => {
+      expect(getByText('state:signedOut')).toBeTruthy();
+    });
+
+    await act(async () => {
+      lateHandlers.get('user-1')!(LATE_PROFILE);
+    });
+
+    expect(getByText('user:none')).toBeTruthy();
+    expect(getByText('state:signedOut')).toBeTruthy();
+  });
+
+  it('REFRESH: refreshCurrentUser re-reads the row and patches the counts, server winning', async () => {
+    const fetchProfile = jest.fn(async () => LATE_PROFILE);
+    const { act, authService, defaultSession, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      authServiceOverrides: {
+        fetchProfile,
+        getCurrentSession: jest.fn(async () => defaultSession),
+        getNeedsProfile: jest.fn(() => false),
+        resolveAppUserFromSession: jest.fn(async (session: any) => bareUser(session)),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedIn')).toBeTruthy();
+    });
+    expect(getByText('followers:0')).toBeTruthy();
+
+    // A local follow moved the count optimistically…
+    await act(async () => {
+      fireEvent.press(getByTestId('follow-one'));
+    });
+    expect(getByText('following:1')).toBeTruthy();
+
+    // …the server's number replaces it, as the source of truth.
+    await act(async () => {
+      fireEvent.press(getByTestId('refresh-user'));
+    });
+
+    await waitFor(() => {
+      expect(getByText('followers:12')).toBeTruthy();
+    });
+    expect(getByText('following:7')).toBeTruthy();
+    expect(getByText('cover:https://cdn.test/cover.jpg')).toBeTruthy();
+    expect(fetchProfile).toHaveBeenCalledWith('user-1');
+    expect(authService.resolveAppUserFromSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('REFRESH: guests and signed-out users never hit Supabase', async () => {
+    const fetchProfile = jest.fn(async () => LATE_PROFILE);
+    const guestSession = {
+      access_token: 'guest-token',
+      user: { email: null, id: 'anon-1', is_anonymous: true },
+    } as any;
+    const { act, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      authServiceOverrides: {
+        fetchProfile,
+        getCurrentSession: jest.fn(async () => guestSession),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('guest:true')).toBeTruthy();
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId('refresh-user'));
+    });
+    expect(fetchProfile).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.press(getByTestId('sign-out'));
+    });
+    await waitFor(() => {
+      expect(getByText('state:signedOut')).toBeTruthy();
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId('refresh-user'));
+    });
+    expect(fetchProfile).not.toHaveBeenCalled();
   });
 
   // Owner key = data isolation; remount key = how much of the tree survives a

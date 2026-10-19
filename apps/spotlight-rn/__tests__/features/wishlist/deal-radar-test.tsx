@@ -547,7 +547,7 @@ describe('Watchlist deal radar', () => {
         .toHaveTextContent("Lowest we've seen · usually $129+");
       expect(screen.getByTestId('wishlist-deal-list-price-deal-1')).toHaveTextContent('List Price: $95.00');
       expect(screen.queryByTestId('wishlist-deal-discount-deal-1')).not.toBeOnTheScreen();
-      expect(screen.getByTestId('wishlist-deal-printing-deal-1')).toHaveTextContent('Reverse Holofoil');
+      expect(screen.getByTestId('wishlist-deal-printing-deal-1')).toHaveTextContent('REVERSE HOLOFOIL');
       expect(screen.getByTestId('wishlist-deal-tier-deal-1')).toHaveTextContent('Few sales');
     });
 

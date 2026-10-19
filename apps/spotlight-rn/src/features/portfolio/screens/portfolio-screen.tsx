@@ -191,6 +191,10 @@ function buildMarketplaceUrlForEntry(entry: InventoryCardEntry): string | null {
 // collection they are for. See the scope gate in the screen body.
 const COLLECTION_SCOPE_WAIT_MS = 2000;
 
+// Floor between profile re-reads on focus (follower/following/Fame counts,
+// cover). Tab-hopping must not turn into a Supabase read per hop.
+const PROFILE_REFRESH_MIN_INTERVAL_MS = 30_000;
+
 const isTestEnv = process.env.NODE_ENV === 'test';
 
 // A short "click" the moment a card is selected by long-press (iOS-style
@@ -489,7 +493,7 @@ export function PortfolioScreen({
   const { isHidden: isSummaryHidden, toggle: toggleSummaryHidden } = usePortfolioSummaryVisibility();
   const { viewMode, toggleViewMode } = usePortfolioViewMode();
   const { openDrawer } = useAppDrawer();
-  const { setCollectionEditing } = useTabsPage();
+  const { activePage, setCollectionEditing } = useTabsPage();
   const handleTabBarScroll = useTabBarScrollHandler();
   const [activeChartPoint, setActiveChartPoint] = useState<PortfolioChartActivePoint | null>(null);
   const [isChartScrubbing, setIsChartScrubbing] = useState(false);
@@ -1019,6 +1023,28 @@ export function PortfolioScreen({
         setActivityReloadToken((token) => token + 1);
       }
     }, []),
+  );
+
+  // The header's counts and cover come from `currentUser`, which is read once at
+  // sign-in (under a launch timeout that can lose). Re-read it when this page is
+  // actually in front — the tab focused AND the pager on Portfolio — throttled.
+  // Guests have no profile row.
+  const lastProfileRefreshAtRef = useRef(0);
+  const isGuest = auth.isGuest;
+  const refreshCurrentUser = auth.refreshCurrentUser;
+  const isPortfolioPageActive = activePage === 'portfolio';
+  useFocusEffect(
+    useCallback(() => {
+      if (isGuest || !isPortfolioPageActive) {
+        return;
+      }
+      const now = Date.now();
+      if (now - lastProfileRefreshAtRef.current < PROFILE_REFRESH_MIN_INTERVAL_MS) {
+        return;
+      }
+      lastProfileRefreshAtRef.current = now;
+      void refreshCurrentUser();
+    }, [isGuest, isPortfolioPageActive, refreshCurrentUser]),
   );
 
   /*

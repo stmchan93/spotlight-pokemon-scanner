@@ -1,4 +1,14 @@
-import { createContext, type PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  createContext,
+  type PropsWithChildren,
+  type SetStateAction,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import * as Linking from 'expo-linking';
 import type { Session } from '@supabase/supabase-js';
 
@@ -10,6 +20,7 @@ import {
   clearStoredSession,
   convertAnonymousUserToEmailAccount,
   fetchAuthUserError,
+  fetchProfile,
   getAccessToken,
   getCurrentSession,
   getConfigurationIssue,
@@ -39,10 +50,12 @@ import {
 } from '@/features/auth/auth-service';
 import {
   PENDING_GUEST_USER_ID,
+  applyProfileToAppUser,
   getResolvedDisplayName,
   type AppUser,
   type AuthState,
   type ProfileUpdate,
+  type UserProfile,
 } from '@/features/auth/auth-models';
 import { TurnstileCaptchaHost } from '@/features/auth/captcha/turnstile-captcha-host';
 import { hasEverSignedIn, markHasSignedIn } from '@/features/auth/guest-first-launch';
@@ -105,8 +118,9 @@ type AuthContextValue = EmailAuthActions & {
    * Following someone writes a `follows` row and a `SECURITY DEFINER` trigger
    * updates BOTH profiles' counters — verified correct in the database. But the
    * viewer's own count is rendered from `currentUser`, which is loaded at
-   * sign-in and never re-read, so the number they were just looking at did not
-   * move while the person they followed visibly gained a follower.
+   * sign-in and otherwise re-read only by `refreshCurrentUser` / a late profile
+   * read, so the number they were just looking at did not move while the
+   * person they followed visibly gained a follower.
    *
    * A local delta rather than a refetch, deliberately: the outcome of your own
    * tap is already known, and a round trip to be told what you just did is both
@@ -117,6 +131,13 @@ type AuthContextValue = EmailAuthActions & {
    * Clamped at 0. Callers MUST revert on a failed write (pass the negated delta).
    */
   applyFollowingDelta: (delta: number) => void;
+  /**
+   * Re-read the signed-in user's `user_profiles` row and overlay it onto
+   * `currentUser` (counts, cover, handle, bio…). Plain fetch, no launch
+   * timeout. No-op for guests and while signed out; never throws. Callers
+   * throttle — this is one Supabase read per call.
+   */
+  refreshCurrentUser: () => Promise<void>;
   /** True while the active session is a guest (Supabase anonymous user). */
   isGuest: boolean;
   isBusy: boolean;
@@ -416,8 +437,33 @@ function guestAppUser(session: Session | null): AppUser {
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const [state, setState] = useState<AuthState>(shouldBypassAuthForTests ? 'signedIn' : 'loading');
-  const [currentUser, setCurrentUser] = useState<AppUser | null>(shouldBypassAuthForTests ? testUser : null);
-  const [currentSession, setCurrentSession] = useState<Session | null>(null);
+  const [currentUser, setCurrentUserState] = useState<AppUser | null>(shouldBypassAuthForTests ? testUser : null);
+  const [currentSession, setCurrentSessionState] = useState<Session | null>(null);
+  // Synchronous mirrors of the two states above. The profile patches below run
+  // long after the callback that started them and must compare against the
+  // user/session held NOW, not the render they were created in — so every
+  // write goes through the setters right below, which update the ref first.
+  const currentUserRef = useRef<AppUser | null>(currentUser);
+  const currentSessionRef = useRef<Session | null>(null);
+  const isMountedRef = useRef(true);
+
+  const setCurrentUser = useCallback((next: SetStateAction<AppUser | null>) => {
+    const resolved = typeof next === 'function' ? next(currentUserRef.current) : next;
+    currentUserRef.current = resolved;
+    setCurrentUserState(resolved);
+  }, []);
+
+  const setCurrentSession = useCallback((next: Session | null) => {
+    currentSessionRef.current = next;
+    setCurrentSessionState(next);
+  }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   const [isBusy, setIsBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [profileDraftName, setProfileDraftName] = useState(shouldBypassAuthForTests ? getResolvedDisplayName(testUser) : '');
@@ -459,6 +505,43 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, []);
 
   const getCurrentAccessToken = useCallback(() => accessTokenRef.current, []);
+
+  // Overlay a profile row that arrived AFTER the user it belongs to was
+  // resolved: the launch-timeout fallback in `resolveAppUserFromSession`, or an
+  // explicit `refreshCurrentUser`. `sessionUserID` is the user the row was
+  // fetched for; it is matched against the user currently held INSIDE the
+  // updater, so a read started under an earlier account (sign out, account
+  // switch, guest → account) can never land on whoever is signed in now.
+  const applyLateProfile = useCallback((sessionUserID: string, profile: UserProfile) => {
+    if (!isMountedRef.current) {
+      return;
+    }
+    // Holder, not a plain `let`: the updater runs synchronously (see
+    // `setCurrentUser`) but TS cannot see a closure assignment.
+    const result: { patched: AppUser | null } = { patched: null };
+    setCurrentUser((previous) => {
+      if (!previous || previous.id !== sessionUserID) {
+        return previous;
+      }
+      result.patched = applyProfileToAppUser(previous, profile);
+      return result.patched;
+    });
+    const next = result.patched;
+    if (!next) {
+      return;
+    }
+
+    // Same gate `updateFromSession` applies — a row that finally brings the
+    // display name should drop the completion screen, and vice versa. Only the
+    // two signed-in states are touched; a recovery or sign-out in progress wins.
+    setProfileDraftName((current) => current || next.displayName || '');
+    setState((current) => {
+      if (current !== 'signedIn' && current !== 'needsProfile') {
+        return current;
+      }
+      return getNeedsProfile(next) ? 'needsProfile' : 'signedIn';
+    });
+  }, [setCurrentUser]);
 
   const updateFromSession = useCallback(async (session: Session | null) => {
     accessTokenRef.current = getAccessToken(session);
@@ -504,7 +587,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
     // Whatever OAuth link round trip was pending has resolved into an account.
     pendingOAuthLinkProviderRef.current = null;
 
-    const resolvedUser = await resolveAppUserFromSession(session);
+    // The profile read inside is capped so launch never stalls on Supabase.
+    // When the cap wins, the user lands with zero counts and no cover; the row
+    // is patched in the moment the still-running read settles.
+    const resolvedUser = await resolveAppUserFromSession(session, {
+      onLateProfile: (profile) => applyLateProfile(session.user.id, profile),
+    });
 
     // Whatever guest we were holding is now spent, either way.
     guestUserIdRef.current = null;
@@ -524,7 +612,20 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setCurrentUser(resolvedUser);
     setProfileDraftName((current) => current || resolvedUser.displayName || '');
     setState(getNeedsProfile(resolvedUser) ? 'needsProfile' : 'signedIn');
-  }, [setPendingGuest]);
+  }, [applyLateProfile, setCurrentSession, setCurrentUser, setPendingGuest]);
+
+  const refreshCurrentUser = useCallback(async () => {
+    const session = currentSessionRef.current;
+    const held = currentUserRef.current;
+    // Guests have no profile row; a pending guest has no session at all.
+    if (!session || !held || isPendingGuestRef.current || isAnonymousSession(session)) {
+      return;
+    }
+    const profile = await fetchProfile(session.user.id);
+    if (profile) {
+      applyLateProfile(session.user.id, profile);
+    }
+  }, [applyLateProfile]);
 
   // Enter guest mode WITHOUT minting a Supabase anonymous user. The app renders
   // exactly as it does for a minted guest (`isGuest` is true, the profile gate
@@ -536,7 +637,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setCurrentUser(guestAppUser(null));
     setProfileDraftName('');
     setState('signedIn');
-  }, [setPendingGuest]);
+  }, [setCurrentUser, setPendingGuest]);
 
   // See `applyFollowingDelta` on AuthContextValue for why this is a local delta
   // and not a refetch. Guarded against going negative: a double-tap that fired
@@ -550,7 +651,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       const next = Math.max(0, (previous.followingCount ?? 0) + delta);
       return next === previous.followingCount ? previous : { ...previous, followingCount: next };
     });
-  }, []);
+  }, [setCurrentUser]);
 
   const ensureGuestSession = useCallback(async (): Promise<Session | null> => {
     if (currentSession) {
@@ -806,7 +907,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       linkSubscription.remove();
       authSubscription?.data.subscription.unsubscribe();
     };
-  }, [enterPendingGuest, handleIncomingURL, updateFromSession]);
+  }, [enterPendingGuest, handleIncomingURL, setCurrentUser, updateFromSession]);
 
   const clearError = useCallback(() => setErrorMessage(null), []);
 
@@ -819,6 +920,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     ensureGuestSession,
     errorMessage,
     applyFollowingDelta,
+    refreshCurrentUser,
     getAccessToken: getCurrentAccessToken,
     // A guest is a guest whether or not we have paid for their identity yet, so
     // every existing gate keeps working across the deferred mint.
@@ -1048,7 +1150,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
     isPendingGuest,
     performAuthAction,
     profileDraftName,
+    refreshCurrentUser,
     runWithBusy,
+    setCurrentSession,
+    setCurrentUser,
     setPendingGuest,
     state,
     updateFromSession,

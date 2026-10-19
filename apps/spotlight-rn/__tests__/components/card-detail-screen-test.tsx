@@ -702,7 +702,7 @@ describe('CardDetailScreen', () => {
       expect(screen.queryByTestId('detail-add-item')).toBeNull();
       expect(screen.getByLabelText('Expand inventory')).toBeTruthy();
       const trigger = await screen.findByTestId('detail-owned-edit-grade-trigger');
-      await waitFor(() => expect(within(trigger).getByText('Heavily Played')).toBeTruthy());
+      await waitFor(() => expect(within(trigger).getByText('HEAVILY PLAYED')).toBeTruthy());
     });
   });
 

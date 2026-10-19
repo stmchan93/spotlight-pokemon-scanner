@@ -46,9 +46,9 @@ describe('InventoryCardTile', () => {
 
     expect(screen.getByText('Charizard ex')).toBeTruthy();
     expect(screen.getByText('193/162 · Perfect Order')).toBeTruthy();
-    // Variant renders ABOVE the condition line.
-    expect(screen.getByText('Holofoil')).toBeTruthy();
-    expect(screen.getByText('Lightly Played')).toBeTruthy();
+    // Variant renders ABOVE the condition line; both lines are caps labels.
+    expect(screen.getByText('HOLOFOIL')).toBeTruthy();
+    expect(screen.getByText('LIGHTLY PLAYED')).toBeTruthy();
     // Quantity renders at the right edge of the price row (count + box icon,
     // Figma 2489:6459) — the old top-left corner chip is gone.
     expect(screen.getByTestId('tile-quantity')).toBeTruthy();

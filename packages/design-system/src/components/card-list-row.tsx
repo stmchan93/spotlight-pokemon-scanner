@@ -365,9 +365,10 @@ export function CardListRow({
                 numberOfLines={1}
                 variant={metaVariant}
               >
-                {/* Capitals on the string, not `textTransform`: a one-line Text
-                    is measured from the source on iOS and ellipsizes the caps. */}
-                {collectionCopy ? gradeText.toUpperCase() : gradeText}
+                {/* Condition/grade labels are always caps ("NEAR MINT", "PSA 10").
+                    On the string, not `textTransform`: a one-line Text is
+                    measured from the source on iOS and ellipsizes the caps. */}
+                {gradeText.toUpperCase()}
               </AppText>
             ) : null}
           </View>

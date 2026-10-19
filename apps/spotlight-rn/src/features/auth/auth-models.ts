@@ -175,6 +175,33 @@ export function describeHandleValidity(validity: HandleValidity): string | null 
   }
 }
 
+/**
+ * Overlay a freshly read `user_profiles` row onto an AppUser. The server is the
+ * source of truth for every profile field, so the row wins outright; the only
+ * fallbacks are display name and avatar, which keep the auth-metadata values
+ * the user was already resolved with when the row has none.
+ */
+export function applyProfileToAppUser(user: AppUser, profile: UserProfile): AppUser {
+  return {
+    ...user,
+    adminEnabled: profile.adminEnabled,
+    avatarURL: profile.avatarURL ?? user.avatarURL,
+    displayName: normalizeDisplayName(profile.displayName) ?? user.displayName,
+    labelerEnabled: profile.labelerEnabled,
+    handleKnown: profile.handleKnown === true,
+    handle: profile.handle ?? null,
+    bio: profile.bio ?? null,
+    location: profile.location ?? null,
+    socialLink: profile.socialLink ?? null,
+    coverURL: profile.coverURL ?? null,
+    isVerified: profile.isVerified ?? false,
+    reputation: profile.reputation ?? 0,
+    followerCount: profile.followerCount ?? 0,
+    followingCount: profile.followingCount ?? 0,
+    postCount: profile.postCount ?? 0,
+  };
+}
+
 export function requiresProfileCompletion(user: AppUser) {
   return normalizeDisplayName(user.displayName) === null;
 }

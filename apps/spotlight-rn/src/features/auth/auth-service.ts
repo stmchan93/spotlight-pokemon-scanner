@@ -6,6 +6,7 @@ import {
   type AppUser,
   type ProfileUpdate,
   type UserProfile,
+  applyProfileToAppUser,
   normalizeDisplayName,
   requiresProfileCompletion,
 } from './auth-models';
@@ -280,13 +281,35 @@ export async function fetchProfile(userID: string) {
   }
 }
 
-async function fetchProfileWithTimeout(userID: string, timeoutMs = 2000) {
-  return Promise.race<UserProfile | null>([
-    fetchProfile(userID),
-    new Promise<null>((resolve) => {
-      setTimeout(() => resolve(null), timeoutMs);
+type TimedProfileFetch = {
+  profile: UserProfile | null;
+  /**
+   * Set ONLY when the timer won: the fetch is still running, and whoever built
+   * a user from the null `profile` can patch it in when this settles. Null when
+   * the fetch itself answered (with a row or a definitive failure).
+   */
+  lateProfile: Promise<UserProfile | null> | null;
+};
+
+async function fetchProfileWithTimeout(userID: string, timeoutMs = 2000): Promise<TimedProfileFetch> {
+  const pending = fetchProfile(userID);
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timedOut = Symbol('timeout');
+
+  const winner = await Promise.race<UserProfile | null | typeof timedOut>([
+    pending,
+    new Promise<typeof timedOut>((resolve) => {
+      timer = setTimeout(() => resolve(timedOut), timeoutMs);
     }),
   ]);
+
+  if (winner === timedOut) {
+    return { profile: null, lateProfile: pending };
+  }
+  if (timer) {
+    clearTimeout(timer);
+  }
+  return { profile: winner, lateProfile: null };
 }
 
 /**
@@ -346,34 +369,56 @@ export async function upsertProfile(
   return profile;
 }
 
-export async function resolveAppUserFromSession(session: Session): Promise<AppUser> {
-  const authUser = session.user;
-  const profile = await fetchProfileWithTimeout(authUser.id);
-  const displayName = normalizeDisplayName(profile?.displayName) ?? fallbackDisplayName(authUser);
-  const avatarURL = profile?.avatarURL ?? fallbackAvatarURL(authUser);
+export type ResolveAppUserOptions = {
+  /**
+   * Called at most once, later, if the profile read lost the launch timeout and
+   * then came back with a row. The returned AppUser was built WITHOUT that row
+   * (zero counts, no cover, handle unknown); the caller is expected to overlay
+   * it with `applyProfileToAppUser`. Never called when the read was in time.
+   */
+  onLateProfile?: (profile: UserProfile) => void;
+};
 
-  return {
-    adminEnabled: profile?.adminEnabled ?? false,
-    avatarURL,
-    displayName,
+export async function resolveAppUserFromSession(
+  session: Session,
+  options: ResolveAppUserOptions = {},
+): Promise<AppUser> {
+  const authUser = session.user;
+  const { profile, lateProfile } = await fetchProfileWithTimeout(authUser.id);
+
+  if (lateProfile && options.onLateProfile) {
+    const { onLateProfile } = options;
+    void lateProfile.then((late) => {
+      if (late) {
+        onLateProfile(late);
+      }
+    });
+  }
+
+  const baseUser: AppUser = {
+    adminEnabled: false,
+    avatarURL: fallbackAvatarURL(authUser),
+    displayName: fallbackDisplayName(authUser),
     email: authUser.email ?? null,
     id: authUser.id,
-    labelerEnabled: profile?.labelerEnabled ?? false,
+    labelerEnabled: false,
     providers: dedupeProviders(authUser),
     // True ONLY when a real profile row was fetched via a handle-bearing
     // select. A timeout or fabricated fallback must read as "unknown".
-    handleKnown: profile?.handleKnown === true,
-    handle: profile?.handle ?? null,
-    bio: profile?.bio ?? null,
-    location: profile?.location ?? null,
-    socialLink: profile?.socialLink ?? null,
-    coverURL: profile?.coverURL ?? null,
-    isVerified: profile?.isVerified ?? false,
-    reputation: profile?.reputation ?? 0,
-    followerCount: profile?.followerCount ?? 0,
-    followingCount: profile?.followingCount ?? 0,
-    postCount: profile?.postCount ?? 0,
+    handleKnown: false,
+    handle: null,
+    bio: null,
+    location: null,
+    socialLink: null,
+    coverURL: null,
+    isVerified: false,
+    reputation: 0,
+    followerCount: 0,
+    followingCount: 0,
+    postCount: 0,
   };
+
+  return profile ? applyProfileToAppUser(baseUser, profile) : baseUser;
 }
 
 /** Postgres unique-violation, raised by `uq_user_profiles_handle`. */

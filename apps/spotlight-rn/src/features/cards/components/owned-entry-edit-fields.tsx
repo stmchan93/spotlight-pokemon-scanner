@@ -79,7 +79,7 @@ export function OwnedEntryEditFields({
           testID={`${testID}-grade-trigger`}
         >
           <Text style={[theme.typography.caption, { color: theme.colors.gray900 }]}>
-            {gradeLabel ?? 'Select'}
+            {(gradeLabel ?? 'Select').toUpperCase()}
           </Text>
           <NavArrowDown color={theme.colors.gray400} height={24} width={24} />
         </Pressable>

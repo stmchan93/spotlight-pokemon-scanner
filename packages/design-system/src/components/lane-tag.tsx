@@ -40,7 +40,8 @@ export function LaneTag({ lane, label, style, testID }: LaneTagProps) {
         style={{ color: graded ? theme.colors.gray0 : theme.colors.gray700 }}
         variant="tag"
       >
-        {label ?? (graded ? 'GRADED' : 'RAW')}
+        {/* Grade labels ("PSA 10") render in caps like the default tags. */}
+        {(label ?? (graded ? 'GRADED' : 'RAW')).toUpperCase()}
       </AppText>
     </View>
   );

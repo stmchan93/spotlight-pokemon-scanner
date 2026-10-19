@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Alert, Platform, Share, StyleSheet, Text } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -25,9 +25,15 @@ import { createTestSpotlightRepository, renderWithProviders } from '../test-util
 
 jest.mock('expo-router', () => ({
   useRouter: jest.fn(),
-  // Focus effect runs the composer-refresh consumer; no-op in tests.
+  // Focus effects (composer-refresh consumer, profile re-read) are captured, not
+  // run; a test that cares drives them via `runFocusEffects`.
   useFocusEffect: jest.fn(),
 }));
+
+// Observable stand-in for the provider's profile re-read; the real one is a
+// no-op under the test-bypass user (no session), so it would prove nothing.
+const mockRefreshCurrentUser = jest.fn(async () => {});
+let mockIsGuest = false;
 
 // Only the network-touching reads the Activity tab makes are stubbed; the rest of
 // the social module stays real so nothing else in the tree changes behaviour.
@@ -55,6 +61,8 @@ jest.mock('@/providers/auth-provider', () => {
       return {
         ...value,
         currentUser: value.currentUser ? { ...value.currentUser, handle: 'uitester' } : null,
+        isGuest: mockIsGuest,
+        refreshCurrentUser: mockRefreshCurrentUser,
       };
     },
   };
@@ -247,6 +255,7 @@ describe('PortfolioScreen', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockIsGuest = false;
     __resetPortfolioSummaryVisibilityForTests();
     __resetPortfolioViewModeForTests();
     (useRouter as jest.Mock).mockReturnValue({
@@ -254,6 +263,54 @@ describe('PortfolioScreen', () => {
       back: jest.fn(),
       replace: jest.fn(),
     });
+  });
+
+  // Fire every focus effect the LAST render registered, as the navigator does
+  // when the tab comes to the front.
+  async function runFocusEffects() {
+    const calls = (useFocusEffect as jest.Mock).mock.calls as [() => void | (() => void)][];
+    await act(async () => {
+      for (const [effect] of calls.slice(-2)) {
+        effect();
+      }
+    });
+  }
+
+  /*
+    THE COLD-LAUNCH HEADER BUG. `currentUser` is read once at sign-in under a
+    launch timeout, so "0 FOLLOWERS 0 FOLLOWING 0 FAME" and a missing cover could
+    stick until the next app open. The page re-reads the row on focus — throttled,
+    and never for a guest, who has no row.
+  */
+  it('re-reads the profile when the page comes to the front, at most once per 30s', async () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      renderPortfolioScreen();
+      await screen.findByTestId('portfolio-header-title');
+
+      await runFocusEffects();
+      expect(mockRefreshCurrentUser).toHaveBeenCalledTimes(1);
+
+      // Hopping away and back inside the window costs nothing.
+      nowSpy.mockReturnValue(1_000_000 + 10_000);
+      await runFocusEffects();
+      expect(mockRefreshCurrentUser).toHaveBeenCalledTimes(1);
+
+      nowSpy.mockReturnValue(1_000_000 + 31_000);
+      await runFocusEffects();
+      expect(mockRefreshCurrentUser).toHaveBeenCalledTimes(2);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('never re-reads the profile for a guest', async () => {
+    mockIsGuest = true;
+    renderPortfolioScreen();
+    await screen.findByTestId('portfolio-header-title');
+
+    await runFocusEffects();
+    expect(mockRefreshCurrentUser).not.toHaveBeenCalled();
   });
 
   it('renders the header, summary, search row, filter chips, masonry grid, and FAB', async () => {

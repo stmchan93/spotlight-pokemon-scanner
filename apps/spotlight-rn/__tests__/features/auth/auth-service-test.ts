@@ -448,6 +448,98 @@ describe('auth-service profiles', () => {
       providers: [],
     });
   });
+
+  /*
+    THE COLD-LAUNCH HEADER BUG. The profile read is capped at 2s so launch never
+    stalls on Supabase, but when the cap wins the user was built from nothing
+    (0 followers / 0 following / 0 Fame, no cover) and NOBODY re-read the row.
+    The fix keeps the in-flight read alive and hands the row back late.
+  */
+  it('hands the profile back late when the launch timeout wins the race', async () => {
+    jest.useFakeTimers();
+
+    let settleRow: ((row: unknown) => void) | null = null;
+    const single = jest.fn(() => new Promise((resolve) => {
+      settleRow = resolve;
+    }));
+    const eq = jest.fn(() => ({ single }));
+    const select = jest.fn(() => ({ eq }));
+    const supabase = makeSupabaseMock();
+    supabase.from.mockReturnValue({ select });
+
+    const { service } = await loadAuthService({ supabase });
+    const onLateProfile = jest.fn();
+
+    const pending = service.resolveAppUserFromSession(makeSession(), { onLateProfile });
+    await jest.advanceTimersByTimeAsync(2000);
+    const user = await pending;
+
+    // Built without the row — and honest about it.
+    expect(user).toMatchObject({
+      displayName: 'Fallback Collector',
+      handleKnown: false,
+      followerCount: 0,
+      coverURL: null,
+    });
+    expect(onLateProfile).not.toHaveBeenCalled();
+
+    settleRow!({
+      data: {
+        avatar_url: null,
+        cover_url: 'https://cdn.test/cover.jpg',
+        display_name: 'Profile Name',
+        follower_count: 12,
+        following_count: 7,
+        handle: 'ash',
+        reputation: 340,
+        user_id: 'user-1',
+      },
+      error: null,
+    });
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(onLateProfile).toHaveBeenCalledTimes(1);
+    expect(onLateProfile).toHaveBeenCalledWith(expect.objectContaining({
+      coverURL: 'https://cdn.test/cover.jpg',
+      displayName: 'Profile Name',
+      followerCount: 12,
+      followingCount: 7,
+      handle: 'ash',
+      handleKnown: true,
+      reputation: 340,
+    }));
+  });
+
+  it('does NOT call back late when the row arrived in time, or when the late read finds nothing', async () => {
+    jest.useFakeTimers();
+
+    const supabase = makeSupabaseMock();
+    supabase.from.mockReturnValue(profileTableResult({
+      data: { avatar_url: null, display_name: 'Profile Name', user_id: 'user-1' },
+      error: null,
+    }).table);
+    const { service } = await loadAuthService({ supabase });
+
+    const onLateProfile = jest.fn();
+    await expect(service.resolveAppUserFromSession(makeSession(), { onLateProfile })).resolves.toMatchObject({
+      displayName: 'Profile Name',
+    });
+    await jest.advanceTimersByTimeAsync(5000);
+    expect(onLateProfile).not.toHaveBeenCalled();
+
+    // Timeout, then a definitive "no row": nothing to patch, so no callback.
+    let settleRow: ((row: unknown) => void) | null = null;
+    const single = jest.fn(() => new Promise((resolve) => {
+      settleRow = resolve;
+    }));
+    supabase.from.mockReturnValue({ select: jest.fn(() => ({ eq: jest.fn(() => ({ single })) })) });
+    const pending = service.resolveAppUserFromSession(makeSession(), { onLateProfile });
+    await jest.advanceTimersByTimeAsync(2000);
+    await pending;
+    settleRow!({ data: null, error: { message: 'permission denied' } });
+    await jest.advanceTimersByTimeAsync(0);
+    expect(onLateProfile).not.toHaveBeenCalled();
+  });
 });
 
 /**

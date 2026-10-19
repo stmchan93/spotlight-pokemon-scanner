@@ -769,7 +769,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                     </ArenaPressable>
                   ) : modeTagLine ? (
                     <Text numberOfLines={1} style={styles.captureSubtitle}>
-                      {modeTagLine}
+                      {modeTagLine.toUpperCase()}
                     </Text>
                   ) : null}
                   {capture.binderPage ? <PocketBadge binderPage={capture.binderPage} /> : null}

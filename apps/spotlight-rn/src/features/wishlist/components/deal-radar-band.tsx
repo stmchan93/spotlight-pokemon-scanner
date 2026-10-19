@@ -253,7 +253,8 @@ function DealRadarRow({
                   style={[theme.typography.caption, { color: theme.colors.gray600 }]}
                   testID={`wishlist-deal-printing-${alert.id}`}
                 >
-                  {printing}
+                  {/* Printing label in caps, matching the wishlist tiles. */}
+                  {printing.toUpperCase()}
                 </Text>
               ) : null}
               <View testID={`wishlist-deal-headline-${alert.id}`}>

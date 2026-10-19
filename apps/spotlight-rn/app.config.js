@@ -276,9 +276,9 @@ function withPlugin(existingPlugins, pluginEntry) {
 // 2026-10-06: expo-store-review (review prompt) moved staging 0.1.3 -> 0.1.4.
 // Production 1.3.0 -> 1.3.1 with the same change (store version 1.3.1).
 // 2026-10-08: react-native-maps (Events map) moved staging 0.1.4 -> 0.1.5.
-// Production keeps 1.3.1 until its next native build.
+// 2026-10-19: production 1.3.1 -> 1.3.2 picks up react-native-maps (store version 1.3.2).
 const SPOTLIGHT_RUNTIME_VERSION_BY_ENV = {
-  production: '1.3.1',
+  production: '1.3.2',
 };
 
 function resolveSpotlightRuntimeVersionForEnv(resolvedAppEnv, baseConfig = baseExpoConfig) {

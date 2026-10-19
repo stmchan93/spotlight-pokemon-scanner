@@ -47,7 +47,7 @@ describe('CardListRow slab frame', () => {
     expect(screen.getByTestId('row-slab-frame')).toBeTruthy();
     expect(screen.getByTestId('row-slab-frame-grade').props.children).toBe('10');
     // The meta line is the untouched plain text — no wordmark image.
-    expect(screen.getByText('Holofoil · PSA 10')).toBeTruthy();
+    expect(screen.getByText('HOLOFOIL · PSA 10')).toBeTruthy();
     expect(screen.queryByTestId('row-grader-mark')).toBeNull();
   });
 
@@ -61,10 +61,10 @@ describe('CardListRow slab frame', () => {
     expect(screen.getByText('CGC 10')).toBeTruthy();
   });
 
-  it('raw card: no frame, plain condition text', () => {
+  it('raw card: no frame, plain condition text in caps', () => {
     render(<CardListRow {...base} gradeLabel="Holofoil · Near Mint" testID="row" />);
     expect(screen.queryByTestId('row-slab-frame')).toBeNull();
-    expect(screen.getByText('Holofoil · Near Mint')).toBeTruthy();
+    expect(screen.getByText('HOLOFOIL · NEAR MINT')).toBeTruthy();
   });
 });
 
@@ -105,6 +105,6 @@ describe('InventoryCardTile slab frame', () => {
       />,
     );
     expect(screen.queryByTestId('tile-slab-frame')).toBeNull();
-    expect(screen.getByText('Near Mint')).toBeTruthy();
+    expect(screen.getByText('NEAR MINT')).toBeTruthy();
   });
 });

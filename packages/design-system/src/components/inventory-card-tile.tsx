@@ -434,7 +434,8 @@ export function InventoryCardTile({
                 numberOfLines={1}
                 variant={metaVariant}
               >
-                {(variantName ?? '').trim()}
+                {/* Printing line is a caps label like the condition line below. */}
+                {(variantName ?? '').trim().toUpperCase()}
               </AppText>
             ) : null}
 
@@ -444,9 +445,10 @@ export function InventoryCardTile({
                 numberOfLines={1}
                 variant={metaVariant}
               >
-                {/* Capitals on the string, not `textTransform`: a one-line Text
-                    is measured from the source on iOS and ellipsizes the caps. */}
-                {collectionCopy ? qualityLine.toUpperCase() : qualityLine}
+                {/* Condition/grade labels are always caps ("NEAR MINT", "PSA 10").
+                    On the string, not `textTransform`: a one-line Text is
+                    measured from the source on iOS and ellipsizes the caps. */}
+                {qualityLine.toUpperCase()}
               </AppText>
             ) : null}
           </View>

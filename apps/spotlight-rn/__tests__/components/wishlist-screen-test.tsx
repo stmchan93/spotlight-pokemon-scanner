@@ -578,7 +578,7 @@ describe('WishlistScreen', () => {
       renderWishlistScreen(repository);
 
       const tile = await screen.findByTestId('wishlist-grid-tile-charizard:Reverse Holofoil');
-      expect(within(tile).getByText('Reverse Holofoil')).toBeOnTheScreen();
+      expect(within(tile).getByText('REVERSE HOLOFOIL')).toBeOnTheScreen();
       savedViewMode = 'list';
     });
 

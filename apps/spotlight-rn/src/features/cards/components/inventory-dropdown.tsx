@@ -144,7 +144,8 @@ export function InventoryDropdown({
                           style={styles.entrySummaryText}
                           variant="captionMedium"
                         >
-                          {summary}
+                          {/* Figma 5768:24005: "NM · HOLOFOIL · EN" — whole line in caps. */}
+                          {summary.toUpperCase()}
                         </AppText>
                         <View style={styles.entryQuantity}>
                           <BoxIso color={theme.colors.gray900} height={14} width={14} />

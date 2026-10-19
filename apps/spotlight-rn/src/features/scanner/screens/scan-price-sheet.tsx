@@ -273,7 +273,7 @@ export function ScanPriceSheet({
             <View style={styles.body} testID={`${testID}-body`}>
               {mode === 'slabs' ? (
                 <View style={styles.singleRow} testID={`${testID}-slab-row`}>
-                  <Text style={styles.rowTitle}>{slabGradeLabel}</Text>
+                  <Text style={styles.rowTitle}>{slabGradeLabel.toUpperCase()}</Text>
                   <Text style={styles.rowPrice}>
                     {isFinitePrice(fallbackMarketPrice)
                       ? formatCurrency(fallbackMarketPrice, currencyCode)
@@ -315,7 +315,8 @@ export function ScanPriceSheet({
                         >
                           <View style={styles.rowCopy}>
                             <Text style={styles.rowTitle}>
-                              {variant.variant} · {condition.label}
+                              {/* Printing · condition in caps, like the PDP condition picker. */}
+                              {`${variant.variant} · ${condition.label}`.toUpperCase()}
                             </Text>
                           </View>
                           <View style={styles.rowTrailing}>

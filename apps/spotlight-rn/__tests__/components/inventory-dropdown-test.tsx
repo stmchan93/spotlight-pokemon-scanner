@@ -88,9 +88,9 @@ describe('InventoryDropdown', () => {
     expect(screen.getByTestId('detail-inventory-row-a')).toBeTruthy();
     expect(screen.getByTestId('detail-inventory-row-b')).toBeTruthy();
     // Raw entry: condition code · variant · language.
-    expect(screen.getByText('NM · Holofoil · EN')).toBeTruthy();
+    expect(screen.getByText('NM · HOLOFOIL · EN')).toBeTruthy();
     // Graded entry: grader+grade replaces the condition code.
-    expect(screen.getByText('PSA 10 · Holofoil · EN')).toBeTruthy();
+    expect(screen.getByText('PSA 10 · HOLOFOIL · EN')).toBeTruthy();
     expect(screen.getByText('2')).toBeTruthy();
     expect(screen.getByText('$450.86')).toBeTruthy();
     expect(screen.getByText('$1,450.12')).toBeTruthy();
