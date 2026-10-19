@@ -124,8 +124,8 @@ export const colors = {
    * Previously three hard-coded `rgba(0, 0, 0, 0.35)` literals in two files.
    */
   scannerChromeFill: 'rgba(0, 0, 0, 0.35)',
-  // Figma 5559:7036 — dims the viewfinder outside the reticle.
-  scannerScrim: 'rgba(0, 0, 0, 0.20)',
+  // Dims the viewfinder outside the reticle (Figma 5753:17030; 40% per design review 2026-10-18).
+  scannerScrim: 'rgba(0, 0, 0, 0.40)',
   scannerTextPrimary: '#FFFFFF',
   scannerTextSecondary: 'rgba(255, 255, 255, 0.72)',
   scannerTextMuted: 'rgba(255, 255, 255, 0.58)',
