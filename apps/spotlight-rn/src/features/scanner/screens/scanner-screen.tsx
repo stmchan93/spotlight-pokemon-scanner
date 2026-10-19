@@ -221,6 +221,9 @@ import type {
   RecentCapture,
 } from './scanner-screen-types';
 
+// ~2px of blur (Figma 5938:14965); expo-blur intensity is not in px, this reads closest.
+const SCANNER_BOTTOM_BLUR_INTENSITY = 10;
+
 // Phase 2 raw collector-number OCR (SECONDARY verification only). Default OFF.
 // Enable per-build for on-device latency measurement. Requires the custom dev
 // client (native ML Kit text reader); no-ops gracefully in Expo Go. Must be
@@ -4773,18 +4776,20 @@ export function ScannerScreen({
           </Svg>
         </View>
         <View pointerEvents="none" style={styles.cameraBottomFade}>
-          <Svg height="100%" width="100%">
+          {/*
+            Figma 5938:14965 "Bottom gradient": a 2px backdrop blur under white
+            0% -> 20% (top -> bottom), behind the zoom controls and the tray.
+            The blur is iOS-only: Android's blur view can't sample the camera
+            surface and would paint it black.
+          */}
+          {Platform.OS === 'ios' ? (
+            <BlurView intensity={SCANNER_BOTTOM_BLUR_INTENSITY} pointerEvents="none" style={StyleSheet.absoluteFill} tint="default" />
+          ) : null}
+          <Svg height="100%" style={StyleSheet.absoluteFill} width="100%">
             <Defs>
-              {/*
-                Figma 4911:8693: black 15% at the bottom edge -> #5D5D5D 11%
-                by the 60% mark -> clear at the top of a 258pt band under the
-                zoom controls. Faint by design, same as the top fade. The
-                frame's 16pt backdrop-blur is skipped as everywhere.
-              */}
-              <SvgLinearGradient id="scannerBottomFade" x1="0" x2="0" y1="1" y2="0">
-                <Stop offset="0" stopColor="#000000" stopOpacity="0.15" />
-                <Stop offset="0.6" stopColor="#5D5D5D" stopOpacity="0.11" />
-                <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
+              <SvgLinearGradient id="scannerBottomFade" x1="0" x2="0" y1="0" y2="1">
+                <Stop offset="0" stopColor="#FFFFFF" stopOpacity="0" />
+                <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0.2" />
               </SvgLinearGradient>
             </Defs>
             <Rect fill="url(#scannerBottomFade)" height="100%" width="100%" x="0" y="0" />
