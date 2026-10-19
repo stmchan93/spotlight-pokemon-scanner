@@ -104,9 +104,14 @@ TAG_PATTERNS: list[tuple[str, str]] = [
 # Organizer calls for vendors whose free-text answer names no game
 # (Diamond Shields: "Low Pop. Niche. Rare."), keyed by normalized vendor name.
 TAG_OVERRIDES: dict[str, list[str]] = {
-    "diamondshields": ["Pokémon"],
     # Signing up but has no Treasure profile yet.
     "hnlcardfest": ["Pokémon"],
+}
+
+# Organizer calls that REPLACE every other tag source for a vendor.
+EXACT_TAGS: dict[str, list[str]] = {
+    # Diamond Shields (all of section I) is Pokémon only, whatever its profile says (user, 2026-10-18).
+    "diamondshields": ["Pokémon"],
 }
 
 # Display names for layout rows that aren't a business name (the layout lists
@@ -479,7 +484,7 @@ def build_map(
                 row = {"instagram": tag_row["instagram"], "inventory": "", "purchase": ""}
         elif tag_rows and not is_food:
             report["noTagsMatch"].append(name)
-        tags = filter_tags(raw_tags + TAG_OVERRIDES.get(_norm(name), []))
+        tags = EXACT_TAGS.get(_norm(name)) or filter_tags(raw_tags + TAG_OVERRIDES.get(_norm(name), []))
         if csv_rows and row is None:
             report["noCsvMatch"].append(name)
 
