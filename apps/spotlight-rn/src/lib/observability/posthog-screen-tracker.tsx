@@ -69,6 +69,15 @@ export function resolveScreenName(pathname: string) {
     return 'news';
   }
 
+  // The Events tab is `/events`; an event's own page is `/events/<id>`.
+  if (pathname === '/events') {
+    return 'events';
+  }
+
+  if (pathname.startsWith('/events/')) {
+    return 'event_detail';
+  }
+
   if (isPathOrChild(pathname, '/calendar')) {
     return 'calendar';
   }

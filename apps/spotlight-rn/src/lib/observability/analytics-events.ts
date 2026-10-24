@@ -25,6 +25,10 @@ export const AnalyticsEvent = {
   similarCardsShown: 'similar_cards_shown',
   similarCardOpened: 'similar_card_opened',
 
+  // Hamburger drawer. `drawer_item_tapped` carries `item` (the nav key).
+  drawerOpened: 'drawer_opened',
+  drawerItemTapped: 'drawer_item_tapped',
+
   // Notifications.
   alertPrefChanged: 'alert_pref_changed',
   pushOpened: 'push_opened',

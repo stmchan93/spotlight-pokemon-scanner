@@ -23,6 +23,11 @@ jest.mock('@/providers/auth-provider', () => ({
   useAuth: jest.fn(),
 }));
 
+const mockCapturePostHogEvent = jest.fn();
+jest.mock('@/lib/observability/posthog', () => ({
+  capturePostHogEvent: (...args: unknown[]) => mockCapturePostHogEvent(...args),
+}));
+
 type DrawerHandle = {
   open: () => void;
   close: () => void;
@@ -156,6 +161,26 @@ describe('AppDrawer', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('logs one drawer_opened per open and the tapped item', () => {
+    renderWithProviders(
+      <>
+        <DrawerController />
+        <AppDrawer />
+      </>,
+    );
+
+    act(() => {
+      drawerHandleRef.current?.open();
+    });
+
+    expect(mockCapturePostHogEvent).toHaveBeenCalledTimes(1);
+    expect(mockCapturePostHogEvent).toHaveBeenCalledWith('drawer_opened', { from: 'portfolio' });
+
+    fireEvent.press(screen.getByTestId('app-drawer-nav-feedback'));
+
+    expect(mockCapturePostHogEvent).toHaveBeenLastCalledWith('drawer_item_tapped', { item: 'feedback' });
   });
 
   it('navigates to /messages when Messages is tapped', () => {

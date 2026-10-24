@@ -101,6 +101,8 @@ describe('PostHogScreenTracker', () => {
     ['/meta/group/vintage:raw:nm', 'meta_group'],
     ['/news', 'news'],
     ['/calendar', 'calendar'],
+    ['/events', 'events'],
+    ['/events/pomona-2026', 'event_detail'],
     ['/set-spotlight/sv8', 'set_spotlight'],
     ['/search/people', 'people_search'],
     ['/u/ash', 'profile'],

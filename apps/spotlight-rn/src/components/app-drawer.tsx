@@ -33,6 +33,9 @@ import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { openStoreReviewPage } from '@/features/review-prompt/review-prompt';
 import { useAppServices } from '@/providers/app-providers';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import { AnalyticsEvent } from '@/lib/observability/analytics-events';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
+import { resolveScreenName } from '@/lib/observability/posthog-screen-tracker';
 
 const DRAWER_WIDTH = 329;
 const ANIM_DURATION_MS = 240;
@@ -89,6 +92,21 @@ export function AppDrawer() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
+  // One event per open; `from` is the screen it was opened over.
+  useEffect(() => {
+    if (isOpen) {
+      capturePostHogEvent(AnalyticsEvent.drawerOpened, {
+        from: resolveScreenName(pathnameRef.current) ?? 'other',
+      });
+    }
+  }, [isOpen]);
+  // Logged before the guest gate, so a guest's tap on a gated item still counts.
+  const tracked = (item: string, onPress: () => void) => () => {
+    capturePostHogEvent(AnalyticsEvent.drawerItemTapped, { item });
+    onPress();
+  };
   const auth = useAuth();
   const { gate } = useGuestGate();
   const { width: screenWidth } = useWindowDimensions();
@@ -254,7 +272,7 @@ export function AppDrawer() {
       label: 'Insights',
       icon: GraphUp,
       selected: activeKey === 'insights',
-      onPress: gate(() => goTo('/insights')),
+      onPress: tracked('insights', gate(() => goTo('/insights'))),
     },
     {
       // The ONLY entry point to the DM inbox — `/messages` is reachable from
@@ -266,13 +284,13 @@ export function AppDrawer() {
       badgeCount: unreadMessageCount,
       // Same glyph the feed and comments sheet already use for conversation.
       icon: ChatBubbleEmpty,
-      onPress: gate(() => goTo('/messages')),
+      onPress: tracked('messages', gate(() => goTo('/messages'))),
     },
     {
       key: 'whos-that-pokemon',
       label: "Who's That Pokémon?",
       icon: MagicWand,
-      onPress: gate(() => goTo('/whos-that-pokemon')),
+      onPress: tracked('whos_that_pokemon', gate(() => goTo('/whos-that-pokemon'))),
     },
   ];
 
@@ -319,10 +337,10 @@ export function AppDrawer() {
           <Pressable
             accessibilityLabel="Account settings"
             accessibilityRole="button"
-            onPress={gate(() => {
+            onPress={tracked('profile', gate(() => {
               closeDrawer();
               setTimeout(() => router.push('/account' as never), ANIM_DURATION_MS / 2);
-            })}
+            }))}
             style={styles.profileRow}
             testID="app-drawer-profile"
           >
@@ -388,10 +406,10 @@ export function AppDrawer() {
             <DrawerNavItem
               icon={Star}
               label="Rate Ekalight"
-              onPress={() => {
+              onPress={tracked('rate', () => {
                 closeDrawer();
                 void openStoreReviewPage();
-              }}
+              })}
               testID="app-drawer-nav-rate"
             />
             <DrawerNavItem
@@ -399,30 +417,30 @@ export function AppDrawer() {
               label="Send Feedback"
               // Not gated: guests hit problems too, and asking them to sign in
               // first loses the report.
-              onPress={() => {
+              onPress={tracked('feedback', () => {
                 closeDrawer();
                 setTimeout(
                   () => router.push({ pathname: '/feedback', params: { from: normalizedPathname } } as never),
                   ANIM_DURATION_MS / 2,
                 );
-              }}
+              })}
               testID="app-drawer-nav-feedback"
             />
             <DrawerNavItem
               icon={Settings}
               label="Account Settings"
-              onPress={gate(() => {
+              onPress={tracked('account_settings', gate(() => {
                 closeDrawer();
                 // Same destination as tapping the profile row up top — the
                 // Account page carries sign-out + delete-account.
                 setTimeout(() => router.push('/account' as never), ANIM_DURATION_MS / 2);
-              })}
+              }))}
               testID="app-drawer-nav-account-settings"
             />
             <DrawerNavItem
               icon={LogOut}
               label="Log Out"
-              onPress={gate(() => {
+              onPress={tracked('logout', gate(() => {
                 Alert.alert(
                   'Log out?',
                   "You'll need to sign in again to view your portfolio.",
@@ -442,7 +460,7 @@ export function AppDrawer() {
                     },
                   ],
                 );
-              })}
+              }))}
               testID="app-drawer-nav-logout"
             />
           </View>
