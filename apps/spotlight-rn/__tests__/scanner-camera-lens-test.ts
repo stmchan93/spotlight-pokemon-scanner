@@ -23,6 +23,21 @@ describe('resolveScannerCameraDevice', () => {
     })).toBe(multi);
   });
 
+  it('locks binder pages only on a 48MP ultra-wide', () => {
+    const res = (width: number, height: number) => () => [{ width, height }];
+    const uw48 = { ...proUltraWide, getSupportedResolutions: res(8064, 6048) };
+    const uw12 = { ...proUltraWide, getSupportedResolutions: res(4032, 3024) };
+    expect(resolveScannerCameraDevice({
+      lockMacroLens: true, requireHighResolution: true, multiLensDevice: multi, ultraWideDevice: uw48,
+    })).toBe(uw48);
+    expect(resolveScannerCameraDevice({
+      lockMacroLens: true, requireHighResolution: true, multiLensDevice: multi, ultraWideDevice: uw12,
+    })).toBe(multi);
+    expect(resolveScannerCameraDevice({
+      lockMacroLens: true, requireHighResolution: true, multiLensDevice: multi, ultraWideDevice: proUltraWide,
+    })).toBe(multi);
+  });
+
   it('falls back to the multi-lens device when no ultra-wide exists', () => {
     expect(resolveScannerCameraDevice({
       lockMacroLens: true, multiLensDevice: multi, ultraWideDevice: null,

@@ -4678,10 +4678,8 @@ export function ScannerScreen({
         onCaptureBlocked={(info) => reportShutterBlocked('reticle', info)}
         prompt={promptCopy}
         shouldMountCamera={shouldMountCamera}
-        // Single-card scans are held close enough to trip the Auto-Macro lens
-        // hand-off (the preview "jump"); binder pages are held farther and need
-        // the main sensor's detail, so they keep the multi-lens device.
-        lockMacroLens={!isBinderPageMode}
+        // Stops the Auto-Macro lens hand-off (the preview "jump") on Pro iPhones.
+        lockMacroLens
         suspendPreview={activeBinderPageId != null}
         showSlabGuide={false}
         testIDPrefix="scanner"

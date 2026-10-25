@@ -431,6 +431,7 @@ export function RawScannerCaptureSurface({
   });
   const device = resolveScannerCameraDevice({
     lockMacroLens,
+    requireHighResolution: captureResolution === 'page',
     multiLensDevice,
     ultraWideDevice,
   });
