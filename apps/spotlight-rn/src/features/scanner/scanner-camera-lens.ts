@@ -13,8 +13,8 @@
  * ultra-wides are fixed-focus, so the lock would blur every scan there; the
  * resolver below falls back to the multi-lens device in that case.
  *
- * Nothing turns the lock on today (no settings toggle), so the scanner always
- * uses the multi-lens device.
+ * The scanner turns the lock on for single-card scans (not binder pages); there
+ * is no user-facing setting.
  */
 
 type LensCapableDevice = {
