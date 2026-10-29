@@ -18,14 +18,22 @@ import {
 } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
+import { recordBoothEvent } from '@/features/events/booth-service';
+import { BoothVendorPanel } from '@/features/events/components/booth-vendor-panel';
 import { EventFloorMap } from '@/features/events/components/event-floor-map';
 import { filterVendors, floorMapViewportHeight, vendorForTable } from '@/features/events/event-floor-map-model';
+import type { BoothFloor } from '@/features/events/hooks/use-booth-floor';
 import { useSpotlightEventMap } from '@/features/events/hooks/use-spotlight-event-map';
+import { AnalyticsEvent } from '@/lib/observability/analytics-events';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 
 /** The server sends the chip set in display order (tools/build_event_floor_map.py FILTER_TAGS); this only guards a runaway list. */
 const MAX_TAG_CHIPS = 20;
 /** Map space the floating vendor card covers; a fitted vendor is centred above it. */
 const CARD_OVERLAY_HEIGHT = 96;
+/** Extra card height for the booth row, and for its photo strip. */
+const BOOTH_ROW_HEIGHT = 60;
+const BOOTH_STRIP_HEIGHT = 72;
 /** The unfiltered list starts short; 180 rows in a non-virtualized page is a lot of layout. */
 const COLLAPSED_ROWS = 25;
 const ICON_SIZE = 16;
@@ -81,8 +89,15 @@ function VendorLogo({ vendor, size }: { vendor: SpotlightEventMapVendor; size: n
   );
 }
 
+/** Select this vendor (a deep link or a "From the floor" tap); a new `key` re-applies the same vendor. */
+export type VendorSelectRequest = { vendorId: string; key: number };
+
 type EventVendorsSectionProps = {
+  eventId: string;
   floorMapUrl: string;
+  /** Claims and booth posts for this show; absent = today's plain vendor card. */
+  booth?: BoothFloor | null;
+  selectRequest?: VendorSelectRequest | null;
   scrollGesture?: GestureType | React.RefObject<unknown>;
   /** The page's scroll view, so a vendor picked on the map can be scrolled into view. */
   scrollRef?: React.RefObject<GestureScrollView | null>;
@@ -90,7 +105,15 @@ type EventVendorsSectionProps = {
   renderTitle: (title: string) => React.ReactNode;
 };
 
-export function EventVendorsSection({ floorMapUrl, scrollGesture, scrollRef, renderTitle }: EventVendorsSectionProps) {
+export function EventVendorsSection({
+  eventId,
+  floorMapUrl,
+  booth,
+  selectRequest,
+  scrollGesture,
+  scrollRef,
+  renderTitle,
+}: EventVendorsSectionProps) {
   const { map, loading } = useSpotlightEventMap(floorMapUrl);
   const mapHeight = floorMapViewportHeight(useWindowDimensions().height);
   if (!map) {
@@ -101,16 +124,32 @@ export function EventVendorsSection({ floorMapUrl, scrollGesture, scrollRef, ren
       </View>
     ) : null;
   }
-  return <EventVendorsBody map={map} renderTitle={renderTitle} scrollGesture={scrollGesture} scrollRef={scrollRef} />;
+  return (
+    <EventVendorsBody
+      booth={booth ?? null}
+      eventId={eventId}
+      map={map}
+      renderTitle={renderTitle}
+      scrollGesture={scrollGesture}
+      scrollRef={scrollRef}
+      selectRequest={selectRequest ?? null}
+    />
+  );
 }
 
 function EventVendorsBody({
+  booth,
+  eventId,
   map,
   renderTitle,
   scrollGesture,
   scrollRef,
+  selectRequest,
 }: {
+  booth: BoothFloor | null;
+  eventId: string;
   map: SpotlightEventMap;
+  selectRequest: VendorSelectRequest | null;
   renderTitle: (title: string) => React.ReactNode;
   scrollGesture?: GestureType | React.RefObject<unknown>;
   scrollRef?: React.RefObject<GestureScrollView | null>;
@@ -123,6 +162,9 @@ function EventVendorsBody({
   const [scrollToSelected, setScrollToSelected] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const selectedRowRef = useRef<View>(null);
+  const mapRef = useRef<View>(null);
+  // A deep link or "From the floor" pick scrolls the map (not the row) into view.
+  const [scrollToMap, setScrollToMap] = useState(false);
 
   const isFiltering = query.trim().length > 0 || tag != null;
   const matches = useMemo(() => filterVendors(map.vendors, query, tag), [map.vendors, query, tag]);
@@ -131,6 +173,18 @@ function EventVendorsBody({
     [map.vendors, selectedId],
   );
   const selectedTableIds = useMemo(() => new Set(selected?.tableIds ?? []), [selected]);
+  // One dot per vendor that posted in the last 24h, on their first table.
+  const postedTableIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (booth) {
+      for (const vendor of map.vendors) {
+        if (booth.freshVendorIds.has(vendor.id) && vendor.tableIds[0]) {
+          ids.add(vendor.tableIds[0]);
+        }
+      }
+    }
+    return ids;
+  }, [booth, map.vendors]);
   const matchedTableIds = useMemo(
     () => (isFiltering ? new Set(matches.flatMap((vendor) => vendor.tableIds)) : new Set<string>()),
     [isFiltering, matches],
@@ -147,6 +201,11 @@ function EventVendorsBody({
     return counts;
   }, [map.vendors]);
   const rows = isFiltering || expanded ? matches : matches.slice(0, COLLAPSED_ROWS);
+  const selectedHasPhotos = Boolean(
+    selected && booth?.postsByVendor.get(selected.id)?.some((post) => post.media.length > 0),
+  );
+  const cardOverlayHeight =
+    CARD_OVERLAY_HEIGHT + (booth ? BOOTH_ROW_HEIGHT : 0) + (selectedHasPhotos ? BOOTH_STRIP_HEIGHT : 0);
 
   const select = useCallback((vendor: SpotlightEventMapVendor) => {
     setScrollToSelected(false);
@@ -173,6 +232,36 @@ function EventVendorsBody({
   );
 
   useEffect(() => {
+    if (!selectRequest || !map.vendors.some((vendor) => vendor.id === selectRequest.vendorId)) {
+      return;
+    }
+    setScrollToSelected(false);
+    setScrollToMap(true);
+    setSelectedId(selectRequest.vendorId);
+  }, [map.vendors, selectRequest]);
+
+  useEffect(() => {
+    if (!scrollToMap || !scrollRef?.current) {
+      return;
+    }
+    setScrollToMap(false);
+    const scroll = scrollRef.current;
+    const inner = scroll.getInnerViewNode?.();
+    if (!inner) {
+      return;
+    }
+    try {
+      mapRef.current?.measureLayout(
+        inner,
+        (_x, y) => scroll.scrollTo({ y: Math.max(0, y - SCROLL_INTO_VIEW_MARGIN), animated: true }),
+        () => undefined,
+      );
+    } catch {
+      // Best effort, as for rows.
+    }
+  }, [scrollRef, scrollToMap]);
+
+  useEffect(() => {
     if (!scrollToSelected || !selectedId || !scrollRef?.current) {
       return;
     }
@@ -195,21 +284,22 @@ function EventVendorsBody({
   return (
     <View style={styles.section} testID="event-vendors">
       {renderTitle('Vendors')}
-      <View>
+      <View ref={mapRef}>
         <EventFloorMap
-          bottomInset={selected ? CARD_OVERLAY_HEIGHT : 0}
+          bottomInset={selected ? cardOverlayHeight : 0}
           focusKey={selected?.id ?? null}
           map={map}
           matchedTableIds={matchedTableIds}
           onBackgroundPress={deselect}
           onTablePress={handleTablePress}
+          postedTableIds={postedTableIds}
           scrollGesture={scrollGesture}
           selectedTableIds={selectedTableIds}
         />
         {/* Docked inside the map (Figma 5865:11358): below it, a tapped table's vendor landed off-screen. */}
         {selected ? (
           <View pointerEvents="box-none" style={styles.cardOverlay}>
-            <SelectedVendorCard onClose={deselect} vendor={selected} />
+            <SelectedVendorCard booth={booth} eventId={eventId} onClose={deselect} vendor={selected} />
           </View>
         ) : null}
       </View>
@@ -341,44 +431,93 @@ function VendorRow({ vendor, selected, onPress, ref }: VendorRowProps) {
   );
 }
 
-/** Figma 5865:11358 — the white card docked at the bottom of the map. */
-function SelectedVendorCard({ vendor, onClose }: { vendor: SpotlightEventMapVendor; onClose: () => void }) {
+/** Figma 5865:11358 — the white card docked at the bottom of the map; booth actions sit under it. */
+function SelectedVendorCard({
+  booth,
+  eventId,
+  vendor,
+  onClose,
+}: {
+  booth: BoothFloor | null;
+  eventId: string;
+  vendor: SpotlightEventMapVendor;
+  onClose: () => void;
+}) {
   const theme = useSpotlightTheme();
   const instagram = vendor.instagram;
+  const claim = booth?.claims.get(vendor.id) ?? null;
+  const mine = claim != null && claim.userId === booth?.myUserId;
+
+  // The owner's own looks don't count toward their views.
+  useEffect(() => {
+    if (!booth || mine) {
+      return;
+    }
+    recordBoothEvent(eventId, vendor.id, 'card_open');
+    capturePostHogEvent(AnalyticsEvent.boothCardOpened, {
+      event_id: eventId,
+      vendor_id: vendor.id,
+      claimed: claim != null,
+    });
+    // Once per opened vendor, not on every claims refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId, vendor.id]);
+
   return (
     <View style={[styles.card, shadows.card, { backgroundColor: theme.colors.gray0 }]} testID="event-vendor-card">
-      <VendorLogo size={CARD_LOGO_SIZE} vendor={vendor} />
-      <View style={styles.cardText}>
-        <Text numberOfLines={1} style={[theme.typography.headline, { color: theme.colors.gray900 }]} testID="event-vendor-card-name">
-          {vendor.name}
-        </Text>
-        {vendor.tags.length > 0 ? (
-          <Text numberOfLines={1} style={[theme.typography.cardMeta, { color: theme.colors.gray600 }]}>
-            {vendor.tags.join(' · ').toUpperCase()}
+      <View style={styles.cardHeader}>
+        <VendorLogo size={CARD_LOGO_SIZE} vendor={vendor} />
+        <View style={styles.cardText}>
+          <Text
+            numberOfLines={1}
+            style={[theme.typography.headline, { color: theme.colors.gray900 }]}
+            testID="event-vendor-card-name"
+          >
+            {vendor.name}
           </Text>
+          {vendor.tags.length > 0 ? (
+            <Text numberOfLines={1} style={[theme.typography.cardMeta, { color: theme.colors.gray600 }]}>
+              {vendor.tags.join(' · ').toUpperCase()}
+            </Text>
+          ) : null}
+          <Text style={[theme.typography.label, { color: theme.colors.gray700 }]}>{`Table ${vendor.location}`}</Text>
+        </View>
+        {instagram ? (
+          <Pressable
+            accessibilityLabel={`@${instagram} on Instagram`}
+            accessibilityRole="link"
+            hitSlop={spacing.xxs}
+            onPress={() => {
+              if (booth && !mine) {
+                recordBoothEvent(eventId, vendor.id, 'instagram_tap');
+              }
+              void Linking.openURL(`https://instagram.com/${instagram}`).catch(() => undefined);
+            }}
+            testID="event-vendor-card-instagram"
+          >
+            <Instagram color={theme.colors.gray900} height={INSTAGRAM_ICON_SIZE} width={INSTAGRAM_ICON_SIZE} />
+          </Pressable>
         ) : null}
-        <Text style={[theme.typography.label, { color: theme.colors.gray700 }]}>{`Table ${vendor.location}`}</Text>
-      </View>
-      {instagram ? (
         <Pressable
-          accessibilityLabel={`@${instagram} on Instagram`}
-          accessibilityRole="link"
+          accessibilityLabel="Close vendor"
+          accessibilityRole="button"
           hitSlop={spacing.xxs}
-          onPress={() => void Linking.openURL(`https://instagram.com/${instagram}`).catch(() => undefined)}
-          testID="event-vendor-card-instagram"
+          onPress={onClose}
+          testID="event-vendor-card-close"
         >
-          <Instagram color={theme.colors.gray900} height={INSTAGRAM_ICON_SIZE} width={INSTAGRAM_ICON_SIZE} />
+          <Xmark color={theme.colors.gray600} height={INSTAGRAM_ICON_SIZE} width={INSTAGRAM_ICON_SIZE} />
         </Pressable>
+      </View>
+      {booth ? (
+        <BoothVendorPanel
+          claim={claim}
+          eventId={eventId}
+          myUserId={booth.myUserId}
+          onClaimsChanged={booth.refreshClaims}
+          posts={booth.postsByVendor.get(vendor.id) ?? []}
+          vendor={vendor}
+        />
       ) : null}
-      <Pressable
-        accessibilityLabel="Close vendor"
-        accessibilityRole="button"
-        hitSlop={spacing.xxs}
-        onPress={onClose}
-        testID="event-vendor-card-close"
-      >
-        <Xmark color={theme.colors.gray600} height={INSTAGRAM_ICON_SIZE} width={INSTAGRAM_ICON_SIZE} />
-      </Pressable>
     </View>
   );
 }
@@ -401,12 +540,15 @@ const styles = StyleSheet.create({
   },
   // Figma 5865:11358 — 12 padding, 8 gap, radius 8.
   card: {
-    alignItems: 'center',
     borderCurve: 'continuous',
     borderRadius: radii.sm,
+    gap: spacing.xs,
+    padding: spacing.xs,
+  },
+  cardHeader: {
+    alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.xxs,
-    padding: spacing.xs,
   },
   cardText: {
     flex: 1,

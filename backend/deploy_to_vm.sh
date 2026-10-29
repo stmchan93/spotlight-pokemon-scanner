@@ -338,6 +338,7 @@ SET_SPOTLIGHT_LOG_FILE="$LOG_DIR/set_spotlight.log"
 NEWS_FEED_LOG_FILE="$LOG_DIR/news_feed.log"
 SIMILAR_CARDS_LOG_FILE="$LOG_DIR/similar_cards.log"
 MARKET_ALERTS_LOG_FILE="$LOG_DIR/market_alerts.log"
+BOOTH_RECAPS_LOG_FILE="$LOG_DIR/booth_recaps.log"
 TORCH_CPU_INDEX_URL="${SPOTLIGHT_VM_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}"
 TORCH_PACKAGE_SPEC="${SPOTLIGHT_VM_TORCH_PACKAGE_SPEC:-torch==2.11.0+cpu}"
 SYNC_CRON_SCHEDULE="${SPOTLIGHT_VM_SYNC_CRON:-0 18 * * *}"
@@ -523,6 +524,7 @@ chmod +x \
   "$SCRIPT_DIR/run_set_spotlight_vm.sh" \
   "$SCRIPT_DIR/run_news_feed_vm.sh" \
   "$SCRIPT_DIR/run_market_alerts_vm.sh" \
+  "$SCRIPT_DIR/run_booth_recaps_vm.sh" \
   "$SCRIPT_DIR/run_similar_cards_vm.sh"
 
 sudo tee "$SERVICE_PATH" >/dev/null <<EOF
@@ -639,6 +641,10 @@ MARKET_ALERTS_LINE="3 * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_market_alerts_vm.
 # (reads the on-disk visual indexes), so both envs; no-op unless
 # SIMILAR_CARDS_ENABLED is truthy.
 SIMILAR_CARDS_LINE="40 7 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_similar_cards_vm.sh >> $SIMILAR_CARDS_LOG_FILE 2>&1"
+# Post-show booth recaps — daily at 18:20 UTC (10:20 PT / 8:20 HST), the morning
+# after a show in both show timezones. Supabase-only and idempotent (the SQL
+# dedupes per claimer + show), so both envs; no-op without the service-role key.
+BOOTH_RECAPS_LINE="20 18 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_booth_recaps_vm.sh >> $BOOTH_RECAPS_LOG_FILE 2>&1"
 
 CURRENT_CRONTAB="$(mktemp "${TMPDIR:-/tmp}/spotlight-crontab.XXXXXX")"
 trap 'rm -f "$CURRENT_CRONTAB"' EXIT
@@ -695,6 +701,7 @@ PY
   echo "$NEWS_FEED_LINE"
   echo "$MARKET_ALERTS_LINE"
   echo "$SIMILAR_CARDS_LINE"
+  echo "$BOOTH_RECAPS_LINE"
   echo "$CRON_END"
 } | crontab -
 
@@ -741,6 +748,7 @@ echo "  Sync log: $SYNC_LOG_FILE"
 echo "  Health monitor log: $HEALTH_MONITOR_LOG_FILE"
 echo "  Resource monitor log: $RESOURCE_MONITOR_LOG_FILE"
 echo "  Social moderation log: $SOCIAL_MODERATION_LOG_FILE"
+echo "  Booth recaps log: $BOOTH_RECAPS_LOG_FILE"
 echo "  Post media purge log: $POST_MEDIA_PURGE_LOG_FILE"
 echo "  Deal scan log: $DEAL_SCAN_LOG_FILE"
 echo "  Feed job logs: $META_PULSE_LOG_FILE $SET_SPOTLIGHT_LOG_FILE $HOT_CARDS_LOG_FILE $NEWS_FEED_LOG_FILE"

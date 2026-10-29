@@ -70,6 +70,12 @@ export function NotificationsScreen({ testID = 'notifications' }: { testID?: str
    */
   const openTarget = useCallback(
     (item: AppNotification): (() => void) | null => {
+      if (item.type === 'booth_recap') {
+        const eventId = item.boothRecap?.eventId;
+        return eventId
+          ? () => router.push({ pathname: '/events/[eventId]', params: { eventId } } as never)
+          : null;
+      }
       if (item.type === 'follow') {
         const handle = item.actor?.handle;
         return handle ? () => router.push(`/u/${handle}` as never) : null;
@@ -94,6 +100,43 @@ export function NotificationsScreen({ testID = 'notifications' }: { testID?: str
 
   const renderItem = useCallback(
     ({ item }: { item: AppNotification }) => {
+      if (item.type === 'booth_recap' && item.boothRecap) {
+        const recap = item.boothRecap;
+        const onRecapPress = openTarget(item);
+        return (
+          <Pressable
+            accessibilityRole="button"
+            disabled={!onRecapPress}
+            onPress={onRecapPress ?? undefined}
+            style={({ pressed }) => [
+              styles.row,
+              {
+                backgroundColor: pressed
+                  ? theme.colors.gray50
+                  : item.readAt
+                    ? theme.colors.gray0
+                    : theme.colors.purple50,
+                borderBottomColor: theme.colors.gray200,
+              },
+            ]}
+            testID={`${testID}-row-${item.id}`}
+          >
+            <Avatar initials={(recap.eventName[0] ?? '?').toUpperCase()} size={40} />
+            <View style={styles.copy}>
+              <Text
+                numberOfLines={4}
+                style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}
+                testID={`${testID}-row-${item.id}-recap`}
+              >
+                {formatBoothRecap(recap)}
+                <Text style={{ color: theme.colors.gray500 }}>
+                  {` ${formatNotificationDate(item.createdAt).toUpperCase()}`}
+                </Text>
+              </Text>
+            </View>
+          </Pressable>
+        );
+      }
       const name = personLabel(item.actor) ?? 'Someone';
       /*
         Say WHERE it happened, not just what. A reply arrives on someone else's
@@ -278,6 +321,21 @@ export function NotificationsScreen({ testID = 'notifications' }: { testID?: str
  */
 function personLabel(person: AppNotification['actor']): string | null {
   return person?.handle?.trim() || person?.displayName?.trim() || null;
+}
+
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/** "Spotlight Ontario: your booth got 148 views, 37 Instagram taps, 9 messages". */
+export function formatBoothRecap(recap: NonNullable<AppNotification['boothRecap']>): string {
+  const parts = [
+    plural(recap.views, 'view', 'views'),
+    plural(recap.instagramTaps, 'Instagram tap', 'Instagram taps'),
+    plural(recap.messages, 'message', 'messages'),
+  ];
+  const seen = recap.postViews > 0 ? `; posts seen ${plural(recap.postViews, 'time', 'times')}` : '';
+  return `${recap.eventName}: your booth got ${parts.join(', ')}${seen}`;
 }
 
 /**

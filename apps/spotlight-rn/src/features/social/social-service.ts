@@ -558,6 +558,15 @@ export function fetchCardPosts(cardId: string, limit = DEFAULT_LIMIT, before?: s
   return fetchPosts((query) => query.eq('card_id', trimmed), limit, before);
 }
 
+/** Booth posts at one show (`event_id = eventId`, social_27), newest first. */
+export function fetchEventPosts(eventId: string, limit = 60): Promise<FeedPost[]> {
+  const trimmed = (eventId ?? '').trim();
+  if (!trimmed) {
+    return Promise.resolve([]);
+  }
+  return fetchPosts((query) => query.eq('event_id', trimmed), limit);
+}
+
 type AuthorPostsOptions = {
   before?: string;
   /**
@@ -1144,17 +1153,27 @@ export async function addComment(
  * backend post-media endpoint with this post id. `content_status` defaults to
  * visible; the in-DB moderation trigger runs on insert.
  */
-export async function createPost(input: { body?: string | null; cardId?: string | null }): Promise<string | null> {
+export async function createPost(input: {
+  body?: string | null;
+  cardId?: string | null;
+  /** Tags the post to the author's claimed booth at a show (social_27). */
+  booth?: { eventId: string; vendorId: string } | null;
+}): Promise<string | null> {
   const me = await currentUserId();
   const body = (input.body ?? '').trim();
   const cardId = (input.cardId ?? '').trim() || null;
   if (!supabase || !me || (body.length === 0 && !cardId)) {
     return null;
   }
+  // Booth columns only when tagging, so untagged posts still insert on a
+  // database that predates social_27.
+  const boothColumns = input.booth
+    ? { event_id: input.booth.eventId, booth_vendor_id: input.booth.vendorId }
+    : {};
   try {
     const { data, error } = await supabase
       .from(POSTS_TABLE)
-      .insert({ author_id: me, body: body.length > 0 ? body : null, card_id: cardId })
+      .insert({ author_id: me, body: body.length > 0 ? body : null, card_id: cardId, ...boothColumns })
       .select('id')
       .single();
     if (error || !data) {
@@ -1320,7 +1339,18 @@ const NOTIFICATIONS_TABLE = 'notifications';
 
 /** Types the app renders. `mention`/`message` exist in the schema but nothing
  *  produces them yet (no parser, no DMs), so they are not surfaced. */
-export type NotificationType = 'like' | 'comment' | 'follow' | 'repost';
+export type NotificationType = 'like' | 'comment' | 'follow' | 'repost' | 'booth_recap';
+
+/** Post-show booth numbers (social_27 `send_booth_recaps`, from `payload`). */
+export type BoothRecap = {
+  eventId: string;
+  eventName: string;
+  vendorId: string;
+  views: number;
+  instagramTaps: number;
+  messages: number;
+  postViews: number;
+};
 
 export type AppNotification = {
   id: string;
@@ -1345,6 +1375,8 @@ export type AppNotification = {
   postAuthor: FeedPostAuthor | null;
   /** First image on that post, for the row's thumbnail. Null on text posts. */
   postMediaId: string | null;
+  /** Only on `booth_recap` rows. */
+  boothRecap?: BoothRecap | null;
 };
 
 type NotificationRow = {
@@ -1360,7 +1392,33 @@ type NotificationRow = {
 // BOTH this and `NotificationType` have to list a type. `fetchNotifications`
 // filters on this list, so a type widened only in the union is written by the DB
 // trigger and then silently dropped on the way to the screen.
-const RENDERABLE_NOTIFICATION_TYPES: readonly string[] = ['like', 'comment', 'follow', 'repost'];
+const RENDERABLE_NOTIFICATION_TYPES: readonly string[] = ['like', 'comment', 'follow', 'repost', 'booth_recap'];
+
+/** A recap without a show id has nowhere to lead and nothing to say: dropped. */
+export function parseBoothRecapPayload(payload: unknown): BoothRecap | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+  const raw = payload as Record<string, unknown>;
+  const eventId = typeof raw.event_id === 'string' ? raw.event_id : '';
+  if (!eventId) {
+    return null;
+  }
+  const counts = (raw.counts && typeof raw.counts === 'object' ? raw.counts : {}) as Record<string, unknown>;
+  const count = (key: string) => {
+    const value = Number(counts[key]);
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+  };
+  return {
+    eventId,
+    eventName: typeof raw.event_name === 'string' && raw.event_name.trim() ? raw.event_name.trim() : 'The show',
+    vendorId: typeof raw.vendor_id === 'string' ? raw.vendor_id : '',
+    views: count('card_open'),
+    instagramTaps: count('instagram_tap'),
+    messages: count('message_start'),
+    postViews: count('post_view'),
+  };
+}
 
 /**
  * How many unread notifications the signed-in user has — the number on the bell.
@@ -1413,9 +1471,27 @@ export async function fetchNotifications(limit = 50): Promise<AppNotification[]>
       return [];
     }
 
-    const rows = (data as NotificationRow[]).filter((row) =>
+    const typedRows = (data as NotificationRow[]).filter((row) =>
       RENDERABLE_NOTIFICATION_TYPES.includes(row.type),
     );
+
+    // `payload` is a separate read, only when a recap is on the page, so the
+    // main select still works on a database that predates social_27.
+    const recapsById = new Map<string, BoothRecap>();
+    const recapIds = typedRows.filter((row) => row.type === 'booth_recap').map((row) => row.id);
+    if (recapIds.length > 0) {
+      const { data: payloads } = await supabase
+        .from(NOTIFICATIONS_TABLE)
+        .select('id, payload')
+        .in('id', recapIds);
+      for (const row of (payloads ?? []) as { id: string; payload: unknown }[]) {
+        const recap = parseBoothRecapPayload(row.payload);
+        if (recap) {
+          recapsById.set(row.id, recap);
+        }
+      }
+    }
+    const rows = typedRows.filter((row) => row.type !== 'booth_recap' || recapsById.has(row.id));
     if (rows.length === 0) {
       return [];
     }
@@ -1512,6 +1588,7 @@ export async function fetchNotifications(limit = 50): Promise<AppNotification[]>
         isReply: Boolean(comment?.parentId),
         postAuthor,
         postMediaId: post?.mediaId ?? null,
+        boothRecap: recapsById.get(row.id) ?? null,
       };
     });
   } catch {

@@ -41,6 +41,13 @@ export const AnalyticsEvent = {
   reviewPromptEligible: 'review_prompt_eligible',
   reviewPromptRequested: 'review_prompt_requested',
   reviewStorePageOpened: 'review_store_page_opened',
+
+  // Booth posts (docs/booth-posts-vendor-spec-2026-10-29.md). Carry `event_id` + `vendor_id`.
+  boothClaimed: 'booth_claimed',
+  boothCardOpened: 'booth_card_opened',
+  boothStatsViewed: 'booth_stats_viewed',
+  boothPostCreated: 'booth_post_created',
+  boothBannerTapped: 'booth_banner_tapped',
 } as const;
 
 export type AnalyticsEventName = (typeof AnalyticsEvent)[keyof typeof AnalyticsEvent];

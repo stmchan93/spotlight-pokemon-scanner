@@ -1,0 +1,324 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { Alert, Linking } from 'react-native';
+
+import { mockSpotlightEventMap } from '@spotlight/api-client';
+import type { BoothClaim, BoothPost } from '@/features/events/booth-service';
+import {
+  claimBooth,
+  fetchBoothClaims,
+  fetchBoothPosts,
+  fetchBoothStats,
+  fetchBrowsingNow,
+  recordBoothEvent,
+  reportBoothClaim,
+  touchEventPresence,
+  unclaimBooth,
+} from '@/features/events/booth-service';
+import { resetSavedEventsForTests } from '@/features/events/saved-events-store';
+import { EventDetailScreen } from '@/features/events/screens/event-detail-screen';
+import { followUser } from '@/features/profile/profile-service';
+import { findOrCreateDm } from '@/features/social/dm-service';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
+
+import { createTestSpotlightRepository, renderWithProviders } from '../../test-utils';
+import { makeEvent } from './event-fixtures';
+
+const mockPush = jest.fn();
+jest.mock('expo-router', () => {
+  const React = jest.requireActual<typeof import('react')>('react');
+  return {
+    ...jest.requireActual('expo-router'),
+    useFocusEffect: (effect: () => void | (() => void)) => {
+      React.useEffect(() => effect(), [effect]);
+    },
+    useRouter: () => ({ push: mockPush, back: jest.fn(), replace: jest.fn(), navigate: jest.fn() }),
+  };
+});
+
+jest.mock('@/features/events/booth-service', () => ({
+  claimBooth: jest.fn(async () => 'claimed'),
+  unclaimBooth: jest.fn(async () => true),
+  reportBoothClaim: jest.fn(async () => true),
+  recordBoothEvent: jest.fn(),
+  fetchBoothClaims: jest.fn(async () => new Map()),
+  fetchBoothPosts: jest.fn(async () => []),
+  fetchBoothStats: jest.fn(async () => ({
+    views: 0,
+    instagramTaps: 0,
+    messages: 0,
+    postViews: 0,
+    viewers: 0,
+    viewsToday: 0,
+  })),
+  touchEventPresence: jest.fn(),
+  fetchBrowsingNow: jest.fn(async () => null),
+}));
+
+// Booth UI only renders with a Supabase client configured.
+jest.mock('@/lib/supabase', () => ({ ...jest.requireActual('@/lib/supabase'), supabase: {} }));
+
+jest.mock('@/features/profile/profile-service', () => ({
+  ...jest.requireActual('@/features/profile/profile-service'),
+  isFollowing: jest.fn(async () => false),
+  followUser: jest.fn(async () => true),
+  unfollowUser: jest.fn(async () => true),
+}));
+
+jest.mock('@/features/social/dm-service', () => ({
+  ...jest.requireActual('@/features/social/dm-service'),
+  findOrCreateDm: jest.fn(async () => 'conv-1'),
+}));
+
+jest.mock('@/features/social/components/post-card', () => {
+  const { View } = require('react-native');
+  return { PostImage: ({ testID }: { testID?: string }) => <View testID={testID} /> };
+});
+
+jest.mock('@/lib/observability/posthog', () => ({
+  ...jest.requireActual('@/lib/observability/posthog'),
+  capturePostHogEvent: jest.fn(),
+}));
+
+jest.mock('@/providers/app-providers', () => ({
+  ...jest.requireActual('@/providers/app-providers'),
+  resolveRepositoryBaseUrl: () => 'https://api.example.com',
+}));
+
+const ME = 'user-me';
+jest.mock('@/providers/auth-provider', () => ({
+  ...jest.requireActual('@/providers/auth-provider'),
+  useAuth: () => ({
+    accessToken: 'token',
+    applyFollowingDelta: jest.fn(),
+    currentUser: { id: 'user-me' },
+    ensureGuestSession: jest.fn(),
+    isGuest: false,
+  }),
+}));
+
+jest.mock('@react-native-async-storage/async-storage', () => {
+  const store = new Map<string, string>();
+  return {
+    __esModule: true,
+    default: {
+      getItem: jest.fn((key: string) => Promise.resolve(store.get(key) ?? null)),
+      setItem: jest.fn((key: string, value: string) => {
+        store.set(key, value);
+        return Promise.resolve();
+      }),
+      removeItem: jest.fn((key: string) => {
+        store.delete(key);
+        return Promise.resolve();
+      }),
+      clear: jest.fn(() => {
+        store.clear();
+        return Promise.resolve();
+      }),
+      getAllKeys: jest.fn(() => Promise.resolve([...store.keys()])),
+      multiGet: jest.fn((keys: string[]) => Promise.resolve(keys.map((key) => [key, store.get(key) ?? null]))),
+      multiSet: jest.fn((pairs: [string, string][]) => {
+        pairs.forEach(([key, value]) => store.set(key, value));
+        return Promise.resolve();
+      }),
+      multiRemove: jest.fn((keys: string[]) => {
+        keys.forEach((key) => store.delete(key));
+        return Promise.resolve();
+      }),
+    },
+  };
+});
+
+const EVENT = makeEvent({ floorMapUrl: 'https://example.com/api/v1/events/hawaii-2026-10/map' });
+const VENDOR = 'main-street-cards';
+
+function claim(userId: string, handle: string | null = 'islandslabs'): Map<string, BoothClaim> {
+  return new Map([[VENDOR, { vendorId: VENDOR, userId, handle, claimedAt: '2026-10-29T00:00:00Z' }]]);
+}
+
+function boothPost(id: string, vendorId = VENDOR, createdAt = new Date().toISOString()): BoothPost {
+  return {
+    id,
+    authorId: 'user-2',
+    author: null,
+    body: 'Case is up',
+    cardId: null,
+    likeCount: 0,
+    commentCount: 0,
+    repostCount: 0,
+    createdAt,
+    media: [{ id: `${id}-m`, width: 900, height: 1200, blurhash: null }],
+    boothVendorId: vendorId,
+  };
+}
+
+async function renderShow(initialVendorId: string | null = null) {
+  renderWithProviders(<EventDetailScreen eventId={EVENT.id} initialVendorId={initialVendorId} onBack={jest.fn()} />, {
+    spotlightRepository: createTestSpotlightRepository({
+      fetchSpotlightEvents: async () => ({ items: [EVENT] }),
+      fetchSpotlightEventMap: async () => mockSpotlightEventMap,
+    }),
+  });
+  fireEvent(await screen.findByTestId('event-floor-map'), 'layout', {
+    nativeEvent: { layout: { x: 0, y: 0, width: 360, height: 440 } },
+  });
+  await waitFor(() => expect(fetchBoothClaims).toHaveBeenCalled());
+}
+
+async function openVendor() {
+  fireEvent.press(screen.getByTestId(`event-vendor-${VENDOR}`));
+  await screen.findByTestId('booth-panel');
+}
+
+describe('booth vendor card', () => {
+  let alert: jest.SpyInstance;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    resetSavedEventsForTests();
+    await AsyncStorage.clear();
+    alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    alert.mockRestore();
+  });
+
+  it('unclaimed: "This is my booth" claims it, confirms, and re-reads claims', async () => {
+    await renderShow();
+    await openVendor();
+    expect(recordBoothEvent).toHaveBeenCalledWith(EVENT.id, VENDOR, 'card_open');
+    expect(capturePostHogEvent).toHaveBeenCalledWith('booth_card_opened', expect.objectContaining({ vendor_id: VENDOR }));
+    const before = jest.mocked(fetchBoothClaims).mock.calls.length;
+
+    await act(async () => fireEvent.press(screen.getByTestId('booth-claim')));
+    expect(claimBooth).toHaveBeenCalledWith(VENDOR, EVENT.id);
+    expect(alert).toHaveBeenCalledWith('Booth claimed', expect.any(String));
+    expect(capturePostHogEvent).toHaveBeenCalledWith('booth_claimed', { event_id: EVENT.id, vendor_id: VENDOR });
+    expect(jest.mocked(fetchBoothClaims).mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it('unclaimed: an unauthenticated claim opens sign-in; a limit shows an alert', async () => {
+    jest.mocked(claimBooth).mockResolvedValueOnce('unauthenticated').mockResolvedValueOnce('limit');
+    await renderShow();
+    await openVendor();
+    await act(async () => fireEvent.press(screen.getByTestId('booth-claim')));
+    expect(mockPush).toHaveBeenCalledWith('/login');
+    await act(async () => fireEvent.press(screen.getByTestId('booth-claim')));
+    expect(alert).toHaveBeenCalledWith('Booth limit reached', expect.any(String));
+  });
+
+  it('claimed by someone else: handle, Message, Follow and Report', async () => {
+    jest.mocked(fetchBoothClaims).mockResolvedValue(claim('user-2'));
+    await renderShow();
+    await openVendor();
+    expect(screen.queryByTestId('booth-claim')).toBeNull();
+
+    fireEvent.press(await screen.findByText('@islandslabs'));
+    expect(mockPush).toHaveBeenCalledWith('/u/islandslabs');
+
+    await act(async () => fireEvent.press(screen.getByTestId('booth-message')));
+    expect(recordBoothEvent).toHaveBeenCalledWith(EVENT.id, VENDOR, 'message_start');
+    expect(findOrCreateDm).toHaveBeenCalledWith('user-2');
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/messages/[conversationId]',
+      params: { conversationId: 'conv-1', name: '@islandslabs' },
+    });
+
+    await waitFor(() => expect(screen.getByTestId('booth-follow')).toBeEnabled());
+    await act(async () => fireEvent.press(screen.getByTestId('booth-follow')));
+    expect(followUser).toHaveBeenCalledWith('user-2');
+    expect(screen.getByText('Following')).toBeTruthy();
+
+    await act(async () => fireEvent.press(screen.getByTestId('booth-report')));
+    expect(reportBoothClaim).toHaveBeenCalledWith(VENDOR);
+    expect(alert).toHaveBeenCalledWith('Thanks for letting us know', expect.any(String));
+  });
+
+  it('records Instagram taps on a vendor card', async () => {
+    jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    await renderShow();
+    await openVendor();
+    fireEvent.press(screen.getByTestId('event-vendor-card-instagram'));
+    expect(recordBoothEvent).toHaveBeenCalledWith(EVENT.id, VENDOR, 'instagram_tap');
+  });
+
+  it('mine: stats, Post to your booth, and Unclaim; my own opens are not counted', async () => {
+    jest.mocked(fetchBoothClaims).mockResolvedValue(claim(ME));
+    jest.mocked(fetchBoothStats).mockResolvedValue({
+      views: 63,
+      instagramTaps: 14,
+      messages: 1,
+      postViews: 0,
+      viewers: 40,
+      viewsToday: 20,
+    });
+    await renderShow();
+    await openVendor();
+    expect(await screen.findByText('Your booth')).toBeTruthy();
+    expect(await screen.findByText('Your booth: 63 views · 14 Instagram taps · 1 message')).toBeTruthy();
+    expect(fetchBoothStats).toHaveBeenCalledWith(VENDOR, EVENT.id);
+    expect(capturePostHogEvent).toHaveBeenCalledWith('booth_stats_viewed', { event_id: EVENT.id, vendor_id: VENDOR });
+    expect(recordBoothEvent).not.toHaveBeenCalledWith(EVENT.id, VENDOR, 'card_open');
+
+    fireEvent.press(screen.getByTestId('booth-post'));
+    expect(mockPush).toHaveBeenCalledWith(`/new-post?eventId=${EVENT.id}&vendorId=${VENDOR}`);
+
+    fireEvent.press(screen.getByTestId('booth-unclaim'));
+    const buttons = alert.mock.calls.at(-1)?.[2] as { text: string; onPress?: () => void }[];
+    await act(async () => buttons.find((button) => button.text === 'Unclaim')?.onPress?.());
+    expect(unclaimBooth).toHaveBeenCalledWith(VENDOR);
+  });
+
+  it('shows booth photos on the card, a pin dot, and the "From the floor" row', async () => {
+    jest.mocked(fetchBoothPosts).mockResolvedValue([boothPost('p1')]);
+    await renderShow();
+    const floorCard = await screen.findByTestId('booth-floor-p1');
+    expect(screen.getByText('C14 · now')).toBeTruthy();
+    expect(screen.getByTestId('event-floor-map-posted-C14')).toBeTruthy();
+
+    // A "From the floor" card selects its vendor on the map.
+    fireEvent.press(floorCard);
+    expect(screen.getByTestId('event-vendor-card-name').props.children).toBe(
+      mockSpotlightEventMap.vendors.find((vendor) => vendor.id === VENDOR)?.name,
+    );
+
+    fireEvent.press(await screen.findByTestId('booth-strip-p1'));
+    expect(recordBoothEvent).toHaveBeenCalledWith(EVENT.id, VENDOR, 'post_view');
+    expect(mockPush).toHaveBeenCalledWith('/post/p1');
+  });
+
+  it('no dot for a post older than a day, and no row or strip without posts', async () => {
+    jest.mocked(fetchBoothPosts).mockResolvedValue([boothPost('old', VENDOR, '2026-01-01T00:00:00Z')]);
+    await renderShow();
+    await screen.findByTestId('booth-floor-old');
+    expect(screen.queryByTestId('event-floor-map-posted-C14')).toBeNull();
+
+    screen.unmount();
+    jest.mocked(fetchBoothPosts).mockResolvedValue([]);
+    await renderShow();
+    expect(screen.queryByTestId('booth-floor-row')).toBeNull();
+    await openVendor();
+    expect(screen.queryByTestId('booth-strip')).toBeNull();
+  });
+
+  it('opens with the deep-linked vendor selected', async () => {
+    await renderShow(VENDOR);
+    expect(await screen.findByTestId('event-vendor-card')).toBeTruthy();
+    expect(screen.getByTestId(`event-vendor-${VENDOR}`).props.accessibilityState).toMatchObject({ selected: true });
+  });
+
+  it('heartbeats presence and shows "browsing now" only from 3 people', async () => {
+    jest.mocked(fetchBrowsingNow).mockResolvedValue(5);
+    await renderShow();
+    expect(touchEventPresence).toHaveBeenCalledWith(EVENT.id);
+    expect(await screen.findByText('5 people browsing now')).toBeTruthy();
+
+    screen.unmount();
+    jest.mocked(fetchBrowsingNow).mockResolvedValue(2);
+    await renderShow();
+    await waitFor(() => expect(fetchBrowsingNow).toHaveBeenCalled());
+    expect(screen.queryByTestId('event-browsing-now')).toBeNull();
+  });
+});

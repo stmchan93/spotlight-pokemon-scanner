@@ -193,6 +193,7 @@ import printing_images
 import set_spotlight
 import similar_cards
 import spotlight_events
+import booth_admin
 import spotlight_events_admin
 import watch_signals
 import watchlist_suggestions
@@ -26633,6 +26634,21 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, self._events_admin_listing())
             return
 
+        if parsed.path.startswith("/api/v1/admin/events/") and parsed.path.endswith("/booths"):
+            if not self._events_admin_authorized():
+                return
+            event_id = unquote(parsed.path.removeprefix("/api/v1/admin/events/").removesuffix("/booths").strip("/"))
+            if not any(event["id"] == event_id for event in spotlight_events.load_events(include_hidden=True)):
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "unknown event"})
+                return
+            try:
+                booths = booth_admin.booth_overview(event_id)
+            except booth_admin.BoothAdminError as error:
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": str(error)})
+                return
+            self._write_json(HTTPStatus.OK, {"booths": booths})
+            return
+
         if parsed.path.startswith("/api/v1/events/") and parsed.path.endswith("/flyer"):
             event_id = unquote(parsed.path[len("/api/v1/events/"):-len("/flyer")])
             uploaded = spotlight_events.admin_flyer(event_id) if event_id else None
@@ -29046,6 +29062,27 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 return
             admin.set_hidden(event_id, hidden)
             self._write_json(HTTPStatus.OK, {"hidden": hidden})
+            return
+        # Booth claims live in Supabase (social_27); these go through the service role.
+        if action.startswith("booths/") and action.endswith("/unclaim"):
+            vendor_id = unquote(action.removeprefix("booths/").removesuffix("/unclaim").strip("/"))
+            if not vendor_id or "/" in vendor_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            try:
+                revoked = booth_admin.unclaim(vendor_id)
+            except booth_admin.BoothAdminError as error:
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": str(error)})
+                return
+            self._write_json(HTTPStatus.OK, {"vendorId": vendor_id, "revoked": revoked})
+            return
+        if action == "booth-recaps":
+            try:
+                sent = booth_admin.send_recaps(event_id, booth_admin.event_name(known[event_id]))
+            except booth_admin.BoothAdminError as error:
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": str(error)})
+                return
+            self._write_json(HTTPStatus.OK, {"sent": sent})
             return
         self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
 

@@ -32,6 +32,9 @@ import {
 const IMAGE_RENDER_SCALE = MAP_MAX_SCALE;
 const ANIMATION = { duration: 280 };
 const PINCH_TAP_GUARD_MS = 350;
+/** Posted-today dot, in layer points (the layer is drawn at the current zoom, so it stays this size on screen). */
+const POSTED_DOT_SIZE = 8;
+const NO_TABLES: ReadonlySet<string> = new Set();
 
 type EventFloorMapProps = {
   map: SpotlightEventMap;
@@ -39,6 +42,8 @@ type EventFloorMapProps = {
   selectedTableIds: ReadonlySet<string>;
   /** Light highlight: tables of vendors matching the search/tag. */
   matchedTableIds: ReadonlySet<string>;
+  /** A small dot: the vendor at this table posted to their booth in the last 24h. */
+  postedTableIds?: ReadonlySet<string>;
   /** Changing this animates the map to fit `selectedTableIds` (or back to the whole floor). */
   focusKey: string | null;
   /** Height at the bottom covered by an overlay; a fitted selection is centred above it. */
@@ -55,6 +60,7 @@ export function EventFloorMap({
   map,
   selectedTableIds,
   matchedTableIds,
+  postedTableIds = NO_TABLES,
   focusKey,
   bottomInset = 0,
   onTablePress,
@@ -330,6 +336,7 @@ export function EventFloorMap({
                 key={zoom}
                 map={map}
                 onReady={onLayerReady}
+                postedTableIds={postedTableIds}
                 scale={scale}
                 tablesById={tablesById}
                 testID={testID}
@@ -403,6 +410,7 @@ function DrawnLayer({
   highlighted,
   map,
   onReady,
+  postedTableIds,
   scale,
   tablesById,
   testID,
@@ -415,6 +423,7 @@ function DrawnLayer({
   highlighted: readonly { id: string; selected: boolean }[];
   map: SpotlightEventMap;
   onReady: (zoom: number) => void;
+  postedTableIds: ReadonlySet<string>;
   tablesById: ReadonlyMap<string, SpotlightEventMapTable>;
   testID: string;
   visible: boolean;
@@ -455,6 +464,30 @@ function DrawnLayer({
               },
             ]}
             testID={visible ? `${testID}-highlight-${id}` : undefined}
+          />
+        );
+      })}
+      {[...postedTableIds].map((id) => {
+        const table = tablesById.get(id);
+        if (!table) {
+          return null;
+        }
+        const box = boxStyle(table, size);
+        // Centred on the table's top-right corner.
+        return (
+          <View
+            key={`posted-${id}`}
+            style={[
+              styles.box,
+              styles.postedDot,
+              {
+                backgroundColor: theme.colors.purple500,
+                borderColor: theme.colors.gray0,
+                left: box.left + box.width - POSTED_DOT_SIZE / 2,
+                top: box.top - POSTED_DOT_SIZE / 2,
+              },
+            ]}
+            testID={visible ? `${testID}-posted-${id}` : undefined}
           />
         );
       })}
@@ -572,5 +605,12 @@ const styles = StyleSheet.create({
   },
   label: {
     textAlign: 'center',
+  },
+  postedDot: {
+    borderCurve: 'continuous',
+    borderRadius: radii.pill,
+    borderWidth: borderWidths.containerRule,
+    height: POSTED_DOT_SIZE,
+    width: POSTED_DOT_SIZE,
   },
 });

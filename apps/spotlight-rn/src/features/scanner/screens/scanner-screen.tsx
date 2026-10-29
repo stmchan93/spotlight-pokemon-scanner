@@ -156,6 +156,7 @@ import { useAppServices } from '@/providers/app-providers';
 import { AddAllMenu, type AddAllMenuAction } from '@/features/scanner/components/add-all-menu';
 import { ScanBulkConfirmSheet } from '@/features/scanner/components/scan-bulk-confirm-sheet';
 import { ScanTargetPill } from '@/features/scanner/components/scan-target-pill';
+import { BoothPostBanner } from '@/features/scanner/components/booth-post-banner';
 import { ScannerLanguageTooltip } from '@/features/scanner/components/scanner-language-tooltip';
 import { ScanningForSheet } from '@/features/scanner/components/scanning-for-sheet';
 import {
@@ -4996,6 +4997,17 @@ export function ScannerScreen({
             />
           </View>
         )}
+
+        {/*
+          Same band as the tooltip (top chrome -> reticle top), so it yields to
+          it. Hidden in binder mode, whose taller frame starts inside the band.
+          Overlay only: no camera props change, same on iOS and Android.
+        */}
+        <BoothPostBanner
+          active={isActiveTab && !isDevPreview}
+          hidden={isTrayExpanded || isBinderPageMode || activeBinderPageId != null || showLanguageTooltip || isScanTargetSheetOpen}
+          top={captureSurfaceLayout.backButtonTop + 44 + 6}
+        />
 
         <GestureDetector gesture={trayPanGesture}>
         {/*

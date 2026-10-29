@@ -7,18 +7,21 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   TextInput,
   View,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { EdgeInsets } from 'react-native-safe-area-context';
 import { initialWindowMetrics, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Camera, Globe, MediaImage, NavArrowDown, Xmark } from 'iconoir-react-native';
+import { Camera, Globe, MediaImage, NavArrowDown, Shop, Xmark } from 'iconoir-react-native';
 
 import { Avatar, Button, IconButton, SheetHeader, Text, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
+import { useActiveBooth } from '@/features/events/hooks/use-active-booth';
+import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { keyboardLift } from '@/lib/keyboard-insets';
 import { loadNativeImagePicker } from '@/lib/native-image-picker';
@@ -245,6 +248,13 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   const router = useRouter();
   const { spotlightRepository } = useAppServices();
   const { currentUser } = useAuth();
+  // The map's "Post to your booth" passes both ids; otherwise the hook looks
+  // for a claimed booth at a show in its window.
+  const params = useLocalSearchParams<{ eventId?: string; vendorId?: string }>();
+  const booth = useActiveBooth({ eventId: firstParam(params?.eventId), vendorId: firstParam(params?.vendorId) });
+  // Opt-out rather than opt-in, so the toggle is on as soon as the booth resolves.
+  const [boothOptOut, setBoothOptOut] = useState(false);
+  const boothOn = booth != null && !boothOptOut;
   /*
     THE ONE SOURCE OF TRUTH for this screen's safe area.
 
@@ -487,9 +497,17 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
         // Card attach is no longer a composer affordance; the data layer still
         // accepts a cardId for other callers, so pass an explicit null here.
         cardId: null,
+        ...(boothOn ? { booth: { eventId: booth.eventId, vendorId: booth.vendorId } } : {}),
       });
       if (!postId) {
-        Alert.alert("Couldn't post", 'Something went wrong. Please try again.');
+        // A booth tag is rejected by the DB when the claim is gone; say so
+        // instead of quietly posting untagged.
+        Alert.alert(
+          "Couldn't post",
+          boothOn
+            ? `This post couldn't be added to your booth at ${booth.eventName}. Check that the booth is still yours, or turn off "Show on my booth" and try again.`
+            : 'Something went wrong. Please try again.',
+        );
         // Back to a usable composer: POST re-enables and the discard guard
         // re-arms, because the text really is still unsaved.
         setSubmitState('idle');
@@ -521,12 +539,31 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
         body_length: trimmedBody.length,
         has_image: imageUri != null,
       });
+      if (boothOn) {
+        capturePostHogEvent(AnalyticsEvent.boothPostCreated, {
+          event_id: booth.eventId,
+          has_image: imageUri != null,
+          vendor_id: booth.vendorId,
+        });
+      }
 
       signalFeedNeedsRefresh();
       // BEFORE `router.back()`, and terminal: the dismissal takes ~500ms and
       // anything that re-arms the discard guard inside that window resurrects
       // the screen (see the SubmitState note above).
       setSubmitState('posted');
+      if (boothOn) {
+        // Photos wait for the moderation worker (~2 min cron). The composer
+        // closes from the alert, not under it: an alert raised during an iOS
+        // modal dismissal can fail to present.
+        Alert.alert(
+          'Posted to your booth',
+          'Your post will appear on your booth in a couple of minutes.',
+          [{ onPress: () => router.back(), text: 'OK' }],
+          { cancelable: false },
+        );
+        return;
+      }
       router.back();
     } catch {
       /*
@@ -543,7 +580,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
       Alert.alert("Couldn't post", 'Something went wrong. Please try again.');
       setSubmitState('idle');
     }
-  }, [canPost, imageUri, router, spotlightRepository, trimmedBody]);
+  }, [booth, boothOn, canPost, imageUri, router, spotlightRepository, trimmedBody]);
 
   const counterColor = useMemo(
     () =>
@@ -694,6 +731,35 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             </Text>
           </View>
 
+          {booth ? (
+            <View
+              style={[
+                styles.boothRow,
+                {
+                  backgroundColor: theme.colors.gray50,
+                  borderCurve: 'continuous',
+                  borderRadius: theme.radii.sm,
+                },
+              ]}
+              testID={`${testID}-booth-row`}
+            >
+              <Shop color={theme.colors.gray900} height={18} width={18} />
+              <Text
+                numberOfLines={2}
+                style={[theme.typography.captionMedium, styles.boothLabel, { color: theme.colors.gray900 }]}
+              >
+                {`Show on my booth at ${booth.eventName}`}
+              </Text>
+              <Switch
+                accessibilityLabel={`Show on my booth at ${booth.eventName}`}
+                disabled={submitState !== 'idle'}
+                onValueChange={(next) => setBoothOptOut(!next)}
+                testID={`${testID}-booth-toggle`}
+                value={boothOn}
+              />
+            </View>
+          ) : null}
+
           <View style={styles.controlRow}>
             <ControlChip
               icon={<Globe color={theme.colors.gray900} height={18} width={18} />}
@@ -752,6 +818,11 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   );
 }
 
+function firstParam(value: string | string[] | undefined): string | null {
+  const first = Array.isArray(value) ? value[0] : value;
+  return first && first.trim().length > 0 ? first : null;
+}
+
 const styles = StyleSheet.create({
   authorRow: {
     alignItems: 'center',
@@ -764,6 +835,17 @@ const styles = StyleSheet.create({
     minHeight: 120,
     padding: 16,
     paddingTop: 16,
+  },
+  boothLabel: {
+    flex: 1,
+  },
+  boothRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 44,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   bodyInputWithImage: {
     // Once there is a preview below, the tall empty field is just a gap. One

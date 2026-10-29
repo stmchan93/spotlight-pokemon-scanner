@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Image, Linking, Platform, Pressable, Share, StyleSheet, View, useWindowDimensions } from 'react-native';
 // Gesture-handler's ScrollView so the floor map's pan can block it while zoomed.
 import { ScrollView } from 'react-native-gesture-handler';
@@ -23,10 +23,14 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import { BoothFloorRow } from '@/features/events/components/booth-floor-row';
 import { EventFlyer } from '@/features/events/components/event-flyer';
-import { EventVendorsSection } from '@/features/events/components/event-vendors-section';
+import { EventVendorsSection, type VendorSelectRequest } from '@/features/events/components/event-vendors-section';
 import { eventGradientStops } from '@/features/events/event-accent';
 import { formatEventSchedule, formatEventShareMessage } from '@/features/events/event-format';
+import { useBoothFloor } from '@/features/events/hooks/use-booth-floor';
+import { useEventPresence } from '@/features/events/hooks/use-event-presence';
+import { useSpotlightEventMap } from '@/features/events/hooks/use-spotlight-event-map';
 import { useSpotlightEvent } from '@/features/events/hooks/use-spotlight-events';
 import { useSavedEvents } from '@/features/events/saved-events-store';
 import { openLinkOut } from '@/features/meta-feed/screens/components/open-link-out';
@@ -44,11 +48,15 @@ const TICKET_ICON_HEIGHT = 12;
 const PRICING_NOTE_LINE_HEIGHT = 26;
 const PRICING_NOTE_INDENT = 22;
 const DISCLAIMER_RADIUS = 6;
+/** Below this, "browsing now" reads as empty rather than busy. */
+const MIN_BROWSING_SHOWN = 3;
 
 const ticketIcon = require('../../../../assets/images/events/ticket-icon.png');
 
 type EventDetailScreenProps = {
   eventId: string;
+  /** `?vendor=<id>` from a deep link: selected on the map once it loads. */
+  initialVendorId?: string | null;
   onBack: () => void;
 };
 
@@ -67,7 +75,7 @@ export function formatTicketPrice(pricing: Pick<SpotlightEventPricing, 'general'
   return pricing.doorPrice ? `${pricing.general} (${pricing.doorPrice})` : pricing.general;
 }
 
-export function EventDetailScreen({ eventId, onBack }: EventDetailScreenProps) {
+export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: EventDetailScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
@@ -77,6 +85,18 @@ export function EventDetailScreen({ eventId, onBack }: EventDetailScreenProps) {
   const saved = isSaved(eventId);
   const accent = event?.accentColor ?? theme.colors.eventAccent;
   const canBuy = Boolean(event?.ticketUrl) && event?.status !== 'past';
+  // Same cached read the vendors section makes; the booth row needs vendor names and tables.
+  const { map } = useSpotlightEventMap(event?.floorMapUrl ?? null);
+  const vendorIds = useMemo(() => map?.vendors.map((vendor) => vendor.id) ?? null, [map]);
+  const booth = useBoothFloor(eventId, vendorIds);
+  const browsingNow = useEventPresence(eventId);
+  const [selectRequest, setSelectRequest] = useState<VendorSelectRequest | null>(
+    initialVendorId ? { vendorId: initialVendorId, key: 0 } : null,
+  );
+  const selectVendor = useCallback(
+    (vendorId: string) => setSelectRequest((current) => ({ vendorId, key: (current?.key ?? 0) + 1 })),
+    [],
+  );
 
   const handleShare = useCallback(() => {
     if (!event) {
@@ -183,12 +203,31 @@ export function EventDetailScreen({ eventId, onBack }: EventDetailScreenProps) {
 
         {event.pricing ? renderPricing(event.pricing) : null}
 
+        {map ? (
+          <BoothFloorRow
+            onSelectVendor={selectVendor}
+            posts={booth.posts}
+            renderTitle={(title) => <SectionTitle title={title} />}
+            vendors={map.vendors}
+          />
+        ) : null}
+
         {event.floorMapUrl ? (
           <EventVendorsSection
+            booth={booth.enabled ? booth : null}
+            eventId={eventId}
             floorMapUrl={event.floorMapUrl}
-            renderTitle={(title) => <SectionTitle title={title} />}
+            renderTitle={(title) => (
+              <SectionTitle
+                title={title}
+                trailing={
+                  browsingNow != null && browsingNow >= MIN_BROWSING_SHOWN ? `${browsingNow} people browsing now` : null
+                }
+              />
+            )}
             scrollGesture={scrollRef}
             scrollRef={scrollRef}
+            selectRequest={selectRequest}
           />
         ) : null}
       </>
@@ -302,11 +341,18 @@ export function EventDetailScreen({ eventId, onBack }: EventDetailScreenProps) {
 }
 
 /** Figma 5882:12622 — 15pt bold gray-800 title over a hairline. */
-function SectionTitle({ title }: { title: string }) {
+function SectionTitle({ title, trailing }: { title: string; trailing?: string | null }) {
   const theme = useSpotlightTheme();
   return (
     <View style={styles.sectionTitle}>
-      <Text style={[theme.typography.feedRowTitle, { color: theme.colors.gray800 }]}>{title.toUpperCase()}</Text>
+      <View style={styles.sectionTitleRow}>
+        <Text style={[theme.typography.feedRowTitle, { color: theme.colors.gray800 }]}>{title.toUpperCase()}</Text>
+        {trailing ? (
+          <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]} testID="event-browsing-now">
+            {trailing}
+          </Text>
+        ) : null}
+      </View>
       <View style={[styles.rule, { backgroundColor: theme.colors.gray200 }]} />
     </View>
   );
@@ -337,6 +383,11 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     gap: spacing.xxs,
+  },
+  sectionTitleRow: {
+    alignItems: 'baseline',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
   rule: {
     height: borderWidths.containerRule,

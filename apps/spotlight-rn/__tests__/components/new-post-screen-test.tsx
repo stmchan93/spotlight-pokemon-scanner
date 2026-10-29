@@ -1,7 +1,8 @@
 import { Alert, StyleSheet } from 'react-native';
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
+import { useActiveBooth } from '@/features/events/hooks/use-active-booth';
 import { createPost } from '@/features/social/social-service';
 import {
   NewPostScreen,
@@ -30,6 +31,7 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 jest.mock('expo-router', () => ({
+  useLocalSearchParams: jest.fn(() => ({})),
   useRouter: jest.fn(),
   useNavigation: jest.fn(),
   // NewPostScreen doesn't use useFocusEffect, but keep it defined so any
@@ -41,6 +43,10 @@ jest.mock('@/features/social/social-service', () => ({
   createPost: jest.fn(),
 }));
 
+jest.mock('@/features/events/hooks/use-active-booth', () => ({
+  useActiveBooth: jest.fn(() => null),
+}));
+
 const back = jest.fn();
 const push = jest.fn();
 
@@ -49,6 +55,83 @@ describe('NewPostScreen', () => {
     jest.clearAllMocks();
     (useRouter as jest.Mock).mockReturnValue({ back, push });
     (createPost as jest.Mock).mockResolvedValue('post-1');
+    (useActiveBooth as jest.Mock).mockReturnValue(null);
+    (useLocalSearchParams as jest.Mock).mockReturnValue({});
+  });
+
+  describe('booth posts', () => {
+    const booth = { eventId: 'ontario-2026', eventName: 'Spotlight Ontario', vendorId: 'island-slabs', vendorName: 'Island Slabs' };
+
+    it('hides the booth toggle when no booth applies', () => {
+      renderWithProviders(<NewPostScreen />);
+      expect(screen.queryByTestId('new-post-booth-row')).toBeNull();
+    });
+
+    it('passes the route ids to the hook and tags the post by default', async () => {
+      (useLocalSearchParams as jest.Mock).mockReturnValue({ eventId: 'ontario-2026', vendorId: 'island-slabs' });
+      (useActiveBooth as jest.Mock).mockReturnValue(booth);
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      renderWithProviders(<NewPostScreen />);
+
+      expect(useActiveBooth).toHaveBeenCalledWith({ eventId: 'ontario-2026', vendorId: 'island-slabs' });
+      expect(screen.getByText('Show on my booth at Spotlight Ontario')).toBeTruthy();
+      expect(screen.getByTestId('new-post-booth-toggle').props.value).toBe(true);
+
+      fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'Case is up at C4');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+
+      await waitFor(() =>
+        expect(createPost).toHaveBeenCalledWith({
+          body: 'Case is up at C4',
+          booth: { eventId: 'ontario-2026', vendorId: 'island-slabs' },
+          cardId: null,
+        }),
+      );
+      // The composer closes from the confirmation, not before it.
+      await waitFor(() =>
+        expect(alertSpy).toHaveBeenCalledWith(
+          'Posted to your booth',
+          'Your post will appear on your booth in a couple of minutes.',
+          expect.any(Array),
+          expect.anything(),
+        ),
+      );
+      expect(back).not.toHaveBeenCalled();
+      const buttons = alertSpy.mock.calls[0]?.[2] as { onPress: () => void }[];
+      buttons[0]?.onPress();
+      expect(back).toHaveBeenCalledTimes(1);
+      alertSpy.mockRestore();
+    });
+
+    it('posts untagged when the toggle is turned off', async () => {
+      (useActiveBooth as jest.Mock).mockReturnValue(booth);
+      renderWithProviders(<NewPostScreen />);
+
+      fireEvent(screen.getByTestId('new-post-booth-toggle'), 'valueChange', false);
+      fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'gm');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+
+      await waitFor(() => expect(createPost).toHaveBeenCalledWith({ body: 'gm', cardId: null }));
+      await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
+    });
+
+    it('alerts instead of silently dropping a rejected booth tag', async () => {
+      (useActiveBooth as jest.Mock).mockReturnValue(booth);
+      (createPost as jest.Mock).mockResolvedValue(null);
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      renderWithProviders(<NewPostScreen />);
+
+      fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'gm');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+
+      await waitFor(() =>
+        expect(alertSpy).toHaveBeenCalledWith("Couldn't post", expect.stringContaining('booth at Spotlight Ontario')),
+      );
+      expect(createPost).toHaveBeenCalledTimes(1);
+      expect(back).not.toHaveBeenCalled();
+      expect(screen.getByTestId('new-post-submit')).toBeEnabled();
+      alertSpy.mockRestore();
+    });
   });
 
   it('disables Post until there is a body', () => {
