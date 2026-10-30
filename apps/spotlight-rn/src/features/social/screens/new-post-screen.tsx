@@ -37,6 +37,11 @@ const BODY_MAX_LENGTH = 500;
 // full-bleed feed image without shipping a multi-megabyte original.
 const POST_IMAGE_WIDTH = 1080;
 
+// Photos per post. The backend clamps `post_media.position` to the same cap.
+const MAX_POST_IMAGES = 4;
+// With more than one photo the previews become a horizontal strip of tiles.
+const PREVIEW_TILE_WIDTH = 160;
+
 // NOTE ON FOCUS — the composer deliberately does NOT focus its body on open.
 //
 // Figma 3147:10814 is the opening state, and it has no keyboard: the placeholder
@@ -168,7 +173,11 @@ export { keyboardLift };
 // optional method so this screen typechecks (and stays non-crashing) whether or
 // not the running binary's repository actually carries it.
 type PostMediaUploader = {
-  uploadPostMedia?: (postId: string, jpegBytes: ArrayBuffer) => Promise<{ mediaId: string }>;
+  uploadPostMedia?: (
+    postId: string,
+    jpegBytes: ArrayBuffer,
+    options?: { position?: number },
+  ) => Promise<{ mediaId: string }>;
 };
 
 // expo-image-picker / expo-image-manipulator are native modules that may be
@@ -238,9 +247,9 @@ function ControlChip({
  * Camera (device capture) — and a full-width POST button pinned to the bottom
  * that stays gray/disabled until there's text and turns dark once there is.
  *
- * Submit inserts the text post via `createPost`, then best-effort uploads the
- * image to the post-media endpoint — a failed image upload leaves the text post
- * intact. Every native dependency is loaded defensively so the screen never
+ * Submit inserts the text post via `createPost`, then best-effort uploads up to
+ * four images, in order, to the post-media endpoint — a failed image upload
+ * leaves the text post intact. Every native dependency is loaded defensively so the screen never
  * crashes.
  */
 export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
@@ -270,7 +279,8 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   const safeArea = resolveComposerInsets(insets, initialWindowMetrics?.insets);
 
   const [body, setBody] = useState('');
-  const [imageUri, setImageUri] = useState<string | null>(null);
+  const [imageUris, setImageUris] = useState<string[]>([]);
+  const remainingImages = MAX_POST_IMAGES - imageUris.length;
 
   /*
     SUBMIT IS THREE STATES, NOT A BOOLEAN, AND THE THIRD ONE IS A BUG FIX.
@@ -400,22 +410,26 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   const authorName = currentUser ? getResolvedDisplayName(currentUser) : 'Collector';
   const authorInitials = currentUser ? getUserInitials(currentUser) : 'C';
 
-  // Downscale a freshly-picked/captured image to a ~1080px JPEG and stage it as
-  // the single pending post image. Shared by the Photo and Camera flows.
-  const stagePickedImage = useCallback(async (rawUri: string) => {
-    let uri = rawUri;
+  // Downscale freshly-picked/captured images to ~1080px JPEGs and append them,
+  // in order, to the pending photos. Shared by the Photo and Camera flows.
+  const stagePickedImages = useCallback(async (rawUris: string[]) => {
     const ImageManipulator = loadImageManipulator();
-    if (ImageManipulator) {
-      const manipulated = await ImageManipulator.manipulateAsync(
-        uri,
-        [{ resize: { width: POST_IMAGE_WIDTH } }],
-        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
-      );
-      if (manipulated?.uri) {
-        uri = manipulated.uri;
+    const staged: string[] = [];
+    for (const rawUri of rawUris) {
+      let uri = rawUri;
+      if (ImageManipulator) {
+        const manipulated = await ImageManipulator.manipulateAsync(
+          uri,
+          [{ resize: { width: POST_IMAGE_WIDTH } }],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
+        );
+        if (manipulated?.uri) {
+          uri = manipulated.uri;
+        }
       }
+      staged.push(uri);
     }
-    setImageUri(uri);
+    setImageUris((current) => [...current, ...staged].slice(0, MAX_POST_IMAGES));
   }, []);
 
   const handlePickImage = useCallback(async () => {
@@ -434,18 +448,26 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
 
       const result = await ImagePicker.launchImageLibraryAsync({
         allowsEditing: false,
+        // iOS 14+ / Android; older pickers ignore these and return one asset.
+        allowsMultipleSelection: remainingImages > 1,
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        orderedSelection: true,
         quality: 0.9,
+        selectionLimit: remainingImages,
       });
-      if (result?.canceled || !result?.assets?.[0]?.uri) {
+      const uris = (result?.canceled ? [] : result?.assets ?? [])
+        .map((asset) => asset?.uri)
+        .filter((uri): uri is string => typeof uri === 'string' && uri.length > 0)
+        .slice(0, remainingImages);
+      if (uris.length === 0) {
         return;
       }
 
-      await stagePickedImage(result.assets[0].uri as string);
+      await stagePickedImages(uris);
     } catch {
       // Never surface picker/resize failures — leave the composer as-is.
     }
-  }, [stagePickedImage]);
+  }, [remainingImages, stagePickedImages]);
 
   const handleCaptureImage = useCallback(async () => {
     const ImagePicker = loadNativeImagePicker();
@@ -470,11 +492,11 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
         return;
       }
 
-      await stagePickedImage(result.assets[0].uri as string);
+      await stagePickedImages([result.assets[0].uri as string]);
     } catch {
       // Never surface camera/resize failures — leave the composer as-is.
     }
-  }, [stagePickedImage]);
+  }, [stagePickedImages]);
 
   // The "Public" chip matches the design (globe + label + chevron) but privacy
   // is NOT schema-backed: `posts` has no `visibility` column, so there's nothing
@@ -514,35 +536,45 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
         return;
       }
 
-      // Best-effort image upload — the text post already exists, so a failed
-      // (or unavailable) media upload only costs the image, never the post.
-      if (imageUri) {
-        const uploader = spotlightRepository as unknown as PostMediaUploader;
+      // Best-effort image uploads — the text post already exists, so a failed
+      // (or unavailable) media upload only costs that image, never the post.
+      // Sequential, each tagged with its slot, so the feed shows them in the
+      // order they were staged even if one in the middle fails.
+      let failedImages = 0;
+      const uploader = spotlightRepository as unknown as PostMediaUploader;
+      for (const [position, uri] of imageUris.entries()) {
         try {
           if (typeof uploader.uploadPostMedia !== 'function') {
             throw new Error('post media upload unavailable');
           }
-          const response = await fetch(imageUri);
+          const response = await fetch(uri);
           const bytes = await response.arrayBuffer();
-          await uploader.uploadPostMedia(postId, bytes);
+          await uploader.uploadPostMedia(postId, bytes, { position });
         } catch {
-          Alert.alert(
-            'Photo not attached',
-            'Your post was published, but the photo could not be attached. You can try adding it again.',
-          );
+          failedImages += 1;
         }
+      }
+      if (failedImages > 0) {
+        Alert.alert(
+          failedImages > 1 ? 'Photos not attached' : 'Photo not attached',
+          failedImages === imageUris.length
+            ? 'Your post was published, but the photos could not be attached. You can try adding them again.'
+            : `Your post was published, but ${failedImages} of ${imageUris.length} photos could not be attached.`,
+        );
       }
 
       // Counted after the post really exists, and after the image attempt, so
       // `has_image` describes what was published rather than what was intended.
+      const hasImage = imageUris.length > 0;
       capturePostHogEvent('post_created', {
         body_length: trimmedBody.length,
-        has_image: imageUri != null,
+        has_image: hasImage,
+        image_count: imageUris.length,
       });
       if (boothOn) {
         capturePostHogEvent(AnalyticsEvent.boothPostCreated, {
           event_id: booth.eventId,
-          has_image: imageUri != null,
+          has_image: hasImage,
           vendor_id: booth.vendorId,
         });
       }
@@ -580,7 +612,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
       Alert.alert("Couldn't post", 'Something went wrong. Please try again.');
       setSubmitState('idle');
     }
-  }, [booth, boothOn, canPost, imageUri, router, spotlightRepository, trimmedBody]);
+  }, [booth, boothOn, canPost, imageUris, router, spotlightRepository, trimmedBody]);
 
   const counterColor = useMemo(
     () =>
@@ -677,7 +709,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
               // With a photo attached the field stops reserving its full empty
               // height, so the preview sits right under what you typed instead
               // of under the full-height box with one line in it.
-              imageUri ? styles.bodyInputWithImage : null,
+              imageUris.length > 0 ? styles.bodyInputWithImage : null,
               body.length > 0 ? theme.typography.bodyMedium : textStyles.placeholder,
               {
                 backgroundColor: theme.colors.gray50,
@@ -691,25 +723,42 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             value={body}
           />
 
-          {imageUri ? (
-            <View style={styles.imagePreviewWrap} testID={`${testID}-image-preview`}>
-              <ExpoImage
-                accessibilityIgnoresInvertColors
-                contentFit="cover"
-                source={{ uri: imageUri }}
-                style={[styles.imagePreview, { borderRadius: theme.radii.md, backgroundColor: theme.colors.gray100 }]}
-              />
-              <Pressable
-                accessibilityLabel="Remove image"
-                accessibilityRole="button"
-                hitSlop={8}
-                onPress={() => setImageUri(null)}
-                style={[styles.imageRemove, { backgroundColor: theme.colors.gray900 }]}
-                testID={`${testID}-image-remove`}
-              >
-                <Xmark color={theme.colors.gray0} height={16} width={16} />
-              </Pressable>
-            </View>
+          {imageUris.length > 0 ? (
+            <ScrollView
+              contentContainerStyle={styles.imagePreviewRow}
+              horizontal
+              // One photo stays full width; several become a strip that
+              // scrolls edge to edge past the composer's 16pt gutter.
+              scrollEnabled={imageUris.length > 1}
+              showsHorizontalScrollIndicator={false}
+              style={styles.imagePreviewWrap}
+              testID={`${testID}-image-preview`}
+            >
+              {imageUris.map((uri, index) => (
+                <View
+                  key={`${uri}-${index}`}
+                  style={imageUris.length > 1 ? styles.imagePreviewTile : styles.imagePreviewSingle}
+                  testID={`${testID}-image-preview-${index}`}
+                >
+                  <ExpoImage
+                    accessibilityIgnoresInvertColors
+                    contentFit="cover"
+                    source={{ uri }}
+                    style={[styles.imagePreview, { borderRadius: theme.radii.md, backgroundColor: theme.colors.gray100 }]}
+                  />
+                  <Pressable
+                    accessibilityLabel={imageUris.length > 1 ? `Remove image ${index + 1}` : 'Remove image'}
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={() => setImageUris((current) => current.filter((_, at) => at !== index))}
+                    style={[styles.imageRemove, { backgroundColor: theme.colors.gray900 }]}
+                    testID={index === 0 ? `${testID}-image-remove` : `${testID}-image-remove-${index}`}
+                  >
+                    <Xmark color={theme.colors.gray0} height={16} width={16} />
+                  </Pressable>
+                </View>
+              ))}
+            </ScrollView>
           ) : null}
         </ScrollView>
 
@@ -770,7 +819,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
               trailing={<NavArrowDown color={theme.colors.gray900} height={18} width={18} />}
             />
 
-            {!imageUri ? (
+            {remainingImages > 0 ? (
               <>
                 <ControlChip
                   icon={<MediaImage color={theme.colors.gray900} height={18} width={18} />}
@@ -894,8 +943,20 @@ const styles = StyleSheet.create({
     aspectRatio: 4 / 3,
     width: '100%',
   },
-  imagePreviewWrap: {
+  imagePreviewRow: {
+    flexGrow: 1,
     gap: 8,
+    paddingHorizontal: 16,
+  },
+  imagePreviewSingle: {
+    flex: 1,
+  },
+  imagePreviewTile: {
+    width: PREVIEW_TILE_WIDTH,
+  },
+  imagePreviewWrap: {
+    // Bleeds past the scroll content's 16pt gutter; the row re-insets it.
+    marginHorizontal: -16,
     // 16 below the text you typed, not below the field's reserved height.
     marginTop: 16,
   },

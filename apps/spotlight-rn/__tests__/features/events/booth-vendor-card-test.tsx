@@ -72,7 +72,13 @@ jest.mock('@/features/social/dm-service', () => ({
 
 jest.mock('@/features/social/components/post-card', () => {
   const { View } = require('react-native');
-  return { PostImage: ({ testID }: { testID?: string }) => <View testID={testID} /> };
+  return {
+    PostImage: ({ compact, testID, uri }: { compact?: boolean; testID?: string; uri: string }) => (
+      <View compact={compact} testID={testID ?? `post-image:${uri}`} />
+    ),
+    postMediaUrl: (base: string, id: string, options?: { displayWidth?: number }) =>
+      `${base}/api/v1/post-media/${id}?display=${options?.displayWidth}`,
+  };
 });
 
 jest.mock('@/lib/observability/posthog', () => ({
@@ -283,6 +289,12 @@ describe('booth vendor card', () => {
     expect(screen.getByTestId('event-vendor-card-name').props.children).toBe(
       mockSpotlightEventMap.vendors.find((vendor) => vendor.id === VENDOR)?.name,
     );
+
+    // Both surfaces ask for a thumbnail sized to their frame; the 48pt strip
+    // thumb also uses the compact (icon-only) placeholder.
+    expect(screen.getByTestId('post-image:https://api.example.com/api/v1/post-media/p1-m?display=120')).toBeTruthy();
+    const stripThumb = await screen.findByTestId('post-image:https://api.example.com/api/v1/post-media/p1-m?display=48');
+    expect(stripThumb.props.compact).toBe(true);
 
     fireEvent.press(await screen.findByTestId('booth-strip-p1'));
     expect(recordBoothEvent).toHaveBeenCalledWith(EVENT.id, VENDOR, 'post_view');

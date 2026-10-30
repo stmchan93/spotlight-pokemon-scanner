@@ -18,7 +18,7 @@ import {
   type BoothStats,
 } from '@/features/events/booth-service';
 import { followUser, isFollowing, unfollowUser } from '@/features/profile/profile-service';
-import { PostImage } from '@/features/social/components/post-card';
+import { PostImage, postMediaUrl } from '@/features/social/components/post-card';
 import { findOrCreateDm } from '@/features/social/dm-service';
 import { profileRouteSlug } from '@/features/social/profile-link';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
@@ -324,7 +324,6 @@ function BoothPhotoStrip({ eventId, posts, vendorId }: { eventId: string; posts:
   if (!apiBaseUrl || !accessToken || withPhotos.length === 0) {
     return null;
   }
-  const base = apiBaseUrl.replace(/\/+$/, '');
   return (
     <ScrollView
       contentContainerStyle={styles.strip}
@@ -348,9 +347,10 @@ function BoothPhotoStrip({ eventId, posts, vendorId }: { eventId: string; posts:
           >
             <PostImage
               accessToken={accessToken}
+              compact
               media={media}
               style={styles.thumbImage}
-              uri={`${base}/api/v1/post-media/${media.id}`}
+              uri={postMediaUrl(apiBaseUrl, media.id, { displayWidth: THUMB_WIDTH })}
               viewerIsAuthor={currentUser?.id === post.authorId}
             />
           </Pressable>

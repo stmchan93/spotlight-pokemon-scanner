@@ -6,6 +6,9 @@ import { fetchMyBoothClaims } from '@/features/events/booth-service';
 import { useSpotlightEventMap } from '@/features/events/hooks/use-spotlight-event-map';
 import { useSpotlightEvents } from '@/features/events/hooks/use-spotlight-events';
 import { useAuth } from '@/providers/auth-provider';
+import { resolveRuntimeAppEnv } from '@/lib/runtime-config';
+
+const STAGING = resolveRuntimeAppEnv() === 'staging';
 
 export type ActiveBooth = {
   eventId: string;
@@ -76,7 +79,14 @@ export function useActiveBooth({ eventId, vendorId, enabled = true }: UseActiveB
     if (explicit) {
       return events.find((item) => item.id === eventId) ?? null;
     }
-    return events.find((item) => item.floorMapUrl != null && isInBoothWindow(item, now)) ?? null;
+    const mapped = events.filter((item) => item.floorMapUrl != null);
+    const live = mapped.find((item) => isInBoothWindow(item, now));
+    if (live || !STAGING) {
+      return live ?? null;
+    }
+    // Staging only: with no show on, the latest mapped show stands in so the
+    // banner and composer toggle can be tested between shows.
+    return [...mapped].sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0] ?? null;
   }, [eventId, events, explicit, now]);
 
   const [claims, setClaims] = useState<string[] | null>(null);

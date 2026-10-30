@@ -2,11 +2,11 @@ import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import type { SpotlightEventMapVendor } from '@spotlight/api-client';
-import { radii, spacing, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { layout, radii, spacing, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import { formatBoothPostAge } from '@/features/events/booth-format';
 import type { BoothPost } from '@/features/events/booth-service';
-import { PostImage } from '@/features/social/components/post-card';
+import { PostImage, postMediaUrl } from '@/features/social/components/post-card';
 import { resolveRepositoryBaseUrl } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -40,11 +40,16 @@ export function BoothFloorRow({ posts, vendors, onSelectVendor, renderTitle }: B
   if (!apiBaseUrl || !accessToken || cards.length === 0) {
     return null;
   }
-  const base = apiBaseUrl.replace(/\/+$/, '');
   return (
     <View style={styles.section} testID="booth-floor-row">
       {renderTitle('From the floor')}
-      <ScrollView contentContainerStyle={styles.row} horizontal showsHorizontalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.row}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.rowBleed}
+        testID="booth-floor-scroll"
+      >
         {cards.map(({ post, vendor }) => {
           const media = post.media[0];
           return (
@@ -61,7 +66,7 @@ export function BoothFloorRow({ posts, vendors, onSelectVendor, renderTitle }: B
                   accessToken={accessToken}
                   media={media}
                   style={styles.photoImage}
-                  uri={`${base}/api/v1/post-media/${media.id}`}
+                  uri={postMediaUrl(apiBaseUrl, media.id, { displayWidth: CARD_WIDTH })}
                   viewerIsAuthor={currentUser?.id === post.authorId}
                 />
               </View>
@@ -83,8 +88,13 @@ const styles = StyleSheet.create({
   section: {
     gap: spacing.sm,
   },
+  // The row scrolls edge to edge while its first card lines up with the gutter.
+  rowBleed: {
+    marginHorizontal: -layout.pageGutter,
+  },
   row: {
     gap: spacing.xs,
+    paddingHorizontal: layout.pageGutter,
   },
   card: {
     gap: spacing.xxxs,

@@ -251,6 +251,11 @@ from post_media_store import (
     build_post_media_store,
     content_type_for_path,
 )
+from post_media_thumbnails import (
+    parse_thumb_width,
+    post_media_thumbnail_cache,
+    resize_post_media,
+)
 from request_auth import RequestAuthError, RequestIdentity, SupabaseRequestAuthenticator
 from person_cutout import extract_person_cutout
 from species_outline import outline_points_from_alpha, species_outline
@@ -2279,6 +2284,8 @@ class PendingVisualScan:
 # unconfigured (and then reported as an orphan) instead of being silently lost.
 AVATAR_STORE_NAME = "avatars"
 POST_MEDIA_STORE_NAME = "post-media"
+# The composer attaches up to 4 photos per post (positions 0-3).
+POST_MEDIA_MAX_POSITION = 3
 SCAN_ARTIFACT_STORE_NAME = "scan-artifacts"
 
 
@@ -24912,6 +24919,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         post_id: str,
         storage_path: str,
         caller_user_id: str,
+        position: int = 0,
     ) -> dict[str, Any] | None:
         """INSERT a ``post_media`` row after checking ownership SERVER-SIDE.
 
@@ -24935,7 +24943,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 "id": media_id,
                 "post_id": post_id,
                 "storage_path": storage_path,
-                "position": 0,
+                "position": position,
             }
         ).encode("utf-8")
         request = Request(
@@ -25711,6 +25719,14 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     HTTPStatus.NOT_FOUND, {"error": "Post media not found"}
                 )
                 return
+            # Optional ?w= thumbnail. Checked only after authorization above, so
+            # a cache hit skips the bucket read, never the visibility rule.
+            thumb_width = parse_thumb_width(query.get("w", [""])[0])
+            if thumb_width is not None:
+                cached = post_media_thumbnail_cache.get(storage_path, thumb_width)
+                if cached is not None:
+                    self._write_post_media_image(cached, content_type="image/jpeg")
+                    return
             try:
                 image_bytes = post_media_store.read_bytes(storage_path)
             except PostMediaStoreError as error:
@@ -25728,6 +25744,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     HTTPStatus.NOT_FOUND, {"error": "Post media not found"}
                 )
                 return
+            if thumb_width is not None:
+                thumbnail = resize_post_media(image_bytes, thumb_width)
+                if thumbnail is not None:
+                    post_media_thumbnail_cache.put(storage_path, thumb_width, thumbnail)
+                    self._write_post_media_image(thumbnail, content_type="image/jpeg")
+                    return
             self._write_post_media_image(
                 image_bytes, content_type=content_type_for_path(storage_path)
             )
@@ -27360,6 +27382,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     },
                 )
                 return
+            # Order within a multi-photo post. Older clients send none → 0.
+            try:
+                position = int(query.get("position", ["0"])[0])
+            except ValueError:
+                position = 0
+            position = max(0, min(position, POST_MEDIA_MAX_POSITION))
             image_bytes = self._read_raw_image_body()
             if image_bytes is None:
                 self._write_json(
@@ -27376,6 +27404,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 post_id=post_id,
                 storage_path=storage_path,
                 caller_user_id=identity.user_id,
+                position=position,
             )
             if not row:
                 # The caller does not author this post (or the insert errored)

@@ -234,7 +234,7 @@ describe('NewPostScreen', () => {
     fireEvent.press(screen.getByTestId('new-post-submit'));
 
     await waitFor(() => expect(createPost).toHaveBeenCalledWith({ body: 'Live from the show', cardId: null }));
-    await waitFor(() => expect(uploadPostMedia).toHaveBeenCalledWith('post-1', expect.any(ArrayBuffer)));
+    await waitFor(() => expect(uploadPostMedia).toHaveBeenCalledWith('post-1', expect.any(ArrayBuffer), { position: 0 }));
     await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
 
     global.fetch = originalFetch;
@@ -271,7 +271,7 @@ describe('NewPostScreen', () => {
     // The text post is created regardless of the image outcome...
     await waitFor(() => expect(createPost).toHaveBeenCalledWith({ body: 'Look at this pull', cardId: null }));
     // ...the upload was attempted and failed...
-    await waitFor(() => expect(uploadPostMedia).toHaveBeenCalledWith('post-1', expect.any(ArrayBuffer)));
+    await waitFor(() => expect(uploadPostMedia).toHaveBeenCalledWith('post-1', expect.any(ArrayBuffer), { position: 0 }));
     // ...the failure is surfaced softly, and the composer still dismisses.
     await waitFor(() =>
       expect(alertSpy).toHaveBeenCalledWith('Photo not attached', expect.any(String)),
@@ -281,6 +281,72 @@ describe('NewPostScreen', () => {
     alertSpy.mockRestore();
     global.fetch = originalFetch;
   });
+  it('attaches up to four library photos and uploads them in order', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn(async () => ({
+      arrayBuffer: async () => new ArrayBuffer(8),
+    })) as unknown as typeof fetch;
+
+    const ImagePicker = require('expo-image-picker');
+    (ImagePicker.launchImageLibraryAsync as jest.Mock)
+      .mockResolvedValueOnce({
+        canceled: false,
+        assets: [{ uri: 'file:///a.jpg' }, { uri: 'file:///b.jpg' }, { uri: 'file:///c.jpg' }],
+      })
+      .mockResolvedValueOnce({ canceled: false, assets: [{ uri: 'file:///d.jpg' }] });
+
+    const uploadPostMedia = jest.fn().mockResolvedValue({ mediaId: 'media-1' });
+    const repository = { ...createTestSpotlightRepository(), uploadPostMedia };
+
+    renderWithProviders(<NewPostScreen />, { spotlightRepository: repository });
+
+    fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'Booth haul');
+    fireEvent.press(screen.getByTestId('new-post-add-image'));
+    await screen.findByTestId('new-post-image-preview-2');
+    expect(ImagePicker.launchImageLibraryAsync).toHaveBeenLastCalledWith(
+      expect.objectContaining({ allowsMultipleSelection: true, selectionLimit: 4 }),
+    );
+
+    // The picker only offers the slots that are left; at the cap the chips go.
+    fireEvent.press(screen.getByTestId('new-post-add-image'));
+    await screen.findByTestId('new-post-image-preview-3');
+    expect(ImagePicker.launchImageLibraryAsync).toHaveBeenLastCalledWith(
+      expect.objectContaining({ allowsMultipleSelection: false, selectionLimit: 1 }),
+    );
+    expect(screen.queryByTestId('new-post-add-image')).toBeNull();
+    expect(screen.queryByTestId('new-post-add-camera')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('new-post-submit'));
+
+    await waitFor(() => expect(uploadPostMedia).toHaveBeenCalledTimes(4));
+    expect(uploadPostMedia.mock.calls.map((call) => call[2])).toEqual([
+      { position: 0 },
+      { position: 1 },
+      { position: 2 },
+      { position: 3 },
+    ]);
+    await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
+
+    global.fetch = originalFetch;
+  });
+
+  it('removes one staged photo and keeps the rest', async () => {
+    const ImagePicker = require('expo-image-picker');
+    (ImagePicker.launchImageLibraryAsync as jest.Mock).mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ uri: 'file:///a.jpg' }, { uri: 'file:///b.jpg' }],
+    });
+
+    renderWithProviders(<NewPostScreen />);
+    fireEvent.press(screen.getByTestId('new-post-add-image'));
+    await screen.findByTestId('new-post-image-preview-1');
+
+    fireEvent.press(screen.getByTestId('new-post-image-remove-1'));
+
+    await waitFor(() => expect(screen.queryByTestId('new-post-image-preview-1')).not.toBeOnTheScreen());
+    expect(screen.getByTestId('new-post-image-preview-0')).toBeTruthy();
+  });
+
   it('offers no drag affordance, because there is no drag to dismiss', () => {
     renderWithProviders(<NewPostScreen />);
 

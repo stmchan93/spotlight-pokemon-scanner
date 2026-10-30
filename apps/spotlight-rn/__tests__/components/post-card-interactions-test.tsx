@@ -1,11 +1,11 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import type { PropsWithChildren } from 'react';
-import { Alert, StyleSheet } from 'react-native';
+import { Alert, PixelRatio, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SpotlightThemeProvider } from '@spotlight/design-system';
 
-import { PostCard } from '@/features/social/components/post-card';
+import { PostCard, PostImage, postMediaUrl } from '@/features/social/components/post-card';
 import { fetchConversations, sendMessage } from '@/features/social/dm-service';
 import {
   addComment,
@@ -443,6 +443,49 @@ describe('PostCard pending media', () => {
     fireEvent(screen.getByTestId('post-card-image-media-1'), 'error');
 
     expect(screen.getByText("Photo didn't load")).toBeTruthy();
+  });
+});
+
+describe('PostImage thumbnails', () => {
+  const media = { id: 'media-1', width: 800, height: 1000, blurhash: null };
+
+  it('builds a full-size URL by default and a snapped ?w= for small surfaces', () => {
+    const ratio = jest.spyOn(PixelRatio, 'get').mockReturnValue(3);
+    expect(postMediaUrl('https://api.test/', 'm1')).toBe('https://api.test/api/v1/post-media/m1');
+    // 48pt × 3 = 144px → 160; 120pt × 3 = 360px → 480; past the cap → 640.
+    expect(postMediaUrl('https://api.test', 'm1', { displayWidth: 48 })).toBe('https://api.test/api/v1/post-media/m1?w=160');
+    expect(postMediaUrl('https://api.test', 'm1', { displayWidth: 120 })).toBe('https://api.test/api/v1/post-media/m1?w=480');
+    expect(postMediaUrl('https://api.test', 'm1', { displayWidth: 400 })).toBe('https://api.test/api/v1/post-media/m1?w=640');
+    ratio.mockReturnValue(2);
+    expect(postMediaUrl('https://api.test', 'm1', { displayWidth: 48 })).toBe('https://api.test/api/v1/post-media/m1?w=160');
+    ratio.mockRestore();
+  });
+
+  it('compact placeholder is an icon with no label, and retries keep the ?w=', async () => {
+    jest.useFakeTimers();
+    render(
+      <PostImage
+        accessToken="token"
+        compact
+        media={media}
+        testID="thumb"
+        uri="https://api.test/api/v1/post-media/media-1?w=160"
+        viewerIsAuthor={false}
+      />,
+      { wrapper: Wrapper },
+    );
+    fireEvent(screen.getByTestId('thumb'), 'error');
+    expect(screen.getByTestId('thumb-placeholder')).toBeTruthy();
+    expect(screen.queryByText('Photo is still processing')).toBeNull();
+    expect(screen.getByLabelText('Photo is still processing')).toBeTruthy();
+
+    act(() => {
+      jest.advanceTimersByTime(4_000);
+    });
+    expect(screen.getByTestId('thumb').props.source.uri).toBe(
+      'https://api.test/api/v1/post-media/media-1?w=160&retry=1',
+    );
+    jest.useRealTimers();
   });
 });
 

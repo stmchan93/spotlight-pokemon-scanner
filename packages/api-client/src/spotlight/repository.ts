@@ -306,8 +306,15 @@ export interface SpotlightRepository {
    * cover — but a separate object, so changing one never clobbers the other.
    */
   uploadProfileCover(jpegBytes: ArrayBuffer | Uint8Array): Promise<ProfileCoverUploadResult>;
-  /** Upload one image for an already-created post; returns the new media id. */
-  uploadPostMedia(postId: string, jpegBytes: ArrayBuffer | Uint8Array): Promise<PostMediaUploadResult>;
+  /**
+   * Upload one image for an already-created post; returns the new media id.
+   * `position` orders a multi-photo post (0-3; the backend defaults to 0).
+   */
+  uploadPostMedia(
+    postId: string,
+    jpegBytes: ArrayBuffer | Uint8Array,
+    options?: { position?: number },
+  ): Promise<PostMediaUploadResult>;
   loadCatalogCards(query: string, limit?: number, offset?: number, options?: CatalogSearchOptions): Promise<CatalogSearchLoadResult>;
   searchCatalogCards(query: string, limit?: number): Promise<CatalogSearchResult[]>;
   /** Paginated catalog search for infinite scroll — returns a page + hasMore. */
@@ -4143,6 +4150,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
   async uploadPostMedia(
     _postId: string,
     _jpegBytes: ArrayBuffer | Uint8Array,
+    _options?: { position?: number },
   ): Promise<PostMediaUploadResult> {
     // Offline/test double: return a stable placeholder media id so the composer
     // flow can proceed without a real bucket or Supabase insert.
@@ -6008,6 +6016,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   async uploadPostMedia(
     postId: string,
     jpegBytes: ArrayBuffer | Uint8Array,
+    options?: { position?: number },
   ): Promise<PostMediaUploadResult> {
     // The body is the raw resized JPEG bytes (image/jpeg), not JSON. The post is
     // identified by ?postId=; the backend INSERTs the post_media row as the
@@ -6015,6 +6024,9 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     // attach media). 'single_active' avoids re-uploading the bytes to fallback
     // base URLs on an HTTP error.
     const queryParams = new URLSearchParams({ postId });
+    if (options?.position != null) {
+      queryParams.set('position', String(options.position));
+    }
     const payload = await this.requestJsonOrThrow<PostMediaUploadResponseDTO>(
       `${this.baseUrl}/api/v1/post-media?${queryParams.toString()}`,
       {

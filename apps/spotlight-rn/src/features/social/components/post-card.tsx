@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Modal, PixelRatio, Pressable, StyleSheet, View } from 'react-native';
 import type { ImageStyle, StyleProp } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { useRouter } from 'expo-router';
@@ -112,6 +112,7 @@ const MORE_ICON_SIZE = 24;
 const COMMENT_ICON_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 2 } as const;
 const COMMENT_COUNT_HIT_SLOP = { top: 8, bottom: 8, left: 2, right: 8 } as const;
 const PLACEHOLDER_ICON_SIZE = 24;
+const COMPACT_PLACEHOLDER_ICON_SIZE = 16;
 
 /**
  * Re-fetch schedule for a post image the proxy refused, in ms after each failure.
@@ -146,6 +147,32 @@ function formatPostDate(createdAt: string): string {
     day: 'numeric',
     year: 'numeric',
   });
+}
+
+/** Thumbnail widths the backend's `?w=` accepts (`post_media_thumbnails.py`). */
+const POST_MEDIA_THUMB_WIDTHS = [160, 320, 480, 640] as const;
+
+/**
+ * The authed proxy URL for one post image. Pass `displayWidth` (points) for a
+ * small surface and the backend serves a resized JPEG at the smallest
+ * allowlisted width covering it at this screen's pixel density, instead of the
+ * full-size original.
+ */
+export function postMediaUrl(
+  apiBaseUrl: string,
+  mediaId: string,
+  options?: { displayWidth?: number },
+): string {
+  const url = `${apiBaseUrl.replace(/\/+$/, '')}/api/v1/post-media/${mediaId}`;
+  const displayWidth = options?.displayWidth;
+  if (!displayWidth || displayWidth <= 0) {
+    return url;
+  }
+  const pixels = Math.ceil(displayWidth * PixelRatio.get());
+  const width =
+    POST_MEDIA_THUMB_WIDTHS.find((candidate) => candidate >= pixels)
+    ?? POST_MEDIA_THUMB_WIDTHS[POST_MEDIA_THUMB_WIDTHS.length - 1];
+  return `${url}?w=${width}`;
 }
 
 /**
@@ -188,6 +215,7 @@ export function PostImage({
   accessToken,
   viewerIsAuthor,
   style,
+  compact = false,
   testID,
 }: {
   media: FeedPostMedia;
@@ -199,6 +227,8 @@ export function PostImage({
   /** Extra frame styling (e.g. a caller-owned borderRadius), applied to the
    * failure placeholder too so both states share one silhouette. */
   style?: StyleProp<ImageStyle>;
+  /** Small thumbnails: the failure placeholder is a small icon with no label. */
+  compact?: boolean;
   testID?: string;
 }) {
   const theme = useSpotlightTheme();
@@ -236,10 +266,17 @@ export function PostImage({
       : willRetry
         ? 'Photo is still processing'
         : 'Photo unavailable';
+    const iconSize = compact ? COMPACT_PLACEHOLDER_ICON_SIZE : PLACEHOLDER_ICON_SIZE;
     return (
-      <View style={[frameStyle, styles.mediaPlaceholder, style]} testID={`${testID}-placeholder`}>
-        <MediaImage color={theme.colors.gray600} height={PLACEHOLDER_ICON_SIZE} width={PLACEHOLDER_ICON_SIZE} />
-        <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]}>{label}</Text>
+      <View
+        accessibilityLabel={compact ? label : undefined}
+        style={[frameStyle, styles.mediaPlaceholder, style]}
+        testID={`${testID}-placeholder`}
+      >
+        <MediaImage color={theme.colors.gray600} height={iconSize} width={iconSize} />
+        {compact ? null : (
+          <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]}>{label}</Text>
+        )}
       </View>
     );
   }
@@ -254,7 +291,7 @@ export function PostImage({
       source={{
         // The backend routes on `parsed.path`, so an extra query param is inert
         // server-side and only exists to give expo-image a new cache key.
-        uri: attempt > 0 ? `${uri}?retry=${attempt}` : uri,
+        uri: attempt > 0 ? `${uri}${uri.includes('?') ? '&' : '?'}retry=${attempt}` : uri,
         headers: { Authorization: `Bearer ${accessToken}` },
       }}
       style={[frameStyle, style]}
