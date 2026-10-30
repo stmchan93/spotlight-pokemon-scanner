@@ -1,4 +1,5 @@
 import {
+  isVendorsOnlyMap,
   parseSpotlightEventMap,
   parseSpotlightEventsPayload,
 } from '../../../../packages/api-client/src/spotlight/spotlight-events';
@@ -230,6 +231,20 @@ describe('parseSpotlightEventMap', () => {
 
     expect(parseSpotlightEventMap(payload({ vector: { ...vector, baseImageUrl: null } }), BASE)?.vector).toBeNull();
     expect(parseSpotlightEventMap(payload(), BASE)?.vector).toBeNull();
+  });
+
+  it('accepts a vendors-only map: no tables, no image', () => {
+    const map = parseSpotlightEventMap(
+      payload({ imageUrl: null, imageWidth: null, imageHeight: null, tables: [] }),
+      BASE,
+    );
+    expect(map).toMatchObject({ imageUrl: null, imageWidth: 0, imageHeight: 0, tables: [] });
+    expect(map && isVendorsOnlyMap(map)).toBe(true);
+    expect(map?.vendors.map((vendor) => [vendor.id, vendor.tableIds])).toEqual([
+      ['main-street-cards', []],
+      ['odd-ig', []],
+    ]);
+    expect(isVendorsOnlyMap(parseSpotlightEventMap(payload(), BASE)!)).toBe(false);
   });
 
   it('rejects a payload without a usable image', () => {

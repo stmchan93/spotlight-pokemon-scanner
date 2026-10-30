@@ -289,7 +289,8 @@ export type SpotlightEventMapVector = {
 
 export type SpotlightEventMap = {
   eventId: string;
-  imageUrl: string;
+  /** Null (and both sizes 0) for a vendors-only map: no tables assigned yet. */
+  imageUrl: string | null;
   imageWidth: number;
   imageHeight: number;
   tables: SpotlightEventMapTable[];
@@ -417,12 +418,14 @@ export function parseSpotlightEventMap(value: unknown, baseUrl = ''): SpotlightE
   const imageUrl = resolveUrl(raw.imageUrl, baseUrl);
   const imageWidth = finite(raw.imageWidth);
   const imageHeight = finite(raw.imageHeight);
-  if (!imageUrl || !imageWidth || imageWidth <= 0 || !imageHeight || imageHeight <= 0) {
-    return null;
-  }
   const tables = Array.isArray(raw.tables)
     ? raw.tables.map(parseMapTable).filter((item): item is SpotlightEventMapTable => item != null)
     : [];
+  const hasFloor = Boolean(imageUrl && imageWidth && imageWidth > 0 && imageHeight && imageHeight > 0);
+  // Tables need a floor to sit on; no tables and no image is a vendors-only map.
+  if (!hasFloor && (tables.length > 0 || imageUrl)) {
+    return null;
+  }
   const known = new Set(tables.map((table) => table.id));
   const vendors = Array.isArray(raw.vendors)
     ? raw.vendors
@@ -431,15 +434,20 @@ export function parseSpotlightEventMap(value: unknown, baseUrl = ''): SpotlightE
     : [];
   return {
     eventId: str(raw.eventId) ?? '',
-    imageUrl,
-    imageWidth,
-    imageHeight,
+    imageUrl: hasFloor ? imageUrl : null,
+    imageWidth: hasFloor ? (imageWidth ?? 0) : 0,
+    imageHeight: hasFloor ? (imageHeight ?? 0) : 0,
     tables,
     vendors,
     tags: strings(raw.tags),
     updatedAt: str(raw.updatedAt),
     vector: parseMapVector(raw.vector, baseUrl),
   };
+}
+
+/** Built before tables were assigned: vendors to browse and claim, no floor to draw. */
+export function isVendorsOnlyMap(map: Pick<SpotlightEventMap, 'tables'>): boolean {
+  return map.tables.length === 0;
 }
 
 export const mockSpotlightEventMap: SpotlightEventMap = {

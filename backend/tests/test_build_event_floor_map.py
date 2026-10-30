@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +15,9 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.build_event_floor_map import (  # noqa: E402
     build_map,
+    build_vendors_only_map,
+    load_csv,
+    load_known_vendors,
     match_csv,
     parse_figma_url,
     parse_location,
@@ -191,6 +196,81 @@ class EnrichmentTests(unittest.TestCase):
         self.assertIs(match_csv("main street cards", CSV_ROWS), CSV_ROWS[0])
         self.assertIs(match_csv("Chazer808", CSV_ROWS), CSV_ROWS[1])
         self.assertIsNone(match_csv("Nobody", CSV_ROWS))
+
+
+EXPORT_CSV = Path(__file__).resolve().parent / "fixtures" / "event_vendors_export_sample.csv"
+
+
+class VendorsOnlyTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.rows = load_csv(EXPORT_CSV)
+        self.doc, self.report = build_vendors_only_map(
+            self.rows, event_id="show", now=datetime(2026, 10, 29, tzinfo=timezone.utc),
+        )
+        self.vendors = {v["name"]: v for v in self.doc["vendors"]}
+
+    def test_confirmed_vendors_with_no_floor(self) -> None:
+        # PAID + MIXED only; a blank business name falls back to the person's; repeats collapse.
+        self.assertEqual(set(self.vendors), {"Aloha Puddin", "chazer808 collectibles partnered w/ space 62",
+                                             "Main Street Cards", "Pete Locks"})
+        self.assertEqual(len(self.report["skippedStatus"]), 3)
+        self.assertEqual(self.report["duplicates"], ["Main Street Cards"])
+        self.assertEqual(self.doc["tables"], [])
+        for key in ("imageFile", "imageWidth", "imageHeight", "vector"):
+            self.assertIsNone(self.doc[key])
+        main = self.vendors["Main Street Cards"]
+        self.assertEqual(main, {"id": "main-street-cards", "name": "Main Street Cards", "location": "",
+                                "tableIds": [], "tags": ["Pokémon", "Graded", "Sealed"], "instagram": "mainstreet"})
+        self.assertEqual(self.vendors["Aloha Puddin"]["tags"], ["Food"])
+        self.assertEqual(self.doc["tags"], ["Pokémon", "One Piece", "Graded", "Singles", "Sealed", "Vintage", "Food"])
+        self.assertEqual(self.doc["updatedAt"], "2026-10-29T00:00:00Z")
+
+    def test_no_contact_details_leave_the_csv(self) -> None:
+        text = json.dumps(self.doc)
+        for vendor in self.doc["vendors"]:
+            self.assertEqual(set(vendor), {"id", "name", "location", "tableIds", "tags", "instagram"})
+        self.assertNotIn("Pat Example", text)
+        self.assertNotIn("applied_at", text)
+
+    def test_ids_use_the_full_builds_slug(self) -> None:
+        full, _ = build_map(_layout(), event_id="show", image_file="show.png", image_size=(800, 400),
+                            csv_rows=self.rows)
+        full_ids = {v["name"]: v["id"] for v in full["vendors"]}
+        self.assertEqual(self.vendors["Main Street Cards"]["id"], full_ids["Main Street Cards"])
+        self.assertEqual(self.vendors["Aloha Puddin"]["id"], full_ids["Aloha Puddin"])
+
+    def test_full_build_keeps_the_vendors_only_ids(self) -> None:
+        # The layout names them "Chazer808" and "PeteLocks"; their applications don't.
+        bare, _ = build_map(_layout(), event_id="show", image_file="show.png", image_size=(800, 400), csv_rows=self.rows)
+        self.assertEqual({v["name"]: v["id"] for v in bare["vendors"]}["Chazer808"], "chazer808")
+        full, report = build_map(_layout(), event_id="show", image_file="show.png", image_size=(800, 400),
+                                 csv_rows=self.rows, known_vendors=self.doc["vendors"])
+        ids = {v["name"]: v["id"] for v in full["vendors"]}
+        early = {v["id"] for v in self.doc["vendors"]}
+        self.assertEqual(ids["Chazer808"], "chazer808-collectibles-partnered-w-space-62")
+        self.assertEqual(ids["PeteLocks"], "pete-locks")
+        self.assertEqual(ids["Main Street Cards"], "main-street-cards")
+        self.assertEqual(ids["Ghost Booth"], "ghost-booth")
+        self.assertEqual({i for n, i in ids.items() if n != "Ghost Booth"}, early)
+        self.assertIn("PeteLocks -> pete-locks", report["carriedIds"])
+        self.assertEqual(full["vendors"][0]["tableIds"], ["FOOD1"])
+
+    def test_rebuild_against_its_own_map_changes_no_id(self) -> None:
+        first, _ = build_map(_layout(), event_id="show", image_file="show.png", image_size=(800, 400), csv_rows=CSV_ROWS)
+        again, report = build_map(_layout(), event_id="show", image_file="show.png", image_size=(800, 400),
+                                  csv_rows=CSV_ROWS, known_vendors=first["vendors"])
+        self.assertEqual(first["vendors"], again["vendors"])
+        self.assertNotIn("carriedIds", report)
+
+    def test_known_vendors_read_this_event_first(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "a-show.json").write_text(json.dumps({"vendors": [{"id": "old", "name": "Main Street Cards"}]}))
+            (out / "show.json").write_text(json.dumps(self.doc))
+            (out / "broken.json").write_text("{nope")
+            known = load_known_vendors(out, "show")
+        self.assertEqual(known[0]["id"], self.doc["vendors"][0]["id"])
+        self.assertEqual(known[-1]["id"], "old")
 
 
 if __name__ == "__main__":

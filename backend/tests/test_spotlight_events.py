@@ -231,6 +231,28 @@ class SpotlightEventsTests(unittest.TestCase):
             self.assertIsNone(spotlight_events.floor_map_payload(event_id, **kwargs))
             self.assertIsNone(spotlight_events.floor_map_image_file(event_id, **kwargs))
 
+    def test_vendors_only_map_is_served_without_an_image(self) -> None:
+        self._write([_event(id="early"), _event(id="half-built")])
+        early = _map_doc(imageFile=None, imageWidth=None, imageHeight=None, tables=[], vector=None,
+                         vendors=[{**_map_doc()["vendors"][0], "location": "", "tableIds": []}])
+        (self.maps_dir / "early.json").write_text(json.dumps(early), encoding="utf-8")
+        # Tables but no image is a broken full build, not a vendors-only one.
+        (self.maps_dir / "half-built.json").write_text(json.dumps(_map_doc(imageFile=None)), encoding="utf-8")
+        items = {i["id"]: i for i in self._build(_utc(2026, 8, 1))["items"]}
+        self.assertEqual(items["early"]["floorMapUrl"], "/api/v1/events/early/map")
+        self.assertIsNone(items["half-built"]["floorMapUrl"])
+
+        kwargs = {"events_path": self.events_path, "maps_dir": self.maps_dir}
+        payload = spotlight_events.floor_map_payload("early", **kwargs)
+        assert payload is not None
+        self.assertIsNone(payload["imageUrl"])
+        self.assertIsNone(payload["vector"])
+        self.assertEqual(payload["tables"], [])
+        self.assertEqual([v["id"] for v in payload["vendors"]], ["main-street"])
+        self.assertIsNone(payload["vendors"][0]["logoUrl"])
+        self.assertIsNone(spotlight_events.floor_map_image_file("early", **kwargs))
+        self.assertIsNone(spotlight_events.floor_map_base_image_file("early", **kwargs))
+
     def test_vector_section_only_with_its_base_image(self) -> None:
         self._write([_event(id="vec"), _event(id="no-base")])
         vector = {"baseImageFile": "vec-base.png", "baseImage": {"x": 0, "y": 0, "width": 1, "height": 1},
@@ -402,6 +424,18 @@ class SpotlightEventsRouteTests(unittest.TestCase):
             "/api/v1/events/ontario-2026-08/vendor-logos/..%2F..%2Fserver",
             "/api/v1/events/unknown/vendor-logos/main-street",
         ):
+            with self.subTest(path=path):
+                ((kind, (status, payload)),) = self._get(path)
+                self.assertEqual((kind, status, payload), ("json", HTTPStatus.NOT_FOUND, {"error": "not_found"}))
+
+    def test_vendors_only_map_routes(self) -> None:
+        vendors_only = _map_doc(imageFile=None, imageWidth=None, imageHeight=None, tables=[], vector=None)
+        (spotlight_events.MAPS_DIR / "no-flyer.json").write_text(json.dumps(vendors_only), encoding="utf-8")
+        ((kind, (status, payload)),) = self._get("/api/v1/events/no-flyer/map")
+        self.assertEqual((kind, status), ("json", HTTPStatus.OK))
+        self.assertIsNone(payload["imageUrl"])
+        self.assertEqual(payload["tables"], [])
+        for path in ("/api/v1/events/no-flyer/map-image", "/api/v1/events/no-flyer/map-base-image"):
             with self.subTest(path=path):
                 ((kind, (status, payload)),) = self._get(path)
                 self.assertEqual((kind, status, payload), ("json", HTTPStatus.NOT_FOUND, {"error": "not_found"}))

@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { Alert, Linking } from 'react-native';
 
-import { mockSpotlightEventMap } from '@spotlight/api-client';
+import { mockSpotlightEventMap, type SpotlightEventMap } from '@spotlight/api-client';
 import type { BoothClaim, BoothPost } from '@/features/events/booth-service';
 import {
   claimBooth,
@@ -158,16 +158,28 @@ function boothPost(id: string, vendorId = VENDOR, createdAt = new Date().toISOSt
   };
 }
 
-async function renderShow(initialVendorId: string | null = null) {
+/** Before tables are assigned (tools/build_event_floor_map.py --vendors-only). */
+const VENDORS_ONLY_MAP: SpotlightEventMap = {
+  ...mockSpotlightEventMap,
+  imageUrl: null,
+  imageWidth: 0,
+  imageHeight: 0,
+  tables: [],
+  vendors: mockSpotlightEventMap.vendors.map((vendor) => ({ ...vendor, location: '', tableIds: [] })),
+};
+
+async function renderShow(initialVendorId: string | null = null, map: SpotlightEventMap = mockSpotlightEventMap) {
   renderWithProviders(<EventDetailScreen eventId={EVENT.id} initialVendorId={initialVendorId} onBack={jest.fn()} />, {
     spotlightRepository: createTestSpotlightRepository({
       fetchSpotlightEvents: async () => ({ items: [EVENT] }),
-      fetchSpotlightEventMap: async () => mockSpotlightEventMap,
+      fetchSpotlightEventMap: async () => map,
     }),
   });
-  fireEvent(await screen.findByTestId('event-floor-map'), 'layout', {
-    nativeEvent: { layout: { x: 0, y: 0, width: 360, height: 440 } },
-  });
+  if (map.tables.length > 0) {
+    fireEvent(await screen.findByTestId('event-floor-map'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 360, height: 440 } },
+    });
+  }
   await waitFor(() => expect(fetchBoothClaims).toHaveBeenCalled());
 }
 
@@ -332,5 +344,79 @@ describe('booth vendor card', () => {
     await renderShow();
     await waitFor(() => expect(fetchBrowsingNow).toHaveBeenCalled());
     expect(screen.queryByTestId('event-browsing-now')).toBeNull();
+  });
+});
+
+describe('vendors-only show (no tables yet)', () => {
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    // clearAllMocks keeps the claims/posts the suite above left mocked.
+    jest.mocked(fetchBoothClaims).mockResolvedValue(new Map());
+    jest.mocked(fetchBoothPosts).mockResolvedValue([]);
+    jest.mocked(fetchBrowsingNow).mockResolvedValue(null);
+    resetSavedEventsForTests();
+    await AsyncStorage.clear();
+    jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  it('lists vendors under a "coming soon" note instead of the floor map', async () => {
+    await renderShow(null, VENDORS_ONLY_MAP);
+    expect(await screen.findByTestId('event-vendors-tables-pending')).toBeTruthy();
+    expect(screen.getByText('Table assignments coming soon')).toBeTruthy();
+    expect(screen.queryByTestId('event-floor-map')).toBeNull();
+    for (const vendor of VENDORS_ONLY_MAP.vendors) {
+      expect(screen.getByTestId(`event-vendor-${vendor.id}`)).toBeTruthy();
+    }
+    expect(fetchBoothClaims).toHaveBeenCalledWith(VENDORS_ONLY_MAP.vendors.map((vendor) => vendor.id));
+
+    fireEvent.changeText(screen.getByTestId('event-vendors-search'), 'main');
+    expect(screen.queryByTestId('event-vendor-aloha-puddin')).toBeNull();
+    expect(screen.getByTestId(`event-vendor-${VENDOR}`)).toBeTruthy();
+    fireEvent.changeText(screen.getByTestId('event-vendors-search'), '');
+    fireEvent.press(screen.getByTestId('event-vendors-tag-Food'));
+    expect(screen.queryByTestId(`event-vendor-${VENDOR}`)).toBeNull();
+    expect(screen.getByTestId('event-vendor-aloha-puddin')).toBeTruthy();
+  });
+
+  it('a tapped vendor opens the full booth card in the list, and it can be claimed', async () => {
+    await renderShow(null, VENDORS_ONLY_MAP);
+    await openVendor();
+    expect(screen.getByTestId('event-vendor-card-name').props.children).toBe('Main Street Cards');
+    expect(screen.getByText('Table TBA')).toBeTruthy();
+    expect(recordBoothEvent).toHaveBeenCalledWith(EVENT.id, VENDOR, 'card_open');
+    await act(async () => fireEvent.press(screen.getByTestId('booth-claim')));
+    expect(claimBooth).toHaveBeenCalledWith(VENDOR, EVENT.id);
+
+    fireEvent.press(screen.getByTestId('event-vendor-card-close'));
+    expect(screen.queryByTestId('event-vendor-card')).toBeNull();
+    expect(screen.getByTestId(`event-vendor-${VENDOR}`)).toBeTruthy();
+  });
+
+  it('mine: stats and Post to your booth work without tables', async () => {
+    jest.mocked(fetchBoothClaims).mockResolvedValue(claim(ME));
+    await renderShow(null, VENDORS_ONLY_MAP);
+    await openVendor();
+    expect(await screen.findByText('Your booth')).toBeTruthy();
+    expect(fetchBoothStats).toHaveBeenCalledWith(VENDOR, EVENT.id);
+    fireEvent.press(screen.getByTestId('booth-post'));
+    expect(mockPush).toHaveBeenCalledWith(`/new-post?eventId=${EVENT.id}&vendorId=${VENDOR}`);
+  });
+
+  it('"From the floor", deep links and browsing count still work', async () => {
+    jest.mocked(fetchBoothPosts).mockResolvedValue([boothPost('p1')]);
+    jest.mocked(fetchBrowsingNow).mockResolvedValue(4);
+    await renderShow(null, VENDORS_ONLY_MAP);
+    const floorCard = await screen.findByTestId('booth-floor-p1');
+    expect(floorCard.props.accessibilityLabel).toBe('Main Street Cards, table tba');
+    expect(screen.getByText('now')).toBeTruthy();
+    expect(await screen.findByText('4 people browsing now')).toBeTruthy();
+    fireEvent.press(floorCard);
+    expect(screen.getByTestId('event-vendor-card-name').props.children).toBe('Main Street Cards');
+    expect(await screen.findByTestId('booth-strip-p1')).toBeTruthy();
+
+    screen.unmount();
+    await renderShow(VENDOR, VENDORS_ONLY_MAP);
+    expect(await screen.findByTestId('booth-panel')).toBeTruthy();
   });
 });

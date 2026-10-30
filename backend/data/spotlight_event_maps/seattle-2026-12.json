@@ -1,0 +1,1163 @@
+{
+ "eventId": "seattle-2026-12",
+ "imageFile": null,
+ "imageWidth": null,
+ "imageHeight": null,
+ "tables": [],
+ "vendors": [
+  {
+   "id": "206tcg",
+   "name": "206tcg",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Sealed"
+   ],
+   "instagram": "206tcg_"
+  },
+  {
+   "id": "9-5king",
+   "name": "9.5king",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Sealed"
+   ],
+   "instagram": "9.5king"
+  },
+  {
+   "id": "adagiotcg",
+   "name": "AdagioTCG",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "adagiotcg"
+  },
+  {
+   "id": "alex-s-tcg",
+   "name": "Alex’s TCG",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Sealed"
+   ],
+   "instagram": "AlexsTCG_"
+  },
+  {
+   "id": "amethyst-collectibles-llc",
+   "name": "Amethyst Collectibles LLC",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Lorcana",
+    "Magic",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "amethysttcg"
+  },
+  {
+   "id": "atlas-s-trading-tent",
+   "name": "Atlas's Trading Tent",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Vintage"
+   ],
+   "instagram": "Atlastradingtent"
+  },
+  {
+   "id": "atomic-heart",
+   "name": "Atomic Heart",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon"
+   ],
+   "instagram": "atomicteart.studio"
+  },
+  {
+   "id": "auratradingco",
+   "name": "auratradingco",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon"
+   ],
+   "instagram": "auratradingco"
+  },
+  {
+   "id": "aurora-tcg",
+   "name": "Aurora TCG",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles",
+    "Vintage"
+   ],
+   "instagram": "aurora.ptcg"
+  },
+  {
+   "id": "austin-moungchanh",
+   "name": "Austin Moungchanh",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "One Piece",
+    "Riftbound",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "austinology.tcg"
+  },
+  {
+   "id": "avarque",
+   "name": "Avarque",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "One Piece"
+   ],
+   "instagram": "avarque.co"
+  },
+  {
+   "id": "b-w-collectibles",
+   "name": "B&W Collectibles",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Sports"
+   ],
+   "instagram": "b_w_collectibles"
+  },
+  {
+   "id": "badfrog-tcg",
+   "name": "badfrog.tcg",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "One Piece",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "badfrog.tcg"
+  },
+  {
+   "id": "bentobot-tcg",
+   "name": "BentoBot_TCG",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "bentobot_tcg"
+  },
+  {
+   "id": "bidoofcardboards",
+   "name": "bidoofcardboards",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "bidoofcardboards"
+  },
+  {
+   "id": "big-belly-tcg",
+   "name": "Big Belly TCG",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "One Piece",
+    "Riftbound",
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "BigbellyTCG"
+  },
+  {
+   "id": "boof-tcg",
+   "name": "boof tcg",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "boof.tcg"
+  },
+  {
+   "id": "casper-collects",
+   "name": "Casper Collects",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "One Piece",
+    "Riftbound"
+   ],
+   "instagram": "Casper.collects"
+  },
+  {
+   "id": "cedar-collectibles",
+   "name": "Cedar Collectibles",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles",
+    "Sealed",
+    "Vintage"
+   ],
+   "instagram": "cedar_collectibles"
+  },
+  {
+   "id": "charlie-s-pokeden",
+   "name": "Charlie's PokeDen",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": null
+  },
+  {
+   "id": "chatterz-games",
+   "name": "Chatterz Games",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Magic",
+    "Singles"
+   ],
+   "instagram": null
+  },
+  {
+   "id": "chowyitcg",
+   "name": "ChowYiTCG",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Japanese"
+   ],
+   "instagram": "chowyitcg"
+  },
+  {
+   "id": "collect-and-connect",
+   "name": "Collect and Connect",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Vintage"
+   ],
+   "instagram": "Cnc_tcg"
+  },
+  {
+   "id": "collectible-hut",
+   "name": "Collectible hut",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon"
+   ],
+   "instagram": "Collectiblehutusa"
+  },
+  {
+   "id": "crafty-kumo-tcg",
+   "name": "Crafty Kumo TCG",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "craftykumo"
+  },
+  {
+   "id": "cyndi-sales",
+   "name": "cyndi sales",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "cyndi.sales"
+  },
+  {
+   "id": "dak-s-pc",
+   "name": "Dak's PC",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Sealed"
+   ],
+   "instagram": "daks_pc"
+  },
+  {
+   "id": "dan-nguyen",
+   "name": "Dan Nguyen",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "One Piece",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "orca_tcg"
+  },
+  {
+   "id": "decobun",
+   "name": "decobun",
+   "location": "",
+   "tableIds": [],
+   "tags": [],
+   "instagram": "decobun_"
+  },
+  {
+   "id": "der-collects",
+   "name": "Der Collects",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "dercollects"
+  },
+  {
+   "id": "diamond-shields",
+   "name": "Diamond Shields",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon"
+   ],
+   "instagram": "Firstlastnonly"
+  },
+  {
+   "id": "disguised-tcg",
+   "name": "Disguised TCG",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "disguisedtcg"
+  },
+  {
+   "id": "duck-duck-collect",
+   "name": "Duck Duck Collect",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon"
+   ],
+   "instagram": "DuckDuckCollect"
+  },
+  {
+   "id": "duncan-corro",
+   "name": "Duncan Corro",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded"
+   ],
+   "instagram": null
+  },
+  {
+   "id": "edmond-lam",
+   "name": "Edmond Lam",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "dmonscardboard"
+  },
+  {
+   "id": "flame-line-designs",
+   "name": "Flame Line Designs",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "One Piece",
+    "Lorcana",
+    "Vintage"
+   ],
+   "instagram": "Flamelinedesigns"
+  },
+  {
+   "id": "fuego-vault",
+   "name": "Fuego Vault",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Lorcana",
+    "Graded",
+    "Singles",
+    "Vintage"
+   ],
+   "instagram": "fuegovaulttcg"
+  },
+  {
+   "id": "furrycat-collectibles",
+   "name": "Furrycat Collectibles",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Vintage",
+    "Japanese"
+   ],
+   "instagram": "Furrycat_Collectibles"
+  },
+  {
+   "id": "futureproof",
+   "name": "futureproof",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Japanese"
+   ],
+   "instagram": "ftr.prf"
+  },
+  {
+   "id": "heartgoldcollectibles",
+   "name": "HeartGoldCollectibles",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Sealed"
+   ],
+   "instagram": "heartgoldcollectibles"
+  },
+  {
+   "id": "hobbyonly206",
+   "name": "HobbyOnly206",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Sports",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "hobbyonly206"
+  },
+  {
+   "id": "holy-collectz",
+   "name": "Holy Collectz",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "One Piece",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "holy.collectz"
+  },
+  {
+   "id": "jaedon-alexander",
+   "name": "Jaedon Alexander",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Graded",
+    "Singles",
+    "Sealed",
+    "Vintage"
+   ],
+   "instagram": "shiftyrips"
+  },
+  {
+   "id": "jake-cards",
+   "name": "Jake cards",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "thejakescards"
+  },
+  {
+   "id": "jem-collectibles",
+   "name": "Jem Collectibles",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "Jemcollectibles_"
+  },
+  {
+   "id": "jonathan-kwon",
+   "name": "Jonathan Kwon",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "One Piece",
+    "Sports",
+    "Riftbound",
+    "Magic",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "Dustyboycollects"
+  },
+  {
+   "id": "junscollectibles",
+   "name": "junscollectibles",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Japanese"
+   ],
+   "instagram": "junscollectibles"
+  },
+  {
+   "id": "lando-collectz",
+   "name": "Lando Collectz",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles",
+    "Vintage"
+   ],
+   "instagram": "lando_collectz"
+  },
+  {
+   "id": "legion-of-cards",
+   "name": "Legion Of Cards",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "Legion.of.cards"
+  },
+  {
+   "id": "lkbros",
+   "name": "LKBros",
+   "location": "",
+   "tableIds": [],
+   "tags": [],
+   "instagram": "LKBrosNW"
+  },
+  {
+   "id": "maxxc-tcg",
+   "name": "maxxc_tcg",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "Maxxc_tcg"
+  },
+  {
+   "id": "neek-tcg",
+   "name": "neek.tcg",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles",
+    "Vintage"
+   ],
+   "instagram": "neek.tcg"
+  },
+  {
+   "id": "oscardsusa",
+   "name": "OSCARDSUSA",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "OSCARDSUSA"
+  },
+  {
+   "id": "packmasterant",
+   "name": "Packmasterant",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "Packmasterant"
+  },
+  {
+   "id": "pidgey-s-postal",
+   "name": "Pidgey's Postal",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "pidgeys_postal"
+  },
+  {
+   "id": "pika-chuang",
+   "name": "Pika_chuang",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Graded"
+   ],
+   "instagram": "Pika_chuang"
+  },
+  {
+   "id": "pinoyshotart",
+   "name": "PinoyShotArt",
+   "location": "",
+   "tableIds": [],
+   "tags": [],
+   "instagram": "pinoyshotart"
+  },
+  {
+   "id": "pj-and-mews-cards",
+   "name": "PJ and Mews Cards",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Yu-Gi-Oh",
+    "Magic",
+    "Singles",
+    "Sealed",
+    "Vintage"
+   ],
+   "instagram": null
+  },
+  {
+   "id": "plumspokemon",
+   "name": "plumspokemon",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "plumspokemon"
+  },
+  {
+   "id": "plushah-s-card-shop",
+   "name": "Plushah's Card Shop",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "plushahtcg"
+  },
+  {
+   "id": "pokegachi",
+   "name": "Pokegachi",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "pokegachitcg"
+  },
+  {
+   "id": "pokehanacenter",
+   "name": "PokeHanaCenter",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "PokeHanaCenter"
+  },
+  {
+   "id": "pokepullsvan",
+   "name": "PokePullsVan",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "One Piece",
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "pokepullsvan"
+  },
+  {
+   "id": "pokesonestopshop",
+   "name": "Pokesonestopshop",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "One Piece",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "PokesOneStopShop"
+  },
+  {
+   "id": "pretty-monster-club",
+   "name": "Pretty Monster Club",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon"
+   ],
+   "instagram": "prettymonsterclub"
+  },
+  {
+   "id": "rafael-torres",
+   "name": "Rafael Torres",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Graded",
+    "Singles"
+   ],
+   "instagram": null
+  },
+  {
+   "id": "razintcg",
+   "name": "RazinTCG",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "One Piece",
+    "Riftbound"
+   ],
+   "instagram": "RazinTCG"
+  },
+  {
+   "id": "reymar808tcg",
+   "name": "Reymar808tcg",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon"
+   ],
+   "instagram": "Reymar808tcg"
+  },
+  {
+   "id": "rogue-tcg",
+   "name": "Rogue TCG",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "One Piece"
+   ],
+   "instagram": "rogue_tcg"
+  },
+  {
+   "id": "roro-tcg",
+   "name": "RoRo Tcg",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "roro__tcg"
+  },
+  {
+   "id": "shiny-hunting-hq",
+   "name": "Shiny Hunting HQ",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Sports",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "shinyhuntinghq"
+  },
+  {
+   "id": "silky-star-crafts",
+   "name": "Silky Star Crafts",
+   "location": "",
+   "tableIds": [],
+   "tags": [],
+   "instagram": "silkystarcrafts"
+  },
+  {
+   "id": "starter-town-cards",
+   "name": "Starter Town Cards",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Singles",
+    "Sealed",
+    "Vintage"
+   ],
+   "instagram": "startertowncards"
+  },
+  {
+   "id": "t-m-emporium",
+   "name": "T & M Emporium",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "One Piece"
+   ],
+   "instagram": "tandm_emporium"
+  },
+  {
+   "id": "t86w913-llc",
+   "name": "T86w913 LLC",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "t86w913_"
+  },
+  {
+   "id": "tcgbyad",
+   "name": "Tcgbyad",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "One Piece",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "Tcgbyad"
+  },
+  {
+   "id": "tcgvic",
+   "name": "Tcgvic",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "One Piece",
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "tcgvic"
+  },
+  {
+   "id": "ten25-trading-post",
+   "name": "ten25 trading post",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "ten25.trading.post"
+  },
+  {
+   "id": "the-brothers-company-tcg",
+   "name": "The Brothers Company TCG",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles",
+    "Sealed"
+   ],
+   "instagram": "pandamon001"
+  },
+  {
+   "id": "the-card-cabana",
+   "name": "The Card Cabana",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "One Piece",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "theecardcabana"
+  },
+  {
+   "id": "the-hermit-haven",
+   "name": "The Hermit Haven",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "One Piece",
+    "Magic",
+    "Singles"
+   ],
+   "instagram": "thehermithaven"
+  },
+  {
+   "id": "the-mana-pocket",
+   "name": "The Mana Pocket",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Sports",
+    "Magic"
+   ],
+   "instagram": "shopthemanapocket"
+  },
+  {
+   "id": "tiny-trainer-club",
+   "name": "Tiny Trainer Club",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Singles"
+   ],
+   "instagram": "tinytrainerclub"
+  },
+  {
+   "id": "toku-tcg",
+   "name": "Toku TCG",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Singles",
+    "Sealed",
+    "Vintage"
+   ],
+   "instagram": "toku_tcg"
+  },
+  {
+   "id": "toro-trading-collectibles",
+   "name": "TORO TRADING & COLLECTIBLES",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "One Piece",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "torotradingandcollectibles"
+  },
+  {
+   "id": "trading-turtles-tcg",
+   "name": "Trading Turtles TCG",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "Tradingturtlestcg"
+  },
+  {
+   "id": "tumbletcg",
+   "name": "TumbleTCG",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded"
+   ],
+   "instagram": "TumbleCG"
+  },
+  {
+   "id": "ultraquest-collectibles",
+   "name": "UltraQuest.collectibles",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Riftbound",
+    "Dragon Ball"
+   ],
+   "instagram": "UltraQuest.collectibles"
+  },
+  {
+   "id": "umikai",
+   "name": "Umikai",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon"
+   ],
+   "instagram": "umikai.gg"
+  },
+  {
+   "id": "unxtcg",
+   "name": "unxTCG",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Singles",
+    "Vintage"
+   ],
+   "instagram": "unxTCG"
+  },
+  {
+   "id": "upokewtcg",
+   "name": "upokewtcg",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded"
+   ],
+   "instagram": "upokewtcg"
+  },
+  {
+   "id": "wearenerds",
+   "name": "Wearenerds",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles",
+    "Sealed",
+    "Vintage"
+   ],
+   "instagram": "Wearenerds_"
+  },
+  {
+   "id": "wontons-tcg",
+   "name": "Wontons.tcg",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Singles"
+   ],
+   "instagram": "Wontons.tcg"
+  },
+  {
+   "id": "work-play-study",
+   "name": "Work Play Study",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon"
+   ],
+   "instagram": "Workplaystudy.tcg"
+  },
+  {
+   "id": "wyatt-wren",
+   "name": "wyatt wren",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Graded",
+    "Singles",
+    "Vintage"
+   ],
+   "instagram": "wyattwren_"
+  },
+  {
+   "id": "heidi-bun",
+   "name": "˚₊‧꒰ა heidi bun ໒꒱ ‧₊˚:",
+   "location": "",
+   "tableIds": [],
+   "tags": [
+    "Pokémon",
+    "Graded",
+    "Singles"
+   ],
+   "instagram": "heidibun.tcg"
+  }
+ ],
+ "tags": [
+  "Pokémon",
+  "One Piece",
+  "Sports",
+  "Riftbound",
+  "Lorcana",
+  "Dragon Ball",
+  "Yu-Gi-Oh",
+  "Magic",
+  "Graded",
+  "Singles",
+  "Sealed",
+  "Vintage",
+  "Japanese"
+ ],
+ "vector": null,
+ "updatedAt": "2026-10-30T00:30:29Z"
+}

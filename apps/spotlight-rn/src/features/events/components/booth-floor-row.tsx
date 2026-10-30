@@ -6,6 +6,7 @@ import { layout, radii, spacing, Text, useSpotlightTheme } from '@spotlight/desi
 
 import { formatBoothPostAge } from '@/features/events/booth-format';
 import type { BoothPost } from '@/features/events/booth-service';
+import { vendorTableLabel } from '@/features/events/event-floor-map-model';
 import { PostImage, postMediaUrl } from '@/features/social/components/post-card';
 import { resolveRepositoryBaseUrl } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
@@ -54,7 +55,7 @@ export function BoothFloorRow({ posts, vendors, onSelectVendor, renderTitle }: B
           const media = post.media[0];
           return (
             <Pressable
-              accessibilityLabel={`${vendor.name}, table ${vendor.location}`}
+              accessibilityLabel={`${vendor.name}, ${vendorTableLabel(vendor.location).toLowerCase()}`}
               accessibilityRole="button"
               key={post.id}
               onPress={() => onSelectVendor(vendor.id)}

@@ -3,7 +3,7 @@ import { Linking, Pressable, ScrollView, StyleSheet, View, useWindowDimensions }
 import type { GestureType, ScrollView as GestureScrollView } from 'react-native-gesture-handler';
 import { Instagram, Search, Xmark } from 'iconoir-react-native';
 
-import type { SpotlightEventMap, SpotlightEventMapVendor } from '@spotlight/api-client';
+import { isVendorsOnlyMap, type SpotlightEventMap, type SpotlightEventMapVendor } from '@spotlight/api-client';
 import {
   Button,
   PillButton,
@@ -21,7 +21,12 @@ import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { recordBoothEvent } from '@/features/events/booth-service';
 import { BoothVendorPanel } from '@/features/events/components/booth-vendor-panel';
 import { EventFloorMap } from '@/features/events/components/event-floor-map';
-import { filterVendors, floorMapViewportHeight, vendorForTable } from '@/features/events/event-floor-map-model';
+import {
+  filterVendors,
+  floorMapViewportHeight,
+  vendorForTable,
+  vendorTableLabel,
+} from '@/features/events/event-floor-map-model';
 import type { BoothFloor } from '@/features/events/hooks/use-booth-floor';
 import { useSpotlightEventMap } from '@/features/events/hooks/use-spotlight-event-map';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
@@ -166,6 +171,9 @@ function EventVendorsBody({
   // A deep link or "From the floor" pick scrolls the map (not the row) into view.
   const [scrollToMap, setScrollToMap] = useState(false);
 
+  // No tables assigned yet: no floor to draw, so the list carries everything and
+  // a tapped vendor's card opens in place of its row.
+  const vendorsOnly = isVendorsOnlyMap(map);
   const isFiltering = query.trim().length > 0 || tag != null;
   const matches = useMemo(() => filterVendors(map.vendors, query, tag), [map.vendors, query, tag]);
   const selected = useMemo(
@@ -235,10 +243,20 @@ function EventVendorsBody({
     if (!selectRequest || !map.vendors.some((vendor) => vendor.id === selectRequest.vendorId)) {
       return;
     }
-    setScrollToSelected(false);
-    setScrollToMap(true);
+    if (vendorsOnly) {
+      // The card lives in the list, so the row must exist to scroll to.
+      if (!isFiltering && matches.findIndex((vendor) => vendor.id === selectRequest.vendorId) >= COLLAPSED_ROWS) {
+        setExpanded(true);
+      }
+      setScrollToSelected(true);
+    } else {
+      setScrollToSelected(false);
+      setScrollToMap(true);
+    }
     setSelectedId(selectRequest.vendorId);
-  }, [map.vendors, selectRequest]);
+    // Only a new request re-selects; filtering afterwards must not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map.vendors, selectRequest, vendorsOnly]);
 
   useEffect(() => {
     if (!scrollToMap || !scrollRef?.current) {
@@ -284,25 +302,31 @@ function EventVendorsBody({
   return (
     <View style={styles.section} testID="event-vendors">
       {renderTitle('Vendors')}
-      <View ref={mapRef}>
-        <EventFloorMap
-          bottomInset={selected ? cardOverlayHeight : 0}
-          focusKey={selected?.id ?? null}
-          map={map}
-          matchedTableIds={matchedTableIds}
-          onBackgroundPress={deselect}
-          onTablePress={handleTablePress}
-          postedTableIds={postedTableIds}
-          scrollGesture={scrollGesture}
-          selectedTableIds={selectedTableIds}
-        />
-        {/* Docked inside the map (Figma 5865:11358): below it, a tapped table's vendor landed off-screen. */}
-        {selected ? (
-          <View pointerEvents="box-none" style={styles.cardOverlay}>
-            <SelectedVendorCard booth={booth} eventId={eventId} onClose={deselect} vendor={selected} />
-          </View>
-        ) : null}
-      </View>
+      {vendorsOnly ? (
+        <View style={[styles.pendingNote, { backgroundColor: theme.colors.gray100 }]} testID="event-vendors-tables-pending">
+          <Text style={[theme.typography.body, { color: theme.colors.gray700 }]}>Table assignments coming soon</Text>
+        </View>
+      ) : (
+        <View ref={mapRef}>
+          <EventFloorMap
+            bottomInset={selected ? cardOverlayHeight : 0}
+            focusKey={selected?.id ?? null}
+            map={map}
+            matchedTableIds={matchedTableIds}
+            onBackgroundPress={deselect}
+            onTablePress={handleTablePress}
+            postedTableIds={postedTableIds}
+            scrollGesture={scrollGesture}
+            selectedTableIds={selectedTableIds}
+          />
+          {/* Docked inside the map (Figma 5865:11358): below it, a tapped table's vendor landed off-screen. */}
+          {selected ? (
+            <View pointerEvents="box-none" style={styles.cardOverlay}>
+              <SelectedVendorCard booth={booth} eventId={eventId} onClose={deselect} vendor={selected} />
+            </View>
+          ) : null}
+        </View>
+      )}
 
       {/* Under the map: the map is the first thing you see; search and filters drive the list below. */}
       <View style={styles.controls}>
@@ -357,12 +381,18 @@ function EventVendorsBody({
           const divider = next != null && !isSelected && next.id !== selectedId;
           return (
             <Fragment key={vendor.id}>
-              <VendorRow
-                onPress={select}
-                ref={isSelected ? selectedRowRef : null}
-                selected={isSelected}
-                vendor={vendor}
-              />
+              {vendorsOnly && isSelected ? (
+                <View ref={selectedRowRef}>
+                  <SelectedVendorCard booth={booth} eventId={eventId} onClose={deselect} vendor={vendor} />
+                </View>
+              ) : (
+                <VendorRow
+                  onPress={select}
+                  ref={isSelected ? selectedRowRef : null}
+                  selected={isSelected}
+                  vendor={vendor}
+                />
+              )}
               {divider ? <View style={[styles.divider, { backgroundColor: theme.colors.gray200 }]} /> : null}
             </Fragment>
           );
@@ -424,9 +454,11 @@ function VendorRow({ vendor, selected, onPress, ref }: VendorRowProps) {
           </Text>
         ) : null}
       </View>
-      <Text style={[theme.typography.captionStrong, { color: selected ? theme.colors.gray0 : theme.colors.gray900 }]}>
-        {vendor.location}
-      </Text>
+      {vendor.location ? (
+        <Text style={[theme.typography.captionStrong, { color: selected ? theme.colors.gray0 : theme.colors.gray900 }]}>
+          {vendor.location}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -480,7 +512,7 @@ function SelectedVendorCard({
               {vendor.tags.join(' · ').toUpperCase()}
             </Text>
           ) : null}
-          <Text style={[theme.typography.label, { color: theme.colors.gray700 }]}>{`Table ${vendor.location}`}</Text>
+          <Text style={[theme.typography.label, { color: theme.colors.gray700 }]}>{vendorTableLabel(vendor.location)}</Text>
         </View>
         {instagram ? (
           <Pressable
@@ -531,6 +563,13 @@ const styles = StyleSheet.create({
   },
   chips: {
     gap: spacing.xxs,
+  },
+  // Where the map goes once tables are assigned.
+  pendingNote: {
+    borderCurve: 'continuous',
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
   },
   cardOverlay: {
     bottom: spacing.xs,
