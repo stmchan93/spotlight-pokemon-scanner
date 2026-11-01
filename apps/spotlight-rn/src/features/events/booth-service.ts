@@ -198,36 +198,17 @@ export async function fetchBrowsingNow(eventId: string): Promise<number | null> 
 }
 
 /**
- * Booth posts at one show, newest first, each with its vendor id. The vendor id
- * is a second small read so the shared post select stays valid on databases
- * that predate social_27.
+ * Booth posts at one show, newest first, each with its vendor id. Attendee
+ * posts tagged to the same show (social_28) are filtered out server side so
+ * they can't crowd booth posts out of the page.
  */
 export async function fetchBoothPosts(eventId: string): Promise<BoothPost[]> {
   if (!supabase || !eventId) {
     return [];
   }
   try {
-    const posts = await fetchEventPosts(eventId);
-    if (posts.length === 0) {
-      return [];
-    }
-    const { data, error } = await supabase
-      .from('posts')
-      .select('id, booth_vendor_id')
-      .in(
-        'id',
-        posts.map((post) => post.id),
-      );
-    if (error || !data) {
-      return [];
-    }
-    const vendorByPost = new Map(
-      (data as { id: string; booth_vendor_id: string | null }[]).map((row) => [row.id, row.booth_vendor_id]),
-    );
-    return posts.flatMap((post) => {
-      const boothVendorId = vendorByPost.get(post.id);
-      return boothVendorId ? [{ ...post, boothVendorId }] : [];
-    });
+    const posts = await fetchEventPosts(eventId, 60, { boothOnly: true });
+    return posts.flatMap((post) => (post.boothVendorId ? [{ ...post, boothVendorId: post.boothVendorId }] : []));
   } catch {
     return [];
   }
@@ -284,5 +265,48 @@ export async function hasPostedToBoothSince(eventId: string, vendorId: string, s
     return data.length > 0;
   } catch {
     return null;
+  }
+}
+
+/** A `setof text` RPC's rows: bare strings, or `{fn: value}` objects on older PostgREST. */
+function vendorIdRows(data: unknown[], fn: string): string[] {
+  return data.flatMap((row) => {
+    const value = typeof row === 'object' && row != null ? (row as Record<string, unknown>)[fn] : row;
+    return typeof value === 'string' && value ? [value] : [];
+  });
+}
+
+/**
+ * Vendors at this show whose Treasure application email is the signed-in
+ * user's own (social_29 compares hashes server side; no email leaves Postgres).
+ */
+export async function suggestMyBooth(eventId: string): Promise<string[]> {
+  if (!supabase || !eventId) {
+    return [];
+  }
+  try {
+    const { data, error } = await supabase.rpc('suggest_my_booth', { p_event_id: eventId });
+    if (error || !Array.isArray(data)) {
+      return [];
+    }
+    return vendorIdRows(data, 'suggest_my_booth');
+  } catch {
+    return [];
+  }
+}
+
+/** Booths with card opens from several people in the last 30 minutes, hottest first; never counts. */
+export async function fetchHotBooths(eventId: string): Promise<string[]> {
+  if (!supabase || !eventId) {
+    return [];
+  }
+  try {
+    const { data, error } = await supabase.rpc('event_hot_booths', { p_event_id: eventId });
+    if (error || !Array.isArray(data)) {
+      return [];
+    }
+    return vendorIdRows(data, 'event_hot_booths');
+  } catch {
+    return [];
   }
 }

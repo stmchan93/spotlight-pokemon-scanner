@@ -2,8 +2,10 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-
 import { Alert, StyleSheet } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 
+import { useFeedShow } from '@/features/events/hooks/use-active-show';
 import {
   deletePost,
+  fetchEventPosts,
   fetchFollowingFeed,
   fetchGlobalFeed,
   fetchGlobalFeedItems,
@@ -48,6 +50,15 @@ jest.mock('@/features/social/social-service', () => {
   blockUser: jest.fn(async () => true),
   deletePost: jest.fn(async () => true),
   fetchFollowingFeed: jest.fn(),
+  fetchEventPosts: jest.fn(async () => []),
+  feedItemFromPost: (post: { id: string; createdAt: string }) => ({
+    key: `post:${post.id}`,
+    post,
+    repostedBy: null,
+    repostedById: null,
+    repostedAt: null,
+    activityAt: post.createdAt,
+  }),
   fetchGlobalFeed,
   fetchGlobalFeedItems: jest.fn(async (...args: unknown[]) => {
     const posts = (await (fetchGlobalFeed as jest.Mock)(...args)) ?? [];
@@ -71,6 +82,11 @@ jest.mock('@/features/social/social-service', () => {
   unlikeComment: jest.fn(async () => true),
   };
 });
+
+// No show chip unless a test puts one on.
+jest.mock('@/features/events/hooks/use-active-show', () => ({
+  useFeedShow: jest.fn(() => null),
+}));
 
 const mockFollowUser = jest.fn(async (_authorId: string) => true);
 jest.mock('@/features/profile/profile-service', () => ({
@@ -246,6 +262,55 @@ describe('FeedScreen', () => {
     // No switch to press any more.
     expect(screen.queryByTestId('feed-segment-tab-global')).toBeNull();
     expect(screen.queryByTestId('feed-segment-tab-following')).toBeNull();
+    // No show on and none saved: no chip row either.
+    expect(screen.queryByTestId('feed-source-chips')).toBeNull();
+  });
+
+  describe('show chip', () => {
+    const show = { id: 'hawaii-2026-10', shortTitle: 'Spotlight Hawaii' };
+
+    beforeEach(() => {
+      (useFeedShow as jest.Mock).mockReturnValue(show);
+    });
+
+    afterEach(() => {
+      (useFeedShow as jest.Mock).mockReturnValue(null);
+    });
+
+    it('offers For you · Following · the show while a show is on', async () => {
+      renderFeed();
+      await screen.findByText('Feed post');
+
+      expect(screen.getByTestId('feed-source-for-you')).toBeTruthy();
+      expect(screen.getByTestId('feed-source-following')).toBeTruthy();
+      expect(within(screen.getByTestId('feed-source-show')).getByText('📍 Spotlight Hawaii')).toBeTruthy();
+    });
+
+    it("swaps the list for the show's feed and composes into it", async () => {
+      (fetchEventPosts as jest.Mock).mockResolvedValue([
+        buildPost({ id: 'floor', body: 'From the floor', eventId: show.id, boothVendorId: null }),
+      ]);
+      renderFeed();
+      await screen.findByText('Feed post');
+
+      fireEvent.press(screen.getByTestId('feed-source-show'));
+
+      expect(await screen.findByText('From the floor')).toBeTruthy();
+      expect(screen.queryByText('Feed post')).toBeNull();
+      expect(fetchEventPosts).toHaveBeenCalledWith(show.id, 20, { before: undefined });
+
+      fireEvent.press(screen.getByTestId('feed-compose-prompt'));
+      expect(push).toHaveBeenCalledWith({ pathname: '/new-post', params: { eventId: show.id } });
+    });
+
+    it('reads the following feed from its chip', async () => {
+      (fetchFollowingFeed as jest.Mock).mockResolvedValue([buildPost({ id: 'f', body: 'Followed post' })]);
+      renderFeed();
+      await screen.findByText('Feed post');
+
+      fireEvent.press(screen.getByTestId('feed-source-following'));
+      expect(await screen.findByText('Followed post')).toBeTruthy();
+    });
   });
 
   /*

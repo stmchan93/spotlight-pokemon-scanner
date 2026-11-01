@@ -126,6 +126,13 @@ Milestones: claim + posts on staging by ~Nov 12; stats + banner by ~Nov 19; admi
 - `/admin/events`: Booths tab (claims, reports, unclaim via the service role), show-day numbers.
 - Post-show recap: a scheduled job the day after each show inserts one notification per claimer with their `booth_stats` totals (existing `notifications` table).
 
+### One-tap claim + live heat (`social_29_booth_match_heat`, 2026-10-31)
+
+- List-first claiming: "This is you" pinned card when the signed-in email matches the vendor's Treasure email; "Are you a vendor? Find your booth" turns on Claim pills per unclaimed row (Done exits); your own row shows "Your booth" + Post. The card's "This is my booth" stays as a de-emphasized fallback.
+- Emails never leave the builder machine in plaintext: `tools/build_event_floor_map.py --vendors-csv` writes a gitignored sidecar `<eventId>.vendor-emails.json` (vendor id -> sha256 of lowercased trimmed email, PAID/MIXED rows only). `tools/sync_vendor_email_hashes.py --event-id X --env staging [--dry-run]` replaces that show's rows in `booth_vendor_emails` via the service-role-only `replace_booth_vendor_emails` RPC. The table has RLS on and no policies; `suggest_my_booth(event_id)` compares against the caller's own JWT email and returns vendor ids only. The backend never serves the sidecar.
+- Heat: `event_hot_booths(event_id)` = up to 10 vendor ids with card opens from >= 3 distinct people in the last 30 minutes, no counts. Row flame + table glow (vendors-only shows: row only), refreshed every 60s while the show page is focused.
+- No Instagram match: neither `user_profiles` nor `public_profiles` stores an Instagram handle.
+
 ### Open questions
 
 - Is the vendor email sent by you (Spotlight shows) or a third-party organizer? This affects wording and who owns the vendor list.

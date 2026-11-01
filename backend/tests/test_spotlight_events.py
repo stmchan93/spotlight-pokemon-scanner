@@ -440,6 +440,34 @@ class SpotlightEventsRouteTests(unittest.TestCase):
                 ((kind, (status, payload)),) = self._get(path)
                 self.assertEqual((kind, status, payload), ("json", HTTPStatus.NOT_FOUND, {"error": "not_found"}))
 
+    def test_vendor_email_sidecar_is_never_served(self) -> None:
+        # tools/build_event_floor_map.py writes hashed Treasure emails next to the map; no route may read them.
+        digest = "a" * 64
+        sidecar = {"eventId": "ontario-2026-08", "vendors": {"main-street": [digest]}}
+        maps = spotlight_events.MAPS_DIR
+        (maps / "ontario-2026-08.vendor-emails.json").write_text(json.dumps(sidecar), encoding="utf-8")
+        (maps / "no-flyer.vendor-emails.json").write_text(json.dumps(sidecar), encoding="utf-8")
+        spotlight_events.clear_cache()
+        served = []
+        for path in ("/api/v1/events", "/api/v1/events/ontario-2026-08/map"):
+            ((kind, (status, payload)),) = self._get(path)
+            self.assertEqual((kind, status), ("json", HTTPStatus.OK))
+            served.append(json.dumps(payload))
+        for text in served:
+            self.assertNotIn(digest, text)
+            self.assertNotIn("vendor-emails", text)
+        # The sidecar alone is not a map, and its name is not a reachable event or image.
+        self.assertNotIn("no-flyer", {i["id"] for i in json.loads(served[0])["items"] if i["floorMapUrl"]})
+        for path in (
+            "/api/v1/events/no-flyer/map",
+            "/api/v1/events/ontario-2026-08.vendor-emails/map",
+            "/api/v1/events/ontario-2026-08/vendor-logos/..%2Fontario-2026-08.vendor-emails",
+            "/api/v1/events/ontario-2026-08/map-base-image",
+        ):
+            with self.subTest(path=path):
+                ((kind, (status, payload)),) = self._get(path)
+                self.assertEqual((kind, status, payload), ("json", HTTPStatus.NOT_FOUND, {"error": "not_found"}))
+
 
 if __name__ == "__main__":
     unittest.main()

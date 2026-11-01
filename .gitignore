@@ -52,6 +52,9 @@ backend/data/visual-index/
 backend/data/payload-cache/
 backend/data/visual-models
 
+# Hashed vendor emails (tools/build_event_floor_map.py) — private, never committed
+*.vendor-emails.json
+
 # Rerank-pool flywheel runtime state (known-good marker, watermark, review queue) — mutates each run
 tools/state/
 

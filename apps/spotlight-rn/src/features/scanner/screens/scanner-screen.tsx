@@ -4464,15 +4464,11 @@ export function ScannerScreen({
     ],
   );
 
-  // No idle prompt: the reticle says where to aim, and "Tap to scan" sat over
-  // the card being framed. Only the two states that carry information — no
-  // camera permission, and a capture in flight — still put text on the
-  // viewfinder.
   const promptCopy = !hasCameraPermission
     ? 'Allow camera access to scan'
     : isCapturing
       ? 'Capturing scan...'
-      : (isBinderPageMode && binderPageLayout.hint) || '';
+      : (isBinderPageMode && binderPageLayout.hint) || 'Tap to scan';
 
   // Stable per-row callbacks so `CaptureTrayRow`'s memo can actually bail out.
   const handleShowRowPrice = useCallback((captureId: string) => {

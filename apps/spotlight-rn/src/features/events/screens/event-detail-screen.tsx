@@ -1,5 +1,16 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Image, Linking, Platform, Pressable, Share, StyleSheet, View, useWindowDimensions } from 'react-native';
+import {
+  Image,
+  Linking,
+  Platform,
+  Pressable,
+  Share,
+  StyleSheet,
+  View,
+  useWindowDimensions,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from 'react-native';
 // Gesture-handler's ScrollView so the floor map's pan can block it while zoomed.
 import { ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,6 +22,7 @@ import {
   Button,
   GlassNavBubble,
   GlassNavBubbleGroup,
+  SegmentedControl,
   SkeletonBlock,
   StateCard,
   borderWidths,
@@ -24,6 +36,7 @@ import {
 } from '@spotlight/design-system';
 
 import { BoothFloorRow } from '@/features/events/components/booth-floor-row';
+import { EventFeed, type EventFeedHandle } from '@/features/events/components/event-feed';
 import { EventFlyer } from '@/features/events/components/event-flyer';
 import { EventVendorsSection, type VendorSelectRequest } from '@/features/events/components/event-vendors-section';
 import { eventGradientStops } from '@/features/events/event-accent';
@@ -50,6 +63,14 @@ const PRICING_NOTE_INDENT = 22;
 const DISCLAIMER_RADIUS = 6;
 /** Below this, "browsing now" reads as empty rather than busy. */
 const MIN_BROWSING_SHOWN = 3;
+/** Feed mode pages in once the scroll is this close to the end. */
+const FEED_LOAD_MORE_DISTANCE = 600;
+
+type ShowArea = 'map' | 'feed';
+const SHOW_AREA_ITEMS = [
+  { label: 'Map', value: 'map' },
+  { label: 'Feed', value: 'feed' },
+] as const;
 
 const ticketIcon = require('../../../../assets/images/events/ticket-icon.png');
 
@@ -96,6 +117,18 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
   const selectVendor = useCallback(
     (vendorId: string) => setSelectRequest((current) => ({ vendorId, key: (current?.key ?? 0) + 1 })),
     [],
+  );
+  const [showArea, setShowArea] = useState<ShowArea>('map');
+  const feedRef = useRef<EventFeedHandle>(null);
+  const feedVisible = showArea === 'feed' || !event?.floorMapUrl;
+  const handleScroll = useCallback(
+    ({ nativeEvent }: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
+      if (feedVisible && contentOffset.y + layoutMeasurement.height >= contentSize.height - FEED_LOAD_MORE_DISTANCE) {
+        feedRef.current?.loadMore();
+      }
+    },
+    [feedVisible],
   );
 
   const handleShare = useCallback(() => {
@@ -203,33 +236,52 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
 
         {event.pricing ? renderPricing(event.pricing) : null}
 
-        {map ? (
-          <BoothFloorRow
-            onSelectVendor={selectVendor}
-            posts={booth.posts}
-            renderTitle={(title) => <SectionTitle title={title} />}
-            vendors={map.vendors}
-          />
-        ) : null}
+        {/* Map | Feed: the floor (vendors, booth photos) or every post tagged to the show. */}
+        <View style={styles.showArea}>
+          {event.floorMapUrl ? (
+            <SegmentedControl
+              items={SHOW_AREA_ITEMS}
+              onChange={setShowArea}
+              testID="event-detail-show-area"
+              value={showArea}
+            />
+          ) : (
+            <SectionTitle title="Feed" />
+          )}
+          {feedVisible ? (
+            <EventFeed eventId={eventId} ref={feedRef} testID="event-feed" />
+          ) : (
+            <View style={styles.mapArea}>
+              {map ? (
+                <BoothFloorRow
+                  onSelectVendor={selectVendor}
+                  posts={booth.posts}
+                  renderTitle={(title) => <SectionTitle title={title} />}
+                  vendors={map.vendors}
+                />
+              ) : null}
 
-        {event.floorMapUrl ? (
-          <EventVendorsSection
-            booth={booth.enabled ? booth : null}
-            eventId={eventId}
-            floorMapUrl={event.floorMapUrl}
-            renderTitle={(title) => (
-              <SectionTitle
-                title={title}
-                trailing={
-                  browsingNow != null && browsingNow >= MIN_BROWSING_SHOWN ? `${browsingNow} people browsing now` : null
-                }
-              />
-            )}
-            scrollGesture={scrollRef}
-            scrollRef={scrollRef}
-            selectRequest={selectRequest}
-          />
-        ) : null}
+              {event.floorMapUrl ? (
+                <EventVendorsSection
+                  booth={booth.enabled ? booth : null}
+                  eventId={eventId}
+                  floorMapUrl={event.floorMapUrl}
+                  renderTitle={(title) => (
+                    <SectionTitle
+                      title={title}
+                      trailing={
+                        browsingNow != null && browsingNow >= MIN_BROWSING_SHOWN ? `${browsingNow} people browsing now` : null
+                      }
+                    />
+                  )}
+                  scrollGesture={scrollRef}
+                  scrollRef={scrollRef}
+                  selectRequest={selectRequest}
+                />
+              ) : null}
+            </View>
+          )}
+        </View>
       </>
     );
   };
@@ -242,7 +294,9 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
         contentContainerStyle={{ paddingBottom: spacing.xxl + (canBuy ? 0 : insets.bottom) }}
         contentInsetAdjustmentBehavior="never"
         keyboardShouldPersistTaps="handled"
+        onScroll={handleScroll}
         ref={scrollRef}
+        scrollEventThrottle={64}
         showsVerticalScrollIndicator={false}
         testID="event-detail-scroll"
       >
@@ -377,6 +431,12 @@ const styles = StyleSheet.create({
   },
   loading: {
     gap: spacing.xs,
+  },
+  showArea: {
+    gap: spacing.lg,
+  },
+  mapArea: {
+    gap: spacing.xxxl,
   },
   details: {
     gap: spacing.sm,

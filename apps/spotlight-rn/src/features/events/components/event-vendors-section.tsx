@@ -1,7 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { GestureType, ScrollView as GestureScrollView } from 'react-native-gesture-handler';
-import { Instagram, Search, Xmark } from 'iconoir-react-native';
+import { useRouter } from 'expo-router';
+import { FireFlame, Instagram, Search, Xmark } from 'iconoir-react-native';
 
 import { isVendorsOnlyMap, type SpotlightEventMap, type SpotlightEventMapVendor } from '@spotlight/api-client';
 import {
@@ -18,8 +19,8 @@ import {
 } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
-import { recordBoothEvent } from '@/features/events/booth-service';
-import { BoothVendorPanel } from '@/features/events/components/booth-vendor-panel';
+import { recordBoothEvent, reportBoothClaim, type BoothClaim } from '@/features/events/booth-service';
+import { BoothVendorPanel, useClaimBooth } from '@/features/events/components/booth-vendor-panel';
 import { EventFloorMap } from '@/features/events/components/event-floor-map';
 import {
   filterVendors,
@@ -42,6 +43,7 @@ const BOOTH_STRIP_HEIGHT = 72;
 /** The unfiltered list starts short; 180 rows in a non-virtualized page is a lot of layout. */
 const COLLAPSED_ROWS = 25;
 const ICON_SIZE = 16;
+const HOT_ICON_SIZE = 16;
 const INSTAGRAM_ICON_SIZE = 24;
 // Figma 5882:12678 / 5865:11361 — 32pt plate with a 20pt logo in the row, 39/24 on the card.
 const ROW_LOGO_SIZE = 32;
@@ -170,6 +172,12 @@ function EventVendorsBody({
   const mapRef = useRef<View>(null);
   // A deep link or "From the floor" pick scrolls the map (not the row) into view.
   const [scrollToMap, setScrollToMap] = useState(false);
+  // "Are you a vendor?": every unclaimed row gets a Claim pill until Done.
+  const [claimMode, setClaimMode] = useState(false);
+  const router = useRouter();
+  const refreshClaims = booth?.refreshClaims;
+  const onClaimsChanged = useCallback(() => refreshClaims?.(), [refreshClaims]);
+  const { claim, gate, pendingId } = useClaimBooth(eventId, onClaimsChanged);
 
   // No tables assigned yet: no floor to draw, so the list carries everything and
   // a tapped vendor's card opens in place of its row.
@@ -192,6 +200,25 @@ function EventVendorsBody({
       }
     }
     return ids;
+  }, [booth, map.vendors]);
+  const hotTableIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (booth) {
+      for (const vendor of map.vendors) {
+        if (booth.hotVendorIds.has(vendor.id)) {
+          vendor.tableIds.forEach((id) => ids.add(id));
+        }
+      }
+    }
+    return ids;
+  }, [booth, map.vendors]);
+  // Treasure-email matches the user hasn't claimed yet (theirs already reads "Your booth").
+  const suggestions = useMemo(() => {
+    if (!booth) {
+      return [];
+    }
+    const ids = new Set(booth.suggestedVendorIds);
+    return map.vendors.filter((vendor) => ids.has(vendor.id) && booth.claims.get(vendor.id)?.userId !== booth.myUserId);
   }, [booth, map.vendors]);
   const matchedTableIds = useMemo(
     () => (isFiltering ? new Set(matches.flatMap((vendor) => vendor.tableIds)) : new Set<string>()),
@@ -315,6 +342,7 @@ function EventVendorsBody({
             matchedTableIds={matchedTableIds}
             onBackgroundPress={deselect}
             onTablePress={handleTablePress}
+            hotTableIds={hotTableIds}
             postedTableIds={postedTableIds}
             scrollGesture={scrollGesture}
             selectedTableIds={selectedTableIds}
@@ -373,6 +401,47 @@ function EventVendorsBody({
         ) : null}
       </View>
 
+      {suggestions.map((vendor) => (
+        <ThisIsYouCard
+          claim={booth?.claims.get(vendor.id) ?? null}
+          key={vendor.id}
+          onClaim={gate(() => claim(vendor, 'suggestion'))}
+          pending={pendingId === vendor.id}
+          vendor={vendor}
+        />
+      ))}
+
+      {booth ? (
+        <View style={styles.claimModeBar}>
+          {claimMode ? (
+            <>
+              <Text style={[theme.typography.caption, styles.grow, { color: theme.colors.gray600 }]}>
+                Tap Claim on your booth
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                hitSlop={spacing.xxs}
+                onPress={() => setClaimMode(false)}
+                testID="event-vendors-claim-done"
+              >
+                <Text style={[theme.typography.label, { color: theme.colors.purple500 }]}>Done</Text>
+              </Pressable>
+            </>
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              hitSlop={spacing.xxs}
+              onPress={() => setClaimMode(true)}
+              testID="event-vendors-find-booth"
+            >
+              <Text style={[theme.typography.caption, { color: theme.colors.purple500 }]}>
+                Are you a vendor? Find your booth
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      ) : null}
+
       <View style={styles.list}>
         {rows.map((vendor, index) => {
           const isSelected = vendor.id === selectedId;
@@ -387,6 +456,15 @@ function EventVendorsBody({
                 </View>
               ) : (
                 <VendorRow
+                  booth={booth ? rowBoothState(booth.claims.get(vendor.id), booth.myUserId, claimMode) : null}
+                  claimPending={pendingId === vendor.id}
+                  hot={booth?.hotVendorIds.has(vendor.id) ?? false}
+                  onClaim={gate(() => claim(vendor, 'list'))}
+                  onPost={() =>
+                    router.push(
+                      `/new-post?eventId=${encodeURIComponent(eventId)}&vendorId=${encodeURIComponent(vendor.id)}` as never,
+                    )
+                  }
                   onPress={select}
                   ref={isSelected ? selectedRowRef : null}
                   selected={isSelected}
@@ -418,15 +496,33 @@ function EventVendorsBody({
   );
 }
 
+/** What a list row shows for its booth: nothing extra, a Claim pill, "Claimed", or the owner's actions. */
+type RowBoothState = 'mine' | 'claimable' | 'claimed' | null;
+
+function rowBoothState(claim: BoothClaim | undefined, myUserId: string | null, claimMode: boolean): RowBoothState {
+  if (claim && myUserId && claim.userId === myUserId) {
+    return 'mine';
+  }
+  if (!claimMode) {
+    return null;
+  }
+  return claim ? 'claimed' : 'claimable';
+}
+
 type VendorRowProps = {
   vendor: SpotlightEventMapVendor;
   selected: boolean;
   onPress: (vendor: SpotlightEventMapVendor) => void;
   ref?: React.Ref<View>;
+  hot?: boolean;
+  booth?: RowBoothState;
+  claimPending?: boolean;
+  onClaim?: () => void;
+  onPost?: () => void;
 };
 
 /** Figma 5882:12677; selected = 5865:10937 (gray-900 shell, white copy). */
-function VendorRow({ vendor, selected, onPress, ref }: VendorRowProps) {
+function VendorRow({ vendor, selected, onPress, ref, hot = false, booth = null, claimPending, onClaim, onPost }: VendorRowProps) {
   const theme = useSpotlightTheme();
   return (
     <Pressable
@@ -454,12 +550,115 @@ function VendorRow({ vendor, selected, onPress, ref }: VendorRowProps) {
           </Text>
         ) : null}
       </View>
+      {hot ? (
+        <View accessibilityLabel="Busy right now" accessible testID={`event-vendor-hot-${vendor.id}`}>
+          <FireFlame color={theme.colors.eventAccent} height={HOT_ICON_SIZE} width={HOT_ICON_SIZE} />
+        </View>
+      ) : null}
+      {booth === 'mine' ? (
+        <>
+          <Text
+            style={[theme.typography.captionStrong, { color: selected ? theme.colors.gray0 : theme.colors.purple500 }]}
+            testID={`event-vendor-mine-${vendor.id}`}
+          >
+            Your booth
+          </Text>
+          <Button
+            label="Post"
+            labelStyleVariant="label"
+            onPress={onPost}
+            shape="rounded"
+            size="xs"
+            testID={`event-vendor-post-${vendor.id}`}
+            variant="primary"
+          />
+        </>
+      ) : booth === 'claimable' ? (
+        <Button
+          disabled={claimPending}
+          label="Claim"
+          labelStyleVariant="label"
+          onPress={onClaim}
+          shape="rounded"
+          size="xs"
+          testID={`event-vendor-claim-${vendor.id}`}
+          variant="secondary"
+        />
+      ) : booth === 'claimed' ? (
+        <Text
+          style={[theme.typography.caption, { color: selected ? theme.colors.gray400 : theme.colors.gray600 }]}
+          testID={`event-vendor-claimed-${vendor.id}`}
+        >
+          Claimed
+        </Text>
+      ) : null}
       {vendor.location ? (
         <Text style={[theme.typography.captionStrong, { color: selected ? theme.colors.gray0 : theme.colors.gray900 }]}>
           {vendor.location}
         </Text>
       ) : null}
     </Pressable>
+  );
+}
+
+/**
+ * Pinned above the list when the signed-in email is this vendor's Treasure
+ * email. Claimed by someone else, it offers a report instead.
+ */
+function ThisIsYouCard({
+  vendor,
+  claim,
+  pending,
+  onClaim,
+}: {
+  vendor: SpotlightEventMapVendor;
+  claim: BoothClaim | null;
+  pending: boolean;
+  onClaim: () => void;
+}) {
+  const theme = useSpotlightTheme();
+  const report = useCallback(() => {
+    void reportBoothClaim(vendor.id).then((ok) => {
+      Alert.alert(
+        ok ? 'Thanks for letting us know' : 'Couldn’t send the report',
+        ok ? 'We’ll check who this booth belongs to.' : 'Please try again.',
+      );
+    });
+  }, [vendor.id]);
+  return (
+    <View style={[styles.youCard, { backgroundColor: theme.colors.gray100 }]} testID={`event-vendor-you-${vendor.id}`}>
+      <VendorLogo size={ROW_LOGO_SIZE} vendor={vendor} />
+      <View style={styles.rowText}>
+        <Text numberOfLines={1} style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}>
+          {`${vendor.name} · This is you`}
+        </Text>
+        <Text numberOfLines={1} style={[theme.typography.caption, { color: theme.colors.gray600 }]}>
+          {claim ? `Claimed by ${claim.handle ? `@${claim.handle}` : 'another account'}` : 'Matched to your Treasure email'}
+        </Text>
+      </View>
+      {claim ? (
+        <Button
+          label="Report"
+          labelStyleVariant="label"
+          onPress={report}
+          shape="rounded"
+          size="xs"
+          testID={`event-vendor-you-report-${vendor.id}`}
+          variant="secondary"
+        />
+      ) : (
+        <Button
+          disabled={pending}
+          label="Claim booth"
+          labelStyleVariant="label"
+          onPress={onClaim}
+          shape="rounded"
+          size="xs"
+          testID={`event-vendor-you-claim-${vendor.id}`}
+          variant="primary"
+        />
+      )}
+    </View>
   );
 }
 
@@ -621,5 +820,22 @@ const styles = StyleSheet.create({
   rowText: {
     flex: 1,
     gap: spacing.xxxs,
+  },
+  grow: {
+    flex: 1,
+  },
+  claimModeBar: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.xxs,
+    paddingHorizontal: spacing.xxs,
+  },
+  youCard: {
+    alignItems: 'center',
+    borderCurve: 'continuous',
+    borderRadius: radii.sm,
+    flexDirection: 'row',
+    gap: spacing.xxs,
+    padding: SELECTED_ROW_PADDING,
   },
 });

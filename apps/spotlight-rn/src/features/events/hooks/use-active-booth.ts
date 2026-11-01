@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import type { SpotlightEvent } from '@spotlight/api-client';
-
 import { fetchMyBoothClaims } from '@/features/events/booth-service';
 import { useSpotlightEventMap } from '@/features/events/hooks/use-spotlight-event-map';
 import { useSpotlightEvents } from '@/features/events/hooks/use-spotlight-events';
+import { pickActiveShow } from '@/features/events/hooks/use-active-show';
 import { useAuth } from '@/providers/auth-provider';
-import { resolveRuntimeAppEnv } from '@/lib/runtime-config';
 
-const STAGING = resolveRuntimeAppEnv() === 'staging';
+export { eventLocalDate, isInBoothWindow } from '@/features/events/hooks/use-active-show';
 
 export type ActiveBooth = {
   eventId: string;
@@ -18,39 +16,6 @@ export type ActiveBooth = {
   /** Null until the floor map loads (or when the vendor left the map). */
   vendorName: string | null;
 };
-
-/** `YYYY-MM-DD` for `now` in the show's own timezone; the device's day if the zone is unusable. */
-export function eventLocalDate(timezone: string, now: Date): string {
-  try {
-    // en-CA formats as YYYY-MM-DD.
-    return new Intl.DateTimeFormat('en-CA', {
-      day: '2-digit',
-      month: '2-digit',
-      timeZone: timezone || undefined,
-      year: 'numeric',
-    }).format(now);
-  } catch {
-    const pad = (value: number) => String(value).padStart(2, '0');
-    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-  }
-}
-
-function dayBefore(date: string): string {
-  const [year, month, day] = date.split('-').map(Number);
-  return new Date(Date.UTC(year ?? 1970, (month ?? 1) - 1, (day ?? 1) - 1)).toISOString().slice(0, 10);
-}
-
-/** Booth window: the setup day before the show through its last day, in the show's timezone. */
-export function isInBoothWindow(
-  event: Pick<SpotlightEvent, 'startDate' | 'endDate' | 'timezone'>,
-  now: Date,
-): boolean {
-  if (!event.startDate || !event.endDate) {
-    return false;
-  }
-  const today = eventLocalDate(event.timezone, now);
-  return today >= dayBefore(event.startDate) && today <= event.endDate;
-}
 
 type UseActiveBoothOptions = {
   /** From the map's "Post to your booth" link; skips the window + claim lookup. */
@@ -79,14 +44,9 @@ export function useActiveBooth({ eventId, vendorId, enabled = true }: UseActiveB
     if (explicit) {
       return events.find((item) => item.id === eventId) ?? null;
     }
-    const mapped = events.filter((item) => item.floorMapUrl != null);
-    const live = mapped.find((item) => isInBoothWindow(item, now));
-    if (live || !STAGING) {
-      return live ?? null;
-    }
-    // Staging only: with no show on, the latest mapped show stands in so the
-    // banner and composer toggle can be tested between shows.
-    return [...mapped].sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0] ?? null;
+    // Staging falls back to the latest mapped show so the banner and composer
+    // toggle can be tested between shows.
+    return pickActiveShow(events, now, { mappedOnly: true });
   }, [eventId, events, explicit, now]);
 
   const [claims, setClaims] = useState<string[] | null>(null);

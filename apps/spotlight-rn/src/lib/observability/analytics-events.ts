@@ -48,6 +48,10 @@ export const AnalyticsEvent = {
   boothStatsViewed: 'booth_stats_viewed',
   boothPostCreated: 'booth_post_created',
   boothBannerTapped: 'booth_banner_tapped',
+
+  // Show feeds: every post tagged to a show (event_id), booth or attendee. Carry `event_id`.
+  eventFeedViewed: 'event_feed_viewed',
+  eventPostCreated: 'event_post_created',
 } as const;
 
 export type AnalyticsEventName = (typeof AnalyticsEvent)[keyof typeof AnalyticsEvent];

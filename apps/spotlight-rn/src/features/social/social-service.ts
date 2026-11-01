@@ -1,4 +1,4 @@
-import { isMissingFunctionError } from '@/lib/postgrest-errors';
+import { isMissingColumnError, isMissingFunctionError } from '@/lib/postgrest-errors';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -46,6 +46,12 @@ const postMediaSelect = 'id, post_id, width, height, blurhash, position';
 // the separate media query rather than showing an empty feed.
 const postSelectWithMedia = `${postSelect}, post_media(${postMediaSelect})`;
 
+// Show tags (social_27). Not in `postSelect` itself: an environment that hasn't
+// run social_27 fails the whole select on an unknown column, so the tagged
+// select is tried first and dropped for the session on a missing-column error.
+const postTagSelect = 'event_id, booth_vendor_id';
+let postTagColumnsAvailable = true;
+
 // Just the author identity columns the post card renders. A subset of the full
 // public-profile view select.
 const postAuthorSelect = 'user_id, display_name, avatar_url, handle, is_verified';
@@ -63,6 +69,9 @@ type PostRow = {
   deleted_at: string | null;
   /** Present only when the read used the embedded-media select. */
   post_media?: PostMediaRow[] | null;
+  /** Present only when the read carried the show-tag columns (social_27). */
+  event_id?: string | null;
+  booth_vendor_id?: string | null;
 };
 
 type PostMediaRow = {
@@ -109,6 +118,10 @@ export type FeedPost = {
   repostCount: number;
   createdAt: string;
   media: FeedPostMedia[];
+  /** The show this post is tagged to (social_27/28). Absent when untagged or unknown. */
+  eventId?: string | null;
+  /** Set on booth posts: the vendor slug on that show's floor map. */
+  boothVendorId?: string | null;
 };
 
 /**
@@ -246,7 +259,35 @@ async function hydratePosts(rows: PostRow[], options: HydrateOptions = {}): Prom
     repostCount: row.repost_count ?? 0,
     createdAt: row.created_at,
     media: mediaByPost.get(row.id) ?? [],
+    ...(row.event_id ? { eventId: row.event_id, boothVendorId: row.booth_vendor_id ?? null } : {}),
   }));
+}
+
+type PostSelectResult = { data: unknown; error: { code?: string; message?: string } | null };
+
+/**
+ * Run a post read through both select fallbacks: show-tag columns (dropped for
+ * the session when the environment lacks them) and the media embed (dropped
+ * per read when PostgREST can't resolve it).
+ */
+async function selectPostRows(
+  runQuery: (select: string) => PromiseLike<PostSelectResult>,
+): Promise<PostSelectResult & { mediaEmbedded: boolean }> {
+  const attempt = async (base: string): Promise<PostSelectResult> => {
+    if (postTagColumnsAvailable) {
+      const tagged = await runQuery(`${base}, ${postTagSelect}`);
+      if (!tagged.error || !isMissingColumnError(tagged.error)) {
+        return tagged;
+      }
+      postTagColumnsAvailable = false;
+    }
+    return runQuery(base);
+  };
+  const embedded = await attempt(postSelectWithMedia);
+  if (!embedded.error) {
+    return { ...embedded, mediaEmbedded: true };
+  }
+  return { ...(await attempt(postSelect)), mediaEmbedded: false };
 }
 
 // Untyped boundary: @supabase/postgrest-js. Naming the builder type
@@ -295,12 +336,7 @@ async function fetchPosts(
     // Preferred shape: one round trip with media embedded. If the embed can't be
     // resolved (relationship not exposed), retry with the plain select and let
     // hydration fetch media separately rather than surfacing an empty feed.
-    let mediaEmbedded = true;
-    let { data, error } = await runQuery(postSelectWithMedia);
-    if (error) {
-      mediaEmbedded = false;
-      ({ data, error } = await runQuery(postSelect));
-    }
+    const { data, error, mediaEmbedded } = await selectPostRows(runQuery);
 
     if (error || !data) {
       return [];
@@ -339,13 +375,8 @@ export async function fetchPostById(postId: string): Promise<FeedPost | null> {
       .limit(1);
 
   try {
-    let { data, error } = await runQuery(postSelectWithMedia);
-    let mediaEmbedded = true;
-    if (error) {
-      mediaEmbedded = false;
-      ({ data, error } = await runQuery(postSelect));
-    }
-    if (error || !data || data.length === 0) {
+    const { data, error, mediaEmbedded } = await selectPostRows(runQuery);
+    if (error || !Array.isArray(data) || data.length === 0) {
       return null;
     }
     const posts = await hydratePosts(data as unknown as PostRow[], { mediaEmbedded });
@@ -421,7 +452,7 @@ export type FeedItem = {
   activityAt: string;
 };
 
-function feedItemFromPost(post: FeedPost): FeedItem {
+export function feedItemFromPost(post: FeedPost): FeedItem {
   return {
     key: `post:${post.id}`,
     post,
@@ -558,13 +589,28 @@ export function fetchCardPosts(cardId: string, limit = DEFAULT_LIMIT, before?: s
   return fetchPosts((query) => query.eq('card_id', trimmed), limit, before);
 }
 
-/** Booth posts at one show (`event_id = eventId`, social_27), newest first. */
-export function fetchEventPosts(eventId: string, limit = 60): Promise<FeedPost[]> {
+/**
+ * Every post tagged to one show (`event_id = eventId`), booth and attendee
+ * alike, newest first. `boothOnly` narrows to vendors' booth posts (the map).
+ * Keyset-paged on `created_at` like the other feeds, over `idx_posts_event`.
+ */
+export function fetchEventPosts(
+  eventId: string,
+  limit = 60,
+  options: { before?: string; boothOnly?: boolean } = {},
+): Promise<FeedPost[]> {
   const trimmed = (eventId ?? '').trim();
   if (!trimmed) {
     return Promise.resolve([]);
   }
-  return fetchPosts((query) => query.eq('event_id', trimmed), limit);
+  return fetchPosts(
+    (query) => {
+      const scoped = query.eq('event_id', trimmed);
+      return options.boothOnly ? scoped.not('booth_vendor_id', 'is', null) : scoped;
+    },
+    limit,
+    options.before,
+  );
 }
 
 type AuthorPostsOptions = {
@@ -1158,6 +1204,8 @@ export async function createPost(input: {
   cardId?: string | null;
   /** Tags the post to the author's claimed booth at a show (social_27). */
   booth?: { eventId: string; vendorId: string } | null;
+  /** Tags the post to a show without a booth (social_28). Ignored when `booth` is set. */
+  eventId?: string | null;
 }): Promise<string | null> {
   const me = await currentUserId();
   const body = (input.body ?? '').trim();
@@ -1165,11 +1213,14 @@ export async function createPost(input: {
   if (!supabase || !me || (body.length === 0 && !cardId)) {
     return null;
   }
-  // Booth columns only when tagging, so untagged posts still insert on a
+  // Tag columns only when tagging, so untagged posts still insert on a
   // database that predates social_27.
+  const eventId = (input.eventId ?? '').trim();
   const boothColumns = input.booth
     ? { event_id: input.booth.eventId, booth_vendor_id: input.booth.vendorId }
-    : {};
+    : eventId
+      ? { event_id: eventId }
+      : {};
   try {
     const { data, error } = await supabase
       .from(POSTS_TABLE)

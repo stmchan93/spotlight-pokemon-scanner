@@ -3,6 +3,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { useActiveBooth } from '@/features/events/hooks/use-active-booth';
+import { useActiveShow } from '@/features/events/hooks/use-active-show';
 import { createPost } from '@/features/social/social-service';
 import {
   NewPostScreen,
@@ -47,6 +48,10 @@ jest.mock('@/features/events/hooks/use-active-booth', () => ({
   useActiveBooth: jest.fn(() => null),
 }));
 
+jest.mock('@/features/events/hooks/use-active-show', () => ({
+  useActiveShow: jest.fn(() => null),
+}));
+
 const back = jest.fn();
 const push = jest.fn();
 
@@ -56,7 +61,75 @@ describe('NewPostScreen', () => {
     (useRouter as jest.Mock).mockReturnValue({ back, push });
     (createPost as jest.Mock).mockResolvedValue('post-1');
     (useActiveBooth as jest.Mock).mockReturnValue(null);
+    (useActiveShow as jest.Mock).mockReturnValue(null);
     (useLocalSearchParams as jest.Mock).mockReturnValue({});
+  });
+
+  describe('show tags', () => {
+    const show = { id: 'hawaii-2026-10', shortTitle: 'Spotlight Hawaii' };
+
+    it('hides the show toggle when no show is in its window', () => {
+      renderWithProviders(<NewPostScreen />);
+      expect(screen.queryByTestId('new-post-show-row')).toBeNull();
+    });
+
+    it('offers the show off by default and tags the post once turned on', async () => {
+      (useActiveShow as jest.Mock).mockReturnValue(show);
+      renderWithProviders(<NewPostScreen />);
+
+      expect(screen.getByText('Post to Spotlight Hawaii')).toBeTruthy();
+      expect(screen.getByTestId('new-post-show-toggle').props.value).toBe(false);
+      fireEvent(screen.getByTestId('new-post-show-toggle'), 'valueChange', true);
+      fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'Line is wild');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+
+      await waitFor(() =>
+        expect(createPost).toHaveBeenCalledWith({ body: 'Line is wild', cardId: null, eventId: 'hawaii-2026-10' }),
+      );
+      await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
+    });
+
+    it("defaults on when opened from the show's feed", async () => {
+      (useLocalSearchParams as jest.Mock).mockReturnValue({ eventId: 'hawaii-2026-10' });
+      (useActiveShow as jest.Mock).mockReturnValue(show);
+      renderWithProviders(<NewPostScreen />);
+
+      expect(useActiveShow).toHaveBeenCalledWith({ enabled: true, eventId: 'hawaii-2026-10' });
+      expect(screen.getByTestId('new-post-show-toggle').props.value).toBe(true);
+      fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'gm');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+
+      await waitFor(() =>
+        expect(createPost).toHaveBeenCalledWith({ body: 'gm', cardId: null, eventId: 'hawaii-2026-10' }),
+      );
+    });
+
+    it('posts untagged when the show toggle stays off', async () => {
+      (useActiveShow as jest.Mock).mockReturnValue(show);
+      renderWithProviders(<NewPostScreen />);
+
+      fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'gm');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+
+      await waitFor(() => expect(createPost).toHaveBeenCalledWith({ body: 'gm', cardId: null }));
+    });
+
+    it('keeps only the booth toggle for a claimed vendor (the booth implies the show)', () => {
+      (useActiveShow as jest.Mock).mockReturnValue(show);
+      (useActiveBooth as jest.Mock).mockReturnValue({
+        eventId: 'hawaii-2026-10',
+        eventName: 'Spotlight Hawaii',
+        vendorId: 'island-slabs',
+        vendorName: 'Island Slabs',
+      });
+      renderWithProviders(<NewPostScreen />);
+
+      expect(screen.getByTestId('new-post-booth-row')).toBeTruthy();
+      expect(screen.queryByTestId('new-post-show-row')).toBeNull();
+      // Turning the booth off falls back to a plain show tag.
+      fireEvent(screen.getByTestId('new-post-booth-toggle'), 'valueChange', false);
+      expect(screen.getByTestId('new-post-show-row')).toBeTruthy();
+    });
   });
 
   describe('booth posts', () => {

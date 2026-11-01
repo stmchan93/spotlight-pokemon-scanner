@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import sys
 import tempfile
@@ -16,13 +17,16 @@ if str(REPO_ROOT) not in sys.path:
 from tools.build_event_floor_map import (  # noqa: E402
     build_map,
     build_vendors_only_map,
+    email_sha256,
     load_csv,
     load_known_vendors,
     match_csv,
     parse_figma_url,
     parse_location,
     tags_for,
+    vendor_email_hashes,
 )
+from tools import build_event_floor_map  # noqa: E402
 
 _ids = iter(range(1, 10_000))
 
@@ -271,6 +275,73 @@ class VendorsOnlyTests(unittest.TestCase):
             known = load_known_vendors(out, "show")
         self.assertEqual(known[0]["id"], self.doc["vendors"][0]["id"])
         self.assertEqual(known[-1]["id"], "old")
+
+
+class VendorEmailSidecarTests(unittest.TestCase):
+    """Treasure emails leave the CSV only as sha256 hashes, in a sidecar the map never includes."""
+
+    def _rows(self) -> list[dict[str, str]]:
+        rows = load_csv(EXPORT_CSV)
+        emails = {
+            "Main Street Cards": ["  Pat@Example.com ", "pat.second@example.com"],
+            "chazer808 collectibles partnered w/ space 62": ["sam@example.com"],
+            "Waiting Room Cards": ["kim@example.com"],
+        }
+        for row in rows:
+            queue = emails.get(row["business_name"])
+            if queue:
+                row["email"] = queue.pop(0)
+        return rows
+
+    def test_hash_is_lower_trimmed_sha256(self) -> None:
+        self.assertEqual(email_sha256("  Pat@Example.COM\n"), email_sha256("pat@example.com"))
+        self.assertRegex(email_sha256("pat@example.com"), r"^[0-9a-f]{64}$")
+
+    def test_confirmed_rows_only_merged_per_vendor(self) -> None:
+        rows = self._rows()
+        doc, _ = build_vendors_only_map(rows, event_id="show")
+        hashes = vendor_email_hashes(doc["vendors"], rows)
+        # Both Main Street applications fold into one vendor; WAITLISTED never gets a hash.
+        self.assertEqual(hashes["main-street-cards"],
+                         sorted({email_sha256("pat@example.com"), email_sha256("pat.second@example.com")}))
+        self.assertEqual(hashes["chazer808-collectibles-partnered-w-space-62"], [email_sha256("sam@example.com")])
+        self.assertEqual(set(hashes), {"main-street-cards", "chazer808-collectibles-partnered-w-space-62"})
+        self.assertNotIn(email_sha256("kim@example.com"), json.dumps(hashes))
+
+    def test_full_build_uses_the_same_ids(self) -> None:
+        rows = self._rows()
+        full, _ = build_map(_layout(), event_id="show", image_file="show.png", image_size=(800, 400), csv_rows=rows)
+        hashes = vendor_email_hashes(full["vendors"], rows)
+        ids = {v["name"]: v["id"] for v in full["vendors"]}
+        self.assertIn(ids["Main Street Cards"], hashes)
+        # The layout's "Chazer808" finds its application by prefix, as the build does.
+        self.assertEqual(hashes[ids["Chazer808"]], [email_sha256("sam@example.com")])
+
+    def test_main_writes_sidecar_with_hashes_only(self) -> None:
+        rows = self._rows()
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            csv_path = out / "export.csv"
+            header = EXPORT_CSV.read_text(encoding="utf-8").splitlines()[0].split(",")
+            with csv_path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=header)
+                writer.writeheader()
+                for row in rows:
+                    writer.writerow({k: row.get(k, "") for k in header})
+            build_event_floor_map.main(["--event-id", "show", "--vendors-only", "--vendors-csv", str(csv_path),
+                                        "--out-dir", str(out)])
+            map_text = (out / "show.json").read_text(encoding="utf-8")
+            sidecar_text = (out / "show.vendor-emails.json").read_text(encoding="utf-8")
+            # A rebuild must not read the sidecar as a past show's map.
+            known = load_known_vendors(out, "show")
+        sidecar = json.loads(sidecar_text)
+        self.assertEqual(sidecar["eventId"], "show")
+        self.assertEqual(set(sidecar["vendors"]), {"main-street-cards", "chazer808-collectibles-partnered-w-space-62"})
+        for text in (map_text, sidecar_text):
+            self.assertNotIn("@example.com", text.lower())
+            self.assertNotIn("example.com", text.lower())
+        self.assertNotIn(email_sha256("pat@example.com"), map_text)
+        self.assertTrue(all(v.get("name") for v in known))
 
 
 if __name__ == "__main__":

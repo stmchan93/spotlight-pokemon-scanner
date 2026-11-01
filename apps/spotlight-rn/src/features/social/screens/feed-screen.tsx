@@ -23,6 +23,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { MetaPulse } from '@spotlight/api-client';
 import {
   Avatar,
+  PillButton,
   StateCard,
   Text,
   useSpotlightTheme,
@@ -58,8 +59,14 @@ import {
   type FeedItem,
   type FeedPost,
   type FeedPostAuthor,
+  feedItemFromPost,
+  fetchEventPosts,
+  fetchFollowingFeed,
   fetchGlobalFeedItems,
 } from '@/features/social/social-service';
+import { useFeedShow } from '@/features/events/hooks/use-active-show';
+import { AnalyticsEvent } from '@/lib/observability/analytics-events';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useTopMovers } from '@/features/social/use-top-movers';
 import { useUnreadNotificationCount } from '@/features/social/use-unread-notification-count';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
@@ -112,7 +119,19 @@ function reposterAttributionName(
   return repostedBy.displayName?.trim() || (reposterHandle ? `@${reposterHandle}` : 'Someone');
 }
 
-function readFeed(before?: string): Promise<FeedItem[]> {
+/**
+ * Which feed the list shows. `forYou` is the Home feed; the chip row offering
+ * the others only appears while there is a show to offer (see `useFeedShow`).
+ */
+type FeedSource = 'forYou' | 'following' | 'show';
+
+async function readFeed(source: FeedSource, showId: string | null, before?: string): Promise<FeedItem[]> {
+  if (source === 'following') {
+    return (await fetchFollowingFeed(PAGE_SIZE, before)).map(feedItemFromPost);
+  }
+  if (source === 'show' && showId) {
+    return (await fetchEventPosts(showId, PAGE_SIZE, { before })).map(feedItemFromPost);
+  }
   return fetchGlobalFeedItems(PAGE_SIZE, before);
 }
 
@@ -160,6 +179,17 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     worse than one that arrives late).
   */
   const [followedAuthorIds, setFollowedAuthorIds] = useState<Set<string> | null>(null);
+
+  // A show in its window (or one the viewer saved) adds "For you · Following ·
+  // 📍 <show>" chips. If the show goes away, so does its selection.
+  const feedShow = useFeedShow();
+  const [selectedSource, setSelectedSource] = useState<FeedSource>('forYou');
+  const source: FeedSource = feedShow ? selectedSource : 'forYou';
+  const showId = source === 'show' ? (feedShow?.id ?? null) : null;
+  // The reads below are stable callbacks; they read the current source here.
+  const readFeedRef = useRef((before?: string) => readFeed(source, showId, before));
+  readFeedRef.current = (before?: string) => readFeed(source, showId, before);
+  const readKey = showId ? `show:${showId}` : source;
 
   // Feed rows, not bare posts: a repost is its own row carrying who passed it on.
   const [items, setItems] = useState<FeedItem[]>([]);
@@ -211,13 +241,15 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     closing band to the first cell once posts exist (see renderItem); every
     other section closes itself.
   */
-  const visibleHeaderBlocks = [
+  // The blocks belong to For you; Following and a show's feed are posts only.
+  const blocksShown = source === 'forYou';
+  const visibleHeaderBlocks = (blocksShown ? [
     marketBlocksEnabled && hasMetaPulseContent(metaPulse.data) ? 'metaPulse' : null,
     marketBlocksEnabled && hasHotCardsContent(hotCards.data) ? 'hotCards' : null,
     marketBlocksEnabled && hasComingUpContent(calendar.data) ? 'comingUp' : null,
     topTrendsVisible ? 'topTrends' : null,
     marketBlocksEnabled && hasNewsContent(newsFeed.data) ? 'news' : null,
-  ].filter((block): block is string => block != null);
+  ] : []).filter((block): block is string => block != null);
   const headerBlocksVisible = visibleHeaderBlocks.length > 0;
   const lastHeaderBlock = visibleHeaderBlocks[visibleHeaderBlocks.length - 1];
   const showBlockBand = (block: string) => items.length === 0 || block !== lastHeaderBlock;
@@ -342,7 +374,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
 
     void (async () => {
       try {
-        const page = await readFeed();
+        const page = await readFeedRef.current();
         if (token !== loadTokenRef.current) {
           return;
         }
@@ -377,7 +409,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     loadingMoreRef.current = false;
     void (async () => {
       try {
-        const page = await readFeed();
+        const page = await readFeedRef.current();
         if (token !== loadTokenRef.current) {
           return;
         }
@@ -391,9 +423,20 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     })();
   }, []);
 
+  // `readKey`: switching chips is a fresh load of a different feed.
   useEffect(() => {
     loadFeed();
-  }, [loadFeed]);
+  }, [loadFeed, readKey]);
+
+  const selectSource = useCallback(
+    (next: FeedSource) => {
+      setSelectedSource(next);
+      if (next === 'show' && feedShow) {
+        capturePostHogEvent(AnalyticsEvent.eventFeedViewed, { event_id: feedShow.id, source: 'home_chip' });
+      }
+    },
+    [feedShow],
+  );
 
   // The follow set, once per signed-in viewer. Signed out there is nobody to
   // follow FOR, so it stays null and no card draws the control.
@@ -520,7 +563,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     void refreshNewsFeed();
     void (async () => {
       try {
-        const page = await readFeed();
+        const page = await readFeedRef.current();
         if (token !== loadTokenRef.current) {
           return;
         }
@@ -563,7 +606,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
 
     void (async () => {
       try {
-        const page = await readFeed(cursor);
+        const page = await readFeedRef.current(cursor);
         if (token !== loadTokenRef.current) {
           return;
         }
@@ -619,9 +662,10 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     router.push('/news' as never);
   }, [router]);
 
+  // From a show's feed the composer opens with "Post to <show>" on.
   const openComposer = useCallback(() => {
-    router.push('/new-post' as never);
-  }, [router]);
+    router.push((showId ? { pathname: '/new-post', params: { eventId: showId } } : '/new-post') as never);
+  }, [router, showId]);
 
   // Initials fallback for the compose row's avatar — the same derivation
   // Portfolio uses for its profile block.
@@ -687,6 +731,31 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
           WHAT&rsquo;S ON YOUR MIND?
         </Text>
       </Pressable>
+      {feedShow ? (
+        <View style={styles.sourceChips} testID={`${testID}-source-chips`}>
+          <PillButton
+            label="For you"
+            onPress={() => selectSource('forYou')}
+            selected={source === 'forYou'}
+            testID={`${testID}-source-for-you`}
+            tone="filled"
+          />
+          <PillButton
+            label="Following"
+            onPress={() => selectSource('following')}
+            selected={source === 'following'}
+            testID={`${testID}-source-following`}
+            tone="filled"
+          />
+          <PillButton
+            label={`📍 ${feedShow.shortTitle}`}
+            onPress={() => selectSource('show')}
+            selected={source === 'show'}
+            testID={`${testID}-source-show`}
+            tone="filled"
+          />
+        </View>
+      ) : null}
     </View>
   );
 
@@ -739,7 +808,13 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       />
     ) : (
       <StateCard
-        message="No posts yet. Check back soon."
+        message={
+          source === 'following'
+            ? 'Posts from people you follow will show up here.'
+            : source === 'show'
+              ? 'Posts from the show floor will appear here.'
+              : 'No posts yet. Check back soon.'
+        }
         style={styles.stateCard}
         testID={`${testID}-empty`}
         title="Nothing here yet"
@@ -837,7 +912,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         ListHeaderComponent={
           <>
             {composePrompt}
-            {marketBlocksEnabled ? (
+            {blocksShown && marketBlocksEnabled ? (
               <>
                 <MetaPulseBlock
                   exposure={metaExposure.data}
@@ -862,8 +937,8 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
                 />
               </>
             ) : null}
-            {topTrendsBlock}
-            {marketBlocksEnabled ? (
+            {blocksShown ? topTrendsBlock : null}
+            {blocksShown && marketBlocksEnabled ? (
               <NewsBlock
                 feed={newsFeed.data}
                 onOpenNews={openNews}
@@ -939,6 +1014,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
               onAuthorBlocked={handleAuthorBlocked}
               onFollowAuthor={handleFollowAuthor}
               onPressCard={handleOpenCard}
+              eventBadgeMode={source === 'show' ? 'booth' : 'show'}
               onRequestDelete={requestDelete}
               post={item.post}
               testID={`${testID}-post`}
@@ -1064,6 +1140,13 @@ const styles = StyleSheet.create({
   },
   footerSpinner: {
     paddingVertical: 20,
+  },
+  sourceChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 12,
   },
   safeArea: {
     flex: 1,

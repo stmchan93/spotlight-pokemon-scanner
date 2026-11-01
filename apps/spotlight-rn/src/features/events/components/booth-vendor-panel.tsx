@@ -56,6 +56,50 @@ export function BoothVendorPanel({ eventId, vendor, claim, myUserId, posts, onCl
   );
 }
 
+/**
+ * One tap to claim, shared by the card and the list's claim pills. Resolves to
+ * whether the booth is now the caller's; every outcome explains itself.
+ */
+export function useClaimBooth(eventId: string, onClaimsChanged: () => void) {
+  const { gate, openLogin } = useGuestGate();
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const pending = useRef(false);
+
+  const claim = useCallback(
+    (vendor: Pick<SpotlightEventMapVendor, 'id' | 'name'>, source: 'card' | 'list' | 'suggestion') => {
+      if (pending.current) {
+        return;
+      }
+      pending.current = true;
+      setPendingId(vendor.id);
+      void claimBooth(vendor.id, eventId).then((result) => {
+        pending.current = false;
+        setPendingId(null);
+        if (result === 'claimed' || result === 'already_yours') {
+          if (result === 'claimed') {
+            capturePostHogEvent(AnalyticsEvent.boothClaimed, { event_id: eventId, vendor_id: vendor.id, source });
+            Alert.alert('Booth claimed', `${vendor.name} is yours. Post photos of your case so people find you.`);
+          }
+          onClaimsChanged();
+        } else if (result === 'unauthenticated') {
+          openLogin();
+        } else if (result === 'taken') {
+          Alert.alert('Already claimed', 'Someone else claimed this booth. Use "Not you? Report" if that’s wrong.');
+          onClaimsChanged();
+        } else if (result === 'limit') {
+          Alert.alert('Booth limit reached', 'One account can claim up to 3 booths.');
+        } else {
+          Alert.alert('Couldn’t claim this booth', 'Please try again.');
+        }
+      });
+    },
+    [eventId, onClaimsChanged, openLogin],
+  );
+
+  return { claim, gate, pendingId };
+}
+
+/** The card's claim stays as a fallback; the list's "Claim" pill and "This is you" are the main path. */
 function UnclaimedRow({
   eventId,
   vendor,
@@ -65,46 +109,18 @@ function UnclaimedRow({
   vendor: SpotlightEventMapVendor;
   onClaimsChanged: () => void;
 }) {
-  const { gate, openLogin } = useGuestGate();
-  const [pending, setPending] = useState(false);
-
-  const claim = useCallback(() => {
-    if (pending) {
-      return;
-    }
-    setPending(true);
-    void claimBooth(vendor.id, eventId).then((result) => {
-      setPending(false);
-      if (result === 'claimed' || result === 'already_yours') {
-        if (result === 'claimed') {
-          capturePostHogEvent(AnalyticsEvent.boothClaimed, { event_id: eventId, vendor_id: vendor.id });
-          Alert.alert('Booth claimed', `${vendor.name} is yours. Post photos of your case so people find you.`);
-        }
-        onClaimsChanged();
-      } else if (result === 'unauthenticated') {
-        openLogin();
-      } else if (result === 'taken') {
-        Alert.alert('Already claimed', 'Someone else claimed this booth. Use "Not you? Report" if that’s wrong.');
-        onClaimsChanged();
-      } else if (result === 'limit') {
-        Alert.alert('Booth limit reached', 'One account can claim up to 3 booths.');
-      } else {
-        Alert.alert('Couldn’t claim this booth', 'Please try again.');
-      }
-    });
-  }, [eventId, onClaimsChanged, openLogin, pending, vendor.id, vendor.name]);
-
+  const { claim, gate, pendingId } = useClaimBooth(eventId, onClaimsChanged);
   return (
     <View style={styles.row}>
       <Button
-        disabled={pending}
+        disabled={pendingId != null}
         label="This is my booth"
-        labelStyleVariant="label"
-        onPress={gate(claim)}
+        labelStyleVariant="caption"
+        onPress={gate(() => claim(vendor, 'card'))}
         shape="rounded"
         size="xs"
         testID="booth-claim"
-        variant="secondary"
+        variant="ghost"
       />
     </View>
   );

@@ -18,6 +18,7 @@ import { Avatar, FollowButton, Text, useSpotlightTheme } from '@spotlight/design
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
 import { CommentsSheet } from '@/features/social/components/comments-sheet';
 import { OptionsSheet } from '@/features/social/components/options-sheet';
+import { PostEventBadge, type PostEventBadgeMode } from '@/features/social/components/post-event-badge';
 import { SharePostSheet } from '@/features/social/components/share-post-sheet';
 import {
   blockUser,
@@ -89,6 +90,8 @@ type PostCardProps = {
   autoOpenComments?: boolean;
   /** Comment to open the thread on — see `CommentsSheet.focusCommentId`. */
   focusCommentId?: string | null;
+  /** How a show-tagged post names its show; `booth` on the show's own feed. */
+  eventBadgeMode?: PostEventBadgeMode;
   testID?: string;
 };
 
@@ -337,6 +340,7 @@ export function PostCard({
   onFollowAuthor,
   autoOpenComments = false,
   focusCommentId = null,
+  eventBadgeMode = 'show',
   testID = 'post-card',
 }: PostCardProps) {
   const theme = useSpotlightTheme();
@@ -713,6 +717,14 @@ export function PostCard({
               >
                 {postDate.toUpperCase()}
               </Text>
+            ) : null}
+            {post.eventId ? (
+              <PostEventBadge
+                boothVendorId={post.boothVendorId ?? null}
+                eventId={post.eventId}
+                mode={eventBadgeMode}
+                testID={`${testID}-event-badge`}
+              />
             ) : null}
           </View>
           {showFollowButton ? (

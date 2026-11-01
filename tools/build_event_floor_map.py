@@ -22,8 +22,15 @@ Re-run after every Figma edit, then deploy the backend; no app release needed.
         --vendors-csv ~/Downloads/vendors-....csv
 
 The CSV (the ticketing export) only adds tags and Instagram handles; phone and
-email columns are never read into the output. FIGMA_TOKEN comes from the
-environment or the repo's gitignored ``.env.figma``.
+email columns are never read into the map. Emails of PAID/MIXED rows go, as
+sha256 of the lowercased trimmed address only, into a private gitignored
+sidecar the backend never serves:
+
+    backend/data/spotlight_event_maps/<event-id>.vendor-emails.json
+
+``tools/sync_vendor_email_hashes.py`` loads it into Supabase for "This is you"
+booth matching. FIGMA_TOKEN comes from the environment or the repo's gitignored
+``.env.figma``.
 
 Before tables are assigned there is no layout; ``--vendors-only`` lists every
 PAID/MIXED row of the CSV (``business_name``, else ``name``) with no tables and
@@ -43,6 +50,7 @@ from __future__ import annotations
 import argparse
 import collections
 import csv
+import hashlib
 import json
 import math
 import os
@@ -415,7 +423,8 @@ def load_vendor_tags(path: Path) -> list[dict[str, str]]:
 
 
 def load_csv(path: Path) -> list[dict[str, str]]:
-    keep = ("business_name", "name", "instagram", "inventory", "purchase", "status")
+    # `email` is only ever hashed (vendor_email_hashes); it never reaches the map.
+    keep = ("business_name", "name", "instagram", "inventory", "purchase", "status", "email")
     with path.open(encoding="utf-8-sig", newline="") as handle:
         return [{k: (row.get(k) or "") for k in keep} for row in csv.DictReader(handle)]
 
@@ -592,7 +601,8 @@ def _aliases(name: str, row: dict[str, str] | None) -> set[str]:
 
 def load_known_vendors(out_dir: Path, event_id: str) -> list[dict[str, Any]]:
     """Vendors of every map already built, this event's first: their ids are claim keys."""
-    paths = sorted(out_dir.glob("*.json"), key=lambda p: p.stem != event_id)
+    maps = [p for p in out_dir.glob("*.json") if not p.name.endswith(EMAIL_SIDECAR_SUFFIX)]
+    paths = sorted(maps, key=lambda p: p.stem != event_id)
     known: list[dict[str, Any]] = []
     for path in paths:
         try:
@@ -636,6 +646,37 @@ def _assign_ids(vendors: list[dict[str, Any]], known: list[dict[str, Any]], repo
             suffix += 1
         reserved.add(vendor_id)
         vendor["id"] = vendor_id
+
+
+EMAIL_SIDECAR_SUFFIX = ".vendor-emails.json"
+
+
+def email_sha256(email: str) -> str:
+    """Matches social_29's encode(digest(lower(trim(email)), 'sha256'), 'hex')."""
+    return hashlib.sha256(email.strip().lower().encode("utf-8")).hexdigest()
+
+
+def _merge_key(row: dict[str, str]) -> str:
+    """The vendors-only build's one-vendor key: business name, else the person's."""
+    return _norm(" ".join((row.get("business_name") or row.get("name") or "").split()))
+
+
+def vendor_email_hashes(vendors: list[dict[str, Any]], csv_rows: list[dict[str, str]]) -> dict[str, list[str]]:
+    """{vendor id: sorted email hashes} from PAID/MIXED rows only. A vendor's row is
+    found the way both builds find it (match_csv on the vendor's name), and every
+    confirmed row sharing that row's business/person name counts (repeat applications)."""
+    out: dict[str, list[str]] = {}
+    confirmed = [r for r in csv_rows if (r.get("status") or "").strip().upper() in CONFIRMED_STATUSES]
+    for vendor in vendors:
+        row = match_csv(vendor["name"], csv_rows)
+        if row is None or not _merge_key(row):
+            continue
+        key = _merge_key(row)
+        hashes = {email_sha256(r["email"]) for r in confirmed
+                  if _merge_key(r) == key and "@" in (r.get("email") or "")}
+        if hashes:
+            out[vendor["id"]] = sorted(hashes)
+    return out
 
 
 def _document(
@@ -727,6 +768,13 @@ def main(argv: list[str] | None = None) -> int:
     if base_png and base_image_file:
         (args.out_dir / base_image_file).write_bytes(base_png)
     json_path.write_text(json.dumps(document, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    if csv_rows is not None:
+        hashes = vendor_email_hashes(document["vendors"], csv_rows)
+        sidecar = args.out_dir / f"{args.event_id}{EMAIL_SIDECAR_SUFFIX}"
+        sidecar.write_text(json.dumps({"eventId": args.event_id, "vendors": hashes}, indent=1) + "\n",
+                           encoding="utf-8")
+        print(f"{len(hashes)} vendors with email hashes -> {sidecar.name} (private; "
+              f"load with tools/sync_vendor_email_hashes.py)")
 
     image = f"image {document['imageWidth']}x{document['imageHeight']}" if document["imageFile"] else "no image"
     print(f"{len(document['tables'])} tables, {len(document['vendors'])} vendors, {image} -> {args.out_dir}")

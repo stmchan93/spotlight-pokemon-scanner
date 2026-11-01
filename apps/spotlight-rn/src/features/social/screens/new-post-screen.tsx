@@ -15,12 +15,13 @@ import { Image as ExpoImage } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { EdgeInsets } from 'react-native-safe-area-context';
 import { initialWindowMetrics, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Camera, Globe, MediaImage, NavArrowDown, Shop, Xmark } from 'iconoir-react-native';
+import { Camera, Globe, MapPin, MediaImage, NavArrowDown, Shop, Xmark } from 'iconoir-react-native';
 
 import { Avatar, Button, IconButton, SheetHeader, Text, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
 import { useActiveBooth } from '@/features/events/hooks/use-active-booth';
+import { useActiveShow } from '@/features/events/hooks/use-active-show';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { keyboardLift } from '@/lib/keyboard-insets';
@@ -260,10 +261,18 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   // The map's "Post to your booth" passes both ids; otherwise the hook looks
   // for a claimed booth at a show in its window.
   const params = useLocalSearchParams<{ eventId?: string; vendorId?: string }>();
-  const booth = useActiveBooth({ eventId: firstParam(params?.eventId), vendorId: firstParam(params?.vendorId) });
+  const paramEventId = firstParam(params?.eventId);
+  const paramVendorId = firstParam(params?.vendorId);
+  const booth = useActiveBooth({ eventId: paramEventId, vendorId: paramVendorId });
   // Opt-out rather than opt-in, so the toggle is on as soon as the booth resolves.
   const [boothOptOut, setBoothOptOut] = useState(false);
   const boothOn = booth != null && !boothOptOut;
+  // Any signed-in user can tag a show in its window. On by default only when
+  // opened from that show's feed; a booth tag already implies the show.
+  const show = useActiveShow({ eventId: paramEventId, enabled: currentUser != null });
+  const [showTagOn, setShowTagOn] = useState(() => paramEventId != null && paramVendorId == null);
+  const showTagVisible = show != null && !boothOn;
+  const eventTagId = boothOn ? booth.eventId : showTagVisible && showTagOn ? show.id : null;
   /*
     THE ONE SOURCE OF TRUTH for this screen's safe area.
 
@@ -519,7 +528,11 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
         // Card attach is no longer a composer affordance; the data layer still
         // accepts a cardId for other callers, so pass an explicit null here.
         cardId: null,
-        ...(boothOn ? { booth: { eventId: booth.eventId, vendorId: booth.vendorId } } : {}),
+        ...(boothOn
+          ? { booth: { eventId: booth.eventId, vendorId: booth.vendorId } }
+          : eventTagId
+            ? { eventId: eventTagId }
+            : {}),
       });
       if (!postId) {
         // A booth tag is rejected by the DB when the claim is gone; say so
@@ -578,6 +591,13 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
           vendor_id: booth.vendorId,
         });
       }
+      if (eventTagId) {
+        capturePostHogEvent(AnalyticsEvent.eventPostCreated, {
+          event_id: eventTagId,
+          has_image: hasImage,
+          is_booth: boothOn,
+        });
+      }
 
       signalFeedNeedsRefresh();
       // BEFORE `router.back()`, and terminal: the dismissal takes ~500ms and
@@ -612,7 +632,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
       Alert.alert("Couldn't post", 'Something went wrong. Please try again.');
       setSubmitState('idle');
     }
-  }, [booth, boothOn, canPost, imageUris, router, spotlightRepository, trimmedBody]);
+  }, [booth, boothOn, canPost, eventTagId, imageUris, router, spotlightRepository, trimmedBody]);
 
   const counterColor = useMemo(
     () =>
@@ -805,6 +825,35 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
                 onValueChange={(next) => setBoothOptOut(!next)}
                 testID={`${testID}-booth-toggle`}
                 value={boothOn}
+              />
+            </View>
+          ) : null}
+
+          {showTagVisible ? (
+            <View
+              style={[
+                styles.boothRow,
+                {
+                  backgroundColor: theme.colors.gray50,
+                  borderCurve: 'continuous',
+                  borderRadius: theme.radii.sm,
+                },
+              ]}
+              testID={`${testID}-show-row`}
+            >
+              <MapPin color={theme.colors.gray900} height={18} width={18} />
+              <Text
+                numberOfLines={2}
+                style={[theme.typography.captionMedium, styles.boothLabel, { color: theme.colors.gray900 }]}
+              >
+                {`Post to ${show.shortTitle}`}
+              </Text>
+              <Switch
+                accessibilityLabel={`Post to ${show.shortTitle}`}
+                disabled={submitState !== 'idle'}
+                onValueChange={setShowTagOn}
+                testID={`${testID}-show-toggle`}
+                value={showTagOn}
               />
             </View>
           ) : null}

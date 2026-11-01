@@ -10,8 +10,10 @@ import {
   fetchBoothPosts,
   fetchBoothStats,
   fetchBrowsingNow,
+  fetchHotBooths,
   recordBoothEvent,
   reportBoothClaim,
+  suggestMyBooth,
   touchEventPresence,
   unclaimBooth,
 } from '@/features/events/booth-service';
@@ -53,6 +55,8 @@ jest.mock('@/features/events/booth-service', () => ({
   })),
   touchEventPresence: jest.fn(),
   fetchBrowsingNow: jest.fn(async () => null),
+  suggestMyBooth: jest.fn(async () => []),
+  fetchHotBooths: jest.fn(async () => []),
 }));
 
 // Booth UI only renders with a Supabase client configured.
@@ -213,7 +217,11 @@ describe('booth vendor card', () => {
     await act(async () => fireEvent.press(screen.getByTestId('booth-claim')));
     expect(claimBooth).toHaveBeenCalledWith(VENDOR, EVENT.id);
     expect(alert).toHaveBeenCalledWith('Booth claimed', expect.any(String));
-    expect(capturePostHogEvent).toHaveBeenCalledWith('booth_claimed', { event_id: EVENT.id, vendor_id: VENDOR });
+    expect(capturePostHogEvent).toHaveBeenCalledWith('booth_claimed', {
+      event_id: EVENT.id,
+      vendor_id: VENDOR,
+      source: 'card',
+    });
     expect(jest.mocked(fetchBoothClaims).mock.calls.length).toBeGreaterThan(before);
   });
 
@@ -274,7 +282,7 @@ describe('booth vendor card', () => {
     });
     await renderShow();
     await openVendor();
-    expect(await screen.findByText('Your booth')).toBeTruthy();
+    expect(await screen.findByTestId('booth-mine')).toBeTruthy();
     expect(await screen.findByText('Your booth: 63 views · 14 Instagram taps · 1 message')).toBeTruthy();
     expect(fetchBoothStats).toHaveBeenCalledWith(VENDOR, EVENT.id);
     expect(capturePostHogEvent).toHaveBeenCalledWith('booth_stats_viewed', { event_id: EVENT.id, vendor_id: VENDOR });
@@ -397,7 +405,7 @@ describe('vendors-only show (no tables yet)', () => {
     jest.mocked(fetchBoothClaims).mockResolvedValue(claim(ME));
     await renderShow(null, VENDORS_ONLY_MAP);
     await openVendor();
-    expect(await screen.findByText('Your booth')).toBeTruthy();
+    expect(await screen.findByTestId('booth-mine')).toBeTruthy();
     expect(fetchBoothStats).toHaveBeenCalledWith(VENDOR, EVENT.id);
     fireEvent.press(screen.getByTestId('booth-post'));
     expect(mockPush).toHaveBeenCalledWith(`/new-post?eventId=${EVENT.id}&vendorId=${VENDOR}`);
@@ -418,5 +426,113 @@ describe('vendors-only show (no tables yet)', () => {
     screen.unmount();
     await renderShow(VENDOR, VENDORS_ONLY_MAP);
     expect(await screen.findByTestId('booth-panel')).toBeTruthy();
+  });
+});
+
+describe('one-tap claim from the list', () => {
+  let alert: jest.SpyInstance;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    jest.mocked(fetchBoothClaims).mockResolvedValue(new Map());
+    jest.mocked(fetchBoothPosts).mockResolvedValue([]);
+    jest.mocked(fetchBrowsingNow).mockResolvedValue(null);
+    jest.mocked(suggestMyBooth).mockResolvedValue([]);
+    jest.mocked(fetchHotBooths).mockResolvedValue([]);
+    resetSavedEventsForTests();
+    await AsyncStorage.clear();
+    alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    alert.mockRestore();
+  });
+
+  it('"This is you": an email-matched vendor is pinned with one-tap Claim booth', async () => {
+    jest.mocked(suggestMyBooth).mockResolvedValue([VENDOR]);
+    await renderShow();
+    expect(suggestMyBooth).toHaveBeenCalledWith(EVENT.id);
+    const card = await screen.findByTestId(`event-vendor-you-${VENDOR}`);
+    expect(card).toBeTruthy();
+    expect(screen.getByText('Main Street Cards · This is you')).toBeTruthy();
+
+    jest.mocked(fetchBoothClaims).mockResolvedValue(claim(ME));
+    await act(async () => fireEvent.press(screen.getByTestId(`event-vendor-you-claim-${VENDOR}`)));
+    expect(claimBooth).toHaveBeenCalledWith(VENDOR, EVENT.id);
+    expect(capturePostHogEvent).toHaveBeenCalledWith('booth_claimed', {
+      event_id: EVENT.id,
+      vendor_id: VENDOR,
+      source: 'suggestion',
+    });
+    // Mine now: the pinned card goes, the row carries "Your booth".
+    await waitFor(() => expect(screen.queryByTestId(`event-vendor-you-${VENDOR}`)).not.toBeOnTheScreen());
+    expect(screen.getByTestId(`event-vendor-mine-${VENDOR}`)).toBeTruthy();
+  });
+
+  it('"This is you" on a booth someone else holds offers Report instead', async () => {
+    jest.mocked(suggestMyBooth).mockResolvedValue([VENDOR]);
+    jest.mocked(fetchBoothClaims).mockResolvedValue(claim('user-2'));
+    await renderShow();
+    expect(await screen.findByText('Claimed by @islandslabs')).toBeTruthy();
+    expect(screen.queryByTestId(`event-vendor-you-claim-${VENDOR}`)).toBeNull();
+    await act(async () => fireEvent.press(screen.getByTestId(`event-vendor-you-report-${VENDOR}`)));
+    expect(reportBoothClaim).toHaveBeenCalledWith(VENDOR);
+  });
+
+  it('claim mode: Claim pills on unclaimed rows, "Claimed" on held ones, Done exits', async () => {
+    const other = mockSpotlightEventMap.vendors.find((vendor) => vendor.id !== VENDOR)!;
+    jest.mocked(fetchBoothClaims).mockResolvedValue(
+      new Map([[other.id, { vendorId: other.id, userId: 'user-2', handle: null, claimedAt: '2026-10-29T00:00:00Z' }]]),
+    );
+    await renderShow();
+    expect(screen.queryByTestId(`event-vendor-claim-${VENDOR}`)).toBeNull();
+
+    fireEvent.press(await screen.findByTestId('event-vendors-find-booth'));
+    expect(screen.getByTestId(`event-vendor-claim-${VENDOR}`)).toBeTruthy();
+    expect(screen.getByTestId(`event-vendor-claimed-${other.id}`)).toBeTruthy();
+    expect(screen.queryByTestId(`event-vendor-claim-${other.id}`)).toBeNull();
+
+    await act(async () => fireEvent.press(screen.getByTestId(`event-vendor-claim-${VENDOR}`)));
+    expect(claimBooth).toHaveBeenCalledWith(VENDOR, EVENT.id);
+    expect(capturePostHogEvent).toHaveBeenCalledWith('booth_claimed', {
+      event_id: EVENT.id,
+      vendor_id: VENDOR,
+      source: 'list',
+    });
+    // The pill claims without opening the card.
+    expect(screen.queryByTestId('event-vendor-card')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('event-vendors-claim-done'));
+    expect(screen.queryByTestId(`event-vendor-claim-${VENDOR}`)).toBeNull();
+    expect(screen.queryByTestId(`event-vendor-claimed-${other.id}`)).toBeNull();
+  });
+
+  it('your booth row: "Your booth" + Post opens the composer for that booth', async () => {
+    jest.mocked(fetchBoothClaims).mockResolvedValue(claim(ME));
+    await renderShow(null, VENDORS_ONLY_MAP);
+    expect(await screen.findByTestId(`event-vendor-mine-${VENDOR}`)).toBeTruthy();
+    fireEvent.press(screen.getByTestId(`event-vendor-post-${VENDOR}`));
+    expect(mockPush).toHaveBeenCalledWith(`/new-post?eventId=${EVENT.id}&vendorId=${VENDOR}`);
+    expect(screen.queryByTestId('event-vendor-card')).toBeNull();
+  });
+
+  it('hot booths get a flame on the row and a glow on their tables', async () => {
+    jest.mocked(fetchHotBooths).mockResolvedValue([VENDOR]);
+    await renderShow();
+    expect(fetchHotBooths).toHaveBeenCalledWith(EVENT.id);
+    expect(await screen.findByTestId(`event-vendor-hot-${VENDOR}`)).toBeTruthy();
+    expect(screen.getByTestId('event-floor-map-hot-C14')).toBeTruthy();
+    const others = mockSpotlightEventMap.vendors.filter((vendor) => vendor.id !== VENDOR);
+    for (const vendor of others) {
+      expect(screen.queryByTestId(`event-vendor-hot-${vendor.id}`)).toBeNull();
+    }
+  });
+
+  it('vendors-only shows: the flame is on the row only', async () => {
+    jest.mocked(fetchHotBooths).mockResolvedValue([VENDOR]);
+    await renderShow(null, VENDORS_ONLY_MAP);
+    expect(await screen.findByTestId(`event-vendor-hot-${VENDOR}`)).toBeTruthy();
+    expect(screen.queryByTestId('event-floor-map')).toBeNull();
   });
 });
