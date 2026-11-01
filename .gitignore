@@ -54,6 +54,8 @@ backend/data/visual-models
 
 # Hashed vendor emails (tools/build_event_floor_map.py) — private, never committed
 *.vendor-emails.json
+# Staging-only mock show (tools/seed_booth_test_show.py): map, images, logos
+backend/data/spotlight_event_maps/ekalight-test-show*
 
 # Rerank-pool flywheel runtime state (known-good marker, watermark, review queue) — mutates each run
 tools/state/
