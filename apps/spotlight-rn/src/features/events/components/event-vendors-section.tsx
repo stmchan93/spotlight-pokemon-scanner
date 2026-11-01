@@ -170,9 +170,10 @@ function EventVendorsBody({
   const [expanded, setExpanded] = useState(false);
   const selectedRowRef = useRef<View>(null);
   const mapRef = useRef<View>(null);
+  const controlsRef = useRef<View>(null);
   // A deep link or "From the floor" pick scrolls the map (not the row) into view.
   const [scrollToMap, setScrollToMap] = useState(false);
-  // "Are you a vendor?": every unclaimed row gets a Claim pill until Done.
+  // Claim mode: every unclaimed row gets a Claim pill until Done.
   const [claimMode, setClaimMode] = useState(false);
   const router = useRouter();
   const refreshClaims = booth?.refreshClaims;
@@ -326,6 +327,24 @@ function EventVendorsBody({
     }
   }, [scrollRef, scrollToSelected, selectedId]);
 
+  // The search sits low on the page; bring it near the top so the keyboard opens below it.
+  const scrollSearchIntoView = useCallback(() => {
+    const scroll = scrollRef?.current;
+    const inner = scroll?.getInnerViewNode?.();
+    if (!scroll || !inner) {
+      return;
+    }
+    try {
+      controlsRef.current?.measureLayout(
+        inner,
+        (_x, y) => scroll.scrollTo({ y: Math.max(0, y - SCROLL_INTO_VIEW_MARGIN), animated: true }),
+        () => undefined,
+      );
+    } catch {
+      // Best effort, as for rows.
+    }
+  }, [scrollRef]);
+
   return (
     <View style={styles.section} testID="event-vendors">
       {renderTitle('Vendors')}
@@ -357,9 +376,10 @@ function EventVendorsBody({
       )}
 
       {/* Under the map: the map is the first thing you see; search and filters drive the list below. */}
-      <View style={styles.controls}>
+      <View ref={controlsRef} style={styles.controls}>
         <SearchField
           accessibilityLabel="Search vendors"
+          onFocus={scrollSearchIntoView}
           autoCapitalize="none"
           autoCorrect={false}
           containerTestID="event-vendors-search-field"
@@ -435,7 +455,7 @@ function EventVendorsBody({
               testID="event-vendors-find-booth"
             >
               <Text style={[theme.typography.caption, { color: theme.colors.purple500 }]}>
-                Are you a vendor? Find your booth
+                Tap here to claim your vendor booth
               </Text>
             </Pressable>
           )}

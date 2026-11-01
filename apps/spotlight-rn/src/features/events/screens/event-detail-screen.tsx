@@ -293,6 +293,8 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
       <ScrollView
         contentContainerStyle={{ paddingBottom: spacing.xxl + (canBuy ? 0 : insets.bottom) }}
         contentInsetAdjustmentBehavior="never"
+        // iOS: room to scroll the vendor search above the keyboard even when results are short.
+        automaticallyAdjustKeyboardInsets
         keyboardShouldPersistTaps="handled"
         onScroll={handleScroll}
         ref={scrollRef}
