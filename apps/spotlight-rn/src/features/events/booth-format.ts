@@ -3,8 +3,8 @@ import type { BoothPost, BoothStats } from '@/features/events/booth-service';
 /** A booth post this recent puts a dot on its vendor's pin. */
 export const BOOTH_POST_FRESH_MS = 24 * 60 * 60_000;
 
-/** "now", "12m", "3h", "2d" — the age on a "From the floor" card. */
-export function formatBoothPostAge(createdAt: string, now: number = Date.now()): string {
+/** "now", "12m", "3h", "2d" — a booth item's age, as the ticker shows it. */
+export function formatBoothAgeShort(createdAt: string, now: number = Date.now()): string {
   const then = Date.parse(createdAt);
   if (Number.isNaN(then)) {
     return '';
@@ -14,13 +14,16 @@ export function formatBoothPostAge(createdAt: string, now: number = Date.now()):
     return 'now';
   }
   if (minutes < 60) {
-    return `${minutes}m ago`;
+    return `${minutes}m`;
   }
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) {
-    return `${hours}h ago`;
-  }
-  return `${Math.floor(hours / 24)}d ago`;
+  return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+}
+
+/** "now", "12m ago", "3h ago", "2d ago" — the age in a story header. */
+export function formatBoothPostAge(createdAt: string, now: number = Date.now()): string {
+  const short = formatBoothAgeShort(createdAt, now);
+  return short && short !== 'now' ? `${short} ago` : short;
 }
 
 function plural(count: number, one: string, many: string) {

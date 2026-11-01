@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { Alert, Linking } from 'react-native';
 
 import { mockSpotlightEventMap, type SpotlightEventMap } from '@spotlight/api-client';
@@ -17,6 +17,8 @@ import {
   touchEventPresence,
   unclaimBooth,
 } from '@/features/events/booth-service';
+import { requestBoothVendorSelect, resetBoothStoriesForTests } from '@/features/events/booth-stories-store';
+import { eventLocalDate } from '@/features/events/hooks/use-active-show';
 import { resetSavedEventsForTests } from '@/features/events/saved-events-store';
 import { EventDetailScreen } from '@/features/events/screens/event-detail-screen';
 import { followUser } from '@/features/profile/profile-service';
@@ -82,6 +84,17 @@ jest.mock('@/features/social/components/post-card', () => {
     ),
     postMediaUrl: (base: string, id: string, options?: { displayWidth?: number }) =>
       `${base}/api/v1/post-media/${id}?display=${options?.displayWidth}`,
+  };
+});
+
+// The Feed tab's own reads are covered in event-feed-test.
+jest.mock('@/features/events/components/event-feed', () => {
+  const React = jest.requireActual<typeof import('react')>('react');
+  const { View } = require('react-native');
+  return {
+    EventFeed: React.forwardRef(function MockEventFeed(_props: object, _ref: unknown) {
+      return <View testID="event-feed" />;
+    }),
   };
 });
 
@@ -172,10 +185,14 @@ const VENDORS_ONLY_MAP: SpotlightEventMap = {
   vendors: mockSpotlightEventMap.vendors.map((vendor) => ({ ...vendor, location: '', tableIds: [] })),
 };
 
-async function renderShow(initialVendorId: string | null = null, map: SpotlightEventMap = mockSpotlightEventMap) {
-  renderWithProviders(<EventDetailScreen eventId={EVENT.id} initialVendorId={initialVendorId} onBack={jest.fn()} />, {
+async function renderShow(
+  initialVendorId: string | null = null,
+  map: SpotlightEventMap = mockSpotlightEventMap,
+  event = EVENT,
+) {
+  renderWithProviders(<EventDetailScreen eventId={event.id} initialVendorId={initialVendorId} onBack={jest.fn()} />, {
     spotlightRepository: createTestSpotlightRepository({
-      fetchSpotlightEvents: async () => ({ items: [EVENT] }),
+      fetchSpotlightEvents: async () => ({ items: [event] }),
       fetchSpotlightEventMap: async () => map,
     }),
   });
@@ -198,6 +215,7 @@ describe('booth vendor card', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     resetSavedEventsForTests();
+    resetBoothStoriesForTests();
     await AsyncStorage.clear();
     alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
     jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -297,22 +315,26 @@ describe('booth vendor card', () => {
     expect(unclaimBooth).toHaveBeenCalledWith(VENDOR);
   });
 
-  it('shows booth photos on the card, a pin dot, and the "From the floor" row', async () => {
+  it('shows booth photos on the card, a pin dot, and a stories strip', async () => {
     jest.mocked(fetchBoothPosts).mockResolvedValue([boothPost('p1')]);
     await renderShow();
-    const floorCard = await screen.findByTestId('booth-floor-p1');
-    expect(screen.getByText('C14 · now')).toBeTruthy();
+    // The strip replaces "From the floor"; the row's logo carries an unseen ring.
+    const story = await screen.findByTestId(`booth-story-${VENDOR}`);
+    expect(screen.queryByTestId('booth-floor-row')).toBeNull();
+    // Strip + list row.
+    expect(screen.getAllByTestId(`vendor-story-ring-${VENDOR}-unseen`)).toHaveLength(2);
     expect(screen.getByTestId('event-floor-map-posted-C14')).toBeTruthy();
 
-    // A "From the floor" card selects its vendor on the map.
-    fireEvent.press(floorCard);
-    expect(screen.getByTestId('event-vendor-card-name').props.children).toBe(
-      mockSpotlightEventMap.vendors.find((vendor) => vendor.id === VENDOR)?.name,
-    );
+    fireEvent.press(story);
+    expect(capturePostHogEvent).toHaveBeenCalledWith('booth_story_opened', {
+      event_id: EVENT.id,
+      vendor_id: VENDOR,
+      source: 'strip',
+    });
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/booth-stories', params: { eventId: EVENT.id, vendorId: VENDOR } });
 
-    // Both surfaces ask for a thumbnail sized to their frame; the 48pt strip
-    // thumb also uses the compact (icon-only) placeholder.
-    expect(screen.getByTestId('post-image:https://api.example.com/api/v1/post-media/p1-m?display=120')).toBeTruthy();
+    // The card's strip thumb asks for a 48pt compact thumbnail.
+    await openVendor();
     const stripThumb = await screen.findByTestId('post-image:https://api.example.com/api/v1/post-media/p1-m?display=48');
     expect(stripThumb.props.compact).toBe(true);
 
@@ -321,18 +343,22 @@ describe('booth vendor card', () => {
     expect(mockPush).toHaveBeenCalledWith('/post/p1');
   });
 
-  it('no dot for a post older than a day, and no row or strip without posts', async () => {
+  it('no dot, ring or story for a post older than a day, and no strip without posts', async () => {
     jest.mocked(fetchBoothPosts).mockResolvedValue([boothPost('old', VENDOR, '2026-01-01T00:00:00Z')]);
     await renderShow();
-    await screen.findByTestId('booth-floor-old');
+    await waitFor(() => expect(fetchBoothPosts).toHaveBeenCalled());
+    await openVendor();
+    expect(await screen.findByTestId('booth-strip-old')).toBeTruthy();
     expect(screen.queryByTestId('event-floor-map-posted-C14')).toBeNull();
+    expect(screen.queryByTestId('booth-stories-strip')).toBeNull();
+    expect(screen.queryByTestId(`vendor-story-ring-${VENDOR}-unseen`)).toBeNull();
 
     screen.unmount();
     jest.mocked(fetchBoothPosts).mockResolvedValue([]);
     await renderShow();
-    expect(screen.queryByTestId('booth-floor-row')).toBeNull();
     await openVendor();
     expect(screen.queryByTestId('booth-strip')).toBeNull();
+    expect(screen.queryByTestId('booth-stories-strip')).toBeNull();
   });
 
   it('opens with the deep-linked vendor selected', async () => {
@@ -363,6 +389,7 @@ describe('vendors-only show (no tables yet)', () => {
     jest.mocked(fetchBoothPosts).mockResolvedValue([]);
     jest.mocked(fetchBrowsingNow).mockResolvedValue(null);
     resetSavedEventsForTests();
+    resetBoothStoriesForTests();
     await AsyncStorage.clear();
     jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
     jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -411,15 +438,21 @@ describe('vendors-only show (no tables yet)', () => {
     expect(mockPush).toHaveBeenCalledWith(`/new-post?eventId=${EVENT.id}&vendorId=${VENDOR}`);
   });
 
-  it('"From the floor", deep links and browsing count still work', async () => {
+  it('stories, ringed rows, deep links and browsing count still work', async () => {
     jest.mocked(fetchBoothPosts).mockResolvedValue([boothPost('p1')]);
     jest.mocked(fetchBrowsingNow).mockResolvedValue(4);
     await renderShow(null, VENDORS_ONLY_MAP);
-    const floorCard = await screen.findByTestId('booth-floor-p1');
-    expect(floorCard.props.accessibilityLabel).toBe('Main Street Cards, table tba');
-    expect(screen.getByText('now')).toBeTruthy();
+    expect(await screen.findByTestId(`booth-story-${VENDOR}`)).toBeTruthy();
     expect(await screen.findByText('4 people browsing now')).toBeTruthy();
-    fireEvent.press(floorCard);
+
+    // Tapping the ringed row logo opens the story; tapping the row opens the card.
+    fireEvent.press(screen.getByTestId(`vendor-story-open-${VENDOR}`));
+    expect(capturePostHogEvent).toHaveBeenCalledWith('booth_story_opened', {
+      event_id: EVENT.id,
+      vendor_id: VENDOR,
+      source: 'row',
+    });
+    await openVendor();
     expect(screen.getByTestId('event-vendor-card-name').props.children).toBe('Main Street Cards');
     expect(await screen.findByTestId('booth-strip-p1')).toBeTruthy();
 
@@ -440,6 +473,7 @@ describe('one-tap claim from the list', () => {
     jest.mocked(suggestMyBooth).mockResolvedValue([]);
     jest.mocked(fetchHotBooths).mockResolvedValue([]);
     resetSavedEventsForTests();
+    resetBoothStoriesForTests();
     await AsyncStorage.clear();
     alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
     jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -534,5 +568,90 @@ describe('one-tap claim from the list', () => {
     await renderShow(null, VENDORS_ONLY_MAP);
     expect(await screen.findByTestId(`event-vendor-hot-${VENDOR}`)).toBeTruthy();
     expect(screen.queryByTestId('event-floor-map')).toBeNull();
+  });
+});
+
+describe('live ticker and booth stories on the show page', () => {
+  const OTHER = mockSpotlightEventMap.vendors.find((vendor) => vendor.id !== VENDOR)!;
+  const today = eventLocalDate(EVENT.timezone, new Date());
+  const LIVE_EVENT = { ...EVENT, startDate: today, endDate: today };
+  const vendorName = mockSpotlightEventMap.vendors.find((vendor) => vendor.id === VENDOR)!.name;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    jest.mocked(fetchBoothClaims).mockResolvedValue(new Map());
+    jest.mocked(fetchBoothPosts).mockResolvedValue([]);
+    jest.mocked(fetchBrowsingNow).mockResolvedValue(null);
+    jest.mocked(suggestMyBooth).mockResolvedValue([]);
+    jest.mocked(fetchHotBooths).mockResolvedValue([]);
+    resetSavedEventsForTests();
+    resetBoothStoriesForTests();
+    await AsyncStorage.clear();
+    jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  it('during the show: the ticker leads; tapping it from Feed selects the vendor on the map', async () => {
+    jest.mocked(fetchBoothPosts).mockResolvedValue([boothPost('p1')]);
+    jest.mocked(fetchBrowsingNow).mockResolvedValue(42);
+    await renderShow(null, mockSpotlightEventMap, LIVE_EVENT);
+    expect((await screen.findByTestId('booth-live-ticker-text')).props.children).toBe(`📸 ${vendorName} posted · now`);
+
+    fireEvent.press(screen.getByTestId('event-detail-show-area-feed'));
+    expect(await screen.findByTestId('event-feed')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('booth-live-ticker'));
+    expect(await screen.findByTestId('event-vendor-card')).toBeTruthy();
+    expect(screen.getByTestId('event-vendor-card-name').props.children).toBe(vendorName);
+    expect(screen.queryByTestId('event-feed')).toBeNull();
+  });
+
+  it('outside the booth window there is no ticker', async () => {
+    jest.mocked(fetchBoothPosts).mockResolvedValue([boothPost('p1')]);
+    jest.mocked(fetchBrowsingNow).mockResolvedValue(42);
+    await renderShow();
+    await screen.findByTestId(`booth-story-${VENDOR}`);
+    expect(screen.queryByTestId('booth-live-ticker')).toBeNull();
+  });
+
+  it('stories: unseen vendors first; watched vendors get a gray ring on the strip and row', async () => {
+    await AsyncStorage.setItem('@spotlight/events/story-seen/anonymous', JSON.stringify(['p1']));
+    // VENDOR posted most recently but is already watched.
+    jest.mocked(fetchBoothPosts).mockResolvedValue([
+      boothPost('p1', VENDOR),
+      boothPost('p2', OTHER.id, new Date(Date.now() - 60_000).toISOString()),
+    ]);
+    await renderShow();
+    await waitFor(() => expect(screen.getAllByTestId(`vendor-story-ring-${VENDOR}-seen`)).toHaveLength(2));
+    expect(screen.getAllByTestId(`vendor-story-ring-${OTHER.id}-unseen`)).toHaveLength(2);
+    const strip = screen.getByTestId('booth-stories-strip');
+    const order = within(strip)
+      .getAllByRole('button')
+      .map((node) => node.props.testID);
+    expect(order).toEqual([`booth-story-${OTHER.id}`, `booth-story-${VENDOR}`]);
+  });
+
+  it('the selected vendor card avatar opens their story', async () => {
+    jest.mocked(fetchBoothPosts).mockResolvedValue([boothPost('p1')]);
+    await renderShow();
+    await openVendor();
+    const card = screen.getByTestId('event-vendor-card');
+    fireEvent.press(within(card).getByTestId(`vendor-story-open-${VENDOR}`));
+    expect(capturePostHogEvent).toHaveBeenCalledWith('booth_story_opened', {
+      event_id: EVENT.id,
+      vendor_id: VENDOR,
+      source: 'card',
+    });
+  });
+
+  it('"View booth" from the viewer selects that vendor on the map', async () => {
+    jest.mocked(fetchBoothPosts).mockResolvedValue([boothPost('p1')]);
+    await renderShow();
+    await screen.findByTestId(`booth-story-${VENDOR}`);
+    act(() => requestBoothVendorSelect(EVENT.id, VENDOR));
+    expect(await screen.findByTestId('event-vendor-card')).toBeTruthy();
+    // Another show's request is ignored.
+    fireEvent.press(screen.getByTestId('event-vendor-card-close'));
+    act(() => requestBoothVendorSelect('other-show', VENDOR));
+    expect(screen.queryByTestId('event-vendor-card')).toBeNull();
   });
 });

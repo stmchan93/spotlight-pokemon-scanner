@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image,
   Linking,
@@ -14,6 +14,7 @@ import {
 // Gesture-handler's ScrollView so the floor map's pan can block it while zoomed.
 import { ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { Clock, Heart, HeartSolid, MapsArrowDiagonal, NavArrowLeft, PeopleTag, ShareIos } from 'iconoir-react-native';
 
@@ -35,18 +36,35 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { BoothFloorRow } from '@/features/events/components/booth-floor-row';
+import { buildBoothStories, orderBoothStories, storyRing } from '@/features/events/booth-stories';
+import {
+  publishBoothStoriesSource,
+  subscribeBoothVendorSelect,
+  useSeenBoothPosts,
+} from '@/features/events/booth-stories-store';
+import { MIN_BROWSING_SHOWN, buildBoothTickerItems } from '@/features/events/booth-ticker';
+import { BoothLiveTicker } from '@/features/events/components/booth-live-ticker';
+import { BoothStoriesStrip } from '@/features/events/components/booth-stories-strip';
 import { EventFeed, type EventFeedHandle } from '@/features/events/components/event-feed';
 import { EventFlyer } from '@/features/events/components/event-flyer';
-import { EventVendorsSection, type VendorSelectRequest } from '@/features/events/components/event-vendors-section';
+import {
+  EventVendorsSection,
+  type VendorSelectRequest,
+  type VendorStories,
+} from '@/features/events/components/event-vendors-section';
 import { eventGradientStops } from '@/features/events/event-accent';
 import { formatEventSchedule, formatEventShareMessage } from '@/features/events/event-format';
+import { isInBoothWindow, useActiveShow } from '@/features/events/hooks/use-active-show';
 import { useBoothFloor } from '@/features/events/hooks/use-booth-floor';
 import { useEventPresence } from '@/features/events/hooks/use-event-presence';
 import { useSpotlightEventMap } from '@/features/events/hooks/use-spotlight-event-map';
 import { useSpotlightEvent } from '@/features/events/hooks/use-spotlight-events';
 import { useSavedEvents } from '@/features/events/saved-events-store';
 import { openLinkOut } from '@/features/meta-feed/screens/components/open-link-out';
+import { AnalyticsEvent } from '@/lib/observability/analytics-events';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
+import { resolveRepositoryBaseUrl } from '@/providers/app-providers';
+import { useAuth } from '@/providers/auth-provider';
 
 // Figma 5882:12594. Gradient band 400 tall; flyer 237×296 at 70 under the status bar.
 const GRADIENT_HEIGHT = 400;
@@ -61,8 +79,6 @@ const TICKET_ICON_HEIGHT = 12;
 const PRICING_NOTE_LINE_HEIGHT = 26;
 const PRICING_NOTE_INDENT = 22;
 const DISCLAIMER_RADIUS = 6;
-/** Below this, "browsing now" reads as empty rather than busy. */
-const MIN_BROWSING_SHOWN = 3;
 /** Feed mode pages in once the scroll is this close to the end. */
 const FEED_LOAD_MORE_DISTANCE = 600;
 
@@ -106,7 +122,7 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
   const saved = isSaved(eventId);
   const accent = event?.accentColor ?? theme.colors.eventAccent;
   const canBuy = Boolean(event?.ticketUrl) && event?.status !== 'past';
-  // Same cached read the vendors section makes; the booth row needs vendor names and tables.
+  // Same cached read the vendors section makes; the ticker and stories need vendor names.
   const { map } = useSpotlightEventMap(event?.floorMapUrl ?? null);
   const vendorIds = useMemo(() => map?.vendors.map((vendor) => vendor.id) ?? null, [map]);
   const booth = useBoothFloor(eventId, vendorIds);
@@ -119,6 +135,71 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
     [],
   );
   const [showArea, setShowArea] = useState<ShowArea>('map');
+  // Ticker, story and "View booth" picks land on the map, whichever tab is open.
+  const selectOnMap = useCallback(
+    (vendorId: string) => {
+      setShowArea('map');
+      selectVendor(vendorId);
+    },
+    [selectVendor],
+  );
+
+  // Live ticker: only while the show is in its booth window (staging: the stand-in show).
+  const activeShow = useActiveShow();
+  const [now] = useState(() => new Date());
+  const live = event != null && (activeShow?.id === eventId || isInBoothWindow(event, now));
+  const tickerItems = useMemo(
+    () =>
+      live && map
+        ? buildBoothTickerItems({
+            vendors: map.vendors,
+            posts: booth.posts,
+            claims: booth.claims,
+            hotVendorIds: booth.hotVendorIds,
+            browsingNow,
+          })
+        : [],
+    [booth.claims, booth.hotVendorIds, booth.posts, browsingNow, live, map],
+  );
+
+  // Booth stories: photo posts from the last day. Images stream with a bearer token only.
+  const router = useRouter();
+  const { accessToken } = useAuth();
+  const canShowStories = Boolean(accessToken && resolveRepositoryBaseUrl());
+  const { seenPostIds } = useSeenBoothPosts();
+  const stories = useMemo(
+    () => (canShowStories && map ? buildBoothStories(booth.posts, new Set(vendorIds ?? [])) : []),
+    [booth.posts, canShowStories, map, vendorIds],
+  );
+  const orderedStories = useMemo(() => orderBoothStories(stories, seenPostIds), [seenPostIds, stories]);
+  const openStory = useCallback(
+    (vendorId: string, source: 'strip' | 'row' | 'card') => {
+      capturePostHogEvent(AnalyticsEvent.boothStoryOpened, { event_id: eventId, vendor_id: vendorId, source });
+      router.push({ pathname: '/booth-stories', params: { eventId, vendorId } } as never);
+    },
+    [eventId, router],
+  );
+  const vendorStories = useMemo<VendorStories | null>(() => {
+    if (stories.length === 0) {
+      return null;
+    }
+    const byVendor = new Map(stories.map((story) => [story.vendorId, story]));
+    return { ringFor: (vendorId) => storyRing(byVendor.get(vendorId), seenPostIds), open: openStory };
+  }, [openStory, seenPostIds, stories]);
+
+  // The viewer reads what this page already loaded, and asks it to select on "View booth".
+  useEffect(() => {
+    publishBoothStoriesSource(eventId, { posts: booth.posts, claims: booth.claims });
+  }, [booth.claims, booth.posts, eventId]);
+  useEffect(
+    () =>
+      subscribeBoothVendorSelect((requestedEventId, vendorId) => {
+        if (requestedEventId === eventId) {
+          selectOnMap(vendorId);
+        }
+      }),
+    [eventId, selectOnMap],
+  );
   const feedRef = useRef<EventFeedHandle>(null);
   const feedVisible = showArea === 'feed' || !event?.floorMapUrl;
   const handleScroll = useCallback(
@@ -238,6 +319,7 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
 
         {/* Map | Feed: the floor (vendors, booth photos) or every post tagged to the show. */}
         <View style={styles.showArea}>
+          <BoothLiveTicker items={tickerItems} onSelectVendor={selectOnMap} />
           {event.floorMapUrl ? (
             <SegmentedControl
               items={SHOW_AREA_ITEMS}
@@ -253,10 +335,10 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
           ) : (
             <View style={styles.mapArea}>
               {map ? (
-                <BoothFloorRow
-                  onSelectVendor={selectVendor}
-                  posts={booth.posts}
-                  renderTitle={(title) => <SectionTitle title={title} />}
+                <BoothStoriesStrip
+                  onOpen={(vendorId) => openStory(vendorId, 'strip')}
+                  seenPostIds={seenPostIds}
+                  stories={orderedStories}
                   vendors={map.vendors}
                 />
               ) : null}
@@ -277,6 +359,7 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
                   scrollGesture={scrollRef}
                   scrollRef={scrollRef}
                   selectRequest={selectRequest}
+                  stories={vendorStories}
                 />
               ) : null}
             </View>

@@ -18,10 +18,11 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { recordBoothEvent, reportBoothClaim, type BoothClaim } from '@/features/events/booth-service';
 import { BoothVendorPanel, useClaimBooth } from '@/features/events/components/booth-vendor-panel';
 import { EventFloorMap } from '@/features/events/components/event-floor-map';
+import { VendorLogo } from '@/features/events/components/vendor-logo';
+import type { StoryRing } from '@/features/events/booth-stories';
 import {
   filterVendors,
   floorMapViewportHeight,
@@ -48,56 +49,20 @@ const INSTAGRAM_ICON_SIZE = 24;
 // Figma 5882:12678 / 5865:11361 — 32pt plate with a 20pt logo in the row, 39/24 on the card.
 const ROW_LOGO_SIZE = 32;
 const CARD_LOGO_SIZE = 39;
-const LOGO_INSET_RATIO = 6 / 32;
 // Figma 5882:12668 — rows 10 apart; the selected row's dark shell is 10 inside.
 const LIST_GAP = 10;
 const SELECTED_ROW_PADDING = 10;
 /** A map-tapped vendor scrolls into view with this much page above its row. */
 const SCROLL_INTO_VIEW_MARGIN = 120;
 
-/** "Main Street Cards" -> "MS", "3vilCollections" -> "3". */
-function vendorInitials(name: string) {
-  const words = name.match(/[A-Za-z0-9]+/g) ?? [];
-  return words.slice(0, 2).map((word) => word[0]).join('').toUpperCase() || '?';
-}
-
-/** The vendor's logo filling the circle, or their initials on a gray plate when there is none. */
-function VendorLogo({ vendor, size }: { vendor: SpotlightEventMapVendor; size: number }) {
-  const theme = useSpotlightTheme();
-  const inner = Math.round(size * (1 - 2 * LOGO_INSET_RATIO));
-  return (
-    <View
-      style={[
-        styles.logo,
-        {
-          // Gray only behind initials: an inset logo left a gray ring around square artwork.
-          backgroundColor: vendor.logoUrl ? theme.colors.gray0 : theme.colors.gray300,
-          borderRadius: size / 2,
-          height: size,
-          width: size,
-        },
-      ]}
-      testID={`event-vendor-avatar-${vendor.id}`}
-    >
-      {vendor.logoUrl ? (
-        <CachedImage
-          cachePolicy={imageCachePolicy.full}
-          contentFit="cover"
-          source={{ uri: vendor.logoUrl }}
-          style={{ height: size, width: size }}
-        />
-      ) : (
-        // Initials scale with the plate, as `Avatar` does.
-        <Text style={[theme.typography.captionStrong, { color: theme.colors.gray900, fontSize: inner * 0.55, lineHeight: inner }]}>
-          {vendorInitials(vendor.name)}
-        </Text>
-      )}
-    </View>
-  );
-}
-
-/** Select this vendor (a deep link or a "From the floor" tap); a new `key` re-applies the same vendor. */
+/** Select this vendor (a deep link, ticker or story tap); a new `key` re-applies the same vendor. */
 export type VendorSelectRequest = { vendorId: string; key: number };
+
+/** Booth stories on the list and card logos. */
+export type VendorStories = {
+  ringFor: (vendorId: string) => StoryRing;
+  open: (vendorId: string, source: 'row' | 'card') => void;
+};
 
 type EventVendorsSectionProps = {
   eventId: string;
@@ -110,6 +75,7 @@ type EventVendorsSectionProps = {
   scrollRef?: React.RefObject<GestureScrollView | null>;
   /** The section's title row, so it matches the screen's other sections. */
   renderTitle: (title: string) => React.ReactNode;
+  stories?: VendorStories | null;
 };
 
 export function EventVendorsSection({
@@ -120,6 +86,7 @@ export function EventVendorsSection({
   scrollGesture,
   scrollRef,
   renderTitle,
+  stories,
 }: EventVendorsSectionProps) {
   const { map, loading } = useSpotlightEventMap(floorMapUrl);
   const mapHeight = floorMapViewportHeight(useWindowDimensions().height);
@@ -140,6 +107,7 @@ export function EventVendorsSection({
       scrollGesture={scrollGesture}
       scrollRef={scrollRef}
       selectRequest={selectRequest ?? null}
+      stories={stories ?? null}
     />
   );
 }
@@ -152,11 +120,13 @@ function EventVendorsBody({
   scrollGesture,
   scrollRef,
   selectRequest,
+  stories,
 }: {
   booth: BoothFloor | null;
   eventId: string;
   map: SpotlightEventMap;
   selectRequest: VendorSelectRequest | null;
+  stories: VendorStories | null;
   renderTitle: (title: string) => React.ReactNode;
   scrollGesture?: GestureType | React.RefObject<unknown>;
   scrollRef?: React.RefObject<GestureScrollView | null>;
@@ -171,7 +141,7 @@ function EventVendorsBody({
   const selectedRowRef = useRef<View>(null);
   const mapRef = useRef<View>(null);
   const controlsRef = useRef<View>(null);
-  // A deep link or "From the floor" pick scrolls the map (not the row) into view.
+  // A deep link, ticker or story pick scrolls the map (not the row) into view.
   const [scrollToMap, setScrollToMap] = useState(false);
   // Claim mode: every unclaimed row gets a Claim pill until Done.
   const [claimMode, setClaimMode] = useState(false);
@@ -369,7 +339,7 @@ function EventVendorsBody({
           {/* Docked inside the map (Figma 5865:11358): below it, a tapped table's vendor landed off-screen. */}
           {selected ? (
             <View pointerEvents="box-none" style={styles.cardOverlay}>
-              <SelectedVendorCard booth={booth} eventId={eventId} onClose={deselect} vendor={selected} />
+              <SelectedVendorCard booth={booth} eventId={eventId} onClose={deselect} stories={stories} vendor={selected} />
             </View>
           ) : null}
         </View>
@@ -472,7 +442,7 @@ function EventVendorsBody({
             <Fragment key={vendor.id}>
               {vendorsOnly && isSelected ? (
                 <View ref={selectedRowRef}>
-                  <SelectedVendorCard booth={booth} eventId={eventId} onClose={deselect} vendor={vendor} />
+                  <SelectedVendorCard booth={booth} eventId={eventId} onClose={deselect} stories={stories} vendor={vendor} />
                 </View>
               ) : (
                 <VendorRow
@@ -488,6 +458,8 @@ function EventVendorsBody({
                   onPress={select}
                   ref={isSelected ? selectedRowRef : null}
                   selected={isSelected}
+                  storyRing={stories?.ringFor(vendor.id) ?? null}
+                  onOpenStory={stories ? () => stories.open(vendor.id, 'row') : undefined}
                   vendor={vendor}
                 />
               )}
@@ -539,10 +511,24 @@ type VendorRowProps = {
   claimPending?: boolean;
   onClaim?: () => void;
   onPost?: () => void;
+  storyRing?: StoryRing;
+  onOpenStory?: () => void;
 };
 
 /** Figma 5882:12677; selected = 5865:10937 (gray-900 shell, white copy). */
-function VendorRow({ vendor, selected, onPress, ref, hot = false, booth = null, claimPending, onClaim, onPost }: VendorRowProps) {
+function VendorRow({
+  vendor,
+  selected,
+  onPress,
+  ref,
+  hot = false,
+  booth = null,
+  claimPending,
+  onClaim,
+  onPost,
+  storyRing = null,
+  onOpenStory,
+}: VendorRowProps) {
   const theme = useSpotlightTheme();
   return (
     <Pressable
@@ -553,7 +539,7 @@ function VendorRow({ vendor, selected, onPress, ref, hot = false, booth = null, 
       style={[styles.row, selected ? [styles.rowSelected, { backgroundColor: theme.colors.gray900 }] : null]}
       testID={`event-vendor-${vendor.id}`}
     >
-      <VendorLogo size={ROW_LOGO_SIZE} vendor={vendor} />
+      <VendorLogo onPress={storyRing ? onOpenStory : undefined} ring={storyRing} size={ROW_LOGO_SIZE} vendor={vendor} />
       <View style={styles.rowText}>
         <Text
           numberOfLines={1}
@@ -688,11 +674,13 @@ function SelectedVendorCard({
   eventId,
   vendor,
   onClose,
+  stories,
 }: {
   booth: BoothFloor | null;
   eventId: string;
   vendor: SpotlightEventMapVendor;
   onClose: () => void;
+  stories: VendorStories | null;
 }) {
   const theme = useSpotlightTheme();
   const instagram = vendor.instagram;
@@ -717,7 +705,12 @@ function SelectedVendorCard({
   return (
     <View style={[styles.card, shadows.card, { backgroundColor: theme.colors.gray0 }]} testID="event-vendor-card">
       <View style={styles.cardHeader}>
-        <VendorLogo size={CARD_LOGO_SIZE} vendor={vendor} />
+        <VendorLogo
+          onPress={stories ? () => stories.open(vendor.id, 'card') : undefined}
+          ring={stories?.ringFor(vendor.id) ?? null}
+          size={CARD_LOGO_SIZE}
+          vendor={vendor}
+        />
         <View style={styles.cardText}>
           <Text
             numberOfLines={1}
@@ -811,12 +804,6 @@ const styles = StyleSheet.create({
   cardText: {
     flex: 1,
     gap: spacing.xxxs,
-  },
-  logo: {
-    alignItems: 'center',
-    borderCurve: 'continuous',
-    justifyContent: 'center',
-    overflow: 'hidden',
   },
   list: {
     gap: LIST_GAP,

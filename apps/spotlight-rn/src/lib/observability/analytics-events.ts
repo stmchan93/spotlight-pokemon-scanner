@@ -48,6 +48,9 @@ export const AnalyticsEvent = {
   boothStatsViewed: 'booth_stats_viewed',
   boothPostCreated: 'booth_post_created',
   boothBannerTapped: 'booth_banner_tapped',
+  // Booth stories: `source` = strip | row | card on open; completed = a vendor's last frame played.
+  boothStoryOpened: 'booth_story_opened',
+  boothStoryCompleted: 'booth_story_completed',
 
   // Show feeds: every post tagged to a show (event_id), booth or attendee. Carry `event_id`.
   eventFeedViewed: 'event_feed_viewed',

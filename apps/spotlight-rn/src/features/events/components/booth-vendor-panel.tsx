@@ -99,6 +99,37 @@ export function useClaimBooth(eventId: string, onClaimsChanged: () => void) {
   return { claim, gate, pendingId };
 }
 
+/**
+ * Opens (or creates) a DM with whoever holds a booth, counting a message start.
+ * Shared by the vendor card and the story viewer; callers guest-gate it.
+ */
+export function useBoothMessage(eventId: string, vendor: Pick<SpotlightEventMapVendor, 'id' | 'name'>) {
+  const router = useRouter();
+  const pending = useRef(false);
+  return useCallback(
+    (userId: string, handle: string | null) => {
+      if (pending.current) {
+        return;
+      }
+      pending.current = true;
+      recordBoothEvent(eventId, vendor.id, 'message_start');
+      void findOrCreateDm(userId).then((conversationId) => {
+        pending.current = false;
+        if (!conversationId) {
+          Alert.alert('Couldn’t open a message', 'Please try again.');
+          return;
+        }
+        // Typed routes lag new routes; same cast as the profile screen.
+        router.push({
+          pathname: '/messages/[conversationId]',
+          params: { conversationId, name: handle ? `@${handle}` : vendor.name },
+        } as never);
+      });
+    },
+    [eventId, router, vendor.id, vendor.name],
+  );
+}
+
 /** The card's claim stays as a fallback; the list's "Claim" pill and "This is you" are the main path. */
 function UnclaimedRow({
   eventId,
@@ -132,7 +163,6 @@ function ClaimedRows({ claim, eventId, vendor }: { claim: BoothClaim; eventId: s
   const { gate } = useGuestGate();
   const { applyFollowingDelta } = useAuth();
   const [following, setFollowing] = useState<boolean | null>(null);
-  const messagePending = useRef(false);
   const slug = profileRouteSlug(claim.handle, claim.userId);
   const holderLabel = claim.handle ? `@${claim.handle}` : 'Claimed';
 
@@ -155,25 +185,8 @@ function ClaimedRows({ claim, eventId, vendor }: { claim: BoothClaim; eventId: s
     }
   }, [router, slug]);
 
-  const message = useCallback(() => {
-    if (messagePending.current) {
-      return;
-    }
-    messagePending.current = true;
-    recordBoothEvent(eventId, vendor.id, 'message_start');
-    void findOrCreateDm(claim.userId).then((conversationId) => {
-      messagePending.current = false;
-      if (!conversationId) {
-        Alert.alert('Couldn’t open a message', 'Please try again.');
-        return;
-      }
-      // Typed routes lag new routes; same cast as the profile screen.
-      router.push({
-        pathname: '/messages/[conversationId]',
-        params: { conversationId, name: claim.handle ? `@${claim.handle}` : vendor.name },
-      } as never);
-    });
-  }, [claim.handle, claim.userId, eventId, router, vendor.id, vendor.name]);
+  const startMessage = useBoothMessage(eventId, vendor);
+  const message = useCallback(() => startMessage(claim.userId, claim.handle), [claim.handle, claim.userId, startMessage]);
 
   const toggleFollow = useCallback(() => {
     if (following == null) {

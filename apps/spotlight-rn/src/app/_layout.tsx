@@ -220,6 +220,18 @@ function AuthenticatedRoot() {
               <Stack.Screen name="(sheet)" options={{ presentation: 'fullScreenModal' }} />
               <Stack.Screen name="(modal)" />
               {/*
+                Booth stories sit at the ROOT for the same reason as new-post
+                below: a group's bottom-most screen ignores its presentation.
+                `fade` cross-dissolves on iOS (RNSScreen maps fade to
+                crossDissolve) and fades the modal fragment on Android, so both
+                platforms open it the same way. The native dismiss gesture is
+                off on both: the viewer owns swipe-down itself.
+              */}
+              <Stack.Screen
+                name="booth-stories"
+                options={{ animation: 'fade', gestureEnabled: false, presentation: 'fullScreenModal' }}
+              />
+              {/*
                 New Post lives at the ROOT, not in `(stack)`, and that placement
                 is load-bearing. react-native-screens ignores `stackPresentation`
                 on a stack's BOTTOM-MOST screen — there is nothing to present
