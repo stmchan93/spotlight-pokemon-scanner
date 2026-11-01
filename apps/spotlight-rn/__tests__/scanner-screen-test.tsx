@@ -390,8 +390,7 @@ describe('ScannerScreen', () => {
   it('captures a scan photo when the preview is tapped', async () => {
     renderScannerScreen();
 
-    // No idle prompt over the viewfinder: the reticle carries the instruction.
-    expect(screen.queryByTestId('scanner-prompt')).toBeNull();
+    expect(screen.getByTestId('scanner-prompt')).toHaveTextContent('Tap to scan');
 
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
