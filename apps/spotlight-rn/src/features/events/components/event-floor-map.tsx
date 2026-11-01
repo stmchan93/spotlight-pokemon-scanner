@@ -294,7 +294,9 @@ export function EventFloorMap({
     runOnJS(handleTap)(event.x, event.y, scale.value, translateX.value, translateY.value);
   });
 
-  const gesture = Gesture.Simultaneous(pinch, pan, Gesture.Exclusive(doubleTap, singleTap));
+  // Not Exclusive: that held every single tap ~500ms waiting out a possible
+  // double tap. Selecting is idempotent, so a double tap just selects, then zooms.
+  const gesture = Gesture.Simultaneous(pinch, pan, doubleTap, singleTap);
 
   const layerZooms = pendingZoom == null || Math.abs(pendingZoom - shownZoom) < 0.01 ? [shownZoom] : [shownZoom, pendingZoom];
 
