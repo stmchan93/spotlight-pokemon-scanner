@@ -979,3 +979,76 @@ CREATE TABLE IF NOT EXISTS user_emails (
 -- duplicated here. Contract worth repeating: an ABSENT `user_notification_prefs`
 -- row means ON, so nothing writes a row just to record the default and no read
 -- may turn a missing row into "off".
+
+-- Card art knowledge graph, Phase 1 (art_groups.py groups, tools/tag_card_art.py
+-- tags, art_search.py reads). One vision-tagged row per ILLUSTRATION: EN/JP
+-- counterparts and conservative same-art reprints share a group. Membership is
+-- only written together with the group's tags (same transaction), so untagged
+-- groups have no rows here at all; there are no placeholder groups.
+CREATE TABLE IF NOT EXISTS card_art_groups (
+    art_group_id TEXT PRIMARY KEY,          -- canonical (usually EN) card_id
+    representative_card_id TEXT NOT NULL REFERENCES cards(id),
+    tags_json TEXT NOT NULL,
+    alt_text TEXT,
+    tagger_model TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    vocab_version TEXT NOT NULL,
+    review_state TEXT NOT NULL DEFAULT 'auto', -- auto | human_ok | human_fixed
+    tagged_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS card_art_group_members (
+    card_id TEXT PRIMARY KEY REFERENCES cards(id),
+    art_group_id TEXT NOT NULL REFERENCES card_art_groups(art_group_id),
+    link_source TEXT NOT NULL               -- self | language_link | reprint_similar
+);
+
+CREATE INDEX IF NOT EXISTS idx_art_members_group ON card_art_group_members(art_group_id);
+
+-- Flattened tags. confidence < art_search.MIN_CONFIDENCE is kept for review but
+-- ignored by search. facet 'pokemon' stores the national dex number as value.
+CREATE TABLE IF NOT EXISTS card_art_tags (
+    art_group_id TEXT NOT NULL REFERENCES card_art_groups(art_group_id),
+    facet TEXT NOT NULL,
+    value TEXT NOT NULL,
+    role TEXT,
+    confidence REAL NOT NULL DEFAULT 1.0,
+    PRIMARY KEY (art_group_id, facet, value)
+);
+
+CREATE INDEX IF NOT EXISTS idx_art_tags_facet_value ON card_art_tags(facet, value, art_group_id);
+
+CREATE TABLE IF NOT EXISTS art_themes (
+    theme TEXT NOT NULL,
+    facet TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (theme, facet, value)
+);
+
+-- Seed themes. INSERT OR IGNORE: restarts never duplicate or undo hand edits.
+INSERT OR IGNORE INTO art_themes (theme, facet, value) VALUES
+    ('beach_day', 'scene', 'beach'),
+    ('beach_day', 'scene', 'ocean_underwater'),
+    ('rainy_day', 'weather_time', 'rain'),
+    ('rainy_day', 'objects', 'umbrella'),
+    ('cozy_home', 'scene', 'indoor_home'),
+    ('cozy_home', 'scene', 'bedroom'),
+    ('cozy_home', 'mood', 'cozy'),
+    ('food', 'scene', 'kitchen_food'),
+    ('food', 'scene', 'restaurant_cafe'),
+    ('food', 'activity', 'eating'),
+    ('food', 'activity', 'cooking'),
+    ('food', 'objects', 'food'),
+    ('food', 'objects', 'sweets'),
+    ('night_sky', 'weather_time', 'night'),
+    ('night_sky', 'scene', 'space_stars'),
+    ('festival', 'scene', 'festival_fair'),
+    ('festival', 'mood', 'festive'),
+    ('festival', 'activity', 'celebrating'),
+    ('festival', 'objects', 'lanterns'),
+    ('festival', 'objects', 'balloons'),
+    ('snow_day', 'weather_time', 'snow'),
+    ('snow_day', 'scene', 'snow_ice'),
+    ('sleepy', 'activity', 'sleeping'),
+    ('sleepy', 'activity', 'resting'),
+    ('sleepy', 'objects', 'bed_pillow');
