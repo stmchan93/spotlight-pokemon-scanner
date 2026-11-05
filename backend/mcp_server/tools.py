@@ -74,17 +74,20 @@ FILTERABLE_FACETS = art_search.LIST_FILTER_FACETS
 
 
 def usd_price(pricing: dict[str, Any] | None) -> tuple[float | None, str | None]:
-    """(price, source) for a native-USD summary, else (None, None).
+    """(price, source) for a USD summary, else (None, None).
 
-    Never yen, and never yen FX-converted to USD: a JPY-only card is unpriced."""
+    Never yen. JPY-priced cards come back FX-converted to USD, exactly as the
+    app shows them; the source says so."""
     if not isinstance(pricing, dict):
         return None, None
-    if str(pricing.get("currencyCode") or "").strip().upper() != "USD" or pricing.get("displayIsConverted"):
+    if str(pricing.get("currencyCode") or "").strip().upper() != "USD":
         return None, None
     for key in ("market", "mid", "low", "trend"):
         value = pricing.get(key)
         if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
             source = str(pricing.get("source") or pricing.get("provider") or "").strip() or "ekalight"
+            if pricing.get("displayIsConverted"):
+                source += " (converted to USD from JPY)"
             return round(float(value), 2), source
     return None, None
 
@@ -357,6 +360,22 @@ class CollectionTools:
     # Tools
     # ------------------------------------------------------------------
 
+    def _art_coverage(self) -> dict[str, Any]:
+        tagged = self.conn.execute("SELECT COUNT(*) FROM card_art_group_members").fetchone()[0] if self._has_table(
+            "card_art_group_members"
+        ) else 0
+        total = self.conn.execute("SELECT COUNT(*) FROM cards WHERE game = ?", (GAME,)).fetchone()[0]
+        return {
+            "tagged_cards": int(tagged),
+            "catalog_cards": int(total),
+            "note": f"Art tags cover {tagged:,} of {total:,} cards so far; untagged cards never match art filters.",
+        }
+
+    def _has_table(self, name: str) -> bool:
+        return self.conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+        ).fetchone() is not None
+
     def list_facets(self, owner_user_id: str) -> dict[str, Any]:
         del owner_user_id  # catalog-wide; no account data
         result = self._art_call("list_facets", self.conn, game=GAME)
@@ -364,6 +383,7 @@ class CollectionTools:
         return {
             "facets": {facet: facets.get(facet) or [] for facet in FILTERABLE_FACETS},
             "themes": result.get("themes") or [],
+            "art_coverage": self._art_coverage(),
         }
 
     def search_cards(
@@ -408,6 +428,7 @@ class CollectionTools:
                 if next_art
                 else None,
                 "total_estimate": int(result.get("total_estimate") or len(ids)),
+                "art_coverage": self._art_coverage(),
             }
 
         offset = self._offset_from_cursor(cursor, kind="search", query_hash=query_hash)
@@ -707,11 +728,14 @@ class CollectionTools:
         value = sum(holding["value_usd"] for holding in holdings if holding["value_usd"] is not None)
         gainers = sorted((m for m in movers if m["change_usd"] > 0), key=lambda m: m["change_usd"], reverse=True)
         losers = sorted((m for m in movers if m["change_usd"] < 0), key=lambda m: m["change_usd"])
+        has_history = bool(movers)
         return {
             "range": range_key,
             "value_usd": round(value, 2),
-            "change_usd": round(change_total, 2),
+            "change_usd": round(change_total, 2) if has_history else None,
             "change_pct": round(change_total / start_total * 100, 2) if start_total > 0 else None,
+            "change_covers_holdings": len(movers),
+            **({} if has_history else {"change_note": "No price history for these holdings in this range, so change is unknown (not zero)."}),
             "top_gainers": gainers[:5],
             "top_losers": losers[:5],
             "holdings_count": len(holdings),
@@ -810,6 +834,7 @@ class CollectionTools:
             "cheapest_completion_usd": cheapest_completion,
             **({"budget_spent_usd": round(sum(item["price_usd"] for item in missing), 2)} if budget_usd is not None else {}),
             **({"total_is_lower_bound": True} if capped else {}),
+            **({"art_coverage": self._art_coverage()} if uses_art_filters(card_filter) else {}),
         }
 
     def get_price_history(

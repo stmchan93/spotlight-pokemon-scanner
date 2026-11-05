@@ -150,10 +150,14 @@ class McpToolsCase(unittest.TestCase):
 
 
 class UsdOnlyTests(unittest.TestCase):
-    def test_usd_price_rejects_yen_and_fx_converted(self) -> None:
+    def test_usd_price_rejects_yen_keeps_fx_converted_usd(self) -> None:
         self.assertEqual(usd_price({"currencyCode": "USD", "market": 3.456, "source": "tcgplayer"}), (3.46, "tcgplayer"))
         self.assertEqual(usd_price({"currencyCode": "JPY", "market": 1500}), (None, None))
-        self.assertEqual(usd_price({"currencyCode": "USD", "market": 10.0, "displayIsConverted": True}), (None, None))
+        # JPY cards arrive FX-converted to USD, as the app shows them, labelled.
+        self.assertEqual(
+            usd_price({"currencyCode": "USD", "market": 10.0, "displayIsConverted": True, "source": "scrydex"}),
+            (10.0, "scrydex (converted to USD from JPY)"),
+        )
         self.assertEqual(usd_price(None), (None, None))
 
 
