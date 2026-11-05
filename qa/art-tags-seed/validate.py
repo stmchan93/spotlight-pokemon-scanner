@@ -18,7 +18,7 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_JSONL = HERE / "ir-seed-v1.jsonl"
 CARDS_FILE = HERE / "cards.txt"
 
-VOCAB_VERSION = "v1"
+VOCAB_VERSION = "v1.1"
 
 ENUMS = {
     "scene": {
@@ -40,12 +40,15 @@ ENUMS = {
     },
     "mood": {
         "cozy", "cute", "funny", "dramatic", "fierce", "peaceful", "spooky",
-        "melancholy", "festive", "majestic",
+        "melancholy", "festive", "majestic", "cheerful", "adventurous",
     },
     "objects": {
         "food", "drinks", "sweets", "umbrella", "books", "toys", "balloons", "flowers",
         "gifts", "lanterns", "pokeballs", "instruments", "vehicles", "furniture",
         "bed_pillow", "tableware", "trees", "rocks", "water_splash", "other",
+        # v1.1 additions
+        "energy_effects", "crystals_gems", "plants", "items_medicine", "lights_lamps",
+        "containers", "paper_signs", "gym_equipment", "coins_treasure", "weapons",
     },
 }
 # field -> (min, max) list length
@@ -72,6 +75,7 @@ TAGGED_KEYS = {
     "art_style", "composition", "appearing_pokemon", "characters", "alt_text",
     "drafted_by", "vocab_version",
 }
+OPTIONAL_KEYS = {"remap"}  # set when v1.1 values were inferred from alt_text
 ERROR_KEYS = {"card_id", "name", "error", "drafted_by", "vocab_version"}
 ALLOWED_ERRORS = {"image_unavailable"}
 
@@ -121,7 +125,7 @@ def validate_record(rec: dict, cards: dict[str, str]) -> list[str]:
     missing = TAGGED_KEYS - rec.keys()
     if missing:
         errs.append(f"missing keys {sorted(missing)}")
-    extra = rec.keys() - TAGGED_KEYS
+    extra = rec.keys() - TAGGED_KEYS - OPTIONAL_KEYS
     if extra:
         errs.append(f"unexpected keys {sorted(extra)}")
 
