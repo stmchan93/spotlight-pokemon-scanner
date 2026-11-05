@@ -36,9 +36,21 @@ If the image could not be fetched, the line has only `card_id`, `name`, `set`,
 Artist, set, rarity and price are **not** tagged. They come from the catalog,
 not from the art.
 
-## Vocab v1
+## Vocab v1 / v1.1
 
 Use only these values. `validate.py` enforces them, along with the list-length limits.
+Each line's `vocab_version` says which list it was tagged against; a line with no
+`vocab_version` is v1. New lines use `"vocab_version": "v1.1"`.
+
+**v1.1 additions** (only allowed on v1.1 lines), added because v1 drafts kept falling back to `other`:
+
+- **objects**: energy_effects (flames, sparks, blasts, gas), crystals_gems, plants (non-flower), items_medicine (medicine, sprays, TMs, capsules), lights_lamps, containers (trash cans, crates, baskets), paper_signs (papers, posters, signs, graffiti), gym_equipment, coins_treasure, weapons
+- **mood**: cheerful, adventurous
+
+Lines that used `objects: other` or a stretched mood under v1 were remapped to v1.1
+from their `notes` (images not re-viewed); each says what changed at the end of `notes`.
+
+**v1 values:**
 
 - **scene** (1–2): beach, ocean_underwater, river_lake, forest, jungle, field_meadow, flowers_garden, mountain, cave, desert, snow_ice, volcano, sky_clouds, space_stars, city_street, town_village, indoor_home, bedroom, kitchen_food, restaurant_cafe, shop_market, school_library, lab, stadium_arena, festival_fair, ruins_temple, abstract_background, other
 - **weather_time** (0–2): day, sunset_sunrise, night, rain, snow, storm, fog, rainbow, none_visible (`none_visible` is never combined with another value)

@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Validate art-tag gold-set JSONL against vocab v1 (stdlib only).
+"""Validate art-tag gold-set JSONL against vocab v1 / v1.1 (stdlib only).
+
+Lines without "vocab_version" are v1. Lines with "vocab_version": "v1.1" may also use
+the v1.1 additions (V11_ADDITIONS); v1 lines may not.
 
 Usage: python3 qa/art-tags-gold/validate.py [path/to/file.jsonl]
 Exits non-zero if any line has errors.
@@ -28,6 +31,16 @@ VOCAB = {
     "composition": {"full_art_scene", "framed_window", "character_closeup", "panorama", "group_shot",
                     "text_heavy"},
 }
+# v1.1 = v1 plus these values.
+V11_ADDITIONS = {
+    "objects": {"energy_effects", "crystals_gems", "plants", "items_medicine", "lights_lamps", "containers",
+                "paper_signs", "gym_equipment", "coins_treasure", "weapons"},
+    "mood": {"cheerful", "adventurous"},
+}
+VOCABS = {
+    "v1": VOCAB,
+    "v1.1": {k: v | V11_ADDITIONS.get(k, set()) for k, v in VOCAB.items()},
+}
 # (min, max) list lengths for list fields
 LIST_BOUNDS = {"scene": (1, 2), "weather_time": (0, 2), "activity": (0, 3), "mood": (1, 2), "objects": (0, 8)}
 ROLES = {"main", "secondary", "background", "cameo"}
@@ -43,6 +56,11 @@ def check(rec):
     rs = rec.get("review_state", "draft")
     if rs not in REVIEW_STATES:
         errs.append(f"bad review_state {rs!r}")
+    ver = rec.get("vocab_version", "v1")
+    if ver not in VOCABS:
+        errs.append(f"unknown vocab_version {ver!r}")
+        ver = "v1"
+    vocab = VOCABS[ver]
     if "error" in rec:
         if rec["error"] != "image_unavailable":
             errs.append(f"unknown error value {rec['error']!r}")
@@ -57,14 +75,14 @@ def check(rec):
         if len(set(v)) != len(v):
             errs.append(f"{field} has duplicates")
         for x in v:
-            if x not in VOCAB[field]:
-                errs.append(f"{field}: {x!r} not in vocab")
+            if x not in vocab[field]:
+                errs.append(f"{field}: {x!r} not in vocab {ver}")
     wt = rec.get("weather_time", [])
     if isinstance(wt, list) and "none_visible" in wt and len(wt) > 1:
         errs.append("weather_time: none_visible combined with other values")
     for field in ("art_style", "composition"):
-        if rec.get(field) not in VOCAB[field]:
-            errs.append(f"{field}: {rec.get(field)!r} not in vocab")
+        if rec.get(field) not in vocab[field]:
+            errs.append(f"{field}: {rec.get(field)!r} not in vocab {ver}")
     ap = rec.get("appearing_pokemon")
     if not isinstance(ap, list):
         errs.append("appearing_pokemon must be a list")
@@ -95,6 +113,7 @@ def main():
     ids = Counter()
     n = unavailable = 0
     others = Counter()
+    versions = Counter()
     for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip():
             continue
@@ -106,6 +125,7 @@ def main():
             bad += 1
             continue
         ids[rec.get("card_id")] += 1
+        versions[rec.get("vocab_version", "v1")] += 1
         if "error" in rec:
             unavailable += 1
         for f in ("scene", "activity", "objects"):
@@ -120,6 +140,7 @@ def main():
         bad += 1
         print(f"duplicate card_ids: {dups}")
     print(f"{path.name}: {n} lines, {n - bad} valid, {bad} invalid, {unavailable} image_unavailable")
+    print("vocab versions: " + ", ".join(f"{k}={v}" for k, v in sorted(versions.items())))
     print("lines using 'other': " + ", ".join(f"{k}={v}" for k, v in sorted(others.items())))
     sys.exit(1 if bad else 0)
 
