@@ -67,7 +67,7 @@ small{color:#666}
 </div>
 <script>
 let rows=[],i=0;const ED=%EDITABLE%;
-async function load(){rows=await (await fetch('/rows')).json();const q=+location.hash.slice(1);i=isNaN(q)?0:q;if(!location.hash)nextTodo(true);show()}
+async function load(){rows=await (await fetch('/rows')).json();const q=+location.hash.slice(1);i=isNaN(q)?0:q;if(!location.hash){i=rows.length-1;nextTodo(true)}show()}
 function show(){const r=rows[i];document.getElementById('img').src='https://images.scrydex.com/pokemon/'+r.card_id+'/large';
 document.getElementById('title').textContent=(i+1)+'/'+rows.length+'  '+r.name+'  ('+r.card_id+')';
 document.getElementById('meta').textContent=(r.set||'')+'  ·  state: '+(r.review_state||'draft');
