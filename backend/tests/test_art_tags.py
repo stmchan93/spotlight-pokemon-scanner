@@ -116,7 +116,7 @@ class VocabSchemaTests(unittest.TestCase):
                     self.assertNotIn(unsupported, node, path)
 
     def test_vocab_v1_shapes(self) -> None:
-        self.assertEqual(art_search.VOCAB_VERSION, "v1")
+        self.assertEqual(art_search.VOCAB_VERSION, "v1.1")
         self.assertEqual(len(art_search.ART_FACETS["scene"]), 28)
         self.assertEqual(len(art_search.ART_FACETS["palette"]), 16)
         self.assertIn("none_visible", art_search.ART_FACETS["weather_time"])
@@ -346,7 +346,7 @@ class BatchBuildingTests(_DbCase):
         art = get_card_art(self.conn, "sv1-25")
         self.assertEqual(art["tags"]["activity"][0]["value"], "sleeping")
         group = self.conn.execute("SELECT tagger_model, prompt_version, vocab_version FROM card_art_groups").fetchone()
-        self.assertEqual(tuple(group), ("claude-sonnet-5-5", tag_card_art.PROMPT_VERSION, "v1"))
+        self.assertEqual(tuple(group), ("claude-sonnet-5-5", tag_card_art.PROMPT_VERSION, "v1.1"))
 
 
 class ArtSearchTests(_DbCase):
