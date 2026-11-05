@@ -21,6 +21,7 @@ import argparse
 import base64
 import hashlib
 import io
+import os
 import json
 import re
 import sqlite3
@@ -48,7 +49,7 @@ from art_search import (  # noqa: E402
     build_pokemon_name_index,
     resolve_pokemon_name,
 )
-from catalog_tools import connect, utc_now  # noqa: E402
+from catalog_tools import apply_schema, connect, utc_now  # noqa: E402
 
 PROMPT_VERSION = "p1"
 DEFAULT_MODEL = "claude-sonnet-5-5"
@@ -340,6 +341,10 @@ def _api(method: str, url: str, payload: dict[str, Any] | None = None, *, timeou
     request = Request(url, data=body, method=method)
     request.add_header("x-api-key", api_key)
     request.add_header("anthropic-version", ANTHROPIC_VERSION)
+    # Keys not scoped to a workspace must name one per request.
+    workspace_id = str(os.environ.get("ANTHROPIC_WORKSPACE_ID") or "").strip()
+    if workspace_id:
+        request.add_header("anthropic-workspace-id", workspace_id)
     if body is not None:
         request.add_header("content-type", "application/json")
     try:
@@ -625,6 +630,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     conn = connect(args.database)
+    # Art tables may not exist yet on a DB the server hasn't migrated.
+    apply_schema(conn, BACKEND_ROOT / "schema.sql")
     out_dir = Path(args.out)
     try:
         if args.collect:
