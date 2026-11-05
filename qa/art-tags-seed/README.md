@@ -56,6 +56,26 @@ Artist, set, rarity and price are deliberately not tagged.
 - `characters`: identifiable humans/trainers (at most 5), else `[]`.
 - `alt_text`: one plain sentence.
 
+## How it was drafted (v1, 2026-11-05)
+
+- Every card was tagged by a Claude Opus 5.5 subagent (`drafted_by: claude-opus-5-5`)
+  that viewed the downscaled (~1000px tall) card image, plus zoomed crops of
+  detailed backgrounds to find cameos. The taggers shared one written guide of
+  conventions (form names such as "Mega Zeraora" or "Paldean Wooper", no
+  trainer-ownership prefix or "ex" in `appearing_pokemon`, how to choose roles
+  and confidence).
+- In the first pass, the image tool rate-limited the parallel taggers, and 252
+  cards were drafted without the image loading. Those lines were discarded and
+  the cards re-tagged from images that actually loaded. The intermediate
+  checkpoint commits `12080685` and `c865f5ca` still contain the discarded
+  lines; use the branch head only.
+- Known soft spots for reviewers:
+  - Small background or cameo species with confidence below 0.6: birds in the
+    sky, crowd scenes, and plushes or photos inside the art.
+  - The guessed names of Team Rocket executives on the sv10 cards.
+  - Settings that the vocab doesn't cover (gym, locker room, junk pile,
+    harbor, sports court) are tagged `scene: other`.
+
 ## Backend mapping
 
 These records map onto the backend tables `card_art_groups` and
