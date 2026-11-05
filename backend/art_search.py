@@ -226,9 +226,13 @@ def build_pokemon_name_index(conn: sqlite3.Connection) -> dict[str, int]:
     """base-name key -> national dex number, from single-dex Pokémon cards in
     the catalog (majority vote per name). Never invents a name."""
     votes: dict[str, dict[int, int]] = {}
+    # The column is empty on synced catalogs; Scrydex's payload still carries
+    # the numbers, so fall back to it.
     rows = conn.execute(
-        "SELECT name, supertype, national_pokedex_numbers_json FROM cards "
-        "WHERE game = ? AND national_pokedex_numbers_json NOT IN ('', '[]')",
+        "SELECT name, supertype, CASE WHEN national_pokedex_numbers_json NOT IN ('', '[]') "
+        "THEN national_pokedex_numbers_json "
+        "ELSE json_extract(source_payload_json, '$.national_pokedex_numbers') END AS dex "
+        "FROM cards WHERE game = ?",
         (GAME_POKEMON,),
     ).fetchall()
     for name, supertype, dex_json in rows:

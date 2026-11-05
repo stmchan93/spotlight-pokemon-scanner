@@ -177,6 +177,20 @@ class ResultParsingTests(_DbCase):
             }},
         }
 
+    def test_name_index_falls_back_to_payload_dex(self) -> None:
+        # Synced catalogs leave the dex column empty; Scrydex's payload has it.
+        upsert_card(
+            self.conn, card_id="umb", name="Umbreon ex", set_name="Prismatic Evolutions", number="161",
+            rarity="Special Illustration Rare", variant="Raw", language="English", supertype="Pokémon",
+            artist="YASHIRO Nanaco", national_pokedex_numbers=[], set_release_date="2025-01-17",
+            image_url="https://img.example/umb.png",
+            source_payload={"id": "umb", "national_pokedex_numbers": [197]},
+        )
+        self.conn.commit()
+        index = art_search.build_pokemon_name_index(self.conn)
+        self.assertEqual(art_search.resolve_pokemon_name("Umbreon", index), 197)
+        self.assertEqual(art_search.resolve_pokemon_name("Pikachu", index), 25)
+
     def test_parse_result_kinds(self) -> None:
         cid, parsed, err = tag_card_art.parse_result_line(self._line("a", {"x": 1}))
         self.assertEqual((cid, parsed, err), ("a", {"x": 1}, None))
