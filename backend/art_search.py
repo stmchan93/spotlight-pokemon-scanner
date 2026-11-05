@@ -21,7 +21,7 @@ from typing import Any, Iterable
 from catalog_tools import RARITY_BUCKET_KEYS, rarity_bucket
 from similar_cards import base_name_key
 
-VOCAB_VERSION = "v1"
+VOCAB_VERSION = "v1.1"
 GAME_POKEMON = "pokemon"
 # Tags below this are stored (for review) but never match a search.
 MIN_CONFIDENCE = 0.6
@@ -66,12 +66,16 @@ ART_FACETS: dict[str, tuple[str, ...]] = {
     ),
     "mood": (
         "cozy", "cute", "funny", "dramatic", "fierce", "peaceful", "spooky",
-        "melancholy", "festive", "majestic",
+        "melancholy", "festive", "majestic", "cheerful", "adventurous",
     ),
     "objects": (
         "food", "drinks", "sweets", "umbrella", "books", "toys", "balloons", "flowers",
         "gifts", "lanterns", "pokeballs", "instruments", "vehicles", "furniture",
-        "bed_pillow", "tableware", "trees", "rocks", "water_splash", "other",
+        "bed_pillow", "tableware", "trees", "rocks", "water_splash",
+        # v1.1: gaps found while drafting the gold set (objects "other" on 58/127 cards).
+        "energy_effects", "crystals_gems", "plants", "items_medicine", "lights_lamps",
+        "containers", "paper_signs", "gym_equipment", "coins_treasure", "weapons",
+        "other",
     ),
     "art_style": (
         "painterly", "watercolor", "pencil_sketch", "anime_cel", "cgi_3d", "papercraft",
