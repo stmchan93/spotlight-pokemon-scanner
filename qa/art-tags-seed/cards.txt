@@ -1,0 +1,706 @@
+me5-114|Mega Zeraora ex
+me5-85|Fomantis
+me5-87|Goldeen
+me5-88|Primarina
+me5-89|Manectric
+me5-90|Slowbro
+me5-91|Dhelmise
+me5-92|Thievul
+me5-93|Bastiodon
+me5-94|Toucannon
+me5-95|Silvally
+me4-116|Mega Greninja ex
+me4-118|Mega Dragalge ex
+me4-119|Cinccino ex
+me4-120|AZ's Tranquility
+me4-87|Chespin
+me4-88|Froakie
+me4-89|Frogadier
+me4-90|Ampharos
+me4-91|Xerneas
+me4-92|Claydol
+me4-93|Crobat
+me4-94|Metang
+me4-95|Sliggoo
+me4-96|Tauros
+me4-97|Watchog
+me3-118|Mega Starmie ex
+me3-119|Mega Clefable ex
+me3-120|Mega Zygarde ex
+me3-121|Meowth ex
+me3-122|Jacinthe
+me3-123|Rosa's Encouragement
+me3-89|Spewpa
+me3-90|Rowlet
+me3-91|Talonflame
+me3-92|Aurorus
+me3-93|Dedenne
+me3-94|Clefairy
+me3-95|Espurr
+me3-96|Probopass
+me3-97|Drapion
+me3-98|Doublade
+me3-99|Raticate
+me2pt5-218|Erika's Tangela
+me2pt5-219|Beautifly
+me2pt5-220|Dustox
+me2pt5-221|Budew
+me2pt5-222|Ethan's Magcargo
+me2pt5-223|Numel
+me2pt5-224|Salazzle
+me2pt5-225|Scorbunny
+me2pt5-226|Psyduck
+me2pt5-227|Snorunt
+me2pt5-228|Weavile
+me2pt5-229|Heliolisk
+me2pt5-230|Vikavolt
+me2pt5-231|Iono's Wattrel
+me2pt5-232|Marill
+me2pt5-233|Misdreavus
+me2pt5-234|Banette
+me2pt5-235|Togekiss
+me2pt5-236|Slurpuff
+me2pt5-237|Hop's Trevenant
+me2pt5-238|Team Rocket's Mimikyu
+me2pt5-239|Team Rocket's Dugtrio
+me2pt5-240|Hitmontop
+me2pt5-241|Medicham
+me2pt5-242|Carbink
+me2pt5-243|Mightyena
+me2pt5-244|Cynthia's Spiritomb
+me2pt5-245|Galarian Obstagoon
+me2pt5-246|Mawile
+me2pt5-247|Dreepy
+me2pt5-248|Drakloak
+me2pt5-249|Larry's Staraptor
+me2pt5-250|Fan Rotom
+me2pt5-272|Mega Meganium ex
+me2pt5-273|Mega Emboar ex
+me2pt5-274|Mega Feraligatr ex
+me2pt5-275|Mega Froslass ex
+me2pt5-276|Pikachu ex
+me2pt5-277|Pikachu ex
+me2pt5-278|Mega Eelektross ex
+me2pt5-279|Iono's Bellibolt ex
+me2pt5-280|Lillie's Clefairy ex
+me2pt5-281|Team Rocket's Mewtwo ex
+me2pt5-282|Mega Diancie ex
+me2pt5-283|Mega Hawlucha ex
+me2pt5-284|Mega Gengar ex
+me2pt5-285|Mega Scrafty ex
+me2pt5-286|N's Zoroark ex
+me2pt5-287|Marnie's Grimmsnarl ex
+me2pt5-288|Fezandipiti ex
+me2pt5-289|Steven's Metagross ex
+me2pt5-290|Mega Dragonite ex
+me2pt5-291|Canari
+me2pt5-292|Iris's Fighting Spirit
+me2pt5-293|Surfer
+me2-100|Zacian
+me2-101|Flygon
+me2-102|Paldean Wooper
+me2-103|Toxtricity
+me2-104|Togedemaru
+me2-105|Wigglytuff
+me2-106|Meowth
+me2-107|Ambipom
+me2-125|Mega Charizard X ex
+me2-126|Rotom ex
+me2-127|Mega Sharpedo ex
+me2-128|Mega Lopunny ex
+me2-129|Dawn
+me2-95|Ludicolo
+me2-96|Nymble
+me2-97|Dewgong
+me2-98|Piplup
+me2-99|Yamper
+me1-133|Bulbasaur
+me1-134|Ivysaur
+me1-135|Exeggutor
+me1-136|Shuckle
+me1-137|Ninjask
+me1-138|Vulpix
+me1-139|Litleo
+me1-140|Snover
+me1-141|Clawitzer
+me1-142|Inteleon
+me1-143|Helioptile
+me1-144|Shedinja
+me1-145|Houndstone
+me1-146|Marshadow
+me1-147|Garganacl
+me1-148|Spiritomb
+me1-149|Shroodle
+me1-150|Steelix
+me1-151|Spearow
+me1-152|Delibird
+me1-153|Gumshoos
+me1-154|Stufful
+me1-177|Mega Venusaur ex
+me1-178|Mega Gardevoir ex
+me1-179|Mega Lucario ex
+me1-180|Mega Absol ex
+me1-181|Mega Latias ex
+me1-182|Mega Kangaskhan ex
+me1-183|Acerola's Mischief
+me1-184|Lillie's Determination
+me1-185|Lt. Surge's Bargain
+me1-186|Wally's Compassion
+rsv10pt5-100|Simisear
+rsv10pt5-101|Litwick
+rsv10pt5-102|Lampent
+rsv10pt5-103|Chandelure
+rsv10pt5-104|Heatmor
+rsv10pt5-105|Oshawott
+rsv10pt5-106|Dewott
+rsv10pt5-107|Samurott
+rsv10pt5-108|Basculin
+rsv10pt5-109|Ducklett
+rsv10pt5-110|Swanna
+rsv10pt5-111|Vanillite
+rsv10pt5-112|Vanillish
+rsv10pt5-113|Vanilluxe
+rsv10pt5-114|Blitzle
+rsv10pt5-115|Zebstrika
+rsv10pt5-116|Joltik
+rsv10pt5-117|Galvantula
+rsv10pt5-118|Stunfisk
+rsv10pt5-119|Woobat
+rsv10pt5-120|Swoobat
+rsv10pt5-121|Sigilyph
+rsv10pt5-122|Yamask
+rsv10pt5-123|Cofagrigus
+rsv10pt5-124|Gothita
+rsv10pt5-125|Gothorita
+rsv10pt5-126|Frillish
+rsv10pt5-127|Roggenrola
+rsv10pt5-128|Boldore
+rsv10pt5-129|Gigalith
+rsv10pt5-130|Sawk
+rsv10pt5-132|Archeops
+rsv10pt5-133|Mienfoo
+rsv10pt5-134|Mienshao
+rsv10pt5-135|Terrakion
+rsv10pt5-136|Purrloin
+rsv10pt5-137|Liepard
+rsv10pt5-138|Scraggy
+rsv10pt5-139|Scrafty
+rsv10pt5-140|Trubbish
+rsv10pt5-141|Garbodor
+rsv10pt5-142|Zorua
+rsv10pt5-143|Zoroark
+rsv10pt5-144|Vullaby
+rsv10pt5-145|Mandibuzz
+rsv10pt5-146|Deino
+rsv10pt5-147|Zweilous
+rsv10pt5-148|Ferroseed
+rsv10pt5-149|Ferrothorn
+rsv10pt5-150|Durant
+rsv10pt5-151|Druddigon
+rsv10pt5-152|Patrat
+rsv10pt5-153|Watchog
+rsv10pt5-154|Lillipup
+rsv10pt5-155|Herdier
+rsv10pt5-156|Stoutland
+rsv10pt5-165|Whimsicott ex
+rsv10pt5-166|Reshiram ex
+rsv10pt5-167|Keldeo ex
+rsv10pt5-168|Jellicent ex
+rsv10pt5-169|Hydreigon ex
+rsv10pt5-170|Bouffalant ex
+rsv10pt5-171|Hilda
+rsv10pt5-87|Sewaddle
+rsv10pt5-88|Swadloon
+rsv10pt5-89|Leavanny
+rsv10pt5-90|Cottonee
+rsv10pt5-91|Deerling
+rsv10pt5-92|Sawsbuck
+rsv10pt5-93|Shelmet
+rsv10pt5-94|Accelgor
+rsv10pt5-95|Virizion
+rsv10pt5-96|Tepig
+rsv10pt5-97|Pignite
+rsv10pt5-98|Emboar
+rsv10pt5-99|Pansear
+zsv10pt5-100|Volcarona
+zsv10pt5-101|Panpour
+zsv10pt5-102|Simipour
+zsv10pt5-103|Tympole
+zsv10pt5-104|Palpitoad
+zsv10pt5-105|Seismitoad
+zsv10pt5-106|Tirtouga
+zsv10pt5-107|Carracosta
+zsv10pt5-108|Alomomola
+zsv10pt5-109|Cubchoo
+zsv10pt5-110|Beartic
+zsv10pt5-111|Cryogonal
+zsv10pt5-112|Emolga
+zsv10pt5-113|Tynamo
+zsv10pt5-114|Eelektrik
+zsv10pt5-115|Eelektross
+zsv10pt5-116|Munna
+zsv10pt5-117|Musharna
+zsv10pt5-118|Solosis
+zsv10pt5-119|Duosion
+zsv10pt5-120|Elgyem
+zsv10pt5-121|Beheeyem
+zsv10pt5-122|Golett
+zsv10pt5-123|Golurk
+zsv10pt5-124|Drilbur
+zsv10pt5-125|Timburr
+zsv10pt5-126|Gurdurr
+zsv10pt5-127|Conkeldurr
+zsv10pt5-128|Throh
+zsv10pt5-129|Dwebble
+zsv10pt5-130|Crustle
+zsv10pt5-131|Landorus
+zsv10pt5-132|Venipede
+zsv10pt5-133|Whirlipede
+zsv10pt5-134|Scolipede
+zsv10pt5-135|Sandile
+zsv10pt5-136|Krokorok
+zsv10pt5-137|Krookodile
+zsv10pt5-138|Escavalier
+zsv10pt5-139|Klink
+zsv10pt5-140|Klang
+zsv10pt5-141|Klinklang
+zsv10pt5-142|Pawniard
+zsv10pt5-143|Bisharp
+zsv10pt5-144|Cobalion
+zsv10pt5-145|Axew
+zsv10pt5-146|Fraxure
+zsv10pt5-147|Haxorus
+zsv10pt5-148|Pidove
+zsv10pt5-149|Tranquill
+zsv10pt5-150|Unfezant
+zsv10pt5-151|Audino
+zsv10pt5-152|Minccino
+zsv10pt5-153|Cinccino
+zsv10pt5-154|Rufflet
+zsv10pt5-155|Braviary
+zsv10pt5-164|Serperior ex
+zsv10pt5-165|Kyurem ex
+zsv10pt5-166|Zekrom ex
+zsv10pt5-167|Meloetta ex
+zsv10pt5-168|Excadrill ex
+zsv10pt5-169|Genesect ex
+zsv10pt5-170|N's Plan
+zsv10pt5-87|Snivy
+zsv10pt5-88|Servine
+zsv10pt5-89|Pansage
+zsv10pt5-90|Simisage
+zsv10pt5-91|Petilil
+zsv10pt5-92|Lilligant
+zsv10pt5-93|Maractus
+zsv10pt5-94|Karrablast
+zsv10pt5-95|Foongus
+zsv10pt5-96|Amoonguss
+zsv10pt5-97|Darumaka
+zsv10pt5-98|Darmanitan
+zsv10pt5-99|Larvesta
+sv10-183|Yanma
+sv10-184|Cynthia's Roserade
+sv10-185|Shaymin
+sv10-186|Crustle
+sv10-187|Team Rocket's Spidops
+sv10-188|Hydrapple
+sv10-189|Rapidash
+sv10-190|Ethan's Typhlosion
+sv10-191|Team Rocket's Houndoom
+sv10-192|Blaziken
+sv10-193|Misty's Psyduck
+sv10-194|Misty's Lapras
+sv10-195|Clamperl
+sv10-196|Electrike
+sv10-197|Rotom
+sv10-198|Team Rocket's Orbeetle
+sv10-199|Team Rocket's Weezing
+sv10-200|Team Rocket's Murkrow
+sv10-201|Zamazenta
+sv10-202|Team Rocket's Raticate
+sv10-203|Team Rocket's Meowth
+sv10-204|Kangaskhan
+sv10-205|Arven's Greedent
+sv10-228|Yanmega ex
+sv10-229|Team Rocket's Moltres ex
+sv10-230|Ethan's Ho-Oh ex
+sv10-231|Team Rocket's Mewtwo ex
+sv10-232|Cynthia's Garchomp ex
+sv10-233|Team Rocket's Nidoking ex
+sv10-234|Team Rocket's Crobat ex
+sv10-235|Arven's Mabosstiff ex
+sv10-236|Ethan's Adventure
+sv10-237|Team Rocket's Ariana
+sv10-238|Team Rocket's Giovanni
+sv9-160|Maractus
+sv9-161|Articuno
+sv9-162|Wailord
+sv9-163|Iono's Kilowattrel
+sv9-164|Lillie's Ribombee
+sv9-165|Swinub
+sv9-166|Lycanroc
+sv9-167|N's Reshiram
+sv9-168|Furret
+sv9-169|Noibat
+sv9-170|Hop's Wooloo
+sv9-182|Volcanion ex
+sv9-183|Iono's Bellibolt ex
+sv9-184|Lillie's Clefairy ex
+sv9-185|N's Zoroark ex
+sv9-186|Hop's Zacian ex
+sv9-187|Salamence ex
+sv8pt5-144|Leafeon ex
+sv8pt5-145|Teal Mask Ogerpon ex
+sv8pt5-146|Flareon ex
+sv8pt5-147|Ceruledge ex
+sv8pt5-148|Hearthflame Mask Ogerpon ex
+sv8pt5-149|Vaporeon ex
+sv8pt5-150|Glaceon ex
+sv8pt5-151|Palafin ex
+sv8pt5-152|Wellspring Mask Ogerpon ex
+sv8pt5-153|Jolteon ex
+sv8pt5-154|Iron Hands ex
+sv8pt5-155|Espeon ex
+sv8pt5-156|Sylveon ex
+sv8pt5-157|Iron Valiant ex
+sv8pt5-158|Iron Crown ex
+sv8pt5-159|Sandy Shocks ex
+sv8pt5-160|Cornerstone Mask Ogerpon ex
+sv8pt5-161|Umbreon ex
+sv8pt5-162|Roaring Moon ex
+sv8pt5-163|Pecharunt ex
+sv8pt5-164|Gholdengo ex
+sv8pt5-165|Dragapult ex
+sv8pt5-166|Raging Bolt ex
+sv8pt5-167|Eevee ex
+sv8pt5-168|Bloodmoon Ursaluna ex
+sv8pt5-169|Terapagos ex
+sv8pt5-170|Amarys
+sv8pt5-171|Crispin
+sv8pt5-172|Drayton
+sv8pt5-173|Janine's Secret Art
+sv8pt5-174|Kieran
+sv8pt5-175|Lacey
+sv8-192|Exeggcute
+sv8-193|Vivillon
+sv8-194|Shiinotic
+sv8-195|Castform Sunny Form
+sv8-196|Larvesta
+sv8-197|Ceruledge
+sv8-198|Feebas
+sv8-199|Spheal
+sv8-200|Bruxish
+sv8-201|Cetitan
+sv8-202|Stunfisk
+sv8-203|Latios
+sv8-204|Mesprit
+sv8-205|Phanpy
+sv8-206|Vibrava
+sv8-207|Clobbopus
+sv8-208|Alolan Dugtrio
+sv8-209|Skarmory
+sv8-210|Flapple
+sv8-211|Appletun
+sv8-212|Slakoth
+sv8-213|Kecleon
+sv8-214|Braviary
+sv8-236|Durant ex
+sv8-237|Milotic ex
+sv8-238|Pikachu ex
+sv8-239|Latias ex
+sv8-240|Hydreigon ex
+sv8-241|Archaludon ex
+sv8-242|Alolan Exeggutor ex
+sv8-243|Clemont's Quick Wit
+sv8-244|Drayton
+sv8-245|Jasmine's Gaze
+sv8-246|Lisia's Appeal
+sv7-143|Bulbasaur
+sv7-144|Ledian
+sv7-145|Lileep
+sv7-146|Turtonator
+sv7-147|Raboot
+sv7-148|Squirtle
+sv7-149|Crabominable
+sv7-150|Joltik
+sv7-151|Zeraora
+sv7-152|Milcery
+sv7-153|Meditite
+sv7-154|Gulpin
+sv7-155|Archaludon
+sv7-167|Hydrapple ex
+sv7-168|Galvantula ex
+sv7-169|Dachsbun ex
+sv7-170|Terapagos ex
+sv7-171|Briar
+sv7-172|Lacey
+sv6pt5-65|Tapu Bulu
+sv6pt5-66|Houndoom
+sv6pt5-67|Horsea
+sv6pt5-68|Duskull
+sv6pt5-69|Dusclops
+sv6pt5-70|Dusknoir
+sv6pt5-71|Cresselia
+sv6pt5-72|Munkidori
+sv6pt5-73|Fezandipiti
+sv6pt5-74|Okidogi
+sv6pt5-75|Zorua
+sv6pt5-76|Cufant
+sv6pt5-77|Fraxure
+sv6pt5-78|Persian
+sv6pt5-79|Bewear
+sv6pt5-90|Okidogi ex
+sv6pt5-91|Munkidori ex
+sv6pt5-92|Fezandipiti ex
+sv6pt5-93|Pecharunt ex
+sv6pt5-94|Cassiopeia
+sv6-168|Pinsir
+sv6-169|Sunflora
+sv6-170|Dipplin
+sv6-171|Poltchageist
+sv6-172|Torkoal
+sv6-173|Infernape
+sv6-174|Froslass
+sv6-175|Phione
+sv6-176|Cramorant
+sv6-177|Heliolisk
+sv6-178|Wattrel
+sv6-179|Chimecho
+sv6-180|Enamorus
+sv6-181|Hisuian Growlithe
+sv6-182|Probopass
+sv6-183|Timburr
+sv6-184|Lairon
+sv6-185|Applin
+sv6-186|Tatsugiri
+sv6-187|Chansey
+sv6-188|Eevee
+sv6-210|Sinistcha ex
+sv6-211|Teal Mask Ogerpon ex
+sv6-212|Hearthflame Mask Ogerpon ex
+sv6-213|Wellspring Mask Ogerpon ex
+sv6-214|Greninja ex
+sv6-215|Cornerstone Mask Ogerpon ex
+sv6-216|Bloodmoon Ursaluna ex
+sv6-217|Carmine
+sv6-218|Kieran
+sv6-219|Lana's Aid
+sv6-220|Perrin
+sv5-163|Shiftry
+sv5-164|Grotle
+sv5-165|Deerling
+sv5-166|Sawsbuck
+sv5-167|Litten
+sv5-168|Snom
+sv5-169|Charjabug
+sv5-170|Bronzor
+sv5-171|Reuniclus
+sv5-172|Cutiefly
+sv5-173|Relicanth
+sv5-174|Excadrill
+sv5-175|Mudsdale
+sv5-176|Arbok
+sv5-177|Gastly
+sv5-178|Metagross
+sv5-179|Meltan
+sv5-180|Lickitung
+sv5-181|Chatot
+sv5-182|Minccino
+sv5-183|Cinccino
+sv5-184|Drampa
+sv5-203|Iron Leaves ex
+sv5-204|Gouging Fire ex
+sv5-205|Walking Wake ex
+sv5-206|Iron Crown ex
+sv5-207|Iron Boulder ex
+sv5-208|Raging Bolt ex
+sv5-209|Bianca's Devotion
+sv5-210|Eri
+sv5-211|Morty's Conviction
+sv5-212|Salvatore
+sv4pt5-224|Wugtrio
+sv4pt5-225|Palafin
+sv4pt5-226|Pawmi
+sv4pt5-232|Mew ex
+sv4pt5-233|Gardevoir ex
+sv4pt5-234|Charizard ex
+sv4pt5-235|Arven
+sv4pt5-236|Clive
+sv4pt5-237|Iono
+sv4pt5-238|Nemona
+sv4pt5-239|Penny
+sv4-183|Crustle
+sv4-184|Dottler
+sv4-185|Toedscruel
+sv4-186|Magby
+sv4-187|Iron Moth
+sv4-188|Snorunt
+sv4-189|Mantyke
+sv4-190|Vanillish
+sv4-191|Wimpod
+sv4-192|Veluza
+sv4-193|Plusle
+sv4-194|Minun
+sv4-195|Blitzle
+sv4-196|Joltik
+sv4-197|Espathra
+sv4-198|Gimmighoul
+sv4-199|Groudon
+sv4-200|Mienshao
+sv4-201|Minior
+sv4-202|Garganacl
+sv4-203|Slither Wing
+sv4-204|Garbodor
+sv4-205|Yveltal
+sv4-206|Morpeko
+sv4-207|Brute Bonnet
+sv4-208|Steelix
+sv4-209|Ferrothorn
+sv4-210|Aegislash
+sv4-211|Aipom
+sv4-212|Loudred
+sv4-213|Swablu
+sv4-214|Porygon-Z
+sv4-215|Cyclizar
+sv4-216|Iron Jugulis
+sv4-245|Garchomp ex
+sv4-246|Golisopod ex
+sv4-247|Tapu Koko ex
+sv4-248|Iron Hands ex
+sv4-249|Iron Valiant ex
+sv4-250|Sandy Shocks ex
+sv4-251|Roaring Moon ex
+sv4-252|Gholdengo ex
+sv4-253|Altaria ex
+sv4-254|Mela
+sv4-255|Parasol Lady
+sv4-256|Professor Sada's Vitality
+sv4-257|Professor Turo's Scenario
+sv4-258|Rika
+sv4-259|Tulip
+sv3pt5-166|Bulbasaur
+sv3pt5-167|Ivysaur
+sv3pt5-168|Charmander
+sv3pt5-169|Charmeleon
+sv3pt5-170|Squirtle
+sv3pt5-171|Wartortle
+sv3pt5-172|Caterpie
+sv3pt5-173|Pikachu
+sv3pt5-174|Nidoking
+sv3pt5-175|Psyduck
+sv3pt5-176|Poliwhirl
+sv3pt5-177|Machoke
+sv3pt5-178|Tangela
+sv3pt5-179|Mr. Mime
+sv3pt5-180|Omanyte
+sv3pt5-181|Dragonair
+sv3pt5-198|Venusaur ex
+sv3pt5-199|Charizard ex
+sv3pt5-200|Blastoise ex
+sv3pt5-201|Alakazam ex
+sv3pt5-202|Zapdos ex
+sv3pt5-203|Erika's Invitation
+sv3pt5-204|Giovanni's Charisma
+sv3-198|Gloom
+sv3-199|Ninetales
+sv3-200|Palafin
+sv3-201|Bellibolt
+sv3-202|Cleffa
+sv3-203|Larvitar
+sv3-204|Houndour
+sv3-205|Scizor
+sv3-206|Varoom
+sv3-207|Pidgey
+sv3-208|Pidgeotto
+sv3-209|Lechonk
+sv3-222|Eiscue ex
+sv3-223|Charizard ex
+sv3-224|Revavroom ex
+sv3-225|Pidgeot ex
+sv3-226|Geeta
+sv3-227|Poppy
+sv2-194|Heracross
+sv2-195|Tropius
+sv2-196|Sprigatito
+sv2-197|Floragato
+sv2-198|Bramblin
+sv2-199|Fletchinder
+sv2-200|Pyroar
+sv2-201|Fuecoco
+sv2-202|Crocalor
+sv2-203|Magikarp
+sv2-204|Marill
+sv2-205|Eiscue
+sv2-206|Quaxly
+sv2-207|Quaxwell
+sv2-208|Frigibax
+sv2-209|Arctibax
+sv2-210|Baxcalibur
+sv2-211|Raichu
+sv2-212|Mismagius
+sv2-213|Gothorita
+sv2-214|Sandygast
+sv2-215|Rabsca
+sv2-216|Tinkatink
+sv2-217|Tinkatuff
+sv2-218|Paldean Tauros
+sv2-219|Sudowoodo
+sv2-220|Nacli
+sv2-221|Paldean Wooper
+sv2-222|Tyranitar
+sv2-223|Grafaiai
+sv2-224|Orthworm
+sv2-225|Rookidee
+sv2-226|Maushold
+sv2-227|Flamigo
+sv2-228|Farigiraf
+sv2-229|Dudunsparce
+sv2-256|Meowscarada ex
+sv2-257|Wo-Chien ex
+sv2-258|Skeledirge ex
+sv2-259|Chi-Yu ex
+sv2-260|Quaquaval ex
+sv2-261|Chien-Pao ex
+sv2-262|Tinkaton ex
+sv2-263|Ting-Lu ex
+sv2-264|Squawkabilly ex
+sv2-265|Boss's Orders (Ghetsis)
+sv2-266|Dendra
+sv2-267|Giacomo
+sv2-268|Grusha
+sv2-269|Iono
+sv2-270|Saguaro
+sv1-199|Tarountula
+sv1-200|Dolliv
+sv1-201|Toedscool
+sv1-202|Scovillain
+sv1-203|Armarouge
+sv1-204|Slowpoke
+sv1-205|Clauncher
+sv1-206|Wiglett
+sv1-207|Dondozo
+sv1-208|Pachirisu
+sv1-209|Pawmot
+sv1-210|Drowzee
+sv1-211|Ralts
+sv1-212|Kirlia
+sv1-213|Fidough
+sv1-214|Greavard
+sv1-215|Riolu
+sv1-216|Sandile
+sv1-217|Klawf
+sv1-218|Mabosstiff
+sv1-219|Bombirdier
+sv1-220|Kingambit
+sv1-221|Starly
+sv1-222|Skwovet
+sv1-243|Spidops ex
+sv1-244|Miraidon ex
+sv1-245|Gardevoir ex
+sv1-246|Great Tusk ex
+sv1-247|Koraidon ex
+sv1-248|Iron Treads ex
+sv1-249|Arven
+sv1-250|Jacq
+sv1-251|Miriam
+sv1-252|Penny

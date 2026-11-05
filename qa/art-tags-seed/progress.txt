@@ -1,0 +1,8 @@
+# Art-tag IR/SIR seed progress (vocab v1)
+# Card order: cards.txt (706 cards). Results: ir-seed-v1.jsonl.
+# Resume from the first card in cards.txt whose card_id is not yet in ir-seed-v1.jsonl.
+status: blocked
+done: 0 / 706
+next_index: 0
+next_card: me5-114
+blocker: images.scrydex.com is denied by this cloud session's network policy (proxy 403 on CONNECT, 2026-11-05). No cards could be viewed, so none were tagged. Allow that host in the environment's network settings and rerun.
