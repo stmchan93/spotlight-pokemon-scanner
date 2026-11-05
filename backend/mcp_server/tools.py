@@ -3,19 +3,19 @@
 Every public method takes the caller's `owner_user_id` explicitly and only reads
 that owner's account rows. Catalog/pricing reads come from SQLite through the
 existing SpotlightScanService helpers (no provider calls). Prices are USD or
-null: a summary still in JPY (no stored FX rate) is reported as no price.
+null: a JPY-only card (native yen, or yen FX-converted for display) has no
+price here.
 """
 
 from __future__ import annotations
 
 import hashlib
-import importlib
 import json
-import threading
 from datetime import datetime, timedelta, timezone
-from types import ModuleType
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import quote
+
+import art_search
 
 from catalog_tools import (
     PSA_GRADE_PRICING_MODE,
@@ -23,8 +23,8 @@ from catalog_tools import (
     _MANUAL_SEARCH_POOL_CEILING,
     _normalized_variant_label,
     _variant_match_key,
+    _chunked_sql_values,
     card_by_id,
-    card_tcgplayer_id,
     cards_by_ids,
     main_raw_cell_points_by_variant_date,
     price_snapshot_row,
@@ -69,33 +69,22 @@ DECK_CONDITION_CODES = {
     "damaged": "DMG",
 }
 
-ART_UNAVAILABLE_MESSAGE = (
-    "Art search is unavailable right now. Retry without art filters "
-    "(pokemon, pokemon_role, scene, weather_time, activity, mood, art_style, palette, theme); "
-    "use text for card names."
-)
-
-
-def load_art_search() -> ModuleType | None:
-    """`art_search` ships separately; absent or broken means art filters are off."""
-    try:
-        return importlib.import_module("art_search")
-    except Exception:  # noqa: BLE001 - any import failure is "unavailable"
-        return None
+# Art facets the CardFilter can filter on (list_facets hides the rest).
+FILTERABLE_FACETS = art_search.LIST_FILTER_FACETS
 
 
 def usd_price(pricing: dict[str, Any] | None) -> tuple[float | None, str | None]:
-    """(price, source) when the summary is in USD, else (None, None). Never yen."""
+    """(price, source) for a native-USD summary, else (None, None).
+
+    Never yen, and never yen FX-converted to USD: a JPY-only card is unpriced."""
     if not isinstance(pricing, dict):
         return None, None
-    if str(pricing.get("currencyCode") or "").strip().upper() != "USD":
+    if str(pricing.get("currencyCode") or "").strip().upper() != "USD" or pricing.get("displayIsConverted"):
         return None, None
     for key in ("market", "mid", "low", "trend"):
         value = pricing.get(key)
         if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
             source = str(pricing.get("source") or pricing.get("provider") or "").strip() or "ekalight"
-            if pricing.get("displayIsConverted"):
-                source = f"{source}_fx_converted"
             return round(float(value), 2), source
     return None, None
 
@@ -105,17 +94,8 @@ def _round_money(value: float | None) -> float | None:
 
 
 class CollectionTools:
-    def __init__(
-        self,
-        service: Any,
-        *,
-        art_search_loader: Callable[[], ModuleType | None] = load_art_search,
-        app_url_scheme: str = "spotlight",
-    ) -> None:
+    def __init__(self, service: Any, *, app_url_scheme: str = "spotlight") -> None:
         self.service = service
-        self._art_search_loader = art_search_loader
-        self._art_module: ModuleType | None = None
-        self._art_lock = threading.Lock()
         self.app_url_scheme = app_url_scheme.strip().rstrip(":/") or "spotlight"
 
     @property
@@ -126,45 +106,50 @@ class CollectionTools:
     # Shared helpers
     # ------------------------------------------------------------------
 
-    def _art(self, *, required: bool) -> ModuleType | None:
-        with self._art_lock:
-            if self._art_module is None:
-                self._art_module = self._art_search_loader()
-            module = self._art_module
-        if module is None and required:
-            raise ToolInputError(ART_UNAVAILABLE_MESSAGE)
-        return module
-
     def _art_call(self, fn_name: str, *args: Any, **kwargs: Any) -> Any:
-        module = self._art(required=True)
-        art_filter_error = getattr(module, "ArtFilterError", None)
         try:
-            return getattr(module, fn_name)(*args, **kwargs)
-        except Exception as error:  # noqa: BLE001
-            if isinstance(art_filter_error, type) and isinstance(error, art_filter_error):
-                raise ToolInputError(str(error)) from None
-            raise
+            return getattr(art_search, fn_name)(*args, **kwargs)
+        except art_search.ArtFilterError as error:
+            raise ToolInputError(str(error)) from None
 
     def app_url(self, card_id: str) -> str:
         # RN route: app/(stack)/cards/[cardId].tsx — groups are not in the URL.
         return f"{self.app_url_scheme}://cards/{quote(str(card_id), safe='')}"
 
-    def _card_summary(self, card: dict[str, Any], pricing: dict[str, Any] | None) -> dict[str, Any]:
+    def _card_summary(
+        self, card: dict[str, Any], pricing: dict[str, Any] | None, *, tcgplayer_id: str | None = None
+    ) -> dict[str, Any]:
+        # Full internal shape; policy.ResponsePolicy decides what leaves the server.
         price, source = usd_price(pricing)
         game = card.get("game") or GAME
         return {
             "card_id": card["id"],
             "name": card.get("name"),
             "set": card.get("setName"),
+            "set_code": card.get("setPtcgoCode") or card.get("setID"),
             "number": card.get("number"),
             "language": card.get("language"),
             "rarity_bucket": card.get("rarityBucket") or rarity_bucket(card.get("rarity"), game),
             "artist": card.get("artist"),
-            "image_small_url": card.get("imageSmallURL"),
+            "image_small_url": card.get("imageSmallURL") or card.get("imageURL"),
             "price_usd": price,
             "price_source": source,
             "app_url": self.app_url(card["id"]),
+            "tcgplayer_id": tcgplayer_id,
         }
+
+    def _tcgplayer_ids(self, card_ids: list[str]) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for chunk in _chunked_sql_values(card_ids):
+            rows = self.conn.execute(
+                f"SELECT id, tcgplayer_id FROM cards WHERE id IN ({','.join('?' for _ in chunk)})",
+                tuple(chunk),
+            ).fetchall()
+            for row in rows:
+                value = str(row[1] or "").strip()
+                if value:
+                    out[str(row[0])] = value
+        return out
 
     def _raw_pricing_by_id(self, card_ids: list[str]) -> dict[str, dict[str, Any] | None]:
         service = self.service
@@ -191,7 +176,11 @@ class CollectionTools:
             cards = cards_by_ids(self.conn, ids, include_source_payload=False)
         present = [card_id for card_id in ids if card_id in cards]
         pricing = self._raw_pricing_by_id(present)
-        return {card_id: self._card_summary(cards[card_id], pricing.get(card_id)) for card_id in present}
+        tcg_ids = self._tcgplayer_ids(present)
+        return {
+            card_id: self._card_summary(cards[card_id], pricing.get(card_id), tcgplayer_id=tcg_ids.get(card_id))
+            for card_id in present
+        }
 
     def _owned_card_ids(self, owner_user_id: str, *, collection_id: str | None = None) -> set[str]:
         # Ownership counts hidden collections too (you still own those cards);
@@ -371,7 +360,11 @@ class CollectionTools:
     def list_facets(self, owner_user_id: str) -> dict[str, Any]:
         del owner_user_id  # catalog-wide; no account data
         result = self._art_call("list_facets", self.conn, game=GAME)
-        return {"facets": result.get("facets") or {}, "themes": result.get("themes") or []}
+        facets = result.get("facets") or {}
+        return {
+            "facets": {facet: facets.get(facet) or [] for facet in FILTERABLE_FACETS},
+            "themes": result.get("themes") or [],
+        }
 
     def search_cards(
         self,
@@ -503,20 +496,14 @@ class CollectionTools:
                 return None
         return None
 
-    def get_card(self, owner_user_id: str, card_id: str) -> dict[str, Any]:
+    def get_card(self, owner_user_id: str, card_id: str, *, include_holdings: bool = True) -> dict[str, Any]:
         card_id = str(card_id or "").strip()
         card = card_by_id(self.conn, card_id) if card_id else None
         if card is None:
             raise ToolInputError(f"Card not found: {card_id or '(empty)'}.")
         summary = self._summaries([card_id], cards={card_id: card})[card_id]
 
-        art = None
-        art_module = self._art(required=False)
-        if art_module is not None:
-            try:
-                art = art_module.get_card_art(self.conn, card_id)
-            except Exception:  # noqa: BLE001 - art is decorative on this tool
-                art = None
+        art = art_search.get_card_art(self.conn, card_id)
 
         similar_payload = build_similar_cards_payload(self.conn, card_id)
         similar: list[str] = []
@@ -533,15 +520,17 @@ class CollectionTools:
             **summary,
             "tags": (art or {}).get("tags"),
             "alt_text": (art or {}).get("alt_text"),
-            "art_search_available": art_module is not None,
             "similar": similar[:MAX_SIMILAR],
             "language_pair": counterpart["counterpart_card_id"] if counterpart is not None else None,
-            "my_holdings": self._holdings_for_card(owner_user_id, card_id),
+            "my_holdings": self._holdings_for_card(owner_user_id, card_id) if include_holdings else [],
         }
 
-    def _holding_summary(self, entry: dict[str, Any], card: dict[str, Any]) -> dict[str, Any]:
+    def _holding_summary(
+        self, entry: dict[str, Any], card: dict[str, Any], *, tcgplayer_id: str | None = None
+    ) -> dict[str, Any]:
+        # The entry's own pricing: graded holdings carry their slab price.
         pricing = (entry.get("card") or {}).get("pricing")
-        summary = self._card_summary(card, pricing)
+        summary = self._card_summary(card, pricing, tcgplayer_id=tcgplayer_id)
         quantity = int(entry.get("quantity") or 0)
         slab = entry.get("slabContext") or {}
         grader = slab.get("grader")
@@ -577,7 +566,7 @@ class CollectionTools:
 
     def _owner_holdings(
         self, owner_user_id: str, *, collection_id: str | None
-    ) -> tuple[list[tuple[dict[str, Any], dict[str, Any]]], bool]:
+    ) -> tuple[list[tuple[dict[str, Any], dict[str, Any]]], dict[str, str], bool]:
         """[(deck entry payload, catalog card)] via the app's own cached inventory
         compute. Un-scoped reads exclude hidden collections, like "All Collection"."""
         payload = self.service.deck_entries_for_owner(
@@ -598,7 +587,7 @@ class CollectionTools:
             for entry, card_id in zip(entries, card_ids)
             if card_id in cards
         ]
-        return pairs, len(entries) >= MAX_HOLDINGS_READ
+        return pairs, self._tcgplayer_ids(list(cards)), len(entries) >= MAX_HOLDINGS_READ
 
     def get_my_collection(
         self,
@@ -618,7 +607,7 @@ class CollectionTools:
         query_hash = self._query_hash(card_filter, collection_id, sort)
         offset = self._offset_from_cursor(cursor, kind="collection", query_hash=query_hash)
 
-        pairs, truncated = self._owner_holdings(owner_user_id, collection_id=collection_id)
+        pairs, tcg_ids, truncated = self._owner_holdings(owner_user_id, collection_id=collection_id)
         if uses_art_filters(card_filter):
             owned_ids = {card["id"] for _, card in pairs}
             art_ids, _, _ = self._art_ids(
@@ -633,7 +622,7 @@ class CollectionTools:
         else:
             pairs = [(entry, card) for entry, card in pairs if self._matches_card_meta(card, card_filter)]
 
-        items = [self._holding_summary(entry, card) for entry, card in pairs]
+        items = [self._holding_summary(entry, card, tcgplayer_id=tcg_ids.get(card["id"])) for entry, card in pairs]
         items = [item for item in items if self._matches_price(item["price_usd"], card_filter)]
         if sort == "value_desc":
             items = self._sort_by_price(items, descending=True, key="value_usd")
@@ -659,7 +648,7 @@ class CollectionTools:
         if range_key not in PORTFOLIO_RANGES:
             raise ToolInputError(f"range must be one of {', '.join(PORTFOLIO_RANGES)}.")
         start_date = (datetime.now(timezone.utc).date() - timedelta(days=PORTFOLIO_RANGES[range_key])).isoformat()
-        pairs, truncated = self._owner_holdings(owner_user_id, collection_id=None)
+        pairs, _, truncated = self._owner_holdings(owner_user_id, collection_id=None)
 
         holdings: list[dict[str, Any]] = []
         requests: list[dict[str, Any]] = []
@@ -755,11 +744,28 @@ class CollectionTools:
         owned_ids = self._owned_card_ids(owner_user_id, collection_id=collection_id)
 
         if uses_art_filters(card_filter):
-            pool_ids, total_matching, capped = self._art_ids(
-                card_filter, owned_card_ids=None, owned_mode="any", sort="price_asc", max_ids=MISSING_POOL_SIZE
+            # Ask art_search for the not-owned side directly so the pool cap only
+            # bounds what we return, and count the owned side exactly.
+            pool_ids, missing_total, capped = self._art_ids(
+                card_filter,
+                owned_card_ids=owned_ids,
+                owned_mode="not_owned",
+                sort="price_asc",
+                max_ids=MISSING_POOL_SIZE,
+            )
+            owned_side = self._art_call(
+                "search_card_ids",
+                self.conn,
+                card_filter,
+                owned_card_ids=owned_ids,
+                owned_mode="owned",
+                sort="relevance",
+                limit=1,
             )
             summaries = self._summaries(pool_ids)
             matching = [summaries[card_id] for card_id in pool_ids if card_id in summaries]
+            total_matching = missing_total + int(owned_side.get("total_estimate") or 0)
+            owned_count = int(owned_side.get("total_estimate") or 0)
         else:
             pool, capped = self._catalog_pool(card_filter, size=MISSING_POOL_SIZE)
             cards = {card["id"]: card for card in pool}
@@ -767,8 +773,7 @@ class CollectionTools:
             matching = [summaries[card["id"]] for card in pool if card["id"] in summaries]
             matching = [item for item in matching if self._matches_price(item["price_usd"], card_filter)]
             total_matching = len(matching)
-
-        owned_count = sum(1 for item in matching if item["card_id"] in owned_ids)
+            owned_count = sum(1 for item in matching if item["card_id"] in owned_ids)
         missing = self._sort_by_price(
             [item for item in matching if item["card_id"] not in owned_ids], descending=False
         )
@@ -796,9 +801,7 @@ class CollectionTools:
                 "language": item["language"],
                 "game": GAME,
             }
-            page.append(
-                {**item, "buy_links": buy_links(card, tcgplayer_product_id=card_tcgplayer_id(self.conn, item["card_id"]))}
-            )
+            page.append({**item, "buy_links": buy_links(card, tcgplayer_product_id=item.get("tcgplayer_id"))})
         return {
             "missing": page,
             "missing_count": len(missing),

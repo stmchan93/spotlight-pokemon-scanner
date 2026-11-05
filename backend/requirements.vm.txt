@@ -8,3 +8,5 @@ python-dotenv==1.2.2
 safetensors==0.7.0
 transformers==5.5.4
 onnxruntime==1.26.0
+# Remote MCP server (backend/mcp_server, Streamable HTTP).
+mcp==2.3.0

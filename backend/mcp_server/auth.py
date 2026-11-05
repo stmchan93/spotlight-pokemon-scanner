@@ -1,15 +1,24 @@
-"""Resource-server side of MCP auth: verify Supabase-issued bearer JWTs.
+"""Resource-server side of MCP auth + process config.
 
-Tokens are checked with the existing SupabaseRequestAuthenticator (JWKS /
-HS secret, issuer = <SUPABASE_URL>/auth/v1) with auth REQUIRED and no dev
-fallback user. Nothing here creates users or touches sign-up.
+User tier: Supabase-issued bearer JWTs, checked with the existing
+SupabaseRequestAuthenticator (JWKS / HS secret, issuer = <SUPABASE_URL>/auth/v1)
+with auth REQUIRED and no dev fallback user. Nothing here creates users or
+touches sign-up.
+
+Public tier (future): opaque API keys, stored only as SHA-256 hashes mapped to
+a plan name; each plan has its own quota. No billing here.
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
+
+from mcp_server.policy import TIER_PUBLIC, TIER_USER, policy_for_tier
 
 from request_auth import RequestAuthError, RequestIdentity, SupabaseRequestAuthenticator
 
@@ -33,6 +42,33 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+DEFAULT_PLAN_QUOTAS = {"free": (30, 500)}
+
+
+def _parse_api_keys(raw: str) -> dict[str, str]:
+    """"<sha256hex>:<plan>,..." -> {sha256hex: plan}."""
+    out: dict[str, str] = {}
+    for item in raw.split(","):
+        digest, _, plan = item.strip().partition(":")
+        digest = digest.strip().lower()
+        if len(digest) == 64 and all(ch in "0123456789abcdef" for ch in digest):
+            out[digest] = plan.strip() or "free"
+    return out
+
+
+def _parse_plan_quotas(raw: str) -> dict[str, tuple[int, int]]:
+    """"free:30/500,pro:120/20000" -> {plan: (per_minute, per_day)}."""
+    out: dict[str, tuple[int, int]] = {}
+    for item in raw.split(","):
+        plan, _, limits = item.strip().partition(":")
+        per_minute, _, per_day = limits.partition("/")
+        try:
+            out[plan.strip()] = (int(per_minute), int(per_day))
+        except ValueError:
+            continue
+    return out
+
+
 @dataclass(frozen=True)
 class McpConfig:
     database_path: str
@@ -54,6 +90,26 @@ class McpConfig:
     rate_per_day: int = 2000
     allowed_hosts: tuple[str, ...] = field(default_factory=tuple)
     app_url_scheme: str = "spotlight"
+    # Response policy tier: "user" (default) or "public"; see policy.py.
+    tier: str = TIER_USER
+    public_api_keys: dict[str, str] = field(default_factory=dict)
+    plan_quotas: dict[str, tuple[int, int]] = field(default_factory=lambda: dict(DEFAULT_PLAN_QUOTAS))
+
+    @property
+    def policy(self):
+        return policy_for_tier(self.tier)
+
+    def transport_allowed_hosts(self) -> list[str]:
+        """Host headers accepted by the SDK's DNS-rebinding guard: the public
+        resource host (behind the reverse proxy) plus loopback."""
+        hosts = list(self.allowed_hosts)
+        netloc = urlsplit(self.resource_url).netloc
+        if netloc and netloc not in hosts:
+            hosts.append(netloc)
+        for local in ("127.0.0.1:*", "localhost:*", "[::1]:*"):
+            if local not in hosts:
+                hosts.append(local)
+        return hosts
 
     @classmethod
     def from_env(cls) -> "McpConfig":
@@ -85,6 +141,10 @@ class McpConfig:
                 if host.strip()
             ),
             app_url_scheme=os.environ.get("SPOTLIGHT_MCP_APP_URL_SCHEME") or "spotlight",
+            tier=(os.environ.get("SPOTLIGHT_MCP_TIER") or TIER_USER).strip().lower(),
+            public_api_keys=_parse_api_keys(os.environ.get("SPOTLIGHT_MCP_PUBLIC_API_KEYS") or ""),
+            plan_quotas=_parse_plan_quotas(os.environ.get("SPOTLIGHT_MCP_PLAN_QUOTAS") or "")
+            or dict(DEFAULT_PLAN_QUOTAS),
         )
 
 
@@ -93,6 +153,7 @@ class VerifiedToken:
     identity: RequestIdentity
     client_id: str
     claims: dict[str, Any]
+    plan: str | None = None
 
 
 class McpTokenValidator:
@@ -123,3 +184,30 @@ class McpTokenValidator:
         if self.config.require_oauth_client and not client_id:
             return None
         return VerifiedToken(identity=identity, client_id=client_id or "supabase-session", claims=dict(claims))
+
+
+class ApiKeyValidator:
+    """Public tier: bearer value is an API key; only its SHA-256 is configured."""
+
+    def __init__(self, config: McpConfig) -> None:
+        self.config = config
+
+    def validate(self, token: str) -> VerifiedToken | None:
+        digest = hashlib.sha256(str(token or "").encode()).hexdigest()
+        plan = next(
+            (plan for known, plan in self.config.public_api_keys.items() if hmac.compare_digest(known, digest)),
+            None,
+        )
+        if plan is None:
+            return None
+        subject = f"apikey:{digest[:16]}"
+        return VerifiedToken(
+            identity=RequestIdentity(user_id=subject, auth_source="mcp_api_key"),
+            client_id=subject,
+            claims={},
+            plan=plan,
+        )
+
+
+def validator_for(config: McpConfig) -> McpTokenValidator | ApiKeyValidator:
+    return ApiKeyValidator(config) if config.tier == TIER_PUBLIC else McpTokenValidator(config)

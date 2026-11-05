@@ -30,8 +30,9 @@ from starlette.responses import JSONResponse  # noqa: E402
 
 from request_auth import RequestIdentity  # noqa: E402
 
-from mcp_server.auth import GUEST_REJECTION_MESSAGE, McpConfig, McpTokenValidator  # noqa: E402
+from mcp_server.auth import GUEST_REJECTION_MESSAGE, McpConfig, validator_for  # noqa: E402
 from mcp_server.filters import ToolInputError  # noqa: E402
+from mcp_server.policy import USER_POLICY, ResponsePolicy  # noqa: E402
 from mcp_server.rate_limit import RateLimitExceeded, UserRateLimiter  # noqa: E402
 from mcp_server.tools import CollectionTools  # noqa: E402
 
@@ -78,9 +79,9 @@ def _filter_dict(card_filter: CardFilter | None) -> dict[str, Any] | None:
 
 
 class SupabaseTokenVerifier:
-    """mcp TokenVerifier over the backend's Supabase JWT validation."""
+    """mcp TokenVerifier over a sync validator (Supabase JWT or public API key)."""
 
-    def __init__(self, validator: McpTokenValidator) -> None:
+    def __init__(self, validator: Any) -> None:
         self.validator = validator
 
     async def verify_token(self, token: str) -> AccessToken | None:
@@ -98,22 +99,27 @@ class SupabaseTokenVerifier:
             claims={
                 "iss": verified.claims.get("iss"),
                 "is_anonymous": verified.identity.is_anonymous,
+                "plan": verified.plan,
             },
         )
 
 
 class ToolRunner:
-    """Auth gate + rate limit + thread offload around CollectionTools."""
+    """Auth gate + rate limit + policy + thread offload around CollectionTools."""
 
     def __init__(
         self,
         tools: CollectionTools,
         limiter: UserRateLimiter,
         *,
+        policy: ResponsePolicy = USER_POLICY,
+        plan_limiters: dict[str, UserRateLimiter] | None = None,
         token_getter: Callable[[], AccessToken | None] = get_access_token,
     ) -> None:
         self.tools = tools
         self.limiter = limiter
+        self.policy = policy
+        self.plan_limiters = plan_limiters or {}
         self.token_getter = token_getter
 
     def _identity(self) -> RequestIdentity:
@@ -124,12 +130,28 @@ class ToolRunner:
             raise ToolError(GUEST_REJECTION_MESSAGE)
         return RequestIdentity(user_id=str(token.subject).strip(), auth_source="mcp_bearer")
 
+    def _limiter(self) -> UserRateLimiter:
+        plan = ((self.token_getter() or AccessToken(token="", client_id="", scopes=[])).claims or {}).get("plan")
+        if plan is None:
+            return self.limiter
+        if plan not in self.plan_limiters:
+            raise ToolError("This API key's plan is not configured.")
+        return self.plan_limiters[plan]
+
     async def run(self, method: str, **kwargs: Any) -> dict[str, Any]:
+        if not self.policy.allows_tool(method):
+            raise ToolError(f"{method} is not available on this plan.")
         identity = self._identity()
         try:
-            self.limiter.check(identity.user_id)
+            self.policy.check_inputs(kwargs.get("card_filter"), sort=kwargs.get("sort"), owned=kwargs.get("owned"))
+        except ValueError as error:
+            raise ToolError(str(error)) from None
+        try:
+            self._limiter().check(identity.user_id)
         except RateLimitExceeded as error:
             raise ToolError(str(error)) from None
+        if method == "get_card":
+            kwargs["include_holdings"] = self.policy.account_data
 
         service = self.tools.service
 
@@ -138,7 +160,7 @@ class ToolRunner:
                 return getattr(self.tools, method)(identity.user_id, **kwargs)
 
         try:
-            return await anyio.to_thread.run_sync(work)
+            return self.policy.shape(await anyio.to_thread.run_sync(work))
         except ToolInputError as error:
             raise ToolError(str(error)) from None
         except ToolError:
@@ -155,12 +177,26 @@ Limit100 = Annotated[int, Field(ge=1, le=100)]
 
 
 def protected_resource_metadata(config: McpConfig) -> dict[str, Any]:
+    # No scopes_supported: Supabase's OAuth server rejects custom scopes, and its
+    # default (`email`) is all we need. Matches the SDK's path-insert PRM.
     return {
         "resource": config.resource_url,
         "authorization_servers": [config.authorization_server_url],
         "bearer_methods_supported": ["header"],
         "resource_name": "Ekalight",
     }
+
+
+def _register(server: MCPServer, policy: ResponsePolicy):
+    """`server.tool` for tools the tier exposes; a no-op decorator otherwise."""
+
+    def decorator(**kwargs: Any):
+        def wrap(fn):
+            return server.tool(**kwargs)(fn) if policy.allows_tool(fn.__name__) else fn
+
+        return wrap
+
+    return decorator
 
 
 def build_server(
@@ -173,18 +209,26 @@ def build_server(
 ) -> MCPServer:
     """`token_verifier=None` builds an auth-less server for in-process tests only;
     `main()` always passes one."""
+    policy = config.policy
     limiter = limiter or UserRateLimiter(per_minute=config.rate_per_minute, per_day=config.rate_per_day)
-    runner = ToolRunner(tools, limiter, token_getter=token_getter)
-    auth = (
-        AuthSettings(
-            issuer_url=config.authorization_server_url,
-            resource_server_url=config.resource_url,
-            # Supabase tokens carry no resource/aud by default; the verifier checks issuer (+aud if configured).
+    plan_limiters = {
+        plan: UserRateLimiter(per_minute=per_minute, per_day=per_day)
+        for plan, (per_minute, per_day) in config.plan_quotas.items()
+    }
+    runner = ToolRunner(tools, limiter, policy=policy, plan_limiters=plan_limiters, token_getter=token_getter)
+    auth = None
+    if token_verifier is not None:
+        oauth = policy.account_data
+        auth = AuthSettings(
+            # API-key tier has no OAuth AS; issuer_url is required by the model but unused
+            # when resource_server_url is None (no PRM routes, plain 401).
+            issuer_url=config.authorization_server_url if oauth else config.resource_url,
+            resource_server_url=config.resource_url if oauth else None,
+            required_scopes=None,
+            # Supabase puts `resource` nowhere in the token (aud stays "authenticated");
+            # the verifier checks issuer, plus aud/client_id when configured.
             validate_token_resource=False,
         )
-        if token_verifier is not None
-        else None
-    )
     server = MCPServer(
         "ekalight",
         title="Ekalight",
@@ -193,14 +237,14 @@ def build_server(
         auth=auth,
     )
 
-    @server.tool(
+    @_register(server, policy)(
         description="Valid values for the art filters (scene, mood, palette, ...) and curated themes, with card counts.",
         annotations=READ_ONLY,
     )
     async def list_facets() -> dict[str, Any]:
         return await runner.run("list_facets")
 
-    @server.tool(
+    @_register(server, policy)(
         description=(
             "Search Ekalight's card catalog with a filter. owned='owned'/'not_owned' limits to cards "
             "the user does or does not own. Prices are USD from Ekalight's stored market data."
@@ -218,7 +262,7 @@ def build_server(
             "search_cards", card_filter=_filter_dict(filter), owned=owned, sort=sort, limit=limit, cursor=cursor
         )
 
-    @server.tool(
+    @_register(server, policy)(
         description=(
             "One card: details, USD price, art tags, similar cards, its other-language counterpart, "
             "and the user's own copies (my_holdings)."
@@ -228,7 +272,7 @@ def build_server(
     async def get_card(card_id: str) -> dict[str, Any]:
         return await runner.run("get_card", card_id=card_id)
 
-    @server.tool(
+    @_register(server, policy)(
         description=(
             "The user's collection holdings with quantity, condition/grade and USD value, optionally "
             "filtered. total_value_usd covers all matching holdings, not just this page. Hidden "
@@ -252,7 +296,7 @@ def build_server(
             cursor=cursor,
         )
 
-    @server.tool(
+    @_register(server, policy)(
         description=(
             "The user's collection value in USD and how it moved over the range, with the top 5 "
             "gaining and losing holdings."
@@ -262,7 +306,7 @@ def build_server(
     async def get_portfolio_summary(range: Literal["7d", "30d", "90d", "1y"] = "30d") -> dict[str, Any]:
         return await runner.run("get_portfolio_summary", range_key=range)
 
-    @server.tool(
+    @_register(server, policy)(
         description=(
             "Cards matching the filter that the user does not own, cheapest first. Use for 'what am I "
             "missing', set/theme completion, and shopping lists. Prices are USD from Ekalight's stored "
@@ -284,7 +328,7 @@ def build_server(
             limit=limit,
         )
 
-    @server.tool(
+    @_register(server, policy)(
         description="Daily USD market price history for one card (raw, by condition).",
         annotations=READ_ONLY,
     )
@@ -295,11 +339,13 @@ def build_server(
     ) -> dict[str, Any]:
         return await runner.run("get_price_history", card_id=card_id, range_key=range, condition=condition)
 
-    @server.custom_route("/.well-known/oauth-protected-resource", methods=["GET"])
-    async def protected_resource(_: Request) -> JSONResponse:
-        # Bare-path PRM for clients that don't insert the resource path (RFC 9728 §3.1
-        # form, /.well-known/oauth-protected-resource/mcp, is served by the SDK).
-        return JSONResponse(protected_resource_metadata(config))
+    if policy.account_data:
+
+        @server.custom_route("/.well-known/oauth-protected-resource", methods=["GET"])
+        async def protected_resource(_: Request) -> JSONResponse:
+            # Root PRM for clients that fall back to it; the RFC 9728 path-insert
+            # form (/.well-known/oauth-protected-resource/mcp) is served by the SDK.
+            return JSONResponse(protected_resource_metadata(config))
 
     @server.custom_route("/healthz", methods=["GET"])
     async def healthz(_: Request) -> JSONResponse:
@@ -312,15 +358,14 @@ def build_app(config: McpConfig):
     """Production wiring: read-only service over the shared SQLite DB + auth."""
     from mcp_server.readonly_service import ReadOnlySpotlightService
 
-    if not config.authorization_server_url:
+    if config.policy.account_data and not config.authorization_server_url:
         raise SystemExit("SUPABASE_URL or SPOTLIGHT_MCP_AUTHORIZATION_SERVER_URL is required.")
     service = ReadOnlySpotlightService(Path(config.database_path), BACKEND_ROOT.parent)
     tools = CollectionTools(service, app_url_scheme=config.app_url_scheme)
-    server = build_server(tools, config, token_verifier=SupabaseTokenVerifier(McpTokenValidator(config)))
-    transport_security = (
-        TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=list(config.allowed_hosts))
-        if config.allowed_hosts
-        else None
+    server = build_server(tools, config, token_verifier=SupabaseTokenVerifier(validator_for(config)))
+    # Accept the public Host the reverse proxy forwards, not only loopback.
+    transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True, allowed_hosts=config.transport_allowed_hosts()
     )
     # Stateless + JSON: no server-side sessions to pin, plain request/response.
     return server.streamable_http_app(
