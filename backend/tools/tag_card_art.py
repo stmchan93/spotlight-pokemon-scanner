@@ -243,7 +243,8 @@ def build_request(candidate: Candidate, jpeg_bytes: bytes, *, model: str) -> dic
         "params": {
             "model": model,
             "max_tokens": MAX_TOKENS,
-            "system": SYSTEM_PROMPT,
+            # Same system prompt + schema on every request: cache it (reads ~10% price).
+            "system": [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
             "messages": [
                 {
                     "role": "user",
