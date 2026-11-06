@@ -274,7 +274,7 @@ def prepare_batch(
     *,
     model: str,
     fetcher: Callable[[str], bytes] | None = None,
-    workers: int = 8,
+    workers: int = 4,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[str]]:
     """(requests, manifest keyed by custom_id, failed art_group_ids)."""
     fetch = fetcher or fetch_image
