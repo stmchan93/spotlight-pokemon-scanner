@@ -398,7 +398,8 @@ def _api(method: str, url: str, payload: dict[str, Any] | None = None, *, timeou
 
 
 def submit_batch(requests: list[dict[str, Any]]) -> dict[str, Any]:
-    return json.loads(_api("POST", ANTHROPIC_BATCHES_URL, {"requests": requests}))
+    # Large multipart-sized bodies on slow uplinks need far more than the default.
+    return json.loads(_api("POST", ANTHROPIC_BATCHES_URL, {"requests": requests}, timeout=600))
 
 
 def retrieve_batch(batch_id: str) -> dict[str, Any]:
@@ -709,7 +710,15 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         # Fetch + submit one chunk at a time: bounded memory, and a network drop
-        # mid-run loses at most one chunk (re-running picks up untagged groups).
+        # mid-run loses at most one chunk. Groups already in a submitted batch
+        # (manifest in --out) are skipped, so a re-run never pays for them twice.
+        in_flight: set[str] = set()
+        for manifest_path in out_dir.glob("msgbatch_*.manifest.json"):
+            in_flight.update(json.loads(manifest_path.read_text()).get("groups", {}).keys())
+        if in_flight:
+            before = len(candidates)
+            candidates = [c for c in candidates if custom_id_for(c.group.art_group_id) not in in_flight]
+            print(f"skipping {before - len(candidates)} groups already in submitted batches", flush=True)
         submitted = failed_total = 0
         for candidate_chunk in _chunks(candidates, max(1, args.batch_size)):
             requests, manifest, failed = prepare_batch(candidate_chunk, model=args.model)
