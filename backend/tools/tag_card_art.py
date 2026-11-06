@@ -21,10 +21,12 @@ import argparse
 import base64
 import hashlib
 import io
+import os
 import json
 import re
 import sqlite3
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -48,7 +50,7 @@ from art_search import (  # noqa: E402
     build_pokemon_name_index,
     resolve_pokemon_name,
 )
-from catalog_tools import connect, utc_now  # noqa: E402
+from catalog_tools import apply_schema, connect, utc_now  # noqa: E402
 
 PROMPT_VERSION = "p1"
 DEFAULT_MODEL = "claude-sonnet-5-5"
@@ -176,10 +178,48 @@ def select_groups(
 # --- images -------------------------------------------------------------------
 
 
-def fetch_image(url: str, *, timeout: int = 20) -> bytes:
-    request = Request(url, headers={"User-Agent": "spotlight-art-tagger/1"})
-    with urlopen(request, timeout=timeout) as response:
-        return response.read()
+# Be polite to the image CDN: reuse keep-alive connections (one per worker)
+# and cap the request rate. A fresh TCP connection per image got throttled.
+FETCH_MAX_PER_SECOND = 3.0
+_fetch_local = threading.local()
+_fetch_lock = threading.Lock()
+_fetch_next_at = [0.0]
+
+
+def _fetch_session():
+    session = getattr(_fetch_local, "session", None)
+    if session is None:
+        import requests
+
+        session = requests.Session()
+        session.headers["User-Agent"] = "spotlight-art-tagger/1"
+        _fetch_local.session = session
+    return session
+
+
+def _wait_for_slot() -> None:
+    with _fetch_lock:
+        now = time.monotonic()
+        start = max(now, _fetch_next_at[0])
+        _fetch_next_at[0] = start + 1.0 / FETCH_MAX_PER_SECOND
+    if start > now:
+        time.sleep(start - now)
+
+
+def fetch_image(url: str, *, timeout: int = 20, attempts: int = 3) -> bytes:
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        _wait_for_slot()
+        try:
+            response = _fetch_session().get(url, timeout=timeout)
+            if response.status_code == 429 or response.status_code >= 500:
+                raise RuntimeError(f"HTTP {response.status_code}")
+            response.raise_for_status()
+            return response.content
+        except Exception as error:  # noqa: BLE001 - retried, then surfaced as an image failure
+            last_error = error
+            time.sleep(5 * (attempt + 1))
+    raise RuntimeError(f"image fetch failed: {last_error}")
 
 
 def nearest_palette_color(rgb: tuple[int, int, int]) -> str:
@@ -242,7 +282,8 @@ def build_request(candidate: Candidate, jpeg_bytes: bytes, *, model: str) -> dic
         "params": {
             "model": model,
             "max_tokens": MAX_TOKENS,
-            "system": SYSTEM_PROMPT,
+            # Same system prompt + schema on every request: cache it (reads ~10% price).
+            "system": [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
             "messages": [
                 {
                     "role": "user",
@@ -272,7 +313,7 @@ def prepare_batch(
     *,
     model: str,
     fetcher: Callable[[str], bytes] | None = None,
-    workers: int = 8,
+    workers: int = 2,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[str]]:
     """(requests, manifest keyed by custom_id, failed art_group_ids)."""
     fetch = fetcher or fetch_image
@@ -340,6 +381,10 @@ def _api(method: str, url: str, payload: dict[str, Any] | None = None, *, timeou
     request = Request(url, data=body, method=method)
     request.add_header("x-api-key", api_key)
     request.add_header("anthropic-version", ANTHROPIC_VERSION)
+    # Keys not scoped to a workspace must name one per request.
+    workspace_id = str(os.environ.get("ANTHROPIC_WORKSPACE_ID") or "").strip()
+    if workspace_id:
+        request.add_header("anthropic-workspace-id", workspace_id)
     if body is not None:
         request.add_header("content-type", "application/json")
     try:
@@ -353,7 +398,8 @@ def _api(method: str, url: str, payload: dict[str, Any] | None = None, *, timeou
 
 
 def submit_batch(requests: list[dict[str, Any]]) -> dict[str, Any]:
-    return json.loads(_api("POST", ANTHROPIC_BATCHES_URL, {"requests": requests}))
+    # Large multipart-sized bodies on slow uplinks need far more than the default.
+    return json.loads(_api("POST", ANTHROPIC_BATCHES_URL, {"requests": requests}, timeout=600))
 
 
 def retrieve_batch(batch_id: str) -> dict[str, Any]:
@@ -625,6 +671,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     conn = connect(args.database)
+    # Art tables may not exist yet on a DB the server hasn't migrated.
+    apply_schema(conn, BACKEND_ROOT / "schema.sql")
     out_dir = Path(args.out)
     try:
         if args.collect:
@@ -654,18 +702,33 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(estimate_cost(len(candidates), model=args.model), indent=2))
             return 0
 
-        requests, manifest, failed = prepare_batch(candidates, model=args.model)
-        print(json.dumps(estimate_cost(len(requests), model=args.model, image_sizes=[tuple(m["image_size"]) for m in manifest.values()])))
         if args.dry_run:
+            requests, manifest, failed = prepare_batch(candidates, model=args.model)
+            print(json.dumps(estimate_cost(len(requests), model=args.model, image_sizes=[tuple(m["image_size"]) for m in manifest.values()])))
             path = _write_local(out_dir, f"dry-run-{int(time.time())}", requests, manifest, args.model)
             print(f"wrote {len(requests)} requests to {path} ({len(failed)} image failures)")
             return 0
 
-        for chunk in _chunks(requests, max(1, args.batch_size)):
-            batch = submit_batch(chunk)
-            chunk_manifest = {r["custom_id"]: manifest[r["custom_id"]] for r in chunk}
-            _write_local(out_dir, str(batch["id"]), chunk, chunk_manifest, args.model)
-            print(f"submitted {batch['id']} ({len(chunk)} requests)")
+        # Fetch + submit one chunk at a time: bounded memory, and a network drop
+        # mid-run loses at most one chunk. Groups already in a submitted batch
+        # (manifest in --out) are skipped, so a re-run never pays for them twice.
+        in_flight: set[str] = set()
+        for manifest_path in out_dir.glob("msgbatch_*.manifest.json"):
+            in_flight.update(json.loads(manifest_path.read_text()).get("groups", {}).keys())
+        if in_flight:
+            before = len(candidates)
+            candidates = [c for c in candidates if custom_id_for(c.group.art_group_id) not in in_flight]
+            print(f"skipping {before - len(candidates)} groups already in submitted batches", flush=True)
+        submitted = failed_total = 0
+        for candidate_chunk in _chunks(candidates, max(1, args.batch_size)):
+            requests, manifest, failed = prepare_batch(candidate_chunk, model=args.model)
+            failed_total += len(failed)
+            if not requests:
+                continue
+            batch = submit_batch(requests)
+            _write_local(out_dir, str(batch["id"]), requests, manifest, args.model)
+            submitted += len(requests)
+            print(f"submitted {batch['id']} ({len(requests)} requests; {submitted}/{len(candidates)} total, {failed_total} image failures)", flush=True)
         return 0
     finally:
         conn.close()
