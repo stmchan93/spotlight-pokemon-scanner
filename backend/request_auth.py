@@ -20,6 +20,8 @@ class RequestIdentity:
     user_id: str
     auth_source: str
     email: str = ""
+    # Supabase anonymous (guest) sign-in; the app's HTTP API ignores it.
+    is_anonymous: bool = False
 
 
 class SupabaseRequestAuthenticator:
@@ -70,6 +72,10 @@ class SupabaseRequestAuthenticator:
         raise RequestAuthError("A fallback user is not configured for unauthenticated requests.")
 
     def _identity_from_token(self, token: str) -> RequestIdentity:
+        return self.identity_from_claims(self.verified_claims(token))
+
+    def verified_claims(self, token: str) -> dict[str, Any]:
+        """Signature/issuer/expiry-checked claims of a bearer token (no fallback)."""
         if jwt is None:
             raise RequestAuthError("PyJWT is required for bearer token verification.")
         if not self.issuer:
@@ -108,7 +114,10 @@ class SupabaseRequestAuthenticator:
             )
         except Exception as error:  # noqa: BLE001
             raise RequestAuthError(f"Bearer token verification failed: {error}") from error
+        return claims
 
+    @staticmethod
+    def identity_from_claims(claims: dict[str, Any]) -> RequestIdentity:
         user_id = str(claims.get("sub") or "").strip()
         if not user_id:
             raise RequestAuthError("Bearer token is missing the user subject.")
@@ -117,6 +126,7 @@ class SupabaseRequestAuthenticator:
             user_id=user_id,
             auth_source="supabase_jwt",
             email=str(claims.get("email") or "").strip(),
+            is_anonymous=claims.get("is_anonymous") is True,
         )
 
     def _jwk_client_instance(self) -> Any:

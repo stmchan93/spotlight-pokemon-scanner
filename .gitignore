@@ -45,6 +45,7 @@ backend/.env.*.secrets.*
 
 # Backend databases
 backend/data/*.sqlite
+backend/data/art_tag_batches/
 backend/data/*.db
 backend/data/*.sqlite-*
 backend/data/*.sqlite.bak.*

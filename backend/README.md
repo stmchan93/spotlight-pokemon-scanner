@@ -95,6 +95,16 @@ backend/.venv/bin/python backend/server.py \
 ```
 The backend is always live-only. It does not support seeded catalog startup anymore.
 
+## Remote MCP server
+
+`backend/mcp_server/` is a separate small process: remote MCP over Streamable HTTP at `/mcp` (official `mcp` SDK), read-only and DB-only over the same SQLite file, Supabase bearer JWTs (guests rejected), 60/min + 2,000/day per user. Run locally from `backend/`:
+
+```bash
+SUPABASE_URL=https://<ref>.supabase.co python3 -m mcp_server.app --database-path data/spotlight_scanner.sqlite --port 8790
+```
+
+On the VM: `backend/run_mcp_server_vm.sh` (loopback; front it with the TLS proxy and set `SPOTLIGHT_MCP_RESOURCE_URL`). Auth design and every env flag: [docs/mcp-auth-plan-2026-11-04.md](/Users/stephenchan/Code/spotlight/docs/mcp-auth-plan-2026-11-04.md). Tests: `backend.tests.test_mcp_tools`, `backend.tests.test_mcp_server`, `backend.tests.test_mcp_marketplace_links`.
+
 ## VM beta deploy
 
 For the current beta stage, the recommended hosted path is one Linux VM with:

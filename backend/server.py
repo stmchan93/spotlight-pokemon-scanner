@@ -192,6 +192,7 @@ import news_feed
 import printing_images
 import set_spotlight
 import similar_cards
+import art_search
 import spotlight_events
 import spotlight_events_admin
 import watch_signals
@@ -2038,6 +2039,33 @@ def _env_flag(name: str, *, default: bool = False) -> bool:
     if raw_value is None:
         return default
     return str(raw_value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+# /api/v1/art/search query param -> art_search card_filter key. List params
+# accept repeats and/or comma-separated values.
+_ART_SCALAR_PARAMS = {
+    "text": "text", "q": "text", "pokemonRole": "pokemon_role", "artist": "artist",
+    "theme": "theme", "set": "set", "language": "language",
+    "priceMinUsd": "price_min_usd", "priceMaxUsd": "price_max_usd",
+}
+_ART_LIST_PARAMS = {
+    "pokemon": "pokemon", "scene": "scene", "weatherTime": "weather_time",
+    "activity": "activity", "mood": "mood", "artStyle": "art_style",
+    "palette": "palette", "rarityBucket": "rarity_bucket",
+}
+
+
+def _art_filter_from_query(query_params: dict[str, list[str]]) -> dict[str, Any]:
+    card_filter: dict[str, Any] = {}
+    for param, key in _ART_SCALAR_PARAMS.items():
+        value = (query_params.get(param) or [""])[0].strip()
+        if value and key not in card_filter:
+            card_filter[key] = value
+    for param, key in _ART_LIST_PARAMS.items():
+        values = [part.strip() for raw in query_params.get(param) or [] for part in raw.split(",") if part.strip()]
+        if values:
+            card_filter[key] = values
+    return card_filter
 
 
 # The "Scanning for" EN/JP toggle hard-filters the raw-visual candidate list so
@@ -23372,6 +23400,66 @@ class SpotlightScanService:
         """PDP "More like this": stored neighbours + ~20 indexed card/price reads."""
         return similar_cards.build_similar_cards_payload(self.connection, card_id)
 
+    def art_facets(self, *, game: str) -> dict[str, Any]:
+        """Art-search facet counts (DB-only; empty until the offline tagger runs)."""
+        return art_search.list_facets(self.connection, game=game)
+
+    def art_search_cards(
+        self,
+        card_filter: dict[str, Any],
+        *,
+        owned_mode: str = "any",
+        sort: str = "relevance",
+        limit: Any = 20,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """Picture search. Raises art_search.ArtFilterError on bad filters.
+        owned/not_owned read the caller's holdings, so they need an identity."""
+        owned_ids: set[str] | None = None
+        if owned_mode in ("owned", "not_owned"):
+            owner_user_id = self._current_owner_user_id()
+            owned_ids = {
+                str(row[0])
+                for row in self.connection.execute(
+                    "SELECT DISTINCT card_id FROM deck_entries WHERE owner_user_id = ? AND quantity > 0",
+                    (owner_user_id,),
+                )
+            }
+        result = art_search.search_card_ids(
+            self.connection,
+            card_filter,
+            owned_card_ids=owned_ids,
+            owned_mode=owned_mode,
+            sort=sort,
+            limit=limit,
+            cursor=cursor,
+        )
+        ids = result["card_ids"]
+        cards: dict[str, dict[str, Any]] = {}
+        if ids:
+            placeholders = ",".join("?" for _ in ids)
+            for row in self.connection.execute(
+                "SELECT id, name, set_name, number, language, artist, image_url, image_small_url "
+                f"FROM cards WHERE id IN ({placeholders})",
+                ids,
+            ):
+                cards[str(row[0])] = {
+                    "id": str(row[0]),
+                    "name": row[1],
+                    "setName": row[2],
+                    "number": row[3],
+                    "language": row[4],
+                    "artist": row[5],
+                    "imageUrl": row[6],
+                    "imageSmallUrl": row[7],
+                }
+        return {
+            "cardIds": ids,
+            "cards": [cards[card_id] for card_id in ids if card_id in cards],
+            "nextCursor": result["next_cursor"],
+            "totalEstimate": result["total_estimate"],
+        }
+
     def watchlist_suggestions(self, *, limit: Any = None) -> dict[str, Any]:
         """Watchlist empty state: the caller's recent unowned, unwatched scans."""
         return watchlist_suggestions.build_watchlist_suggestions(
@@ -26685,6 +26773,40 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             except Exception as error:  # noqa: BLE001
                 traceback.print_exc()
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"News feed failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        if parsed.path == "/api/v1/art/facets":
+            query_params = parse_qs(parsed.query)
+            game = query_params.get("game", ["pokemon"])[0].strip().lower() or "pokemon"
+            self._write_json(HTTPStatus.OK, self.service.art_facets(game=game))
+            return
+
+        if parsed.path == "/api/v1/art/search":
+            query_params = parse_qs(parsed.query)
+            card_filter = _art_filter_from_query(query_params)
+            owned_mode = query_params.get("owned", ["any"])[0].strip().lower() or "any"
+            sort = query_params.get("sort", ["relevance"])[0].strip().lower() or "relevance"
+            limit = query_params.get("limit", ["20"])[0]
+            cursor = query_params.get("cursor", [""])[0].strip() or None
+            identity = None
+            if owned_mode != "any":
+                identity = self._require_request_identity()
+                if identity is None:
+                    return
+            try:
+                if identity is not None:
+                    with self.service.request_identity_context(identity):
+                        payload = self.service.art_search_cards(
+                            card_filter, owned_mode=owned_mode, sort=sort, limit=limit, cursor=cursor
+                        )
+                else:
+                    payload = self.service.art_search_cards(
+                        card_filter, owned_mode=owned_mode, sort=sort, limit=limit, cursor=cursor
+                    )
+            except art_search.ArtFilterError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
             self._write_json(HTTPStatus.OK, payload)
             return

@@ -112,6 +112,7 @@ Use these docs for: starting any of these builds without re-deriving scope — i
 - **Production promotion — complete checklist (Phases 0-4, dependency order; the launch source of truth)**: [production-promotion-checklist-2026-08-12.md](/Users/stephenchan/Code/spotlight/docs/production-promotion-checklist-2026-08-12.md)
 - **iOS App Store submission runbook (metadata copy, age-rating answers, review notes/demo account, screenshot shot-list, `frontend:release:production` step order)**: [app-store-submission-2026-08-12.md](/Users/stephenchan/Code/spotlight/docs/app-store-submission-2026-08-12.md)
 - Android Play Store submission runbook: [android-play-store-submission-2026-07-20.md](/Users/stephenchan/Code/spotlight/docs/android-play-store-submission-2026-07-20.md)
+- Remote MCP server (`backend/mcp_server/`, Streamable HTTP `/mcp`) auth decision + config flags: [mcp-auth-plan-2026-11-04.md](/Users/stephenchan/Code/spotlight/docs/mcp-auth-plan-2026-11-04.md)
 - Legal documents (final Terms/Privacy + publishing guide for the GitHub Pages legal site): [legal/](/Users/stephenchan/Code/spotlight/docs/legal/) — see [legal/PUBLISHING.md](/Users/stephenchan/Code/spotlight/docs/legal/PUBLISHING.md) and [legal/README.md](/Users/stephenchan/Code/spotlight/docs/legal/README.md)
 
 Use these docs for:
