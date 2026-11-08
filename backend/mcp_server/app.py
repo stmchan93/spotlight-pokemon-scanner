@@ -26,7 +26,8 @@ from mcp.server.transport_security import TransportSecuritySettings  # noqa: E40
 from mcp.types import ToolAnnotations  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 from starlette.requests import Request  # noqa: E402
-from starlette.responses import JSONResponse  # noqa: E402
+from starlette.responses import HTMLResponse, JSONResponse  # noqa: E402
+from mcp_server.consent_page import render_consent_page  # noqa: E402
 
 from request_auth import RequestIdentity  # noqa: E402
 
@@ -346,6 +347,16 @@ def build_server(
             # Root PRM for clients that fall back to it; the RFC 9728 path-insert
             # form (/.well-known/oauth-protected-resource/mcp) is served by the SDK.
             return JSONResponse(protected_resource_metadata(config))
+
+        if config.supabase_url and config.supabase_anon_key:
+
+            @server.custom_route("/oauth/consent", methods=["GET"])
+            async def oauth_consent(_: Request) -> HTMLResponse:
+                page = render_consent_page(supabase_url=config.supabase_url, anon_key=config.supabase_anon_key)
+                return HTMLResponse(
+                    page,
+                    headers={"Cache-Control": "no-store", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"},
+                )
 
     @server.custom_route("/healthz", methods=["GET"])
     async def healthz(_: Request) -> JSONResponse:

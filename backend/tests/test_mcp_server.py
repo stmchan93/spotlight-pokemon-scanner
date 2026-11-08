@@ -337,6 +337,29 @@ class HttpAppTests(_SeededDb):
         too_big = self.call_tool("search_cards", {"filter": {"text": "a"}, "limit": 500}, make_jwt("user-a"))
         self.assertTrue(too_big["isError"])
 
+    def _get_raw(self, path):
+        try:
+            with urllib.request.urlopen(self.base + path, timeout=10) as resp:
+                return resp.status, resp.headers, resp.read().decode()
+        except urllib.error.HTTPError as error:
+            return error.code, error.headers, error.read().decode()
+
+    def test_consent_page_served_only_with_anon_key(self) -> None:
+        self.start(supabase_anon_key="sb_publishable_test</script>")
+        status, headers, page = self._get_raw("/oauth/consent?authorization_id=abc")
+        self.assertEqual(status, 200)
+        self.assertIn("text/html", headers["Content-Type"])
+        self.assertEqual(headers["X-Frame-Options"], "DENY")
+        self.assertIn(SUPABASE_URL, page)
+        self.assertIn("shouldCreateUser: false", page)  # never mints users
+        self.assertIn("is_anonymous", page)  # guests refused
+        self.assertNotIn("sb_publishable_test</script>", page)  # can't break out of <script>
+        self.assertIn("sb_publishable_test<\\/script>", page)
+
+    def test_consent_page_absent_without_anon_key(self) -> None:
+        self.start()
+        self.assertEqual(self._get_raw("/oauth/consent")[0], 404)
+
     def test_public_tier_switch(self) -> None:
         key = "ek_public_example"
         self.start(tier="public", public_api_keys={hashlib.sha256(key.encode()).hexdigest(): "free"})

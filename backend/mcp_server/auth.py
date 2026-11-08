@@ -81,6 +81,8 @@ class McpConfig:
     supabase_url: str | None = None
     supabase_jwks_url: str | None = None
     supabase_jwt_secret: str | None = None
+    # Public (publishable/anon) key for the hosted OAuth consent page.
+    supabase_anon_key: str | None = None
     # Accept only tokens minted by the Supabase OAuth server (carry client_id),
     # not plain app session tokens. Off until the authorization side exists.
     require_oauth_client: bool = False
@@ -131,6 +133,12 @@ class McpConfig:
             supabase_jwks_url=os.environ.get("SUPABASE_JWKS_URL") or os.environ.get("SPOTLIGHT_SUPABASE_JWKS_URL"),
             supabase_jwt_secret=os.environ.get("SUPABASE_JWT_SECRET")
             or os.environ.get("SPOTLIGHT_SUPABASE_JWT_SECRET"),
+            supabase_anon_key=(
+                os.environ.get("SPOTLIGHT_MCP_SUPABASE_ANON_KEY")
+                or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY")
+                or ""
+            ).strip()
+            or None,
             require_oauth_client=_env_flag("SPOTLIGHT_MCP_REQUIRE_OAUTH_CLIENT"),
             token_audience=(os.environ.get("SPOTLIGHT_MCP_TOKEN_AUDIENCE") or "").strip() or None,
             rate_per_minute=_env_int("SPOTLIGHT_MCP_RATE_PER_MINUTE", 60),
