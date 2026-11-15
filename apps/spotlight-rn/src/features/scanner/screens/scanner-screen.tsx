@@ -162,6 +162,7 @@ import {
 } from '@/features/cards/card-detail-prefetch';
 import { saveCardDetailPreviewFromCatalogResult } from '@/features/cards/card-detail-preview-session';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
+import { TabSwipeChain, TabSwipeGuardHandler } from '@/components/tab-swipe-chain';
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { prefetchImageUrls } from '@/lib/card-images';
 import { useAuth } from '@/providers/auth-provider';
@@ -4707,6 +4708,26 @@ export function ScannerScreen({
       <MatchedPrintingDefaults trayStore={trayStore} variantsByCardId={variantsByCardId} />
       <GradedRowPrices spotlightRepository={spotlightRepository} trayStore={trayStore} />
       {isActiveTab ? <ScannerKeepAwake /> : null}
+      {/*
+        Bottom-tab swipe chain (back → Watchlist, forward → Events), around the
+        CAMERA AREA only: the JS tab bar below is outside it, the tray inside it
+        is guarded (see the tray shell), and it stands down entirely while the
+        tray is expanded, binder review is open, or any sheet/menu is up. No
+        drawer on this screen, so no left-edge band is reserved.
+      */}
+      <TabSwipeChain
+        disabled={
+          isTrayExpanded
+          || activeBinderPageId != null
+          || activePriceCaptureId != null
+          || activeChangeCaptureId != null
+          || gradingMenu != null
+          || isScanTargetSheetOpen
+        }
+        edgeGuardWidth={0}
+        tab="scan"
+        testID="scanner-tab-swipe-chain"
+      >
       <RawScannerCaptureSurface
         cameraRef={cameraRef}
         canCapture={canCapture}
@@ -5040,6 +5061,14 @@ export function ScannerScreen({
           </View>
         )}
 
+        {/*
+          The tray's drags (row swipes, the vertical pan) are never a tab swipe:
+          the guard marks any touch that STARTS here so the chain stays out of
+          it. A responder-capture prop on the existing shell, not a wrapper
+          view, so the Android RNGH bounds hit-testing below is unchanged.
+        */}
+        <TabSwipeGuardHandler>
+        {(guardTabSwipe) => (
         <GestureDetector gesture={trayPanGesture}>
         {/*
           INERT WHILE THE BINDER REVIEW COVERS IT. The review is drawn over this
@@ -5055,6 +5084,7 @@ export function ScannerScreen({
           is also simply correct: a covered tray must not react to touches.
         */}
         <View
+          onStartShouldSetResponderCapture={guardTabSwipe}
           pointerEvents={activeBinderPageId ? 'none' : 'auto'}
           style={styles.trayShell}
           testID="scanner-tray"
@@ -5251,11 +5281,14 @@ export function ScannerScreen({
           </View>
         </View>
         </GestureDetector>
+        )}
+        </TabSwipeGuardHandler>
         <Reanimated.View
           pointerEvents="none"
           style={[styles.captureFlash, captureFlashStyle]}
         />
       </RawScannerCaptureSurface>
+      </TabSwipeChain>
       {/*
         In FLOW below the capture surface (which is flex: 1), not floated over
         it: the tray's absolute bottom edge ends at this bar's top, so the

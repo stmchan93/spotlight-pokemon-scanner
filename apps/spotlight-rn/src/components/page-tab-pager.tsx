@@ -26,6 +26,7 @@ import {
 } from 'react-native';
 
 import { DRAWER_EDGE_WIDTH } from '@/components/drawer-edge-swipe';
+import { useTabSwipeGuard } from '@/components/tab-swipe-chain';
 import { useTabsPage } from '@/contexts/tabs-page-context';
 
 /**
@@ -147,7 +148,9 @@ type PageSwipeGuardProps = {
 
 /**
  * Wrap a HORIZONTALLY scrollable child (the collection filter chip row) so a
- * drag inside it scrolls the chips instead of paging the tabs.
+ * drag inside it scrolls the chips instead of paging the tabs — both this
+ * pager's inner pages and the bottom-tab `TabSwipeChain`. Works with either or
+ * neither ancestor present.
  *
  * WHY THIS IS NEEDED AT ALL
  * `CollapsibleTabPager` decides in the CAPTURE phase (it has to — see the note
@@ -166,11 +169,14 @@ type PageSwipeGuardProps = {
  */
 export function PageSwipeGuard({ children, style, testID }: PageSwipeGuardProps) {
   const guard = useContext(PageSwipeGuardContext);
+  // The tab-to-tab swipe chain (`TabSwipeChain`) stands down for the same touch.
+  const blockTabSwipe = useTabSwipeGuard();
 
   return (
     <View
       onStartShouldSetResponderCapture={() => {
         guard?.block();
+        blockTabSwipe();
         // Observe only. Claiming here would eat every chip tap.
         return false;
       }}

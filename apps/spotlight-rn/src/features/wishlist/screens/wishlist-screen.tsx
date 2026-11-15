@@ -42,7 +42,8 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { AnimatedFlatList } from '@/components/page-tab-pager';
+import { AnimatedFlatList, PageSwipeGuard } from '@/components/page-tab-pager';
+import { TabSwipeChain } from '@/components/tab-swipe-chain';
 import { useScrollToTop } from '@/components/scroll-to-top-fab';
 import { GridViewIcon, ListViewIcon } from '@/components/view-toggle-icons';
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
@@ -867,6 +868,8 @@ export function WishlistScreen() {
           </IconButton>
         </View>
 
+        {/* A drag on the chips scrolls them; it never switches tabs. */}
+        <PageSwipeGuard>
         <ScrollView
           contentContainerStyle={styles.filterRow}
           horizontal
@@ -903,6 +906,7 @@ export function WishlistScreen() {
             );
           })}
         </ScrollView>
+        </PageSwipeGuard>
 
       </View>
 
@@ -952,6 +956,10 @@ export function WishlistScreen() {
     // reachable from it by the same gesture as everywhere else rather than only
     // from the button. `disabled` while editing: the edit UI owns gestures
     // across the full screen, matching how the Collection pager stands down.
+    // The tab swipe chain (back → Home's Activity, forward → Scan) stands down
+    // the same way; a leftward drag that starts on a row is the row's delete
+    // swipe (RNGH activates first and cancels the chain).
+    <TabSwipeChain disabled={editMode} tab="wishlist" testID="wishlist-tab-swipe-chain">
     <DrawerEdgeSwipe disabled={editMode}>
     <SafeAreaView
       edges={['left', 'right']}
@@ -1144,6 +1152,7 @@ export function WishlistScreen() {
       />
     </SafeAreaView>
     </DrawerEdgeSwipe>
+    </TabSwipeChain>
   );
 }
 

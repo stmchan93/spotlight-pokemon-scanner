@@ -25,14 +25,22 @@ const scannerTabContentStyle = { backgroundColor: colors.scannerCanvas } as cons
  * the real Liquid Glass material and the system minimize-on-scroll.
  *
  * REPLACED `TopTabsPager`. What that cost, so nobody re-derives it:
- *  - the horizontal Portfolio <-> Scanner swipe (UITabBarController has no
- *    swipe-between-tabs gesture; absent from TabsHost and expo-router alike).
- *    THIS IS NOW THE INTENDED BEHAVIOUR, not a gap to close: no screen that
- *    draws this bar may be reached or left by a horizontal swipe. The scanner's
- *    hand-rolled left-edge exit swipe was deleted for the same reason. Pushed
- *    stack screens keep UIKit's back-swipe — that rule is only about the tabs.
+ *  - the drag-FOLLOWING Portfolio <-> Scanner pager. UITabBarController has no
+ *    swipe-between-tabs gesture (absent from TabsHost and expo-router alike),
+ *    and the bar stays native, so tab swipes are "switch on swipe" instead:
+ *    `TabSwipeChain` (`@/components/tab-swipe-chain`; order and edge rules in
+ *    `@/lib/tab-swipe-chain`) wraps each of the five tab roots and, on a
+ *    completed horizontal swipe, switches to the neighbouring tab in bar order
+ *    through the tab navigator. The screen does not follow the finger.
+ *    Home [Collection, Activity] and Social [Social, News, Market] walk their
+ *    inner pages first; only a swipe past the last/first inner page leaves the
+ *    tab, landing on the neighbour's NEAR inner page. Collection's back-swipe
+ *    and Market's forward-swipe are the ends of the chain. Pushed stack screens
+ *    are not tab roots: they keep UIKit's back-swipe and have no chain.
+ *    (An earlier rule here forbade tab swipes outright; the owner reversed it.)
  *  - the left-edge drag that opened the hamburger drawer, which lived inside
- *    the pager's pan responder — the drawer BUTTON still works
+ *    the pager's pan responder — restored by `DrawerEdgeSwipe`, whose 24pt band
+ *    the chain never claims
  *  - hiding the bar during Collection edit mode; UIKit owns this bar and
  *    `hidden` on a TRIGGER hides a tab; `hidden` on <NativeTabs> hides the bar,
  *    which is how the Scanner gets a full screen (see below)

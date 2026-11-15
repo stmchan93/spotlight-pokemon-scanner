@@ -29,6 +29,9 @@ export const AnalyticsEvent = {
   drawerOpened: 'drawer_opened',
   drawerItemTapped: 'drawer_item_tapped',
 
+  // Swipe chain across the bottom tabs. Carries `from_tab`, `to_tab`, `direction` (next | previous).
+  tabSwipeNavigated: 'tab_swipe_navigated',
+
   // Notifications.
   alertPrefChanged: 'alert_pref_changed',
   pushOpened: 'push_opened',

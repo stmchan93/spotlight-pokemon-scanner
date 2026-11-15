@@ -66,6 +66,8 @@ import { getUserInitials } from '@/features/auth/auth-models';
 import { fetchFollowing, followUser } from '@/features/profile/profile-service';
 import { resolveRepositoryBaseUrl } from '@/providers/app-providers';
 import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
+import { TabSwipeChain, useTabLanding } from '@/components/tab-swipe-chain';
+import { innerPageForLanding } from '@/lib/tab-swipe-chain';
 import { useScrollToTop } from '@/components/scroll-to-top-fab';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAuth } from '@/providers/auth-provider';
@@ -192,6 +194,13 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     setActiveTab(next);
     setVisitedTabs((current) => (current.has(next) ? current : new Set(current).add(next)));
   }, []);
+  // Arriving by a swipe forward from Events lands on the NEAR edge: the first page.
+  useTabLanding('social', (edge) => {
+    const page = innerPageForLanding(HUB_TAB_ORDER, edge);
+    if (page) {
+      selectTab(page);
+    }
+  });
   const [selectedSource, setSelectedSource] = useState<FeedSource>('forYou');
   const source: FeedSource = feedShow ? selectedSource : 'forYou';
   const showId = source === 'show' ? (feedShow?.id ?? null) : null;
@@ -853,6 +862,16 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       handlers force a real stacking context, so the `subviews[0]` walk that
       drives tab-bar minimize still reaches the FlatList.
     */
+    /*
+      Bottom-tab swipe chain: back from the first page goes to Events; forward
+      past the last page is the end of the chain. Outside the drawer and the
+      pager so it is asked first and declines everything they own.
+    */
+    <TabSwipeChain
+      inner={{ count: HUB_TAB_ORDER.length, index: HUB_TAB_ORDER.indexOf(activeTab) }}
+      tab="social"
+      testID={`${testID}-tab-swipe-chain`}
+    >
     <DrawerEdgeSwipe>
     <SafeAreaView
       // 'top' is consumed HERE, once. The bar is a row of the list below, so if
@@ -950,6 +969,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       {deleteConfirmSheet}
     </SafeAreaView>
     </DrawerEdgeSwipe>
+    </TabSwipeChain>
   );
 }
 

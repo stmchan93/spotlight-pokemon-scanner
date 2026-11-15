@@ -39,6 +39,8 @@ import { eventRegion, eventRegions, formatEventDateRange } from '@/features/even
 import { useSpotlightEvents } from '@/features/events/hooks/use-spotlight-events';
 import { useSavedEvents } from '@/features/events/saved-events-store';
 import { tabBarBottomFadeHeight } from '@/lib/tab-bar-insets';
+import { PageSwipeGuard } from '@/components/page-tab-pager';
+import { TabSwipeChain } from '@/components/tab-swipe-chain';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 
 export type EventsTab = 'events' | 'saved' | 'past';
@@ -212,6 +214,10 @@ export function EventsScreen() {
   const title = TABS.find((item) => item.value === tab)?.title ?? '';
 
   return (
+    // Swipe chain: back → Scan, forward → Social's first page. No drawer edge
+    // gesture on this screen, so no edge band is reserved. The two horizontal
+    // chip rows are guarded so dragging them scrolls the chips.
+    <TabSwipeChain edgeGuardWidth={0} tab="events" testID="events-tab-swipe-chain">
     <View style={[styles.root, { backgroundColor: theme.colors.gray50 }]}>
       <ScrollView
         contentContainerStyle={{ paddingBottom: tabBarBottomFadeHeight + (Platform.OS === 'ios' ? insets.bottom : 0) }}
@@ -248,12 +254,12 @@ export function EventsScreen() {
             ]}
           />
           {/* Figma 5865:9334 — the chip row floats on the photo, just above the sheet. */}
+          <PageSwipeGuard style={[styles.chipRow, { top: chipRowTop }]}>
           <ScrollView
             contentContainerStyle={[styles.chips, { paddingHorizontal: gutter }]}
             horizontal
             keyboardShouldPersistTaps="handled"
             showsHorizontalScrollIndicator={false}
-            style={[styles.chipRow, { top: chipRowTop }]}
             testID="events-tabs"
           >
             {TABS.map((item) => {
@@ -272,6 +278,7 @@ export function EventsScreen() {
               );
             })}
           </ScrollView>
+          </PageSwipeGuard>
         </View>
 
         <View style={[styles.sheet, { backgroundColor: theme.colors.gray0 }]}>
@@ -304,7 +311,9 @@ export function EventsScreen() {
               />
             </View>
           ) : null}
-          <PageTabs onChange={setRegion} scrollable size="compact" tabs={regionTabs} testID="events-regions" value={region} />
+          <PageSwipeGuard>
+            <PageTabs onChange={setRegion} scrollable size="compact" tabs={regionTabs} testID="events-regions" value={region} />
+          </PageSwipeGuard>
         </View>
         <View style={[styles.listArea, { backgroundColor: theme.colors.gray50, paddingHorizontal: gutter }]}>
           {renderList()}
@@ -356,6 +365,7 @@ export function EventsScreen() {
         />
       </View>
     </View>
+    </TabSwipeChain>
   );
 }
 

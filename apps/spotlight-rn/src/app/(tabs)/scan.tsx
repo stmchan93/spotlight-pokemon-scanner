@@ -56,17 +56,14 @@ import { useDeferDataRefreshWhileFocused } from '@/providers/use-defer-data-refr
  * edge-to-edge theme does — and it needs a NATIVE build, not an OTA.
  *
  * ===========================================================================
- * NO HORIZONTAL SWIPE OUT OF HERE
+ * HORIZONTAL SWIPES: THE TAB CHAIN, NOT AN EXIT GESTURE
  * ===========================================================================
  * This screen used to wrap itself in `ScannerExitSwipe`, a hand-rolled
- * left-edge drag that switched tabs. It is gone, and the component with it: no
- * screen that belongs to the tab bar may be entered or left by a horizontal
- * swipe. The exit BUTTON is the single way out, which is also what the four
- * native tabs already do — UITabBarController has no swipe-between-tabs gesture
- * either, so the scanner was the one place the rule was broken.
- *
- * This does not touch pushed stack screens. They keep UIKit's interactive
- * back-swipe, which is the app's only horizontal navigation gesture now.
+ * left-edge drag; it is gone. A swipe on the CAMERA AREA is now the app-wide
+ * `TabSwipeChain` (rendered inside `ScannerScreen`): back to Watchlist,
+ * forward to Events, like every other tab root. It never starts on the tray or
+ * the JS tab bar, and stands down while the tray is expanded or binder review
+ * or a sheet is open. Pushed stack screens keep UIKit's back-swipe.
  *
  * ===========================================================================
  * WHY THIS IS NOT A LAUNCHER
