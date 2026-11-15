@@ -178,11 +178,9 @@ const styles = StyleSheet.create({
     width: ICON_SIZE,
   },
   avatarClip: {
-    // Backing + ring so a transparent or dark photo still reads on the black bar.
+    // Backing so a transparent photo still reads on the black bar. No ring.
     backgroundColor: colors.gray200,
-    borderColor: colors.gray0,
     borderCurve: 'continuous',
-    borderWidth: 1,
     borderRadius: AVATAR_SIZE / 2,
     height: AVATAR_SIZE,
     overflow: 'hidden',

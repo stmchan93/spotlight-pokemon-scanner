@@ -10,8 +10,6 @@ import {
 import { StyleSheet, View, type ImageSourcePropType } from 'react-native';
 import Svg, { Circle, ClipPath, Defs, Image as SvgImage } from 'react-native-svg';
 
-import { colors } from '@spotlight/design-system';
-
 import { useAuth } from '@/providers/auth-provider';
 
 /**
@@ -61,6 +59,14 @@ export const TAB_ICON_POINTS = 28;
 const RASTER_SCALE = 3;
 const RASTER_PX = TAB_ICON_POINTS * RASTER_SCALE;
 
+/**
+ * A blank (fully transparent) canvas encodes to well under 4KB of base64; any real
+ * photo is far larger. Below this the capture is retried, never shipped.
+ */
+const MIN_PHOTO_BASE64_LENGTH = 4000;
+const CAPTURE_ATTEMPTS = 5;
+const CAPTURE_DELAY_MS = 150;
+
 /** Single `<Defs>` id; only one of these is ever mounted at a time. */
 const CLIP_ID = 'circular-tab-avatar-clip';
 
@@ -91,25 +97,48 @@ export function CircularTabAvatarProvider({ children }: { children: ReactNode })
     setRaster((current) => (current && current.url === avatarURL ? current : null));
   }, [avatarURL]);
 
-  // Rasterise only once the bitmap is actually inside the SVG. Calling
-  // `toDataURL` on mount would capture an empty canvas, because the href is a
-  // network fetch — `onLoad` is the moment there is something to capture.
+  // Rasterise only once the bitmap is actually inside the SVG. `onLoad` alone is
+  // not that moment: on the new architecture react-native-svg emits it BEFORE it
+  // attaches the bitmap (RNSVGImage.mm sets `_image` in a later main-queue hop),
+  // so capturing on `onLoad` can bake an EMPTY canvas — an invisible tab icon.
+  // So wait a beat, and reject a capture too small to hold a photo; after the
+  // retries run out the tab keeps the glyph rather than drawing nothing.
+  const captureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (captureTimer.current) clearTimeout(captureTimer.current);
+    },
+    [avatarURL],
+  );
   const handleImageLoaded = useCallback(() => {
-    const node = svgRef.current;
-    if (!node || !avatarURL) {
+    const url = avatarURL;
+    if (!url) {
       return;
     }
-    node.toDataURL((base64) => {
-      setRaster({
-        url: avatarURL,
-        source: {
-          uri: `data:image/png;base64,${base64}`,
-          width: TAB_ICON_POINTS,
-          height: TAB_ICON_POINTS,
-          scale: RASTER_SCALE,
-        },
-      });
-    });
+    const capture = (attempt: number) => {
+      captureTimer.current = setTimeout(() => {
+        const node = svgRef.current;
+        if (!node) {
+          return;
+        }
+        node.toDataURL((base64) => {
+          if (base64.length < MIN_PHOTO_BASE64_LENGTH) {
+            if (attempt < CAPTURE_ATTEMPTS) capture(attempt + 1);
+            return;
+          }
+          setRaster({
+            url,
+            source: {
+              uri: `data:image/png;base64,${base64}`,
+              width: TAB_ICON_POINTS,
+              height: TAB_ICON_POINTS,
+              scale: RASTER_SCALE,
+            },
+          });
+        });
+      }, CAPTURE_DELAY_MS * attempt);
+    };
+    capture(1);
   }, [avatarURL]);
 
   const value = raster && raster.url === avatarURL ? raster.source : null;
@@ -129,8 +158,6 @@ export function CircularTabAvatarProvider({ children }: { children: ReactNode })
                 <Circle cx={RASTER_PX / 2} cy={RASTER_PX / 2} r={RASTER_PX / 2} />
               </ClipPath>
             </Defs>
-            {/* Backing disc: a transparent photo otherwise rasterises to an invisible icon. */}
-            <Circle cx={RASTER_PX / 2} cy={RASTER_PX / 2} fill={colors.gray200} r={RASTER_PX / 2} />
             <SvgImage
               clipPath={`url(#${CLIP_ID})`}
               height={RASTER_PX}

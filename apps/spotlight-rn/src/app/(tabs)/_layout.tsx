@@ -1,12 +1,13 @@
 import { usePathname } from 'expo-router';
-import { useDeferredValue } from 'react';
+import { useDeferredValue, useState } from 'react';
 import { Platform } from 'react-native';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 
 import { colors, fontFamilies } from '@spotlight/design-system';
 
 import { useCircularTabAvatar } from '@/components/circular-tab-avatar';
-import { rememberActiveTab } from '@/lib/last-active-tab';
+import { noteNonHomeTabShown, resetLaunchTabs } from '@/lib/launch-to-scanner';
+import { rememberActiveTab, returnableTabFromPathname } from '@/lib/last-active-tab';
 import { NativeTabScreenProvider } from '@/lib/tab-bar-insets';
 import { useKeyboardVisible } from '@/lib/use-keyboard-visible';
 
@@ -152,6 +153,11 @@ export default function TabsLayout() {
   // in an effect: it is a plain assignment to module scope with no subscribers,
   // so there is nothing to schedule or clean up.
   rememberActiveTab(pathname);
+  // Landing on any tab but Home first means the open-on-Scanner switch is moot.
+  useState(resetLaunchTabs);
+  if (returnableTabFromPathname(pathname) !== 'index') {
+    noteNonHomeTabShown();
+  }
   // Null until the user's photo has been rasterised into a circle — see
   // `circular-tab-avatar.tsx` for why a tab icon cannot just be a remote URL.
   const avatarIcon = useCircularTabAvatar();
