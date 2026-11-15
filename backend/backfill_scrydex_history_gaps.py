@@ -179,7 +179,8 @@ def attempted_cards(connection: sqlite3.Connection, gap_key: str) -> set[str]:
     return {
         row[0]
         for row in connection.execute(
-            f"SELECT card_id FROM {PROGRESS_TABLE} WHERE gap_dates = ?", (gap_key,)
+            # Errors (timeouts, 5xx) retry next night; ok / no_data are settled.
+            f"SELECT card_id FROM {PROGRESS_TABLE} WHERE gap_dates = ? AND status <> 'error'", (gap_key,)
         )
     }
 
