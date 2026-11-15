@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Image, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { NavArrowDown } from 'iconoir-react-native';
 
 import type {
@@ -17,6 +17,7 @@ import {
   layout,
   radii,
   spacing,
+  textStyles,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -31,12 +32,28 @@ import {
   priceChartReadout,
   resolveDefaultRowKey,
   type ChartTone,
+  type PriceChartModel,
   type PriceChartRange,
 } from '@/features/cards/card-price-chart-model';
 import { useCardPriceChart } from '@/features/cards/hooks/use-card-price-chart';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
 export const PRICE_CHART_HEIGHT = 210;
+
+// Off-scale Figma values for the price header (6322:8974); no token fits.
+// Delta line (6322:8976): 6 between amount / percent / logo, 2 after the 7pt triangle.
+const DELTA_GROUP_GAP = 6;
+const DELTA_TRIANGLE_GAP = 2;
+const DELTA_TRIANGLE_SIZE = 7;
+// TCGplayer logo 16.09x12 (6322:8986); the asset is the same 120x89 mark.
+const TCGPLAYER_LOGO = { width: 16.09, height: 12 };
+// Kept off the chip below: the delta row ends 4pt above it.
+const TCGPLAYER_HIT_SLOP = { top: 8, bottom: 4, left: 4, right: 8 };
+// Condition chip (6322:8987): 3pt vertical pad, 8x4 chevron at a 1pt stroke.
+// The viewBox crops iconoir's 24-unit box to the chevron (M6 9 L12 15 L18 9 +
+// its round caps), scaled 2/3 so the glyph is 8x4 and the stroke 1pt.
+const CHIP_PADDING_VERTICAL = 3;
+const CHIP_CHEVRON = { width: 9, height: 5, viewBox: '5.25 8.25 13.5 7.5', strokeWidth: 1.5 };
 
 type CardPriceChartSectionProps = {
   repository: SpotlightRepository;
@@ -59,6 +76,11 @@ type CardPriceChartSectionProps = {
   gutter?: number;
   /** Host surface style (e.g. the PDP's inset chart card); skipped when hidden. */
   style?: StyleProp<ViewStyle>;
+  /**
+   * Opens TCGplayer for the charted row. Only the logo beside the delta calls
+   * it (Figma 6322:8986); absent → no logo (graded lane, no exact link).
+   */
+  onOpenMarketplace?: (row: CardPriceTrendRow) => void;
   testID?: string;
 };
 
@@ -80,6 +102,7 @@ export function CardPriceChartSection({
   salesByRowKey,
   gutter = layout.pageGutter,
   style,
+  onOpenMarketplace,
   testID = 'card-price-chart',
 }: CardPriceChartSectionProps) {
   const theme = useSpotlightTheme();
@@ -133,14 +156,46 @@ export function CardPriceChartSection({
     setScrubIndex(null);
   }, []);
 
+  // While a newly picked row loads, keep drawing the last chart of this card +
+  // lane instead of the skeleton: the swap used to unmount the open condition
+  // sheet mid-tap and jump the page under the finger. A lane/card change
+  // (rows reloading) still shows the skeleton.
+  const lastReadyRef = useRef<{ scope: string; model: PriceChartModel } | null>(null);
+  const scope = `${cardId}|${mode}`;
+  if (chart.status === 'ready') {
+    lastReadyRef.current = { scope, model: chart.model };
+  }
+  const model = chart.status === 'ready'
+    ? chart.model
+    : chart.status === 'loading' && !rowsLoading && lastReadyRef.current?.scope === scope
+      ? lastReadyRef.current.model
+      : null;
+
+  // The sheet stays mounted whatever the chart state, so a pick can play its
+  // close slide instead of the Modal being torn down under the touch.
+  const sheet = (
+    <GradeConditionSheet
+      onClose={() => setSheetOpen(false)}
+      onSelect={handleSelectRow}
+      options={sheetOptions}
+      selectedId={rowKey}
+      testID={`${testID}-sheet`}
+      title={mode === 'graded' ? 'Grade' : 'Condition'}
+      visible={sheetOpen}
+    />
+  );
+
   if (chart.status === 'hidden') {
     return null;
   }
-  if (chart.status === 'loading' || !selectedRow) {
-    return <CardPriceChartSkeleton style={style} testID={`${testID}-skeleton`} />;
+  if (!model || !selectedRow) {
+    return (
+      <>
+        <CardPriceChartSkeleton style={style} testID={`${testID}-skeleton`} />
+        {sheet}
+      </>
+    );
   }
-
-  const { model } = chart;
   const readout = priceChartReadout(model, scrubIndex);
   const deltaColor = readout.delta
     ? toneColor(readout.delta.direction === 'flat' ? 'neutral' : readout.delta.direction)
@@ -158,13 +213,37 @@ export function CardPriceChartSection({
           value={priceLabel}
         />
         <View style={styles.deltaRow} testID={`${testID}-delta`}>
-          {readout.delta && readout.delta.direction !== 'flat' ? (
-            <TrendTriangle color={deltaColor} direction={readout.delta.direction} />
-          ) : null}
           {readout.delta ? (
-            <Text style={[theme.typography.titleXsmall, { color: deltaColor }]} testID={`${testID}-delta-amount`}>
-              {readout.delta.label}
+            <View style={styles.deltaAmount}>
+              {readout.delta.direction !== 'flat' ? (
+                <TrendTriangle color={deltaColor} direction={readout.delta.direction} size={DELTA_TRIANGLE_SIZE} />
+              ) : null}
+              <Text style={[theme.typography.titleXsmall, { color: deltaColor }]} testID={`${testID}-delta-amount`}>
+                {readout.delta.amount}
+              </Text>
+            </View>
+          ) : null}
+          {readout.delta?.percent ? (
+            <Text style={[theme.typography.titleXsmall, { color: deltaColor }]} testID={`${testID}-delta-percent`}>
+              {readout.delta.percent}
             </Text>
+          ) : null}
+          {onOpenMarketplace ? (
+            // The ONLY link in the price card (Figma 6322:8986).
+            <Pressable
+              accessibilityLabel="Open on TCGplayer"
+              accessibilityRole="link"
+              hitSlop={TCGPLAYER_HIT_SLOP}
+              onPress={() => onOpenMarketplace(selectedRow)}
+              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+              testID={`${testID}-tcgplayer`}
+            >
+              <Image
+                resizeMode="contain"
+                source={require('../../../../assets/images/tcgplayer-logo.png')}
+                style={TCGPLAYER_LOGO}
+              />
+            </Pressable>
           ) : null}
           {/* At rest the line is just price + delta (Figma 6322:8976); the date
               caption appears only while scrubbing a point. */}
@@ -187,9 +266,9 @@ export function CardPriceChartSection({
           ]}
           testID={`${testID}-chip`}
         >
-          {/* Compact chip (Figma 6322:8987): Regular 10, small chevron. */}
+          {/* Compact chip (Figma 6322:8987): Regular 10, 8x4 chevron. */}
           <Text style={[theme.typography.captionTiny, { color: theme.colors.gray900 }]}>{selectedRow.label}</Text>
-          <NavArrowDown color={theme.colors.gray900} height={12} strokeWidth={2} width={12} />
+          <NavArrowDown color={theme.colors.gray900} {...CHIP_CHEVRON} />
         </Pressable>
       </View>
 
@@ -244,15 +323,7 @@ export function CardPriceChartSection({
         })}
       </View>
 
-      <GradeConditionSheet
-        onClose={() => setSheetOpen(false)}
-        onSelect={handleSelectRow}
-        options={sheetOptions}
-        selectedId={rowKey}
-        testID={`${testID}-sheet`}
-        title={mode === 'graded' ? 'Grade' : 'Condition'}
-        visible={sheetOpen}
-      />
+      {sheet}
     </View>
   );
 }
@@ -262,9 +333,13 @@ function CardPriceChartSkeleton({ style, testID }: { style?: StyleProp<ViewStyle
   return (
     <View style={[styles.root, style]} testID={testID}>
       <View style={styles.header}>
-        <SkeletonBlock height={38} width={160} />
-        <SkeletonBlock height={18} width={200} />
-        <SkeletonBlock height={32} radius={radii.pill} width={120} />
+        <SkeletonBlock height={textStyles.detailTitleBold.lineHeight} width={120} />
+        <SkeletonBlock height={textStyles.titleXsmall.lineHeight} width={140} />
+        <SkeletonBlock
+          height={textStyles.captionTiny.lineHeight + CHIP_PADDING_VERTICAL * 2}
+          radius={radii.pill}
+          width={72}
+        />
       </View>
       <SkeletonBlock height={PRICE_CHART_HEIGHT} />
       <SkeletonBlock height={36} />
@@ -284,9 +359,14 @@ const styles = StyleSheet.create({
   },
   deltaRow: {
     alignItems: 'center',
-    columnGap: spacing.xxxs,
+    columnGap: DELTA_GROUP_GAP,
     flexDirection: 'row',
     flexWrap: 'wrap',
+  },
+  deltaAmount: {
+    alignItems: 'center',
+    columnGap: DELTA_TRIANGLE_GAP,
+    flexDirection: 'row',
   },
   chip: {
     alignItems: 'center',
@@ -296,7 +376,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.xxs,
     paddingHorizontal: spacing.xxs,
-    paddingVertical: 3,
+    paddingVertical: CHIP_PADDING_VERTICAL,
   },
   emptyChart: {
     alignItems: 'center',
