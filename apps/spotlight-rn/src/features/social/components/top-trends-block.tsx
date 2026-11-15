@@ -15,6 +15,7 @@ import {
   type TopMoverTileProps,
 } from '@spotlight/design-system';
 
+import { PageSwipeGuard } from '@/components/page-tab-pager';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
 /** The window the copy promises when no payload has landed yet. */
@@ -167,12 +168,15 @@ export function TopTrendsBlock({
           {`past ${windowDays} days`.toUpperCase()}
         </Text>
       </View>
-      <TopTrendsRail
-        autoAdvanceIntervalMs={autoAdvanceIntervalMs}
-        items={slides.map(({ item }) => toTopMoverTileProps(item, onPressCard, testID))}
-        onActiveIndexChange={setActiveIndex}
-        testID={`${testID}-rail`}
-      />
+      {/* A drag on the rail pages its tiles, never the feed's pages or the tab strip. */}
+      <PageSwipeGuard>
+        <TopTrendsRail
+          autoAdvanceIntervalMs={autoAdvanceIntervalMs}
+          items={slides.map(({ item }) => toTopMoverTileProps(item, onPressCard, testID))}
+          onActiveIndexChange={setActiveIndex}
+          testID={`${testID}-rail`}
+        />
+      </PageSwipeGuard>
     </View>
   );
 }

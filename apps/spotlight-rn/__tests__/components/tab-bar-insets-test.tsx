@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import {
-  NativeTabScreenProvider,
+  TabScreenProvider,
   floatingAffordanceGap,
   resolveFloatingAffordanceBottom,
 } from '@/lib/tab-bar-insets';
@@ -68,7 +68,7 @@ describe('floating affordance placement', () => {
         resolveFloatingAffordanceBottom({
           os: 'ios',
           safeAreaBottom: 83, // 49pt tab bar + 34pt home indicator
-          isNativeTabScreen: true,
+          isTabScreen: true,
         }),
       ).toBe(83 + floatingAffordanceGap);
     });
@@ -78,7 +78,7 @@ describe('floating affordance placement', () => {
         resolveFloatingAffordanceBottom({
           os: 'android',
           safeAreaBottom: 48,
-          isNativeTabScreen: true,
+          isTabScreen: true,
         }),
       ).toBe(floatingAffordanceGap);
     });
@@ -90,7 +90,7 @@ describe('floating affordance placement', () => {
         resolveFloatingAffordanceBottom({
           os: 'android',
           safeAreaBottom: 48,
-          isNativeTabScreen: false,
+          isTabScreen: false,
         }),
       ).toBe(48 + floatingAffordanceGap);
     });
@@ -100,7 +100,7 @@ describe('floating affordance placement', () => {
         resolveFloatingAffordanceBottom({
           os: 'ios',
           safeAreaBottom: -10,
-          isNativeTabScreen: false,
+          isTabScreen: false,
         }),
       ).toBe(floatingAffordanceGap);
     });
@@ -127,9 +127,9 @@ describe('floating affordance placement', () => {
       Object.defineProperty(Platform, 'OS', { value: 'android', configurable: true });
 
       renderWithProviders(
-        <NativeTabScreenProvider>
+        <TabScreenProvider>
           <CollectionAddFab />
-        </NativeTabScreenProvider>,
+        </TabScreenProvider>,
       );
 
       expect(flattenStyle(screen.getByTestId('collection-add-fab')).bottom).toBe(

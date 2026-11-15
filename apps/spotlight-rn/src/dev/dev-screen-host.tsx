@@ -5,7 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import type { SpotlightRepository } from '@spotlight/api-client';
 import { Text, colors, textStyles } from '@spotlight/design-system';
 
-import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
+import { StaticTabsPageProvider } from '@/contexts/tabs-page-context';
 import { SignedOutFlow } from '@/features/auth/components/signed-out-flow';
 import { AccountScreen } from '@/features/auth/screens/account-screen';
 import { ChangePasswordScreen } from '@/features/auth/screens/change-password-screen';
@@ -392,10 +392,10 @@ export function DevScreenHost({ screen }: { screen: string }) {
 
   return (
     <AppProviders sessionOwnerKey="dev-screens" spotlightRepository={repository}>
-      <NativeTabsPageBridge page="portfolio">
+      <StaticTabsPageProvider page="portfolio">
         <StatusBar style="dark" />
         {renderScreen()}
-      </NativeTabsPageBridge>
+      </StaticTabsPageProvider>
     </AppProviders>
   );
 }

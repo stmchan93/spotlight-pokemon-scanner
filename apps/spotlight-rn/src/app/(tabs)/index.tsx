@@ -1,6 +1,5 @@
 import { useRouter } from 'expo-router';
 
-import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
 import { GuestScannerRedirect } from '@/features/auth/components/guest-scanner-redirect';
 import {
   cardDetailPreviewFromInventoryEntry,
@@ -44,26 +43,24 @@ export default function HomeRoute() {
   }
 
   return (
-    <NativeTabsPageBridge page="portfolio">
-      <PortfolioScreen
-        onOpenInventoryEntry={(entry) => {
-          const preview = cardDetailPreviewFromInventoryEntry(entry);
-          prefetchCardDetail(
-            spotlightRepository,
-            entry.cardId,
-            defaultLaneFromPreview(preview),
-            preview.largeImageUrl ?? preview.imageUrl,
-          );
-          router.push({
-            pathname: '/cards/[cardId]',
-            params: {
-              cardId: entry.cardId,
-              entryId: entry.id,
-              previewId: saveCardDetailPreviewFromInventoryEntry(entry),
-            },
-          });
-        }}
-      />
-    </NativeTabsPageBridge>
+    <PortfolioScreen
+      onOpenInventoryEntry={(entry) => {
+        const preview = cardDetailPreviewFromInventoryEntry(entry);
+        prefetchCardDetail(
+          spotlightRepository,
+          entry.cardId,
+          defaultLaneFromPreview(preview),
+          preview.largeImageUrl ?? preview.imageUrl,
+        );
+        router.push({
+          pathname: '/cards/[cardId]',
+          params: {
+            cardId: entry.cardId,
+            entryId: entry.id,
+            previewId: saveCardDetailPreviewFromInventoryEntry(entry),
+          },
+        });
+      }}
+    />
   );
 }

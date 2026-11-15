@@ -56,57 +56,17 @@ jest.mock('react-native-safe-area-context', () => {
   };
 });
 
-// Drives the tabs layout's `hidden` decision (the bar is hidden on /scan).
+// The tabs layout records the pathname for "back to the last tab".
 const mockPathname = jest.fn(() => '/');
-// The You tab's icon. Null = no photo rasterised yet, which is the SF-symbol
-// fallback case.
-let mockTabAvatar: unknown = null;
-jest.mock('@/components/circular-tab-avatar', () => ({
-  useCircularTabAvatar: () => mockTabAvatar,
-}));
 
-jest.mock('expo-router/unstable-native-tabs', () => {
-  const { Text, View } = require('react-native');
-  const Trigger = Object.assign(
-    ({ name, children }: { name?: string; children?: React.ReactNode }) => (
-      <View>
-        <Text testID={`native-tab-${name}`}>{name}</Text>
-        {children}
-      </View>
-    ),
-    {
-      // Surfaces which icon source each trigger chose. `tab-icon` deliberately
-      // does NOT start with `native-tab-`, so it stays out of the regex that
-      // asserts tab ORDER below.
-      Icon: ({
-        renderingMode,
-        sf,
-        src,
-      }: {
-        renderingMode?: string;
-        sf?: unknown;
-        src?: unknown;
-      }) => (
-        <Text testID="tab-icon">
-          {JSON.stringify({ renderingMode: renderingMode ?? null, sf: sf ?? null, src: src ?? null })}
-        </Text>
-      ),
-      Label: ({ children }: { children?: unknown }) => <Text>{children}</Text>,
-    },
-  );
-  return {
-    NativeTabs: Object.assign(
-      ({ children, hidden, minimizeBehavior }: { children?: React.ReactNode; hidden?: boolean; minimizeBehavior?: string }) => (
-        <View>
-          <Text testID="native-tabs-hidden">{String(hidden)}</Text>
-          <Text testID="native-tabs-minimize">{String(minimizeBehavior)}</Text>
-          {children}
-        </View>
-      ),
-      { Trigger },
-    ),
-  };
-});
+// The pager navigator needs a real expo-router; this file mocks expo-router
+// wholesale, so the navigator is stubbed to surface the props the layout passes.
+jest.mock('@/components/tab-pager/tab-pager-navigator', () => ({
+  TabPager: (props: object) => {
+    const { Text } = require('react-native');
+    return <Text testID="tab-pager">{JSON.stringify(props)}</Text>;
+  },
+}));
 
 jest.mock('expo-router', () => ({
   Redirect: (props: { href: unknown }) => mockRedirect(props),
@@ -314,127 +274,33 @@ describe('misc route wrappers', () => {
     expect(screen.getByTestId('stack-screen-options').props.children).toContain('"backgroundColor":"transparent"');
     browse.unmount();
 
-    // The tabs layout is Apple's native tab bar now, not a Slot. Five tabs:
-    // Home / Wishlist / Scan / Events / Social, and the ORDER is part of the contract —
-    // `index` is Collection, so the app opens on your own cards, and the feed
-    // sits last as `social`. These two have traded places once already; the
-    // assertion below is what stops a third swap going unnoticed.
-    mockPathname.mockReturnValue('/');
-    const tabs = render(<TabsLayout />);
-    expect(screen.getByTestId('native-tabs-minimize').props.children).toBe('onScrollDown');
-    expect(screen.getByTestId('native-tab-index')).toBeTruthy();
-    expect(screen.getByTestId('native-tab-scan')).toBeTruthy();
-    expect(screen.getByTestId('native-tab-wishlist')).toBeTruthy();
-    expect(screen.getByTestId('native-tab-events')).toBeTruthy();
-    expect(screen.getByTestId('native-tab-social')).toBeTruthy();
-    expect(
-      screen.getAllByTestId(/^native-tab-/).map((node) => node.props.children),
-    ).toEqual(['index', 'wishlist', 'scan', 'events', 'social']);
-    expect(screen.getByTestId('native-tabs-hidden').props.children).toBe('false');
-
-    // On the Scanner the BAR is hidden so the camera keeps the full screen —
-    // this is what replaced the launcher-and-push design that stranded users on
-    // a black screen. Regression guard: if this flips back to 'false', the
-    // reticle silently shrinks again.
-    tabs.unmount();
-    mockPathname.mockReturnValue('/scan');
-    render(<TabsLayout />);
-    expect(screen.getByTestId('native-tabs-hidden').props.children).toBe('true');
-  });
-
-  // `sf` and `src` are MUTUALLY EXCLUSIVE on the You tab, and the failure is
-  // silent in both directions: iOS resolves `sf` > `xcasset` > `src`, so passing
-  // both means the symbol always wins and the avatar simply never appears; and
-  // without `renderingMode="original"` the tint configured by `tintColor` turns
-  // the photograph into a flat silhouette. Neither shows up as an error.
-  it('swaps the You glyph for the avatar photo, untinted, once one exists', () => {
-    mockPathname.mockReturnValue('/');
-
-    mockTabAvatar = null;
-    const glyph = render(<TabsLayout />);
-    const asGlyph = JSON.parse(screen.getAllByTestId('tab-icon')[4].props.children);
-    expect(asGlyph.sf).not.toBeNull();
-    expect(asGlyph.src).toBeNull();
-    glyph.unmount();
-
-    mockTabAvatar = { uri: 'data:image/png;base64,PNG', width: 28, height: 28, scale: 3 };
-    render(<TabsLayout />);
-    const asPhoto = JSON.parse(screen.getAllByTestId('tab-icon')[4].props.children);
-    expect(asPhoto.src).toEqual(mockTabAvatar);
-    expect(asPhoto.sf).toBeNull();
-    expect(asPhoto.renderingMode).toBe('original');
-
-    // The avatar reaches ONLY the You tab — the assertion that matters here,
-    // since every other tab now carries an image too.
-    const others = [0, 1, 2, 3].map((i) =>
-      JSON.parse(screen.getAllByTestId('tab-icon')[i].props.children),
-    );
-    for (const icon of others) {
-      expect(icon.src).not.toEqual(mockTabAvatar);
-    }
-    mockTabAvatar = null;
-  });
-
-  /*
-    THE FIGMA GLYPHS, WHICH ARE IMAGES RATHER THAN SYMBOLS.
-
-    Home (Figma 3670:48082) and Wishlist (3670:48091) draw iconoir's HomeSimple
-    and Bookmark, which a native bar cannot take as components — they are
-    rasterized from the installed package by `tools/generate_tab_icons.py`.
-
-    `renderingMode="template"` MUST be set EXPLICITLY — the inverse of the You
-    avatar above, which needs `original` or the tint flattens the photo.
-
-    This used to demand the prop stay UNSET, on the belief that the default was
-    `template`. It is not: expo-router defaults to `'original'` unless `iconColor`
-    is set, and `tintColor` does not set it. Home and Wishlist shipped untinted
-    because of that. Do not "simplify" it back.
-  */
-  it('draws Home and Wishlist from the Figma vectors, tintable', () => {
+    // The tabs layout is the tab pager (`@/components/tab-pager`); page ORDER
+    // and the bar are pinned by the pager's own tests. Android back goes to Home.
     mockPathname.mockReturnValue('/');
     render(<TabsLayout />);
-
-    const [home, wishlist, scan] = [0, 1, 2].map((i) =>
-      JSON.parse(screen.getAllByTestId('tab-icon')[i].props.children),
-    );
-
-    expect(home.src).toBeTruthy();
-    expect(home.sf).toBeNull();
-    expect(home.renderingMode).toBe('template');
-
-    expect(wishlist.src).toBeTruthy();
-    expect(wishlist.sf).toBeNull();
-    expect(wishlist.renderingMode).toBe('template');
-
-    /*
-      Scan is deliberately NOT one of them. Its frame draws Apple's own
-      `viewfinder`, so iOS renders it natively — and Apple's SF Symbols license
-      does not allow shipping that artwork as an image on Android, which is why
-      it must never be "fixed" to match the other two.
-    */
-    expect(scan.sf).not.toBeNull();
-    expect(scan.src).toBeNull();
+    expect(JSON.parse(screen.getByTestId('tab-pager').props.children)).toEqual({ backBehavior: 'firstRoute' });
   });
 
-  // A structural assertion, for the same reason the New Post one below is:
-  // "there is no horizontal swipe between these screens" is the ABSENCE of a
-  // behaviour, and absence is invisible to a render test. The native tab bar
-  // gives it for free (UITabBarController has no swipe-between-tabs gesture),
-  // so the only way it can come back is a JS recogniser hand-added to a tab
-  // screen — which is exactly what `ScannerExitSwipe` was until it was deleted.
+  // Tab ROUTES carry no swipe recogniser of their own: the one horizontal
+  // gesture between tabs is the pager's, owned by the layout's navigator. A
+  // recogniser hand-added to a route (what `ScannerExitSwipe` was until it was
+  // deleted) would fight it.
   //
   // This does NOT apply to pushed stack screens. They keep UIKit's interactive
-  // back-swipe, which is deliberately the app's only horizontal nav gesture.
-  it('keeps every tab screen free of a horizontal swipe-to-navigate gesture', () => {
-     
+  // back-swipe.
+  it('keeps every tab route free of its own horizontal swipe-to-navigate gesture', () => {
+
     const fs = require('node:fs');
-     
+
     const path = require('node:path');
     const tabsDir = path.join(__dirname, '..', '..', 'src', 'app', '(tabs)');
 
-    // The recogniser itself is gone, not merely unused.
+    // The recognisers themselves are gone, not merely unused.
     expect(
       fs.existsSync(path.join(__dirname, '..', '..', 'src', 'components', 'scanner-exit-swipe.tsx')),
+    ).toBe(false);
+    expect(
+      fs.existsSync(path.join(__dirname, '..', '..', 'src', 'components', 'tab-swipe-chain.tsx')),
     ).toBe(false);
 
     const tabRoutes = fs.readdirSync(tabsDir).filter((name: string) => name.endsWith('.tsx'));
@@ -442,15 +308,13 @@ describe('misc route wrappers', () => {
     // aliases (/portfolio and /you, both redirecting to Collection at the tabs root).
     expect(tabRoutes).toHaveLength(8);
 
-    for (const name of tabRoutes) {
+    for (const name of tabRoutes.filter((route: string) => route !== '_layout.tsx')) {
       const source: string = fs.readFileSync(path.join(tabsDir, name), 'utf8');
-      // Comments are allowed to name the deleted component (scan.tsx explains
-      // why it went); an IMPORT of a swipe recogniser is what must not reappear.
       const imports = source
         .split('\n')
         .filter((line) => line.trimStart().startsWith('import'))
         .join('\n');
-      expect(imports).not.toMatch(/ExitSwipe|EdgeSwipe|Pager|Swipeable/);
+      expect(imports).not.toMatch(/ExitSwipe|EdgeSwipe|Pager|Swipeable|SwipeChain/);
     }
   });
 

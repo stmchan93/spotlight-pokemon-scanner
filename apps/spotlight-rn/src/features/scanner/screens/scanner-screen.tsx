@@ -163,7 +163,8 @@ import {
 } from '@/features/cards/card-detail-prefetch';
 import { saveCardDetailPreviewFromCatalogResult } from '@/features/cards/card-detail-preview-session';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
-import { TabSwipeChain, TabSwipeGuardHandler } from '@/components/tab-swipe-chain';
+import { getAppTabBarHeight } from '@/components/tab-pager/app-tab-bar';
+import { usePagerTouchGuardGesture, useTabPagerLock } from '@/components/tab-pager/tab-pager-page-context';
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { prefetchImageUrls } from '@/lib/card-images';
 import { useAuth } from '@/providers/auth-provider';
@@ -187,11 +188,6 @@ import {
 
 import { BinderPageReview } from './binder-page-review';
 import { BinderLayoutMenu, type BinderLayoutMenuSelection } from '@/features/scanner/components/binder-layout-menu';
-import {
-  getScannerTabBarHeight,
-  ScannerTabBar,
-  type ScannerTabName,
-} from '@/features/scanner/components/scanner-tab-bar';
 import { AnchoredOptionMenu } from '@/features/scanner/components/printing-menu';
 import { CustomDiscountSheet } from '@/features/scanner/components/custom-discount-sheet';
 import { watchlistCardBasicsFromSearchResult } from '@/features/wishlist/watchlist-store';
@@ -417,8 +413,12 @@ export type ScannerDevPreview = {
 type ScannerScreenProps = {
   devPreview?: ScannerDevPreview;
   onExitToPortfolio?: () => void;
-  /** Draws the solid JS tab bar below the viewfinder; omitted = full-bleed scanner. */
-  onSelectTab?: (tab: ScannerTabName) => void;
+  /**
+   * Lays the viewfinder and tray out ABOVE the tab pager's bar (which turns into
+   * the black scanner bar on this page) instead of under it. Omitted =
+   * full-bleed scanner.
+   */
+  reserveTabBarSpace?: boolean;
   onTopLevelSwipeEnabledChange?: (enabled: boolean) => void;
 };
 
@@ -1131,7 +1131,7 @@ const selectNoPriceSelections = () => emptyPriceSelections;
 export function ScannerScreen({
   devPreview,
   onExitToPortfolio,
-  onSelectTab,
+  reserveTabBarSpace = false,
   onTopLevelSwipeEnabledChange,
 }: ScannerScreenProps = {}) {
   const isTestEnv = process.env.NODE_ENV === 'test';
@@ -1547,15 +1547,17 @@ export function ScannerScreen({
     Falls back to the hook when the constant is unavailable (web, and the test
     renderer, where the inset is mocked anyway).
 
-    WITH THE JS TAB BAR (`onSelectTab`): the bar is a sibling BELOW the capture
-    surface and owns the home-indicator inset, so the surface (camera, reticle,
-    tray) is that much shorter and the tray only needs the Figma 24 between its
-    row and the bar (6145:5621).
+    WITH THE TAB BAR (`reserveTabBarSpace`): the pager's bar sits BELOW the
+    capture surface (a spacer of exactly its height holds the place) and owns the
+    home-indicator inset, so the surface (camera, reticle, tray) is that much
+    shorter and the tray only needs the Figma 24 between its row and the bar
+    (6145:5621). The bar computes its height from the same window inset
+    (`useTabBarBottomInset`).
   */
   const windowBottomInset = initialWindowMetrics?.insets.bottom ?? insets.bottom;
-  const tabBarHeight = onSelectTab ? getScannerTabBarHeight(windowBottomInset) : 0;
+  const tabBarHeight = reserveTabBarSpace ? getAppTabBarHeight(windowBottomInset) : 0;
   const scannerContainerHeight = windowHeight - tabBarHeight;
-  const trayBottomInset = onSelectTab ? spacing.lg : windowBottomInset + 14;
+  const trayBottomInset = reserveTabBarSpace ? spacing.lg : windowBottomInset + 14;
   const collapsedTrayReservedHeight = getRawScannerCollapsedTrayReservedHeight({
     bottomInset: trayBottomInset,
   });
@@ -4524,6 +4526,23 @@ export function ScannerScreen({
     ],
   );
 
+  // The tab pager stands down entirely while the tray is expanded, binder review
+  // is open, or any sheet/menu is up: those surfaces own every drag.
+  useTabPagerLock(
+    isTrayExpanded
+    || activeBinderPageId != null
+    || activePriceCaptureId != null
+    || activeChangeCaptureId != null
+    || gradingMenu != null
+    || isScanTargetSheetOpen,
+  );
+  // The tab pager's touch guard rides along with the tray pan (see the tray shell).
+  const pagerTouchGuard = usePagerTouchGuardGesture();
+  const trayGesture = useMemo(
+    () => (pagerTouchGuard ? Gesture.Simultaneous(trayPanGesture, pagerTouchGuard) : trayPanGesture),
+    [pagerTouchGuard, trayPanGesture],
+  );
+
   const promptCopy = !hasCameraPermission
     ? 'Allow camera access to scan'
     : isCapturing
@@ -4709,26 +4728,6 @@ export function ScannerScreen({
       <MatchedPrintingDefaults trayStore={trayStore} variantsByCardId={variantsByCardId} />
       <GradedRowPrices spotlightRepository={spotlightRepository} trayStore={trayStore} />
       {isActiveTab ? <ScannerKeepAwake /> : null}
-      {/*
-        Bottom-tab swipe chain (back → Watchlist, forward → Events), around the
-        CAMERA AREA only: the JS tab bar below is outside it, the tray inside it
-        is guarded (see the tray shell), and it stands down entirely while the
-        tray is expanded, binder review is open, or any sheet/menu is up. No
-        drawer on this screen, so no left-edge band is reserved.
-      */}
-      <TabSwipeChain
-        disabled={
-          isTrayExpanded
-          || activeBinderPageId != null
-          || activePriceCaptureId != null
-          || activeChangeCaptureId != null
-          || gradingMenu != null
-          || isScanTargetSheetOpen
-        }
-        edgeGuardWidth={0}
-        tab="scan"
-        testID="scanner-tab-swipe-chain"
-      >
       <RawScannerCaptureSurface
         cameraRef={cameraRef}
         canCapture={canCapture}
@@ -5064,13 +5063,12 @@ export function ScannerScreen({
 
         {/*
           The tray's drags (row swipes, the vertical pan) are never a tab swipe:
-          the guard marks any touch that STARTS here so the chain stays out of
-          it. A responder-capture prop on the existing shell, not a wrapper
-          view, so the Android RNGH bounds hit-testing below is unchanged.
+          `trayGesture` carries the pager's touch guard alongside the tray pan,
+          so a touch that STARTS on the tray is never taken by the strip. Same
+          detector, same view, so the Android RNGH bounds hit-testing below is
+          unchanged.
         */}
-        <TabSwipeGuardHandler>
-        {(guardTabSwipe) => (
-        <GestureDetector gesture={trayPanGesture}>
+        <GestureDetector gesture={trayGesture}>
         {/*
           INERT WHILE THE BINDER REVIEW COVERS IT. The review is drawn over this
           shell, and React Native hit-tests by what is on top — but on Android
@@ -5085,7 +5083,6 @@ export function ScannerScreen({
           is also simply correct: a covered tray must not react to touches.
         */}
         <View
-          onStartShouldSetResponderCapture={guardTabSwipe}
           pointerEvents={activeBinderPageId ? 'none' : 'auto'}
           style={styles.trayShell}
           testID="scanner-tray"
@@ -5282,21 +5279,19 @@ export function ScannerScreen({
           </View>
         </View>
         </GestureDetector>
-        )}
-        </TabSwipeGuardHandler>
         <Reanimated.View
           pointerEvents="none"
           style={[styles.captureFlash, captureFlashStyle]}
         />
       </RawScannerCaptureSurface>
-      </TabSwipeChain>
       {/*
-        In FLOW below the capture surface (which is flex: 1), not floated over
-        it: the tray's absolute bottom edge ends at this bar's top, so the
-        tray's pan never overlaps a tab (RNGH hit-tests by bounds on Android).
+        The tab bar's place, in FLOW below the capture surface (which is
+        flex: 1): the pager draws the bar over exactly this strip. The tray's
+        absolute bottom edge ends at its top, so the tray's pan never overlaps a
+        tab (RNGH hit-tests by bounds on Android).
       */}
-      {onSelectTab ? (
-        <ScannerTabBar bottomInset={windowBottomInset} onSelectTab={onSelectTab} />
+      {reserveTabBarSpace ? (
+        <View style={[styles.tabBarSpace, { height: tabBarHeight }]} testID="scanner-tab-bar-space" />
       ) : null}
       {(() => {
         if (!activePriceCaptureId) {
@@ -5967,6 +5962,9 @@ const styles = StyleSheet.create({
   safeArea: {
     backgroundColor: colors.scannerCanvas,
     flex: 1,
+  },
+  tabBarSpace: {
+    backgroundColor: colors.scannerTray,
   },
   matchesButton: {
     minWidth: 116,
