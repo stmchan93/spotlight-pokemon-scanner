@@ -2899,6 +2899,9 @@ export function CardDetailScreen({
             // condition (the row-press deep link). The graded lane's chart is
             // eBay comps with no exact link, so it gets no logo.
             onOpenMarketplace={displayedPriceTrends?.mode === 'raw' ? handleTrendRowPress : undefined}
+            graders={availableGraders}
+            onSelectGrader={handleSelectGrader}
+            selectedGrader={selectedGrader}
             salesEnabled={gameHasListingsData(cardGame)}
             style={styles.chartCard}
             testID="detail-price-chart"

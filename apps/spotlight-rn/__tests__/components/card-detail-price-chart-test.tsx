@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 
@@ -92,6 +92,29 @@ describe('CardDetailScreen price chart', () => {
     // One history read serves every row and range.
     fireEvent.press(screen.getByTestId('detail-price-chart-range-1W'));
     expect(getCardConditionHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it('switches Raw → PSA from the grader chip beside the row chip', async () => {
+    const getCardConditionHistory = jest.fn(async () => rawHistory());
+    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+      spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardConditionHistory }),
+    });
+
+    const graderChip = await screen.findByTestId('detail-price-chart-grader-chip');
+    expect(within(graderChip).getByText('Raw')).toBeTruthy();
+    expect(within(screen.getByTestId('detail-price-chart-chip')).getByText('Near Mint')).toBeTruthy();
+
+    fireEvent.press(graderChip);
+    fireEvent.press(await screen.findByTestId('detail-price-chart-grader-sheet-option-PSA'));
+
+    await waitFor(() => {
+      expect(getCardPriceTrends).toHaveBeenCalledWith(expect.objectContaining({ mode: 'graded', grader: 'PSA' }));
+    });
+    // The grader chip names the company, so the row chip drops it: "PSA 10" → "10".
+    await waitFor(() => {
+      expect(within(screen.getByTestId('detail-price-chart-grader-chip')).getByText('PSA')).toBeTruthy();
+      expect(within(screen.getByTestId('detail-price-chart-chip')).getByText('10')).toBeTruthy();
+    });
   });
 
   it('the condition chip only opens the picker; the TCGplayer logo is the one link', async () => {
