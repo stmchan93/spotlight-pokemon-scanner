@@ -152,9 +152,9 @@ describe('PriceScrubChart', () => {
     expect(screen.queryByTestId('price-scrub-chart-canvas')).toBeNull();
   });
 
-  it('renders line data with a baseline and end dot', () => {
+  it('renders line data with an end dot and no baseline', () => {
     renderChart();
-    expect(screen.getByTestId('price-scrub-chart-baseline')).toBeTruthy();
+    expect(screen.queryByTestId('price-scrub-chart-baseline')).toBeNull();
     expect(screen.getByTestId('price-scrub-chart-dot')).toBeTruthy();
     expect(screen.queryByTestId('price-scrub-chart-cursor')).toBeNull();
   });
@@ -249,7 +249,6 @@ describe('PriceScrubChart', () => {
       if (range !== '1W') {
         expect(fill).not.toMatch(/L0(\.0)? /);
       }
-      expect(screen.getByTestId('price-scrub-chart-baseline').props.x1).toBeCloseTo(expectedX, 5);
     },
   );
 

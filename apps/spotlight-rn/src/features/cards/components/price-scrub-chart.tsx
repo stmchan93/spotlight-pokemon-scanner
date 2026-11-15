@@ -106,8 +106,6 @@ function PriceScrubChartImpl({
     return segmentPaths(points, coords, salesGapThresholdMs(windowEndMs - windowStartMs));
   }, [coords, points, variant, windowEndMs, windowStartMs]);
 
-  const baselineY = coords[0]?.y ?? 0;
-
   // --- Range/data change: morph line→line, otherwise fade in. ---
   const morphProgress = useSharedValue(1);
   const fade = useSharedValue(1);
@@ -335,18 +333,6 @@ function PriceScrubChartImpl({
                 ) : null}
               </Defs>
               {showFill ? <G clipPath={`url(#${clipId})`}>{renderFill()}</G> : null}
-              <Line
-                stroke={theme.colors.gray300}
-                strokeDasharray={[1.5, 4]}
-                strokeLinecap="round"
-                strokeWidth={1.2}
-                testID={`${testID}-baseline`}
-                // Starts under the first point: no baseline where there's no data.
-                x1={coords[0]?.x ?? 0}
-                x2={width}
-                y1={baselineY}
-                y2={baselineY}
-              />
               <G strokeLinecap="round" strokeLinejoin="round">
                 {renderSeries(dimColor)}
               </G>
