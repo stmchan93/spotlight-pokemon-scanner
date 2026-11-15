@@ -85,6 +85,8 @@ import { CardActionsSheet } from '@/features/cards/components/card-actions-sheet
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
 import { buildEbaySearchUrl, buildTcgPlayerSearchUrl } from '@/features/cards/marketplace-urls';
 import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
+import { TabSwipeChain, useTabLanding } from '@/components/tab-swipe-chain';
+import { innerPageForLanding } from '@/lib/tab-swipe-chain';
 import {
   AnimatedFlatList,
   AnimatedScrollView,
@@ -373,6 +375,13 @@ export function PortfolioScreen({
   // Public profile tab (Collection / For Sale / Activity). Only Collection is
   // live; the others show a "Coming soon" placeholder until their phases ship.
   const [activeProfileTab, setActiveProfileTab] = useState<ProfileTab>('collection');
+  // Arriving by a swipe back from Watchlist lands on the NEAR edge: Activity.
+  useTabLanding('index', (edge) => {
+    const page = innerPageForLanding(PROFILE_TAB_ORDER, edge);
+    if (page) {
+      setActiveProfileTab(page);
+    }
+  });
   // Owner Activity tab (Phase 3a): the signed-in user's own posts, plus the
   // backend proxy base + bearer the post images stream through.
   const accessToken = auth.accessToken;
@@ -2169,6 +2178,18 @@ export function PortfolioScreen({
       reason. It claims the gesture only once it is unambiguously a drawer swipe,
       which cancels the card underneath; ordinary scrolls are never claimed.
     */
+    /*
+      Bottom-tab swipe chain: past Activity a swipe moves on to Watchlist;
+      Collection is the start of the chain. OUTSIDE the drawer and the pager so
+      it is asked first in the capture phase and declines everything they own.
+    */
+    <TabSwipeChain
+      disabled={editMode}
+      inner={{ count: PROFILE_TAB_ORDER.length, index: PROFILE_TAB_ORDER.indexOf(activeProfileTab) }}
+      shouldStandDown={isSearchFieldFocused}
+      tab="index"
+      testID="portfolio-tab-swipe-chain"
+    >
     <DrawerEdgeSwipe>
     {/* Overrides the route's static style: white glyphs over the cover, dark
         once the bar pins — mirrors the header's own contrast flip. */}
@@ -2435,6 +2456,7 @@ export function PortfolioScreen({
       />
     </SafeAreaView>
     </DrawerEdgeSwipe>
+    </TabSwipeChain>
   );
 }
 
