@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import hmac
+import ipaddress
 import os
 import re
 import sqlite3
@@ -1040,6 +1041,40 @@ _binder_page_store_lock = threading.Lock()
 class BinderPageTokenError(ValueError):
     """A binderPage pocket reference that cannot be honored (unknown, expired,
     or foreign token, or a bad pocket index). Maps to 400 BinderPageTokenUnknown."""
+
+
+# Synthetic end-to-end scan probe (backend/run_vm_health_check.sh). A request
+# carrying this header takes a side lane that runs the real matcher + response
+# build but persists nothing (no scan_events/candidates/observations, no pending
+# rerank state) and never refreshes provider pricing. Honored ONLY from a direct
+# loopback connection (Caddy also connects from 127.0.0.1 but always adds
+# X-Forwarded-*, so any forwarding header disqualifies) AND with the runtime
+# token. No token configured = the lane is off and every probe gets a 403.
+SYNTHETIC_SCAN_HEADER = "X-Spotlight-Synthetic-Scan"
+SYNTHETIC_SCAN_TOKEN_ENV = "SPOTLIGHT_SYNTHETIC_SCAN_TOKEN"
+SYNTHETIC_SCAN_USER_ID = "synthetic-scan-probe"
+_PROXY_FORWARDING_HEADERS = (
+    "X-Forwarded-For",
+    "X-Forwarded-Host",
+    "X-Forwarded-Proto",
+    "Forwarded",
+    "X-Real-IP",
+)
+
+
+def _synthetic_scan_request_allowed(headers: Any, client_address: Any, provided_token: str) -> bool:
+    expected_token = str(os.environ.get(SYNTHETIC_SCAN_TOKEN_ENV) or "").strip()
+    if not expected_token or not hmac.compare_digest(
+        str(provided_token or "").strip().encode("utf-8"), expected_token.encode("utf-8")
+    ):
+        return False
+    host = str((client_address or ("",))[0] or "")
+    try:
+        if not ipaddress.ip_address(host).is_loopback:
+            return False
+    except ValueError:
+        return False
+    return not any(headers.get(name) for name in _PROXY_FORWARDING_HEADERS)
 
 
 MULTIPART_SCAN_PATHS = {
@@ -6116,12 +6151,18 @@ class SpotlightScanService:
             return self._pricing_within_live_refresh_window(pricing)
         return pricing.get("isFresh") is True
 
+    def _synthetic_scan_active(self) -> bool:
+        return bool(getattr(self._thread_local, "synthetic_scan", False))
+
     def _live_scrydex_searches_allowed(self) -> bool:
-        if self._manual_scrydex_mirror_enabled():
+        if self._manual_scrydex_mirror_enabled() or self._synthetic_scan_active():
             return False
         return not self._scrydex_full_catalog_sync_is_fresh()
 
     def _live_scrydex_pricing_refresh_allowed(self) -> bool:
+        # The health-check probe must never spend provider credits.
+        if self._synthetic_scan_active():
+            return False
         return self._live_pricing_enabled()
 
     def _live_scrydex_queries_blocked(self) -> bool:
@@ -16494,6 +16535,49 @@ class SpotlightScanService:
                 "energyMedian": (binder_pocket_context or {}).get("energyMedian"),
                 "topScore": ((response.get("topCandidates") or [{}])[0] or {}).get("finalScore"),
             })
+        return response
+
+    def synthetic_visual_match_scan(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Health-check probe: the real raw matcher + response build, nothing else.
+
+        Unlike visual_match_scan this persists nothing (no scan_events, prediction
+        candidates, price observations, or pending-rerank state), emits no
+        scan_match logs, never refreshes provider pricing (SQLite-only), and lets
+        a matcher failure raise (-> 500) instead of degrading to a 200, so the
+        probe can only pass when scanning really works.
+        """
+        started_at = perf_counter()
+        if payload.get("binderPage") is not None:
+            raise ValueError("synthetic scans do not support binderPage")
+        previous = self._synthetic_scan_active()
+        self._thread_local.synthetic_scan = True
+        try:
+            matches, debug, visual_match_ms, other_language_matches = self._run_raw_visual_phase(
+                payload, requested_top_k=SCAN_CANDIDATE_POOL_SIZE
+            )
+            response, _, _, _ = self._build_raw_visual_only_response(
+                payload,
+                matches=matches,
+                debug=debug,
+                visual_match_ms=visual_match_ms,
+                is_provisional=True,
+                finalize_response=False,
+                other_language_matches=other_language_matches,
+            )
+        finally:
+            self._thread_local.synthetic_scan = previous
+        server_processing_ms = round((perf_counter() - started_at) * 1000.0, 3)
+        response["synthetic"] = True
+        response["performance"] = {"serverProcessingMs": server_processing_ms}
+        top = (response.get("topCandidates") or [{}])[0] or {}
+        self._emit_structured_log({
+            "severity": "INFO",
+            "event": "synthetic_scan_probe",
+            "scanID": payload.get("scanID"),
+            "topCandidateId": (top.get("candidate") or {}).get("id"),
+            "topScore": top.get("finalScore"),
+            "serverProcessingMs": server_processing_ms,
+        })
         return response
 
     def visual_match_scan_batch(
@@ -28540,6 +28624,10 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/v1/scan/visual-match":
+            synthetic_token = (getattr(self, "headers", None) or {}).get(SYNTHETIC_SCAN_HEADER)
+            if synthetic_token is not None:
+                self._handle_synthetic_visual_match(payload, synthetic_token)
+                return
             identity = self._require_request_identity()
             if identity is None:
                 return
@@ -29133,6 +29221,36 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: Any) -> None:
         return
+
+    def _handle_synthetic_visual_match(self, payload: dict[str, Any], provided_token: str) -> None:
+        # A failed check is a 403, never a fall-through to the normal (logged) lane.
+        if not _synthetic_scan_request_allowed(
+            self.headers, getattr(self, "client_address", None), provided_token
+        ):
+            self._write_json(HTTPStatus.FORBIDDEN, {"error": "synthetic scan not allowed"})
+            return
+        if not str(payload.get("scanID") or "").strip():
+            self._write_json(HTTPStatus.BAD_REQUEST, {"error": "scanID is required"})
+            return
+        # Same inference queue as real scans: a starved/leaked pool must fail the probe.
+        if not self._acquire_scan_inference_slot():
+            return
+        identity = RequestIdentity(user_id=SYNTHETIC_SCAN_USER_ID, auth_source="synthetic_probe")
+        try:
+            with self.service.request_identity_context(identity):
+                response = self.service.synthetic_visual_match_scan(payload)
+            self._write_json(HTTPStatus.OK, response)
+        except ValueError as error:
+            self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+        except Exception as error:
+            traceback.print_exc()
+            self._write_json(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"error": "Synthetic scan failed", "errorType": type(error).__name__},
+            )
+        finally:
+            _mark_scan_inference_slot_held(-1)
+            _scan_inference_semaphore.release()
 
     def _is_multipart_request(self) -> bool:
         # getattr: handler unit tests construct bare handlers (no headers) and

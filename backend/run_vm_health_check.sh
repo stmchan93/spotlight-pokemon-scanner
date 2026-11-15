@@ -94,6 +94,15 @@ if tcgcsv and not tcgcsv.get("fresh"):
     raise SystemExit("tcgcsv price sync is stale")
 PY
 
+# Real end-to-end scan (2026-11-15: /health answered while scans hung for hours).
+# At most one scan per 15 min after a pass; a failure retries every tick. The
+# probe uses the server's synthetic lane: nothing persisted, no provider spend.
+# Skips (passes) until SPOTLIGHT_SYNTHETIC_SCAN_TOKEN is set in runtime secrets.
+timeout 45 python3 "$SCRIPT_DIR/synthetic_scan_probe.py" \
+  --base-url "$local_base_url" \
+  --state-file "${SPOTLIGHT_SYNTHETIC_SCAN_STATE_FILE:-/tmp/spotlight-synthetic-scan.last-ok}" \
+  | sed "s/^/[$timestamp] /"
+
 if [ -n "$public_base_url" ]; then
   if [ -n "$public_health_host" ]; then
     curl -fsS --max-time 20 --resolve "${public_health_host}:443:127.0.0.1" \

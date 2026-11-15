@@ -352,6 +352,17 @@ SYNC_CRON_TIMEZONE="${SPOTLIGHT_VM_SYNC_CRON_TZ:-America/Los_Angeles}"
 TCGCSV_SYNC_CRON_SCHEDULE="${SPOTLIGHT_VM_TCGCSV_SYNC_CRON:-5,35 13,14,16,20 * * *}"
 BACKEND_HOST="${SPOTLIGHT_VM_BACKEND_HOST:-127.0.0.1}"
 PUBLIC_BASE_URL="${SPOTLIGHT_VM_PUBLIC_BASE_URL:-}"
+# Public hostnames Caddy answers on (see install_caddyfile below). Unset primary
+# = leave /etc/caddy/Caddyfile alone, which is how every box was run before.
+PUBLIC_HOST="$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_PUBLIC_HOST")"
+PUBLIC_HOST_ALIASES="$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_PUBLIC_HOST_ALIASES")"
+CADDY_MCP_ROUTES="$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_CADDY_MCP_ROUTES")"
+CADDY_MCP_ROUTES="${CADDY_MCP_ROUTES:-auto}"
+PUBLIC_HOSTS=""
+if [ -n "$PUBLIC_HOST" ]; then
+  # Validates every name up front so a typo fails the deploy before anything changes.
+  PUBLIC_HOSTS="$(python3 "$SCRIPT_DIR/vm_caddyfile.py" --primary-host "$PUBLIC_HOST" --aliases "$PUBLIC_HOST_ALIASES" --print-hosts)"
+fi
 HEALTH_CRON_SCHEDULE="${SPOTLIGHT_VM_HEALTH_CRON:-*/5 * * * *}"
 RESOURCE_CRON_SCHEDULE="${SPOTLIGHT_VM_RESOURCE_CRON:-*/15 * * * *}"
 MODERATION_CRON_SCHEDULE="${SPOTLIGHT_VM_MODERATION_CRON:-*/2 * * * *}"
@@ -503,6 +514,10 @@ write_runtime_override "SPOTLIGHT_SOCIAL_MODERATION_LOCK_FILE" "$SOCIAL_MODERATI
 write_runtime_override "SPOTLIGHT_VM_DEAL_SCAN_CRON" "$DEAL_SCAN_CRON_SCHEDULE"
 write_runtime_override "SPOTLIGHT_DEAL_SCAN_LOCK_FILE" "$DEAL_SCAN_LOCK_FILE"
 write_runtime_override "SPOTLIGHT_DEAL_SCAN_LOG_FILE" "$DEAL_SCAN_LOG_FILE"
+# The MCP server's DNS-rebinding guard rejects any Host it doesn't know, so it
+# must accept every name Caddy serves. run_mcp_server_vm.sh sources this file
+# last, so this wins over the unit's Environment= line (on its next restart).
+write_runtime_override "SPOTLIGHT_MCP_ALLOWED_HOSTS" "$PUBLIC_HOSTS"
 
 chmod 600 "$RUNTIME_CONFIG_FILE"
 chmod +x \
@@ -742,6 +757,79 @@ if [ "$restart_failed" -ne 0 ]; then
   echo "Backend service recovered after a transient restart failure." >&2
 fi
 
+# Caddy fronts the backend on every public hostname. Old App Store / TestFlight
+# binaries and un-updated OTA bundles call the sslip.io name forever, so it stays
+# in the list alongside the ekalight.com names.
+#
+# A name whose DNS isn't live yet is safe to list: Caddy obtains certificates in
+# the background after the config loads, per name, so a failing ACME order only
+# retries (with backoff, against the Let's Encrypt staging CA after a failure)
+# and never blocks the reload or the names that already have certificates.
+install_caddyfile() {
+  local caddyfile="${SPOTLIGHT_CADDYFILE_PATH:-/etc/caddy/Caddyfile}"
+  local mcp_routes="0"
+  local rendered=""
+  local backup=""
+
+  if [ -z "$PUBLIC_HOST" ]; then
+    echo "Caddy: SPOTLIGHT_PUBLIC_HOST unset in $ENV_FILE; leaving $caddyfile untouched."
+    return 0
+  fi
+  if ! command -v caddy >/dev/null 2>&1; then
+    echo "Caddy: caddy binary not found; skipping Caddyfile install." >&2
+    return 0
+  fi
+
+  case "$CADDY_MCP_ROUTES" in
+    auto)
+      if systemctl cat spotlight-mcp.service >/dev/null 2>&1; then
+        mcp_routes="1"
+      fi
+      ;;
+    1|true|yes|on) mcp_routes="1" ;;
+    0|false|no|off) mcp_routes="0" ;;
+    *)
+      echo "SPOTLIGHT_CADDY_MCP_ROUTES must be auto, 1 or 0 (got '$CADDY_MCP_ROUTES')." >&2
+      return 1
+      ;;
+  esac
+
+  rendered="$(mktemp "${TMPDIR:-/tmp}/spotlight-caddyfile.XXXXXX")"
+  python3 "$SCRIPT_DIR/vm_caddyfile.py" \
+    --primary-host "$PUBLIC_HOST" \
+    --aliases "$PUBLIC_HOST_ALIASES" \
+    --mcp-routes "$mcp_routes" > "$rendered"
+
+  if sudo cmp -s "$rendered" "$caddyfile"; then
+    echo "Caddy: $caddyfile already serves $PUBLIC_HOSTS; no reload."
+    rm -f "$rendered"
+    return 0
+  fi
+
+  if ! caddy validate --adapter caddyfile --config "$rendered" >/dev/null 2>&1; then
+    echo "Caddy: rendered Caddyfile failed validation; $caddyfile left unchanged." >&2
+    caddy validate --adapter caddyfile --config "$rendered" >&2 || true
+    rm -f "$rendered"
+    return 1
+  fi
+
+  backup="$caddyfile.pre-deploy-$(date -u +%Y%m%dT%H%M%SZ)"
+  sudo cp -p "$caddyfile" "$backup" 2>/dev/null || backup=""
+  sudo install -m 0644 -o root -g root "$rendered" "$caddyfile"
+  rm -f "$rendered"
+  if ! sudo systemctl reload caddy; then
+    echo "Caddy: reload failed; restoring ${backup:-<no backup>}." >&2
+    if [ -n "$backup" ]; then
+      sudo install -m 0644 -o root -g root "$backup" "$caddyfile"
+      sudo systemctl reload caddy || sudo systemctl restart caddy || true
+    fi
+    return 1
+  fi
+  echo "Caddy: now serving $PUBLIC_HOSTS (mcp routes: $mcp_routes; previous config: ${backup:-<none>})."
+}
+
+install_caddyfile
+
 echo "VM deploy complete"
 echo "  Environment: $ENVIRONMENT"
 echo "  Python: $VENV_DIR/bin/python"
@@ -768,6 +856,7 @@ echo "  Social moderation status: grep 'moderation disabled' $SOCIAL_MODERATION_
 echo "  Backend bind: $BACKEND_HOST:8788"
 echo "  Backend service: $SERVICE_NAME"
 echo "  Public base URL: ${PUBLIC_BASE_URL:-<unset>}"
+echo "  Caddy hosts: ${PUBLIC_HOSTS:-<unmanaged>}"
 echo "  eBay Browse: $(if env_flag_enabled "$EBAY_BROWSE_ENABLED_VALUE"; then printf '%s' "enabled"; else printf '%s' "disabled"; fi)"
 echo "  Health: curl http://127.0.0.1:8788/api/v1/health"
 echo "  Provider status: curl http://127.0.0.1:8788/api/v1/ops/provider-status"

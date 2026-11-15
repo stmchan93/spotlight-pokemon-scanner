@@ -70,7 +70,7 @@ class FakeStaging:
         def ok(payload=None, status=200):
             return status, json.dumps(payload).encode() if payload is not None else b""
 
-        if parsed.netloc == seed.STAGING_API_HOST:
+        if parsed.netloc in seed.STAGING_API_HOSTS:
             if path == "/api/v1/admin/events":
                 if headers.get("X-Ops-Token") != OPS_TOKEN:
                     return 401, b'{"error":"invalid ops token"}'
@@ -220,6 +220,7 @@ class SeedTestBase(unittest.TestCase):
 class GuardTests(unittest.TestCase):
     def test_staging_passes(self) -> None:
         seed.guard_staging(STAGING_SUPABASE, STAGING_API)
+        seed.guard_staging(STAGING_SUPABASE, "https://staging-api.ekalight.com")
 
     def test_refuses_production_and_strangers(self) -> None:
         bad = [
@@ -227,6 +228,7 @@ class GuardTests(unittest.TestCase):
             (f"https://{seed.STAGING_REF}.supabase.co.evil.com", STAGING_API),
             ("https://example.supabase.co", STAGING_API),
             (STAGING_SUPABASE, f"https://{seed.PRODUCTION_API_HOST}"),
+            (STAGING_SUPABASE, "https://api.ekalight.com"),
             (STAGING_SUPABASE, f"http://{seed.STAGING_API_HOST}"),
             (STAGING_SUPABASE, "http://127.0.0.1:8788"),
             (STAGING_SUPABASE, ""),
@@ -243,7 +245,7 @@ class GuardTests(unittest.TestCase):
 
     def test_eas_staging_profile_matches_the_hardcoded_targets(self) -> None:
         env = seed.eas_staging_env()
-        self.assertEqual(urlparse(env["EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL"]).hostname, seed.STAGING_API_HOST)
+        self.assertIn(urlparse(env["EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL"]).hostname, seed.STAGING_API_HOSTS)
         self.assertIn(seed.STAGING_REF, env["EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL"])
 
     def test_load_config_reads_env_files_and_guards(self) -> None:

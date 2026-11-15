@@ -65,6 +65,9 @@ STAGING_REF = "mphjenaaorntwkyivqtm"
 PRODUCTION_REF = "lvnjshymwvagwadqeofm"
 STAGING_API_HOST = "looty.34.134.72.20.sslip.io"
 PRODUCTION_API_HOST = "looty.34.59.188.129.sslip.io"
+# Each box answers on its legacy sslip host and its ekalight.com name.
+STAGING_API_HOSTS = frozenset({STAGING_API_HOST, "staging-api.ekalight.com"})
+PRODUCTION_API_HOSTS = frozenset({PRODUCTION_API_HOST, "api.ekalight.com"})
 MOCK_DOMAIN = "ekalight.test"
 MOCK_PREFIX = "booth-test-"
 HTTP_TIMEOUT = 30
@@ -202,8 +205,8 @@ def guard_staging(supabase_url: str, api_base: str) -> None:
     api_host = (api.hostname or "").lower()
     if PRODUCTION_REF in supabase_url or supa_host != f"{STAGING_REF}.supabase.co":
         raise SeedError(f"refusing: Supabase URL is not the staging project ({STAGING_REF})")
-    if api_host == PRODUCTION_API_HOST or api_host != STAGING_API_HOST or api.scheme != "https":
-        raise SeedError(f"refusing: backend URL is not the staging box (https://{STAGING_API_HOST})")
+    if api_host in PRODUCTION_API_HOSTS or api_host not in STAGING_API_HOSTS or api.scheme != "https":
+        raise SeedError(f"refusing: backend URL is not the staging box ({', '.join(sorted(STAGING_API_HOSTS))})")
 
 
 @dataclass(frozen=True)
@@ -492,7 +495,7 @@ class Seeder:
         ok: tuple[int, ...] = (200, 201, 204),
     ) -> tuple[int, Any]:
         host = urlparse(url).hostname or ""
-        if host not in {f"{STAGING_REF}.supabase.co", STAGING_API_HOST}:
+        if host != f"{STAGING_REF}.supabase.co" and host not in STAGING_API_HOSTS:
             raise SeedError(f"refusing request to non-staging host {host}")
         body = raw if raw is not None else (json.dumps(payload).encode("utf-8") if payload is not None else None)
         status, data = self._transport(method, url, headers, body)
