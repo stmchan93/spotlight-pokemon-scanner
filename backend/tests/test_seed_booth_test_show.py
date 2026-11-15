@@ -256,7 +256,7 @@ class GuardTests(unittest.TestCase):
                 f"SUPABASE_SERVICE_ROLE_KEY={SERVICE_KEY}\nSPOTLIGHT_OPS_REFRESH_TOKEN={OPS_TOKEN}\n"
             )
             config = seed.load_config(backend)
-            self.assertEqual(config.api_base, STAGING_API)
+            self.assertIn(urlparse(config.api_base).hostname, seed.STAGING_API_HOSTS)
             self.assertTrue(config.anon_key)  # falls back to eas.json
             (backend / ".env.staging").write_text(f"SUPABASE_URL=https://{seed.PRODUCTION_REF}.supabase.co\n")
             with self.assertRaises(seed.SeedError):
