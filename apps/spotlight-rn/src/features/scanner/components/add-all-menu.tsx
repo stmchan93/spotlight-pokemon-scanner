@@ -1,6 +1,6 @@
 import { Dimensions, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { Eye, GridPlus, Trash } from 'iconoir-react-native';
+import { GridPlus, Trash } from 'iconoir-react-native';
 
 import {
   PopoverSurface,
@@ -10,7 +10,8 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-export type AddAllMenuAction = 'collection' | 'wishlist' | 'remove';
+// No Watchlist bulk-add: the user removed it (2026-11-15). Collection + Clear only.
+export type AddAllMenuAction = 'collection' | 'remove';
 
 type AddAllMenuAnchor = { x: number; y: number; width: number; height: number };
 
@@ -52,7 +53,7 @@ const FALLBACK_LEFT = 16;
 export function AddAllMenu({
   visible,
   anchor,
-  actions = ['collection', 'wishlist', 'remove'],
+  actions = ['collection', 'remove'],
   onSelect,
   onClose,
   testID = 'add-all-menu',
@@ -134,24 +135,6 @@ export function AddAllMenu({
           <GridPlus color={theme.colors.gray900} height={20} width={20} />
           <Text style={[theme.typography.label, styles.label, { color: theme.colors.gray900 }]}>
             COLLECTION
-          </Text>
-        </Pressable>
-        ) : null}
-
-        {actions.includes('wishlist') ? (
-        <Pressable
-          accessibilityLabel="Add to watchlist"
-          accessibilityRole="button"
-          onPress={() => select('wishlist')}
-          style={({ pressed }) => [
-            styles.row,
-            { backgroundColor: pressed ? 'rgba(0, 0, 0, 0.06)' : 'transparent' },
-          ]}
-          testID={`${testID}-wishlist`}
-        >
-          <Eye color={theme.colors.gray900} height={20} width={20} />
-          <Text style={[theme.typography.label, styles.label, { color: theme.colors.gray900 }]}>
-            WATCHLIST
           </Text>
         </Pressable>
         ) : null}

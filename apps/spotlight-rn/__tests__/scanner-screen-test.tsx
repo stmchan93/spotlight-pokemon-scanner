@@ -1178,9 +1178,8 @@ describe('ScannerScreen', () => {
     });
   });
 
-  it('ADD ALL wishlists the scan, then clears the tray and returns to the scanner', async () => {
-    const favoritePayloads: { cardId: string; isFavorite: boolean }[] = [];
-    renderScannerScreen({ spotlightRepository: froakieAddAllRepository(favoritePayloads) });
+  it('ADD ALL offers Collection and Clear only — no Watchlist', async () => {
+    renderScannerScreen({ spotlightRepository: froakieAddAllRepository([]) });
 
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
@@ -1190,27 +1189,14 @@ describe('ScannerScreen', () => {
 
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
     fireEvent.press(await screen.findByTestId('scanner-tray-add-all'));
+    expect(await screen.findByTestId('add-all-menu-collection')).toBeTruthy();
+    expect(screen.getByTestId('add-all-menu-remove')).toBeTruthy();
+    expect(screen.queryByTestId('add-all-menu-wishlist')).toBeNull();
 
-    // ADD ALL opens the action menu; pick Wishlist.
-    fireEvent.press(await screen.findByTestId('add-all-menu-wishlist'));
-
-    // Confirmation sheet with the count + wishlist copy.
-    expect(await screen.findByTestId('scan-bulk-confirm-sheet')).toBeTruthy();
-    expect(screen.getByTestId('scan-bulk-confirm-sheet-title').props.children)
-      .toBe('ADD 1 ITEM TO WATCHLIST?');
-
-    fireEvent.press(screen.getByTestId('scan-bulk-confirm-sheet-confirm'));
-
-    await waitFor(() => {
-      expect(favoritePayloads).toHaveLength(1);
-    });
-    expect(favoritePayloads[0]).toEqual({ cardId: 'mcdonalds25-22', isFavorite: true });
-
-    // Tray cleared (SCAN: 0) + collapsed (ADD ALL gone).
-    await waitFor(() => {
-      expect(screen.getByTestId('scanner-recent-title').props.children).toBe('SCAN: 0');
-    });
-    expect(screen.queryByTestId('scanner-tray-add-all')).toBeNull();
+    fireEvent.press(screen.getByTestId('add-all-menu-collection'));
+    // The confirm opens once the menu's exit animation finishes.
+    expect((await screen.findByTestId('scan-bulk-confirm-sheet-title', {}, { timeout: 2500 })).props.children)
+      .toBe('ADD 1 ITEM TO COLLECTIONS?');
   });
 
   it('ADD ALL to Collection sends ONE bulk request, not one per scan', async () => {
@@ -1286,7 +1272,7 @@ describe('ScannerScreen', () => {
     expect(singleCalls).toHaveLength(0);
   });
 
-  it('cancels ADD ALL without wishlisting or clearing the tray', async () => {
+  it('cancels ADD ALL without adding or clearing the tray', async () => {
     const favoritePayloads: { cardId: string; isFavorite: boolean }[] = [];
     renderScannerScreen({ spotlightRepository: froakieAddAllRepository(favoritePayloads) });
 
@@ -1298,7 +1284,7 @@ describe('ScannerScreen', () => {
 
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
     fireEvent.press(await screen.findByTestId('scanner-tray-add-all'));
-    fireEvent.press(await screen.findByTestId('add-all-menu-wishlist'));
+    fireEvent.press(await screen.findByTestId('add-all-menu-collection'));
     fireEvent.press(await screen.findByTestId('scan-bulk-confirm-sheet-cancel'));
 
     // The sheet unmounts from the completion callback of its 200ms JS-driven

@@ -26,20 +26,20 @@ function renderMenu(overrides?: Partial<Parameters<typeof AddAllMenu>[0]>) {
 }
 
 describe('AddAllMenu', () => {
-  it('renders the three option rows when visible', () => {
+  it('renders Collection and Clear only — no Watchlist row', () => {
     renderMenu();
 
     expect(screen.getByTestId('add-all-menu-collection')).toBeTruthy();
-    expect(screen.getByTestId('add-all-menu-wishlist')).toBeTruthy();
+    expect(screen.queryByTestId('add-all-menu-wishlist')).toBeNull();
     expect(screen.getByTestId('add-all-menu-remove')).toBeTruthy();
     expect(screen.getByText('COLLECTION')).toBeTruthy();
-    expect(screen.getByText('WATCHLIST')).toBeTruthy();
+    expect(screen.queryByText('WATCHLIST')).toBeNull();
     // Bulk row is CLEAR (swipe-to-Delete is the single-row action); it opens
     // the same "Clear all scans?" confirm the tray header does.
     expect(screen.getByText('CLEAR')).toBeTruthy();
   });
 
-  it.each(['collection', 'wishlist', 'remove'] as const)(
+  it.each(['collection', 'remove'] as const)(
     'fires onSelect(%s) once after the exit animation',
     async (action) => {
       const props = renderMenu();
@@ -57,7 +57,7 @@ describe('AddAllMenu', () => {
     const props = renderMenu();
 
     fireEvent.press(screen.getByTestId('add-all-menu-collection'));
-    fireEvent.press(screen.getByTestId('add-all-menu-wishlist'));
+    fireEvent.press(screen.getByTestId('add-all-menu-remove'));
     fireEvent.press(screen.getByTestId('add-all-menu-backdrop'));
     await flushExit();
 

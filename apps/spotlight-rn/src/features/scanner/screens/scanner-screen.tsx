@@ -168,7 +168,6 @@ import { usePagerTouchGuardGesture, useTabPagerLock } from '@/components/tab-pag
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { prefetchImageUrls } from '@/lib/card-images';
 import { useAuth } from '@/providers/auth-provider';
-import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { maybeRequestReview, noteScanTrouble, recordGoodScan } from '@/features/review-prompt/review-prompt';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { resolveRuntimeBoolean, resolveStagingSmokeModeEnabled } from '@/lib/runtime-config';
@@ -190,7 +189,6 @@ import { BinderPageReview } from './binder-page-review';
 import { BinderLayoutMenu, type BinderLayoutMenuSelection } from '@/features/scanner/components/binder-layout-menu';
 import { AnchoredOptionMenu } from '@/features/scanner/components/printing-menu';
 import { CustomDiscountSheet } from '@/features/scanner/components/custom-discount-sheet';
-import { watchlistCardBasicsFromSearchResult } from '@/features/wishlist/watchlist-store';
 import { ChangeCardPicker } from './change-card-picker';
 import { RecentCaptureSwipeRow } from './recent-capture-swipe-row';
 import { ScanTrayList, type ScanTrayListItem } from './scan-tray-list';
@@ -772,9 +770,12 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
               ]}
               testID={`scanner-tray-change-${capture.id}`}
             >
-              <View style={styles.captureSwapGlyph}>
-                <IconArrowsExchange color={colors.gray0} size={10.8} strokeWidth={2.4} />
-              </View>
+              {/*
+                Horizontal ⇄, as Figma 6160:6939 renders. Figma rotates ITS vertical
+                swap asset 90°; Tabler's arrows-exchange is already horizontal, so
+                no rotation here.
+              */}
+              <IconArrowsExchange color={colors.gray0} size={10.8} strokeWidth={2.4} />
             </ArenaPressable>
           ) : null}
         </View>
@@ -1148,7 +1149,6 @@ export function ScannerScreen({
     spotlightRepository,
     prependOptimisticInventoryEntry,
     activeCollectionID,
-    watchlistStore,
   } = useAppServices();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
@@ -1497,17 +1497,6 @@ export function ScannerScreen({
       return list?.[0]?.variant ?? null;
     },
     [],
-  );
-
-  // The printing a tray watch targets: a slab's print variant, else the raw
-  // row's selected/priced printing. null = main printing.
-  const watchVariantForCapture = useCallback(
-    (capture: RecentCapture, candidate: CatalogSearchResult | null): string | null => (
-      capture.mode === 'slabs'
-        ? capture.slabContext?.variantName?.trim() || null
-        : rawVariantLabelFor(capture, candidate)
-    ),
-    [rawVariantLabelFor],
   );
 
   // Flush the live tray on unmount so navigating away (which tears this screen
@@ -3800,67 +3789,6 @@ export function ScannerScreen({
     void handleAddToInventoryRef.current(captureId);
   }, []);
 
-  // Bulk "Add to Wishlist": clear the tray NOW, then wishlist (favorite) every
-  // resolved scan in the BACKGROUND. Two reasons it isn't done inline:
-  //   - Speed: blocking on N sequential setCardFavorite calls would stall the
-  //     confirm sheet; backgrounding the writes makes the dismiss instant.
-  //   - Stability: clearing via the empty→auto-collapse effect (no LayoutAnimation)
-  //     instead of an explicit animated collapse avoids the iOS crash from firing a
-  //     tray LayoutAnimation while N rows are removed in the same frame.
-  // Wishlist the good ones, drop failures, clear everything regardless.
-  const handleBulkAddToWishlist = useCallback(() => {
-    // Snapshot the resolved watches BEFORE clearing the tray; de-dupe by card +
-    // printing so repeat scans of the same printing only watch it once.
-    const watches = new Map<string, { cardId: string; variant: string | null; candidate: CatalogSearchResult }>();
-    for (const capture of recentCapturesRef.current) {
-      if (capture.isLoadingCandidates || capture.recentlyAdded) {
-        continue;
-      }
-      const candidate = activeCandidateForCapture(capture);
-      if (!candidate) {
-        continue;
-      }
-      const variant = watchVariantForCapture(capture, candidate);
-      watches.set(`${candidate.cardId}|${variant ?? ''}`, { cardId: candidate.cardId, variant, candidate });
-    }
-    const cardIds = Array.from(watches.values());
-
-    performClearAllCaptures();
-
-    if (cardIds.length === 0) {
-      return;
-    }
-
-    void (async () => {
-      let succeeded = 0;
-      // Sequential — concurrent writes contend on the backend's SQLite store.
-      for (const { cardId, variant, candidate } of cardIds) {
-        try {
-          const watched = await spotlightRepository.setCardFavorite(cardId, true, { variant });
-          watchlistStore.applyWatchWrite(
-            { ...watched, watchVariant: watched.watchVariant ?? variant ?? null },
-            watchlistCardBasicsFromSearchResult(candidate),
-          );
-          succeeded += 1;
-        } catch (error) {
-          logScannerDiagnostic(`[SCANNER] addAll wishlist failed: ${scannerErrorMessage(error)}`, error);
-        }
-      }
-      capturePostHogEvent(AnalyticsEvent.watchlistBulkAdded, {
-        source: 'scanner',
-        attempted: cardIds.length,
-        succeeded,
-        failed: cardIds.length - succeeded,
-      });
-      refreshData();
-    })();
-  }, [
-    performClearAllCaptures,
-    refreshData,
-    spotlightRepository,
-    watchVariantForCapture,
-    watchlistStore,
-  ]);
 
   // Bulk "Add to Collection": one inventory entry PER resolved scan (two scans of
   // the same card = two owned copies, mirroring the single-row Collection add),
@@ -4155,12 +4083,10 @@ export function ScannerScreen({
     setAddAllConfirm(null);
     if (action === 'collection') {
       handleBulkAddToCollection();
-    } else if (action === 'wishlist') {
-      handleBulkAddToWishlist();
     } else if (action === 'remove') {
       handleBulkRemove();
     }
-  }, [addAllConfirm, handleBulkAddToCollection, handleBulkAddToWishlist, handleBulkRemove]);
+  }, [addAllConfirm, handleBulkAddToCollection, handleBulkRemove]);
 
   // Count for the confirm copy: resolved (non-loading, matched) scans for the add
   // actions; the whole session for remove.
@@ -4176,19 +4102,12 @@ export function ScannerScreen({
         confirmLabel: 'Remove',
         confirmVariant: 'destructive' as const,
       }
-    : activeBulkAction === 'wishlist'
-      ? {
-          title: `Add ${bulkEligibleCount} ${itemWord(bulkEligibleCount)} to Watchlist?`,
-          description: 'These items will be added to your Watchlist using their current scan details.',
-          confirmLabel: 'Add All',
-          confirmVariant: 'dark' as const,
-        }
-      : {
-          title: `Add ${bulkEligibleCount} ${itemWord(bulkEligibleCount)} to Collections?`,
-          description: 'These items will be added to your Collections using their current scan details.',
-          confirmLabel: 'Add All',
-          confirmVariant: 'dark' as const,
-        };
+    : {
+        title: `Add ${bulkEligibleCount} ${itemWord(bulkEligibleCount)} to Collections?`,
+        description: 'These items will be added to your Collections using their current scan details.',
+        confirmLabel: 'Add All',
+        confirmVariant: 'dark' as const,
+      };
 
   // Reads the tray and inventory through refs (synced by effects above) so this
   // callback stays render-stable: it is a prop on every memoized tray row, and
@@ -5793,9 +5712,6 @@ const styles = StyleSheet.create({
   },
   captureSwapBadgePressed: {
     opacity: 0.78,
-  },
-  captureSwapGlyph: {
-    transform: [{ rotate: '90deg' }],
   },
   cameraDeniedWrap: {
     alignItems: 'center',
