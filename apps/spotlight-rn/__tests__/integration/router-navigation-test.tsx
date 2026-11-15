@@ -25,19 +25,18 @@ describe('mobile app routing', () => {
     });
     expect(screen.queryByTestId('feed-header')).toBeNull();
 
-    // The pager is gone: Collection and Scan are separate ROUTES now, not two
-    // slots mounted side-by-side behind a translate.
-    expect(screen.queryByTestId('top-tabs-pager')).toBeNull();
+    // Collection and Scan are separate ROUTES that the tab pager lays side by
+    // side; the URL picks the page.
+    expect(screen.getByTestId('tab-pager')).toBeTruthy();
 
     act(() => {
       router.push('/scan');
     });
 
-    // Scan is an ordinary TAB again. It was briefly a launcher that pushed a
+    // Scan is an ordinary TAB. It was briefly a launcher that pushed a
     // full-screen /scan-camera route to keep the bar off the viewfinder; that
-    // stranded users on a blank screen every time they backed out. The bar is
-    // now hidden on this route instead (`hidden` on <NativeTabs>), so the
-    // camera stays full-screen without anything being pushed.
+    // stranded users on a blank screen every time they backed out. Nothing is
+    // pushed: the pager's bar turns into the scanner bar on this page.
     await waitFor(() => {
       expect(app.getPathname()).toBe('/scan');
     });
@@ -48,7 +47,7 @@ describe('mobile app routing', () => {
     // Wishlist was a PUSHED stack screen and is now a tab, so `/wishlist`
     // resolves inside (tabs). The three tests that used to live here covered the
     // custom bar's push/dismiss contract on that pushed screen — a contract that
-    // no longer exists for Wishlist, since UIKit owns tab switching.
+    // no longer exists for Wishlist, since the tab navigator owns tab switching.
     //
     // That bar (`app-bottom-tab-bar`) has since been deleted outright — it had
     // no remaining call sites — so its duplicate-push guard is gone with it,
@@ -64,7 +63,6 @@ describe('mobile app routing', () => {
       expect(app.getPathname()).toBe('/wishlist');
     });
     expect(await screen.findByTestId('wishlist-stub-screen')).toBeTruthy();
-    expect(screen.queryByTestId('top-tabs-pager')).toBeNull();
   });
 
   it('renders the sales-history route directly', async () => {

@@ -587,29 +587,6 @@ jest.mock('expo-document-picker', () => ({
   })),
 }));
 
-// The tabs layout renders Apple's native tab bar, which has no JS
-// implementation to exercise under test. Delegate to expo-router's `Slot` so the
-// FOCUSED child route still renders and route-level integration tests keep
-// working; the bar itself is UIKit's and is not ours to assert on.
-jest.mock('expo-router/unstable-native-tabs', () => {
-  const Trigger = Object.assign(() => null, {
-    Icon: () => null,
-    Label: () => null,
-  });
-  return {
-    NativeTabs: Object.assign(
-      () => {
-        // createElement, not JSX: this setup file is .ts, not .tsx.
-         
-        const { Slot } = require('expo-router');
-         
-        return require('react').createElement(Slot);
-      },
-      { Trigger },
-    ),
-  };
-});
-
 // Screens reach the picker through `@/lib/native-image-picker`, which probes the
 // NATIVE registry first (an OTA can ship expo-image-picker's JS onto a binary
 // that has no native half — that is what crashed the post composer). Under jest

@@ -43,7 +43,7 @@ import {
 } from '@spotlight/design-system';
 
 import { AnimatedFlatList, PageSwipeGuard } from '@/components/page-tab-pager';
-import { TabSwipeChain } from '@/components/tab-swipe-chain';
+import { PagerTouchGuard, useTabPagerLock } from '@/components/tab-pager/tab-pager-page-context';
 import { useScrollToTop } from '@/components/scroll-to-top-fab';
 import { GridViewIcon, ListViewIcon } from '@/components/view-toggle-icons';
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
@@ -262,6 +262,8 @@ export function WishlistScreen() {
   // and the bottom edit bar drives un-favorite in bulk. (It used to hide the
   // JS tab bar too; UIKit owns the bar now and it can't be hidden per-screen.)
   const [editMode, setEditMode] = useState(false);
+  // Edit mode owns every gesture on the screen; the tab pager stands down too.
+  useTabPagerLock(editMode);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [isDeleting, setIsDeleting] = useState(false);
@@ -954,10 +956,8 @@ export function WishlistScreen() {
     // reachable from it by the same gesture as everywhere else rather than only
     // from the button. `disabled` while editing: the edit UI owns gestures
     // across the full screen, matching how the Collection pager stands down.
-    // The tab swipe chain (back → Home's Activity, forward → Scan) stands down
-    // the same way; a leftward drag that starts on a row is the row's delete
-    // swipe (RNGH activates first and cancels the chain).
-    <TabSwipeChain disabled={editMode} tab="wishlist" testID="wishlist-tab-swipe-chain">
+    // The tab pager's outer strip stands down the same way (`useTabPagerLock`
+    // above); a leftward drag that starts on a row is the row's delete swipe.
     <DrawerEdgeSwipe disabled={editMode}>
     <SafeAreaView
       edges={['left', 'right']}
@@ -1149,7 +1149,6 @@ export function WishlistScreen() {
       />
     </SafeAreaView>
     </DrawerEdgeSwipe>
-    </TabSwipeChain>
   );
 }
 
@@ -1262,6 +1261,11 @@ function WishlistListRow({
   );
 
   return (
+    // A leftward drag on a row opens its delete rail, so the tab pager never
+    // takes one (it activates at 12pt, before this row's 15). Rightward drags
+    // still page back to Home — unless the rail is open, when a rightward drag
+    // closes it.
+    <PagerTouchGuard direction={deleteRailOpen ? 'both' : 'next'}>
     <Swipeable
       ref={swipeableRef}
       // While the delete rail is CLOSED, only claim clear leftward drags (the
@@ -1284,6 +1288,7 @@ function WishlistListRow({
     >
       {row}
     </Swipeable>
+    </PagerTouchGuard>
   );
 }
 

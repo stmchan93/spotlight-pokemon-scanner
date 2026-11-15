@@ -2,34 +2,27 @@ import { useEffect, useState } from 'react';
 import { Keyboard, Platform } from 'react-native';
 
 /**
- * Is the software keyboard up? ANDROID ONLY — iOS always answers false.
+ * Is the software keyboard up? Both platforms.
  *
- * Exists for the tab bar: on Android the bar is a BottomNavigationView drawn
- * OVER full-bleed content, and when the keyboard opens it rides up on top of
- * it — covering whatever input sits just above (reported from the share
- * sheet's recipient field). Hiding the bar while the keyboard is up is the
- * standard Android answer; react-navigation ships the same behaviour as
- * `tabBarHideOnKeyboard`. iOS's keyboard covers the bar instead of stacking
- * on it, so there the listener is never attached.
+ * The tab pager uses it twice:
+ *  - the outer strip never pages while the user is typing (that used to be a
+ *    per-screen `shouldStandDown`, e.g. Collection's filter field);
+ *  - ANDROID ONLY, the tab bar hides while it is up. Android's keyboard rides
+ *    the bar up on top of whatever input sits just above it (reported from the
+ *    share sheet's recipient field) — react-navigation ships the same as
+ *    `tabBarHideOnKeyboard`. iOS's keyboard covers the bar instead.
  *
- * `keyboardDidShow`/`keyboardDidHide` because Android does not emit the
- * `will` events at all.
- *
- * A separate module rather than inline in the tabs layout on purpose: the
- * layout's tests re-require it under `jest.resetModules()`, which hands it a
- * second React copy — any REAL hook inside that tree throws "invalid hook
- * call". Everything hook-shaped the layout touches is therefore mockable
- * hook-free, and this must stay that way.
+ * iOS listens to the `will` events so the lock is in place before the keyboard
+ * animates; Android does not emit them at all, hence the `did` pair there.
  */
 export function useKeyboardVisible(): boolean {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    if (Platform.OS !== 'android') {
-      return;
-    }
-    const show = Keyboard.addListener('keyboardDidShow', () => setVisible(true));
-    const hide = Keyboard.addListener('keyboardDidHide', () => setVisible(false));
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvent, () => setVisible(true));
+    const hide = Keyboard.addListener(hideEvent, () => setVisible(false));
     return () => {
       show.remove();
       hide.remove();

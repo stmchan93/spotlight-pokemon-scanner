@@ -24,9 +24,10 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
+import { GestureDetector } from 'react-native-gesture-handler';
 
 import { DRAWER_EDGE_WIDTH } from '@/components/drawer-edge-swipe';
-import { useTabSwipeGuard } from '@/components/tab-swipe-chain';
+import { usePagerTouchGuardGesture } from '@/components/tab-pager/tab-pager-page-context';
 import { useTabsPage } from '@/contexts/tabs-page-context';
 
 /**
@@ -59,14 +60,13 @@ export const AnimatedScrollView = Animated.ScrollView as unknown as typeof Scrol
  * that is what the dominance ratio below is for, and 14pt gives it enough travel
  * to judge on.
  */
-const CLAIM_DRAG = 14;
+const CLAIM_DRAG = 10;
 
 /**
- * How much more horizontal than vertical a drag must be to count. Same 1.35 the
- * drawer recogniser uses, so "a horizontal swipe" means the same shape
- * everywhere in the app.
+ * How much more horizontal than vertical a drag must be to count: 45°, the same
+ * as the outer tab pager, so a thumb's arc still reads as a page swipe.
  */
-const HORIZONTAL_BIAS = 1.35;
+const HORIZONTAL_BIAS = 1;
 
 /** Fraction of a page width that commits the swipe on release. */
 const COMMIT_FRACTION = 0.28;
@@ -149,8 +149,8 @@ type PageSwipeGuardProps = {
 /**
  * Wrap a HORIZONTALLY scrollable child (the collection filter chip row) so a
  * drag inside it scrolls the chips instead of paging the tabs — both this
- * pager's inner pages and the bottom-tab `TabSwipeChain`. Works with either or
- * neither ancestor present.
+ * pager's inner pages and the bottom-tab pager's outer strip. Works with either
+ * or neither ancestor present.
  *
  * WHY THIS IS NEEDED AT ALL
  * `CollapsibleTabPager` decides in the CAPTURE phase (it has to — see the note
@@ -166,17 +166,21 @@ type PageSwipeGuardProps = {
  * late: capture is dispatched root→target, so the pager (the ancestor) would
  * already have decided on that very move. It always returns false, so it never
  * takes the touch away from the chips themselves.
+ *
+ * THE OUTER TAB STRIP decides on the UI thread (a gesture-handler Pan), so a JS
+ * responder flag would race it. It gets its own signal instead: a never-
+ * activating gesture on this same view stamps the touch-down on the UI thread
+ * (`usePagerTouchGuardGesture`), and the strip declines any touch so stamped.
  */
 export function PageSwipeGuard({ children, style, testID }: PageSwipeGuardProps) {
   const guard = useContext(PageSwipeGuardContext);
-  // The tab-to-tab swipe chain (`TabSwipeChain`) stands down for the same touch.
-  const blockTabSwipe = useTabSwipeGuard();
+  const pagerGuard = usePagerTouchGuardGesture();
 
-  return (
+  const view = (
     <View
+      collapsable={false}
       onStartShouldSetResponderCapture={() => {
         guard?.block();
-        blockTabSwipe();
         // Observe only. Claiming here would eat every chip tap.
         return false;
       }}
@@ -186,6 +190,7 @@ export function PageSwipeGuard({ children, style, testID }: PageSwipeGuardProps)
       {children}
     </View>
   );
+  return pagerGuard ? <GestureDetector gesture={pagerGuard}>{view}</GestureDetector> : view;
 }
 
 type CollapsibleTabPagerProps<V extends string> = {
@@ -331,8 +336,7 @@ type CollapsibleTabPagerProps<V extends string> = {
  * file is core-RN `Animated` + `PanResponder` only: it ships over OTA.
  *
  * WHY PanResponder AND NOT react-native-gesture-handler
- * Same reasoning as `DrawerEdgeSwipe` (and the deleted `ScannerExitSwipe`), and the same
- * reasoning the retired `TopTabsPager` used when it drove this exact animation:
+ * Same reasoning as `DrawerEdgeSwipe` (and the deleted `ScannerExitSwipe`):
  * this is gesture NEGOTIATION against a scroll view, which PanResponder states
  * natively (decline with `false`, take over with `true`). The gesture-handler
  * version needs `manualActivation` plus a worklet, and committing a page means
@@ -352,11 +356,13 @@ type CollapsibleTabPagerProps<V extends string> = {
  * is still on screen — once collapsed, the whole screen below the pinned bar
  * scrolls normally.
  *
- * NO WRAP-AROUND
- * The row is clamped to its own extent, so a drag past either end does not
- * rubber-band into blank space, and the gesture is not claimed at all when it
- * points off the end — a horizontal drag at the edges is left to whatever is
- * underneath.
+ * NO WRAP-AROUND — THE OUTER STRIP TAKES OVER AT THE EDGES
+ * The row is clamped to its own extent, and the gesture is not claimed at all
+ * when it points off the end. That drag belongs to the bottom-tab pager's outer
+ * strip, which reads this pager's position (the screen reports it with
+ * `useTabPagerInnerPosition`) and makes the hand-off at gesture start: it fails
+ * itself for any direction this pager can still move, and activates at 12pt —
+ * before this one's 14 — for the direction it cannot.
  *
  * NOT FIGHTING THE EDGE GESTURES
  * Touches starting within `edgeGuardWidth` of the LEFT edge are ignored

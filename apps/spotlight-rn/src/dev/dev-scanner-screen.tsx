@@ -6,7 +6,9 @@ import type { ImageSourcePropType } from 'react-native';
 import type { CatalogSearchResult, RawPricingMatrix } from '@spotlight/api-client';
 import { colors, radii, shadows, spacing } from '@spotlight/design-system';
 
-import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
+import { StaticAppTabBar } from '@/components/tab-pager/app-tab-bar';
+import { StaticTabsPageProvider } from '@/contexts/tabs-page-context';
+import { SCAN_PAGE_INDEX } from '@/lib/tab-pager';
 import type { RawScannerFrameRect } from '@/features/scanner/raw-scanner-capture-surface';
 import {
   binderPageLayoutById,
@@ -263,14 +265,15 @@ export function buildDevScannerPreview(mode: DevScannerMode): ScannerDevPreview 
 export function DevScannerScreen({ mode }: { mode: DevScannerMode }) {
   const devPreview = useMemo(() => buildDevScannerPreview(mode), [mode]);
   return (
-    // The scanner gates on being the active tab page; the host's bridge says
+    // The scanner gates on being the active tab page; the host's provider says
     // "portfolio", so this one overrides it for the subtree.
-    <NativeTabsPageBridge page="scanner">
+    <StaticTabsPageProvider page="scanner">
       {/* Dark viewfinder needs light status-bar icons (mirrors app/(tabs)/scan.tsx). */}
       <StatusBar style="light" />
-      {/* `onSelectTab` draws the scanner's solid tab bar, as on /scan; taps are inert here. */}
-      <ScannerScreen devPreview={devPreview} onExitToPortfolio={() => undefined} onSelectTab={() => undefined} />
-    </NativeTabsPageBridge>
+      {/* Reserve the bar's strip and draw the app's tab bar frozen on Scan, as on /scan; taps are inert here. */}
+      <ScannerScreen devPreview={devPreview} onExitToPortfolio={() => undefined} reserveTabBarSpace />
+      <StaticAppTabBar page={SCAN_PAGE_INDEX} />
+    </StaticTabsPageProvider>
   );
 }
 

@@ -24,6 +24,7 @@ import {
 } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
+import { PagerTouchGuard } from '@/components/tab-pager/tab-pager-page-context';
 import { getCardImageSource } from '@/lib/card-images';
 import {
   buildDealHeadline,
@@ -204,6 +205,8 @@ function DealRadarRow({
   );
 
   return (
+    // Leftward drags reveal Dismiss, so the tab pager never takes one here.
+    <PagerTouchGuard direction="next">
     <Swipeable
       activeOffsetX={-15}
       friction={1.5}
@@ -320,6 +323,7 @@ function DealRadarRow({
         </SurfaceCard>
       </Pressable>
     </Swipeable>
+    </PagerTouchGuard>
   );
 }
 

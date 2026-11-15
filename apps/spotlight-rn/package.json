@@ -64,6 +64,7 @@
     "posthog-react-native-session-replay": "^1.6.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
+    "react-freeze": "1.0.4",
     "react-native": "0.83.6",
     "react-native-gesture-handler": "~2.30.0",
     "react-native-image-colors": "^2.4.0",
