@@ -61,9 +61,13 @@ export function resolveOuterSwipe(
   page: number,
   direction: SwipeDirection,
   inner: InnerPagePosition | null | undefined,
-  pageCount: number = TAB_PAGE_COUNT,
+  pageCountArg?: number,
 ): OuterSwipeDecision {
   'worklet';
+  // Defaults live in the body: the worklets plugin does not capture module
+  // constants used in DEFAULT PARAMETERS, and on the UI thread that throws
+  // "Property 'TAB_PAGE_COUNT' doesn't exist" (the 2026-11-15 swipe crash).
+  const pageCount = pageCountArg ?? TAB_PAGE_COUNT;
   const step = direction === 'next' ? 1 : -1;
   if (inner && inner.count > 1) {
     const current = Math.min(Math.max(inner.index, 0), inner.count - 1);
@@ -100,7 +104,7 @@ export const COMMIT_VELOCITY = 400;
  * Never more than one page from where the drag started, like Instagram.
  */
 export function resolveSettlePage({
-  pageCount = TAB_PAGE_COUNT,
+  pageCount: pageCountArg,
   position,
   startPage,
   velocityX,
@@ -111,6 +115,7 @@ export function resolveSettlePage({
   velocityX: number;
 }): number {
   'worklet';
+  const pageCount = pageCountArg ?? TAB_PAGE_COUNT; // in the body, see resolveOuterSwipe
   const delta = position - startPage;
   let target = startPage;
   if (Math.abs(velocityX) >= COMMIT_VELOCITY) {
@@ -147,8 +152,9 @@ export function rubberBand(overshoot: number): number {
 }
 
 /** Clamp a raw strip position into [0, last], rubber-banding the excess. */
-export function clampWithRubberBand(raw: number, pageCount: number = TAB_PAGE_COUNT): number {
+export function clampWithRubberBand(raw: number, pageCountArg?: number): number {
   'worklet';
+  const pageCount = pageCountArg ?? TAB_PAGE_COUNT; // in the body, see resolveOuterSwipe
   const last = pageCount - 1;
   if (raw < 0) {
     return -rubberBand(-raw);

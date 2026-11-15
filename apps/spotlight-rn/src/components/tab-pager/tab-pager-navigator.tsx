@@ -359,6 +359,9 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
   }, []);
 
   // ── The gesture ────────────────────────────────────────────────────────────
+  // Imported constants are NOT captured by the worklets plugin; a worklet that
+  // reads one throws on the UI thread (the 2026-11-15 swipe crash). Copy them.
+  const pageCount = TAB_PAGE_COUNT;
   const startX = useSharedValue(0);
   const startY = useSharedValue(0);
   const downAt = useSharedValue(0);
@@ -383,7 +386,7 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
       startY.value = touch.absoluteY;
       downAt.value = Date.now();
       decided.value = false;
-      const page = Math.min(Math.max(Math.round(position.value), 0), TAB_PAGE_COUNT - 1);
+      const page = Math.min(Math.max(Math.round(position.value), 0), pageCount - 1);
       startPage.value = page;
       if (globalLock.value || lockedPages.value[page]) {
         stateManager.fail();
@@ -427,7 +430,7 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
         stateManager.fail();
         return;
       }
-      const decision = resolveOuterSwipe(page, direction, innerPositions.value[page]);
+      const decision = resolveOuterSwipe(page, direction, innerPositions.value[page], pageCount);
       if (decision.owner === 'inner') {
         // The page's own pager can still move this way; it claims at 14pt.
         stateManager.fail();
@@ -452,13 +455,13 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
       }
       // 1:1 with the finger, measured from the activation point so nothing jumps.
       const raw = startPosition.value - (event.translationX - activationTx.value) / pageWidth;
-      position.value = clampWithRubberBand(raw);
+      position.value = clampWithRubberBand(raw, pageCount);
     })
     .onEnd((event, success) => {
       'worklet';
       const from = startPage.value;
       const target = success
-        ? resolveSettlePage({ position: position.value, startPage: from, velocityX: event.velocityX })
+        ? resolveSettlePage({ pageCount, position: position.value, startPage: from, velocityX: event.velocityX })
         : from;
       const pageWidth = widthSV.value > 0 ? widthSV.value : 1;
       position.value = withSpring(
