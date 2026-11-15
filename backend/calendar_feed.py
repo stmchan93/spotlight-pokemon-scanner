@@ -100,7 +100,14 @@ def _validate_event(row: object) -> tuple[dict[str, Any] | None, str | None]:
         "subtitle": _optional_str(row.get("subtitle")),
         "setId": _optional_str(row.get("setId")),
         "url": url,
+        # Optional set logo for a release the catalog doesn't have yet.
+        "logoUrl": _optional_https(row.get("logoUrl")),
     }, None
+
+
+def _optional_https(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text if text.startswith("https://") else None
 
 
 def load_events(path: Path | None = None) -> list[dict[str, Any]]:
@@ -146,7 +153,7 @@ def _expansion_events(
     # Scrydex dates arrive as YYYY/MM/DD or YYYY-MM-DD; both sort as text once
     # the slashes are normalized.
     sql = (
-        "SELECT id, game, name, language, release_date FROM expansions "
+        "SELECT id, game, name, language, release_date, logo_url FROM expansions "
         "WHERE release_date IS NOT NULL AND replace(substr(release_date, 1, 10), '/', '-') >= ? "
         # Synthetic TCGplayer group sets (tcgplayer_only_catalog.py) are not releases.
         "AND IFNULL(source_provider, '') != 'tcgplayer'"
@@ -157,8 +164,8 @@ def _expansion_events(
         params.append(game)
     events: list[dict[str, Any]] = []
     for row in connection.execute(sql, params).fetchall():
-        set_id, row_game, name, language, release_date = (
-            row[0], row[1], row[2], row[3], row[4],
+        set_id, row_game, name, language, release_date, logo_url = (
+            row[0], row[1], row[2], row[3], row[4], row[5],
         )
         day = _parse_date(release_date)
         title = str(name or "").strip()
@@ -175,6 +182,7 @@ def _expansion_events(
             "subtitle": "New set",
             "setId": set_id,
             "url": None,
+            "logoUrl": _optional_https(logo_url),
         })
     return events
 
@@ -204,7 +212,7 @@ def _merge(primary: list[dict[str, Any]], extra: list[dict[str, Any]]) -> list[d
             merged.append(dict(item))
             continue
         # The catalog row wins on identity; the hand row lends its source link.
-        for field in ("url", "subtitle", "setId"):
+        for field in ("url", "subtitle", "setId", "logoUrl"):
             if match.get(field) in (None, "New set") and item.get(field):
                 match[field] = item[field]
     return merged

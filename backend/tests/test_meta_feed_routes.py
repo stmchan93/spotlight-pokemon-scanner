@@ -399,7 +399,7 @@ class MetaFeedRoutesTests(unittest.TestCase):
         self.assertEqual(set(payload), {"items"})
         self.assertEqual([i["id"] for i in payload["items"]], ["release:far"])
         self.assertEqual(
-            set(payload["items"][0]), {"id", "date", "kind", "game", "title", "subtitle", "setId", "url"}
+            set(payload["items"][0]), {"id", "date", "kind", "game", "title", "subtitle", "setId", "url", "logoUrl"}
         )
         self.assertEqual(payload["items"][0]["date"], "2099-01-02")
 

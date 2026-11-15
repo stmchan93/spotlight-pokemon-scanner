@@ -72,8 +72,8 @@ function pulse(groups: MetaGroup[]): MetaPulse {
 
 const calendar: CalendarFeed = {
   items: [
-    { id: 'rel', date: '2026-11-06', kind: 'release', game: 'pokemon', title: 'Delta Reign', subtitle: null, setId: 'set-1', url: null },
-    { id: 'ban', date: '2026-11-07', kind: 'ban_list', game: 'pokemon', title: 'Ban list', subtitle: null, setId: null, url: null },
+    { id: 'rel', date: '2026-11-06', kind: 'release', game: 'pokemon', title: 'Delta Reign', subtitle: null, setId: 'set-1', url: null, logoUrl: 'https://img.example/delta.png' },
+    { id: 'ban', date: '2026-11-07', kind: 'ban_list', game: 'pokemon', title: 'Ban list', subtitle: null, setId: null, url: null, logoUrl: null },
   ],
 };
 
@@ -104,6 +104,10 @@ describe('MarketWatchPage', () => {
     expect(await screen.findByTestId('market-watch-page-set-rel')).toBeTruthy();
     expect(screen.queryByTestId('market-watch-page-set-ban')).toBeNull();
     expect(screen.getByText('Nov 6 Release')).toBeTruthy();
+    // Figma 6322:7840: the set logo sits left of the details.
+    expect(screen.getByTestId('market-watch-page-set-rel-logo').props.source).toEqual({
+      uri: 'https://img.example/delta.png',
+    });
 
     expect(await screen.findByText('TRENDING UP')).toBeTruthy();
     expect(screen.getByText('COOLING OFF')).toBeTruthy();

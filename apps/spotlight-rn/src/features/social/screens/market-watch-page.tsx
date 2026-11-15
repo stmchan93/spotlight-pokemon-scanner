@@ -27,6 +27,9 @@ import { GameFilterChips } from '@/features/social/components/game-filter-chips'
 const TREND_WINDOW_DAYS = 30;
 const TREND_ROWS_PER_SECTION = 3;
 const SET_CARD_WIDTH = 339;
+// Figma 6322:7842 draws the logo at 64 x 30.66.
+const SET_LOGO_WIDTH = 64;
+const SET_LOGO_HEIGHT = 30.66;
 const CARD_THUMB_WIDTH = 46.4;
 const CARD_THUMB_HEIGHT = 64;
 const CARD_THUMB_RADIUS = 1.6;
@@ -268,20 +271,33 @@ function SetCard({
       ]}
       testID={testID}
     >
-      <View
-        style={[
-          styles.setTag,
-          { borderColor: theme.colors.gray300, borderCurve: 'continuous', borderRadius: theme.radii.pill },
-        ]}
-      >
-        <Text style={[theme.typography.captionTiny, { color: theme.colors.gray900 }]}>NEW SET</Text>
+      {event.logoUrl ? (
+        // Figma 6322:7842: the set logo, 64 wide, left of the details.
+        <ExpoImage
+          accessibilityIgnoresInvertColors
+          cachePolicy="memory-disk"
+          contentFit="contain"
+          source={{ uri: event.logoUrl }}
+          style={styles.setLogo}
+          testID={`${testID}-logo`}
+        />
+      ) : null}
+      <View style={styles.setDetails}>
+        <View
+          style={[
+            styles.setTag,
+            { borderColor: theme.colors.gray300, borderCurve: 'continuous', borderRadius: theme.radii.pill },
+          ]}
+        >
+          <Text style={[theme.typography.captionTiny, { color: theme.colors.gray900 }]}>NEW SET</Text>
+        </View>
+        <Text numberOfLines={1} style={[theme.typography.feedRowTitle, { color: theme.colors.gray900 }]}>
+          {event.title}
+        </Text>
+        <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
+          {formatReleaseLine(event.date)}
+        </Text>
       </View>
-      <Text numberOfLines={1} style={[theme.typography.feedRowTitle, { color: theme.colors.gray900 }]}>
-        {event.title}
-      </Text>
-      <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
-        {formatReleaseLine(event.date)}
-      </Text>
     </Pressable>
   );
 }
@@ -367,10 +383,21 @@ const styles = StyleSheet.create({
     minWidth: PERCENT_MIN_WIDTH,
     textAlign: 'right',
   },
+  // Figma 6322:7840: logo + details in a row, 16 apart; details stack 4 apart.
   setCard: {
-    gap: spacing.xxxs,
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
     padding: spacing.sm,
     width: SET_CARD_WIDTH,
+  },
+  setDetails: {
+    flex: 1,
+    gap: spacing.xxxs,
+  },
+  setLogo: {
+    height: SET_LOGO_HEIGHT,
+    width: SET_LOGO_WIDTH,
   },
   setTag: {
     alignSelf: 'flex-start',

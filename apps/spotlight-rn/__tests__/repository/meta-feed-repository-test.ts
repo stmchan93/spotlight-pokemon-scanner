@@ -208,7 +208,7 @@ describe('HttpSpotlightRepository meta feed v2 reads', () => {
 
     const calendar = await repository.fetchCalendar();
     expect(calendar?.items).toEqual([
-      { id: 'ok', date: '2026-10-01', kind: 'event', game: 'pokemon', title: 'A', subtitle: null, setId: null, url: null },
+      { id: 'ok', date: '2026-10-01', kind: 'event', game: 'pokemon', title: 'A', subtitle: null, setId: null, url: null, logoUrl: null },
     ]);
   });
 });

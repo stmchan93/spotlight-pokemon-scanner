@@ -331,6 +331,7 @@ function parseCalendarEvent(raw: Raw): CalendarEvent | null {
     subtitle: str(raw.subtitle),
     setId: str(raw.setId),
     url: str(raw.url),
+    logoUrl: str(raw.logoUrl),
   };
 }
 

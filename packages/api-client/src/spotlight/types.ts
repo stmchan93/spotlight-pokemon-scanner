@@ -1857,6 +1857,7 @@ export type CalendarEvent = {
   subtitle: string | null;       // one short line
   setId: string | null;
   url: string | null;            // official source, link-out
+  logoUrl: string | null;        // set logo (https), releases only
 };
 export type CalendarFeed = { items: CalendarEvent[] };   // upcoming only (date >= today), ascending
 
