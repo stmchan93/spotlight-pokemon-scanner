@@ -34,10 +34,38 @@ export SPOTLIGHT_RUNTIME_LABEL="${SPOTLIGHT_RUNTIME_LABEL:-vm-sync:${HOSTNAME_VA
 # Every supported game, in catalog_tools.GAMES registry order. The sync loops
 # per game inside sync_scrydex_catalog.py (own provider_sync_runs row each,
 # continue-on-failure), so a dead game still exits nonzero AFTER the others ran.
+#
+# Extra args pass through: the catch-up schedule adds --catch-up (only games not
+# yet synced today, capped attempts).
+#
+# SPOTLIGHT_SYNC_PING_URL (optional, Healthchecks.io-style): pinged on success,
+# `<url>/fail` on failure. Its grace period also alerts when no run happens at
+# all. The 11/12-11/15 lock failures went unnoticed for four days without it.
+sync_ping() {
+  if [ -n "${SPOTLIGHT_SYNC_PING_URL:-}" ]; then
+    curl -fsS -m 10 --retry 3 "${SPOTLIGHT_SYNC_PING_URL}$1" >/dev/null 2>&1 || true
+  fi
+}
+
+set +e
 "$PYTHON_BIN" "$SCRIPT_DIR/sync_scrydex_catalog.py" \
   --database-path "$DATABASE_PATH" \
   --games pokemon,onepiece,lorcana,riftbound,gundam \
-  --scheduled-for "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  --scheduled-for "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+  "$@"
+SYNC_EXIT_CODE=$?
+set -e
+
+if [ "$SYNC_EXIT_CODE" -eq 3 ]; then
+  echo "[sync] catch-up: every game already synced today, nothing to do"
+  exit 0
+fi
+if [ "$SYNC_EXIT_CODE" -ne 0 ]; then
+  echo "[sync] FAILED (exit $SYNC_EXIT_CODE); the catch-up schedule will retry" >&2
+  sync_ping /fail
+  exit "$SYNC_EXIT_CODE"
+fi
+sync_ping ""
 
 # Post-sync: embed any newly-synced cards into the visual index and hot-reload
 # the matcher in place (no restart, no downtime), so new Scrydex sets become

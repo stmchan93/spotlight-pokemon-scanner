@@ -6,6 +6,7 @@ import socket
 import sqlite3
 import sys
 import time
+from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
@@ -41,7 +42,9 @@ from scrydex_adapter import (
 
 load_backend_env_file(Path(__file__).resolve().parent / ".env")
 
-SQLITE_LOCK_RETRY_DELAYS_SECONDS = (2.0, 5.0, 10.0)
+# Each attempt also waits busy_timeout (30s) itself. 11/12-11/14 a hung server
+# held the write lock for minutes and 2/5/10s gave up inside a minute.
+SQLITE_LOCK_RETRY_DELAYS_SECONDS = (15.0, 60.0, 180.0, 300.0)
 SCRYDEX_CATALOG_PAGE_MAX_ATTEMPTS = 5
 SCRYDEX_CATALOG_PAGE_RETRY_BASE_DELAY_SECONDS = 2.0
 SCRYDEX_CATALOG_PAGE_RETRY_MAX_DELAY_SECONDS = 30.0
@@ -50,7 +53,8 @@ SCRYDEX_CATALOG_PAGE_RETRY_JITTER_SECONDS = 1.0
 # (`if not cards: break`), never with a 404, so a 404 mid-sync is always a transient gateway/edge
 # blip (observed 2026-06-24: an 11s stalled request immediately followed by an 80ms 404). Retrying
 # with backoff recovers it; without 404 here, a single transient 404 aborts the entire nightly sync.
-SCRYDEX_TRANSIENT_HTTP_STATUS_CODES = {404, 408, 429, 500, 502, 503, 504}
+# 520-524 are Cloudflare origin errors; a 521 outage cost the whole 2026-11-06 sync.
+SCRYDEX_TRANSIENT_HTTP_STATUS_CODES = {404, 408, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524}
 
 
 def _parse_retry_after_seconds(value: str | None) -> float | None:
@@ -496,6 +500,53 @@ def sync_scrydex_catalog(
     raise RuntimeError("unreachable")
 
 
+# Exit code for a catch-up run that found every game already synced today.
+CATCH_UP_NOTHING_TO_DO_EXIT_CODE = 3
+# Catch-up re-fetches a failed game from page 1, so an all-night Scrydex outage
+# must not retry forever: ~465 credits per full Pokémon attempt.
+DEFAULT_CATCH_UP_MAX_ATTEMPTS_PER_DAY = 4
+
+
+def game_sync_attempts_for_date(
+    connection: sqlite3.Connection, *, game: str, price_date: str
+) -> tuple[bool, int]:
+    """(succeeded, attempts) for one game's full-catalog runs started on the
+    UTC ``price_date`` — the date the sync stamps its prices with."""
+    rows = connection.execute(
+        """
+        SELECT status
+        FROM provider_sync_runs
+        WHERE provider = ?
+          AND sync_scope = ?
+          AND substr(started_at, 1, 10) = ?
+          AND COALESCE(json_extract(notes_json, '$.game'), 'pokemon') = ?
+        """,
+        (SCRYDEX_PROVIDER, SCRYDEX_FULL_CATALOG_SYNC_SCOPE, price_date, game),
+    ).fetchall()
+    succeeded = any(row[0] == PROVIDER_SYNC_STATUS_SUCCEEDED for row in rows)
+    return succeeded, len(rows)
+
+
+def _games_needing_catch_up(
+    *, database_path: Path, games: list[str], price_date: str, max_attempts_per_day: int
+) -> tuple[list[str], list[dict[str, Any]]]:
+    connection = connect(database_path, timeout_seconds=30.0, busy_timeout_ms=30_000)
+    try:
+        pending: list[str] = []
+        skipped: list[dict[str, Any]] = []
+        for game in games:
+            succeeded, attempts = game_sync_attempts_for_date(connection, game=game, price_date=price_date)
+            if succeeded:
+                skipped.append({"game": game, "reason": "already_succeeded"})
+            elif attempts >= max_attempts_per_day:
+                skipped.append({"game": game, "reason": "attempt_cap", "attempts": attempts})
+            else:
+                pending.append(game)
+        return pending, skipped
+    finally:
+        connection.close()
+
+
 def sync_scrydex_catalog_for_games(
     *,
     database_path: Path,
@@ -506,13 +557,27 @@ def sync_scrydex_catalog_for_games(
     max_pages: int | None = None,
     price_date: str | None = None,
     scheduled_for: str | None = None,
+    catch_up: bool = False,
+    max_attempts_per_day: int = DEFAULT_CATCH_UP_MAX_ATTEMPTS_PER_DAY,
 ) -> dict[str, Any]:
     """Run the catalog sync once per game, sequentially, each with its own
     provider_sync_runs row. One game's outage must not cost the other games
     their daily price-history point, so failures are recorded and the loop
-    continues; the caller decides the exit code from ``failures``."""
+    continues; the caller decides the exit code from ``failures``.
+
+    ``catch_up`` runs only the games that have not succeeded yet for today's
+    price date and are under the per-day attempt cap."""
     summaries: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    if catch_up:
+        games, skipped = _games_needing_catch_up(
+            database_path=database_path,
+            games=list(games),
+            price_date=str(price_date or "").strip() or datetime.now(timezone.utc).date().isoformat(),
+            max_attempts_per_day=max_attempts_per_day,
+        )
+        print(json.dumps({"event": "scrydex_sync_catch_up", "pending": games, "skipped": skipped}), file=sys.stderr)
     for game in games:
         try:
             summaries.append(
@@ -539,7 +604,7 @@ def sync_scrydex_catalog_for_games(
                 ),
                 file=sys.stderr,
             )
-    return {"games": list(games), "summaries": summaries, "failures": failures}
+    return {"games": list(games), "summaries": summaries, "failures": failures, "skipped": skipped}
 
 
 def main() -> None:
@@ -560,6 +625,7 @@ def main() -> None:
     if games_value is not None:
         if cli_value("--game") is not None:
             raise SystemExit("Pass either --game or --games, not both")
+        catch_up = "--catch-up" in sys.argv
         result = sync_scrydex_catalog_for_games(
             database_path=database_path,
             repo_root=repo_root,
@@ -569,10 +635,18 @@ def main() -> None:
             max_pages=max_pages,
             price_date=price_date,
             scheduled_for=scheduled_for,
+            catch_up=catch_up,
+            max_attempts_per_day=cli_int_value("--max-attempts-per-day", DEFAULT_CATCH_UP_MAX_ATTEMPTS_PER_DAY),
         )
         print(json.dumps(result, indent=2))
         if result["failures"]:
             raise SystemExit(1)
+        if any(item.get("reason") == "attempt_cap" for item in result["skipped"]):
+            # Still unsynced and out of retries: a failure the alert must see.
+            raise SystemExit(1)
+        if catch_up and not result["games"]:
+            # Distinct from success so the shell skips the post-sync refresh.
+            raise SystemExit(CATCH_UP_NOTHING_TO_DO_EXIT_CODE)
         return
 
     summary = sync_scrydex_catalog(

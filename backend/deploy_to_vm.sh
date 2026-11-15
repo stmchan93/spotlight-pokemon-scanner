@@ -526,6 +526,7 @@ chmod +x \
   "$SCRIPT_DIR/run_vm_prewarm_visual.sh" \
   "$SCRIPT_DIR/run_sync_vm.sh" \
   "$SCRIPT_DIR/run_sync_vm_scheduled.sh" \
+  "$SCRIPT_DIR/run_scrydex_backfill_vm_scheduled.sh" \
   "$SCRIPT_DIR/run_tcgcsv_sync_vm.sh" \
   "$SCRIPT_DIR/run_tcgcsv_sync_vm_scheduled.sh" \
   "$SCRIPT_DIR/run_vm_health_check.sh" \
@@ -604,6 +605,9 @@ SYNC_LINE="* * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_sync_vm_scheduled.sh"
 # evaluates SPOTLIGHT_VM_TCGCSV_SYNC_CRON itself, and the python job is a no-op
 # unless TCGCSV_SYNC_ENABLED is truthy in the env/secrets files.
 TCGCSV_SYNC_LINE="* * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_tcgcsv_sync_vm_scheduled.sh"
+# Scrydex history gap backfill — production only (it spends credits), and dark
+# until its nightly + billing-cycle budgets are set in the env files.
+SCRYDEX_BACKFILL_LINE="* * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_scrydex_backfill_vm_scheduled.sh"
 HEALTH_LINE="$HEALTH_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/run_vm_health_check.sh >> $HEALTH_MONITOR_LOG_FILE 2>&1"
 RESOURCE_LINE="$RESOURCE_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/run_vm_resource_snapshot.sh >> $RESOURCE_MONITOR_LOG_FILE 2>&1"
 # Social moderation — every 2 minutes by default, on BOTH environments. Unlike
@@ -699,6 +703,7 @@ PY
   # bucket. Only production gets the sync cron; both keep the monitors.
   if [ "$ENVIRONMENT" = "production" ]; then
     echo "$SYNC_LINE"
+    echo "$SCRYDEX_BACKFILL_LINE"
   fi
   # TCGCSV is a free mirror (no credits), so its line installs on BOTH
   # environments; the job stays dark unless TCGCSV_SYNC_ENABLED is truthy in
