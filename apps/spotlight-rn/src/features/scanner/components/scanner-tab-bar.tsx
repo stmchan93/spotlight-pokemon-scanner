@@ -1,4 +1,4 @@
-import { Bookmark, Calendar, HomeSimple, ProfileCircle } from 'iconoir-react-native';
+import { Calendar, Eye, HomeSimple, ProfileCircle } from 'iconoir-react-native';
 import type { ReactNode } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
@@ -80,7 +80,7 @@ export function ScannerTabBar({
   const iconColor = colors.gray0;
   const tabs: TabSpec[] = [
     { icon: <HomeSimple color={iconColor} height={24} strokeWidth={1.6} width={24} />, label: 'HOME', name: 'index' },
-    { icon: <Bookmark color={iconColor} height={18} strokeWidth={1.6} width={14} />, label: 'WATCHLIST', name: 'wishlist' },
+    { icon: <Eye color={iconColor} height={18} strokeWidth={1.6} width={18} />, label: 'WATCHLIST', name: 'wishlist' },
     { icon: <ViewfinderGlyph color={iconColor} />, label: 'SCAN', name: 'scan' },
     { icon: <Calendar color={iconColor} height={20} strokeWidth={1.6} width={19} />, label: 'EVENTS', name: 'events' },
     { icon: <SocialAvatar />, label: 'SOCIAL', name: 'social' },

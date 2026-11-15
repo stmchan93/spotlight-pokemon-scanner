@@ -176,7 +176,7 @@ export function CardActionsSheet({
       ...(onSelect ? [{ key: 'select', label: 'Select', Icon: CheckCircle, onPress: onSelect, destructive: false }] : []),
       { key: 'edit', label: 'Edit', Icon: EditPencil, onPress: onEdit, destructive: false },
       { key: 'share', label: 'Share', Icon: ShareIos, onPress: onShare, destructive: false },
-      { key: 'wishlist', label: 'Wishlist', Icon: Eye, onPress: onWishlist, destructive: false },
+      { key: 'wishlist', label: 'Watchlist', Icon: Eye, onPress: onWishlist, destructive: false },
       { key: 'delete', label: 'Delete', Icon: Trash, onPress: onDelete, destructive: true },
     ],
     [onDelete, onEdit, onSelect, onShare, onWishlist],

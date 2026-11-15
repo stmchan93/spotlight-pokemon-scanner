@@ -1,6 +1,6 @@
 import { Dimensions, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { GridPlus, Bookmark, Trash } from 'iconoir-react-native';
+import { Eye, GridPlus, Trash } from 'iconoir-react-native';
 
 import {
   PopoverSurface,
@@ -149,7 +149,7 @@ export function AddAllMenu({
           ]}
           testID={`${testID}-wishlist`}
         >
-          <Bookmark color={theme.colors.gray900} height={20} width={20} />
+          <Eye color={theme.colors.gray900} height={20} width={20} />
           <Text style={[theme.typography.label, styles.label, { color: theme.colors.gray900 }]}>
             WATCHLIST
           </Text>
