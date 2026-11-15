@@ -60,14 +60,13 @@ export const AnimatedScrollView = Animated.ScrollView as unknown as typeof Scrol
  * that is what the dominance ratio below is for, and 14pt gives it enough travel
  * to judge on.
  */
-const CLAIM_DRAG = 14;
+const CLAIM_DRAG = 10;
 
 /**
- * How much more horizontal than vertical a drag must be to count. Same 1.35 the
- * drawer recogniser uses, so "a horizontal swipe" means the same shape
- * everywhere in the app.
+ * How much more horizontal than vertical a drag must be to count: 45°, the same
+ * as the outer tab pager, so a thumb's arc still reads as a page swipe.
  */
-const HORIZONTAL_BIAS = 1.35;
+const HORIZONTAL_BIAS = 1;
 
 /** Fraction of a page width that commits the swipe on release. */
 const COMMIT_FRACTION = 0.28;

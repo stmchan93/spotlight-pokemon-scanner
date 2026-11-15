@@ -26,7 +26,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { InteractionManager, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Freeze } from 'react-freeze';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Reanimated, {
   Easing,
@@ -119,12 +120,19 @@ import { useAuth } from '@/providers/auth-provider';
    - Guests: off entirely; a pushed stack screen covers the strip anyway.
 */
 
-/** Horizontal travel at which the outer strip makes its one decision for a touch. */
-export const PAGER_ACTIVATE_X = 12;
-/** Vertical travel that rules the touch out before then — never steal a scroll. */
-export const PAGER_FAIL_Y = 12;
-/** Same horizontal-dominance ratio as the drawer and the inner pagers. */
-const HORIZONTAL_BIAS = 1.35;
+/**
+ * Horizontal travel at which the outer strip makes its one decision for a touch.
+ * Under UIScrollView's ~10pt pan hysteresis, so a sideways swipe over a vertical
+ * list is decided before the list starts scrolling (at 12 the list often won).
+ */
+export const PAGER_ACTIVATE_X = 8;
+/** Vertical travel that rules the touch out before then — a clearly vertical scroll. */
+export const PAGER_FAIL_Y = 20;
+/**
+ * More sideways than vertical (45°) counts. A thumb swipe is an arc; at 1.35 a
+ * natural swipe often failed and the list scrolled instead (user, 2026-11-15).
+ */
+const HORIZONTAL_BIAS = 1;
 /** A guard stamp this close to our own touch-down belongs to the same touch. */
 const GUARD_WINDOW_MS = 50;
 /** Bar-tap slide. */
@@ -248,6 +256,17 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
     setMountedPages((current) => (current.has(page) ? current : new Set(current).add(page)));
   }, []);
 
+  // Mount the settled page's neighbours once the swipe has finished, so the next
+  // reveal slides in an already-built screen instead of building it mid-drag
+  // (that build was the biggest swipe hitch).
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      if (settledPage > 0) mountPage(settledPage - 1);
+      if (settledPage < TAB_PAGE_COUNT - 1) mountPage(settledPage + 1);
+    });
+    return () => task.cancel();
+  }, [mountPage, settledPage]);
+
   // ── UI-thread mirrors of what the hand-off rule needs ──────────────────────
   const innerPositions = useSharedValue<(InnerPagePosition | null)[]>(TAB_PAGER_ORDER.map(() => null));
   const lockedPages = useSharedValue<boolean[]>(TAB_PAGER_ORDER.map(() => false));
@@ -313,6 +332,15 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
       },
     );
   }, [focusedPage, mountPage, position]);
+
+  // Pages render through this stable callback so a navigator re-render (every
+  // swipe start and settle) does not re-render all five screens: React
+  // Navigation hands out fresh `descriptors[key].render` closures each time,
+  // which defeated the page memo. A page still re-renders when its own route
+  // object changes (params), or its focus / active state flips.
+  const descriptorsRef = useRef(descriptors);
+  descriptorsRef.current = descriptors;
+  const renderRoute = useCallback((key: string) => descriptorsRef.current[key]?.render() ?? null, []);
 
   // ── Strip -> route ─────────────────────────────────────────────────────────
   const latest = useRef({ focusedPage, navigation, state });
@@ -521,7 +549,13 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
                 insets={insets}
                 key={TAB_PAGER_ORDER[page]}
                 page={page}
-                render={route && mountedPages.has(page) ? descriptors[route.key]?.render : undefined}
+                frozen={
+                  mountedPages.has(page)
+                  && page !== focusedPage
+                  && Math.abs(page - settledPage) > 1
+                }
+                renderRoute={renderRoute}
+                route={route && mountedPages.has(page) ? route : undefined}
                 width={width}
               />
             ))}
@@ -550,8 +584,12 @@ type TabPagerPageProps = {
   barHeight: number;
   focused: boolean;
   insets: ReturnType<typeof useSafeAreaInsets>;
+  /** Two or more pages from where the strip rests: can't be revealed by a drag. */
+  frozen: boolean;
   page: number;
-  render: (() => ReactNode) | undefined;
+  renderRoute: (key: string) => ReactNode;
+  /** Undefined until the page is mounted. */
+  route: { key: string } | undefined;
   width: number;
 };
 
@@ -565,9 +603,11 @@ const TabPagerPage = memo(function TabPagerPage({
   api,
   barHeight,
   focused,
+  frozen,
   insets,
   page,
-  render,
+  renderRoute,
+  route,
   width,
 }: TabPagerPageProps) {
   const isScan = page === SCAN_PAGE_INDEX;
@@ -601,7 +641,7 @@ const TabPagerPage = memo(function TabPagerPage({
     () => ({ ...insets, bottom: Math.max(barHeight, insets.bottom) }),
     [barHeight, insets],
   );
-  let content: ReactNode = render ? render() : null;
+  let content: ReactNode = route ? renderRoute(route.key) : null;
   if (!isScan && content) {
     content = Platform.OS === 'ios'
       ? <SafeAreaInsetsContext.Provider value={iosInsets}>{content}</SafeAreaInsetsContext.Provider>
@@ -623,7 +663,10 @@ const TabPagerPage = memo(function TabPagerPage({
       testID={`tab-pager-page-${TAB_PAGER_ORDER[page]}`}
     >
       <TabPagerPageContext.Provider value={api}>
-        <TabsPageContext.Provider value={tabsPageValue}>{content}</TabsPageContext.Provider>
+        <TabsPageContext.Provider value={tabsPageValue}>
+          {/* Off-screen pages stop re-rendering until they could be seen again. */}
+          <Freeze freeze={frozen}>{content}</Freeze>
+        </TabsPageContext.Provider>
       </TabPagerPageContext.Provider>
     </View>
   );
