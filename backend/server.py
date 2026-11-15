@@ -600,6 +600,13 @@ SLAB_MATCH_BUDGET_SECONDS = 7.0
 _CARD_LOOKUP_CACHE_MISS: object = object()
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, "") or default))
+    except ValueError:
+        return default
+
+
 def _strip_cross_language_set_suffix(set_name: str) -> str:
     """Strip deck-specific suffixes from cross-language set names.
 
@@ -2438,7 +2445,12 @@ class SpotlightScanService:
         # Browser-edited shows layered over data/spotlight_events.json (/admin/events).
         self.events_admin = spotlight_events_admin.EventsAdmin(lambda: connect(self.database_path))
         spotlight_events.configure_admin(self.events_admin)
+        # Bounded: each hydrated card carries its full source JSON (~36KB), and
+        # unbounded it grew to every card ever viewed, a big share of the 13GB
+        # that hung prod on 2026-11-15. FIFO eviction; the hot set stays cached.
         self._card_lookup_cache: dict[str, dict[str, Any] | None] = {}
+        self._card_lookup_cache_max_entries = _env_int("SPOTLIGHT_CARD_LOOKUP_CACHE_MAX", 10000)
+        self._card_lookup_cache_evict_lock = threading.Lock()
         self._raw_visual_matcher: Any | None = None
         self._pending_visual_scans: dict[str, PendingVisualScan] = {}
         self._pending_visual_scan_ttl_seconds: float = 90.0
@@ -2448,14 +2460,16 @@ class SpotlightScanService:
         self._dashboard_cache: dict[tuple[str, str], tuple[str, dict[str, Any]]] = {}
         self._dashboard_cache_locks: dict[tuple[str, str], threading.Lock] = {}
         self._dashboard_cache_locks_guard = threading.Lock()
-        self._dashboard_cache_max_entries = 256
+        # Payloads run up to ~1.3MB of JSON (several MB as Python objects), and a
+        # miss reloads from the disk mirror, so keep the in-memory set small.
+        self._dashboard_cache_max_entries = _env_int("SPOTLIGHT_DASHBOARD_CACHE_MAX", 64)
         # Per-owner deck-entries cache, same version-token + dogpile pattern as
         # the dashboard cache above. deck_entries recomputes ~1s of per-card
         # pricing on EVERY Collection view; uncached, ~30 concurrent browsers
         # saturate the heavy-read slots and shed 503s (load-tested 2026-07-05).
         self._deck_entries_cache: dict[tuple[Any, ...], tuple[str, dict[str, Any]]] = {}
         self._deck_entries_cache_locks: dict[tuple[Any, ...], threading.Lock] = {}
-        self._deck_entries_cache_max_entries = 512
+        self._deck_entries_cache_max_entries = _env_int("SPOTLIGHT_DECK_ENTRIES_CACHE_MAX", 128)
         # On-disk mirror of both caches above, so a RESTART reloads instead of
         # recomputing — see the payload-cache helpers. Disabled by pointing
         # SPOTLIGHT_PAYLOAD_CACHE_DIR at nothing.
@@ -6991,7 +7005,7 @@ class SpotlightScanService:
             return
         fetched_cards = cards_by_ids(self.connection, missing_ids)
         for card_id in missing_ids:
-            self._card_lookup_cache.setdefault(card_id, fetched_cards.get(card_id))
+            self._remember_card(card_id, fetched_cards.get(card_id))
 
     @staticmethod
     def _history_primary_price_value(point: dict[str, Any] | None) -> float | None:
@@ -14650,7 +14664,19 @@ class SpotlightScanService:
         if cached_card is not sentinel:
             return cached_card
         card = card_by_id(self.connection, normalized_card_id)
-        return self._card_lookup_cache.setdefault(normalized_card_id, card)
+        return self._remember_card(normalized_card_id, card)
+
+    def _remember_card(self, card_id: str, card: dict[str, Any] | None) -> dict[str, Any] | None:
+        cached = self._card_lookup_cache.setdefault(card_id, card)
+        if len(self._card_lookup_cache) > self._card_lookup_cache_max_entries:
+            with self._card_lookup_cache_evict_lock:
+                while len(self._card_lookup_cache) > self._card_lookup_cache_max_entries:
+                    try:
+                        self._card_lookup_cache.pop(next(iter(self._card_lookup_cache)), None)
+                    except (RuntimeError, StopIteration):
+                        # A concurrent insert resized the dict mid-iteration; retry.
+                        continue
+        return cached
 
     @staticmethod
     def _entry_title_aliases(entry: dict[str, Any]) -> tuple[str, ...]:

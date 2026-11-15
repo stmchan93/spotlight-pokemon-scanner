@@ -52,6 +52,20 @@ echo "[$timestamp] systemd backend=${backend_state:-unknown} caddy=${caddy_state
 curl -fsS --max-time 10 "$local_base_url/api/v1/health" >/tmp/spotlight-local-health.json
 echo "[$timestamp] local-health ok"
 
+# Fail (and so withhold the alert ping) when the backend is bloating, well before
+# MemoryMax kills it. The 2026-11-15 hang started from slow growth to 13GB.
+backend_pid="$(systemctl show -p MainPID --value spotlight-backend.service 2>/dev/null || echo 0)"
+if [ "${backend_pid:-0}" != "0" ]; then
+  backend_rss_mb="$(( $(ps -o rss= -p "$backend_pid" 2>/dev/null || echo 0) / 1024 ))"
+  mem_total_mb="$(( $(awk '/MemTotal/ {print $2}' /proc/meminfo) / 1024 ))"
+  rss_limit_mb="${SPOTLIGHT_HEALTH_RSS_LIMIT_MB:-$(( mem_total_mb * 65 / 100 ))}"
+  echo "[$timestamp] backend-rss ${backend_rss_mb}MB limit=${rss_limit_mb}MB"
+  if [ "$backend_rss_mb" -gt "$rss_limit_mb" ]; then
+    echo "[$timestamp] backend-rss over limit" >&2
+    exit 1
+  fi
+fi
+
 curl -fsS --max-time 15 "$local_base_url/api/v1/ops/provider-status" >/tmp/spotlight-provider-status.json
 python3 - <<'PY'
 import json
