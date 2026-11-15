@@ -4,9 +4,11 @@
 # SPOTLIGHT_VM_SCRYDEX_BACKFILL_CRON in PT itself, and it takes the SAME lock as
 # the Scrydex sync so the two never write the DB at the same time.
 #
-# Dark by default: nothing is fetched until SPOTLIGHT_SCRYDEX_BACKFILL_NIGHTLY_MAX
-# and SPOTLIGHT_SCRYDEX_BACKFILL_CYCLE_BUDGET are both set above zero. Every
-# request is one Scrydex credit.
+# Every request is one Scrydex credit. Budgets default to the Growth plan
+# (50k/month, cycle on the 7th): the nightly sync uses ~17.4k, so the backfill
+# may use 30k per cycle, 2k per night. Defaults live HERE, not in
+# .vm-runtime.conf, because deploys rewrite that file. Set either to 0 to stop.
+# The cron line is installed on production only (deploy_to_vm.sh).
 
 set -euo pipefail
 
@@ -36,8 +38,8 @@ BACKFILL_CRON="${SPOTLIGHT_VM_SCRYDEX_BACKFILL_CRON:-45 23 * * *}"
 CRON_TIMEZONE="${SPOTLIGHT_VM_SYNC_CRON_TZ:-America/Los_Angeles}"
 SYNC_LOCK_FILE="${SPOTLIGHT_SYNC_LOCK_FILE:-$SCRIPT_DIR/data/scrydex-sync.lock}"
 LOG_FILE="${SPOTLIGHT_SCRYDEX_BACKFILL_LOG_FILE:-$SCRIPT_DIR/logs/scrydex_backfill.log}"
-NIGHTLY_MAX="${SPOTLIGHT_SCRYDEX_BACKFILL_NIGHTLY_MAX:-0}"
-CYCLE_BUDGET="${SPOTLIGHT_SCRYDEX_BACKFILL_CYCLE_BUDGET:-0}"
+NIGHTLY_MAX="${SPOTLIGHT_SCRYDEX_BACKFILL_NIGHTLY_MAX:-2000}"
+CYCLE_BUDGET="${SPOTLIGHT_SCRYDEX_BACKFILL_CYCLE_BUDGET:-30000}"
 CYCLE_DAY="${SPOTLIGHT_SCRYDEX_BILLING_CYCLE_DAY:-7}"
 MAX_TIER="${SPOTLIGHT_SCRYDEX_BACKFILL_MAX_TIER:-2}"
 
