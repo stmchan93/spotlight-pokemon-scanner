@@ -922,12 +922,12 @@
     },
     "1.3.2": {
       "android": {
-        "gitCommit": "6bf0bf6202929cd27031071899550cd2b00d1da3",
-        "hash": "c2771b60a2696ea7ba26c343790e0d44364ef097",
-        "recordedAt": "2026-10-19T17:22:08+00:00",
+        "gitCommit": "cb62e6a397a690984a19531afcde65060ffb761a",
+        "hash": "05ea21c6b3a1e1f8c5ac5b4ee5277f17ab7f7849",
+        "recordedAt": "2026-11-15T18:20:53+00:00",
         "sources": {
           "contents:expoAutolinkingConfig:android": "a578b24da441b3e790ceebe585d46bd73c218e9d",
-          "contents:expoConfig": "b326fc1bd78edd75f23e9ff30c3fcb0a5ab07f2e",
+          "contents:expoConfig": "1cdece1a18846e644ef4f914a60372781c453424",
           "contents:package:react-native": "c1007a46e17339cadbe2150f648dc12bba4e348c",
           "contents:rncoreAutolinkingConfig:android": "931fc3fe74786491f30c581be59aaaa0d6069a4e",
           "dir:../../node_modules/@expo/dom-webview/android": "3b3f6b85b945004964805f74e7bfe4eda51a89a2",
@@ -988,7 +988,6 @@
           "dir:../../node_modules/react-native-vision-camera": "aa11e6beedce9647f2dc30aca99fdb4226d83f25",
           "dir:../../node_modules/react-native-webview": "f28820a28f83e8b9c4979ff6f6844a28ab557be4",
           "dir:../../node_modules/react-native-worklets": "5d1da42bbd71585e3c8834a5be357ef269f07b29",
-          "dir:android": null,
           "dir:modules/spotlight-slab-scanner/android": "aad885217bdf55e95203188151c5736af890a484",
           "file:../../node_modules/@bacons/apple-targets/app.plugin.js": "4209d5b8a78ddabbc489b6d5e5b244a3ebe98bf3",
           "file:../../node_modules/@bacons/apple-targets/build/colorset/custom-color-from-css.js": "d83f664e7fb19544cf8aa7fcaf7fa43e49e78e95",
@@ -1151,18 +1150,18 @@
           "file:assets/images/icon.png": "1fbc909945fd4a2dab484a32c065f0a3b00accb0",
           "file:assets/images/splash-icon-android.png": "79c4b982e657ed727e20b4a1696def2dafd1d8b0",
           "file:assets/images/splash-icon.png": "4cc803f1fb13cc395f2f42dea1321783470fe9d3",
-          "file:eas.json": "74591fd4fc156c2d5c6fd1f83d0d08a19eb9b866",
+          "file:eas.json": "76c0ee9cafb6cf640010c7704d3b891d483b4603",
           "file:targets/notification-service/expo-target.config.js": "3a703cd594ad920d7f5b553acbfd5f6ea64b7d5a"
         },
-        "via": "build"
+        "via": "ota-api-domain-verified-extra-only"
       },
       "ios": {
-        "gitCommit": "ac593974ef52aa5efa32726a566f5e13bd77b4f1",
-        "hash": "63b2be3b14c67b3f8bb47229074979390f8b15d0",
-        "recordedAt": "2026-10-19T07:51:20+00:00",
+        "gitCommit": "cb62e6a397a690984a19531afcde65060ffb761a",
+        "hash": "717d53f40ad2a7096243965bb2f41707da81e867",
+        "recordedAt": "2026-11-15T18:20:52+00:00",
         "sources": {
           "contents:expoAutolinkingConfig:ios": "820115269e76930df21b312f50d5602932227111",
-          "contents:expoConfig": "b326fc1bd78edd75f23e9ff30c3fcb0a5ab07f2e",
+          "contents:expoConfig": "1cdece1a18846e644ef4f914a60372781c453424",
           "contents:package:react-native": "c1007a46e17339cadbe2150f648dc12bba4e348c",
           "contents:rncoreAutolinkingConfig:ios": "d433ff77aac8a2af029a83d7f1c8ae682cd9293b",
           "dir:../../node_modules/@bacons/apple-targets/ios": "f0776e647db12b1c2235bf9054a9e38ace6520cd",
@@ -1224,7 +1223,6 @@
           "dir:../../node_modules/react-native-webview": "f28820a28f83e8b9c4979ff6f6844a28ab557be4",
           "dir:../../node_modules/react-native-worklets": "5d1da42bbd71585e3c8834a5be357ef269f07b29",
           "dir:assets/ekalight.icon": "a70c0c174b27c2e7a4052739aa005e166095998a",
-          "dir:ios": null,
           "dir:modules/spotlight-slab-scanner/ios": "a27af5916779256b50cec9535da6c46fd0cb878d",
           "dir:targets": "f1bfbf2846e8ebd4374cdfe744014ea54474a5c0",
           "file:../../node_modules/@bacons/apple-targets/app.plugin.js": "4209d5b8a78ddabbc489b6d5e5b244a3ebe98bf3",
@@ -1384,9 +1382,9 @@
           "file:.easignore": "45db149273d05e2a38f98674673b7ed3b672f128",
           "file:assets/images/icon.png": "1fbc909945fd4a2dab484a32c065f0a3b00accb0",
           "file:assets/images/splash-icon.png": "4cc803f1fb13cc395f2f42dea1321783470fe9d3",
-          "file:eas.json": "74591fd4fc156c2d5c6fd1f83d0d08a19eb9b866"
+          "file:eas.json": "76c0ee9cafb6cf640010c7704d3b891d483b4603"
         },
-        "via": "build"
+        "via": "ota-api-domain-verified-extra-only"
       }
     }
   },
