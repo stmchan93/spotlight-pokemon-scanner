@@ -302,7 +302,7 @@ export default function TabsLayout() {
             selected: require('../../../assets/images/tab-icons/wishlist-filled.png'),
           }}
         />
-        <Label>WISHLIST</Label>
+        <Label>WATCHLIST</Label>
       </Trigger>
       {/*
         NO BOTTOM INSET ON THE SCANNER.

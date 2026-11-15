@@ -151,7 +151,7 @@ export function AddAllMenu({
         >
           <Bookmark color={theme.colors.gray900} height={20} width={20} />
           <Text style={[theme.typography.label, styles.label, { color: theme.colors.gray900 }]}>
-            WISHLIST
+            WATCHLIST
           </Text>
         </Pressable>
         ) : null}

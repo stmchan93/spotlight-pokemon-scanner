@@ -8,6 +8,10 @@ import { getScannerTabBarHeight, ScannerTabBar } from '@/features/scanner/compon
 jest.mock('@/components/circular-tab-avatar', () => ({
   useCircularTabAvatar: () => null,
 }));
+let mockAvatarURL: string | null = null;
+jest.mock('@/providers/auth-provider', () => ({
+  useAuth: () => ({ currentUser: mockAvatarURL ? { avatarURL: mockAvatarURL } : null }),
+}));
 
 const mockNavigate = jest.fn();
 let mockFocused = true;
@@ -87,6 +91,16 @@ describe('ScannerTabBar', () => {
       expect(mockNavigate).toHaveBeenCalledTimes(2);
     } finally {
       jest.useRealTimers();
+    }
+  });
+
+  it("draws the account's photo for SOCIAL straight from its URL", () => {
+    mockAvatarURL = 'https://example.com/me.jpg';
+    try {
+      render(<ScannerTabBar bottomInset={0} onSelectTab={() => undefined} />);
+      expect(screen.getByTestId('scanner-tab-bar-avatar')).toBeTruthy();
+    } finally {
+      mockAvatarURL = null;
     }
   });
 });

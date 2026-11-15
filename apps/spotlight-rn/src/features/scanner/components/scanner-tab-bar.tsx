@@ -6,6 +6,7 @@ import Svg, { Path } from 'react-native-svg';
 import { Text, colors, layout, radii, spacing, textStyles } from '@spotlight/design-system';
 
 import { useCircularTabAvatar } from '@/components/circular-tab-avatar';
+import { useAuth } from '@/providers/auth-provider';
 
 /**
  * The Scanner's own bottom tab bar (Figma 6145:5694): solid black, drawn in JS.
@@ -48,8 +49,13 @@ function ViewfinderGlyph({ color }: { color: string }) {
 }
 
 function SocialAvatar() {
-  // Null for guests, accounts without a photo, and until the raster lands.
-  const avatar = useCircularTabAvatar();
+  // This bar is a React view, so it can draw the photo URL directly. The circular
+  // raster exists for the NATIVE tab bar and only lands after an offscreen render,
+  // which left this bar on the outline glyph.
+  const { currentUser } = useAuth();
+  const avatarURL = currentUser?.avatarURL ?? null;
+  const raster = useCircularTabAvatar();
+  const avatar = avatarURL ? { uri: avatarURL } : raster;
   if (!avatar) {
     return <ProfileCircle color={colors.gray0} height={AVATAR_SIZE} strokeWidth={1.6} width={AVATAR_SIZE} />;
   }
@@ -74,7 +80,7 @@ export function ScannerTabBar({
   const iconColor = colors.gray0;
   const tabs: TabSpec[] = [
     { icon: <HomeSimple color={iconColor} height={24} strokeWidth={1.6} width={24} />, label: 'HOME', name: 'index' },
-    { icon: <Bookmark color={iconColor} height={18} strokeWidth={1.6} width={14} />, label: 'WISHLIST', name: 'wishlist' },
+    { icon: <Bookmark color={iconColor} height={18} strokeWidth={1.6} width={14} />, label: 'WATCHLIST', name: 'wishlist' },
     { icon: <ViewfinderGlyph color={iconColor} />, label: 'SCAN', name: 'scan' },
     { icon: <Calendar color={iconColor} height={20} strokeWidth={1.6} width={19} />, label: 'EVENTS', name: 'events' },
     { icon: <SocialAvatar />, label: 'SOCIAL', name: 'social' },
