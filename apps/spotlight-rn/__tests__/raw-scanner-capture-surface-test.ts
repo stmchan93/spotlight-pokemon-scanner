@@ -55,8 +55,8 @@ describe('raw scanner capture layout', () => {
     expect(scanner.reticle.x).toBe(16);
     expect(scanner.reticle.width).toBe(361);
     expect(scanner.reticle.y).toBe(59 + 72);
-    // Bottom edge 26pt above the handle, which sits 2pt below the tray top.
-    expect(scanner.reticle.y + scanner.reticle.height).toBe(trayTop + 2 - 26);
+    // Bottom edge 26pt above the handle, which sits 17pt below the reserved tray top.
+    expect(scanner.reticle.y + scanner.reticle.height).toBe(trayTop + 17 - 26);
     // Much taller than the old frame, which reserved a controls row below itself.
     expect(scanner.reticle.height).toBeGreaterThan(legacy.reticle.height + 80);
     // The matcher crop is the largest card-shaped rect inside the frame, centered:

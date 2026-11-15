@@ -303,9 +303,10 @@ export function makeRawScannerCaptureLayout({
   const width = Math.max(284, containerWidth - sideInset * 2);
   const y = figmaFrame ? safeAreaTop + 72 : headerHeight + verticalInset;
   // Figma frame: no controls row to clear below it, so it runs down to 26pt
-  // above the tray handle (drawn 2pt below the tray top). It is not card-shaped;
-  // the matcher crop below stays card-shaped and centered on it.
-  const usableBottom = figmaFrame ? trayTop - 24 : controlsRowTop - verticalInset;
+  // above the tray handle. The collapsed one-row tray draws 15pt shorter than it
+  // reserves, so the handle lands 17pt below `trayTop` (measured on the iPhone
+  // 16 Pro simulator, 2026-11-15).
+  const usableBottom = figmaFrame ? trayTop + 17 - 26 : controlsRowTop - verticalInset;
   const height = Math.max(240, usableBottom - y);
 
   // Crop sent to matching keeps the TRUE card aspect (no stretch): same width and
