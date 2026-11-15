@@ -243,6 +243,7 @@ export type RawScannerCaptureLayoutMode = 'card' | 'page';
 export function makeRawScannerCaptureLayout({
   containerHeight,
   containerWidth,
+  controlsInsideFrame = false,
   mode = 'card',
   pageAspectRatio = rawCardReticleAspectRatio,
   safeAreaTop,
@@ -250,6 +251,13 @@ export function makeRawScannerCaptureLayout({
 }: {
   containerHeight: number;
   containerWidth: number;
+  /**
+   * True when the zoom / layout controls sit INSIDE the frame (the scanner
+   * tab, Figma 6322:9081). Single-card mode then uses that frame's geometry:
+   * 16pt side margins, 72pt below the safe area, and a bottom edge 26pt above
+   * the tray handle, so the frame fills the space the old controls row held.
+   */
+  controlsInsideFrame?: boolean;
   /**
    * Page mode only: height ÷ width of the page crop (a 3×3 of upright cards
    * shares the single card's aspect; taller layouts are taller). The crop
@@ -289,10 +297,16 @@ export function makeRawScannerCaptureLayout({
   // point of height is page width for the taller layouts (a 3 × 4 page needs
   // ~1.86× its width). Single-card keeps the uniform 40.
   const verticalInset = mode === 'page' ? 16 : inset;
-  const x = inset;
-  const width = Math.max(284, containerWidth - inset * 2);
-  const y = headerHeight + verticalInset;
-  const height = Math.max(240, controlsRowTop - verticalInset - y);
+  const figmaFrame = mode === 'card' && controlsInsideFrame;
+  const sideInset = figmaFrame ? 16 : inset;
+  const x = sideInset;
+  const width = Math.max(284, containerWidth - sideInset * 2);
+  const y = figmaFrame ? safeAreaTop + 72 : headerHeight + verticalInset;
+  // Figma frame: no controls row to clear below it, so it runs down to 26pt
+  // above the tray handle (drawn 2pt below the tray top). It is not card-shaped;
+  // the matcher crop below stays card-shaped and centered on it.
+  const usableBottom = figmaFrame ? trayTop - 24 : controlsRowTop - verticalInset;
+  const height = Math.max(240, usableBottom - y);
 
   // Crop sent to matching keeps the TRUE card aspect (no stretch): same width and
   // horizontal center as the visible frame, centered vertically on it, so it
@@ -303,11 +317,16 @@ export function makeRawScannerCaptureLayout({
   // every pocket pixel counts); any layout taller than THAT is narrowed and
   // centered so it overhangs no further.
   const pageHeightAllowance = Math.max(height, width * rawCardReticleAspectRatio);
+  // Figma frame: the crop is the largest card-shaped rect INSIDE the frame, so a
+  // card fitted to the frame's edges fills the crop exactly. (Full-width crops
+  // overhung the squat frame and left ~16% background beside a fitted card.)
   const cropWidth = mode === 'page'
     ? Math.min(width, Math.floor(pageHeightAllowance / pageAspectRatio))
-    : width;
+    : figmaFrame
+      ? Math.min(width, Math.floor(height / rawCardReticleAspectRatio))
+      : width;
   const cropHeight = Math.round(cropWidth * (mode === 'page' ? pageAspectRatio : rawCardReticleAspectRatio));
-  const cropX = mode === 'page' ? Math.round(x + (width - cropWidth) / 2) : x;
+  const cropX = mode === 'page' || figmaFrame ? Math.round(x + (width - cropWidth) / 2) : x;
   const cropY = Math.round(y + (height - cropHeight) / 2);
 
   // controlsTop is clamped so it never drops into the tray's reserved band.

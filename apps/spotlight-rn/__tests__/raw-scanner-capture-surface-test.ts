@@ -44,6 +44,38 @@ describe('raw scanner capture layout', () => {
     })).toBe(121);
   });
 
+  it('uses the Figma 6322:9081 frame when the controls sit inside it', () => {
+    // iPhone 16 Pro: 852pt window, 59pt safe area, 87pt scanner tab bar, 24pt tray bottom inset.
+    const trayReservedHeight = getRawScannerCollapsedTrayReservedHeight({ bottomInset: 24 });
+    const base = { containerHeight: 852 - 87, containerWidth: 393, safeAreaTop: 59, trayReservedHeight };
+    const legacy = makeRawScannerCaptureLayout(base);
+    const scanner = makeRawScannerCaptureLayout({ ...base, controlsInsideFrame: true });
+    const trayTop = base.containerHeight - trayReservedHeight;
+
+    expect(scanner.reticle.x).toBe(16);
+    expect(scanner.reticle.width).toBe(361);
+    expect(scanner.reticle.y).toBe(59 + 72);
+    // Bottom edge 26pt above the handle, which sits 2pt below the tray top.
+    expect(scanner.reticle.y + scanner.reticle.height).toBe(trayTop + 2 - 26);
+    // Much taller than the old frame, which reserved a controls row below itself.
+    expect(scanner.reticle.height).toBeGreaterThan(legacy.reticle.height + 80);
+    // The matcher crop is the largest card-shaped rect inside the frame, centered:
+    // a card fitted to the frame's top and bottom edges fills it exactly.
+    const crop = scanner.captureCropRect;
+    expect(crop.height / crop.width).toBeCloseTo(880 / 630, 2);
+    expect(crop.y).toBeGreaterThanOrEqual(scanner.reticle.y);
+    expect(crop.y + crop.height).toBeLessThanOrEqual(scanner.reticle.y + scanner.reticle.height);
+    expect(crop.x).toBeGreaterThanOrEqual(scanner.reticle.x);
+    expect(crop.x + crop.width).toBeLessThanOrEqual(scanner.reticle.x + scanner.reticle.width);
+    expect(scanner.reticle.height - crop.height).toBeLessThanOrEqual(2);
+    expect(Math.abs(crop.x + crop.width / 2 - (scanner.reticle.x + scanner.reticle.width / 2))).toBeLessThanOrEqual(1);
+  });
+
+  it('leaves the labeling layout (controls row below the frame) unchanged', () => {
+    const base = { containerHeight: 852, containerWidth: 393, safeAreaTop: 59 };
+    expect(makeRawScannerCaptureLayout(base).reticle.x).toBe(40);
+  });
+
   it('fits a taller binder layout inside the page frame instead of running into the controls', () => {
     const trayReservedHeight = getRawScannerCollapsedTrayReservedHeight({ bottomInset: 34 });
     const base = { containerHeight: 852, containerWidth: 393, safeAreaTop: 59, trayReservedHeight };
