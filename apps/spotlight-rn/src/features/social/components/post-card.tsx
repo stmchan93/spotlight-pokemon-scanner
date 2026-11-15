@@ -928,6 +928,20 @@ export function PostCard({
               {post.body}
             </Text>
           </Pressable>
+        ) : post.body && canShowImages ? (
+          // Tapping the text of a photo post opens the photos, same as tapping a photo.
+          <Pressable
+            accessibilityHint="Opens the photos full screen"
+            onPress={() => openViewer(0)}
+            testID={`${testID}-body-button`}
+          >
+            <Text
+              style={[styles.bodyText, theme.typography.postBody, { color: theme.colors.gray800 }]}
+              testID={`${testID}-body`}
+            >
+              {post.body}
+            </Text>
+          </Pressable>
         ) : post.body ? (
           <Text
             // Figma 5768:27193: Body-medium 15/500 gray-800.
