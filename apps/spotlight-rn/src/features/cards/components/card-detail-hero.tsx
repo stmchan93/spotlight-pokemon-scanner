@@ -27,9 +27,9 @@ type CardDetailHeroProps = {
 
 // Portrait trading-card aspect (5:7).
 const CARD_ASPECT = 5 / 7;
-// Card occupies ~49% of the panel width (Figma 4211:86063 — 194pt card art in
+// Card occupies ~46% of the panel width (Figma 6322:8760 — 182pt card art in
 // a 393pt frame), centered inside the gray backdrop.
-const CARD_WIDTH_RATIO = 0.49;
+const CARD_WIDTH_RATIO = 0.463;
 // Sealed product tile: square, a little wider than the card, with the shot
 // inset so odd aspects (tins, packs, long boxes) letterbox cleanly.
 const PRODUCT_WIDTH_RATIO = 0.6;
@@ -130,7 +130,6 @@ export function CardDetailHero({
             styles.favorite,
             {
               backgroundColor: theme.colors.canvasElevated,
-              borderColor: theme.colors.outlineSubtle,
               opacity: pressed ? 0.82 : 1,
             },
           ]}
@@ -155,7 +154,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderCurve: 'continuous',
     borderRadius: 999,
-    borderWidth: 1,
     // 36×36 to match the header's share/back IconButtons (size 36) — same right
     // inset (16) + same size keeps the toggle on the same vertical axis as share.
     height: 36,
@@ -186,11 +184,9 @@ const styles = StyleSheet.create({
   },
   root: {
     alignItems: 'center',
-    // Break out of the screen's 16px content padding so the gray band spans
-    // edge-to-edge like the Figma frame, then inset the card with 32px of
-    // vertical breathing room (Figma 4211:86063 — 270pt card in a 334pt band).
-    marginHorizontal: -16,
-    paddingVertical: 32,
+    // Full-bleed gray band; 24px above/below the card (Figma 6322:8757 —
+    // 254pt card in a 302pt band).
+    paddingVertical: 24,
     position: 'relative',
   },
 });

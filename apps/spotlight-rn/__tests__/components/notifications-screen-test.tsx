@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { useRouter } from 'expo-router';
 
-import { NotificationsScreen } from '@/features/social/screens/notifications-screen';
+import { NotificationsScreen, formatBoothRecap } from '@/features/social/screens/notifications-screen';
 import {
   fetchNotifications,
   markAllNotificationsRead,
@@ -174,6 +174,70 @@ describe('NotificationsScreen', () => {
     union gets the row written and then silently dropped on the way to this
     screen, which looks exactly like the trigger not firing.
   */
+  describe('booth recap', () => {
+    const recap = {
+      eventId: 'ontario-2026',
+      eventName: 'Spotlight Ontario',
+      vendorId: 'island-slabs',
+      views: 148,
+      instagramTaps: 1,
+      messages: 9,
+      postViews: 0,
+    };
+
+    it('reads the numbers from the payload and opens the show', async () => {
+      const push = jest.fn();
+      (useRouter as jest.Mock).mockReturnValue({ push, back: jest.fn() });
+      (fetchNotifications as jest.Mock).mockResolvedValue([
+        buildNotification({
+          id: 'r-1',
+          type: 'booth_recap',
+          actor: null,
+          postId: null,
+          commentId: null,
+          commentBody: null,
+          isReply: false,
+          postAuthor: null,
+          postMediaId: null,
+          boothRecap: recap,
+        }),
+      ]);
+
+      renderWithProviders(<NotificationsScreen />);
+
+      await waitFor(() => expect(screen.getByTestId('notifications-row-r-1-recap')).toBeTruthy());
+      expect(
+        screen.getByText(/Spotlight Ontario: your booth got 148 views, 1 Instagram tap, 9 messages/),
+      ).toBeTruthy();
+      expect(screen.queryByTestId('notifications-row-r-1-thumbnail')).toBeNull();
+
+      fireEvent.press(screen.getByTestId('notifications-row-r-1'));
+      expect(push).toHaveBeenCalledWith({ pathname: '/events/[eventId]', params: { eventId: 'ontario-2026' } });
+    });
+
+    it('mentions post views only when there were some', () => {
+      expect(formatBoothRecap({ ...recap, postViews: 212 })).toBe(
+        'Spotlight Ontario: your booth got 148 views, 1 Instagram tap, 9 messages; posts seen 212 times',
+      );
+    });
+
+    it('parses the send_booth_recaps payload and rejects one without a show', () => {
+      const { parseBoothRecapPayload } = jest.requireActual<typeof import('@/features/social/social-service')>(
+        '@/features/social/social-service',
+      );
+      expect(
+        parseBoothRecapPayload({
+          event_id: 'ontario-2026',
+          event_name: 'Spotlight Ontario',
+          vendor_id: 'island-slabs',
+          counts: { card_open: 148, instagram_tap: 37, message_start: 9 },
+        }),
+      ).toEqual({ ...recap, instagramTaps: 37 });
+      expect(parseBoothRecapPayload({ counts: { card_open: 3 } })).toBeNull();
+      expect(parseBoothRecapPayload(null)).toBeNull();
+    });
+  });
+
   it('renders a repost row and sends it to the post', async () => {
     const push = jest.fn();
     (useRouter as jest.Mock).mockReturnValue({ push, back: jest.fn() });

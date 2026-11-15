@@ -92,7 +92,7 @@ class MetaFeedRoutesTests(unittest.TestCase):
         )
         self.conn.execute(
             "INSERT OR REPLACE INTO meta_pulse_groups VALUES ('pokemon', ?, 7, 'raw', 'vintage:raw', "
-            "'vintage', 'Vintage', 'pre-2003 · 40 cards', 12.5, 1100, 1000, 100, 40, 20, '[1, 2]', ?)",
+            "'vintage', 'Vintage', 'pre-2003 · 40 cards', 12.5, 1100, 1000, 100, 40, 20, '[1, 2]', ?, NULL)",
             (as_of, computed_at),
         )
         upsert_runtime_setting(

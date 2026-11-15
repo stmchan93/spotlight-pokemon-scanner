@@ -1,7 +1,7 @@
 /**
- * The pages that belong to the Social feed's market/news sections. When
- * `resolveFeedMarketBlocksEnabled()` is off (production), these routes send the
- * viewer back to the feed instead of rendering.
+ * The pages behind the Social tab's News and Market Watch. A push notification
+ * into one lands on the fallback while `resolveFeedMarketBlocksEnabled()` is off
+ * (see `notification-routing`).
  */
 const FEED_MARKET_ROUTE_ROOTS = ['/meta', '/news', '/calendar', '/set-spotlight'];
 

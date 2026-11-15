@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { AppText, CardRailTile, spacing } from '@spotlight/design-system';
 import type { SimilarCard, SimilarCards, SpotlightRepository } from '@spotlight/api-client';
@@ -24,6 +24,8 @@ type CardSimilarSectionProps = {
   enabled: boolean;
   repository: Pick<SpotlightRepository, 'fetchSimilarCards'>;
   onPressCard: (card: SimilarCard) => void;
+  /** Host surface style; skipped when the section renders nothing. */
+  style?: StyleProp<ViewStyle>;
   testID?: string;
 };
 
@@ -32,7 +34,8 @@ function priceLabel(card: SimilarCard): string | null {
 }
 
 function subtitle(card: SimilarCard): string {
-  const parts = [card.language && card.language !== 'English' ? card.language : null, card.setName, card.number];
+  // Number first (Figma 6322:9018): the narrow tile truncates the set name.
+  const parts = [card.number, card.language && card.language !== 'English' ? card.language : null, card.setName];
   return parts.filter(Boolean).join(' · ');
 }
 
@@ -43,7 +46,7 @@ function subtitle(card: SimilarCard): string {
  * heading included, hides when both are empty, the feature is off (null), or
  * the request fails.
  */
-export function CardSimilarSection({ cardId, enabled, repository, onPressCard, testID }: CardSimilarSectionProps) {
+export function CardSimilarSection({ cardId, enabled, repository, onPressCard, style, testID }: CardSimilarSectionProps) {
   const [similar, setSimilar] = useState<SimilarCards | null>(null);
 
   useEffect(() => {
@@ -127,8 +130,8 @@ export function CardSimilarSection({ cardId, enabled, repository, onPressCard, t
     );
 
   return (
-    <View style={styles.container} testID={testID}>
-      <AppText color="gray900" variant="titleMedium">Similar cards</AppText>
+    <View style={[styles.container, style]} testID={testID}>
+      <AppText color="gray900" variant="headlineMedium">SIMILAR CARDS</AppText>
 
       {goesWith ? (
         <View style={styles.row} testID={testID ? `${testID}-goes-with` : undefined}>
@@ -156,7 +159,7 @@ export function CardSimilarSection({ cardId, enabled, repository, onPressCard, t
 
 const styles = StyleSheet.create({
   container: {
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   row: {
     gap: spacing.xs,

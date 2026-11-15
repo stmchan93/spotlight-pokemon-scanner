@@ -206,6 +206,10 @@ export function createTestSpotlightRepository(
       return overrides.fetchSetSpotlight?.(...args)
         ?? baseRepository.fetchSetSpotlight(...args);
     },
+    ensureNewsThread: (...args) => {
+      return overrides.ensureNewsThread?.(...args)
+        ?? baseRepository.ensureNewsThread(...args);
+    },
     fetchNewsFeed: (...args) => {
       return overrides.fetchNewsFeed?.(...args)
         ?? baseRepository.fetchNewsFeed(...args);

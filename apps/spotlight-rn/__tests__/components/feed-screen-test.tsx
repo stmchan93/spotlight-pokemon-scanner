@@ -2,23 +2,16 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-
 import { Alert, StyleSheet } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 
+import { useFeedShow } from '@/features/events/hooks/use-active-show';
 import {
   deletePost,
+  fetchEventPosts,
   fetchFollowingFeed,
   fetchGlobalFeed,
   fetchGlobalFeedItems,
 } from '@/features/social/social-service';
 import { FeedScreen } from '@/features/social/screens/feed-screen';
 import { getFeedRefreshVersion, signalFeedNeedsRefresh } from '@/features/social/screens/new-post-screen';
-
-import {
-  mockCalendarFeed,
-  mockHotCards,
-  mockMetaExposure,
-  mockMetaPulse,
-  mockNewsFeed,
-  mockSetSpotlight,
-} from '@spotlight/api-client';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
 
@@ -48,6 +41,15 @@ jest.mock('@/features/social/social-service', () => {
   blockUser: jest.fn(async () => true),
   deletePost: jest.fn(async () => true),
   fetchFollowingFeed: jest.fn(),
+  fetchEventPosts: jest.fn(async () => []),
+  feedItemFromPost: (post: { id: string; createdAt: string }) => ({
+    key: `post:${post.id}`,
+    post,
+    repostedBy: null,
+    repostedById: null,
+    repostedAt: null,
+    activityAt: post.createdAt,
+  }),
   fetchGlobalFeed,
   fetchGlobalFeedItems: jest.fn(async (...args: unknown[]) => {
     const posts = (await (fetchGlobalFeed as jest.Mock)(...args)) ?? [];
@@ -71,6 +73,21 @@ jest.mock('@/features/social/social-service', () => {
   unlikeComment: jest.fn(async () => true),
   };
 });
+
+// No show chip unless a test puts one on.
+jest.mock('@/features/social/screens/news-page', () => {
+  const { View } = require('react-native');
+  return { NewsPage: ({ testID }: { testID: string }) => <View testID={testID} /> };
+});
+
+jest.mock('@/features/social/screens/market-watch-page', () => {
+  const { View } = require('react-native');
+  return { MarketWatchPage: ({ testID }: { testID: string }) => <View testID={testID} /> };
+});
+
+jest.mock('@/features/events/hooks/use-active-show', () => ({
+  useFeedShow: jest.fn(() => null),
+}));
 
 const mockFollowUser = jest.fn(async (_authorId: string) => true);
 jest.mock('@/features/profile/profile-service', () => ({
@@ -99,48 +116,9 @@ function buildPost(overrides: { id: string } & Record<string, unknown>) {
 
 const push = jest.fn();
 
-/**
- * The Top Trends read, controlled per test. Rejects by default so the block
- * stays OUT of the tree: the stock mock repository derives movers from its
- * seeded inventory, which would put a rail into every layout assertion below.
- * The Top Trends tests resolve it explicitly.
- */
+/** Market reads the Social tab must never make. */
 const getTopMovers = jest.fn<Promise<unknown>, [number?]>();
 
-function buildMovers() {
-  const item = (game: 'pokemon' | 'onepiece', cardId: string, name: string) => ({
-    cardId,
-    game,
-    name,
-    number: '1',
-    setCode: 'SET',
-    setName: 'Some Set',
-    language: 'English',
-    imageUrl: null,
-    priceNow: 12.4,
-    priceThen: 3.9,
-    changePercent: 217.9,
-    currencyCode: 'USD',
-    sparkPoints: [3.9, 6.8, 12.4],
-  });
-  return {
-    windowDays: 30,
-    computedAt: '2026-05-01T00:00:00.000Z',
-    asOfDate: '2026-05-01',
-    games: [
-      { game: 'pokemon', items: [item('pokemon', 'sm7-1', 'Celebi')] },
-      { game: 'onepiece', items: [item('onepiece', 'op05-119', 'Luffy')] },
-    ],
-  };
-}
-
-/**
- * The meta feed reads (Meta pulse + exposure, Hot on Ekalight, Set spotlight,
- * Coming up, Card news),
- * controlled per test. They resolve NULL (feature off) by default for the same
- * reason the movers reject: the stock mock repository serves full payloads,
- * which would put four more sections into every layout assertion below.
- */
 const fetchMetaPulse = jest.fn();
 const fetchHotCards = jest.fn();
 const fetchSetSpotlight = jest.fn();
@@ -246,6 +224,55 @@ describe('FeedScreen', () => {
     // No switch to press any more.
     expect(screen.queryByTestId('feed-segment-tab-global')).toBeNull();
     expect(screen.queryByTestId('feed-segment-tab-following')).toBeNull();
+    // No show on and none saved: no chip row either.
+    expect(screen.queryByTestId('feed-source-chips')).toBeNull();
+  });
+
+  describe('show chip', () => {
+    const show = { id: 'hawaii-2026-10', shortTitle: 'Spotlight Hawaii' };
+
+    beforeEach(() => {
+      (useFeedShow as jest.Mock).mockReturnValue(show);
+    });
+
+    afterEach(() => {
+      (useFeedShow as jest.Mock).mockReturnValue(null);
+    });
+
+    it('offers For you · Following · the show while a show is on', async () => {
+      renderFeed();
+      await screen.findByText('Feed post');
+
+      expect(screen.getByTestId('feed-source-for-you')).toBeTruthy();
+      expect(screen.getByTestId('feed-source-following')).toBeTruthy();
+      expect(within(screen.getByTestId('feed-source-show')).getByText('Spotlight Hawaii')).toBeTruthy();
+    });
+
+    it("swaps the list for the show's feed and composes into it", async () => {
+      (fetchEventPosts as jest.Mock).mockResolvedValue([
+        buildPost({ id: 'floor', body: 'From the floor', eventId: show.id, boothVendorId: null }),
+      ]);
+      renderFeed();
+      await screen.findByText('Feed post');
+
+      fireEvent.press(screen.getByTestId('feed-source-show'));
+
+      expect(await screen.findByText('From the floor')).toBeTruthy();
+      expect(screen.queryByText('Feed post')).toBeNull();
+      expect(fetchEventPosts).toHaveBeenCalledWith(show.id, 20, { before: undefined });
+
+      fireEvent.press(screen.getByTestId('feed-compose-prompt'));
+      expect(push).toHaveBeenCalledWith({ pathname: '/new-post', params: { eventId: show.id } });
+    });
+
+    it('reads the following feed from its chip', async () => {
+      (fetchFollowingFeed as jest.Mock).mockResolvedValue([buildPost({ id: 'f', body: 'Followed post' })]);
+      renderFeed();
+      await screen.findByText('Feed post');
+
+      fireEvent.press(screen.getByTestId('feed-source-following'));
+      expect(await screen.findByText('Followed post')).toBeTruthy();
+    });
   });
 
   /*
@@ -386,341 +413,43 @@ describe('FeedScreen', () => {
     expect(style.borderBottomColor).toBe('#F2F2F2');
   });
 
-  /*
-    Top Trends (Figma 4969:4101): market movers per game, as a list-header
-    section BELOW the composer and ABOVE the first post. It is decoration on
-    the feed, so a failed read leaves no trace — no error card, no empty rail.
-  */
-  describe('the Top Trends section', () => {
-    it('renders below the composer, one carousel of per-game top gainers, once the movers resolve', async () => {
-      getTopMovers.mockResolvedValue(buildMovers());
-
+  describe('the Social / News / Market Watch tabs', () => {
+    it('renders the three tabs with Social selected', async () => {
       renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
-      await waitFor(() => expect(screen.getByTestId('feed-top-trends')).toBeTruthy());
 
-      // Tree order: composer, then the block, then the first post.
-      const rows = screen.getAllByTestId(/^feed-(compose-prompt|top-trends|post-body)$/);
-      expect(rows.map((row) => row.props.testID)).toEqual([
-        'feed-compose-prompt',
-        'feed-top-trends',
-        'feed-post-body',
-      ]);
-      expect(screen.getByText('TOP TRENDS')).toBeTruthy();
-      expect(screen.getByText('PAST 30 DAYS')).toBeTruthy();
-
-      // ONE carousel: each game's top gainer, biggest first; the caption
-      // names the game on screen.
-      expect(screen.getAllByTestId(/^feed-top-trends-rail$/)).toHaveLength(1);
-      const tiles = screen.getAllByTestId(/^feed-top-trends-tile-(?!.*-(art|image|change|sparkline)$).+$/);
-      expect(tiles).toHaveLength(2);
-      expect(screen.getByTestId('feed-top-trends-game')).toBeTruthy();
-
-      // With the block as the header's last section, the composer's own band
-      // is off and the first cell's band carries no extra margin: the seam to
-      // the first post is band (4) + the card's 12 (Figma 4969:4101).
-      const composer = StyleSheet.flatten(screen.getByTestId('feed-compose-divider').props.style);
-      expect(composer.borderBottomWidth).toBe(0);
-      const band = StyleSheet.flatten(screen.getByTestId('feed-first-cell-rule').props.style);
-      expect(band.height).toBe(4);
-      expect(band.marginBottom).toBe(0);
-      // And the block itself does NOT double the band while posts exist.
-      const block = StyleSheet.flatten(screen.getByTestId('feed-top-trends').props.style);
-      expect(block.borderBottomWidth).toBe(0);
+      expect(screen.getByText('SOCIAL')).toBeTruthy();
+      expect(screen.getByText('NEWS')).toBeTruthy();
+      expect(screen.getByText('MARKET WATCH')).toBeTruthy();
+      expect(screen.getByTestId('feed-tabs-tab-social').props.accessibilityState.selected).toBe(true);
     });
 
-    it('closes itself with the band while the feed is empty, in place of the composer', async () => {
-      (fetchGlobalFeed as jest.Mock).mockResolvedValue([]);
-      getTopMovers.mockResolvedValue(buildMovers());
-
-      renderFeed();
-      await waitFor(() => expect(screen.getByTestId('feed-empty')).toBeTruthy());
-      await waitFor(() => expect(screen.getByTestId('feed-top-trends')).toBeTruthy());
-
-      const composer = StyleSheet.flatten(screen.getByTestId('feed-compose-divider').props.style);
-      expect(composer.borderBottomWidth).toBe(0);
-      const block = StyleSheet.flatten(screen.getByTestId('feed-top-trends').props.style);
-      expect(block.borderBottomWidth).toBe(4);
-      expect(block.borderBottomColor).toBe('#F2F2F2');
-    });
-
-    it('is absent, silently, when the read fails and nothing is cached', async () => {
-      getTopMovers.mockRejectedValue(new Error('backend down'));
-
+    it('mounts News and Market Watch on their first visit, not before', async () => {
       renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
-      await waitFor(() => expect(getTopMovers).toHaveBeenCalled());
+      expect(screen.queryByTestId('feed-news')).toBeNull();
+      expect(screen.queryByTestId('feed-market')).toBeNull();
 
-      expect(screen.queryByTestId('feed-top-trends')).toBeNull();
-      expect(screen.queryByText('TOP TRENDS')).toBeNull();
-      // The composer/first-post seam is exactly what it was without the block.
-      const band = StyleSheet.flatten(screen.getByTestId('feed-first-cell-rule').props.style);
-      expect(band.marginBottom).toBe(8);
+      fireEvent.press(screen.getByTestId('feed-tabs-tab-news'));
+      expect(screen.getByTestId('feed-news')).toBeTruthy();
+      expect(screen.queryByTestId('feed-market')).toBeNull();
+
+      fireEvent.press(screen.getByTestId('feed-tabs-tab-market'));
+      expect(screen.getByTestId('feed-market')).toBeTruthy();
+      // Visited pages stay mounted so a swipe back keeps their place.
+      expect(screen.getByTestId('feed-news')).toBeTruthy();
     });
 
-    it('opens the card detail for a tapped mover', async () => {
-      getTopMovers.mockResolvedValue(buildMovers());
-
-      renderFeed();
-      await waitFor(() => expect(screen.getByTestId('feed-top-trends-tile-op05-119')).toBeTruthy());
-
-      fireEvent.press(screen.getByTestId('feed-top-trends-tile-op05-119'));
-      expect(push).toHaveBeenCalledWith({
-        pathname: '/cards/[cardId]',
-        params: { cardId: 'op05-119' },
-      });
-    });
-
-    it('refetches the movers on pull-to-refresh', async () => {
-      getTopMovers.mockResolvedValue(buildMovers());
-
-      renderFeed();
-      await waitFor(() => expect(screen.getByTestId('feed-top-trends')).toBeTruthy());
-      expect(getTopMovers).toHaveBeenCalledTimes(1);
-
-      // The RN RefreshControl mock drops its testID; reach it via the list.
-      await act(async () => {
-        screen.getByTestId('feed-list').props.refreshControl.props.onRefresh();
-      });
-      await waitFor(() => expect(getTopMovers).toHaveBeenCalledTimes(2));
-    });
-  });
-
-  /*
-    THE META FEED BLOCKS: Meta pulse → Hot on Ekalight → Set spotlight → Coming
-    up → Top Trends → Card news, all list-header sections above the first post. Each is
-    absent on a disabled (null) read, and the last visible one hands its band
-    to the first cell once posts exist.
-  */
-  describe('the meta feed blocks', () => {
-    function resolveAll() {
-      fetchMetaPulse.mockResolvedValue(mockMetaPulse);
-      fetchHotCards.mockResolvedValue(mockHotCards);
-      fetchSetSpotlight.mockResolvedValue(mockSetSpotlight);
-      fetchNewsFeed.mockResolvedValue(mockNewsFeed);
-      fetchMetaExposure.mockResolvedValue(mockMetaExposure);
-      fetchCalendar.mockResolvedValue(mockCalendarFeed);
-      getTopMovers.mockResolvedValue(buildMovers());
-    }
-
-    it('renders in feed order between the composer and the first post', async () => {
-      resolveAll();
-
+    it('keeps Social to posts: no market blocks, and none of their reads', async () => {
       renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
-      await waitFor(() => expect(screen.getByTestId('feed-card-news')).toBeTruthy());
-      await waitFor(() => expect(screen.getByTestId('feed-top-trends')).toBeTruthy());
 
-      const sections = screen.getAllByTestId(
-        /^feed-(compose-prompt|meta-pulse|hot-cards|set-spotlight|coming-up|top-trends|card-news|post-body)$/,
-      );
-      expect(sections.map((row) => row.props.testID)).toEqual([
-        'feed-compose-prompt',
-        'feed-meta-pulse',
-        'feed-hot-cards',
-        'feed-coming-up',
-        'feed-top-trends',
-        'feed-card-news',
-        'feed-post-body',
-      ]);
-      // The block feed only asks for the three headlines it shows.
-      expect(fetchNewsFeed).toHaveBeenCalledWith({ limit: 3 });
-      expect(fetchCalendar).toHaveBeenCalledWith({ limit: 3 });
-      // Exposure waits for the pulse and is read for the same game + window.
-      await waitFor(() => expect(fetchMetaExposure).toHaveBeenCalledWith({ game: 'pokemon', windowDays: 7 }));
-      expect(fetchMetaExposure).toHaveBeenCalledTimes(1);
-      expect(await screen.findByTestId('feed-meta-pulse-callout')).toBeTruthy();
-
-      // Every block but the last closes itself; the last hands its band to
-      // the first cell, which then carries no extra margin.
-      const band = (id: string) => StyleSheet.flatten(screen.getByTestId(id).props.style).borderBottomWidth;
-      expect(band('feed-compose-divider')).toBe(0);
-      expect(band('feed-meta-pulse')).toBe(4);
-      expect(band('feed-hot-cards')).toBe(4);
-      expect(band('feed-coming-up')).toBe(4);
-      expect(band('feed-top-trends')).toBe(4);
-      expect(band('feed-card-news')).toBe(0);
-      const firstCell = StyleSheet.flatten(screen.getByTestId('feed-first-cell-rule').props.style);
-      expect(firstCell.height).toBe(4);
-      expect(firstCell.marginBottom).toBe(0);
-    });
-
-    it('moves the first-cell seam to whichever block is last', async () => {
-      fetchMetaPulse.mockResolvedValue(mockMetaPulse);
-
-      renderFeed();
-      await waitFor(() => expect(screen.getByTestId('feed-meta-pulse')).toBeTruthy());
-      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
-
-      expect(screen.queryByTestId('feed-card-news')).toBeNull();
-      expect(StyleSheet.flatten(screen.getByTestId('feed-meta-pulse').props.style).borderBottomWidth).toBe(0);
-      expect(StyleSheet.flatten(screen.getByTestId('feed-compose-divider').props.style).borderBottomWidth).toBe(0);
-      expect(StyleSheet.flatten(screen.getByTestId('feed-first-cell-rule').props.style).marginBottom).toBe(0);
-    });
-
-    it('closes the last block itself while the feed is empty', async () => {
-      (fetchGlobalFeed as jest.Mock).mockResolvedValue([]);
-      fetchNewsFeed.mockResolvedValue(mockNewsFeed);
-
-      renderFeed();
-      await waitFor(() => expect(screen.getByTestId('feed-empty')).toBeTruthy());
-      await waitFor(() => expect(screen.getByTestId('feed-card-news')).toBeTruthy());
-
-      expect(StyleSheet.flatten(screen.getByTestId('feed-card-news').props.style).borderBottomWidth).toBe(4);
-    });
-
-    it('leaves Set spotlight out of the feed, and hands Coming up the seam when last', async () => {
-      fetchSetSpotlight.mockResolvedValue(mockSetSpotlight);
-      fetchCalendar.mockResolvedValue(mockCalendarFeed);
-
-      renderFeed();
-      await waitFor(() => expect(screen.getByTestId('feed-coming-up')).toBeTruthy());
-      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
-
-      expect(screen.queryByTestId('feed-set-spotlight')).toBeNull();
-      expect(fetchSetSpotlight).not.toHaveBeenCalled();
-      expect(StyleSheet.flatten(screen.getByTestId('feed-coming-up').props.style).borderBottomWidth).toBe(0);
-      expect(StyleSheet.flatten(screen.getByTestId('feed-first-cell-rule').props.style).marginBottom).toBe(0);
-    });
-
-    it('hides Coming up when the calendar is empty', async () => {
-      fetchCalendar.mockResolvedValue({ items: [] });
-
-      renderFeed();
-      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
-      await waitFor(() => expect(fetchCalendar).toHaveBeenCalled());
-      expect(screen.queryByTestId('feed-coming-up')).toBeNull();
-    });
-
-    it('routes the block links to the meta and news pages', async () => {
-      resolveAll();
-
-      renderFeed();
-      await waitFor(() => expect(screen.getByTestId('feed-card-news')).toBeTruthy());
-
-      fireEvent.press(screen.getByTestId('feed-meta-pulse-header-action'));
-      expect(push).toHaveBeenLastCalledWith({ pathname: '/meta', params: { game: 'pokemon' } });
-      fireEvent.press(screen.getByTestId('feed-meta-pulse-down-row-modern:raw:sir'));
-      expect(push).toHaveBeenLastCalledWith({
-        pathname: '/meta/group/[groupKey]',
-        params: { game: 'pokemon', groupKey: 'modern:raw:sir', window: '7' },
-      });
-      fireEvent.press(screen.getByTestId('feed-coming-up-header-action'));
-      expect(push).toHaveBeenLastCalledWith('/calendar');
-      fireEvent.press(screen.getByTestId('feed-card-news-header-action'));
-      expect(push).toHaveBeenLastCalledWith('/news');
-      fireEvent.press(screen.getByTestId('feed-hot-cards-tile-ecard3-149'));
-      expect(push).toHaveBeenLastCalledWith({
-        pathname: '/cards/[cardId]',
-        params: { cardId: 'ecard3-149' },
-      });
-    });
-
-    it('refetches every block on pull-to-refresh', async () => {
-      resolveAll();
-
-      renderFeed();
-      await waitFor(() => expect(screen.getByTestId('feed-card-news')).toBeTruthy());
-      await waitFor(() => expect(fetchMetaExposure).toHaveBeenCalledTimes(1));
-      const reads = [fetchMetaPulse, fetchMetaExposure, fetchHotCards, fetchCalendar, fetchNewsFeed];
-      for (const read of reads) {
-        expect(read).toHaveBeenCalledTimes(1);
+      for (const block of ['top-trends', 'meta-pulse', 'hot-cards', 'coming-up', 'card-news']) {
+        expect(screen.queryByTestId(`feed-${block}`)).toBeNull();
       }
-
-      await act(async () => {
-        screen.getByTestId('feed-list').props.refreshControl.props.onRefresh();
-      });
-      for (const read of reads) {
-        await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
-      }
-    });
-  });
-
-  /*
-    PRODUCTION SWITCH: EXPO_PUBLIC_SPOTLIGHT_FEED_MARKET_BLOCKS=0 hides Meta
-    pulse, Hot on Ekalight, Coming up and Card news, and never reads them —
-    not on mount, focus or pull-to-refresh. Top Trends and posts stay exactly
-    as they are.
-  */
-  describe('with the market blocks switched off', () => {
-    const FLAG = 'EXPO_PUBLIC_SPOTLIGHT_FEED_MARKET_BLOCKS';
-    const marketReads = () => [fetchMetaPulse, fetchMetaExposure, fetchHotCards, fetchCalendar, fetchNewsFeed, fetchSetSpotlight];
-
-    beforeEach(() => {
-      process.env[FLAG] = '0';
-      fetchMetaPulse.mockResolvedValue(mockMetaPulse);
-      fetchHotCards.mockResolvedValue(mockHotCards);
-      fetchSetSpotlight.mockResolvedValue(mockSetSpotlight);
-      fetchNewsFeed.mockResolvedValue(mockNewsFeed);
-      fetchMetaExposure.mockResolvedValue(mockMetaExposure);
-      fetchCalendar.mockResolvedValue(mockCalendarFeed);
-      getTopMovers.mockResolvedValue(buildMovers());
-    });
-
-    afterEach(() => {
-      delete process.env[FLAG];
-    });
-
-    function triggerLatestFocus() {
-      const calls = (useFocusEffect as jest.Mock).mock.calls;
-      const effect = calls[calls.length - 1]?.[0] as (() => void) | undefined;
-      effect?.();
-    }
-
-    it('renders Top Trends and posts only, and never reads the hidden blocks', async () => {
-      renderFeed();
-      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
-      await waitFor(() => expect(screen.getByTestId('feed-top-trends')).toBeTruthy());
-
-      const sections = screen.getAllByTestId(
-        /^feed-(compose-prompt|meta-pulse|hot-cards|set-spotlight|coming-up|top-trends|card-news|post-body)$/,
-      );
-      expect(sections.map((row) => row.props.testID)).toEqual([
-        'feed-compose-prompt',
-        'feed-top-trends',
-        'feed-post-body',
-      ]);
-      // Top Trends is the last block, so it hands its band to the first cell.
-      expect(StyleSheet.flatten(screen.getByTestId('feed-top-trends').props.style).borderBottomWidth).toBe(0);
-      expect(StyleSheet.flatten(screen.getByTestId('feed-compose-divider').props.style).borderBottomWidth).toBe(0);
-      expect(StyleSheet.flatten(screen.getByTestId('feed-first-cell-rule').props.style).marginBottom).toBe(0);
-
-      // Focus well past every staleness window, then pull to refresh.
-      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 24 * 60 * 60_000);
-      await act(async () => {
-        triggerLatestFocus();
-      });
-      await act(async () => {
-        screen.getByTestId('feed-list').props.refreshControl.props.onRefresh();
-      });
-      await waitFor(() => expect(getTopMovers.mock.calls.length).toBeGreaterThanOrEqual(2));
-      for (const read of marketReads()) {
+      for (const read of [getTopMovers, fetchMetaPulse, fetchMetaExposure, fetchHotCards, fetchCalendar, fetchNewsFeed]) {
         expect(read).not.toHaveBeenCalled();
       }
-      nowSpy.mockRestore();
-    });
-
-    it('keeps the composer band when the feed is empty and nothing sits below it', async () => {
-      (fetchGlobalFeed as jest.Mock).mockResolvedValue([]);
-      getTopMovers.mockRejectedValue(new Error('no movers'));
-
-      renderFeed();
-      await waitFor(() => expect(screen.getByTestId('feed-empty')).toBeTruthy());
-
-      expect(screen.queryByTestId('feed-meta-pulse')).toBeNull();
-      expect(screen.queryByTestId('feed-card-news')).toBeNull();
-      expect(StyleSheet.flatten(screen.getByTestId('feed-compose-divider').props.style).borderBottomWidth).toBe(4);
-    });
-
-    it('is unchanged with the flag explicitly on', async () => {
-      process.env[FLAG] = '1';
-      renderFeed();
-      await waitFor(() => expect(screen.getByTestId('feed-card-news')).toBeTruthy());
-      expect(screen.getByTestId('feed-meta-pulse')).toBeTruthy();
-      expect(screen.getByTestId('feed-hot-cards')).toBeTruthy();
-      expect(screen.getByTestId('feed-coming-up')).toBeTruthy();
-      expect(fetchMetaPulse).toHaveBeenCalled();
-      expect(fetchNewsFeed).toHaveBeenCalledWith({ limit: 3 });
     });
   });
 

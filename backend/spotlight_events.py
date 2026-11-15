@@ -10,7 +10,8 @@ Served shape: ``{"items": [SpotlightEvent, ...]}`` ordered live, then upcoming
 today's date in each event's own timezone. The raw ``flyer`` filename never goes
 on the wire; ``flyerUrl`` is the flyer route when the file exists, else null.
 ``floorMapUrl`` likewise points at the event's floor map
-(``data/spotlight_event_maps/<id>.json`` + image) when one has been built.
+(``data/spotlight_event_maps/<id>.json`` + image) when one has been built, or
+at a vendors-only document (no tables, no image) before tables are assigned.
 """
 
 from __future__ import annotations
@@ -416,8 +417,17 @@ def _map_image_path(document: dict[str, Any], maps_dir: Path, name: str | None =
     return candidate
 
 
+def _is_vendors_only(document: dict[str, Any]) -> bool:
+    """Built before tables were assigned: a vendor list with no floor (no tables, no image)."""
+    return not document.get("tables") and not document.get("imageFile")
+
+
+def _servable(document: dict[str, Any], maps_dir: Path) -> bool:
+    return _is_vendors_only(document) or _map_image_path(document, maps_dir) is not None
+
+
 def _load_map(event_id: str, maps_dir: Path) -> dict[str, Any] | None:
-    """The stored map document, only when it AND its image are present."""
+    """The stored map document, only when its image is present (or it is vendors-only)."""
     if not _ID_RE.match(event_id):
         return None
     path = maps_dir / f"{event_id}.json"
@@ -430,7 +440,7 @@ def _load_map(event_id: str, maps_dir: Path) -> dict[str, Any] | None:
         cached = _cache.get(key)
         if cached and cached[0] == mtime:
             document = cached[1][0]
-            return document if _map_image_path(document, maps_dir) else None
+            return document if _servable(document, maps_dir) else None
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
@@ -443,7 +453,7 @@ def _load_map(event_id: str, maps_dir: Path) -> dict[str, Any] | None:
         return None
     with _lock:
         _cache[key] = (mtime, [document])
-    return document if _map_image_path(document, maps_dir) else None
+    return document if _servable(document, maps_dir) else None
 
 
 def floor_map_payload(
@@ -459,7 +469,8 @@ def floor_map_payload(
     payload["eventId"] = event_id
     logos = _logos_dir(event_id, Path(maps_dir or MAPS_DIR))
     payload["vendors"] = [{**vendor, "logoUrl": _vendor_logo_url(event_id, vendor, logos)} for vendor in document["vendors"]]
-    payload["imageUrl"] = floor_map_image_url(event_id)
+    # Vendors-only: no floor yet, so no image; the app shows the list alone.
+    payload["imageUrl"] = None if _is_vendors_only(document) else floor_map_image_url(event_id)
     # The app draws tables/labels itself over a walls-only image; without that
     # image it falls back to the flat `imageUrl`.
     vector = document.get("vector")

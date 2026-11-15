@@ -2,7 +2,7 @@ import { Fragment, type ReactNode } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, View } from 'react-native';
 import { IconChevronDown, IconChevronRight, IconChevronUp } from '@tabler/icons-react-native';
 
-import { borderWidths, colors, PriceSparkline, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { borderWidths, colors, PriceSparkline, spacing, Text, useSpotlightTheme } from '@spotlight/design-system';
 import type {
   CardPriceTrendList as CardPriceTrendListType,
   CardPriceTrendRow,
@@ -39,6 +39,7 @@ type CardPriceTrendListProps = {
 
 const SPARKLINE_WIDTH = 62;
 const SPARKLINE_HEIGHT = 22;
+const PRICE_GROUP_WIDTH = 168;
 
 export function CardPriceTrendList({
   list,
@@ -90,12 +91,12 @@ export function CardPriceTrendList({
         )}
       </View>
 
-      {/* Full-bleed hairline under the title, then one under every row (Figma
+      {/* Full-bleed hairline under the title, then one between rows (Figma
           992-7381): each rule spans edge-to-edge and never doubles up where two
           rows meet. */}
-      <View style={[styles.divider, { backgroundColor: theme.colors.gray300 }]} />
+      <View style={[styles.divider, { backgroundColor: theme.colors.gray200 }]} />
 
-      {list.rows.map((row) => {
+      {list.rows.map((row, index) => {
         const isLoading = row.key === loadingRowKey;
         const isExpanded = expandedRowKey != null && row.key === expandedRowKey;
         const rowTestID = testID ? `${testID}-row-${row.key}` : undefined;
@@ -116,7 +117,7 @@ export function CardPriceTrendList({
               </Text>
             </View>
             {/* Sparkline + price as one right-aligned group (Figma 1664:1090
-                "Price Chart": 62×22 sparkline, gap 32, Body-medium price). */}
+                "Price Chart": 168 wide, 62×22 sparkline left, Body-medium price right). */}
             <View style={styles.priceGroup}>
               <PriceSparkline
                 height={SPARKLINE_HEIGHT}
@@ -198,7 +199,9 @@ export function CardPriceTrendList({
                 {expandedContent}
               </View>
             ) : null}
-            <View style={[styles.divider, { backgroundColor: theme.colors.gray300 }]} />
+            {index < list.rows.length - 1 ? (
+              <View style={[styles.divider, { backgroundColor: theme.colors.gray200 }]} />
+            ) : null}
           </Fragment>
         );
       })}
@@ -209,18 +212,16 @@ export function CardPriceTrendList({
 const styles = StyleSheet.create({
   divider: {
     // Break out of the screen's 16px content padding so the rule spans the full
-    // device width (Figma 992-7381 row frame is 393px / edge-to-edge). 0.5pt
-    // gray-300 rule per Figma 2489:7581 (borderWidths.rule, NOT hairlineWidth).
-    height: borderWidths.rule,
+    // device width (Figma 992-7381 row frame is 393px / edge-to-edge). 1pt
+    // gray-200 rule.
+    height: borderWidths.containerRule,
     marginHorizontal: -16,
   },
-  // 12 under the header before the first row's rule (Figma 4211:86063
-  // "Pricing Info" gap).
   header: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: spacing.xxs,
   },
   // Grade / condition label at gray-700, muted so the price stays the emphasis.
   gradeLabel: {
@@ -241,12 +242,11 @@ const styles = StyleSheet.create({
     minWidth: 72,
     textAlign: 'right',
   },
-  // Figma 4211:86063 "Chart Info": sparkline and price sit together,
-  // right-aligned, with a 24px gap between them (was 32 from an older frame).
   priceGroup: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 24,
+    justifyContent: 'space-between',
+    width: PRICE_GROUP_WIDTH,
   },
   pricePending: {
     alignItems: 'flex-end',

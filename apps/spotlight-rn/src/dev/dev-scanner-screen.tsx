@@ -268,7 +268,8 @@ export function DevScannerScreen({ mode }: { mode: DevScannerMode }) {
     <NativeTabsPageBridge page="scanner">
       {/* Dark viewfinder needs light status-bar icons (mirrors app/(tabs)/scan.tsx). */}
       <StatusBar style="light" />
-      <ScannerScreen devPreview={devPreview} onExitToPortfolio={() => undefined} />
+      {/* `onSelectTab` draws the scanner's solid tab bar, as on /scan; taps are inert here. */}
+      <ScannerScreen devPreview={devPreview} onExitToPortfolio={() => undefined} onSelectTab={() => undefined} />
     </NativeTabsPageBridge>
   );
 }

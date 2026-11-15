@@ -21,11 +21,12 @@ export type UseSpotlightEventsResult = {
  * `useMetaFeedRead` logs failures instead of surfacing them, so "failed" is
  * inferred: a read finished and there is still no payload.
  */
-export function useSpotlightEvents(): UseSpotlightEventsResult {
+export function useSpotlightEvents(enabled = true): UseSpotlightEventsResult {
   const read = useMetaFeedRead<SpotlightEventsFeed>(
     SPOTLIGHT_EVENTS_CACHE_KEY,
     (repository) => repository.fetchSpotlightEvents(),
     SPOTLIGHT_EVENTS_STALE_AFTER_MS,
+    enabled,
   );
   const [settled, setSettled] = useState(false);
   const wasLoadingRef = useRef(false);

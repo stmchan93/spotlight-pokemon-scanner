@@ -3,7 +3,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMetaFeedNavigation } from '@/features/meta-feed/hooks/use-meta-feed-navigation';
 import { MetaScreen } from '@/features/meta-feed/screens/meta-screen';
 import { parseGameParam } from '@/features/meta-feed/screens/route-params';
-import { FeedMarketRouteGate } from '@/features/meta-feed/components/feed-market-route-gate';
 
 /** `/meta?game=pokemon` — the Meta page (always the past week, raw + graded), pushed from the feed's Meta pulse block. */
 function MetaRouteContent() {
@@ -21,9 +20,5 @@ function MetaRouteContent() {
 }
 
 export default function MetaRoute() {
-  return (
-    <FeedMarketRouteGate>
-      <MetaRouteContent />
-    </FeedMarketRouteGate>
-  );
+  return <MetaRouteContent />;
 }

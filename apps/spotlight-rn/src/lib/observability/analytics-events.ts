@@ -41,6 +41,20 @@ export const AnalyticsEvent = {
   reviewPromptEligible: 'review_prompt_eligible',
   reviewPromptRequested: 'review_prompt_requested',
   reviewStorePageOpened: 'review_store_page_opened',
+
+  // Booth posts (docs/booth-posts-vendor-spec-2026-10-29.md). Carry `event_id` + `vendor_id`.
+  boothClaimed: 'booth_claimed',
+  boothCardOpened: 'booth_card_opened',
+  boothStatsViewed: 'booth_stats_viewed',
+  boothPostCreated: 'booth_post_created',
+  boothBannerTapped: 'booth_banner_tapped',
+  // Booth stories: `source` = strip | row | card on open; completed = a vendor's last frame played.
+  boothStoryOpened: 'booth_story_opened',
+  boothStoryCompleted: 'booth_story_completed',
+
+  // Show feeds: every post tagged to a show (event_id), booth or attendee. Carry `event_id`.
+  eventFeedViewed: 'event_feed_viewed',
+  eventPostCreated: 'event_post_created',
 } as const;
 
 export type AnalyticsEventName = (typeof AnalyticsEvent)[keyof typeof AnalyticsEvent];

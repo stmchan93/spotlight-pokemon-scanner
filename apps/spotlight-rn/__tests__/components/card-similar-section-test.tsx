@@ -78,7 +78,7 @@ describe('CardSimilarSection', () => {
   it('renders the three rows with titles, sub lines and prices', async () => {
     renderSection(async () => FULL);
 
-    expect(await screen.findByText('Similar cards')).toBeTruthy();
+    expect(await screen.findByText('SIMILAR CARDS')).toBeTruthy();
     expect(screen.getByTestId('similar-goes-with')).toBeTruthy();
     expect(screen.getByText('Goes with')).toBeTruthy();
     expect(screen.getByText('Complete the pair')).toBeTruthy();
@@ -89,7 +89,7 @@ describe('CardSimilarSection', () => {
     // The backend's cheaper look-alikes are never shown.
     expect(screen.queryByText('Same look, lower price')).toBeNull();
     expect(screen.queryByTestId('similar-cheaper')).toBeNull();
-    expect(screen.getByText('Japanese · Clash of the Blue Sky · 105/107')).toBeTruthy();
+    expect(screen.getByText('105/107 · Japanese · Clash of the Blue Sky')).toBeTruthy();
     expect(screen.getByTestId('similar-same-name-pcg2_ja-66-price').props.children).toBe('$1,150.00');
     // Unpriced tiles simply drop the price line.
     expect(screen.queryByTestId('similar-same-name-ex3-94-price')).toBeNull();
@@ -118,7 +118,7 @@ describe('CardSimilarSection', () => {
         await Promise.resolve();
       });
       expect(screen.queryByTestId('similar')).toBeNull();
-      expect(screen.queryByText('Similar cards')).toBeNull();
+      expect(screen.queryByText('SIMILAR CARDS')).toBeNull();
       unmount();
     }
   });
@@ -129,12 +129,12 @@ describe('CardSimilarSection', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(screen.queryByText('Similar cards')).toBeNull();
+    expect(screen.queryByText('SIMILAR CARDS')).toBeNull();
   });
 
   it('shows the heading for a single similar card', async () => {
     renderSection(async () => ({ ...EMPTY, sameName: [FULL.sameName[1]] }));
-    expect(await screen.findByText('Similar cards')).toBeTruthy();
+    expect(await screen.findByText('SIMILAR CARDS')).toBeTruthy();
     expect(screen.getByTestId('similar-same-name-ex3-94')).toBeTruthy();
   });
 
@@ -191,7 +191,7 @@ describe('CardSimilarSection analytics', () => {
   it('reports the section once with its row count, and a tap with row + rank only', async () => {
     const { onPressCard, rerender } = renderSection(async () => FULL);
 
-    await screen.findByText('Similar cards');
+    await screen.findByText('SIMILAR CARDS');
     await waitFor(() => {
       expect(capturePostHogEvent).toHaveBeenCalledWith('similar_cards_shown', {
         has_goes_with: true,
@@ -218,7 +218,7 @@ describe('CardSimilarSection analytics', () => {
         </SpotlightThemeProvider>
       </SafeAreaProvider>,
     );
-    await screen.findByText('Similar cards');
+    await screen.findByText('SIMILAR CARDS');
     const shownCalls = (capturePostHogEvent as jest.Mock).mock.calls
       .filter(([event]) => event === 'similar_cards_shown');
     expect(shownCalls).toHaveLength(1);

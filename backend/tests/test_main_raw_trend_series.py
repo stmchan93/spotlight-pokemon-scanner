@@ -365,7 +365,7 @@ class MainRawTrendSeriesTests(unittest.TestCase):
 
     # --- 4. flag on: condition-history series --------------------------------
 
-    def test_flag_on_condition_history_mixed_series(self):
+    def test_flag_on_condition_history_is_tcgcsv_only(self):
         self._add_main()
         for source in HISTORY_SOURCES:
             with self.subTest(history_source=source), self._env(source):
@@ -373,20 +373,16 @@ class MainRawTrendSeriesTests(unittest.TestCase):
                 baseline = self._surfaces()["condition_history"]
             with self.subTest(history_source=source), self._env(source, FLAG_ON):
                 history = self._surfaces()["condition_history"]
+                # The PDP chart's NM line is the headline's source only: no Scrydex days mixed in.
                 holo_nm = self._series(history, variant_key="holofoil", condition="NM")
-                self.assertEqual(
-                    self._point_markets(holo_nm["points"]), [12.0, 13.0, 14.0, 10.0, 11.0]
-                )
-                # Full cell values on the overridden day; dates stay ordered.
+                self.assertEqual(self._point_markets(holo_nm["points"]), [10.0, 11.0])
                 self.assertEqual(
                     holo_nm["points"][-1],
                     {"date": MAIN_DATES[1], "market": 11.0, "low": 10.0, "mid": 11.5, "high": 12.0},
                 )
-                self.assertEqual([p["date"] for p in holo_nm["points"]], DATES)
+                self.assertEqual([p["date"] for p in holo_nm["points"]], MAIN_DATES)
                 rh_nm = self._series(history, variant_key="reverseHolofoil", condition="NM")
-                self.assertEqual(
-                    self._point_markets(rh_nm["points"]), [30.0, 31.0, 32.0, 20.0, 21.0]
-                )
+                self.assertEqual(self._point_markets(rh_nm["points"]), [20.0, 21.0])
                 # LP and the no-main-data printing: identical to flag off.
                 self.assertEqual(
                     self._series(history, variant_key="holofoil", condition="LP"),
@@ -434,7 +430,7 @@ class MainRawTrendSeriesTests(unittest.TestCase):
                 rh_nm = self._series(
                     surfaces["condition_history"], variant_key="reverseHolofoil", condition="NM"
                 )
-                self.assertEqual([p["date"] for p in rh_nm["points"]], DATES + [extra_date])
+                self.assertEqual([p["date"] for p in rh_nm["points"]], MAIN_DATES + [extra_date])
 
 
 if __name__ == "__main__":

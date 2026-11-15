@@ -175,7 +175,7 @@ export function SharedPostBubble({
   }
 
   const { post } = state;
-  const author = post.author?.displayName ?? 'Collector';
+  const author = post.author?.displayName ?? post.news?.source ?? 'Collector';
   const handle = post.author?.handle ?? null;
   const media = post.media[0] ?? null;
   const trimmedBase = apiBaseUrl ? apiBaseUrl.replace(/\/+$/, '') : '';

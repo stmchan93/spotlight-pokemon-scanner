@@ -236,6 +236,29 @@ class PostMediaUploadEndpointTests(unittest.TestCase):
             content_type="image/jpeg",
         )
 
+    def test_position_query_param_is_passed_and_clamped(self) -> None:
+        # Multi-photo composer uploads in order with ?position=; absent → 0,
+        # junk → 0, out of range clamps to the 4-photo cap.
+        for raw, expected in [(None, 0), ("2", 2), ("9", 3), ("-1", 0), ("x", 0)]:
+            store = Mock()
+            handler, captured = make_post_media_post_handler(
+                body=JPEG_BYTES, service=self._service(store)
+            )
+            if raw is not None:
+                handler.path = f"{handler.path}&position={raw}"
+            self._grant_identity(handler)
+            seen: dict[str, object] = {}
+
+            def fake_insert(**kwargs):
+                seen.update(kwargs)
+                return {"id": kwargs["media_id"]}
+
+            handler._insert_post_media_row = fake_insert  # type: ignore[method-assign]
+            handler.do_POST()
+
+            self.assertEqual(captured["status"], HTTPStatus.OK, raw)
+            self.assertEqual(seen["position"], expected, raw)
+
     def test_upload_failure_rolls_back_row_and_returns_502(self) -> None:
         store = Mock()
         store.store_bytes.side_effect = RuntimeError("gcs down")
@@ -341,6 +364,7 @@ class PostMediaWriteAuthorizationTests(unittest.TestCase):
         self.assertEqual(body["id"], MEDIA_ID)
         self.assertEqual(body["post_id"], VALID_POST_ID)
         self.assertEqual(body["storage_path"], storage_path)
+        self.assertEqual(body["position"], 0)
         self.assertNotIn("moderation_status", body)
 
     def test_non_author_insert_is_refused_without_touching_postgrest(self) -> None:

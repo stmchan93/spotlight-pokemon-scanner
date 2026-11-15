@@ -306,8 +306,15 @@ export interface SpotlightRepository {
    * cover — but a separate object, so changing one never clobbers the other.
    */
   uploadProfileCover(jpegBytes: ArrayBuffer | Uint8Array): Promise<ProfileCoverUploadResult>;
-  /** Upload one image for an already-created post; returns the new media id. */
-  uploadPostMedia(postId: string, jpegBytes: ArrayBuffer | Uint8Array): Promise<PostMediaUploadResult>;
+  /**
+   * Upload one image for an already-created post; returns the new media id.
+   * `position` orders a multi-photo post (0-3; the backend defaults to 0).
+   */
+  uploadPostMedia(
+    postId: string,
+    jpegBytes: ArrayBuffer | Uint8Array,
+    options?: { position?: number },
+  ): Promise<PostMediaUploadResult>;
   loadCatalogCards(query: string, limit?: number, offset?: number, options?: CatalogSearchOptions): Promise<CatalogSearchLoadResult>;
   searchCatalogCards(query: string, limit?: number): Promise<CatalogSearchResult[]>;
   /** Paginated catalog search for infinite scroll — returns a page + hasMore. */
@@ -390,6 +397,8 @@ export interface SpotlightRepository {
   /** This week's pick when `setId` is omitted. */
   fetchSetSpotlight(query?: SetSpotlightQuery): Promise<SetSpotlight | null>;
   fetchNewsFeed(query?: NewsFeedQuery): Promise<NewsFeed | null>;
+  /** The post carrying an article's reactions, created on first use. Null on failure. */
+  ensureNewsThread(newsId: string): Promise<string | null>;
   /**
    * PDP "More like this" rows. NULL when the server reports the feature
    * disabled (404); an unknown card is an empty payload, not null. Throws on
@@ -4008,6 +4017,10 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return mockSetSpotlight;
   }
 
+  async ensureNewsThread(newsId: string): Promise<string | null> {
+    return `mock-news-thread-${newsId}`;
+  }
+
   async fetchNewsFeed(query?: NewsFeedQuery): Promise<NewsFeed | null> {
     const limit = Math.max(1, Math.min(50, Math.trunc(query?.limit ?? 20)));
     const items = mockNewsFeed.items.filter((item) =>
@@ -4143,6 +4156,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
   async uploadPostMedia(
     _postId: string,
     _jpegBytes: ArrayBuffer | Uint8Array,
+    _options?: { position?: number },
   ): Promise<PostMediaUploadResult> {
     // Offline/test double: return a stable placeholder media id so the composer
     // flow can proceed without a real bucket or Supabase insert.
@@ -6008,6 +6022,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   async uploadPostMedia(
     postId: string,
     jpegBytes: ArrayBuffer | Uint8Array,
+    options?: { position?: number },
   ): Promise<PostMediaUploadResult> {
     // The body is the raw resized JPEG bytes (image/jpeg), not JSON. The post is
     // identified by ?postId=; the backend INSERTs the post_media row as the
@@ -6015,6 +6030,9 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     // attach media). 'single_active' avoids re-uploading the bytes to fallback
     // base URLs on an HTTP error.
     const queryParams = new URLSearchParams({ postId });
+    if (options?.position != null) {
+      queryParams.set('position', String(options.position));
+    }
     const payload = await this.requestJsonOrThrow<PostMediaUploadResponseDTO>(
       `${this.baseUrl}/api/v1/post-media?${queryParams.toString()}`,
       {
@@ -8233,6 +8251,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       game: query?.game,
       window: query?.windowDays,
       lane: query?.lane,
+      kind: query?.kind,
     });
     return result.disabled ? null : parseMetaPulsePayload(result.data, query);
   }
@@ -8248,6 +8267,22 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       : '/api/v1/market/set-spotlight';
     const result = await this.requestMetaFeedRead(path, {});
     return result.disabled ? null : parseSetSpotlightPayload(result.data);
+  }
+
+  async ensureNewsThread(newsId: string): Promise<string | null> {
+    try {
+      const response = await this.requestJsonOrThrow<{ postId?: unknown }>(
+        `${this.baseUrl}/api/v1/feed/news/thread`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ newsId }),
+        },
+      );
+      return typeof response.postId === 'string' ? response.postId : null;
+    } catch {
+      return null;
+    }
   }
 
   async fetchNewsFeed(query?: NewsFeedQuery): Promise<NewsFeed | null> {

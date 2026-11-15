@@ -1,11 +1,11 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import type { PropsWithChildren } from 'react';
-import { Alert, StyleSheet } from 'react-native';
+import { Alert, PixelRatio, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SpotlightThemeProvider } from '@spotlight/design-system';
 
-import { PostCard } from '@/features/social/components/post-card';
+import { PostCard, PostImage, postMediaUrl } from '@/features/social/components/post-card';
 import { fetchConversations, sendMessage } from '@/features/social/dm-service';
 import {
   addComment,
@@ -446,6 +446,49 @@ describe('PostCard pending media', () => {
   });
 });
 
+describe('PostImage thumbnails', () => {
+  const media = { id: 'media-1', width: 800, height: 1000, blurhash: null };
+
+  it('builds a full-size URL by default and a snapped ?w= for small surfaces', () => {
+    const ratio = jest.spyOn(PixelRatio, 'get').mockReturnValue(3);
+    expect(postMediaUrl('https://api.test/', 'm1')).toBe('https://api.test/api/v1/post-media/m1');
+    // 48pt × 3 = 144px → 160; 120pt × 3 = 360px → 480; past the cap → 640.
+    expect(postMediaUrl('https://api.test', 'm1', { displayWidth: 48 })).toBe('https://api.test/api/v1/post-media/m1?w=160');
+    expect(postMediaUrl('https://api.test', 'm1', { displayWidth: 120 })).toBe('https://api.test/api/v1/post-media/m1?w=480');
+    expect(postMediaUrl('https://api.test', 'm1', { displayWidth: 400 })).toBe('https://api.test/api/v1/post-media/m1?w=640');
+    ratio.mockReturnValue(2);
+    expect(postMediaUrl('https://api.test', 'm1', { displayWidth: 48 })).toBe('https://api.test/api/v1/post-media/m1?w=160');
+    ratio.mockRestore();
+  });
+
+  it('compact placeholder is an icon with no label, and retries keep the ?w=', async () => {
+    jest.useFakeTimers();
+    render(
+      <PostImage
+        accessToken="token"
+        compact
+        media={media}
+        testID="thumb"
+        uri="https://api.test/api/v1/post-media/media-1?w=160"
+        viewerIsAuthor={false}
+      />,
+      { wrapper: Wrapper },
+    );
+    fireEvent(screen.getByTestId('thumb'), 'error');
+    expect(screen.getByTestId('thumb-placeholder')).toBeTruthy();
+    expect(screen.queryByText('Photo is still processing')).toBeNull();
+    expect(screen.getByLabelText('Photo is still processing')).toBeTruthy();
+
+    act(() => {
+      jest.advanceTimersByTime(4_000);
+    });
+    expect(screen.getByTestId('thumb').props.source.uri).toBe(
+      'https://api.test/api/v1/post-media/media-1?w=160&retry=1',
+    );
+    jest.useRealTimers();
+  });
+});
+
 describe('PostCard chat icon', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -841,5 +884,72 @@ describe('PostCard reposts', () => {
     expect(likeCountText()).toBe(2);
     expect(likeIconColor()).toBe(GRAY900);
     expect(likePost as jest.Mock).not.toHaveBeenCalled();
+  });
+});
+
+// Tapping a photo opens the full-screen viewer (Figma 6322:8404) and the X returns
+// to the page, with interaction state shared rather than copied.
+describe('PostCard full-screen photo', () => {
+  const VIEWER = 'post-card-viewer';
+  const mediaPost = buildPost({
+    media: [{ id: 'media-1', width: 800, height: 1000, blurhash: null }],
+  });
+  const openViewer = async () => {
+    await renderCard(mediaPost, { apiBaseUrl: 'https://api.test', accessToken: 'token' });
+    await pressById('post-card-image-button-media-1');
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockCurrentUser = mockSignedInUser;
+    (fetchLikedPostIds as jest.Mock).mockResolvedValue(new Set());
+  });
+
+  it('opens with the author, body and photo, and closes back to the card', async () => {
+    await openViewer();
+
+    expect(screen.getByTestId(`${VIEWER}-title`)).toHaveTextContent('Ash Ketchum');
+    expect(screen.getByTestId(`${VIEWER}-body`)).toHaveTextContent('Nice pull today');
+    expect(screen.getByTestId(`${VIEWER}-image-media-1`)).toBeTruthy();
+
+    await pressById(`${VIEWER}-close`);
+
+    expect(screen.queryByTestId(VIEWER)).toBeNull();
+    expect(screen.getByTestId('post-card-body')).toBeTruthy();
+  });
+
+  it('shares like state with the card underneath', async () => {
+    await openViewer();
+
+    await pressById(`${VIEWER}-like-button`);
+    expect(likePost).toHaveBeenCalledWith('post-1');
+    expect(screen.getByTestId(`${VIEWER}-like-count`)).toHaveTextContent('3');
+
+    await pressById(`${VIEWER}-close`);
+    expect(screen.getByTestId('post-card-like-count')).toHaveTextContent('3');
+  });
+
+  it('closes before routing to the author', async () => {
+    await openViewer();
+
+    await pressById(`${VIEWER}-author-name-button`);
+
+    expect(mockPush).toHaveBeenCalledWith('/u/ash');
+    expect(screen.queryByTestId(VIEWER)).toBeNull();
+  });
+
+  // The Delete confirmation is a screen-level modal that cannot present over this one.
+  it('leaves own-post delete on the card', async () => {
+    await render(
+      <PostCard
+        accessToken="token"
+        apiBaseUrl="https://api.test"
+        onRequestDelete={jest.fn()}
+        post={{ ...mediaPost, authorId: 'me' }}
+      />,
+      { wrapper: Wrapper },
+    );
+    await pressById('post-card-image-button-media-1');
+    expect(screen.queryByTestId(`${VIEWER}-more-button`)).toBeNull();
   });
 });

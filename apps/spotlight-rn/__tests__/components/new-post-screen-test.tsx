@@ -1,10 +1,14 @@
-import { Alert, StyleSheet } from 'react-native';
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { useRouter } from 'expo-router';
+import { Alert, Keyboard, StyleSheet } from 'react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
+import { useActiveBooth } from '@/features/events/hooks/use-active-booth';
+import { useActiveShow } from '@/features/events/hooks/use-active-show';
+import { fetchBrowsingNow } from '@/features/events/booth-service';
 import { createPost } from '@/features/social/social-service';
 import {
   NewPostScreen,
+  boothPostedMessage,
   keyboardLift,
   resolveComposerInsets,
 } from '@/features/social/screens/new-post-screen';
@@ -30,6 +34,7 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 jest.mock('expo-router', () => ({
+  useLocalSearchParams: jest.fn(() => ({})),
   useRouter: jest.fn(),
   useNavigation: jest.fn(),
   // NewPostScreen doesn't use useFocusEffect, but keep it defined so any
@@ -41,6 +46,18 @@ jest.mock('@/features/social/social-service', () => ({
   createPost: jest.fn(),
 }));
 
+jest.mock('@/features/events/booth-service', () => ({
+  fetchBrowsingNow: jest.fn(async () => null),
+}));
+
+jest.mock('@/features/events/hooks/use-active-booth', () => ({
+  useActiveBooth: jest.fn(() => null),
+}));
+
+jest.mock('@/features/events/hooks/use-active-show', () => ({
+  useActiveShow: jest.fn(() => null),
+}));
+
 const back = jest.fn();
 const push = jest.fn();
 
@@ -49,6 +66,195 @@ describe('NewPostScreen', () => {
     jest.clearAllMocks();
     (useRouter as jest.Mock).mockReturnValue({ back, push });
     (createPost as jest.Mock).mockResolvedValue('post-1');
+    (useActiveBooth as jest.Mock).mockReturnValue(null);
+    (useActiveShow as jest.Mock).mockReturnValue(null);
+    (useLocalSearchParams as jest.Mock).mockReturnValue({});
+  });
+
+  describe('show tags', () => {
+    const show = { id: 'hawaii-2026-10', shortTitle: 'Spotlight Hawaii' };
+
+    it('hides the show toggle when no show is in its window', () => {
+      renderWithProviders(<NewPostScreen />);
+      expect(screen.queryByTestId('new-post-show-row')).toBeNull();
+    });
+
+    it('offers the show off by default and tags the post once turned on', async () => {
+      (useActiveShow as jest.Mock).mockReturnValue(show);
+      renderWithProviders(<NewPostScreen />);
+
+      expect(screen.getByText('Post to Spotlight Hawaii')).toBeTruthy();
+      expect(screen.getByTestId('new-post-show-toggle').props.value).toBe(false);
+      fireEvent(screen.getByTestId('new-post-show-toggle'), 'valueChange', true);
+      fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'Line is wild');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+
+      await waitFor(() =>
+        expect(createPost).toHaveBeenCalledWith({ body: 'Line is wild', cardId: null, eventId: 'hawaii-2026-10' }),
+      );
+      await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
+    });
+
+    it("defaults on when opened from the show's feed", async () => {
+      (useLocalSearchParams as jest.Mock).mockReturnValue({ eventId: 'hawaii-2026-10' });
+      (useActiveShow as jest.Mock).mockReturnValue(show);
+      renderWithProviders(<NewPostScreen />);
+
+      expect(useActiveShow).toHaveBeenCalledWith({ enabled: true, eventId: 'hawaii-2026-10' });
+      expect(screen.getByTestId('new-post-show-toggle').props.value).toBe(true);
+      fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'gm');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+
+      await waitFor(() =>
+        expect(createPost).toHaveBeenCalledWith({ body: 'gm', cardId: null, eventId: 'hawaii-2026-10' }),
+      );
+    });
+
+    it('posts untagged when the show toggle stays off', async () => {
+      (useActiveShow as jest.Mock).mockReturnValue(show);
+      renderWithProviders(<NewPostScreen />);
+
+      fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'gm');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+
+      await waitFor(() => expect(createPost).toHaveBeenCalledWith({ body: 'gm', cardId: null }));
+    });
+
+    it('keeps only the booth toggle for a claimed vendor (the booth implies the show)', () => {
+      (useActiveShow as jest.Mock).mockReturnValue(show);
+      (useActiveBooth as jest.Mock).mockReturnValue({
+        eventId: 'hawaii-2026-10',
+        eventName: 'Spotlight Hawaii',
+        vendorId: 'island-slabs',
+        vendorName: 'Island Slabs',
+      });
+      renderWithProviders(<NewPostScreen />);
+
+      expect(screen.getByTestId('new-post-booth-row')).toBeTruthy();
+      expect(screen.queryByTestId('new-post-show-row')).toBeNull();
+      // Turning the booth off falls back to a plain show tag.
+      fireEvent(screen.getByTestId('new-post-booth-toggle'), 'valueChange', false);
+      expect(screen.getByTestId('new-post-show-row')).toBeTruthy();
+    });
+
+    it('steps the toggle aside while the keyboard is up, and drags the keyboard away', () => {
+      (useActiveShow as jest.Mock).mockReturnValue(show);
+      const listeners = new Map<string, (event?: unknown) => void>();
+      const addListener = jest.spyOn(Keyboard, 'addListener').mockImplementation(((name: string, cb: (event?: unknown) => void) => {
+        listeners.set(name, cb);
+        return { remove: jest.fn() };
+      }) as never);
+      renderWithProviders(<NewPostScreen />);
+
+      expect(screen.getByTestId('new-post-scroll').props.keyboardDismissMode).toBe('interactive');
+      act(() => listeners.get('keyboardWillChangeFrame')?.({ endCoordinates: { screenY: 400, height: 300 } }));
+      expect(screen.queryByTestId('new-post-show-row')).toBeNull();
+      act(() => listeners.get('keyboardWillHide')?.());
+      expect(screen.getByTestId('new-post-show-row')).toBeTruthy();
+      addListener.mockRestore();
+    });
+  });
+
+  describe('booth posts', () => {
+    const booth = { eventId: 'ontario-2026', eventName: 'Spotlight Ontario', vendorId: 'island-slabs', vendorName: 'Island Slabs' };
+
+    it('hides the booth toggle when no booth applies', () => {
+      renderWithProviders(<NewPostScreen />);
+      expect(screen.queryByTestId('new-post-booth-row')).toBeNull();
+    });
+
+    it('passes the route ids to the hook and tags the post by default', async () => {
+      (useLocalSearchParams as jest.Mock).mockReturnValue({ eventId: 'ontario-2026', vendorId: 'island-slabs' });
+      (useActiveBooth as jest.Mock).mockReturnValue(booth);
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      renderWithProviders(<NewPostScreen />);
+
+      expect(useActiveBooth).toHaveBeenCalledWith({ eventId: 'ontario-2026', vendorId: 'island-slabs' });
+      expect(screen.getByText('Show on my booth at Spotlight Ontario')).toBeTruthy();
+      expect(screen.getByTestId('new-post-booth-toggle').props.value).toBe(true);
+
+      fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'Case is up at C4');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+
+      await waitFor(() =>
+        expect(createPost).toHaveBeenCalledWith({
+          body: 'Case is up at C4',
+          booth: { eventId: 'ontario-2026', vendorId: 'island-slabs' },
+          cardId: null,
+        }),
+      );
+      // The composer closes from the confirmation, not before it.
+      await waitFor(() =>
+        expect(alertSpy).toHaveBeenCalledWith(
+          'Posted to your booth',
+          'Your post will appear on your booth in a couple of minutes.',
+          expect.any(Array),
+          expect.anything(),
+        ),
+      );
+      expect(back).not.toHaveBeenCalled();
+      const buttons = alertSpy.mock.calls[0]?.[2] as { onPress: () => void }[];
+      buttons[0]?.onPress();
+      expect(back).toHaveBeenCalledTimes(1);
+      alertSpy.mockRestore();
+    });
+
+    it('tells the vendor how many people are at the show', async () => {
+      jest.mocked(fetchBrowsingNow).mockResolvedValueOnce(12);
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      (useLocalSearchParams as jest.Mock).mockReturnValue({ eventId: 'ontario-2026', vendorId: 'island-slabs' });
+      (useActiveBooth as jest.Mock).mockReturnValue(booth);
+      renderWithProviders(<NewPostScreen />);
+
+      fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'Case is out');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+
+      await waitFor(() =>
+        expect(alertSpy).toHaveBeenCalledWith(
+          'Posted to your booth',
+          '12 people are at the show right now. Your post will appear on your booth in a couple of minutes.',
+          expect.any(Array),
+          expect.anything(),
+        ),
+      );
+      expect(fetchBrowsingNow).toHaveBeenCalledWith('ontario-2026');
+      alertSpy.mockRestore();
+    });
+
+    it('leaves the count out when it is unknown or only the vendor', () => {
+      expect(boothPostedMessage(null)).toBe('Your post will appear on your booth in a couple of minutes.');
+      expect(boothPostedMessage(1)).toBe('Your post will appear on your booth in a couple of minutes.');
+    });
+
+    it('posts untagged when the toggle is turned off', async () => {
+      (useActiveBooth as jest.Mock).mockReturnValue(booth);
+      renderWithProviders(<NewPostScreen />);
+
+      fireEvent(screen.getByTestId('new-post-booth-toggle'), 'valueChange', false);
+      fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'gm');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+
+      await waitFor(() => expect(createPost).toHaveBeenCalledWith({ body: 'gm', cardId: null }));
+      await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
+    });
+
+    it('alerts instead of silently dropping a rejected booth tag', async () => {
+      (useActiveBooth as jest.Mock).mockReturnValue(booth);
+      (createPost as jest.Mock).mockResolvedValue(null);
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      renderWithProviders(<NewPostScreen />);
+
+      fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'gm');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+
+      await waitFor(() =>
+        expect(alertSpy).toHaveBeenCalledWith("Couldn't post", expect.stringContaining('booth at Spotlight Ontario')),
+      );
+      expect(createPost).toHaveBeenCalledTimes(1);
+      expect(back).not.toHaveBeenCalled();
+      expect(screen.getByTestId('new-post-submit')).toBeEnabled();
+      alertSpy.mockRestore();
+    });
   });
 
   it('disables Post until there is a body', () => {
@@ -75,7 +281,8 @@ describe('NewPostScreen', () => {
     expect(screen.getByPlaceholderText("WHAT'S ON YOUR MIND?")).toBeTruthy();
 
     // The full opening state is on screen — not hidden behind a keyboard.
-    expect(screen.getByTestId('new-post-privacy')).toBeTruthy();
+    // No Public chip for now: posts are always public, so it only said so.
+    expect(screen.queryByTestId('new-post-privacy')).toBeNull();
     expect(screen.getByTestId('new-post-add-image')).toBeTruthy();
     expect(screen.getByTestId('new-post-add-camera')).toBeTruthy();
     expect(screen.getByTestId('new-post-submit')).toBeDisabled();
@@ -99,23 +306,6 @@ describe('NewPostScreen', () => {
     fireEvent.press(screen.getByTestId('new-post-submit'));
     expect(createPost).not.toHaveBeenCalled();
     expect(back).not.toHaveBeenCalled();
-  });
-
-  it('shows a note that posts are public (no privacy value is persisted)', () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-    renderWithProviders(<NewPostScreen />);
-
-    fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'hello');
-    fireEvent.press(screen.getByTestId('new-post-privacy'));
-
-    // The Public chip is a static indicator — it explains visibility but never
-    // feeds a value into createPost.
-    expect(alertSpy).toHaveBeenCalledWith('Public post', expect.any(String));
-
-    fireEvent.press(screen.getByTestId('new-post-submit'));
-    expect(createPost).toHaveBeenCalledWith({ body: 'hello', cardId: null });
-
-    alertSpy.mockRestore();
   });
 
   it('captures a photo from the camera and attaches it to the post', async () => {
@@ -151,7 +341,7 @@ describe('NewPostScreen', () => {
     fireEvent.press(screen.getByTestId('new-post-submit'));
 
     await waitFor(() => expect(createPost).toHaveBeenCalledWith({ body: 'Live from the show', cardId: null }));
-    await waitFor(() => expect(uploadPostMedia).toHaveBeenCalledWith('post-1', expect.any(ArrayBuffer)));
+    await waitFor(() => expect(uploadPostMedia).toHaveBeenCalledWith('post-1', expect.any(ArrayBuffer), { position: 0 }));
     await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
 
     global.fetch = originalFetch;
@@ -188,7 +378,7 @@ describe('NewPostScreen', () => {
     // The text post is created regardless of the image outcome...
     await waitFor(() => expect(createPost).toHaveBeenCalledWith({ body: 'Look at this pull', cardId: null }));
     // ...the upload was attempted and failed...
-    await waitFor(() => expect(uploadPostMedia).toHaveBeenCalledWith('post-1', expect.any(ArrayBuffer)));
+    await waitFor(() => expect(uploadPostMedia).toHaveBeenCalledWith('post-1', expect.any(ArrayBuffer), { position: 0 }));
     // ...the failure is surfaced softly, and the composer still dismisses.
     await waitFor(() =>
       expect(alertSpy).toHaveBeenCalledWith('Photo not attached', expect.any(String)),
@@ -198,6 +388,72 @@ describe('NewPostScreen', () => {
     alertSpy.mockRestore();
     global.fetch = originalFetch;
   });
+  it('attaches up to four library photos and uploads them in order', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn(async () => ({
+      arrayBuffer: async () => new ArrayBuffer(8),
+    })) as unknown as typeof fetch;
+
+    const ImagePicker = require('expo-image-picker');
+    (ImagePicker.launchImageLibraryAsync as jest.Mock)
+      .mockResolvedValueOnce({
+        canceled: false,
+        assets: [{ uri: 'file:///a.jpg' }, { uri: 'file:///b.jpg' }, { uri: 'file:///c.jpg' }],
+      })
+      .mockResolvedValueOnce({ canceled: false, assets: [{ uri: 'file:///d.jpg' }] });
+
+    const uploadPostMedia = jest.fn().mockResolvedValue({ mediaId: 'media-1' });
+    const repository = { ...createTestSpotlightRepository(), uploadPostMedia };
+
+    renderWithProviders(<NewPostScreen />, { spotlightRepository: repository });
+
+    fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'Booth haul');
+    fireEvent.press(screen.getByTestId('new-post-add-image'));
+    await screen.findByTestId('new-post-image-preview-2');
+    expect(ImagePicker.launchImageLibraryAsync).toHaveBeenLastCalledWith(
+      expect.objectContaining({ allowsMultipleSelection: true, selectionLimit: 4 }),
+    );
+
+    // The picker only offers the slots that are left; at the cap the chips go.
+    fireEvent.press(screen.getByTestId('new-post-add-image'));
+    await screen.findByTestId('new-post-image-preview-3');
+    expect(ImagePicker.launchImageLibraryAsync).toHaveBeenLastCalledWith(
+      expect.objectContaining({ allowsMultipleSelection: false, selectionLimit: 1 }),
+    );
+    expect(screen.queryByTestId('new-post-add-image')).toBeNull();
+    expect(screen.queryByTestId('new-post-add-camera')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('new-post-submit'));
+
+    await waitFor(() => expect(uploadPostMedia).toHaveBeenCalledTimes(4));
+    expect(uploadPostMedia.mock.calls.map((call) => call[2])).toEqual([
+      { position: 0 },
+      { position: 1 },
+      { position: 2 },
+      { position: 3 },
+    ]);
+    await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
+
+    global.fetch = originalFetch;
+  });
+
+  it('removes one staged photo and keeps the rest', async () => {
+    const ImagePicker = require('expo-image-picker');
+    (ImagePicker.launchImageLibraryAsync as jest.Mock).mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ uri: 'file:///a.jpg' }, { uri: 'file:///b.jpg' }],
+    });
+
+    renderWithProviders(<NewPostScreen />);
+    fireEvent.press(screen.getByTestId('new-post-add-image'));
+    await screen.findByTestId('new-post-image-preview-1');
+
+    fireEvent.press(screen.getByTestId('new-post-image-remove-1'));
+
+    await waitFor(() => expect(screen.queryByTestId('new-post-image-preview-1')).not.toBeOnTheScreen());
+    expect(screen.getByTestId('new-post-image-preview-0')).toBeTruthy();
+  });
+
   it('offers no drag affordance, because there is no drag to dismiss', () => {
     renderWithProviders(<NewPostScreen />);
 

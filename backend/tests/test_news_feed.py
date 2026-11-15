@@ -517,3 +517,33 @@ class PayloadTests(CatalogTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewsThreadArgsTests(unittest.TestCase):
+    def setUp(self) -> None:
+        import sqlite3
+
+        self.connection = sqlite3.connect(":memory:")
+        nf.ensure_schema(self.connection)
+        self.connection.execute(
+            "INSERT INTO news_items (id, kind, source, title, url, image_url, published_at, fetched_at)"
+            " VALUES ('abc', 'news', 'Polygon', 'Headline', 'https://x.test/a', NULL, '2026-11-09', '2026-11-09')"
+        )
+
+    def tearDown(self) -> None:
+        self.connection.close()
+
+    def test_uses_the_stored_headline(self) -> None:
+        self.assertEqual(
+            nf.news_thread_args(self.connection, "abc"),
+            {
+                "p_news_item_id": "abc",
+                "p_title": "Headline",
+                "p_source": "Polygon",
+                "p_url": "https://x.test/a",
+                "p_image_url": None,
+            },
+        )
+
+    def test_unknown_item_returns_none(self) -> None:
+        self.assertIsNone(nf.news_thread_args(self.connection, "missing"))

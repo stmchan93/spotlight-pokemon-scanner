@@ -29,8 +29,8 @@
       ]
     },
     {
-      "figmaNodeId": "5768:21988",
-      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=5768-21988",
+      "figmaNodeId": "6322:8756",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6322-8756",
       "screenName": "CardDetail",
       "componentPaths": [
         "apps/spotlight-rn/src/features/cards/screens/card-detail-screen.tsx",
@@ -42,13 +42,19 @@
       ],
       "deepLink": "spotlight://dev/card-detail",
       "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts",
-      "notes": "REFERENCE = 5768:21988 (Graded PDP, page '4. Product Details Page', 393x1816): uppercase Label-14 option headers (LANGUAGE/VARIANT/GRADER), Caption-13 uppercase chips, raw Medium-16 uppercase 'PRICE TREND'/'PRODUCT DETAILS', Body grade rows, Body-medium prices, Title-large name, Title-medium nav title. Newest sibling 5938:7158 (Graded) and 5938:25164 / 5938:25794 (Profile -> PDP) agree with it. Raw lane = 5768:23400 (same convention; condition rows Caption-13 uppercase). NOT the reference: 5768:22713 / 5768:23886 / 5753:10734 (sentence-case Title-small headers, Medium-14 chips) and the older 4211:86063 / 1640:4077. Re-synced 2026-10-18. Language chip row renders only when an EN/JP counterpart exists (counterpartCardId). Like-count formats 9999+ (app) vs 10.1k (Figma mock) - formatter rule needs a designer decision. POP REPORT was removed from the product - do not build, even though the frames still draw it. 'PRICE TREND'/'PRODUCT DETAILS' are Medium 16 in Figma with no library style; app uses bodyLarge (Regular 16) - weight flagged for the designer.",
+      "notes": "REFERENCE = 6322:8756 (Graded PDP, synced 2026-11-10, applies to ALL PDP states): gray/50 page with stacked white sections 4px apart; chart in an inset white card (8 off the edges, radius 12, neutral gray/100 range filters); Qty pill (6322:8769) beside the name = trigger for the owned-copies list (replaced the INVENTORY dropdown header); like counter removed; PRODUCT DETAILS above SIMILAR CARDS; footer labels unchanged by user decision (UPDATE/CANCEL owned, SAVE/SHARE unowned). PREVIOUS reference 5768:21988 (Graded PDP, page '4. Product Details Page', 393x1816): uppercase Label-14 option headers (LANGUAGE/VARIANT/GRADER), Caption-13 uppercase chips, raw Medium-16 uppercase 'PRICE TREND'/'PRODUCT DETAILS', Body grade rows, Body-medium prices, Title-large name, Title-medium nav title. Newest sibling 5938:7158 (Graded) and 5938:25164 / 5938:25794 (Profile -> PDP) agree with it. Raw lane = 5768:23400 (same convention; condition rows Caption-13 uppercase). NOT the reference: 5768:22713 / 5768:23886 / 5753:10734 (sentence-case Title-small headers, Medium-14 chips) and the older 4211:86063 / 1640:4077. Re-synced 2026-10-18. Language chip row renders only when an EN/JP counterpart exists (counterpartCardId). Like-count formats 9999+ (app) vs 10.1k (Figma mock) - formatter rule needs a designer decision. POP REPORT was removed from the product - do not build, even though the frames still draw it. 'PRICE TREND'/'PRODUCT DETAILS' are Medium 16 in Figma with no library style; app uses bodyLarge (Regular 16) - weight flagged for the designer.",
       "states": [
         {
           "name": "browse-unowned",
           "figmaNodeId": "5768:23400",
           "deepLink": "spotlight://dev/card-detail",
           "how": "unowned raw card (sm7-1): ADD ITEM/SHARE footer, condition trend list; Figma 5768:23400 'Raw'"
+        },
+        {
+          "name": "similar-cards",
+          "figmaNodeId": "6322:9011",
+          "deepLink": "spotlight://dev/card-similar",
+          "how": "CardSimilarSection alone (below the PDP fold): SIMILAR CARDS heading + 96-wide CardRailTile rail, 86x120 art; Figma 6322:9011"
         },
         {
           "name": "owned-edit",
@@ -438,6 +444,30 @@
       "deepLink": "spotlight://dev/event-detail",
       "mockData": "packages/api-client/src/spotlight/spotlight-events.ts",
       "notes": "Tap a table or a vendor row on the dev route to reach this state: white card docked in the map, gray-900 row shell in the list. Tapping the row/table again or the map background deselects. Synced 2026-10-17: docked card + gray-900 row match; Instagram icon only renders when the vendor has a handle; selecting a table zooms the map (existing behaviour, not in frame)."
+    },
+    {
+      "figmaNodeId": "6322:7596",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6322-7596",
+      "screenName": "News",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/social/screens/feed-screen.tsx",
+        "apps/spotlight-rn/src/features/social/components/game-filter-chips.tsx",
+        "apps/spotlight-rn/src/features/social/screens/news-page.tsx"
+      ],
+      "deepLink": "spotlight://dev/feed",
+      "notes": "News tab of the Social hub; tab rail is Figma 6322:8030. Open spotlight://dev/feed, then tap NEWS."
+    },
+    {
+      "figmaNodeId": "6322:7827",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6322-7827",
+      "screenName": "MarketWatch",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/social/screens/feed-screen.tsx",
+        "apps/spotlight-rn/src/features/social/components/game-filter-chips.tsx",
+        "apps/spotlight-rn/src/features/social/screens/market-watch-page.tsx"
+      ],
+      "deepLink": "spotlight://dev/feed",
+      "notes": "Market Watch tab of the Social hub; tab rail is Figma 6322:8030. Open spotlight://dev/feed, then tap MARKET WATCH."
     }
   ]
 }

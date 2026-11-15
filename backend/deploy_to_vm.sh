@@ -338,6 +338,7 @@ SET_SPOTLIGHT_LOG_FILE="$LOG_DIR/set_spotlight.log"
 NEWS_FEED_LOG_FILE="$LOG_DIR/news_feed.log"
 SIMILAR_CARDS_LOG_FILE="$LOG_DIR/similar_cards.log"
 MARKET_ALERTS_LOG_FILE="$LOG_DIR/market_alerts.log"
+BOOTH_RECAPS_LOG_FILE="$LOG_DIR/booth_recaps.log"
 TORCH_CPU_INDEX_URL="${SPOTLIGHT_VM_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}"
 TORCH_PACKAGE_SPEC="${SPOTLIGHT_VM_TORCH_PACKAGE_SPEC:-torch==2.11.0+cpu}"
 SYNC_CRON_SCHEDULE="${SPOTLIGHT_VM_SYNC_CRON:-0 18 * * *}"
@@ -523,6 +524,7 @@ chmod +x \
   "$SCRIPT_DIR/run_set_spotlight_vm.sh" \
   "$SCRIPT_DIR/run_news_feed_vm.sh" \
   "$SCRIPT_DIR/run_market_alerts_vm.sh" \
+  "$SCRIPT_DIR/run_booth_recaps_vm.sh" \
   "$SCRIPT_DIR/run_similar_cards_vm.sh"
 
 sudo tee "$SERVICE_PATH" >/dev/null <<EOF
@@ -543,12 +545,16 @@ RestartSec=5
 # minutes. Keep the start timeout well above that so a slow cold-load can't trip a
 # crash-loop (systemd killing it at the timeout, restarting, re-reading cold). 2026-06-10.
 TimeoutStartSec=300
-# Load protection for the beta / show bursts (2026-06-16). MemoryHigh is a soft
-# ceiling that throttles + reclaims this cgroup BEFORE the kernel OOM-killer fires,
-# so a burst of concurrent scans degrades gracefully instead of hard-crashing.
-# Expressed as a percentage so it auto-scales across a t2d-standard-2 <-> -4 resize
-# (~6 GB on the -2, ~12 GB on the -4). Pairs with the existing 4 GB swap.
-MemoryHigh=75%
+# Hard memory cap, no MemoryHigh. A soft MemoryHigh throttled the process
+# instead of killing it: on 2026-11-15 prod sat at 13GB serving 15-59 minute
+# requests for hours while systemd still saw it as "active". Now an overrun is
+# OOM-killed and Restart=always brings it back in ~1-2 min. Percentages scale
+# with the machine type; swap is capped so the cgroup can't thrash on disk.
+MemoryMax=80%
+MemorySwapMax=512M
+# glibc otherwise keeps a malloc arena per thread and never returns the freed
+# pages, so RSS only ratchets up under the request thread pool.
+Environment=MALLOC_ARENA_MAX=2
 # Cap BLAS/OpenMP threads so one scan's index matmul (numpy) can't grab every core
 # and starve the others under concurrency. The ONNX session threads are already
 # capped via SPOTLIGHT_VISUAL_ONNX_INTRA/INTER_OP_THREADS in the env file.
@@ -639,6 +645,10 @@ MARKET_ALERTS_LINE="3 * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_market_alerts_vm.
 # (reads the on-disk visual indexes), so both envs; no-op unless
 # SIMILAR_CARDS_ENABLED is truthy.
 SIMILAR_CARDS_LINE="40 7 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_similar_cards_vm.sh >> $SIMILAR_CARDS_LOG_FILE 2>&1"
+# Post-show booth recaps — daily at 18:20 UTC (10:20 PT / 8:20 HST), the morning
+# after a show in both show timezones. Supabase-only and idempotent (the SQL
+# dedupes per claimer + show), so both envs; no-op without the service-role key.
+BOOTH_RECAPS_LINE="20 18 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_booth_recaps_vm.sh >> $BOOTH_RECAPS_LOG_FILE 2>&1"
 
 CURRENT_CRONTAB="$(mktemp "${TMPDIR:-/tmp}/spotlight-crontab.XXXXXX")"
 trap 'rm -f "$CURRENT_CRONTAB"' EXIT
@@ -695,6 +705,7 @@ PY
   echo "$NEWS_FEED_LINE"
   echo "$MARKET_ALERTS_LINE"
   echo "$SIMILAR_CARDS_LINE"
+  echo "$BOOTH_RECAPS_LINE"
   echo "$CRON_END"
 } | crontab -
 
@@ -741,6 +752,7 @@ echo "  Sync log: $SYNC_LOG_FILE"
 echo "  Health monitor log: $HEALTH_MONITOR_LOG_FILE"
 echo "  Resource monitor log: $RESOURCE_MONITOR_LOG_FILE"
 echo "  Social moderation log: $SOCIAL_MODERATION_LOG_FILE"
+echo "  Booth recaps log: $BOOTH_RECAPS_LOG_FILE"
 echo "  Post media purge log: $POST_MEDIA_PURGE_LOG_FILE"
 echo "  Deal scan log: $DEAL_SCAN_LOG_FILE"
 echo "  Feed job logs: $META_PULSE_LOG_FILE $SET_SPOTLIGHT_LOG_FILE $HOT_CARDS_LOG_FILE $NEWS_FEED_LOG_FILE"

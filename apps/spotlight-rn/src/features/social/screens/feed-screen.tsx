@@ -16,51 +16,50 @@ import {
   StyleSheet,
   View,
   type FlatList,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { MapPin } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { MetaPulse } from '@spotlight/api-client';
 import {
   Avatar,
+  PageTabs,
+  type PageTab,
+  PillButton,
   StateCard,
   Text,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { AnimatedFlatList } from '@/components/page-tab-pager';
+import {
+  AnimatedFlatList,
+  CollapsibleTabPager,
+  type CollapsiblePageProps,
+  type CollapsibleScrollTarget,
+} from '@/components/page-tab-pager';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { HOME_HEADER_BAR_HEIGHT, HomeHeader } from '@/components/home-header';
 import { tabBarBottomFadeHeight } from '@/lib/tab-bar-insets';
-import { ComingUpBlock, hasComingUpContent } from '@/features/meta-feed/components/coming-up-block';
-import { HotCardsBlock, hasHotCardsContent } from '@/features/meta-feed/components/hot-cards-block';
-import { MetaPulseBlock, hasMetaPulseContent } from '@/features/meta-feed/components/meta-pulse-block';
-import { NewsBlock, hasNewsContent } from '@/features/meta-feed/components/news-block';
-import {
-  CALENDAR_BLOCK_LIMIT,
-  NEWS_FEED_BLOCK_LIMIT,
-  useCalendar,
-  useHotCards,
-  useMetaExposure,
-  useMetaPulse,
-  useNewsFeed,
-} from '@/features/meta-feed/hooks/use-meta-feed';
-import { useMetaFeedNavigation, type MetaGroupOpen } from '@/features/meta-feed/hooks/use-meta-feed-navigation';
 import { PostCard } from '@/features/social/components/post-card';
 import { RepostAttribution } from '@/features/social/components/repost-attribution';
-import {
-  TopTrendsBlock,
-  hasTopTrendsContent,
-} from '@/features/social/components/top-trends-block';
+import { MarketWatchPage } from '@/features/social/screens/market-watch-page';
+import { NewsPage } from '@/features/social/screens/news-page';
 import { getFeedRefreshVersion } from '@/features/social/screens/new-post-screen';
 import {
   type FeedItem,
   type FeedPost,
   type FeedPostAuthor,
+  feedItemFromPost,
+  fetchEventPosts,
+  fetchFollowingFeed,
   fetchGlobalFeedItems,
 } from '@/features/social/social-service';
-import { useTopMovers } from '@/features/social/use-top-movers';
+import { useFeedShow } from '@/features/events/hooks/use-active-show';
+import { AnalyticsEvent } from '@/lib/observability/analytics-events';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useUnreadNotificationCount } from '@/features/social/use-unread-notification-count';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
 import { getUserInitials } from '@/features/auth/auth-models';
@@ -70,9 +69,19 @@ import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
 import { useScrollToTop } from '@/components/scroll-to-top-fab';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAuth } from '@/providers/auth-provider';
-import { resolveFeedMarketBlocksEnabled } from '@/lib/runtime-config';
 
 const PAGE_SIZE = 20;
+
+type HubTab = 'social' | 'news' | 'market';
+
+const HUB_TAB_ORDER: readonly HubTab[] = ['social', 'news', 'market'];
+const HUB_TABS: readonly PageTab<HubTab>[] = [
+  { value: 'social', label: 'Social' },
+  { value: 'news', label: 'News' },
+  { value: 'market', label: 'Market Watch' },
+];
+/** Figma 6322:7596: the toolbar's bottom edge to the tab labels. */
+const TOOLBAR_TO_TABS_GAP = 24;
 
 /**
  * How old the displayed feed may be before returning to the tab refetches it.
@@ -112,7 +121,19 @@ function reposterAttributionName(
   return repostedBy.displayName?.trim() || (reposterHandle ? `@${reposterHandle}` : 'Someone');
 }
 
-function readFeed(before?: string): Promise<FeedItem[]> {
+/**
+ * Which feed the list shows. `forYou` is the Home feed; the chip row offering
+ * the others only appears while there is a show to offer (see `useFeedShow`).
+ */
+type FeedSource = 'forYou' | 'following' | 'show';
+
+async function readFeed(source: FeedSource, showId: string | null, before?: string): Promise<FeedItem[]> {
+  if (source === 'following') {
+    return (await fetchFollowingFeed(PAGE_SIZE, before)).map(feedItemFromPost);
+  }
+  if (source === 'show' && showId) {
+    return (await fetchEventPosts(showId, PAGE_SIZE, { before })).map(feedItemFromPost);
+  }
   return fetchGlobalFeedItems(PAGE_SIZE, before);
 }
 
@@ -161,6 +182,24 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   */
   const [followedAuthorIds, setFollowedAuthorIds] = useState<Set<string> | null>(null);
 
+  // A show in its window (or one the viewer saved) adds "For you · Following ·
+  // <show>" chips. If the show goes away, so does its selection.
+  const feedShow = useFeedShow();
+  const [activeTab, setActiveTab] = useState<HubTab>('social');
+  // News and Market Watch read on first visit, so opening Social doesn't fetch them.
+  const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<HubTab>>(() => new Set<HubTab>(['social']));
+  const selectTab = useCallback((next: HubTab) => {
+    setActiveTab(next);
+    setVisitedTabs((current) => (current.has(next) ? current : new Set(current).add(next)));
+  }, []);
+  const [selectedSource, setSelectedSource] = useState<FeedSource>('forYou');
+  const source: FeedSource = feedShow ? selectedSource : 'forYou';
+  const showId = source === 'show' ? (feedShow?.id ?? null) : null;
+  // The reads below are stable callbacks; they read the current source here.
+  const readFeedRef = useRef((before?: string) => readFeed(source, showId, before));
+  readFeedRef.current = (before?: string) => readFeed(source, showId, before);
+  const readKey = showId ? `show:${showId}` : source;
+
   // Feed rows, not bare posts: a repost is its own row carrying who passed it on.
   const [items, setItems] = useState<FeedItem[]>([]);
   const [status, setStatus] = useState<FeedStatus>('loading');
@@ -172,56 +211,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   // before the feed existed is already reflected in its first load.
   const seenRefreshVersionRef = useRef(getFeedRefreshVersion());
   const unreadCount = useUnreadNotificationCount();
-  // Top Trends rail data: shared cache + its own (30 min) staleness window.
-  const {
-    movers: topMovers,
-    loading: topMoversLoading,
-    refresh: refreshTopMovers,
-    refreshIfStale: refreshTopMoversIfStale,
-  } = useTopMovers();
-  const topTrendsVisible = hasTopTrendsContent(topMovers, topMoversLoading);
-  // The meta feed blocks: same shared-cache pattern, each with its own window.
-  // Switched off (production), none of them renders or fetches — focus and
-  // pull-to-refresh included; Top Trends and posts are unaffected.
-  const marketBlocksEnabled = resolveFeedMarketBlocksEnabled();
-  const marketReadOptions = { enabled: marketBlocksEnabled };
-  const metaPulse = useMetaPulse(undefined, marketReadOptions);
-  // The viewer's own groups, for the pulse's callout + "You own N" tags. Waits
-  // for the pulse so it is read for the same game/window.
-  const metaExposure = useMetaExposure(
-    metaPulse.data ? { game: metaPulse.data.game, windowDays: metaPulse.data.windowDays } : undefined,
-    { enabled: marketBlocksEnabled && metaPulse.data != null },
-  );
-  const hotCards = useHotCards(undefined, marketReadOptions);
-  const calendar = useCalendar({ limit: CALENDAR_BLOCK_LIMIT }, marketReadOptions);
-  const newsFeed = useNewsFeed({ limit: NEWS_FEED_BLOCK_LIMIT }, marketReadOptions);
-  const {
-    refresh: refreshMetaPulse,
-    refreshIfStale: refreshMetaPulseIfStale,
-  } = metaPulse;
-  const { refresh: refreshMetaExposure, refreshIfStale: refreshMetaExposureIfStale } = metaExposure;
-  const { refresh: refreshCalendar, refreshIfStale: refreshCalendarIfStale } = calendar;
-  const { refresh: refreshHotCards, refreshIfStale: refreshHotCardsIfStale } = hotCards;
-  const { refresh: refreshNewsFeed, refreshIfStale: refreshNewsFeedIfStale } = newsFeed;
-  /*
-    The header's sections in feed order (Meta pulse → Hot on Ekalight → Coming
-    up → Top Trends → Card news), each present only with
-    content. The
-    LAST visible one is the section that meets the first post, so it hands its
-    closing band to the first cell once posts exist (see renderItem); every
-    other section closes itself.
-  */
-  const visibleHeaderBlocks = [
-    marketBlocksEnabled && hasMetaPulseContent(metaPulse.data) ? 'metaPulse' : null,
-    marketBlocksEnabled && hasHotCardsContent(hotCards.data) ? 'hotCards' : null,
-    marketBlocksEnabled && hasComingUpContent(calendar.data) ? 'comingUp' : null,
-    topTrendsVisible ? 'topTrends' : null,
-    marketBlocksEnabled && hasNewsContent(newsFeed.data) ? 'news' : null,
-  ].filter((block): block is string => block != null);
-  const headerBlocksVisible = visibleHeaderBlocks.length > 0;
-  const lastHeaderBlock = visibleHeaderBlocks[visibleHeaderBlocks.length - 1];
-  const showBlockBand = (block: string) => items.length === 0 || block !== lastHeaderBlock;
-
   /*
     "Back to top", the same FAB Collection / Wishlist / Insights already carry.
 
@@ -232,6 +221,12 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     at 0, so the offset must be 0 there.
   */
   const scrollRef = useRef<FlatList<FeedItem>>(null);
+  const newsScrollRef = useRef<CollapsibleScrollTarget | null>(null);
+  const marketScrollRef = useRef<CollapsibleScrollTarget | null>(null);
+  const pageRefs = useMemo(
+    () => ({ social: scrollRef, news: newsScrollRef, market: marketScrollRef }),
+    [],
+  );
   const listTopOffset = Platform.OS === 'ios' ? -insets.top : 0;
   // FAB removed 2026-09-04 (user request); the hook still supplies the scroll
   // + layout trackers other wiring consumes.
@@ -244,13 +239,13 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   // mark's fade-out (the glass controls themselves never move). Starts at the
   // list's rest offset so the mark is fully visible before the first scroll.
   const headerScrollY = useRef(new Animated.Value(listTopOffset)).current;
-  const handleListScroll = useMemo(
-    () =>
-      Animated.event(
-        [{ nativeEvent: { contentOffset: { y: headerScrollY } } }],
-        { listener: trackScrollTopVisibility, useNativeDriver: true },
-      ),
-    [headerScrollY, trackScrollTopVisibility],
+  const handlePageScroll = useCallback(
+    (page: HubTab, event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (page === 'social') {
+        trackScrollTopVisibility(event);
+      }
+    },
+    [trackScrollTopVisibility],
   );
 
 
@@ -342,7 +337,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
 
     void (async () => {
       try {
-        const page = await readFeed();
+        const page = await readFeedRef.current();
         if (token !== loadTokenRef.current) {
           return;
         }
@@ -377,7 +372,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     loadingMoreRef.current = false;
     void (async () => {
       try {
-        const page = await readFeed();
+        const page = await readFeedRef.current();
         if (token !== loadTokenRef.current) {
           return;
         }
@@ -391,9 +386,20 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     })();
   }, []);
 
+  // `readKey`: switching chips is a fresh load of a different feed.
   useEffect(() => {
     loadFeed();
-  }, [loadFeed]);
+  }, [loadFeed, readKey]);
+
+  const selectSource = useCallback(
+    (next: FeedSource) => {
+      setSelectedSource(next);
+      if (next === 'show' && feedShow) {
+        capturePostHogEvent(AnalyticsEvent.eventFeedViewed, { event_id: feedShow.id, source: 'home_chip' });
+      }
+    },
+    [feedShow],
+  );
 
   // The follow set, once per signed-in viewer. Signed out there is nobody to
   // follow FOR, so it stays null and no card draws the control.
@@ -475,14 +481,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   */
   useFocusEffect(
     useCallback(() => {
-      // Top Trends has its own, much wider window (movers change daily); it
-      // is checked on every focus regardless of which branch the feed takes.
-      refreshTopMoversIfStale();
-      refreshMetaPulseIfStale();
-      refreshMetaExposureIfStale();
-      refreshHotCardsIfStale();
-      refreshCalendarIfStale();
-      refreshNewsFeedIfStale();
       // Compare-and-record rather than read-and-clear: the owner's Activity tab
       // watches the same counter and must see this signal too.
       if (seenRefreshVersionRef.current !== getFeedRefreshVersion()) {
@@ -496,12 +494,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     }, [
       loadFeed,
       refetchFeedQuietly,
-      refreshCalendarIfStale,
-      refreshHotCardsIfStale,
-      refreshMetaExposureIfStale,
-      refreshMetaPulseIfStale,
-      refreshNewsFeedIfStale,
-      refreshTopMoversIfStale,
     ]),
   );
 
@@ -509,18 +501,9 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     const token = ++loadTokenRef.current;
     setRefreshing(true);
     loadingMoreRef.current = false;
-    // Pull-to-refresh is the one place the movers refetch unconditionally.
-    // Not awaited: the spinner tracks the feed read, and a slow movers read
-    // keeps the cached rail up rather than holding the control open.
-    void refreshTopMovers();
-    void refreshMetaPulse();
-    void refreshMetaExposure();
-    void refreshHotCards();
-    void refreshCalendar();
-    void refreshNewsFeed();
     void (async () => {
       try {
-        const page = await readFeed();
+        const page = await readFeedRef.current();
         if (token !== loadTokenRef.current) {
           return;
         }
@@ -537,14 +520,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         }
       }
     })();
-  }, [
-    refreshCalendar,
-    refreshHotCards,
-    refreshMetaExposure,
-    refreshMetaPulse,
-    refreshNewsFeed,
-    refreshTopMovers,
-  ]);
+  }, []);
 
   const handleLoadMore = useCallback(() => {
     if (!hasMore || loadingMoreRef.current || status !== 'ready' || items.length === 0) {
@@ -563,7 +539,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
 
     void (async () => {
       try {
-        const page = await readFeed(cursor);
+        const page = await readFeedRef.current(cursor);
         if (token !== loadTokenRef.current) {
           return;
         }
@@ -591,37 +567,10 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     [router],
   );
 
-  // Routes owned by the meta feed pages; cast like the other pushes here
-  // because typed routes are generated at build time.
-  const openMeta = useCallback(
-    (pulse: MetaPulse) => {
-      router.push({ pathname: '/meta', params: { game: pulse.game } } as never);
-    },
-    [router],
-  );
-
-  const metaNavigation = useMetaFeedNavigation();
-  const { openMetaGroup } = metaNavigation;
-  const openMetaGroupRow = useCallback(
-    (group: MetaGroupOpen, pulse: MetaPulse) => {
-      openMetaGroup({
-        game: pulse.game,
-        groupKey: group.groupKey,
-        lane: pulse.lane,
-        mine: group.mine,
-        windowDays: pulse.windowDays,
-      });
-    },
-    [openMetaGroup],
-  );
-
-  const openNews = useCallback(() => {
-    router.push('/news' as never);
-  }, [router]);
-
+  // From a show's feed the composer opens with "Post to <show>" on.
   const openComposer = useCallback(() => {
-    router.push('/new-post' as never);
-  }, [router]);
+    router.push((showId ? { pathname: '/new-post', params: { eventId: showId } } : '/new-post') as never);
+  }, [router, showId]);
 
   // Initials fallback for the compose row's avatar — the same derivation
   // Portfolio uses for its profile block.
@@ -640,15 +589,8 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
 
     The row closes with the SAME full-bleed 4pt `gray100` band every post card
     closes with (Figma 4299:94902), so the composer reads as its own section
-    rather than the first post's header — but ONLY when it is the last thing
-    in the header. With the Top Trends block below it (Figma 4969:4101) the
-    16 under the composer is simply the row's own paddingBottom, the block
-    draws its own closing band, and the seam to the first post is the block
-    band (4) + the first PostCard's own 8pt top inset. Without the block,
-    spacing is 16 / band / 16: the 16 under the band is the first-cell band's
-    8pt bottom margin plus the PostCard's 8 — the one seam where two values
-    sum, because the under-composer gap (16) is wider than the inter-post
-    gap (8).
+    rather than the first post's header. Spacing is 16 / band / 16: the 16 under
+    the band is the first-cell band's 8pt bottom margin plus the PostCard's 8.
   */
   const composePrompt = (
     <View
@@ -656,13 +598,11 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         styles.composeSection,
         {
           borderBottomColor: theme.colors.gray100,
-          // Only while the list is EMPTY and nothing sits below the row. Once
-          // posts exist, the FIRST CELL draws this band (see renderItem):
-          // Android lays cell 0 over the header's bottom edge, and anything
-          // drawn from the header's side got shaved by the cell's background.
-          // With any feed block below (Meta pulse … Card news), the blocks close
-          // themselves; the composer's 16pt paddingBottom is the whole gap.
-          borderBottomWidth: items.length > 0 || headerBlocksVisible ? 0 : 4,
+          // Only while the list is EMPTY. Once posts exist, the FIRST CELL draws
+          // this band (see renderItem): Android lays cell 0 over the header's
+          // bottom edge, and anything drawn from the header's side got shaved by
+          // the cell's background.
+          borderBottomWidth: items.length > 0 ? 0 : 4,
         },
       ]}
       testID={`${testID}-compose-divider`}
@@ -687,24 +627,41 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
           WHAT&rsquo;S ON YOUR MIND?
         </Text>
       </Pressable>
+      {feedShow ? (
+        <View style={styles.sourceChips} testID={`${testID}-source-chips`}>
+          <PillButton
+            label="For you"
+            onPress={() => selectSource('forYou')}
+            selected={source === 'forYou'}
+            testID={`${testID}-source-for-you`}
+            tone="filled"
+          />
+          <PillButton
+            label="Following"
+            onPress={() => selectSource('following')}
+            selected={source === 'following'}
+            testID={`${testID}-source-following`}
+            tone="filled"
+          />
+          <PillButton
+            label={feedShow.shortTitle}
+            // An icon, not a 📍 emoji: the emoji font's wide bearings pushed the label off-centre.
+            leading={
+              <MapPin
+                color={source === 'show' ? theme.colors.gray0 : theme.colors.gray900}
+                height={SOURCE_CHIP_ICON_SIZE}
+                strokeWidth={1.5}
+                width={SOURCE_CHIP_ICON_SIZE}
+              />
+            }
+            onPress={() => selectSource('show')}
+            selected={source === 'show'}
+            testID={`${testID}-source-show`}
+            tone="filled"
+          />
+        </View>
+      ) : null}
     </View>
-  );
-
-  /*
-    Top Trends (Figma 4969:4101): market movers per game, BELOW the composer
-    and ABOVE the first post. Renders null with nothing to show, in which case
-    the composer/first-cell seam is exactly what it was without it. The band
-    follows the composer's rule — drawn by the block only while the list is
-    empty; the first cell owns it once posts exist (same Android shave).
-  */
-  const topTrendsBlock = (
-    <TopTrendsBlock
-      loading={topMoversLoading}
-      movers={topMovers}
-      onPressCard={handleOpenCard}
-      showBand={showBlockBand('topTrends')}
-      testID={`${testID}-top-trends`}
-    />
   );
 
   const openSearch = useCallback(() => {
@@ -739,7 +696,13 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       />
     ) : (
       <StateCard
-        message="No posts yet. Check back soon."
+        message={
+          source === 'following'
+            ? 'Posts from people you follow will show up here.'
+            : source === 'show'
+              ? 'Posts from the show floor will appear here.'
+              : 'No posts yet. Check back soon.'
+        }
         style={styles.stateCard}
         testID={`${testID}-empty`}
         title="Nothing here yet"
@@ -752,6 +715,126 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       <ActivityIndicator color={theme.colors.textSecondary} testID={`${testID}-loading-more`} />
     </View>
   ) : null;
+
+  const hubHeaderHeight = insets.top + HOME_HEADER_BAR_HEIGHT + TOOLBAR_TO_TABS_GAP;
+
+  const renderHubPage = (tab: HubTab, page: CollapsiblePageProps) => {
+    if (tab === 'news' || tab === 'market') {
+      if (!visitedTabs.has(tab)) {
+        return <View style={styles.safeArea} testID={`${testID}-${tab}-placeholder`} />;
+      }
+      return tab === 'news' ? (
+        <NewsPage page={page} scrollRef={newsScrollRef} testID={`${testID}-news`} />
+      ) : (
+        <MarketWatchPage page={page} scrollRef={marketScrollRef} testID={`${testID}-market`} />
+      );
+    }
+    return (
+        <AnimatedFlatList
+          ref={scrollRef}
+          // This screen became the Home TAB, so a tab bar now sits over its
+          // bottom edge. `automatic` puts the list on UIKit's own inset
+          // behaviour — the same prop the Collection list uses — so the last post
+          // clears the bar instead of hiding behind it, rather than us guessing
+          // the native bar's height from a token sized for the retired JS one.
+          contentInsetAdjustmentBehavior="automatic"
+          /*
+            Let a tap through to the comment sheet while its keyboard is up.
+
+            Unset, `ScrollView._handleStartShouldSetResponderCapture` claims the
+            FIRST touch whenever a `TextInput` is focused and hands it to the
+            keyboard dismissal instead — RN's own comment calls it "the first tap
+            should be sent to the scroll view and dismiss the keyboard, then the
+            second tap goes to the actual interior view". Capture runs root→target,
+            so THIS list was stealing taps from a sheet mounted several levels
+            below it: send took two taps, and so did ⋯, like, reply and close.
+
+            `"handled"` (not `"always"`) keeps tapping the background dismissing
+            the keyboard, which is the behaviour that prop was protecting.
+          */
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={[
+            page.contentContainerStyle,
+            // No horizontal padding and no inter-item gap: post cards are
+            // full-bleed and carry their own 8pt top inset, which is exactly the
+            // gap Figma leaves between a card's closing 4pt band and the next
+            // avatar. State cards re-inset themselves below.
+            { paddingBottom: insets.bottom + 24 },
+          ]}
+          data={items}
+          // Keyed on the ROW, not the post: the same post can legitimately appear
+          // twice — once on its own, once as somebody's repost.
+          keyExtractor={(item: FeedItem) => item.key}
+          ListEmptyComponent={listEmpty}
+          ListFooterComponent={listFooter}
+          ListHeaderComponent={composePrompt}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
+          // Measures the viewport the "Back to top" FAB uses as its threshold —
+          // it appears once you have travelled roughly one screen height.
+          onLayout={handleListLayout}
+          onScroll={page.onScroll}
+          scrollEventThrottle={page.scrollEventThrottle}
+          scrollToOverflowEnabled={page.scrollToOverflowEnabled}
+          refreshControl={
+            <RefreshControl
+              onRefresh={handleRefresh}
+              progressViewOffset={page.progressViewOffset}
+              refreshing={refreshing}
+              testID={`${testID}-refresh`}
+              tintColor={theme.colors.gray400}
+            />
+          }
+          renderItem={({ item, index }: { item: FeedItem; index: number }) => (
+            <>
+              {/*
+                The composer's closing band, drawn BY THE FIRST CELL rather than by
+                the header above it: cell 0 paints over the header's bottom edge on
+                Android, so anything the header drew on the seam was shaved the
+                moment posts loaded. The 8pt bottom margin plus the card's own 8pt
+                top inset makes the 16pt under-composer gap (Figma 4299:94902).
+              */}
+              {index === 0 ? (
+                <View
+                  style={{
+                    backgroundColor: theme.colors.gray100,
+                    height: 4,
+                    marginBottom: 8,
+                  }}
+                  testID={`${testID}-first-cell-rule`}
+                />
+              ) : null}
+              {/*
+                The card below carries the ORIGINAL author's name and avatar, so
+                without this line a reposted row reads as though the reposter wrote
+                it. Same component the two Activity tabs use.
+              */}
+              {item.repostedBy ? (
+                <RepostAttribution
+                  name={reposterAttributionName(item.repostedBy, viewerHandle)}
+                  testID={`${testID}-repost-attribution`}
+                />
+              ) : null}
+              <PostCard
+                accessToken={accessToken}
+                apiBaseUrl={apiBaseUrl}
+                isFollowingAuthor={
+                  followedAuthorIds ? followedAuthorIds.has(item.post.authorId) : null
+                }
+                onAuthorBlocked={handleAuthorBlocked}
+                onFollowAuthor={handleFollowAuthor}
+                onPressCard={handleOpenCard}
+                eventBadgeMode={source === 'show' ? 'booth' : 'show'}
+                onRequestDelete={requestDelete}
+                post={item.post}
+                testID={`${testID}-post`}
+              />
+            </>
+          )}
+          testID={`${testID}-list`}
+        />
+    );
+  };
 
   return (
     /*
@@ -779,191 +862,40 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
       testID={testID}
     >
-      <AnimatedFlatList
-        ref={scrollRef}
-        // This screen became the Home TAB, so a tab bar now sits over its
-        // bottom edge. `automatic` puts the list on UIKit's own inset
-        // behaviour — the same prop the Collection list uses — so the last post
-        // clears the bar instead of hiding behind it, rather than us guessing
-        // the native bar's height from a token sized for the retired JS one.
-        contentInsetAdjustmentBehavior="automatic"
-        /*
-          Let a tap through to the comment sheet while its keyboard is up.
-
-          Unset, `ScrollView._handleStartShouldSetResponderCapture` claims the
-          FIRST touch whenever a `TextInput` is focused and hands it to the
-          keyboard dismissal instead — RN's own comment calls it "the first tap
-          should be sent to the scroll view and dismiss the keyboard, then the
-          second tap goes to the actual interior view". Capture runs root→target,
-          so THIS list was stealing taps from a sheet mounted several levels
-          below it: send took two taps, and so did ⋯, like, reply and close.
-
-          `"handled"` (not `"always"`) keeps tapping the background dismissing
-          the keyboard, which is the behaviour that prop was protecting.
-        */
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{
-          /*
-            Reserve the floating bar's height, and NOT the status bar on top of
-            it — that was a whole status bar of dead white between the bar and
-            the first post.
-
-            `contentInsetAdjustmentBehavior="automatic"` above already insets
-            this scroll view by the top safe area; adding `insets.top` here
-            counted it a second time. What is left to reserve is only the bar
-            itself (`HOME_HEADER_BAR_HEIGHT` = the padded 44pt control row).
-
-            ANDROID keeps the explicit inset: `contentInsetAdjustmentBehavior`
-            is an iOS-only prop (a no-op in the Android ScrollView), so there is
-            nothing there to double-count and dropping it would slide the first
-            post under the status bar.
-          */
-          paddingTop:
-            Platform.OS === 'ios'
-              ? HOME_HEADER_BAR_HEIGHT
-              : insets.top + HOME_HEADER_BAR_HEIGHT,
-          paddingBottom: insets.bottom + 24,
-          // No horizontal padding and no inter-item gap: post cards are
-          // full-bleed and carry their own 8pt top inset, which is exactly the
-          // gap Figma leaves between a card's closing 4pt band and the next
-          // avatar. State cards re-inset themselves below.
-        }}
-        data={items}
-        // Keyed on the ROW, not the post: the same post can legitimately appear
-        // twice — once on its own, once as somebody's repost.
-        keyExtractor={(item: FeedItem) => item.key}
-        ListEmptyComponent={listEmpty}
-        ListFooterComponent={listFooter}
-        ListHeaderComponent={
-          <>
-            {composePrompt}
-            {marketBlocksEnabled ? (
-              <>
-                <MetaPulseBlock
-                  exposure={metaExposure.data}
-                  onOpenGroup={openMetaGroupRow}
-                  onOpenMeta={openMeta}
-                  pulse={metaPulse.data}
-                  showBand={showBlockBand('metaPulse')}
-                  testID={`${testID}-meta-pulse`}
-                />
-                <HotCardsBlock
-                  hot={hotCards.data}
-                  onPressCard={handleOpenCard}
-                  showBand={showBlockBand('hotCards')}
-                  testID={`${testID}-hot-cards`}
-                />
-                <ComingUpBlock
-                  feed={calendar.data}
-                  onOpenCalendar={metaNavigation.openCalendar}
-                  onOpenEvent={metaNavigation.openCalendarEvent}
-                  showBand={showBlockBand('comingUp')}
-                  testID={`${testID}-coming-up`}
-                />
-              </>
-            ) : null}
-            {topTrendsBlock}
-            {marketBlocksEnabled ? (
-              <NewsBlock
-                feed={newsFeed.data}
-                onOpenNews={openNews}
-                showBand={showBlockBand('news')}
-                testID={`${testID}-card-news`}
-              />
-            ) : null}
-          </>
-        }
-        onEndReached={handleLoadMore}
-        onEndReachedThreshold={0.5}
-        // Measures the viewport the "Back to top" FAB uses as its threshold —
-        // it appears once you have travelled roughly one screen height.
-        onLayout={handleListLayout}
-        onScroll={handleListScroll}
-        scrollEventThrottle={16}
-        // RN clamps a NEGATIVE scrollTo target to 0 unless this is set
-        // (RCTScrollViewComponentView.mm), and it clamps against
-        // `contentInset` — which is empty here, because
-        // `contentInsetAdjustmentBehavior="automatic"` above puts the safe area
-        // in `adjustedContentInset` instead. Without it "Back to top" lands
-        // `insets.top` short of the top and `listTopOffset` is silently inert.
-        scrollToOverflowEnabled
-        refreshControl={
-          <RefreshControl
-            onRefresh={handleRefresh}
-            refreshing={refreshing}
-            testID={`${testID}-refresh`}
-            tintColor={theme.colors.gray400}
+      <CollapsibleTabPager
+        // Pages run `contentInsetAdjustmentBehavior="automatic"`, so UIKit already
+        // insets them by the top safe area; the chrome must not reserve it twice.
+        contentInsetTop={Platform.OS === 'ios' ? insets.top : 0}
+        header={
+          <View
+            style={{ backgroundColor: theme.colors.gray0, height: hubHeaderHeight }}
+            testID={`${testID}-hub-header`}
           />
         }
-        renderItem={({ item, index }: { item: FeedItem; index: number }) => (
-          <>
-            {/*
-              The header's closing band, drawn BY THE FIRST CELL rather than
-              by the header above it: cell 0 paints over the header's bottom
-              edge on Android, so anything the header drew on the seam was
-              shaved the moment posts loaded. Owned by the very view that was
-              doing the shaving, it has nothing left to lose. Under the
-              composer, the 8pt bottom margin plus the card's own 8pt top
-              inset makes the 16pt under-composer gap (Figma 4299:94902).
-              Under a feed block (whichever is last: Top Trends, Card news…) the
-              seam is the plain inter-section rhythm — band + the card's 8
-              (Figma 5085:15398) — so the margin drops.
-            */}
-            {index === 0 ? (
-              <View
-                style={{
-                  backgroundColor: theme.colors.gray100,
-                  height: 4,
-                  marginBottom: headerBlocksVisible ? 0 : 8,
-                }}
-                testID={`${testID}-first-cell-rule`}
-              />
-            ) : null}
-            {/*
-              The card below carries the ORIGINAL author's name and avatar, so
-              without this line a reposted row reads as though the reposter wrote
-              it. Same component the two Activity tabs use.
-            */}
-            {item.repostedBy ? (
-              <RepostAttribution
-                name={reposterAttributionName(item.repostedBy, viewerHandle)}
-                testID={`${testID}-repost-attribution`}
-              />
-            ) : null}
-            <PostCard
-              accessToken={accessToken}
-              apiBaseUrl={apiBaseUrl}
-              isFollowingAuthor={
-                followedAuthorIds ? followedAuthorIds.has(item.post.authorId) : null
-              }
-              onAuthorBlocked={handleAuthorBlocked}
-              onFollowAuthor={handleFollowAuthor}
-              onPressCard={handleOpenCard}
-              onRequestDelete={requestDelete}
-              post={item.post}
-              testID={`${testID}-post`}
+        onChange={selectTab}
+        onPageScroll={handlePageScroll}
+        order={HUB_TAB_ORDER}
+        pageRefs={pageRefs}
+        // Same height as the header, so nothing collapses and the tabs stay put.
+        pinnedTopInset={hubHeaderHeight}
+        renderPage={renderHubPage}
+        scrollY={headerScrollY}
+        tabBar={
+          <View style={{ backgroundColor: theme.colors.gray0 }}>
+            <PageTabs
+              align="gutter"
+              labelSize="caption"
+              onChange={selectTab}
+              tabs={HUB_TABS}
+              testID={`${testID}-tabs`}
+              uppercase
+              value={activeTab}
             />
-          </>
-        )}
-        testID={`${testID}-list`}
+          </View>
+        }
+        testID={`${testID}-pager`}
+        value={activeTab}
       />
-      {/*
-        Top gradient (Figma 4299:95021): white 70% -> transparent over the
-        status-bar/header region, the top counterpart of the bottom fade over
-        the tab bar. SVG (like profile-header's scrim), not expo-linear-gradient,
-        pointerEvents none so it never eats header taps.
-      */}
-      <View pointerEvents="none" style={[styles.topGradient, { height: insets.top + HOME_HEADER_BAR_HEIGHT }]}>
-        <Svg height="100%" width="100%">
-          <Defs>
-            <LinearGradient id="homeTopFade" x1="0" x2="0" y1="0" y2="1">
-              <Stop offset="0" stopColor="#FFFFFF" stopOpacity="0.7" />
-              <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
-            </LinearGradient>
-          </Defs>
-          <Rect fill="url(#homeTopFade)" height="100%" width="100%" x="0" y="0" />
-        </Svg>
-      </View>
       {/*
         Bottom gradient (Figma 4407:283): solid white at the edge -> clear by
         ~94% up a 95pt band, fading the feed out under the floating tab bar.
@@ -994,7 +926,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         </Svg>
       </View>
       {/*
-        AFTER the list so tree order paints it on top, and so UIKit's
+        AFTER the pager so tree order paints it on top, and so UIKit's
         `subviews[0]` walk still reaches the scroller for minimize-on-scroll.
       */}
       <HomeHeader
@@ -1021,6 +953,8 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   );
 }
 
+const SOURCE_CHIP_ICON_SIZE = 16;
+
 const styles = StyleSheet.create({
   bottomGradient: {
     bottom: 0,
@@ -1028,14 +962,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 0,
     // Over the list, under the tab bar chrome.
-    zIndex: 4,
-  },
-  topGradient: {
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    // Under HomeHeader (zIndex 5), over the list.
     zIndex: 4,
   },
   // The filled pill itself (Figma 4299:94902): 8 padding around a 24pt avatar
@@ -1064,6 +990,13 @@ const styles = StyleSheet.create({
   },
   footerSpinner: {
     paddingVertical: 20,
+  },
+  sourceChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 12,
   },
   safeArea: {
     flex: 1,

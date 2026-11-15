@@ -32,6 +32,12 @@ import {
 const IMAGE_RENDER_SCALE = MAP_MAX_SCALE;
 const ANIMATION = { duration: 280 };
 const PINCH_TAP_GUARD_MS = 350;
+/** Posted-today dot, in layer points (the layer is drawn at the current zoom, so it stays this size on screen). */
+const POSTED_DOT_SIZE = 8;
+const NO_TABLES: ReadonlySet<string> = new Set();
+/** Hot-table glow: see-through enough to read the number underneath. */
+const HOT_OPACITY = 0.5;
+const HOT_GLOW_RADIUS = 6;
 
 type EventFloorMapProps = {
   map: SpotlightEventMap;
@@ -39,6 +45,10 @@ type EventFloorMapProps = {
   selectedTableIds: ReadonlySet<string>;
   /** Light highlight: tables of vendors matching the search/tag. */
   matchedTableIds: ReadonlySet<string>;
+  /** A small dot: the vendor at this table posted to their booth in the last 24h. */
+  postedTableIds?: ReadonlySet<string>;
+  /** A warm glow: the vendor at this table is busy right now (social_29 event_hot_booths). */
+  hotTableIds?: ReadonlySet<string>;
   /** Changing this animates the map to fit `selectedTableIds` (or back to the whole floor). */
   focusKey: string | null;
   /** Height at the bottom covered by an overlay; a fitted selection is centred above it. */
@@ -55,6 +65,8 @@ export function EventFloorMap({
   map,
   selectedTableIds,
   matchedTableIds,
+  postedTableIds = NO_TABLES,
+  hotTableIds = NO_TABLES,
   focusKey,
   bottomInset = 0,
   onTablePress,
@@ -282,7 +294,9 @@ export function EventFloorMap({
     runOnJS(handleTap)(event.x, event.y, scale.value, translateX.value, translateY.value);
   });
 
-  const gesture = Gesture.Simultaneous(pinch, pan, Gesture.Exclusive(doubleTap, singleTap));
+  // Not Exclusive: that held every single tap ~500ms waiting out a possible
+  // double tap. Selecting is idempotent, so a double tap just selects, then zooms.
+  const gesture = Gesture.Simultaneous(pinch, pan, doubleTap, singleTap);
 
   const layerZooms = pendingZoom == null || Math.abs(pendingZoom - shownZoom) < 0.01 ? [shownZoom] : [shownZoom, pendingZoom];
 
@@ -327,9 +341,11 @@ export function EventFloorMap({
               <DrawnLayer
                 content={content}
                 highlighted={highlighted}
+                hotTableIds={hotTableIds}
                 key={zoom}
                 map={map}
                 onReady={onLayerReady}
+                postedTableIds={postedTableIds}
                 scale={scale}
                 tablesById={tablesById}
                 testID={testID}
@@ -401,8 +417,10 @@ const ImageLayer = memo(function ImageLayer({
 function DrawnLayer({
   content,
   highlighted,
+  hotTableIds,
   map,
   onReady,
+  postedTableIds,
   scale,
   tablesById,
   testID,
@@ -413,8 +431,10 @@ function DrawnLayer({
 }: LayerMotion & {
   content: Size;
   highlighted: readonly { id: string; selected: boolean }[];
+  hotTableIds: ReadonlySet<string>;
   map: SpotlightEventMap;
   onReady: (zoom: number) => void;
+  postedTableIds: ReadonlySet<string>;
   tablesById: ReadonlyMap<string, SpotlightEventMapTable>;
   testID: string;
   visible: boolean;
@@ -435,6 +455,25 @@ function DrawnLayer({
       style={[styles.layer, size, { opacity: visible ? 1 : 0 }, style]}
     >
       {map.vector ? <FloorDrawing size={size} tables={map.tables} vector={map.vector} /> : null}
+      {/* Under the search/selection highlights, so a picked table still reads purple. */}
+      {[...hotTableIds].map((id) => {
+        const table = tablesById.get(id);
+        if (!table) {
+          return null;
+        }
+        return (
+          <View
+            key={`hot-${id}`}
+            style={[
+              styles.box,
+              styles.hot,
+              boxStyle(table, size),
+              { backgroundColor: theme.colors.eventAccent, borderColor: theme.colors.eventAccent, shadowColor: theme.colors.eventAccent },
+            ]}
+            testID={visible ? `${testID}-hot-${id}` : undefined}
+          />
+        );
+      })}
       {highlighted.map(({ id, selected }) => {
         const table = tablesById.get(id);
         if (!table) {
@@ -455,6 +494,30 @@ function DrawnLayer({
               },
             ]}
             testID={visible ? `${testID}-highlight-${id}` : undefined}
+          />
+        );
+      })}
+      {[...postedTableIds].map((id) => {
+        const table = tablesById.get(id);
+        if (!table) {
+          return null;
+        }
+        const box = boxStyle(table, size);
+        // Centred on the table's top-right corner.
+        return (
+          <View
+            key={`posted-${id}`}
+            style={[
+              styles.box,
+              styles.postedDot,
+              {
+                backgroundColor: theme.colors.purple500,
+                borderColor: theme.colors.gray0,
+                left: box.left + box.width - POSTED_DOT_SIZE / 2,
+                top: box.top - POSTED_DOT_SIZE / 2,
+              },
+            ]}
+            testID={visible ? `${testID}-posted-${id}` : undefined}
           />
         );
       })}
@@ -486,7 +549,7 @@ const FloorDrawing = memo(function FloorDrawing({
             {
               backgroundColor: area.color,
               opacity: area.opacity,
-              ...(area.shape === 'ellipse' ? { borderRadius: (area.width * size.width) / 2 } : null),
+              ...(area.shape === 'ellipse' ? { borderCurve: 'continuous' as const, borderRadius: (area.width * size.width) / 2 } : null),
             },
           ]}
         />
@@ -572,5 +635,20 @@ const styles = StyleSheet.create({
   },
   label: {
     textAlign: 'center',
+  },
+  // iOS draws the shadow as a glow; Android has no coloured shadow, so the fill + border carry it there.
+  hot: {
+    borderWidth: borderWidths.containerRule,
+    opacity: HOT_OPACITY,
+    shadowOffset: { height: 0, width: 0 },
+    shadowOpacity: 1,
+    shadowRadius: HOT_GLOW_RADIUS,
+  },
+  postedDot: {
+    borderCurve: 'continuous',
+    borderRadius: radii.pill,
+    borderWidth: borderWidths.containerRule,
+    height: POSTED_DOT_SIZE,
+    width: POSTED_DOT_SIZE,
   },
 });

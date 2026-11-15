@@ -46,6 +46,8 @@ import {
   Text,
   TrendTriangle,
   colors,
+  radii,
+  spacing,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 import { NavArrowLeft, ShareIos, Trash } from 'iconoir-react-native';
@@ -63,11 +65,11 @@ import {
 } from '@/features/cards/components/grade-condition-sheet';
 import { OwnedEntryEditFields } from '@/features/cards/components/owned-entry-edit-fields';
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
-import { InventoryDropdown } from '@/features/cards/components/inventory-dropdown';
+import { InventoryDropdown, InventoryQtyPill } from '@/features/cards/components/inventory-dropdown';
 import { CardDetailHero } from '@/features/cards/components/card-detail-hero';
 import { printingImageFor, printingImagesForEntries } from '@/features/cards/printing-image';
 import { watchlistCardBasicsFromDetail } from '@/features/wishlist/watchlist-store';
-import { CardWishlistCounter } from '@/features/cards/components/card-wishlist-counter';
+import { CardPriceChartSection } from '@/features/cards/components/card-price-chart-section';
 import { CardPriceTrendList } from '@/features/cards/components/card-price-trend-list';
 import { CardPriceTrendSkeleton } from '@/features/cards/components/card-price-trend-skeleton';
 import { CardProductDetails } from '@/features/cards/components/card-product-details';
@@ -194,6 +196,8 @@ const languageOptions: readonly string[] = ['EN', 'JP'] as const;
 // down past DOWN_HIDE_DELTA hides the top/bottom bars; they stay hidden on a slow
 // scroll up and only re-appear on an up-flick faster than FAST_UP_REVEAL_DELTA per
 // frame, or once you're within TOP_REVEAL_THRESHOLD of the top.
+// Chart card side padding (Figma 6322:8974 — readout 20 in from the card edge).
+const CHART_CARD_GUTTER = 20;
 const TOP_REVEAL_THRESHOLD = 8;
 const SCROLL_DOWN_HIDE_DELTA = 2;
 const FAST_UP_REVEAL_DELTA = 9;
@@ -281,7 +285,6 @@ export function CardDetailScreen({
   });
   // Public wishlist count shown as social proof; mutates optimistically
   // alongside the favorite toggle.
-  const [likeCount, setLikeCount] = useState(0);
   // The entry handed to the target sheet, or null while it is shut.
   const [targetSheetEntry, setTargetSheetEntry] = useState<CardFavoriteEntry | null>(null);
   // Set by a successful watch; opens the optional target prompt once.
@@ -516,7 +519,6 @@ export function CardDetailScreen({
   // which must preserve the user's grade/grader/condition/variant.
   useEffect(() => {
     setWatchState({ favoritedAt: null, targets: {}, watchedVariants: [], marketPrices: {} });
-    setLikeCount(0);
     setSelectedVariant(null);
     setSelectedGrader(null);
     setSelectedGrade(null);
@@ -564,7 +566,6 @@ export function CardDetailScreen({
       watchedVariants,
       marketPrices: relabelWatchKeys(detail.watchMarketPrices ?? {}, labels),
     });
-    setLikeCount(detail.likeCount ?? 0);
     // The counterpart detail (real `language`) is in — drop the optimistic chip
     // override so the toggle reflects the loaded card.
     setLanguageOverride(null);
@@ -586,6 +587,8 @@ export function CardDetailScreen({
   // listed in the Inventory dropdown but none is pre-selected for editing —
   // otherwise an unrelated old copy's condition/printing seeds the page.
   const opensAsNewCopy = !entryId && (fromScan || scanReviewId != null);
+  // Opened from a scan: show the copies you already own up front.
+  const [inventoryExpanded, setInventoryExpanded] = useState(opensAsNewCopy);
 
   const selectedEntry = useMemo(() => {
     // An explicit entryId pins the EDITED entry by id across every pool — even
@@ -1238,7 +1241,11 @@ export function CardDetailScreen({
           */}
           {record?.recentAverage ? (
             <Text style={[theme.typography.overline, { color: theme.colors.gray400 }]}>
-              {`Avg. last ${record.recentAverage.sampleSize} ${record.recentAverage.sampleSize === 1 ? 'sale' : 'sales'} · ${formatCurrency(record.recentAverage.amount, record.recentAverage.currencyCode)}`}
+              {/* The backend now sends the LAST sale (sampleSize 1); older
+                  backends still send a multi-sale median. */}
+              {record.recentAverage.sampleSize === 1
+                ? `Last sale · ${formatCurrency(record.recentAverage.amount, record.recentAverage.currencyCode)}`
+                : `Avg. last ${record.recentAverage.sampleSize} sales · ${formatCurrency(record.recentAverage.amount, record.recentAverage.currencyCode)}`}
             </Text>
           ) : null}
         </View>
@@ -2583,6 +2590,8 @@ export function CardDetailScreen({
   const scrollRef = useRef<Animated.ScrollView>(null);
   const { height: windowHeight } = useWindowDimensions();
   const editSectionRectRef = useRef({ y: 0, height: 0 });
+  // The options group's y is relative to its white section; this is the section's y.
+  const editSectionOffsetRef = useRef(0);
   const costBasisFocusedRef = useRef(false);
   const keyboardHeightRef = useRef(0);
   // Scroll room for the keyboard. The content reserved only `footerHeight`, so
@@ -2597,7 +2606,8 @@ export function CardDetailScreen({
       if (!costBasisFocusedRef.current || keyboardHeight <= 0) {
         return;
       }
-      const { y, height } = editSectionRectRef.current;
+      const { height } = editSectionRectRef.current;
+      const y = editSectionOffsetRef.current + editSectionRectRef.current.y;
       /*
         The footer rides above the keyboard, so the input must clear BOTH.
         `keyboardClearance`, not raw `keyboardHeight`: on this app's Android
@@ -2758,7 +2768,7 @@ export function CardDetailScreen({
       // insets (they're absolutely positioned and would otherwise ignore the
       // SafeAreaView padding, sliding under the status bar / home indicator).
       edges={['left', 'right']}
-      style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
+      style={[styles.safeArea, { backgroundColor: colors.gray50 }]}
     >
       <Animated.ScrollView
         ref={scrollRef}
@@ -2782,6 +2792,7 @@ export function CardDetailScreen({
           variant={isSealed ? 'product' : 'card'}
         />
 
+        <View style={[styles.section, styles.identitySection]}>
         <View style={styles.identityRow}>
           <View style={[styles.identityBlock, styles.identityText]} testID="detail-identity">
             <Text style={theme.typography.titleLarge} testID="detail-name">
@@ -2850,9 +2861,46 @@ export function CardDetailScreen({
               </Text>
             ) : null}
           </View>
-          {/* Wishlist social-proof counter (heart + count, max 9999+). */}
-          <CardWishlistCounter count={likeCount} testID="detail-wishlist-counter" />
+          {/* Owned copies: "Qty: N ▾" opens the list below (Figma 6322:8769). */}
+          {inventoryEntries.length > 0 && !isSealed ? (
+            <InventoryQtyPill
+              entries={inventoryEntries}
+              expanded={inventoryExpanded}
+              onPress={() => setInventoryExpanded((current) => !current)}
+              testID="detail-inventory-header"
+            />
+          ) : null}
         </View>
+        {inventoryExpanded && inventoryEntries.length > 0 && !isSealed ? (
+          <InventoryDropdown
+            entries={inventoryEntries}
+            language={selectedLanguageChip}
+            onPressEntry={handlePressInventoryEntry}
+            onPressEntryMenu={handlePressInventoryEntryMenu}
+            testID="detail-inventory"
+          />
+        ) : null}
+        </View>
+
+        {/* Sealed: no chart yet. Graded on a TCGplayer-only card has no data. */}
+        {isSealed || (isTcgplayerOnly && !isRawLane) ? null : (
+          <CardPriceChartSection
+            cardId={activeCardId}
+            enabled={detail?.cardId === activeCardId}
+            mode={displayedPriceTrends?.mode ?? (isRawLane ? 'raw' : 'graded')}
+            preferredCondition={selectedCondition}
+            preferredGrade={selectedGrade}
+            repository={spotlightRepository}
+            rows={displayedPriceTrends?.rows ?? []}
+            rowsLoading={priceTrendsLoading}
+            salesByRowKey={recentSalesByRowKey}
+            gutter={CHART_CARD_GUTTER}
+            salesEnabled={gameHasListingsData(cardGame)}
+            style={styles.chartCard}
+            testID="detail-price-chart"
+            variantLabel={selectedVariantLabel}
+          />
+        )}
 
         <TargetPriceSheet
           entry={targetSheetEntry}
@@ -2861,92 +2909,131 @@ export function CardDetailScreen({
           onSubmit={handleSubmitTarget}
         />
 
-        {/* Owned entries of this card, between identity and options (Figma
-            2489:7581 vertical order). Catalog-only cards omit it. */}
-        {inventoryEntries.length > 0 && !isSealed ? (
-          <InventoryDropdown
-            entries={inventoryEntries}
-            // Opened from a scan: show the copies you already own up front.
-            initiallyExpanded={opensAsNewCopy}
-            language={selectedLanguageChip}
-            onPressEntry={handlePressInventoryEntry}
-            onPressEntryMenu={handlePressInventoryEntryMenu}
-            testID="detail-inventory"
-          />
-        ) : null}
+        {/* Product options + Price Trend share one white section (Figma 6322:8848). */}
+        <View
+          onLayout={(event) => {
+            editSectionOffsetRef.current = event.nativeEvent.layout.y;
+          }}
+          style={[
+            styles.section,
+            styles.optionsSection,
+            displayedPriceTrends && displayedPriceTrends.rows.length > 0 ? styles.optionsSectionFlushBottom : null,
+          ]}
+        >
+          {isSealed ? null : (
+            <View
+              onLayout={(event) => {
+                const { y, height } = event.nativeEvent.layout;
+                editSectionRectRef.current = { y, height };
+              }}
+              style={styles.optionsGroup}
+            >
+              <CardConfigurator
+                graders={availableGraders}
+                languages={languageToggleOptions}
+                onSelectGrader={handleSelectGrader}
+                onSelectLanguage={handleSwitchLanguage}
+                onSelectVariant={handleSelectVariant}
+                selectedGrader={selectedGrader}
+                selectedLanguage={selectedLanguageChip}
+                selectedVariant={selectedVariant}
+                testID="detail-configurator"
+                variants={variantOptions}
+                variantsLoading={detail == null && errorMessage == null}
+              />
 
-        {isSealed ? null : (
-          <View
-            onLayout={(event) => {
-              const { y, height } = event.nativeEvent.layout;
-              editSectionRectRef.current = { y, height };
-            }}
-            style={styles.optionsGroup}
-          >
-            <CardConfigurator
-              graders={availableGraders}
-              languages={languageToggleOptions}
-              onSelectGrader={handleSelectGrader}
-              onSelectLanguage={handleSwitchLanguage}
-              onSelectVariant={handleSelectVariant}
-              selectedGrader={selectedGrader}
-              selectedLanguage={selectedLanguageChip}
-              selectedVariant={selectedVariant}
-              testID="detail-configurator"
-              variants={variantOptions}
-              variantsLoading={detail == null && errorMessage == null}
-            />
+              {isOwnedEdit ? (
+                <OwnedEntryEditFields
+                  costBasisText={editCostBasisText}
+                  gainLabel={editGainLabel}
+                  gainPerUnit={editGainPerUnit}
+                  gradeLabel={editGradeLabel}
+                  gradeTitle={editGradeTitle}
+                  onChangeCostBasisText={handleChangeEditCostBasisText}
+                  onCostBasisBlur={handleCostBasisBlur}
+                  onCostBasisFocus={handleCostBasisFocus}
+                  onDecrement={() => setEditQuantity((current) => Math.max(1, current - 1))}
+                  onIncrement={() => setEditQuantity((current) => current + 1)}
+                  onOpenGradePicker={() => setEditGradePickerOpen(true)}
+                  quantity={editQuantity}
+                  testID="detail-owned-edit"
+                  updatedLabel={editUpdatedLabel}
+                />
+              ) : null}
+            </View>
+          )}
 
-            {isOwnedEdit ? (
+          {/* Sealed product owned: quantity + cost basis only (no condition,
+              printing or grade to edit). */}
+          {isSealed && isOwnedEdit ? (
+            <View
+              onLayout={(event) => {
+                const { y, height } = event.nativeEvent.layout;
+                editSectionRectRef.current = { y, height };
+              }}
+              style={styles.optionsGroup}
+            >
               <OwnedEntryEditFields
                 costBasisText={editCostBasisText}
                 gainLabel={editGainLabel}
                 gainPerUnit={editGainPerUnit}
-                gradeLabel={editGradeLabel}
-                gradeTitle={editGradeTitle}
+                gradeLabel={null}
+                gradeTitle=""
                 onChangeCostBasisText={handleChangeEditCostBasisText}
                 onCostBasisBlur={handleCostBasisBlur}
                 onCostBasisFocus={handleCostBasisFocus}
                 onDecrement={() => setEditQuantity((current) => Math.max(1, current - 1))}
                 onIncrement={() => setEditQuantity((current) => current + 1)}
-                onOpenGradePicker={() => setEditGradePickerOpen(true)}
+                onOpenGradePicker={() => undefined}
                 quantity={editQuantity}
+                showGrade={false}
                 testID="detail-owned-edit"
                 updatedLabel={editUpdatedLabel}
               />
-            ) : null}
-          </View>
-        )}
+            </View>
+          ) : null}
 
-        {/* Sealed product owned: quantity + cost basis only (no condition,
-            printing or grade to edit). */}
-        {isSealed && isOwnedEdit ? (
-          <View
-            onLayout={(event) => {
-              const { y, height } = event.nativeEvent.layout;
-              editSectionRectRef.current = { y, height };
-            }}
-            style={styles.optionsGroup}
-          >
-            <OwnedEntryEditFields
-              costBasisText={editCostBasisText}
-              gainLabel={editGainLabel}
-              gainPerUnit={editGainPerUnit}
-              gradeLabel={null}
-              gradeTitle=""
-              onChangeCostBasisText={handleChangeEditCostBasisText}
-              onCostBasisBlur={handleCostBasisBlur}
-              onCostBasisFocus={handleCostBasisFocus}
-              onDecrement={() => setEditQuantity((current) => Math.max(1, current - 1))}
-              onIncrement={() => setEditQuantity((current) => current + 1)}
-              onOpenGradePicker={() => undefined}
-              quantity={editQuantity}
-              showGrade={false}
-              testID="detail-owned-edit"
-              updatedLabel={editUpdatedLabel}
-            />
-          </View>
+          {displayedPriceTrends && displayedPriceTrends.rows.length > 0 ? (
+            <View style={styles.trendBlock}>
+              <CardPriceTrendList
+                expandedContent={expandedTrendContent}
+                expandedRowKey={displayedPriceTrends.mode === 'graded' ? expandedTrendRowKey : null}
+                list={displayedPriceTrends}
+                // Raw lane only: the TCGplayer logo opens the EXACT product page
+                // (accurate). The graded lane's eBay logo opened a broad eBay
+                // SEARCH (inaccurate), so its logo is now a static image — no link.
+                onProviderPress={displayedPriceTrends.mode === 'graded' ? undefined : handleProviderPress}
+                onRowPress={handleTrendRowPress}
+                testID="detail-price-trends"
+              />
+            </View>
+          ) : priceTrendsLoading ? (
+            <View style={styles.trendBlock}>
+              <CardPriceTrendSkeleton testID="detail-price-trends-skeleton" />
+            </View>
+          ) : null}
+        </View>
+
+        {detail?.cardText ? (
+          <CardProductDetails
+            cardText={detail.cardText}
+            style={styles.section}
+            testID="detail-product-details"
+          />
         ) : null}
+
+        {/* "Similar cards" closes the page under Product Details (Figma
+            6322:9011); fetches only after the main detail lands. */}
+        {isSealed ? null : (
+          <CardSimilarSection
+            cardId={activeCardId}
+            enabled={detail != null}
+            onPressCard={handlePressSimilarCard}
+            repository={spotlightRepository}
+            style={styles.section}
+            testID="detail-similar"
+          />
+        )}
 
         <AddToCollectionSheet
           confirmDisabled={isAddPending || !addDetail}
@@ -3008,42 +3095,6 @@ export function CardDetailScreen({
           title={editGradeTitle}
           visible={editGradePickerOpen}
         />
-
-        {displayedPriceTrends && displayedPriceTrends.rows.length > 0 ? (
-          <View style={styles.trendBlock}>
-            <CardPriceTrendList
-              expandedContent={expandedTrendContent}
-              expandedRowKey={displayedPriceTrends.mode === 'graded' ? expandedTrendRowKey : null}
-              list={displayedPriceTrends}
-              // Raw lane only: the TCGplayer logo opens the EXACT product page
-              // (accurate). The graded lane's eBay logo opened a broad eBay
-              // SEARCH (inaccurate), so its logo is now a static image — no link.
-              onProviderPress={displayedPriceTrends.mode === 'graded' ? undefined : handleProviderPress}
-              onRowPress={handleTrendRowPress}
-              testID="detail-price-trends"
-            />
-          </View>
-        ) : priceTrendsLoading ? (
-          <View style={styles.trendBlock}>
-            <CardPriceTrendSkeleton testID="detail-price-trends-skeleton" />
-          </View>
-        ) : null}
-
-        {/* "Similar cards" sits directly under Price Trend and fetches only
-            after the main detail lands, so it never delays first paint. */}
-        {isSealed ? null : (
-          <CardSimilarSection
-            cardId={activeCardId}
-            enabled={detail != null}
-            onPressCard={handlePressSimilarCard}
-            repository={spotlightRepository}
-            testID="detail-similar"
-          />
-        )}
-
-        {detail?.cardText ? (
-          <CardProductDetails cardText={detail.cardText} testID="detail-product-details" />
-        ) : null}
       </Animated.ScrollView>
 
       {/* Sticky top bar — lifted out of the ScrollView so it overlays the content
@@ -3131,7 +3182,7 @@ export function CardDetailScreen({
         pointerEvents="box-none"
         style={[
           styles.stickyFooter,
-          { backgroundColor: colors.gray0, paddingBottom: insets.bottom + 8 },
+          { backgroundColor: colors.gray0, paddingBottom: Math.max(insets.bottom, spacing.xxs) },
           stickyFooterStyle,
         ]}
       >
@@ -3143,7 +3194,7 @@ export function CardDetailScreen({
               labelStyleVariant="label"
               onPress={gate(handleSaveEdit)}
               shape="rounded"
-              size="md"
+              size="xs"
               style={styles.actionButton}
               testID="detail-save-edit"
               variant="accent"
@@ -3154,7 +3205,7 @@ export function CardDetailScreen({
               labelStyleVariant="label"
               onPress={handleCancelEdit}
               shape="rounded"
-              size="md"
+              size="xs"
               style={styles.actionButton}
               testID="detail-cancel-edit"
               variant="outline"
@@ -3170,7 +3221,7 @@ export function CardDetailScreen({
               labelStyleVariant="label"
               onPress={gate(handleOpenAddSheet)}
               shape="rounded"
-              size="md"
+              size="xs"
               style={styles.actionButton}
               testID="detail-add-item"
               variant="accent"
@@ -3180,7 +3231,7 @@ export function CardDetailScreen({
               labelStyleVariant="label"
               onPress={gate(handleShare)}
               shape="rounded"
-              size="md"
+              size="xs"
               style={styles.actionButton}
               testID="detail-share-button"
               variant="outline"
@@ -3195,7 +3246,7 @@ export function CardDetailScreen({
 const styles = StyleSheet.create({
   actionBar: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
     paddingHorizontal: 16,
     paddingTop: 10,
   },
@@ -3218,13 +3269,22 @@ const styles = StyleSheet.create({
   actionButton: {
     flex: 1,
   },
+  // Gray page with stacked white sections 4px apart (Figma 6322:8756).
   content: {
-    // Tightened section spacing (Figma): identity↔configurator↔price-trend↔
-    // product-details sit closer together than the original 32px.
-    gap: 24,
-    paddingBottom: 24,
-    paddingHorizontal: 16,
-    paddingTop: 12,
+    gap: 4,
+  },
+  // Inset white chart card, 8 off the page edges and 8 from its neighbors.
+  chartCard: {
+    backgroundColor: colors.gray0,
+    borderCurve: 'continuous',
+    borderRadius: radii.md,
+    marginHorizontal: 8,
+    marginVertical: 4,
+    // The section's root is width 100%; with side margins that overflows right.
+    width: 'auto',
+    paddingBottom: 16,
+    paddingHorizontal: CHART_CARD_GUTTER,
+    paddingTop: 20,
   },
   errorCopy: {
     marginTop: 8,
@@ -3258,12 +3318,19 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   stickyFooter: {
+    borderCurve: 'continuous',
+    borderTopLeftRadius: radii.sheet,
+    borderTopRightRadius: radii.sheet,
     bottom: 0,
     elevation: 10,
     left: 0,
     paddingBottom: 8,
     position: 'absolute',
     right: 0,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: -1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
     zIndex: 10,
   },
   headerTitle: {
@@ -3278,7 +3345,7 @@ const styles = StyleSheet.create({
     color: colors.gray600,
   },
   identityRow: {
-    alignItems: 'flex-start',
+    alignItems: 'flex-end',
     flexDirection: 'row',
     gap: 12,
     justifyContent: 'space-between',
@@ -3286,11 +3353,25 @@ const styles = StyleSheet.create({
   identityText: {
     flex: 1,
   },
+  identitySection: {
+    gap: 12,
+  },
   loadingState: {
     alignItems: 'center',
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 32,
+  },
+  optionsSection: {
+    gap: spacing.xxl,
+  },
+  optionsSectionFlushBottom: {
+    paddingBottom: 0,
+  },
+  section: {
+    backgroundColor: colors.gray0,
+    padding: 16,
+    width: '100%',
   },
   optionsGroup: {
     // Product Options read as one continuous list — chips + the owned-edit

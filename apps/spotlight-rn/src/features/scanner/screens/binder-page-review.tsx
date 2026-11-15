@@ -425,7 +425,7 @@ function PocketTile({
   const cropUri = capture?.normalizedImageUri ?? capture?.uri ?? null;
   // The printing the pocket is on drives the art: the matched art version
   // until another printing is picked.
-  const pocketPrintingLabel = capture?.mode === 'raw' ? selection?.variantLabel ?? null : null;
+  const pocketPrintingLabel = capture?.mode === 'raw' ? selection?.variantLabel || null : null;
   const matchedUri = capture ? scannerCaptureThumbUri(capture, candidate, pocketPrintingLabel) : null;
   // The scanned crop stands in until the match lands. Peeking at it by
   // long-press is gone — the hold gesture belongs to selection now.

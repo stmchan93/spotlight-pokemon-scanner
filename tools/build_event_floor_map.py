@@ -22,8 +22,27 @@ Re-run after every Figma edit, then deploy the backend; no app release needed.
         --vendors-csv ~/Downloads/vendors-....csv
 
 The CSV (the ticketing export) only adds tags and Instagram handles; phone and
-email columns are never read into the output. FIGMA_TOKEN comes from the
-environment or the repo's gitignored ``.env.figma``.
+email columns are never read into the map. Emails of PAID/MIXED rows go, as
+sha256 of the lowercased trimmed address only, into a private gitignored
+sidecar the backend never serves:
+
+    backend/data/spotlight_event_maps/<event-id>.vendor-emails.json
+
+``tools/sync_vendor_email_hashes.py`` loads it into Supabase for "This is you"
+booth matching. FIGMA_TOKEN comes from the environment or the repo's gitignored
+``.env.figma``.
+
+Before tables are assigned there is no layout; ``--vendors-only`` lists every
+PAID/MIXED row of the CSV (``business_name``, else ``name``) with no tables and
+no image, so vendors can claim their booth early:
+
+    python3 tools/build_event_floor_map.py --event-id seattle-2026-12 \\
+        --vendors-only --vendors-csv ~/Downloads/vendors-....csv
+
+Vendor ids are booth-claim keys: every build reuses the id an earlier map (this
+show's vendors-only one, or a past show's) gave the same name or Instagram
+handle, so claims survive the switch to the full Figma build. Check
+``carriedIds`` in the report.
 """
 
 from __future__ import annotations
@@ -31,6 +50,7 @@ from __future__ import annotations
 import argparse
 import collections
 import csv
+import hashlib
 import json
 import math
 import os
@@ -113,6 +133,10 @@ EXACT_TAGS: dict[str, list[str]] = {
     # Diamond Shields (all of section I) is Pokémon only, whatever its profile says (user, 2026-10-18).
     "diamondshields": ["Pokémon"],
 }
+
+# Application statuses that put a vendor on a vendors-only map ("MIXED" = some
+# tables paid, some pending). The full build lists whoever the Figma layout lists.
+CONFIRMED_STATUSES = {"PAID", "MIXED"}
 
 # Display names for layout rows that aren't a business name (the layout lists
 # KenKar by the owner's email), keyed by normalized layout name.
@@ -399,7 +423,8 @@ def load_vendor_tags(path: Path) -> list[dict[str, str]]:
 
 
 def load_csv(path: Path) -> list[dict[str, str]]:
-    keep = ("business_name", "name", "instagram", "inventory", "purchase", "status")
+    # `email` is only ever hashed (vendor_email_hashes); it never reaches the map.
+    keep = ("business_name", "name", "instagram", "inventory", "purchase", "status", "email")
     with path.open(encoding="utf-8-sig", newline="") as handle:
         return [{k: (row.get(k) or "") for k in keep} for row in csv.DictReader(handle)]
 
@@ -440,6 +465,7 @@ def build_map(
     base_image_file: str | None = None,
     csv_rows: list[dict[str, str]] | None = None,
     tag_rows: list[dict[str, str]] | None = None,
+    known_vendors: list[dict[str, Any]] | None = None,
     now: datetime | None = None,
 ) -> tuple[dict[str, Any], dict[str, list[str]]]:
     """(map document, report of things a human should look at)."""
@@ -458,7 +484,6 @@ def build_map(
         })
 
     vendors: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
     for name, location in extract_vendor_rows(frame):
         name = NAME_OVERRIDES.get(_norm(name), name)
         try:
@@ -472,35 +497,17 @@ def build_map(
         ids = [i for i in ids if i in table_ids]
 
         row = match_csv(name, csv_rows) if csv_rows else None
-        raw_tags = tags_for(row["inventory"]) if row else []
-        if any(i.startswith(FOOD_BLOCK) for i in ids) or (row and "food" in row["purchase"].lower()):
-            raw_tags.append("Food")
-        is_food = "Food" in raw_tags
-        tag_row = match_csv(name, tag_rows) if tag_rows else None
-        if tag_row is not None:
-            raw_tags.extend(treasure_chips(tag_row["tags"]))
-            # Instagram from the profile when the application left it blank.
-            if row is None:
-                row = {"instagram": tag_row["instagram"], "inventory": "", "purchase": ""}
-        elif tag_rows and not is_food:
-            report["noTagsMatch"].append(name)
-        tags = EXACT_TAGS.get(_norm(name)) or filter_tags(raw_tags + TAG_OVERRIDES.get(_norm(name), []))
+        food = any(i.startswith(FOOD_BLOCK) for i in ids)
+        tags, row = _enrich(name, row, tag_rows, food=food, report=report)
         if csv_rows and row is None:
             report["noCsvMatch"].append(name)
-
-        vendor_id = _slug(name)
-        suffix = 2
-        while vendor_id in seen_ids:
-            vendor_id = f"{_slug(name)}-{suffix}"
-            suffix += 1
-        seen_ids.add(vendor_id)
         vendors.append({
-            "id": vendor_id, "name": name, "location": location, "tableIds": ids,
+            "id": None, "name": name, "location": location, "tableIds": ids,
             "tags": tags, "instagram": _handle(row["instagram"]) if row else None,
+            "_aliases": _aliases(name, row),
         })
 
-    vendors.sort(key=lambda v: v["name"].lower())
-
+    _assign_ids(vendors, known_vendors or [], report)
     def frac(box: tuple[float, float, float, float]) -> dict[str, float]:
         x, y, w, h = box
         return {"x": round((x - mx) / mw, 5), "y": round((y - my) / mh, 5),
@@ -520,19 +527,177 @@ def build_map(
             "tableColor": drawing["tableColor"],
             "tableNumberSize": round(drawing["numberSize"] / mh, 5),
         }
+    document = _document(event_id, vendors, now, image_file=image_file, image_size=image_size,
+                         tables=out_tables, vector=vector)
+    return document, report
+
+
+def build_vendors_only_map(
+    csv_rows: list[dict[str, str]],
+    *,
+    event_id: str,
+    tag_rows: list[dict[str, str]] | None = None,
+    known_vendors: list[dict[str, Any]] | None = None,
+    now: datetime | None = None,
+) -> tuple[dict[str, Any], dict[str, list[str]]]:
+    """The map before tables are assigned: every confirmed vendor from the CSV,
+    no tables and no image. Same ids, tags and handles as the full build."""
+    report: dict[str, list[str]] = {"skippedStatus": [], "noName": [], "duplicates": [], "noTagsMatch": []}
+    vendors: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in csv_rows:
+        # The layout names a vendor by business, else by the person (as Hawaii's did).
+        name = " ".join((row["business_name"] or row["name"]).split())
+        name = NAME_OVERRIDES.get(_norm(name), name)
+        if row["status"].strip().upper() not in CONFIRMED_STATUSES:
+            report["skippedStatus"].append(f"{name or '(no name)'}: {row['status'] or '(blank)'}")
+            continue
+        if not _norm(name):
+            report["noName"].append(row["instagram"] or "(blank row)")
+            continue
+        # One vendor can apply more than once (extra tables, a resubmission).
+        if _norm(name) in seen:
+            report["duplicates"].append(name)
+            continue
+        seen.add(_norm(name))
+        tags, row = _enrich(name, row, tag_rows, food=False, report=report)
+        vendors.append({
+            "id": None, "name": name, "location": "", "tableIds": [],
+            "tags": tags, "instagram": _handle(row["instagram"]) if row else None,
+            "_aliases": _aliases(name, row),
+        })
+    _assign_ids(vendors, known_vendors or [], report)
+    return _document(event_id, vendors, now), report
+
+
+def _enrich(
+    name: str, row: dict[str, str] | None, tag_rows: list[dict[str, str]] | None, *, food: bool,
+    report: dict[str, list[str]],
+) -> tuple[list[str], dict[str, str] | None]:
+    """(chips, the row to take Instagram from) for one vendor; both builds share it."""
+    raw_tags = tags_for(row["inventory"]) if row else []
+    if food or (row and "food" in row["purchase"].lower()):
+        raw_tags.append("Food")
+    is_food = "Food" in raw_tags
+    tag_row = match_csv(name, tag_rows) if tag_rows else None
+    if tag_row is not None:
+        raw_tags.extend(treasure_chips(tag_row["tags"]))
+        # Instagram from the profile when the application left it blank.
+        if row is None:
+            row = {"instagram": tag_row["instagram"], "inventory": "", "purchase": ""}
+    elif tag_rows and not is_food:
+        report["noTagsMatch"].append(name)
+    tags = EXACT_TAGS.get(_norm(name)) or filter_tags(raw_tags + TAG_OVERRIDES.get(_norm(name), []))
+    return tags, row
+
+
+def _aliases(name: str, row: dict[str, str] | None) -> set[str]:
+    """Normalized names one vendor may go by: the layout's, the application's, its handle."""
+    keys = {_norm(name)}
+    if row:
+        keys |= {_norm(row.get("business_name") or ""), _norm(_handle(row.get("instagram") or "") or "")}
+    return keys - {""}
+
+
+def load_known_vendors(out_dir: Path, event_id: str) -> list[dict[str, Any]]:
+    """Vendors of every map already built, this event's first: their ids are claim keys."""
+    maps = [p for p in out_dir.glob("*.json") if not p.name.endswith(EMAIL_SIDECAR_SUFFIX)]
+    paths = sorted(maps, key=lambda p: p.stem != event_id)
+    known: list[dict[str, Any]] = []
+    for path in paths:
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        vendors = document.get("vendors") if isinstance(document, dict) else None
+        for vendor in vendors if isinstance(vendors, list) else []:
+            if isinstance(vendor, dict) and vendor.get("id") and vendor.get("name"):
+                known.append(vendor)
+    return known
+
+
+def _assign_ids(vendors: list[dict[str, Any]], known: list[dict[str, Any]], report: dict[str, list[str]]) -> None:
+    """Ids are booth-claim keys (Supabase booth_claims.vendor_id), so a vendor keeps the id
+    an earlier build gave them (this show's vendors-only build, or a past show) when the
+    name or handle matches exactly; anyone new gets ``_slug(name)``."""
+    by_key: dict[str, str] = {}
+    for vendor in known:
+        for key in (_norm(vendor["name"]), _norm(vendor.get("instagram") or "")):
+            if key:
+                by_key.setdefault(key, vendor["id"])
+    taken: set[str] = set()
+    for vendor in vendors:
+        aliases = vendor.pop("_aliases")
+        carried = next((by_key[k] for k in sorted(aliases, key=lambda k: k != _norm(vendor["name"]))
+                        if k in by_key), None)
+        if carried and carried not in taken:
+            vendor["id"] = carried
+            taken.add(carried)
+            if carried != _slug(vendor["name"]):
+                report.setdefault("carriedIds", []).append(f"{vendor['name']} -> {carried}")
+    reserved = taken | set(by_key.values())
+    for vendor in vendors:
+        if vendor["id"] is not None:
+            continue
+        vendor_id = _slug(vendor["name"])
+        suffix = 2
+        while vendor_id in reserved:
+            vendor_id = f"{_slug(vendor['name'])}-{suffix}"
+            suffix += 1
+        reserved.add(vendor_id)
+        vendor["id"] = vendor_id
+
+
+EMAIL_SIDECAR_SUFFIX = ".vendor-emails.json"
+
+
+def email_sha256(email: str) -> str:
+    """Matches social_29's encode(digest(lower(trim(email)), 'sha256'), 'hex')."""
+    return hashlib.sha256(email.strip().lower().encode("utf-8")).hexdigest()
+
+
+def _merge_key(row: dict[str, str]) -> str:
+    """The vendors-only build's one-vendor key: business name, else the person's."""
+    return _norm(" ".join((row.get("business_name") or row.get("name") or "").split()))
+
+
+def vendor_email_hashes(vendors: list[dict[str, Any]], csv_rows: list[dict[str, str]]) -> dict[str, list[str]]:
+    """{vendor id: sorted email hashes} from PAID/MIXED rows only. A vendor's row is
+    found the way both builds find it (match_csv on the vendor's name), and every
+    confirmed row sharing that row's business/person name counts (repeat applications)."""
+    out: dict[str, list[str]] = {}
+    confirmed = [r for r in csv_rows if (r.get("status") or "").strip().upper() in CONFIRMED_STATUSES]
+    for vendor in vendors:
+        row = match_csv(vendor["name"], csv_rows)
+        if row is None or not _merge_key(row):
+            continue
+        key = _merge_key(row)
+        hashes = {email_sha256(r["email"]) for r in confirmed
+                  if _merge_key(r) == key and "@" in (r.get("email") or "")}
+        if hashes:
+            out[vendor["id"]] = sorted(hashes)
+    return out
+
+
+def _document(
+    event_id: str, vendors: list[dict[str, Any]], now: datetime | None, *, image_file: str | None = None,
+    image_size: tuple[int, int] | None = None, tables: list[dict[str, Any]] | None = None,
+    vector: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    vendors.sort(key=lambda v: v["name"].lower())
     used = {tag for v in vendors for tag in v["tags"]}
-    document = {
+    return {
         "eventId": event_id,
+        # No image and no tables = vendors-only; the app lists vendors with no floor.
         "imageFile": image_file,
-        "imageWidth": image_size[0],
-        "imageHeight": image_size[1],
-        "tables": out_tables,
+        "imageWidth": image_size[0] if image_size else None,
+        "imageHeight": image_size[1] if image_size else None,
+        "tables": tables or [],
         "vendors": vendors,
         "tags": [tag for tag in FILTER_TAGS if tag in used],
         "vector": vector,
         "updatedAt": (now or datetime.now(timezone.utc)).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     }
-    return document, report
 
 
 def _png_size(data: bytes) -> tuple[int, int]:
@@ -544,7 +709,10 @@ def _png_size(data: bytes) -> tuple[int, int]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--event-id", required=True, help="id in backend/data/spotlight_events.json")
-    parser.add_argument("--figma", required=True, help="Figma link to the layout frame (with node-id)")
+    parser.add_argument("--figma", help="Figma link to the layout frame (with node-id)")
+    parser.add_argument("--vendors-only", action="store_true",
+                        help="no tables yet: list the CSV's confirmed vendors (needs --vendors-csv, no --figma)")
+    parser.add_argument("--force", action="store_true", help="let --vendors-only replace a map that has tables")
     parser.add_argument("--vendors-csv", type=Path, help="ticketing vendor export, for tags + Instagram")
     parser.add_argument("--vendor-tags", type=Path, help="business_name,name,instagram,tags from Treasure profiles")
     parser.add_argument("--out-dir", type=Path, default=OUT_DIR)
@@ -552,39 +720,64 @@ def main(argv: list[str] | None = None) -> int:
 
     if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", args.event_id):
         raise SystemExit("--event-id must be a [a-z0-9-] slug")
-    key, node_id = parse_figma_url(args.figma)
-    token = figma_token()
-
-    frame = fetch_frame(key, node_id, token)
-    _, map_node = extract_tables(frame)
-    scale = min(1.0, TARGET_IMAGE_WIDTH / map_node["absoluteBoundingBox"]["width"])
-    png = export_png(key, map_node["id"], scale, token)
-
-    base = extract_drawing(map_node)["base"]
-    base_png = None
-    if base is not None:
-        base_scale = min(1.0, BASE_IMAGE_WIDTH / base["absoluteBoundingBox"]["width"])
-        base_png = export_png(key, base["id"], base_scale, token)
-
+    if args.vendors_only == bool(args.figma):
+        raise SystemExit("pass exactly one of --figma or --vendors-only")
+    if args.vendors_only and not args.vendors_csv:
+        raise SystemExit("--vendors-only needs --vendors-csv")
     csv_rows = load_csv(args.vendors_csv.expanduser()) if args.vendors_csv else None
     tag_rows = load_vendor_tags(args.vendor_tags.expanduser()) if args.vendor_tags else None
-    image_file = f"{args.event_id}.png"
-    base_image_file = f"{args.event_id}-base.png" if base_png else None
-    document, report = build_map(
-        frame, event_id=args.event_id, image_file=image_file, image_size=_png_size(png),
-        base_image_file=base_image_file, csv_rows=csv_rows, tag_rows=tag_rows,
-    )
+    known = load_known_vendors(args.out_dir, args.event_id) if args.out_dir.is_dir() else []
+    json_path = args.out_dir / f"{args.event_id}.json"
+
+    png = base_png = None
+    image_file = base_image_file = None
+    if args.vendors_only:
+        try:
+            existing = json.loads(json_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            existing = None
+        if isinstance(existing, dict) and existing.get("tables") and not args.force:
+            raise SystemExit(f"{json_path} already has tables; pass --force to replace it with a vendors-only map")
+        document, report = build_vendors_only_map(
+            csv_rows or [], event_id=args.event_id, tag_rows=tag_rows, known_vendors=known,
+        )
+    else:
+        key, node_id = parse_figma_url(args.figma)
+        token = figma_token()
+
+        frame = fetch_frame(key, node_id, token)
+        _, map_node = extract_tables(frame)
+        scale = min(1.0, TARGET_IMAGE_WIDTH / map_node["absoluteBoundingBox"]["width"])
+        png = export_png(key, map_node["id"], scale, token)
+
+        base = extract_drawing(map_node)["base"]
+        if base is not None:
+            base_scale = min(1.0, BASE_IMAGE_WIDTH / base["absoluteBoundingBox"]["width"])
+            base_png = export_png(key, base["id"], base_scale, token)
+
+        image_file = f"{args.event_id}.png"
+        base_image_file = f"{args.event_id}-base.png" if base_png else None
+        document, report = build_map(
+            frame, event_id=args.event_id, image_file=image_file, image_size=_png_size(png),
+            base_image_file=base_image_file, csv_rows=csv_rows, tag_rows=tag_rows, known_vendors=known,
+        )
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    (args.out_dir / image_file).write_bytes(png)
+    if png and image_file:
+        (args.out_dir / image_file).write_bytes(png)
     if base_png and base_image_file:
         (args.out_dir / base_image_file).write_bytes(base_png)
-    (args.out_dir / f"{args.event_id}.json").write_text(
-        json.dumps(document, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
-    )
+    json_path.write_text(json.dumps(document, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    if csv_rows is not None:
+        hashes = vendor_email_hashes(document["vendors"], csv_rows)
+        sidecar = args.out_dir / f"{args.event_id}{EMAIL_SIDECAR_SUFFIX}"
+        sidecar.write_text(json.dumps({"eventId": args.event_id, "vendors": hashes}, indent=1) + "\n",
+                           encoding="utf-8")
+        print(f"{len(hashes)} vendors with email hashes -> {sidecar.name} (private; "
+              f"load with tools/sync_vendor_email_hashes.py)")
 
-    print(f"{len(document['tables'])} tables, {len(document['vendors'])} vendors, "
-          f"image {document['imageWidth']}x{document['imageHeight']} -> {args.out_dir}")
+    image = f"image {document['imageWidth']}x{document['imageHeight']}" if document["imageFile"] else "no image"
+    print(f"{len(document['tables'])} tables, {len(document['vendors'])} vendors, {image} -> {args.out_dir}")
     for label, items in report.items():
         if items:
             print(f"\n{label} ({len(items)}):")

@@ -31,6 +31,12 @@
   #status.err { color:var(--danger); }
   img.flyer { max-width:160px; border-radius:8px; border:1px solid var(--line); display:block; margin-top:8px; }
   .hint { font-size:12px; color:var(--muted); }
+  #booths { grid-column: 1 / -1; }
+  #booths table { width:100%; border-collapse:collapse; font-size:13px; margin-top:12px; }
+  #booths th, #booths td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  #booths td.num, #booths th.num { text-align:right; }
+  #booths tr.reported td { background:#fff4f4; }
+  #boothsStatus.err { color:var(--danger); }
 </style>
 </head>
 <body>
@@ -109,6 +115,16 @@
       <div id="status"></div>
     </form>
   </section>
+  <section class="card" id="booths" hidden>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <strong style="margin-right:auto">Booths <span id="boothsEvent" class="hint"></span></strong>
+      <button class="secondary" type="button" id="reloadBooths">Refresh</button>
+      <button class="secondary" type="button" id="sendRecaps">Send recaps</button>
+    </div>
+    <p class="hint">Active claims on this show's vendors. Numbers are this show only. Recaps go out automatically the day after a show ends; sending again only reaches claimers who haven't had one.</p>
+    <div id="boothsStatus" class="hint"></div>
+    <div style="overflow-x:auto"><table id="boothsTable"></table></div>
+  </section>
 </main>
 <script>
 (() => {
@@ -174,11 +190,68 @@
     const img = $('flyerPreview');
     if (e.flyerUrl) { img.src = e.flyerUrl + '?t=' + Date.now(); img.hidden = false; } else { img.hidden = true; }
     renderList();
+    loadBooths();
   }
+
+  const boothStatus = (msg, err) => { $('boothsStatus').textContent = msg; $('boothsStatus').className = err ? 'err' : 'hint'; };
+
+  async function loadBooths() {
+    if (!current) { $('booths').hidden = true; return; }
+    const eventId = current.id;
+    $('booths').hidden = false;
+    $('boothsEvent').textContent = '· ' + (current.shortTitle || current.title);
+    $('boothsTable').innerHTML = '';
+    boothStatus('Loading…');
+    try {
+      const data = await api(`/api/v1/admin/events/${encodeURIComponent(eventId)}/booths`);
+      if (!current || current.id !== eventId) return;
+      renderBooths(data.booths || []);
+    } catch (e) { boothStatus('Could not load booths: ' + e.message, true); }
+  }
+
+  function renderBooths(rows) {
+    const table = $('boothsTable');
+    table.innerHTML = '';
+    boothStatus(rows.length ? `${rows.length} claimed` : 'No claimed booths yet.');
+    if (!rows.length) return;
+    const cols = [['Vendor'], ['Handle'], ['Claimed'], ['Reports', 1], ['Views', 1], ['IG taps', 1], ['Messages', 1], ['Post views', 1], ['Posts', 1], ['']];
+    const head = table.insertRow();
+    for (const [label, num] of cols) { const th = document.createElement('th'); th.textContent = label; if (num) th.className = 'num'; head.appendChild(th); }
+    for (const b of rows) {
+      const tr = table.insertRow();
+      if (b.reports > 0) tr.className = 'reported';
+      const cells = [b.vendorName, b.handle ? '@' + b.handle : '(no handle)', (b.claimedAt || '').slice(0, 16).replace('T', ' '),
+        b.reports, b.views, b.instagramTaps, b.messages, b.postViews, b.posts];
+      cells.forEach((value, i) => { const td = tr.insertCell(); td.textContent = String(value ?? ''); if (cols[i][1]) td.className = 'num'; });
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'secondary danger'; btn.textContent = 'Unclaim';
+      btn.onclick = () => unclaimBooth(b);
+      tr.insertCell().appendChild(btn);
+    }
+  }
+
+  async function unclaimBooth(b) {
+    if (!confirm(`Unclaim ${b.vendorName} from ${b.handle ? '@' + b.handle : 'this account'}? Anyone can claim it again.`)) return;
+    try {
+      const res = await api(`/api/v1/admin/events/${encodeURIComponent(current.id)}/booths/${encodeURIComponent(b.vendorId)}/unclaim`, { method: 'POST' });
+      boothStatus(res.revoked ? `Unclaimed ${b.vendorName}.` : `${b.vendorName} was already unclaimed.`);
+      await loadBooths();
+    } catch (e) { boothStatus('Unclaim failed: ' + e.message, true); }
+  }
+
+  $('reloadBooths').onclick = () => loadBooths();
+  $('sendRecaps').onclick = async () => {
+    if (!current || !confirm(`Send booth recap notifications for ${current.shortTitle || current.title} now?`)) return;
+    try {
+      const res = await api(`/api/v1/admin/events/${encodeURIComponent(current.id)}/booth-recaps`, { method: 'POST' });
+      boothStatus(`Recaps sent: ${res.sent}.`);
+    } catch (e) { boothStatus('Recaps failed: ' + e.message, true); }
+  };
 
   $('newEvent').onclick = () => {
     current = null; form.reset(); form.elements.id.readOnly = false;
     $('flyerPreview').hidden = true; $('reset').hidden = true; status('New event: fill it in and save.');
+    $('booths').hidden = true;
     renderList();
   };
 

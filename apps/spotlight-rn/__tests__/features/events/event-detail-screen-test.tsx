@@ -10,6 +10,19 @@ import { openLinkOut } from '@/features/meta-feed/screens/components/open-link-o
 import { createTestSpotlightRepository, renderWithProviders } from '../../test-utils';
 import { makeEvent, pastFeatured, upcomingFeatured } from './event-fixtures';
 
+// No navigator here: focus effects run as plain effects; pushes are recorded.
+const mockPush = jest.fn();
+jest.mock('expo-router', () => {
+  const React = jest.requireActual<typeof import('react')>('react');
+  return {
+    ...jest.requireActual('expo-router'),
+    useFocusEffect: (effect: () => void | (() => void)) => {
+      React.useEffect(() => effect(), [effect]);
+    },
+    useRouter: () => ({ push: mockPush, back: jest.fn(), replace: jest.fn(), navigate: jest.fn() }),
+  };
+});
+
 jest.mock('@/features/meta-feed/screens/components/open-link-out', () => ({
   openLinkOut: jest.fn(async () => undefined),
 }));

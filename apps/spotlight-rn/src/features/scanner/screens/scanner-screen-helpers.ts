@@ -9,11 +9,13 @@ import * as Haptics from 'expo-haptics';
 
 import {
   DEFAULT_CARD_GAME,
+  deckConditionOptions,
   gameDisplayName,
   isSpotlightRepositoryRequestError,
   isTcgplayerOnlyCard,
   type CardGame,
   type CatalogSearchResult,
+  type DeckConditionCode,
   type InventoryCardEntry,
   type ScannerSlabAnalysisPayload,
   type SlabContext,
@@ -286,6 +288,8 @@ export function isFinitePrice(value: number | null | undefined): value is number
  */
 export type ScanTrayPriceSelection = {
   marketPrice: number | null;
+  /** The row's grader pick (see ScanRowGrading); absent = the scan's default. */
+  grading?: { grader: string | null; marketPrice?: number | null } | null;
 };
 
 /** The price one tray row actually shows, with the currency it is quoted in. */
@@ -323,6 +327,27 @@ export function resolveCaptureTrayPrice(
   // A candidate that reports no currency is taken as the tray's own currency —
   // named, not a bare 'USD' literal, so the assumption is greppable.
   const currencyCode = candidate?.currencyCode ?? supportedTrayCurrencyCode;
+
+  const grading = selection?.grading;
+  if (grading?.grader) {
+    // A grader picked in the row: that grade's stored price (USD-only by
+    // construction), or "—" while it loads / when there is none.
+    if (isTcgplayerOnlyCard(candidate)) {
+      return { amount: null, currencyCode };
+    }
+    return {
+      amount: isFinitePrice(grading.marketPrice) ? grading.marketPrice : null,
+      currencyCode: supportedTrayCurrencyCode,
+    };
+  }
+  if (grading && (capture.mode === 'slabs' || capture.slabContext != null)) {
+    // RAW picked on a slab scan: the candidate's price is the GRADE's, so only
+    // a condition price from the matrix may stand in.
+    return {
+      amount: isFinitePrice(selection?.marketPrice) ? selection.marketPrice : null,
+      currencyCode,
+    };
+  }
 
   // A slab of a TCGplayer-only card has no graded price: the candidate's price
   // is the RAW one, so the row shows "—" and stays out of the total.
@@ -405,13 +430,20 @@ export function buildOptimisticInventoryEntry(
     slabContext: SlabContext | null;
     /** The raw printing added; on the matched alt-art version the row shows its art. */
     printingLabel?: string | null;
+    /** Raw condition added; defaults to Near Mint. */
+    conditionCode?: DeckConditionCode | null;
+    /** The price the row showed, when it is not the candidate's own (a grade pick). */
+    marketPrice?: number | null;
   },
   id: string,
 ): InventoryCardEntry {
   const slabContext = options.slabContext;
   const isSlab = options.mode === 'slabs';
+  const condition = deckConditionOptions.find((option) => option.code === (options.conditionCode ?? 'near_mint'))
+    ?? deckConditionOptions[0];
+  const shownPrice = options.marketPrice !== undefined ? options.marketPrice : candidate.marketPrice;
   // Same rule as the tray row: no graded price for a TCGplayer-only card.
-  const isPriced = candidate.marketPrice != null && !(isSlab && isTcgplayerOnlyCard(candidate));
+  const isPriced = shownPrice != null && !(isSlab && isTcgplayerOnlyCard(candidate));
   // Mirrors the server's printingImageUrl until the refetch replaces this row.
   const printingImageUrl = !isSlab && options.printingLabel
     ? candidatePrintingArtUrl(candidate, options.printingLabel)
@@ -421,9 +453,9 @@ export function buildOptimisticInventoryEntry(
     addedAt,
     cardId: candidate.cardId,
     cardNumber: candidate.cardNumber,
-    conditionCode: isSlab ? null : 'near_mint',
-    conditionLabel: isSlab ? null : 'Near Mint',
-    conditionShortLabel: isSlab ? null : 'NM',
+    conditionCode: isSlab ? null : condition.code,
+    conditionLabel: isSlab ? null : condition.label,
+    conditionShortLabel: isSlab ? null : condition.shortLabel,
     costBasisPerUnit: null,
     costBasisTotal: 0,
     currencyCode: candidate.currencyCode ?? 'USD',
@@ -431,7 +463,7 @@ export function buildOptimisticInventoryEntry(
     id,
     imageUrl: candidate.imageUrl,
     kind: isSlab ? 'graded' : 'raw',
-    marketPrice: isPriced ? candidate.marketPrice ?? 0 : 0,
+    marketPrice: isPriced ? shownPrice ?? 0 : 0,
     name: candidate.name,
     quantity: 1,
     setName: candidate.setName,
@@ -449,17 +481,20 @@ export function withOptimisticInventoryAdd(
   options: {
     mode: ScannerMode;
     slabContext: SlabContext | null;
+    conditionCode?: DeckConditionCode | null;
+    marketPrice?: number | null;
   },
 ): InventoryCardEntry[] {
   const slabContext = options.slabContext;
   const isSlab = options.mode === 'slabs';
+  const conditionCode = options.conditionCode ?? 'near_mint';
   const existingIndex = entries.findIndex((entry) => (
     entry.cardId === candidate.cardId
     && (
       isSlab
         ? entry.kind === 'graded' && sameSlabContext(entry.slabContext ?? null, slabContext)
         : entry.kind === 'raw'
-          && (entry.conditionCode ?? 'near_mint') === 'near_mint'
+          && (entry.conditionCode ?? 'near_mint') === conditionCode
           && !entry.variantName
     )
   ));
@@ -474,7 +509,7 @@ export function withOptimisticInventoryAdd(
 
   const optimisticId = isSlab
     ? `optimistic|graded|${candidate.cardId}|${slabContext?.grader ?? 'unknown'}|${slabContext?.grade ?? 'unknown'}|${slabContext?.certNumber ?? 'uncertified'}`
-    : `optimistic|raw|${candidate.cardId}`;
+    : `optimistic|raw|${candidate.cardId}${conditionCode === 'near_mint' ? '' : `|${conditionCode}`}`;
 
   return [
     buildOptimisticInventoryEntry(candidate, addedAt, options, optimisticId),

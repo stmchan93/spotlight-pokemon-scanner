@@ -1,11 +1,13 @@
 import { Fragment } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { Text, useSpotlightTheme } from '@spotlight/design-system';
 import type { CardText, CardTextTypeValue } from '@spotlight/api-client';
 
 type CardProductDetailsProps = {
   cardText: CardText;
+  /** Host surface style; skipped when the section renders nothing. */
+  style?: StyleProp<ViewStyle>;
   testID?: string;
 };
 
@@ -88,7 +90,7 @@ function buildLines(cardText: CardText): DetailLine[] {
   return lines;
 }
 
-export function CardProductDetails({ cardText, testID }: CardProductDetailsProps) {
+export function CardProductDetails({ cardText, style, testID }: CardProductDetailsProps) {
   const theme = useSpotlightTheme();
   const lines = buildLines(cardText);
 
@@ -98,7 +100,7 @@ export function CardProductDetails({ cardText, testID }: CardProductDetailsProps
 
   return (
     // Figma 5938:2633 "Product Info": 16 title→lines, 6 between lines.
-    <View style={[styles.root, { gap: theme.spacing.sm }]} testID={testID}>
+    <View style={[styles.root, { gap: theme.spacing.sm }, style]} testID={testID}>
       {/* "PRODUCT DETAILS" is raw Medium 16 in Figma (5938:2634, no library
           style): headlineMedium matches it exactly. */}
       <Text style={[theme.typography.headlineMedium, { color: theme.colors.gray900 }]}>

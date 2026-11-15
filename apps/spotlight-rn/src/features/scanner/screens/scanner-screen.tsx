@@ -1,10 +1,11 @@
 import { BlurView } from 'expo-blur';
 import * as FileSystem from 'expo-file-system/legacy';
-import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from 'react-native-svg';
+import Svg, { Defs, LinearGradient as SvgLinearGradient, Path, Rect, Stop } from 'react-native-svg';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { memo, type MutableRefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
+  IconArrowsExchange,
   IconChevronDown,
   IconChevronLeft,
   IconSearch,
@@ -56,7 +57,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   isSpotlightRepositoryRequestError,
   type CatalogSearchResult,
-  type DeckConditionCode,
   type InventoryCardEntry,
   type InventoryEntryCreateRequestPayload,
   type RawPricingMatrixVariant,
@@ -72,6 +72,7 @@ import {
   Text,
   colors,
   radii,
+  spacing,
   textStyles,
   useSpotlightTheme,
 } from '@spotlight/design-system';
@@ -93,9 +94,23 @@ import { resolveMatchedPrintingDefaults } from '@/features/scanner/scan-batch-pr
 import {
   cardNumberWithVersion,
   matchedVersionLabel,
-  printingLabelsMatch,
   versionLabelForPrinting,
 } from '@/features/cards/printing-image';
+import {
+  SCAN_ROW_DEFAULT_GRADE,
+  SCAN_ROW_RAW_KEY,
+  applyScanRowGradingPick,
+  conditionMatrixCode,
+  conditionShortLabelFor,
+  effectiveScanRowGrading,
+  gradedPriceFromTrendRows,
+  sameGrade,
+  scanRowConditionOptions,
+  scanRowGradeOptions,
+  scanRowGraderOptions,
+  scanRowInventoryTarget,
+  type ScanRowInventoryTarget,
+} from '@/features/scanner/scan-row-grading';
 import {
   saveScanCandidateReviewSession,
   type ScanSourceImageCrop,
@@ -118,7 +133,6 @@ import {
 } from '@/features/scanner/scanner-normalized-target';
 import {
   getRawScannerCollapsedTrayReservedHeight,
-  getRawScannerEmptyTrayVisualHeight,
   makeRawScannerCaptureLayout,
   type RawScannerCameraHandle,
   RawScannerCaptureSurface,
@@ -141,13 +155,17 @@ import {
   setRecentCapturesOwner,
   sweepOrphanScans,
 } from '@/features/scanner/recent-captures-persistence';
-import { getRawPricingMatrixCached, prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
+import {
+  getCardPriceTrendsCached,
+  getRawPricingMatrixCached,
+  prefetchCardDetail,
+} from '@/features/cards/card-detail-prefetch';
 import { saveCardDetailPreviewFromCatalogResult } from '@/features/cards/card-detail-preview-session';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { prefetchImageUrls } from '@/lib/card-images';
 import { useAuth } from '@/providers/auth-provider';
-import { AnalyticsEvent, watchlistKindForCardId } from '@/lib/observability/analytics-events';
+import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { maybeRequestReview, noteScanTrouble, recordGoodScan } from '@/features/review-prompt/review-prompt';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { resolveRuntimeBoolean, resolveStagingSmokeModeEnabled } from '@/lib/runtime-config';
@@ -156,6 +174,7 @@ import { useAppServices } from '@/providers/app-providers';
 import { AddAllMenu, type AddAllMenuAction } from '@/features/scanner/components/add-all-menu';
 import { ScanBulkConfirmSheet } from '@/features/scanner/components/scan-bulk-confirm-sheet';
 import { ScanTargetPill } from '@/features/scanner/components/scan-target-pill';
+import { BoothPostBanner } from '@/features/scanner/components/booth-post-banner';
 import { ScannerLanguageTooltip } from '@/features/scanner/components/scanner-language-tooltip';
 import { ScanningForSheet } from '@/features/scanner/components/scanning-for-sheet';
 import {
@@ -167,7 +186,12 @@ import {
 
 import { BinderPageReview } from './binder-page-review';
 import { BinderLayoutMenu, type BinderLayoutMenuSelection } from '@/features/scanner/components/binder-layout-menu';
-import { AnchoredOptionMenu, PrintingMenu } from '@/features/scanner/components/printing-menu';
+import {
+  getScannerTabBarHeight,
+  ScannerTabBar,
+  type ScannerTabName,
+} from '@/features/scanner/components/scanner-tab-bar';
+import { AnchoredOptionMenu } from '@/features/scanner/components/printing-menu';
 import { CustomDiscountSheet } from '@/features/scanner/components/custom-discount-sheet';
 import { watchlistCardBasicsFromSearchResult } from '@/features/wishlist/watchlist-store';
 import { ChangeCardPicker } from './change-card-picker';
@@ -175,8 +199,6 @@ import { RecentCaptureSwipeRow } from './recent-capture-swipe-row';
 import { ScanTrayList, type ScanTrayListItem } from './scan-tray-list';
 import {
   ScanPriceSheet,
-  buildScanPriceSelection,
-  conditionCodeToDeckCondition,
   type ScanPriceSheetSelection,
 } from './scan-price-sheet';
 import {
@@ -210,8 +232,6 @@ import {
   triggerScannerHaptic,
   triggerScannerProcessedHaptic,
   withOptimisticInventoryAdd,
-  withUpdatedCaptureFavoriteState,
-  withUpdatedInventoryFavoriteState,
 } from './scanner-screen-helpers';
 import type {
   BinderPageEffects,
@@ -238,6 +258,10 @@ const rawCollectorNumberOcrEnabled = resolveRuntimeBoolean(
 // the OPTIONAL tiebreak signal instead of stacking CPU.
 let rawCollectorNumberReadInFlight = false;
 const captureRowHeight = 102;
+// Figma 6145:5621 thumb: a real card's proportions at tray size.
+const captureThumbWidth = 58;
+const captureThumbHeight = 80;
+const captureSwapBadgeSize = 20;
 // A little breathing room between scan rows in the tray (Figma scan-tray spacing).
 const captureRowGap = 24;
 // How long the "ADDED" confirmation shows on a row before it's removed from the
@@ -255,29 +279,32 @@ function buildInventoryEntryArgs(
   capture: RecentCapture,
   activeCandidate: CatalogSearchResult,
   addedAt: string,
-  conditionCode: DeckConditionCode,
+  // What the row's dropdowns file it as: a grader pick on a raw scan is a
+  // graded holding (slabContext, no condition), RAW keeps the condition.
+  target: ScanRowInventoryTarget,
   collectionID: string,
   rawVariantLabel: string | null,
 ): InventoryEntryCreateRequestPayload {
+  const isGraded = target.mode === 'slabs';
   return {
     addedAt,
     cardID: activeCandidate.cardId,
     // Scans land in the collection the Collection tab is showing. "All" is not a
     // real target, so the backend files those into the default collection.
     collectionID,
-    condition: capture.mode === 'slabs' ? null : conditionCode,
+    condition: isGraded ? null : target.conditionCode ?? 'near_mint',
     quantity: 1,
     selectedRank: capture.activeCandidateIndex + 1,
     selectionSource: capture.activeCandidateIndex === 0 ? 'top' : 'alternate',
-    slabContext: capture.slabContext,
+    slabContext: target.slabContext,
     sourceScanID: capture.scanID ?? null,
     // The PRINTING the row shows — the same field the PDP sends. The backend
     // merges holdings on card + printing + condition + grade, so a tray add
     // that omitted it could never merge with a PDP add of the same printing:
     // one Maui landed as "Normal" and the other as blank, two rows for one
-    // card (2026-09-10). Slabs keep taking it from their slab context.
-    variantName: capture.mode === 'slabs'
-      ? capture.slabContext?.variantName ?? null
+    // card (2026-09-10). Graded adds take it from their slab context.
+    variantName: isGraded
+      ? target.slabContext?.variantName ?? null
       : rawVariantLabel,
     wasTopPrediction: capture.activeCandidateIndex === 0,
   };
@@ -389,6 +416,8 @@ export type ScannerDevPreview = {
 type ScannerScreenProps = {
   devPreview?: ScannerDevPreview;
   onExitToPortfolio?: () => void;
+  /** Draws the solid JS tab bar below the viewfinder; omitted = full-bleed scanner. */
+  onSelectTab?: (tab: ScannerTabName) => void;
   onTopLevelSwipeEnabledChange?: (enabled: boolean) => void;
 };
 
@@ -527,13 +556,15 @@ function scanPrintingRouteParam(
   selection: ScanPriceSheetSelection | null | undefined,
   candidate: CatalogSearchResult,
 ): { condition?: string; variant?: string } {
-  const variant = selection?.variantLabel ?? matchedVersionLabel(candidate);
+  const variant = selection?.variantLabel || matchedVersionLabel(candidate);
   const condition = selection?.conditionCode;
   return {
     ...(variant ? { variant } : {}),
     ...(condition ? { condition } : {}),
   };
 }
+
+type ScanRowGradingMenuKind = 'grader' | 'detail';
 
 type CaptureTrayRowProps = {
   capture: RecentCapture;
@@ -542,17 +573,98 @@ type CaptureTrayRowProps = {
   onDelete: (captureId: string) => void;
   onOpenCard: (captureId: string) => void | Promise<void>;
   onOpenChangeCardPicker: (captureId: string) => void;
-  onOpenRowMenu: (captureId: string, anchor: CaptureRowMenuAnchor) => void;
+  /** Row dropdowns: 'grader' (RAW/PSA/…) or 'detail' (condition, or grade). */
+  onOpenGradingMenu: (captureId: string, kind: ScanRowGradingMenuKind, anchor: CaptureRowMenuAnchor) => void;
   onShowPrice: (captureId: string) => void;
   selection: ScanPriceSheetSelection | null;
   /** The active candidate's printings; empty until the matrix lands (or none exist). */
   variants: readonly RawPricingMatrixVariant[];
-  onOpenPrintingMenu: (captureId: string, anchor: CaptureRowMenuAnchor) => void;
 };
 
 // Stable empty list: a fresh [] per render would break CaptureTrayRow's memo
 // for every row that has no printings yet.
 const emptyVariants: readonly RawPricingMatrixVariant[] = [];
+
+type MeasurableNode = {
+  measureInWindow?: (callback: (x: number, y: number, width: number, height: number) => void) => void;
+} | null;
+
+/*
+  A ROW DROPDOWN MUST NOT DEPEND ON measureInWindow CALLING BACK. Opening only
+  inside the measure callback read as a DEAD button when it never fires
+  (Android inside a Swipeable). Measure via the REF — gesture-handler's
+  Pressable event carries no `currentTarget` — and if it has not answered
+  within a beat, open anyway at the TAP POINT, which lies inside the trigger.
+*/
+function openFromRowTrigger(
+  node: MeasurableNode,
+  event: { nativeEvent?: { pageX?: number; pageY?: number } } | undefined,
+  open: (anchor: CaptureRowMenuAnchor) => void,
+) {
+  const { pageX = 0, pageY = 0 } = event?.nativeEvent ?? {};
+  let opened = false;
+  const openOnce = (anchor: CaptureRowMenuAnchor) => {
+    if (!opened) {
+      opened = true;
+      open(anchor);
+    }
+  };
+  if (node && typeof node.measureInWindow === 'function') {
+    node.measureInWindow((x, y, width, height) => {
+      openOnce({ height, width, x, y });
+    });
+  }
+  setTimeout(() => openOnce({ height: 0, width: 0, x: pageX, y: pageY }), 50);
+}
+
+// Figma 6145:5621 chevron: 10.5x6, drawn rather than an icon so the glyph
+// keeps its size without a 24pt icon box.
+function TrayRowChevron() {
+  return (
+    <Svg height={6} viewBox="0 0 10.5 6" width={10.5}>
+      <Path
+        d="M0.75 0.75L5.25 5.25L9.75 0.75"
+        fill="none"
+        stroke={colors.gray0}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+      />
+    </Svg>
+  );
+}
+
+function TrayRowDropdown({
+  accessibilityLabel,
+  label,
+  onOpen,
+  testID,
+}: {
+  accessibilityLabel: string;
+  label: string;
+  onOpen: (anchor: CaptureRowMenuAnchor) => void;
+  testID: string;
+}) {
+  const triggerRef = useRef<View>(null);
+  return (
+    <ArenaPressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      hitSlop={8}
+      onPress={(event) => {
+        openFromRowTrigger(triggerRef.current as unknown as MeasurableNode, event, onOpen);
+      }}
+      ref={triggerRef}
+      style={({ pressed }) => [styles.captureDropdown, pressed ? styles.captureDropdownPressed : null]}
+      testID={testID}
+    >
+      <Text numberOfLines={1} style={styles.captureDropdownLabel} testID={`${testID}-label`}>
+        {label}
+      </Text>
+      <TrayRowChevron />
+    </ArenaPressable>
+  );
+}
 
 // One scan-tray row, extracted from the screen render and memoized: each row
 // carries a CachedImage thumb, a gesture-handler Swipeable and a Reanimated
@@ -564,6 +676,10 @@ const emptyVariants: readonly RawPricingMatrixVariant[] = [];
 // row now only re-renders when ITS capture / price selection changes. No
 // position-derived props: captures are prepended, so an index would change for
 // every row on every scan.
+//
+// Layout per Figma 6145:5621: thumb (swap badge opens the change picker) ·
+// name / number · set over the grading + condition/grade dropdowns · price
+// over a plain ADD that files straight into the collection.
 const CaptureTrayRow = memo(function CaptureTrayRow({
   capture,
   onActionRailVisibilityChange,
@@ -571,50 +687,37 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
   onDelete,
   onOpenCard,
   onOpenChangeCardPicker,
-  onOpenRowMenu,
+  onOpenGradingMenu,
   onShowPrice,
-  onOpenPrintingMenu,
   selection,
-  variants,
 }: CaptureTrayRowProps) {
   const theme = useSpotlightTheme();
-  // Anchor for the row ADD menu — measured by ref because the arena Pressable's
-  // press event carries no `currentTarget` to measure.
-  const addPillRef = useRef<View>(null);
-  const printingPillRef = useRef<View>(null);
   const candidate = activeCandidateForCapture(capture);
   const canCycleCandidate = !!candidate && capture.candidates.length > 1;
   // Shared with the tray header TOTAL (`trayPriceSummary`) so the rows and the
   // number a dealer prices a stack off can never drift apart.
   const { amount: displayMarketPrice, currencyCode } = resolveCaptureTrayPrice(capture, selection);
-  // A raw row's printings ARE its subtitle: the chips replace the old "RAW"
-  // tag outright, and tapping one reprices the row, the tray TOTAL and what
-  // gets added. Until the printings land the row simply has no third line.
-  // Slabs keep their grade label — a slab has no printing to pick.
-  const activeVariantKey = selection?.variantKey ?? variants[0]?.variantKey ?? null;
-  const activeVariantLabel = variants.find((entry) => entry.variantKey === activeVariantKey)?.variant
-    ?? selection?.variantLabel
-    ?? null;
-  const showPrintingPicker = capture.mode === 'raw' && variants.length > 0;
-  // The matched art version (e.g. "Special Alt Art") drives the thumb and is
-  // named after the number — unless the printing link below already says it.
-  const rowPrintingLabel = capture.mode === 'raw' ? selection?.variantLabel ?? null : null;
+  const grading = effectiveScanRowGrading(capture, selection);
+  // The printing the price assumes (picked on the PDP / binder, or the matched
+  // art version); empty = none chosen.
+  const rowPrintingLabel = capture.mode === 'raw' ? selection?.variantLabel || null : null;
   const versionLabel = capture.mode === 'raw' ? versionLabelForPrinting(candidate, rowPrintingLabel) : null;
-  const versionInPicker = showPrintingPicker && printingLabelsMatch(versionLabel, activeVariantLabel);
-  const setAndNumberLine = candidate
-    ? [candidate.setName, cardNumberWithVersion(candidate.cardNumber, versionInPicker ? null : versionLabel)]
+  const numberAndSetLine = candidate
+    ? [cardNumberWithVersion(candidate.cardNumber, versionLabel), candidate.setName]
       .filter(Boolean)
       .join(' · ')
     : '';
   const thumbUri = scannerCaptureThumbUri(capture, candidate, rowPrintingLabel);
-  const modeTagLine = capture.mode === 'slabs'
-    ? scannerSlabInlineLabel(capture) || 'GRADED'
-    : null;
-  // When the shown price is a graded slab comp (card has no raw price), tag it
-  // so "$24,824" reads as "$24,824  PSA 10", not the ungraded value.
-  const gradedReferenceLabel = candidate?.priceIsGradedReference
+  // When the shown RAW price is a graded slab comp (card has no raw price), tag
+  // it so "$24,824" reads as "$24,824  PSA 10", not the ungraded value.
+  const gradedReferenceLabel = candidate?.priceIsGradedReference && !grading.grader
     ? candidate.gradedReferenceLabel
     : null;
+  const graderLabel = grading.grader ?? 'RAW';
+  const detailLabel = grading.grader
+    ? grading.grade ?? 'GRADE'
+    : conditionShortLabelFor(selection?.conditionCode);
+  const showDropdowns = !!candidate && !capture.isLoadingCandidates && !capture.binderPage?.empty;
   return (
     <RecentCaptureSwipeRow
       actionRailKey={capture.id}
@@ -624,56 +727,58 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
       testID={`scanner-tray-swipe-${capture.id}`}
     >
       <View style={styles.captureRow} testID={`scanner-tray-row-${capture.id}`}>
-        <View style={styles.captureLeftGroup}>
-          <View style={styles.captureThumbColumn}>
+        <View style={styles.captureThumbWrap}>
+          <ArenaPressable
+            accessibilityLabel={canCycleCandidate ? 'Change match' : undefined}
+            accessibilityRole={canCycleCandidate ? 'button' : undefined}
+            disabled={!canCycleCandidate}
+            onPress={canCycleCandidate ? () => onOpenChangeCardPicker(capture.id) : undefined}
+          >
+            {thumbUri ? (
+              <CachedImage
+                cachePolicy={imageCachePolicy.thumbnail}
+                // Keep the scan's own normalized crop on screen while the
+                // matched card's art downloads (slow networks showed a blank
+                // thumb during the swap), with a soft crossfade when it lands.
+                placeholder={capture.normalizedImageUri ? { uri: capture.normalizedImageUri } : undefined}
+                placeholderContentFit="cover"
+                // Pin this image view to its capture id so expo-image never
+                // reuses a decoded bitmap across rows during rapid burst
+                // updates (a stale-decode display path that can show one row's
+                // photo on another). Belt-and-suspenders alongside the
+                // synchronous capture lock.
+                recyclingKey={capture.id}
+                style={styles.captureThumb}
+                testID={`scanner-tray-image-${capture.id}`}
+                transition={120}
+                uri={thumbUri}
+              />
+            ) : (
+              <View style={styles.captureThumb} testID={`scanner-tray-image-${capture.id}`} />
+            )}
+          </ArenaPressable>
+          {canCycleCandidate ? (
             <ArenaPressable
-              accessibilityLabel={canCycleCandidate ? 'Change match' : undefined}
-              accessibilityRole={canCycleCandidate ? 'button' : undefined}
-              disabled={!canCycleCandidate}
-              onPress={canCycleCandidate ? () => onOpenChangeCardPicker(capture.id) : undefined}
+              accessibilityLabel="Change match"
+              accessibilityRole="button"
+              hitSlop={10}
+              onPress={() => {
+                onOpenChangeCardPicker(capture.id);
+              }}
+              style={({ pressed }) => [
+                styles.captureSwapBadge,
+                pressed ? styles.captureSwapBadgePressed : null,
+              ]}
+              testID={`scanner-tray-change-${capture.id}`}
             >
-              {thumbUri ? (
-                <CachedImage
-                  cachePolicy={imageCachePolicy.thumbnail}
-                  // Keep the scan's own normalized crop on screen while the
-                  // matched card's art downloads (slow networks showed a blank
-                  // thumb during the swap), with a soft crossfade when it lands.
-                  placeholder={capture.normalizedImageUri ? { uri: capture.normalizedImageUri } : undefined}
-                  placeholderContentFit="cover"
-                  // Pin this image view to its capture id so expo-image never
-                  // reuses a decoded bitmap across rows during rapid burst
-                  // updates (a stale-decode display path that can show one row's
-                  // photo on another). Belt-and-suspenders alongside the
-                  // synchronous capture lock.
-                  recyclingKey={capture.id}
-                  style={styles.captureThumb}
-                  testID={`scanner-tray-image-${capture.id}`}
-                  transition={120}
-                  uri={thumbUri}
-                />
-              ) : (
-                <View style={styles.captureThumb} testID={`scanner-tray-image-${capture.id}`} />
-              )}
+              <View style={styles.captureSwapGlyph}>
+                <IconArrowsExchange color={colors.gray0} size={10.8} strokeWidth={2.4} />
+              </View>
             </ArenaPressable>
-            {canCycleCandidate ? (
-              <ArenaPressable
-                accessibilityLabel="Change match"
-                accessibilityRole="button"
-                hitSlop={6}
-                onPress={() => {
-                  onOpenChangeCardPicker(capture.id);
-                }}
-                style={({ pressed }) => [
-                  styles.captureChangeChip,
-                  pressed ? styles.captureChangeChipPressed : null,
-                ]}
-                testID={`scanner-tray-change-${capture.id}`}
-              >
-                <Text style={styles.captureChangeLabel}>CHANGE</Text>
-              </ArenaPressable>
-            ) : null}
-          </View>
+          ) : null}
+        </View>
 
+        <View style={styles.captureCopyColumn}>
           <ArenaPressable
             accessibilityLabel={candidate
               ? `Open ${capture.mode === 'slabs'
@@ -711,65 +816,9 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                   <Text numberOfLines={1} style={styles.captureTitle}>
                     {candidate.name}
                   </Text>
-                  {setAndNumberLine ? (
+                  {numberAndSetLine ? (
                     <Text numberOfLines={1} style={styles.captureSubtitle}>
-                      {setAndNumberLine}
-                    </Text>
-                  ) : null}
-                  {showPrintingPicker ? (
-                    // The printing the price assumes, as a purple text link
-                    // rather than a filled pill — a tray row already carries
-                    // the CHANGE and ADD chips, and a third filled shape read
-                    // as another button. Tapping opens the list of this card's
-                    // other printings; picking one reprices the row, the tray
-                    // TOTAL and what gets added.
-                    <ArenaPressable
-                      accessibilityHint="Opens this card's other printings"
-                      accessibilityLabel={`Printing: ${activeVariantLabel ?? 'Default'}`}
-                      accessibilityRole="button"
-                      hitSlop={6}
-                      onPress={(event) => {
-                        const { pageX = 0, pageY = 0 } = event?.nativeEvent ?? {};
-                        let opened = false;
-                        const open = (anchor: CaptureRowMenuAnchor) => {
-                          if (!opened) {
-                            opened = true;
-                            onOpenPrintingMenu(capture.id, anchor);
-                          }
-                        };
-                        const node = printingPillRef.current as unknown as {
-                          measureInWindow?: (
-                            callback: (x: number, y: number, width: number, height: number) => void,
-                          ) => void;
-                        } | null;
-                        if (node && typeof node.measureInWindow === 'function') {
-                          node.measureInWindow((x, y, width, height) => {
-                            open({ height, width, x, y });
-                          });
-                        }
-                        // Android's measureInWindow can no-op inside a
-                        // Swipeable; the tap point is a good enough anchor.
-                        open({ height: 0, width: 0, x: pageX, y: pageY });
-                      }}
-                      ref={printingPillRef}
-                      style={({ pressed }) => [
-                        styles.capturePrintingPill,
-                        pressed ? styles.capturePrintingPillPressed : null,
-                      ]}
-                      testID={`scanner-tray-printing-${capture.id}`}
-                    >
-                      <Text
-                        numberOfLines={1}
-                        style={styles.capturePrintingLabel}
-                        testID={`scanner-tray-printing-${capture.id}-label`}
-                      >
-                        {(activeVariantLabel ?? 'Default').toUpperCase()}
-                      </Text>
-                      <IconChevronDown color={colors.purple500} size={14} strokeWidth={2.2} />
-                    </ArenaPressable>
-                  ) : modeTagLine ? (
-                    <Text numberOfLines={1} style={styles.captureSubtitle}>
-                      {modeTagLine.toUpperCase()}
+                      {numberAndSetLine}
                     </Text>
                   ) : null}
                   {capture.binderPage ? <PocketBadge binderPage={capture.binderPage} /> : null}
@@ -782,6 +831,25 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
               )}
             </View>
           </ArenaPressable>
+          {showDropdowns ? (
+            // Grading first, then what it is graded BY: a condition on RAW,
+            // a grade under a grader. Picking reprices the row, the tray
+            // TOTAL and what ADD files.
+            <View style={styles.captureDropdownRow}>
+              <TrayRowDropdown
+                accessibilityLabel={`Grading: ${graderLabel}`}
+                label={graderLabel}
+                onOpen={(anchor) => onOpenGradingMenu(capture.id, 'grader', anchor)}
+                testID={`scanner-tray-grader-${capture.id}`}
+              />
+              <TrayRowDropdown
+                accessibilityLabel={grading.grader ? `Grade: ${detailLabel}` : `Condition: ${detailLabel}`}
+                label={detailLabel}
+                onOpen={(anchor) => onOpenGradingMenu(capture.id, 'detail', anchor)}
+                testID={`scanner-tray-detail-${capture.id}`}
+              />
+            </View>
+          ) : null}
         </View>
 
         {candidate ? (
@@ -802,7 +870,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                   source={require('../../../../assets/images/tcgplayer-icon.png')}
                   style={styles.capturePriceLogo}
                 />
-                <Text style={styles.capturePriceValue}>
+                <Text style={styles.capturePriceValue} testID={`scanner-tray-price-${capture.id}-value`}>
                   {isFinitePrice(displayMarketPrice)
                     ? formatCurrency(displayMarketPrice, currencyCode)
                     : '—'}
@@ -819,54 +887,18 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
               </View>
             </ArenaPressable>
             <ArenaPressable
-              accessibilityLabel={`Add ${candidate.name}`}
+              accessibilityLabel={`Add ${candidate.name} to collection`}
               accessibilityRole="button"
+              disabled={capture.isLoadingCandidates || capture.isAddingToInventory}
               hitSlop={6}
-              onPress={(event) => {
-                /*
-                  ─────────────────────────────────────────────────────────────
-                  THE MENU MUST NOT DEPEND ON measureInWindow CALLING BACK
-                  ─────────────────────────────────────────────────────────────
-                  Opening only inside the measure callback made this button read
-                  as DEAD when the callback never fires — a flake this file
-                  already guards against on the ADD ALL trigger. Measure via the
-                  REF (gesture-handler's Pressable event carries no
-                  `currentTarget`), and if it has not answered within a beat,
-                  open anyway anchored at the TAP POINT, which lies inside the
-                  pill — the dropdown lands within a few px of the real box.
-                */
-                const { pageX = 0, pageY = 0 } = event.nativeEvent ?? {};
-                let opened = false;
-                const open = (anchor: { x: number; y: number; width: number; height: number }) => {
-                  if (!opened) {
-                    opened = true;
-                    onOpenRowMenu(capture.id, anchor);
-                  }
-                };
-                const node = addPillRef.current as unknown as {
-                  measureInWindow?: (
-                    callback: (x: number, y: number, width: number, height: number) => void,
-                  ) => void;
-                } | null;
-                if (node && typeof node.measureInWindow === 'function') {
-                  node.measureInWindow((x, y, width, height) => {
-                    open({ height, width, x, y });
-                  });
-                }
-                setTimeout(() => open({ height: 0, width: 0, x: pageX, y: pageY }), 50);
-              }}
-              ref={addPillRef}
+              onPress={() => onAddToCollection(capture.id)}
               style={({ pressed }) => [
                 styles.captureAddPill,
                 pressed ? styles.captureAddPillPressed : null,
               ]}
               testID={`scanner-tray-add-${capture.id}`}
             >
-              <Text style={styles.captureAddPillLabel}>ADD ITEM</Text>
-              {/* Real chevron glyph (Figma 1874:13192) — the old "▾" text
-                  triangle read as a down ARROW. Sized 16 per the newer footer
-                  spec (3594:26000). */}
-              <IconChevronDown color={colors.gray0} size={16} strokeWidth={2} />
+              <Text style={styles.captureAddPillLabel}>ADD</Text>
             </ArenaPressable>
           </View>
         ) : null}
@@ -984,6 +1016,86 @@ function MatchedPrintingDefaults({
   return null;
 }
 
+// The optimistic Collection row for a tray add, filed the way the row's
+// dropdowns say (see scanRowInventoryTarget).
+function optimisticOptionsFor(
+  capture: RecentCapture,
+  selection: ScanPriceSheetSelection | null | undefined,
+  printingLabel: string | null,
+) {
+  const target = scanRowInventoryTarget(capture, selection);
+  return {
+    conditionCode: target.conditionCode,
+    marketPrice: selection?.grading?.grader ? resolveCaptureTrayPrice(capture, selection).amount : undefined,
+    mode: target.mode,
+    printingLabel,
+    slabContext: target.slabContext,
+  };
+}
+
+// Fills in the graded price for rows whose grader dropdown is on a grade
+// (picked now, or restored from disk before its price landed). One stored-price
+// read per card + grader — `GET /cards/:id/price-trends?mode=graded&grader=`,
+// SQLite only, no provider call — shared through the PDP's lane cache, and
+// every grade of that grader comes back in it. No USD price leaves "—".
+function GradedRowPrices({
+  spotlightRepository,
+  trayStore,
+}: {
+  spotlightRepository: Parameters<typeof getCardPriceTrendsCached>[0];
+  trayStore: TrayStore;
+}) {
+  const priceSelections = useTraySelector(trayStore, selectTrayPriceSelections);
+  const inFlightRef = useRef(new Set<string>());
+  useEffect(() => {
+    priceSelections.forEach((selection, captureId) => {
+      const grading = selection.grading;
+      if (!grading?.grader || grading.marketPrice !== undefined) {
+        return;
+      }
+      const capture = trayStore.getState().byId.get(captureId);
+      const candidate = capture ? activeCandidateForCapture(capture) : null;
+      if (!candidate) {
+        return;
+      }
+      const { cardId } = candidate;
+      const { grader } = grading;
+      const grade = grading.grade ?? SCAN_ROW_DEFAULT_GRADE;
+      const key = `${captureId}|${cardId}|${grader}|${grade}`;
+      if (inFlightRef.current.has(key)) {
+        return;
+      }
+      inFlightRef.current.add(key);
+      void getCardPriceTrendsCached(spotlightRepository, cardId, { grader, mode: 'graded', variant: null })
+        .then((list) => gradedPriceFromTrendRows(list?.rows, grader, grade), () => null)
+        .then((price) => {
+          inFlightRef.current.delete(key);
+          trayStore.setPriceSelections((current) => {
+            const live = current.get(captureId);
+            const liveGrading = live?.grading;
+            const liveCapture = trayStore.getState().byId.get(captureId);
+            const liveCandidate = liveCapture ? activeCandidateForCapture(liveCapture) : null;
+            // Only the pick (and card) this read was for; a newer pick re-reads.
+            if (
+              !live
+              || !liveGrading
+              || liveGrading.grader !== grader
+              || !sameGrade(liveGrading.grade ?? SCAN_ROW_DEFAULT_GRADE, grade)
+              || liveGrading.marketPrice !== undefined
+              || liveCandidate?.cardId !== cardId
+            ) {
+              return current;
+            }
+            const next = new Map(current);
+            next.set(captureId, { ...live, grading: { ...liveGrading, marketPrice: price } });
+            return next;
+          });
+        });
+    });
+  }, [priceSelections, spotlightRepository, trayStore]);
+  return null;
+}
+
 // Screen-level tray selectors. Module scope so their identity is stable and
 // `useTraySelector` only recomputes when the tray itself changes.
 const selectTrayItems = (state: TrayState) => state.items;
@@ -998,11 +1110,11 @@ const selectBulkEligibleCount = (state: TrayState) => state.items.filter(
   (capture) => !capture.isLoadingCandidates && !capture.recentlyAdded && activeCandidateForCapture(capture) != null,
 ).length;
 // One matrix read per distinct card in the tray, through the shared cache.
-// Raw rows only — a slab's price comes from its grade, not a printing.
+// Slab rows too: their RAW pick prices off the matrix's conditions.
 const selectTrayVariantCardIds = (state: TrayState) => {
   const ids = new Set<string>();
   state.items.forEach((capture) => {
-    if (capture.mode !== 'raw' || capture.isLoadingCandidates) {
+    if (capture.isLoadingCandidates) {
       return;
     }
     const candidate = activeCandidateForCapture(capture);
@@ -1018,6 +1130,7 @@ const selectNoPriceSelections = () => emptyPriceSelections;
 export function ScannerScreen({
   devPreview,
   onExitToPortfolio,
+  onSelectTab,
   onTopLevelSwipeEnabledChange,
 }: ScannerScreenProps = {}) {
   const isTestEnv = process.env.NODE_ENV === 'test';
@@ -1027,7 +1140,7 @@ export function ScannerScreen({
   const router = useRouter();
   // Guest gating: capture stays open, but tray/collection/wishlist/eBay/etc.
   // actions route guests to the login modal instead of running.
-  const { ensureGuestSession, gate, isGuest, openLogin } = useGuestGate();
+  const { ensureGuestSession, gate, isGuest } = useGuestGate();
   const {
     dataVersion,
     refreshData,
@@ -1241,10 +1354,12 @@ export function ScannerScreen({
   const [customDiscountOpen, setCustomDiscountOpen] = useState(false);
   const [discountMenuAnchor, setDiscountMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const totalPillRef = useRef<View>(null);
-  const [printingMenuCaptureId, setPrintingMenuCaptureId] = useState<string | null>(null);
-  const [printingMenuAnchor, setPrintingMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
-  const [rowMenuCaptureId, setRowMenuCaptureId] = useState<string | null>(null);
-  const [rowMenuAnchor, setRowMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  // The tray row dropdown that is open: which row, which of its two menus.
+  const [gradingMenu, setGradingMenu] = useState<{
+    anchor: CaptureRowMenuAnchor;
+    captureId: string;
+    kind: ScanRowGradingMenuKind;
+  } | null>(null);
   const addAllTriggerRef = useRef<View | null>(null);
   const lastBulkActionRef = useRef<AddAllMenuAction>('collection');
   // Capitals like every other scanner label (user, 2026-10-19).
@@ -1425,18 +1540,22 @@ export function ScannerScreen({
     `initialWindowMetrics` is read from native constants at startup and describes
     the WINDOW: the home indicator alone, never a tab bar, and it never changes
     while the scanner is up (this screen is portrait-locked). The tray therefore
-    lays out once, in its final place. Every render site of this screen is a
-    full-bleed scanner with no bottom bar of its own, so the window inset is the
-    correct number in all of them.
+    lays out once, in its final place. The same window inset sizes the JS tab
+    bar's bottom padding when one is drawn.
 
     Falls back to the hook when the constant is unavailable (web, and the test
     renderer, where the inset is mocked anyway).
+
+    WITH THE JS TAB BAR (`onSelectTab`): the bar is a sibling BELOW the capture
+    surface and owns the home-indicator inset, so the surface (camera, reticle,
+    tray) is that much shorter and the tray only needs the Figma 24 between its
+    row and the bar (6145:5621).
   */
-  const trayBottomInset = (initialWindowMetrics?.insets.bottom ?? insets.bottom) + 14;
+  const windowBottomInset = initialWindowMetrics?.insets.bottom ?? insets.bottom;
+  const tabBarHeight = onSelectTab ? getScannerTabBarHeight(windowBottomInset) : 0;
+  const scannerContainerHeight = windowHeight - tabBarHeight;
+  const trayBottomInset = onSelectTab ? spacing.lg : windowBottomInset + 14;
   const collapsedTrayReservedHeight = getRawScannerCollapsedTrayReservedHeight({
-    bottomInset: trayBottomInset,
-  });
-  const emptyTrayVisualHeight = getRawScannerEmptyTrayVisualHeight({
     bottomInset: trayBottomInset,
   });
   // 9-card page mode reserves the same footer as single mode: the collapsed
@@ -1452,7 +1571,7 @@ export function ScannerScreen({
     ? rawScannerTrayHeaderHeight + trayBottomInset
     : collapsedTrayReservedHeight;
   const captureSurfaceLayout = makeRawScannerCaptureLayout({
-    containerHeight: windowHeight,
+    containerHeight: scannerContainerHeight,
     containerWidth: windowWidth,
     // Page mode widens the reticle to the full usable width: it is the page
     // detector, so its width sets every pocket crop's resolution.
@@ -1461,6 +1580,9 @@ export function ScannerScreen({
     safeAreaTop: insets.top,
     trayReservedHeight: footerReservedHeight,
   });
+  // The purple frame the zoom/layout column sits inside — same rect the
+  // capture surface strokes (the page grid in binder mode).
+  const controlsFrameRect = isBinderPageMode ? captureSurfaceLayout.captureCropRect : captureSurfaceLayout.reticle;
   // Card-shaped crop (not the squatter visible frame) so the normalized target
   // keeps the true card aspect with no stretch.
   reticleSnapshotRef.current = {
@@ -1510,7 +1632,7 @@ export function ScannerScreen({
   // toggle. That mass mount/unmount on every swipe was crashing the tray.
   const trayExpandedBodyHeight = alignToFourPointGrid(
     Math.max(
-      Math.round(windowHeight * 0.85) - rawScannerTrayHeaderHeight - trayBottomInset,
+      Math.round(scannerContainerHeight * 0.85) - rawScannerTrayHeaderHeight - trayBottomInset,
       272,
     ),
   );
@@ -3548,65 +3670,6 @@ export function ScannerScreen({
     setActiveBinderPageId(null);
   }, []);
 
-  // Backs the row's "WISHLIST" pill (Figma 1511:4096). Favorites the active
-  // candidate, then slides the row out of the tray exactly like the swipe-rail
-  // Collection action: optimistically flip the pill to "WISHLISTED", persist,
-  // and on success schedule `removeCaptureAfterAdd` after the same brief
-  // confirmation so the row plays its reanimated left-slide + fade exit. A
-  // failed write reverts the flip and keeps the row in the tray.
-  const handleRowWishlist = useCallback(async (captureId: string) => {
-    const capture = recentCapturesRef.current.find((entry) => entry.id === captureId);
-    const candidate = capture ? activeCandidateForCapture(capture) : null;
-    if (!capture || !candidate) {
-      return;
-    }
-    const { cardId } = candidate;
-    // Watch the printing the row shows (same field a Collection add sends).
-    const variant = watchVariantForCapture(capture, candidate);
-
-    // Instant feedback: flip the pill to WISHLISTED before the network settles.
-    trayStore.setItems((current) => withUpdatedCaptureFavoriteState(current, cardId, true));
-
-    let didSucceed = false;
-    try {
-      const watched = await spotlightRepository.setCardFavorite(cardId, true, { variant });
-      watchlistStore.applyWatchWrite(
-        { ...watched, watchVariant: watched.watchVariant ?? variant ?? null },
-        watchlistCardBasicsFromSearchResult(candidate),
-      );
-      setInventoryEntries((current) => withUpdatedInventoryFavoriteState(current, cardId, true));
-      refreshData();
-      didSucceed = true;
-      capturePostHogEvent(AnalyticsEvent.watchlistItemAdded, {
-        source: 'scanner',
-        kind: watchlistKindForCardId(cardId),
-        mode: capture.mode,
-        has_printing: variant != null,
-      });
-    } catch (error) {
-      logScannerDiagnostic(
-        `[SCANNER] wishlist add failed cardID=${cardId} message=${scannerErrorMessage(error)}`,
-        error,
-      );
-      // Revert the optimistic flip and leave the row in the tray to retry.
-      trayStore.setItems((current) => withUpdatedCaptureFavoriteState(current, cardId, false));
-    }
-
-    if (didSucceed) {
-      const existingTimer = recentlyAddedTimersRef.current.get(captureId);
-      if (existingTimer) {
-        clearTimeout(existingTimer);
-      }
-      // Show the "WISHLISTED" confirmation briefly, then drop the row — its
-      // reanimated exit plays the left-slide + fade (same as a collection add).
-      const timerId = setTimeout(() => {
-        recentlyAddedTimersRef.current.delete(captureId);
-        removeCaptureAfterAdd(captureId);
-      }, addedConfirmationDurationMs);
-      recentlyAddedTimersRef.current.set(captureId, timerId);
-    }
-  }, [refreshData, removeCaptureAfterAdd, spotlightRepository, trayStore, watchVariantForCapture, watchlistStore]);
-
   const handleAddToInventory = useCallback(async (captureId: string) => {
     const capture = recentCapturesRef.current.find((candidate) => candidate.id === captureId);
     const activeCandidate = capture ? activeCandidateForCapture(capture) : null;
@@ -3622,31 +3685,39 @@ export function ScannerScreen({
     });
 
     const addedAt = new Date().toISOString();
+    const selection = priceSelectionRef.current.get(capture.id) ?? null;
+    const target = scanRowInventoryTarget(capture, selection);
+    // A grade pick's price is not the candidate's: carry what the row showed.
+    const addedMarketPrice = selection?.grading?.grader
+      ? resolveCaptureTrayPrice(capture, selection).amount
+      : undefined;
     let previousInventoryEntries: InventoryCardEntry[] = [];
     setInventoryEntries((current) => {
       previousInventoryEntries = current;
       return withOptimisticInventoryAdd(current, activeCandidate, addedAt, {
-        mode: capture.mode,
-        slabContext: capture.slabContext,
+        conditionCode: target.conditionCode,
+        marketPrice: addedMarketPrice,
+        mode: target.mode,
+        slabContext: target.slabContext,
       });
     });
 
     let didSucceed = false;
     try {
       trackRowResolved(capture, 'added');
-      const selectedCondition: DeckConditionCode = priceSelectionRef.current.get(capture.id)?.conditionCode ?? 'near_mint';
       const createResponse = await spotlightRepository.createInventoryEntry(
         buildInventoryEntryArgs(
           capture,
           activeCandidate,
           addedAt,
-          selectedCondition,
+          target,
           activeCollectionID,
           rawVariantLabelFor(capture, activeCandidate),
         ),
       );
       capturePostHogEvent('scan_inventory_add_succeeded', {
         mode: capture.mode,
+        grader: target.mode === 'slabs' ? target.slabContext?.grader ?? null : null,
       });
       didSucceed = true;
       maybeRequestReview('collection_add');
@@ -3661,8 +3732,10 @@ export function ScannerScreen({
           activeCandidate,
           createResponse.addedAt || addedAt,
           {
-            mode: capture.mode,
-            slabContext: capture.slabContext,
+            conditionCode: target.conditionCode,
+            marketPrice: addedMarketPrice,
+            mode: target.mode,
+            slabContext: target.slabContext,
             printingLabel: rawVariantLabelFor(capture, activeCandidate),
           },
           createResponse.deckEntryID,
@@ -3822,12 +3895,13 @@ export function ScannerScreen({
         return;
       }
 
+      // Each row files as its own dropdowns say (RAW + condition, or a grade).
       const entryArgsFor = ({ capture, candidate }: (typeof rows)[number]) =>
         buildInventoryEntryArgs(
           capture,
           candidate,
           addedAt,
-          selections.get(capture.id)?.conditionCode ?? ('near_mint' as DeckConditionCode),
+          scanRowInventoryTarget(capture, selections.get(capture.id)),
           activeCollectionID,
           rawVariantLabelFor(capture, candidate),
         );
@@ -3840,11 +3914,7 @@ export function ScannerScreen({
           buildOptimisticInventoryEntry(
             row.candidate,
             createdAt,
-            {
-              mode: row.capture.mode,
-              slabContext: row.capture.slabContext,
-              printingLabel: rawVariantLabelFor(row.capture, row.candidate),
-            },
+            optimisticOptionsFor(row.capture, selections.get(row.capture.id), rawVariantLabelFor(row.capture, row.candidate)),
             deckEntryID,
           ),
         );
@@ -3938,11 +4008,7 @@ export function ScannerScreen({
           buildOptimisticInventoryEntry(
             candidate,
             createdAddedAt || addedAt,
-            {
-              mode: capture.mode,
-              slabContext: capture.slabContext,
-              printingLabel: rawVariantLabelFor(capture, candidate),
-            },
+            optimisticOptionsFor(capture, selections.get(capture.id), rawVariantLabelFor(capture, candidate)),
             deckEntryID,
           ),
         );
@@ -3950,12 +4016,11 @@ export function ScannerScreen({
         succeeded += 1;
       };
       const entryArgs = (capture: RecentCapture, candidate: CatalogSearchResult) => {
-        const condition: DeckConditionCode = selections.get(capture.id)?.conditionCode ?? 'near_mint';
         return buildInventoryEntryArgs(
           capture,
           candidate,
           addedAt,
-          condition,
+          scanRowInventoryTarget(capture, selections.get(capture.id)),
           activeCollectionID,
           rawVariantLabelFor(capture, candidate),
         );
@@ -4080,16 +4145,6 @@ export function ScannerScreen({
     setAddAllMenuOpen(false);
     setAddAllConfirm(action);
   }, []);
-
-  // Per-row "ADD ▾" pick -> run the action immediately (no confirm sheet).
-  const handleRowMenuSelect = useCallback((action: AddAllMenuAction) => {
-    const captureId = rowMenuCaptureId;
-    setRowMenuCaptureId(null);
-    if (!captureId) return;
-    if (action === 'collection') handleRowAddToCollection(captureId);
-    else if (action === 'wishlist') void handleRowWishlist(captureId);
-    else if (action === 'remove') deleteRecentCapture(captureId);
-  }, [rowMenuCaptureId, handleRowAddToCollection, handleRowWishlist, deleteRecentCapture]);
 
   const handleAddAllConfirm = useCallback(() => {
     const action = addAllConfirm;
@@ -4259,26 +4314,30 @@ export function ScannerScreen({
     };
   }, [spotlightRepository, trayVariantCardIds]);
 
-  // A tray chip picks a PRINTING; the condition rides along, preferring the one
-  // the row already shows so switching printing never silently regrades it.
-  const handleSelectRowVariant = useCallback(
-    (captureId: string, variant: RawPricingMatrixVariant) => {
-      // Does anyone use the row's variant dropdown? It is the QoL control the
-      // tray was rebuilt around, and nothing measured whether it gets tapped.
-      capturePostHogEvent('scan_row_variant_changed', { variant: variant.variant });
-      const currentCondition = priceSelectionRef.current.get(captureId)?.conditionCode ?? 'near_mint';
-      const condition = variant.conditions.find(
-        (entry) => (conditionCodeToDeckCondition[entry.code] ?? 'near_mint') === currentCondition,
-      )
-        ?? variant.conditions.find((entry) => entry.code === 'NM')
-        ?? variant.conditions[0];
-      if (!condition) {
+  // A pick from a row's grading / condition-or-grade dropdown. The printing
+  // stays the row's own; a grade pick's price is filled in by GradedRowPrices.
+  const handleSelectRowGrading = useCallback(
+    (captureId: string, kind: ScanRowGradingMenuKind, key: string) => {
+      const capture = recentCapturesRef.current.find((entry) => entry.id === captureId);
+      if (!capture) {
         return;
       }
+      const candidate = activeCandidateForCapture(capture);
+      const variants = (candidate ? variantsRef.current.get(candidate.cardId) : null) ?? emptyVariants;
+      capturePostHogEvent('scan_row_grading_changed', { kind, value: key });
       trayStore.setPriceSelections((current) => {
-        const next = new Map(current);
-        next.set(captureId, buildScanPriceSelection(variant, condition.code, condition.market ?? null));
-        return next;
+        const previous = current.get(captureId) ?? null;
+        const next = applyScanRowGradingPick(capture, previous, variants, kind, key);
+        if (next === previous) {
+          return current;
+        }
+        const map = new Map(current);
+        if (next) {
+          map.set(captureId, next);
+        } else {
+          map.delete(captureId);
+        }
+        return map;
       });
     },
     [trayStore],
@@ -4463,29 +4522,22 @@ export function ScannerScreen({
     ],
   );
 
-  // No idle prompt: the reticle says where to aim, and "Tap to scan" sat over
-  // the card being framed. Only the two states that carry information — no
-  // camera permission, and a capture in flight — still put text on the
-  // viewfinder.
   const promptCopy = !hasCameraPermission
     ? 'Allow camera access to scan'
     : isCapturing
       ? 'Capturing scan...'
-      : (isBinderPageMode && binderPageLayout.hint) || '';
+      : (isBinderPageMode && binderPageLayout.hint) || 'Tap to scan';
 
   // Stable per-row callbacks so `CaptureTrayRow`'s memo can actually bail out.
   const handleShowRowPrice = useCallback((captureId: string) => {
     setActivePriceCaptureId(captureId);
   }, []);
-  const handleOpenPrintingMenu = useCallback((captureId: string, anchor: CaptureRowMenuAnchor) => {
-    setPrintingMenuAnchor(anchor);
-    setPrintingMenuCaptureId(captureId);
-  }, []);
-
-  const handleOpenRowMenu = useCallback((captureId: string, anchor: CaptureRowMenuAnchor) => {
-    setRowMenuAnchor(anchor);
-    setRowMenuCaptureId(captureId);
-  }, []);
+  const handleOpenGradingMenu = useCallback(
+    (captureId: string, kind: ScanRowGradingMenuKind, anchor: CaptureRowMenuAnchor) => {
+      setGradingMenu({ anchor, captureId, kind });
+    },
+    [],
+  );
 
   // `gate()` returns a FRESH closure per call, so calling it inline in the row
   // props handed every CaptureTrayRow four new functions on every render and
@@ -4495,7 +4547,7 @@ export function ScannerScreen({
   const gatedRowDelete = useMemo(() => gate(deleteRecentCapture), [deleteRecentCapture, gate]);
   const gatedOpenChangeCardPicker = useMemo(() => gate(openChangeCardPicker), [gate, openChangeCardPicker]);
   const gatedShowRowPrice = useMemo(() => gate(handleShowRowPrice), [gate, handleShowRowPrice]);
-  const gatedOpenPrintingMenu = useMemo(() => gate(handleOpenPrintingMenu), [gate, handleOpenPrintingMenu]);
+  const gatedOpenGradingMenu = useMemo(() => gate(handleOpenGradingMenu), [gate, handleOpenGradingMenu]);
 
   // Binder page review props, stable across tray updates that don't touch the
   // reviewed page (other pockets landing, unrelated rows).
@@ -4545,21 +4597,19 @@ export function ScannerScreen({
       onDelete={gatedRowDelete}
       onOpenCard={handleOpenCard}
       onOpenChangeCardPicker={gatedOpenChangeCardPicker}
-      onOpenRowMenu={handleOpenRowMenu}
+      onOpenGradingMenu={gatedOpenGradingMenu}
       onShowPrice={gatedShowRowPrice}
-      onOpenPrintingMenu={gatedOpenPrintingMenu}
       trayStore={trayStore}
       variantsByCardId={variantsByCardId}
     />
   ), [
     gatedOpenChangeCardPicker,
-    gatedOpenPrintingMenu,
+    gatedOpenGradingMenu,
     gatedRowAddToCollection,
     gatedRowDelete,
     gatedShowRowPrice,
     handleCaptureActionRailVisibilityChange,
     handleOpenCard,
-    handleOpenRowMenu,
     trayStore,
     variantsByCardId,
   ]);
@@ -4623,8 +4673,25 @@ export function ScannerScreen({
   // rows changing never re-render the screen for them.
   const activePriceCapture = useTrayCapture(trayStore, activePriceCaptureId);
   const activePriceSelection = useTrayPriceSelection(trayStore, activePriceCaptureId);
-  const printingMenuCapture = useTrayCapture(trayStore, printingMenuCaptureId);
-  const printingMenuSelection = useTrayPriceSelection(trayStore, printingMenuCaptureId);
+  const gradingMenuCapture = useTrayCapture(trayStore, gradingMenu?.captureId ?? null);
+  const gradingMenuSelection = useTrayPriceSelection(trayStore, gradingMenu?.captureId ?? null);
+  const gradingMenuState = gradingMenuCapture
+    ? effectiveScanRowGrading(gradingMenuCapture, gradingMenuSelection)
+    : null;
+  const gradingMenuOptions = !gradingMenu
+    ? []
+    : gradingMenu.kind === 'grader'
+      ? scanRowGraderOptions
+      : gradingMenuState?.grader
+        ? scanRowGradeOptions
+        : scanRowConditionOptions;
+  const gradingMenuSelectedKey = !gradingMenu || !gradingMenuState
+    ? null
+    : gradingMenu.kind === 'grader'
+      ? gradingMenuState.grader ?? SCAN_ROW_RAW_KEY
+      : gradingMenuState.grader
+        ? scanRowGradeOptions.find((option) => sameGrade(option.key, gradingMenuState.grade))?.key ?? null
+        : conditionMatrixCode(gradingMenuSelection?.conditionCode);
   const changeCapture = useTrayCapture(trayStore, activeChangeCaptureId);
   const changeCaptureSelection = useTrayPriceSelection(trayStore, activeChangeCaptureId);
   const trayScanCount = useTraySelector(trayStore, selectTrayScanCount);
@@ -4638,6 +4705,7 @@ export function ScannerScreen({
         trayStore={trayStore}
       />
       <MatchedPrintingDefaults trayStore={trayStore} variantsByCardId={variantsByCardId} />
+      <GradedRowPrices spotlightRepository={spotlightRepository} trayStore={trayStore} />
       {isActiveTab ? <ScannerKeepAwake /> : null}
       <RawScannerCaptureSurface
         cameraRef={cameraRef}
@@ -4871,66 +4939,21 @@ export function ScannerScreen({
           <View
             pointerEvents="box-none"
             style={[
-              styles.controlsRow,
-              // Sit 16px above the scan tray (Figma 1180-1278): anchored to the
-              // tray's top edge — taller collapsed tray once a scan exists, the
-              // shorter empty peek otherwise — rather than pinned under the reticle.
+              styles.controlsColumn,
+              // Inside the frame's bottom-right corner (Figma 6145:5621 "Zoom
+              // Controls"): zoom factors stacked 2x / 1.5x / 1x, the layout
+              // dropdown under them. Derived from the frame rect, so it follows
+              // the reticle in every mode and tray state.
               {
-                left: 16,
-                right: 16,
-                bottom: (trayCount > 0 ? footerReservedHeight : emptyTrayVisualHeight) + 16,
+                bottom: scannerContainerHeight - (controlsFrameRect.y + controlsFrameRect.height) + spacing.xs,
+                right: windowWidth - (controlsFrameRect.x + controlsFrameRect.width) + spacing.sm,
               },
             ]}
           >
-            {/*
-              Single ↔ 3×3 (binder page) toggle: one pill, tap to flip. It
-              always shows the CURRENT mode, so it always sits highlighted on
-              the same light glass chip as the selected zoom factor beside it —
-              glass on iOS 26, solid white elsewhere (see `ScanTargetPill` for
-              why the scheme is pinned rather than `auto`).
-            */}
-            {/*
-              MULTI-SCAN IS ON EVERYWHERE NOW. It was `__DEV__ || staging` while
-              production had neither the binder endpoints nor the per-game
-              visual indexes; both landed on 2026-09-12, so the gate was
-              describing a gap that no longer exists.
-            */}
-            <Pressable
-              accessibilityLabel={isBinderPageMode ? `${binderPageLayout.label}: a whole binder page at once. Change scan mode` : 'Scanning single cards. Change scan mode'}
-              accessibilityRole="button"
-              accessibilityState={{ selected: isBinderPageMode }}
-              hitSlop={6}
-              onPress={gate(handleOpenBinderLayoutMenu)}
-              ref={binderLayoutTriggerRef}
-              style={styles.binderModePill}
-              testID="scanner-binder-mode-toggle"
-            >
-              {/* Glass fills the pill behind the in-flow label (the label
-                  keeps sizing the pill; zoom pills can nest theirs because
-                  they're fixed-width circles). */}
-              <GlassSurface
-                // The SCAN/TOTAL pill recipe: light frost with a white tint
-                // floor + dark label. Untinted glass vanished over dark
-                // scenes (2026-09-04); solid gray0 on fallback targets.
-                fallbackColor={colors.gray0}
-                glassColorScheme="light"
-                glassEffectStyle="regular"
-                glassTintColor={colors.frostTint}
-                pointerEvents="none"
-                style={styles.binderModePillSurface}
-                testID="scanner-binder-mode-toggle-surface"
-              />
-              <View style={styles.binderModePillContent}>
-                <Text style={styles.binderModePillLabel}>
-                  {(isBinderPageMode ? binderPageLayout.label : 'Single').toUpperCase()}
-                </Text>
-                <IconChevronDown color={colors.gray900} size={14} strokeWidth={2.2} />
-              </View>
-            </Pressable>
             {/* Zoom is meaningless for a whole page; hiding it also frees the band for the reticle. */}
             {isBinderPageMode ? null : (
             <View style={styles.zoomDock} testID="scanner-zoom-control">
-              {SCANNER_ZOOM_FACTORS.map((factor) => {
+              {[...SCANNER_ZOOM_FACTORS].reverse().map((factor) => {
                 const selected = factor === zoomFactor;
                 return (
                   <Pressable
@@ -4977,6 +5000,26 @@ export function ScannerScreen({
               })}
             </View>
             )}
+            {/*
+              Layout dropdown (Single / binder page sizes): plain white text +
+              chevron under the zoom stack, no chip (Figma 6312:7357). It shows
+              the CURRENT mode and opens `BinderLayoutMenu`.
+            */}
+            <Pressable
+              accessibilityLabel={isBinderPageMode ? `${binderPageLayout.label}: a whole binder page at once. Change scan mode` : 'Scanning single cards. Change scan mode'}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isBinderPageMode }}
+              hitSlop={8}
+              onPress={gate(handleOpenBinderLayoutMenu)}
+              ref={binderLayoutTriggerRef}
+              style={styles.binderModeTrigger}
+              testID="scanner-binder-mode-toggle"
+            >
+              <Text style={styles.binderModeLabel}>
+                {(isBinderPageMode ? binderPageLayout.label : 'Single').toUpperCase()}
+              </Text>
+              <IconChevronDown color={colors.gray0} size={12} strokeWidth={2} />
+            </Pressable>
           </View>
         )}
 
@@ -4996,6 +5039,17 @@ export function ScannerScreen({
             />
           </View>
         )}
+
+        {/*
+          Same band as the tooltip (top chrome -> reticle top), so it yields to
+          it. Hidden in binder mode, whose taller frame starts inside the band.
+          Overlay only: no camera props change, same on iOS and Android.
+        */}
+        <BoothPostBanner
+          active={isActiveTab && !isDevPreview}
+          hidden={isTrayExpanded || isBinderPageMode || activeBinderPageId != null || showLanguageTooltip || isScanTargetSheetOpen}
+          top={captureSurfaceLayout.backButtonTop + 44 + 6}
+        />
 
         <GestureDetector gesture={trayPanGesture}>
         {/*
@@ -5063,25 +5117,11 @@ export function ScannerScreen({
             <View style={styles.recentScansRow}>
               <View style={styles.trayInfoLeftGroup}>
                 {/*
-                  Was an opaque gray900 chip — the one surface on this screen
-                  that read as a different material from everything else over
-                  the camera. Glass on iOS 26, the same scrim elsewhere.
+                  Solid gray900 chip, white SemiBold 12 (Figma 6150:6730), the
+                  same in both tray states so it never changes identity
+                  mid-swipe.
                 */}
-                {/*
-                  SAME dark-glass chip in both tray states — the expanded tray
-                  briefly swapped to a solid white chip and the flip read as
-                  the pill changing identity mid-swipe.
-                */}
-                <GlassSurface
-                  // Light frost with a white tint floor, like the zoom/mode
-                  // pills; solid gray0 on fallback targets.
-                  fallbackColor={colors.gray0}
-                  glassColorScheme="light"
-                  glassEffectStyle="regular"
-                  glassTintColor={colors.frostTint}
-                  style={styles.trayInfoPill}
-                  testID="scanner-recent-title-surface"
-                >
+                <View style={styles.trayInfoPill} testID="scanner-recent-title-surface">
                   <Text style={styles.trayInfoPillLabel} testID="scanner-recent-title">
                     {`SCAN: ${trayScanCount}`}
                   </Text>
@@ -5102,10 +5142,10 @@ export function ScannerScreen({
                       ]}
                       testID="scanner-tray-clear-all-header"
                     >
-                      <IconX color={colors.gray600} size={13} strokeWidth={2.4} />
+                      <IconX color={colors.gray0} size={12} strokeWidth={2.4} />
                     </Pressable>
                   ) : null}
-                </GlassSurface>
+                </View>
                 {/* ADD ALL shows in BOTH tray states — collapsed too, so a
                     burst scanner can bulk-add without first swiping the tray
                     up. The dropdown flips above its anchor near the screen
@@ -5120,26 +5160,13 @@ export function ScannerScreen({
                     ref={addAllTriggerRef}
                     testID="scanner-tray-add-all"
                   >
-                    <View style={styles.trayAddAllRow}>
-                      <Text style={styles.trayAddAllLabel}>ADD ALL</Text>
-                      <IconChevronDown
-                        color={colors.purple500}
-                        size={15}
-                        strokeWidth={2}
-                      />
-                    </View>
+                    {/* Plain white text, no chip (Figma 6161:7001). */}
+                    <Text style={styles.trayAddAllLabel}>ADD ALL</Text>
                   </Pressable>
                 ) : null}
               </View>
-              <GlassSurface
-                // Same frost recipe as the SCAN chip beside it.
-                fallbackColor={colors.gray0}
-                glassColorScheme="light"
-                glassEffectStyle="regular"
-                glassTintColor={colors.frostTint}
-                style={styles.trayInfoPill}
-                testID="scanner-value-pill-surface"
-              >
+              {/* Same solid chip as SCAN (Figma 6150:6732). */}
+              <View style={styles.trayInfoPill} testID="scanner-value-pill-surface">
                 <Pressable
                   accessibilityHint="Prices this deal at a share of market"
                   accessibilityLabel={discountPercent > 0
@@ -5160,9 +5187,9 @@ export function ScannerScreen({
                       {`${100 - discountPercent}%`}
                     </Text>
                   ) : null}
-                  <IconChevronDown color={colors.gray600} size={13} strokeWidth={2.4} />
+                  <IconChevronDown color={colors.gray0} size={12} strokeWidth={2.4} />
                 </Pressable>
-              </GlassSurface>
+              </View>
             </View>
           </Pressable>
 
@@ -5240,6 +5267,14 @@ export function ScannerScreen({
           style={[styles.captureFlash, captureFlashStyle]}
         />
       </RawScannerCaptureSurface>
+      {/*
+        In FLOW below the capture surface (which is flex: 1), not floated over
+        it: the tray's absolute bottom edge ends at this bar's top, so the
+        tray's pan never overlaps a tab (RNGH hit-tests by bounds on Android).
+      */}
+      {onSelectTab ? (
+        <ScannerTabBar bottomInset={windowBottomInset} onSelectTab={onSelectTab} />
+      ) : null}
       {(() => {
         if (!activePriceCaptureId) {
           return null;
@@ -5260,9 +5295,9 @@ export function ScannerScreen({
             mode={activeCapture.mode === 'slabs' ? 'slabs' : 'raw'}
             candidate={activeCandidate}
             slabContext={activeCapture.slabContext ?? null}
-            selectedVariantKey={activeSelection?.variantKey ?? null}
+            selectedVariantKey={activeSelection?.variantKey || null}
             selectedConditionCode={activeSelection?.conditionCode ?? null}
-            fallbackVariantLabel={activeSelection?.variantLabel ?? 'Market price'}
+            fallbackVariantLabel={activeSelection?.variantLabel || 'Market price'}
             fallbackMarketPrice={activeCandidate.marketPrice ?? null}
             fallbackCurrencyCode={activeCandidate.currencyCode ?? null}
             onSelect={(selection) => handlePriceSelection(activeCapture.id, selection)}
@@ -5313,33 +5348,25 @@ export function ScannerScreen({
         visible={discountMenuOpen}
       />
 
-      <PrintingMenu
-        anchor={printingMenuAnchor}
-        onClose={() => setPrintingMenuCaptureId(null)}
-        onSelect={(variant) => {
-          if (printingMenuCaptureId) {
-            handleSelectRowVariant(printingMenuCaptureId, variant);
+      <AnchoredOptionMenu
+        accessibilityLabelFor={(option) => (gradingMenu?.kind === 'grader'
+          ? `Grade this scan as ${option.label}`
+          : gradingMenuState?.grader
+            ? `${gradingMenuState.grader} ${option.label}`
+            : `Condition ${option.label}`)}
+        anchor={gradingMenu?.anchor ?? null}
+        onClose={() => setGradingMenu(null)}
+        onSelect={(option) => {
+          const menu = gradingMenu;
+          setGradingMenu(null);
+          if (menu) {
+            handleSelectRowGrading(menu.captureId, menu.kind, option.key);
           }
-          setPrintingMenuCaptureId(null);
         }}
-        selectedVariantKey={(() => {
-          if (!printingMenuCaptureId) {
-            return null;
-          }
-          const capture = printingMenuCapture;
-          const candidate = capture ? activeCandidateForCapture(capture) : null;
-          const list = (candidate ? variantsByCardId.get(candidate.cardId) : null) ?? emptyVariants;
-          return printingMenuSelection?.variantKey ?? list[0]?.variantKey ?? null;
-        })()}
-        variants={(() => {
-          if (!printingMenuCaptureId) {
-            return emptyVariants;
-          }
-          const capture = printingMenuCapture;
-          const candidate = capture ? activeCandidateForCapture(capture) : null;
-          return (candidate ? variantsByCardId.get(candidate.cardId) : null) ?? emptyVariants;
-        })()}
-        visible={printingMenuCaptureId != null}
+        options={gradingMenuOptions}
+        selectedKey={gradingMenuSelectedKey}
+        testID="scanner-row-grading-menu"
+        visible={gradingMenu != null}
       />
 
       <BinderLayoutMenu
@@ -5355,24 +5382,6 @@ export function ScannerScreen({
         onClose={() => setAddAllMenuOpen(false)}
         onSelect={handleAddAllSelect}
         visible={addAllMenuOpen}
-      />
-
-      <AddAllMenu
-        anchor={rowMenuAnchor}
-        onClose={() => setRowMenuCaptureId(null)}
-        onSelect={(action) => {
-          // Guests: dismiss the dropdown first, THEN open login. (Can't use the
-          // plain gate() wrapper here — the menu-close lives inside
-          // handleRowMenuSelect, which gate would skip, leaving the dropdown up.)
-          if (isGuest) {
-            setRowMenuCaptureId(null);
-            openLogin();
-            return;
-          }
-          handleRowMenuSelect(action);
-        }}
-        testID="scanner-row-add-menu"
-        visible={rowMenuCaptureId != null}
       />
 
       <ScanBulkConfirmSheet
@@ -5418,8 +5427,8 @@ export function ScannerScreen({
             isLoadingMore={changeCapture.isLoadingMoreCandidates}
             onLoadMoreCandidates={() => loadMoreCandidates(changeCapture.id)}
             mode={changeCapture.mode === 'slabs' ? 'slabs' : 'raw'}
-            selectedVariantKey={changeCaptureSelection?.variantKey ?? null}
-            selectedVariantLabel={changeCaptureSelection?.variantLabel ?? null}
+            selectedVariantKey={changeCaptureSelection?.variantKey || null}
+            selectedVariantLabel={changeCaptureSelection?.variantLabel || null}
             selectedConditionCode={changeCaptureSelection?.conditionCode ?? null}
             onSelectCandidate={(index) => setActiveCandidate(changeCapture.id, index)}
             onSelectVariant={(selection) => handlePriceSelection(changeCapture.id, selection)}
@@ -5506,10 +5515,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     zIndex: 5,
   },
-  controlsRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
+  controlsColumn: {
+    alignItems: 'flex-end',
+    gap: 11,
     position: 'absolute',
     zIndex: 4,
   },
@@ -5585,38 +5593,23 @@ const styles = StyleSheet.create({
     color: colors.scannerTextPrimary,
     opacity: 0.85,
   },
-  // Single ↔ 3×3 toggle pill: always on the zoom dock's light glass chip —
-  // it shows the CURRENT mode, so it always reads as the highlighted choice.
-  binderModePill: {
-    alignItems: 'center',
-    borderCurve: 'continuous',
-    borderRadius: 999,
-    height: 30,
-    justifyContent: 'center',
-    marginRight: 12,
-    overflow: 'hidden',
-    paddingHorizontal: 14,
-  },
-  binderModePillSurface: {
-    ...StyleSheet.absoluteFillObject,
-    borderCurve: 'continuous',
-    borderRadius: 999,
-    overflow: 'hidden',
-  },
-  binderModePillContent: {
+  // Layout dropdown under the zoom stack (Figma 6312:7357): bare text, no chip.
+  binderModeTrigger: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 4,
+    gap: spacing.xxxs,
+    paddingVertical: spacing.xxxs,
   },
-  binderModePillLabel: {
-    // Figma Caption-medium (Medium 13) on every Scan-1 frame; pairs with the zoom factors.
-    ...textStyles.captionMedium,
-    // Dark on the white chip (was white on dark glass).
-    color: colors.gray900,
+  binderModeLabel: {
+    // Figma Regular 12, white over the camera; shadowed like the bare zoom labels.
+    ...textStyles.captionRegular,
+    color: colors.gray0,
+    textShadowColor: 'rgba(0, 0, 0, 0.45)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   zoomDock: {
-    alignItems: 'center',
-    flexDirection: 'row',
+    alignItems: 'flex-end',
     gap: 11,
   },
   zoomPill: {
@@ -5631,14 +5624,17 @@ const styles = StyleSheet.create({
   // CAPSULES, not 32pt circles — same shape family as the Single/3×3 toggle,
   // the SCAN/TOTAL pills, and the top scan-target pill ("it should match
   // Pokemon EN and SCAN/TOTAL", 2026-09-04). Width follows the label.
+  // 32pt circles stacked in the frame's corner (Figma 6150:2571); width
+  // grows with the label only if it ever outgrows the circle.
   zoomPillSurface: {
     alignItems: 'center',
     borderCurve: 'continuous',
-    borderRadius: 999,
-    height: 30,
+    borderRadius: radii.pill,
+    height: 32,
     justifyContent: 'center',
+    minWidth: 32,
     overflow: 'hidden',
-    paddingHorizontal: 14,
+    paddingHorizontal: spacing.xxxs,
   },
   zoomPillLabel: {
     // Figma Caption-medium (Medium 13), same as the Single/3×3 pill.
@@ -5669,8 +5665,7 @@ const styles = StyleSheet.create({
     color: colors.scannerTextMuted,
   },
   captureMainButton: {
-    alignSelf: 'flex-start',
-    flex: 1,
+    alignSelf: 'stretch',
   },
   captureMainButtonPressed: {
     opacity: 0.9,
@@ -5701,18 +5696,39 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   captureRow: {
+    // Figma 6145:5621: thumb, 12, text column, price column — each column
+    // as tall as the 80pt thumb.
     alignItems: 'flex-start',
     flexDirection: 'row',
-    gap: 16,
-    justifyContent: 'space-between',
+    gap: spacing.xs,
     minHeight: captureRowHeight,
     width: '100%',
   },
-  captureLeftGroup: {
-    alignItems: 'center',
+  captureCopyColumn: {
     flex: 1,
+    justifyContent: 'space-between',
+    minHeight: captureThumbHeight,
+  },
+  captureDropdownRow: {
+    alignItems: 'center',
     flexDirection: 'row',
-    gap: 12,
+    gap: spacing.xs,
+  },
+  // Plain white text + chevron, no container: the two dropdowns read as the
+  // row's settings, not more buttons beside ADD.
+  captureDropdown: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.xxxs,
+  },
+  captureDropdownPressed: {
+    opacity: 0.6,
+  },
+  captureDropdownLabel: {
+    // Figma Regular 12, uppercase.
+    ...textStyles.overline,
+    color: colors.gray0,
+    textTransform: 'uppercase',
   },
   captureSubtitle: {
     // Figma Label (Medium 14) — "038/088 · Perfect Order".
@@ -5725,28 +5741,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 6,
   },
-  // The printing stands where the "RAW" tag was, as a purple text link with a
-  // chevron: it names the printing the price assumes and reads as tappable
-  // without adding a third filled shape to a row that already has CHANGE and
-  // ADD. No container, so it keeps the subtitle's left edge.
-  capturePrintingPill: {
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    gap: 2,
-    marginTop: 2,
-    maxWidth: 200,
-    paddingVertical: 2,
-  },
-  capturePrintingPillPressed: {
-    opacity: 0.6,
-  },
-  capturePrintingLabel: {
-    // Figma Label (Medium 14), uppercased like the "RAW" line it replaces.
-    ...textStyles.label,
-    color: colors.purple500,
-    flexShrink: 1,
-  },
   captureThumb: {
     // Figma 3594:25986 — 58x80 at radius 2.695, which is a real card's corner
     // scaled to thumbnail size, not a UI radius. The old 6 rounded it like a
@@ -5754,12 +5748,31 @@ const styles = StyleSheet.create({
     backgroundColor: colors.scannerSurfaceStrong,
     borderCurve: 'continuous',
     borderRadius: 2.695,
-    height: 80,
-    width: 58,
+    height: captureThumbHeight,
+    width: captureThumbWidth,
   },
-  captureThumbColumn: {
-    alignItems: 'flex-start',
-    gap: 4,
+  captureThumbWrap: {
+    height: captureThumbHeight,
+    width: captureThumbWidth,
+  },
+  // Swap badge centred on the thumb (replaces the old CHANGE chip).
+  captureSwapBadge: {
+    alignItems: 'center',
+    backgroundColor: colors.gray500,
+    borderCurve: 'continuous',
+    borderRadius: radii.pill,
+    height: captureSwapBadgeSize,
+    justifyContent: 'center',
+    left: (captureThumbWidth - captureSwapBadgeSize) / 2,
+    position: 'absolute',
+    top: (captureThumbHeight - captureSwapBadgeSize) / 2,
+    width: captureSwapBadgeSize,
+  },
+  captureSwapBadgePressed: {
+    opacity: 0.78,
+  },
+  captureSwapGlyph: {
+    transform: [{ rotate: '90deg' }],
   },
   cameraDeniedWrap: {
     alignItems: 'center',
@@ -5800,27 +5813,8 @@ const styles = StyleSheet.create({
     ...textStyles.labelStrong,
     color: colors.gray0,
   },
-  captureChangeChip: {
-    // Recessive dark gray (Figma gray/700), not the scanner's purple action
-    // fill: the row's purple now belongs to the printing link and the ADD
-    // pill, and CHANGE is the rarer path — the printing that used to send
-    // people to the change screen is editable in the row itself.
-    alignItems: 'center',
-    alignSelf: 'stretch',
-    backgroundColor: colors.gray700,
-    borderCurve: 'continuous',
-    borderRadius: 4,
-    height: 18,
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
   captureChangeChipPressed: {
     opacity: 0.78,
-  },
-  captureChangeLabel: {
-    // Figma draws CHANGE raw Medium 10; navLabel is the nearest Medium token.
-    ...textStyles.navLabel,
-    color: colors.scannerTextPrimary,
   },
   captureGradedRefChip: {
     ...textStyles.chipLabel,
@@ -5839,26 +5833,20 @@ const styles = StyleSheet.create({
   },
   capturePriceColumn: {
     alignItems: 'flex-end',
-    gap: 12,
-    // Widened from 84 so the "WISHLISTED" pill (longer than the old "ADD")
-    // fits without overflowing the right column into the title/price area.
-    width: 108,
+    justifyContent: 'space-between',
+    marginLeft: spacing.xxxs,
+    minHeight: captureThumbHeight,
   },
   captureAddPill: {
-    // Figma "ADD ⌄" pill: filled purple/500 #A54BFA, radius-8, Plus Jakarta
-    // Sans SemiBold 13 white label + 16px chevron. Horizontal padding is 8 per
-    // the footer spec (3594:25998); the earlier 1874:13192 said 12, and this
-    // node is the later of the two.
+    // Figma 6145:5621 "ADD": purple/500, radius 8, padding 12/6, no chevron —
+    // it adds straight to the collection.
     alignItems: 'center',
-    backgroundColor: colors.scannerAddPurple,
+    backgroundColor: colors.purple500,
     borderCurve: 'continuous',
     borderRadius: radii.sm,
-    flexDirection: 'row',
-    gap: 2,
     justifyContent: 'center',
-    minHeight: 26,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 6,
   },
   captureAddPillPressed: {
     // Press-down feedback (scale 1 → 0.94), matching the other tray controls.
@@ -5866,8 +5854,10 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.94 }],
   },
   captureAddPillLabel: {
+    // SemiBold 13 at line-height 1.4.
     ...textStyles.labelStrong,
-    color: colors.scannerTextPrimary,
+    color: colors.gray0,
+    lineHeight: Math.round(textStyles.labelStrong.fontSize * 1.4),
   },
   recentScansRow: {
     alignItems: 'center',
@@ -5879,23 +5869,24 @@ const styles = StyleSheet.create({
   trayInfoLeftGroup: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 12,
+    // ADD ALL sits 16 right of the SCAN chip (Figma 6161:7002).
+    gap: spacing.sm,
   },
   trayInfoPill: {
     // Row: the SCAN pill carries its clear ✕ beside the count, and the TOTAL
     // pill its discount chevron.
+    // Figma 6150:6730: gray900, radius 32 (a full pill at 23pt), padding 6/4.
     alignItems: 'center',
+    backgroundColor: colors.gray900,
     borderCurve: 'continuous',
     borderRadius: radii.pill,
     flexDirection: 'row',
-    // Clips the glass to the pill shape.
-    overflow: 'hidden',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 6,
+    paddingVertical: spacing.xxxs,
   },
   trayInfoPillLabel: {
-    ...textStyles.labelStrong,
-    color: colors.gray900,
+    ...textStyles.captionStrong,
+    color: colors.gray0,
   },
   trayInfoPillRow: {
     alignItems: 'center',
@@ -5903,8 +5894,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   trayDiscountTag: {
-    ...textStyles.labelStrong,
-    color: colors.purple500,
+    ...textStyles.captionStrong,
+    // Lighter purple: purple500 sits too dark on the gray900 chip.
+    color: colors.purple300,
   },
   trayInfoPillClear: {
     alignItems: 'center',
@@ -5914,14 +5906,9 @@ const styles = StyleSheet.create({
   trayInfoPillClearPressed: {
     opacity: 0.55,
   },
-  trayAddAllRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 2,
-  },
   trayAddAllLabel: {
-    ...textStyles.labelStrong,
-    color: colors.purple500,
+    ...textStyles.captionStrong,
+    color: colors.gray0,
   },
   trayClearFooter: {
     height: trayClearFooterHeight,

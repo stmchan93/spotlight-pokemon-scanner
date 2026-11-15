@@ -1,0 +1,15 @@
+{
+  "title": "The only 4 Pokémon cards with 500 HP",
+  "subtitle": "all jumbo promos — wait for #1",
+  "_prices": "TCGplayer market (Jumbo Cards group 1528 via TCGCSV), pulled 2026-10-31",
+  "slides": [
+    {"label": "#4", "name": "Reshiram, Zekrom & Kyurem", "set": "2018 Jumbo · Legends of Unova", "release": "2018",
+     "price": 15.00, "image": "https://tcgplayer-cdn.tcgplayer.com/product/179036_in_1000x1000.jpg"},
+    {"label": "#3", "name": "Tornadus, Thundurus & Landorus", "set": "2018 Jumbo · Forces of Nature", "release": "2018-07-06",
+     "price": 27.21, "image": "https://tcgplayer-cdn.tcgplayer.com/product/170121_in_1000x1000.jpg"},
+    {"label": "#2", "name": "Raikou, Entei & Suicune", "set": "2018 Jumbo · Legends of Johto", "release": "2018-04-06",
+     "price": 31.28, "image": "https://tcgplayer-cdn.tcgplayer.com/product/164235_in_1000x1000.jpg"},
+    {"label": "#1", "name": "Zoroark and Legendary Pokémon", "set": "2011 Jumbo · Zoroark movie promo", "release": "2011",
+     "price": 55.00, "image": "https://tcgplayer-cdn.tcgplayer.com/product/211493_in_1000x1000.jpg"}
+  ]
+}

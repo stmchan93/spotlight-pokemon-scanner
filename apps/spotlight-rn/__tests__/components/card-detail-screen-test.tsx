@@ -994,7 +994,7 @@ describe('CardDetailScreen', () => {
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
     fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
 
-    expect(await screen.findByText('Avg. last 1 sale · $100.00')).toBeTruthy();
+    expect(await screen.findByText('Last sale · $100.00')).toBeTruthy();
   });
 
   it('graded price-trend row expands the inline last-solds accordion (no browser exit)', async () => {
@@ -1083,7 +1083,11 @@ describe('CardDetailScreen', () => {
     // Re-expand: served from the per-row cache — no second fetch.
     fireEvent.press(screen.getByTestId('detail-price-trends-row-PSA 10'));
     expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
-    expect(getCardRecentSales).toHaveBeenCalledTimes(1);
+    // The price chart's own read is cache-only (refresh:false, no credit);
+    // only the accordion may ask the backend to refresh.
+    const calls = getCardRecentSales.mock.calls as unknown as [{ refresh?: boolean }][];
+    expect(calls.filter(([query]) => query.refresh === true)).toHaveLength(1);
+    expect(calls.filter(([query]) => query.refresh !== true).every(([query]) => query.refresh === false)).toBe(true);
   });
 
   /*
@@ -1268,7 +1272,10 @@ describe('CardDetailScreen', () => {
     // from the same cached page.
     expect(screen.getByTestId('detail-recent-sales-sale-7')).toBeTruthy();
     expect(screen.queryByTestId('detail-recent-sales-show-more')).toBeNull();
-    expect(getCardRecentSales).toHaveBeenCalledTimes(1);
+    // Excludes the price chart's cache-only (refresh:false) read.
+    const refreshCalls = (getCardRecentSales.mock.calls as unknown as [{ refresh?: boolean }][])
+      .filter(([query]) => query.refresh === true);
+    expect(refreshCalls).toHaveLength(1);
   });
 
   it('shows every recent sale to everyone — there is no paywall', async () => {

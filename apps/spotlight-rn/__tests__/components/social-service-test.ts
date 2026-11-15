@@ -15,6 +15,8 @@ function makeBuilder(result: QueryResult) {
     'in',
     'eq',
     'lt',
+    'not',
+    'single',
     'order',
     'limit',
     'upsert',
@@ -200,6 +202,72 @@ describe('social-service', () => {
     expect(supabase.from).toHaveBeenCalledWith('post_media');
     expect(posts).toHaveLength(1);
     expect(posts[0].media).toEqual([{ id: 'media-1', width: 800, height: 600, blurhash: 'LKO2' }]);
+  });
+
+  describe('show tags (social_27/28)', () => {
+    it('reads event_id / booth_vendor_id onto the post when the columns exist', async () => {
+      const supabase = makeSupabase({
+        posts: { data: [{ ...postRow, post_media: [], event_id: 'hawaii-2026-10', booth_vendor_id: 'island-slabs' }], error: null },
+        authors: { data: [authorRow], error: null },
+      });
+      const { fetchGlobalFeed } = loadService(supabase);
+
+      const [post] = await fetchGlobalFeed();
+
+      expect(post?.eventId).toBe('hawaii-2026-10');
+      expect(post?.boothVendorId).toBe('island-slabs');
+      expect(supabase.builders.posts.select).toHaveBeenCalledWith(expect.stringContaining('event_id, booth_vendor_id'));
+    });
+
+    it('retries without the tag columns on a database that predates social_27', async () => {
+      const supabase = makeSupabase({
+        posts: [
+          { data: null, error: { code: '42703', message: 'column posts.event_id does not exist' } },
+          { data: [{ ...postRow, post_media: [] }], error: null },
+        ],
+        authors: { data: [authorRow], error: null },
+      });
+      const { fetchGlobalFeed } = loadService(supabase);
+
+      const posts = await fetchGlobalFeed();
+
+      expect(posts).toHaveLength(1);
+      expect(posts[0]).not.toHaveProperty('eventId');
+      const select = supabase.builders.posts.select as jest.Mock;
+      expect(select.mock.calls[0]?.[0]).not.toContain('event_id');
+      // Media stayed embedded: only the tag columns were dropped.
+      expect(supabase.from).not.toHaveBeenCalledWith('post_media');
+
+      // The rest of the session skips the doomed select.
+      await fetchGlobalFeed();
+      expect((supabase.builders.posts.select as jest.Mock).mock.calls[0]?.[0]).not.toContain('event_id');
+    });
+
+    it('pages a show feed and narrows to booth posts on request', async () => {
+      const supabase = makeSupabase({ posts: { data: [], error: null } });
+      const { fetchEventPosts } = loadService(supabase);
+
+      await fetchEventPosts('hawaii-2026-10', 20, { before: '2026-10-24T00:00:00Z' });
+      expect(supabase.builders.posts.eq).toHaveBeenCalledWith('event_id', 'hawaii-2026-10');
+      expect(supabase.builders.posts.lt).toHaveBeenCalledWith('created_at', '2026-10-24T00:00:00Z');
+      expect(supabase.builders.posts.not).not.toHaveBeenCalled();
+
+      await fetchEventPosts('hawaii-2026-10', 60, { boothOnly: true });
+      expect(supabase.builders.posts.not).toHaveBeenCalledWith('booth_vendor_id', 'is', null);
+    });
+
+    it('tags an attendee post to a show without a booth', async () => {
+      const supabase = makeSupabase({ posts: { data: { id: 'new-post' }, error: null } });
+      const { createPost } = loadService(supabase);
+
+      await expect(createPost({ body: 'Line is wild', eventId: 'hawaii-2026-10' })).resolves.toBe('new-post');
+      expect(supabase.builders.posts.insert).toHaveBeenCalledWith({
+        author_id: 'me',
+        body: 'Line is wild',
+        card_id: null,
+        event_id: 'hawaii-2026-10',
+      });
+    });
   });
 
   it('skips the author read when the caller already knows the author', async () => {

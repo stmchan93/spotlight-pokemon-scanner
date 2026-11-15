@@ -1,4 +1,4 @@
-import { isMissingFunctionError } from '@/lib/postgrest-errors';
+import { isMissingColumnError, isMissingFunctionError } from '@/lib/postgrest-errors';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -46,13 +46,21 @@ const postMediaSelect = 'id, post_id, width, height, blurhash, position';
 // the separate media query rather than showing an empty feed.
 const postSelectWithMedia = `${postSelect}, post_media(${postMediaSelect})`;
 
+// Show tags (social_27). Not in `postSelect` itself: an environment that hasn't
+// run social_27 fails the whole select on an unknown column, so the tagged
+// select is tried first and dropped for the session on a missing-column error.
+const postTagSelect = 'event_id, booth_vendor_id';
+const NEWS_THREADS_TABLE = 'news_threads';
+let postTagColumnsAvailable = true;
+
 // Just the author identity columns the post card renders. A subset of the full
 // public-profile view select.
 const postAuthorSelect = 'user_id, display_name, avatar_url, handle, is_verified';
 
 type PostRow = {
   id: string;
-  author_id: string;
+  /** Null on the hidden post behind a news article (social_31). */
+  author_id: string | null;
   body: string | null;
   card_id: string | null;
   like_count: number | null;
@@ -63,6 +71,9 @@ type PostRow = {
   deleted_at: string | null;
   /** Present only when the read used the embedded-media select. */
   post_media?: PostMediaRow[] | null;
+  /** Present only when the read carried the show-tag columns (social_27). */
+  event_id?: string | null;
+  booth_vendor_id?: string | null;
 };
 
 type PostMediaRow = {
@@ -109,6 +120,18 @@ export type FeedPost = {
   repostCount: number;
   createdAt: string;
   media: FeedPostMedia[];
+  /** The show this post is tagged to (social_27/28). Absent when untagged or unknown. */
+  eventId?: string | null;
+  /** Set on booth posts: the vendor slug on that show's floor map. */
+  boothVendorId?: string | null;
+  /** The article this post carries reactions for (social_31); it has no author. */
+  news?: FeedPostNews | null;
+};
+
+export type FeedPostNews = {
+  source: string;
+  url: string;
+  imageUrl: string | null;
 };
 
 /**
@@ -198,7 +221,11 @@ async function hydratePosts(rows: PostRow[], options: HydrateOptions = {}): Prom
   }
 
   const missingAuthorIds = Array.from(
-    new Set(rows.map((row) => row.author_id).filter((id) => Boolean(id) && !authorsById.has(id))),
+    new Set(
+      rows
+        .map((row) => row.author_id)
+        .filter((id): id is string => Boolean(id) && !authorsById.has(id as string)),
+    ),
   );
   const needsMedia = !options.mediaEmbedded;
 
@@ -235,10 +262,14 @@ async function hydratePosts(rows: PostRow[], options: HydrateOptions = {}): Prom
     // be absent) rather than the whole feed collapsing to empty.
   }
 
+  const newsByPost = await fetchNewsForPosts(
+    rows.filter((row) => !row.author_id).map((row) => row.id),
+  );
+
   return rows.map((row) => ({
     id: row.id,
-    authorId: row.author_id,
-    author: authorsById.get(row.author_id) ?? null,
+    authorId: row.author_id ?? '',
+    author: row.author_id ? (authorsById.get(row.author_id) ?? null) : null,
     body: row.body ?? null,
     cardId: row.card_id ?? null,
     likeCount: row.like_count ?? 0,
@@ -246,7 +277,36 @@ async function hydratePosts(rows: PostRow[], options: HydrateOptions = {}): Prom
     repostCount: row.repost_count ?? 0,
     createdAt: row.created_at,
     media: mediaByPost.get(row.id) ?? [],
+    ...(row.event_id ? { eventId: row.event_id, boothVendorId: row.booth_vendor_id ?? null } : {}),
+    ...(newsByPost.has(row.id) ? { news: newsByPost.get(row.id) } : {}),
   }));
+}
+
+type PostSelectResult = { data: unknown; error: { code?: string; message?: string } | null };
+
+/**
+ * Run a post read through both select fallbacks: show-tag columns (dropped for
+ * the session when the environment lacks them) and the media embed (dropped
+ * per read when PostgREST can't resolve it).
+ */
+async function selectPostRows(
+  runQuery: (select: string) => PromiseLike<PostSelectResult>,
+): Promise<PostSelectResult & { mediaEmbedded: boolean }> {
+  const attempt = async (base: string): Promise<PostSelectResult> => {
+    if (postTagColumnsAvailable) {
+      const tagged = await runQuery(`${base}, ${postTagSelect}`);
+      if (!tagged.error || !isMissingColumnError(tagged.error)) {
+        return tagged;
+      }
+      postTagColumnsAvailable = false;
+    }
+    return runQuery(base);
+  };
+  const embedded = await attempt(postSelectWithMedia);
+  if (!embedded.error) {
+    return { ...embedded, mediaEmbedded: true };
+  }
+  return { ...(await attempt(postSelect)), mediaEmbedded: false };
 }
 
 // Untyped boundary: @supabase/postgrest-js. Naming the builder type
@@ -254,6 +314,27 @@ async function hydratePosts(rows: PostRow[], options: HydrateOptions = {}): Prom
 // instantiation is excessively deep" — verified, not assumed. The result is
 // re-cast to `PostRow[]` before it leaves the module.
 type PostFilter = (query: any) => any;
+
+async function fetchNewsForPosts(postIds: string[]): Promise<Map<string, FeedPostNews>> {
+  const byPost = new Map<string, FeedPostNews>();
+  if (!supabase || postIds.length === 0) {
+    return byPost;
+  }
+  try {
+    const { data, error } = await supabase
+      .from(NEWS_THREADS_TABLE)
+      .select('post_id, source, url, image_url')
+      .in('post_id', postIds);
+    if (!error && data) {
+      for (const row of data as { post_id: string; source: string; url: string; image_url: string | null }[]) {
+        byPost.set(row.post_id, { source: row.source, url: row.url, imageUrl: row.image_url });
+      }
+    }
+  } catch {
+    // The post still renders as text, and its comments still work.
+  }
+  return byPost;
+}
 
 /**
  * Shared post read: newest-first, deleted rows excluded, keyset-paginated by a
@@ -295,12 +376,7 @@ async function fetchPosts(
     // Preferred shape: one round trip with media embedded. If the embed can't be
     // resolved (relationship not exposed), retry with the plain select and let
     // hydration fetch media separately rather than surfacing an empty feed.
-    let mediaEmbedded = true;
-    let { data, error } = await runQuery(postSelectWithMedia);
-    if (error) {
-      mediaEmbedded = false;
-      ({ data, error } = await runQuery(postSelect));
-    }
+    const { data, error, mediaEmbedded } = await selectPostRows(runQuery);
 
     if (error || !data) {
       return [];
@@ -339,13 +415,8 @@ export async function fetchPostById(postId: string): Promise<FeedPost | null> {
       .limit(1);
 
   try {
-    let { data, error } = await runQuery(postSelectWithMedia);
-    let mediaEmbedded = true;
-    if (error) {
-      mediaEmbedded = false;
-      ({ data, error } = await runQuery(postSelect));
-    }
-    if (error || !data || data.length === 0) {
+    const { data, error, mediaEmbedded } = await selectPostRows(runQuery);
+    if (error || !Array.isArray(data) || data.length === 0) {
       return null;
     }
     const posts = await hydratePosts(data as unknown as PostRow[], { mediaEmbedded });
@@ -394,7 +465,9 @@ export async function fetchFollowingFeed(limit = DEFAULT_LIMIT, before?: string)
 
 /** All recent visible posts, newest first (global/discovery feed). */
 export function fetchGlobalFeed(limit = DEFAULT_LIMIT, before?: string): Promise<FeedPost[]> {
-  return fetchPosts((query) => query, limit, before);
+  // A news article's hidden post lives on the News tab; it reaches Social only
+  // when someone reposts it (see `fetchGlobalFeedItems`).
+  return fetchPosts((query) => query.not('author_id', 'is', null), limit, before);
 }
 
 /**
@@ -421,7 +494,7 @@ export type FeedItem = {
   activityAt: string;
 };
 
-function feedItemFromPost(post: FeedPost): FeedItem {
+export function feedItemFromPost(post: FeedPost): FeedItem {
   return {
     key: `post:${post.id}`,
     post,
@@ -556,6 +629,30 @@ export function fetchCardPosts(cardId: string, limit = DEFAULT_LIMIT, before?: s
     return Promise.resolve([]);
   }
   return fetchPosts((query) => query.eq('card_id', trimmed), limit, before);
+}
+
+/**
+ * Every post tagged to one show (`event_id = eventId`), booth and attendee
+ * alike, newest first. `boothOnly` narrows to vendors' booth posts (the map).
+ * Keyset-paged on `created_at` like the other feeds, over `idx_posts_event`.
+ */
+export function fetchEventPosts(
+  eventId: string,
+  limit = 60,
+  options: { before?: string; boothOnly?: boolean } = {},
+): Promise<FeedPost[]> {
+  const trimmed = (eventId ?? '').trim();
+  if (!trimmed) {
+    return Promise.resolve([]);
+  }
+  return fetchPosts(
+    (query) => {
+      const scoped = query.eq('event_id', trimmed);
+      return options.boothOnly ? scoped.not('booth_vendor_id', 'is', null) : scoped;
+    },
+    limit,
+    options.before,
+  );
 }
 
 type AuthorPostsOptions = {
@@ -906,8 +1003,14 @@ export async function unlikeComment(commentId: string): Promise<boolean> {
 // Comments (Phase 3b)
 // ---------------------------------------------------------------------------
 
-const commentSelect =
+/** Postgres `undefined_column` — the database is older than the column asked for. */
+const MISSING_COLUMN_CODE = '42703';
+
+const commentSelectBase =
   'id, post_id, author_id, parent_comment_id, body, like_count, created_at, content_status, deleted_at';
+// `edited_at` arrives with social_30. Asked for separately so a database that
+// predates it still loads threads (the read retries without it).
+const commentSelect = `${commentSelectBase}, edited_at`;
 
 type CommentRow = {
   id: string;
@@ -919,6 +1022,7 @@ type CommentRow = {
   created_at: string;
   content_status: string | null;
   deleted_at: string | null;
+  edited_at?: string | null;
 };
 
 export type PostComment = {
@@ -935,6 +1039,8 @@ export type PostComment = {
   parentCommentId: string | null;
   likeCount: number;
   createdAt: string;
+  /** Set once the author has edited the body; the sheet shows "edited". */
+  editedAt?: string | null;
   /**
    * True when this row is a TOMBSTONE: the comment was deleted but is still in
    * the thread. The sheet renders "This comment was deleted" in place of the body
@@ -1017,17 +1123,22 @@ export async function fetchComments(postId: string, limit = 100): Promise<PostCo
     return [];
   }
   try {
-    const { data, error } = await supabase
-      .from(COMMENTS_TABLE)
-      .select(commentSelect)
-      .eq('post_id', trimmed)
-      .order('created_at', { ascending: true })
-      .limit(limit);
+    const query = (select: string) =>
+      supabase!
+        .from(COMMENTS_TABLE)
+        .select(select)
+        .eq('post_id', trimmed)
+        .order('created_at', { ascending: true })
+        .limit(limit);
+    let { data, error } = await query(commentSelect);
+    if (error?.code === MISSING_COLUMN_CODE) {
+      ({ data, error } = await query(commentSelectBase));
+    }
     if (error || !data) {
       return [];
     }
 
-    const rows = data as CommentRow[];
+    const rows = data as unknown as CommentRow[];
     const authorIds = Array.from(new Set(rows.map((row) => row.author_id).filter(Boolean)));
     const authorsById = new Map<string, FeedPostAuthor>();
     if (authorIds.length > 0) {
@@ -1056,6 +1167,7 @@ export async function fetchComments(postId: string, limit = 100): Promise<PostCo
         parentCommentId: row.parent_comment_id ?? null,
         likeCount: row.like_count ?? 0,
         createdAt: row.created_at,
+        editedAt: deleted ? null : row.edited_at ?? null,
         isDeleted: deleted,
       };
     });
@@ -1133,6 +1245,48 @@ export async function addComment(
   }
 }
 
+export type EditCommentResult =
+  | { ok: true; body: string; editedAt: string | null; contentStatus: string | null }
+  | { ok: false; reason: string };
+
+/**
+ * Replace the body of your own comment. `comments_update` RLS scopes this to the
+ * author (or an admin); the moderation prefilter re-runs on the new body, and
+ * social_30 stamps `edited_at` and queues the row for another AI pass.
+ *
+ * Like the deletes below, the write asks for the row back: RLS refuses an UPDATE
+ * silently (zero rows, no error), so an empty result is a failure.
+ */
+export async function editComment(commentId: string, body: string): Promise<EditCommentResult> {
+  const text = (body ?? '').trim();
+  if (!supabase) {
+    return { ok: false, reason: 'Not connected. Check your connection and try again.' };
+  }
+  if (!commentId || text.length === 0) {
+    return { ok: false, reason: 'A comment cannot be empty.' };
+  }
+  try {
+    const { data, error } = await supabase
+      .from(COMMENTS_TABLE)
+      .update({ body: text })
+      .eq('id', commentId)
+      .select('id, body, content_status, edited_at');
+    if (error) {
+      return { ok: false, reason: error.message || 'The comment could not be saved.' };
+    }
+    const row = (data as { body: string; content_status: string | null; edited_at: string | null }[] | null)?.[0];
+    if (!row) {
+      return { ok: false, reason: 'That comment could not be edited.' };
+    }
+    return { ok: true, body: row.body, editedAt: row.edited_at ?? null, contentStatus: row.content_status };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : 'The comment could not be saved.',
+    };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Compose (Phase 3c)
 // ---------------------------------------------------------------------------
@@ -1144,17 +1298,32 @@ export async function addComment(
  * backend post-media endpoint with this post id. `content_status` defaults to
  * visible; the in-DB moderation trigger runs on insert.
  */
-export async function createPost(input: { body?: string | null; cardId?: string | null }): Promise<string | null> {
+export async function createPost(input: {
+  body?: string | null;
+  cardId?: string | null;
+  /** Tags the post to the author's claimed booth at a show (social_27). */
+  booth?: { eventId: string; vendorId: string } | null;
+  /** Tags the post to a show without a booth (social_28). Ignored when `booth` is set. */
+  eventId?: string | null;
+}): Promise<string | null> {
   const me = await currentUserId();
   const body = (input.body ?? '').trim();
   const cardId = (input.cardId ?? '').trim() || null;
   if (!supabase || !me || (body.length === 0 && !cardId)) {
     return null;
   }
+  // Tag columns only when tagging, so untagged posts still insert on a
+  // database that predates social_27.
+  const eventId = (input.eventId ?? '').trim();
+  const boothColumns = input.booth
+    ? { event_id: input.booth.eventId, booth_vendor_id: input.booth.vendorId }
+    : eventId
+      ? { event_id: eventId }
+      : {};
   try {
     const { data, error } = await supabase
       .from(POSTS_TABLE)
-      .insert({ author_id: me, body: body.length > 0 ? body : null, card_id: cardId })
+      .insert({ author_id: me, body: body.length > 0 ? body : null, card_id: cardId, ...boothColumns })
       .select('id')
       .single();
     if (error || !data) {
@@ -1320,7 +1489,18 @@ const NOTIFICATIONS_TABLE = 'notifications';
 
 /** Types the app renders. `mention`/`message` exist in the schema but nothing
  *  produces them yet (no parser, no DMs), so they are not surfaced. */
-export type NotificationType = 'like' | 'comment' | 'follow' | 'repost';
+export type NotificationType = 'like' | 'comment' | 'follow' | 'repost' | 'booth_recap';
+
+/** Post-show booth numbers (social_27 `send_booth_recaps`, from `payload`). */
+export type BoothRecap = {
+  eventId: string;
+  eventName: string;
+  vendorId: string;
+  views: number;
+  instagramTaps: number;
+  messages: number;
+  postViews: number;
+};
 
 export type AppNotification = {
   id: string;
@@ -1345,6 +1525,8 @@ export type AppNotification = {
   postAuthor: FeedPostAuthor | null;
   /** First image on that post, for the row's thumbnail. Null on text posts. */
   postMediaId: string | null;
+  /** Only on `booth_recap` rows. */
+  boothRecap?: BoothRecap | null;
 };
 
 type NotificationRow = {
@@ -1360,7 +1542,33 @@ type NotificationRow = {
 // BOTH this and `NotificationType` have to list a type. `fetchNotifications`
 // filters on this list, so a type widened only in the union is written by the DB
 // trigger and then silently dropped on the way to the screen.
-const RENDERABLE_NOTIFICATION_TYPES: readonly string[] = ['like', 'comment', 'follow', 'repost'];
+const RENDERABLE_NOTIFICATION_TYPES: readonly string[] = ['like', 'comment', 'follow', 'repost', 'booth_recap'];
+
+/** A recap without a show id has nowhere to lead and nothing to say: dropped. */
+export function parseBoothRecapPayload(payload: unknown): BoothRecap | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+  const raw = payload as Record<string, unknown>;
+  const eventId = typeof raw.event_id === 'string' ? raw.event_id : '';
+  if (!eventId) {
+    return null;
+  }
+  const counts = (raw.counts && typeof raw.counts === 'object' ? raw.counts : {}) as Record<string, unknown>;
+  const count = (key: string) => {
+    const value = Number(counts[key]);
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+  };
+  return {
+    eventId,
+    eventName: typeof raw.event_name === 'string' && raw.event_name.trim() ? raw.event_name.trim() : 'The show',
+    vendorId: typeof raw.vendor_id === 'string' ? raw.vendor_id : '',
+    views: count('card_open'),
+    instagramTaps: count('instagram_tap'),
+    messages: count('message_start'),
+    postViews: count('post_view'),
+  };
+}
 
 /**
  * How many unread notifications the signed-in user has — the number on the bell.
@@ -1413,9 +1621,27 @@ export async function fetchNotifications(limit = 50): Promise<AppNotification[]>
       return [];
     }
 
-    const rows = (data as NotificationRow[]).filter((row) =>
+    const typedRows = (data as NotificationRow[]).filter((row) =>
       RENDERABLE_NOTIFICATION_TYPES.includes(row.type),
     );
+
+    // `payload` is a separate read, only when a recap is on the page, so the
+    // main select still works on a database that predates social_27.
+    const recapsById = new Map<string, BoothRecap>();
+    const recapIds = typedRows.filter((row) => row.type === 'booth_recap').map((row) => row.id);
+    if (recapIds.length > 0) {
+      const { data: payloads } = await supabase
+        .from(NOTIFICATIONS_TABLE)
+        .select('id, payload')
+        .in('id', recapIds);
+      for (const row of (payloads ?? []) as { id: string; payload: unknown }[]) {
+        const recap = parseBoothRecapPayload(row.payload);
+        if (recap) {
+          recapsById.set(row.id, recap);
+        }
+      }
+    }
+    const rows = typedRows.filter((row) => row.type !== 'booth_recap' || recapsById.has(row.id));
     if (rows.length === 0) {
       return [];
     }
@@ -1472,7 +1698,7 @@ export async function fetchNotifications(limit = 50): Promise<AppNotification[]>
         const media = [...(row.post_media ?? [])].sort(
           (left, right) => (left.position ?? 0) - (right.position ?? 0),
         );
-        postsById.set(row.id, { authorId: row.author_id, mediaId: media[0]?.id ?? null });
+        postsById.set(row.id, { authorId: row.author_id ?? '', mediaId: media[0]?.id ?? null });
       }
     }
 
@@ -1512,6 +1738,7 @@ export async function fetchNotifications(limit = 50): Promise<AppNotification[]>
         isReply: Boolean(comment?.parentId),
         postAuthor,
         postMediaId: post?.mediaId ?? null,
+        boothRecap: recapsById.get(row.id) ?? null,
       };
     });
   } catch {

@@ -9,6 +9,7 @@ import { CommentsSheet } from '@/features/social/components/comments-sheet';
 import {
   blockUser,
   deleteComment,
+  editComment,
   fetchComments,
   fetchLikedCommentIds,
   type PostComment,
@@ -32,6 +33,7 @@ jest.mock('@/features/social/social-service', () => ({
   fetchLikedCommentIds: jest.fn(async () => new Set()),
   addComment: jest.fn(async () => null),
   deleteComment: jest.fn(async () => true),
+  editComment: jest.fn(async () => ({ ok: false, reason: "unmocked" })),
   likeComment: jest.fn(async () => true),
   unlikeComment: jest.fn(async () => true),
   reportContent: jest.fn(async () => true),
@@ -143,6 +145,9 @@ describe('CommentsSheet ⋯ options', () => {
     renderSheet();
 
     fireEvent.press(await screen.findByTestId('comments-sheet-comment-c1-more-button'));
+    // Your own ⋯ is Edit / Delete; Delete leads to the post-delete confirmation.
+    expect(screen.getByTestId('comments-sheet-own-options-edit')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('comments-sheet-own-options-delete'));
 
     // The post-delete sheet's own shape: title, consequence, Cancel + red Delete.
     expect(screen.getByTestId(DELETE_CONFIRM)).toBeTruthy();
@@ -169,6 +174,7 @@ describe('CommentsSheet ⋯ options', () => {
     renderSheet();
 
     fireEvent(await screen.findByTestId('comments-sheet-comment-c1'), 'longPress');
+    fireEvent.press(screen.getByTestId('comments-sheet-own-options-delete'));
     expect(screen.getByText('DELETE COMMENT?')).toBeTruthy();
   });
 
@@ -414,5 +420,81 @@ describe('CommentsSheet ⋯ options', () => {
 
     await screen.findByTestId('comments-sheet-comment-c1-tombstone');
     expect(screen.queryByTestId('comments-sheet-comment-c1-more-button')).toBeNull();
+  });
+
+  describe('editing your own comment', () => {
+    it('loads the body into the composer and saves it with "edited"', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue([mine()]);
+      (editComment as jest.Mock).mockResolvedValue({
+        ok: true,
+        body: 'My better take',
+        editedAt: '2026-11-03T00:00:00.000Z',
+        contentStatus: 'visible',
+      });
+      renderSheet();
+
+      fireEvent.press(await screen.findByTestId('comments-sheet-comment-c1-more-button'));
+      await pressById('comments-sheet-own-options-edit');
+
+      expect(screen.getByTestId('comments-sheet-edit-banner')).toBeTruthy();
+      expect(screen.getByTestId('comments-sheet-input').props.value).toBe('My take');
+
+      fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'My better take');
+      await pressById('comments-sheet-send');
+
+      await waitFor(() => expect(editComment as jest.Mock).toHaveBeenCalledWith('c1', 'My better take'));
+      expect(await screen.findByText(/My better take/)).toBeTruthy();
+      expect(screen.getByText(/edited/)).toBeTruthy();
+      expect(screen.queryByTestId('comments-sheet-edit-banner')).toBeNull();
+    });
+
+    it('cancels without writing anything', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue([mine()]);
+      renderSheet();
+
+      fireEvent.press(await screen.findByTestId('comments-sheet-comment-c1-more-button'));
+      await pressById('comments-sheet-own-options-edit');
+      await pressById('comments-sheet-edit-cancel');
+
+      expect(screen.queryByTestId('comments-sheet-edit-banner')).toBeNull();
+      expect(screen.getByTestId('comments-sheet-input').props.value).toBe('');
+      expect(editComment as jest.Mock).not.toHaveBeenCalled();
+    });
+
+    it('puts the original back and says so when the edit fails', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue([mine()]);
+      (editComment as jest.Mock).mockResolvedValue({ ok: false, reason: 'nope' });
+      renderSheet();
+
+      fireEvent.press(await screen.findByTestId('comments-sheet-comment-c1-more-button'));
+      await pressById('comments-sheet-own-options-edit');
+      fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'Rewritten');
+      await pressById('comments-sheet-send');
+
+      await waitFor(() =>
+        expect(Alert.alert as unknown as jest.Mock).toHaveBeenCalledWith("Couldn't save edit", 'nope'),
+      );
+      expect(screen.getByText('My take')).toBeTruthy();
+      expect(screen.getByTestId('comments-sheet-input').props.value).toBe('Rewritten');
+      expect(screen.getByTestId('comments-sheet-edit-banner')).toBeTruthy();
+    });
+
+    it('opens edit mode from the inline Edit button next to Reply', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue([mine(), theirs()]);
+      renderSheet();
+
+      fireEvent.press(await screen.findByTestId('comments-sheet-comment-c1-edit'));
+      expect(screen.getByTestId('comments-sheet-edit-banner')).toBeTruthy();
+      expect(screen.getByTestId('comments-sheet-input').props.value).toBe('My take');
+      expect(screen.queryByTestId('comments-sheet-comment-c2-edit')).toBeNull();
+    });
+
+    it('does not offer Edit on someone else’s comment', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue([theirs()]);
+      renderSheet();
+
+      fireEvent.press(await screen.findByTestId('comments-sheet-comment-c2-more-button'));
+      expect(screen.queryByTestId('comments-sheet-own-options-edit')).toBeNull();
+    });
   });
 });

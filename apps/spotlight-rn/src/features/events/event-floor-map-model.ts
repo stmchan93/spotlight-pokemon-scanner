@@ -40,6 +40,11 @@ export function filterVendors(
   });
 }
 
+/** "Table C1-C2"; "Table TBA" on a vendors-only map, before tables are assigned. */
+export function vendorTableLabel(location: string): string {
+  return `Table ${location.trim() || 'TBA'}`;
+}
+
 export function vendorForTable(
   vendors: readonly SpotlightEventMapVendor[],
   tableId: string,

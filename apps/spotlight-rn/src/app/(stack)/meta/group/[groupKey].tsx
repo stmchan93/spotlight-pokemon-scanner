@@ -8,7 +8,6 @@ import {
   parseLaneParam,
   parseWindowParam,
 } from '@/features/meta-feed/screens/route-params';
-import { FeedMarketRouteGate } from '@/features/meta-feed/components/feed-market-route-gate';
 
 /**
  * `/meta/group/<groupKey>?game=pokemon&window=7&lane=graded` — one group's
@@ -42,9 +41,5 @@ function MetaGroupRouteContent() {
 }
 
 export default function MetaGroupRoute() {
-  return (
-    <FeedMarketRouteGate>
-      <MetaGroupRouteContent />
-    </FeedMarketRouteGate>
-  );
+  return <MetaGroupRouteContent />;
 }

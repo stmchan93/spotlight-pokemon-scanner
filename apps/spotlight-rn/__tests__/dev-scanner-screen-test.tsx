@@ -177,18 +177,18 @@ describe('ScannerScreen dev preview', () => {
     );
     const row = screen.getByTestId('scanner-tray-row-dev-scan-single');
     expect(row).toHaveTextContent(new RegExp(escapeRegExp(DEV_SCAN_SINGLE.name)));
-    // Set · #number, the way a resolved row reads it.
+    // #number · set, the way a resolved row reads it (Figma 6145:5621).
     expect(row).toHaveTextContent(
-      new RegExp(escapeRegExp(`${DEV_SCAN_SINGLE.setName} · #${DEV_SCAN_SINGLE.collectorNumber}`)),
+      new RegExp(escapeRegExp(`#${DEV_SCAN_SINGLE.collectorNumber} · ${DEV_SCAN_SINGLE.setName}`)),
     );
     expect(row).toHaveTextContent(new RegExp(escapeRegExp(formatCurrency(DEV_SCAN_SINGLE.priceUsd))));
 
     await settle();
-    // The printing link needs the card's matrix, which the dev repository serves.
+    // The condition dropdown prices off the card's matrix, which the dev
+    // repository serves; the row opens on RAW / NM.
     expect(getRawPricingMatrix).toHaveBeenCalledWith(DEV_SCAN_SINGLE.cardId);
-    expect(screen.getByTestId('scanner-tray-printing-dev-scan-single-label')).toHaveTextContent(
-      DEV_SCAN_SINGLE.printing.toUpperCase(),
-    );
+    expect(screen.getByTestId('scanner-tray-grader-dev-scan-single-label')).toHaveTextContent('RAW');
+    expect(screen.getByTestId('scanner-tray-detail-dev-scan-single-label')).toHaveTextContent('NM');
     // The persisted tray stayed on disk — the preview never rehydrates.
     expect(screen.queryByTestId('scanner-tray-row-persisted-scan')).toBeNull();
   });

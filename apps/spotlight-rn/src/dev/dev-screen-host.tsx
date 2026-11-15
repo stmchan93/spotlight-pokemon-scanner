@@ -10,6 +10,7 @@ import { SignedOutFlow } from '@/features/auth/components/signed-out-flow';
 import { AccountScreen } from '@/features/auth/screens/account-screen';
 import { ChangePasswordScreen } from '@/features/auth/screens/change-password-screen';
 import { clearCardDetailCache } from '@/features/cards/card-detail-prefetch';
+import { CardSimilarSection } from '@/features/cards/components/card-similar-section';
 import { CardDetailScreen } from '@/features/cards/screens/card-detail-screen';
 import { ScanCandidateReviewScreen } from '@/features/cards/screens/scan-candidate-review-screen';
 import { CatalogSearchScreen } from '@/features/catalog/screens/catalog-search-screen';
@@ -78,7 +79,7 @@ import {
   devProfileOverrides,
   devSocialOverrides,
 } from '@/dev/dev-social-data';
-import { AppProviders } from '@/providers/app-providers';
+import { AppProviders, useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 
 /**
@@ -99,6 +100,8 @@ const devScreens: Record<string, () => ReactElement> = {
   // sections: UNOWNED browse (ADD ITEM/SHARE footer, trend list) and OWNED
   // edit-in-place (Inventory panel, SAVE/CANCEL footer).
   'card-detail': () => <CardDetailScreen cardId="sm7-1" onBack={() => undefined} />,
+  // Figma 6322:9011 — sits below the PDP fold, so it gets its own route.
+  'card-similar': () => <DevCardSimilarScreen />,
   // Figma 5476:7127 / 5528:730 — mock feed from MockSpotlightRepository.
   events: () => <EventsScreen />,
   'event-detail': () => <EventDetailScreen eventId="hawaii-2026-10" onBack={() => undefined} />,
@@ -222,6 +225,15 @@ function DevLoginScreen() {
       onClose={noop}
       onGoogleSignIn={noop}
     />
+  );
+}
+
+function DevCardSimilarScreen() {
+  const { spotlightRepository } = useAppServices();
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.canvas, paddingHorizontal: 16, paddingTop: 75 }}>
+      <CardSimilarSection cardId="sm7-1" enabled onPressCard={noop} repository={spotlightRepository} />
+    </View>
   );
 }
 

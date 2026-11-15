@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   memo,
   useMemo,
@@ -8,33 +9,33 @@ import {
 import {
   Animated,
   Easing,
-  GestureResponderEvent,
   LayoutChangeEvent,
   Pressable,
   StyleSheet,
   View,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { runOnJS, useSharedValue } from 'react-native-reanimated';
 
 import { useTabsPage } from '@/contexts/tabs-page-context';
+import { PriceScrubChart, type PriceChartPoint } from '@/features/cards/components/price-scrub-chart';
+import { nearestIndexByX } from '@/features/cards/components/price-scrub-chart-geometry';
 import Svg, {
   Circle,
-  Defs,
   Line,
-  LinearGradient,
   Path,
-  Pattern,
   Rect,
-  Stop,
 } from 'react-native-svg';
 
 import type {
   ChartMode,
   PortfolioDashboard,
   PortfolioHistoryRange,
+  PortfolioRangeSummary,
   RecentSaleRecord,
 } from '@spotlight/api-client';
-import { Text, layout, textStyles, useSpotlightTheme } from '@spotlight/design-system';
+import { Text, borderWidths, layout, radii, spacing, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import {
   formatCurrency,
@@ -42,8 +43,10 @@ import {
   formatSignedCurrency,
 } from './portfolio-formatting';
 
-// Small graph-paper grid drawn inside the line chart's fill area (Figma 809-12748).
-const CHART_GRID_CELL = 14;
+// Scrub gesture thresholds, shared with the PDP chart's feel.
+const SCRUB_LONG_PRESS_MS = 250;
+const SCRUB_DRAG_ACTIVE_OFFSET_X = 6;
+const SCRUB_DRAG_FAIL_OFFSET_Y = 10;
 
 // `nominalDays` is what the LABEL promises. Price history starts 2026-04-16, so
 // the longer ranges clamp to that first day and print identical numbers under
@@ -221,6 +224,47 @@ export function portfolioLineYDomain(rawValues: readonly number[]) {
   const paddedSpan = Math.max((dataMax - dataMin) * 1.2, minSpan);
   const mid = (dataMax + dataMin) / 2;
   return { min: mid - paddedSpan / 2, max: mid + paddedSpan / 2 };
+}
+
+// A collection's first days are often a handful of cards, then a bulk add
+// spread over a day or two; plotted, that is a cliff that flattens every later
+// move. The line starts on the LAST day the value at least doubled overnight —
+// a partial first day ($534 before the full $2,949) is skipped with the rest,
+// while gradual growth is never cut.
+const WARMUP_JUMP_RATIO = 2;
+
+export function trimPortfolioWarmup<T extends { value: number }>(points: readonly T[]): T[] {
+  let start = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1].value;
+    if (points[index].value > 0 && points[index].value >= Math.max(previous, 0) * WARMUP_JUMP_RATIO) {
+      start = index;
+    }
+  }
+  return start > 0 && start < points.length - 1 ? points.slice(start) : [...points];
+}
+
+/** The range's change re-based onto the first plotted (post-warm-up) day. */
+export function portfolioRangeSummaryAfterWarmup(
+  points: readonly { value: number }[],
+  summary: PortfolioRangeSummary | null,
+): PortfolioRangeSummary | null {
+  const trimmed = trimPortfolioWarmup(points);
+  const newStart = trimmed[0]?.value;
+  if (!summary || newStart == null || trimmed.length === points.length) {
+    return summary;
+  }
+  // Shift the backend's baseline rather than recompute from the last point:
+  // its change deliberately excludes value only today's live pricing sees.
+  const changeAmount = Number((summary.changeAmount + summary.startValue - newStart).toFixed(2));
+  return {
+    ...summary,
+    startValue: newStart,
+    changeAmount,
+    changePercent: newStart >= MEANINGFUL_BASELINE_VALUE
+      ? Number(((changeAmount / newStart) * 100).toFixed(2))
+      : null,
+  };
 }
 
 // "Apr 2026" — the caption for a range that starts later than its label claims.
@@ -475,13 +519,13 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   const chartPaddingX = 0;
   const chartPaddingY = 12;
   const activeRange = dashboard.ranges[selectedRange];
-  const series = chartMode === 'portfolio' ? activeRange.portfolio : activeRange.sales;
+  const portfolioSeries = useMemo(() => trimPortfolioWarmup(activeRange.portfolio), [activeRange.portfolio]);
+  const series = chartMode === 'portfolio' ? portfolioSeries : activeRange.sales;
   const isChartSkeletonVisible = isLoading && series.length === 0;
   const salesPointCounts = useMemo(() => {
     return buildSalesPointCounts(activeRange.sales, dashboard.recentSales);
   }, [activeRange.sales, dashboard.recentSales]);
   const chartAccentColor = theme.colors.purple500;
-  const chartFillColor = theme.colors.purple500;
 
   const yAxisMaxValue = useMemo(() => {
     return buildRoundedCurrencyTicks(series.map((point) => point.value));
@@ -568,17 +612,6 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
     return buildLinePath(pathCoordinates);
   }, [pathCoordinates]);
 
-  const fillPath = useMemo(() => {
-    if (pathCoordinates.length === 0) {
-      return '';
-    }
-
-    const baseline = chartHeight - chartPaddingY;
-    const first = pathCoordinates[0];
-    const last = pathCoordinates[pathCoordinates.length - 1];
-
-    return `${buildLinePath(pathCoordinates)} L ${last.x} ${baseline} L ${first.x} ${baseline} Z`;
-  }, [chartHeight, chartPaddingY, pathCoordinates]);
 
   const onChartLayout = (event: LayoutChangeEvent) => {
     setChartWidth(event.nativeEvent.layout.width);
@@ -649,27 +682,17 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
 
   const isScrubbing = activePointIndex != null;
 
-  // Bubble the active hovered point up to the parent so it can render the
-  // big value, date, and delta in the screen header.
-  useEffect(() => {
-    if (!onActivePointChange) {
-      return;
-    }
-
-    if (activePointIndex == null) {
-      onActivePointChange(null);
-      return;
-    }
-
-    const point = series[activePointIndex];
+  // The header payload for a scrubbed point. Built and sent straight from the
+  // gesture handler (not an effect), so the big value updates in the same
+  // render as the cursor.
+  const activePointPayload = (index: number): PortfolioChartActivePoint | null => {
+    const point = series[index];
     if (!point) {
-      onActivePointChange(null);
-      return;
+      return null;
     }
-
     if (chartMode === 'portfolio') {
-      const change = portfolioChangeForPoint(activeRange.portfolio, activePointIndex, dashboard.summary);
-      onActivePointChange({
+      const change = portfolioChangeForPoint(portfolioSeries, index, dashboard.summary);
+      return {
         valueLabel: formatCurrency(point.value),
         dateLabel: formatHoverDateLabel(point.isoDate),
         changeAmount: change.amount,
@@ -677,228 +700,148 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
         changeAmountLabel: formatSignedCurrency(change.amount),
         changePercentLabel: change.percent == null ? '' : formatPercent(change.percent),
         isHovering: true,
-      });
-    } else {
-      const salesCount = salesPointCounts[activePointIndex] ?? 0;
-      onActivePointChange({
-        valueLabel: formatCurrency(point.value),
-        dateLabel: formatHoverDateLabel(point.isoDate),
-        changeAmount: salesCount,
-        changePercent: 0,
-        changeAmountLabel: `${salesCount} sale${salesCount === 1 ? '' : 's'}`,
-        changePercentLabel: '',
-        isHovering: true,
-      });
+      };
     }
-  }, [
-    activePointIndex,
-    activeRange.portfolio,
-    chartMode,
-    dashboard.summary,
-    onActivePointChange,
-    salesPointCounts,
-    series,
-  ]);
-
-  const updateActivePoint = (event: GestureResponderEvent) => {
-    if (chartWidth === 0 || series.length === 0) {
-      return;
-    }
-
-    const locationX = clamp(event.nativeEvent.locationX, 0, chartWidth);
-    let nearestIndex = 0;
-    let nearestDistance = Number.POSITIVE_INFINITY;
-
-    if (chartMode === 'portfolio') {
-      coordinates.forEach((coordinate, index) => {
-        const distance = Math.abs(coordinate.x - locationX);
-        if (distance < nearestDistance) {
-          nearestDistance = distance;
-          nearestIndex = index;
-        }
-      });
-    } else {
-      salesBars.forEach((bar, index) => {
-        const distance = Math.abs((bar.x + bar.width / 2) - locationX);
-        if (distance < nearestDistance) {
-          nearestDistance = distance;
-          nearestIndex = index;
-        }
-      });
-    }
-
-    setActivePointIndex(nearestIndex);
+    const salesCount = salesPointCounts[index] ?? 0;
+    return {
+      valueLabel: formatCurrency(point.value),
+      dateLabel: formatHoverDateLabel(point.isoDate),
+      changeAmount: salesCount,
+      changePercent: 0,
+      changeAmountLabel: `${salesCount} sale${salesCount === 1 ? '' : 's'}`,
+      changePercentLabel: '',
+      isHovering: true,
+    };
   };
-
-  const releaseActivePoint = () => {
-    setActivePointIndex(null);
-  };
+  const activePointPayloadRef = useRef(activePointPayload);
+  activePointPayloadRef.current = activePointPayload;
+  const onActivePointChangeLatest = useRef(onActivePointChange);
+  onActivePointChangeLatest.current = onActivePointChange;
 
   // ===========================================================================
-  // Long-press scrub gesture (Robinhood-style)
+  // Scrub gesture — the PDP price chart's engine (price-scrub-chart.tsx).
   //
-  // Touching the chart does NOT immediately scrub — that was making the tab
-  // pager fight the chart for the gesture on every slight horizontal move.
-  // Now:
-  //   1. Touch + hold ~250ms with little movement → enter "scrub lock":
-  //      a haptic confirms it; the pager refuses to capture while locked.
-  //   2. Quick horizontal swipe before the lock fires → pager wins, chart
-  //      gets onResponderTerminate and quietly bails.
-  //   3. Once locked, drag freely to scrub. Release clears the lock.
-  //
-  // In tests the timer is bypassed so existing fireEvent('responderGrant')
-  // assertions still see an immediate scrub.
+  // The finger is tracked on the UI thread: each frame finds the nearest point
+  // there and only crosses to JS when that INDEX changes, so a drag costs a
+  // handful of renders instead of one per touch event. A horizontal drag past
+  // 6pt scrubs at once; a still press scrubs after 250ms; a vertical drag fails
+  // past 10pt and is left to the page scroll. Arming `chartScrubLockRef` on
+  // start stands the tab pager down (its threshold is 14pt), as before.
   // ===========================================================================
   const { chartScrubLockRef } = useTabsPage();
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isScrubLockedRef = useRef(false);
-  const touchStartXRef = useRef(0);
-  // Raw page coordinates of the touch-down, used to decide horizontal vs.
-  // vertical intent in onMoveShouldSetResponder. `locationX` (relative to the
-  // touch target) drives the scrub position; page coordinates drive the
-  // axis-lock decision because that is what a move delta needs.
-  const touchPageStartXRef = useRef(0);
-  const touchPageStartYRef = useRef(0);
-  const isTestEnv = process.env.NODE_ENV === 'test';
-  const longPressDelayMs = 250;
-  const longPressCancelDistancePx = 8;
-  // Horizontal-dominant intent threshold: the finger must travel at least this
-  // far and move more sideways than up/down before the chart claims the
-  // gesture. Below this, a vertical/diagonal drag is left to the parent
-  // FlatList so the page scrolls instead of the chart scrubbing.
-  const horizontalIntentThresholdPx = 6;
+  const onScrubLockChangeLatest = useRef(onScrubLockChange);
+  onScrubLockChangeLatest.current = onScrubLockChange;
+  const seriesLengthRef = useRef(series.length);
+  seriesLengthRef.current = series.length;
+  const lastIndexRef = useRef<number | null>(null);
 
-  // NOTE: not memoizing these helpers — they close over `updateActivePoint`
-  // which depends on `chartWidth` (set on layout). useCallback-memoizing
-  // would capture a stale closure where chartWidth=0, so updateActivePoint
-  // bails early before any active-point is computed.
-  const clearLongPressTimer = () => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  };
+  const xs = useMemo(
+    () => (chartMode === 'portfolio'
+      ? coordinates.map((coordinate) => coordinate.x)
+      : salesBars.map((bar) => bar.x + bar.width / 2)),
+    [chartMode, coordinates, salesBars],
+  );
 
-  const beginScrubLock = (locationX: number) => {
+  const beginScrub = useCallback(() => {
     isScrubLockedRef.current = true;
     chartScrubLockRef.current = true;
-    onScrubLockChange?.(true);
-    if (!isTestEnv) {
-      // impactAsync(Light) is the noticeable "thump" most apps use for
-      // gesture-lock confirmation. selectionAsync (what we used before)
-      // is the intentionally-subtle picker-wheel tick and many users
-      // never feel it.
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    }
-    // Synthesize a responder-like event and update the scrub indicator
-    // to the initial touch position so the user sees feedback immediately.
-    updateActivePoint({
-      nativeEvent: { locationX },
-    } as GestureResponderEvent);
-  };
+    lastIndexRef.current = null;
+    onScrubLockChangeLatest.current?.(true);
+    // impactAsync(Light): the noticeable "thump" for gesture-lock confirmation.
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  }, [chartScrubLockRef]);
 
-  const endScrubLock = () => {
-    clearLongPressTimer();
+  const scrubTo = useCallback((index: number) => {
+    if (!isScrubLockedRef.current || index < 0 || index >= seriesLengthRef.current || index === lastIndexRef.current) {
+      return;
+    }
+    const hadIndex = lastIndexRef.current != null;
+    lastIndexRef.current = index;
+    if (hadIndex) {
+      void Haptics.selectionAsync().catch(() => {});
+    }
+    setActivePointIndex(index);
+    onActivePointChangeLatest.current?.(activePointPayloadRef.current(index));
+  }, []);
+
+  const endScrubLock = useCallback(() => {
     if (isScrubLockedRef.current) {
       isScrubLockedRef.current = false;
       chartScrubLockRef.current = false;
-      onScrubLockChange?.(false);
+      onScrubLockChangeLatest.current?.(false);
     }
-    releaseActivePoint();
-  };
+    lastIndexRef.current = null;
+    setActivePointIndex(null);
+    onActivePointChangeLatest.current?.(null);
+  }, [chartScrubLockRef]);
 
-  // Record the touch-down position and arm the long-press timer. This runs on
-  // the *raw* touch-start (onTouchStart), which fires regardless of whether the
-  // chart owns the responder — so a stationary press can still enter scrub even
-  // though the chart no longer claims the responder on touch-start (that is
-  // what lets a vertical drag fall through to the parent FlatList scroll).
-  const armScrubGesture = (event: GestureResponderEvent) => {
-    const { locationX, pageX, pageY } = event.nativeEvent;
-    touchStartXRef.current = locationX;
-    touchPageStartXRef.current = pageX;
-    touchPageStartYRef.current = pageY;
-    clearLongPressTimer();
-    if (isTestEnv) {
+  // New data mid-scrub (refetch, range or mode change) drops the cursor; send the
+  // header back to resting, and let the next move pick a point in the new series.
+  useEffect(() => {
+    if (lastIndexRef.current != null) {
+      lastIndexRef.current = null;
+      onActivePointChangeLatest.current?.(null);
+    }
+  }, [chartMode, dashboard, selectedRange]);
+
+  // Portfolio line = the PDP price chart (PriceScrubChart), which owns its own
+  // gesture + haptics; this just maps its index stream onto the lock + header.
+  const usesPriceChart = chartMode === 'portfolio' && series.length >= 2;
+  const priceChartPoints = useMemo<PriceChartPoint[]>(
+    () => (usesPriceChart
+      ? series.map((point) => ({ t: Date.parse(normalizeChartPointDate(point.isoDate)), v: point.value }))
+      : []),
+    [series, usesPriceChart],
+  );
+  const onPriceScrub = useCallback((index: number | null) => {
+    if (index == null) {
+      endScrubLock();
       return;
     }
-    longPressTimerRef.current = setTimeout(() => {
-      longPressTimerRef.current = null;
-      beginScrubLock(locationX);
-    }, longPressDelayMs);
-  };
-
-  const onTouchStart = (event: GestureResponderEvent) => {
-    armScrubGesture(event);
-  };
-
-  const onTouchGrant = (event: GestureResponderEvent) => {
-    // In tests we do not fire a raw touchStart, so the long-press position is
-    // captured here and scrub is entered immediately (fireEvent('responderGrant')
-    // must still produce an active point for existing assertions). In production
-    // the chart only receives a grant once it has claimed the responder — after
-    // the long-press fired or a horizontal-dominant move — so re-arming here is
-    // redundant and the scrub is already (or about to be) locked.
-    if (isTestEnv) {
-      const locationX = event.nativeEvent.locationX;
-      touchStartXRef.current = locationX;
-      clearLongPressTimer();
-      beginScrubLock(locationX);
-    }
-  };
-
-  // Only claim the gesture (and thus block the parent FlatList from scrolling)
-  // when the drag is horizontally dominant, or once scrub-lock has already
-  // engaged via long-press. A vertical/diagonal-dominant drag returns false so
-  // the parent scroll takes over.
-  //
-  // A horizontal-dominant drag also *enters* scrub immediately: the long-press
-  // is only the entry point for a stationary press; an intentional left/right
-  // drag should scrub without waiting out the hold timer. Engaging the lock
-  // here also means the subsequent onResponderMove events actually update the
-  // active point instead of being swallowed pre-lock.
-  const onMoveShouldSetResponder = (event: GestureResponderEvent) => {
-    if (isScrubLockedRef.current) {
-      return true;
-    }
-    // react-native-testing-library probes this predicate without a real event
-    // when checking whether an event handler is enabled; guard against it.
-    if (!event?.nativeEvent) {
-      return false;
-    }
-    const dx = Math.abs(event.nativeEvent.pageX - touchPageStartXRef.current);
-    const dy = Math.abs(event.nativeEvent.pageY - touchPageStartYRef.current);
-    const isHorizontalDominant = dx > horizontalIntentThresholdPx && dx > dy;
-    if (isHorizontalDominant) {
-      // Cancel the pending long-press (it would otherwise re-fire beginScrubLock)
-      // and enter scrub at the current touch position.
-      clearLongPressTimer();
-      if (!isScrubLockedRef.current) {
-        beginScrubLock(event.nativeEvent.locationX);
-      }
-      return true;
-    }
-    return false;
-  };
-
-  const onTouchMove = (event: GestureResponderEvent) => {
     if (!isScrubLockedRef.current) {
-      // Pre-lock window: if the user moves significantly, abandon the
-      // long-press intent so the parent (FlatList scroll) can claim.
-      const dx = Math.abs(event.nativeEvent.locationX - touchStartXRef.current);
-      if (dx > longPressCancelDistancePx) {
-        clearLongPressTimer();
-      }
-      return;
+      isScrubLockedRef.current = true;
+      chartScrubLockRef.current = true;
+      onScrubLockChangeLatest.current?.(true);
     }
-    updateActivePoint(event);
-  };
+    lastIndexRef.current = index;
+    setActivePointIndex(index);
+    onActivePointChangeLatest.current?.(activePointPayloadRef.current(index));
+  }, [chartScrubLockRef, endScrubLock]);
 
-  const onTouchEnd = () => {
-    // Raw touch-end mirror of the responder release/terminate handlers. Because
-    // a stationary long-press can enter scrub without the chart ever owning the
-    // responder, onResponderRelease may not fire on lift-off; clean up here too.
-    endScrubLock();
-  };
+  const lastWorkletIndex = useSharedValue(-1);
+  const scrubGesture = useMemo(() => {
+    // onEnd only fires for a gesture that activated, so the Race loser never ends the scrub.
+    const configure = (pan: ReturnType<typeof Gesture.Pan>) =>
+      pan
+        .onStart((event) => {
+          runOnJS(beginScrub)();
+          const index = nearestIndexByX(xs, event.x);
+          lastWorkletIndex.value = index;
+          runOnJS(scrubTo)(index);
+        })
+        .onUpdate((event) => {
+          const index = nearestIndexByX(xs, event.x);
+          if (index !== lastWorkletIndex.value) {
+            lastWorkletIndex.value = index;
+            runOnJS(scrubTo)(index);
+          }
+        })
+        .onEnd(() => {
+          lastWorkletIndex.value = -1;
+          runOnJS(endScrubLock)();
+        });
+    const drag = configure(
+      Gesture.Pan()
+        .withTestId('portfolio-chart-drag')
+        .activeOffsetX([-SCRUB_DRAG_ACTIVE_OFFSET_X, SCRUB_DRAG_ACTIVE_OFFSET_X])
+        .failOffsetY([-SCRUB_DRAG_FAIL_OFFSET_Y, SCRUB_DRAG_FAIL_OFFSET_Y]),
+    );
+    const hold = configure(
+      Gesture.Pan().withTestId('portfolio-chart-hold').activateAfterLongPress(SCRUB_LONG_PRESS_MS),
+    );
+    return Gesture.Race(drag, hold);
+  }, [beginScrub, endScrubLock, lastWorkletIndex, scrubTo, xs]);
 
   // Keep the latest parent callbacks in refs so the unmount cleanup can notify
   // the parent without re-subscribing on every prop change.
@@ -916,7 +859,6 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   // Reset everything on unmount so neither can outlive the gesture.
   useEffect(() => {
     return () => {
-      clearLongPressTimer();
       chartScrubLockRef.current = false;
       onScrubLockChangeRef.current?.(false);
       onActivePointChangeRef.current?.(null);
@@ -942,7 +884,7 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
               onPress={() => onRangeChange(item.value as PortfolioHistoryRange)}
               style={({ pressed }) => [
                 isSelected ? styles.rangePillSelected : styles.rangePill,
-                isSelected ? { backgroundColor: theme.colors.gray200 } : null,
+                isSelected ? { backgroundColor: theme.colors.gray100 } : null,
                 pressed ? { opacity: 0.88 } : null,
               ]}
               testID={`range-${item.value}`}
@@ -950,7 +892,6 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
               <Text
                 style={[
                   styles.rangePillLabel,
-                  isSelected ? styles.rangePillLabelSelected : null,
                   { color: isSelected ? theme.colors.gray900 : theme.colors.gray700 },
                 ]}
               >
@@ -967,47 +908,37 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
       >
         {isChartSkeletonVisible ? (
           <ChartSkeleton />
+        ) : usesPriceChart ? (
+          <PriceScrubChart
+            color={chartAccentColor}
+            height={chartHeight}
+            onScrub={onPriceScrub}
+            points={priceChartPoints}
+            areaFill
+            testID="portfolio-price-chart"
+            variant="line"
+            yScale="fit"
+            windowEndMs={priceChartPoints[priceChartPoints.length - 1].t}
+            windowStartMs={priceChartPoints[0].t}
+          />
         ) : chartWidth > 0 ? (
           <>
             {/* Numeric width, NOT "100%": percentage width on the Svg root
                 renders zero-width (invisible chart) on Android. chartWidth is
                 the measured layout width and this branch requires it > 0. */}
             <Svg height={chartHeight} width={chartWidth}>
-              <Defs>
-                {/* Figma 2489:6582 — more pronounced purple500 fill: stronger at
-                    the top (opacity 0.35) fading the PURPLE to transparent across
-                    the full fill height, so the tint carries down the whole area. */}
-                <LinearGradient id="portfolioFill" x1="0" x2="0" y1="0" y2="1">
-                  <Stop offset="0" stopColor={chartFillColor} stopOpacity="0.35" />
-                  <Stop offset="1" stopColor={chartFillColor} stopOpacity="0" />
-                </LinearGradient>
-                <Pattern
-                  height={CHART_GRID_CELL}
-                  id="portfolioGrid"
-                  patternUnits="userSpaceOnUse"
-                  width={CHART_GRID_CELL}
-                >
-                  <Path
-                    d={`M${CHART_GRID_CELL} 0 L0 0 L0 ${CHART_GRID_CELL}`}
-                    fill="none"
-                    stroke={chartAccentColor}
-                    strokeOpacity={0.16}
-                    strokeWidth={0.75}
-                  />
-                </Pattern>
-              </Defs>
 
               {chartMode === 'portfolio' ? (
                 <>
-                  <Path d={fillPath} fill="url(#portfolioFill)" />
-                  <Path d={fillPath} fill="url(#portfolioGrid)" />
+                  {/* Only the sparse 0/1-point states land here; real series
+                      render through PriceScrubChart above. */}
                   <Path
                     d={linePath}
                     fill="none"
                     stroke={chartAccentColor}
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    strokeWidth={2.5}
+                    strokeWidth={2.2}
                   />
                   {activeSelection ? (
                     <>
@@ -1024,7 +955,9 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
                         cx={activeSelection.x}
                         cy={activeSelection.y}
                         fill={chartAccentColor}
-                        r={4}
+                        r={3.5}
+                        stroke={theme.colors.gray0}
+                        strokeWidth={1}
                       />
                     </>
                   ) : null}
@@ -1075,7 +1008,8 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
                 style={[
                   styles.tooltip,
                   {
-                    backgroundColor: theme.colors.gray100,
+                    backgroundColor: theme.colors.gray50,
+                    borderColor: theme.colors.gray100,
                     left: tooltipLeft,
                     top: tooltipTop,
                     opacity: tooltipWidth > 0 && tooltipHeight > 0 ? 1 : 0,
@@ -1083,7 +1017,7 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
                 ]}
                 testID="portfolio-chart-tooltip"
               >
-                <Text style={[styles.tooltipDate, { color: theme.colors.gray900 }]}>
+                <Text style={[styles.tooltipDate, { color: theme.colors.gray800 }]}>
                   {tooltipLabels.dateLabel}
                 </Text>
                 <Text style={[styles.tooltipValue, { color: theme.colors.gray900 }]}>
@@ -1092,24 +1026,9 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
               </View>
             ) : null}
 
-            <View
-              onMoveShouldSetResponder={onMoveShouldSetResponder}
-              onResponderGrant={onTouchGrant}
-              onResponderMove={onTouchMove}
-              onResponderRelease={endScrubLock}
-              onResponderTerminate={endScrubLock}
-              // Claim on touch-start only in tests (so fireEvent('responderGrant')
-              // still drives an immediate scrub). In production the chart yields
-              // touch-start to the parent FlatList and only claims via a
-              // horizontal-dominant move (onMoveShouldSetResponder) or the
-              // long-press scrub-lock, so vertical drags scroll the page.
-              onStartShouldSetResponder={() => isTestEnv}
-              onTouchStart={onTouchStart}
-              onTouchEnd={onTouchEnd}
-              onTouchCancel={onTouchEnd}
-              style={styles.chartTouchTarget}
-              testID="portfolio-chart-touch-target"
-            />
+            <GestureDetector gesture={scrubGesture}>
+              <View collapsable={false} style={styles.chartTouchTarget} testID="portfolio-chart-touch-target" />
+            </GestureDetector>
           </>
         ) : null}
       </View>
@@ -1122,7 +1041,7 @@ export type { PortfolioChartCardProps };
 
 const styles = StyleSheet.create({
   container: {
-    gap: 12,
+    gap: spacing.sm,
   },
   chartArea: {
     position: 'relative',
@@ -1146,18 +1065,18 @@ const styles = StyleSheet.create({
   tooltip: {
     alignItems: 'flex-start',
     borderCurve: 'continuous',
-    borderRadius: 8,
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    borderRadius: radii.sm,
+    borderWidth: borderWidths.containerRule,
+    gap: spacing.xxxs,
+    paddingHorizontal: spacing.xxs,
+    paddingVertical: 6,
     position: 'absolute',
   },
-  // Tooltip is not in the Figma frame; nearest roles to the old SB 10 / Reg 12.
   tooltipDate: {
-    ...textStyles.cardMetaStrong,
+    ...textStyles.overline,
   },
   tooltipValue: {
-    ...textStyles.overline,
+    ...textStyles.labelStrong,
   },
   // Same box selected or not, so switching ranges never shifts the row.
   rangePill: {
@@ -1176,14 +1095,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 4,
   },
-  // Figma "Label" (Medium 14). The selected pill keeps its SemiBold weight on
-  // the raw SB-14 role until the designer styles a selected state.
+  // Figma "Label" (Medium 14), selected and unselected alike.
   rangePillLabel: {
     ...textStyles.label,
     textAlign: 'center',
-  },
-  rangePillLabelSelected: {
-    ...textStyles.titleXsmall,
   },
   skeletonBar: {
     borderCurve: 'continuous',

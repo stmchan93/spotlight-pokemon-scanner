@@ -1770,10 +1770,15 @@ export type NewsFeed = { items: NewsItem[]; nextCursor: string | null };
 
 // Repository query shapes for the meta feed reads. Omitted fields fall back to
 // the server defaults in the contract doc.
+/** 'groups' = card types (Vintage, SIRs…); 'sets' = individual sets (Market Watch). */
+export type MetaPulseKind = 'groups' | 'sets';
+
 export type MetaPulseQuery = {
   game?: CardGame;
   windowDays?: number;
   lane?: MetaLaneFilter;
+  /** Omitted = 'groups'. */
+  kind?: MetaPulseKind;
 };
 
 export type HotCardsQuery = {

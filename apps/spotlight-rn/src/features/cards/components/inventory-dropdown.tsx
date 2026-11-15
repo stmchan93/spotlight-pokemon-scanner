@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { ArrowDown, ArrowUp, BoxIso, MoreHoriz, NavArrowDown, NavArrowUp } from 'iconoir-react-native';
 
@@ -27,7 +27,6 @@ type InventoryDropdownProps = {
     entry: InventoryCardEntry,
     anchor: { x: number; y: number; width: number; height: number } | null,
   ) => void;
-  initiallyExpanded?: boolean;
   testID?: string;
 };
 
@@ -56,27 +55,54 @@ function entryVariantName(entry: InventoryCardEntry): string | null {
   return variant?.trim() || null;
 }
 
+type InventoryQtyPillProps = {
+  entries: readonly InventoryCardEntry[];
+  expanded: boolean;
+  onPress: () => void;
+  testID?: string;
+};
+
 /**
- * Inventory dropdown (Figma 2481:2067 "Variant3"): an expandable outlined
- * container between the PDP identity block and the product options, listing the
- * user's owned entries of this card. Collapsed by default; the header row
- * toggles it. Each expanded row shows the card thumb, a "code · variant · lang"
- * summary with quantity, a MoreHoriz per-entry actions trigger, and the entry's
- * market price — no day-change delta and no cost-basis strikethrough (both
- * explicitly removed in this design).
+ * "Qty: N ▾" pill beside the PDP card name (Figma 6322:8769) — the trigger for
+ * the owned-copies list. N is the total quantity across every owned entry.
+ */
+export function InventoryQtyPill({ entries, expanded, onPress, testID }: InventoryQtyPillProps) {
+  const theme = useSpotlightTheme();
+  const total = entries.reduce((sum, entry) => sum + entry.quantity, 0);
+  const Chevron = expanded ? NavArrowUp : NavArrowDown;
+  return (
+    <Pressable
+      accessibilityLabel={expanded ? 'Collapse inventory' : 'Expand inventory'}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.pill,
+        { backgroundColor: theme.colors.gray50, opacity: pressed ? 0.7 : 1 },
+      ]}
+      testID={testID}
+    >
+      <BoxIso color={theme.colors.gray900} height={16} width={16} />
+      <AppText color="gray900" variant="overline">
+        {`Qty: ${total}`}
+      </AppText>
+      <Chevron color={theme.colors.gray900} height={20} width={20} />
+    </Pressable>
+  );
+}
+
+/**
+ * Owned-copies list (Figma 2481:2067 rows), opened from {@link InventoryQtyPill}.
+ * Each row shows the card thumb, a "code · variant · lang" summary with
+ * quantity, a MoreHoriz per-entry actions trigger, and the entry's market price.
  */
 export function InventoryDropdown({
   entries,
   language,
   onPressEntry,
   onPressEntryMenu,
-  initiallyExpanded = false,
   testID,
 }: InventoryDropdownProps) {
   const theme = useSpotlightTheme();
-  const [expanded, setExpanded] = useState(initiallyExpanded);
-
-  const Chevron = expanded ? NavArrowUp : NavArrowDown;
 
   return (
     <View
@@ -86,24 +112,6 @@ export function InventoryDropdown({
       ]}
       testID={testID}
     >
-      <Pressable
-        accessibilityLabel={expanded ? 'Collapse inventory' : 'Expand inventory'}
-        accessibilityRole="button"
-        onPress={() => setExpanded((current) => !current)}
-        style={styles.headerRow}
-        testID={testID ? `${testID}-header` : undefined}
-      >
-        <View style={styles.headerTitle}>
-          <BoxIso color={theme.colors.gray900} height={16} width={16} />
-          {/* "INVENTORY" — Caption-medium, uppercase (Figma 5938:25303 / 3656:41631). */}
-          <AppText color="gray900" variant="captionMedium">
-            INVENTORY
-          </AppText>
-        </View>
-        <Chevron color={theme.colors.gray900} height={20} width={20} />
-      </Pressable>
-
-      {expanded ? (
         <View style={styles.entries}>
           {entries.map((entry, index) => {
             const summary = [entryGradeCode(entry), entryVariantName(entry), language]
@@ -229,7 +237,6 @@ export function InventoryDropdown({
             );
           })}
         </View>
-      ) : null}
     </View>
   );
 }
@@ -293,15 +300,16 @@ const styles = StyleSheet.create({
   entrySummaryText: {
     flexShrink: 1,
   },
-  headerRow: {
+  // Figma 6322:8769: gray/50 fill, 8 radius, 5/2 padding, 86 wide.
+  pill: {
     alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  headerTitle: {
-    alignItems: 'center',
+    borderCurve: 'continuous',
+    borderRadius: radii.sm,
     flexDirection: 'row',
     gap: 4,
+    minWidth: 86,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
   },
   shell: {
     borderCurve: 'continuous',

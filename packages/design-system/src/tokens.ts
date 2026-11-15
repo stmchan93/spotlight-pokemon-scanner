@@ -107,6 +107,8 @@ export const colors = {
   chartAxisLabel: 'rgba(17, 17, 20, 0.48)',
   scannerCanvas: '#050505',
   scannerTray: '#000000',
+  /** Behind a full-screen photo (Figma 6322:8404). */
+  mediaBackdrop: '#000000',
   scannerSurface: 'rgba(255, 255, 255, 0.04)',
   scannerSurfaceMuted: 'rgba(255, 255, 255, 0.03)',
   scannerSurfaceStrong: 'rgba(255, 255, 255, 0.08)',
@@ -244,6 +246,11 @@ export const layout = {
   // (Reddit-style) so the pill hugs the bottom of the screen.
   bottomNavBottomInset: 6,
   bottomNavIconSize: 52,
+  // Solid JS tab bar drawn on the Scanner (Figma 6145:5694): row height and
+  // the minimum bottom padding, replaced by the home-indicator inset if taller.
+  tabBarRowHeight: 54,
+  tabBarMinBottomPadding: 25,
+  tabBarIconSlotHeight: 28,
   chartCardRadius: 24,
   inventoryTileRadius: 18,
   // Card-art corner radius on grid tiles (Figma 2609:7016 / 2609:6977): raw
@@ -574,6 +581,15 @@ export const textStyles = {
     fontFamily: fontFamilies.bodySemiBold,
     fontSize: 11,
     color: colors.textPrimary,
+  } satisfies TextStyle,
+  // JS-drawn bottom tab label (scanner's solid tab bar, Figma 6145:5694):
+  // SemiBold 9/12, -0.1 tracking, capitals in the string. Color per state.
+  tabLabel: {
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 9,
+    lineHeight: 12,
+    letterSpacing: -0.1,
+    textAlign: 'center',
   } satisfies TextStyle,
   // --- legacy aliases: same metrics as a library role; re-role call sites, then delete ---
   // = display

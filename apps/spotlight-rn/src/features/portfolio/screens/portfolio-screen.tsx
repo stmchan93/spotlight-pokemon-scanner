@@ -52,6 +52,8 @@ import {
 import {
   PortfolioChartCard,
   portfolioRangeCaption,
+  portfolioRangeSummaryAfterWarmup,
+  trimPortfolioWarmup,
   type PortfolioChartActivePoint,
 } from '@/features/portfolio/components/portfolio-chart-card';
 import { PortfolioBalanceHeader } from '@/features/portfolio/components/portfolio-balance-header';
@@ -578,9 +580,14 @@ export function PortfolioScreen({
   // Price history is young, so 3M / 1Y clamp to its first day and read as
   // broken. Say what the window really is, in the header's scrub-date slot.
   const selectedRangePoints = model.dashboard.ranges[model.selectedRange]?.portfolio;
+  // The chart skips the warm-up days, so the caption and change must too.
   const rangeCaption = useMemo(
-    () => portfolioRangeCaption(model.selectedRange, selectedRangePoints ?? []),
+    () => portfolioRangeCaption(model.selectedRange, trimPortfolioWarmup(selectedRangePoints ?? [])),
     [model.selectedRange, selectedRangePoints],
+  );
+  const selectedRangeSummary = useMemo(
+    () => portfolioRangeSummaryAfterWarmup(selectedRangePoints ?? [], model.selectedRangeSummary),
+    [model.selectedRangeSummary, selectedRangePoints],
   );
 
   // Abbreviated total on the collection summary line (Figma 2749:4753). It
@@ -1757,7 +1764,7 @@ export function PortfolioScreen({
             <PortfolioBalanceHeader
               label={activeCollectionName}
               summary={summary}
-              rangeSummary={model.selectedRangeSummary}
+              rangeSummary={selectedRangeSummary}
               rangeCaption={rangeCaption}
               activeChartPoint={isChartScrubbing ? activeChartPoint : null}
               isSummaryHidden={isSummaryHidden}

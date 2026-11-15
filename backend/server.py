@@ -194,6 +194,7 @@ import set_spotlight
 import similar_cards
 import art_search
 import spotlight_events
+import booth_admin
 import spotlight_events_admin
 import watch_signals
 import watchlist_suggestions
@@ -250,6 +251,11 @@ from post_media_store import (
     PostMediaStoreError,
     build_post_media_store,
     content_type_for_path,
+)
+from post_media_thumbnails import (
+    parse_thumb_width,
+    post_media_thumbnail_cache,
+    resize_post_media,
 )
 from request_auth import RequestAuthError, RequestIdentity, SupabaseRequestAuthenticator
 from person_cutout import extract_person_cutout
@@ -573,9 +579,8 @@ RECENT_SALES_DEFAULT_LIMIT = 5
 RECENT_SALES_MAX_LIMIT = 25
 RECENT_SALES_FRESHNESS_HOURS = 24
 RECENT_SALES_EMPTY_REFRESH_HOURS = 48
-# "Recent average" headline: newest 3+ (whole days; or 2, or 1) verified USD sales no older
-# than this. Older sales stay listed but never become a price.
-RECENT_SALES_AVERAGE_SAMPLE = 3
+# Graded headline = the last verified USD sale no older than this. Older sales
+# stay listed but never become a price (the Scrydex graded price shows instead).
 RECENT_SALES_AVERAGE_MAX_AGE_DAYS = 180
 
 # "Lowest Listed" = CURRENT active eBay listings (Browse API, a free rate-limited
@@ -599,6 +604,13 @@ SLAB_MATCH_BUDGET_SECONDS = 7.0
 # `None` (card not found, cached) from "key absent". Allocated once so the
 # `is` identity check stays cheap across calls.
 _CARD_LOOKUP_CACHE_MISS: object = object()
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, "") or default))
+    except ValueError:
+        return default
 
 
 def _strip_cross_language_set_suffix(set_name: str) -> str:
@@ -696,12 +708,14 @@ def _filter_recent_sales_rows(
 
 
 def _recent_sales_average(sale_rows: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Median of the newest USD sales (every sale on the newest dates until
-    there are at least 3, else 2, else 1) that fall inside
-    RECENT_SALES_AVERAGE_MAX_AGE_DAYS. None when nothing recent
-    exists so the caller falls back to the provider's graded price."""
+    """Graded price of record: the LAST verified USD sale (product call
+    2026-11-10 — a median of the newest few lagged the market). Callers pass
+    rows already cleaned of title conflicts and local outliers. None when no
+    sale falls inside RECENT_SALES_AVERAGE_MAX_AGE_DAYS, so the caller falls
+    back to the provider's (Scrydex) graded price. The wire key stays
+    `recentAverage` so shipped clients keep working."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=RECENT_SALES_AVERAGE_MAX_AGE_DAYS)
-    priced: list[tuple[datetime, float]] = []
+    latest: tuple[datetime, float] | None = None
     for row in sale_rows:
         currency = str(row.get("currencyCode") or "USD").strip().upper() or "USD"
         try:
@@ -711,30 +725,20 @@ def _recent_sales_average(sale_rows: list[dict[str, Any]]) -> dict[str, Any] | N
         sold_at = sale_sort_date(row.get("soldAt") or row.get("sold_at"))
         if amount is None or amount <= 0 or currency != "USD" or sold_at < cutoff:
             continue
-        priced.append((sold_at, amount))
-    priced.sort(key=lambda item: item[0], reverse=True)
-    if not priced:
+        # Sales carry a date only; on a tie keep the first in list order, which
+        # is the top row the Recent Sales panel shows.
+        if latest is None or sold_at > latest[0]:
+            latest = (sold_at, amount)
+    if latest is None:
         return None
-    # Sales carry a date, not a time, so "newest 3" is ambiguous inside a busy
-    # day and the app orders same-day rows differently than this list. Take
-    # whole days instead: every sale on the newest dates until there are 3.
-    sample: list[tuple[datetime, float]] = []
-    for sold_at, amount in priced:
-        if len(sample) >= RECENT_SALES_AVERAGE_SAMPLE and sold_at != sample[-1][0]:
-            break
-        sample.append((sold_at, amount))
-    # Median, not mean: one mismatched sale that slips the filters can't
-    # swing it (a $199.99 among ~$3,900 sales took the mean to $2,667).
-    amounts = sorted(amount for _, amount in sample)
-    middle = len(amounts) // 2
-    median = amounts[middle] if len(amounts) % 2 else (amounts[middle - 1] + amounts[middle]) / 2
+    sold_label = latest[0].strftime("%Y/%m/%d")
     return {
-        "amount": round(median, 2),
+        "amount": round(latest[1], 2),
         "currencyCode": "USD",
-        "sampleSize": len(sample),
+        "sampleSize": 1,
         "windowDays": RECENT_SALES_AVERAGE_MAX_AGE_DAYS,
-        "latestSoldAt": sample[0][0].strftime("%Y/%m/%d"),
-        "oldestSoldAt": sample[-1][0].strftime("%Y/%m/%d"),
+        "latestSoldAt": sold_label,
+        "oldestSoldAt": sold_label,
     }
 
 
@@ -2306,6 +2310,8 @@ class PendingVisualScan:
 # unconfigured (and then reported as an orphan) instead of being silently lost.
 AVATAR_STORE_NAME = "avatars"
 POST_MEDIA_STORE_NAME = "post-media"
+# The composer attaches up to 4 photos per post (positions 0-3).
+POST_MEDIA_MAX_POSITION = 3
 SCAN_ARTIFACT_STORE_NAME = "scan-artifacts"
 
 
@@ -2466,7 +2472,12 @@ class SpotlightScanService:
         # Browser-edited shows layered over data/spotlight_events.json (/admin/events).
         self.events_admin = spotlight_events_admin.EventsAdmin(lambda: connect(self.database_path))
         spotlight_events.configure_admin(self.events_admin)
+        # Bounded: each hydrated card carries its full source JSON (~36KB), and
+        # unbounded it grew to every card ever viewed, a big share of the 13GB
+        # that hung prod on 2026-11-15. FIFO eviction; the hot set stays cached.
         self._card_lookup_cache: dict[str, dict[str, Any] | None] = {}
+        self._card_lookup_cache_max_entries = _env_int("SPOTLIGHT_CARD_LOOKUP_CACHE_MAX", 10000)
+        self._card_lookup_cache_evict_lock = threading.Lock()
         self._raw_visual_matcher: Any | None = None
         self._pending_visual_scans: dict[str, PendingVisualScan] = {}
         self._pending_visual_scan_ttl_seconds: float = 90.0
@@ -2476,14 +2487,16 @@ class SpotlightScanService:
         self._dashboard_cache: dict[tuple[str, str], tuple[str, dict[str, Any]]] = {}
         self._dashboard_cache_locks: dict[tuple[str, str], threading.Lock] = {}
         self._dashboard_cache_locks_guard = threading.Lock()
-        self._dashboard_cache_max_entries = 256
+        # Payloads run up to ~1.3MB of JSON (several MB as Python objects), and a
+        # miss reloads from the disk mirror, so keep the in-memory set small.
+        self._dashboard_cache_max_entries = _env_int("SPOTLIGHT_DASHBOARD_CACHE_MAX", 64)
         # Per-owner deck-entries cache, same version-token + dogpile pattern as
         # the dashboard cache above. deck_entries recomputes ~1s of per-card
         # pricing on EVERY Collection view; uncached, ~30 concurrent browsers
         # saturate the heavy-read slots and shed 503s (load-tested 2026-07-05).
         self._deck_entries_cache: dict[tuple[Any, ...], tuple[str, dict[str, Any]]] = {}
         self._deck_entries_cache_locks: dict[tuple[Any, ...], threading.Lock] = {}
-        self._deck_entries_cache_max_entries = 512
+        self._deck_entries_cache_max_entries = _env_int("SPOTLIGHT_DECK_ENTRIES_CACHE_MAX", 128)
         # On-disk mirror of both caches above, so a RESTART reloads instead of
         # recomputing — see the payload-cache helpers. Disabled by pointing
         # SPOTLIGHT_PAYLOAD_CACHE_DIR at nothing.
@@ -2511,7 +2524,7 @@ class SpotlightScanService:
         # meta keyed by (game, window, lane) on the job's version token, hot
         # cards by game on the newest run, set spotlight by set id (pick on its
         # stored row, other sets on a TTL).
-        self._meta_pulse_cache: dict[tuple[str, int, str], tuple[str, dict[str, Any]]] = {}
+        self._meta_pulse_cache: dict[tuple[str, int, str, str], tuple[str, dict[str, Any]]] = {}
         # Meta group pages: (game, window, groupKey) on the same version token.
         # Per-user exposure: (owner, game, window) on the token + a short TTL,
         # since holdings change between job runs.
@@ -7019,7 +7032,7 @@ class SpotlightScanService:
             return
         fetched_cards = cards_by_ids(self.connection, missing_ids)
         for card_id in missing_ids:
-            self._card_lookup_cache.setdefault(card_id, fetched_cards.get(card_id))
+            self._remember_card(card_id, fetched_cards.get(card_id))
 
     @staticmethod
     def _history_primary_price_value(point: dict[str, Any] | None) -> float | None:
@@ -8229,12 +8242,18 @@ class SpotlightScanService:
 
         series_map: dict[tuple[str, ...], dict[str, Any]] = {}
         order: list[tuple[str, ...]] = []
-        currency_counts: dict[str, int] = {}
         for r in rows:
+            # USD only: the app never shows yen (JP Scrydex cells are JPY); a
+            # printing with no USD history simply has no series.
+            cc = str(r["currency_code"] or "").upper()
+            if cc and cc != "USD":
+                continue
             if resolved_lane == "raw":
                 vk = str(r["variant_key"] or "")
                 cond = str(r["condition"] or "")
-                key = (vk, cond)
+                # "Holofoil" and "holofoil" are one printing: a stray spelling
+                # used to come back as a second, partial series.
+                key = (_variant_match_key(_normalized_variant_label(vk)), cond)
                 if key not in series_map:
                     order.append(key)
                     series_map[key] = {
@@ -8250,7 +8269,7 @@ class SpotlightScanService:
                 grader = str(r["grader"] or "")
                 grade = str(r["grade"] or "")
                 vk = str(r["variant_key"] or "")
-                key = (grader, grade, vk)
+                key = (grader, grade, _variant_match_key(_normalized_variant_label(vk)))
                 if key not in series_map:
                     order.append(key)
                     label = f"{grader} {grade}".strip()
@@ -8265,9 +8284,6 @@ class SpotlightScanService:
                         "grade": grade or None,
                         "points": [],
                     }
-            cc = str(r["currency_code"] or "")
-            if cc:
-                currency_counts[cc] = currency_counts.get(cc, 0) + 1
             series_map[key]["points"].append(
                 {
                     "date": r["price_date"],
@@ -8278,10 +8294,16 @@ class SpotlightScanService:
                 }
             )
 
+        # Merged spellings interleave: one point per day (the later row wins), date-ordered.
+        for series_entry in series_map.values():
+            by_day = {str(p["date"]): p for p in series_entry["points"]}
+            series_entry["points"] = [by_day[d] for d in sorted(by_day)]
+
         if resolved_lane == "raw":
-            # Main-lane per-day override (flag-gated: {} when off): a TCGCSV-priced
-            # printing's NM series serves its raw_main cells; days without a cell
-            # keep the Scrydex point — the accepted mixed series (no backfill).
+            # Main-lane source (flag-gated: {} when off): a TCGCSV-priced printing's
+            # NM series is its raw_main cells ONLY, the same source as the headline
+            # price. Mixing in Scrydex days zigzagged wherever the two disagree;
+            # older days come from the TCGCSV archive backfill instead.
             main_points = main_raw_cell_points_by_variant_date(
                 self.connection, card_id=card_id, start_date=start_date
             )
@@ -8294,23 +8316,22 @@ class SpotlightScanService:
                     )
                     if not by_date:
                         continue
-                    merged = {str(p["date"]): p for p in series_entry["points"]}
-                    for point_date, point in by_date.items():
-                        merged[point_date] = {
+                    series_entry["points"] = [
+                        {
                             "date": point_date,
-                            "market": point["market"],
-                            "low": point["low"],
-                            "mid": point["mid"],
-                            "high": point["high"],
+                            "market": by_date[point_date]["market"],
+                            "low": by_date[point_date]["low"],
+                            "mid": by_date[point_date]["mid"],
+                            "high": by_date[point_date]["high"],
                         }
-                    series_entry["points"] = [merged[d] for d in sorted(merged)]
+                        for point_date in sorted(by_date)
+                    ]
 
-        currency_code = max(currency_counts, key=currency_counts.get) if currency_counts else "USD"
         series = [series_map[k] for k in order if series_map[k]["points"]]
         return {
             "cardId": card_id,
             "lane": resolved_lane,
-            "currencyCode": currency_code,
+            "currencyCode": "USD",
             "series": series,
         }
 
@@ -14678,7 +14699,19 @@ class SpotlightScanService:
         if cached_card is not sentinel:
             return cached_card
         card = card_by_id(self.connection, normalized_card_id)
-        return self._card_lookup_cache.setdefault(normalized_card_id, card)
+        return self._remember_card(normalized_card_id, card)
+
+    def _remember_card(self, card_id: str, card: dict[str, Any] | None) -> dict[str, Any] | None:
+        cached = self._card_lookup_cache.setdefault(card_id, card)
+        if len(self._card_lookup_cache) > self._card_lookup_cache_max_entries:
+            with self._card_lookup_cache_evict_lock:
+                while len(self._card_lookup_cache) > self._card_lookup_cache_max_entries:
+                    try:
+                        self._card_lookup_cache.pop(next(iter(self._card_lookup_cache)), None)
+                    except (RuntimeError, StopIteration):
+                        # A concurrent insert resized the dict mid-iteration; retry.
+                        continue
+        return cached
 
     @staticmethod
     def _entry_title_aliases(entry: dict[str, Any]) -> tuple[str, ...]:
@@ -21504,9 +21537,7 @@ class SpotlightScanService:
     ) -> None:
         self._persist_payload("dashboard", cache_key, version, payload)
         with self._dashboard_cache_locks_guard:
-            # Simple bounded LRU-ish cap so the cache can't grow without limit as
-            # users come and go (one ~265KB payload per owner). 256 owners is far
-            # more than the concurrent working set; evict the oldest on overflow.
+            # Bounded FIFO cap; evict the oldest on overflow.
             if (
                 cache_key not in self._dashboard_cache
                 and len(self._dashboard_cache) >= self._dashboard_cache_max_entries
@@ -23310,9 +23341,12 @@ class SpotlightScanService:
         self._emit_structured_log(result)
         return result
 
-    def market_meta_pulse(self, *, game: str, window_days: int, lane: str) -> dict[str, Any]:
-        """Meta pulse block/page. The version token changes on every job write."""
-        key = (game, window_days, lane)
+    def market_meta_pulse(
+        self, *, game: str, window_days: int, lane: str, kind: str = meta_pulse.KIND_GROUPS
+    ) -> dict[str, Any]:
+        """Meta pulse block/page (card groups) or Market Watch's sets (``kind="sets"``).
+        The version token changes on every job write."""
+        key = (game, window_days, lane, kind)
         try:
             version = meta_pulse.meta_pulse_version_token(self.connection)
         except Exception:  # noqa: BLE001 - cache bookkeeping must never break the feed
@@ -23322,7 +23356,7 @@ class SpotlightScanService:
         if version is not None and cached is not None and cached[0] == version:
             return cached[1]
         payload = meta_pulse.build_meta_pulse_payload(
-            self.connection, game=game, window_days=window_days, lane=lane
+            self.connection, game=game, window_days=window_days, lane=lane, kind=kind
         )
         if version is not None:
             with self._feed_cache_lock:
@@ -24999,6 +25033,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         post_id: str,
         storage_path: str,
         caller_user_id: str,
+        position: int = 0,
     ) -> dict[str, Any] | None:
         """INSERT a ``post_media`` row after checking ownership SERVER-SIDE.
 
@@ -25022,7 +25057,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 "id": media_id,
                 "post_id": post_id,
                 "storage_path": storage_path,
-                "position": 0,
+                "position": position,
             }
         ).encode("utf-8")
         request = Request(
@@ -25176,6 +25211,42 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         if not isinstance(parsed, list):
             return None
         return [row for row in parsed if isinstance(row, dict)]
+
+    def _supabase_rest_rpc(self, function: str, args: dict[str, Any]) -> Any | None:
+        """Privileged PostgREST RPC. Returns the parsed result, or None on any failure."""
+        config = self._supabase_rest_config()
+        if config is None:
+            return None
+        supabase_url, service_role_key = config
+
+        from urllib.request import Request, urlopen
+
+        request = Request(
+            f"{supabase_url}/rest/v1/rpc/{function}",
+            data=json.dumps(args).encode("utf-8"),
+            method="POST",
+            headers={
+                "apikey": service_role_key,
+                "Authorization": f"Bearer {service_role_key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+        )
+        try:
+            with urlopen(request, timeout=10) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except Exception as exc:  # noqa: BLE001 - the caller reports the failure
+            print(
+                json.dumps({
+                    "severity": "ERROR",
+                    "event": "supabase_rest_rpc_failed",
+                    "function": function,
+                    "errorType": type(exc).__name__,
+                    "error": str(exc)[:200],
+                }),
+                flush=True,
+            )
+            return None
 
     def _supabase_rest_insert(
         self, table: str, payload: dict[str, Any]
@@ -25798,6 +25869,14 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     HTTPStatus.NOT_FOUND, {"error": "Post media not found"}
                 )
                 return
+            # Optional ?w= thumbnail. Checked only after authorization above, so
+            # a cache hit skips the bucket read, never the visibility rule.
+            thumb_width = parse_thumb_width(query.get("w", [""])[0])
+            if thumb_width is not None:
+                cached = post_media_thumbnail_cache.get(storage_path, thumb_width)
+                if cached is not None:
+                    self._write_post_media_image(cached, content_type="image/jpeg")
+                    return
             try:
                 image_bytes = post_media_store.read_bytes(storage_path)
             except PostMediaStoreError as error:
@@ -25815,6 +25894,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     HTTPStatus.NOT_FOUND, {"error": "Post media not found"}
                 )
                 return
+            if thumb_width is not None:
+                thumbnail = resize_post_media(image_bytes, thumb_width)
+                if thumbnail is not None:
+                    post_media_thumbnail_cache.put(storage_path, thumb_width, thumbnail)
+                    self._write_post_media_image(thumbnail, content_type="image/jpeg")
+                    return
             self._write_post_media_image(
                 image_bytes, content_type=content_type_for_path(storage_path)
             )
@@ -26564,8 +26649,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             if game not in SUPPORTED_GAMES:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": f"unknown game: {game}"})
                 return
+            kind = query_params.get("kind", [meta_pulse.KIND_GROUPS])[0].strip().lower() or meta_pulse.KIND_GROUPS
+            if kind not in meta_pulse.KIND_FILTERS:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "kind must be groups or sets"})
+                return
             try:
-                payload = self.service.market_meta_pulse(game=game, window_days=window_days, lane=lane)
+                payload = self.service.market_meta_pulse(game=game, window_days=window_days, lane=lane, kind=kind)
             except Exception as error:  # noqa: BLE001
                 traceback.print_exc()
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Meta pulse failed: {error}"})
@@ -26719,6 +26808,21 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             if not self._events_admin_authorized():
                 return
             self._write_json(HTTPStatus.OK, self._events_admin_listing())
+            return
+
+        if parsed.path.startswith("/api/v1/admin/events/") and parsed.path.endswith("/booths"):
+            if not self._events_admin_authorized():
+                return
+            event_id = unquote(parsed.path.removeprefix("/api/v1/admin/events/").removesuffix("/booths").strip("/"))
+            if not any(event["id"] == event_id for event in spotlight_events.load_events(include_hidden=True)):
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "unknown event"})
+                return
+            try:
+                booths = booth_admin.booth_overview(event_id)
+            except booth_admin.BoothAdminError as error:
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": str(error)})
+                return
+            self._write_json(HTTPStatus.OK, {"booths": booths})
             return
 
         if parsed.path.startswith("/api/v1/events/") and parsed.path.endswith("/flyer"):
@@ -27203,11 +27307,42 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
 
         self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
 
+    def _handle_news_thread_post(self) -> None:
+        """Get or create the hidden post that carries an article's reactions.
+
+        The headline comes from this backend's `news_items`, never the request,
+        so a client cannot put its own words under a publisher's name.
+        """
+        identity = self._require_request_identity()
+        if identity is None:
+            return
+        if not _env_flag(NEWS_FEED_ENABLED_ENV):
+            self._write_json(HTTPStatus.NOT_FOUND, {"error": "disabled"})
+            return
+        payload = self._read_json_body()
+        if payload is None:
+            self._write_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid JSON"})
+            return
+        news_id = str(payload.get("newsId") or "").strip()
+        args = news_feed.news_thread_args(self.service.connection, news_id) if news_id else None
+        if args is None:
+            self._write_json(HTTPStatus.NOT_FOUND, {"error": "Unknown news item"})
+            return
+        post_id = self._supabase_rest_rpc("ensure_news_thread", args)
+        if not isinstance(post_id, str) or not post_id:
+            self._write_json(HTTPStatus.BAD_GATEWAY, {"error": "Could not open the thread"})
+            return
+        self._write_json(HTTPStatus.OK, {"postId": post_id})
+
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
 
         if parsed.path.startswith("/api/v1/admin/events"):
             self._handle_events_admin_post(parsed.path)
+            return
+
+        if parsed.path == "/api/v1/feed/news/thread":
+            self._handle_news_thread_post()
             return
 
         if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith("/refresh-pricing"):
@@ -27466,6 +27601,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     },
                 )
                 return
+            # Order within a multi-photo post. Older clients send none → 0.
+            try:
+                position = int(query.get("position", ["0"])[0])
+            except ValueError:
+                position = 0
+            position = max(0, min(position, POST_MEDIA_MAX_POSITION))
             image_bytes = self._read_raw_image_body()
             if image_bytes is None:
                 self._write_json(
@@ -27482,6 +27623,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 post_id=post_id,
                 storage_path=storage_path,
                 caller_user_id=identity.user_id,
+                position=position,
             )
             if not row:
                 # The caller does not author this post (or the insert errored)
@@ -29168,6 +29310,27 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 return
             admin.set_hidden(event_id, hidden)
             self._write_json(HTTPStatus.OK, {"hidden": hidden})
+            return
+        # Booth claims live in Supabase (social_27); these go through the service role.
+        if action.startswith("booths/") and action.endswith("/unclaim"):
+            vendor_id = unquote(action.removeprefix("booths/").removesuffix("/unclaim").strip("/"))
+            if not vendor_id or "/" in vendor_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            try:
+                revoked = booth_admin.unclaim(vendor_id)
+            except booth_admin.BoothAdminError as error:
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": str(error)})
+                return
+            self._write_json(HTTPStatus.OK, {"vendorId": vendor_id, "revoked": revoked})
+            return
+        if action == "booth-recaps":
+            try:
+                sent = booth_admin.send_recaps(event_id, booth_admin.event_name(known[event_id]))
+            except booth_admin.BoothAdminError as error:
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": str(error)})
+                return
+            self._write_json(HTTPStatus.OK, {"sent": sent})
             return
         self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
 
