@@ -401,6 +401,31 @@ describe('recent-captures-persistence (tray DB)', () => {
       expect(loaded.priceSelections.has('gone')).toBe(false);
     });
 
+    it('round-trips a row grade pick (grader, grade and its graded price)', async () => {
+      const psa9 = {
+        ...holofoilLP,
+        conditionCode: 'near_mint' as const,
+        conditionShortLabel: 'NM',
+        marketPrice: 0.55,
+        grading: { grader: 'PSA', grade: '9', marketPrice: 45 },
+      };
+      setRecentCapturesOwner('user-a');
+      await flushPersist([makeCapture({ id: 'graded' })], new Map([['graded', psa9]]));
+
+      const loaded = await hydrate('user-a');
+      expect(loaded.priceSelections.get('graded')).toEqual(psa9);
+    });
+
+    it('a grade pick saved before its price landed comes back unpriced (re-read on load)', async () => {
+      const pending = { ...holofoilLP, grading: { grader: 'CGC', grade: '9.5' } };
+      setRecentCapturesOwner('user-a');
+      await flushPersist([makeCapture({ id: 'pending' })], new Map([['pending', pending]]));
+
+      const loaded = await hydrate('user-a');
+      expect(loaded.priceSelections.get('pending')?.grading).toEqual({ grader: 'CGC', grade: '9.5' });
+      expect(loaded.priceSelections.get('pending')?.grading?.marketPrice).toBeUndefined();
+    });
+
     it('a rows-only write keeps the last known choices', async () => {
       const kept = makeCapture({ id: 'kept' });
       await flushPersist([kept], new Map([['kept', holofoilLP]]));

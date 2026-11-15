@@ -350,12 +350,13 @@ describe('ScannerScreen', () => {
       minHeight: rawScannerTrayEmptyPeekHeight,
     });
     expect(StyleSheet.flatten(screen.getByTestId('scanner-recent-title').props.style)).toMatchObject({
-      fontSize: textStyles.labelStrong.fontSize,
-      lineHeight: textStyles.labelStrong.lineHeight,
+      // Figma 6150:6731: SemiBold 12 white on the gray900 chip.
+      fontSize: textStyles.captionStrong.fontSize,
+      lineHeight: textStyles.captionStrong.lineHeight,
     });
     expect(StyleSheet.flatten(screen.getByTestId('scanner-value-pill-text').props.style)).toMatchObject({
-      fontSize: textStyles.labelStrong.fontSize,
-      lineHeight: textStyles.labelStrong.lineHeight,
+      fontSize: textStyles.captionStrong.fontSize,
+      lineHeight: textStyles.captionStrong.lineHeight,
     });
     expect(screen.queryByTestId('scanner-smoke-fixture-trigger')).toBeNull();
   });
@@ -405,7 +406,7 @@ describe('ScannerScreen', () => {
     expect(screen.getByTestId(trayTestId('image', 0)).props.source).toEqual({
       uri: 'https://images.pokemontcg.io/mcdonalds25/21.png',
     });
-    expect(screen.getByText("McDonald's Collection 2021 · #21/25")).toBeTruthy();
+    expect(screen.getByText("#21/25 · McDonald's Collection 2021")).toBeTruthy();
     expect(screen.queryByTestId('scanner-matches-button')).toBeNull();
     expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.56');
     expect(screen.getByTestId(trayTestId('swipe', 0, '-delete-button'), {
@@ -1110,23 +1111,21 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
     expect(await screen.findByText('Maui')).toBeTruthy();
 
-    // Untouched row: the write carries the printing the pill names.
-    await waitFor(() => {
-      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('NORMAL');
+    // Untouched row: the write carries the row's default printing (the
+    // matrix's first) once the matrix has landed.
+    await act(async () => {
+      await Promise.resolve();
     });
-    fireEvent.press(screen.getByTestId(trayTestId('add', 0)), {
-      nativeEvent: { pageX: 180, pageY: 640 },
-      currentTarget: {
-        measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) =>
-          cb(0, 0, 0, 0),
-      },
-    });
-    fireEvent.press(await screen.findByTestId('scanner-row-add-menu-collection'));
+    // ADD files straight into the collection — no menu in between.
+    fireEvent.press(screen.getByTestId(trayTestId('add', 0)));
+    expect(screen.queryByTestId('scanner-row-add-menu')).toBeNull();
 
     await waitFor(() => {
       expect(addPayloads).toHaveLength(1);
     });
     expect(addPayloads[0].variantName).toBe('Normal');
+    expect(addPayloads[0].condition).toBe('near_mint');
+    expect(addPayloads[0].slabContext).toBeNull();
   });
 
   const froakieAddAllRepository = (
@@ -1741,10 +1740,9 @@ describe('ScannerScreen', () => {
       expect(trayRow(0)).toBeTruthy();
     });
 
-    // Collapsed tray chips: frost over the camera, solid gray0 on fallback
-    // targets (no glass to tint).
-    expect(fillOf('scanner-recent-title-surface')).toBe(colors.gray0);
-    expect(fillOf('scanner-value-pill-surface')).toBe(colors.gray0);
+    // Collapsed tray chips: solid gray900 on every platform (Figma 6150:6730).
+    expect(fillOf('scanner-recent-title-surface')).toBe(colors.gray900);
+    expect(fillOf('scanner-value-pill-surface')).toBe(colors.gray900);
 
     /*
       The tray backdrop is the SAME frosted dim on every platform now (Figma
@@ -1900,14 +1898,19 @@ describe('ScannerScreen', () => {
     expect(trayRow(0)).toBeTruthy();
   });
 
-  it('wishlists a scanned card via the row ADD menu, then slides it out of the tray', async () => {
-    const setCardFavorite = jest.fn(async (cardId: string, isFavorite?: boolean | null) => ({
-      cardId,
-      favoritedAt: (isFavorite ?? true) ? '2026-05-15T00:00:00.000Z' : null,
-      isFavorite: isFavorite ?? true,
+  it('the row ADD is a plain button that adds to the collection, then slides the row out', async () => {
+    const createInventoryEntry = jest.fn(async (payload: any) => ({
+      deckEntryID: 'entry-froakie',
+      cardID: payload.cardID,
+      variantName: null,
+      condition: payload.condition,
+      confirmationID: null,
+      sourceScanID: payload.sourceScanID,
+      addedAt: payload.addedAt,
     }));
     const spotlightRepository = createTestSpotlightRepository({
-      setCardFavorite,
+      createInventoryEntry,
+      getInventoryEntries: async () => [],
       matchScannerCapture: async () => ({
         scanID: 'scan-froakie',
         candidates: [{
@@ -1930,29 +1933,14 @@ describe('ScannerScreen', () => {
 
     expect(await screen.findByText('Froakie')).toBeTruthy();
 
-    // The inline ADD ▾ pill opens the per-row menu; picking Wishlist favorites
-    // the active candidate immediately (no confirm sheet).
     const addPill = await findTrayElement('add', 0);
-    expect(addPill).toHaveTextContent('ADD ITEM');
-    fireEvent.press(addPill, {
-      // A real press always carries both; the handler reads the tap point
-      // BEFORE the async measure so Android's flaky measureInWindow cannot
-      // leave the button dead (see the open-first fallback at the call site).
-      nativeEvent: { pageX: 180, pageY: 640 },
-      currentTarget: {
-        measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) =>
-          cb(0, 0, 0, 0),
-      },
-    });
-
-    fireEvent.press(await screen.findByTestId('scanner-row-add-menu-wishlist'));
+    expect(addPill).toHaveTextContent('ADD');
+    expect(addPill).not.toHaveTextContent('ADD ITEM');
+    fireEvent.press(addPill);
 
     await waitFor(() => {
-      expect(setCardFavorite).toHaveBeenCalledWith('mcdonalds25-22', true, { variant: null });
+      expect(createInventoryEntry).toHaveBeenCalledTimes(1);
     });
-
-    // After wishlisting, the row slides out of the tray (same exit as a
-    // collection add) rather than lingering.
     await waitFor(() => {
       expect(queryTrayRow(0)).not.toBeOnTheScreen();
     }, { timeout: 2500 });
@@ -2227,24 +2215,26 @@ describe('ScannerScreen', () => {
 
     expect(await screen.findByText('Froakie')).toBeTruthy();
 
-    // The printing pill replaces the old flat "RAW" tag outright.
-    await waitFor(() => {
-      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('HOLOFOIL');
-    });
-    expect(screen.queryByText('RAW')).toBeNull();
+    // A raw row's two dropdowns: grading RAW, condition NM. No printing link
+    // and no CHANGE chip any more.
+    expect(screen.getByTestId(trayTestId('grader', 0, '-label')).props.children).toBe('RAW');
+    expect(screen.getByTestId(trayTestId('detail', 0, '-label')).props.children).toBe('NM');
+    expect(screen.queryByText('CHANGE')).toBeNull();
+    expect(screen.queryByTestId(trayTestId('printing', 0))).toBeNull();
 
-    // The condition still lives in the price sheet, reachable from the price.
+    // The condition can still be picked in the price sheet, reachable from the price.
     fireEvent.press(screen.getByTestId(trayTestId('price', 0)));
     fireEvent.press(await screen.findByTestId('scan-price-sheet-row-holofoil-LP'));
 
     await waitFor(() => {
       expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.42');
     });
+    expect(screen.getByTestId(trayTestId('detail', 0, '-label')).props.children).toBe('LP');
   });
 
-  // The pill names the printing the price assumes; its dropdown lists the
-  // card's other printings and picking one reprices the row and the tray TOTAL.
-  it('prices a row from a printing picked in the tray dropdown', async () => {
+  // The second dropdown on a RAW row is the condition, priced off the row's
+  // default printing in the matrix; it reprices the row and the tray TOTAL.
+  it('prices a row from a condition picked in the tray dropdown', async () => {
     const spotlightRepository = createTestSpotlightRepository({
       matchScannerCapture: async () => ({
         scanID: 'scan-froakie',
@@ -2268,6 +2258,7 @@ describe('ScannerScreen', () => {
             variantKey: 'holofoil',
             conditions: [
               { code: 'NM', label: 'Near Mint', market: 0.55, low: null, mid: null, high: null },
+              { code: 'MP', label: 'Moderately Played', market: 0.3, low: null, mid: null, high: null },
             ],
           },
           {
@@ -2275,6 +2266,7 @@ describe('ScannerScreen', () => {
             variantKey: 'reverse-holofoil',
             conditions: [
               { code: 'NM', label: 'Near Mint', market: 4.2, low: null, mid: null, high: null },
+              { code: 'MP', label: 'Moderately Played', market: 3, low: null, mid: null, high: null },
             ],
           },
         ],
@@ -2286,23 +2278,180 @@ describe('ScannerScreen', () => {
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
     expect(await screen.findByText('Froakie')).toBeTruthy();
-
-    // The pill names the printing the price assumes; its menu lists the rest.
-    await waitFor(() => {
-      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('HOLOFOIL');
+    await act(async () => {
+      await Promise.resolve();
     });
 
-    fireEvent.press(screen.getByTestId(trayTestId('printing', 0)));
-    fireEvent.press(await screen.findByTestId('printing-menu-reverse-holofoil'));
+    fireEvent.press(screen.getByTestId(trayTestId('detail', 0)));
+    fireEvent.press(await screen.findByTestId('scanner-row-grading-menu-MP'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $4.20');
+      expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.30');
     });
+    expect(screen.getByTestId(trayTestId('detail', 0, '-label')).props.children).toBe('MP');
+    expect(screen.getByTestId(trayTestId('price', 0, '-value')).props.children).toBe('$0.30');
   });
+
+  // Grader dropdown: picking PSA turns the second dropdown into grades and
+  // reprices the row + TOTAL from the stored graded price; RAW returns to the
+  // condition price.
+  it('reprices a row and the TOTAL from a grader + grade pick, and back on RAW', async () => {
+    const getCardPriceTrends = jest.fn(async (query: { cardId: string; mode: string; grader?: string | null }) => ({
+      mode: 'graded' as const,
+      provider: 'ebay' as const,
+      rows: query.grader === 'PSA'
+        ? [
+          { label: 'PSA 10', key: 'PSA 10', currentPrice: 120, currencyCode: 'USD', points: [] },
+          { label: 'PSA 9', key: 'PSA 9', currentPrice: 45, currencyCode: 'USD', points: [] },
+          // Unconverted yen is never shown.
+          { label: 'PSA 8', key: 'PSA 8', currentPrice: 4000, currencyCode: 'JPY', points: [] },
+        ]
+        : [],
+    }));
+    const spotlightRepository = createTestSpotlightRepository({
+      getCardPriceTrends,
+      matchScannerCapture: async () => ({
+        scanID: 'scan-froakie',
+        candidates: [{
+          id: 'froakie-candidate',
+          cardId: 'mcdonalds25-22',
+          name: 'Froakie',
+          cardNumber: '#22/25',
+          setName: "McDonald's Collection 2021",
+          imageUrl: 'https://cdn.spotlight.test/froakie.png',
+          marketPrice: 0.55,
+          currencyCode: 'USD',
+        }],
+      }),
+      getRawPricingMatrix: async () => ({
+        cardID: 'mcdonalds25-22',
+        currencyCode: 'USD',
+        variants: [{
+          variant: 'Holofoil',
+          variantKey: 'holofoil',
+          conditions: [{ code: 'NM', label: 'Near Mint', market: 0.55, low: null, mid: null, high: null }],
+        }],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    expect(await screen.findByText('Froakie')).toBeTruthy();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    fireEvent.press(screen.getByTestId(trayTestId('grader', 0)));
+    fireEvent.press(await screen.findByTestId('scanner-row-grading-menu-PSA'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId(trayTestId('grader', 0, '-label')).props.children).toBe('PSA');
+    });
+    expect(screen.getByTestId(trayTestId('detail', 0, '-label')).props.children).toBe('10');
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $120.00');
+    });
+    expect(screen.getByTestId(trayTestId('price', 0, '-value')).props.children).toBe('$120.00');
+    // One stored-price read per card + grader: graded lane, base printing.
+    expect(getCardPriceTrends).toHaveBeenCalledWith(expect.objectContaining({
+      cardId: 'mcdonalds25-22',
+      grader: 'PSA',
+      mode: 'graded',
+    }));
+
+    // The second dropdown now lists grades, half grades included.
+    fireEvent.press(screen.getByTestId(trayTestId('detail', 0)));
+    expect(await screen.findByTestId('scanner-row-grading-menu-9.5')).toBeTruthy();
+    expect(screen.queryByTestId('scanner-row-grading-menu-LP')).toBeNull();
+    fireEvent.press(screen.getByTestId('scanner-row-grading-menu-9'));
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $45.00');
+    });
+
+    // A grade whose only price is yen shows "—" and leaves the TOTAL.
+    fireEvent.press(screen.getByTestId(trayTestId('detail', 0)));
+    fireEvent.press(await screen.findByTestId('scanner-row-grading-menu-8'));
+    await waitFor(() => {
+      expect(screen.getByTestId(trayTestId('price', 0, '-value')).props.children).toBe('—');
+    });
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.00');
+
+    fireEvent.press(screen.getByTestId(trayTestId('grader', 0)));
+    fireEvent.press(await screen.findByTestId('scanner-row-grading-menu-RAW'));
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.55');
+    });
+    expect(screen.getByTestId(trayTestId('detail', 0, '-label')).props.children).toBe('NM');
+  });
+
+  it('ADD with PSA 9 picked files a graded holding: slabContext, no condition', async () => {
+    const addPayloads: any[] = [];
+    const spotlightRepository = createTestSpotlightRepository({
+      createInventoryEntry: async (payload: any) => {
+        addPayloads.push(payload);
+        return {
+          deckEntryID: 'entry-froakie',
+          cardID: payload.cardID,
+          variantName: null,
+          condition: payload.condition,
+          confirmationID: null,
+          sourceScanID: payload.sourceScanID,
+          addedAt: payload.addedAt,
+        };
+      },
+      getInventoryEntries: async () => [],
+      getCardPriceTrends: async () => ({
+        mode: 'graded' as const,
+        provider: 'ebay' as const,
+        rows: [{ label: 'PSA 9', key: 'PSA 9', currentPrice: 45, currencyCode: 'USD', points: [] }],
+      }),
+      matchScannerCapture: async () => ({
+        scanID: 'scan-froakie',
+        candidates: [{
+          id: 'froakie-candidate',
+          cardId: 'mcdonalds25-22',
+          name: 'Froakie',
+          cardNumber: '#22/25',
+          setName: "McDonald's Collection 2021",
+          imageUrl: 'https://cdn.spotlight.test/froakie.png',
+          marketPrice: 0.55,
+          currencyCode: 'USD',
+        }],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    expect(await screen.findByText('Froakie')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId(trayTestId('grader', 0)));
+    fireEvent.press(await screen.findByTestId('scanner-row-grading-menu-PSA'));
+    await waitFor(() => {
+      expect(screen.getByTestId(trayTestId('detail', 0, '-label')).props.children).toBe('10');
+    });
+    fireEvent.press(screen.getByTestId(trayTestId('detail', 0)));
+    fireEvent.press(await screen.findByTestId('scanner-row-grading-menu-9'));
+    await waitFor(() => {
+      expect(screen.getByTestId(trayTestId('price', 0, '-value')).props.children).toBe('$45.00');
+    });
+
+    fireEvent.press(screen.getByTestId(trayTestId('add', 0)));
+    await waitFor(() => {
+      expect(addPayloads).toHaveLength(1);
+    });
+    expect(addPayloads[0].condition).toBeNull();
+    expect(addPayloads[0].slabContext).toEqual(expect.objectContaining({ grader: 'PSA', grade: '9' }));
+  });
+
+
 
   // The backend names the alt-art printing the photo matched; the row starts on
   // it (when the matrix prices it), and the user's own pick still wins.
-  it('defaults a row to the matched printing, and a picked printing overrides it', async () => {
+  it('defaults a row to the matched printing', async () => {
     const spotlightRepository = createTestSpotlightRepository({
       matchScannerCapture: async () => ({
         scanID: 'scan-froakie',
@@ -2352,9 +2501,6 @@ describe('ScannerScreen', () => {
     expect(await screen.findByText('Froakie')).toBeTruthy();
 
     await waitFor(() => {
-      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('REVERSE HOLOFOIL');
-    });
-    await waitFor(() => {
       expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $4.20');
     });
     // The thumb shows the matched version's art (default on), and the card
@@ -2368,21 +2514,6 @@ describe('ScannerScreen', () => {
       }));
     });
 
-    fireEvent.press(screen.getByTestId(trayTestId('printing', 0)));
-    fireEvent.press(await screen.findByTestId('printing-menu-holofoil'));
-
-    await waitFor(() => {
-      expect(screen.getByTestId(trayTestId('printing', 0, '-label')).props.children).toBe('HOLOFOIL');
-    });
-    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.55');
-    // Another printing has no art of its own: the card's image comes back.
-    expect(thumbUri()).toBe('https://cdn.spotlight.test/froakie.png');
-    fireEvent.press(screen.getByTestId(trayTestId('open-card', 0)));
-    await waitFor(() => {
-      expect(mockPush).toHaveBeenLastCalledWith(expect.objectContaining({
-        params: expect.objectContaining({ variant: 'Holofoil' }),
-      }));
-    });
   });
 
   // With no matrix row for the matched version the row keeps its default
@@ -2424,7 +2555,7 @@ describe('ScannerScreen', () => {
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
     expect(await screen.findByText('Rebecca')).toBeTruthy();
-    expect(await screen.findByText('Awakening of the New Era · #OP05-091 · Special Alt Art')).toBeTruthy();
+    expect(await screen.findByText('#OP05-091 · Special Alt Art · Awakening of the New Era')).toBeTruthy();
     expect(screen.getByTestId(trayTestId('image', 0)).props.source?.uri)
       .toBe('https://tcgplayer-cdn.tcgplayer.com/product/541670_in_1000x1000.jpg');
   });

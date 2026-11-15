@@ -1,12 +1,14 @@
-import { Alert, StyleSheet } from 'react-native';
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { Alert, Keyboard, StyleSheet } from 'react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { useActiveBooth } from '@/features/events/hooks/use-active-booth';
 import { useActiveShow } from '@/features/events/hooks/use-active-show';
+import { fetchBrowsingNow } from '@/features/events/booth-service';
 import { createPost } from '@/features/social/social-service';
 import {
   NewPostScreen,
+  boothPostedMessage,
   keyboardLift,
   resolveComposerInsets,
 } from '@/features/social/screens/new-post-screen';
@@ -42,6 +44,10 @@ jest.mock('expo-router', () => ({
 
 jest.mock('@/features/social/social-service', () => ({
   createPost: jest.fn(),
+}));
+
+jest.mock('@/features/events/booth-service', () => ({
+  fetchBrowsingNow: jest.fn(async () => null),
 }));
 
 jest.mock('@/features/events/hooks/use-active-booth', () => ({
@@ -130,6 +136,23 @@ describe('NewPostScreen', () => {
       fireEvent(screen.getByTestId('new-post-booth-toggle'), 'valueChange', false);
       expect(screen.getByTestId('new-post-show-row')).toBeTruthy();
     });
+
+    it('steps the toggle aside while the keyboard is up, and drags the keyboard away', () => {
+      (useActiveShow as jest.Mock).mockReturnValue(show);
+      const listeners = new Map<string, (event?: unknown) => void>();
+      const addListener = jest.spyOn(Keyboard, 'addListener').mockImplementation(((name: string, cb: (event?: unknown) => void) => {
+        listeners.set(name, cb);
+        return { remove: jest.fn() };
+      }) as never);
+      renderWithProviders(<NewPostScreen />);
+
+      expect(screen.getByTestId('new-post-scroll').props.keyboardDismissMode).toBe('interactive');
+      act(() => listeners.get('keyboardWillChangeFrame')?.({ endCoordinates: { screenY: 400, height: 300 } }));
+      expect(screen.queryByTestId('new-post-show-row')).toBeNull();
+      act(() => listeners.get('keyboardWillHide')?.());
+      expect(screen.getByTestId('new-post-show-row')).toBeTruthy();
+      addListener.mockRestore();
+    });
   });
 
   describe('booth posts', () => {
@@ -174,6 +197,33 @@ describe('NewPostScreen', () => {
       buttons[0]?.onPress();
       expect(back).toHaveBeenCalledTimes(1);
       alertSpy.mockRestore();
+    });
+
+    it('tells the vendor how many people are at the show', async () => {
+      jest.mocked(fetchBrowsingNow).mockResolvedValueOnce(12);
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      (useLocalSearchParams as jest.Mock).mockReturnValue({ eventId: 'ontario-2026', vendorId: 'island-slabs' });
+      (useActiveBooth as jest.Mock).mockReturnValue(booth);
+      renderWithProviders(<NewPostScreen />);
+
+      fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'Case is out');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+
+      await waitFor(() =>
+        expect(alertSpy).toHaveBeenCalledWith(
+          'Posted to your booth',
+          '12 people are at the show right now. Your post will appear on your booth in a couple of minutes.',
+          expect.any(Array),
+          expect.anything(),
+        ),
+      );
+      expect(fetchBrowsingNow).toHaveBeenCalledWith('ontario-2026');
+      alertSpy.mockRestore();
+    });
+
+    it('leaves the count out when it is unknown or only the vendor', () => {
+      expect(boothPostedMessage(null)).toBe('Your post will appear on your booth in a couple of minutes.');
+      expect(boothPostedMessage(1)).toBe('Your post will appear on your booth in a couple of minutes.');
     });
 
     it('posts untagged when the toggle is turned off', async () => {
@@ -231,7 +281,8 @@ describe('NewPostScreen', () => {
     expect(screen.getByPlaceholderText("WHAT'S ON YOUR MIND?")).toBeTruthy();
 
     // The full opening state is on screen — not hidden behind a keyboard.
-    expect(screen.getByTestId('new-post-privacy')).toBeTruthy();
+    // No Public chip for now: posts are always public, so it only said so.
+    expect(screen.queryByTestId('new-post-privacy')).toBeNull();
     expect(screen.getByTestId('new-post-add-image')).toBeTruthy();
     expect(screen.getByTestId('new-post-add-camera')).toBeTruthy();
     expect(screen.getByTestId('new-post-submit')).toBeDisabled();
@@ -255,23 +306,6 @@ describe('NewPostScreen', () => {
     fireEvent.press(screen.getByTestId('new-post-submit'));
     expect(createPost).not.toHaveBeenCalled();
     expect(back).not.toHaveBeenCalled();
-  });
-
-  it('shows a note that posts are public (no privacy value is persisted)', () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-    renderWithProviders(<NewPostScreen />);
-
-    fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'hello');
-    fireEvent.press(screen.getByTestId('new-post-privacy'));
-
-    // The Public chip is a static indicator — it explains visibility but never
-    // feeds a value into createPost.
-    expect(alertSpy).toHaveBeenCalledWith('Public post', expect.any(String));
-
-    fireEvent.press(screen.getByTestId('new-post-submit'));
-    expect(createPost).toHaveBeenCalledWith({ body: 'hello', cardId: null });
-
-    alertSpy.mockRestore();
   });
 
   it('captures a photo from the camera and attaches it to the post', async () => {

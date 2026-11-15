@@ -28,6 +28,7 @@ import {
   addComment,
   blockUser,
   deleteComment,
+  editComment,
   fetchComments,
   fetchLikedCommentIds,
   likeComment,
@@ -68,6 +69,8 @@ type CommentsSheetProps = {
    * correct a stale `posts.comment_count` instead of rendering it.
    */
   onCommentCountResolved?: (count: number) => void;
+  /** Tapping a commenter routes away; a host Modal has to close too or it stays on top. */
+  onNavigateAway?: () => void;
   testID?: string;
 };
 
@@ -609,6 +612,7 @@ export function collectDescendantIds(comments: PostComment[], rootId: string): s
 type CommentPrompt =
   | { kind: 'delete'; comment: PostComment; replyCount: number }
   | { kind: 'options'; comment: PostComment }
+  | { kind: 'own-options'; comment: PostComment }
   | { kind: 'block'; comment: PostComment };
 
 /**
@@ -632,6 +636,7 @@ export function CommentsSheet({
   focusCommentId = null,
   onCommentAdded,
   onCommentCountResolved,
+  onNavigateAway,
   testID = 'comments-sheet',
 }: CommentsSheetProps) {
   const theme = useSpotlightTheme();
@@ -1049,6 +1054,14 @@ export function CommentsSheet({
   */
   const ignoreNextDraftChangeRef = useRef(false);
   const [replyTo, setReplyTo] = useState<PostComment | null>(null);
+  // The comment whose body the composer is currently rewriting. Mutually
+  // exclusive with `replyTo`: starting one ends the other.
+  const [editing, setEditing] = useState<PostComment | null>(null);
+  // Latest values for async callbacks that must not act on a stale closure.
+  const editingRef = useRef<PostComment | null>(null);
+  editingRef.current = editing;
+  const draftRef = useRef('');
+  draftRef.current = draft;
   // Which top-level comments have their replies revealed (tap "N replies" to toggle).
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   // Optimistic per-comment like state. Absent id = not liked; the count override map
@@ -1494,6 +1507,10 @@ export function CommentsSheet({
       onCommentCountResolved?.(visibleCommentCount(after));
       // You can't reply to something that is no longer there to be replied to.
       setReplyTo((current) => (current && current.id === comment.id ? null : current));
+      if (editingRef.current?.id === comment.id) {
+        setEditing(null);
+        setDraft('');
+      }
       // Show the replies immediately: the confirmation just promised they would
       // stay, so the thread should prove it rather than collapse them behind a
       // toggle. A no-op for a comment that has none.
@@ -1684,6 +1701,48 @@ export function CommentsSheet({
     [openPrompt],
   );
 
+  /** Your own comment's ⋯ (and long press): Edit or Delete. */
+  const handleRequestOwnOptions = useCallback(
+    (comment: PostComment) => {
+      if (deletePendingRef.current.has(comment.id)) {
+        return;
+      }
+      openPrompt({ kind: 'own-options', comment });
+    },
+    [openPrompt],
+  );
+
+  /**
+   * Load a comment into the composer for editing. Same scroll aim as Reply: the
+   * composer lands right under the row being changed.
+   */
+  const startEdit = useCallback(
+    (comment: PostComment) => {
+      setReplyTo(null);
+      setEditing(comment);
+      setDraft(comment.body ?? '');
+      armComposerScroll(topLevelAncestorId(commentsRef.current, comment.id), comment.id, true);
+      inputRef.current?.focus();
+    },
+    [armComposerScroll],
+  );
+
+  /**
+   * Leave edit mode and drop the draft. Wired to BOTH `onPress` and
+   * `onTouchEnd` on the Cancel control: with the keyboard up, an ancestor
+   * ScrollView eats the first responder tap (see the send button notes), and
+   * cancelling twice is harmless.
+   */
+  const cancelEdit = useCallback(() => {
+    if (!editingRef.current) {
+      return;
+    }
+    editingRef.current = null;
+    setEditing(null);
+    setDraft('');
+    inputRef.current?.clear();
+  }, []);
+
   /**
    * Every keystroke in the composer, minus the one the keyboard's own dismissal
    * echoes back — see `ignoreNextDraftChangeRef`.
@@ -1710,6 +1769,60 @@ export function CommentsSheet({
     // synchronously; `sending` stays for the disabled/greyed button.
     if (sendingRef.current || sending || text.length === 0 || !postId) {
       return false;
+    }
+    if (editing) {
+      const target = editing;
+      const previousBody = target.body ?? '';
+      // Refs too, synchronously: the failure path below reads them and may run
+      // before React has re-rendered.
+      editingRef.current = null;
+      draftRef.current = '';
+      setEditing(null);
+      setDraft('');
+      inputRef.current?.clear();
+      ignoreNextDraftChangeRef.current = Platform.OS === 'ios';
+      Keyboard.dismiss();
+      if (text === previousBody.trim()) {
+        return true;
+      }
+      sendingRef.current = true;
+      setSending(true);
+      const optimisticEditedAt = new Date().toISOString();
+      setComments((current) =>
+        current.map((entry) =>
+          entry.id === target.id ? { ...entry, body: text, editedAt: optimisticEditedAt } : entry,
+        ),
+      );
+      void (async () => {
+        const result = await editComment(target.id, text);
+        if (result.ok) {
+          capturePostHogEvent('comment_edited', { is_reply: target.parentCommentId != null });
+          setComments((current) =>
+            current.map((entry) =>
+              entry.id === target.id
+                ? { ...entry, body: result.body, editedAt: result.editedAt ?? optimisticEditedAt }
+                : entry,
+            ),
+          );
+        } else {
+          // Put the original back on the row and the attempted text back in the
+          // composer (only if it is still empty), still in edit mode.
+          setComments((current) =>
+            current.map((entry) =>
+              entry.id === target.id ? { ...entry, body: target.body, editedAt: target.editedAt } : entry,
+            ),
+          );
+          if (draftRef.current.length === 0 && !editingRef.current) {
+            setReplyTo(null);
+            setEditing(target);
+            setDraft(text);
+          }
+          Alert.alert("Couldn't save edit", result.reason);
+        }
+        sendingRef.current = false;
+        setSending(false);
+      })();
+      return true;
     }
     const parent = replyTo;
     const submitted = draft;
@@ -1865,7 +1978,7 @@ export function CommentsSheet({
       setSending(false);
     })();
     return true;
-  }, [currentUser, draft, onCommentAdded, postId, replyTo, sending]);
+  }, [currentUser, draft, editing, onCommentAdded, postId, replyTo, sending]);
 
   /*
     ───────────────────────────────────────────────────────────────────────────
@@ -2053,11 +2166,13 @@ export function CommentsSheet({
         // post card.
         if (currentUser?.id && comment.authorId === currentUser.id) {
           onClose();
+          onNavigateAway?.();
           router.navigate('/' as never);
           return;
         }
         if (authorLink) {
           onClose();
+          onNavigateAway?.();
           router.push(`/u/${authorLink}` as never);
         }
       };
@@ -2104,6 +2219,7 @@ export function CommentsSheet({
               */}
               <Text style={[theme.typography.caption, { color: theme.colors.gray400 }]}>
                 {formatRelativeTime(comment.createdAt)}
+                {comment.editedAt ? ' · edited' : ''}
               </Text>
             </View>
             {comment.body ? (
@@ -2139,6 +2255,10 @@ export function CommentsSheet({
                 accessibilityRole="button"
                 hitSlop={8}
                 onPress={() => {
+                  if (editing) {
+                    setDraft('');
+                    setEditing(null);
+                  }
                   setReplyTo(comment);
                   /*
                     CASE 2 (see the note above `armComposerScroll`): land the
@@ -2178,6 +2298,19 @@ export function CommentsSheet({
                   Reply
                 </Text>
               </Pressable>
+              {isMine ? (
+                <Pressable
+                  accessibilityRole="button"
+                  hitSlop={8}
+                  onPress={() => startEdit(comment)}
+                  style={styles.commentAction}
+                  testID={`${testID}-comment-${comment.id}-edit`}
+                >
+                  <Text style={[theme.typography.bodyMedium, { color: theme.colors.gray600 }]}>
+                    Edit
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           </View>
           {/*
@@ -2199,7 +2332,7 @@ export function CommentsSheet({
             // 24 + 10 either side = a 44pt target, the iOS minimum, without the
             // button itself having to be 44 wide and eat the reply column.
             hitSlop={10}
-            onPress={() => (isMine ? handleRequestDelete(comment) : handleRequestReport(comment))}
+            onPress={() => (isMine ? handleRequestOwnOptions(comment) : handleRequestReport(comment))}
             style={styles.moreButton}
             testID={`${rowTestIDForComment}-more-button`}
           >
@@ -2239,15 +2372,20 @@ export function CommentsSheet({
           onLayout={measureRow}
           // A long press is invisible to VoiceOver, so also publish it as a
           // rotor action — otherwise a screen-reader user has no way to delete.
-          accessibilityActions={[{ label: 'Delete comment', name: 'longpress' }]}
-          accessibilityHint="Press and hold to delete your comment"
+          accessibilityActions={[
+            { label: 'Edit comment', name: 'edit' },
+            { label: 'Delete comment', name: 'longpress' },
+          ]}
+          accessibilityHint="Press and hold to edit or delete your comment"
           delayLongPress={COMMENT_LONG_PRESS_MS}
           onAccessibilityAction={(event) => {
-            if (event.nativeEvent.actionName === 'longpress') {
+            if (event.nativeEvent.actionName === 'edit') {
+              startEdit(comment);
+            } else if (event.nativeEvent.actionName === 'longpress') {
               handleRequestDelete(comment);
             }
           }}
-          onLongPress={() => handleRequestDelete(comment)}
+          onLongPress={() => handleRequestOwnOptions(comment)}
           style={styles.commentRow}
           testID={rowTestID}
         >
@@ -2258,14 +2396,18 @@ export function CommentsSheet({
     [
       armComposerScroll,
       currentUser?.id,
+      editing,
       handleReplyLayout,
       handleRequestDelete,
+      handleRequestOwnOptions,
       handleRequestReport,
       handleToggleCommentLike,
       likeCountOverrides,
       likedCommentIds,
       onClose,
+      onNavigateAway,
       router,
+      startEdit,
       testID,
       theme,
     ],
@@ -2438,7 +2580,31 @@ export function CommentsSheet({
             composer is focused on a reply, so it does not need a second,
             separate way to say no — leaving the composer already means that.
           */}
-          {replyTo ? (
+          {editing ? (
+            <View
+              style={[styles.replyBanner, { backgroundColor: theme.colors.gray50 }]}
+              testID={`${testID}-edit-banner`}
+            >
+              <Text
+                numberOfLines={1}
+                style={[theme.typography.captionMedium, styles.replyBannerText, { color: theme.colors.gray600 }]}
+              >
+                {editing.parentCommentId ? 'Editing reply' : 'Editing comment'}
+              </Text>
+              <Pressable
+                accessibilityLabel="Cancel edit"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={cancelEdit}
+                onTouchEnd={cancelEdit}
+                testID={`${testID}-edit-cancel`}
+              >
+                <Text style={[theme.typography.captionMedium, { color: theme.colors.purple500 }]}>
+                  Cancel
+                </Text>
+              </Pressable>
+            </View>
+          ) : replyTo ? (
             <View
               style={[styles.replyBanner, { backgroundColor: theme.colors.gray50 }]}
               testID={`${testID}-reply-banner`}
@@ -2511,7 +2677,7 @@ export function CommentsSheet({
                   }
                 }}
                 onSubmitEditing={handleSend}
-                placeholder={replyTo ? 'Add a reply…' : 'Add a comment…'}
+                placeholder={editing ? 'Edit your comment…' : replyTo ? 'Add a reply…' : 'Add a comment…'}
                 ref={inputRef}
                 returnKeyType="send"
                 /*
@@ -2531,7 +2697,7 @@ export function CommentsSheet({
               />
             </View>
             <Pressable
-              accessibilityLabel="Send comment"
+              accessibilityLabel={editing ? 'Save edit' : 'Send comment'}
               accessibilityRole="button"
               disabled={!canSend}
               hitSlop={8}
@@ -2641,6 +2807,32 @@ export function CommentsSheet({
             */
             onClose={closePrompt}
             testID={`${testID}-options`}
+            visible={promptOpen}
+          />
+        ) : null}
+
+        {prompt?.kind === 'own-options' ? (
+          <OptionsSheet
+            actions={[
+              {
+                key: 'edit',
+                label: `Edit ${promptNoun}`,
+                tone: 'neutral',
+                onPress: () => {
+                  const { comment } = prompt;
+                  closePrompt();
+                  startEdit(comment);
+                },
+              },
+              {
+                key: 'delete',
+                label: `Delete ${promptNoun}`,
+                tone: 'destructive',
+                onPress: () => handleRequestDelete(prompt.comment),
+              },
+            ]}
+            onClose={closePrompt}
+            testID={`${testID}-own-options`}
             visible={promptOpen}
           />
         ) : null}

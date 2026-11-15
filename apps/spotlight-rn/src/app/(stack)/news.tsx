@@ -3,7 +3,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { NewsScreen } from '@/features/meta-feed/screens/news-screen';
 import { parseGameParam, parseNewsKindParam } from '@/features/meta-feed/screens/route-params';
-import { FeedMarketRouteGate } from '@/features/meta-feed/components/feed-market-route-gate';
 
 /** `/news?kind=video&game=pokemon` — News & videos, pushed from the feed's Card news block. */
 function NewsRouteContent() {
@@ -25,9 +24,5 @@ function NewsRouteContent() {
 }
 
 export default function NewsRoute() {
-  return (
-    <FeedMarketRouteGate>
-      <NewsRouteContent />
-    </FeedMarketRouteGate>
-  );
+  return <NewsRouteContent />;
 }

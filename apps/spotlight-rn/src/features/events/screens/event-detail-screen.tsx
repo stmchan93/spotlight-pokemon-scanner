@@ -115,7 +115,7 @@ export function formatTicketPrice(pricing: Pick<SpotlightEventPricing, 'general'
 export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: EventDetailScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const { event, failed, refresh } = useSpotlightEvent(eventId);
   const { isSaved, toggle } = useSavedEvents();
   const scrollRef = useRef<ScrollView>(null);
@@ -202,6 +202,13 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
   );
   const feedRef = useRef<EventFeedHandle>(null);
   const feedVisible = showArea === 'feed' || !event?.floorMapUrl;
+  // Mounted on first visit and kept, so switching tabs neither refetches nor collapses the page.
+  const [feedMounted, setFeedMounted] = useState(feedVisible);
+  useEffect(() => {
+    if (feedVisible) {
+      setFeedMounted(true);
+    }
+  }, [feedVisible]);
   const handleScroll = useCallback(
     ({ nativeEvent }: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
@@ -330,40 +337,51 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
           ) : (
             <SectionTitle title="Feed" />
           )}
-          {feedVisible ? (
-            <EventFeed eventId={eventId} ref={feedRef} testID="event-feed" />
-          ) : (
-            <View style={styles.mapArea}>
-              {map ? (
-                <BoothStoriesStrip
-                  onOpen={(vendorId) => openStory(vendorId, 'strip')}
-                  seenPostIds={seenPostIds}
-                  stories={orderedStories}
-                  vendors={map.vendors}
-                />
-              ) : null}
+          {/*
+            Both panes stay mounted and the hidden one is display:none. Swapping
+            them shrank the page under the reader's scroll offset (the feed opens
+            as a short loading card) and iOS snapped it up to the top. The
+            screen-tall floor keeps the switch from ever shortening the page.
+          */}
+          <View style={{ minHeight: windowHeight }}>
+            {feedMounted ? (
+              <View style={feedVisible ? null : styles.hiddenPane} testID="event-detail-feed-pane">
+                <EventFeed eventId={eventId} ref={feedRef} testID="event-feed" />
+              </View>
+            ) : null}
+            {event.floorMapUrl ? (
+              <View style={[styles.mapArea, feedVisible ? styles.hiddenPane : null]} testID="event-detail-map-pane">
+                {map ? (
+                  <BoothStoriesStrip
+                    onOpen={(vendorId) => openStory(vendorId, 'strip')}
+                    seenPostIds={seenPostIds}
+                    stories={orderedStories}
+                    vendors={map.vendors}
+                  />
+                ) : null}
 
-              {event.floorMapUrl ? (
-                <EventVendorsSection
-                  booth={booth.enabled ? booth : null}
-                  eventId={eventId}
-                  floorMapUrl={event.floorMapUrl}
-                  renderTitle={(title) => (
-                    <SectionTitle
-                      title={title}
-                      trailing={
-                        browsingNow != null && browsingNow >= MIN_BROWSING_SHOWN ? `${browsingNow} people browsing now` : null
-                      }
-                    />
-                  )}
-                  scrollGesture={scrollRef}
-                  scrollRef={scrollRef}
-                  selectRequest={selectRequest}
-                  stories={vendorStories}
-                />
-              ) : null}
-            </View>
-          )}
+                {event.floorMapUrl ? (
+                  <EventVendorsSection
+                    booth={booth.enabled ? booth : null}
+                    eventId={eventId}
+                    floorMapUrl={event.floorMapUrl}
+                    renderTitle={(title) => (
+                      <SectionTitle
+                        title={title}
+                        trailing={
+                          browsingNow != null && browsingNow >= MIN_BROWSING_SHOWN ? `${browsingNow} people browsing now` : null
+                        }
+                      />
+                    )}
+                    scrollGesture={scrollRef}
+                    scrollRef={scrollRef}
+                    selectRequest={selectRequest}
+                    stories={vendorStories}
+                  />
+                ) : null}
+              </View>
+            ) : null}
+          </View>
         </View>
       </>
     );
@@ -519,6 +537,9 @@ const styles = StyleSheet.create({
   },
   showArea: {
     gap: spacing.lg,
+  },
+  hiddenPane: {
+    display: 'none',
   },
   mapArea: {
     gap: spacing.xxxl,

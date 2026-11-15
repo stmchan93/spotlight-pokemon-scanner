@@ -886,3 +886,70 @@ describe('PostCard reposts', () => {
     expect(likePost as jest.Mock).not.toHaveBeenCalled();
   });
 });
+
+// Tapping a photo opens the full-screen viewer (Figma 6322:8404) and the X returns
+// to the page, with interaction state shared rather than copied.
+describe('PostCard full-screen photo', () => {
+  const VIEWER = 'post-card-viewer';
+  const mediaPost = buildPost({
+    media: [{ id: 'media-1', width: 800, height: 1000, blurhash: null }],
+  });
+  const openViewer = async () => {
+    await renderCard(mediaPost, { apiBaseUrl: 'https://api.test', accessToken: 'token' });
+    await pressById('post-card-image-button-media-1');
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockCurrentUser = mockSignedInUser;
+    (fetchLikedPostIds as jest.Mock).mockResolvedValue(new Set());
+  });
+
+  it('opens with the author, body and photo, and closes back to the card', async () => {
+    await openViewer();
+
+    expect(screen.getByTestId(`${VIEWER}-title`)).toHaveTextContent('Ash Ketchum');
+    expect(screen.getByTestId(`${VIEWER}-body`)).toHaveTextContent('Nice pull today');
+    expect(screen.getByTestId(`${VIEWER}-image-media-1`)).toBeTruthy();
+
+    await pressById(`${VIEWER}-close`);
+
+    expect(screen.queryByTestId(VIEWER)).toBeNull();
+    expect(screen.getByTestId('post-card-body')).toBeTruthy();
+  });
+
+  it('shares like state with the card underneath', async () => {
+    await openViewer();
+
+    await pressById(`${VIEWER}-like-button`);
+    expect(likePost).toHaveBeenCalledWith('post-1');
+    expect(screen.getByTestId(`${VIEWER}-like-count`)).toHaveTextContent('3');
+
+    await pressById(`${VIEWER}-close`);
+    expect(screen.getByTestId('post-card-like-count')).toHaveTextContent('3');
+  });
+
+  it('closes before routing to the author', async () => {
+    await openViewer();
+
+    await pressById(`${VIEWER}-author-name-button`);
+
+    expect(mockPush).toHaveBeenCalledWith('/u/ash');
+    expect(screen.queryByTestId(VIEWER)).toBeNull();
+  });
+
+  // The Delete confirmation is a screen-level modal that cannot present over this one.
+  it('leaves own-post delete on the card', async () => {
+    await render(
+      <PostCard
+        accessToken="token"
+        apiBaseUrl="https://api.test"
+        onRequestDelete={jest.fn()}
+        post={{ ...mediaPost, authorId: 'me' }}
+      />,
+      { wrapper: Wrapper },
+    );
+    await pressById('post-card-image-button-media-1');
+    expect(screen.queryByTestId(`${VIEWER}-more-button`)).toBeNull();
+  });
+});

@@ -5,7 +5,7 @@ import { useSpotlightTheme } from '../theme';
 
 /**
  * Follow control for a person you have come across — a feed author, a search
- * result (Figma 5080:6921, a 65x30 button).
+ * result (Figma 6203:9449, a 28pt-tall button).
  *
  * ONE-WAY BY DESIGN. Following is a control; FOLLOWED is a status. The
  * followed state renders as a plain `View`, not a disabled button: there is no
@@ -18,12 +18,12 @@ import { useSpotlightTheme } from '../theme';
  * gray50 fill with a gray900 label — settled, not shouting.
  */
 
-// Figma 5080:6921: 65x30 with the label inset 10 across. The 1pt border is
-// inside that 30, so the vertical padding carries 5 rather than the frame's 6;
-// `minHeight` holds the 30 regardless of the label's own line box.
+// Figma 6203:9449/9451: 28 tall, 10/6 padding, radius 6. The 1pt border is
+// inside the box, so the padding carries 9/5.
 const PADDING_HORIZONTAL = 9;
 const PADDING_VERTICAL = 5;
-const BOX_HEIGHT = 30;
+const BOX_HEIGHT = 28;
+const BOX_RADIUS = 6;
 
 export type FollowButtonProps = {
   /** Whether the viewer already follows this person. */
@@ -32,21 +32,30 @@ export type FollowButtonProps = {
   onPress?: () => void;
   /** Whose row this is, for the accessibility label ("Follow Jamie"). */
   personLabel?: string;
+  /** `onDark` draws the settled state for a black backdrop (Figma 6322:8416). */
+  tone?: 'default' | 'onDark';
   testID?: string;
 };
 
-export function FollowButton({ following, onPress, personLabel, testID }: FollowButtonProps) {
+export function FollowButton({
+  following,
+  onPress,
+  personLabel,
+  tone = 'default',
+  testID,
+}: FollowButtonProps) {
   const theme = useSpotlightTheme();
   // Figma 5080:6916/6920 set the label in capitals: FOLLOW / FOLLOWING.
   const label = following ? 'FOLLOWING' : 'FOLLOW';
+  const settledFill = tone === 'onDark' ? theme.colors.gray700 : theme.colors.gray50;
+  const settledLabel = tone === 'onDark' ? theme.colors.gray0 : theme.colors.gray900;
 
   const box = [
     styles.box,
     following
       ? // Borderless in Figma; the border takes the fill colour so both states keep one size.
-        { backgroundColor: theme.colors.gray50, borderColor: theme.colors.gray50 }
+        { backgroundColor: settledFill, borderColor: settledFill }
       : { backgroundColor: theme.colors.canvasElevated, borderColor: theme.colors.gray200 },
-    { borderRadius: theme.radii.sm },
   ];
   const text = (
     <Text
@@ -55,7 +64,7 @@ export function FollowButton({ following, onPress, personLabel, testID }: Follow
       // label in the file.
       style={[
         theme.typography.caption,
-        { color: following ? theme.colors.gray900 : theme.colors.gray600 },
+        { color: following ? settledLabel : theme.colors.gray600 },
       ]}
     >
       {label}
@@ -95,6 +104,7 @@ const styles = StyleSheet.create({
   box: {
     alignItems: 'center',
     borderCurve: 'continuous',
+    borderRadius: BOX_RADIUS,
     borderWidth: 1,
     justifyContent: 'center',
     minHeight: BOX_HEIGHT,

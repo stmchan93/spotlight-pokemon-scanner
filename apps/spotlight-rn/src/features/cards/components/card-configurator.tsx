@@ -3,6 +3,8 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { SkeletonBlock, Text, useSpotlightTheme, type SpotlightTheme } from '@spotlight/design-system';
 import type { MarketHistoryOption } from '@spotlight/api-client';
 
+const CHIP_RADIUS = 6;
+
 type CardConfiguratorProps = {
   /** Language options (e.g. "EN", "JP") rendered as the first chip row. */
   languages: string[];
@@ -51,7 +53,7 @@ function OptionChip({
         styles.chip,
         {
           borderCurve: 'continuous',
-          borderRadius: theme.radii.sm,
+          borderRadius: CHIP_RADIUS,
           backgroundColor: selected ? theme.colors.gray900 : theme.colors.gray50,
           borderColor: selected ? theme.colors.gray900 : theme.colors.gray50,
           opacity: pressed ? 0.88 : 1,

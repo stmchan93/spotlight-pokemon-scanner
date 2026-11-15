@@ -6,16 +6,14 @@ import type { SpotlightEventMapVendor } from '@spotlight/api-client';
 import { Button, radii, spacing, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import { useGuestGate } from '@/features/auth/use-guest-gate';
-import { formatBoothStats } from '@/features/events/booth-format';
 import {
   claimBooth,
-  fetchBoothStats,
+  fetchBrowsingNow,
   recordBoothEvent,
   reportBoothClaim,
   unclaimBooth,
   type BoothClaim,
   type BoothPost,
-  type BoothStats,
 } from '@/features/events/booth-service';
 import { followUser, isFollowing, unfollowUser } from '@/features/profile/profile-service';
 import { PostImage, postMediaUrl } from '@/features/social/components/post-card';
@@ -27,6 +25,14 @@ import { resolveRepositoryBaseUrl } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 
 export const BOOTH_STATS_REFRESH_MS = 60_000;
+
+/** "12 people at the show right now"; null while unknown. */
+export function formatShowCrowd(count: number | null): string | null {
+  if (count == null || count < 1) {
+    return null;
+  }
+  return `${count} ${count === 1 ? 'person' : 'people'} at the show right now`;
+}
 const THUMB_WIDTH = 48;
 const MAX_THUMBS = 10;
 
@@ -39,7 +45,7 @@ type BoothVendorPanelProps = {
   onClaimsChanged: () => void;
 };
 
-/** The booth half of the vendor card: claim state, the owner's stats, and the photo strip. */
+/** The booth half of the vendor card: claim state, the owner's live crowd count, and the photo strip. */
 export function BoothVendorPanel({ eventId, vendor, claim, myUserId, posts, onClaimsChanged }: BoothVendorPanelProps) {
   const mine = claim != null && myUserId != null && claim.userId === myUserId;
   return (
@@ -266,15 +272,15 @@ function MyBoothRows({
 }) {
   const theme = useSpotlightTheme();
   const router = useRouter();
-  const [stats, setStats] = useState<BoothStats | null>(null);
+  const [browsingNow, setBrowsingNow] = useState<number | null>(null);
 
-  // Refreshed every minute while the card is open.
+  // Who's on the show right now (the page's own heartbeat feeds it), refreshed every minute while the card is open.
   useEffect(() => {
     let active = true;
     const load = () =>
-      void fetchBoothStats(vendor.id, eventId).then((next) => {
+      void fetchBrowsingNow(eventId).then((next) => {
         if (active) {
-          setStats(next);
+          setBrowsingNow(next);
         }
       });
     load();
@@ -333,7 +339,7 @@ function MyBoothRows({
           style={[theme.typography.caption, styles.grow, { color: theme.colors.gray600 }]}
           testID="booth-stats"
         >
-          {stats ? `Your booth: ${formatBoothStats(stats)}` : ' '}
+          {formatShowCrowd(browsingNow) ?? ' '}
         </Text>
         <Pressable accessibilityRole="button" hitSlop={spacing.xxxs} onPress={unclaim} testID="booth-unclaim">
           <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]}>Unclaim</Text>

@@ -3,22 +3,27 @@ import { Alert, Modal, PixelRatio, Pressable, StyleSheet, View } from 'react-nat
 import type { ImageStyle, StyleProp } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { useRouter } from 'expo-router';
-import {
-  ChatBubbleEmpty,
-  CheckCircle,
-  MediaImage,
-  MoreHoriz,
-  Repeat,
-  ShareIos,
-  ThumbsUp,
-} from 'iconoir-react-native';
+import { CheckCircle, MediaImage, MoreHoriz } from 'iconoir-react-native';
 
-import { Avatar, FollowButton, Text, useSpotlightTheme } from '@spotlight/design-system';
+import {
+  Avatar,
+  borderWidths,
+  FollowButton,
+  spacing,
+  Text,
+  useSpotlightTheme,
+} from '@spotlight/design-system';
 
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
+import { openLinkOut } from '@/features/meta-feed/screens/components/open-link-out';
 import { CommentsSheet } from '@/features/social/components/comments-sheet';
 import { OptionsSheet } from '@/features/social/components/options-sheet';
 import { PostEventBadge, type PostEventBadgeMode } from '@/features/social/components/post-event-badge';
+import {
+  PostMediaViewer,
+  POST_VIEWER_IMAGE_ASPECT_RATIO,
+} from '@/features/social/components/post-media-viewer';
+import { PostMetricsRow } from '@/features/social/components/post-metrics-row';
 import { SharePostSheet } from '@/features/social/components/share-post-sheet';
 import {
   blockUser,
@@ -102,20 +107,12 @@ const AVATAR_SIZE = 40;
  * reserves the same box.
  */
 export const IMAGE_ASPECT_RATIO = 3 / 4;
-const METRIC_ICON_SIZE = 20;
-// Figma 4299:94944: the repeat glyph is 24pt wide (the other three are 20) and
-// all four run a heavier ~1.7pt stroke — iconoir's default 1.5 rendered at
-// 20pt showed ~1.25 and read thin.
-const METRIC_ICON_STROKE = 2;
-const REPOST_ICON_SIZE = 24;
 /** The ⋯ options glyph, per Figma 315:2992. */
 const MORE_ICON_SIZE = 24;
-// The comment icon and its count are two separate targets 4px apart, so their
-// hit slops are trimmed on the facing edges instead of overlapping.
-const COMMENT_ICON_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 2 } as const;
-const COMMENT_COUNT_HIT_SLOP = { top: 8, bottom: 8, left: 2, right: 8 } as const;
 const PLACEHOLDER_ICON_SIZE = 24;
 const COMPACT_PLACEHOLDER_ICON_SIZE = 16;
+/** A reposted news article's image, the same frame as the News tab (Figma 6322:7602). */
+const NEWS_IMAGE_ASPECT_RATIO = 361 / 191;
 
 /**
  * Re-fetch schedule for a post image the proxy refused, in ms after each failure.
@@ -348,12 +345,28 @@ export function PostCard({
   const router = useRouter();
 
   const author = post.author;
-  const displayName = author?.displayName?.trim() || (author?.handle ? `@${author.handle}` : 'Collector');
+  const displayName =
+    post.news?.source
+    || author?.displayName?.trim()
+    || (author?.handle ? `@${author.handle}` : 'Collector');
   // Navigating from here rather than via a prop: every caller would pass the
   // identical handler, and the comment thread — a Modal with no navigation
   // callbacks at all — needs the same behaviour. One rule, one implementation.
   const authorLink = profileRouteSlug(author?.handle, post.authorId);
+  // Which photo is full-screen. `viewerMounted` keeps the Modal alive through its
+  // fade-out, and only cards whose photo was actually tapped ever carry one.
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerMounted, setViewerMounted] = useState(false);
+  const [viewerIndex, setViewerIndex] = useState(0);
+  const openViewer = useCallback((index: number) => {
+    setViewerIndex(index);
+    setViewerMounted(true);
+    setViewerOpen(true);
+  }, []);
+  const closeViewer = useCallback(() => setViewerOpen(false), []);
   const openAuthorProfile = useCallback(() => {
+    // Routing underneath the viewer would leave it presented over the profile.
+    setViewerOpen(false);
     // Tapping YOURSELF goes to the Home tab — your own collection — not to
     // `/u/<your handle>`. The public route would push a read-only copy of your
     // own profile on top of the feed: no Edit, no Collection tabs, and a back
@@ -636,302 +649,179 @@ export function PostCard({
     openPrompt('options');
   }, [canDeletePost, onRequestDelete, openPrompt, post]);
 
-  // Liked = solid purple thumb (stroke + fill) with a matching count.
-  const likeColor = liked ? theme.colors.purple500 : theme.colors.gray900;
-  // Reposted tints stroke + count, but does NOT fill: the repeat glyph is an
-  // open path (two arrows), so filling it floods the space between them into a
-  // purple blob instead of reading as a solid shape the way the thumb does.
-  const repostColor = reposted ? theme.colors.purple500 : theme.colors.gray900;
-
   // Local fallback for surfaces that hold no list (post detail). Screens with a
   // list drop every row of theirs via `onAuthorBlocked` and never reach this.
   if (blockedByViewer) {
     return null;
   }
 
-  return (
-    <View
-      style={{ backgroundColor: theme.colors.gray0 }}
-      testID={`${testID}-${post.id}`}
-    >
-      <View style={styles.cardContent} testID={`${testID}-content`}>
-        <View style={styles.headerRow}>
-          {/*
-            The face and the name are the way into someone's profile — the only
-            way, from the feed. Two separate targets rather than one wrapping the
-            whole header, because the row also carries the post's DATE, and a tap
-            on a timestamp should not navigate anywhere.
+  const renderImage = (
+    media: FeedPostMedia,
+    style: StyleProp<ImageStyle>,
+    prefix: string,
+  ) => (
+    <PostImage
+      accessToken={accessToken ?? ''}
+      media={media}
+      style={style}
+      testID={`${prefix}-image-${media.id}`}
+      uri={
+        media.id.startsWith('data:')
+          ? media.id
+          : `${trimmedBase}/api/v1/post-media/${media.id}`
+      }
+      viewerIsAuthor={isOwnPost}
+    />
+  );
 
-            `authorLink` is null for an author who has neither a handle nor an id
-            (a deleted account), and both controls fall back to plain, unpressable
-            views rather than buttons that promise a profile and open nothing.
-          */}
-          <Pressable
-            accessibilityLabel={authorLink ? `View ${displayName}'s profile` : undefined}
-            accessibilityRole={authorLink ? 'button' : undefined}
-            disabled={!authorLink}
-            onPress={openAuthorProfile}
-            testID={`${testID}-avatar-button`}
-          >
-            <Avatar
-              initials={authorInitials(author?.displayName ?? null, author?.handle ?? null)}
-              size={AVATAR_SIZE}
-              testID={`${testID}-avatar`}
-              uri={author?.avatarUrl}
-            />
-          </Pressable>
-          <View style={styles.headerText}>
-            <View style={styles.nameRow}>
-              <Pressable
-                accessibilityLabel={authorLink ? `View ${displayName}'s profile` : undefined}
-                accessibilityRole={authorLink ? 'button' : undefined}
-                disabled={!authorLink}
-                hitSlop={6}
-                onPress={openAuthorProfile}
-                testID={`${testID}-author-name-button`}
-              >
-                <Text
-                  numberOfLines={1}
-                  // Figma 5768:21655 draws the author raw SemiBold 16 — `headline`
-                  // carries those metrics (no library style yet; flagged).
-                  style={theme.typography.headline}
-                  testID={`${testID}-author-name`}
-                >
-                  {displayName}
-                </Text>
-              </Pressable>
-              {author?.isVerified ? (
-                <CheckCircle
-                  color={theme.colors.purple500}
-                  height={14}
-                  testID={`${testID}-verified`}
-                  width={14}
-                />
-              ) : null}
-            </View>
-            {postDate ? (
+  // The card and the viewer draw the same header and metrics, so a control can
+  // never exist on one and not the other; `onDark` only changes their colors.
+  const renderHeader = (prefix: string, onDark: boolean) => {
+    const primaryColor = onDark ? theme.colors.gray0 : theme.colors.gray900;
+    // Your own ⋯ is Delete, whose confirmation is a screen-level modal that cannot
+    // present over the viewer, so it stays on the card.
+    const moreVisible = onDark ? canReportPost : showMoreButton;
+    return (
+      <View style={styles.headerRow}>
+        {/*
+          The face and the name are the way into someone's profile — the only
+          way, from the feed. Two separate targets rather than one wrapping the
+          whole header, because the row also carries the post's DATE, and a tap
+          on a timestamp should not navigate anywhere.
+
+          `authorLink` is null for an author who has neither a handle nor an id
+          (a deleted account), and both controls fall back to plain, unpressable
+          views rather than buttons that promise a profile and open nothing.
+        */}
+        <Pressable
+          accessibilityLabel={authorLink ? `View ${displayName}'s profile` : undefined}
+          accessibilityRole={authorLink ? 'button' : undefined}
+          disabled={!authorLink}
+          onPress={openAuthorProfile}
+          testID={`${prefix}-avatar-button`}
+        >
+          <Avatar
+            initials={authorInitials(post.news?.source ?? author?.displayName ?? null, author?.handle ?? null)}
+            size={AVATAR_SIZE}
+            testID={`${prefix}-avatar`}
+            uri={author?.avatarUrl}
+          />
+        </Pressable>
+        <View style={styles.headerText}>
+          <View style={styles.nameRow}>
+            <Pressable
+              accessibilityLabel={authorLink ? `View ${displayName}'s profile` : undefined}
+              accessibilityRole={authorLink ? 'button' : undefined}
+              disabled={!authorLink}
+              hitSlop={6}
+              onPress={openAuthorProfile}
+              testID={`${prefix}-author-name-button`}
+            >
               <Text
-                // Figma 5768:27189: Overline 12 Regular gray-600, set in capitals.
-                style={[theme.typography.overline, { color: theme.colors.gray600 }]}
-                testID={`${testID}-date`}
+                numberOfLines={1}
+                // Figma 5768:21655 draws the author raw SemiBold 16 — `headline`
+                // carries those metrics (no library style yet; flagged).
+                style={[theme.typography.headline, onDark ? { color: theme.colors.gray0 } : null]}
+                testID={`${prefix}-author-name`}
               >
-                {postDate.toUpperCase()}
+                {displayName}
               </Text>
-            ) : null}
-            {post.eventId ? (
-              <PostEventBadge
-                boothVendorId={post.boothVendorId ?? null}
-                eventId={post.eventId}
-                mode={eventBadgeMode}
-                testID={`${testID}-event-badge`}
+            </Pressable>
+            {author?.isVerified ? (
+              <CheckCircle
+                color={theme.colors.purple500}
+                height={14}
+                testID={`${prefix}-verified`}
+                width={14}
               />
             ) : null}
           </View>
-          {showFollowButton ? (
-            <FollowButton
-              following={Boolean(isFollowingAuthor)}
-              onPress={() => onFollowAuthor?.(post.authorId)}
-              personLabel={displayName}
-              testID={`${testID}-follow-button`}
-            />
-          ) : null}
-          {/*
-            One ⋯ target, two meanings, decided by whose post this is:
-              • your own post  → Delete (straight to its confirmation, unchanged)
-              • someone else's → Report post / Block <name>
-            Before this, ⋯ rendered ONLY on your own post, which meant the app
-            shipped with no way to report or block anybody at all. A signed-out
-            viewer still gets no button, because they can make neither write.
-          */}
-          {showMoreButton ? (
-            <Pressable
-              accessibilityLabel="Post options"
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={handleMorePress}
-              style={styles.moreButton}
-              testID={`${testID}-more-button`}
+          {postDate ? (
+            <Text
+              // Figma 5768:27189: Overline 12 Regular gray-600, set in capitals.
+              style={[theme.typography.overline, { color: theme.colors.gray600 }]}
+              testID={`${prefix}-date`}
             >
-              <MoreHoriz
-                color={theme.colors.gray900}
-                height={MORE_ICON_SIZE}
-                width={MORE_ICON_SIZE}
-              />
-            </Pressable>
-          ) : null}
-        </View>
-
-        {post.body ? (
-          <Text
-            // Figma 5768:27193: Body-medium 15/500 gray-800.
-            style={[styles.bodyText, theme.typography.postBody, { color: theme.colors.gray800 }]}
-            testID={`${testID}-body`}
-          >
-            {post.body}
-          </Text>
-        ) : null}
-
-        {post.cardId ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => (post.cardId ? onPressCard?.(post.cardId) : undefined)}
-            style={[styles.cardChip, { backgroundColor: theme.colors.surfaceMuted, borderCurve: 'continuous', borderRadius: theme.radii.pill }]}
-            testID={`${testID}-card-chip`}
-          >
-            <MediaImage color={theme.colors.purple500} height={14} width={14} />
-            <Text style={[theme.typography.captionMedium, { color: theme.colors.purple500 }]}>
-              View card
+              {postDate.toUpperCase()}
             </Text>
-          </Pressable>
-        ) : null}
-
-        {canShowImages ? (
-          <View style={styles.mediaColumn}>
-            {post.media.map((media) => (
-              <PostImage
-                accessToken={accessToken ?? ''}
-                key={media.id}
-                media={media}
-                style={{ borderRadius: theme.radii.md }}
-                testID={`${testID}-image-${media.id}`}
-                uri={
-                  media.id.startsWith('data:')
-                    ? media.id
-                    : `${trimmedBase}/api/v1/post-media/${media.id}`
-                }
-                viewerIsAuthor={isOwnPost}
-              />
-            ))}
-          </View>
-        ) : null}
-
-        <View style={styles.metricsRow} testID={`${testID}-metrics`}>
-          <View style={styles.metricsLeft}>
-            <Pressable
-              accessibilityLabel={liked ? 'Unlike post' : 'Like post'}
-              accessibilityRole="button"
-              accessibilityState={{ selected: liked }}
-              hitSlop={8}
-              onPress={handleToggleLike}
-              style={styles.metricItem}
-              testID={`${testID}-like-button`}
-            >
-              <ThumbsUp
-                color={likeColor}
-                // Solid purple thumb when liked, not just a purple outline. The
-                // glyph's outline is a closed path, so filling it with the same
-                // color reads as a single solid shape.
-                fill={liked ? theme.colors.purple500 : 'none'}
-                height={METRIC_ICON_SIZE}
-                strokeWidth={METRIC_ICON_STROKE}
-                testID={`${testID}-like-icon`}
-                width={METRIC_ICON_SIZE}
-              />
-              <Text
-                style={[theme.typography.labelStrong, { color: likeColor }]}
-                testID={`${testID}-like-count`}
-              >
-                {likeCount}
-              </Text>
-            </Pressable>
-            <View style={styles.metricItem}>
-              <Pressable
-                accessibilityLabel="Add a comment"
-                accessibilityRole="button"
-                hitSlop={COMMENT_ICON_HIT_SLOP}
-                onPress={() => setCommentsVisible(true)}
-                testID={`${testID}-comment-button`}
-              >
-                <ChatBubbleEmpty color={theme.colors.gray900} height={METRIC_ICON_SIZE} strokeWidth={METRIC_ICON_STROKE} width={METRIC_ICON_SIZE} />
-              </Pressable>
-              <Pressable
-                accessibilityLabel="View comments"
-                accessibilityRole="button"
-                hitSlop={COMMENT_COUNT_HIT_SLOP}
-                onPress={() => setCommentsVisible(true)}
-                testID={`${testID}-comment-count-button`}
-              >
-                <Text
-                  style={[theme.typography.labelStrong, { color: theme.colors.gray900 }]}
-                  testID={`${testID}-comment-count`}
-                >
-                  {commentCount}
-                </Text>
-              </Pressable>
-            </View>
-            {/*
-              REPOST — Figma 3523:15548 (glyph) + 3523:15551 (count).
-
-              An ENDORSEMENT, not a second copy. It adds you to `post_reposts`
-              (social_23): the count here ticks up, the author is notified, and the
-              post joins your profile's Activity as something you passed on.
-              Nothing is republished, so no copy of a post can outlive the
-              original.
-
-              It does NOT push the post into anyone's feed, because it cannot:
-              Home reads `fetchGlobalFeed`, so every reader is already looking at
-              the original and a second copy would just be the same post twice in
-              one list. These rows are exactly what a follow-scoped feed would read
-              later — the endorsement is the cheap half of that.
-            */}
-            <Pressable
-              accessibilityLabel={reposted ? 'Undo repost' : 'Repost'}
-              accessibilityRole="button"
-              accessibilityState={{ selected: reposted }}
-              hitSlop={8}
-              onPress={handleToggleRepost}
-              style={styles.metricItem}
-              testID={`${testID}-repost-button`}
-            >
-              <Repeat
-                color={repostColor}
-                height={REPOST_ICON_SIZE}
-                strokeWidth={METRIC_ICON_STROKE}
-                testID={`${testID}-repost-icon`}
-                width={REPOST_ICON_SIZE}
-              />
-              <Text
-                style={[theme.typography.labelStrong, { color: repostColor }]}
-                testID={`${testID}-repost-count`}
-              >
-                {repostCount}
-              </Text>
-            </Pressable>
-          </View>
-          {/*
-            Sends the post to someone in DMs — the Instagram shape. NOT a repost:
-            nothing is republished, the message carries an id, and the preview is
-            hydrated from `posts` on every read, so moderation still applies.
-
-            Opened through the same `prompt` machine as the ⋯ menu so this shares
-            the card's ONE Modal — see the note above `prompt` for why a second
-            native modal here is unreliable.
-          */}
-          <Pressable
-            accessibilityLabel="Share post"
-            accessibilityRole="button"
-            hitSlop={8}
-            onPress={() => openPrompt('share')}
-            style={styles.metricItem}
-            testID={`${testID}-share-button`}
-          >
-            <ShareIos color={theme.colors.gray900} height={METRIC_ICON_SIZE} strokeWidth={METRIC_ICON_STROKE} width={METRIC_ICON_SIZE} />
-          </Pressable>
+          ) : null}
+          {post.eventId && !onDark ? (
+            <PostEventBadge
+              boothVendorId={post.boothVendorId ?? null}
+              eventId={post.eventId}
+              mode={eventBadgeMode}
+              testID={`${prefix}-event-badge`}
+            />
+          ) : null}
         </View>
+        {showFollowButton || moreVisible ? (
+          <View style={styles.headerActions}>
+            {showFollowButton ? (
+              <FollowButton
+                following={Boolean(isFollowingAuthor)}
+                onPress={() => onFollowAuthor?.(post.authorId)}
+                personLabel={displayName}
+                tone={onDark ? 'onDark' : 'default'}
+                testID={`${prefix}-follow-button`}
+              />
+            ) : null}
+            {/*
+              One ⋯ target, two meanings, decided by whose post this is:
+                • your own post  → Delete (straight to its confirmation, unchanged)
+                • someone else's → Report post / Block <name>
+              Before this, ⋯ rendered ONLY on your own post, which meant the app
+              shipped with no way to report or block anybody at all. A signed-out
+              viewer still gets no button, because they can make neither write.
+            */}
+            {moreVisible ? (
+              <Pressable
+                accessibilityLabel="Post options"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={handleMorePress}
+                style={styles.moreButton}
+                testID={`${prefix}-more-button`}
+              >
+                <MoreHoriz
+                  color={primaryColor}
+                  height={MORE_ICON_SIZE}
+                  width={MORE_ICON_SIZE}
+                />
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
       </View>
+    );
+  };
 
-      {/*
-        Figma 4299:94902 — a 4pt full-bleed #F2F2F2 (gray100) band separates
-        posts. Card-owned rather than list-owned so all PostCard surfaces —
-        the feed, post detail, profile/portfolio Activity — stay in parity.
-      */}
-      <View style={[styles.band, { backgroundColor: theme.colors.gray100 }]} />
+  const renderMetrics = (prefix: string, onDark: boolean) => (
+    <PostMetricsRow
+      commentCount={commentCount}
+      likeCount={likeCount}
+      liked={liked}
+      onDark={onDark}
+      onOpenComments={() => setCommentsVisible(true)}
+      onShare={() => openPrompt('share')}
+      onToggleLike={handleToggleLike}
+      onToggleRepost={handleToggleRepost}
+      repostCount={repostCount}
+      reposted={reposted}
+      style={onDark ? null : styles.metricsRowOnCard}
+      testID={prefix}
+    />
+  );
 
+  const viewerTestID = `${testID}-viewer`;
+
+  const sheets = (
+    <>
       <CommentsSheet
         focusCommentId={focusCommentId}
         onClose={() => setCommentsVisible(false)}
         onCommentAdded={() => setCommentCount((count) => count + 1)}
         onCommentCountResolved={setCommentCount}
+        onNavigateAway={closeViewer}
         postId={post.id}
         testID={`${testID}-comments`}
         visible={commentsVisible}
@@ -1010,6 +900,135 @@ export function PostCard({
           </View>
         </Modal>
       ) : null}
+    </>
+  );
+
+  return (
+    <View
+      style={{ backgroundColor: theme.colors.gray0 }}
+      testID={`${testID}-${post.id}`}
+    >
+      <View style={styles.cardContent} testID={`${testID}-content`}>
+        {renderHeader(testID, false)}
+
+        {post.body && post.news ? (
+          <Pressable
+            accessibilityRole="link"
+            onPress={() => {
+              if (post.news) {
+                void openLinkOut(post.news.url);
+              }
+            }}
+            testID={`${testID}-news-link`}
+          >
+            <Text
+              style={[styles.bodyText, theme.typography.postBody, { color: theme.colors.gray800 }]}
+              testID={`${testID}-body`}
+            >
+              {post.body}
+            </Text>
+          </Pressable>
+        ) : post.body ? (
+          <Text
+            // Figma 5768:27193: Body-medium 15/500 gray-800.
+            style={[styles.bodyText, theme.typography.postBody, { color: theme.colors.gray800 }]}
+            testID={`${testID}-body`}
+          >
+            {post.body}
+          </Text>
+        ) : null}
+
+        {post.news?.imageUrl ? (
+          <View
+            style={[
+              styles.newsImageFrame,
+              { backgroundColor: theme.colors.surfaceMuted, borderRadius: theme.radii.sm },
+            ]}
+          >
+            <ExpoImage
+              accessibilityIgnoresInvertColors
+              cachePolicy="memory-disk"
+              contentFit="cover"
+              source={{ uri: post.news.imageUrl }}
+              style={styles.newsImage}
+              testID={`${testID}-news-image`}
+            />
+          </View>
+        ) : null}
+
+        {post.cardId ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => (post.cardId ? onPressCard?.(post.cardId) : undefined)}
+            style={[styles.cardChip, { backgroundColor: theme.colors.surfaceMuted, borderCurve: 'continuous', borderRadius: theme.radii.pill }]}
+            testID={`${testID}-card-chip`}
+          >
+            <MediaImage color={theme.colors.purple500} height={14} width={14} />
+            <Text style={[theme.typography.captionMedium, { color: theme.colors.purple500 }]}>
+              View card
+            </Text>
+          </Pressable>
+        ) : null}
+
+        {canShowImages ? (
+          <View style={styles.mediaColumn}>
+            {post.media.map((media, index) => (
+              <Pressable
+                accessibilityLabel="View photo full screen"
+                accessibilityRole="imagebutton"
+                key={media.id}
+                onPress={() => openViewer(index)}
+                testID={`${testID}-image-button-${media.id}`}
+              >
+                {renderImage(media, { borderRadius: theme.radii.md }, testID)}
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+
+        {renderMetrics(testID, false)}
+      </View>
+
+      {/*
+        Figma 4299:94902 — a 4pt full-bleed #F2F2F2 (gray100) band separates
+        posts. Card-owned rather than list-owned so all PostCard surfaces —
+        the feed, post detail, profile/portfolio Activity — stay in parity.
+      */}
+      <View style={[styles.band, { backgroundColor: theme.colors.gray100 }]} />
+
+      {/*
+        Only one parent at a time: while the viewer is up the sheets move inside its
+        Modal, because a sibling modal cannot present over it.
+      */}
+      {viewerOpen ? null : sheets}
+
+      {viewerMounted ? (
+        <PostMediaViewer
+          body={
+            post.body ? (
+              <Text
+                // Figma 6322:8418: the card's Body-medium, lifted to gray-200 on black.
+                style={[styles.bodyText, theme.typography.postBody, { color: theme.colors.gray200 }]}
+                testID={`${viewerTestID}-body`}
+              >
+                {post.body}
+              </Text>
+            ) : null
+          }
+          header={renderHeader(viewerTestID, true)}
+          initialPage={viewerIndex}
+          metrics={renderMetrics(viewerTestID, true)}
+          onClose={closeViewer}
+          pages={post.media.map((media) =>
+            renderImage(media, { aspectRatio: POST_VIEWER_IMAGE_ASPECT_RATIO }, viewerTestID),
+          )}
+          testID={viewerTestID}
+          title={displayName}
+          visible={viewerOpen}
+        >
+          {viewerOpen ? sheets : null}
+        </PostMediaViewer>
+      ) : null}
     </View>
   );
 }
@@ -1021,11 +1040,11 @@ const styles = StyleSheet.create({
   // The 4pt separator band, full-bleed across the card. Color comes from the
   // theme at the render site, mirroring the old divider.
   band: {
-    height: 4,
+    height: borderWidths.sectionBand,
     width: '100%',
   },
   // Figma 5085:15398 stacks header→body→image on 8 and image→metrics on 10
-  // (metricsRow adds the extra 2). 8 above the content and 10 below it are the
+  // (metricsRowOnCard adds the extra 2). 8 above the content and 10 below it are the
   // gaps to the band; the feed's under-composer seam adds band marginBottom 8
   // to make 16.
   cardContent: {
@@ -1048,6 +1067,11 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 16,
   },
+  headerActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
   headerText: {
     flex: 1,
     gap: 4,
@@ -1059,6 +1083,15 @@ const styles = StyleSheet.create({
     gap: 8,
     marginHorizontal: 16,
   },
+  newsImage: {
+    flex: 1,
+  },
+  newsImageFrame: {
+    aspectRatio: NEWS_IMAGE_ASPECT_RATIO,
+    borderCurve: 'continuous',
+    marginHorizontal: 16,
+    overflow: 'hidden',
+  },
   // Same frame as the image it stands in for, so an arriving photo never shifts
   // the metrics row under the reader's thumb.
   mediaPlaceholder: {
@@ -1066,29 +1099,10 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: 'center',
   },
-  metricItem: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 4,
-  },
-  metricsLeft: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    // Figma 4299:94902 — 20 between reaction groups, 4 inside one.
-    gap: 20,
-  },
-  metricsRow: {
-    // Figma 3505:14440 baselines the row on its bottom edge, so the share
-    // glyph lines up with the reaction glyphs rather than floating above them.
-    alignItems: 'flex-end',
-    flexDirection: 'row',
-    // 10 under the image where the rest of the stack runs on 8.
+  // 10 under the image where the rest of the stack runs on 8. NO `paddingBottom`:
+  // `cardContent.paddingBottom` already supplies the gap to the band.
+  metricsRowOnCard: {
     marginTop: 2,
-    justifyContent: 'space-between',
-    // NO `paddingBottom`. `cardContent.paddingBottom: 10` already supplies the
-    // frame's gap between the action glyphs and the band; a pad here is ADDED
-    // to it and doubles the distance.
-    paddingHorizontal: 16,
   },
   moreButton: {
     alignItems: 'center',

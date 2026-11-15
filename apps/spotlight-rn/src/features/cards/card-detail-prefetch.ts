@@ -1,6 +1,9 @@
 import type {
+  CardConditionHistory,
+  CardConditionHistoryLane,
   CardDetailRecord,
   CardPriceTrendList as CardPriceTrendListRecord,
+  CardRecentSalesRecord,
   RawPricingMatrix,
   SpotlightRepository,
 } from '@spotlight/api-client';
@@ -60,6 +63,9 @@ type CacheEntry<T> = {
 const detailCache = new Map<string, CacheEntry<CardDetailRecord | null>>();
 const trendCache = new Map<string, CacheEntry<CardPriceTrendListRecord | null>>();
 const pricingMatrixCache = new Map<string, CacheEntry<RawPricingMatrix>>();
+const conditionHistoryCache = new Map<string, CacheEntry<CardConditionHistory | null>>();
+const cachedSalesCache = new Map<string, CacheEntry<CardRecentSalesRecord | null>>();
+const maxChartEntries = 60;
 
 /**
  * The default price lane for a card, computed from preview/owned data BEFORE
@@ -217,9 +223,11 @@ export function prefetchCardDetail(
  */
 export function invalidateCardDetailCache(cardId: string): void {
   detailCache.delete(cardId);
-  for (const key of trendCache.keys()) {
-    if (key === cardId || key.startsWith(`${cardId}|`)) {
-      trendCache.delete(key);
+  for (const cache of [trendCache, conditionHistoryCache, cachedSalesCache] as Map<string, unknown>[]) {
+    for (const key of cache.keys()) {
+      if (key === cardId || key.startsWith(`${cardId}|`)) {
+        cache.delete(key);
+      }
     }
   }
 }
@@ -229,6 +237,8 @@ export function clearCardDetailCache(): void {
   detailCache.clear();
   trendCache.clear();
   pricingMatrixCache.clear();
+  conditionHistoryCache.clear();
+  cachedSalesCache.clear();
 }
 
 /**
@@ -251,5 +261,57 @@ export function getRawPricingMatrixCached(
     maxPricingMatrixEntries,
     cardId,
     repository.getRawPricingMatrix(cardId),
+  );
+}
+
+/**
+ * Read-through for the PDP price chart's per-condition / per-grade history
+ * (a free SQLite read on the backend). One fetch per card + lane; the chart
+ * slices ranges client-side.
+ */
+export function getCardConditionHistoryCached(
+  repository: SpotlightRepository,
+  cardId: string,
+  lane: CardConditionHistoryLane,
+): Promise<CardConditionHistory | null> {
+  const key = [cardId, lane].join('|');
+  const existing = conditionHistoryCache.get(key);
+  if (isFresh(existing)) {
+    return existing.promise;
+  }
+  return storeEntry(
+    conditionHistoryCache,
+    maxChartEntries,
+    key,
+    repository.getCardConditionHistory({ cardId, lane, days: 365 }),
+  );
+}
+
+/**
+ * Read-through for graded sold comps, CACHE-ONLY: `refresh: false` makes the
+ * backend answer from its stored comps and never call Scrydex, so the chart
+ * costs no credits. Same query shape as the PDP's expanded-row fetch.
+ */
+export function getCardRecentSalesCacheOnly(
+  repository: SpotlightRepository,
+  cardId: string,
+  slabContext: { grader: string; grade: string; variantName: string | null },
+): Promise<CardRecentSalesRecord | null> {
+  const key = [cardId, slabContext.grader, slabContext.grade, slabContext.variantName ?? ''].join('|');
+  const existing = cachedSalesCache.get(key);
+  if (isFresh(existing)) {
+    return existing.promise;
+  }
+  return storeEntry(
+    cachedSalesCache,
+    maxChartEntries,
+    key,
+    repository.getCardRecentSales({
+      cardId,
+      slabContext,
+      source: 'ebay',
+      limit: 20,
+      refresh: false,
+    }),
   );
 }

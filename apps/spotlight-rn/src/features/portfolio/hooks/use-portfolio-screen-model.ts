@@ -42,8 +42,9 @@ const maxRecentSales = 9;
  * Module-scoped on purpose: it closes over nothing from the component, so it
  * needs no identity in any hook dependency list.
  */
-// The chart's pills other than the open 1W, in the order people tap them.
-const BACKGROUND_PREFETCH_RANGES: readonly PortfolioHistoryRange[] = ['1M', '3M', '1Y', 'ALL'];
+const DEFAULT_PORTFOLIO_RANGE: PortfolioHistoryRange = '1M';
+// The chart's pills other than the open default, in the order people tap them.
+const BACKGROUND_PREFETCH_RANGES: readonly PortfolioHistoryRange[] = ['1W', '3M', '1Y', 'ALL'];
 
 const rangesWithData = (source: PortfolioDashboard): Set<PortfolioHistoryRange> => {
   const loaded = new Set<PortfolioHistoryRange>();
@@ -275,7 +276,7 @@ export function usePortfolioScreenModel({
   // can compare against it without being re-created on every dashboard change.
   const dashboardRef = useRef(dashboard);
   dashboardRef.current = dashboard;
-  const [selectedRange, setSelectedRange] = useState<PortfolioHistoryRange>('1W');
+  const [selectedRange, setSelectedRange] = useState<PortfolioHistoryRange>(DEFAULT_PORTFOLIO_RANGE);
   // Open-range loading: the dashboard now computes only the open range; other
   // ranges are fetched on demand when the user switches to them. `loadingRange`
   // drives the chart skeleton during that fetch; `loadedRangesRef` tracks which
@@ -304,7 +305,7 @@ export function usePortfolioScreenModel({
   const displayedInventoryCollectionIDRef = useRef(activeCollectionID);
   const inventoryEntriesCacheRef = useRef(inventoryEntriesCache);
   inventoryEntriesCacheRef.current = inventoryEntriesCache;
-  const loadedRangesRef = useRef<Set<PortfolioHistoryRange>>(new Set<PortfolioHistoryRange>(['1W']));
+  const loadedRangesRef = useRef<Set<PortfolioHistoryRange>>(new Set<PortfolioHistoryRange>([DEFAULT_PORTFOLIO_RANGE]));
   // The shared caches are keyed by owner AND collection, so after a switch this
   // is already the NEW collection's cache (null the first time it is opened).
   // Read through a ref so the reset effect below doesn't re-run every time a

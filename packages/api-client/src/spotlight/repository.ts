@@ -397,6 +397,8 @@ export interface SpotlightRepository {
   /** This week's pick when `setId` is omitted. */
   fetchSetSpotlight(query?: SetSpotlightQuery): Promise<SetSpotlight | null>;
   fetchNewsFeed(query?: NewsFeedQuery): Promise<NewsFeed | null>;
+  /** The post carrying an article's reactions, created on first use. Null on failure. */
+  ensureNewsThread(newsId: string): Promise<string | null>;
   /**
    * PDP "More like this" rows. NULL when the server reports the feature
    * disabled (404); an unknown card is an empty payload, not null. Throws on
@@ -4013,6 +4015,10 @@ export class MockSpotlightRepository implements SpotlightRepository {
       return null;
     }
     return mockSetSpotlight;
+  }
+
+  async ensureNewsThread(newsId: string): Promise<string | null> {
+    return `mock-news-thread-${newsId}`;
   }
 
   async fetchNewsFeed(query?: NewsFeedQuery): Promise<NewsFeed | null> {
@@ -8245,6 +8251,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       game: query?.game,
       window: query?.windowDays,
       lane: query?.lane,
+      kind: query?.kind,
     });
     return result.disabled ? null : parseMetaPulsePayload(result.data, query);
   }
@@ -8260,6 +8267,22 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       : '/api/v1/market/set-spotlight';
     const result = await this.requestMetaFeedRead(path, {});
     return result.disabled ? null : parseSetSpotlightPayload(result.data);
+  }
+
+  async ensureNewsThread(newsId: string): Promise<string | null> {
+    try {
+      const response = await this.requestJsonOrThrow<{ postId?: unknown }>(
+        `${this.baseUrl}/api/v1/feed/news/thread`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ newsId }),
+        },
+      );
+      return typeof response.postId === 'string' ? response.postId : null;
+    } catch {
+      return null;
+    }
   }
 
   async fetchNewsFeed(query?: NewsFeedQuery): Promise<NewsFeed | null> {

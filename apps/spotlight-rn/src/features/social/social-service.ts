@@ -50,6 +50,7 @@ const postSelectWithMedia = `${postSelect}, post_media(${postMediaSelect})`;
 // run social_27 fails the whole select on an unknown column, so the tagged
 // select is tried first and dropped for the session on a missing-column error.
 const postTagSelect = 'event_id, booth_vendor_id';
+const NEWS_THREADS_TABLE = 'news_threads';
 let postTagColumnsAvailable = true;
 
 // Just the author identity columns the post card renders. A subset of the full
@@ -58,7 +59,8 @@ const postAuthorSelect = 'user_id, display_name, avatar_url, handle, is_verified
 
 type PostRow = {
   id: string;
-  author_id: string;
+  /** Null on the hidden post behind a news article (social_31). */
+  author_id: string | null;
   body: string | null;
   card_id: string | null;
   like_count: number | null;
@@ -122,6 +124,14 @@ export type FeedPost = {
   eventId?: string | null;
   /** Set on booth posts: the vendor slug on that show's floor map. */
   boothVendorId?: string | null;
+  /** The article this post carries reactions for (social_31); it has no author. */
+  news?: FeedPostNews | null;
+};
+
+export type FeedPostNews = {
+  source: string;
+  url: string;
+  imageUrl: string | null;
 };
 
 /**
@@ -211,7 +221,11 @@ async function hydratePosts(rows: PostRow[], options: HydrateOptions = {}): Prom
   }
 
   const missingAuthorIds = Array.from(
-    new Set(rows.map((row) => row.author_id).filter((id) => Boolean(id) && !authorsById.has(id))),
+    new Set(
+      rows
+        .map((row) => row.author_id)
+        .filter((id): id is string => Boolean(id) && !authorsById.has(id as string)),
+    ),
   );
   const needsMedia = !options.mediaEmbedded;
 
@@ -248,10 +262,14 @@ async function hydratePosts(rows: PostRow[], options: HydrateOptions = {}): Prom
     // be absent) rather than the whole feed collapsing to empty.
   }
 
+  const newsByPost = await fetchNewsForPosts(
+    rows.filter((row) => !row.author_id).map((row) => row.id),
+  );
+
   return rows.map((row) => ({
     id: row.id,
-    authorId: row.author_id,
-    author: authorsById.get(row.author_id) ?? null,
+    authorId: row.author_id ?? '',
+    author: row.author_id ? (authorsById.get(row.author_id) ?? null) : null,
     body: row.body ?? null,
     cardId: row.card_id ?? null,
     likeCount: row.like_count ?? 0,
@@ -260,6 +278,7 @@ async function hydratePosts(rows: PostRow[], options: HydrateOptions = {}): Prom
     createdAt: row.created_at,
     media: mediaByPost.get(row.id) ?? [],
     ...(row.event_id ? { eventId: row.event_id, boothVendorId: row.booth_vendor_id ?? null } : {}),
+    ...(newsByPost.has(row.id) ? { news: newsByPost.get(row.id) } : {}),
   }));
 }
 
@@ -295,6 +314,27 @@ async function selectPostRows(
 // instantiation is excessively deep" — verified, not assumed. The result is
 // re-cast to `PostRow[]` before it leaves the module.
 type PostFilter = (query: any) => any;
+
+async function fetchNewsForPosts(postIds: string[]): Promise<Map<string, FeedPostNews>> {
+  const byPost = new Map<string, FeedPostNews>();
+  if (!supabase || postIds.length === 0) {
+    return byPost;
+  }
+  try {
+    const { data, error } = await supabase
+      .from(NEWS_THREADS_TABLE)
+      .select('post_id, source, url, image_url')
+      .in('post_id', postIds);
+    if (!error && data) {
+      for (const row of data as { post_id: string; source: string; url: string; image_url: string | null }[]) {
+        byPost.set(row.post_id, { source: row.source, url: row.url, imageUrl: row.image_url });
+      }
+    }
+  } catch {
+    // The post still renders as text, and its comments still work.
+  }
+  return byPost;
+}
 
 /**
  * Shared post read: newest-first, deleted rows excluded, keyset-paginated by a
@@ -425,7 +465,9 @@ export async function fetchFollowingFeed(limit = DEFAULT_LIMIT, before?: string)
 
 /** All recent visible posts, newest first (global/discovery feed). */
 export function fetchGlobalFeed(limit = DEFAULT_LIMIT, before?: string): Promise<FeedPost[]> {
-  return fetchPosts((query) => query, limit, before);
+  // A news article's hidden post lives on the News tab; it reaches Social only
+  // when someone reposts it (see `fetchGlobalFeedItems`).
+  return fetchPosts((query) => query.not('author_id', 'is', null), limit, before);
 }
 
 /**
@@ -961,8 +1003,14 @@ export async function unlikeComment(commentId: string): Promise<boolean> {
 // Comments (Phase 3b)
 // ---------------------------------------------------------------------------
 
-const commentSelect =
+/** Postgres `undefined_column` — the database is older than the column asked for. */
+const MISSING_COLUMN_CODE = '42703';
+
+const commentSelectBase =
   'id, post_id, author_id, parent_comment_id, body, like_count, created_at, content_status, deleted_at';
+// `edited_at` arrives with social_30. Asked for separately so a database that
+// predates it still loads threads (the read retries without it).
+const commentSelect = `${commentSelectBase}, edited_at`;
 
 type CommentRow = {
   id: string;
@@ -974,6 +1022,7 @@ type CommentRow = {
   created_at: string;
   content_status: string | null;
   deleted_at: string | null;
+  edited_at?: string | null;
 };
 
 export type PostComment = {
@@ -990,6 +1039,8 @@ export type PostComment = {
   parentCommentId: string | null;
   likeCount: number;
   createdAt: string;
+  /** Set once the author has edited the body; the sheet shows "edited". */
+  editedAt?: string | null;
   /**
    * True when this row is a TOMBSTONE: the comment was deleted but is still in
    * the thread. The sheet renders "This comment was deleted" in place of the body
@@ -1072,17 +1123,22 @@ export async function fetchComments(postId: string, limit = 100): Promise<PostCo
     return [];
   }
   try {
-    const { data, error } = await supabase
-      .from(COMMENTS_TABLE)
-      .select(commentSelect)
-      .eq('post_id', trimmed)
-      .order('created_at', { ascending: true })
-      .limit(limit);
+    const query = (select: string) =>
+      supabase!
+        .from(COMMENTS_TABLE)
+        .select(select)
+        .eq('post_id', trimmed)
+        .order('created_at', { ascending: true })
+        .limit(limit);
+    let { data, error } = await query(commentSelect);
+    if (error?.code === MISSING_COLUMN_CODE) {
+      ({ data, error } = await query(commentSelectBase));
+    }
     if (error || !data) {
       return [];
     }
 
-    const rows = data as CommentRow[];
+    const rows = data as unknown as CommentRow[];
     const authorIds = Array.from(new Set(rows.map((row) => row.author_id).filter(Boolean)));
     const authorsById = new Map<string, FeedPostAuthor>();
     if (authorIds.length > 0) {
@@ -1111,6 +1167,7 @@ export async function fetchComments(postId: string, limit = 100): Promise<PostCo
         parentCommentId: row.parent_comment_id ?? null,
         likeCount: row.like_count ?? 0,
         createdAt: row.created_at,
+        editedAt: deleted ? null : row.edited_at ?? null,
         isDeleted: deleted,
       };
     });
@@ -1180,6 +1237,48 @@ export async function addComment(
       return { ok: false, reason: 'Saved, but could not be read back. Pull to refresh.' };
     }
     return { ok: true, id: (data as { id: string }).id };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : 'The comment could not be saved.',
+    };
+  }
+}
+
+export type EditCommentResult =
+  | { ok: true; body: string; editedAt: string | null; contentStatus: string | null }
+  | { ok: false; reason: string };
+
+/**
+ * Replace the body of your own comment. `comments_update` RLS scopes this to the
+ * author (or an admin); the moderation prefilter re-runs on the new body, and
+ * social_30 stamps `edited_at` and queues the row for another AI pass.
+ *
+ * Like the deletes below, the write asks for the row back: RLS refuses an UPDATE
+ * silently (zero rows, no error), so an empty result is a failure.
+ */
+export async function editComment(commentId: string, body: string): Promise<EditCommentResult> {
+  const text = (body ?? '').trim();
+  if (!supabase) {
+    return { ok: false, reason: 'Not connected. Check your connection and try again.' };
+  }
+  if (!commentId || text.length === 0) {
+    return { ok: false, reason: 'A comment cannot be empty.' };
+  }
+  try {
+    const { data, error } = await supabase
+      .from(COMMENTS_TABLE)
+      .update({ body: text })
+      .eq('id', commentId)
+      .select('id, body, content_status, edited_at');
+    if (error) {
+      return { ok: false, reason: error.message || 'The comment could not be saved.' };
+    }
+    const row = (data as { body: string; content_status: string | null; edited_at: string | null }[] | null)?.[0];
+    if (!row) {
+      return { ok: false, reason: 'That comment could not be edited.' };
+    }
+    return { ok: true, body: row.body, editedAt: row.edited_at ?? null, contentStatus: row.content_status };
   } catch (error) {
     return {
       ok: false,
@@ -1599,7 +1698,7 @@ export async function fetchNotifications(limit = 50): Promise<AppNotification[]>
         const media = [...(row.post_media ?? [])].sort(
           (left, right) => (left.position ?? 0) - (right.position ?? 0),
         );
-        postsById.set(row.id, { authorId: row.author_id, mediaId: media[0]?.id ?? null });
+        postsById.set(row.id, { authorId: row.author_id ?? '', mediaId: media[0]?.id ?? null });
       }
     }
 

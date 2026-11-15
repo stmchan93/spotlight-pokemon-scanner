@@ -34,6 +34,7 @@ import {
 import { buildTcgPlayerSearchUrl } from '@/features/cards/marketplace-urls';
 import { useAppServices } from '@/providers/app-providers';
 
+import type { ScanRowGrading } from '../scan-row-grading';
 import { formatCurrency, isFinitePrice } from './scanner-screen-helpers';
 
 const conditionShortLabels: Record<string, string> = {
@@ -67,6 +68,11 @@ export type ScanPriceSheetSelection = {
   conditionCode: DeckConditionCode;
   conditionShortLabel: string;
   marketPrice: number | null;
+  /**
+   * The row's grader/grade dropdown pick. Absent = the scan's own default
+   * (RAW, or a slab's detected grade); optional so older rows still decode.
+   */
+  grading?: ScanRowGrading;
 };
 
 /**

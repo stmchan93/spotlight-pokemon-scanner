@@ -18,6 +18,8 @@ import { SheetDismissHandle } from '@/components/sheet-dismiss-handle';
 export type GradeConditionOption = {
   id: string;
   label: string;
+  /** Optional right-aligned value, e.g. the row's current price. */
+  detail?: string | null;
 };
 
 type GradeConditionSheetProps = {
@@ -165,6 +167,14 @@ export function GradeConditionSheet({
                 >
                   {option.label.toUpperCase()}
                 </Text>
+                {option.detail ? (
+                  <Text
+                    style={[theme.typography.body, styles.rowDetail, { color: theme.colors.gray600 }]}
+                    testID={`${testID}-option-${option.id}-detail`}
+                  >
+                    {option.detail}
+                  </Text>
+                ) : null}
               </Pressable>
             );
           })}
@@ -226,6 +236,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 16,
     paddingVertical: 10,
+  },
+  rowDetail: {
+    marginLeft: 'auto',
   },
 });
 

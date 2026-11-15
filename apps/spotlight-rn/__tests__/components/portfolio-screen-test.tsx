@@ -1954,7 +1954,7 @@ describe('PortfolioScreen', () => {
     renderPortfolioScreen({ repository });
     await screen.findByText('Alpha');
     await waitFor(() => {
-      expect(getPortfolioRange.mock.calls.map(([range]) => range)).toEqual(['1M', '3M', '1Y', 'ALL']);
+      expect(getPortfolioRange.mock.calls.map(([range]) => range)).toEqual(['1W', '3M', '1Y', 'ALL']);
     });
     expect(maxInFlight).toBe(1);
 
@@ -1971,11 +1971,11 @@ describe('PortfolioScreen', () => {
     const dashboard = {
       ...buildDashboardWithInventory([buildInventoryEntry({ id: 'a', name: 'Alpha' })]),
       ranges: {
-        '1W': {
+        '1W': { portfolio: [], sales: [] },
+        '1M': {
           portfolio: [{ isoDate: '2026-06-01', shortLabel: 'Jun 1', value: 100 }],
           sales: [],
         },
-        '1M': { portfolio: [], sales: [] },
         '3M': { portfolio: [], sales: [] },
         YTD: { portfolio: [], sales: [] },
         '1Y': { portfolio: [], sales: [] },
@@ -2009,7 +2009,7 @@ describe('PortfolioScreen', () => {
     });
 
     await act(async () => {
-      fireEvent.press(screen.getByTestId('range-1M'));
+      fireEvent.press(screen.getByTestId('range-3M'));
     });
 
     await waitFor(() => {

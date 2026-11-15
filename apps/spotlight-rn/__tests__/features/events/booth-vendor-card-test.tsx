@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
-import { Alert, Linking } from 'react-native';
+import { Alert, Linking, StyleSheet } from 'react-native';
 
 import { mockSpotlightEventMap, type SpotlightEventMap } from '@spotlight/api-client';
 import type { BoothClaim, BoothPost } from '@/features/events/booth-service';
@@ -8,7 +8,6 @@ import {
   claimBooth,
   fetchBoothClaims,
   fetchBoothPosts,
-  fetchBoothStats,
   fetchBrowsingNow,
   fetchHotBooths,
   recordBoothEvent,
@@ -288,21 +287,13 @@ describe('booth vendor card', () => {
     expect(recordBoothEvent).toHaveBeenCalledWith(EVENT.id, VENDOR, 'instagram_tap');
   });
 
-  it('mine: stats, Post to your booth, and Unclaim; my own opens are not counted', async () => {
+  it('mine: live show count, Post to your booth, and Unclaim; my own opens are not counted', async () => {
     jest.mocked(fetchBoothClaims).mockResolvedValue(claim(ME));
-    jest.mocked(fetchBoothStats).mockResolvedValue({
-      views: 63,
-      instagramTaps: 14,
-      messages: 1,
-      postViews: 0,
-      viewers: 40,
-      viewsToday: 20,
-    });
+    jest.mocked(fetchBrowsingNow).mockResolvedValue(12);
     await renderShow();
     await openVendor();
     expect(await screen.findByTestId('booth-mine')).toBeTruthy();
-    expect(await screen.findByText('Your booth: 63 views · 14 Instagram taps · 1 message')).toBeTruthy();
-    expect(fetchBoothStats).toHaveBeenCalledWith(VENDOR, EVENT.id);
+    expect(await screen.findByText('12 people at the show right now')).toBeTruthy();
     expect(capturePostHogEvent).toHaveBeenCalledWith('booth_stats_viewed', { event_id: EVENT.id, vendor_id: VENDOR });
     expect(recordBoothEvent).not.toHaveBeenCalledWith(EVENT.id, VENDOR, 'card_open');
 
@@ -428,12 +419,11 @@ describe('vendors-only show (no tables yet)', () => {
     expect(screen.getByTestId(`event-vendor-${VENDOR}`)).toBeTruthy();
   });
 
-  it('mine: stats and Post to your booth work without tables', async () => {
+  it('mine: Post to your booth works without tables', async () => {
     jest.mocked(fetchBoothClaims).mockResolvedValue(claim(ME));
     await renderShow(null, VENDORS_ONLY_MAP);
     await openVendor();
     expect(await screen.findByTestId('booth-mine')).toBeTruthy();
-    expect(fetchBoothStats).toHaveBeenCalledWith(VENDOR, EVENT.id);
     fireEvent.press(screen.getByTestId('booth-post'));
     expect(mockPush).toHaveBeenCalledWith(`/new-post?eventId=${EVENT.id}&vendorId=${VENDOR}`);
   });
@@ -602,7 +592,9 @@ describe('live ticker and booth stories on the show page', () => {
     fireEvent.press(screen.getByTestId('booth-live-ticker'));
     expect(await screen.findByTestId('event-vendor-card')).toBeTruthy();
     expect(screen.getByTestId('event-vendor-card-name').props.children).toBe(vendorName);
-    expect(screen.queryByTestId('event-feed')).toBeNull();
+    // Back on the map; the feed stays mounted (hidden) so switching never refetches or jumps the page.
+    expect(StyleSheet.flatten(screen.getByTestId('event-detail-feed-pane', { includeHiddenElements: true }).props.style)).toEqual({ display: 'none' });
+    expect(StyleSheet.flatten(screen.getByTestId('event-detail-map-pane').props.style).display).toBeUndefined();
   });
 
   it('outside the booth window there is no ticker', async () => {

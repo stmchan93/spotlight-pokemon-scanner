@@ -44,7 +44,7 @@ Defined in `src/tokens.ts`:
 - `spacing`
 - `radii` — always paired with `borderCurve: 'continuous'` (iOS smooth corners ≈ Figma 60% smoothing; not valid on Image styles — clip via the wrapper View)
   - `radii.sheet` (20) — **rule: every bottom/sliding sheet uses `radii.sheet` on its top corners and square (0) bottom corners** (`border-radius: 20px 20px 0 0`, Figma 5753:18889), with `overflow: 'hidden'`. `SheetSurface` applies it; hand-built sheets set `borderTopLeftRadius`/`borderTopRightRadius: radii.sheet`. Centered dialogs and popover menus are not sheets.
-- `layout` — includes `rowThumbnailWidth`/`rowThumbnailHeight` (58x80, the `CardListRow` raw art slot; radius `inventoryArtRadiusRaw`) and `swipeActionWidth` (88, the action behind a swipe-left row)
+- `layout` — includes `rowThumbnailWidth`/`rowThumbnailHeight` (58x80, the `CardListRow` raw art slot; radius `inventoryArtRadiusRaw`) and `swipeActionWidth` (88, the action behind a swipe-left row); `tabBarRowHeight` / `tabBarMinBottomPadding` / `tabBarIconSlotHeight` (54 / 25 / 28, the Scanner's solid JS tab bar)
 - `shadows`
 - `textStyles`
 - `borderWidths` — `rule` (0.5pt hairline); `ruleSnapped` is the same line snapped to whole physical pixels, for stacked list dividers (a raw 0.5pt line renders 1px or 2px depending on its y-offset, so lists zebra)
@@ -88,6 +88,7 @@ designer; keep using them where the frame does):
 - `chipLabel` — 11/600, `DeltaPill`, `RankBadge`, `OwnedTag`, `TrendPill` sm, outlined tag chips
 - `tag` — 10/700, `LaneTag` and the video duration badge
 - `navLabel` / `navLabelSelected` — 11, native tabs own the real bar
+- `tabLabel` — SemiBold 9/12, -0.1 tracking; the Scanner's JS tab bar (Figma 6145:5694)
 
 Legacy aliases (`title`, `titleCompact`, `control`, `bodySmall`, `captionRegular`,
 `displayLarge`, `sectionTitleBold`, `feed*`) resolve to the library role with the
@@ -549,11 +550,11 @@ A card in a horizontal rail — the PDP "More like this" rows
 (docs/meta-feed-mockup/v2/SimilarV7). Presentation only; strings arrive
 preformatted.
 
-- `layout="rail"` (default): fixed `CARD_RAIL_TILE_WIDTH` (128) column —
-  portrait art (card aspect, radius 6, `gray200` fill without an image), then
-  name (`titleXsmall`), subtitle (`captionMedium` gray-600) and price
-  (`bodyStrong`), each one line
-- `layout="feature"`: one full-width `purple50` row at `radii.lg` with 86-wide
+- `layout="rail"` (default): fixed `CARD_RAIL_TILE_WIDTH` (96) column — 86×120
+  portrait art (radius 3, `gray200` fill without an image), then name
+  (`labelStrong`), subtitle (`overline` gray-600) and price (`captionStrong`),
+  each one line (Figma 6322:9014)
+- `layout="feature"`: one full-width `purple50` row at `radii.lg` with the same
   art on the left, name (`titleSmall`), subtitle, price (`titleMedium`) and an
   optional `accentLabel` in `brandStrong` ("Complete the pair")
 
@@ -665,6 +666,41 @@ Current API concepts:
   defaults to `gray0` (white rows). Pass the host surface when the sparkline
   sits on a tinted card (`TopMoverTile` passes `gray50`)
 - requires `react-native-svg` (already a package peer dependency)
+
+### RollingNumber
+
+File: `src/components/rolling-number.tsx`
+
+Robinhood-style rolling-digit number (after Robinhood's open-source `ticker`).
+Each digit is a vertical 0–9 strip clipped to one line. When `value` changes,
+each strip rolls to its new digit (450ms, ease-out with a slight overshoot,
+RN `Animated` on the native driver). Every non-digit character (`$ , . -`) is
+static.
+
+Current API concepts:
+
+- `value` — a pre-formatted string (`"$3,410.00"`); the caller owns formatting
+- optional `animate` (default `true`) — `false` snaps instantly; use it while
+  the user scrubs a chart
+- optional `style` — typography; `fontSize`/`lineHeight` set the cell height
+  (when `lineHeight` is missing it is round(fontSize × 1.3))
+- optional `testID`; each digit strip gets `${testID}-d${n}`, where n counts
+  digits from the right
+- optional `accessibilityLabel` (defaults to `value`)
+
+Behavior:
+
+- the first mount shows the value with no roll from zero
+- cells are keyed from the RIGHT, so a width change (`$999.00` → `$1,240.00`)
+  keeps the units/cents columns in place and the new leading cells simply appear
+- the system Reduce Motion setting snaps, like `animate={false}`
+- digits use `fontVariant: ['tabular-nums']`, and an invisible "0" sizes each
+  cell, so widths stay steady while digits change
+- renders as one accessible text element (`accessibilityRole="text"`), with the
+  strips hidden from a11y; `allowFontScaling={false}`, as with `RollingNumberText`
+
+`RollingNumberText` is the older variant (left-padded fixed-width columns, linear
+320ms, no reduce-motion or a11y handling). Use `RollingNumber` in new code.
 
 ### TopMoverTile
 
@@ -923,6 +959,7 @@ settled rather than as broken or greyed out.
 | --- | --- | --- |
 | `following` | `boolean` | Which of the two states to draw |
 | `onPress` | `() => void` | Fires only from the un-followed state |
+| `tone` | `'default' \| 'onDark'` | `onDark` draws the settled state gray-700 with a white label for a black backdrop (Figma 6322:8416) |
 | `personLabel` | `string` | Name for the accessibility label ("Follow Jamie") |
 | `testID` | `string` | |
 
@@ -994,6 +1031,7 @@ Use for the page-level tab bar that switches a profile or screen between views
 Current API concepts:
 
 - centered, content-width tabs with a 40px gap (Figma 3184-17337) — not full-width `flex: 1` tabs
+- `align="gutter"`: left-aligned with a 16 inset, 16 between tabs and 12 per tab (Figma Social 6322:8030)
 - active tab: `bodyMedium` / `textPrimary` with a 2px `textPrimary` underline hugging the label
 - inactive tab: `body` / `textSecondary`, no underline
 - a full-bleed `gray200` rail runs edge to edge under all tabs; the active underline shares its

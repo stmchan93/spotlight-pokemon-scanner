@@ -28,6 +28,7 @@ from meta_pulse import (  # noqa: E402
     CardInfo,
     PricePair,
     aggregate_groups,
+    aggregate_sets,
     build_headline,
     _exposure_callout,
     _Holding,
@@ -42,6 +43,7 @@ from meta_pulse import (  # noqa: E402
     is_gold_star,
     language_key,
     meta_pulse_version_token,
+    set_is_trackable,
     normalize_grade,
     normalize_grader,
     spark_dates,
@@ -131,6 +133,87 @@ class TaggingTests(unittest.TestCase):
 
 def _pair(card_id: str, then: float, now: float, lane: str = LANE_RAW, **kwargs) -> PricePair:
     return PricePair(card_id=card_id, game="pokemon", lane=lane, price_then=then, price_now=now, **kwargs)
+
+
+def _set_cards(prefix: str, count: int, *, set_name: str, set_id: str | None = None,
+               language: str = "English", supertype: str | None = "Pokémon") -> dict[str, CardInfo]:
+    return {
+        f"{prefix}{i}": CardInfo(card_id=f"{prefix}{i}", game="pokemon", name=f"{prefix}{i}",
+                                 set_name=set_name, set_id=set_id or prefix, language=language,
+                                 supertype=supertype)
+        for i in range(count)
+    }
+
+
+class SetTrendTests(unittest.TestCase):
+    def test_trackable_sets(self) -> None:
+        for name in ("Plasma Storm", "Secret Wonders", "Ascended Heroes", "Attack of the Vine!"):
+            self.assertTrue(set_is_trackable(name), name)
+        for name in ("HGSS Black Star Promos", "Promotional Resource Tokens", "Starter Deck 11: Aquatic Assault",
+                     "Pokémon TCG Classic - Venusaur", "POP Series 5", "Pokémon Rumble",
+                     "The World's Strongest Warriors Release Event Cards", ""):
+            self.assertFalse(set_is_trackable(name), name)
+        self.assertFalse(set_is_trackable("Generation Pulse", "Starter Deck"))
+
+    def test_basket_is_top_ten_by_start_price_and_rank_drops_biggest_mover(self) -> None:
+        # "carried": one chase card makes the basket +100%; the rest are flat-ish up 1%.
+        carried = _set_cards("c", 12, set_name="Carried Set")
+        pairs = [_pair("c0", 100.0, 1100.0)] + [_pair(f"c{i}", 50.0, 50.5) for i in range(1, 12)]
+        # "broad": every basket card up 20%.
+        broad = _set_cards("b", 12, set_name="Broad Set")
+        pairs += [_pair(f"b{i}", 40.0 + i, (40.0 + i) * 1.2) for i in range(12)]
+        sets = aggregate_sets(pairs, {**carried, **broad})
+        self.assertEqual([g.label for g in sets], ["Broad Set", "Carried Set"])  # by sort_score
+        broad_g, carried_g = sets
+        self.assertEqual(broad_g.group_key, "set:b:raw")
+        self.assertEqual(len(broad_g.pairs), 10)
+        # Basket = the 10 priciest at the START of the window.
+        self.assertEqual({p.card_id for p in broad_g.pairs}, {f"b{i}" for i in range(2, 12)})
+        self.assertAlmostEqual(broad_g.median_change_pct, 20.0)
+        self.assertAlmostEqual(broad_g.sort_score, 20.0)
+        self.assertGreater(carried_g.median_change_pct, 100.0)
+        self.assertAlmostEqual(carried_g.sort_score, 1.0)
+        self.assertEqual(broad_g.description, "10 of top 10 cards up · 12 cards")
+
+    def test_gates(self) -> None:
+        def run(cards, pairs):
+            return aggregate_sets(pairs, cards)
+        # Under 10 cards.
+        cards = _set_cards("s", 9, set_name="Small")
+        self.assertEqual(run(cards, [_pair(f"s{i}", 10.0, 12.0) for i in range(9)]), [])
+        # Fewer than 6 of the basket moved.
+        cards = _set_cards("f", 10, set_name="Flat")
+        pairs = [_pair(f"f{i}", 10.0, 15.0) for i in range(5)] + [_pair(f"f{i}", 10.0, 10.0) for i in range(5, 10)]
+        self.assertEqual(run(cards, pairs), [])
+        # Inside the ±3% flat band.
+        cards = _set_cards("q", 10, set_name="Quiet")
+        self.assertEqual(run(cards, [_pair(f"q{i}", 10.0, 10.2) for i in range(10)]), [])
+        # Split market: +, but only half the moved cards agree.
+        cards = _set_cards("m", 10, set_name="Mixed")
+        pairs = [_pair(f"m{i}", 10.0, 14.0) for i in range(5)] + [_pair(f"m{i}", 10.0, 9.0) for i in range(5, 10)]
+        self.assertEqual(run(cards, pairs), [])
+        # Japanese, promo sets and sealed product never count.
+        for cards in (
+            _set_cards("j", 10, set_name="Japanese Set", language="Japanese"),
+            _set_cards("p", 10, set_name="SV Black Star Promos"),
+            _set_cards("x", 10, set_name="Booster Boxes", supertype="Sealed"),
+        ):
+            prefix = next(iter(cards))[0]
+            self.assertEqual(run(cards, [_pair(f"{prefix}{i}", 10.0, 13.0) for i in range(10)]), [])
+
+    def test_cooling_set_and_tap_list(self) -> None:
+        cards = _set_cards("d", 12, set_name="Falling Set")
+        pairs = [_pair(f"d{i}", 30.0 + i, (30.0 + i) * (0.7 + i * 0.01)) for i in range(11)]
+        pairs.append(_pair("d11", 4.0, 2.0))  # cheap card: out of the tap list
+        sets = aggregate_sets(pairs, cards)
+        self.assertEqual(len(sets), 1)
+        group = sets[0]
+        self.assertLess(group.median_change_pct, 0)
+        self.assertLess(group.sort_score, 0)
+        self.assertTrue(group.description.startswith("10 of top 10 cards down"))
+        tap = [p.card_id for p in group.top_pairs]
+        self.assertNotIn("d11", tap)
+        self.assertEqual(tap[0], "d0")  # biggest % drop first
 
 
 class AggregationTests(unittest.TestCase):
@@ -312,6 +395,38 @@ class ComputeTests(unittest.TestCase):
         self.assertIsNone(payload90["summary"]["rawValueChangePercent"])
         self.assertEqual(payload90["headline"]["title"], "Not enough price history yet.")
 
+    def test_set_trends_end_to_end_kind_filter_and_detail(self) -> None:
+        self._seed_vintage_raw()
+        for i in range(12):
+            card_id = f"ps{i}"
+            upsert_card(
+                self.connection, card_id=card_id, name=f"Plasma {i}", set_name="Plasma Storm", set_id="bw8",
+                number=f"{i}/135", rarity="Rare Holo", variant="Raw", language="English", game="pokemon",
+                source_provider="scrydex", source_record_id=card_id, set_release_date="2013/02/06",
+                image_small_url=f"https://img/{card_id}.png",
+            )
+            then = 20.0 + i
+            for days_ago in range(30, -1, -1):
+                # A steady climb, so the step-move filter sees many distinct prices.
+                self._raw(card_id, days_ago, round(then * (1 + 0.5 * (30 - days_ago) / 30), 2))
+        self._compute(games=["pokemon"])
+        sets = build_meta_pulse_payload(self.connection, game="pokemon", window_days=30, kind="sets")
+        self.assertEqual([g["groupKey"] for g in sets["groups"]], ["set:bw8:raw"])
+        group = sets["groups"][0]
+        self.assertEqual(set(group), GROUP_KEYS)
+        self.assertEqual(group["label"], "Plasma Storm")
+        self.assertEqual(group["description"], "10 of top 10 cards up · 12 cards")
+        self.assertAlmostEqual(group["medianChangePercent"], 50.0, delta=0.5)
+        # Card groups never include sets, and sets never include card groups.
+        groups = build_meta_pulse_payload(self.connection, game="pokemon", window_days=30)
+        self.assertNotIn("set:bw8:raw", [g["groupKey"] for g in groups["groups"]])
+        self.assertIn("vintage:raw", [g["groupKey"] for g in groups["groups"]])
+        detail = build_meta_group_detail_payload(
+            self.connection, game="pokemon", window_days=30, group_key="set:bw8:raw"
+        )
+        self.assertEqual(detail["group"]["label"], "Plasma Storm")
+        self.assertEqual(len(detail["group"]["topCards"]), 12)
+
     def test_printing_switch_is_not_paired(self) -> None:
         self._seed_vintage_raw(count=8)
         self._card("switch")
@@ -384,7 +499,7 @@ class ComputeTests(unittest.TestCase):
         for i, pct in enumerate(pcts):
             self.connection.execute(
                 "INSERT INTO meta_pulse_groups VALUES ('pokemon', ?, 7, 'raw', ?, ?, ?, 'desc', ?, "
-                "110, 100, 10, 10, 5, '[]', ?)",
+                "110, 100, 10, 10, 5, '[]', ?, NULL)",
                 (TODAY.isoformat(), f"g{i}", f"seg{i}", f"Group {i}", pct, now),
             )
         self.connection.commit()

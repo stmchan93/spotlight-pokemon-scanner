@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { SpotlightThemeProvider } from '@spotlight/design-system';
 import type { InventoryCardEntry } from '@spotlight/api-client';
 
-import { InventoryDropdown } from '@/features/cards/components/inventory-dropdown';
+import { InventoryDropdown, InventoryQtyPill } from '@/features/cards/components/inventory-dropdown';
 
 function makeEntry(overrides: Partial<InventoryCardEntry> = {}): InventoryCardEntry {
   return {
@@ -51,18 +51,30 @@ function renderDropdown(
 }
 
 describe('InventoryDropdown', () => {
-  it('starts collapsed and expands when the header is tapped', () => {
-    renderDropdown();
+  it('Qty pill shows the total quantity and toggles', () => {
+    const onPress = jest.fn();
+    const { rerender } = render(
+      <SpotlightThemeProvider>
+        <InventoryQtyPill
+          entries={[makeEntry({ id: 'a', quantity: 2 }), makeEntry({ id: 'b', quantity: 1 })]}
+          expanded={false}
+          onPress={onPress}
+          testID="detail-inventory-header"
+        />
+      </SpotlightThemeProvider>,
+    );
 
-    expect(screen.getByText('INVENTORY')).toBeTruthy();
-    expect(screen.queryByTestId('detail-inventory-row-entry-1')).toBeNull();
-
+    expect(screen.getByText('Qty: 3')).toBeTruthy();
+    expect(screen.getByLabelText('Expand inventory')).toBeTruthy();
     fireEvent.press(screen.getByTestId('detail-inventory-header'));
+    expect(onPress).toHaveBeenCalledTimes(1);
 
-    expect(screen.getByTestId('detail-inventory-row-entry-1')).toBeTruthy();
-
-    fireEvent.press(screen.getByTestId('detail-inventory-header'));
-    expect(screen.queryByTestId('detail-inventory-row-entry-1')).toBeNull();
+    rerender(
+      <SpotlightThemeProvider>
+        <InventoryQtyPill entries={[makeEntry()]} expanded onPress={onPress} />
+      </SpotlightThemeProvider>,
+    );
+    expect(screen.getByLabelText('Collapse inventory')).toBeTruthy();
   });
 
   it('renders one row per entry with the summary line, quantity, and price', () => {
@@ -82,7 +94,6 @@ describe('InventoryDropdown', () => {
           } as InventoryCardEntry['slabContext'],
         }),
       ],
-      initiallyExpanded: true,
     });
 
     expect(screen.getByTestId('detail-inventory-row-a')).toBeTruthy();
@@ -106,7 +117,6 @@ describe('InventoryDropdown', () => {
           dayChangePercent: 3.1,
         }),
       ],
-      initiallyExpanded: true,
     });
 
     expect(screen.getByText('—')).toBeTruthy();
@@ -118,7 +128,6 @@ describe('InventoryDropdown', () => {
   it('fires onPressEntryMenu for the row whose menu is tapped', () => {
     const { onPressEntryMenu } = renderDropdown({
       entries: [makeEntry({ id: 'a' }), makeEntry({ id: 'b' })],
-      initiallyExpanded: true,
     });
 
     fireEvent.press(screen.getByTestId('detail-inventory-row-b-menu'));
@@ -136,7 +145,6 @@ describe('InventoryDropdown', () => {
     const onPressEntry = jest.fn();
     renderDropdown({
       entries: [makeEntry({ id: 'a' })],
-      initiallyExpanded: true,
       onPressEntry,
     });
 

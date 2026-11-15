@@ -5,7 +5,7 @@ import { Text } from './scaled-text';
 import { useSpotlightTheme } from '../theme';
 import { radii, spacing } from '../tokens';
 
-export type PillButtonTone = 'default' | 'filter' | 'filled' | 'soft' | 'option';
+export type PillButtonTone = 'default' | 'filter' | 'filled' | 'secondary' | 'soft' | 'option';
 
 type PillButtonProps = {
   label: string;
@@ -28,6 +28,8 @@ type PillButtonProps = {
    * 'filled' is the borderless 'filter' chip (Figma 5722:21551): gray-100 fill
    * when inactive, the same black pill when selected. Collection / Insights /
    * Wishlist chip rows.
+   * 'secondary' is the News / Market Watch game chip (Figma 6322:7623): gray-50
+   * when inactive, the same black pill when selected.
    * 'soft' is the borderless gray-50 chip used inside empty states (Figma
    * "Scan to add", 3370:4175) — a low-emphasis suggestion, not a toggle, so it
    * ignores `selected`.
@@ -65,9 +67,11 @@ export function PillButton({
 }: PillButtonProps) {
   const theme = useSpotlightTheme();
 
-  const isFilterChip = tone === 'filter' || tone === 'filled';
+  const isFilterChip = tone === 'filter' || tone === 'filled' || tone === 'secondary';
 
-  const containerStyle = isFilterChip
+  const containerStyle = tone === 'secondary'
+    ? [styles.filterContainer, styles.borderless]
+    : isFilterChip
     ? styles.filterContainer
     : tone === 'soft'
       ? styles.softContainer
@@ -87,6 +91,8 @@ export function PillButton({
     ? (selected ? theme.colors.gray900 : theme.colors.gray0)
     : tone === 'filled'
       ? (selected ? theme.colors.gray900 : theme.colors.gray100)
+    : tone === 'secondary'
+      ? (selected ? theme.colors.gray900 : theme.colors.gray50)
     : tone === 'soft'
       ? theme.colors.gray50
       : tone === 'option'
@@ -97,6 +103,8 @@ export function PillButton({
     ? (selected ? theme.colors.gray900 : theme.colors.gray300)
     : tone === 'filled'
       ? (selected ? theme.colors.gray900 : theme.colors.gray100)
+    : tone === 'secondary'
+      ? (selected ? theme.colors.gray900 : theme.colors.gray50)
     : tone === 'soft'
       ? 'transparent'
       : tone === 'option'
@@ -159,14 +167,17 @@ const styles = StyleSheet.create({
   filterContainer: {
     alignItems: 'center',
     borderCurve: 'continuous',
-    borderRadius: 8,
+    borderRadius: radii.sm,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 4,
+    gap: spacing.xxxs,
     justifyContent: 'center',
     minHeight: 32,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xxs,
+  },
+  borderless: {
+    borderWidth: 0,
   },
   label: {
     textAlign: 'center',

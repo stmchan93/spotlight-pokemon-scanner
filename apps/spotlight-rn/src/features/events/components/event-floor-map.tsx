@@ -549,7 +549,7 @@ const FloorDrawing = memo(function FloorDrawing({
             {
               backgroundColor: area.color,
               opacity: area.opacity,
-              ...(area.shape === 'ellipse' ? { borderRadius: (area.width * size.width) / 2 } : null),
+              ...(area.shape === 'ellipse' ? { borderCurve: 'continuous' as const, borderRadius: (area.width * size.width) / 2 } : null),
             },
           ]}
         />

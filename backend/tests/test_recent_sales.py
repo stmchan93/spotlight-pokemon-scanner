@@ -181,19 +181,15 @@ class ServeTimeTests(unittest.TestCase):
     def _cached(self, sales):
         return {"sales": sales, "status": "available", "fetchedAt": None}
 
-    def test_recent_average_uses_newest_three_then_two_then_one(self):
+    def test_headline_is_the_last_sale(self):
         rows = [
-            {"soldAt": _days_ago(1), "price": 230.0, "currencyCode": "USD"},
             {"soldAt": _days_ago(2), "price": 220.0, "currencyCode": "USD"},
+            {"soldAt": _days_ago(1), "price": 230.0, "currencyCode": "USD"},
             {"soldAt": _days_ago(3), "price": 210.0, "currencyCode": "USD"},
-            {"soldAt": _days_ago(4), "price": 100.0, "currencyCode": "USD"},
         ]
-        avg = server._recent_sales_average(rows)
-        self.assertEqual((avg["amount"], avg["sampleSize"]), (220.0, 3))
-        avg = server._recent_sales_average(rows[:2])
-        self.assertEqual((avg["amount"], avg["sampleSize"]), (225.0, 2))
-        avg = server._recent_sales_average(rows[:1])
-        self.assertEqual((avg["amount"], avg["sampleSize"]), (230.0, 1))
+        last = server._recent_sales_average(rows)
+        self.assertEqual((last["amount"], last["sampleSize"]), (230.0, 1))
+        self.assertEqual(last["latestSoldAt"], last["oldestSoldAt"])
 
     def test_recent_average_ignores_old_and_non_usd_rows(self):
         rows = [
@@ -253,27 +249,14 @@ class ServeTimeTests(unittest.TestCase):
         )
         self.assertEqual([s["price"] for s in filtered["sales"]], [4050.0, 3750.0, 3938.0])
 
-    def test_recent_average_is_the_median_so_one_bad_sale_cannot_swing_it(self):
-        rows = [
-            {"soldAt": _days_ago(1), "price": 199.99, "currencyCode": "USD"},
-            {"soldAt": _days_ago(1), "price": 4050.0, "currencyCode": "USD"},
-            {"soldAt": _days_ago(2), "price": 3750.0, "currencyCode": "USD"},
-        ]
-        self.assertEqual(server._recent_sales_average(rows)["amount"], 3750.0)
-
-    def test_recent_average_takes_whole_days_so_same_day_order_does_not_matter(self):
+    def test_same_day_tie_takes_the_first_listed_sale(self):
         day1, day2 = _days_ago(1), _days_ago(2)
         rows = [
-            {"soldAt": day1, "price": 4050.0, "currencyCode": "USD"},
             {"soldAt": day2, "price": 3750.0, "currencyCode": "USD"},
-            {"soldAt": day2, "price": 3938.0, "currencyCode": "USD"},
-            {"soldAt": day2, "price": 4100.0, "currencyCode": "USD"},
-            {"soldAt": day2, "price": 4583.52, "currencyCode": "USD"},
-            {"soldAt": _days_ago(3), "price": 9999.0, "currencyCode": "USD"},
+            {"soldAt": day1, "price": 4050.0, "currencyCode": "USD"},
+            {"soldAt": day1, "price": 3938.0, "currencyCode": "USD"},
         ]
-        avg = server._recent_sales_average(rows)
-        self.assertEqual((avg["amount"], avg["sampleSize"]), (4050.0, 5))
-        self.assertEqual(server._recent_sales_average(list(reversed(rows)))["amount"], 4050.0)
+        self.assertEqual(server._recent_sales_average(rows)["amount"], 4050.0)
 
     def test_filter_average_ignores_the_page_cap(self):
         rows = [
@@ -284,7 +267,7 @@ class ServeTimeTests(unittest.TestCase):
         capped = server._filter_recent_sales_rows(self._cached(rows), variant_key=None, limit=1)
         payload = server._recent_sales_payload(capped, source="ebay", grader="PSA", grade="10")
         self.assertEqual(payload["saleCount"], 1)
-        self.assertEqual((payload["recentAverage"]["amount"], payload["recentAverage"]["sampleSize"]), (110.0, 3))
+        self.assertEqual((payload["recentAverage"]["amount"], payload["recentAverage"]["sampleSize"]), (100.0, 1))
 
 
 class GradedTrendOverlayTests(unittest.TestCase):
@@ -306,7 +289,8 @@ class GradedTrendOverlayTests(unittest.TestCase):
         with mock.patch.object(server, "card_by_id", return_value=MOONBREON), \
              mock.patch.object(server, "slab_recent_sales_cache", side_effect=fake_cache):
             result = service._apply_recent_sales_average_to_graded_trend_rows("swsh7-215", trend_list, variant=None)
-        self.assertEqual([r["currentPrice"] for r in result["rows"]], [3938.0, 2300.0])
+        # PSA 10 = its last sale; PSA 9 has no cached comps → keeps the Scrydex price.
+        self.assertEqual([r["currentPrice"] for r in result["rows"]], [4050.0, 2300.0])
 
 
 if __name__ == "__main__":

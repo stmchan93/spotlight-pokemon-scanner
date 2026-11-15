@@ -159,6 +159,52 @@ class PriceHistoryCellDualWriteTests(unittest.TestCase):
         # unknown card -> None (so the route returns 404)
         self.assertIsNone(svc.card_condition_history("nope", lane="raw"))
 
+    def test_card_condition_history_is_usd_only_and_merges_variant_spellings(self) -> None:
+        from datetime import date, timedelta
+
+        d1 = (date.today() - timedelta(days=3)).isoformat()
+        d2 = (date.today() - timedelta(days=2)).isoformat()
+        d3 = (date.today() - timedelta(days=1)).isoformat()
+        rows = (
+            (d1, "holofoil", "USD", 15.0),
+            (d2, "Holofoil", "USD", 16.0),  # stray capitalised spelling of the same printing
+            (d3, "holofoil", "JPY", 2400.0),  # yen is never shown
+        )
+        for d, variant_key, currency, mkt in rows:
+            upsert_price_history_daily(
+                self.connection, card_id="c1", pricing_mode=RAW_PRICING_MODE,
+                provider="scrydex", price_date=d, currency_code=currency,
+                variant="Holofoil", condition="NM",
+                low_price=mkt - 1, market_price=mkt, mid_price=mkt, high_price=mkt + 1,
+                payload={"provider": "scrydex", "variantKey": variant_key},
+            )
+        self.connection.commit()
+
+        svc = SpotlightScanService(self.database_path, BACKEND_ROOT.parent)
+        payload = svc.card_condition_history("c1", lane="raw", days=365)
+        self.assertEqual(payload["currencyCode"], "USD")
+        nm = [s for s in payload["series"] if s["condition"] == "NM"]
+        self.assertEqual(len(nm), 1)
+        self.assertEqual([p["date"] for p in nm[0]["points"]], [d1, d2])
+        self.assertEqual([p["market"] for p in nm[0]["points"]], [15.0, 16.0])
+
+    def test_card_condition_history_omits_a_yen_only_card(self) -> None:
+        from datetime import date, timedelta
+
+        upsert_price_history_daily(
+            self.connection, card_id="c1", pricing_mode=RAW_PRICING_MODE,
+            provider="scrydex", price_date=(date.today() - timedelta(days=1)).isoformat(),
+            currency_code="JPY", variant="Holofoil", condition="NM",
+            low_price=1000.0, market_price=1200.0, mid_price=1200.0, high_price=1400.0,
+            payload={"provider": "scrydex", "variantKey": "holofoil"},
+        )
+        self.connection.commit()
+
+        svc = SpotlightScanService(self.database_path, BACKEND_ROOT.parent)
+        payload = svc.card_condition_history("c1", lane="raw", days=365)
+        self.assertEqual(payload["currencyCode"], "USD")
+        self.assertEqual(payload["series"], [])
+
     def test_decompose_handles_multi_variant_graded_grade_list(self) -> None:
         # A graded grade can hold a list of entries (multiple variants); each
         # becomes its own cell keyed by variant + flags.

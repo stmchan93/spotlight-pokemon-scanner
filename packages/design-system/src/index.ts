@@ -37,6 +37,7 @@ export * from './components/quantity-stepper';
 export * from './components/radio-dot';
 export * from './components/rank-badge';
 export * from './components/ranked-card-row';
+export * from './components/rolling-number';
 export * from './components/rolling-number-text';
 export * from './components/scaled-text';
 export * from './components/screen-header';

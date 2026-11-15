@@ -1,9 +1,10 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useNavigation } from '@react-navigation/native';
 
 import { FocusedStatusBar } from '@/components/focused-status-bar';
 import { MountOnFirstFocus } from '@/components/mount-on-first-focus';
 import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
+import type { ScannerTabName } from '@/features/scanner/components/scanner-tab-bar';
 import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
 import { getLastActiveTab } from '@/lib/last-active-tab';
 import { useDeferDataRefreshWhileFocused } from '@/providers/use-defer-data-refresh';
@@ -11,9 +12,11 @@ import { useDeferDataRefreshWhileFocused } from '@/providers/use-defer-data-refr
 /**
  * The Scanner, as an ordinary tab.
  *
- * The tab BAR is hidden while this route is active — see the `hidden` prop in
- * `_layout.tsx` — so the camera still gets the whole screen and the reticle
- * keeps its original size. Nothing is pushed and nothing is covered.
+ * The NATIVE tab bar is hidden while this route is active — see the `hidden`
+ * prop in `_layout.tsx` — because on iOS 26 it is always Liquid Glass and the
+ * Scanner's bar is solid black (Figma 6145:5694). `ScannerScreen` draws that
+ * bar itself (`scanner-tab-bar.tsx`) below the viewfinder when given
+ * `onSelectTab`. Nothing is pushed and nothing is covered.
  *
  * ===========================================================================
  * THE WHITE BAR AT THE BOTTOM ON ANDROID IS NOT OURS
@@ -88,6 +91,9 @@ import { useDeferDataRefreshWhileFocused } from '@/providers/use-defer-data-refr
  * JUMP_TO without reading `defaultPrevented`, so a native tab cannot be
  * intercepted to present one.
  */
+const TAB_SWITCH_RETRY_MS = 350;
+const TAB_SWITCH_MAX_RETRIES = 3;
+
 export default function ScanRoute() {
   const navigation = useNavigation();
   // Coalesce the Scanner's per-add refreshData() calls; leaving flushes them
@@ -107,13 +113,46 @@ export default function ScanRoute() {
     navigation.navigate(getLastActiveTab() as never);
   }, [navigation]);
 
+  /*
+    The scanner's own JS tab bar (the native one is hidden here). Same switch
+    as `goBack`: the react-navigation tab navigator, because every expo-router
+    API is silently dropped by native tabs (Android AND iOS). A dropped
+    dispatch is retried briefly, but ONLY while the Scanner is still focused —
+    once the switch lands, the retries stop, so they can never yank the user
+    back from wherever they went next.
+  */
+  const tabRetryRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopTabRetry = useCallback(() => {
+    if (tabRetryRef.current) {
+      clearInterval(tabRetryRef.current);
+      tabRetryRef.current = null;
+    }
+  }, []);
+  useEffect(() => stopTabRetry, [stopTabRetry]);
+  const selectTab = useCallback((tab: ScannerTabName) => {
+    if (tab === 'scan') {
+      return;
+    }
+    stopTabRetry();
+    navigation.navigate(tab as never);
+    let attempts = 0;
+    tabRetryRef.current = setInterval(() => {
+      attempts += 1;
+      if (!navigation.isFocused() || attempts > TAB_SWITCH_MAX_RETRIES) {
+        stopTabRetry();
+        return;
+      }
+      navigation.navigate(tab as never);
+    }, TAB_SWITCH_RETRY_MS);
+  }, [navigation, stopTabRetry]);
+
   return (
     <NativeTabsPageBridge page="scanner">
       {/* Dark viewfinder needs light status-bar icons. */}
       <FocusedStatusBar style="light" />
       {/* Black until first focus: the viewfinder is black, so no white flash. */}
       <MountOnFirstFocus placeholderColor="#000000">
-        <ScannerScreen onExitToPortfolio={goBack} />
+        <ScannerScreen onExitToPortfolio={goBack} onSelectTab={selectTab} />
       </MountOnFirstFocus>
     </NativeTabsPageBridge>
   );

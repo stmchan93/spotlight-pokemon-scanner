@@ -142,7 +142,7 @@ export function PortfolioBalanceHeader({
             shape="circle"
             size={32}
             testID={`${testIDPrefix}-summary-visibility-toggle`}
-            variant="subtle"
+            variant="filled"
           >
             {isSummaryHidden ? (
               <EyeClosed color={theme.colors.gray600} height={18} width={18} />

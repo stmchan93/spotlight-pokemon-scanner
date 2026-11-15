@@ -1109,6 +1109,23 @@ def _ensure_read_schema(connection: sqlite3.Connection) -> None:
         ensure_schema(connection)
 
 
+def news_thread_args(connection: sqlite3.Connection, news_id: str) -> dict[str, Any] | None:
+    """`ensure_news_thread` arguments for a stored item, or None when it is unknown."""
+    row = connection.execute(
+        "SELECT id, title, source, url, image_url FROM news_items WHERE id = ?",
+        (news_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "p_news_item_id": row[0],
+        "p_title": row[1],
+        "p_source": row[2],
+        "p_url": row[3],
+        "p_image_url": row[4],
+    }
+
+
 def build_news_payload(
     connection: sqlite3.Connection,
     *,

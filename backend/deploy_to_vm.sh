@@ -545,12 +545,16 @@ RestartSec=5
 # minutes. Keep the start timeout well above that so a slow cold-load can't trip a
 # crash-loop (systemd killing it at the timeout, restarting, re-reading cold). 2026-06-10.
 TimeoutStartSec=300
-# Load protection for the beta / show bursts (2026-06-16). MemoryHigh is a soft
-# ceiling that throttles + reclaims this cgroup BEFORE the kernel OOM-killer fires,
-# so a burst of concurrent scans degrades gracefully instead of hard-crashing.
-# Expressed as a percentage so it auto-scales across a t2d-standard-2 <-> -4 resize
-# (~6 GB on the -2, ~12 GB on the -4). Pairs with the existing 4 GB swap.
-MemoryHigh=75%
+# Hard memory cap, no MemoryHigh. A soft MemoryHigh throttled the process
+# instead of killing it: on 2026-11-15 prod sat at 13GB serving 15-59 minute
+# requests for hours while systemd still saw it as "active". Now an overrun is
+# OOM-killed and Restart=always brings it back in ~1-2 min. Percentages scale
+# with the machine type; swap is capped so the cgroup can't thrash on disk.
+MemoryMax=80%
+MemorySwapMax=512M
+# glibc otherwise keeps a malloc arena per thread and never returns the freed
+# pages, so RSS only ratchets up under the request thread pool.
+Environment=MALLOC_ARENA_MAX=2
 # Cap BLAS/OpenMP threads so one scan's index matmul (numpy) can't grab every core
 # and starve the others under concurrency. The ONNX session threads are already
 # capped via SPOTLIGHT_VISUAL_ONNX_INTRA/INTER_OP_THREADS in the env file.

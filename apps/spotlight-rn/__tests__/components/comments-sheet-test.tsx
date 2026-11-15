@@ -1325,9 +1325,10 @@ describe('CommentsSheet', () => {
       renderSheet();
       const row = await screen.findByTestId('comments-sheet-comment-c1');
 
-      expect(row.props.accessibilityHint).toBe('Press and hold to delete your comment');
+      expect(row.props.accessibilityHint).toBe('Press and hold to edit or delete your comment');
 
       fireEvent(row, 'longPress');
+      fireEvent.press(screen.getByTestId('comments-sheet-own-options-delete'));
 
       // The post-delete sheet's shape: a title, the consequence, then Cancel and
       // a red Delete — NOT an OS alert.
@@ -1355,6 +1356,7 @@ describe('CommentsSheet', () => {
       renderSheet();
 
       fireEvent(await screen.findByTestId('comments-sheet-comment-c1'), 'longPress');
+      fireEvent.press(screen.getByTestId('comments-sheet-own-options-delete'));
       await act(async () => {
         fireEvent.press(screen.getByTestId(`${DELETE_CONFIRM}-cancel`));
       });
@@ -1382,6 +1384,7 @@ describe('CommentsSheet', () => {
 
       await waitFor(() => expect(onCommentCountResolved).toHaveBeenCalledWith(2));
       fireEvent(screen.getByTestId('comments-sheet-comment-c1'), 'longPress');
+      fireEvent.press(screen.getByTestId('comments-sheet-own-options-delete'));
       await confirmDelete();
 
       // The body is gone…
@@ -1408,6 +1411,7 @@ describe('CommentsSheet', () => {
 
       fireEvent.press(await screen.findByTestId('comments-sheet-comment-c2-replies-toggle'));
       fireEvent(screen.getByTestId('comments-sheet-comment-r1'), 'longPress');
+      fireEvent.press(screen.getByTestId('comments-sheet-own-options-delete'));
       await confirmDelete();
 
       expect(screen.queryByText('My reply')).toBeNull();
@@ -1425,6 +1429,7 @@ describe('CommentsSheet', () => {
 
       await waitFor(() => expect(onCommentCountResolved).toHaveBeenCalledWith(2));
       fireEvent(screen.getByTestId('comments-sheet-comment-c1'), 'longPress');
+      fireEvent.press(screen.getByTestId('comments-sheet-own-options-delete'));
       await confirmDelete();
 
       expect(await screen.findByText('My take')).toBeTruthy();
@@ -1460,6 +1465,7 @@ describe('CommentsSheet', () => {
       renderSheet();
 
       fireEvent(await screen.findByTestId('comments-sheet-comment-c1'), 'longPress');
+      fireEvent.press(screen.getByTestId('comments-sheet-own-options-delete'));
 
       // The old copy ("This also deletes the 2 replies underneath it") described
       // a cascade that no longer happens.
@@ -1485,6 +1491,7 @@ describe('CommentsSheet', () => {
 
       await waitFor(() => expect(onCommentCountResolved).toHaveBeenCalledWith(3));
       fireEvent(screen.getByTestId('comments-sheet-comment-c1'), 'longPress');
+      fireEvent.press(screen.getByTestId('comments-sheet-own-options-delete'));
       await confirmDelete();
 
       // The body is gone…
@@ -1510,6 +1517,7 @@ describe('CommentsSheet', () => {
 
       await waitFor(() => expect(onCommentCountResolved).toHaveBeenCalledWith(3));
       fireEvent(screen.getByTestId('comments-sheet-comment-c1'), 'longPress');
+      fireEvent.press(screen.getByTestId('comments-sheet-own-options-delete'));
       await confirmDelete();
 
       // 3 → 2: the two replies still count, and the tombstone counts for nothing.
@@ -1525,6 +1533,7 @@ describe('CommentsSheet', () => {
 
       await waitFor(() => expect(onCommentCountResolved).toHaveBeenCalledWith(3));
       fireEvent(screen.getByTestId('comments-sheet-comment-c1'), 'longPress');
+      fireEvent.press(screen.getByTestId('comments-sheet-own-options-delete'));
       await confirmDelete();
 
       // Restoring a tombstone means the body — and the author — come back.
@@ -1547,6 +1556,7 @@ describe('CommentsSheet', () => {
       fireEvent.press(await screen.findByTestId('comments-sheet-comment-c2-replies-toggle'));
 
       fireEvent(await screen.findByTestId('comments-sheet-comment-r1'), 'longPress');
+      fireEvent.press(screen.getByTestId('comments-sheet-own-options-delete'));
       expect(screen.getByText('DELETE REPLY?')).toBeTruthy();
     });
 
@@ -1568,6 +1578,7 @@ describe('CommentsSheet', () => {
       renderSheet();
       fireEvent.press(await screen.findByTestId('comments-sheet-comment-c2-replies-toggle'));
       fireEvent(await screen.findByTestId('comments-sheet-comment-r1'), 'longPress');
+      fireEvent.press(screen.getByTestId('comments-sheet-own-options-delete'));
 
       // Deleting a REPLY that has its own replies: the noun follows the row, so
       // the confirmation never calls a reply a comment.
@@ -1603,12 +1614,14 @@ describe('CommentsSheet', () => {
       renderSheet({ onCommentCountResolved });
 
       fireEvent(await screen.findByTestId('comments-sheet-comment-c1'), 'longPress');
+      fireEvent.press(screen.getByTestId('comments-sheet-own-options-delete'));
       await confirmDelete();
       expect(screen.getByTestId('comments-sheet-comment-c1-tombstone')).toBeTruthy();
 
       // Delete the reply too. Nothing hangs off the parent tombstone any more,
       // and it stays anyway.
       fireEvent(screen.getByTestId('comments-sheet-comment-r1'), 'longPress');
+      fireEvent.press(screen.getByTestId('comments-sheet-own-options-delete'));
       await confirmDelete();
 
       expect(screen.getByTestId('comments-sheet-comment-c1-tombstone')).toHaveTextContent(
@@ -1633,6 +1646,7 @@ describe('CommentsSheet', () => {
 
       fireEvent.press(await screen.findByTestId('comments-sheet-comment-c1-replies-toggle'));
       fireEvent(screen.getByTestId('comments-sheet-comment-r1'), 'longPress');
+      fireEvent.press(screen.getByTestId('comments-sheet-own-options-delete'));
       await confirmDelete();
 
       // The reply's body comes back, and the older tombstone above it — which a

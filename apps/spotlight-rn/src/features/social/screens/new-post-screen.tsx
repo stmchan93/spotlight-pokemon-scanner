@@ -15,11 +15,12 @@ import { Image as ExpoImage } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { EdgeInsets } from 'react-native-safe-area-context';
 import { initialWindowMetrics, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Camera, Globe, MapPin, MediaImage, NavArrowDown, Shop, Xmark } from 'iconoir-react-native';
+import { Camera, MapPin, MediaImage, Shop, Xmark } from 'iconoir-react-native';
 
 import { Avatar, Button, IconButton, SheetHeader, Text, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
+import { fetchBrowsingNow } from '@/features/events/booth-service';
 import { useActiveBooth } from '@/features/events/hooks/use-active-booth';
 import { useActiveShow } from '@/features/events/hooks/use-active-show';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
@@ -33,6 +34,8 @@ import { useAuth } from '@/providers/auth-provider';
 // Max post length. Mirrors the backend `posts.body` guard; the counter warns as
 // the author approaches it and `maxLength` hard-stops at it.
 const BODY_MAX_LENGTH = 500;
+// How long the booth confirmation waits for the live crowd count before going without it.
+const CROWD_LOOKUP_MS = 1500;
 
 // Post images are downscaled to this width before upload — enough for a
 // full-bleed feed image without shipping a multi-megabyte original.
@@ -412,6 +415,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   }, []);
 
   const keyboardOverlap = keyboardLift(keyboardHeight, safeArea.bottom);
+  const keyboardUp = keyboardHeight > 0;
 
   const trimmedBody = body.trim();
   const canPost = submitState === 'idle' && trimmedBody.length > 0;
@@ -507,16 +511,6 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
     }
   }, [stagePickedImages]);
 
-  // The "Public" chip matches the design (globe + label + chevron) but privacy
-  // is NOT schema-backed: `posts` has no `visibility` column, so there's nothing
-  // to persist and no other level to switch to. Rather than ship a dropdown that
-  // silently drops a choice, tapping just confirms that posts are public today.
-  // Real privacy levels (followers-only, private) would need a `posts.visibility`
-  // column plus matching RLS before this can become a functional selector.
-  const handlePrivacy = useCallback(() => {
-    Alert.alert('Public post', 'Posts are visible to everyone. More privacy options are coming soon.');
-  }, []);
-
   const handleSubmit = useCallback(async () => {
     if (!canPost) {
       return;
@@ -608,9 +602,10 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
         // Photos wait for the moderation worker (~2 min cron). The composer
         // closes from the alert, not under it: an alert raised during an iOS
         // modal dismissal can fail to present.
+        const crowd = await browsingNowWithin(booth.eventId, CROWD_LOOKUP_MS);
         Alert.alert(
           'Posted to your booth',
-          'Your post will appear on your booth in a couple of minutes.',
+          boothPostedMessage(crowd),
           [{ onPress: () => router.back(), text: 'OK' }],
           { cancelable: false },
         );
@@ -699,8 +694,11 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
 
         <ScrollView
           contentContainerStyle={styles.scrollContent}
+          // Dragging the post down puts the keyboard away so the photo below can be seen.
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          testID={`${testID}-scroll`}
         >
           <View style={styles.authorRow}>
             <Avatar
@@ -800,7 +798,8 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             </Text>
           </View>
 
-          {booth ? (
+          {/* The toggles wait out the keyboard so typing keeps room for the post itself. */}
+          {booth && !keyboardUp ? (
             <View
               style={[
                 styles.boothRow,
@@ -829,7 +828,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             </View>
           ) : null}
 
-          {showTagVisible ? (
+          {showTagVisible && !keyboardUp ? (
             <View
               style={[
                 styles.boothRow,
@@ -858,40 +857,29 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             </View>
           ) : null}
 
-          <View style={styles.controlRow}>
-            <ControlChip
-              icon={<Globe color={theme.colors.gray900} height={18} width={18} />}
-              label="PUBLIC"
-              labelColor={theme.colors.gray900}
-              onPress={handlePrivacy}
-              testID={`${testID}-privacy`}
-              trailing={<NavArrowDown color={theme.colors.gray900} height={18} width={18} />}
-            />
+          {remainingImages > 0 ? (
+            <View style={styles.controlRow}>
+              <ControlChip
+                icon={<MediaImage color={theme.colors.gray900} height={18} width={18} />}
+                label="PHOTO"
+                labelColor={theme.colors.gray900}
+                onPress={() => {
+                  void handlePickImage();
+                }}
+                testID={`${testID}-add-image`}
+              />
 
-            {remainingImages > 0 ? (
-              <>
-                <ControlChip
-                  icon={<MediaImage color={theme.colors.gray900} height={18} width={18} />}
-                  label="PHOTO"
-                  labelColor={theme.colors.gray900}
-                  onPress={() => {
-                    void handlePickImage();
-                  }}
-                  testID={`${testID}-add-image`}
-                />
-
-                <ControlChip
-                  icon={<Camera color={theme.colors.gray900} height={18} width={18} />}
-                  label="CAMERA"
-                  labelColor={theme.colors.gray900}
-                  onPress={() => {
-                    void handleCaptureImage();
-                  }}
-                  testID={`${testID}-add-camera`}
-                />
-              </>
-            ) : null}
-          </View>
+              <ControlChip
+                icon={<Camera color={theme.colors.gray900} height={18} width={18} />}
+                label="CAMERA"
+                labelColor={theme.colors.gray900}
+                onPress={() => {
+                  void handleCaptureImage();
+                }}
+                testID={`${testID}-add-camera`}
+              />
+            </View>
+          ) : null}
 
           <Button
             disabled={!canPost}
@@ -914,6 +902,20 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
       </View>
     </View>
   );
+}
+
+/** The live crowd, or null if it doesn't arrive in time: the confirmation never waits on it. */
+function browsingNowWithin(eventId: string, ms: number): Promise<number | null> {
+  return Promise.race([
+    fetchBrowsingNow(eventId).catch(() => null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+  ]);
+}
+
+/** "12 people are at the show right now…"; just the timing note when the count is unknown or only you. */
+export function boothPostedMessage(crowd: number | null): string {
+  const timing = 'Your post will appear on your booth in a couple of minutes.';
+  return crowd != null && crowd >= 2 ? `${crowd} people are at the show right now. ${timing}` : timing;
 }
 
 function firstParam(value: string | string[] | undefined): string | null {

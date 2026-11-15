@@ -26,12 +26,12 @@ export type CardRailTileProps = {
   testID?: string;
 };
 
-// Portrait trading-card art (Scrydex ~245×342). Rail 128 wide ≈ the mockup's
-// 128×178; feature art 86×120 (docs/meta-feed-mockup/v2/SimilarV7).
-export const CARD_RAIL_TILE_WIDTH = 128;
+// Portrait trading-card art (Scrydex ~245×342). Both layouts draw it 86×120.
+// The rail tile is wider than its art so text gets the extra room (Figma 6322:9014).
+export const CARD_RAIL_TILE_WIDTH = 96;
 const CARD_ASPECT = 342 / 245;
-const FEATURE_ART_WIDTH = 86;
-const ART_RADIUS = 6;
+const ART_WIDTH = 86;
+const ART_RADIUS = 3;
 
 export function CardRailTile({
   imageUrl,
@@ -46,14 +46,10 @@ export function CardRailTile({
 }: CardRailTileProps) {
   const theme = useSpotlightTheme();
   const feature = layout === 'feature';
-  const artWidth = feature ? FEATURE_ART_WIDTH : CARD_RAIL_TILE_WIDTH;
 
   const art = (
     <View
-      style={[
-        styles.art,
-        { width: artWidth, height: Math.round(artWidth * CARD_ASPECT), backgroundColor: theme.colors.gray200 },
-      ]}
+      style={[styles.art, { backgroundColor: theme.colors.gray200 }]}
       testID={testID ? `${testID}-art` : undefined}
     >
       {imageUrl ? (
@@ -70,20 +66,22 @@ export function CardRailTile({
 
   const details = (
     <View style={feature ? styles.featureDetails : styles.railDetails}>
-      <AppText color="gray900" ellipsizeMode="tail" numberOfLines={1} variant={feature ? 'titleSmall' : 'titleXsmall'}>
+      <AppText color="gray900" ellipsizeMode="tail" numberOfLines={1} variant={feature ? 'titleSmall' : 'labelStrong'}>
         {name}
       </AppText>
       {subtitle ? (
-        <AppText color="gray600" ellipsizeMode="tail" numberOfLines={1} variant="captionMedium">
+        <AppText color="gray600" ellipsizeMode="tail" numberOfLines={1} variant={feature ? 'captionMedium' : 'overline'}>
           {subtitle}
         </AppText>
       ) : null}
       {priceLabel ? (
         <AppText
           color="gray900"
+          ellipsizeMode="tail"
+          numberOfLines={1}
           style={feature ? styles.featurePrice : null}
           testID={testID ? `${testID}-price` : undefined}
-          variant={feature ? 'titleMedium' : 'bodyStrong'}
+          variant={feature ? 'titleMedium' : 'captionStrong'}
         >
           {priceLabel}
         </AppText>
@@ -118,7 +116,7 @@ export function CardRailTile({
 const styles = StyleSheet.create({
   rail: {
     width: CARD_RAIL_TILE_WIDTH,
-    gap: spacing.xxs,
+    gap: 6,
   },
   feature: {
     flexDirection: 'row',
@@ -129,12 +127,14 @@ const styles = StyleSheet.create({
     borderRadius: radii.lg,
   },
   art: {
+    width: ART_WIDTH,
+    height: Math.round(ART_WIDTH * CARD_ASPECT),
     borderCurve: 'continuous',
     borderRadius: ART_RADIUS,
     overflow: 'hidden',
   },
   railDetails: {
-    gap: 2,
+    gap: spacing.xxxs,
   },
   featureDetails: {
     flex: 1,

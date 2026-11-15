@@ -126,6 +126,12 @@ describe('PageTabs', () => {
       <PageTabs<TabValue> align="start" tabs={TABS} value="portfolio" onChange={jest.fn()} testID="page-tabs" />,
     );
     expect(tabRow()).toMatchObject({ justifyContent: 'flex-start', gap: 14, paddingHorizontal: 14 });
+
+    rerender(
+      <PageTabs<TabValue> align="gutter" tabs={TABS} value="portfolio" onChange={jest.fn()} testID="page-tabs" />,
+    );
+    expect(tabRow()).toMatchObject({ justifyContent: 'flex-start', gap: 16, paddingHorizontal: 16 });
+    expect(StyleSheet.flatten(screen.getByTestId('page-tabs-tab-favorites').props.style).paddingHorizontal).toBe(12);
   });
 
   it('exposes the container testID and per-tab testIDs', () => {
@@ -151,6 +157,6 @@ describe('PageTabs', () => {
     );
     expect(screen.getByTestId('page-tabs-scroll').props.horizontal).toBe(true);
     expect(StyleSheet.flatten(screen.getByTestId('page-tabs-rail').props.style).backgroundColor).toBe(colors.gray100);
-    expect(StyleSheet.flatten(screen.getByTestId('page-tabs-tab-favorites').props.style).paddingHorizontal).toBe(16);
+    expect(StyleSheet.flatten(screen.getByTestId('page-tabs-tab-favorites').props.style).paddingHorizontal).toBe(12);
   });
 });

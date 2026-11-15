@@ -1,3 +1,4 @@
+import { isPersistedScanRowGrading } from './scan-row-grading';
 import type { ScanPriceSheetSelection } from './screens/scan-price-sheet';
 import type { RecentCapture } from './screens/scanner-screen-types';
 import type { TrayRowRead, TrayRowWrite } from './tray-db';
@@ -99,6 +100,7 @@ export function isPersistedPriceSelection(value: unknown): value is ScanPriceShe
     && typeof selection.conditionCode === 'string'
     && typeof selection.conditionShortLabel === 'string'
     && (selection.marketPrice === null || typeof selection.marketPrice === 'number')
+    && (selection.grading === undefined || isPersistedScanRowGrading(selection.grading))
   );
 }
 

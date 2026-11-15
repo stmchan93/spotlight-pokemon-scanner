@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from catalog_tools import (
+    SEALED_SUPERTYPE,
     SUPPORTED_GAMES,
     _pick_graded_item,
     _table_columns,
@@ -90,6 +91,10 @@ EXPOSURE_OWNED_CARDS = 50
 EXPOSURE_CALLOUT_IMAGES = 2
 RETENTION_DAYS = 14
 RUN_SETTING_KEY = "meta_pulse_last_run"
+# Payload kinds: card-type groups (Vintage, SIRs…) or individual sets.
+KIND_GROUPS = "groups"
+KIND_SETS = "sets"
+KIND_FILTERS = (KIND_GROUPS, KIND_SETS)
 SQL_CHUNK = 900  # under SQLite's default variable limit
 
 
@@ -107,6 +112,8 @@ class CardInfo:
     rarity: str | None = None
     language: str | None = None
     release_date: str | None = None
+    set_id: str | None = None
+    supertype: str | None = None
 
 
 @dataclass(frozen=True)
@@ -413,6 +420,8 @@ class GroupResult:
     pairs: list[PricePair] = field(default_factory=list, repr=False)
     top_pairs: list[PricePair] = field(default_factory=list)
     spark_points: list[float] = field(default_factory=list)
+    # Sets only: the ranking score (basket change without its biggest mover).
+    sort_score: float | None = None
 
     @property
     def value_change_usd(self) -> float:
@@ -485,6 +494,129 @@ def aggregate_groups(
         )
     results.sort(key=lambda g: (g.game, -g.median_change_pct, g.group_key))
     return results, totals
+
+
+# --- set trends ---------------------------------------------------------------
+#
+# Market Watch's "top 3 sets up / down". A set is scored by its 10 most
+# valuable cards at the START of the window (PokeViews-style basket: the cards
+# people watch, fixed so a card can't buy its way in by rising). English main
+# sets only: promos, tokens, starter decks and boxed products are not "sets
+# people track", and Japanese sets are out for now (user call, 2026-11-10).
+
+SET_SEGMENT_KEY = "set"
+SET_BASKET_SIZE = 10
+SET_MIN_CARDS = 10
+SET_MIN_MOVED_IN_BASKET = 6
+# Share of the basket's moved cards that must agree with the set's direction.
+SET_BREADTH_SHARE = 0.6
+# Basket moves inside this band are flat, not a trend.
+SET_MIN_CHANGE_PCT = 3.0
+# The tap-through list: a $2 → $6 card is not a headline mover.
+SET_TAP_MIN_PRICE_USD = 5.0
+_NON_SET_NAME_RE = re.compile(
+    r"promo|token|release event|prerelease|championship|trainer kit|jumbo|oversize|starter|"
+    r"theme deck|tcg classic|pop series|rumble|mcdonald|trick or trade|burger king|\bdecks?\b",
+    re.I,
+)
+_NON_SET_TYPES = {"promo", "starter deck", "starter"}
+
+
+def set_is_trackable(set_name: Any, set_type: Any = None) -> bool:
+    name = str(set_name or "").strip()
+    if not name or _NON_SET_NAME_RE.search(name):
+        return False
+    return str(set_type or "").strip().lower() not in _NON_SET_TYPES
+
+
+def set_group_key(set_key: str) -> str:
+    # The group route rejects "/" in keys.
+    return f"{SET_SEGMENT_KEY}:{set_key.replace('/', '_')}:{LANE_RAW}"
+
+
+def aggregate_sets(
+    pairs: Iterable[PricePair],
+    cards: dict[str, CardInfo],
+    set_types: dict[str, str] | None = None,
+) -> list[GroupResult]:
+    """Rising and cooling sets that clear every gate (see the constants above).
+
+    ``median_change_pct`` holds the basket's % change (what the row shows);
+    ``sort_score`` is the same change with the basket's biggest $ mover
+    removed, so one chase card can't carry a set (Delta Species, 2026-11-08:
+    +49% basket, +4% without Groudon ☆)."""
+    by_set: dict[tuple[str, str], list[PricePair]] = {}
+    for pair in pairs:
+        if pair.lane != LANE_RAW:
+            continue
+        info = cards.get(pair.card_id)
+        if info is None or info.supertype == SEALED_SUPERTYPE or language_key(info.language) != "en":
+            continue
+        set_key = info.set_id or info.set_name
+        if not set_key or not set_is_trackable(info.set_name, (set_types or {}).get(info.set_id or "")):
+            continue
+        by_set.setdefault((pair.game, str(set_key)), []).append(pair)
+
+    out: list[GroupResult] = []
+    for (game, set_key), members in by_set.items():
+        if len(members) < SET_MIN_CARDS:
+            continue
+        basket = sorted(members, key=lambda p: (-p.price_then, p.card_id))[:SET_BASKET_SIZE]
+        moved = [p for p in basket if p.moved]
+        if len(moved) < SET_MIN_MOVED_IN_BASKET:
+            continue
+        value_then = sum(p.price_then for p in basket)
+        value_now = sum(p.price_now for p in basket)
+        change = (value_now - value_then) / value_then * 100.0
+        if abs(change) < SET_MIN_CHANGE_PCT:
+            continue
+        rising = change > 0
+        agree = sum(1 for p in moved if (p.delta > 0) == rising)
+        if agree < SET_BREADTH_SHARE * len(moved):
+            continue
+        biggest = max(basket, key=lambda p: (abs(p.delta), p.card_id))
+        rest_then = value_then - biggest.price_then
+        rest_now = value_now - biggest.price_now
+        if rest_then <= 0:
+            continue
+        score = (rest_now - rest_then) / rest_then * 100.0
+        if score == 0 or (score > 0) != rising:
+            continue
+        movers = [
+            p for p in members
+            if p.moved and p.price_now >= SET_TAP_MIN_PRICE_USD and (p.delta > 0) == rising
+        ]
+        movers.sort(key=lambda p: (-abs(p.change_pct), p.card_id))
+        label = cards[basket[0].card_id].set_name or set_key
+        out.append(
+            GroupResult(
+                game=game, lane=LANE_RAW, group_key=set_group_key(set_key), segment_key=SET_SEGMENT_KEY,
+                label=label,
+                description=(
+                    f"{agree} of top {len(basket)} cards {'up' if rising else 'down'} · {len(members):,} cards"
+                ),
+                median_change_pct=change, value_now=value_now, value_then=value_then,
+                card_count=len(members), moved_card_count=len(moved),
+                pairs=basket, top_pairs=movers[:TOP_CARDS], sort_score=score,
+            )
+        )
+    out.sort(key=lambda g: (g.game, -(g.sort_score or 0.0), g.group_key))
+    return out
+
+
+def _set_types(connection: sqlite3.Connection) -> dict[str, str]:
+    """{set_id: Scrydex set type} where the payload names one ("Promo", "Starter Deck"…)."""
+    if not _table_exists(connection, "expansions") or "source_payload_json" not in _table_columns(connection, "expansions"):
+        return {}
+    out: dict[str, str] = {}
+    for set_id, payload in connection.execute("SELECT id, source_payload_json FROM expansions"):
+        try:
+            kind = (json.loads(payload or "{}") or {}).get("type")
+        except (TypeError, ValueError):
+            continue
+        if kind:
+            out[str(set_id)] = str(kind)
+    return out
 
 
 def downsample_indices(count: int, target: int = SPARK_POINTS) -> list[int]:
@@ -573,7 +705,7 @@ def _load_cards(connection: sqlite3.Connection, games: tuple[str, ...]) -> dict[
     game_col = "c.game" if has_game else "'pokemon'"
     sql = (
         f"SELECT c.id, {game_col}, c.name, c.number, c.set_name, c.image_small_url, c.rarity, "
-        "c.language, COALESCE(NULLIF(c.set_release_date, ''), e.release_date) "
+        "c.language, COALESCE(NULLIF(c.set_release_date, ''), e.release_date), c.set_id, c.supertype "
         "FROM cards c LEFT JOIN expansions e ON e.id = c.set_id"
     )
     params: tuple[Any, ...] = ()
@@ -588,6 +720,7 @@ def _load_cards(connection: sqlite3.Connection, games: tuple[str, ...]) -> dict[
         out[str(row[0])] = CardInfo(
             card_id=str(row[0]), game=game, name=str(row[2] or ""), number=row[3], set_name=row[4],
             image_url=row[5], rarity=row[6], language=row[7], release_date=row[8],
+            set_id=row[9], supertype=row[10],
         )
     return out
 
@@ -776,6 +909,8 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
         """
     )
     connection.execute("CREATE INDEX IF NOT EXISTS idx_meta_pulse_runs_as_of ON meta_pulse_runs (as_of_date)")
+    if "sort_score" not in _table_columns(connection, "meta_pulse_groups"):
+        connection.execute("ALTER TABLE meta_pulse_groups ADD COLUMN sort_score REAL")
 
 
 # --- compute ------------------------------------------------------------------
@@ -826,6 +961,7 @@ def compute_meta_pulse(
     has_main = "main_raw_market_price" in history_columns
     has_main_variant = "main_raw_variant" in history_columns
     has_cells = _table_exists(connection, "card_price_history_cell")
+    set_types = _set_types(connection)
 
     raw_now: dict = {}
     if has_main:
@@ -868,6 +1004,7 @@ def compute_meta_pulse(
         groups, totals = aggregate_groups(
             pairs, tags, min_group_cards=min_group_cards, min_moved_cards=min_moved_cards
         )
+        groups.extend(aggregate_sets(pairs, cards, set_types))
         per_window[window] = (groups, totals)
         if groups:
             dates = spark_dates(then_end, ref_date)
@@ -935,17 +1072,19 @@ def _write_results(
         for group in groups:
             if group.game not in games:
                 continue
-            group_counts[(group.game, group.lane)] = group_counts.get((group.game, group.lane), 0) + 1
+            if group.segment_key != SET_SEGMENT_KEY:
+                group_counts[(group.game, group.lane)] = group_counts.get((group.game, group.lane), 0) + 1
             connection.execute(
                 "INSERT INTO meta_pulse_groups (game, as_of_date, window_days, lane, group_key, segment_key, "
                 "label, description, median_change_percent, value_now, value_then, value_change_usd, "
-                "card_count, moved_card_count, spark_points_json, computed_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "card_count, moved_card_count, spark_points_json, computed_at, sort_score) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     group.game, as_of, window, group.lane, group.group_key, group.segment_key,
                     group.label, group.description, round(group.median_change_pct, 2),
                     round(group.value_now, 2), round(group.value_then, 2), round(group.value_change_usd, 2),
                     group.card_count, group.moved_card_count, json.dumps(group.spark_points), computed_at,
+                    None if group.sort_score is None else round(group.sort_score, 2),
                 ),
             )
             for rank, pair in enumerate(group.top_pairs, start=1):
@@ -1093,8 +1232,11 @@ def _load_group_dicts(
     lane: str = "all",
     group_key: str | None = None,
     top_cards_limit: int | None = FEED_TOP_CARDS,
+    kind: str | None = KIND_GROUPS,
 ) -> list[dict[str, Any]]:
-    """Payload-shaped ``MetaGroup`` dicts for one run (topCards in stored $ rank)."""
+    """Payload-shaped ``MetaGroup`` dicts for one run (topCards in stored $ rank).
+    ``kind`` None = both kinds (a group key already names one). Sets come back
+    in ranking order (``sort_score``); card groups unordered."""
     where = "game = ? AND as_of_date = ? AND window_days = ?"
     params: list[Any] = [game, as_of, window_days]
     if lane != "all":
@@ -1103,10 +1245,15 @@ def _load_group_dicts(
     if group_key is not None:
         where += " AND group_key = ?"
         params.append(group_key)
+    group_where = where
+    if kind == KIND_SETS:
+        group_where += f" AND segment_key = '{SET_SEGMENT_KEY}'"
+    elif kind == KIND_GROUPS:
+        group_where += f" AND segment_key != '{SET_SEGMENT_KEY}'"
     group_rows = connection.execute(
         "SELECT lane, group_key, label, description, median_change_percent, value_now, value_then, "
         "value_change_usd, card_count, moved_card_count, spark_points_json "
-        f"FROM meta_pulse_groups WHERE {where}",
+        f"FROM meta_pulse_groups WHERE {group_where} ORDER BY COALESCE(sort_score, 0) DESC, group_key",
         tuple(params),
     ).fetchall()
     if not group_rows:
@@ -1156,6 +1303,7 @@ def build_meta_pulse_payload(
     lane: str = "all",
     max_groups_per_direction: int | None = 10,
     top_cards_limit: int | None = FEED_TOP_CARDS,
+    kind: str = KIND_GROUPS,
 ) -> dict[str, Any]:
     """``MetaPulse`` for one (game, window, lane) from the precomputed tables.
 
@@ -1167,7 +1315,11 @@ def build_meta_pulse_payload(
         ensure_schema(connection)
     game = normalize_game(game)
     lane = lane if lane in LANE_FILTERS else "all"
+    kind = kind if kind in KIND_FILTERS else KIND_GROUPS
     window_days = int(window_days)
+    if kind == KIND_SETS and max_groups_per_direction is not None:
+        # Market Watch shows a top 3; the backend picks them by sort_score.
+        max_groups_per_direction = min(max_groups_per_direction, 3)
 
     rows = connection.execute(
         "SELECT DISTINCT game FROM meta_pulse_runs WHERE paired_card_count >= ?", (MIN_GROUP_CARDS,)
@@ -1204,9 +1356,10 @@ def build_meta_pulse_payload(
     if as_of:
         groups = _load_group_dicts(
             connection, game=game, as_of=as_of, window_days=window_days, lane=lane,
-            top_cards_limit=top_cards_limit,
+            top_cards_limit=top_cards_limit, kind=kind,
         )
-        groups.sort(key=lambda g: (-g["medianChangePercent"], g["groupKey"]))
+        if kind != KIND_SETS:
+            groups.sort(key=lambda g: (-g["medianChangePercent"], g["groupKey"]))
 
     summary = {
         "rawValueChangePercent": raw_pct,
@@ -1261,7 +1414,7 @@ def build_meta_group_detail_payload(
         return None
     groups = _load_group_dicts(
         connection, game=game, as_of=as_of, window_days=window_days, group_key=group_key,
-        top_cards_limit=TOP_CARDS,
+        top_cards_limit=TOP_CARDS, kind=None,
     )
     if not groups:
         return None
@@ -1513,8 +1666,8 @@ def build_meta_exposure_payload(
         str(r[1]): (str(r[2]), str(r[3]), float(r[4]))
         for r in connection.execute(
             "SELECT lane, group_key, label, segment_key, median_change_percent FROM meta_pulse_groups "
-            "WHERE game = ? AND as_of_date = ? AND window_days = ?",
-            (game, as_of, window_days),
+            "WHERE game = ? AND as_of_date = ? AND window_days = ? AND segment_key != ?",
+            (game, as_of, window_days, SET_SEGMENT_KEY),
         ).fetchall()
     }
     if not run_groups:

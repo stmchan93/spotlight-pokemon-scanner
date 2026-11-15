@@ -15,11 +15,14 @@ export type PageTabsProps<V extends string> = {
   tabs: ReadonlyArray<PageTab<V>>;
   value: V;
   onChange: (value: V) => void;
-  /** `start` = left-aligned tabs on the page gutter (Figma Events 5476:7154). */
-  align?: 'center' | 'start';
+  /**
+   * `start` = left-aligned tabs on the page gutter (Figma Events 5476:7154).
+   * `gutter` = the same with 16 inset, 16 between tabs and 12 per tab (Figma Social 6322:8030).
+   */
+  align?: 'center' | 'start' | 'gutter';
   /**
    * `compact` = the Figma "Collection Tabs" rail (5862:6907): Label 14 (same
-   * metrics as Body-medium) boxed by 16pt side padding, 6pt word-to-underline,
+   * metrics as Body-medium) boxed by 12pt side padding, 6pt word-to-underline,
    * inactive gray-500, on a gray-100 hairline. Always left-aligned; pass
    * `scrollable` when the set can outgrow the screen.
    */
@@ -58,7 +61,11 @@ export function PageTabs<V extends string>({
     <View
       style={[
         styles.container,
-        compact ? styles.containerCompact : align === 'start' && styles.containerStart,
+        compact
+          ? styles.containerCompact
+          : align === 'start'
+            ? styles.containerStart
+            : align === 'gutter' && styles.containerGutter,
       ]}
     >
       {tabs.map((tab) => {
@@ -71,6 +78,7 @@ export function PageTabs<V extends string>({
             onPress={() => onChange(tab.value)}
             style={({ pressed }) => [
               compact ? styles.tabCompact : styles.tab,
+              !compact && align === 'gutter' ? styles.tabGutter : null,
               { opacity: pressed ? 0.7 : 1 },
             ]}
             testID={testID ? `${testID}-tab-${tab.value}` : undefined}
@@ -167,6 +175,14 @@ const TAB_HORIZONTAL_PADDING = 12;
 const UNDERLINE_OVERHANG = 12;
 
 const styles = StyleSheet.create({
+  containerGutter: {
+    gap: spacing.sm,
+    justifyContent: 'flex-start',
+    paddingHorizontal: spacing.sm,
+  },
+  tabGutter: {
+    paddingHorizontal: spacing.xs,
+  },
   root: {
     width: '100%',
   },
@@ -201,7 +217,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   // Figma 5862:6907: the rail is inset by the page gutter and each tab box
-  // carries its own 16 per side, so boxes sit flush (no gap).
+  // carries its own 12 per side, so boxes sit flush (no gap).
   containerCompact: {
     justifyContent: 'flex-start',
     gap: 0,
@@ -220,7 +236,7 @@ const styles = StyleSheet.create({
   tabCompact: {
     alignItems: 'center',
     justifyContent: 'flex-end',
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.xs,
   },
   // Type is the token's own Body-medium / Body 14 on an 18 line box (Figma
   // 4067:26938: 18pt text box, underline at y26) — the old +1 size bump and

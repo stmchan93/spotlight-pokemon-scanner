@@ -1,17 +1,21 @@
 import {
   MockSpotlightRepository,
   buildWatchKey,
+  type CardConditionHistory,
   type CardDetailRecord,
   type CardFavoriteEntry,
   type CardGame,
   type CardPriceTrendList,
   type CardPriceTrendMode,
   type CardPriceTrendRow,
+  type CardRecentSalesQuery,
+  type CardRecentSalesRecord,
   type CatalogSearchResult,
   type ExpansionRecord,
   type PortfolioPerformance,
   type PortfolioPerformanceRow,
   type RawPricingMatrix,
+  type SimilarCards,
   type SpotlightRepository,
   type TopMovers,
 } from '@spotlight/api-client';
@@ -331,6 +335,65 @@ const devGradedDetail: CardDetailRecord = {
   },
 };
 
+// PDP price chart: the mock's market history is a handful of April points,
+// which leaves every range empty. Serve a year of daily cells ending today
+// (stair-stepped to each condition's current price) and graded comps: PSA 10
+// has a run of sales, PSA 9 only two (the grey "not enough" state).
+const DEV_DAY_MS = 86_400_000;
+
+function devIsoDaysAgo(days: number): string {
+  const date = new Date(Date.now() - days * DEV_DAY_MS);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function devConditionHistory(
+  cardId: string,
+  variantKey: string,
+  conditions: readonly (readonly [code: string, price: number])[],
+): CardConditionHistory {
+  return {
+    cardId,
+    lane: 'raw',
+    currencyCode: 'USD',
+    series: conditions.map(([code, price]) => {
+      const values = stairStepSeries(price, `${cardId}-${code}-history`, 365);
+      return {
+        key: `${variantKey}|${code}`,
+        label: code,
+        variantKey,
+        condition: code,
+        grader: null,
+        grade: null,
+        points: values.map((market, index) => ({
+          date: devIsoDaysAgo(values.length - 1 - index),
+          market,
+          low: null,
+          mid: null,
+          high: null,
+        })),
+      };
+    }),
+  };
+}
+
+function devGradedSales(query: CardRecentSalesQuery): CardRecentSalesRecord | null {
+  const grade = query.slabContext?.grade;
+  const price = devGradedLadder.find(([candidate]) => candidate === grade)?.[1];
+  if (price == null) {
+    return null;
+  }
+  const count = grade === '10' ? 16 : 2;
+  const values = stairStepSeries(price, `base1-4-sales-${grade}`, count);
+  const sales = values.map((amount, index) => ({
+    id: `dev-sale-${grade}-${index}`,
+    title: `Charizard Base Set PSA ${grade}`,
+    soldAt: devIsoDaysAgo(Math.round(((count - 1 - index) * 80) / count) + 1),
+    priceAmount: amount,
+    currencyCode: 'USD',
+  })).reverse();
+  return { source: 'ebay', status: 'available', canRefresh: false, saleCount: sales.length, sales };
+}
+
 // Insights overrides: the mock's derived rows are all raw/NM with empty
 // sparklines — these cover the graded, variant, long-name, up/down shapes.
 // entry-5 stays untouched as the null-history "—" row.
@@ -643,6 +706,32 @@ function rewriteImageUrls<T>(value: T): T {
   return value;
 }
 
+// PDP "Similar cards" rail (Figma 6322:9011): enough tiles to overflow the screen.
+function devSimilarCards(cardId: string): SimilarCards {
+  const tile = (id: string, name: string, setName: string, number: string, imageUrl: string, priceNow: number) => ({
+    cardId: id,
+    name,
+    setName,
+    number,
+    language: 'English',
+    imageUrl,
+    priceNow,
+    currencyCode: 'USD',
+  });
+  return {
+    cardId,
+    baseName: null,
+    goesWith: null,
+    sameName: [
+      tile('sm7-1', 'Treecko', 'Celestial Storm', '1/168', 'https://images.pokemontcg.io/sm7/1.png', 700.5),
+      tile('xyp-111', 'Mewtwo', 'XY Promos', 'XY111', 'https://images.pokemontcg.io/xyp/XY111.png', 42),
+      tile('mcdonalds25-21', 'Pikachu', "McDonald's 2021", '21/25', 'https://images.pokemontcg.io/mcdonalds25/21.png', 12.75),
+      tile('sm7-1b', 'Treecko', 'Celestial Storm', '1/168', 'https://images.pokemontcg.io/sm7/1.png', 700.5),
+    ],
+    sameLookCheaper: [],
+  };
+}
+
 function withLocalImages(
   repository: SpotlightRepository,
   rawPricingMatrices: Readonly<Record<string, RawPricingMatrix>> = {},
@@ -654,6 +743,9 @@ function withLocalImages(
       // numbers anyway (see devTopMovers).
       if (property === 'getTopMovers') {
         return async () => rewriteImageUrls(devTopMovers);
+      }
+      if (property === 'fetchSimilarCards') {
+        return async (cardId: string) => rewriteImageUrls(devSimilarCards(cardId));
       }
       if (property === 'listExpansions') {
         return async (game?: CardGame) => rewriteImageUrls(devExpansionsByGame[game ?? 'pokemon'] ?? []);
@@ -728,6 +820,14 @@ function withLocalImages(
         if (gradedQuery && property === 'getCardDetail') {
           return Promise.resolve(rewriteImageUrls(devGradedDetail));
         }
+        if (gradedQuery && property === 'getCardConditionHistory') {
+          return Promise.resolve((args[0] as { lane?: string }).lane === 'graded'
+            ? { cardId: DEV_GRADED_CARD_ID, lane: 'graded', currencyCode: 'USD', series: [] }
+            : devConditionHistory(DEV_GRADED_CARD_ID, 'holofoil', devGradedRawLadder.map(([code, , price]) => [code, price] as const)));
+        }
+        if (gradedQuery && property === 'getCardRecentSales') {
+          return Promise.resolve(devGradedSales(args[0] as CardRecentSalesQuery));
+        }
         if (gradedQuery && property === 'getCardPriceTrends') {
           const mode = (args[0] as { mode?: CardPriceTrendMode }).mode === 'graded' ? 'graded' : 'raw';
           return Promise.resolve(devGradedPriceTrends(mode));
@@ -739,6 +839,34 @@ function withLocalImages(
           if (matrix) {
             return Promise.resolve(matrix);
           }
+        }
+        // …and a graded ladder for the tray's grader dropdown, scaled off NM.
+        if (property === 'getCardPriceTrends') {
+          const query = args[0] as { cardId?: string; grader?: string | null; mode?: string };
+          const matrix = query.cardId ? rawPricingMatrices[query.cardId] : undefined;
+          const nm = matrix?.variants[0]?.conditions.find((condition) => condition.code === 'NM')?.market;
+          if (query.mode === 'graded' && query.grader && nm != null) {
+            const grader = query.grader.toUpperCase();
+            const rows = [[10, 6], [9.5, 3.5], [9, 2.2], [8.5, 1.7], [8, 1.4], [7, 1.15]].map(([grade, multiple]) => ({
+              label: `${grader} ${grade}`,
+              key: `${grader} ${grade}`,
+              currentPrice: Math.round(nm * multiple * 100) / 100,
+              currencyCode: 'USD',
+              points: [],
+              trendPct: null,
+            }));
+            return Promise.resolve({ mode: 'graded', provider: 'ebay', rows });
+          }
+        }
+        // Catalog cards: a year of cells ending today at each condition's price.
+        if (property === 'getCardConditionHistory' && (args[0] as { lane?: string }).lane !== 'graded') {
+          const cardId = String((args[0] as { cardId: unknown }).cardId);
+          return target.getCardDetail({ cardId }).then((detail) => {
+            const conditions = (detail?.marketHistory?.availableConditions ?? [])
+              .filter((option) => option.currentPrice != null)
+              .map((option) => [option.id, option.currentPrice as number] as const);
+            return conditions.length > 0 ? devConditionHistory(cardId, 'normal', conditions) : null;
+          });
         }
         const result = original.apply(target, args);
         if (result instanceof Promise) {
