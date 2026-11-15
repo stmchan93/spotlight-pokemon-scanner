@@ -1,11 +1,11 @@
-import { Calendar, Eye, HomeSimple, ProfileCircle } from 'iconoir-react-native';
+import { ProfileCircle } from 'iconoir-react-native';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View, type ImageSourcePropType } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
 import { Text, colors, layout, radii, spacing, textStyles } from '@spotlight/design-system';
 
-import { useCircularTabAvatar } from '@/components/circular-tab-avatar';
+import { TAB_ICON_POINTS, useCircularTabAvatar } from '@/components/circular-tab-avatar';
 import { useAuth } from '@/providers/auth-provider';
 
 /**
@@ -23,7 +23,10 @@ import { useAuth } from '@/providers/auth-provider';
 
 export type ScannerTabName = 'index' | 'wishlist' | 'scan' | 'events' | 'social';
 
-const AVATAR_SIZE = 20;
+// Same sizes as the native tab bar on every other tab: its icon PNGs are 24pt
+// and the avatar raster is TAB_ICON_POINTS (28pt).
+const ICON_SIZE = 24;
+const AVATAR_SIZE = TAB_ICON_POINTS;
 // Figma tab cell: column, gap 1, padding 6/7 vertical — not on the spacing scale.
 const TAB_PADDING_TOP = 6;
 const TAB_PADDING_BOTTOM = 7;
@@ -34,18 +37,23 @@ export function getScannerTabBarHeight(bottomInset: number): number {
   return spacing.xxs + layout.tabBarRowHeight + Math.max(layout.tabBarMinBottomPadding, bottomInset);
 }
 
-/** SF Symbols `viewfinder`: four corner brackets in a 20pt box. */
+/** SF Symbols `viewfinder`: four corner brackets, drawn in the 24pt icon box. */
 function ViewfinderGlyph({ color }: { color: string }) {
   return (
-    <Svg fill="none" height={20} viewBox="0 0 20 20" width={20}>
+    <Svg fill="none" height={ICON_SIZE} viewBox="0 0 20 20" width={ICON_SIZE}>
       <Path
         d="M1 6.5V4a3 3 0 0 1 3-3h2.5M13.5 1H16a3 3 0 0 1 3 3v2.5M19 13.5V16a3 3 0 0 1-3 3h-2.5M6.5 19H4a3 3 0 0 1-3-3v-2.5"
         stroke={color}
         strokeLinecap="round"
-        strokeWidth={1.6}
+        strokeWidth={1.4}
       />
     </Svg>
   );
+}
+
+/** The native bar's own icon artwork, tinted white for the black bar. */
+function TabIcon({ source }: { source: ImageSourcePropType }) {
+  return <Image source={source} style={styles.icon} />;
 }
 
 function SocialAvatar() {
@@ -60,7 +68,7 @@ function SocialAvatar() {
   const [failedURL, setFailedURL] = useState<string | null>(null);
   useEffect(() => setFailedURL(null), [avatarURL]);
   if (!avatar || (avatarURL !== null && failedURL === avatarURL)) {
-    return <ProfileCircle color={colors.gray0} height={AVATAR_SIZE} strokeWidth={1.6} width={AVATAR_SIZE} />;
+    return <ProfileCircle color={colors.gray0} height={ICON_SIZE} strokeWidth={1.6} width={ICON_SIZE} />;
   }
   return (
     <View style={styles.avatarClip} testID="scanner-tab-bar-avatar">
@@ -82,10 +90,10 @@ export function ScannerTabBar({
 }) {
   const iconColor = colors.gray0;
   const tabs: TabSpec[] = [
-    { icon: <HomeSimple color={iconColor} height={24} strokeWidth={1.6} width={24} />, label: 'HOME', name: 'index' },
-    { icon: <Eye color={iconColor} height={18} strokeWidth={1.6} width={18} />, label: 'WATCHLIST', name: 'wishlist' },
+    { icon: <TabIcon source={require('../../../../assets/images/tab-icons/home.png')} />, label: 'HOME', name: 'index' },
+    { icon: <TabIcon source={require('../../../../assets/images/tab-icons/wishlist.png')} />, label: 'WATCHLIST', name: 'wishlist' },
     { icon: <ViewfinderGlyph color={iconColor} />, label: 'SCAN', name: 'scan' },
-    { icon: <Calendar color={iconColor} height={20} strokeWidth={1.6} width={19} />, label: 'EVENTS', name: 'events' },
+    { icon: <TabIcon source={require('../../../../assets/images/tab-icons/events.png')} />, label: 'EVENTS', name: 'events' },
     { icon: <SocialAvatar />, label: 'SOCIAL', name: 'social' },
   ];
 
@@ -163,6 +171,11 @@ const styles = StyleSheet.create({
   },
   labelSelected: {
     color: colors.gray0,
+  },
+  icon: {
+    height: ICON_SIZE,
+    tintColor: colors.gray0,
+    width: ICON_SIZE,
   },
   avatarClip: {
     // Backing + ring so a transparent or dark photo still reads on the black bar.

@@ -57,7 +57,7 @@ import { useAuth } from '@/providers/auth-provider';
  * `scale: 1` would render as an 84pt icon and swamp the bar. Tagged `scale: 3`
  * it is 28pt of @3x artwork, which is what a tab item wants.
  */
-const TAB_ICON_POINTS = 28;
+export const TAB_ICON_POINTS = 28;
 const RASTER_SCALE = 3;
 const RASTER_PX = TAB_ICON_POINTS * RASTER_SCALE;
 
