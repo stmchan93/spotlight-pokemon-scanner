@@ -2082,9 +2082,9 @@
     },
     "0.1.5": {
       "android": {
-        "gitCommit": "e369b7e596e8f452bac04c448a6fe9cb8f30f320",
-        "hash": "8ccc047e48cff8f7c9b0851e67e73bdb8de3ed11",
-        "recordedAt": "2026-10-19T19:30:40+00:00",
+        "gitCommit": "bb022ea31295649d67cbc73024fd9527e6a3020c",
+        "hash": "db343862b41cc12aaa89e34720915a7cc44f46eb",
+        "recordedAt": "2026-11-15T18:28:19+00:00",
         "sources": {
           "contents:expoAutolinkingConfig:android": "a578b24da441b3e790ceebe585d46bd73c218e9d",
           "contents:expoConfig": "2da1feb50f14a224f852ac4ff8d0ac441de5a41c",
@@ -2311,15 +2311,15 @@
           "file:assets/images/icon.png": "1fbc909945fd4a2dab484a32c065f0a3b00accb0",
           "file:assets/images/splash-icon-android.png": "79c4b982e657ed727e20b4a1696def2dafd1d8b0",
           "file:assets/images/splash-icon.png": "4cc803f1fb13cc395f2f42dea1321783470fe9d3",
-          "file:eas.json": "74591fd4fc156c2d5c6fd1f83d0d08a19eb9b866",
+          "file:eas.json": "93532f4134b6df4075ff771174646846ddd17c56",
           "file:targets/notification-service/expo-target.config.js": "3a703cd594ad920d7f5b553acbfd5f6ea64b7d5a"
         },
-        "via": "build"
+        "via": "ota-api-domain-verified-eas-json-url-only"
       },
       "ios": {
-        "gitCommit": "870365f51379be0b3231700e4c1ccdbb56cb4be0",
-        "hash": "94dae201cc6d5e164d800718568c129ad73aade1",
-        "recordedAt": "2026-10-09T05:22:55+00:00",
+        "gitCommit": "bb022ea31295649d67cbc73024fd9527e6a3020c",
+        "hash": "95913b137b34f9efa215a1d86c11564cb079f754",
+        "recordedAt": "2026-11-15T18:28:16+00:00",
         "sources": {
           "contents:expoAutolinkingConfig:ios": "820115269e76930df21b312f50d5602932227111",
           "contents:expoConfig": "2da1feb50f14a224f852ac4ff8d0ac441de5a41c",
@@ -2544,9 +2544,9 @@
           "file:.easignore": "45db149273d05e2a38f98674673b7ed3b672f128",
           "file:assets/images/icon.png": "1fbc909945fd4a2dab484a32c065f0a3b00accb0",
           "file:assets/images/splash-icon.png": "4cc803f1fb13cc395f2f42dea1321783470fe9d3",
-          "file:eas.json": "74591fd4fc156c2d5c6fd1f83d0d08a19eb9b866"
+          "file:eas.json": "93532f4134b6df4075ff771174646846ddd17c56"
         },
-        "via": "build"
+        "via": "ota-api-domain-verified-eas-json-url-only"
       }
     }
   }
