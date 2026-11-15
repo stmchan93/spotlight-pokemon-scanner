@@ -72,6 +72,7 @@ import {
   Text,
   colors,
   radii,
+  shadows,
   spacing,
   textStyles,
   useSpotlightTheme,
@@ -4963,7 +4964,7 @@ export function ScannerScreen({
                     hitSlop={6}
                     key={factor}
                     onPress={gate(() => setZoomFactor(factor))}
-                    style={styles.zoomPill}
+                    style={[styles.zoomPill, selected ? styles.zoomPillSelected : null]}
                     testID={`scanner-zoom-${factor}x`}
                   >
                     {/*
@@ -4985,13 +4986,13 @@ export function ScannerScreen({
                         testID={`scanner-zoom-${factor}x-surface`}
                       >
                         <Text style={styles.zoomPillLabel}>
-                          {`${factor}x`}
+                          {`${factor}×`}
                         </Text>
                       </GlassSurface>
                     ) : (
                       <View style={styles.zoomPillSurface}>
                         <Text style={[styles.zoomPillLabel, styles.zoomPillLabelBare]}>
-                          {`${factor}x`}
+                          {`${factor}×`}
                         </Text>
                       </View>
                     )}
@@ -5607,6 +5608,11 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     borderRadius: 999,
     justifyContent: 'center',
+  },
+  // Selected chip lift (Figma 6340:9764: drop shadow 0/8, blur 40 @ 15%). On
+  // the Pressable, not the glass, because the glass clips with overflow hidden.
+  zoomPillSelected: {
+    ...shadows.glassPill,
   },
   // The glass fills the whole 36pt circle, so the material clips the label
   // rather than sitting behind it.
