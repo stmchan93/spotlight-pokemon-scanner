@@ -10,6 +10,8 @@ import {
 import { StyleSheet, View, type ImageSourcePropType } from 'react-native';
 import Svg, { Circle, ClipPath, Defs, Image as SvgImage } from 'react-native-svg';
 
+import { colors } from '@spotlight/design-system';
+
 import { useAuth } from '@/providers/auth-provider';
 
 /**
@@ -127,6 +129,8 @@ export function CircularTabAvatarProvider({ children }: { children: ReactNode })
                 <Circle cx={RASTER_PX / 2} cy={RASTER_PX / 2} r={RASTER_PX / 2} />
               </ClipPath>
             </Defs>
+            {/* Backing disc: a transparent photo otherwise rasterises to an invisible icon. */}
+            <Circle cx={RASTER_PX / 2} cy={RASTER_PX / 2} fill={colors.gray200} r={RASTER_PX / 2} />
             <SvgImage
               clipPath={`url(#${CLIP_ID})`}
               height={RASTER_PX}

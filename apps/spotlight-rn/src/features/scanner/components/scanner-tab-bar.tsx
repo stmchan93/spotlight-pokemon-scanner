@@ -1,5 +1,5 @@
 import { Calendar, Eye, HomeSimple, ProfileCircle } from 'iconoir-react-native';
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
@@ -56,12 +56,15 @@ function SocialAvatar() {
   const avatarURL = currentUser?.avatarURL ?? null;
   const raster = useCircularTabAvatar();
   const avatar = avatarURL ? { uri: avatarURL } : raster;
-  if (!avatar) {
+  // A photo that fails to load drew an empty circle, i.e. no Social icon.
+  const [failedURL, setFailedURL] = useState<string | null>(null);
+  useEffect(() => setFailedURL(null), [avatarURL]);
+  if (!avatar || (avatarURL !== null && failedURL === avatarURL)) {
     return <ProfileCircle color={colors.gray0} height={AVATAR_SIZE} strokeWidth={1.6} width={AVATAR_SIZE} />;
   }
   return (
     <View style={styles.avatarClip} testID="scanner-tab-bar-avatar">
-      <Image source={avatar} style={styles.avatarImage} />
+      <Image onError={() => setFailedURL(avatarURL)} source={avatar} style={styles.avatarImage} />
     </View>
   );
 }
@@ -162,7 +165,11 @@ const styles = StyleSheet.create({
     color: colors.gray0,
   },
   avatarClip: {
+    // Backing + ring so a transparent or dark photo still reads on the black bar.
+    backgroundColor: colors.gray200,
+    borderColor: colors.gray0,
     borderCurve: 'continuous',
+    borderWidth: 1,
     borderRadius: AVATAR_SIZE / 2,
     height: AVATAR_SIZE,
     overflow: 'hidden',

@@ -69,6 +69,7 @@ import {
 } from '@/lib/observability/analytics-events';
 import { getCardImageUrl } from '@/lib/card-images';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
+import { LAST_CARD_TO_TAB_BAR_GAP, useFloatingAffordanceBottom } from '@/lib/tab-bar-insets';
 import {
   SINCE_WATCHED_SUFFIX,
   WATCHLIST_TREND_ACCESS,
@@ -267,15 +268,12 @@ export function WishlistScreen() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const scrollRef = useRef<FlatList<WishlistRow>>(null);
 
-  // No manual bottom-nav clearance any more. Wishlist is a real tab now, and a
-  // native tab screen is rendered INSIDE a container UIKit has already inset by
-  // the tab bar (see `(tabs)/_layout.tsx` and docs/native-tabs-adoption-2026-08-07.md
-  // — the same automatic content insets that shrank the scanner reticle). The old
-  // `bottomNavHeight + bottomNavBottomInset + insets.bottom` padding cleared the
-  // JS `AppBottomTabBar` this screen used to draw itself; keeping it on top of
-  // UIKit's inset would just leave ~100px of dead space under the last row. All
-  // that's left is the list's own breathing room.
-  const listBottomPadding = 16;
+  // The list is not inset by UIKit (see `LIST_REST_OFFSET`), so it runs under
+  // the tab bar: clear the bar, then rest the last card 16pt above it. The
+  // grid's own 4pt closing band counts toward the 16.
+  const listBottomPadding = useFloatingAffordanceBottom(
+    LAST_CARD_TO_TAB_BAR_GAP - (viewMode === 'grid' ? cardGrid.gap : 0),
+  );
 
   const {
     alerts: dealAlerts,
@@ -981,7 +979,6 @@ export function WishlistScreen() {
           data={listData}
           keyExtractor={(item) => item.key}
           ListEmptyComponent={listEmpty}
-          ListFooterComponent={listData.length > 0 ? <View style={styles.footerSpacer} /> : null}
           ListHeaderComponent={listHeader}
           onLayout={handleLayout}
           onScroll={handleScroll}
@@ -1478,9 +1475,6 @@ const styles = StyleSheet.create({
   // rhythm: search → 16 → chips → 16 → grid/list). The old 32px doubled up the
   // removed listContainer marginTop with the list's own paddingTop.
   listTopSpacer: {
-    height: 16,
-  },
-  footerSpacer: {
     height: 16,
   },
   errorCard: {

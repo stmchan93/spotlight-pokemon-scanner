@@ -80,6 +80,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
  */
 export const floatingAffordanceGap = 28;
 
+/** Gap between the last card of a tab's list and the tab bar, at full scroll. */
+export const LAST_CARD_TO_TAB_BAR_GAP = 16;
+
 /**
  * Height of the white fade a tab screen draws over its content at the bottom
  * edge, so scrolling content dissolves under the bar (Figma 4407:283 feed,

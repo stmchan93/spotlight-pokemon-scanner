@@ -47,6 +47,7 @@ import {
   Toast,
   useSpotlightTheme,
   radii,
+  cardGrid,
 } from '@spotlight/design-system';
 
 import {
@@ -95,7 +96,11 @@ import {
 import { FocusedStatusBar } from '@/components/focused-status-bar';
 import { EkalightMark } from '@/components/ekalight-mark';
 import { ScanTabIcon } from '@/components/nav-tab-icons';
-import { tabBarBottomFadeHeight, useFloatingAffordanceBottom } from '@/lib/tab-bar-insets';
+import {
+  LAST_CARD_TO_TAB_BAR_GAP,
+  tabBarBottomFadeHeight,
+  useFloatingAffordanceBottom,
+} from '@/lib/tab-bar-insets';
 import { usePortfolioScreenModel } from '@/features/portfolio/hooks/use-portfolio-screen-model';
 import { usePortfolioViewMode } from '@/features/portfolio/hooks/use-portfolio-view-mode';
 import { usePortfolioSummaryVisibility } from '@/features/portfolio/use-portfolio-summary-visibility';
@@ -558,15 +563,11 @@ export function PortfolioScreen({
   // row into view and drop the keyboard open on it.
   const searchInputRef = useRef<TextInput>(null);
 
-  // LIST PADDING ONLY — how far the scrollers close above the bottom of the
-  // page. Still sized off the retired JS nav pill's tokens; it is generous
-  // rather than wrong, and re-deriving a scroller's own bottom inset is a
-  // separate change from placing FLOATING chrome. Anything that floats uses
-  // `useFloatingAffordanceBottom` (see `@/lib/tab-bar-insets`).
-  const bottomNavClearance =
-    theme.layout.bottomNavHeight
-    + theme.layout.bottomNavBottomInset
-    + Math.max(insets.bottom - 8, 0);
+  // LIST PADDING: the last card rests 16pt above the tab bar's top edge. The
+  // grid's own 4pt closing band counts toward the 16.
+  const bottomNavClearance = useFloatingAffordanceBottom(
+    LAST_CARD_TO_TAB_BAR_GAP - (viewMode === 'grid' ? cardGrid.gap : 0),
+  );
   const wishlistToastBottom = useFloatingAffordanceBottom(theme.spacing.lg);
 
   const shouldShowInitialError = !model.hasLoadedDashboard
@@ -2105,7 +2106,6 @@ export function PortfolioScreen({
           data={listData}
           keyExtractor={(item) => item.key}
           ListEmptyComponent={listEmpty}
-          ListFooterComponent={listData.length > 0 ? <View style={styles.footerSpacer} /> : null}
           ListHeaderComponent={collectionChrome}
           onScroll={page.onScroll}
           refreshControl={(
@@ -2507,10 +2507,6 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     paddingHorizontal: 16,
     paddingTop: 24,
-  },
-  footerSpacer: {
-    // Matches the legacy list/grid `paddingBottom: 16` below the last row.
-    height: 16,
   },
   staleHint: {
     paddingHorizontal: 16,
