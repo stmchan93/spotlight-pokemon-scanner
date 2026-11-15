@@ -296,3 +296,82 @@ class SyncScrydexCatalogForGamesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CatchUpModeTests(unittest.TestCase):
+    """--catch-up reruns only games not yet synced for today's price date, and
+    gives up (as a failure) after a capped number of attempts."""
+
+    PRICE_DATE = "2026-11-16"
+
+    def setUp(self) -> None:
+        import tempfile
+
+        from catalog_tools import apply_schema, connect, start_provider_sync_run, update_provider_sync_run
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.database_path = Path(self._tmp.name) / "t.sqlite"
+        connection = connect(self.database_path)
+        apply_schema(connection, BACKEND_ROOT / "schema.sql")
+
+        def record(game: str, status: str, minute: int) -> None:
+            run_id = start_provider_sync_run(
+                connection,
+                provider=sync_scrydex_catalog.SCRYDEX_PROVIDER,
+                sync_scope=sync_scrydex_catalog.SCRYDEX_FULL_CATALOG_SYNC_SCOPE,
+                page_size=100,
+                started_at=f"{self.PRICE_DATE}T02:{minute:02d}:00+00:00",
+                notes={"game": game},
+            )
+            update_provider_sync_run(connection, run_id, status=status)
+
+        record("pokemon", "failed", 1)
+        record("onepiece", "succeeded", 2)
+        for minute in range(10, 14):
+            record("lorcana", "failed", minute)
+        connection.commit()
+        connection.close()
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _run(self, side_effect=lambda **kwargs: {"game": kwargs["game"]}):
+        with patch.object(sync_scrydex_catalog, "sync_scrydex_catalog", side_effect=side_effect) as mock_sync:
+            with contextlib.redirect_stderr(io.StringIO()):
+                result = sync_scrydex_catalog_for_games(
+                    database_path=self.database_path,
+                    repo_root=Path("/tmp"),
+                    games=["pokemon", "onepiece", "lorcana", "gundam"],
+                    price_date=self.PRICE_DATE,
+                    catch_up=True,
+                    max_attempts_per_day=4,
+                )
+        return result, mock_sync
+
+    def test_reruns_only_unsynced_games_under_the_attempt_cap(self) -> None:
+        result, mock_sync = self._run()
+        self.assertEqual([call.kwargs["game"] for call in mock_sync.call_args_list], ["pokemon", "gundam"])
+        reasons = {item["game"]: item["reason"] for item in result["skipped"]}
+        self.assertEqual(reasons, {"onepiece": "already_succeeded", "lorcana": "attempt_cap"})
+
+    def test_main_reports_capped_game_as_failure(self) -> None:
+        with patch.object(sys, "argv", [
+            "sync_scrydex_catalog.py", "--games", "onepiece,lorcana", "--catch-up",
+            "--price-date", self.PRICE_DATE, "--database-path", str(self.database_path),
+        ]):
+            with patch.object(sync_scrydex_catalog, "sync_scrydex_catalog", side_effect=AssertionError("no sync")):
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit) as caught:
+                        sync_scrydex_catalog.main()
+        self.assertEqual(caught.exception.code, 1)
+
+    def test_main_nothing_to_do_exit_code_when_all_synced(self) -> None:
+        with patch.object(sys, "argv", [
+            "sync_scrydex_catalog.py", "--games", "onepiece", "--catch-up",
+            "--price-date", self.PRICE_DATE, "--database-path", str(self.database_path),
+        ]):
+            with patch.object(sync_scrydex_catalog, "sync_scrydex_catalog", side_effect=AssertionError("no sync")):
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit) as caught:
+                        sync_scrydex_catalog.main()
+        self.assertEqual(caught.exception.code, sync_scrydex_catalog.CATCH_UP_NOTHING_TO_DO_EXIT_CODE)

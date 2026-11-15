@@ -1307,7 +1307,8 @@ def persist_scrydex_price_history_payload(
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        price_date = str(entry.get("date") or "").strip()
+        # Scrydex dates are `2026/11/14`; history rows are keyed `2026-11-14`.
+        price_date = str(entry.get("date") or "").strip().replace("/", "-")
         if not price_date:
             continue
         prices = entry.get("prices")
