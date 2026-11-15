@@ -19,6 +19,10 @@ tools/native-fingerprints.json, and:
   show          prints the current fingerprint and what check-update would decide.
 
 tools/native_fingerprint.cjs does the hashing; everything here is policy.
+
+Each fingerprint and record carries the hashing `method` (FINGERPRINT_METHOD in
+the .cjs). Hashes from different methods are never compared: a record from an
+older method is reported as needing a re-record, not as a native change.
 """
 from __future__ import annotations
 
@@ -41,6 +45,8 @@ ENVIRONMENTS = ("development", "staging", "production")
 SEED_ENV_VAR = "SPOTLIGHT_RECORD_FINGERPRINT"
 OVERWRITE_ENV_VAR = "SPOTLIGHT_NATIVE_FINGERPRINT_OVERWRITE"
 MAX_DIFF_LINES = 25
+# Records written before the method was tracked have no `method` field.
+LEGACY_FINGERPRINT_METHOD = 1
 
 
 @dataclass(frozen=True)
@@ -49,6 +55,7 @@ class Fingerprint:
     runtime_version: str
     hash: str
     sources: Mapping[str, str | None] = field(default_factory=dict)
+    method: int = LEGACY_FINGERPRINT_METHOD
 
     @classmethod
     def from_json(cls, payload: Mapping[str, Any]) -> "Fingerprint":
@@ -57,12 +64,14 @@ class Fingerprint:
             runtime_version=str(payload["runtimeVersion"]),
             hash=str(payload["hash"]),
             sources=dict(payload.get("sources") or {}),
+            method=int(payload.get("method") or LEGACY_FINGERPRINT_METHOD),
         )
 
     def to_json(self) -> dict[str, Any]:
         return {
             "platform": self.platform,
             "runtimeVersion": self.runtime_version,
+            "method": self.method,
             "hash": self.hash,
             "sources": dict(self.sources),
         }
@@ -71,7 +80,7 @@ class Fingerprint:
 @dataclass(frozen=True)
 class Decision:
     ok: bool
-    status: str  # match | seed | missing | mismatch | new | overwrite
+    status: str  # match | seed | missing | mismatch | method-mismatch | new | overwrite
     message: str
 
 
@@ -81,6 +90,10 @@ class Decision:
 def lookup_record(records: Mapping[str, Any], environment: str, runtime_version: str, platform: str) -> dict[str, Any] | None:
     entry = ((records.get(environment) or {}).get(runtime_version) or {}).get(platform)
     return entry if isinstance(entry, dict) and entry.get("hash") else None
+
+
+def record_method(record: Mapping[str, Any]) -> int:
+    return int(record.get("method") or LEGACY_FINGERPRINT_METHOD)
 
 
 def with_record(
@@ -96,6 +109,7 @@ def with_record(
     updated = json.loads(json.dumps(records))  # deep copy
     runtime_entry = updated.setdefault(environment, {}).setdefault(fingerprint.runtime_version, {})
     runtime_entry[fingerprint.platform] = {
+        "method": fingerprint.method,
         "hash": fingerprint.hash,
         "recordedAt": recorded_at,
         "via": via,
@@ -150,6 +164,25 @@ def _mismatch_message(environment: str, record: Mapping[str, Any], current: Fing
     )
 
 
+def _method_mismatch_message(environment: str, record: Mapping[str, Any], current: Fingerprint) -> str:
+    rv, platform = current.runtime_version, current.platform
+    commit = record.get("gitCommit") or "<the commit the build was cut from>"
+    return (
+        f"!!! The {environment}/{rv}/{platform} record was hashed with fingerprint method "
+        f"{record_method(record)}; this tool uses method {current.method}.\n"
+        f"    The two hashes can't be compared, so this says NOTHING about whether native code changed.\n"
+        f"    Re-record it via `record --force` at the build's commit ({commit}), using the CURRENT tools,\n"
+        f"    then commit tools/native-fingerprints.json here and retry:\n"
+        f"      git worktree add /tmp/fp-{environment}-{rv}-{platform} {commit}\n"
+        f"      cd /tmp/fp-{environment}-{rv}-{platform} && pnpm install --frozen-lockfile\n"
+        f"      git checkout main -- tools/native_fingerprint.cjs tools/native_fingerprint_guard.py tools/mobile_env_resolver.py\n"
+        f"      cp <main checkout>/apps/spotlight-rn/.env.{environment} apps/spotlight-rn/   # gitignored; the env the build used\n"
+        f"      python3 tools/native_fingerprint_guard.py record --environment {environment} --platform {platform} "
+        f"--resolve-env --via build --force --records <main checkout>/tools/native-fingerprints.json\n"
+        f"    (see docs/ota-native-fingerprint-guard-2026-09-24.md, \"Re-recording after a method change\")"
+    )
+
+
 def evaluate_update(
     records: Mapping[str, Any], environment: str, current: Fingerprint, *, allow_seed: bool
 ) -> Decision:
@@ -175,6 +208,8 @@ def evaluate_update(
             f"    (or seed during a single-platform publish with {SEED_ENV_VAR}=1 "
             f"bash tools/run_mobile_eas.sh {environment} update {current.platform} {environment})",
         )
+    if record_method(record) != current.method:
+        return Decision(False, "method-mismatch", _method_mismatch_message(environment, record, current))
     if record["hash"] == current.hash:
         return Decision(True, "match", f"Native fingerprint matches the {current.runtime_version} build ({current.hash}).")
     return Decision(False, "mismatch", _mismatch_message(environment, record, current, action="update"))
@@ -191,6 +226,15 @@ def evaluate_build(
             f"No record yet for {environment}/{current.runtime_version}/{current.platform}; "
             f"{current.hash} will be recorded if the build succeeds.",
         )
+    if record_method(record) != current.method:
+        if allow_overwrite:
+            return Decision(
+                True,
+                "overwrite",
+                f"The {current.runtime_version} record uses fingerprint method {record_method(record)} "
+                f"(now {current.method}); overwriting on success because {OVERWRITE_ENV_VAR}=1.",
+            )
+        return Decision(False, "method-mismatch", _method_mismatch_message(environment, record, current))
     if record["hash"] == current.hash:
         return Decision(True, "match", f"Native fingerprint matches the existing {current.runtime_version} record.")
     if allow_overwrite:
@@ -329,7 +373,10 @@ def main(argv: list[str] | None = None) -> int:
     # record
     existing = lookup_record(records, args.environment, current.runtime_version, current.platform)
     if existing and existing["hash"] != current.hash and not (args.force or args.via == "build"):
-        print(_mismatch_message(args.environment, existing, current, action="build"), file=sys.stderr)
+        if record_method(existing) != current.method:
+            print(_method_mismatch_message(args.environment, existing, current), file=sys.stderr)
+        else:
+            print(_mismatch_message(args.environment, existing, current, action="build"), file=sys.stderr)
         print("Refusing to replace the record without --force.", file=sys.stderr)
         return 1
     save_records(records_path, with_record(records, args.environment, current, via=args.via,
