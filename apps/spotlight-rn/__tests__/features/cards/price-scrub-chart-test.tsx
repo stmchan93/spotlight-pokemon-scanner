@@ -4,9 +4,14 @@ import { State } from 'react-native-gesture-handler';
 import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
 
 import { PriceScrubChart, type PriceChartPoint } from '@/features/cards/components/price-scrub-chart';
+import { buildPriceChartModel, priceChartRanges } from '@/features/cards/card-price-chart-model';
 import {
+  areaFillPath,
+  morphFillPath,
+  morphPath,
   nearestIndexByX,
   priceYDomain,
+  resampleSeries,
   resampleY,
   samePoints,
   salesGapThresholdMs,
@@ -83,6 +88,31 @@ describe('price-scrub-chart geometry', () => {
     expect(ys).toEqual([0, 25, 50, 75, 100]);
     // Flat beyond the last point.
     expect(resampleY([{ x: 0, y: 4 }, { x: 50, y: 8 }], 100, 3)).toEqual([4, 8, 8]);
+  });
+
+  it('closes the area fill under the first and last points, not the chart corners', () => {
+    expect(areaFillPath('M120.0 40.0 L300.0 60.0', 120, 300, 200)).toBe(
+      'M120.0 40.0 L300.0 60.0 L300.0 200 L120.0 200 Z',
+    );
+    // History that also stops early closes under its own last point.
+    expect(areaFillPath('M120.0 40.0 L250.0 60.0', 120, 250, 200)).toBe(
+      'M120.0 40.0 L250.0 60.0 L250.0 200 L120.0 200 Z',
+    );
+    expect(areaFillPath('', 0, 300, 200)).toBe('');
+  });
+
+  it('morphs over each series\' own x extent: no flat lead-in from x=0', () => {
+    const late = resampleSeries([{ x: 150, y: 10 }, { x: 300, y: 50 }], 4)!;
+    const full = resampleSeries([{ x: 0, y: 30 }, { x: 300, y: 30 }], 4)!;
+    expect([late.x0, late.x1]).toEqual([150, 300]);
+    [10, 10 + 40 / 3, 10 + 80 / 3, 50].forEach((y, index) => expect(late.ys[index]).toBeCloseTo(y, 6));
+    // Settled on the late series, the path starts at its first point.
+    expect(morphPath(full, late, 1).startsWith('M150.0 10.0')).toBe(true);
+    expect(morphPath(late, full, 0).startsWith('M150.0 10.0')).toBe(true);
+    // Halfway, the start slides from 0 to 150.
+    expect(morphPath(full, late, 0.5).startsWith('M75.0')).toBe(true);
+    expect(morphFillPath(full, late, 1, 200).endsWith('L300.0 200 L150.0 200 Z')).toBe(true);
+    expect(resampleSeries([{ x: 3, y: 3 }])).toBeNull();
   });
 
   it('keeps a minimum y span so tiny moves stay small', () => {
@@ -176,6 +206,52 @@ describe('PriceScrubChart', () => {
     expect(onScrub.mock.calls.map((call) => call[0])).toEqual([0, 1, 2, null]);
     expect(Haptics.selectionAsync).toHaveBeenCalledTimes(2);
   });
+
+  it.each(priceChartRanges)(
+    '%s: partial history starts the line, fill and baseline under the first real point',
+    (range) => {
+      // 20 days of history ending today: covers 1W fully, starts late on 1M/3M/1Y.
+      const nowMs = Date.UTC(2026, 10, 15, 12);
+      const allPoints = Array.from({ length: 20 }, (_, index) => ({
+        t: nowMs - (19 - index) * DAY,
+        v: 10 + (index % 5),
+      }));
+      const model = buildPriceChartModel({ allPoints, variant: 'line', range, nowMs, currencyCode: 'USD' })!;
+      render(
+        <PriceScrubChart
+          areaFill
+          color="purple"
+          fillGrid={false}
+          onScrub={jest.fn()}
+          points={model.points}
+          variant="line"
+          windowEndMs={model.windowEndMs}
+          windowStartMs={model.windowStartMs}
+        />,
+      );
+      fireEvent(screen.getByTestId('price-scrub-chart'), 'layout', {
+        nativeEvent: { layout: { width: 300, height: 200, x: 0, y: 0 } },
+      });
+
+      const span = model.windowEndMs - model.windowStartMs;
+      const expectedX = ((model.points[0].t - model.windowStartMs) / span) * 300;
+      if (range === '1W') {
+        expect(expectedX).toBe(0);
+      } else {
+        expect(expectedX).toBeGreaterThan(100);
+      }
+      const firstX = expectedX.toFixed(1);
+      const fill: string = screen.getByTestId('price-scrub-chart-fill').props.d;
+      // Line part starts AT the first point (no segment in from the left edge)…
+      expect(fill.startsWith(`M${firstX} `)).toBe(true);
+      // …and the polygon closes straight down under it, never via (0, bottom).
+      expect(fill.endsWith(`L300.0 200 L${firstX} 200 Z`)).toBe(true);
+      if (range !== '1W') {
+        expect(fill).not.toMatch(/L0(\.0)? /);
+      }
+      expect(screen.getByTestId('price-scrub-chart-baseline').props.x1).toBeCloseTo(expectedX, 5);
+    },
+  );
 
   it('survives a line → line data change', () => {
     const { rerender } = renderChart();

@@ -167,6 +167,21 @@ describe('chartWindow', () => {
 });
 
 describe('buildPriceChartModel', () => {
+  it('never pads a partial history to the window start', () => {
+    // 20 days of history: the 1M/3M/1Y windows start before it.
+    const allPoints = Array.from({ length: 20 }, (_, index) => ({ t: daysAgo(19 - index), v: 100 + index }));
+    for (const range of ['1W', '1M', '3M', '1Y'] as const) {
+      const model = buildPriceChartModel({ allPoints, variant: 'line', range, nowMs: now, currencyCode: 'USD' })!;
+      const first = model.points[0];
+      // The series opens on a real point, never a synthetic one at the window edge.
+      expect(allPoints).toContainEqual(first);
+      if (range !== '1W') {
+        expect(first).toEqual(allPoints[0]);
+        expect(first.t).toBeGreaterThan(model.windowStartMs);
+      }
+    }
+  });
+
   const line = (values: number[]) => values.map((v, index) => ({ t: daysAgo(values.length - 1 - index), v }));
 
   it('themes up by last vs first and labels the delta', () => {
@@ -175,7 +190,7 @@ describe('buildPriceChartModel', () => {
     })!;
     expect(model.tone).toBe('up');
     expect(model.restValue).toBe(150);
-    expect(model.restDelta).toEqual({ label: '$50.00 (50.00%)', direction: 'up' });
+    expect(model.restDelta).toEqual({ label: '$50.00 (50.00%)', amount: '$50.00', percent: '(50.00%)', direction: 'up' });
     expect(model.restSuffix).toBe('Past month');
     expect(model.asOfText).toBe(`Prices as of ${formatChartDate(daysAgo(0), now)} · TCGplayer market`);
   });
@@ -252,7 +267,7 @@ describe('priceChartReadout', () => {
   it('rests on the summary', () => {
     expect(priceChartReadout(model, null, now)).toEqual({
       value: 120,
-      delta: { label: '$20.00 (20.00%)', direction: 'up' },
+      delta: { label: '$20.00 (20.00%)', amount: '$20.00', percent: '(20.00%)', direction: 'up' },
       suffix: 'Past month · 3 sales',
     });
   });
@@ -260,7 +275,7 @@ describe('priceChartReadout', () => {
   it('reads the scrubbed point against the window start', () => {
     expect(priceChartReadout(model, 1, now)).toEqual({
       value: 80,
-      delta: { label: '$20.00 (20.00%)', direction: 'down' },
+      delta: { label: '$20.00 (20.00%)', amount: '$20.00', percent: '(20.00%)', direction: 'down' },
       suffix: `Sold ${formatChartDate(daysAgo(5), now)}`,
     });
   });

@@ -19,15 +19,18 @@ import { useReduceMotion } from '@/features/scanner/use-reduce-motion';
 import {
   MORPH_SAMPLES,
   salesGapThresholdMs,
+  areaFillPath,
   baselineSide,
+  morphFillPath,
   morphPath,
   nearestIndexByX,
   polylinePath,
   projectPoints,
-  resampleY,
+  resampleSeries,
   samePoints,
   segmentPaths,
   type PriceYScale,
+  type SeriesSamples,
 } from './price-scrub-chart-geometry';
 
 export type PriceChartPoint = { t: number; v: number };
@@ -64,7 +67,7 @@ const FILL_GRID_CELL = 14;
 const DRAG_ACTIVE_OFFSET_X = 6;
 const DRAG_FAIL_OFFSET_Y = 10;
 
-type Morph = { from: number[]; to: number[]; token: number };
+type Morph = { from: SeriesSamples; to: SeriesSamples; token: number };
 
 function PriceScrubChartImpl({
   points,
@@ -108,7 +111,7 @@ function PriceScrubChartImpl({
   // --- Range/data change: morph line→line, otherwise fade in. ---
   const morphProgress = useSharedValue(1);
   const fade = useSharedValue(1);
-  const prevSamplesRef = useRef<number[] | null>(null);
+  const prevSamplesRef = useRef<SeriesSamples | null>(null);
   const prevPointsRef = useRef<PriceChartPoint[] | null>(null);
   const morphTokenRef = useRef(0);
 
@@ -121,7 +124,7 @@ function PriceScrubChartImpl({
     if (width === 0) {
       return;
     }
-    const samples = variant === 'line' && coords.length >= 2 ? resampleY(coords, width, MORPH_SAMPLES) : null;
+    const samples = variant === 'line' ? resampleSeries(coords, MORPH_SAMPLES) : null;
     const prevPoints = prevPointsRef.current;
     const prevSamples = prevSamplesRef.current;
     prevPointsRef.current = points;
@@ -150,12 +153,10 @@ function PriceScrubChartImpl({
   const morphFrom = morph?.from;
   const morphTo = morph?.to;
   const morphProps = useAnimatedProps(() => ({
-    d: morphFrom && morphTo ? morphPath(morphFrom, morphTo, width, morphProgress.value) : '',
+    d: morphFrom && morphTo ? morphPath(morphFrom, morphTo, morphProgress.value) : '',
   }));
   const morphFillProps = useAnimatedProps(() => ({
-    d: morphFrom && morphTo
-      ? `${morphPath(morphFrom, morphTo, width, morphProgress.value)} L${width} ${height} L0 ${height} Z`
-      : '',
+    d: morphFrom && morphTo ? morphFillPath(morphFrom, morphTo, morphProgress.value, height) : '',
   }));
   const fadeStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
 
@@ -273,7 +274,10 @@ function PriceScrubChartImpl({
   const showFill = areaFill;
   // Sales paths are split at gaps, so fill under one continuous polyline instead.
   const fillLine = variant === 'line' ? paths.solid : coords.length >= 2 ? polylinePath(coords) : '';
-  const fillD = showFill && fillLine ? `${fillLine} L${width} ${height} L0 ${height} Z` : '';
+  // Closed under the first and last points, never at the chart's corners.
+  const fillD = showFill && coords.length >= 2
+    ? areaFillPath(fillLine, coords[0].x, coords[coords.length - 1].x, height)
+    : '';
   const fillIds = { gradient: `${clipId}fill`, grid: `${clipId}grid` };
   const renderFill = () => (morph ? (
     <>
@@ -337,7 +341,8 @@ function PriceScrubChartImpl({
                 strokeLinecap="round"
                 strokeWidth={1.2}
                 testID={`${testID}-baseline`}
-                x1={0}
+                // Starts under the first point: no baseline where there's no data.
+                x1={coords[0]?.x ?? 0}
                 x2={width}
                 y1={baselineY}
                 y2={baselineY}

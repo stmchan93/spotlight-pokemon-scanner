@@ -2895,6 +2895,10 @@ export function CardDetailScreen({
             rowsLoading={priceTrendsLoading}
             salesByRowKey={recentSalesByRowKey}
             gutter={CHART_CARD_GUTTER}
+            // Raw lane: the logo by the delta opens TCGplayer for the charted
+            // condition (the row-press deep link). The graded lane's chart is
+            // eBay comps with no exact link, so it gets no logo.
+            onOpenMarketplace={displayedPriceTrends?.mode === 'raw' ? handleTrendRowPress : undefined}
             salesEnabled={gameHasListingsData(cardGame)}
             style={styles.chartCard}
             testID="detail-price-chart"

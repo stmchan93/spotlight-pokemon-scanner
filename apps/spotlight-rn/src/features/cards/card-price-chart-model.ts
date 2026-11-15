@@ -213,10 +213,35 @@ export function deltaDirection(amount: number): ChartDirection {
   return amount > 0 ? 'up' : amount < 0 ? 'down' : 'flat';
 }
 
+export type PriceChartDelta = {
+  /** "$48.16 (1.43%)" — the whole line, for accessibility and logs. */
+  label: string;
+  /** "$48.16" — unsigned; the triangle and color carry the direction. */
+  amount: string;
+  /** "(1.43%)", or null with no positive baseline to divide by. */
+  percent: string | null;
+  direction: ChartDirection;
+};
+
 /** "$48.16 (1.43%)" — unsigned; the triangle and color carry the direction. */
 export function formatDeltaLabel(amount: number, baseline: number, currencyCode: string): string {
-  const percent = baseline > 0 ? ` (${Math.abs((amount / baseline) * 100).toFixed(2)}%)` : '';
-  return `${formatCurrency(Math.abs(amount), currencyCode)}${percent}`;
+  const parts = deltaParts(amount, baseline, currencyCode);
+  return parts.percent ? `${parts.amount} ${parts.percent}` : parts.amount;
+}
+
+function deltaParts(amount: number, baseline: number, currencyCode: string) {
+  return {
+    amount: formatCurrency(Math.abs(amount), currencyCode),
+    percent: baseline > 0 ? `(${Math.abs((amount / baseline) * 100).toFixed(2)}%)` : null,
+  };
+}
+
+export function buildPriceChartDelta(amount: number, baseline: number, currencyCode: string): PriceChartDelta {
+  return {
+    ...deltaParts(amount, baseline, currencyCode),
+    label: formatDeltaLabel(amount, baseline, currencyCode),
+    direction: deltaDirection(amount),
+  };
 }
 
 function countLabel(count: number, noun: string): string {
@@ -236,7 +261,7 @@ export type PriceChartModel = {
   emptyMessage: string | null;
   restValue: number;
   /** Null when there's no trend to state (insufficient data). */
-  restDelta: { label: string; direction: ChartDirection } | null;
+  restDelta: PriceChartDelta | null;
   restSuffix: string;
   asOfText: string;
 };
@@ -317,7 +342,7 @@ export function buildPriceChartModel({
     insufficient: false,
     emptyMessage: null,
     restValue: last.v,
-    restDelta: { label: formatDeltaLabel(amount, first.v, currencyCode), direction },
+    restDelta: buildPriceChartDelta(amount, first.v, currencyCode),
     restSuffix: isSales
       ? `${rangeCaption[range]} · ${countLabel(inWindow.length, 'sale')}`
       : rangeCaption[range],
@@ -326,7 +351,7 @@ export function buildPriceChartModel({
 
 export type PriceChartReadout = {
   value: number;
-  delta: { label: string; direction: ChartDirection } | null;
+  delta: PriceChartDelta | null;
   suffix: string;
 };
 
@@ -345,7 +370,7 @@ export function priceChartReadout(
   const date = formatChartDate(point.t, nowMs);
   return {
     value: point.v,
-    delta: { label: formatDeltaLabel(amount, first.v, model.currencyCode), direction: deltaDirection(amount) },
+    delta: buildPriceChartDelta(amount, first.v, model.currencyCode),
     suffix: model.variant === 'sales' ? `Sold ${date}` : date,
   };
 }

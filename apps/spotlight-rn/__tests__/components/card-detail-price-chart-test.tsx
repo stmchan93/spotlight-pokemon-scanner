@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import type { CardConditionHistory, CardRecentSalesRecord } from '@spotlight/api-client';
@@ -74,7 +75,9 @@ describe('CardDetailScreen price chart', () => {
 
     expect(await screen.findByTestId('detail-price-chart-chip')).toBeTruthy();
     expect(getCardConditionHistory).toHaveBeenCalledWith({ cardId: 'sm7-1', lane: 'raw', days: 365 });
-    expect(screen.getByTestId('detail-price-chart-delta-amount').props.children).toBe('$2.00 (20.00%)');
+    // Figma 6322:8976: amount and percent are separate runs.
+    expect(screen.getByTestId('detail-price-chart-delta-amount').props.children).toBe('$2.00');
+    expect(screen.getByTestId('detail-price-chart-delta-percent').props.children).toBe('(20.00%)');
     // At rest: price + delta only — no range caption, no as-of line (Figma 6322:8976).
     expect(screen.queryByTestId('detail-price-chart-delta-suffix')).toBeNull();
     expect(screen.queryByTestId('detail-price-chart-as-of')).toBeNull();
@@ -84,11 +87,41 @@ describe('CardDetailScreen price chart', () => {
     fireEvent.press(screen.getByTestId('detail-price-chart-sheet-option-normal|LP'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('detail-price-chart-delta-amount').props.children).toBe('$1.00 (11.11%)');
+      expect(screen.getByTestId('detail-price-chart-delta-amount').props.children).toBe('$1.00');
     });
     // One history read serves every row and range.
     fireEvent.press(screen.getByTestId('detail-price-chart-range-1W'));
     expect(getCardConditionHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it('the condition chip only opens the picker; the TCGplayer logo is the one link', async () => {
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    const getCardConditionHistory = jest.fn(async () => rawHistory());
+    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+      spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardConditionHistory }),
+    });
+
+    fireEvent.press(await screen.findByTestId('detail-price-chart-chip'));
+    expect(await screen.findByTestId('detail-price-chart-sheet-option-normal|LP')).toBeTruthy();
+    expect(openURL).not.toHaveBeenCalled();
+
+    // Picking a row keeps the chart (and the closing sheet) mounted: no
+    // skeleton swap that tears the Modal down under the finger.
+    fireEvent.press(screen.getByTestId('detail-price-chart-sheet-option-normal|LP'));
+    expect(screen.queryByTestId('detail-price-chart-skeleton')).toBeNull();
+    expect(screen.getByTestId('detail-price-chart-sheet')).toBeTruthy();
+    expect(openURL).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(screen.getByTestId('detail-price-chart-delta-amount').props.children).toBe('$1.00');
+    });
+
+    // The logo opens TCGplayer for the CHARTED condition.
+    fireEvent.press(screen.getByTestId('detail-price-chart-tcgplayer'));
+    expect(openURL).toHaveBeenCalledTimes(1);
+    const url = String(openURL.mock.calls[0][0]);
+    expect(url).toContain('tcgplayer.com');
+    expect(url).toContain('Lightly+Played');
+    openURL.mockRestore();
   });
 
   it('reads graded comps cache-only and goes grey on too few sales', async () => {
@@ -120,5 +153,7 @@ describe('CardDetailScreen price chart', () => {
     expect(screen.getByText('2 sales in this range. Not enough to call a trend.')).toBeTruthy();
     expect(screen.queryByTestId('detail-price-chart-delta-amount')).toBeNull();
     expect(screen.queryByTestId('detail-price-chart-delta-suffix')).toBeNull();
+    // Graded comps have no exact TCGplayer page: no logo link.
+    expect(screen.queryByTestId('detail-price-chart-tcgplayer')).toBeNull();
   });
 });

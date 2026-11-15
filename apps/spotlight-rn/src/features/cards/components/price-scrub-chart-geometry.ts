@@ -131,21 +131,55 @@ export function resampleY(
   return out;
 }
 
-export function morphPath(
-  fromY: readonly number[],
-  toY: readonly number[],
-  width: number,
-  progress: number,
-): string {
+/**
+ * A series' morph samples: y at evenly spaced x across the series' OWN x
+ * extent, not the chart width — history that starts mid-window must not grow a
+ * flat lead-in from x=0 while it animates.
+ */
+export type SeriesSamples = { x0: number; x1: number; ys: number[] };
+
+export function resampleSeries(coords: readonly ChartXY[], samples: number = MORPH_SAMPLES): SeriesSamples | null {
+  if (coords.length < 2) {
+    return null;
+  }
+  const x0 = coords[0].x;
+  const x1 = coords[coords.length - 1].x;
+  const shifted = coords.map((c) => ({ x: c.x - x0, y: c.y }));
+  return { x0, x1, ys: resampleY(shifted, x1 - x0, samples) };
+}
+
+export function morphPath(from: SeriesSamples, to: SeriesSamples, progress: number): string {
   'worklet';
-  const n = Math.min(fromY.length, toY.length);
+  const n = Math.min(from.ys.length, to.ys.length);
+  const x0 = from.x0 + (to.x0 - from.x0) * progress;
+  const x1 = from.x1 + (to.x1 - from.x1) * progress;
   let d = '';
   for (let s = 0; s < n; s += 1) {
-    const x = n > 1 ? (s / (n - 1)) * width : 0;
-    const y = fromY[s] + (toY[s] - fromY[s]) * progress;
+    const x = n > 1 ? x0 + (s / (n - 1)) * (x1 - x0) : x0;
+    const y = from.ys[s] + (to.ys[s] - from.ys[s]) * progress;
     d += `${s ? ' L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`;
   }
   return d;
+}
+
+/**
+ * Closes a line path into the area under it: down from the LAST point, back
+ * along the bottom, up under the FIRST point. Closing at the chart corners
+ * instead drew a diagonal wedge whenever the data didn't span the window.
+ */
+export function areaFillPath(linePath: string, firstX: number, lastX: number, bottom: number): string {
+  'worklet';
+  if (!linePath) {
+    return '';
+  }
+  return `${linePath} L${lastX.toFixed(1)} ${bottom} L${firstX.toFixed(1)} ${bottom} Z`;
+}
+
+export function morphFillPath(from: SeriesSamples, to: SeriesSamples, progress: number, bottom: number): string {
+  'worklet';
+  const firstX = from.x0 + (to.x0 - from.x0) * progress;
+  const lastX = from.x1 + (to.x1 - from.x1) * progress;
+  return areaFillPath(morphPath(from, to, progress), firstX, lastX, bottom);
 }
 
 /** -1 / 0 / 1 side of the baseline, for the crossing haptic. */
