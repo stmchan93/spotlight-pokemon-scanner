@@ -187,9 +187,6 @@ function SocialAvatar({ focused, position }: { focused: boolean; position: Share
   const raster = useCircularTabAvatar();
   const [failedURL, setFailedURL] = useState<string | null>(null);
   useEffect(() => setFailedURL(null), [avatarURL]);
-  const ring = useAnimatedStyle(() => ({
-    borderColor: interpolateColor(scanProximity(position.value), [0, 1], [colors.gray200, colors.gray0]),
-  }));
 
   const photo = avatarURL && failedURL !== avatarURL ? { uri: avatarURL } : raster;
   if (!photo) {
@@ -205,14 +202,14 @@ function SocialAvatar({ focused, position }: { focused: boolean; position: Share
     );
   }
   return (
-    <Reanimated.View style={[styles.avatarClip, ring]} testID="app-tab-bar-avatar">
+    <View style={styles.avatarClip} testID="app-tab-bar-avatar">
       <Image
         onError={() => setFailedURL(avatarURL)}
         source={photo}
         style={styles.avatarImage}
         testID="app-tab-bar-avatar-image"
       />
-    </Reanimated.View>
+    </View>
   );
 }
 
@@ -346,11 +343,11 @@ export function StaticAppTabBar({ page, onSelectPage }: { onSelectPage?: (page: 
 
 const styles = StyleSheet.create({
   avatarClip: {
-    // Backing + ring so a transparent or dark photo still reads on either bar.
+    // Backing so a transparent photo still reads. No ring: a border also
+    // pushed the photo 1pt off-centre inside this clip.
     backgroundColor: colors.gray200,
     borderCurve: 'continuous',
     borderRadius: AVATAR_SIZE / 2,
-    borderWidth: 1,
     height: AVATAR_SIZE,
     overflow: 'hidden',
     width: AVATAR_SIZE,
