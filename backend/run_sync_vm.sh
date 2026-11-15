@@ -38,12 +38,16 @@ export SPOTLIGHT_RUNTIME_LABEL="${SPOTLIGHT_RUNTIME_LABEL:-vm-sync:${HOSTNAME_VA
 # Extra args pass through: the catch-up schedule adds --catch-up (only games not
 # yet synced today, capped attempts).
 #
-# SPOTLIGHT_SYNC_PING_URL (optional, Healthchecks.io-style): pinged on success,
-# `<url>/fail` on failure. Its grace period also alerts when no run happens at
-# all. The 11/12-11/15 lock failures went unnoticed for four days without it.
+# Alerts (Healthchecks.io): a failure pings `<url>/fail`, which alerts at once.
+# SPOTLIGHT_SYNC_PING_URL is a dedicated daily check (also pinged on success, so
+# its grace period catches a run that never happened). Without one, failures go
+# to the VM health check's URL instead; the 11/12-11/15 lock failures went
+# unnoticed for four days with no alert at all.
 sync_ping() {
   if [ -n "${SPOTLIGHT_SYNC_PING_URL:-}" ]; then
     curl -fsS -m 10 --retry 3 "${SPOTLIGHT_SYNC_PING_URL}$1" >/dev/null 2>&1 || true
+  elif [ "$1" = "/fail" ] && [ -n "${SPOTLIGHT_HEALTHCHECK_PING_URL:-}" ]; then
+    curl -fsS -m 10 --retry 3 "${SPOTLIGHT_HEALTHCHECK_PING_URL}/fail" >/dev/null 2>&1 || true
   fi
 }
 
