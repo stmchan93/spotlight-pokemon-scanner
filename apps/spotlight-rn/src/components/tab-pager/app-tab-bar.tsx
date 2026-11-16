@@ -236,9 +236,7 @@ function LightMaterial({ position }: { position: SharedValue<number> }) {
         {/* The lift is what separates the capsule from the pages' white bottom fade;
             glass over white with no shadow reads as a washed-out smear. */}
         <View style={[styles.glassCapsule, shadows.glassPill]} testID="app-tab-bar-glass-lift">
-          {/* frostTint gives the glass a floor: untinted glass is only as bright as
-              the page behind it and read as see-through over content. */}
-          <GlassSurface fallbackColor={colors.canvasElevated} glassTintColor={colors.frostTint} style={styles.glassFill} />
+          <GlassSurface fallbackColor={colors.canvasElevated} style={styles.glassFill} />
         </View>
       </Reanimated.View>
     );
