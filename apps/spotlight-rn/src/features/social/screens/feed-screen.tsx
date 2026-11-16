@@ -42,7 +42,7 @@ import {
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { HOME_HEADER_BAR_HEIGHT, HomeHeader } from '@/components/home-header';
-import { tabBarBottomFadeHeight } from '@/lib/tab-bar-insets';
+import { tabBarBottomFadeHeight, tabBarBottomFadeVisible } from '@/lib/tab-bar-insets';
 import { PostCard } from '@/features/social/components/post-card';
 import { RepostAttribution } from '@/features/social/components/repost-attribution';
 import { MarketWatchPage } from '@/features/social/screens/market-watch-page';
@@ -928,6 +928,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         expo-blur can't do gradient blur and a full BlurView reads as a hard
         band.
       */}
+      {tabBarBottomFadeVisible ? (
       <View pointerEvents="none" style={[styles.bottomGradient, { height: tabBarBottomFadeHeight }]}>
         <Svg height="100%" width="100%">
           <Defs>
@@ -944,6 +945,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
           <Rect fill="url(#homeBottomFade)" height="100%" width="100%" x="0" y="0" />
         </Svg>
       </View>
+      ) : null}
       {/*
         AFTER the pager so tree order paints it on top, and so UIKit's
         `subviews[0]` walk still reaches the scroller for minimize-on-scroll.
