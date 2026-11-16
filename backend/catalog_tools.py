@@ -22,7 +22,7 @@ import unicodedata
 from tcgcsv_adapter import TCGCSV_PROVIDER, scrydex_variant_label_for_subtype, subtype_for_variant_label
 # The canonical printing-identity normalizer (1st == First, subtype -> Scrydex
 # label, label-keyed cells). Imports only tcgcsv_adapter, so no cycle.
-from watch_printings import canonical_printing, printing_label
+from watch_printings import canonical_printing, printing_label, printing_labels_by_cell_key
 
 
 MATCHER_VERSION = "raw-backend-reset-v1"
@@ -6160,13 +6160,18 @@ def main_raw_cell_series_by_variant(
     if end_date:
         query += " AND price_date <= ?"
         params.append(str(end_date))
+    # The main printing's cells belong to the Scrydex printing they ARE
+    # (Computer Search: "Normal" -> "Unlimited"), so its NM line is the one the
+    # merged PDP chip draws.
+    main_key, main_label = served_main_printing_alias(price_snapshot_row(connection, card_id))
     result: dict[str, dict[str, Any]] = {}
     for row in connection.execute(query, params).fetchall():
         sub_type = str(_cell_field(row, "variant_key") or "").strip()
         # A subtype maps to its Scrydex label; a key that is no subtype is
         # already the label (the sync keys subtype-collision printings — One
         # Piece alt arts, Poke Ball reverses — by label).
-        label = printing_label(sub_type)
+        aliased = main_label is not None and sub_type == main_key
+        label = main_label if aliased else printing_label(sub_type)
         if label is None:
             continue
         market = _coerce_price_float(_cell_field(row, "market"))
@@ -6178,7 +6183,8 @@ def main_raw_cell_series_by_variant(
         # the exact per-printing mapping (or the label-keyed cell) wins,
         # mirroring the sync's printings map.
         exact = (
-            scrydex_variant_label_for_subtype(sub_type) is None
+            aliased
+            or scrydex_variant_label_for_subtype(sub_type) is None
             or sub_type == subtype_for_variant_label(label)
         )
         if date in bucket and not exact:
@@ -8764,6 +8770,43 @@ def _slab_recent_sale_from_row(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def served_main_printing_alias(row: Any) -> tuple[str | None, str | None]:
+    """``(main_raw_variant, Scrydex label)`` when the TCGCSV main printing is a
+    Scrydex printing that TCGplayer spells differently, else ``(None, None)``.
+
+    Computer Search base1-71: TCGplayer sells it as product 42417, subtype bare
+    "Normal"; Scrydex calls that product "unlimited". The TCGCSV sync already
+    recorded the match in ``main_raw_printings_json`` as
+    ``{"Unlimited": {"subTypeName": "Normal", ...}}`` (Unlimited's own product,
+    claimed by no other printing of the card, whose only priced subtype is
+    Normal). Two checks make the main that same row: its subtype is the cell key
+    the sync wrote for exactly one printing, and its market is that printing's
+    market (same product + subtype in one sync write). Anything short of that
+    (no map entry, shared subtype, a different number) keeps the printings
+    apart: a wrong merge is worse than a duplicate chip. Not freshness-gated;
+    it states identity, not price."""
+    if row is None:
+        return None, None
+    main_key = str(_cell_field(row, "main_raw_variant") or "").strip()
+    main_market = _coerce_price_float(_cell_field(row, "main_raw_market_price"))
+    if not main_key or main_market is None:
+        return None, None
+    printings = _cell_field(row, "main_raw_printings_json")
+    label = printing_labels_by_cell_key(printings).get(main_key)
+    if not label:
+        return None, None
+    if _variant_match_key(label) == _variant_match_key(printing_label(main_key)):
+        return None, None  # TCGplayer and Scrydex already agree on the name
+    try:
+        entry = json.loads(printings) if isinstance(printings, str) else printings
+        entry_market = _coerce_price_float(entry[label].get("market"))
+    except (TypeError, ValueError, KeyError, AttributeError):
+        return None, None
+    if entry_market is None or abs(entry_market - main_market) > 0.005:
+        return None, None
+    return main_key, label
+
+
 def with_served_main_printing(row: Any, raw_contexts: dict[str, Any]) -> dict[str, Any]:
     """Add the main lane's own printing to `raw_contexts` as an NM-only entry
     when Scrydex has no printing under that label, or add its NM when Scrydex
@@ -8789,6 +8832,11 @@ def with_served_main_printing(row: Any, raw_contexts: dict[str, Any]) -> dict[st
         return raw_contexts
     variants = raw_contexts.get("variants")
     variants = variants if isinstance(variants, dict) else {}
+    # TCGplayer's name for a printing Scrydex already lists ("Normal" for
+    # Computer Search's "Unlimited") is that printing, not a second chip.
+    _, alias = served_main_printing_alias(row)
+    if alias is not None and any(_variant_match_key(existing) == _variant_match_key(alias) for existing in variants):
+        label = alias
     match = _variant_match_key(label)
     existing_label = next((existing for existing in variants if _variant_match_key(existing) == match), None)
     if existing_label is not None:

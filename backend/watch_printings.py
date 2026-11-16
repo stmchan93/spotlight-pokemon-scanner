@@ -273,26 +273,46 @@ def printing_cell_key(printings_json: Any, requested: Any) -> str | None:
     (its own product, subtype "Foil") is the cell "Foil", while ST30-001's
     "Alt Art" (sharing "Foil" with the base card) is the cell "Alt Art". None
     when the map does not price that printing."""
+    entries = _printings_entries(printings_json)
+    label = canonical_printing(requested, entries)
+    if label is None:
+        return None
+    return _cell_keys_by_label(entries)[label]
+
+
+def printing_labels_by_cell_key(printings_json: Any) -> dict[str, str]:
+    """{raw_main cell key: Scrydex label}, the inverse of ``printing_cell_key``.
+    Computer Search's ``{"Unlimited": {"subTypeName": "Normal"}}`` gives
+    ``{"Normal": "Unlimited"}``: the sync gave Scrydex's Unlimited the only
+    priced subtype of a TCGplayer product no other printing of the card claims,
+    so the "Normal" cell IS that printing."""
+    return {key: label for label, key in _cell_keys_by_label(_printings_entries(printings_json)).items()}
+
+
+def _printings_entries(printings_json: Any) -> dict[str, dict[str, Any]]:
     if isinstance(printings_json, dict):
         parsed: Any = printings_json
     else:
         try:
             parsed = json.loads(printings_json or "{}")
         except (TypeError, ValueError):
-            return None
+            return {}
     if not isinstance(parsed, dict):
-        return None
-    entries = {str(label): entry for label, entry in parsed.items() if isinstance(entry, dict)}
-    label = canonical_printing(requested, entries)
-    if label is None:
-        return None
-    sub_type = normalize_variant_key(entries[label].get("subTypeName"))
-    if not sub_type:
-        return label
-    shared = sum(
-        1 for entry in entries.values() if normalize_variant_key(entry.get("subTypeName")) == sub_type
-    )
-    return sub_type if shared == 1 else label
+        return {}
+    return {str(label): entry for label, entry in parsed.items() if isinstance(entry, dict)}
+
+
+def _cell_keys_by_label(entries: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """The sync's cell keying: subTypeName, or the label when two priced
+    printings share that subtype (or it is blank)."""
+    sub_types = {label: normalize_variant_key(entry.get("subTypeName")) for label, entry in entries.items()}
+    counts: dict[str, int] = {}
+    for sub_type in sub_types.values():
+        counts[sub_type] = counts.get(sub_type, 0) + 1
+    return {
+        label: sub_type if sub_type and counts[sub_type] == 1 else label
+        for label, sub_type in sub_types.items()
+    }
 
 
 # --- raw_main cells ----------------------------------------------------------

@@ -473,7 +473,12 @@ class ComputerSearchNormalPrintingTests(unittest.TestCase):
     firstEditionShadowless, while TCGplayer sells the card as ONE product whose
     subtype is bare "Normal" — a printing Scrydex has no series for. The PDP
     defaults to that "Normal" printing (the one the headline quotes), so the
-    condition history must carry its NM line from TCGCSV."""
+    condition history must carry its NM line from TCGCSV.
+
+    The printings map here names no Scrydex label for "Normal", so nothing
+    proves it is "unlimited" and the two stay separate. The real sync shape
+    ({"Unlimited": {"subTypeName": "Normal"}}) merges them: see
+    test_merged_main_printing.py."""
 
     SCRYDEX_DATES = _recent_dates(6)[:4]  # Scrydex history stops early (staging)
     MAIN_DATES = _recent_dates(6)  # TCGCSV keeps going to today

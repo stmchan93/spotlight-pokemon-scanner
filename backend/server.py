@@ -155,6 +155,7 @@ from catalog_tools import (
     replace_scan_prediction_candidates,
     replace_scan_price_observations,
     ebay_listing_images_by_item_id,
+    served_main_printing_alias,
     with_served_main_printing,
     remember_ebay_listing_images,
     replace_slab_recent_sales_cache,
@@ -2852,6 +2853,11 @@ class SpotlightScanService:
         printings = watch_printings.known_printings(self.connection, card_id)
         canonical = watch_printings.canonical_printing(variant, printings)
         if canonical is None:
+            # The PDP's merged chip ("Unlimited") watches TCGplayer's "Normal".
+            alias_key, alias_label = served_main_printing_alias(price_snapshot_row(self.connection, card_id))
+            if alias_label is not None and watch_printings.canonical_printing(variant, [alias_label]):
+                canonical = watch_printings.canonical_printing(alias_key, printings)
+        if canonical is None:
             raise ValueError(f"unknown printing for this card: {variant.strip()}")
         rows = existing_rows or []
         if not any(str(row["variant_key"] or "") == canonical for row in rows):
@@ -2888,16 +2894,21 @@ class SpotlightScanService:
         price = self._history_primary_price_value(pricing)
         return (price, utc_now()[:10]) if price is not None else (None, None)
 
-    @staticmethod
-    def _watch_printing_labels(variant_keys: list[str]) -> dict[str, str]:
+    def _watch_printing_labels(self, variant_keys: list[str], card_id: str) -> dict[str, str]:
         """{stored watch key: PDP picker label} for printing watches — the
         picker speaks Scrydex labels ("First Edition") while a watch is stored
         under its TCGplayer key ("1st Edition"), so the app maps with this
-        instead of comparing the two spellings."""
+        instead of comparing the two spellings. A merged main printing maps to
+        its chip (Computer Search "Normal" -> "Unlimited")."""
+        alias_key, alias_label = (
+            served_main_printing_alias(price_snapshot_row(self.connection, card_id))
+            if any(variant_keys)
+            else (None, None)
+        )
         return {
             key: label
             for key in variant_keys
-            if key and (label := watch_printings.printing_label(key))
+            if key and (label := alias_label if key == alias_key else watch_printings.printing_label(key))
         }
 
     def _watch_market_prices(self, variant_keys: list[str], card_id: str) -> dict[str, float | None]:
@@ -7544,9 +7555,18 @@ class SpotlightScanService:
     ) -> str | None:
         available_variants = self._raw_history_variants(card_id)
         requested = str(requested_variant or "").strip() or None
+        pricing_variant = str((pricing_summary or {}).get("variant") or "").strip() or None
+        # TCGplayer's name for a merged printing (an old "Normal" copy, the
+        # headline's own "Normal") selects the chip it was merged into.
+        alias_key, alias_label = served_main_printing_alias(price_snapshot_row(self.connection, card_id))
+        if alias_label is not None and alias_label in available_variants:
+            alias_match = _variant_match_key(_normalized_variant_label(alias_key))
+            if requested and requested not in available_variants and _variant_match_key(requested) == alias_match:
+                requested = alias_label
+            if pricing_variant and pricing_variant not in available_variants and _variant_match_key(pricing_variant) == alias_match:
+                pricing_variant = alias_label
         if requested and requested in available_variants:
             return requested
-        pricing_variant = str((pricing_summary or {}).get("variant") or "").strip() or None
         if pricing_variant and pricing_variant in available_variants:
             return pricing_variant
         payload = (pricing_summary or {}).get("payload") if isinstance(pricing_summary, dict) else {}
@@ -7842,7 +7862,8 @@ class SpotlightScanService:
             # (the same one the row reader's COALESCE served).
             snapshot_row = price_snapshot_row(self.connection, card_id)
             label = (
-                scrydex_variant_label_for_subtype(_cell_field(snapshot_row, "main_raw_variant"))
+                served_main_printing_alias(snapshot_row)[1]
+                or scrydex_variant_label_for_subtype(_cell_field(snapshot_row, "main_raw_variant"))
                 if snapshot_row is not None
                 else None
             )
@@ -8060,6 +8081,14 @@ class SpotlightScanService:
             {"id": variant_name, "label": variant_name}
             for variant_name in self._raw_history_variants(card_id)
         ]
+        # The merged chip also answers to TCGplayer's name for it, so a copy
+        # or watch saved as "Normal" finds "Unlimited". Additive; old apps ignore it.
+        alias_key, alias_label = served_main_printing_alias(price_snapshot_row(self.connection, card_id))
+        if alias_label is not None:
+            tcgplayer_name = watch_printings.printing_label(alias_key) or alias_key
+            for option in available_variants:
+                if option["label"] == alias_label and tcgplayer_name != alias_label:
+                    option["aliases"] = [tcgplayer_name]
         available_conditions = self._raw_history_condition_options(card_id, selected_variant)
         # Low-volume (illiquid/flat) and unknown-volume cards should not expose
         # non-NM condition pickers. Only NM has trustworthy pricing for those.
@@ -8353,9 +8382,10 @@ class SpotlightScanService:
             # NM series is its raw_main cells ONLY, the same source as the headline
             # price. Mixing in Scrydex days zigzagged wherever the two disagree;
             # older days come from the TCGCSV archive backfill instead.
-            # A TCGCSV printing Scrydex has no series for (Computer Search's
-            # "Normal" is Scrydex's "unlimited") gets its own NM series, so the
-            # chart for the printing the headline quotes is never missing.
+            # A main printing TCGplayer spells differently is keyed under its
+            # Scrydex name (Computer Search's "Normal" draws "Unlimited · NM");
+            # a TCGCSV printing Scrydex has no series for gets its own NM series,
+            # so the chart for the printing the headline quotes is never missing.
             # Every TCGCSV-drawn series says so in `source`; older apps ignore it.
             main_series = main_raw_cell_series_by_variant(
                 self.connection, card_id=card_id, start_date=start_date
@@ -17697,7 +17727,7 @@ class SpotlightScanService:
             # target prompt quotes the watched printing, and the picker's
             # "First Edition" finds its "1st Edition" watch by label.
             "watchMarketPrices": watch_market_prices,
-            "watchPrintingLabels": self._watch_printing_labels(watched_keys),
+            "watchPrintingLabels": self._watch_printing_labels(watched_keys, card_id),
             "isLiked": like_row is not None,
             "likedAt": like_row["created_at"] if like_row is not None else None,
             "cardText": card_text_from_card(resolved_card),
@@ -17874,7 +17904,7 @@ class SpotlightScanService:
             if variant_key
             else None
         )
-        payload["watchPrintingLabels"] = self._watch_printing_labels(watched)
+        payload["watchPrintingLabels"] = self._watch_printing_labels(watched, normalized_card_id)
         return payload
 
     def set_card_like(self, card_id: str, *, is_liked: bool | None = None) -> dict[str, Any]:
