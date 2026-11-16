@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
-import { Alert, Linking, StyleSheet } from 'react-native';
+import { Alert, Linking } from 'react-native';
 
 import { mockSpotlightEventMap, type SpotlightEventMap } from '@spotlight/api-client';
 import type { BoothClaim, BoothPost } from '@/features/events/booth-service';
