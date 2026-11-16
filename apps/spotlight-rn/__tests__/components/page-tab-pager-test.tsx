@@ -1059,6 +1059,22 @@ describe('CollapsibleTabPager', () => {
     expect(onChange).toHaveBeenCalledWith('forsale');
   });
 
+  it('never takes over a touch that has already started scrolling vertically', () => {
+    const onChange = jest.fn();
+    renderPager({ onChange, value: 'collection' });
+
+    // Scroll down 30pt first (the list is moving), THEN drift far sideways.
+    const claims = drag({ x: 400, y: 400 }, [
+      { x: 402, y: 415 },
+      { x: 404, y: 430 },
+      { x: 300, y: 440 },
+      { x: 200, y: 450 },
+    ]);
+
+    expect(claims.every((claimed) => !claimed)).toBe(true);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('moves back on a rightward swipe', () => {
     const onChange = jest.fn();
     renderPager({ onChange, value: 'activity' });

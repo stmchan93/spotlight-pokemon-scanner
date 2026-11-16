@@ -126,8 +126,12 @@ import { useAuth } from '@/providers/auth-provider';
  * list is decided before the list starts scrolling (at 12 the list often won).
  */
 export const PAGER_ACTIVATE_X = 8;
-/** Vertical travel that rules the touch out before then — a clearly vertical scroll. */
-export const PAGER_FAIL_Y = 20;
+/**
+ * Vertical travel that rules the touch out before then. Matches UIScrollView's
+ * ~10pt start: past it the list is already scrolling, and taking the touch
+ * then moved the page down AND sideways (user, 2026-11-16).
+ */
+export const PAGER_FAIL_Y = 10;
 /**
  * More sideways than vertical (45°) counts. A thumb swipe is an arc; at 1.35 a
  * natural swipe often failed and the list scrolled instead (user, 2026-11-15).

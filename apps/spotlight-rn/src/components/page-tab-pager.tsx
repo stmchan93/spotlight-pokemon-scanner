@@ -63,6 +63,12 @@ export const AnimatedScrollView = Animated.ScrollView as unknown as typeof Scrol
 const CLAIM_DRAG = 10;
 
 /**
+ * Vertical travel (before any claim) that makes a touch a scroll for good.
+ * UIScrollView starts scrolling at ~10pt, so past this the list is moving.
+ */
+const VERTICALLY_DECIDED = 10;
+
+/**
  * How much more horizontal than vertical a drag must be to count: 45°, the same
  * as the outer tab pager, so a thumb's arc still reads as a page swipe.
  */
@@ -490,6 +496,11 @@ export function CollapsibleTabPager<V extends string>({
    * decision is being made — it is only filled in once the responder is granted.
    */
   const startXRef = useRef<number | null>(null);
+  // Set once a touch has moved VERTICALLY_DECIDED pt down/up before claiming:
+  // from then on it is a scroll for its whole life, so a page swipe can never
+  // take over a list that is already scrolling ("the page goes down and then
+  // swipes", user 2026-11-16). Reset at touch-down.
+  const verticalDecidedRef = useRef(false);
   /** Claims-once guard, reset on every new touch. */
   const claimedRef = useRef(false);
   /** Set by a `PageSwipeGuard` on touch-down; see that component. */
@@ -699,6 +710,7 @@ export function CollapsibleTabPager<V extends string>({
       // root→target, and the guard is a descendant, so its `block()` always
       // lands after this.
       inHorizontalScrollerRef.current = false;
+      verticalDecidedRef.current = false;
       // Recording the start must never itself claim the gesture: at touch-down
       // a page swipe and a tap on a card are indistinguishable.
       return false;
@@ -724,6 +736,14 @@ export function CollapsibleTabPager<V extends string>({
       }
       // One finger only. Multi-touch centroid travel is not a page swipe.
       if (gesture.numberActiveTouches !== 1) {
+        return false;
+      }
+      // Already scrolling vertically: stays a scroll (see verticalDecidedRef).
+      if (verticalDecidedRef.current) {
+        return false;
+      }
+      if (Math.abs(gesture.dy) >= VERTICALLY_DECIDED && Math.abs(gesture.dx) < CLAIM_DRAG) {
+        verticalDecidedRef.current = true;
         return false;
       }
       // Left-edge band is spoken for by the drawer / the stack back-swipe.
