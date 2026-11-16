@@ -91,6 +91,17 @@ describe('selectHistorySeries', () => {
     expect(selectHistorySeries(history, { mode: 'raw', condition: 'NM' }, 'Normal')?.key).toBe('normal|NM');
   });
 
+  it('prefers the freshest series when two keys differ only in spelling', () => {
+    // Computer Search (base1-71) on prod: a stray one-day "Unlimited" series
+    // (June) sorted ahead of the 209-day "unlimited" one and won.
+    const stray = { ...series('Unlimited|NM', 'Unlimited', 'NM', [3.24]), points: [
+      { date: '2026-06-26', market: 3.24, low: null, mid: null, high: null },
+    ] };
+    const real = series('unlimited|NM', 'unlimited', 'NM', [4, 4.2, 4.38]);
+    const dupes: CardConditionHistory = { ...history, series: [stray, real] };
+    expect(selectHistorySeries(dupes, { mode: 'raw', condition: 'NM' }, 'Unlimited')?.key).toBe('unlimited|NM');
+  });
+
   it('uses the only printing when its key spelling differs', () => {
     const single: CardConditionHistory = { ...history, series: [series('holo|NM', 'holo', 'NM', [1])] };
     expect(selectHistorySeries(single, { mode: 'raw', condition: 'NM' }, 'Holofoil')?.key).toBe('holo|NM');

@@ -112,6 +112,30 @@ export function rowIdentity(
   return { mode, grader, grade, variantName: keyVariant || fallbackVariant || null };
 }
 
+/**
+ * Of several series that match the same printing, the one with the newest
+ * point, then the most points. Keys that differ only in spelling ("Unlimited"
+ * vs "unlimited") match alike, and a stray one-day duplicate sorted first used
+ * to win: Computer Search's NM chart showed a single June point instead of its
+ * 209-day history (2026-11-16).
+ */
+function freshest(series: CardConditionHistorySeries[]): CardConditionHistorySeries | null {
+  let best: CardConditionHistorySeries | null = null;
+  let bestLast = '';
+  for (const candidate of series) {
+    const last = candidate.points.reduce((max, point) => (point.date > max ? point.date : max), '');
+    if (
+      best == null
+      || last > bestLast
+      || (last === bestLast && candidate.points.length > best.points.length)
+    ) {
+      best = candidate;
+      bestLast = last;
+    }
+  }
+  return best;
+}
+
 /** Picks the printing's series among same-condition (or same-grade) candidates. */
 function pickVariant(
   candidates: CardConditionHistorySeries[],
@@ -120,7 +144,7 @@ function pickVariant(
   allowBlankFallback: boolean,
 ): CardConditionHistorySeries | null {
   const wanted = variantMatchKey(variantLabel);
-  const exact = candidates.find((series) => variantMatchKey(series.variantKey) === wanted);
+  const exact = freshest(candidates.filter((series) => variantMatchKey(series.variantKey) === wanted));
   if (exact) {
     return exact;
   }
