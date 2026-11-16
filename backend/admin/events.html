@@ -37,6 +37,15 @@
   #booths td.num, #booths th.num { text-align:right; }
   #booths tr.reported td { background:#fff4f4; }
   #boothsStatus.err { color:var(--danger); }
+  #vendors { grid-column: 1 / -1; }
+  #vendors table { width:100%; border-collapse:collapse; font-size:13px; margin-top:12px; }
+  #vendors th, #vendors td { text-align:left; padding:6px 6px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  #vendors td input { padding:5px 7px; font-size:13px; }
+  #vendors td.logo img { width:32px; height:32px; border-radius:6px; border:1px solid var(--line); display:block; }
+  #vendors td.btns { white-space:nowrap; }
+  #vendors td.btns button, #vendors td.btns select { padding:5px 8px; font-size:12px; width:auto; }
+  #vendors tr.edited td { background:#f6f2ff; }
+  #vendorsStatus.err { color:var(--danger); }
 </style>
 </head>
 <body>
@@ -125,6 +134,22 @@
     <div id="boothsStatus" class="hint"></div>
     <div style="overflow-x:auto"><table id="boothsTable"></table></div>
   </section>
+  <section class="card" id="vendors" hidden>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <strong style="margin-right:auto">Vendors &amp; map <span id="vendorsEvent" class="hint"></span></strong>
+      <button class="secondary" type="button" id="addVendor">Add vendor</button>
+      <button class="secondary" type="button" id="uploadMapJson">Upload map JSON</button>
+      <button class="secondary" type="button" id="uploadMapImage">Upload map image</button>
+      <button class="secondary" type="button" id="uploadMapBase">Upload base image</button>
+      <button class="secondary danger" type="button" id="resetMap">Use shipped map</button>
+    </div>
+    <p class="hint">Changes reach the app within ~5 minutes, no app update or deploy. Tables: type ids like <code>A1, A2</code>; giving a vendor a table takes it off whoever had it. "Swap" exchanges two vendors' tables. Map uploads take the files <code>tools/build_event_floor_map.py</code> writes (JSON first, then the image).</p>
+    <div id="mapInfo" class="hint"></div>
+    <div id="vendorsStatus" class="hint"></div>
+    <div style="overflow-x:auto"><table id="vendorsTable"></table></div>
+    <div id="removedVendors" class="hint" style="margin-top:10px"></div>
+    <input type="file" id="vendorFile" hidden>
+  </section>
 </main>
 <script>
 (() => {
@@ -191,6 +216,7 @@
     if (e.flyerUrl) { img.src = e.flyerUrl + '?t=' + Date.now(); img.hidden = false; } else { img.hidden = true; }
     renderList();
     loadBooths();
+    loadVendors();
   }
 
   const boothStatus = (msg, err) => { $('boothsStatus').textContent = msg; $('boothsStatus').className = err ? 'err' : 'hint'; };
@@ -312,6 +338,117 @@
       current = null; await load();
     } catch (e) { status(e.message, true); }
   };
+
+
+  // ---- Vendors & map ----------------------------------------------------------
+  const vendorStatus = (msg, err) => { $('vendorsStatus').textContent = msg; $('vendorsStatus').className = err ? 'err' : 'hint'; };
+  let vendorView = null;
+  const vpath = (rest) => `/api/v1/admin/events/${encodeURIComponent(current.id)}/${rest}`;
+
+  function pickFile(accept) {
+    return new Promise((resolve) => {
+      const input = $('vendorFile');
+      input.value = ''; input.accept = accept;
+      input.onchange = () => resolve(input.files[0] || null);
+      input.click();
+    });
+  }
+  async function postRaw(rest, file) {
+    return api(vpath(rest), { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+  }
+  async function postJson(rest, payload) {
+    return api(vpath(rest), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}) });
+  }
+  const splitList = (text) => text.split(',').map((t) => t.trim()).filter(Boolean);
+
+  async function loadVendors() {
+    if (!current) { $('vendors').hidden = true; return; }
+    const eventId = current.id;
+    $('vendors').hidden = false;
+    $('vendorsEvent').textContent = '· ' + (current.shortTitle || current.title);
+    vendorStatus('Loading…');
+    try {
+      const data = await api(vpath('vendors'));
+      if (!current || current.id !== eventId) return;
+      vendorView = data;
+      renderVendors();
+    } catch (e) { vendorStatus('Could not load vendors: ' + e.message, true); }
+  }
+
+  function renderVendors() {
+    const v = vendorView;
+    const m = v.map;
+    $('mapInfo').textContent = m
+      ? `Map: ${m.source === 'upload' ? 'uploaded here' : 'shipped file'} · ${v.tables.length} tables · ${m.hasImage ? 'image ✓' : 'no image'}${m.hasBaseImage ? ' · base ✓' : ''}${m.updatedAt ? ' · updated ' + String(m.updatedAt).slice(0, 16).replace('T', ' ') : ''}`
+      : 'No map for this show yet: upload the map JSON to start.';
+    $('resetMap').hidden = !m || m.source !== 'upload';
+    vendorStatus(`${v.vendors.length} vendors`);
+    const table = $('vendorsTable');
+    table.innerHTML = '';
+    const head = table.insertRow();
+    for (const label of ['', 'Name', 'Tables', 'Instagram', 'Tags', '']) { const th = document.createElement('th'); th.textContent = label; head.appendChild(th); }
+    const others = v.vendors.map((x) => [x.id, x.name]);
+    for (const vendor of v.vendors) {
+      const tr = table.insertRow();
+      if (vendor.source !== 'map') tr.className = 'edited';
+      const logo = tr.insertCell(); logo.className = 'logo';
+      if (vendor.logoUrl) { const img = document.createElement('img'); img.src = vendor.logoUrl; logo.appendChild(img); }
+      const field = (value, width) => { const input = document.createElement('input'); input.value = value || ''; input.style.minWidth = width; tr.insertCell().appendChild(input); return input; };
+      const name = field(vendor.name, '140px');
+      const tables = field((vendor.tableIds || []).join(', '), '90px');
+      tables.title = vendor.location || '';
+      const ig = field(vendor.instagram, '110px');
+      const tags = field((vendor.tags || []).join(', '), '140px');
+      const btns = tr.insertCell(); btns.className = 'btns';
+      const button = (label, fn, danger) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'secondary' + (danger ? ' danger' : ''); b.textContent = label; b.onclick = fn; btns.appendChild(b); return b; };
+      button('Save', () => saveVendor({ id: vendor.id, name: name.value, tableIds: splitList(tables.value), instagram: ig.value, tags: splitList(tags.value), location: vendor.location }));
+      const swapWith = document.createElement('select');
+      swapWith.innerHTML = '<option value="">Swap with…</option>';
+      for (const [id, label] of others) if (id !== vendor.id) { const o = document.createElement('option'); o.value = id; o.textContent = label; swapWith.appendChild(o); }
+      swapWith.onchange = () => swapWith.value && swapVendor(vendor, swapWith.value);
+      btns.appendChild(swapWith);
+      button('Logo', () => uploadLogo(vendor));
+      button('Remove', () => removeVendor(vendor), true);
+      if (vendor.source !== 'map') button(vendor.source === 'added' ? 'Delete' : 'Undo edits', () => restoreVendor(vendor), true);
+    }
+    const removed = $('removedVendors');
+    removed.innerHTML = '';
+    if (v.removed.length) {
+      removed.append('Removed: ');
+      for (const r of v.removed) {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'secondary'; b.style.padding = '3px 8px'; b.style.marginRight = '6px';
+        b.textContent = `Restore ${r.name}`; b.onclick = () => restoreVendor(r); removed.appendChild(b);
+      }
+    }
+  }
+
+  async function run(label, fn) {
+    vendorStatus(label + '…');
+    try { await fn(); await loadVendors(); vendorStatus(label + ' ✓'); }
+    catch (e) { vendorStatus(label + ' failed: ' + e.message, true); }
+  }
+  const saveVendor = (vendor) => run(`Saving ${vendor.name}`, () => postJson('vendors', vendor));
+  const swapVendor = (vendor, other) => run(`Swapping ${vendor.name}`, () => postJson(`vendors/${encodeURIComponent(vendor.id)}/swap`, { with: other }));
+  const removeVendor = (vendor) => confirm(`Take ${vendor.name} off the map?`) && run(`Removing ${vendor.name}`, () => postJson(`vendors/${encodeURIComponent(vendor.id)}/remove`));
+  const restoreVendor = (vendor) => run(`Restoring ${vendor.name}`, () => postJson(`vendors/${encodeURIComponent(vendor.id)}/restore`));
+  async function uploadLogo(vendor) {
+    const file = await pickFile('image/*');
+    if (file) run(`Uploading ${vendor.name}'s logo`, () => postRaw(`vendors/${encodeURIComponent(vendor.id)}/logo`, file));
+  }
+  $('addVendor').onclick = () => {
+    const name = prompt('Vendor name');
+    if (!name) return;
+    const tables = prompt('Tables (e.g. A1, A2), or leave empty') || '';
+    run(`Adding ${name}`, () => postJson('vendors', { name, tableIds: splitList(tables), tags: [] }));
+  };
+  $('uploadMapJson').onclick = async () => {
+    const file = await pickFile('application/json,.json');
+    if (!file) return;
+    run('Uploading map JSON', async () => postJson('map', JSON.parse(await file.text())));
+  };
+  $('uploadMapImage').onclick = async () => { const f = await pickFile('image/png,image/*'); if (f) run('Uploading map image', () => postRaw('map/image', f)); };
+  $('uploadMapBase').onclick = async () => { const f = await pickFile('image/png,image/*'); if (f) run('Uploading base image', () => postRaw('map/base-image', f)); };
+  $('resetMap').onclick = () => confirm('Go back to the shipped map? The uploaded map and images are deleted.') && run('Resetting map', () => postJson('map/reset'));
 
   if (token()) load();
 })();

@@ -197,6 +197,7 @@ import art_search
 import spotlight_events
 import booth_admin
 import spotlight_events_admin
+import spotlight_event_vendors_admin
 import watch_signals
 import watchlist_suggestions
 import youtube_feed
@@ -2496,6 +2497,7 @@ class SpotlightScanService:
             meta_pulse.ensure_schema(bootstrap_connection)
             hot_cards.ensure_schema(bootstrap_connection)
             spotlight_events_admin.ensure_schema(bootstrap_connection)
+            spotlight_event_vendors_admin.ensure_schema(bootstrap_connection)
             set_spotlight.ensure_schema(bootstrap_connection)
             youtube_feed.ensure_schema(bootstrap_connection)  # includes news_feed's tables
             # Alert prefs/timezone columns + the market-alert ledger (after the deal-radar patch).
@@ -2507,6 +2509,9 @@ class SpotlightScanService:
         # Browser-edited shows layered over data/spotlight_events.json (/admin/events).
         self.events_admin = spotlight_events_admin.EventsAdmin(lambda: connect(self.database_path))
         spotlight_events.configure_admin(self.events_admin)
+        # Browser-edited vendors/floor maps layered over data/spotlight_event_maps/.
+        self.vendors_admin = spotlight_event_vendors_admin.VendorsAdmin(lambda: connect(self.database_path))
+        spotlight_events.configure_vendor_admin(self.vendors_admin)
         # Bounded: each hydrated card carries its full source JSON (~36KB), and
         # unbounded it grew to every card ever viewed, a big share of the 13GB
         # that hung prod on 2026-11-15. FIFO eviction; the hot set stays cached.
@@ -26872,11 +26877,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
 
         if parsed.path.startswith("/api/v1/events/") and "/vendor-logos/" in parsed.path:
             event_id, _, vendor_id = unquote(parsed.path[len("/api/v1/events/"):]).partition("/vendor-logos/")
-            logo = spotlight_events.floor_map_vendor_logo_file(event_id, vendor_id) if event_id else None
-            try:
-                body = logo.read_bytes() if logo else None
-            except OSError:
-                body = None
+            body = spotlight_events.vendor_logo_bytes(event_id, vendor_id) if event_id and vendor_id else None
             if body is None:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
                 return
@@ -26894,11 +26895,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
 
         if parsed.path.startswith("/api/v1/events/") and parsed.path.endswith("/map-base-image"):
             event_id = unquote(parsed.path[len("/api/v1/events/"):-len("/map-base-image")])
-            image = spotlight_events.floor_map_base_image_file(event_id) if event_id else None
-            try:
-                body = image.read_bytes() if image else None
-            except OSError:
-                body = None
+            body = spotlight_events.floor_map_image_bytes(event_id, "base") if event_id else None
             if body is None:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
                 return
@@ -26907,11 +26904,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
 
         if parsed.path.startswith("/api/v1/events/") and parsed.path.endswith("/map-image"):
             event_id = unquote(parsed.path[len("/api/v1/events/"):-len("/map-image")])
-            image = spotlight_events.floor_map_image_file(event_id) if event_id else None
-            try:
-                body = image.read_bytes() if image else None
-            except OSError:
-                body = None
+            body = spotlight_events.floor_map_image_bytes(event_id) if event_id else None
             if body is None:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
                 return
@@ -26927,6 +26920,17 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             if not self._events_admin_authorized():
                 return
             self._write_json(HTTPStatus.OK, self._events_admin_listing())
+            return
+
+        if parsed.path.startswith("/api/v1/admin/events/") and parsed.path.endswith("/vendors"):
+            if not self._events_admin_authorized():
+                return
+            event_id = unquote(parsed.path.removeprefix("/api/v1/admin/events/").removesuffix("/vendors").strip("/"))
+            if not any(event["id"] == event_id for event in spotlight_events.load_events(include_hidden=True)):
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "unknown event"})
+                return
+            view = spotlight_events.admin_map_view(event_id)
+            self._write_json(HTTPStatus.OK, view or {"tables": [], "vendors": [], "removed": [], "map": None})
             return
 
         if parsed.path.startswith("/api/v1/admin/events/") and parsed.path.endswith("/booths"):
@@ -29464,6 +29468,9 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             admin.set_hidden(event_id, hidden)
             self._write_json(HTTPStatus.OK, {"hidden": hidden})
             return
+        if action == "vendors" or action.startswith("vendors/") or action == "map" or action.startswith("map/"):
+            self._handle_vendors_admin_post(event_id, action)
+            return
         # Booth claims live in Supabase (social_27); these go through the service role.
         if action.startswith("booths/") and action.endswith("/unclaim"):
             vendor_id = unquote(action.removeprefix("booths/").removesuffix("/unclaim").strip("/"))
@@ -29486,6 +29493,120 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, {"sent": sent})
             return
         self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+
+    def _handle_vendors_admin_post(self, event_id: str, action: str) -> None:
+        """Vendor and floor-map edits for one event (spotlight_event_vendors_admin).
+
+        vendors                     JSON vendor {id?, name, tags, instagram, location, tableIds}: add or edit
+        vendors/<id>/move           {"tableIds": [...]}: put the vendor on these tables (taken off anyone else)
+        vendors/<id>/swap           {"with": "<other id>"}: exchange two vendors' tables
+        vendors/<id>/remove         take the vendor off the map
+        vendors/<id>/restore        undo every edit to the vendor (back to the shipped map)
+        vendors/<id>/logo           raw image body
+        map                         the builder's map JSON: replaces the shipped map
+        map/image, map/base-image   raw PNG body for the uploaded map
+        map/reset                   back to the shipped map
+        """
+        admin = self.service.vendors_admin
+
+        def bad(message: str, status: HTTPStatus = HTTPStatus.BAD_REQUEST) -> None:
+            self._write_json(status, {"error": message})
+
+        def current() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+            view = spotlight_events.admin_map_view(event_id)
+            if view is None:
+                return [], []
+            vendors = [{k: v for k, v in vendor.items() if k not in {"source", "logoUrl"}} for vendor in view["vendors"]]
+            state = admin.state(event_id)
+            uploaded = state["map"]
+            if uploaded:
+                tables = uploaded["document"].get("tables") or []
+            else:
+                tables = (spotlight_events._load_map(event_id, spotlight_events.MAPS_DIR) or {}).get("tables") or []
+            return vendors, tables
+
+        def json_body() -> Any:
+            payload = self._read_json_body()
+            if payload is None:
+                bad(self._json_body_error_message or "invalid body", self._json_body_error_status or HTTPStatus.BAD_REQUEST)
+            elif not isinstance(payload, dict):
+                bad("body must be a JSON object")
+                return None
+            return payload
+
+        def image_body() -> bytes | None:
+            body = self._read_raw_image_body()
+            if body is None:
+                bad(self._json_body_error_message or "image body is required",
+                    self._json_body_error_status or HTTPStatus.BAD_REQUEST)
+            return body
+
+        try:
+            if action == "map":
+                payload = json_body()
+                if payload is None:
+                    return
+                document = admin.save_map_document(event_id, payload)
+                self._write_json(HTTPStatus.OK, {"tables": len(document["tables"]), "vendors": len(document["vendors"])})
+                return
+            if action in {"map/image", "map/base-image"}:
+                body = image_body()
+                if body is None:
+                    return
+                size = admin.save_map_image(event_id, "base" if action == "map/base-image" else "image", body)
+                self._write_json(HTTPStatus.OK, {"bytes": size})
+                return
+            if action == "map/reset":
+                admin.reset_map(event_id)
+                self._write_json(HTTPStatus.OK, {"reset": event_id})
+                return
+
+            vendors, tables = current()
+            if action == "vendors":
+                payload = json_body()
+                if payload is None:
+                    return
+                vendor = admin.assign(event_id, vendors, tables, payload)
+                self._write_json(HTTPStatus.OK, {"vendor": vendor})
+                return
+            vendor_id, _, verb = action.removeprefix("vendors/").partition("/")
+            vendor_id = unquote(vendor_id)
+            if verb == "restore":
+                admin.restore(event_id, vendor_id)
+                self._write_json(HTTPStatus.OK, {"restored": vendor_id})
+                return
+            existing = next((v for v in vendors if v["id"] == vendor_id), None)
+            if existing is None:
+                bad("unknown vendor", HTTPStatus.NOT_FOUND)
+                return
+            if verb == "move":
+                payload = json_body()
+                if payload is None:
+                    return
+                vendor = admin.assign(event_id, vendors, tables, {**existing, "tableIds": payload.get("tableIds") or []})
+                self._write_json(HTTPStatus.OK, {"vendor": vendor})
+                return
+            if verb == "swap":
+                payload = json_body()
+                if payload is None:
+                    return
+                a, b = admin.swap(event_id, vendors, tables, vendor_id, str(payload.get("with") or ""))
+                self._write_json(HTTPStatus.OK, {"vendors": [a, b]})
+                return
+            if verb == "remove":
+                admin.remove(event_id, existing)
+                self._write_json(HTTPStatus.OK, {"removed": vendor_id})
+                return
+            if verb == "logo":
+                body = image_body()
+                if body is None:
+                    return
+                self._write_json(HTTPStatus.OK, {"bytes": admin.save_logo(event_id, vendor_id, body)})
+                return
+        except ValueError as error:
+            bad(str(error))
+            return
+        bad("Not found", HTTPStatus.NOT_FOUND)
 
     def _events_admin_listing(self) -> dict[str, Any]:
         overrides, _ = self.service.events_admin.overrides()

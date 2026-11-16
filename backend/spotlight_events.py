@@ -217,6 +217,26 @@ def configure_admin(admin: Any) -> None:
     _admin = admin
 
 
+# Browser-edited vendors/maps (spotlight_event_vendors_admin.VendorsAdmin); unset
+# in tests and tools, where the map files alone are the truth.
+_vendor_admin: Any = None
+
+
+def configure_vendor_admin(admin: Any) -> None:
+    global _vendor_admin
+    _vendor_admin = admin
+
+
+def _vendor_state(event_id: str) -> dict[str, Any] | None:
+    if _vendor_admin is None:
+        return None
+    try:
+        return _vendor_admin.state(event_id)
+    except Exception as error:  # noqa: BLE001 - the shipped map still serves if the DB read fails
+        LOGGER.warning("vendor overrides for %s unreadable: %s", event_id, error)
+        return None
+
+
 def load_events(path: Path | None = None, *, include_hidden: bool = False) -> list[dict[str, Any]]:
     """The file's events with any admin overrides merged on top (see
     spotlight_events_admin): an override replaces or adds by id, `hidden` drops
@@ -363,7 +383,7 @@ def build_events_payload(
         item = {k: v for k, v in event.items() if k not in {"flyer", "hidden", "_flyerVersion"}}
         # Versioned so a replaced flyer is a new URL: apps cache images by URL.
         item["flyerUrl"] = f"{flyer_url(event['id'])}?v={version}" if version else None
-        item["floorMapUrl"] = floor_map_url(event["id"]) if _load_map(event["id"], maps) else None
+        item["floorMapUrl"] = floor_map_url(event["id"]) if _resolve_map(event["id"], maps) else None
         item["status"] = event_status(event, now)
         buckets[item["status"]].append(item)
     buckets["live"].sort(key=lambda e: (e["startDate"], e["id"]))
@@ -456,32 +476,104 @@ def _load_map(event_id: str, maps_dir: Path) -> dict[str, Any] | None:
     return document if _servable(document, maps_dir) else None
 
 
+def _resolve_map(event_id: str, maps_dir: Path) -> dict[str, Any] | None:
+    """The map the app sees: an admin-uploaded map, else the shipped file, with
+    admin vendor edits merged in. None when there is nothing servable.
+
+    Returns {"document", "uploaded" (row or None), "state" (admin state or None)}.
+    """
+    if not _ID_RE.match(event_id):
+        return None
+    state = _vendor_state(event_id)
+    uploaded = state["map"] if state else None
+    # An upload with tables waits for its image; until then the shipped map serves.
+    if uploaded and uploaded["document"].get("tables") and not uploaded["has_image"]:
+        uploaded = None
+    if uploaded:
+        document = dict(uploaded["document"])
+        document["imageFile"] = None
+    else:
+        document = _load_map(event_id, maps_dir)
+        if document is None:
+            return None
+        document = dict(document)
+    if state and state["overrides"]:
+        from spotlight_event_vendors_admin import merge_vendors  # noqa: PLC0415 - avoids an import cycle
+
+        document["vendors"] = merge_vendors(document["vendors"], state["overrides"], document.get("tables") or [])
+    return {"document": document, "uploaded": uploaded, "state": state}
+
+
+def _resolved_is_vendors_only(resolved: dict[str, Any]) -> bool:
+    uploaded = resolved["uploaded"]
+    if uploaded:
+        return not resolved["document"].get("tables") and not uploaded["has_image"]
+    return _is_vendors_only(resolved["document"])
+
+
 def floor_map_payload(
     event_id: str, *, events_path: Path | None = None, maps_dir: Path | None = None
 ) -> dict[str, Any] | None:
     """The served map for a validated event, or None. The image filename never goes on the wire."""
     if not any(e["id"] == event_id for e in load_events(events_path)):
         return None
-    document = _load_map(event_id, Path(maps_dir or MAPS_DIR))
-    if document is None:
+    maps = Path(maps_dir or MAPS_DIR)
+    resolved = _resolve_map(event_id, maps)
+    if resolved is None:
         return None
+    document, uploaded, state = resolved["document"], resolved["uploaded"], resolved["state"]
     payload = {k: v for k, v in document.items() if k != "imageFile"}
     payload["eventId"] = event_id
-    logos = _logos_dir(event_id, Path(maps_dir or MAPS_DIR))
-    payload["vendors"] = [{**vendor, "logoUrl": _vendor_logo_url(event_id, vendor, logos)} for vendor in document["vendors"]]
+    logos = _logos_dir(event_id, maps)
+    db_logos = (state or {}).get("logos") or {}
+    payload["vendors"] = [
+        {**vendor, "logoUrl": _vendor_logo_url(event_id, vendor, logos, db_logos)} for vendor in document["vendors"]
+    ]
+    # Uploaded images get a version so a replaced map is a new URL (apps cache by URL).
+    suffix = ""
+    if uploaded:
+        from spotlight_event_vendors_admin import version_of  # noqa: PLC0415
+
+        suffix = f"?v={version_of(uploaded['updated_at'])}"
     # Vendors-only: no floor yet, so no image; the app shows the list alone.
-    payload["imageUrl"] = None if _is_vendors_only(document) else floor_map_image_url(event_id)
+    payload["imageUrl"] = None if _resolved_is_vendors_only(resolved) else floor_map_image_url(event_id) + suffix
     # The app draws tables/labels itself over a walls-only image; without that
     # image it falls back to the flat `imageUrl`.
     vector = document.get("vector")
-    base_name = _vector_base_name(document)
-    if isinstance(vector, dict) and base_name and _map_image_path(document, Path(maps_dir or MAPS_DIR), base_name):
+    if uploaded:
+        has_base = isinstance(vector, dict) and uploaded["has_base"]
+    else:
+        base_name = _vector_base_name(document)
+        has_base = bool(isinstance(vector, dict) and base_name and _map_image_path(document, maps, base_name))
+    if has_base:
         served = {k: v for k, v in vector.items() if k != "baseImageFile"}
-        served["baseImageUrl"] = floor_map_base_image_url(event_id)
+        served["baseImageUrl"] = floor_map_base_image_url(event_id) + suffix
         payload["vector"] = served
     else:
         payload["vector"] = None
     return payload
+
+
+def floor_map_image_bytes(
+    event_id: str, kind: str = "image", *, events_path: Path | None = None, maps_dir: Path | None = None
+) -> bytes | None:
+    """PNG bytes of the map image (``kind="image"``) or its walls-only base (``"base"``)."""
+    if not any(e["id"] == event_id for e in load_events(events_path)):
+        return None
+    resolved = _resolve_map(event_id, Path(maps_dir or MAPS_DIR))
+    if resolved is None:
+        return None
+    if resolved["uploaded"]:
+        return _vendor_admin.map_image(event_id, kind) if _vendor_admin is not None else None
+    path = (
+        floor_map_base_image_file(event_id, events_path=events_path, maps_dir=maps_dir)
+        if kind == "base"
+        else floor_map_image_file(event_id, events_path=events_path, maps_dir=maps_dir)
+    )
+    try:
+        return path.read_bytes() if path else None
+    except OSError:
+        return None
 
 
 def floor_map_image_file(
@@ -518,8 +610,13 @@ def _vendor_logo_path(logos: Path, vendor_id: object) -> Path | None:
     return path if path.is_file() else None
 
 
-def _vendor_logo_url(event_id: str, vendor: Any, logos: Path) -> str | None:
-    path = _vendor_logo_path(logos, vendor.get("id") if isinstance(vendor, dict) else None)
+def _vendor_logo_url(event_id: str, vendor: Any, logos: Path, db_logos: dict[str, str] | None = None) -> str | None:
+    vendor_id = vendor.get("id") if isinstance(vendor, dict) else None
+    if isinstance(vendor_id, str) and db_logos and vendor_id in db_logos:
+        from spotlight_event_vendors_admin import version_of  # noqa: PLC0415
+
+        return f"/api/v1/events/{event_id}/vendor-logos/{vendor_id}?v={version_of(db_logos[vendor_id])}"
+    path = _vendor_logo_path(logos, vendor_id)
     if path is None:
         return None
     # Served with a long cache; the mtime busts it when a vendor sends a new logo.
@@ -532,6 +629,78 @@ def floor_map_vendor_logo_file(
     if not _ID_RE.match(event_id) or not any(e["id"] == event_id for e in load_events(events_path)):
         return None
     return _vendor_logo_path(_logos_dir(event_id, Path(maps_dir or MAPS_DIR)), vendor_id)
+
+
+def vendor_logo_bytes(
+    event_id: str, vendor_id: str, *, events_path: Path | None = None, maps_dir: Path | None = None
+) -> bytes | None:
+    """An uploaded logo first, else the shipped WebP."""
+    if not _ID_RE.match(event_id) or not _ID_RE.match(vendor_id):
+        return None
+    if not any(e["id"] == event_id for e in load_events(events_path)):
+        return None
+    if _vendor_admin is not None:
+        try:
+            uploaded = _vendor_admin.logo(event_id, vendor_id)
+        except Exception as error:  # noqa: BLE001
+            LOGGER.warning("vendor logo %s/%s unreadable: %s", event_id, vendor_id, error)
+            uploaded = None
+        if uploaded:
+            return uploaded
+    path = floor_map_vendor_logo_file(event_id, vendor_id, events_path=events_path, maps_dir=maps_dir)
+    try:
+        return path.read_bytes() if path else None
+    except OSError:
+        return None
+
+
+def admin_map_view(event_id: str, *, maps_dir: Path | None = None) -> dict[str, Any] | None:
+    """The merged map for the admin editor: tables, vendors (with logo URLs and an
+    "edited"/"added" source), removed vendors, and whether the map is an upload."""
+    maps = Path(maps_dir or MAPS_DIR)
+    state = _vendor_state(event_id) or {"map": None, "overrides": {}, "logos": {}}
+    resolved = _resolve_map(event_id, maps)
+    if state["map"] and (resolved is None or resolved["uploaded"] is None):
+        # An uploaded document still waiting for its image: edit that one, not the
+        # shipped map it is about to replace.
+        uploaded = state["map"]
+        document = dict(uploaded["document"])
+        if state["overrides"]:
+            from spotlight_event_vendors_admin import merge_vendors  # noqa: PLC0415
+
+            document["vendors"] = merge_vendors(document["vendors"], state["overrides"], document.get("tables") or [])
+        resolved = {"document": document, "uploaded": uploaded, "state": state}
+    if resolved is None:
+        return None
+    document = resolved["document"]
+    if resolved["uploaded"]:
+        base_ids = {v.get("id") for v in resolved["uploaded"]["document"].get("vendors") or []}
+    else:
+        base_ids = {v.get("id") for v in (_load_map(event_id, maps) or {}).get("vendors") or []}
+    logos = _logos_dir(event_id, maps)
+    vendors = []
+    for vendor in document["vendors"]:
+        source = "added" if vendor["id"] not in base_ids else ("edited" if vendor["id"] in state["overrides"] else "map")
+        vendors.append({**vendor, "source": source, "logoUrl": _vendor_logo_url(event_id, vendor, logos, state["logos"])})
+    removed = [
+        {"id": vendor_id, "name": (row["payload"] or {}).get("name") or vendor_id}
+        for vendor_id, row in state["overrides"].items()
+        if row["removed"]
+    ]
+    uploaded = resolved["uploaded"]
+    return {
+        "tables": [
+            {k: t.get(k) for k in ("id", "block", "number")} for t in document.get("tables") or [] if isinstance(t, dict)
+        ],
+        "vendors": vendors,
+        "removed": removed,
+        "map": {
+            "source": "upload" if uploaded else "file",
+            "hasImage": bool(uploaded["has_image"]) if uploaded else not _is_vendors_only(document),
+            "hasBaseImage": bool(uploaded["has_base"]) if uploaded else bool(_vector_base_name(document)),
+            "updatedAt": uploaded["updated_at"] if uploaded else document.get("updatedAt"),
+        },
+    }
 
 
 def clear_cache() -> None:
