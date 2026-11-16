@@ -1,5 +1,6 @@
 // SDK 55: readAsStringAsync lives in /legacy; the new entry's stub throws at
 // runtime (silently dropped every scan's source image — see scanner dashboard).
+import { BlurView } from 'expo-blur';
 import * as FileSystem from 'expo-file-system/legacy';
 import type { ReactNode, RefObject } from 'react';
 import { useCallback, useEffect, useImperativeHandle, useState } from 'react';
@@ -161,6 +162,12 @@ export type RawScannerPreviewOverride = {
 };
 
 type RawScannerCaptureSurfaceProps = {
+  /**
+   * expo-blur intensity for a backdrop blur over the camera OUTSIDE the frame
+   * (top, sides, bottom), so the frame reads as the one clear window. Omitted =
+   * no blur. iOS only: Android's blur view can't sample the camera surface.
+   */
+  blurOutsideFrameIntensity?: number;
   cameraRef: RefObject<RawScannerCameraHandle | null>;
   canCapture: boolean;
   children?: ReactNode;
@@ -345,7 +352,9 @@ export function makeRawScannerCaptureLayout({
   );
 
   return {
-    backButtonTop: safeAreaTop + 10,
+    // Same row as every other tab's top bar (HomeHeader / WishlistHeader):
+    // the 44pt controls sit directly under the safe area.
+    backButtonTop: safeAreaTop,
     captureCropRect: {
       height: cropHeight,
       width: cropWidth,
@@ -398,6 +407,7 @@ export function isBenignCameraCancellation(error: unknown): boolean {
 }
 
 export function RawScannerCaptureSurface({
+  blurOutsideFrameIntensity,
   cameraRef,
   canCapture,
   children,
@@ -710,6 +720,28 @@ export function RawScannerCaptureSurface({
         />
       )}
 
+      {isTrayExpanded || blurOutsideFrameIntensity == null || Platform.OS !== 'ios' ? null : (
+        // Four plain strips around the frame: expo-blur has no mask, so the
+        // frame's rounded corners keep a few unblurred points — the scrim
+        // above still dims them, so the cut-out shape doesn't change.
+        <View pointerEvents="none" style={StyleSheet.absoluteFillObject} testID={`${testIDPrefix}-outside-blur`}>
+          {[
+            { height: frameRect.y, left: 0, top: 0, width: layout.previewWidth },
+            { height: layout.previewHeight - frameRect.y - frameRect.height, left: 0, top: frameRect.y + frameRect.height, width: layout.previewWidth },
+            { height: frameRect.height, left: 0, top: frameRect.y, width: frameRect.x },
+            { height: frameRect.height, left: frameRect.x + frameRect.width, top: frameRect.y, width: layout.previewWidth - frameRect.x - frameRect.width },
+          ].map((strip, index) => (
+            <BlurView
+              intensity={blurOutsideFrameIntensity}
+              key={index}
+              pointerEvents="none"
+              style={[styles.outsideBlurStrip, strip]}
+              tint="default"
+            />
+          ))}
+        </View>
+      )}
+
       {isTrayExpanded ? null : (
         <Svg
           height={layout.previewHeight}
@@ -757,7 +789,7 @@ export function RawScannerCaptureSurface({
       <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
         {isTrayExpanded || !prompt ? null : (
           <Text style={[styles.scanPrompt, { top: layout.promptTop }]} testID={`${testIDPrefix}-prompt`}>
-            {prompt}
+            {prompt.toUpperCase()}
           </Text>
         )}
 
@@ -936,8 +968,12 @@ const styles = StyleSheet.create({
   reticleShell: {
     position: 'absolute',
   },
+  outsideBlurStrip: {
+    position: 'absolute',
+  },
+  // Small caps hint (design review 2026-11-16: "TAP TO SCAN", smaller).
   scanPrompt: {
-    ...textStyles.headline,
+    ...textStyles.captionMedium,
     alignSelf: 'center',
     color: colors.scannerTextPrimary,
     position: 'absolute',

@@ -120,3 +120,79 @@ describe('the pocket grid', () => {
     expect(style.backgroundColor).not.toBe(colors.purple50);
   });
 });
+
+describe('design review 2026-11-16', () => {
+  const cardLayout = makeRawScannerCaptureLayout({
+    containerHeight: 844,
+    containerWidth: 390,
+    controlsInsideFrame: true,
+    safeAreaTop: 59,
+  });
+
+  function renderCardSurface(props: { blurOutsideFrameIntensity?: number; isTrayExpanded?: boolean }) {
+    return render(
+      <RawScannerCaptureSurface
+        blurOutsideFrameIntensity={props.blurOutsideFrameIntensity}
+        cameraRef={createRef<RawScannerCameraHandle>()}
+        canCapture
+        hasCameraPermission
+        isTrayExpanded={props.isTrayExpanded}
+        layout={cardLayout}
+        onCameraReady={() => {}}
+        onCapture={() => {}}
+        prompt="Tap to scan"
+        shouldMountCamera
+        testIDPrefix="frame"
+      />,
+    );
+  }
+
+  it('blurs the camera all around the frame, leaving the frame itself clear', () => {
+    renderCardSurface({ blurOutsideFrameIntensity: 10 });
+
+    const strips = screen.getByTestId('frame-outside-blur').props.children as {
+      props: { intensity: number; style: unknown };
+    }[];
+    expect(strips).toHaveLength(4);
+    const frame = cardLayout.reticle;
+    const rects = strips.map(
+      (strip) =>
+        StyleSheet.flatten(strip.props.style as never) as unknown as {
+          height: number;
+          left: number;
+          top: number;
+          width: number;
+        },
+    );
+    strips.forEach((strip) => expect(strip.props.intensity).toBe(10));
+    // Strips tile the screen minus the frame rect, and none enters the window.
+    const area = rects.reduce((sum, r) => sum + r.width * r.height, 0);
+    expect(area).toBeCloseTo(390 * 844 - frame.width * frame.height);
+    rects.forEach((r) => {
+      const overlapsX = r.left < frame.x + frame.width && r.left + r.width > frame.x;
+      const overlapsY = r.top < frame.y + frame.height && r.top + r.height > frame.y;
+      expect(overlapsX && overlapsY).toBe(false);
+    });
+  });
+
+  it('draws no outside blur when not asked for, or with the tray expanded', () => {
+    renderCardSurface({});
+    expect(screen.queryByTestId('frame-outside-blur')).toBeNull();
+    screen.unmount();
+    renderCardSurface({ blurOutsideFrameIntensity: 10, isTrayExpanded: true });
+    expect(screen.queryByTestId('frame-outside-blur')).toBeNull();
+  });
+
+  it('shows the hint as small caps, uppercased in JS', () => {
+    renderCardSurface({});
+    const prompt = screen.getByTestId('frame-prompt');
+    expect(prompt).toHaveTextContent('TAP TO SCAN');
+    const style = StyleSheet.flatten(prompt.props.style);
+    expect(style.fontSize).toBe(13);
+    expect(style.textTransform).toBeUndefined();
+  });
+
+  it('puts the top bar directly under the safe area, like every other tab header', () => {
+    expect(cardLayout.backButtonTop).toBe(59);
+  });
+});

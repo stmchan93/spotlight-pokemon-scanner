@@ -391,7 +391,7 @@ describe('ScannerScreen', () => {
   it('captures a scan photo when the preview is tapped', async () => {
     renderScannerScreen();
 
-    expect(screen.getByTestId('scanner-prompt')).toHaveTextContent('Tap to scan');
+    expect(screen.getByTestId('scanner-prompt')).toHaveTextContent('TAP TO SCAN');
 
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
@@ -1721,6 +1721,15 @@ describe('ScannerScreen', () => {
     // The scanner opens at 1.5x, so that chip carries the surface.
     expect(fillOf('scanner-zoom-1.5x-surface')).toBe(colors.gray0);
     expect(screen.queryByTestId('scanner-zoom-2x-surface')).toBeNull();
+    // Even padding either side of "1.5×": symmetric horizontal padding, centred
+    // label, proportional digits (a tabular "1" pads its own left side).
+    const zoomSurface = StyleSheet.flatten(screen.getByTestId('scanner-zoom-1.5x-surface').props.style as never) as Record<string, unknown>;
+    expect(zoomSurface.paddingHorizontal).toBeDefined();
+    expect(zoomSurface.paddingLeft).toBeUndefined();
+    expect(zoomSurface.paddingRight).toBeUndefined();
+    const zoomLabel = StyleSheet.flatten(screen.getByText('1.5×').props.style) as Record<string, unknown>;
+    expect(zoomLabel.textAlign).toBe('center');
+    expect(zoomLabel.fontVariant).not.toContain('tabular-nums');
 
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));

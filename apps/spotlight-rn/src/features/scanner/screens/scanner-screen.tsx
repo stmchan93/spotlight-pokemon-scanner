@@ -4650,6 +4650,9 @@ export function ScannerScreen({
       <GradedRowPrices spotlightRepository={spotlightRepository} trayStore={trayStore} />
       {isActiveTab ? <ScannerKeepAwake /> : null}
       <RawScannerCaptureSurface
+        // Design review 2026-11-16: the bottom band's blur now runs all the way
+        // around the frame, so the frame is the one clear window.
+        blurOutsideFrameIntensity={SCANNER_BOTTOM_BLUR_INTENSITY}
         cameraRef={cameraRef}
         canCapture={canCapture}
         captureResolution={isBinderPageMode ? 'page' : 'card'}
@@ -4794,9 +4797,11 @@ export function ScannerScreen({
             Figma 5938:14965 "Bottom gradient": a 2px backdrop blur under white
             0% -> 20% (top -> bottom), behind the zoom controls and the tray.
             The blur is iOS-only: Android's blur view can't sample the camera
-            surface and would paint it black.
+            surface and would paint it black. While the frame shows, the
+            capture surface's around-the-frame blur already covers this band,
+            so it is drawn here only with the tray expanded (no double blur).
           */}
-          {Platform.OS === 'ios' ? (
+          {Platform.OS === 'ios' && isTrayExpanded ? (
             <BlurView intensity={SCANNER_BOTTOM_BLUR_INTENSITY} pointerEvents="none" style={StyleSheet.absoluteFill} tint="default" />
           ) : null}
           <Svg height="100%" style={StyleSheet.absoluteFill} width="100%">
@@ -5578,11 +5583,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minWidth: 32,
     overflow: 'hidden',
-    paddingHorizontal: spacing.xxxs,
+    paddingHorizontal: spacing.xxs,
   },
   zoomPillLabel: {
     // Figma Caption-medium (Medium 13), same as the Single/3×3 pill.
     ...textStyles.captionMedium,
+    // Proportional digits: a tabular "1" carries a wide left bearing, which
+    // made the "1.5×" chip's left padding read larger than its right.
+    fontVariant: ['proportional-nums', 'lining-nums'],
+    textAlign: 'center',
     // Dark on the white chip.
     color: colors.gray900,
   },
