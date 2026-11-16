@@ -15,6 +15,7 @@ import {
   type MetaLane,
   type MetaLaneFilter,
   type MetaPulse,
+  type MetaTrendSearch,
   type NewsFeed,
   type NewsItem,
   type NewsKind,
@@ -277,6 +278,23 @@ export function parseMetaGroupDetailPayload(value: unknown, requested?: { window
     windowDays: num(raw.windowDays) || requested?.windowDays || 7,
     group: parseMetaGroup(asRecord(raw.group), payloadGame),
     asOfDate: str(raw.asOfDate),
+  };
+}
+
+export function parseMetaTrendSearchPayload(
+  value: unknown,
+  requested?: { query?: string; windowDays?: number },
+): MetaTrendSearch {
+  const raw = asRecord(value);
+  const payloadGame = game(raw.game);
+  return {
+    game: payloadGame,
+    windowDays: num(raw.windowDays) || requested?.windowDays || 30,
+    query: str(raw.query) ?? requested?.query ?? '',
+    asOfDate: str(raw.asOfDate),
+    groups: asArray(raw.groups)
+      .map((group) => parseMetaGroup(asRecord(group), payloadGame))
+      .filter((group) => group.groupKey !== ''),
   };
 }
 

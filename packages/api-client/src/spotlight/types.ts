@@ -1869,6 +1869,21 @@ export type MetaGroupDetailQuery = {
   lane?: MetaLaneFilter;
 };
 
+/** Market Watch price-trend search (GET /api/v1/market/meta/search). */
+export type MetaTrendSearchQuery = {
+  query: string;
+  game?: CardGame;
+  windowDays?: number;
+};
+export type MetaTrendSearch = {
+  game: CardGame;
+  windowDays: number;
+  query: string;
+  asOfDate: string | null;
+  /** Card groups first ("Vintage"), then sets oldest-first. Flat sets included. */
+  groups: MetaGroup[];
+};
+
 export type MetaExposureQuery = {
   game?: CardGame;
   windowDays?: number;

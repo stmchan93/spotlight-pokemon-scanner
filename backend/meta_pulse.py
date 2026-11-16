@@ -422,6 +422,9 @@ class GroupResult:
     spark_points: list[float] = field(default_factory=list)
     # Sets only: the ranking score (basket change without its biggest mover).
     sort_score: float | None = None
+    # Set index only: what search matches against, and the oldest-first sort key.
+    search_text: str | None = None
+    release_date: str | None = None
 
     @property
     def value_change_usd(self) -> float:
@@ -604,6 +607,79 @@ def aggregate_sets(
     return out
 
 
+# --- searchable set index -------------------------------------------------------
+#
+# Market Watch search ("vintage", "fossil") needs EVERY trackable set's trend,
+# including flat ones the top-3 gates drop. Stored under their own segment so
+# the top 3, the feed groups and the exposure copy never see them.
+
+SET_INDEX_SEGMENT_KEY = "set_index"
+_SET_SEGMENTS = (SET_SEGMENT_KEY, SET_INDEX_SEGMENT_KEY)
+SEARCH_MAX_RESULTS = 25
+SEARCH_MAX_QUERY_CHARS = 60
+
+
+def set_index_group_key(set_key: str) -> str:
+    return f"{SET_INDEX_SEGMENT_KEY}:{set_key.replace('/', '_')}:{LANE_RAW}"
+
+
+_ERA_SEARCH_WORDS = {"vintage": "vintage wotc", "ex_era": "ex era"}
+
+
+def aggregate_set_index(
+    pairs: Iterable[PricePair],
+    cards: dict[str, CardInfo],
+    set_types: dict[str, str] | None = None,
+    set_series: dict[str, str] | None = None,
+) -> list[GroupResult]:
+    """Every trackable English set's basket change, gate-free (see above)."""
+    by_set: dict[tuple[str, str], list[PricePair]] = {}
+    for pair in pairs:
+        if pair.lane != LANE_RAW:
+            continue
+        info = cards.get(pair.card_id)
+        if info is None or info.supertype == SEALED_SUPERTYPE or language_key(info.language) != "en":
+            continue
+        set_key = info.set_id or info.set_name
+        if not set_key or not set_is_trackable(info.set_name, (set_types or {}).get(info.set_id or "")):
+            continue
+        by_set.setdefault((pair.game, str(set_key)), []).append(pair)
+
+    out: list[GroupResult] = []
+    for (game, set_key), members in by_set.items():
+        if len(members) < SET_MIN_CARDS:
+            continue
+        basket = sorted(members, key=lambda p: (-p.price_then, p.card_id))[:SET_BASKET_SIZE]
+        value_then = sum(p.price_then for p in basket)
+        if value_then <= 0:
+            continue
+        value_now = sum(p.price_now for p in basket)
+        change = (value_now - value_then) / value_then * 100.0
+        moved = [p for p in basket if p.moved]
+        movers = [p for p in members if p.moved and p.price_now >= SET_TAP_MIN_PRICE_USD]
+        movers.sort(key=lambda p: (-abs(p.change_pct), p.card_id))
+        lead = cards[basket[0].card_id]
+        label = lead.set_name or set_key
+        release = normalize_release_date(lead.release_date)
+        era_words = _ERA_SEARCH_WORDS.get(era_for_release_date(release) or "", "")
+        series = (set_series or {}).get(lead.set_id or "", "")
+        out.append(
+            GroupResult(
+                game=game, lane=LANE_RAW, group_key=set_index_group_key(set_key),
+                segment_key=SET_INDEX_SEGMENT_KEY,
+                label=label,
+                search_text=" ".join(x for x in (label, series, (release or "")[:4], era_words) if x),
+                release_date=release,
+                description=f"{len(moved)} of top {len(basket)} cards moved · {len(members):,} cards",
+                median_change_pct=change, value_now=value_now, value_then=value_then,
+                card_count=len(members), moved_card_count=len(moved),
+                pairs=basket, top_pairs=movers[:TOP_CARDS],
+            )
+        )
+    out.sort(key=lambda g: (g.game, g.group_key))
+    return out
+
+
 def _set_types(connection: sqlite3.Connection) -> dict[str, str]:
     """{set_id: Scrydex set type} where the payload names one ("Promo", "Starter Deck"…)."""
     if not _table_exists(connection, "expansions") or "source_payload_json" not in _table_columns(connection, "expansions"):
@@ -617,6 +693,13 @@ def _set_types(connection: sqlite3.Connection) -> dict[str, str]:
         if kind:
             out[str(set_id)] = str(kind)
     return out
+
+
+def _set_series(connection: sqlite3.Connection) -> dict[str, str]:
+    """{set_id: series} ("Base", "Neo", "EX") for set search."""
+    if not _table_exists(connection, "expansions") or "series" not in _table_columns(connection, "expansions"):
+        return {}
+    return {str(r[0]): str(r[1]) for r in connection.execute("SELECT id, series FROM expansions WHERE series IS NOT NULL")}
 
 
 def downsample_indices(count: int, target: int = SPARK_POINTS) -> list[int]:
@@ -909,8 +992,13 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
         """
     )
     connection.execute("CREATE INDEX IF NOT EXISTS idx_meta_pulse_runs_as_of ON meta_pulse_runs (as_of_date)")
-    if "sort_score" not in _table_columns(connection, "meta_pulse_groups"):
+    group_columns = _table_columns(connection, "meta_pulse_groups")
+    if "sort_score" not in group_columns:
         connection.execute("ALTER TABLE meta_pulse_groups ADD COLUMN sort_score REAL")
+    if "search_text" not in group_columns:
+        connection.execute("ALTER TABLE meta_pulse_groups ADD COLUMN search_text TEXT")
+    if "release_date" not in group_columns:
+        connection.execute("ALTER TABLE meta_pulse_groups ADD COLUMN release_date TEXT")
 
 
 # --- compute ------------------------------------------------------------------
@@ -962,6 +1050,7 @@ def compute_meta_pulse(
     has_main_variant = "main_raw_variant" in history_columns
     has_cells = _table_exists(connection, "card_price_history_cell")
     set_types = _set_types(connection)
+    set_series = _set_series(connection)
 
     raw_now: dict = {}
     if has_main:
@@ -1005,6 +1094,7 @@ def compute_meta_pulse(
             pairs, tags, min_group_cards=min_group_cards, min_moved_cards=min_moved_cards
         )
         groups.extend(aggregate_sets(pairs, cards, set_types))
+        groups.extend(aggregate_set_index(pairs, cards, set_types, set_series))
         per_window[window] = (groups, totals)
         if groups:
             dates = spark_dates(then_end, ref_date)
@@ -1072,19 +1162,21 @@ def _write_results(
         for group in groups:
             if group.game not in games:
                 continue
-            if group.segment_key != SET_SEGMENT_KEY:
+            if group.segment_key not in _SET_SEGMENTS:
                 group_counts[(group.game, group.lane)] = group_counts.get((group.game, group.lane), 0) + 1
             connection.execute(
                 "INSERT INTO meta_pulse_groups (game, as_of_date, window_days, lane, group_key, segment_key, "
                 "label, description, median_change_percent, value_now, value_then, value_change_usd, "
-                "card_count, moved_card_count, spark_points_json, computed_at, sort_score) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "card_count, moved_card_count, spark_points_json, computed_at, sort_score, "
+                "search_text, release_date) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     group.game, as_of, window, group.lane, group.group_key, group.segment_key,
                     group.label, group.description, round(group.median_change_pct, 2),
                     round(group.value_now, 2), round(group.value_then, 2), round(group.value_change_usd, 2),
                     group.card_count, group.moved_card_count, json.dumps(group.spark_points), computed_at,
                     None if group.sort_score is None else round(group.sort_score, 2),
+                    group.search_text, group.release_date,
                 ),
             )
             for rank, pair in enumerate(group.top_pairs, start=1):
@@ -1249,7 +1341,7 @@ def _load_group_dicts(
     if kind == KIND_SETS:
         group_where += f" AND segment_key = '{SET_SEGMENT_KEY}'"
     elif kind == KIND_GROUPS:
-        group_where += f" AND segment_key != '{SET_SEGMENT_KEY}'"
+        group_where += f" AND segment_key NOT IN ('{SET_SEGMENT_KEY}', '{SET_INDEX_SEGMENT_KEY}')"
     group_rows = connection.execute(
         "SELECT lane, group_key, label, description, median_change_percent, value_now, value_then, "
         "value_change_usd, card_count, moved_card_count, spark_points_json "
@@ -1424,6 +1516,67 @@ def build_meta_group_detail_payload(
         key=lambda c: ((-c["changePercent"]) if rising else c["changePercent"], str(c["cardId"]))
     )
     return {"game": game, "windowDays": window_days, "group": group, "asOfDate": as_of}
+
+
+# --- search ---------------------------------------------------------------------
+
+
+def _search_tokens(query: str) -> list[str]:
+    return [t for t in re.split(r"[^a-z0-9]+", query.lower()) if t]
+
+
+def build_meta_search_payload(
+    connection: sqlite3.Connection,
+    *,
+    game: str = DEFAULT_GAME,
+    window_days: int = 30,
+    query: str,
+) -> dict[str, Any]:
+    """Price trends matching a search: card groups ("Vintage", "Gold Star") first,
+    then sets oldest-first. A set matches on its name, series, release year and
+    era words ("vintage", "ex era"); every query word must match."""
+    if not _table_exists(connection, "meta_pulse_runs"):
+        ensure_schema(connection)
+    game = normalize_game(game)
+    window_days = int(window_days)
+    text = str(query or "").strip()[:SEARCH_MAX_QUERY_CHARS]
+    tokens = _search_tokens(text)
+    as_of = _latest_as_of(connection, game)
+    empty = {"game": game, "windowDays": window_days, "query": text, "asOfDate": as_of, "groups": []}
+    if not tokens or not as_of:
+        return empty
+
+    groups = _load_group_dicts(
+        connection, game=game, as_of=as_of, window_days=window_days, top_cards_limit=1, kind=None,
+    )
+    index_meta = {
+        str(r[0]): (str(r[1] or ""), r[2])
+        for r in connection.execute(
+            "SELECT group_key, search_text, release_date FROM meta_pulse_groups "
+            "WHERE game = ? AND as_of_date = ? AND window_days = ? AND segment_key = ?",
+            (game, as_of, window_days, SET_INDEX_SEGMENT_KEY),
+        )
+    }
+
+    def matches(haystack: str) -> bool:
+        # Word-prefix match: "foss" finds Fossil, "ex" does not find "Next".
+        words = _search_tokens(haystack)
+        return all(any(w.startswith(t) for w in words) for t in tokens)
+
+    matched_groups: list[dict[str, Any]] = []
+    matched_sets: list[tuple[str, dict[str, Any]]] = []
+    for g in groups:
+        key = g["groupKey"]
+        if key in index_meta:
+            haystack, release = index_meta[key]
+            if matches(haystack or g["label"]):
+                matched_sets.append((release or "9999", g))
+        elif not key.startswith(f"{SET_SEGMENT_KEY}:") and matches(g["label"]):
+            matched_groups.append(g)
+    matched_groups.sort(key=lambda g: (g["lane"] != LANE_RAW, g["label"]))
+    matched_sets.sort(key=lambda item: (item[0], item[1]["label"]))
+    results = matched_groups + [g for _, g in matched_sets]
+    return {**empty, "groups": results[:SEARCH_MAX_RESULTS]}
 
 
 # --- per-user exposure --------------------------------------------------------
@@ -1666,8 +1819,8 @@ def build_meta_exposure_payload(
         str(r[1]): (str(r[2]), str(r[3]), float(r[4]))
         for r in connection.execute(
             "SELECT lane, group_key, label, segment_key, median_change_percent FROM meta_pulse_groups "
-            "WHERE game = ? AND as_of_date = ? AND window_days = ? AND segment_key != ?",
-            (game, as_of, window_days, SET_SEGMENT_KEY),
+            "WHERE game = ? AND as_of_date = ? AND window_days = ? AND segment_key NOT IN (?, ?)",
+            (game, as_of, window_days, SET_SEGMENT_KEY, SET_INDEX_SEGMENT_KEY),
         ).fetchall()
     }
     if not run_groups:

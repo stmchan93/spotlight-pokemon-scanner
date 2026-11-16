@@ -222,6 +222,10 @@ export function createTestSpotlightRepository(
       return overrides.fetchMetaGroupDetail?.(...args)
         ?? baseRepository.fetchMetaGroupDetail(...args);
     },
+    searchMetaTrends: (...args) => {
+      return overrides.searchMetaTrends?.(...args)
+        ?? baseRepository.searchMetaTrends(...args);
+    },
     fetchMetaExposure: (...args) => {
       return overrides.fetchMetaExposure?.(...args)
         ?? baseRepository.fetchMetaExposure(...args);

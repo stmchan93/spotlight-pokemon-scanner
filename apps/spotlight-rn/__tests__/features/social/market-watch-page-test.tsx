@@ -161,4 +161,47 @@ describe('MarketWatchPage', () => {
 
     expect(await screen.findByTestId('market-watch-page-empty')).toBeTruthy();
   });
+
+  it('searches any set\'s trend, flat ones included, and opens it', async () => {
+    const searchMetaTrends = jest.fn(async ({ query }: { query: string }) => ({
+      game: 'pokemon' as const,
+      windowDays: 30,
+      query,
+      asOfDate: '2026-11-01',
+      groups: [group({ groupKey: 'set_index:base3:raw', label: 'Fossil', medianChangePercent: 0.4 })],
+    }));
+    renderPage({
+      fetchCalendar: async () => ({ items: [] }),
+      fetchMetaPulse: async () => pulse([group({})]),
+      searchMetaTrends,
+    });
+
+    fireEvent.changeText(await screen.findByTestId('market-watch-page-search'), '  fossil ');
+
+    expect(await screen.findByTestId('market-watch-page-result-set_index:base3:raw')).toBeTruthy();
+    expect(searchMetaTrends).toHaveBeenLastCalledWith({ query: 'fossil', game: 'pokemon', windowDays: 30 });
+    // Results replace the top 3 while searching.
+    expect(screen.queryByText('TRENDING UP')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('market-watch-page-result-set_index:base3:raw'));
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/meta/group/[groupKey]',
+      params: { game: 'pokemon', groupKey: 'set_index:base3:raw', window: '30' },
+    });
+
+    fireEvent.changeText(screen.getByTestId('market-watch-page-search'), '');
+    expect(await screen.findByText('TRENDING UP')).toBeTruthy();
+  });
+
+  it('says when nothing matches', async () => {
+    renderPage({
+      fetchCalendar: async () => ({ items: [] }),
+      fetchMetaPulse: async () => pulse([group({})]),
+      searchMetaTrends: async ({ query }) => ({ game: 'pokemon', windowDays: 30, query, asOfDate: null, groups: [] }),
+    });
+
+    fireEvent.changeText(await screen.findByTestId('market-watch-page-search'), 'zzz');
+
+    expect(await screen.findByText('No price trends match "zzz".')).toBeTruthy();
+  });
 });
