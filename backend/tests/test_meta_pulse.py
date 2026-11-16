@@ -178,7 +178,7 @@ class SetTrendTests(unittest.TestCase):
         self.assertAlmostEqual(broad_g.sort_score, 20.0)
         self.assertGreater(carried_g.median_change_pct, 100.0)
         self.assertAlmostEqual(carried_g.sort_score, 1.0)
-        self.assertEqual(broad_g.description, "10 of top 10 cards up · 12 cards")
+        self.assertEqual(broad_g.description, "12 cards")
         # Market Watch shows the set's release year (Figma 6322:7903).
         self.assertEqual(broad_g.release_date, "2004-08-30")
         self.assertIsNone(carried_g.release_date)
@@ -218,7 +218,7 @@ class SetTrendTests(unittest.TestCase):
         group = sets[0]
         self.assertLess(group.median_change_pct, 0)
         self.assertLess(group.sort_score, 0)
-        self.assertTrue(group.description.startswith("10 of top 10 cards down"))
+        self.assertNotIn("of top", group.description)
         tap = [p.card_id for p in group.top_pairs]
         self.assertNotIn("d11", tap)
         self.assertEqual(tap[0], "d0")  # biggest % drop first
@@ -443,7 +443,7 @@ class ComputeTests(unittest.TestCase):
         group = sets["groups"][0]
         self.assertEqual(set(group), GROUP_KEYS)
         self.assertEqual(group["label"], "Plasma Storm")
-        self.assertEqual(group["description"], "10 of top 10 cards up · 12 cards")
+        self.assertEqual(group["description"], "12 cards")
         self.assertAlmostEqual(group["medianChangePercent"], 50.0, delta=0.5)
         # Card groups never include sets, and sets never include card groups.
         groups = build_meta_pulse_payload(self.connection, game="pokemon", window_days=30)

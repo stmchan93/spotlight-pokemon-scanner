@@ -605,9 +605,8 @@ def aggregate_sets(
                 label=label,
                 # Market Watch shows the release year under each set (Figma 6322:7903).
                 release_date=normalize_release_date(lead.release_date),
-                description=(
-                    f"{agree} of top {len(basket)} cards {'up' if rising else 'down'} · {len(members):,} cards"
-                ),
+                # Card count only: "7 of top 10 cards up" read as noise (user, 2026-11-16).
+                description=f"{len(members):,} cards",
                 median_change_pct=change, value_now=value_now, value_then=value_then,
                 card_count=len(members), moved_card_count=len(moved),
                 pairs=basket, top_pairs=movers[:TOP_CARDS], sort_score=score,
@@ -680,7 +679,7 @@ def aggregate_set_index(
                 label=label,
                 search_text=" ".join(x for x in (label, series, (release or "")[:4], era_words) if x),
                 release_date=release,
-                description=f"{len(moved)} of top {len(basket)} cards moved · {len(members):,} cards",
+                description=f"{len(members):,} cards",
                 median_change_pct=change, value_now=value_now, value_then=value_then,
                 card_count=len(members), moved_card_count=len(moved),
                 pairs=basket, top_pairs=movers[:TOP_CARDS],
