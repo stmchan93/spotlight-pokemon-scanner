@@ -336,9 +336,7 @@ export function makeRawScannerCaptureLayout({
       : width;
   const cropHeight = Math.round(cropWidth * (mode === 'page' ? pageAspectRatio : rawCardReticleAspectRatio));
   const cropX = mode === 'page' || figmaFrame ? Math.round(x + (width - cropWidth) / 2) : x;
-  // Figma box, page mode: pin the grid to the box top so its top edge is the
-  // single-scan frame's top (switching modes then only grows it downward).
-  const cropY = figmaFrame && mode === 'page' ? y : Math.round(y + (height - cropHeight) / 2);
+  const cropY = Math.round(y + (height - cropHeight) / 2);
 
   // controlsTop is clamped so it never drops into the tray's reserved band.
   const controlsTop = Math.min(
@@ -360,12 +358,12 @@ export function makeRawScannerCaptureLayout({
     previewHeight: containerHeight,
     previewWidth: containerWidth,
     promptTop: Math.max(topChromeBottom + 8, y + 12),
-    reticle: {
-      height,
-      width,
-      x,
-      y,
-    },
+    // Figma box: draw the card-shaped crop itself. Single and the 3x3 page then
+    // draw the SAME rect, so switching modes never resizes the frame (user,
+    // 2026-11-16: "I don't want the size to change, width or height").
+    reticle: figmaFrame
+      ? { height: cropHeight, width: cropWidth, x: cropX, y: cropY }
+      : { height, width, x, y },
   };
 }
 

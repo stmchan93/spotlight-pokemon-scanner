@@ -52,11 +52,14 @@ describe('raw scanner capture layout', () => {
     const scanner = makeRawScannerCaptureLayout({ ...base, controlsInsideFrame: true });
     const trayTop = base.containerHeight - trayReservedHeight;
 
-    expect(scanner.reticle.x).toBe(16);
-    expect(scanner.reticle.width).toBe(361);
-    expect(scanner.reticle.y).toBe(59 + 72);
+    // Drawn frame = the card-shaped crop, centered in the 16pt-margin box.
+    expect(scanner.reticle).toEqual(scanner.captureCropRect);
+    expect(scanner.reticle.width).toBeLessThanOrEqual(361);
+    expect(Math.round(scanner.reticle.x + scanner.reticle.width / 2)).toBe(Math.round(393 / 2));
+    // Card-aspect rounding can trim a point off either edge.
+    expect(Math.abs(scanner.reticle.y - (59 + 72))).toBeLessThanOrEqual(1);
     // Bottom edge 26pt above the handle, which sits 17pt below the reserved tray top.
-    expect(scanner.reticle.y + scanner.reticle.height).toBe(trayTop + 17 - 26);
+    expect(Math.abs(scanner.reticle.y + scanner.reticle.height - (trayTop + 17 - 26))).toBeLessThanOrEqual(1);
     // Much taller than the old frame, which reserved a controls row below itself.
     expect(scanner.reticle.height).toBeGreaterThan(legacy.reticle.height + 80);
     // The matcher crop is the largest card-shaped rect inside the frame, centered:
@@ -71,23 +74,20 @@ describe('raw scanner capture layout', () => {
     expect(Math.abs(crop.x + crop.width / 2 - (scanner.reticle.x + scanner.reticle.width / 2))).toBeLessThanOrEqual(1);
   });
 
-  it('multi-scan keeps the single-scan frame width and top, and only grows down', () => {
-    const base = { containerHeight: 874 - 96, containerWidth: 402, controlsInsideFrame: true, safeAreaTop: 62 };
-    const single = makeRawScannerCaptureLayout({
-      ...base, trayReservedHeight: getRawScannerCollapsedTrayReservedHeight({ bottomInset: 24 }),
-    });
-    // Page mode collapses the tray to its header (61pt + 24pt inset).
-    const page = makeRawScannerCaptureLayout({
-      ...base, mode: 'page', pageAspectRatio: 880 / 630, trayReservedHeight: 61 + 24,
-    });
-    const grid = page.captureCropRect;
+  it('draws the 3x3 page and Single as the same rect, so the toggle never resizes the frame', () => {
+    const base = {
+      containerHeight: 874 - 96,
+      containerWidth: 402,
+      controlsInsideFrame: true,
+      safeAreaTop: 62,
+      trayReservedHeight: getRawScannerCollapsedTrayReservedHeight({ bottomInset: 24 }),
+    };
+    const single = makeRawScannerCaptureLayout(base);
+    const page = makeRawScannerCaptureLayout({ ...base, mode: 'page', pageAspectRatio: 880 / 630 });
 
-    expect(grid.x).toBe(single.reticle.x);
-    expect(grid.width).toBe(single.reticle.width);
-    expect(grid.y).toBe(single.reticle.y);
-    expect(grid.height / grid.width).toBeCloseTo(880 / 630, 1);
-    // Still inside the box above the tray.
-    expect(grid.y + grid.height).toBeLessThanOrEqual(page.reticle.y + page.reticle.height);
+    expect(page.reticle).toEqual(single.reticle);
+    // The grid IS the cut, and it is the same rect Single sends to the matcher.
+    expect(page.captureCropRect).toEqual(single.captureCropRect);
   });
 
   it('leaves the labeling layout (controls row below the frame) unchanged', () => {
