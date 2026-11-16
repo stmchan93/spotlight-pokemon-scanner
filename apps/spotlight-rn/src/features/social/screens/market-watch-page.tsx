@@ -224,7 +224,7 @@ export function MarketWatchPage({ page, scrollRef, testID = 'market-watch-page' 
       <View style={styles.trends}>
         <View style={styles.trendsTitle}>
           <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>PRICE TRENDS</Text>
-          {trendDate && !searching ? (
+          {trendDate ? (
             <Text
               style={[theme.typography.postBody, { color: theme.colors.gray500 }]}
               testID={`${testID}-date`}
@@ -235,11 +235,15 @@ export function MarketWatchPage({ page, scrollRef, testID = 'market-watch-page' 
         </View>
         {/* Any set's trend, not just the top 3: "vintage", "fossil", "neo". */}
         <SearchField
+          accessibilityLabel="Search price trends"
           autoCapitalize="none"
           autoCorrect={false}
+          clearButtonMode="while-editing"
           onChangeText={setTrendQuery}
-          placeholder="Search sets, e.g. vintage or fossil"
+          placeholder="Search sets"
           returnKeyType="search"
+          size="collection"
+          surface="muted"
           testID={`${testID}-search`}
           uppercasePlaceholder
           value={trendQuery}

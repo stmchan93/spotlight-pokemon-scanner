@@ -180,8 +180,9 @@ describe('MarketWatchPage', () => {
 
     expect(await screen.findByTestId('market-watch-page-result-set_index:base3:raw')).toBeTruthy();
     expect(searchMetaTrends).toHaveBeenLastCalledWith({ query: 'fossil', game: 'pokemon', windowDays: 30 });
-    // Results replace the top 3 while searching.
+    // Results replace the top 3 while searching; the as-of date stays.
     expect(screen.queryByText('TRENDING UP')).toBeNull();
+    expect(screen.getByTestId('market-watch-page-date')).toHaveTextContent('NOV 1');
 
     fireEvent.press(screen.getByTestId('market-watch-page-result-set_index:base3:raw'));
     expect(mockPush).toHaveBeenCalledWith({
