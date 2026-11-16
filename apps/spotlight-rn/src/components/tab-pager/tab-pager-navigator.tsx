@@ -578,9 +578,6 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
                   && page !== focusedPage
                   && TAB_PAGER_ORDER[page] !== 'scan'
                   && Math.abs(page - settledPage) > 1
-                  // Never freeze Scan: a frozen <Camera> came back with a black
-                  // preview (green dot on) after Home -> Scan.
-                  && TAB_PAGER_ORDER[page] !== 'scan'
                 }
                 renderRoute={renderRoute}
                 route={route && mountedPages.has(page) ? route : undefined}
