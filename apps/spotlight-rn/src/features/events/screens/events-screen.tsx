@@ -266,10 +266,11 @@ export function EventsScreen() {
                 <PillButton
                   key={item.value}
                   label={item.label.toUpperCase()}
+                  // One chip style app-wide (Figma 5938:13960; user 2026-11-16), so the
+                  // idle chip is gray-100 here too, not the photo's former gray-50.
+                  labelRole="caption"
                   onPress={() => setTab(item.value)}
                   selected={selected}
-                  // Over the photo the idle chip is gray-50, not the rail's gray-100 (Figma 5865:9337).
-                  style={selected ? null : { backgroundColor: theme.colors.gray50, borderColor: theme.colors.gray50 }}
                   testID={`events-tabs-tab-${item.value}`}
                   tone="filled"
                 />

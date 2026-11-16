@@ -384,10 +384,15 @@ const styles = StyleSheet.create({
   // capsule is now the profile bar's 3-slot, 20pt-gap capsule (160pt), and a
   // true-centre title on a 402pt phone lands under it ("Wishlis…"). UIKit's
   // own rule for a title that cannot centre: centre it between the bar items.
+  // Both side slots split the leftover width EQUALLY, so the title sits at the
+  // screen's centre. Sized by content (one menu bubble left, a three-button
+  // capsule right), the title was centred in the gap and read off-centre to
+  // the left ("the watchlist title is so weird", user 2026-11-16).
   headerSlot: {
     alignItems: 'center',
+    flexBasis: 0,
     flexDirection: 'row',
-    flexShrink: 0,
+    flexGrow: 1,
     gap: 12,
   },
   headerSlotRight: {
@@ -396,11 +401,11 @@ const styles = StyleSheet.create({
   headerTitle: {
     textAlign: 'center',
   },
-  // Takes the room the side slots leave, and centres the title inside it.
-  // `minWidth: 0` so the clip can shrink rather than push the capsule out.
+  // Sized to the title; the equal side slots centre it on screen. `minWidth: 0`
+  // so the clip can shrink rather than push the capsule out.
   headerTitleClip: {
     alignItems: 'center',
-    flex: 1,
+    flexShrink: 1,
     minWidth: 0,
     overflow: 'hidden',
   },

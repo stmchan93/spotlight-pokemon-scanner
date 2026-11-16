@@ -245,7 +245,8 @@ describe('FeedScreen', () => {
 
       expect(screen.getByTestId('feed-source-for-you')).toBeTruthy();
       expect(screen.getByTestId('feed-source-following')).toBeTruthy();
-      expect(within(screen.getByTestId('feed-source-show')).getByText('Spotlight Hawaii')).toBeTruthy();
+      // Chips are capitals app-wide (Figma 5938:13960).
+      expect(within(screen.getByTestId('feed-source-show')).getByText('SPOTLIGHT HAWAII')).toBeTruthy();
     });
 
     it("swaps the list for the show's feed and composes into it", async () => {

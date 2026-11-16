@@ -644,20 +644,26 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         <View style={styles.sourceChips} testID={`${testID}-source-chips`}>
           <PillButton
             label="For you"
+            labelRole="caption"
             onPress={() => selectSource('forYou')}
             selected={source === 'forYou'}
             testID={`${testID}-source-for-you`}
             tone="filled"
+            uppercase
           />
           <PillButton
             label="Following"
+            labelRole="caption"
             onPress={() => selectSource('following')}
             selected={source === 'following'}
             testID={`${testID}-source-following`}
             tone="filled"
+            uppercase
           />
           <PillButton
             label={feedShow.shortTitle}
+            labelRole="caption"
+            uppercase
             // An icon, not a 📍 emoji: the emoji font's wide bearings pushed the label off-centre.
             leading={
               <MapPin

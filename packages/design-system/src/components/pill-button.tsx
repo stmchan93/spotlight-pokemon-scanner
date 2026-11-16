@@ -69,7 +69,9 @@ export function PillButton({
 
   const isFilterChip = tone === 'filter' || tone === 'filled' || tone === 'secondary';
 
-  const containerStyle = tone === 'secondary'
+  // Figma's chip (5938:13960) has no stroke; the bordered shell made 'filled'
+  // chips 2pt larger than designed.
+  const containerStyle = tone === 'secondary' || tone === 'filled'
     ? [styles.filterContainer, styles.borderless]
     : isFilterChip
     ? styles.filterContainer

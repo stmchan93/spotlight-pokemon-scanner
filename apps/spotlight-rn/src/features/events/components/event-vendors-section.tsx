@@ -381,6 +381,7 @@ function EventVendorsBody({
               <PillButton
                 key={item}
                 label={`${item.toUpperCase()} ${tagCounts.get(item) ?? 0}`}
+                labelRole="caption"
                 onPress={() => setTag((current) => (current === item ? null : item))}
                 selected={tag === item}
                 testID={`event-vendors-tag-${item}`}

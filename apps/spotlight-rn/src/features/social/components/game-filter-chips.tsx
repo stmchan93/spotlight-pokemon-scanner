@@ -37,7 +37,7 @@ export function GameFilterChips({ value, onChange, includeAll = false, testID = 
             onPress={() => onChange(option)}
             selected={value === option}
             testID={`${testID}-${option ?? 'all'}`}
-            tone="secondary"
+            tone="filled"
             uppercase
           />
         ))}
