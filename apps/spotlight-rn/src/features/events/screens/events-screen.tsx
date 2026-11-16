@@ -1,5 +1,5 @@
-import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image,
   Platform,
@@ -10,6 +10,7 @@ import {
   StyleSheet,
   View,
   useWindowDimensions,
+  type TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
@@ -137,6 +138,28 @@ export function EventsScreen() {
     void Share.share({ message: buildEventsShareMessage(events) }).catch(() => undefined);
   }, [events]);
 
+  // Focused imperatively, once per open — never `autoFocus`: the tab pager
+  // freezes far pages, and unfreezing rebuilds the native input, which re-fires
+  // autoFocus and pops the keyboard over another tab (user, 2026-11-16).
+  const searchInputRef = useRef<TextInput>(null);
+  const focusSearchOnOpen = useRef(false);
+  useEffect(() => {
+    if (searchOpen && focusSearchOnOpen.current) {
+      focusSearchOnOpen.current = false;
+      searchInputRef.current?.focus();
+    }
+  }, [searchOpen]);
+  // Leaving Events closes its search, so nothing sits open off-screen.
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        setSearchOpen(false);
+        setQuery('');
+      },
+      [],
+    ),
+  );
+
   const toggleSearch = useCallback(() => {
     setSearchOpen((open) => {
       if (open) {
@@ -144,6 +167,7 @@ export function EventsScreen() {
       } else {
         // Bring the field up under the toolbar so the keyboard opens below it, not over it.
         scrollRef.current?.scrollTo({ y: Math.max(0, sheetTop - insets.top - SEARCH_SCROLL_CLEARANCE), animated: true });
+        focusSearchOnOpen.current = true;
       }
       return !open;
     });
@@ -291,10 +315,10 @@ export function EventsScreen() {
                 accessibilityLabel="Search events"
                 autoCapitalize="none"
                 autoCorrect={false}
-                autoFocus
                 leading={<Search color={theme.colors.gray500} height={SEARCH_ICON_SIZE} width={SEARCH_ICON_SIZE} />}
                 onChangeText={setQuery}
                 placeholder="SEARCH BY SHOW, VENUE OR CITY"
+                ref={searchInputRef}
                 returnKeyType="search"
                 size="collection"
                 surface="muted"

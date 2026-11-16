@@ -690,6 +690,7 @@ const TabPagerPage = memo(function TabPagerPage({
       <TabPagerPageContext.Provider value={api}>
         <TabsPageContext.Provider value={tabsPageValue}>
           {/* Off-screen pages stop re-rendering until they could be seen again. */}
+          {/* No `autoFocus` inside tab pages: unfreezing rebuilds native views and re-fires it (keyboard over Scan, 2026-11-16). */}
           <Freeze freeze={frozen}>{content}</Freeze>
         </TabsPageContext.Provider>
       </TabPagerPageContext.Provider>

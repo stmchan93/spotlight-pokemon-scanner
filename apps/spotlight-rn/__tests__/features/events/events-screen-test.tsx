@@ -18,6 +18,11 @@ import { makeEvent, pastFeatured, upcomingFeatured } from './event-fixtures';
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, back: jest.fn(), replace: jest.fn() }),
+  // Runs the effect once, like a page that is focused and stays focused.
+  useFocusEffect: (effect: () => void | (() => void)) => {
+    const { useEffect } = jest.requireActual<typeof import('react')>('react');
+    useEffect(effect, [effect]);
+  },
 }));
 
 jest.mock('@/features/meta-feed/screens/components/open-link-out', () => ({
