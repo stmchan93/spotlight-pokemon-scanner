@@ -167,12 +167,13 @@ describe('WishlistScreen', () => {
   // was pushed in from the drawer, which by then popped you to whatever you had
   // visited before — or did nothing. A tab is a root: hamburger, like Home and
   // You, plus the same left-edge drag.
-  it('opens the drawer from the header, and has no back button to press', async () => {
+  it('leads with search (no menu), keeps the edge drag, and has no back button', async () => {
     renderWishlistScreen();
     await screen.findByTestId('wishlist-header-title');
 
     expect(screen.queryByTestId('wishlist-header-back')).toBeNull();
-    expect(screen.getByTestId('wishlist-header-menu')).toBeTruthy();
+    expect(screen.queryByTestId('wishlist-header-menu')).toBeNull();
+    expect(screen.getByTestId('wishlist-header-search')).toBeTruthy();
     expect(screen.getByTestId('drawer-edge-swipe')).toBeTruthy();
   });
 
@@ -694,7 +695,7 @@ describe('WishlistScreen', () => {
     expect(push).toHaveBeenCalledWith('/catalog/search');
   });
 
-  it('groups add, edit and share into one pill', async () => {
+  it('groups edit and share into one pill; search leads on its own', async () => {
     const repository = createTestSpotlightRepository({
       getCardFavorites: async () => [buildFavoriteEntry({ cardId: 'charizard', name: 'Charizard' })],
     });
@@ -707,7 +708,8 @@ describe('WishlistScreen', () => {
       pass if they drifted back apart into individual circles.
     */
     const actions = await screen.findByTestId('wishlist-header-actions');
-    expect(within(actions).getByTestId('wishlist-header-search')).toBeTruthy();
+    expect(within(actions).queryByTestId('wishlist-header-search')).toBeNull();
+    expect(screen.getByTestId('wishlist-header-search')).toBeTruthy();
     expect(within(actions).getByTestId('wishlist-header-edit')).toBeTruthy();
     expect(within(actions).getByTestId('wishlist-header-share')).toBeTruthy();
   });
@@ -986,7 +988,6 @@ describe('WishlistScreen', () => {
       expect(titleWrapper().props.pointerEvents).toBe('none');
 
       // ...and the pinned controls are untouched: still mounted, still working.
-      expect(screen.getByTestId('wishlist-header-menu')).toBeTruthy();
       await act(async () => {
         fireEvent.press(screen.getByTestId('wishlist-header-search'));
       });

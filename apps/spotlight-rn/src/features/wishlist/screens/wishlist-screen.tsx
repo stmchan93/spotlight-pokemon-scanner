@@ -81,7 +81,6 @@ import { SharePostSheet } from '@/features/social/components/share-post-sheet';
 import { useAuth } from '@/providers/auth-provider';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
-import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAppServices } from '@/providers/app-providers';
 
 // A watch is a (card, printing): one card watched in two printings is two rows,
@@ -221,7 +220,6 @@ export function WishlistScreen() {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { openDrawer } = useAppDrawer();
   const { isGuest, openLogin } = useGuestGate();
   const isFocused = useIsFocused();
   // Belt-and-suspenders: every entry point here is already guest-gated, but if a
@@ -1011,7 +1009,6 @@ export function WishlistScreen() {
       <WishlistHeader
         editMode={editMode}
         floating
-        onOpenMenu={openDrawer}
         onOpenSearch={handleOpenCatalogSearch}
         onShare={handleShareWishlist}
         onToggleEditMode={() => (editMode ? handleExitEditMode() : setEditMode(true))}

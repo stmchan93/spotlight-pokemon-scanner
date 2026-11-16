@@ -59,6 +59,7 @@ export type HomeHeaderTrailing =
     };
 
 type HomeHeaderProps = {
+  /** The drawer; only the profile variant (Collection) still shows the menu bubble. */
   onOpenMenu: () => void;
   /** Opens the full-screen card search — the trailing magnifier on Home, the pill on the profile. */
   onOpenSearch: () => void;
@@ -330,21 +331,6 @@ export function HomeHeader({
         items={
           [
             {
-              // `kind: 'home'` is the FEED, which is the Social tab now — the
-              // variant name predates the swap. Its magnifier finds PEOPLE.
-              accessibilityLabel: 'Search people',
-              children: (
-                <Search
-                  color={glyphColor}
-                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                  height={BUTTON_ICON_SIZE}
-                  width={BUTTON_ICON_SIZE}
-                />
-              ),
-              onPress: onOpenSearch,
-              testID: `${testID}-search`,
-            },
-            {
               accessibilityLabel:
                 trailing.unreadCount > 0
                   ? `Notifications, ${trailing.unreadCount} unread`
@@ -473,21 +459,41 @@ export function HomeHeader({
         testID={`${testID}-row`}
       >
         <View style={styles.leadingGroup}>
-          <GlassNavBubble
-            accessibilityLabel="Open menu"
-            material={trailing.kind === 'profile' ? 'frost' : 'glass'}
-            onPress={onOpenMenu}
-            size="medium"
-            surface={chromeSurface}
-            testID={`${testID}-menu`}
-          >
-            <Menu
-              color={glyphColor}
-              strokeWidth={glassNavBubbleGlyphStrokeWidth}
-              height={BUTTON_ICON_SIZE}
-              width={BUTTON_ICON_SIZE}
-            />
-          </GlassNavBubble>
+          {trailing.kind === 'home' ? (
+            // Social leads with search where the menu was (user, 2026-11-16).
+            // `kind: 'home'` is the FEED (Social tab); its magnifier finds PEOPLE.
+            <GlassNavBubble
+              accessibilityLabel="Search people"
+              material="glass"
+              onPress={onOpenSearch}
+              size="medium"
+              surface={chromeSurface}
+              testID={`${testID}-search`}
+            >
+              <Search
+                color={glyphColor}
+                strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                height={BUTTON_ICON_SIZE}
+                width={BUTTON_ICON_SIZE}
+              />
+            </GlassNavBubble>
+          ) : (
+            <GlassNavBubble
+              accessibilityLabel="Open menu"
+              material="frost"
+              onPress={onOpenMenu}
+              size="medium"
+              surface={chromeSurface}
+              testID={`${testID}-menu`}
+            >
+              <Menu
+                color={glyphColor}
+                strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                height={BUTTON_ICON_SIZE}
+                width={BUTTON_ICON_SIZE}
+              />
+            </GlassNavBubble>
+          )}
           {trailing.kind === 'home' ? (
             /*
               The brand lockup is PERMANENT chrome, not an entrance. It neither

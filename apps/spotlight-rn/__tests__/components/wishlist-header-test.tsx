@@ -24,7 +24,7 @@ import { renderWithProviders } from '../test-utils';
  */
 
 function renderHeader(props: Partial<Parameters<typeof WishlistHeader>[0]> = {}) {
-  return renderWithProviders(<WishlistHeader onOpenMenu={jest.fn()} {...props} />);
+  return renderWithProviders(<WishlistHeader {...props} />);
 }
 
 /** The `Animated.View` wrapping the title — the clip's only child. */
@@ -187,13 +187,11 @@ describe('WishlistHeader', () => {
       ['at rest', 0],
       ['after the title has gone', WISHLIST_TITLE_HIDE_DISTANCE],
     ])('stay put and stay tappable %s', (_label, offset) => {
-      const onOpenMenu = jest.fn();
       const onOpenSearch = jest.fn();
       const onShare = jest.fn();
       const onToggleEditMode = jest.fn();
       renderHeader({
         floating: true,
-        onOpenMenu,
         onOpenSearch,
         onShare,
         onToggleEditMode,
@@ -204,7 +202,6 @@ describe('WishlistHeader', () => {
       // None of the controls sit inside the clipped, animated title wrapper.
       const clip = screen.getByTestId('wishlist-header-title-clip');
       for (const testID of [
-        'wishlist-header-menu',
         'wishlist-header-search',
         'wishlist-header-edit',
         'wishlist-header-share',
@@ -222,11 +219,9 @@ describe('WishlistHeader', () => {
         }
       }
 
-      fireEvent.press(screen.getByTestId('wishlist-header-menu'));
       fireEvent.press(screen.getByTestId('wishlist-header-search'));
       fireEvent.press(screen.getByTestId('wishlist-header-edit'));
       fireEvent.press(screen.getByTestId('wishlist-header-share'));
-      expect(onOpenMenu).toHaveBeenCalledTimes(1);
       expect(onOpenSearch).toHaveBeenCalledTimes(1);
       expect(onToggleEditMode).toHaveBeenCalledTimes(1);
       expect(onShare).toHaveBeenCalledTimes(1);

@@ -110,7 +110,7 @@ describe('HomeHeader', () => {
     capsule's contents for edit + share.
   */
   describe('the trailing control', () => {
-    it('puts search and the bell in ONE capsule on Home, with no search pill', () => {
+    it('Social leads with search where the menu was; the bell trails alone', () => {
       const onOpenNotifications = jest.fn();
       const onOpenSearch = jest.fn();
       renderHeader({
@@ -119,8 +119,8 @@ describe('HomeHeader', () => {
         trailing: { kind: 'home', onOpenNotifications, unreadCount: 0 },
       });
 
-      // The full Home control set: menu | capsule(search, bell).
-      expect(screen.getByTestId('home-header-menu')).toBeTruthy();
+      // Social: search | capsule(bell). No menu (user, 2026-11-16).
+      expect(screen.queryByTestId('home-header-menu')).toBeNull();
       expect(screen.getByTestId('home-header-trailing')).toBeTruthy();
 
       // NO SearchEntryPill on the home bar — search is a glyph slot, not a
@@ -140,16 +140,13 @@ describe('HomeHeader', () => {
       expect(onOpenNotifications).toHaveBeenCalledTimes(1);
     });
 
-    it('draws the Home capsule 104×44 with two 36pt slots', () => {
+    it('draws the Home capsule 44pt tall with one 36pt bell slot', () => {
       renderHeader({ floating: true, trailing: homeTrailing() });
 
       const capsule = StyleSheet.flatten(screen.getByTestId('home-header-trailing').props.style);
-      expect(capsule.width).toBe(glassNavBubbleGroupWidth(2, 'medium'));
-      expect(capsule.width).toBe(104);
+      expect(capsule.width).toBe(glassNavBubbleGroupWidth(1, 'medium'));
       expect(capsule.height).toBe(glassNavBubbleSizes.medium);
-      for (const testID of ['home-header-search', 'home-header-notifications']) {
-        expect(StyleSheet.flatten(screen.getByTestId(testID).props.style).width).toBe(36);
-      }
+      expect(StyleSheet.flatten(screen.getByTestId('home-header-notifications').props.style).width).toBe(36);
     });
 
     // The badge hangs off the bell SLOT at `top: -2, right: -2`. Moving the

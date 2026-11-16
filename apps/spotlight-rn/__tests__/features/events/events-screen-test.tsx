@@ -236,12 +236,12 @@ describe('EventsScreen', () => {
     expect(await screen.findByTestId('event-card-hawaii-2026-10')).toBeTruthy();
   });
 
-  it('opens the app drawer from the menu button', async () => {
+  it('leads with search where the menu was', async () => {
     renderEvents();
     await screen.findByTestId('event-card-hawaii-2026-10');
-    expect(screen.getByTestId('drawer-probe').props.children).toBe('closed');
-    fireEvent.press(screen.getByTestId('events-menu'));
-    expect(screen.getByTestId('drawer-probe').props.children).toBe('open');
+    expect(screen.queryByTestId('events-menu')).toBeNull();
+    fireEvent.press(screen.getByTestId('events-search'));
+    expect(screen.getByTestId('events-search-field')).toBeTruthy();
   });
 
   it('shares the upcoming lineup', async () => {

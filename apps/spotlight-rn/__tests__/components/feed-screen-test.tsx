@@ -549,15 +549,12 @@ describe('FeedScreen', () => {
     expect(within(screen.getByTestId('feed-list')).queryByTestId('feed-header-rule')).toBeNull();
   });
 
-  it('opens the app drawer from the header menu', async () => {
+  it('leads with search where the menu was', async () => {
     renderFeed();
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-    fireEvent.press(screen.getByTestId('feed-header-menu'));
-
-    // The drawer is context state, not navigation.
-    expect(mockOpenDrawer).toHaveBeenCalledTimes(1);
-    expect(push).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('feed-header-menu')).toBeNull();
+    expect(screen.getByTestId('feed-header-search')).toBeTruthy();
   });
 
   // This gesture has been dropped TWICE by rewrites of this screen, so it is

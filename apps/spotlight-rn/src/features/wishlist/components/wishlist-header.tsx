@@ -1,4 +1,4 @@
-import { EditPencil, Menu, Plus, ShareIos } from 'iconoir-react-native';
+import { EditPencil, Search, ShareIos } from 'iconoir-react-native';
 import { useMemo } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,7 +18,6 @@ import { EditDoneButton } from '@/components/edit-done-button';
 
 type WishlistHeaderProps = {
   /** Opens the app drawer. Wishlist is a TAB, so there is nothing to go back to. */
-  onOpenMenu: () => void;
   /** Opens the card catalog search. Omit to leave the search slot empty. */
   onOpenSearch?: () => void;
   /** Share the list as text. Omitted → the control is not rendered. */
@@ -167,7 +166,6 @@ export const WISHLIST_TITLE_HIDE_DISTANCE = 56;
 const TITLE_TRAVEL = BAR_PADDING_TOP + CONTROL_ROW_HEIGHT;
 
 export function WishlistHeader({
-  onOpenMenu,
   onOpenSearch,
   onShare,
   editMode = false,
@@ -226,16 +224,20 @@ export function WishlistHeader({
       testID={testID}
     >
       <View style={styles.headerSlot}>
-        <GlassNavBubble
-          accessibilityLabel="Open menu"
-          material="frost"
-          onPress={onOpenMenu}
-          size="medium"
-          surface="onLight"
-          testID="wishlist-header-menu"
-        >
-          <Menu color={theme.colors.gray900} height={BUTTON_ICON_SIZE} strokeWidth={BUTTON_ICON_STROKE} width={BUTTON_ICON_SIZE} />
-        </GlassNavBubble>
+        {/* Search leads where the menu was (user, 2026-11-16): the catalog search
+            you add a card to the watchlist from. Stands down in edit mode. */}
+        {onOpenSearch && !editMode ? (
+          <GlassNavBubble
+            accessibilityLabel="Search the card catalog"
+            material="frost"
+            onPress={onOpenSearch}
+            size="medium"
+            surface="onLight"
+            testID="wishlist-header-search"
+          >
+            <Search color={theme.colors.gray900} height={BUTTON_ICON_SIZE} strokeWidth={BUTTON_ICON_STROKE} width={BUTTON_ICON_SIZE} />
+          </GlassNavBubble>
+        ) : null}
       </View>
       {/*
         The clip is on the TITLE'S OWN wrapper. It is what actually removes the
@@ -293,25 +295,6 @@ export function WishlistHeader({
           <GlassNavBubbleGroup
             items={
               [
-                ...(onOpenSearch
-                  ? [
-                      {
-                        accessibilityLabel: 'Search the card catalog',
-                        // A plus, not a magnifier: the destination is the same
-                        // catalog search, but from here the INTENT is "add a card".
-                        children: (
-                          <Plus
-                            color={theme.colors.gray900}
-                            height={BUTTON_ICON_SIZE}
-                            strokeWidth={BUTTON_ICON_STROKE}
-                            width={BUTTON_ICON_SIZE}
-                          />
-                        ),
-                        onPress: onOpenSearch,
-                        testID: 'wishlist-header-search',
-                      },
-                    ]
-                  : []),
                 ...(onToggleEditMode
                   ? [
                       {
