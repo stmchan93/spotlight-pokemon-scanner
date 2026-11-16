@@ -1,5 +1,4 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { __resetLaunchToScanForTests, shouldRedirectLaunchToScan } from '@/lib/launch-to-scanner';
 import type { CatalogSearchResult, InventoryCardEntry } from '@spotlight/api-client';
 
 import ModalLayout from '@/app/(modal)/_layout';
@@ -277,21 +276,11 @@ describe('misc route wrappers', () => {
 
     // The tabs layout is the tab pager (`@/components/tab-pager`); page ORDER
     // and the bar are pinned by the pager's own tests. Android back goes to Home.
-    // Past the launch redirect (see the cold-start test below), `/` is Home.
-    __resetLaunchToScanForTests();
-    shouldRedirectLaunchToScan('/scan');
     mockPathname.mockReturnValue('/');
     render(<TabsLayout />);
     expect(JSON.parse(screen.getByTestId('tab-pager').props.children)).toEqual({ backBehavior: 'firstRoute' });
   });
 
-  it('redirects a cold start on Home to the Scanner before the pager mounts', () => {
-    __resetLaunchToScanForTests();
-    mockPathname.mockReturnValue('/');
-    render(<TabsLayout />);
-    expect(screen.queryByTestId('tab-pager')).toBeNull();
-    expect(screen.getByTestId('redirect-target').props.children).toContain('/scan');
-  });
 
   // Tab ROUTES carry no swipe recogniser of their own: the one horizontal
   // gesture between tabs is the pager's, owned by the layout's navigator. A

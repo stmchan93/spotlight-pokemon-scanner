@@ -1,5 +1,5 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { __resetLaunchToScanForTests } from '@/lib/launch-to-scanner';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { router } from 'expo-router';
 import { Text } from 'react-native';
 
 import { renderAppRouter } from '../test-utils';
@@ -13,11 +13,19 @@ function WishlistTabStub() {
 }
 
 describe('mobile app routing', () => {
-  it('boots into the Scanner, never Home first', async () => {
-    // A cold start lands on `/`; the tabs layout redirects it to `/scan` before
-    // the pager mounts, so Home never flashes (user, 2026-11-16).
-    __resetLaunchToScanForTests();
+  it('boots into Home, and reaches the Scanner tab', async () => {
+    // The app opens on Home (`/`, the collection), not the Scanner (user, 2026-11-16).
     const app = renderAppRouter('/', { '(tabs)/scan': ScanTabStub });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
+    });
+    expect(app.getPathname()).toBe('/');
+    expect(screen.getByTestId('tab-pager')).toBeTruthy();
+
+    act(() => {
+      router.push('/scan');
+    });
 
     // Scan is an ordinary TAB. It was briefly a launcher that pushed a
     // full-screen /scan-camera route to keep the bar off the viewfinder; that

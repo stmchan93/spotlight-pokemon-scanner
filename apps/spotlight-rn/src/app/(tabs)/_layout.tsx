@@ -1,8 +1,7 @@
-import { Redirect, usePathname } from 'expo-router';
+import { usePathname } from 'expo-router';
 
 import { TabPager } from '@/components/tab-pager/tab-pager-navigator';
 import { rememberActiveTab } from '@/lib/last-active-tab';
-import { shouldRedirectLaunchToScan } from '@/lib/launch-to-scanner';
 
 /**
  * The bottom tabs: an Instagram-style horizontal pager with our own tab bar.
@@ -40,13 +39,6 @@ export default function TabsLayout() {
   // `rememberActiveTab` ignores `/scan` itself. A plain module write with no
   // subscribers, so it is safe during render.
   rememberActiveTab(pathname);
-  // The app always opens on the Scanner. A cold start lands on `/` (Home), so
-  // redirect BEFORE the pager mounts: Home never renders and nothing slides.
-  // (It used to open on Home and jump to Scan once auth loaded — user,
-  // 2026-11-16.) Deep links to any other tab are left alone.
-  if (shouldRedirectLaunchToScan(pathname)) {
-    return <Redirect href="/scan" />;
-  }
-
+  // The app opens on Home (`/`), the first tab (user, 2026-11-16).
   return <TabPager backBehavior="firstRoute" />;
 }
