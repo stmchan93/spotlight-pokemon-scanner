@@ -592,20 +592,12 @@ describe('live ticker and booth stories on the show page', () => {
     jest.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
-  it('during the show: the ticker leads; tapping it from Feed selects the vendor on the map', async () => {
+  it('during the show: the ticker shows only how many are browsing', async () => {
     jest.mocked(fetchBoothPosts).mockResolvedValue([boothPost('p1')]);
     jest.mocked(fetchBrowsingNow).mockResolvedValue(42);
     await renderShow(null, mockSpotlightEventMap, LIVE_EVENT);
-    expect((await screen.findByTestId('booth-live-ticker-text')).props.children).toBe(`📸 ${vendorName} posted · now`);
-
-    fireEvent.press(screen.getByTestId('event-detail-show-area-feed'));
-    expect(await screen.findByTestId('event-feed')).toBeTruthy();
-    fireEvent.press(screen.getByTestId('booth-live-ticker'));
-    expect(await screen.findByTestId('event-vendor-card')).toBeTruthy();
-    expect(screen.getByTestId('event-vendor-card-name').props.children).toBe(vendorName);
-    // Back on the map; the feed stays mounted (hidden) so switching never refetches or jumps the page.
-    expect(StyleSheet.flatten(screen.getByTestId('event-detail-feed-pane', { includeHiddenElements: true }).props.style)).toEqual({ display: 'none' });
-    expect(StyleSheet.flatten(screen.getByTestId('event-detail-map-pane').props.style).display).toBeUndefined();
+    expect((await screen.findByTestId('booth-live-ticker-text')).props.children).toBe('👀 42 people browsing');
+    expect(screen.queryByText(new RegExp(`${vendorName} posted`))).toBeNull();
   });
 
   it('outside the booth window there is no ticker', async () => {

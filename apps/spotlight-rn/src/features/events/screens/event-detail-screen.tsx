@@ -151,14 +151,9 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
   const tickerItems = useMemo(
     () =>
       live && map
-        ? buildBoothTickerItems({
-            vendors: map.vendors,
-            posts: booth.posts,
-            hotVendorIds: booth.hotVendorIds,
-            browsingNow,
-          })
+        ? buildBoothTickerItems({ browsingNow })
         : [],
-    [booth.hotVendorIds, booth.posts, browsingNow, live, map],
+    [browsingNow, live, map],
   );
 
   // Booth stories: photo posts from the last day. Images stream with a bearer token only.
