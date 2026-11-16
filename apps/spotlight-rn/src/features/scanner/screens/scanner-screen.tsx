@@ -164,7 +164,7 @@ import {
 import { saveCardDetailPreviewFromCatalogResult } from '@/features/cards/card-detail-preview-session';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { getAppTabBarHeight } from '@/components/tab-pager/app-tab-bar';
-import { usePagerTouchGuardGesture, useTabPagerLock } from '@/components/tab-pager/tab-pager-page-context';
+import { usePagerTouchGuardGesture, useTabPagerHideBar, useTabPagerLock } from '@/components/tab-pager/tab-pager-page-context';
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { prefetchImageUrls } from '@/lib/card-images';
 import { useAuth } from '@/providers/auth-provider';
@@ -4450,6 +4450,9 @@ export function ScannerScreen({
     || gradingMenu != null
     || isScanTargetSheetOpen,
   );
+  // Binder review is a full-screen surface with its own ADD ALL footer, which
+  // the pager's tab bar would cover; hide the bar while it is open.
+  useTabPagerHideBar(activeBinderPageId != null);
   // The tab pager's touch guard rides along with the tray pan (see the tray shell).
   const pagerTouchGuard = usePagerTouchGuardGesture();
   const trayGesture = useMemo(

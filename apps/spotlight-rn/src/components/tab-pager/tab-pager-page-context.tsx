@@ -22,6 +22,8 @@ export type TabPagerPageApi = {
   setInner: (position: InnerPagePosition | null) => void;
   /** Stand the outer strip down for this page while `locked` (edit modes, open sheets…). */
   setLock: (key: string, locked: boolean) => void;
+  /** Hide the bottom tab bar while this page shows a full-screen surface with its own footer. */
+  setBarHidden: (key: string, hidden: boolean) => void;
   /**
    * UI-thread timestamp of the last touch-down that landed on a guarded view
    * (`usePagerTouchGuardGesture`). The outer pan compares it with its own
@@ -72,6 +74,28 @@ export function useTabPagerLock(locked: boolean) {
       return;
     }
     return () => api.setLock(key, false);
+  }, [api, key]);
+}
+
+/**
+ * While `hidden`, the bottom tab bar is not drawn over this page. For full-screen
+ * surfaces with their own footer actions, which the bar would otherwise cover
+ * (the binder page review's ADD ALL, 2026-11-16).
+ */
+export function useTabPagerHideBar(hidden: boolean) {
+  const api = useTabPagerPage();
+  const key = useId();
+  useEffect(() => {
+    if (!api) {
+      return;
+    }
+    api.setBarHidden(key, hidden);
+  }, [api, key, hidden]);
+  useEffect(() => {
+    if (!api) {
+      return;
+    }
+    return () => api.setBarHidden(key, false);
   }, [api, key]);
 }
 

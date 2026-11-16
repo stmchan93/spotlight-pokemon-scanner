@@ -238,9 +238,25 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
   const parentFocused = useParentFocused();
   const keyboardUp = useKeyboardVisible();
   // ANDROID: the bar hides while the keyboard is up — see `useKeyboardVisible`.
-  const barHidden = Platform.OS === 'android' && keyboardUp;
+  // Pages can hide the bar under their own full-screen surfaces (binder review).
+  const [barHiddenKeys, setBarHiddenKeys] = useState<ReadonlyMap<number, ReadonlySet<string>>>(() => new Map());
+  const setPageBarHidden = useCallback((page: number, key: string, hidden: boolean) => {
+    setBarHiddenKeys((current) => {
+      const keys = current.get(page);
+      if (hidden ? keys?.has(key) : !keys?.has(key)) {
+        return current;
+      }
+      const nextKeys = new Set(keys);
+      if (hidden) nextKeys.add(key); else nextKeys.delete(key);
+      const next = new Map(current);
+      next.set(page, nextKeys);
+      return next;
+    });
+  }, []);
 
   const focusedPage = pageIndexForState(state);
+  const pageHidesBar = (barHiddenKeys.get(focusedPage)?.size ?? 0) > 0;
+  const barHidden = (Platform.OS === 'android' && keyboardUp) || pageHidesBar;
   const initialPage = focusedPage >= 0 ? focusedPage : 0;
 
   /** Strip position in PAGES (0 = Home). The single source every animation reads. */
@@ -303,8 +319,9 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
         next[page] = keys.size > 0;
         lockedPages.value = next;
       },
+      setBarHidden: (key: string, hidden: boolean) => setPageBarHidden(page, key, hidden),
     })),
-    [guardedAt, guardedStep, innerPositions, lockedPages],
+    [guardedAt, guardedStep, innerPositions, lockedPages, setPageBarHidden],
   );
 
   // ── Route -> strip ─────────────────────────────────────────────────────────

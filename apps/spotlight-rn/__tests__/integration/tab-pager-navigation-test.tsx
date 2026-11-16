@@ -34,6 +34,19 @@ const stubText = (name: string) =>
   screen.getByTestId(`stub-${name}`, { includeHiddenElements: true }).props.children as string;
 
 describe('tab pager <-> expo-router', () => {
+  it('hides the tab bar while the page asks (binder review covers its footer)', async () => {
+    // Required lazily: importing the pager module at the top of this file loads
+    // gesture-handler before the test environment's mock is in place.
+    const { useTabPagerHideBar } = require('@/components/tab-pager/tab-pager-page-context');
+    function HidingScan() {
+      useTabPagerHideBar(true);
+      return <Text testID="stub-scan">hiding</Text>;
+    }
+    const app = renderAppRouter('/scan', { ...STUBS, '(tabs)/scan': HidingScan });
+    await waitFor(() => expect(app.getPathname()).toBe('/scan'));
+    await waitFor(() => expect(screen.queryByTestId('app-tab-bar')).not.toBeOnTheScreen());
+  });
+
   it('opens on the route the URL names, mounting only that page', async () => {
     const app = renderAppRouter('/events', STUBS);
     await waitFor(() => expect(app.getPathname()).toBe('/events'));
