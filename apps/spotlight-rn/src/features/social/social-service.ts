@@ -463,11 +463,23 @@ export async function fetchFollowingFeed(limit = DEFAULT_LIMIT, before?: string)
   }
 }
 
-/** All recent visible posts, newest first (global/discovery feed). */
+/**
+ * All recent visible posts, newest first (the For You feed), EXCEPT posts
+ * tagged to a show: those live only in that show's own feed, so a busy show
+ * never floods For You (user, 2026-11-16). On a database without the tag
+ * columns (pre-social_27) the filter is skipped, matching fetchPosts' retry.
+ */
 export function fetchGlobalFeed(limit = DEFAULT_LIMIT, before?: string): Promise<FeedPost[]> {
   // A news article's hidden post lives on the News tab; it reaches Social only
   // when someone reposts it (see `fetchGlobalFeedItems`).
-  return fetchPosts((query) => query.not('author_id', 'is', null), limit, before);
+  return fetchPosts(
+    (query) => {
+      const authored = query.not('author_id', 'is', null);
+      return postTagColumnsAvailable === false ? authored : authored.is('event_id', null);
+    },
+    limit,
+    before,
+  );
 }
 
 /**

@@ -243,6 +243,30 @@ describe('social-service', () => {
       expect((supabase.builders.posts.select as jest.Mock).mock.calls[0]?.[0]).not.toContain('event_id');
     });
 
+    it('For You leaves out show-tagged posts (they live in the show feed only)', async () => {
+      const supabase = makeSupabase({ posts: { data: [], error: null } });
+      const { fetchGlobalFeed } = loadService(supabase);
+
+      await fetchGlobalFeed();
+      expect(supabase.builders.posts.is).toHaveBeenCalledWith('event_id', null);
+    });
+
+    it('For You drops the show filter on a database without the tag columns', async () => {
+      const supabase = makeSupabase({
+        posts: [
+          { data: null, error: { code: '42703', message: 'column posts.event_id does not exist' } },
+          { data: [{ ...postRow, post_media: [] }], error: null },
+        ],
+        authors: { data: [authorRow], error: null },
+      });
+      const { fetchGlobalFeed } = loadService(supabase);
+
+      expect(await fetchGlobalFeed()).toHaveLength(1);
+      const isCalls = (supabase.builders.posts.is as jest.Mock).mock.calls;
+      // The retry (after the 42703) no longer filters on the missing column.
+      expect(isCalls.at(-1)).toEqual(['deleted_at', null]);
+    });
+
     it('pages a show feed and narrows to booth posts on request', async () => {
       const supabase = makeSupabase({ posts: { data: [], error: null } });
       const { fetchEventPosts } = loadService(supabase);
