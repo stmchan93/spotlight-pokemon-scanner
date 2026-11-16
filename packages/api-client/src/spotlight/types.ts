@@ -1918,6 +1918,8 @@ export type CardConditionHistoryPoint = {
   high: number | null;
 };
 
+export type CardConditionHistorySource = 'scrydex' | 'tcgcsv';
+
 export type CardConditionHistorySeries = {
   /** Stable key: "<variant>|<condition>" (raw) or "<grader>|<grade>|<variant>" (graded). */
   key: string;
@@ -1931,6 +1933,12 @@ export type CardConditionHistorySeries = {
   grader: string | null;
   /** Graded lane grade, e.g. "10"; null on the raw lane. */
   grade: string | null;
+  /**
+   * Raw lane: the price source that drew this line. "tcgcsv" = TCGplayer
+   * market, the headline's own source (NM of a TCGplayer-priced printing).
+   * Absent from older backends and on the graded lane.
+   */
+  source?: CardConditionHistorySource | null;
   /** Market-price history, oldest → newest. */
   points: CardConditionHistoryPoint[];
 };

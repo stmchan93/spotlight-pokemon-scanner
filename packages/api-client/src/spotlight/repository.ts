@@ -81,6 +81,7 @@ import type {
   CardConditionHistoryPoint,
   CardConditionHistoryQuery,
   CardConditionHistorySeries,
+  CardConditionHistorySource,
   CardMarketInsight,
   CardPriceTrendList,
   CardPriceTrendMode,
@@ -1053,6 +1054,7 @@ type CardConditionHistorySeriesDTO = {
   condition?: string | null;
   grader?: string | null;
   grade?: string | null;
+  source?: string | null;
   points?: Array<CardConditionHistoryPointDTO | null> | null;
 };
 
@@ -3350,6 +3352,11 @@ function buildCardPriceTrendList(
   return { mode, provider, rows };
 }
 
+function normalizeConditionHistorySource(value: unknown): CardConditionHistorySource | null {
+  const source = normalizeString(value)?.toLowerCase();
+  return source === 'tcgcsv' || source === 'scrydex' ? source : null;
+}
+
 function buildCardConditionHistory(
   payload: CardConditionHistoryDTO | null | undefined,
   requestedLane: CardConditionHistoryLane,
@@ -3397,6 +3404,7 @@ function buildCardConditionHistory(
         condition: normalizeString(entry?.condition),
         grader: normalizeString(entry?.grader),
         grade: normalizeString(entry?.grade),
+        source: normalizeConditionHistorySource(entry?.source),
         points,
       }];
     })

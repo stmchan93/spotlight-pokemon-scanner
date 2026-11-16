@@ -144,7 +144,11 @@ function pickVariant(
   allowBlankFallback: boolean,
 ): CardConditionHistorySeries | null {
   const wanted = variantMatchKey(variantLabel);
-  const exact = freshest(candidates.filter((series) => variantMatchKey(series.variantKey) === wanted));
+  const matching = candidates.filter((series) => variantMatchKey(series.variantKey) === wanted);
+  // A TCGplayer (TCGCSV) line is the headline's own source, so it beats a
+  // Scrydex line for the same printing even when the Scrydex one is fresher.
+  const tcgplayer = matching.filter((series) => series.source === 'tcgcsv');
+  const exact = freshest(tcgplayer.length > 0 ? tcgplayer : matching);
   if (exact) {
     return exact;
   }

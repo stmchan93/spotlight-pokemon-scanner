@@ -1975,6 +1975,7 @@ describe('HttpSpotlightRepository', () => {
                 condition: 'NM',
                 grader: null,
                 grade: null,
+                source: 'TCGCSV',
                 points: [
                   { date: '2026-04-16', market: 102.66, low: 99.0, mid: null, high: null },
                   { date: '2026-04-17', market: 104.1, low: 100.0, mid: null, high: null },
@@ -2028,6 +2029,9 @@ describe('HttpSpotlightRepository', () => {
         high: null,
       });
       expect(history?.series[1].key).toBe('holofoil|LP');
+      // Which source drew each line; absent (older backend) reads as null.
+      expect(history?.series[0].source).toBe('tcgcsv');
+      expect(history?.series[1].source).toBeNull();
     });
 
     it('passes the graded lane and maps grader/grade onto each series', async () => {

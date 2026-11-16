@@ -102,6 +102,77 @@ describe('selectHistorySeries', () => {
     expect(selectHistorySeries(dupes, { mode: 'raw', condition: 'NM' }, 'Unlimited')?.key).toBe('unlimited|NM');
   });
 
+  describe('TCGplayer (TCGCSV) vs Scrydex lines', () => {
+    const endingDaysAgo = (values: number[], endDaysAgo: number) => ({
+      ...series('', null, null, values),
+      points: values.map((market, index) => ({
+        date: isoDay(endDaysAgo + values.length - 1 - index),
+        market,
+        low: null,
+        mid: null,
+        high: null,
+      })),
+    });
+    const tagged = <T extends object>(entry: T, source: 'tcgcsv' | 'scrydex') => ({ ...entry, source });
+    // Computer Search (base1-71): the headline quotes TCGplayer's "Normal"
+    // product; Scrydex calls the same card "unlimited" and prices LP from it.
+    const computerSearch: CardConditionHistory = {
+      cardId: 'base1-71',
+      lane: 'raw',
+      currencyCode: 'USD',
+      series: [
+        tagged(series('unlimited|LP', 'unlimited', 'LP', [1.7, 1.81]), 'scrydex'),
+        tagged(series('unlimited|NM', 'unlimited', 'NM', [4.2, 4.38]), 'scrydex'),
+        tagged(series('firstEditionShadowless|NM', 'firstEditionShadowless', 'NM', [140, 149]), 'scrydex'),
+        tagged(series('Normal|NM', 'Normal', 'NM', [3.01, 3.5, 4.38]), 'tcgcsv'),
+      ],
+    };
+
+    it("draws the headline printing's NM from TCGplayer", () => {
+      const pick = selectHistorySeries(computerSearch, { mode: 'raw', condition: 'NM' }, 'Normal');
+      expect(pick?.key).toBe('Normal|NM');
+      expect(pick?.source).toBe('tcgcsv');
+    });
+
+    it('keeps Scrydex for LP and for a printing with no TCGplayer line', () => {
+      expect(selectHistorySeries(computerSearch, { mode: 'raw', condition: 'LP' }, 'Unlimited')?.key)
+        .toBe('unlimited|LP');
+      expect(selectHistorySeries(computerSearch, { mode: 'raw', condition: 'NM' }, 'Unlimited')?.key)
+        .toBe('unlimited|NM');
+      expect(selectHistorySeries(computerSearch, { mode: 'raw', condition: 'NM' }, 'First Edition Shadowless')?.key)
+        .toBe('firstEditionShadowless|NM');
+    });
+
+    it('prefers the TCGplayer line over a fresher Scrydex line for the same printing', () => {
+      const both: CardConditionHistory = {
+        ...history,
+        series: [
+          tagged({ ...series('holofoil|NM', 'holofoil', 'NM', [9, 10]) }, 'scrydex'),
+          tagged({ ...series('Holofoil|NM', 'Holofoil', 'NM', [7, 8]), points: endingDaysAgo([7, 8], 3).points }, 'tcgcsv'),
+        ],
+      };
+      const pick = selectHistorySeries(both, { mode: 'raw', condition: 'NM' }, 'Holofoil');
+      expect(pick?.source).toBe('tcgcsv');
+      expect(pick?.key).toBe('Holofoil|NM');
+    });
+
+    it('falls back to the Scrydex NM line when the backend sends no TCGplayer line', () => {
+      const scrydexOnly: CardConditionHistory = {
+        ...computerSearch,
+        series: computerSearch.series.filter((entry) => entry.source !== 'tcgcsv'),
+      };
+      expect(selectHistorySeries(scrydexOnly, { mode: 'raw', condition: 'NM' }, 'Unlimited')?.key)
+        .toBe('unlimited|NM');
+      // An older backend: no `source` at all, same pick as before.
+      const untagged: CardConditionHistory = {
+        ...history,
+        series: [series('unlimited|NM', 'unlimited', 'NM', [4.38])],
+      };
+      expect(selectHistorySeries(untagged, { mode: 'raw', condition: 'NM' }, 'Unlimited')?.key)
+        .toBe('unlimited|NM');
+    });
+  });
+
   it('uses the only printing when its key spelling differs', () => {
     const single: CardConditionHistory = { ...history, series: [series('holo|NM', 'holo', 'NM', [1])] };
     expect(selectHistorySeries(single, { mode: 'raw', condition: 'NM' }, 'Holofoil')?.key).toBe('holo|NM');
