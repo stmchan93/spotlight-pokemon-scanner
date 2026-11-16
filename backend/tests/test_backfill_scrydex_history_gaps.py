@@ -197,6 +197,15 @@ class BackfillScrydexHistoryGapsTests(unittest.TestCase):
         self._run(fetch=empty_fetch, max_requests=100)
         self.assertEqual(len(self.fetch_calls), 20)
 
+    def test_errored_card_is_retried_next_run(self) -> None:
+        def flaky_fetch(card_id: str, *, game: str, days: int) -> dict:
+            self.fetch_calls.append((card_id, days))
+            raise TimeoutError("The read operation timed out")
+
+        self._run(fetch=flaky_fetch, max_requests=1)
+        self._run(max_requests=100)
+        self.assertEqual(self.fetch_calls.count(self.fetch_calls[0]), 2)
+
     def test_billing_cycle_start(self) -> None:
         self.assertEqual(backfill.billing_cycle_start(date(2026, 11, 16), 7), date(2026, 11, 7))
         self.assertEqual(backfill.billing_cycle_start(date(2026, 12, 3), 7), date(2026, 11, 7))

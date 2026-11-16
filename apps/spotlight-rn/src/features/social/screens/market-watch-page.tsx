@@ -6,7 +6,15 @@ import { GraphDown, GraphUp } from 'iconoir-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DEFAULT_CARD_GAME, type CalendarEvent, type CardGame, type MetaGroup } from '@spotlight/api-client';
-import { borderWidths, PriceSparkline, spacing, StateCard, Text, useSpotlightTheme } from '@spotlight/design-system';
+import {
+  borderWidths,
+  PriceSparkline,
+  SearchField,
+  spacing,
+  StateCard,
+  Text,
+  useSpotlightTheme,
+} from '@spotlight/design-system';
 
 import {
   AnimatedScrollView,
@@ -17,6 +25,7 @@ import {
 import { isCalendarEventActionable } from '@/features/meta-feed/components/coming-up-block';
 import { useCalendar, useMetaPulse } from '@/features/meta-feed/hooks/use-meta-feed';
 import { useMetaFeedNavigation } from '@/features/meta-feed/hooks/use-meta-feed-navigation';
+import { useTrendSearch } from '@/features/meta-feed/hooks/use-trend-search';
 import {
   calendarDateParts,
   formatSignedPercent,
@@ -27,6 +36,9 @@ import { GameFilterChips } from '@/features/social/components/game-filter-chips'
 const TREND_WINDOW_DAYS = 30;
 const TREND_ROWS_PER_SECTION = 3;
 const SET_CARD_WIDTH = 339;
+// Figma 6322:7842 draws the logo at 64 x 30.66.
+const SET_LOGO_WIDTH = 64;
+const SET_LOGO_HEIGHT = 30.66;
 const CARD_THUMB_WIDTH = 46.4;
 const CARD_THUMB_HEIGHT = 64;
 const CARD_THUMB_RADIUS = 1.6;
@@ -107,6 +119,10 @@ export function MarketWatchPage({ page, scrollRef, testID = 'market-watch-page' 
   const hasTrends = risers.length > 0 || coolers.length > 0;
   const trendDate = formatTrendDate(pulse.data?.asOfDate);
   const windowDays = pulse.data?.windowDays ?? TREND_WINDOW_DAYS;
+
+  const [trendQuery, setTrendQuery] = useState('');
+  const search = useTrendSearch(trendQuery, game, TREND_WINDOW_DAYS);
+  const searching = search.query !== '';
 
   const openGroup = (group: MetaGroup) => {
     navigation.openMetaGroup({ game, groupKey: group.groupKey, windowDays });
@@ -205,24 +221,59 @@ export function MarketWatchPage({ page, scrollRef, testID = 'market-watch-page' 
         testID={`${testID}-band`}
       />
 
-      {hasTrends ? (
-        <View style={styles.trends}>
-          <View style={styles.trendsTitle}>
-            <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>PRICE TRENDS</Text>
-            {trendDate ? (
+      <View style={styles.trends}>
+        <View style={styles.trendsTitle}>
+          <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>PRICE TRENDS</Text>
+          {trendDate && !searching ? (
+            <Text
+              style={[theme.typography.postBody, { color: theme.colors.gray500 }]}
+              testID={`${testID}-date`}
+            >
+              {trendDate}
+            </Text>
+          ) : null}
+        </View>
+        {/* Any set's trend, not just the top 3: "vintage", "fossil", "neo". */}
+        <SearchField
+          autoCapitalize="none"
+          autoCorrect={false}
+          onChangeText={setTrendQuery}
+          placeholder="Search sets, e.g. vintage or fossil"
+          returnKeyType="search"
+          testID={`${testID}-search`}
+          uppercasePlaceholder
+          value={trendQuery}
+        />
+        {searching ? (
+          <View style={styles.trendRows} testID={`${testID}-search-results`}>
+            {search.groups.map((group) => (
+              <TrendRow
+                group={group}
+                key={group.groupKey}
+                onPress={() => openGroup(group)}
+                testID={`${testID}-result-${group.groupKey}`}
+              />
+            ))}
+            {search.groups.length === 0 && !search.loading ? (
               <Text
-                style={[theme.typography.postBody, { color: theme.colors.gray500 }]}
-                testID={`${testID}-date`}
+                style={[theme.typography.label, { color: theme.colors.gray500 }]}
+                testID={`${testID}-search-empty`}
               >
-                {trendDate}
+                {search.failed
+                  ? "Couldn't search price trends. Check your connection."
+                  : `No price trends match "${search.query}".`}
               </Text>
             ) : null}
           </View>
-          {/* Most games outside Pokémon have no rising sets; say so rather than hide the side. */}
-          {renderTrendSection('TRENDING UP', GraphUp, risers, `${testID}-trending-up`, 'No sets rising this month.')}
-          {renderTrendSection('COOLING OFF', GraphDown, coolers, `${testID}-cooling-off`, 'No sets cooling this month.')}
-        </View>
-      ) : settledGame === game ? (
+        ) : hasTrends ? (
+          <>
+            {/* Most games outside Pokémon have no rising sets; say so rather than hide the side. */}
+            {renderTrendSection('TRENDING UP', GraphUp, risers, `${testID}-trending-up`, 'No sets rising this month.')}
+            {renderTrendSection('COOLING OFF', GraphDown, coolers, `${testID}-cooling-off`, 'No sets cooling this month.')}
+          </>
+        ) : null}
+      </View>
+      {searching || hasTrends ? null : settledGame === game ? (
         // The read hook keeps failures to itself, so a failed read and a quiet
         // market reach this card alike.
         <StateCard
@@ -268,20 +319,33 @@ function SetCard({
       ]}
       testID={testID}
     >
-      <View
-        style={[
-          styles.setTag,
-          { borderColor: theme.colors.gray300, borderCurve: 'continuous', borderRadius: theme.radii.pill },
-        ]}
-      >
-        <Text style={[theme.typography.captionTiny, { color: theme.colors.gray900 }]}>NEW SET</Text>
+      {event.logoUrl ? (
+        // Figma 6322:7842: the set logo, 64 wide, left of the details.
+        <ExpoImage
+          accessibilityIgnoresInvertColors
+          cachePolicy="memory-disk"
+          contentFit="contain"
+          source={{ uri: event.logoUrl }}
+          style={styles.setLogo}
+          testID={`${testID}-logo`}
+        />
+      ) : null}
+      <View style={styles.setDetails}>
+        <View
+          style={[
+            styles.setTag,
+            { borderColor: theme.colors.gray300, borderCurve: 'continuous', borderRadius: theme.radii.pill },
+          ]}
+        >
+          <Text style={[theme.typography.captionTiny, { color: theme.colors.gray900 }]}>NEW SET</Text>
+        </View>
+        <Text numberOfLines={1} style={[theme.typography.feedRowTitle, { color: theme.colors.gray900 }]}>
+          {event.title}
+        </Text>
+        <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
+          {formatReleaseLine(event.date)}
+        </Text>
       </View>
-      <Text numberOfLines={1} style={[theme.typography.feedRowTitle, { color: theme.colors.gray900 }]}>
-        {event.title}
-      </Text>
-      <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
-        {formatReleaseLine(event.date)}
-      </Text>
     </Pressable>
   );
 }
@@ -367,10 +431,21 @@ const styles = StyleSheet.create({
     minWidth: PERCENT_MIN_WIDTH,
     textAlign: 'right',
   },
+  // Figma 6322:7840: logo + details in a row, 16 apart; details stack 4 apart.
   setCard: {
-    gap: spacing.xxxs,
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
     padding: spacing.sm,
     width: SET_CARD_WIDTH,
+  },
+  setDetails: {
+    flex: 1,
+    gap: spacing.xxxs,
+  },
+  setLogo: {
+    height: SET_LOGO_HEIGHT,
+    width: SET_LOGO_WIDTH,
   },
   setTag: {
     alignSelf: 'flex-start',

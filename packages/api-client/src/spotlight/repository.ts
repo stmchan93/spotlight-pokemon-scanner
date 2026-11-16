@@ -34,6 +34,7 @@ import {
   parseHotCardsPayload,
   parseMetaExposurePayload,
   parseMetaGroupDetailPayload,
+  parseMetaTrendSearchPayload,
   parseMetaPulsePayload,
   parseNewsFeedPayload,
   parseSetSpotlightPayload,
@@ -148,6 +149,8 @@ import type {
   MetaPulseQuery,
   MetaGroupDetail,
   MetaGroupDetailQuery,
+  MetaTrendSearch,
+  MetaTrendSearchQuery,
   MetaExposure,
   MetaExposureQuery,
   CalendarFeed,
@@ -411,6 +414,8 @@ export interface SpotlightRepository {
     null on 401 (signed out), so callers must scope its cache by owner.
   */
   fetchMetaGroupDetail(query: MetaGroupDetailQuery): Promise<MetaGroupDetail | null>;
+  /** Price trends matching a search (sets incl. flat ones, plus card groups). */
+  searchMetaTrends(query: MetaTrendSearchQuery): Promise<MetaTrendSearch | null>;
   fetchMetaExposure(query?: MetaExposureQuery): Promise<MetaExposure | null>;
   fetchCalendar(query?: CalendarQuery): Promise<CalendarFeed | null>;
   /** Spotlight's own shows (Events tab). Null when the route is absent (old backend). */
@@ -4063,6 +4068,23 @@ export class MockSpotlightRepository implements SpotlightRepository {
           .filter((result) => result.name !== self.name && result.marketPrice != null && result.marketPrice < ownPrice)
           .slice(0, 10)
           .map(toSimilar),
+    };
+  }
+
+  async searchMetaTrends(query: MetaTrendSearchQuery): Promise<MetaTrendSearch | null> {
+    const words = query.query.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    const groups = words.length === 0
+      ? []
+      : mockMetaPulse.groups.filter((group) => {
+        const labelWords = group.label.toLowerCase().split(/[^a-z0-9]+/);
+        return words.every((word) => labelWords.some((w) => w.startsWith(word)));
+      });
+    return {
+      game: query.game ?? mockMetaPulse.game,
+      windowDays: query.windowDays ?? 30,
+      query: query.query,
+      asOfDate: mockMetaPulse.asOfDate,
+      groups,
     };
   }
 
@@ -8300,6 +8322,14 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   async fetchSimilarCards(cardId: string): Promise<SimilarCards | null> {
     const result = await this.requestMetaFeedRead(`/api/v1/cards/${encodeURIComponent(cardId)}/similar`, {});
     return result.disabled ? null : parseSimilarCardsPayload(result.data, cardId);
+  }
+
+  async searchMetaTrends(query: MetaTrendSearchQuery): Promise<MetaTrendSearch | null> {
+    const result = await this.requestMetaFeedRead(
+      '/api/v1/market/meta/search',
+      { game: query.game, window: query.windowDays, q: query.query },
+    );
+    return result.disabled ? null : parseMetaTrendSearchPayload(result.data, query);
   }
 
   async fetchMetaGroupDetail(query: MetaGroupDetailQuery): Promise<MetaGroupDetail | null> {

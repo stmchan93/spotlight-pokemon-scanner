@@ -291,6 +291,7 @@ export const mockCalendarFeed: CalendarFeed = {
       subtitle: 'Pre-release prices usually peak the week before',
       setId: null,
       url: 'https://www.pokemon.com/us/pokemon-tcg',
+      logoUrl: null,
     },
     {
       id: 'ban-onepiece-2026-09',
@@ -301,6 +302,7 @@ export const mockCalendarFeed: CalendarFeed = {
       subtitle: 'Staples on the list tend to drop the same day',
       setId: null,
       url: 'https://en.onepiece-cardgame.com/rules/',
+      logoUrl: null,
     },
     {
       id: 'reveal-pokemon-presents-2026-10',
@@ -311,6 +313,7 @@ export const mockCalendarFeed: CalendarFeed = {
       subtitle: 'Set reveals often move older reprint candidates',
       setId: null,
       url: 'https://www.pokemon.com/us/pokemon-news',
+      logoUrl: null,
     },
     {
       id: 'release-cel25-anniversary',
@@ -321,6 +324,7 @@ export const mockCalendarFeed: CalendarFeed = {
       subtitle: 'Event staples tend to rise that week',
       setId: 'cel25',
       url: null,
+      logoUrl: null,
     },
   ],
 };

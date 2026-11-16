@@ -15,6 +15,7 @@ import {
   type MetaLane,
   type MetaLaneFilter,
   type MetaPulse,
+  type MetaTrendSearch,
   type NewsFeed,
   type NewsItem,
   type NewsKind,
@@ -280,6 +281,23 @@ export function parseMetaGroupDetailPayload(value: unknown, requested?: { window
   };
 }
 
+export function parseMetaTrendSearchPayload(
+  value: unknown,
+  requested?: { query?: string; windowDays?: number },
+): MetaTrendSearch {
+  const raw = asRecord(value);
+  const payloadGame = game(raw.game);
+  return {
+    game: payloadGame,
+    windowDays: num(raw.windowDays) || requested?.windowDays || 30,
+    query: str(raw.query) ?? requested?.query ?? '',
+    asOfDate: str(raw.asOfDate),
+    groups: asArray(raw.groups)
+      .map((group) => parseMetaGroup(asRecord(group), payloadGame))
+      .filter((group) => group.groupKey !== ''),
+  };
+}
+
 export function parseMetaExposurePayload(value: unknown, requested?: { windowDays?: number }): MetaExposure {
   const raw = asRecord(value);
   const payloadGame = game(raw.game);
@@ -331,6 +349,7 @@ function parseCalendarEvent(raw: Raw): CalendarEvent | null {
     subtitle: str(raw.subtitle),
     setId: str(raw.setId),
     url: str(raw.url),
+    logoUrl: str(raw.logoUrl),
   };
 }
 

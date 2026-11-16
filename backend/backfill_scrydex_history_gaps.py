@@ -44,7 +44,10 @@ from scrydex_adapter import (
 # card count got a Scrydex price (normal days sit within ~1% of each other;
 # the failed days were at 5-20%).
 GAP_DAY_COVERAGE_THRESHOLD = 0.8
-DEFAULT_LOOKBACK_DAYS = 30
+# Scrydex serves at most 100 history days per request (page_size cap, checked
+# 2026-11-16), so 99 days back keeps every card at ONE credit.
+DEFAULT_LOOKBACK_DAYS = 99
+SCRYDEX_HISTORY_MAX_DAYS_PER_REQUEST = 100
 PROGRESS_TABLE = "scrydex_history_backfill_attempts"
 
 TIER_OWNED_OR_WATCHED = 0
@@ -179,7 +182,8 @@ def attempted_cards(connection: sqlite3.Connection, gap_key: str) -> set[str]:
     return {
         row[0]
         for row in connection.execute(
-            f"SELECT card_id FROM {PROGRESS_TABLE} WHERE gap_dates = ?", (gap_key,)
+            # Errors (timeouts, 5xx) retry next night; ok / no_data are settled.
+            f"SELECT card_id FROM {PROGRESS_TABLE} WHERE gap_dates = ? AND status <> 'error'", (gap_key,)
         )
     }
 
@@ -229,7 +233,7 @@ def backfill_card(
 ) -> int:
     """One request; writes only the card's missing gap dates. Returns dates written."""
     earliest = date.fromisoformat(candidate["missingDates"][0])
-    days = (today - earliest).days + 1
+    days = min((today - earliest).days + 1, SCRYDEX_HISTORY_MAX_DAYS_PER_REQUEST)
     payload = fetch(candidate["cardId"], game=candidate["game"], days=days)
     filtered = filter_payload_to_dates(payload, candidate["missingDates"])
     if not filtered["data"]:

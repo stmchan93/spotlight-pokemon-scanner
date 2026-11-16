@@ -52,6 +52,16 @@
       "url": "https://www.pokemon.com/us/news/the-pokemon-tcg-mega-evolution-delta-reign-expansion-arrives-november-6-2026"
     },
     {
+      "id": "pokemon-flowing-fists-release",
+      "date": "2027-02-05",
+      "kind": "release",
+      "game": "pokemon",
+      "title": "Mega Evolution—Flowing Fists",
+      "subtitle": "New set",
+      "setId": null,
+      "url": "https://www.wargamer.com/pokemon-trading-card-game/flowing-fists"
+    },
+    {
       "id": "onepiece-bcg-fest-26-27-orlando",
       "date": "2027-01-07",
       "kind": "event",

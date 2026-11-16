@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react-native';
+import { act, render, screen, waitFor } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
 import {
@@ -12,7 +12,9 @@ import {
  * component actually coordinates: a ref that hands back base64, and an `onLoad`
  * that says when there is something to capture.
  */
-const mockToDataURL = jest.fn((callback: (base64: string) => void) => callback('PNGBYTES'));
+// Photo-sized: the provider rejects captures too small to hold a photo.
+const PHOTO_BASE64 = 'P'.repeat(8000);
+const mockToDataURL = jest.fn((callback: (base64: string) => void) => callback(PHOTO_BASE64));
 
 jest.mock('react-native-svg', () => {
    
@@ -70,6 +72,8 @@ function renderProvider() {
 describe('CircularTabAvatarProvider', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockToDataURL.mockReset();
+    mockToDataURL.mockImplementation((callback) => callback(PHOTO_BASE64));
     mockAvatarURL = null;
   });
 
@@ -91,7 +95,7 @@ describe('CircularTabAvatarProvider', () => {
     });
 
     expect(JSON.parse(screen.getByTestId('icon').props.children)).toEqual({
-      uri: 'data:image/png;base64,PNGBYTES',
+      uri: `data:image/png;base64,${PHOTO_BASE64}`,
       // 28pt at scale 3. Tagging the scale is what stops an 84px bitmap being
       // drawn as an 84pt icon that swamps the tab bar.
       width: 28,
@@ -125,5 +129,35 @@ describe('CircularTabAvatarProvider', () => {
     await waitFor(() => {
       expect(screen.getByTestId('icon').props.children).toBe('null');
     });
+  });
+
+  it('retries a blank capture and ships only the real photo', async () => {
+    // react-native-svg can fire onLoad before the bitmap is attached, so the
+    // first capture comes back as an empty canvas.
+    mockToDataURL.mockImplementationOnce((callback) => callback('EMPTY'));
+    mockAvatarURL = 'https://cdn.example/avatar.jpg';
+    renderProvider();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('icon').props.children).not.toBe('null');
+    }, { timeout: 3000 });
+    expect(mockToDataURL).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(screen.getByTestId('icon').props.children).uri).toBe(
+      `data:image/png;base64,${PHOTO_BASE64}`,
+    );
+  });
+
+  it('keeps the glyph when every capture is blank', async () => {
+    jest.useFakeTimers();
+    mockToDataURL.mockImplementation((callback) => callback('EMPTY'));
+    mockAvatarURL = 'https://cdn.example/avatar.jpg';
+    renderProvider();
+
+    await act(async () => {
+      jest.advanceTimersByTime(10_000);
+    });
+    expect(mockToDataURL).toHaveBeenCalledTimes(5);
+    expect(screen.getByTestId('icon').props.children).toBe('null');
+    jest.useRealTimers();
   });
 });

@@ -92,7 +92,7 @@ class MetaFeedRoutesTests(unittest.TestCase):
         )
         self.conn.execute(
             "INSERT OR REPLACE INTO meta_pulse_groups VALUES ('pokemon', ?, 7, 'raw', 'vintage:raw', "
-            "'vintage', 'Vintage', 'pre-2003 · 40 cards', 12.5, 1100, 1000, 100, 40, 20, '[1, 2]', ?, NULL)",
+            "'vintage', 'Vintage', 'pre-2003 · 40 cards', 12.5, 1100, 1000, 100, 40, 20, '[1, 2]', ?, NULL, NULL, NULL)",
             (as_of, computed_at),
         )
         upsert_runtime_setting(
@@ -265,6 +265,16 @@ class MetaFeedRoutesTests(unittest.TestCase):
         self.assertEqual(self._get("/api/v1/market/meta/groups/"), (HTTPStatus.NOT_FOUND, {"error": "not_found"}))
         self.assertEqual(self._get("/api/v1/market/meta/groups/vintage:raw?window=14")[0], HTTPStatus.BAD_REQUEST)
 
+    def test_meta_search_route(self) -> None:
+        self._seed_meta_v4()
+        status, payload = self._get("/api/v1/market/meta/search?game=pokemon&window=7&q=vint")
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertEqual(set(payload), {"game", "windowDays", "query", "asOfDate", "groups"})
+        self.assertEqual([g["groupKey"] for g in payload["groups"]], ["vintage:raw"])
+        self.assertEqual(self._get("/api/v1/market/meta/search?window=7&q=zzz")[1]["groups"], [])
+        self.assertEqual(self._get("/api/v1/market/meta/search?q=vint&window=14")[0], HTTPStatus.BAD_REQUEST)
+        self.assertEqual(self._get("/api/v1/market/meta/search?q=vint&game=nope")[0], HTTPStatus.BAD_REQUEST)
+
     def test_meta_group_cache_follows_the_version_token(self) -> None:
         self._seed_meta_v4()
         first = self.service.market_meta_group(game="pokemon", window_days=7, lane="all", group_key="vintage:raw")
@@ -399,7 +409,7 @@ class MetaFeedRoutesTests(unittest.TestCase):
         self.assertEqual(set(payload), {"items"})
         self.assertEqual([i["id"] for i in payload["items"]], ["release:far"])
         self.assertEqual(
-            set(payload["items"][0]), {"id", "date", "kind", "game", "title", "subtitle", "setId", "url"}
+            set(payload["items"][0]), {"id", "date", "kind", "game", "title", "subtitle", "setId", "url", "logoUrl"}
         )
         self.assertEqual(payload["items"][0]["date"], "2099-01-02")
 

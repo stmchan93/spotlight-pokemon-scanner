@@ -81,6 +81,13 @@ type CardPriceChartSectionProps = {
    * it (Figma 6322:8986); absent → no logo (graded lane, no exact link).
    */
   onOpenMarketplace?: (row: CardPriceTrendRow) => void;
+  /**
+   * Price lanes the card offers (Raw / PSA / CGC…), shown as a chip beside the
+   * row chip. Same state as the page's GRADER chips; hidden with < 2 lanes.
+   */
+  graders?: readonly string[];
+  selectedGrader?: string | null;
+  onSelectGrader?: (grader: string) => void;
   testID?: string;
 };
 
@@ -103,6 +110,9 @@ export function CardPriceChartSection({
   gutter = layout.pageGutter,
   style,
   onOpenMarketplace,
+  graders = [],
+  selectedGrader = null,
+  onSelectGrader,
   testID = 'card-price-chart',
 }: CardPriceChartSectionProps) {
   const theme = useSpotlightTheme();
@@ -110,6 +120,9 @@ export function CardPriceChartSection({
   const [range, setRange] = useState<PriceChartRange>(defaultPriceChartRange);
   const [scrubIndex, setScrubIndex] = useState<number | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [graderSheetOpen, setGraderSheetOpen] = useState(false);
+  const showGraderChip = graders.length > 1 && onSelectGrader != null;
+  const graderLabel = selectedGrader ?? 'Raw';
 
   // A new card or lane starts from its own default row.
   useEffect(() => {
@@ -173,8 +186,24 @@ export function CardPriceChartSection({
 
   // The sheet stays mounted whatever the chart state, so a pick can play its
   // close slide instead of the Modal being torn down under the touch.
+  const graderOptions = useMemo<GradeConditionOption[]>(
+    () => graders.map((grader) => ({ id: grader, label: grader })),
+    [graders],
+  );
   const sheet = (
-    <GradeConditionSheet
+    <>
+      {showGraderChip ? (
+        <GradeConditionSheet
+          onClose={() => setGraderSheetOpen(false)}
+          onSelect={(grader) => onSelectGrader?.(grader)}
+          options={graderOptions}
+          selectedId={graderLabel}
+          testID={`${testID}-grader-sheet`}
+          title="Grader"
+          visible={graderSheetOpen}
+        />
+      ) : null}
+      <GradeConditionSheet
       onClose={() => setSheetOpen(false)}
       onSelect={handleSelectRow}
       options={sheetOptions}
@@ -183,6 +212,7 @@ export function CardPriceChartSection({
       title={mode === 'graded' ? 'Grade' : 'Condition'}
       visible={sheetOpen}
     />
+    </>
   );
 
   if (chart.status === 'hidden') {
@@ -256,20 +286,39 @@ export function CardPriceChartSection({
             </Text>
           ) : null}
         </View>
-        <Pressable
-          accessibilityHint="Choose which price to chart"
-          accessibilityRole="button"
-          onPress={() => setSheetOpen(true)}
-          style={({ pressed }) => [
-            styles.chip,
-            { borderColor: theme.colors.gray300, backgroundColor: theme.colors.gray0, opacity: pressed ? 0.7 : 1 },
-          ]}
-          testID={`${testID}-chip`}
-        >
-          {/* Compact chip (Figma 6322:8987): Regular 10, 8x4 chevron. */}
-          <Text style={[theme.typography.captionTiny, { color: theme.colors.gray900 }]}>{selectedRow.label}</Text>
-          <NavArrowDown color={theme.colors.gray900} {...CHIP_CHEVRON} />
-        </Pressable>
+        <View style={styles.chipRow}>
+          {showGraderChip ? (
+            <Pressable
+              accessibilityHint="Choose raw or a grading company"
+              accessibilityRole="button"
+              onPress={() => setGraderSheetOpen(true)}
+              style={({ pressed }) => [
+                styles.chip,
+                { borderColor: theme.colors.gray300, backgroundColor: theme.colors.gray0, opacity: pressed ? 0.7 : 1 },
+              ]}
+              testID={`${testID}-grader-chip`}
+            >
+              <Text style={[theme.typography.captionTiny, { color: theme.colors.gray900 }]}>{graderLabel}</Text>
+              <NavArrowDown color={theme.colors.gray900} {...CHIP_CHEVRON} />
+            </Pressable>
+          ) : null}
+          <Pressable
+            accessibilityHint="Choose which price to chart"
+            accessibilityRole="button"
+            onPress={() => setSheetOpen(true)}
+            style={({ pressed }) => [
+              styles.chip,
+              { borderColor: theme.colors.gray300, backgroundColor: theme.colors.gray0, opacity: pressed ? 0.7 : 1 },
+            ]}
+            testID={`${testID}-chip`}
+          >
+            {/* Compact chip (Figma 6322:8987): Regular 10, 8x4 chevron. */}
+            <Text style={[theme.typography.captionTiny, { color: theme.colors.gray900 }]}>
+              {showGraderChip ? chipRowLabel(selectedRow.label, selectedGrader) : selectedRow.label}
+            </Text>
+            <NavArrowDown color={theme.colors.gray900} {...CHIP_CHEVRON} />
+          </Pressable>
+        </View>
       </View>
 
       <View style={{ marginHorizontal: -gutter }}>
@@ -328,6 +377,15 @@ export function CardPriceChartSection({
   );
 }
 
+/** The grader chip already names the company: "PSA 10" → "10". */
+export function chipRowLabel(label: string, grader: string | null): string {
+  if (!grader || grader === 'Raw') {
+    return label;
+  }
+  const prefix = `${grader} `;
+  return label.toUpperCase().startsWith(prefix.toUpperCase()) ? label.slice(prefix.length) : label;
+}
+
 /** Same footprint as the loaded section so nothing below jumps when it lands. */
 function CardPriceChartSkeleton({ style, testID }: { style?: StyleProp<ViewStyle>; testID: string }) {
   return (
@@ -367,6 +425,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     columnGap: DELTA_TRIANGLE_GAP,
     flexDirection: 'row',
+  },
+  chipRow: {
+    flexDirection: 'row',
+    gap: spacing.xxxs,
   },
   chip: {
     alignItems: 'center',

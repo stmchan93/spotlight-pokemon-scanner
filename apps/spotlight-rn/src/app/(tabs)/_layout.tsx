@@ -1,7 +1,9 @@
 import { usePathname } from 'expo-router';
+import { useState } from 'react';
 
 import { TabPager } from '@/components/tab-pager/tab-pager-navigator';
-import { rememberActiveTab } from '@/lib/last-active-tab';
+import { rememberActiveTab, returnableTabFromPathname } from '@/lib/last-active-tab';
+import { noteNonHomeTabShown, resetLaunchTabs } from '@/lib/launch-to-scanner';
 
 /**
  * The bottom tabs: an Instagram-style horizontal pager with our own tab bar.
@@ -39,6 +41,12 @@ export default function TabsLayout() {
   // `rememberActiveTab` ignores `/scan` itself. A plain module write with no
   // subscribers, so it is safe during render.
   rememberActiveTab(pathname);
+  // Signed-in users open on the Scanner (`useLaunchToScanner` in Home); landing
+  // on any other tab first means that switch is moot.
+  useState(resetLaunchTabs);
+  if (returnableTabFromPathname(pathname) !== 'index') {
+    noteNonHomeTabShown();
+  }
 
   return <TabPager backBehavior="firstRoute" />;
 }

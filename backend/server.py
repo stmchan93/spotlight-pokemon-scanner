@@ -23471,6 +23471,13 @@ class SpotlightScanService:
                 self._meta_group_cache[key] = (version, payload)
         return payload
 
+    def market_meta_search(self, *, game: str, window_days: int, query: str) -> dict[str, Any]:
+        """Market Watch price-trend search. Uncached: one indexed read of a few
+        hundred small rows per request, so nothing is held in memory."""
+        return meta_pulse.build_meta_search_payload(
+            self.connection, game=game, window_days=window_days, query=query
+        )
+
     def market_meta_exposure(self, *, owner_user_id: str, game: str, window_days: int) -> dict[str, Any]:
         """The caller's MetaExposure. Owner-scoped: the cache key leads with the owner."""
         owner = str(owner_user_id or "").strip()
@@ -26652,6 +26659,34 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 return
             finally:
                 _heavy_read_semaphore.release()
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        # --- Meta pulse search (Market Watch "search price trends"), public ---
+        if parsed.path == "/api/v1/market/meta/search":
+            if not _env_flag(META_PULSE_ENABLED_ENV):
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "disabled"})
+                return
+            query_params = parse_qs(parsed.query)
+            game = query_params.get("game", ["pokemon"])[0].strip().lower() or "pokemon"
+            query = query_params.get("q", [""])[0]
+            try:
+                window_days = int(query_params.get("window", ["30"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "window must be an integer"})
+                return
+            if window_days not in META_PULSE_WINDOWS:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "window must be 7, 30 or 90"})
+                return
+            if game not in SUPPORTED_GAMES:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": f"unknown game: {game}"})
+                return
+            try:
+                payload = self.service.market_meta_search(game=game, window_days=window_days, query=query)
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Meta search failed: {error}"})
+                return
             self._write_json(HTTPStatus.OK, payload)
             return
 

@@ -72,8 +72,8 @@ function pulse(groups: MetaGroup[]): MetaPulse {
 
 const calendar: CalendarFeed = {
   items: [
-    { id: 'rel', date: '2026-11-06', kind: 'release', game: 'pokemon', title: 'Delta Reign', subtitle: null, setId: 'set-1', url: null },
-    { id: 'ban', date: '2026-11-07', kind: 'ban_list', game: 'pokemon', title: 'Ban list', subtitle: null, setId: null, url: null },
+    { id: 'rel', date: '2026-11-06', kind: 'release', game: 'pokemon', title: 'Delta Reign', subtitle: null, setId: 'set-1', url: null, logoUrl: 'https://img.example/delta.png' },
+    { id: 'ban', date: '2026-11-07', kind: 'ban_list', game: 'pokemon', title: 'Ban list', subtitle: null, setId: null, url: null, logoUrl: null },
   ],
 };
 
@@ -104,6 +104,10 @@ describe('MarketWatchPage', () => {
     expect(await screen.findByTestId('market-watch-page-set-rel')).toBeTruthy();
     expect(screen.queryByTestId('market-watch-page-set-ban')).toBeNull();
     expect(screen.getByText('Nov 6 Release')).toBeTruthy();
+    // Figma 6322:7840: the set logo sits left of the details.
+    expect(screen.getByTestId('market-watch-page-set-rel-logo').props.source).toEqual({
+      uri: 'https://img.example/delta.png',
+    });
 
     expect(await screen.findByText('TRENDING UP')).toBeTruthy();
     expect(screen.getByText('COOLING OFF')).toBeTruthy();
@@ -156,5 +160,48 @@ describe('MarketWatchPage', () => {
     renderPage({ fetchCalendar: async () => null, fetchMetaPulse: async () => null });
 
     expect(await screen.findByTestId('market-watch-page-empty')).toBeTruthy();
+  });
+
+  it('searches any set\'s trend, flat ones included, and opens it', async () => {
+    const searchMetaTrends = jest.fn(async ({ query }: { query: string }) => ({
+      game: 'pokemon' as const,
+      windowDays: 30,
+      query,
+      asOfDate: '2026-11-01',
+      groups: [group({ groupKey: 'set_index:base3:raw', label: 'Fossil', medianChangePercent: 0.4 })],
+    }));
+    renderPage({
+      fetchCalendar: async () => ({ items: [] }),
+      fetchMetaPulse: async () => pulse([group({})]),
+      searchMetaTrends,
+    });
+
+    fireEvent.changeText(await screen.findByTestId('market-watch-page-search'), '  fossil ');
+
+    expect(await screen.findByTestId('market-watch-page-result-set_index:base3:raw')).toBeTruthy();
+    expect(searchMetaTrends).toHaveBeenLastCalledWith({ query: 'fossil', game: 'pokemon', windowDays: 30 });
+    // Results replace the top 3 while searching.
+    expect(screen.queryByText('TRENDING UP')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('market-watch-page-result-set_index:base3:raw'));
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/meta/group/[groupKey]',
+      params: { game: 'pokemon', groupKey: 'set_index:base3:raw', window: '30' },
+    });
+
+    fireEvent.changeText(screen.getByTestId('market-watch-page-search'), '');
+    expect(await screen.findByText('TRENDING UP')).toBeTruthy();
+  });
+
+  it('says when nothing matches', async () => {
+    renderPage({
+      fetchCalendar: async () => ({ items: [] }),
+      fetchMetaPulse: async () => pulse([group({})]),
+      searchMetaTrends: async ({ query }) => ({ game: 'pokemon', windowDays: 30, query, asOfDate: null, groups: [] }),
+    });
+
+    fireEvent.changeText(await screen.findByTestId('market-watch-page-search'), 'zzz');
+
+    expect(await screen.findByText('No price trends match "zzz".')).toBeTruthy();
   });
 });

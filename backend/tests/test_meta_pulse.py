@@ -23,6 +23,8 @@ from catalog_tools import (  # noqa: E402
     utc_now,
 )
 from meta_pulse import (  # noqa: E402
+    aggregate_set_index,
+    build_meta_search_payload,
     LANE_GRADED,
     LANE_RAW,
     CardInfo,
@@ -214,6 +216,24 @@ class SetTrendTests(unittest.TestCase):
         tap = [p.card_id for p in group.top_pairs]
         self.assertNotIn("d11", tap)
         self.assertEqual(tap[0], "d0")  # biggest % drop first
+
+
+class SetIndexTests(unittest.TestCase):
+    def test_index_keeps_flat_sets_the_top3_gates_drop(self) -> None:
+        quiet = _set_cards("q", 10, set_name="Quiet")
+        small = _set_cards("s", 9, set_name="Small")
+        promo = _set_cards("p", 10, set_name="SV Black Star Promos")
+        pairs = [_pair(f"q{i}", 10.0, 10.1) for i in range(10)]
+        pairs += [_pair(f"s{i}", 10.0, 12.0) for i in range(9)]
+        pairs += [_pair(f"p{i}", 10.0, 13.0) for i in range(10)]
+        cards = {**quiet, **small, **promo}
+        self.assertEqual(aggregate_sets(pairs, cards), [])  # +1% is inside the flat band
+        index = aggregate_set_index(pairs, cards, set_series={"q": "Neo"})
+        self.assertEqual([g.group_key for g in index], ["set_index:q:raw"])
+        group = index[0]
+        self.assertEqual(group.segment_key, "set_index")
+        self.assertAlmostEqual(group.median_change_pct, 1.0)
+        self.assertEqual(group.search_text, "Quiet Neo")
 
 
 class AggregationTests(unittest.TestCase):
@@ -427,6 +447,42 @@ class ComputeTests(unittest.TestCase):
         self.assertEqual(detail["group"]["label"], "Plasma Storm")
         self.assertEqual(len(detail["group"]["topCards"]), 12)
 
+    def test_search_finds_groups_and_flat_sets_without_leaking_into_feeds(self) -> None:
+        self._seed_vintage_raw()  # "Base Set", 1999, half +10% / half flat
+        for i in range(12):
+            card_id = f"fo{i}"
+            upsert_card(
+                self.connection, card_id=card_id, name=f"Fossil {i}", set_name="Fossil", set_id="base3",
+                number=f"{i}/62", rarity="Rare Holo", variant="Raw", language="English", game="pokemon",
+                source_provider="scrydex", source_record_id=card_id, set_release_date="1999/10/10",
+                image_small_url=f"https://img/{card_id}.png",
+            )
+            for days_ago in range(30, -1, -1):
+                self._raw(card_id, days_ago, 30.0 + i)  # dead flat: never a top-3 set
+        self._compute(games=["pokemon"])
+
+        fossil = build_meta_search_payload(self.connection, game="pokemon", window_days=30, query="foss")
+        self.assertEqual([g["label"] for g in fossil["groups"]], ["Fossil"])
+        self.assertEqual(set(fossil["groups"][0]), GROUP_KEYS)
+        self.assertEqual(fossil["groups"][0]["medianChangePercent"], 0.0)
+
+        vintage = build_meta_search_payload(self.connection, game="pokemon", window_days=30, query="Vintage")
+        labels = [g["label"] for g in vintage["groups"]]
+        self.assertEqual(labels[0], "Vintage")  # the card group leads
+        self.assertEqual(labels[1:], ["Base Set", "Fossil"])  # pre-2003 sets, oldest first
+        self.assertEqual(build_meta_search_payload(self.connection, query="  ")["groups"], [])
+        self.assertEqual(build_meta_search_payload(self.connection, window_days=30, query="nothing here")["groups"], [])
+
+        # The index never shows up in the feed, Market Watch's top 3, or the exposure groups.
+        feed = build_meta_pulse_payload(self.connection, game="pokemon", window_days=30)
+        sets = build_meta_pulse_payload(self.connection, game="pokemon", window_days=30, kind="sets")
+        for payload in (feed, sets):
+            self.assertFalse([g for g in payload["groups"] if g["groupKey"].startswith("set_index:")])
+        detail = build_meta_group_detail_payload(
+            self.connection, game="pokemon", window_days=30, group_key="set_index:base3:raw"
+        )
+        self.assertEqual(detail["group"]["label"], "Fossil")
+
     def test_printing_switch_is_not_paired(self) -> None:
         self._seed_vintage_raw(count=8)
         self._card("switch")
@@ -499,7 +555,7 @@ class ComputeTests(unittest.TestCase):
         for i, pct in enumerate(pcts):
             self.connection.execute(
                 "INSERT INTO meta_pulse_groups VALUES ('pokemon', ?, 7, 'raw', ?, ?, ?, 'desc', ?, "
-                "110, 100, 10, 10, 5, '[]', ?, NULL)",
+                "110, 100, 10, 10, 5, '[]', ?, NULL, NULL, NULL)",
                 (TODAY.isoformat(), f"g{i}", f"seg{i}", f"Group {i}", pct, now),
             )
         self.connection.commit()

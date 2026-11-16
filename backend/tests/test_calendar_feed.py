@@ -16,7 +16,7 @@ import calendar_feed  # noqa: E402
 from catalog_tools import SUPPORTED_GAMES, apply_schema, connect, upsert_expansion  # noqa: E402
 
 TODAY = "2026-09-24"
-EVENT_KEYS = {"id", "date", "kind", "game", "title", "subtitle", "setId", "url"}
+EVENT_KEYS = {"id", "date", "kind", "game", "title", "subtitle", "setId", "url", "logoUrl"}
 
 
 def _event(**overrides):

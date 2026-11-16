@@ -27,6 +27,20 @@ export type MetaGroupDetail = {
   asOfDate: string | null;
 };
 
+// GET /api/v1/market/meta/search?game=&window=&q=   (public, flag META_PULSE_ENABLED; added 2026-11-16)
+// Market Watch search. Card groups whose label matches ("Vintage") first, then
+// sets oldest-first. Sets come from the nightly gate-free `set_index` segment
+// (every trackable English set, flat ones included; groupKey "set_index:<id>:raw",
+// openable via /groups/{groupKey}). Every query word must prefix-match a word of
+// the set's name, series, release year or era ("vintage", "ex era"). Max 25.
+export type MetaTrendSearch = {
+  game: CardGame;
+  windowDays: number;
+  query: string;
+  asOfDate: string | null;
+  groups: MetaGroup[];
+};
+
 // GET /api/v1/market/meta/me?game=&window=   (AUTHED, owner-scoped; flag META_PULSE_ENABLED)
 // Computed on request from the caller's collection (deck_entries) — never global.
 export type MetaExposure = {
@@ -68,6 +82,7 @@ export type CalendarEvent = {
   subtitle: string | null;       // one short line
   setId: string | null;
   url: string | null;            // official source, link-out
+  logoUrl: string | null;        // set logo (https), releases only
 };
 export type CalendarFeed = { items: CalendarEvent[] };   // upcoming only (date >= today), ascending
 ```

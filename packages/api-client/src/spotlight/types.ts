@@ -1857,6 +1857,7 @@ export type CalendarEvent = {
   subtitle: string | null;       // one short line
   setId: string | null;
   url: string | null;            // official source, link-out
+  logoUrl: string | null;        // set logo (https), releases only
 };
 export type CalendarFeed = { items: CalendarEvent[] };   // upcoming only (date >= today), ascending
 
@@ -1866,6 +1867,21 @@ export type MetaGroupDetailQuery = {
   game?: CardGame;
   windowDays?: number;
   lane?: MetaLaneFilter;
+};
+
+/** Market Watch price-trend search (GET /api/v1/market/meta/search). */
+export type MetaTrendSearchQuery = {
+  query: string;
+  game?: CardGame;
+  windowDays?: number;
+};
+export type MetaTrendSearch = {
+  game: CardGame;
+  windowDays: number;
+  query: string;
+  asOfDate: string | null;
+  /** Card groups first ("Vintage"), then sets oldest-first. Flat sets included. */
+  groups: MetaGroup[];
 };
 
 export type MetaExposureQuery = {

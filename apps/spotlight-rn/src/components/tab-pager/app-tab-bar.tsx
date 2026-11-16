@@ -17,6 +17,7 @@ import {
   isLiquidGlassAvailable,
   layout,
   radii,
+  shadows,
   spacing,
   textStyles,
 } from '@spotlight/design-system';
@@ -229,7 +230,11 @@ function LightMaterial({ position }: { position: SharedValue<number> }) {
   if (Platform.OS === 'ios' && isLiquidGlassAvailable()) {
     return (
       <Reanimated.View pointerEvents="none" style={[StyleSheet.absoluteFill, fade]} testID="app-tab-bar-glass">
-        <GlassSurface fallbackColor={colors.canvasElevated} style={styles.glassCapsule} />
+        {/* The lift is what separates the capsule from the pages' white bottom fade;
+            glass over white with no shadow reads as a washed-out smear. */}
+        <View style={[styles.glassCapsule, shadows.glassPill]} testID="app-tab-bar-glass-lift">
+          <GlassSurface fallbackColor={colors.canvasElevated} style={styles.glassFill} />
+        </View>
       </Reanimated.View>
     );
   }
@@ -379,6 +384,12 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: ROW_SIDE_INSET - GLASS_OUTSET,
     top: ROW_TOP_INSET - GLASS_OUTSET,
+  },
+  glassFill: {
+    ...StyleSheet.absoluteFillObject,
+    borderCurve: 'continuous',
+    borderRadius: radii.pill,
+    overflow: 'hidden',
   },
   glyphBox: {
     height: ICON_SIZE,
