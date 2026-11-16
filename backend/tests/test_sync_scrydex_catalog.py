@@ -298,6 +298,16 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class DroppedTransferIsTransientTests(unittest.TestCase):
+    def test_incomplete_read_and_dropped_connections_are_retried(self) -> None:
+        import http.client
+
+        self.assertTrue(_is_transient_scrydex_catalog_error(http.client.IncompleteRead(b"x" * 64489)))
+        self.assertTrue(_is_transient_scrydex_catalog_error(http.client.RemoteDisconnected("closed")))
+        self.assertTrue(_is_transient_scrydex_catalog_error(ConnectionResetError(54, "reset")))
+        self.assertFalse(_is_transient_scrydex_catalog_error(ValueError("bad json")))
+
+
 class CatchUpModeTests(unittest.TestCase):
     """--catch-up reruns only games not yet synced for today's price date, and
     gives up (as a failure) after a capped number of attempts."""
