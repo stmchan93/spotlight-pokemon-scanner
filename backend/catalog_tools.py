@@ -8205,7 +8205,7 @@ def card_price_trend_list(
             SELECT price_date
             FROM card_price_history_daily
             WHERE card_id = ? AND provider = ?
-            ORDER BY price_date ASC, updated_at ASC
+            ORDER BY price_date DESC, updated_at DESC
             LIMIT ?
             """,
             (card_id, provider, max(1, int(days))),
@@ -8216,11 +8216,13 @@ def card_price_trend_list(
             SELECT price_date, raw_contexts_json, graded_contexts_json
             FROM card_price_history_daily
             WHERE card_id = ? AND provider = ?
-            ORDER BY price_date ASC, updated_at ASC
+            ORDER BY price_date DESC, updated_at DESC
             LIMIT ?
             """,
             (card_id, provider, max(1, int(days))),
         ).fetchall()
+    # The NEWEST `days` rows, served oldest->newest.
+    history_rows = list(reversed(history_rows))
     snapshot_row = price_snapshot_row(connection, card_id)
 
     # Fetch all cells for the window once, grouped by date (cells path only).
@@ -8336,23 +8338,30 @@ def card_price_trend_list(
     # Main-lane per-day override (flag-gated): the NM series of a printing with
     # its own raw_main cells serves those points; days without a cell keep the
     # Scrydex value — the accepted mixed series (no backfill before the cell epoch).
+    # TCGCSV keeps syncing after Scrydex history stops, so NM's window is the
+    # newest `days` dates across BOTH sources, not just the Scrydex rows.
     window_dates = [str(r["price_date"]) for r in history_rows]
     main_points_by_date: dict[str, dict[str, Any]] = {}
-    if resolved_variant and window_dates:
+    if resolved_variant:
         main_points_by_date = main_raw_cell_points_by_variant_date(
             connection,
             card_id=card_id,
-            start_date=min(window_dates),
-            end_date=max(window_dates),
+            start_date=min(window_dates) if window_dates else None,
         ).get(_variant_match_key(resolved_variant), {})
+    rows_by_date = {str(r["price_date"]): r for r in history_rows}
+    nm_dates = sorted(set(window_dates) | set(main_points_by_date))[-max(1, int(days)):]
 
     for condition_code in ordered_conditions:
         points = []
-        main_by_date = main_points_by_date if condition_code == DEFAULT_RAW_CONDITION else {}
-        for row in history_rows:
-            main_point = main_by_date.get(str(row["price_date"]))
+        is_main = condition_code == DEFAULT_RAW_CONDITION
+        main_by_date = main_points_by_date if is_main else {}
+        for price_date in (nm_dates if is_main else window_dates):
+            main_point = main_by_date.get(price_date)
             if main_point is not None:
                 points.append(main_point["market"])
+                continue
+            row = rows_by_date.get(price_date)
+            if row is None:
                 continue
             if use_cells:
                 cell = raw_cell_exact_from_cells(

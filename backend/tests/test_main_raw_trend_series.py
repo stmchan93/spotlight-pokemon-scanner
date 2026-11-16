@@ -363,6 +363,30 @@ class MainRawTrendSeriesTests(unittest.TestCase):
                 )
                 self.assertEqual(self._trend_row(trend_list, "LP")["points"], HOLO_LP)
 
+    def test_trend_list_window_is_the_newest_days(self):
+        # days=3 keeps the LAST 3 history days, not the first 3.
+        for source in HISTORY_SOURCES:
+            with self.subTest(history_source=source), self._env(source):
+                os.environ.pop("RAW_MAIN_PRICE_SOURCE", None)
+                trend_list = card_price_trend_list(
+                    self.connection, "c1", mode="raw", provider=SCRYDEX_PROVIDER, variant="Holofoil", days=3
+                )
+                self.assertEqual(self._trend_row(trend_list, "NM")["points"], HOLO_NM[-3:])
+                self.assertEqual(self._trend_row(trend_list, "LP")["points"], HOLO_LP[-3:])
+
+    def test_trend_list_nm_extends_past_last_scrydex_day(self):
+        # Scrydex history stops; TCGCSV keeps syncing: NM ends on the newest TCGCSV day.
+        self._add_main()
+        self._insert_main_cell(price_date="2026-06-06", sub_type="Holofoil", market=40.0)
+        self.connection.commit()
+        for source in HISTORY_SOURCES:
+            with self.subTest(history_source=source), self._env(source, FLAG_ON):
+                trend_list = card_price_trend_list(
+                    self.connection, "c1", mode="raw", provider=SCRYDEX_PROVIDER, variant="Holofoil", days=3
+                )
+                self.assertEqual(self._trend_row(trend_list, "NM")["points"], [10.0, 11.0, 40.0])
+                self.assertEqual(self._trend_row(trend_list, "LP")["points"], HOLO_LP[-3:])
+
     # --- 4. flag on: condition-history series --------------------------------
 
     def test_flag_on_condition_history_is_tcgcsv_only(self):
