@@ -431,7 +431,12 @@ function ScannerKeepAwake() {
 const SCANNER_ZOOM_FACTORS = [1, 1.5, 2] as const;
 type ScannerZoomFactor = (typeof SCANNER_ZOOM_FACTORS)[number];
 
-const SCANNER_ZOOM_STORAGE_KEY = '@spotlight/scanner/zoom-factor';
+// The scanner opens at 1.5x (user, 2026-11-16): to fill the frame people then
+// hold the card ~11cm away instead of ~7cm, clear of close-focus softness on the
+// ultra-wide (and the ~20cm limit of non-Pro main lenses). The key is new so
+// every install starts at 1.5x once; any later pick is remembered as before.
+const DEFAULT_SCANNER_ZOOM: ScannerZoomFactor = 1.5;
+const SCANNER_ZOOM_STORAGE_KEY = '@spotlight/scanner/zoom-factor-v2';
 // One-time EN/JP tooltip seen-flag — written on any dismissal so the coach mark
 // only ever shows on the user's very first scanner visit.
 const LANGUAGE_TOOLTIP_SEEN_KEY = '@spotlight/scanner/language-tooltip-seen';
@@ -480,13 +485,13 @@ function parseScannerZoomFactor(raw: string | null): ScannerZoomFactor {
   const value = Number(raw);
   return (SCANNER_ZOOM_FACTORS as readonly number[]).includes(value)
     ? (value as ScannerZoomFactor)
-    : 1;
+    : DEFAULT_SCANNER_ZOOM;
 }
 
 // Persisted zoom selection — mirrors the wishlist view-mode hook
-// (`useWishlistViewMode`): in-memory default of 1×, hydrated from AsyncStorage.
+// (`useWishlistViewMode`): in-memory default of 1.5×, hydrated from AsyncStorage.
 function useScannerZoomFactor(): [ScannerZoomFactor, (next: ScannerZoomFactor) => void, boolean] {
-  const [zoomFactor, setZoomFactorState] = useState<ScannerZoomFactor>(1);
+  const [zoomFactor, setZoomFactorState] = useState<ScannerZoomFactor>(DEFAULT_SCANNER_ZOOM);
   // Until the persisted zoom is read back, captures must wait — otherwise the
   // first scan can fire at the 1× default before the saved zoom applies, changing
   // the field-of-view and pulling in neighboring cards.
@@ -501,7 +506,7 @@ function useScannerZoomFactor(): [ScannerZoomFactor, (next: ScannerZoomFactor) =
           setZoomFactorState(parseScannerZoomFactor(stored));
         }
       } catch {
-        // ignore — keep the 1× default
+        // ignore — keep the 1.5× default
       } finally {
         if (!cancelled) {
           setHydrated(true);

@@ -541,7 +541,7 @@ describe('ScannerScreen', () => {
       mode: 'raw',
       cardLanguage: 'english',
       captureSource: 'camera',
-      cameraZoomFactor: 1,
+      cameraZoomFactor: 1.5, // the scanner opens at 1.5x
       sourceImage: {
         fileUri: 'file:///mock-scan.jpg',
       },
@@ -1717,7 +1717,8 @@ describe('ScannerScreen', () => {
     // zoom chip fall back to solid gray0; unselected factors are bare labels
     // (Figma 4911:8850/8853), no surface at all.
     expect(fillOf('scanner-target-pill-surface')).toBe(colors.gray0);
-    expect(fillOf('scanner-zoom-1x-surface')).toBe(colors.gray0);
+    // The scanner opens at 1.5x, so that chip carries the surface.
+    expect(fillOf('scanner-zoom-1.5x-surface')).toBe(colors.gray0);
     expect(screen.queryByTestId('scanner-zoom-2x-surface')).toBeNull();
 
     await waitForScannerReady();
