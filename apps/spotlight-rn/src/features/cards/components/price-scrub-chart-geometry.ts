@@ -22,6 +22,11 @@ const MIN_SPAN_RATIO = 0.08;
 // (the portfolio wants a quiet 7D blown up); the floor only keeps a flat or
 // penny-level series from dividing by ~0.
 const FIT_MIN_SPAN_RATIO = 0.001;
+// ...with this much of the move added above AND below, so the line sits centered
+// with room around it instead of a single jump filling the height and pinning
+// the rest of the history to the floor (user, 2026-11-16). 0.25 = the move
+// takes the middle two-thirds.
+const FIT_HEADROOM_RATIO = 0.25;
 
 export type PriceYScale = 'padded' | 'fit';
 
@@ -34,7 +39,8 @@ export function priceYDomain(values: readonly number[], scale: PriceYScale = 'pa
   const dataMax = Math.max(...finite);
   const ratio = scale === 'fit' ? FIT_MIN_SPAN_RATIO : MIN_SPAN_RATIO;
   const minSpan = Math.abs(dataMax) * ratio || (scale === 'fit' ? 0.02 : 2);
-  const span = Math.max(dataMax - dataMin, minSpan);
+  const headroom = scale === 'fit' ? 1 + FIT_HEADROOM_RATIO * 2 : 1;
+  const span = Math.max(dataMax - dataMin, minSpan) * headroom;
   const mid = (dataMax + dataMin) / 2;
   return { min: mid - span / 2, max: mid + span / 2 };
 }
