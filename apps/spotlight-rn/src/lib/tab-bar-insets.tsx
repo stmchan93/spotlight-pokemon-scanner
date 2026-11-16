@@ -55,6 +55,13 @@ export const LAST_CARD_TO_TAB_BAR_GAP = 16;
  * above the bar on Social (user, 2026-09-13, Galaxy A17). Android gets the
  * visible portion, so the two platforms show the same fade above the bar.
  */
+/**
+ * iOS draws NO white fade: content runs clean under the glass bar, like the
+ * system bar (owner, 2026-11-16, "look like Reddit's"). White under white glass
+ * washed the bar out. Android keeps it — its bar is opaque and sits above content.
+ */
+export const tabBarBottomFadeVisible = Platform.OS === 'android';
+
 export const TAB_BAR_BOTTOM_FADE_DESIGN_HEIGHT = 95;
 const IOS_HOME_INDICATOR_INSET_IN_MOCK = 34;
 export const tabBarBottomFadeHeight =

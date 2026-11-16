@@ -104,6 +104,7 @@ import { ScanTabIcon } from '@/components/nav-tab-icons';
 import {
   LAST_CARD_TO_TAB_BAR_GAP,
   tabBarBottomFadeHeight,
+  tabBarBottomFadeVisible,
   useFloatingAffordanceBottom,
 } from '@/lib/tab-bar-insets';
 import { usePortfolioScreenModel } from '@/features/portfolio/hooks/use-portfolio-screen-model';
@@ -2196,6 +2197,7 @@ export function PortfolioScreen({
         in RN). No top fade: the cover's own scrim in ProfileHeader (Figma
         4134:49492) handles status-bar contrast, and a white wash there read as
         a gray band over the photo. */}
+    {tabBarBottomFadeVisible ? (
     <View pointerEvents="none" style={[styles.profileBottomFade, { height: tabBarBottomFadeHeight }]}>
       <Svg height="100%" width="100%">
         <Defs>
@@ -2207,6 +2209,7 @@ export function PortfolioScreen({
         <Rect fill="url(#profileBottomFade)" height="100%" width="100%" x="0" y="0" />
       </Svg>
     </View>
+    ) : null}
     <SafeAreaView
       edges={['left', 'right']}
       style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
