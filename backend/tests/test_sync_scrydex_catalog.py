@@ -261,9 +261,16 @@ class SyncScrydexCatalogForGamesTests(unittest.TestCase):
                 raise RuntimeError("boom")
             return {"game": kwargs["game"]}
 
-        with self.assertRaises(SystemExit) as caught:
-            self._run_main(["--games", "pokemon,gundam"], sync)
+        # Out of retries (or unreadable state): a real failure, exit 1 -> alert.
+        with patch.object(sync_scrydex_catalog, "failures_still_retryable", return_value=False):
+            with self.assertRaises(SystemExit) as caught:
+                self._run_main(["--games", "pokemon,gundam"], sync)
         self.assertEqual(caught.exception.code, 1)
+        # Retries left: exit 4 -> the shell logs to Healthchecks without alerting.
+        with patch.object(sync_scrydex_catalog, "failures_still_retryable", return_value=True):
+            with self.assertRaises(SystemExit) as caught:
+                self._run_main(["--games", "pokemon,gundam"], sync)
+        self.assertEqual(caught.exception.code, sync_scrydex_catalog.RETRY_PENDING_EXIT_CODE)
 
     def test_main_succeeds_quietly_when_every_game_succeeds(self) -> None:
         # No SystemExit: a clean multi-game run must exit 0 for cron.
@@ -364,6 +371,27 @@ class CatchUpModeTests(unittest.TestCase):
                     with self.assertRaises(SystemExit) as caught:
                         sync_scrydex_catalog.main()
         self.assertEqual(caught.exception.code, 1)
+
+    def test_failures_still_retryable_respects_the_attempt_cap(self) -> None:
+        retryable = sync_scrydex_catalog.failures_still_retryable
+        kwargs = {"database_path": self.database_path, "price_date": self.PRICE_DATE, "max_attempts_per_day": 4}
+        self.assertTrue(retryable(games=["pokemon"], **kwargs))   # 1 of 4 attempts used
+        self.assertFalse(retryable(games=["lorcana"], **kwargs))  # 4 of 4: out of retries
+        self.assertFalse(retryable(games=["pokemon", "lorcana"], **kwargs))
+        self.assertFalse(retryable(games=["pokemon"], database_path=Path("/nonexistent/dir/x.sqlite"),
+                                   price_date=self.PRICE_DATE, max_attempts_per_day=4))
+
+    def test_main_exits_retry_pending_for_a_transient_failure_under_the_cap(self) -> None:
+        with patch.object(sys, "argv", [
+            "sync_scrydex_catalog.py", "--games", "pokemon", "--catch-up",
+            "--price-date", self.PRICE_DATE, "--database-path", str(self.database_path),
+        ]):
+            with patch.object(sync_scrydex_catalog, "sync_scrydex_catalog",
+                              side_effect=RuntimeError("HTTP Error 504: Gateway Timeout")):
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit) as caught:
+                        sync_scrydex_catalog.main()
+        self.assertEqual(caught.exception.code, sync_scrydex_catalog.RETRY_PENDING_EXIT_CODE)
 
     def test_main_nothing_to_do_exit_code_when_all_synced(self) -> None:
         with patch.object(sys, "argv", [
