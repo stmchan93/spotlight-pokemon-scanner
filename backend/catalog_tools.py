@@ -8175,6 +8175,10 @@ def _is_raw_phantom_price_from_cells(
     return raw_nm_usd > psa10_usd * _RAW_PHANTOM_MARGIN
 
 
+# How far back a trend row whose source stopped updating looks for its points.
+PRICE_TREND_LOOKBACK_ROWS = 400
+
+
 def card_price_trend_list(
     connection: sqlite3.Connection,
     card_id: str,
@@ -8205,43 +8209,47 @@ def card_price_trend_list(
     # PDP open. The snapshot below stays on card_price_snapshots JSON regardless.
     use_cells = price_history_cells_enabled() and _table_exists(connection, "card_price_history_cell")
 
-    if use_cells:
-        history_rows = connection.execute(
-            """
-            SELECT price_date
+    window = max(1, int(days))
+
+    def _load_history(limit: int) -> tuple[list[Any], dict[str, list[Any]]]:
+        """The NEWEST `limit` daily rows, served oldest->newest, plus their cells."""
+        columns = "price_date" if use_cells else "price_date, raw_contexts_json, graded_contexts_json"
+        fetched = connection.execute(
+            f"""
+            SELECT {columns}
             FROM card_price_history_daily
             WHERE card_id = ? AND provider = ?
             ORDER BY price_date DESC, updated_at DESC
             LIMIT ?
             """,
-            (card_id, provider, max(1, int(days))),
+            (card_id, provider, limit),
         ).fetchall()
-    else:
-        history_rows = connection.execute(
-            """
-            SELECT price_date, raw_contexts_json, graded_contexts_json
-            FROM card_price_history_daily
-            WHERE card_id = ? AND provider = ?
-            ORDER BY price_date DESC, updated_at DESC
-            LIMIT ?
-            """,
-            (card_id, provider, max(1, int(days))),
-        ).fetchall()
-    # The NEWEST `days` rows, served oldest->newest.
-    history_rows = list(reversed(history_rows))
+        fetched = list(reversed(fetched))
+        cells: dict[str, list[Any]] = (
+            price_history_cell_trend_rows_by_date(
+                connection,
+                card_id=card_id,
+                provider=provider,
+                price_dates=[str(r["price_date"]) for r in fetched],
+            )
+            if use_cells
+            else {}
+        )
+        return fetched, cells
+
+    history_rows, cells_by_date = _load_history(window)
     snapshot_row = price_snapshot_row(connection, card_id)
 
-    # Fetch all cells for the window once, grouped by date (cells path only).
-    cells_by_date: dict[str, list[Any]] = (
-        price_history_cell_trend_rows_by_date(
-            connection,
-            card_id=card_id,
-            provider=provider,
-            price_dates=[str(r["price_date"]) for r in history_rows],
-        )
-        if use_cells
-        else {}
-    )
+    # A source can stop updating while daily rows keep coming (TCGCSV writes a
+    # row every day; a keyless Scrydex leaves conditions/graded frozen). A row
+    # with < 2 points in the newest window then reads its own newest `window`
+    # points from a longer lookback, loaded once and only when needed.
+    lookback: list[tuple[list[Any], dict[str, list[Any]]]] = []
+
+    def _lookback_history() -> tuple[list[Any], dict[str, list[Any]]]:
+        if not lookback:
+            lookback.append(_load_history(max(window, PRICE_TREND_LOOKBACK_ROWS)))
+        return lookback[0]
 
     rows: list[dict[str, Any]] = []
     currency_code = "USD"
@@ -8269,12 +8277,12 @@ def card_price_trend_list(
             for grade_key in sorted(grade_map.keys(), key=_grade_sort_key):
                 ordered_pairs.append((grader_key, grade_key))
 
-        for grader_key, grade_key in ordered_pairs:
+        def _graded_points(source_rows: list[Any], source_cells: dict[str, list[Any]], grader_key: str, grade_key: str) -> list[float]:
             points: list[float] = []
-            for row in history_rows:
+            for row in source_rows:
                 if use_cells:
                     cell = resolve_graded_entry_from_cells(
-                        cells_by_date.get(str(row["price_date"]), []),
+                        source_cells.get(str(row["price_date"]), []),
                         grader=grader_key,
                         grade=grade_key,
                         variant=graded_variant,
@@ -8290,6 +8298,12 @@ def card_price_trend_list(
                     market = _price_trend_float(entry.get("market")) if isinstance(entry, dict) else None
                 if market is not None:
                     points.append(market)
+            return points
+
+        for grader_key, grade_key in ordered_pairs:
+            points = _graded_points(history_rows, cells_by_date, grader_key, grade_key)
+            if len(points) < 2:
+                points = _graded_points(*_lookback_history(), grader_key, grade_key)[-window:]
             snapshot_entry = _resolve_graded_context_entry(
                 snapshot_graded,
                 grader=grader_key,
@@ -8355,23 +8369,27 @@ def card_price_trend_list(
             start_date=min(window_dates) if window_dates else None,
         ).get(_variant_match_key(resolved_variant), {})
     rows_by_date = {str(r["price_date"]): r for r in history_rows}
-    nm_dates = sorted(set(window_dates) | set(main_points_by_date))[-max(1, int(days)):]
+    nm_dates = sorted(set(window_dates) | set(main_points_by_date))[-window:]
 
-    for condition_code in ordered_conditions:
-        points = []
-        is_main = condition_code == DEFAULT_RAW_CONDITION
-        main_by_date = main_points_by_date if is_main else {}
-        for price_date in (nm_dates if is_main else window_dates):
+    def _raw_points(
+        dates: list[str],
+        source_rows_by_date: dict[str, Any],
+        source_cells: dict[str, list[Any]],
+        condition_code: str,
+        main_by_date: dict[str, dict[str, Any]],
+    ) -> list[float]:
+        points: list[float] = []
+        for price_date in dates:
             main_point = main_by_date.get(price_date)
             if main_point is not None:
                 points.append(main_point["market"])
                 continue
-            row = rows_by_date.get(price_date)
+            row = source_rows_by_date.get(price_date)
             if row is None:
                 continue
             if use_cells:
                 cell = raw_cell_exact_from_cells(
-                    cells_by_date.get(str(row["price_date"]), []),
+                    source_cells.get(str(row["price_date"]), []),
                     variant=resolved_variant,
                     condition=condition_code,
                 )
@@ -8385,6 +8403,21 @@ def card_price_trend_list(
                 market = _price_trend_float(entry.get("market")) if isinstance(entry, dict) else None
             if market is not None:
                 points.append(market)
+        return points
+
+    for condition_code in ordered_conditions:
+        is_main = condition_code == DEFAULT_RAW_CONDITION
+        main_by_date = main_points_by_date if is_main else {}
+        points = _raw_points(nm_dates if is_main else window_dates, rows_by_date, cells_by_date, condition_code, main_by_date)
+        if len(points) < 2:
+            older_rows, older_cells = _lookback_history()
+            points = _raw_points(
+                [str(r["price_date"]) for r in older_rows],
+                {str(r["price_date"]): r for r in older_rows},
+                older_cells,
+                condition_code,
+                {},
+            )[-window:]
         snapshot_entry = _raw_context_entry(snapshot_raw, variant=resolved_variant, condition=condition_code)
         current_price = _price_trend_float(snapshot_entry.get("market")) if isinstance(snapshot_entry, dict) else None
         if not points and current_price is None:

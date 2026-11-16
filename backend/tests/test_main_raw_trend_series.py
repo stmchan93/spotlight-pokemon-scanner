@@ -387,6 +387,28 @@ class MainRawTrendSeriesTests(unittest.TestCase):
                 self.assertEqual(self._trend_row(trend_list, "NM")["points"], [10.0, 11.0, 40.0])
                 self.assertEqual(self._trend_row(trend_list, "LP")["points"], HOLO_LP[-3:])
 
+    def test_trend_list_stale_condition_falls_back_to_its_newest_points(self):
+        # Newer daily rows carry only NM (LP's source stopped): LP still charts
+        # its own newest points instead of vanishing.
+        for price_date, market in (("2026-06-06", 17.0), ("2026-06-07", 18.0), ("2026-06-08", 19.0)):
+            upsert_price_history_daily(
+                self.connection,
+                card_id="c1",
+                pricing_mode=RAW_PRICING_MODE,
+                provider=SCRYDEX_PROVIDER,
+                price_date=price_date,
+                **self._raw_kwargs(variant="Holofoil", condition="NM", market=market),
+            )
+        self.connection.commit()
+        for source in HISTORY_SOURCES:
+            with self.subTest(history_source=source), self._env(source):
+                os.environ.pop("RAW_MAIN_PRICE_SOURCE", None)
+                trend_list = card_price_trend_list(
+                    self.connection, "c1", mode="raw", provider=SCRYDEX_PROVIDER, variant="Holofoil", days=3
+                )
+                self.assertEqual(self._trend_row(trend_list, "NM")["points"], [17.0, 18.0, 19.0])
+                self.assertEqual(self._trend_row(trend_list, "LP")["points"], HOLO_LP[-3:])
+
     # --- 4. flag on: condition-history series --------------------------------
 
     def test_flag_on_condition_history_is_tcgcsv_only(self):
