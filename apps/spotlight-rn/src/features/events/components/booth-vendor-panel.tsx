@@ -37,6 +37,8 @@ const THUMB_WIDTH = 48;
 const MAX_THUMBS = 10;
 
 type BoothVendorPanelProps = {
+  /** False once the user holds a booth at this show: no "This is my booth" on others. */
+  canClaim?: boolean;
   eventId: string;
   vendor: SpotlightEventMapVendor;
   claim: BoothClaim | null;
@@ -46,12 +48,20 @@ type BoothVendorPanelProps = {
 };
 
 /** The booth half of the vendor card: claim state, the owner's live crowd count, and the photo strip. */
-export function BoothVendorPanel({ eventId, vendor, claim, myUserId, posts, onClaimsChanged }: BoothVendorPanelProps) {
+export function BoothVendorPanel({
+  canClaim = true,
+  eventId,
+  vendor,
+  claim,
+  myUserId,
+  posts,
+  onClaimsChanged,
+}: BoothVendorPanelProps) {
   const mine = claim != null && myUserId != null && claim.userId === myUserId;
   return (
     <View style={styles.panel} testID="booth-panel">
       {claim == null ? (
-        <UnclaimedRow eventId={eventId} onClaimsChanged={onClaimsChanged} vendor={vendor} />
+        canClaim ? <UnclaimedRow eventId={eventId} onClaimsChanged={onClaimsChanged} vendor={vendor} /> : null
       ) : mine ? (
         <MyBoothRows eventId={eventId} onClaimsChanged={onClaimsChanged} vendor={vendor} />
       ) : (
@@ -93,7 +103,7 @@ export function useClaimBooth(eventId: string, onClaimsChanged: () => void) {
           Alert.alert('Already claimed', 'Someone else claimed this booth. Use "Not you? Report" if that’s wrong.');
           onClaimsChanged();
         } else if (result === 'limit') {
-          Alert.alert('Booth limit reached', 'One account can claim up to 3 booths.');
+          Alert.alert('You already have a booth', 'One booth per person at a show. Unclaim yours first to claim a different one.');
         } else {
           Alert.alert('Couldn’t claim this booth', 'Please try again.');
         }

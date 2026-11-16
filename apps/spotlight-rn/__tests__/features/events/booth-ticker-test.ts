@@ -1,4 +1,4 @@
-import type { BoothClaim, BoothPost } from '@/features/events/booth-service';
+import type { BoothPost } from '@/features/events/booth-service';
 import { MAX_TICKER_ITEMS, buildBoothTickerItems } from '@/features/events/booth-ticker';
 
 const NOW = Date.parse('2026-10-31T20:00:00Z');
@@ -26,18 +26,11 @@ function post(id: string, vendorId: string, createdAt: string): BoothPost {
   };
 }
 
-function claims(...entries: [string, string][]): Map<string, BoothClaim> {
-  return new Map(
-    entries.map(([vendorId, claimedAt]) => [vendorId, { vendorId, userId: `u-${vendorId}`, handle: null, claimedAt }]),
-  );
-}
-
 describe('buildBoothTickerItems', () => {
-  it('busy booths first, then posts and setups newest first, then browsing', () => {
+  it('busy booths first, then posts newest first, then browsing — never booth setups', () => {
     const items = buildBoothTickerItems({
       vendors: VENDORS,
       posts: [post('p1', 'island', minutesAgo(3))],
-      claims: claims(['test', minutesAgo(12)]),
       hotVendorIds: ['vintage'],
       browsingNow: 42,
       now: NOW,
@@ -45,10 +38,9 @@ describe('buildBoothTickerItems', () => {
     expect(items.map((item) => item.text)).toEqual([
       '🔥 Mock Vintage is busy right now',
       '📸 Island Slabs posted · 3m',
-      '👋 Test Vendor Slabs set up their booth · 12m',
       '👀 42 people browsing',
     ]);
-    expect(items.map((item) => item.vendorId)).toEqual(['vintage', 'island', 'test', null]);
+    expect(items.map((item) => item.vendorId)).toEqual(['vintage', 'island', null]);
   });
 
   it('one post line per vendor (the newest), and nothing older than a day', () => {
@@ -59,7 +51,6 @@ describe('buildBoothTickerItems', () => {
         post('newest', 'island', minutesAgo(5)),
         post('stale', 'vintage', minutesAgo(25 * 60)),
       ],
-      claims: claims(['test', minutesAgo(30 * 60)]),
       hotVendorIds: [],
       browsingNow: null,
       now: NOW,
@@ -71,7 +62,6 @@ describe('buildBoothTickerItems', () => {
     const items = buildBoothTickerItems({
       vendors: VENDORS,
       posts: [post('p1', 'gone', minutesAgo(1))],
-      claims: claims(['gone', minutesAgo(1)]),
       hotVendorIds: ['gone'],
       browsingNow: 2,
       now: NOW,
@@ -84,7 +74,6 @@ describe('buildBoothTickerItems', () => {
     const items = buildBoothTickerItems({
       vendors,
       posts: vendors.map((vendor, index) => post(`p${index}`, vendor.id, minutesAgo(index + 1))),
-      claims: new Map(),
       hotVendorIds: [],
       browsingNow: 10,
       now: NOW,

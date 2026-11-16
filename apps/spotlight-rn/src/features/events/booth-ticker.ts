@@ -1,7 +1,7 @@
 import type { SpotlightEventMapVendor } from '@spotlight/api-client';
 
 import { BOOTH_POST_FRESH_MS, formatBoothAgeShort } from '@/features/events/booth-format';
-import type { BoothClaim, BoothPost } from '@/features/events/booth-service';
+import type { BoothPost } from '@/features/events/booth-service';
 
 /** Below this, "browsing now" reads as empty rather than busy. */
 export const MIN_BROWSING_SHOWN = 3;
@@ -18,7 +18,6 @@ export type BoothTickerItem = {
 type TickerInput = {
   vendors: readonly Pick<SpotlightEventMapVendor, 'id' | 'name'>[];
   posts: readonly BoothPost[];
-  claims: ReadonlyMap<string, BoothClaim>;
   /** Hottest first. */
   hotVendorIds: Iterable<string>;
   browsingNow: number | null;
@@ -27,13 +26,13 @@ type TickerInput = {
 
 /**
  * The live ticker's lines, built only from what the show page already loaded:
- * busy booths (happening now) first, then posts and booth setups from the last
- * day newest first, then the browsing count. One post line per vendor.
+ * busy booths (happening now) first, then posts from the last day newest
+ * first, then the browsing count. One post line per vendor. No "set up their
+ * booth" lines (removed by the user, 2026-11-16).
  */
 export function buildBoothTickerItems({
   vendors,
   posts,
-  claims,
   hotVendorIds,
   browsingNow,
   now = Date.now(),
@@ -68,21 +67,6 @@ export function buildBoothTickerItems({
         key: `post:${post.id}`,
         text: `📸 ${name} posted · ${formatBoothAgeShort(post.createdAt, now)}`,
         vendorId: post.boothVendorId,
-      },
-    });
-  }
-  for (const claim of claims.values()) {
-    const name = names.get(claim.vendorId);
-    const at = recent(claim.claimedAt);
-    if (!name || at == null) {
-      continue;
-    }
-    timed.push({
-      at,
-      item: {
-        key: `claim:${claim.vendorId}`,
-        text: `👋 ${name} set up their booth · ${formatBoothAgeShort(claim.claimedAt, now)}`,
-        vendorId: claim.vendorId,
       },
     });
   }

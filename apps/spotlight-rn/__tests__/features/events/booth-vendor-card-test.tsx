@@ -249,7 +249,18 @@ describe('booth vendor card', () => {
     await act(async () => fireEvent.press(screen.getByTestId('booth-claim')));
     expect(mockPush).toHaveBeenCalledWith('/login');
     await act(async () => fireEvent.press(screen.getByTestId('booth-claim')));
-    expect(alert).toHaveBeenCalledWith('Booth limit reached', expect.any(String));
+    expect(alert).toHaveBeenCalledWith('You already have a booth', expect.any(String));
+  });
+
+  it('one booth per person: holding a booth hides every claim prompt for the show', async () => {
+    const otherVendor = mockSpotlightEventMap.vendors.find((vendor) => vendor.id !== VENDOR)!.id;
+    jest.mocked(fetchBoothClaims).mockResolvedValue(
+      new Map([[otherVendor, { vendorId: otherVendor, userId: ME, handle: 'me', claimedAt: '2026-10-29T00:00:00Z' }]]),
+    );
+    await renderShow();
+    await waitFor(() => expect(screen.queryByTestId('event-vendors-find-booth')).not.toBeOnTheScreen());
+    await openVendor();
+    expect(screen.queryByTestId('booth-claim')).toBeNull();
   });
 
   it('claimed by someone else: handle, Message, Follow and Report', async () => {

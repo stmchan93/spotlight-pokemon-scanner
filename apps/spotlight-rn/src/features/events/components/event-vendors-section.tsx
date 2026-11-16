@@ -185,7 +185,7 @@ function EventVendorsBody({
   }, [booth, map.vendors]);
   // Treasure-email matches the user hasn't claimed yet (theirs already reads "Your booth").
   const suggestions = useMemo(() => {
-    if (!booth) {
+    if (!booth || booth.hasMyBooth) {
       return [];
     }
     const ids = new Set(booth.suggestedVendorIds);
@@ -401,7 +401,7 @@ function EventVendorsBody({
         />
       ))}
 
-      {booth ? (
+      {booth && !booth.hasMyBooth ? (
         <View style={styles.claimModeBar}>
           {claimMode ? (
             <>
@@ -446,7 +446,7 @@ function EventVendorsBody({
                 </View>
               ) : (
                 <VendorRow
-                  booth={booth ? rowBoothState(booth.claims.get(vendor.id), booth.myUserId, claimMode) : null}
+                  booth={booth ? rowBoothState(booth.claims.get(vendor.id), booth.myUserId, claimMode && !booth.hasMyBooth) : null}
                   claimPending={pendingId === vendor.id}
                   hot={booth?.hotVendorIds.has(vendor.id) ?? false}
                   onClaim={gate(() => claim(vendor, 'list'))}
@@ -754,6 +754,7 @@ function SelectedVendorCard({
       </View>
       {booth ? (
         <BoothVendorPanel
+          canClaim={!booth.hasMyBooth}
           claim={claim}
           eventId={eventId}
           myUserId={booth.myUserId}

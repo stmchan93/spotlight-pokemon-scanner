@@ -23,6 +23,11 @@ export type BoothFloor = {
   /** Vendors with a booth post in the last 24h (the pin dot). */
   freshVendorIds: ReadonlySet<string>;
   myUserId: string | null;
+  /**
+   * The signed-in user already holds a booth at this show. One booth per person
+   * (user, 2026-11-16): every claim prompt hides once this is true.
+   */
+  hasMyBooth: boolean;
   /** Vendors whose Treasure email is the signed-in user's ("This is you"). */
   suggestedVendorIds: readonly string[];
   /** Vendors with recent card opens from several people, hottest first (no counts). */
@@ -129,6 +134,8 @@ export function useBoothFloor(eventId: string, vendorIds: readonly string[] | nu
       postsByVendor: byVendor,
       freshVendorIds,
       myUserId,
+      hasMyBooth:
+        myUserId != null && [...(claims ?? NO_CLAIMS).values()].some((claim) => claim.userId === myUserId),
       suggestedVendorIds: suggested,
       hotVendorIds,
       refreshClaims: loadClaims,

@@ -154,12 +154,11 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
         ? buildBoothTickerItems({
             vendors: map.vendors,
             posts: booth.posts,
-            claims: booth.claims,
             hotVendorIds: booth.hotVendorIds,
             browsingNow,
           })
         : [],
-    [booth.claims, booth.hotVendorIds, booth.posts, browsingNow, live, map],
+    [booth.hotVendorIds, booth.posts, browsingNow, live, map],
   );
 
   // Booth stories: photo posts from the last day. Images stream with a bearer token only.
