@@ -228,19 +228,28 @@ function TabLabel({ label, page, position }: { label: string; page: number; posi
   );
 }
 
+const GLASS_LIFT_SHADOW_OPACITY = shadows.glassPill.shadowOpacity;
+
 function LightMaterial({ position }: { position: SharedValue<number> }) {
   const fade = useAnimatedStyle(() => ({ opacity: 1 - scanProximity(position.value) }));
+  // Fades the lift's shadow only. Never put opacity < 1 on the glass or its
+  // parents: UIKit's effect view stops rendering after it has sat at alpha 0
+  // (Scan) across a full-screen presentation, leaving a see-through bar. The
+  // opaque dark slab drawn above covers the glass on Scan instead.
+  const lift = useAnimatedStyle(() => ({
+    shadowOpacity: GLASS_LIFT_SHADOW_OPACITY * (1 - scanProximity(position.value)),
+  }));
   if (Platform.OS === 'ios' && isLiquidGlassAvailable()) {
     return (
-      <Reanimated.View pointerEvents="none" style={[StyleSheet.absoluteFill, fade]} testID="app-tab-bar-glass">
+      <View pointerEvents="none" style={StyleSheet.absoluteFill} testID="app-tab-bar-glass">
         {/* The lift is what separates the capsule from the pages' white bottom fade;
             glass over white with no shadow reads as a washed-out smear. */}
-        <View style={[styles.glassCapsule, shadows.glassPill]} testID="app-tab-bar-glass-lift">
+        <Reanimated.View style={[styles.glassCapsule, shadows.glassPill, lift]} testID="app-tab-bar-glass-lift">
           {/* frostTint gives the glass a floor: untinted glass is only as bright as
               the page behind it and read as see-through over content. */}
           <GlassSurface fallbackColor={colors.canvasElevated} glassTintColor={colors.frostTint} style={styles.glassFill} />
-        </View>
-      </Reanimated.View>
+        </Reanimated.View>
+      </View>
     );
   }
   if (Platform.OS === 'ios') {
