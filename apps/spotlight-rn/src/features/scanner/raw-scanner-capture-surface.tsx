@@ -297,7 +297,10 @@ export function makeRawScannerCaptureLayout({
   // point of height is page width for the taller layouts (a 3 × 4 page needs
   // ~1.86× its width). Single-card keeps the uniform 40.
   const verticalInset = mode === 'page' ? 16 : inset;
-  const figmaFrame = mode === 'card' && controlsInsideFrame;
+  // The scanner tab (Figma 6322:9081) uses ONE box for both modes, so switching
+  // single <-> multi-scan does not move the frame's top or bottom (it jumped:
+  // user, 2026-11-16).
+  const figmaFrame = controlsInsideFrame;
   const sideInset = figmaFrame ? 16 : inset;
   const x = sideInset;
   const width = Math.max(284, containerWidth - sideInset * 2);
@@ -321,8 +324,13 @@ export function makeRawScannerCaptureLayout({
   // Figma frame: the crop is the largest card-shaped rect INSIDE the frame, so a
   // card fitted to the frame's edges fills the crop exactly. (Full-width crops
   // overhung the squat frame and left ~16% background beside a fitted card.)
+  // Figma frame, page mode: the largest page-shaped rect INSIDE the box. The old
+  // full-width 3×3 overhung the box and touched the game pill above it (no top
+  // padding); fitting inside costs ~2% pocket width on a 393/402pt phone.
   const cropWidth = mode === 'page'
-    ? Math.min(width, Math.floor(pageHeightAllowance / pageAspectRatio))
+    ? figmaFrame
+      ? Math.min(width, Math.floor(height / pageAspectRatio))
+      : Math.min(width, Math.floor(pageHeightAllowance / pageAspectRatio))
     : figmaFrame
       ? Math.min(width, Math.floor(height / rawCardReticleAspectRatio))
       : width;

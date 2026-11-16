@@ -71,6 +71,24 @@ describe('raw scanner capture layout', () => {
     expect(Math.abs(crop.x + crop.width / 2 - (scanner.reticle.x + scanner.reticle.width / 2))).toBeLessThanOrEqual(1);
   });
 
+  it('multi-scan uses the same Figma box as single scan, with the grid inside it', () => {
+    const trayReservedHeight = getRawScannerCollapsedTrayReservedHeight({ bottomInset: 24 });
+    const base = { containerHeight: 874 - 96, containerWidth: 402, controlsInsideFrame: true, safeAreaTop: 62, trayReservedHeight };
+    const single = makeRawScannerCaptureLayout(base);
+    const page = makeRawScannerCaptureLayout({ ...base, mode: 'page', pageAspectRatio: 880 / 630 });
+    const grid = page.captureCropRect;
+
+    // Same box: switching modes moves neither its top nor its bottom.
+    expect(page.reticle).toEqual(single.reticle);
+    // The 3x3 grid fits INSIDE the box (it used to overhang into the game pill).
+    expect(grid.y).toBeGreaterThanOrEqual(single.reticle.y);
+    expect(grid.y + grid.height).toBeLessThanOrEqual(single.reticle.y + single.reticle.height);
+    expect(grid.x).toBeGreaterThanOrEqual(single.reticle.x);
+    expect(grid.height / grid.width).toBeCloseTo(880 / 630, 1);
+    // And it stays nearly as wide as the old full-width grid (322pt on this phone).
+    expect(grid.width).toBeGreaterThan(310);
+  });
+
   it('leaves the labeling layout (controls row below the frame) unchanged', () => {
     const base = { containerHeight: 852, containerWidth: 393, safeAreaTop: 59 };
     expect(makeRawScannerCaptureLayout(base).reticle.x).toBe(40);
