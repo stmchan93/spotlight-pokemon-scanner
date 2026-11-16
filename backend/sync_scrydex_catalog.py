@@ -507,6 +507,10 @@ def sync_scrydex_catalog(
 
 # Exit code for a catch-up run that found every game already synced today.
 CATCH_UP_NOTHING_TO_DO_EXIT_CODE = 3
+# A game failed but still has catch-up attempts left today: a transient upstream
+# blip (e.g. one Scrydex page timing out), NOT an outage. The shell logs it to
+# Healthchecks without alerting; only exhausting the attempts alerts.
+RETRY_PENDING_EXIT_CODE = 4
 # Catch-up re-fetches a failed game from page 1, so an all-night Scrydex outage
 # must not retry forever: ~465 credits per full Pokémon attempt.
 DEFAULT_CATCH_UP_MAX_ATTEMPTS_PER_DAY = 4
@@ -548,6 +552,30 @@ def _games_needing_catch_up(
             else:
                 pending.append(game)
         return pending, skipped
+    finally:
+        connection.close()
+
+
+def failures_still_retryable(
+    *, database_path: Path, games: list[str], price_date: str, max_attempts_per_day: int
+) -> bool:
+    """True when every failed game is still under today's attempt cap, so the
+    hourly catch-up will try it again. Any unreadable state counts as NOT
+    retryable, so a real problem still alerts."""
+    try:
+        connection = connect(database_path, timeout_seconds=30.0, busy_timeout_ms=30_000)
+    except Exception:  # noqa: BLE001
+        return False
+    try:
+        for game in games:
+            succeeded, attempts = game_sync_attempts_for_date(connection, game=game, price_date=price_date)
+            if succeeded:
+                continue
+            if attempts >= max_attempts_per_day:
+                return False
+        return True
+    except Exception:  # noqa: BLE001
+        return False
     finally:
         connection.close()
 
@@ -645,6 +673,15 @@ def main() -> None:
         )
         print(json.dumps(result, indent=2))
         if result["failures"]:
+            failed_games = [str(item.get("game")) for item in result["failures"]]
+            max_attempts = cli_int_value("--max-attempts-per-day", DEFAULT_CATCH_UP_MAX_ATTEMPTS_PER_DAY)
+            if failures_still_retryable(
+                database_path=database_path,
+                games=failed_games,
+                price_date=str(price_date or "").strip() or datetime.now(timezone.utc).date().isoformat(),
+                max_attempts_per_day=max_attempts,
+            ):
+                raise SystemExit(RETRY_PENDING_EXIT_CODE)
             raise SystemExit(1)
         if any(item.get("reason") == "attempt_cap" for item in result["skipped"]):
             # Still unsynced and out of retries: a failure the alert must see.

@@ -38,7 +38,11 @@ export SPOTLIGHT_RUNTIME_LABEL="${SPOTLIGHT_RUNTIME_LABEL:-vm-sync:${HOSTNAME_VA
 # Extra args pass through: the catch-up schedule adds --catch-up (only games not
 # yet synced today, capped attempts).
 #
-# Alerts (Healthchecks.io): a failure pings `<url>/fail`, which alerts at once.
+# Alerts (Healthchecks.io): a failure pings `<url>/fail`, which alerts at once —
+# but only when retries are exhausted. A failure with catch-up attempts left
+# (exit 4: one Scrydex page timing out) pings `<url>/log`, which records the
+# event on the check without changing its state or alerting (2026-11-15: a
+# single 504 at 6 PM paged "ekalight-prod is DOWN" though the retry succeeded).
 # SPOTLIGHT_SYNC_PING_URL is a dedicated daily check (also pinged on success, so
 # its grace period catches a run that never happened). Without one, failures go
 # to the VM health check's URL instead; the 11/12-11/15 lock failures went
@@ -46,8 +50,8 @@ export SPOTLIGHT_RUNTIME_LABEL="${SPOTLIGHT_RUNTIME_LABEL:-vm-sync:${HOSTNAME_VA
 sync_ping() {
   if [ -n "${SPOTLIGHT_SYNC_PING_URL:-}" ]; then
     curl -fsS -m 10 --retry 3 "${SPOTLIGHT_SYNC_PING_URL}$1" >/dev/null 2>&1 || true
-  elif [ "$1" = "/fail" ] && [ -n "${SPOTLIGHT_HEALTHCHECK_PING_URL:-}" ]; then
-    curl -fsS -m 10 --retry 3 "${SPOTLIGHT_HEALTHCHECK_PING_URL}/fail" >/dev/null 2>&1 || true
+  elif { [ "$1" = "/fail" ] || [ "$1" = "/log" ]; } && [ -n "${SPOTLIGHT_HEALTHCHECK_PING_URL:-}" ]; then
+    curl -fsS -m 10 --retry 3 "${SPOTLIGHT_HEALTHCHECK_PING_URL}$1" >/dev/null 2>&1 || true
   fi
 }
 
@@ -64,8 +68,13 @@ if [ "$SYNC_EXIT_CODE" -eq 3 ]; then
   echo "[sync] catch-up: every game already synced today, nothing to do"
   exit 0
 fi
+if [ "$SYNC_EXIT_CODE" -eq 4 ]; then
+  echo "[sync] a game failed but has retries left; the hourly catch-up will retry (no alert)" >&2
+  sync_ping /log
+  exit "$SYNC_EXIT_CODE"
+fi
 if [ "$SYNC_EXIT_CODE" -ne 0 ]; then
-  echo "[sync] FAILED (exit $SYNC_EXIT_CODE); the catch-up schedule will retry" >&2
+  echo "[sync] FAILED (exit $SYNC_EXIT_CODE): out of retries today, or a non-retryable error" >&2
   sync_ping /fail
   exit "$SYNC_EXIT_CODE"
 fi
