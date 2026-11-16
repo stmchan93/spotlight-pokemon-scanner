@@ -15,7 +15,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { EdgeInsets } from 'react-native-safe-area-context';
 import { initialWindowMetrics, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Camera, MapPin, MediaImage, Shop, Xmark } from 'iconoir-react-native';
+import { Camera, MapPin, MediaImage, Xmark } from 'iconoir-react-native';
 
 import { Avatar, Button, IconButton, PillButton, SheetHeader, Text, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
@@ -268,15 +268,19 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   const paramEventId = firstParam(params?.eventId);
   const paramVendorId = firstParam(params?.vendorId);
   const booth = useActiveBooth({ eventId: paramEventId, vendorId: paramVendorId });
-  // Opt-out rather than opt-in, so the toggle is on as soon as the booth resolves.
-  const [boothOptOut, setBoothOptOut] = useState(false);
-  const boothOn = booth != null && !boothOptOut;
-  // Any signed-in user can tag a show in its window. On by default only when
-  // opened from that show's feed; a booth tag already implies the show.
+  // ONE "Post to <show>" switch (user, 2026-11-16). Owning a booth at that show
+  // attaches the post to the booth too, with no second switch. On by default
+  // from a show's feed or when you have a booth there; off otherwise.
   const show = useActiveShow({ eventId: paramEventId, enabled: currentUser != null });
-  const [showTagOn, setShowTagOn] = useState(() => paramEventId != null && paramVendorId == null);
-  const showTagVisible = show != null && !boothOn;
-  const eventTagId = boothOn ? booth.eventId : showTagVisible && showTagOn ? show.id : null;
+  const [showTagChoice, setShowTagChoice] = useState<boolean | null>(null);
+  const showTarget = booth
+    ? { id: booth.eventId, title: show?.id === booth.eventId ? show.shortTitle : booth.eventName }
+    : show
+      ? { id: show.id, title: show.shortTitle }
+      : null;
+  const showTagOn = showTagChoice ?? (paramEventId != null || booth != null);
+  const boothOn = booth != null && showTagOn;
+  const eventTagId = showTarget && showTagOn ? showTarget.id : null;
   // Optional show post type; only offered, and only sent, while tagged to a show.
   const [intentChoice, setIntentChoice] = useState<PostIntent | null>(null);
   const intent = eventTagId ? intentChoice : null;
@@ -539,7 +543,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
         Alert.alert(
           "Couldn't post",
           boothOn
-            ? `This post couldn't be added to your booth at ${booth.eventName}. Check that the booth is still yours, or turn off "Show on my booth" and try again.`
+            ? `This post couldn't be added to your booth at ${booth.eventName}. Check that the booth is still yours, or turn off "Post to ${booth.eventName}" and try again.`
             : 'Something went wrong. Please try again.',
         );
         // Back to a usable composer: POST re-enables and the discard guard
@@ -804,37 +808,8 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             </Text>
           </View>
 
-          {/* The toggles wait out the keyboard so typing keeps room for the post itself. */}
-          {booth && !keyboardUp ? (
-            <View
-              style={[
-                styles.boothRow,
-                {
-                  backgroundColor: theme.colors.gray50,
-                  borderCurve: 'continuous',
-                  borderRadius: theme.radii.sm,
-                },
-              ]}
-              testID={`${testID}-booth-row`}
-            >
-              <Shop color={theme.colors.gray900} height={18} width={18} />
-              <Text
-                numberOfLines={2}
-                style={[theme.typography.captionMedium, styles.boothLabel, { color: theme.colors.gray900 }]}
-              >
-                {`Show on my booth at ${booth.eventName}`}
-              </Text>
-              <Switch
-                accessibilityLabel={`Show on my booth at ${booth.eventName}`}
-                disabled={submitState !== 'idle'}
-                onValueChange={(next) => setBoothOptOut(!next)}
-                testID={`${testID}-booth-toggle`}
-                value={boothOn}
-              />
-            </View>
-          ) : null}
-
-          {showTagVisible && !keyboardUp ? (
+          {/* The switch waits out the keyboard so typing keeps room for the post itself. */}
+          {showTarget && !keyboardUp ? (
             <View
               style={[
                 styles.boothRow,
@@ -851,12 +826,12 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
                 numberOfLines={2}
                 style={[theme.typography.captionMedium, styles.boothLabel, { color: theme.colors.gray900 }]}
               >
-                {`Post to ${show.shortTitle}`}
+                {`Post to ${showTarget.title}`}
               </Text>
               <Switch
-                accessibilityLabel={`Post to ${show.shortTitle}`}
+                accessibilityLabel={`Post to ${showTarget.title}`}
                 disabled={submitState !== 'idle'}
-                onValueChange={setShowTagOn}
+                onValueChange={setShowTagChoice}
                 testID={`${testID}-show-toggle`}
                 value={showTagOn}
               />

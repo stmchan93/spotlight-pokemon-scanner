@@ -120,7 +120,7 @@ describe('NewPostScreen', () => {
       await waitFor(() => expect(createPost).toHaveBeenCalledWith({ body: 'gm', cardId: null }));
     });
 
-    it('keeps only the booth toggle for a claimed vendor (the booth implies the show)', () => {
+    it('a booth owner gets ONE show switch, on by default, that also tags the booth', () => {
       (useActiveShow as jest.Mock).mockReturnValue(show);
       (useActiveBooth as jest.Mock).mockReturnValue({
         eventId: 'hawaii-2026-10',
@@ -130,11 +130,9 @@ describe('NewPostScreen', () => {
       });
       renderWithProviders(<NewPostScreen />);
 
-      expect(screen.getByTestId('new-post-booth-row')).toBeTruthy();
-      expect(screen.queryByTestId('new-post-show-row')).toBeNull();
-      // Turning the booth off falls back to a plain show tag.
-      fireEvent(screen.getByTestId('new-post-booth-toggle'), 'valueChange', false);
-      expect(screen.getByTestId('new-post-show-row')).toBeTruthy();
+      expect(screen.queryByTestId('new-post-booth-row')).toBeNull();
+      expect(screen.queryByText(/Show on my booth/)).toBeNull();
+      expect(screen.getByTestId('new-post-show-toggle').props.value).toBe(true);
     });
 
     it('offers post types only while the post is tagged to a show', () => {
@@ -229,9 +227,9 @@ describe('NewPostScreen', () => {
   describe('booth posts', () => {
     const booth = { eventId: 'ontario-2026', eventName: 'Spotlight Ontario', vendorId: 'island-slabs', vendorName: 'Island Slabs' };
 
-    it('hides the booth toggle when no booth applies', () => {
+    it('has no switch when no show or booth applies', () => {
       renderWithProviders(<NewPostScreen />);
-      expect(screen.queryByTestId('new-post-booth-row')).toBeNull();
+      expect(screen.queryByTestId('new-post-show-row')).toBeNull();
     });
 
     it('passes the route ids to the hook and tags the post by default', async () => {
@@ -241,8 +239,8 @@ describe('NewPostScreen', () => {
       renderWithProviders(<NewPostScreen />);
 
       expect(useActiveBooth).toHaveBeenCalledWith({ eventId: 'ontario-2026', vendorId: 'island-slabs' });
-      expect(screen.getByText('Show on my booth at Spotlight Ontario')).toBeTruthy();
-      expect(screen.getByTestId('new-post-booth-toggle').props.value).toBe(true);
+      expect(screen.getByText('Post to Spotlight Ontario')).toBeTruthy();
+      expect(screen.getByTestId('new-post-show-toggle').props.value).toBe(true);
 
       fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'Case is up at C4');
       fireEvent.press(screen.getByTestId('new-post-submit'));
@@ -301,7 +299,7 @@ describe('NewPostScreen', () => {
       (useActiveBooth as jest.Mock).mockReturnValue(booth);
       renderWithProviders(<NewPostScreen />);
 
-      fireEvent(screen.getByTestId('new-post-booth-toggle'), 'valueChange', false);
+      fireEvent(screen.getByTestId('new-post-show-toggle'), 'valueChange', false);
       fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'gm');
       fireEvent.press(screen.getByTestId('new-post-submit'));
 
