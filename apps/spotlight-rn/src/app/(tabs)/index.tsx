@@ -11,7 +11,6 @@ import {
 } from '@/features/cards/card-detail-prefetch';
 import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
 import { useAppServices } from '@/providers/app-providers';
-import { useLaunchToScanner } from '@/features/auth/use-launch-to-scanner';
 import { useAuth } from '@/providers/auth-provider';
 
 /**
@@ -35,9 +34,8 @@ import { useAuth } from '@/providers/auth-provider';
 export default function HomeRoute() {
   const router = useRouter();
   const { spotlightRepository } = useAppServices();
-  const { currentUser, isGuest } = useAuth();
+  const { isGuest } = useAuth();
   // Signed in, the app opens on the Scanner; Home is only the route it starts on.
-  useLaunchToScanner(isGuest ? null : currentUser?.id);
 
   // Collection is gated for guests, so there is nothing to show them here. Send
   // them to the scanner, which is the whole of the guest experience.

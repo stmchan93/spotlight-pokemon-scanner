@@ -1,35 +1,23 @@
 import {
-  __resetLaunchToScannerForTests,
-  claimLaunchToScanner,
-  noteNonHomeTabShown,
-  resetLaunchTabs,
+  __resetLaunchToScanForTests,
+  shouldRedirectLaunchToScan,
 } from '@/lib/launch-to-scanner';
 
-describe('launch-to-scanner', () => {
-  beforeEach(() => __resetLaunchToScannerForTests());
-
-  it('sends a signed-in account to the Scanner once', () => {
-    resetLaunchTabs();
-    expect(claimLaunchToScanner('u1')).toBe(true);
-    expect(claimLaunchToScanner('u1')).toBe(false);
+describe('shouldRedirectLaunchToScan', () => {
+  beforeEach(() => {
+    __resetLaunchToScanForTests();
   });
 
-  it('never fires without an account', () => {
-    expect(claimLaunchToScanner(null)).toBe(false);
+  it('redirects a cold start on Home until the Scanner is reached, then never again', () => {
+    expect(shouldRedirectLaunchToScan('/')).toBe(true);
+    expect(shouldRedirectLaunchToScan('/')).toBe(true); // re-render before the redirect lands
+    expect(shouldRedirectLaunchToScan('/scan')).toBe(false);
+    // Later taps / swipes to Home are just Home.
+    expect(shouldRedirectLaunchToScan('/')).toBe(false);
   });
 
-  it('stands down when another tab was shown first, so Home is not hijacked later', () => {
-    resetLaunchTabs();
-    noteNonHomeTabShown();
-    expect(claimLaunchToScanner('u1')).toBe(false);
-    expect(claimLaunchToScanner('u1')).toBe(false);
-  });
-
-  it('fires again for a different account after the tabs remount (sign-in)', () => {
-    resetLaunchTabs();
-    expect(claimLaunchToScanner('u1')).toBe(true);
-    noteNonHomeTabShown();
-    resetLaunchTabs();
-    expect(claimLaunchToScanner('u2')).toBe(true);
+  it('leaves a cold start deep-linked to another tab alone', () => {
+    expect(shouldRedirectLaunchToScan('/wishlist')).toBe(false);
+    expect(shouldRedirectLaunchToScan('/')).toBe(false);
   });
 });

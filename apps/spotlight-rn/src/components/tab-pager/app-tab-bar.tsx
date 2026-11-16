@@ -74,7 +74,10 @@ const GLASS_OUTSET = 4;
 const ROW_SIDE_INSET = spacing.sm;
 const ROW_TOP_INSET = spacing.xxs;
 
-const LIGHT_UNSELECTED = colors.gray600;
+// Unselected tabs on light pages are full-strength ink: gray600 on the light
+// bar read as disabled ("feels greyed out", user 2026-11-16). The selected tab
+// is marked by its pill and filled icon, not by dimming the others.
+const LIGHT_UNSELECTED = colors.gray900;
 const LIGHT_SELECTED = colors.gray900;
 const DARK_UNSELECTED = colors.gray300;
 const DARK_SELECTED = colors.gray0;

@@ -1,36 +1,23 @@
 /**
- * Signed-in users open on the Scanner: once per launch and once per sign-in.
+ * The app always opens on the Scanner (user, 2026-11-16). A cold start lands on
+ * `/` (Home); the tabs layout asks this on each render and redirects to `/scan`
+ * until the first non-Home path is seen. After that, `/` is just Home.
  *
- * Home (`/`) is still the tabs' root route, so the switch happens from Home the
- * first time it is focused for an account. If any other tab was shown first in
- * this mount of the tabs (a deep link, a guest already scanning when they signed
- * in), the launch counts as handled, so tapping Home later never bounces to Scan.
- * Module scope: per-process, holds only an id to compare.
+ * Decided on the FIRST path only: a cold start deep-linked to another tab
+ * (a notification, `/wishlist`) is left alone.
  */
-let handledForUserId: string | null = null;
-let otherTabShownFirst = false;
+let launchRedirectPending: boolean | null = null;
 
-/** The tabs layout mounted (cold launch, or the app shell after sign-in). */
-export function resetLaunchTabs(): void {
-  otherTabShownFirst = false;
-}
-
-/** The tabs layout is showing a tab other than Home. */
-export function noteNonHomeTabShown(): void {
-  otherTabShownFirst = true;
-}
-
-/** True exactly once per account: when Home should hand off to the Scanner. */
-export function claimLaunchToScanner(userId: string | null | undefined): boolean {
-  if (userId == null || handledForUserId === userId) {
-    return false;
+export function shouldRedirectLaunchToScan(pathname: string): boolean {
+  if (launchRedirectPending === null) {
+    launchRedirectPending = pathname === '/';
   }
-  handledForUserId = userId;
-  return !otherTabShownFirst;
+  if (launchRedirectPending && pathname !== '/') {
+    launchRedirectPending = false;
+  }
+  return launchRedirectPending;
 }
 
-/** Test seam. */
-export function __resetLaunchToScannerForTests(): void {
-  handledForUserId = null;
-  otherTabShownFirst = false;
+export function __resetLaunchToScanForTests(): void {
+  launchRedirectPending = null;
 }
