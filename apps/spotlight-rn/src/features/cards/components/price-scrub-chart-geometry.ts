@@ -24,9 +24,9 @@ const MIN_SPAN_RATIO = 0.08;
 const FIT_MIN_SPAN_RATIO = 0.001;
 // ...with this much of the move added above AND below, so the line sits centered
 // with room around it instead of a single jump filling the height and pinning
-// the rest of the history to the floor (user, 2026-11-16). 0.25 = the move
-// takes the middle two-thirds.
-const FIT_HEADROOM_RATIO = 0.25;
+// the rest of the history to the floor (user, 2026-11-16). 0.1 = the move takes
+// the middle ~83%: 0.25 left the line small with the increase hard to read.
+const FIT_HEADROOM_RATIO = 0.1;
 
 export type PriceYScale = 'padded' | 'fit';
 

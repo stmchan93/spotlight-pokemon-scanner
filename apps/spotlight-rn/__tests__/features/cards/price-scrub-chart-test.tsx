@@ -122,9 +122,9 @@ describe('price-scrub-chart geometry', () => {
 
   it("'fit' scale blows up a small move, centered with room above and below", () => {
     const domain = priceYDomain([1700, 1712], 'fit');
-    // The 12-point move takes the middle two-thirds of the height.
-    expect(domain.min).toBeCloseTo(1697);
-    expect(domain.max).toBeCloseTo(1715);
+    // The 12-point move takes the middle ~83% of the height (10% room above and below).
+    expect(domain.min).toBeCloseTo(1698.8);
+    expect(domain.max).toBeCloseTo(1713.2);
     // A flat series still gets a nonzero span.
     const flat = priceYDomain([1700, 1700], 'fit');
     expect(flat.max - flat.min).toBeGreaterThan(0);
