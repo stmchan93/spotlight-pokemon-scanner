@@ -83,6 +83,9 @@ SplashScreen.setOptions({ duration: 220, fade: true });
 // automatically when navigated back to.
 enableFreeze(true);
 
+/** How far down from the top a swipe can start to close Search (pt). */
+const SHEET_DISMISS_ZONE = 140;
+
 const navigationTheme: Theme = {
   dark: false,
   colors: {
@@ -212,12 +215,17 @@ function AuthenticatedRoot() {
                 below. Routes pushed from WITHIN the group (expansion detail)
                 still push normally, because they are pushed on the inner stack.
 
-                `fullScreenModal` and not `formSheet`: the screen already carries
-                its own full safe-area chrome and a close button, and a card
-                presentation would leave the collection showing behind a search
-                that is meant to take over.
+                A full-screen PUSH that slides up, not a `fullScreenModal`: iOS
+                gives a full-screen modal no dismiss gesture at all. `vertical`
+                makes it slide from the bottom and close on a downward swipe,
+                taken only from the top of the screen so scrolling results back
+                up never closes search. Not `formSheet`: that would leave the
+                collection showing behind a search meant to take over.
               */}
-              <Stack.Screen name="(sheet)" options={{ presentation: 'fullScreenModal' }} />
+              <Stack.Screen
+                name="(sheet)"
+                options={{ gestureDirection: 'vertical', gestureResponseDistance: { top: SHEET_DISMISS_ZONE } }}
+              />
               <Stack.Screen name="(modal)" />
               {/*
                 Booth stories sit at the ROOT for the same reason as new-post

@@ -10,7 +10,7 @@ export default function SheetLayout() {
           StatusBar doesn't stick and the light-on-white icons vanish. */}
       <StatusBar style="dark" />
       {/*
-        ITS OWN PROVIDER, because this group presents as a `fullScreenModal`
+        ITS OWN PROVIDER, kept from when this group presented as a `fullScreenModal`
         (see the root layout). A modal is a separate UIViewController shown over
         the root one, and `react-native-safe-area-context` measures insets
         against the nearest provider's VIEW — without one here that is the root
