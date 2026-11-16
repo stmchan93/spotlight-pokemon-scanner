@@ -65,16 +65,26 @@ describe('MetaGroupScreen', () => {
     renderGroup();
     expect(await screen.findByText('Vintage PSA 10')).toBeTruthy();
     expect(screen.getByText('ON THE WAY UP · PAST 7 DAYS')).toBeTruthy();
-    expect(screen.getByText('PSA 10s from before 2003')).toBeTruthy();
+    expect(screen.getByText('PSA 10S FROM BEFORE 2003')).toBeTruthy();
     expect(screen.getByTestId('meta-group-change').props.children).toBe('+18.4%');
     expect(screen.getByTestId('meta-group-value').props.children).toBe('+$412k');
     expect(screen.getByTestId('meta-group-chart')).toBeTruthy();
   });
 
+  it('puts the card-count description in caps', async () => {
+    renderGroup({
+      fetchMetaGroupDetail: async (query) => {
+        const detail = mockMetaGroupDetail(query.groupKey);
+        return detail ? { ...detail, group: { ...detail.group, description: 'Gold Stars · 40 cards' } } : null;
+      },
+    });
+    expect((await screen.findByTestId('meta-group-description')).props.children).toBe('GOLD STARS · 40 CARDS');
+  });
+
   it('shows two of your cards, then all of them on "See all"', async () => {
     const { onOpenCard } = renderGroup();
     await screen.findByTestId('meta-group-owned');
-    expect(screen.getByText('Your cards in this group')).toBeTruthy();
+    expect(screen.getByText('YOUR CARDS IN THIS GROUP')).toBeTruthy();
     expect(screen.getAllByTestId(/^meta-group-owned-[a-z0-9]+-\d+$/)).toHaveLength(2);
 
     fireEvent.press(screen.getByTestId('meta-group-owned-see-all'));
@@ -88,7 +98,7 @@ describe('MetaGroupScreen', () => {
   it('lists the biggest movers and tags the ones you own', async () => {
     const { onOpenCard } = renderGroup();
     await screen.findByTestId('meta-group-movers');
-    expect(screen.getByText('Biggest movers')).toBeTruthy();
+    expect(screen.getByText('BIGGEST MOVERS')).toBeTruthy();
     expect(screen.getByText('Latios ☆ · PSA 10')).toBeTruthy();
     expect(screen.getAllByText('Deoxys').length).toBeGreaterThan(0);
     expect(screen.queryByText(/pop \d/)).toBeNull();

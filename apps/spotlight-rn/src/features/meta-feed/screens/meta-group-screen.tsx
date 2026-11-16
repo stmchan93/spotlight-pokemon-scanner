@@ -186,7 +186,10 @@ function GroupBody({
           {group.label}
         </Text>
         {group.description ? (
-          <Text style={[theme.typography.captionMedium, styles.description]}>{group.description}</Text>
+          // JS uppercase, not textTransform: iOS clips transformed caps.
+          <Text style={[theme.typography.captionMedium, styles.description]} testID="meta-group-description">
+            {group.description.toUpperCase()}
+          </Text>
         ) : null}
         <View style={styles.moveRow}>
           <Text style={[theme.typography.display, { color }]} testID="meta-group-change">
@@ -226,7 +229,7 @@ function GroupBody({
       {showMovers ? (
       <View style={styles.section} testID="meta-group-movers">
         <Text accessibilityRole="header" style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
-          Biggest movers
+          BIGGEST MOVERS
         </Text>
         {group.topCards.length > 0 ? (
           group.topCards.map((card) => (
@@ -282,7 +285,7 @@ function OwnedSection({
       testID="meta-group-owned"
     >
       <Text accessibilityRole="header" style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
-        Your cards in this group
+        YOUR CARDS IN THIS GROUP
       </Text>
       <Text style={[theme.typography.captionMedium, styles.description]} testID="meta-group-owned-summary">
         {`${formatCount(ownedCount)} ${ownedCount === 1 ? 'card' : 'cards'} · `}
