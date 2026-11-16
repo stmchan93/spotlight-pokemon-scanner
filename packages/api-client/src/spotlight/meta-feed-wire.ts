@@ -112,6 +112,7 @@ function parseMetaGroup(raw: Raw, fallbackGame: CardGame): MetaGroup {
     movedCardCount: num(raw.movedCardCount),
     sparkPoints: numbers(raw.sparkPoints),
     topCards: asArray(raw.topCards).map((card) => parseMetaCard(card, fallbackGame)),
+    releaseDate: str(raw.releaseDate) ?? null,
   };
 }
 

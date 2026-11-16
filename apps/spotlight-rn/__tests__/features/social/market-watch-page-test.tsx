@@ -91,7 +91,10 @@ describe('MarketWatchPage', () => {
   it('formats dates and the group year range', () => {
     expect(formatTrendDate('2026-11-01')).toBe('NOV 1');
     expect(formatReleaseLine('2026-11-06')).toBe('Nov 6 Release');
-    expect(groupYearsLine('2003–2007 · 2,626 cards')).toBe('2003–2007');
+    expect(groupYearsLine('2003-05-01')).toBe('2003');
+    // Never the backend's "7 of top 10 cards up" description; blank without a date.
+    expect(groupYearsLine(null)).toBe('');
+    expect(groupYearsLine(undefined)).toBe('');
   });
 
   it('shows releases only, and risers and coolers under their own headers', async () => {
