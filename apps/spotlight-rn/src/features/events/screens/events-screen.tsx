@@ -311,7 +311,16 @@ export function EventsScreen() {
             </View>
           ) : null}
           <PageSwipeGuard>
-            <PageTabs onChange={setRegion} scrollable size="compact" tabs={regionTabs} testID="events-regions" value={region} />
+            {/* Same tabs as Collection / Activity on the profile (user, 2026-11-16). */}
+            <PageTabs
+              labelSize="caption"
+              onChange={setRegion}
+              scrollable
+              tabs={regionTabs}
+              testID="events-regions"
+              uppercase
+              value={region}
+            />
           </PageSwipeGuard>
         </View>
         <View style={[styles.listArea, { backgroundColor: theme.colors.gray50, paddingHorizontal: gutter }]}>
