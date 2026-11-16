@@ -80,7 +80,7 @@ describe('AppTabBar', () => {
   it('draws both the light material and the dark scanner slab, so the drag can blend them', () => {
     renderBar();
     expect(screen.getByTestId('app-tab-bar-dark')).toBeTruthy();
-    // Every iOS version gets the frosted full-width blur (no see-through glass capsule).
+    // Jest has no Liquid Glass and runs as iOS: the pre-26 blur bar.
     expect(screen.getByTestId('app-tab-bar-blur')).toBeTruthy();
   });
 

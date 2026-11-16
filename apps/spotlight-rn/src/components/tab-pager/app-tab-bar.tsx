@@ -12,9 +12,12 @@ import { initialWindowMetrics, useSafeAreaInsets } from 'react-native-safe-area-
 import Svg, { Path } from 'react-native-svg';
 
 import {
+  GlassSurface,
   colors,
+  isLiquidGlassAvailable,
   layout,
   radii,
+  shadows,
   spacing,
   textStyles,
 } from '@spotlight/design-system';
@@ -67,6 +70,7 @@ const TAB_PADDING_TOP = 6;
 const TAB_PADDING_BOTTOM = 7;
 const TAB_GAP = 1;
 // The iOS 26 glass capsule hugs the item row by this much on every side.
+const GLASS_OUTSET = 4;
 const ROW_SIDE_INSET = spacing.sm;
 const ROW_TOP_INSET = spacing.xxs;
 
@@ -226,15 +230,23 @@ function TabLabel({ label, page, position }: { label: string; page: number; posi
 
 function LightMaterial({ position }: { position: SharedValue<number> }) {
   const fade = useAnimatedStyle(() => ({ opacity: 1 - scanProximity(position.value) }));
+  if (Platform.OS === 'ios' && isLiquidGlassAvailable()) {
+    return (
+      <Reanimated.View pointerEvents="none" style={[StyleSheet.absoluteFill, fade]} testID="app-tab-bar-glass">
+        {/* The lift is what separates the capsule from the pages' white bottom fade;
+            glass over white with no shadow reads as a washed-out smear. */}
+        <View style={[styles.glassCapsule, shadows.glassPill]} testID="app-tab-bar-glass-lift">
+          {/* frostTint gives the glass a floor: untinted glass is only as bright as
+              the page behind it and read as see-through over content. */}
+          <GlassSurface fallbackColor={colors.canvasElevated} glassTintColor={colors.frostTint} style={styles.glassFill} />
+        </View>
+      </Reanimated.View>
+    );
+  }
   if (Platform.OS === 'ios') {
-    // A FROSTED full-width bar on every iOS version: the system chrome blur
-    // plus a frostTint floor. The iOS 26 Liquid Glass capsule stayed
-    // see-through over busy pages even with a tint ("the tab bar is
-    // transparent again, no frosted background", user 2026-11-16).
     return (
       <Reanimated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.hairline, fade]} testID="app-tab-bar-blur">
-        <BlurView intensity={100} style={StyleSheet.absoluteFill} tint="systemChromeMaterialLight" />
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.frostTint }]} />
+        <BlurView intensity={80} style={StyleSheet.absoluteFill} tint="systemChromeMaterialLight" />
       </Reanimated.View>
     );
   }
@@ -368,6 +380,21 @@ const styles = StyleSheet.create({
   },
   darkSlab: {
     backgroundColor: colors.scannerTray,
+  },
+  glassCapsule: {
+    borderCurve: 'continuous',
+    borderRadius: radii.pill,
+    height: layout.tabBarRowHeight + GLASS_OUTSET * 2,
+    left: ROW_SIDE_INSET - GLASS_OUTSET,
+    position: 'absolute',
+    right: ROW_SIDE_INSET - GLASS_OUTSET,
+    top: ROW_TOP_INSET - GLASS_OUTSET,
+  },
+  glassFill: {
+    ...StyleSheet.absoluteFillObject,
+    borderCurve: 'continuous',
+    borderRadius: radii.pill,
+    overflow: 'hidden',
   },
   glyphBox: {
     height: ICON_SIZE,
