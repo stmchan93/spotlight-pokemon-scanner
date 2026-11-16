@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import json
 import random
 import socket
@@ -89,6 +90,10 @@ def _is_transient_scrydex_catalog_error(exc: BaseException) -> bool:
     if isinstance(exc, HTTPError):
         return int(exc.code) in SCRYDEX_TRANSIENT_HTTP_STATUS_CODES
     if isinstance(exc, (TimeoutError, socket.timeout)):
+        return True
+    # A body cut off mid-download (IncompleteRead, 2026-11-16 page 137) or a
+    # dropped connection: the page is fine, the transfer wasn't.
+    if isinstance(exc, (http.client.HTTPException, ConnectionError)):
         return True
     if isinstance(exc, URLError):
         reason = getattr(exc, "reason", None)
