@@ -31,6 +31,7 @@ from meta_pulse import (  # noqa: E402
     PricePair,
     aggregate_groups,
     aggregate_sets,
+    top_contributors,
     build_headline,
     _exposure_callout,
     _Holding,
@@ -258,7 +259,8 @@ class AggregationTests(unittest.TestCase):
         self.assertAlmostEqual(group.value_then, 40.0 + 40.0 + 20.0 + 100.0)
         self.assertAlmostEqual(group.value_now, 40.0 + 11 + 12 + 13 + 9 + 30 + 150)
         # Top cards: biggest $ contributors in the group's direction only.
-        self.assertEqual([p.card_id for p in group.top_pairs], ["m6", "m5", "m3", "m2", "m1"])
+        # Risers by $ first, then the faller (m4) after them.
+        self.assertEqual([p.card_id for p in group.top_pairs], ["m6", "m5", "m3", "m2", "m1", "m4"])
         self.assertEqual(totals[("pokemon", LANE_RAW)].paired, 10)
 
     def test_thresholds(self) -> None:
@@ -275,8 +277,9 @@ class AggregationTests(unittest.TestCase):
         groups, _ = aggregate_groups(pairs, {p.card_id: self.vintage for p in pairs})
         group = groups[0]
         self.assertLess(group.median_change_pct, 0)
-        self.assertNotIn("up", [p.card_id for p in group.top_pairs])
+        # Fallers first; the lone riser is listed too, after them (both directions).
         self.assertEqual(group.top_pairs[0].card_id, "d7")
+        self.assertEqual(group.top_pairs[-1].card_id, "up")
 
     def test_spark_dates_keep_ends_and_cap_points(self) -> None:
         dates = spark_dates(TODAY - timedelta(days=90), TODAY)
@@ -630,6 +633,15 @@ class ComputeTests(unittest.TestCase):
         pcts = [c["changePercent"] for c in detail["group"]["topCards"]]
         self.assertEqual(pcts, sorted(pcts))
         self.assertEqual(detail["group"]["topCards"][0]["cardId"], "c9")
+
+    def test_top_contributors_lists_both_directions_group_direction_first(self) -> None:
+        up_big, up_small, down_big = _pair("u1", 10.0, 30.0), _pair("u2", 10.0, 12.0), _pair("d1", 50.0, 20.0)
+        flat = _pair("f", 10.0, 10.0)
+        rising = top_contributors([up_small, down_big, flat, up_big], rising=True)
+        # Group direction first (biggest $ first), then the card that moved against it.
+        self.assertEqual([p.card_id for p in rising], ["u1", "u2", "d1"])
+        cooling = top_contributors([up_small, down_big, up_big], rising=False)
+        self.assertEqual([p.card_id for p in cooling], ["d1", "u1", "u2"])
 
     def test_single_step_big_raw_move_is_not_a_move(self) -> None:
         # Pikachu ☆ ex13-104: flat $1,899.99, then flat $900 after one sale.

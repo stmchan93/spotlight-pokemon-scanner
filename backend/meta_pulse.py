@@ -440,10 +440,17 @@ class LaneTotals:
 
 
 def top_contributors(pairs: Iterable[PricePair], *, rising: bool, limit: int = TOP_CARDS) -> list[PricePair]:
-    """Biggest $ contributors in the group's own direction."""
-    same_direction = [p for p in pairs if p.moved and ((p.delta > 0) if rising else (p.delta < 0))]
-    same_direction.sort(key=lambda p: (-abs(p.delta), p.card_id, p.grader or "", p.grade or ""))
-    return same_direction[:limit]
+    """Every card that moved, biggest $ move first: the group's own direction
+    first (so the feed's lead card still matches the group), then the cards that
+    moved against it. A small group like Gold Stars used to list only its 3
+    same-direction movers (user, 2026-11-16)."""
+    def key(p: PricePair) -> tuple:
+        return (-abs(p.delta), p.card_id, p.grader or "", p.grade or "")
+
+    moved = [p for p in pairs if p.moved and p.delta != 0]
+    with_group = sorted((p for p in moved if (p.delta > 0) == rising), key=key)
+    against = sorted((p for p in moved if (p.delta > 0) != rising), key=key)
+    return (with_group + against)[:limit]
 
 
 def aggregate_groups(
