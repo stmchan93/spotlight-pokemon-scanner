@@ -1663,6 +1663,7 @@ export type MetaGroup = {
   movedCardCount: number;       // of those, how many actually changed price
   sparkPoints: number[];        // group value index, oldest → newest, ≤ 30 points
   topCards: MetaCard[];         // ≤ 5 biggest contributors, same direction as the group
+  releaseDate?: string | null;  // sets only: 'YYYY-MM-DD' of the set's release
 };
 
 export type MetaLadderRung = { label: string; lane: MetaLane; medianChangePercent: number };

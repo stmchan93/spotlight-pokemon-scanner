@@ -66,6 +66,7 @@ SUMMARY_KEYS = {
 GROUP_KEYS = {
     "groupKey", "label", "lane", "description", "medianChangePercent", "valueNow", "valueThen",
     "valueChangeUsd", "cardCount", "movedCardCount", "sparkPoints", "topCards",
+    "releaseDate",
 }
 CARD_KEYS = {
     "cardId", "game", "name", "number", "setName", "imageUrl", "lane", "grader", "grade",
@@ -138,11 +139,12 @@ def _pair(card_id: str, then: float, now: float, lane: str = LANE_RAW, **kwargs)
 
 
 def _set_cards(prefix: str, count: int, *, set_name: str, set_id: str | None = None,
-               language: str = "English", supertype: str | None = "Pokémon") -> dict[str, CardInfo]:
+               language: str = "English", supertype: str | None = "Pokémon",
+               release_date: str | None = None) -> dict[str, CardInfo]:
     return {
         f"{prefix}{i}": CardInfo(card_id=f"{prefix}{i}", game="pokemon", name=f"{prefix}{i}",
                                  set_name=set_name, set_id=set_id or prefix, language=language,
-                                 supertype=supertype)
+                                 supertype=supertype, release_date=release_date)
         for i in range(count)
     }
 
@@ -162,7 +164,7 @@ class SetTrendTests(unittest.TestCase):
         carried = _set_cards("c", 12, set_name="Carried Set")
         pairs = [_pair("c0", 100.0, 1100.0)] + [_pair(f"c{i}", 50.0, 50.5) for i in range(1, 12)]
         # "broad": every basket card up 20%.
-        broad = _set_cards("b", 12, set_name="Broad Set")
+        broad = _set_cards("b", 12, set_name="Broad Set", release_date="2004/08/30")
         pairs += [_pair(f"b{i}", 40.0 + i, (40.0 + i) * 1.2) for i in range(12)]
         sets = aggregate_sets(pairs, {**carried, **broad})
         self.assertEqual([g.label for g in sets], ["Broad Set", "Carried Set"])  # by sort_score
@@ -176,6 +178,9 @@ class SetTrendTests(unittest.TestCase):
         self.assertGreater(carried_g.median_change_pct, 100.0)
         self.assertAlmostEqual(carried_g.sort_score, 1.0)
         self.assertEqual(broad_g.description, "10 of top 10 cards up · 12 cards")
+        # Market Watch shows the set's release year (Figma 6322:7903).
+        self.assertEqual(broad_g.release_date, "2004-08-30")
+        self.assertIsNone(carried_g.release_date)
 
     def test_gates(self) -> None:
         def run(cards, pairs):

@@ -590,11 +590,14 @@ def aggregate_sets(
             if p.moved and p.price_now >= SET_TAP_MIN_PRICE_USD and (p.delta > 0) == rising
         ]
         movers.sort(key=lambda p: (-abs(p.change_pct), p.card_id))
-        label = cards[basket[0].card_id].set_name or set_key
+        lead = cards[basket[0].card_id]
+        label = lead.set_name or set_key
         out.append(
             GroupResult(
                 game=game, lane=LANE_RAW, group_key=set_group_key(set_key), segment_key=SET_SEGMENT_KEY,
                 label=label,
+                # Market Watch shows the release year under each set (Figma 6322:7903).
+                release_date=normalize_release_date(lead.release_date),
                 description=(
                     f"{agree} of top {len(basket)} cards {'up' if rising else 'down'} · {len(members):,} cards"
                 ),
@@ -1344,7 +1347,7 @@ def _load_group_dicts(
         group_where += f" AND segment_key NOT IN ('{SET_SEGMENT_KEY}', '{SET_INDEX_SEGMENT_KEY}')"
     group_rows = connection.execute(
         "SELECT lane, group_key, label, description, median_change_percent, value_now, value_then, "
-        "value_change_usd, card_count, moved_card_count, spark_points_json "
+        "value_change_usd, card_count, moved_card_count, spark_points_json, release_date "
         f"FROM meta_pulse_groups WHERE {group_where} ORDER BY COALESCE(sort_score, 0) DESC, group_key",
         tuple(params),
     ).fetchall()
@@ -1382,6 +1385,7 @@ def _load_group_dicts(
                 "movedCardCount": int(g[9]),
                 "sparkPoints": spark,
                 "topCards": cards_by_group.get((str(g[0]), str(g[1])), []),
+                "releaseDate": g[11] or None,
             }
         )
     return groups

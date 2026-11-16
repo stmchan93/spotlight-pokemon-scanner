@@ -63,8 +63,13 @@ export function formatReleaseLine(date: string): string {
 }
 
 /** "2003–2007" from "2003–2007 · 2,626 cards". */
-export function groupYearsLine(description: string): string {
-  return description.split(' · ')[0] ?? '';
+/**
+ * The set's release year under its name (Figma 6322:7903). Never the backend's
+ * "7 of top 10 cards up" description, which read as noise (user, 2026-11-16).
+ */
+export function groupYearsLine(releaseDate: string | null | undefined): string {
+  const match = /^(\d{4})/.exec(releaseDate ?? '');
+  return match ? match[1] : '';
 }
 
 type MarketWatchPageProps = {
@@ -390,7 +395,7 @@ function TrendRow({
             {group.label}
           </Text>
           <Text numberOfLines={1} style={[theme.typography.label, { color: theme.colors.gray500 }]}>
-            {groupYearsLine(group.description)}
+            {groupYearsLine(group.releaseDate)}
           </Text>
         </View>
         <View style={styles.performance}>
