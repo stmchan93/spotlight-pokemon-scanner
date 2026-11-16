@@ -1550,15 +1550,13 @@ export function ScannerScreen({
   const collapsedTrayReservedHeight = getRawScannerCollapsedTrayReservedHeight({
     bottomInset: trayBottomInset,
   });
-  // 9-card page mode reserves the same footer as single mode: the collapsed
-  // tray pops up with the newest rows exactly like a single scan (user
-  // decision — UX parity beats the ~10% pocket-resolution gain). TALLER page
-  // layouts (12 cards: 3 across × 4 down) can't afford that: between the top
-  // pucks and the controls row there is ~480pt and the page wants ~580 at full
-  // width, so the frame squeezed to ~60% width ("the window is too small",
-  // 2026-09-08). In those layouts the tray collapses to its HEADER only
-  // (SCAN / TOTAL bar, rows one pull away) and the frame takes the row's space.
-  const trayCollapsesToHeader = isBinderPageMode && binderPageLayout.rows > 3;
+  // EVERY page layout collapses the tray to its HEADER (SCAN / TOTAL bar, rows
+  // one pull away) so the page grid can keep the single-scan frame's full width.
+  // With a row showing, a 3×3 had to shrink to ~320pt: ~573px pockets from the
+  // 4K still, below the matcher's 630px input. Full width gives ~663px. The
+  // user chose pocket resolution over the visible newest row (2026-11-16),
+  // reversing the earlier parity call for 9-card pages.
+  const trayCollapsesToHeader = isBinderPageMode;
   const footerReservedHeight = trayCollapsesToHeader
     ? rawScannerTrayHeaderHeight + trayBottomInset
     : collapsedTrayReservedHeight;

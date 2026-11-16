@@ -336,7 +336,9 @@ export function makeRawScannerCaptureLayout({
       : width;
   const cropHeight = Math.round(cropWidth * (mode === 'page' ? pageAspectRatio : rawCardReticleAspectRatio));
   const cropX = mode === 'page' || figmaFrame ? Math.round(x + (width - cropWidth) / 2) : x;
-  const cropY = Math.round(y + (height - cropHeight) / 2);
+  // Figma box, page mode: pin the grid to the box top so its top edge is the
+  // single-scan frame's top (switching modes then only grows it downward).
+  const cropY = figmaFrame && mode === 'page' ? y : Math.round(y + (height - cropHeight) / 2);
 
   // controlsTop is clamped so it never drops into the tray's reserved band.
   const controlsTop = Math.min(
