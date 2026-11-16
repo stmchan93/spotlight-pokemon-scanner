@@ -1253,6 +1253,12 @@ export type MarketHistoryOption = {
   id: string;
   label: string;
   currentPrice?: number | null;
+  /**
+   * Other names for this printing: TCGplayer's "Normal" when the chip is
+   * Scrydex's "Unlimited" for the same product. A copy or route saved under an
+   * alias selects this chip. Absent on older backends.
+   */
+  aliases?: string[];
 };
 
 export type CardMarketInsight = {

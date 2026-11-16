@@ -2878,6 +2878,79 @@ describe('CardDetailScreen', () => {
     });
   });
 
+  it('a copy saved under TCGplayer\'s "Normal" opens on the merged "Unlimited" chip', async () => {
+    // Computer Search: the backend merges TCGplayer's "Normal" into Scrydex's
+    // "Unlimited" and lists the old name as an alias. The chip is deliberately
+    // NOT first, so only the alias can select it.
+    const rawEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#071/102',
+      conditionCode: null,
+      conditionLabel: null,
+      conditionShortLabel: null,
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'raw-computer-search',
+      imageUrl: 'https://cdn.spotlight.test/base1/71.png',
+      kind: 'raw',
+      marketPrice: 4.38,
+      name: 'Computer Search',
+      quantity: 1,
+      setName: 'Base',
+      slabContext: null,
+      variantName: 'Normal',
+    };
+    const previewId = saveCardDetailPreviewFromInventoryEntry(rawEntry);
+    const baseRepository = createTestSpotlightRepository();
+    const getCardPriceTrends = jest.fn(async () => ({
+      mode: 'raw' as const,
+      provider: 'tcgplayer' as const,
+      rows: [],
+    }));
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" entryId="raw-computer-search" onBack={jest.fn()} previewId={previewId} />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardPriceTrends,
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail
+              ? ({
+                  ...detail,
+                  marketHistory: { ...detail.marketHistory, selectedVariant: 'Unlimited' },
+                  variantOptions: [
+                    { id: 'Unlimited Shadowless', label: 'Unlimited Shadowless' },
+                    { id: 'Unlimited', label: 'Unlimited', aliases: ['Normal'] },
+                    { id: 'First Edition Shadowless', label: 'First Edition Shadowless' },
+                  ],
+                } satisfies CardDetailRecord)
+              : null;
+          },
+        }),
+      },
+    );
+
+    await screen.findByTestId('detail-configurator-variant-Unlimited');
+    expect(screen.queryByTestId('detail-configurator-variant-Normal')).toBeNull();
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('detail-configurator-variant-Unlimited').props.accessibilityState?.selected,
+      ).toBe(true);
+    });
+    expect(
+      screen.getByTestId('detail-configurator-variant-Unlimited Shadowless').props.accessibilityState?.selected,
+    ).toBe(false);
+    await waitFor(() => {
+      expect(getCardPriceTrends).toHaveBeenCalledWith(
+        expect.objectContaining({ cardId: 'sm7-1', mode: 'raw', variant: 'Unlimited' }),
+      );
+    });
+  });
+
   it('fires the price-trends request on mount (from the preview default lane) without waiting for variant seeding', async () => {
     // A graded owned-entry preview is available on the first render, before
     // getCardDetail resolves and variantOptions/seeding settle. The early

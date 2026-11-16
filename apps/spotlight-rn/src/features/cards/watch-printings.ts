@@ -7,6 +7,23 @@ import type { MarketHistoryOption } from '@spotlight/api-client';
   labels, so these helpers translate between the two.
 */
 
+/**
+ * The picker option a stored printing name selects: its label, or one of its
+ * aliases (a copy saved as TCGplayer's "Normal" selects the merged "Unlimited"
+ * chip). Case-insensitive; undefined when no option names it.
+ */
+export function findPrintingOption(
+  options: readonly MarketHistoryOption[],
+  name: string | null | undefined,
+): MarketHistoryOption | undefined {
+  const wanted = name?.trim().toLowerCase();
+  if (!wanted) {
+    return undefined;
+  }
+  return options.find((option) => option.label.toLowerCase() === wanted)
+    ?? options.find((option) => option.aliases?.some((alias) => alias.trim().toLowerCase() === wanted));
+}
+
 /** The main printing's label: the lane the server priced by default, else Normal, else the first. */
 export function resolveMainPrintingLabel(
   options: readonly MarketHistoryOption[],
@@ -17,6 +34,7 @@ export function resolveMainPrintingLabel(
   }
   const serverDefault = serverDefaultVariant
     ? options.find((option) => option.id === serverDefaultVariant || option.label === serverDefaultVariant)
+      ?? findPrintingOption(options, serverDefaultVariant)
     : undefined;
   const normal = options.find((option) => option.label.trim().toLowerCase() === 'normal');
   return (serverDefault ?? normal ?? options[0]).label;

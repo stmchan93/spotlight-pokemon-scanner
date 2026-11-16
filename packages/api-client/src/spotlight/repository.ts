@@ -116,6 +116,7 @@ import type {
   LabelingSessionArtifactUploadPayload,
   LabelingSessionCreatePayload,
   LabelingSessionRecord,
+  MarketHistoryOption,
   NormalizedBox,
   NormalizedPoint,
   NotificationPrefs,
@@ -1113,6 +1114,7 @@ type CardMarketHistoryDTO = {
     id: string;
     label: string;
     currentPrice?: number | null;
+    aliases?: unknown;
   }>;
   availableConditions: Array<{
     id: string;
@@ -3174,17 +3176,19 @@ function mapPortfolioSeries(history: PortfolioHistoryDTO): PortfolioChartPoint[]
 
 function mapMarketHistoryOption(
   option: CardMarketHistoryDTO['availableVariants'][number] | null | undefined,
-) {
+): MarketHistoryOption | null {
   const id = normalizeString(option?.id);
   const label = normalizeString(option?.label);
   if (!id || !label) {
     return null;
   }
 
+  const aliases = normalizeStringList(option?.aliases);
   return {
     id,
     label,
     currentPrice: normalizeNumber(option?.currentPrice),
+    ...(aliases.length > 0 ? { aliases } : {}),
   };
 }
 

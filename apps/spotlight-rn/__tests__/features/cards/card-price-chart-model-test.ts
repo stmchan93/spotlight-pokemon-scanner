@@ -171,6 +171,28 @@ describe('selectHistorySeries', () => {
       expect(selectHistorySeries(untagged, { mode: 'raw', condition: 'NM' }, 'Unlimited')?.key)
         .toBe('unlimited|NM');
     });
+
+    it('merged chip: NM is the TCGplayer line keyed "Unlimited", other conditions stay Scrydex', () => {
+      // A backend that merges "Normal" into "Unlimited" keys the TCGCSV NM line
+      // under the Scrydex printing (first-seen spelling "Unlimited") and sends
+      // no "Normal|NM" series at all.
+      const merged: CardConditionHistory = {
+        ...computerSearch,
+        series: [
+          tagged(series('Unlimited|NM', 'Unlimited', 'NM', [3.01, 3.5, 4.38]), 'tcgcsv'),
+          tagged(series('unlimited|LP', 'unlimited', 'LP', [1.7, 1.81]), 'scrydex'),
+          tagged(series('unlimitedShadowless|NM', 'unlimitedShadowless', 'NM', [9.29]), 'scrydex'),
+          tagged(series('firstEditionShadowless|NM', 'firstEditionShadowless', 'NM', [140, 149]), 'scrydex'),
+        ],
+      };
+      const nm = selectHistorySeries(merged, { mode: 'raw', condition: 'NM' }, 'Unlimited');
+      expect(nm?.key).toBe('Unlimited|NM');
+      expect(nm?.source).toBe('tcgcsv');
+      expect(nm?.points.at(-1)?.market).toBe(4.38);
+      expect(selectHistorySeries(merged, { mode: 'raw', condition: 'LP' }, 'Unlimited')?.source).toBe('scrydex');
+      expect(selectHistorySeries(merged, { mode: 'raw', condition: 'NM' }, 'Unlimited Shadowless')?.key)
+        .toBe('unlimitedShadowless|NM');
+    });
   });
 
   it('uses the only printing when its key spelling differs', () => {

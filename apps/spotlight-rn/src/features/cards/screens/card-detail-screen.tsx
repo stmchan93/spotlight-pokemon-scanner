@@ -92,6 +92,7 @@ import {
 } from '@/features/cards/card-detail-preview-session';
 import { noteCardAdded } from '@/features/cards/card-added-notice';
 import {
+  findPrintingOption,
   matchWatchedPrinting,
   otherWatchedPrintingLabels,
   resolveMainPrintingLabel,
@@ -753,17 +754,14 @@ export function CardDetailScreen({
     const carriedLabel = pendingVariantLabelRef.current ?? routeVariantLabelRef.current;
     pendingVariantLabelRef.current = null;
     routeVariantLabelRef.current = null;
-    const carriedMatch = carriedLabel
-      ? variantOptions.find((option) => option.label.toLowerCase() === carriedLabel.toLowerCase())
-      : null;
+    const carriedMatch = findPrintingOption(variantOptions, carriedLabel);
     // Slabs seed from slabContext.variantName (the print variant the graded
     // price is keyed by) so a no-op edit save can't drift the identity.
     const ownedVariant = selectedEntry?.kind === 'raw'
       ? selectedEntry.variantName?.trim()
       : ownedSlabContext?.variantName?.trim();
-    const variantMatch = ownedVariant
-      ? variantOptions.find((option) => option.label.toLowerCase() === ownedVariant.toLowerCase())
-      : null;
+    // An alias counts: a copy saved as "Normal" opens on the merged "Unlimited" chip.
+    const variantMatch = findPrintingOption(variantOptions, ownedVariant);
     const normalVariant = variantOptions.find(
       (option) => option.label.trim().toLowerCase() === 'normal',
     );

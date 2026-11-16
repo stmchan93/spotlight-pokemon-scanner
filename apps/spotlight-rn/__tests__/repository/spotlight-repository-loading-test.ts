@@ -477,6 +477,35 @@ describe('HttpSpotlightRepository', () => {
     expect(history?.points).toHaveLength(1);
   });
 
+  it('carries a merged printing\'s aliases and leaves options without them unchanged', async () => {
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/cards/base1-71/market-history')) {
+        return jsonResponse(200, {
+          currencyCode: 'USD',
+          currentPrice: 4.38,
+          selectedVariant: 'Unlimited',
+          selectedCondition: 'NM',
+          points: [{ date: '2026-11-16', market: 4.38 }],
+          availableVariants: [
+            { id: 'Unlimited', label: 'Unlimited', aliases: ['Normal', 42, ''] },
+            { id: 'Unlimited Shadowless', label: 'Unlimited Shadowless' },
+          ],
+          availableConditions: [{ id: 'NM', label: 'NM', currentPrice: 4.38 }],
+        });
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const history = await repository.getCardMarketHistory({ cardId: 'base1-71' });
+
+    expect(history?.availableVariants).toEqual([
+      { id: 'Unlimited', label: 'Unlimited', currentPrice: null, aliases: ['Normal'] },
+      { id: 'Unlimited Shadowless', label: 'Unlimited Shadowless', currentPrice: null },
+    ]);
+  });
+
   it('preserves recent-sales unavailable status when cached sales are not loaded yet', async () => {
     global.fetch = jest.fn().mockImplementation(async (url: string) => {
       if (url.includes('/api/v1/cards/sv4-199/recent-sales')) {
