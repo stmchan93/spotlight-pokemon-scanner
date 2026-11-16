@@ -147,6 +147,29 @@ describe('CardDetailScreen price chart', () => {
     openURL.mockRestore();
   });
 
+  it('puts the TCGplayer logo beside the price when there is no price change', async () => {
+    const flatOnePoint = rawHistory();
+    flatOnePoint.series[0] = { ...flatOnePoint.series[0]!, points: [flatOnePoint.series[0]!.points.at(-1)!] };
+    const getCardConditionHistory = jest.fn(async () => flatOnePoint);
+    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+      spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardConditionHistory }),
+    });
+
+    const priceRow = await screen.findByTestId('detail-price-chart-price-row');
+    await waitFor(() => expect(screen.queryByTestId('detail-price-chart-delta-amount')).not.toBeOnTheScreen());
+    expect(within(priceRow).getByTestId('detail-price-chart-tcgplayer')).toBeTruthy();
+  });
+
+  it('keeps the TCGplayer logo on the price-change line when there is one', async () => {
+    const getCardConditionHistory = jest.fn(async () => rawHistory());
+    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+      spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardConditionHistory }),
+    });
+    const delta = await screen.findByTestId('detail-price-chart-delta');
+    await waitFor(() => expect(within(delta).getByTestId('detail-price-chart-tcgplayer')).toBeTruthy());
+    expect(within(screen.getByTestId('detail-price-chart-price-row')).queryByTestId('detail-price-chart-tcgplayer')).toBeNull();
+  });
+
   it('reads graded comps cache-only and goes grey on too few sales', async () => {
     const sales: CardRecentSalesRecord = {
       source: 'ebay',

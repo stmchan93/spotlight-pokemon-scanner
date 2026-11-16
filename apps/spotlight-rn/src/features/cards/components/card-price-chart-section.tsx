@@ -231,17 +231,39 @@ export function CardPriceChartSection({
     ? toneColor(readout.delta.direction === 'flat' ? 'neutral' : readout.delta.direction)
     : theme.colors.gray600;
   const priceLabel = formatCurrency(readout.value, model.currencyCode);
+  const tcgplayerLink = onOpenMarketplace ? (
+    // The ONLY link in the price card (Figma 6322:8986).
+    <Pressable
+      accessibilityLabel="Open on TCGplayer"
+      accessibilityRole="link"
+      hitSlop={TCGPLAYER_HIT_SLOP}
+      onPress={() => onOpenMarketplace(selectedRow)}
+      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+      testID={`${testID}-tcgplayer`}
+    >
+      <Image
+        resizeMode="contain"
+        source={require('../../../../assets/images/tcgplayer-logo.png')}
+        style={TCGPLAYER_LOGO}
+      />
+    </Pressable>
+  ) : null;
 
   return (
     <View style={[styles.root, style]} testID={testID}>
       <View style={styles.header}>
-        <RollingNumber
-          accessibilityLabel={priceLabel}
-          animate={scrubIndex == null}
-          style={[theme.typography.detailTitleBold, { color: theme.colors.gray900 }]}
-          testID={`${testID}-price`}
-          value={priceLabel}
-        />
+        {/* With no price change to sit beside, the TCGplayer icon rides next to
+            the price instead of alone on the line below it (user, 2026-11-16). */}
+        <View style={styles.priceRow} testID={`${testID}-price-row`}>
+          <RollingNumber
+            accessibilityLabel={priceLabel}
+            animate={scrubIndex == null}
+            style={[theme.typography.detailTitleBold, { color: theme.colors.gray900 }]}
+            testID={`${testID}-price`}
+            value={priceLabel}
+          />
+          {readout.delta ? null : tcgplayerLink}
+        </View>
         <View style={styles.deltaRow} testID={`${testID}-delta`}>
           {readout.delta ? (
             <View style={styles.deltaAmount}>
@@ -258,23 +280,7 @@ export function CardPriceChartSection({
               {readout.delta.percent}
             </Text>
           ) : null}
-          {onOpenMarketplace ? (
-            // The ONLY link in the price card (Figma 6322:8986).
-            <Pressable
-              accessibilityLabel="Open on TCGplayer"
-              accessibilityRole="link"
-              hitSlop={TCGPLAYER_HIT_SLOP}
-              onPress={() => onOpenMarketplace(selectedRow)}
-              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-              testID={`${testID}-tcgplayer`}
-            >
-              <Image
-                resizeMode="contain"
-                source={require('../../../../assets/images/tcgplayer-logo.png')}
-                style={TCGPLAYER_LOGO}
-              />
-            </Pressable>
-          ) : null}
+          {readout.delta ? tcgplayerLink : null}
           {/* At rest the line is just price + delta (Figma 6322:8976); the date
               caption appears only while scrubbing a point. */}
           {scrubIndex != null ? (
@@ -414,6 +420,11 @@ const styles = StyleSheet.create({
   header: {
     alignItems: 'flex-start',
     gap: spacing.xxxs,
+  },
+  priceRow: {
+    alignItems: 'center',
+    columnGap: spacing.xxs,
+    flexDirection: 'row',
   },
   deltaRow: {
     alignItems: 'center',
