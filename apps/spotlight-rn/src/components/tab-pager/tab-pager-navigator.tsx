@@ -570,9 +570,13 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
                 insets={insets}
                 key={TAB_PAGER_ORDER[page]}
                 page={page}
+                // Never freeze Scan: hiding the live <Camera> and showing it
+                // again left the session running (green dot) behind a black
+                // preview (user, 2026-11-16). Its camera already stops off-page.
                 frozen={
                   mountedPages.has(page)
                   && page !== focusedPage
+                  && TAB_PAGER_ORDER[page] !== 'scan'
                   && Math.abs(page - settledPage) > 1
                 }
                 renderRoute={renderRoute}
