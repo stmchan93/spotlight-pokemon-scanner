@@ -501,6 +501,10 @@ export function CollapsibleTabPager<V extends string>({
   // take over a list that is already scrolling ("the page goes down and then
   // swipes", user 2026-11-16). Reset at touch-down.
   const verticalDecidedRef = useRef(false);
+  // The active page's scroll offset at touch-down. A diagonal swipe scrolls the
+  // list a few pt before the claim; the grant puts it back here ("News still
+  // scrolls down a bit when I swipe to Market Watch", user 2026-11-16).
+  const touchStartOffsetRef = useRef<number | null>(null);
   /** Claims-once guard, reset on every new touch. */
   const claimedRef = useRef(false);
   /** Set by a `PageSwipeGuard` on touch-down; see that component. */
@@ -604,6 +608,26 @@ export function CollapsibleTabPager<V extends string>({
         node.scrollTo?.({ y: target, animated: false });
       }
     });
+  }, []);
+
+  /** Undo the pre-claim scroll on the active page (see touchStartOffsetRef). */
+  const restoreTouchStartOffset = useCallback(() => {
+    const state = latest.current;
+    const start = touchStartOffsetRef.current;
+    const current = offsetsRef.current[state.value];
+    if (start == null || current == null || Math.abs(current - start) < 0.5) {
+      return;
+    }
+    const node = state.pageRefs?.[state.value]?.current;
+    if (!node) {
+      return;
+    }
+    offsetsRef.current[state.value] = start;
+    if (node.scrollToOffset) {
+      node.scrollToOffset({ offset: start, animated: false });
+    } else {
+      node.scrollTo?.({ y: start, animated: false });
+    }
   }, []);
 
   /**
@@ -711,6 +735,7 @@ export function CollapsibleTabPager<V extends string>({
       // lands after this.
       inHorizontalScrollerRef.current = false;
       verticalDecidedRef.current = false;
+      touchStartOffsetRef.current = offsetsRef.current[latest.current.value] ?? null;
       // Recording the start must never itself claim the gesture: at touch-down
       // a page swipe and a tap on a card are indistinguishable.
       return false;
@@ -793,6 +818,7 @@ export function CollapsibleTabPager<V extends string>({
         // Start the follow from where the finger is NOW, not from where the
         // touch began, or the row would jump `CLAIM_DRAG` px on claim.
         grantDxRef.current = gesture.dx;
+        restoreTouchStartOffset();
         // Line the neighbours up before either of them can be seen.
         syncPageOffsets();
       },
@@ -857,7 +883,7 @@ export function CollapsibleTabPager<V extends string>({
       // natively. Only consulted on grant.
       onShouldBlockNativeResponder: () => true,
     });
-  }, [settleTo, syncPageOffsets, translateX]);
+  }, [restoreTouchStartOffset, settleTo, syncPageOffsets, translateX]);
 
   const handleContainerLayout = useCallback((event: LayoutChangeEvent) => {
     setContainerHeight(event.nativeEvent.layout.height);

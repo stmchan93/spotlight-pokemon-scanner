@@ -155,7 +155,7 @@ function reportScroll(tab: Tab, y: number, scrollY?: Animated.Value) {
 function drag(
   start: TouchPoint,
   points: TouchPoint[],
-  options: { guardTestID?: string; release?: boolean; stepMs?: number } = {},
+  options: { afterTouchDown?: () => void; guardTestID?: string; release?: boolean; stepMs?: number } = {},
 ): boolean[] {
   const handlers = pagerHandlers();
   const claims: boolean[] = [];
@@ -171,6 +171,7 @@ function drag(
       guard.onStartShouldSetResponderCapture(makeStartEvent(start));
     }
   });
+  options.afterTouchDown?.();
 
   let previous = start;
   points.forEach((point, index) => {
@@ -672,6 +673,20 @@ describe('CollapsibleTabPager', () => {
       swipeLeft();
 
       expect(scrollToOffset).toHaveBeenCalledWith({ offset: -INSET, animated: false });
+    });
+
+    // A diagonal swipe scrolls the list a few pt before the pager claims; the
+    // claim puts it back where the finger landed.
+    it('undoes the pre-claim scroll on the active page when a swipe claims', () => {
+      const scrollToOffset = renderWithPageRefs({ collection: 100 });
+
+      drag(
+        { x: 400, y: 400 },
+        [{ x: 340, y: 404 }, { x: 240, y: 406 }, { x: 140, y: 408 }],
+        { afterTouchDown: () => reportScroll('collection', 106) },
+      );
+
+      expect(scrollToOffset).toHaveBeenCalledWith({ offset: 100, animated: false });
     });
 
     it('clamps the park into the collapse band measured from the page top', () => {
