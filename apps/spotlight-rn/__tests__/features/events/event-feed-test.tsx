@@ -140,6 +140,70 @@ describe('show page Map | Feed', () => {
     expect(fetchEventPosts).toHaveBeenCalledWith('hawaii-2026-10', 20, { before: page[19]?.createdAt });
   });
 
+  it('labels typed posts and filters the feed by type server-side', async () => {
+    jest.mocked(fetchEventPosts).mockImplementation(async (_id, _limit, options) =>
+      options?.boothOnly
+        ? []
+        : options?.intent === 'selling'
+          ? [post('sale', { intent: 'selling', boothVendorId: 'main-street-cards' })]
+          : [post('wtb', { intent: 'looking_for' }), post('plain')],
+    );
+    renderShow();
+    fireEvent.press(within(await screen.findByTestId('event-detail-show-area')).getByText('Feed'));
+
+    const wtb = await screen.findByTestId('event-feed-post-wtb');
+    expect(within(wtb).getByText('LOOKING FOR')).toBeTruthy();
+    expect(within(screen.getByTestId('event-feed-post-plain')).queryByTestId('event-feed-post-intent')).toBeNull();
+    // Chips: ALL · LOOKING FOR · SELLING · BUYING, ALL selected.
+    const chips = screen.getByTestId('event-feed-intent-chips');
+    expect(within(chips).getByText('ALL')).toBeTruthy();
+    expect(within(chips).getByText('BUYING')).toBeTruthy();
+    expect(screen.getByTestId('event-feed-intent-all').props.accessibilityState).toEqual({ selected: true });
+
+    fireEvent.press(screen.getByTestId('event-feed-intent-selling'));
+    expect(await screen.findByTestId('event-feed-post-sale')).toBeTruthy();
+    expect(screen.queryByTestId('event-feed-post-wtb')).toBeNull();
+    expect(fetchEventPosts).toHaveBeenCalledWith('hawaii-2026-10', 20, { intent: 'selling' });
+
+    // Back to ALL drops the filter.
+    fireEvent.press(screen.getByTestId('event-feed-intent-all'));
+    expect(await screen.findByTestId('event-feed-post-wtb')).toBeTruthy();
+  });
+
+  it('says which type is empty when a filter finds nothing', async () => {
+    jest.mocked(fetchEventPosts).mockImplementation(async (_id, _limit, options) =>
+      options?.intent ? [] : [post('plain')],
+    );
+    renderShow();
+    fireEvent.press(within(await screen.findByTestId('event-detail-show-area')).getByText('Feed'));
+    await screen.findByTestId('event-feed-post-plain');
+
+    fireEvent.press(screen.getByTestId('event-feed-intent-buying'));
+    expect(await screen.findByText('No buying posts yet')).toBeTruthy();
+  });
+
+  it('"Find on map" on a Selling booth post selects that booth on the map', async () => {
+    jest.mocked(fetchEventPosts).mockImplementation(async (_id, _limit, options) =>
+      options?.boothOnly
+        ? []
+        : [
+          post('sale', { intent: 'selling', boothVendorId: 'main-street-cards' }),
+          post('wtb', { intent: 'looking_for' }),
+        ],
+    );
+    renderShow();
+    fireEvent.press(within(await screen.findByTestId('event-detail-show-area')).getByText('Feed'));
+    const sale = await screen.findByTestId('event-feed-post-sale');
+    // Attendee "Looking for" posts have no booth to find.
+    expect(within(screen.getByTestId('event-feed-post-wtb')).queryByTestId('event-feed-post-find-on-map')).toBeNull();
+
+    fireEvent.press(within(sale).getByTestId('event-feed-post-find-on-map'));
+
+    expect(await screen.findByTestId('event-vendor-card')).toBeTruthy();
+    expect(screen.getByTestId('event-vendor-card-name')).toBeTruthy();
+    expect(within(screen.getByTestId('event-vendor-card')).getByText(/Main Street Cards/i)).toBeTruthy();
+  });
+
   it('offers + Post while the show is on, opening the composer tagged to it', async () => {
     renderShow(liveShow);
     fireEvent.press(within(await screen.findByTestId('event-detail-show-area')).getByText('Feed'));

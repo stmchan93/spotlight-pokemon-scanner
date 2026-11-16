@@ -135,7 +135,7 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
     [],
   );
   const [showArea, setShowArea] = useState<ShowArea>('map');
-  // Ticker, story and "View booth" picks land on the map, whichever tab is open.
+  // Ticker, story, "View booth" and feed "Find on map" picks land on the map, whichever tab is open.
   const selectOnMap = useCallback(
     (vendorId: string) => {
       setShowArea('map');
@@ -340,7 +340,13 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
           <View style={{ minHeight: windowHeight }}>
             {feedMounted ? (
               <View style={feedVisible ? null : styles.hiddenPane} testID="event-detail-feed-pane">
-                <EventFeed eventId={eventId} ref={feedRef} testID="event-feed" />
+                <EventFeed
+                  eventId={eventId}
+                  // No floor map, nothing to find a booth on.
+                  onFindOnMap={event.floorMapUrl ? selectOnMap : undefined}
+                  ref={feedRef}
+                  testID="event-feed"
+                />
               </View>
             ) : null}
             {event.floorMapUrl ? (

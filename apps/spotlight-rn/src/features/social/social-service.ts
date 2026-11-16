@@ -1,4 +1,5 @@
-import { isMissingColumnError, isMissingFunctionError } from '@/lib/postgrest-errors';
+import { parsePostIntent, type PostIntent } from '@/features/social/post-intent';
+import { isColumnWriteRejectedError, isMissingColumnError, isMissingFunctionError } from '@/lib/postgrest-errors';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -52,6 +53,9 @@ const postSelectWithMedia = `${postSelect}, post_media(${postMediaSelect})`;
 const postTagSelect = 'event_id, booth_vendor_id';
 const NEWS_THREADS_TABLE = 'news_threads';
 let postTagColumnsAvailable = true;
+// Show post type (social_33), same session-scoped fallback one tier above the tags.
+const postIntentSelect = 'post_intent';
+let postIntentColumnAvailable = true;
 
 // Just the author identity columns the post card renders. A subset of the full
 // public-profile view select.
@@ -74,6 +78,8 @@ type PostRow = {
   /** Present only when the read carried the show-tag columns (social_27). */
   event_id?: string | null;
   booth_vendor_id?: string | null;
+  /** Present only when the read carried the post-type column (social_33). */
+  post_intent?: string | null;
 };
 
 type PostMediaRow = {
@@ -124,6 +130,8 @@ export type FeedPost = {
   eventId?: string | null;
   /** Set on booth posts: the vendor slug on that show's floor map. */
   boothVendorId?: string | null;
+  /** Show post type (social_33); only ever set on show-tagged posts. */
+  intent?: PostIntent | null;
   /** The article this post carries reactions for (social_31); it has no author. */
   news?: FeedPostNews | null;
 };
@@ -277,7 +285,13 @@ async function hydratePosts(rows: PostRow[], options: HydrateOptions = {}): Prom
     repostCount: row.repost_count ?? 0,
     createdAt: row.created_at,
     media: mediaByPost.get(row.id) ?? [],
-    ...(row.event_id ? { eventId: row.event_id, boothVendorId: row.booth_vendor_id ?? null } : {}),
+    ...(row.event_id
+      ? {
+        eventId: row.event_id,
+        boothVendorId: row.booth_vendor_id ?? null,
+        ...(parsePostIntent(row.post_intent) ? { intent: parsePostIntent(row.post_intent) } : {}),
+      }
+      : {}),
     ...(newsByPost.has(row.id) ? { news: newsByPost.get(row.id) } : {}),
   }));
 }
@@ -293,6 +307,13 @@ async function selectPostRows(
   runQuery: (select: string) => PromiseLike<PostSelectResult>,
 ): Promise<PostSelectResult & { mediaEmbedded: boolean }> {
   const attempt = async (base: string): Promise<PostSelectResult> => {
+    if (postTagColumnsAvailable && postIntentColumnAvailable) {
+      const typed = await runQuery(`${base}, ${postTagSelect}, ${postIntentSelect}`);
+      if (!typed.error || !isMissingColumnError(typed.error)) {
+        return typed;
+      }
+      postIntentColumnAvailable = false;
+    }
     if (postTagColumnsAvailable) {
       const tagged = await runQuery(`${base}, ${postTagSelect}`);
       if (!tagged.error || !isMissingColumnError(tagged.error)) {
@@ -651,16 +672,27 @@ export function fetchCardPosts(cardId: string, limit = DEFAULT_LIMIT, before?: s
 export function fetchEventPosts(
   eventId: string,
   limit = 60,
-  options: { before?: string; boothOnly?: boolean } = {},
+  options: { before?: string; boothOnly?: boolean; intent?: PostIntent | null } = {},
 ): Promise<FeedPost[]> {
   const trimmed = (eventId ?? '').trim();
-  if (!trimmed) {
+  const intent = options.intent ?? null;
+  // No post_intent column means no typed posts: a filtered page is empty.
+  if (!trimmed || (intent && !postIntentColumnAvailable)) {
     return Promise.resolve([]);
   }
   return fetchPosts(
     (query) => {
-      const scoped = query.eq('event_id', trimmed);
-      return options.boothOnly ? scoped.not('booth_vendor_id', 'is', null) : scoped;
+      let scoped = query.eq('event_id', trimmed);
+      if (options.boothOnly) {
+        scoped = scoped.not('booth_vendor_id', 'is', null);
+      }
+      if (!intent) {
+        return scoped;
+      }
+      // Re-applied on every select fallback. Once the column is known missing,
+      // a contradiction on a real column returns no rows instead of a second
+      // missing-column error that would wrongly disable the show-tag columns.
+      return postIntentColumnAvailable ? scoped.eq('post_intent', intent) : scoped.is('event_id', null);
     },
     limit,
     options.before,
@@ -1317,6 +1349,8 @@ export async function createPost(input: {
   booth?: { eventId: string; vendorId: string } | null;
   /** Tags the post to a show without a booth (social_28). Ignored when `booth` is set. */
   eventId?: string | null;
+  /** Show post type (social_33). Dropped unless the post is tagged to a show. */
+  intent?: PostIntent | null;
 }): Promise<string | null> {
   const me = await currentUserId();
   const body = (input.body ?? '').trim();
@@ -1332,12 +1366,19 @@ export async function createPost(input: {
     : eventId
       ? { event_id: eventId }
       : {};
+  // Sent only when chosen on a show-tagged post, so every other insert still
+  // works on a database that predates social_33.
+  const intent = 'event_id' in boothColumns ? parsePostIntent(input.intent) : null;
+  const row = { author_id: me, body: body.length > 0 ? body : null, card_id: cardId, ...boothColumns };
+  const insert = (values: Record<string, unknown>) =>
+    supabase!.from(POSTS_TABLE).insert(values).select('id').single();
   try {
-    const { data, error } = await supabase
-      .from(POSTS_TABLE)
-      .insert({ author_id: me, body: body.length > 0 ? body : null, card_id: cardId, ...boothColumns })
-      .select('id')
-      .single();
+    let { data, error } = await insert(intent ? { ...row, post_intent: intent } : row);
+    if (error && intent && isColumnWriteRejectedError(error)) {
+      // Pre-social_33 database: the post still goes up, untyped.
+      postIntentColumnAvailable = false;
+      ({ data, error } = await insert(row));
+    }
     if (error || !data) {
       return null;
     }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { PostIntent } from '@/features/social/post-intent';
 import { fetchEventPosts, type FeedPost } from '@/features/social/social-service';
 
 export const EVENT_FEED_PAGE_SIZE = 20;
@@ -20,8 +21,9 @@ export type EventFeed = {
 /**
  * One show's feed (every post tagged `event_id`), newest first, keyset-paged on
  * `created_at` — the main feed's paging contract. Latest-request-wins.
+ * `intent` narrows it server-side to one post type; changing it reloads.
  */
-export function useEventFeed(eventId: string): EventFeed {
+export function useEventFeed(eventId: string, intent: PostIntent | null = null): EventFeed {
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [status, setStatus] = useState<EventFeedStatus>('loading');
   const [hasMore, setHasMore] = useState(false);
@@ -35,7 +37,10 @@ export function useEventFeed(eventId: string): EventFeed {
     setStatus('loading');
     setPosts([]);
     setHasMore(false);
-    void fetchEventPosts(eventId, EVENT_FEED_PAGE_SIZE).then(
+    void (intent
+      ? fetchEventPosts(eventId, EVENT_FEED_PAGE_SIZE, { intent })
+      : fetchEventPosts(eventId, EVENT_FEED_PAGE_SIZE)
+    ).then(
       (page) => {
         if (token !== tokenRef.current) {
           return;
@@ -50,7 +55,7 @@ export function useEventFeed(eventId: string): EventFeed {
         }
       },
     );
-  }, [eventId]);
+  }, [eventId, intent]);
 
   useEffect(() => {
     reload();
@@ -64,7 +69,7 @@ export function useEventFeed(eventId: string): EventFeed {
     const token = tokenRef.current;
     loadingMoreRef.current = true;
     setIsLoadingMore(true);
-    void fetchEventPosts(eventId, EVENT_FEED_PAGE_SIZE, { before: cursor })
+    void fetchEventPosts(eventId, EVENT_FEED_PAGE_SIZE, { before: cursor, ...(intent ? { intent } : {}) })
       .then(
         (page) => {
           if (token !== tokenRef.current) {
@@ -82,7 +87,7 @@ export function useEventFeed(eventId: string): EventFeed {
         loadingMoreRef.current = false;
         setIsLoadingMore(false);
       });
-  }, [eventId, hasMore, posts, status]);
+  }, [eventId, hasMore, intent, posts, status]);
 
   return { posts, setPosts, status, hasMore, isLoadingMore, reload, loadMore };
 }

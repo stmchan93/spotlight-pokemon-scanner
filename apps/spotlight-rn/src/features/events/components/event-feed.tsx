@@ -1,13 +1,14 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Plus } from 'iconoir-react-native';
 
-import { Button, StateCard, layout, spacing, useSpotlightTheme } from '@spotlight/design-system';
+import { Button, PillButton, StateCard, layout, spacing, useSpotlightTheme } from '@spotlight/design-system';
 
 import { useActiveShow } from '@/features/events/hooks/use-active-show';
 import { useEventFeed } from '@/features/events/hooks/use-event-feed';
 import { PostCard } from '@/features/social/components/post-card';
+import { POST_INTENTS, postIntentLabel, type PostIntent } from '@/features/social/post-intent';
 import { getFeedRefreshVersion } from '@/features/social/screens/new-post-screen';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
@@ -22,6 +23,8 @@ export type EventFeedHandle = {
 
 type EventFeedProps = {
   eventId: string;
+  /** Selects a booth on the show map (Selling/Buying booth posts' "Find on map"). */
+  onFindOnMap?: (vendorId: string) => void;
   testID?: string;
 };
 
@@ -31,14 +34,16 @@ type EventFeedProps = {
  * page drives paging through the handle.
  */
 export const EventFeed = forwardRef<EventFeedHandle, EventFeedProps>(function EventFeed(
-  { eventId, testID = 'event-feed' },
+  { eventId, onFindOnMap, testID = 'event-feed' },
   ref,
 ) {
   const theme = useSpotlightTheme();
   const router = useRouter();
   const { accessToken, currentUser } = useAuth();
   const apiBaseUrl = resolveRepositoryBaseUrl();
-  const feed = useEventFeed(eventId);
+  // null is ALL. Filtered server-side, so each chip is its own paged read.
+  const [intent, setIntent] = useState<PostIntent | null>(null);
+  const feed = useEventFeed(eventId, intent);
   const { loadMore, reload, setPosts } = feed;
   const canPost = useActiveShow({ eventId, enabled: currentUser != null }) != null;
   const { requestDelete, confirmSheet } = usePostDeletion(setPosts, { testID: `${testID}-delete-confirm` });
@@ -86,6 +91,20 @@ export const EventFeed = forwardRef<EventFeedHandle, EventFeedProps>(function Ev
           variant="dark"
         />
       ) : null}
+      <View style={styles.intentChips} testID={`${testID}-intent-chips`}>
+        {([null, ...POST_INTENTS] as const).map((option) => (
+          <PillButton
+            key={option ?? 'all'}
+            label={option ? postIntentLabel(option) : 'All'}
+            labelRole="caption"
+            onPress={() => setIntent(option)}
+            selected={intent === option}
+            testID={`${testID}-intent-${option ?? 'all'}`}
+            tone="filled"
+            uppercase
+          />
+        ))}
+      </View>
       {feed.status === 'loading' ? (
         <StateCard centered loading message="Fetching posts from the show." testID={`${testID}-loading`} title="Loading" variant="field" />
       ) : feed.status === 'error' ? (
@@ -99,9 +118,15 @@ export const EventFeed = forwardRef<EventFeedHandle, EventFeedProps>(function Ev
         />
       ) : feed.posts.length === 0 ? (
         <StateCard
-          message={canPost ? 'Be the first to post from the show.' : 'Posts from the show floor will appear here.'}
+          message={
+            intent
+              ? 'Try another filter, or check back as the show goes on.'
+              : canPost
+                ? 'Be the first to post from the show.'
+                : 'Posts from the show floor will appear here.'
+          }
           testID={`${testID}-empty`}
-          title="No posts yet"
+          title={intent ? `No ${postIntentLabel(intent).toLowerCase()} posts yet` : 'No posts yet'}
           variant="field"
         />
       ) : (
@@ -114,7 +139,9 @@ export const EventFeed = forwardRef<EventFeedHandle, EventFeedProps>(function Ev
               eventBadgeMode="booth"
               key={post.id}
               onAuthorBlocked={dropAuthor}
+              onFindOnMap={onFindOnMap}
               onPressCard={openCard}
+              onPressIntent={setIntent}
               onRequestDelete={requestDelete}
               post={post}
               testID={`${testID}-post`}
@@ -133,6 +160,11 @@ export const EventFeed = forwardRef<EventFeedHandle, EventFeedProps>(function Ev
 const styles = StyleSheet.create({
   root: {
     gap: spacing.sm,
+  },
+  intentChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xxs,
   },
   postButton: {
     alignSelf: 'flex-start',

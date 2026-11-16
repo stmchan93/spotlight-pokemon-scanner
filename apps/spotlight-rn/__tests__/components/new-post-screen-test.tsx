@@ -137,6 +137,77 @@ describe('NewPostScreen', () => {
       expect(screen.getByTestId('new-post-show-row')).toBeTruthy();
     });
 
+    it('offers post types only while the post is tagged to a show', () => {
+      (useActiveShow as jest.Mock).mockReturnValue(show);
+      renderWithProviders(<NewPostScreen />);
+
+      expect(screen.queryByTestId('new-post-intent-row')).toBeNull();
+      fireEvent(screen.getByTestId('new-post-show-toggle'), 'valueChange', true);
+      expect(screen.getByText('LOOKING FOR')).toBeTruthy();
+      expect(screen.getByText('SELLING')).toBeTruthy();
+      expect(screen.getByText('BUYING')).toBeTruthy();
+    });
+
+    it('sends the chosen type with the show tag', async () => {
+      (useLocalSearchParams as jest.Mock).mockReturnValue({ eventId: 'hawaii-2026-10' });
+      (useActiveShow as jest.Mock).mockReturnValue(show);
+      renderWithProviders(<NewPostScreen />);
+
+      fireEvent.press(screen.getByTestId('new-post-intent-looking_for'));
+      expect(screen.getByTestId('new-post-intent-looking_for').props.accessibilityState).toEqual({ selected: true });
+      fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'WTB Umbreon VMAX alt');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+      await waitFor(() =>
+        expect(createPost).toHaveBeenCalledWith({
+          body: 'WTB Umbreon VMAX alt',
+          cardId: null,
+          eventId: 'hawaii-2026-10',
+          intent: 'looking_for',
+        }),
+      );
+    });
+
+    it('drops the type when the show tag is turned off', async () => {
+      (useLocalSearchParams as jest.Mock).mockReturnValue({ eventId: 'hawaii-2026-10' });
+      (useActiveShow as jest.Mock).mockReturnValue(show);
+      renderWithProviders(<NewPostScreen />);
+
+      fireEvent.press(screen.getByTestId('new-post-intent-selling'));
+      fireEvent.press(screen.getByTestId('new-post-intent-selling'));
+      expect(screen.getByTestId('new-post-intent-selling').props.accessibilityState).toEqual({ selected: false });
+      fireEvent.press(screen.getByTestId('new-post-intent-buying'));
+      fireEvent(screen.getByTestId('new-post-show-toggle'), 'valueChange', false);
+      expect(screen.queryByTestId('new-post-intent-row')).toBeNull();
+      fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'gm');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+
+      await waitFor(() => expect(createPost).toHaveBeenCalledWith({ body: 'gm', cardId: null }));
+    });
+
+    it('lets a booth post carry a type', async () => {
+      (useActiveBooth as jest.Mock).mockReturnValue({
+        eventId: 'hawaii-2026-10',
+        eventName: 'Spotlight Hawaii',
+        vendorId: 'island-slabs',
+        vendorName: 'Island Slabs',
+      });
+      jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      renderWithProviders(<NewPostScreen />);
+
+      fireEvent.press(screen.getByTestId('new-post-intent-buying'));
+      fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'Paying 70% on vintage holos');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+      await waitFor(() =>
+        expect(createPost).toHaveBeenCalledWith({
+          body: 'Paying 70% on vintage holos',
+          booth: { eventId: 'hawaii-2026-10', vendorId: 'island-slabs' },
+          cardId: null,
+          intent: 'buying',
+        }),
+      );
+      (Alert.alert as jest.Mock).mockRestore();
+    });
+
     it('steps the toggle aside while the keyboard is up, and drags the keyboard away', () => {
       (useActiveShow as jest.Mock).mockReturnValue(show);
       const listeners = new Map<string, (event?: unknown) => void>();

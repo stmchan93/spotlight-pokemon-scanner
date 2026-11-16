@@ -222,6 +222,8 @@ describe('social-service', () => {
     it('retries without the tag columns on a database that predates social_27', async () => {
       const supabase = makeSupabase({
         posts: [
+          // The post_intent tier (social_33) fails first, then the tag tier.
+          { data: null, error: { code: '42703', message: 'column posts.post_intent does not exist' } },
           { data: null, error: { code: '42703', message: 'column posts.event_id does not exist' } },
           { data: [{ ...postRow, post_media: [] }], error: null },
         ],
@@ -254,6 +256,8 @@ describe('social-service', () => {
     it('For You drops the show filter on a database without the tag columns', async () => {
       const supabase = makeSupabase({
         posts: [
+          // The post_intent tier (social_33) fails first, then the tag tier.
+          { data: null, error: { code: '42703', message: 'column posts.post_intent does not exist' } },
           { data: null, error: { code: '42703', message: 'column posts.event_id does not exist' } },
           { data: [{ ...postRow, post_media: [] }], error: null },
         ],
@@ -278,6 +282,141 @@ describe('social-service', () => {
 
       await fetchEventPosts('hawaii-2026-10', 60, { boothOnly: true });
       expect(supabase.builders.posts.not).toHaveBeenCalledWith('booth_vendor_id', 'is', null);
+    });
+
+    it('reads post_intent onto a show post and selects it with the tag columns', async () => {
+      const supabase = makeSupabase({
+        posts: {
+          data: [{ ...postRow, post_media: [], event_id: 'hawaii-2026-10', booth_vendor_id: 'island-slabs', post_intent: 'selling' }],
+          error: null,
+        },
+        authors: { data: [authorRow], error: null },
+      });
+      const { fetchEventPosts } = loadService(supabase);
+
+      const [post] = await fetchEventPosts('hawaii-2026-10');
+
+      expect(post?.intent).toBe('selling');
+      expect(supabase.builders.posts.select).toHaveBeenCalledWith(
+        expect.stringContaining('event_id, booth_vendor_id, post_intent'),
+      );
+    });
+
+    it('ignores an unknown post_intent value and never types an untagged post', async () => {
+      const supabase = makeSupabase({
+        posts: {
+          data: [
+            { ...postRow, id: 'a', post_media: [], event_id: 'hawaii-2026-10', post_intent: 'trading' },
+            { ...postRow, id: 'b', post_media: [], event_id: null, post_intent: 'selling' },
+          ],
+          error: null,
+        },
+        authors: { data: [authorRow], error: null },
+      });
+      const { fetchAuthorPosts } = loadService(supabase);
+
+      const posts = await fetchAuthorPosts('author-1');
+      expect(posts.map((post) => post.intent ?? null)).toEqual([null, null]);
+    });
+
+    it('keeps the tag columns on a database that has social_27 but not social_33', async () => {
+      const supabase = makeSupabase({
+        posts: [
+          { data: null, error: { code: '42703', message: 'column posts.post_intent does not exist' } },
+          { data: [{ ...postRow, post_media: [], event_id: 'hawaii-2026-10', booth_vendor_id: null }], error: null },
+        ],
+        authors: { data: [authorRow], error: null },
+      });
+      const { fetchEventPosts } = loadService(supabase);
+
+      const [post] = await fetchEventPosts('hawaii-2026-10');
+      expect(post?.eventId).toBe('hawaii-2026-10');
+      expect(post).not.toHaveProperty('intent');
+      const select = supabase.builders.posts.select as jest.Mock;
+      expect(select.mock.calls[0]?.[0]).toContain('event_id, booth_vendor_id');
+      expect(select.mock.calls[0]?.[0]).not.toContain('post_intent');
+    });
+
+    it('filters a show feed by post type server-side, keyset-paged', async () => {
+      const supabase = makeSupabase({ posts: { data: [], error: null } });
+      const { fetchEventPosts } = loadService(supabase);
+
+      await fetchEventPosts('hawaii-2026-10', 20, { before: '2026-10-24T00:00:00Z', intent: 'buying' });
+      expect(supabase.builders.posts.eq).toHaveBeenCalledWith('event_id', 'hawaii-2026-10');
+      expect(supabase.builders.posts.eq).toHaveBeenCalledWith('post_intent', 'buying');
+      expect(supabase.builders.posts.lt).toHaveBeenCalledWith('created_at', '2026-10-24T00:00:00Z');
+      expect(supabase.builders.posts.order).toHaveBeenCalledWith('created_at', { ascending: false });
+
+      await fetchEventPosts('hawaii-2026-10', 20);
+      expect(supabase.builders.posts.eq).not.toHaveBeenCalledWith('post_intent', expect.anything());
+    });
+
+    it('a type filter on a database without post_intent is empty, and the tags survive', async () => {
+      const supabase = makeSupabase({
+        posts: [
+          { data: null, error: { code: '42703', message: 'column posts.post_intent does not exist' } },
+          { data: [], error: null },
+          { data: [{ ...postRow, post_media: [], event_id: 'hawaii-2026-10' }], error: null },
+        ],
+        authors: { data: [authorRow], error: null },
+      });
+      const { fetchEventPosts } = loadService(supabase);
+
+      await expect(fetchEventPosts('hawaii-2026-10', 20, { intent: 'selling' })).resolves.toEqual([]);
+      // The fallback read swapped the doomed filter for a no-rows one on a real column.
+      expect(supabase.builders.posts.eq).not.toHaveBeenCalledWith('post_intent', 'selling');
+      expect(supabase.builders.posts.is).toHaveBeenCalledWith('event_id', null);
+
+      // Later filtered reads skip the network; unfiltered reads still carry the show tag.
+      const callsBefore = supabase.from.mock.calls.length;
+      await expect(fetchEventPosts('hawaii-2026-10', 20, { intent: 'buying' })).resolves.toEqual([]);
+      expect(supabase.from.mock.calls.length).toBe(callsBefore);
+      const [post] = await fetchEventPosts('hawaii-2026-10', 20);
+      expect(post?.eventId).toBe('hawaii-2026-10');
+    });
+
+    it('sends post_intent only on a show-tagged post', async () => {
+      const supabase = makeSupabase({ posts: { data: { id: 'new-post' }, error: null } });
+      const { createPost } = loadService(supabase);
+
+      await createPost({ body: 'Paying 70% on vintage holos', booth: { eventId: 'hawaii-2026-10', vendorId: 'island-slabs' }, intent: 'buying' });
+      expect(supabase.builders.posts.insert).toHaveBeenCalledWith({
+        author_id: 'me',
+        body: 'Paying 70% on vintage holos',
+        card_id: null,
+        event_id: 'hawaii-2026-10',
+        booth_vendor_id: 'island-slabs',
+        post_intent: 'buying',
+      });
+
+      await createPost({ body: 'Untagged', intent: 'selling' });
+      expect(supabase.builders.posts.insert).toHaveBeenCalledWith({ author_id: 'me', body: 'Untagged', card_id: null });
+
+      await createPost({ body: 'No type', eventId: 'hawaii-2026-10', intent: null });
+      expect(supabase.builders.posts.insert).toHaveBeenCalledWith({
+        author_id: 'me',
+        body: 'No type',
+        card_id: null,
+        event_id: 'hawaii-2026-10',
+      });
+    });
+
+    it('posts untyped when the database lacks post_intent', async () => {
+      const supabase = makeSupabase({
+        posts: [
+          { data: null, error: { code: 'PGRST204', message: "Could not find the 'post_intent' column of 'posts'" } },
+          { data: { id: 'new-post' }, error: null },
+        ],
+      });
+      const { createPost } = loadService(supabase);
+
+      await expect(createPost({ body: 'WTB Umbreon', eventId: 'hawaii-2026-10', intent: 'looking_for' })).resolves.toBe('new-post');
+      expect(supabase.builders.posts.insert).toHaveBeenCalledWith({
+        author_id: 'me',
+        body: 'WTB Umbreon',
+        card_id: null,
+        event_id: 'hawaii-2026-10',
+      });
     });
 
     it('tags an attendee post to a show without a booth', async () => {

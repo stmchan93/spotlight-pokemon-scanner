@@ -3,12 +3,13 @@ import { Alert, Modal, PixelRatio, Pressable, StyleSheet, View } from 'react-nat
 import type { ImageStyle, StyleProp } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { CheckCircle, MediaImage, MoreHoriz } from 'iconoir-react-native';
+import { CheckCircle, MapPin, MediaImage, MoreHoriz } from 'iconoir-react-native';
 
 import {
   Avatar,
   borderWidths,
   FollowButton,
+  PillButton,
   spacing,
   Text,
   useSpotlightTheme,
@@ -25,6 +26,7 @@ import {
 } from '@/features/social/components/post-media-viewer';
 import { PostMetricsRow } from '@/features/social/components/post-metrics-row';
 import { SharePostSheet } from '@/features/social/components/share-post-sheet';
+import { isBoothIntent, postIntentLabel, type PostIntent } from '@/features/social/post-intent';
 import {
   blockUser,
   type FeedPost,
@@ -97,6 +99,13 @@ type PostCardProps = {
   focusCommentId?: string | null;
   /** How a show-tagged post names its show; `booth` on the show's own feed. */
   eventBadgeMode?: PostEventBadgeMode;
+  /** Tap a show post's type label (the show feed uses it to filter by that type). */
+  onPressIntent?: (intent: PostIntent) => void;
+  /**
+   * Select a Selling/Buying booth post's booth on the show map. Passed only by
+   * the show page, which owns the map; omitted, there is no "Find on map".
+   */
+  onFindOnMap?: (vendorId: string) => void;
   testID?: string;
 };
 
@@ -338,6 +347,8 @@ export function PostCard({
   autoOpenComments = false,
   focusCommentId = null,
   eventBadgeMode = 'show',
+  onPressIntent,
+  onFindOnMap,
   testID = 'post-card',
 }: PostCardProps) {
   const theme = useSpotlightTheme();
@@ -795,6 +806,35 @@ export function PostCard({
     );
   };
 
+  // Show post type + "Find on map". Types only exist on show-tagged posts.
+  const intent = post.eventId ? (post.intent ?? null) : null;
+  const findOnMapVendorId = onFindOnMap && isBoothIntent(intent) ? (post.boothVendorId ?? null) : null;
+  const renderIntentRow = () =>
+    intent ? (
+      <View style={styles.intentRow} testID={`${testID}-intent-row`}>
+        <PillButton
+          label={postIntentLabel(intent)}
+          labelRole="caption"
+          onPress={onPressIntent ? () => onPressIntent(intent) : undefined}
+          testID={`${testID}-intent`}
+          tone="filled"
+          uppercase
+        />
+        {findOnMapVendorId ? (
+          <Pressable
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => onFindOnMap?.(findOnMapVendorId)}
+            style={styles.findOnMap}
+            testID={`${testID}-find-on-map`}
+          >
+            <MapPin color={theme.colors.purple500} height={14} strokeWidth={1.5} width={14} />
+            <Text style={[theme.typography.captionMedium, { color: theme.colors.purple500 }]}>Find on map</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    ) : null;
+
   const renderMetrics = (prefix: string, onDark: boolean) => (
     <PostMetricsRow
       commentCount={commentCount}
@@ -910,6 +950,8 @@ export function PostCard({
     >
       <View style={styles.cardContent} testID={`${testID}-content`}>
         {renderHeader(testID, false)}
+
+        {renderIntentRow()}
 
         {post.body && post.news ? (
           <Pressable
@@ -1075,6 +1117,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
+  findOnMap: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.xxxs,
+  },
   headerRow: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -1092,6 +1139,12 @@ const styles = StyleSheet.create({
   },
   image: {
     width: '100%',
+  },
+  intentRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
   },
   mediaColumn: {
     gap: 8,

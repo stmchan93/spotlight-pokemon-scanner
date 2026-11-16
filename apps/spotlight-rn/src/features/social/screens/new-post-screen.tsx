@@ -17,7 +17,7 @@ import type { EdgeInsets } from 'react-native-safe-area-context';
 import { initialWindowMetrics, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Camera, MapPin, MediaImage, Shop, Xmark } from 'iconoir-react-native';
 
-import { Avatar, Button, IconButton, SheetHeader, Text, textStyles, useSpotlightTheme } from '@spotlight/design-system';
+import { Avatar, Button, IconButton, PillButton, SheetHeader, Text, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
 import { fetchBrowsingNow } from '@/features/events/booth-service';
@@ -27,6 +27,7 @@ import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { keyboardLift } from '@/lib/keyboard-insets';
 import { loadNativeImagePicker } from '@/lib/native-image-picker';
+import { POST_INTENTS, postIntentLabel, type PostIntent } from '@/features/social/post-intent';
 import { createPost } from '@/features/social/social-service';
 import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
@@ -276,6 +277,9 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   const [showTagOn, setShowTagOn] = useState(() => paramEventId != null && paramVendorId == null);
   const showTagVisible = show != null && !boothOn;
   const eventTagId = boothOn ? booth.eventId : showTagVisible && showTagOn ? show.id : null;
+  // Optional show post type; only offered, and only sent, while tagged to a show.
+  const [intentChoice, setIntentChoice] = useState<PostIntent | null>(null);
+  const intent = eventTagId ? intentChoice : null;
   /*
     THE ONE SOURCE OF TRUTH for this screen's safe area.
 
@@ -527,6 +531,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
           : eventTagId
             ? { eventId: eventTagId }
             : {}),
+        ...(intent ? { intent } : {}),
       });
       if (!postId) {
         // A booth tag is rejected by the DB when the claim is gone; say so
@@ -589,6 +594,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
         capturePostHogEvent(AnalyticsEvent.eventPostCreated, {
           event_id: eventTagId,
           has_image: hasImage,
+          intent: intent ?? 'none',
           is_booth: boothOn,
         });
       }
@@ -627,7 +633,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
       Alert.alert("Couldn't post", 'Something went wrong. Please try again.');
       setSubmitState('idle');
     }
-  }, [booth, boothOn, canPost, eventTagId, imageUris, router, spotlightRepository, trimmedBody]);
+  }, [booth, boothOn, canPost, eventTagId, imageUris, intent, router, spotlightRepository, trimmedBody]);
 
   const counterColor = useMemo(
     () =>
@@ -857,6 +863,24 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             </View>
           ) : null}
 
+          {eventTagId && !keyboardUp ? (
+            <View accessibilityLabel="Post type" style={styles.intentRow} testID={`${testID}-intent-row`}>
+              {POST_INTENTS.map((option) => (
+                <PillButton
+                  key={option}
+                  label={postIntentLabel(option)}
+                  labelRole="caption"
+                  // Tap the chosen type again to post untyped.
+                  onPress={() => setIntentChoice((current) => (current === option ? null : option))}
+                  selected={intent === option}
+                  testID={`${testID}-intent-${option}`}
+                  tone="filled"
+                  uppercase
+                />
+              ))}
+            </View>
+          ) : null}
+
           {remainingImages > 0 ? (
             <View style={styles.controlRow}>
               <ControlChip
@@ -966,6 +990,11 @@ const styles = StyleSheet.create({
   controlRow: {
     flexDirection: 'row',
     gap: 10,
+  },
+  intentRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   counterRow: {
     alignItems: 'flex-end',
