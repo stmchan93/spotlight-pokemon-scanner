@@ -6118,6 +6118,27 @@ def main_raw_cell_points_by_variant_date(
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Per-day TCGCSV main-lane points for a card's series window, grouped as
     ``{Scrydex-variant match key: {price_date: {market, low, mid, high}}}``.
+    Same read as ``main_raw_cell_series_by_variant``, without the labels."""
+    return {
+        key: entry["points"]
+        for key, entry in main_raw_cell_series_by_variant(
+            connection, card_id=card_id, start_date=start_date, end_date=end_date
+        ).items()
+    }
+
+
+def main_raw_cell_series_by_variant(
+    connection: sqlite3.Connection,
+    *,
+    card_id: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """``{Scrydex-variant match key: {"label": Scrydex label, "points":
+    {price_date: {market, low, mid, high}}}}`` from the card's raw_main cells.
+    The subtype -> label step is the one the headline price and the PDP
+    condition ladder use (bare vintage subtypes included: "Normal" -> "Normal",
+    "Unlimited" -> "Unlimited", "1st Edition" -> "First Edition").
 
     ONE query per card window on the ``(card_id, price_date, cell_key)`` unique
     index prefix. Flag-gated: returns ``{}`` when RAW_MAIN_PRICE_SOURCE is not
@@ -6139,7 +6160,7 @@ def main_raw_cell_points_by_variant_date(
     if end_date:
         query += " AND price_date <= ?"
         params.append(str(end_date))
-    result: dict[str, dict[str, dict[str, Any]]] = {}
+    result: dict[str, dict[str, Any]] = {}
     for row in connection.execute(query, params).fetchall():
         sub_type = str(_cell_field(row, "variant_key") or "").strip()
         # A subtype maps to its Scrydex label; a key that is no subtype is
@@ -6151,7 +6172,7 @@ def main_raw_cell_points_by_variant_date(
         market = _coerce_price_float(_cell_field(row, "market"))
         if market is None:
             continue
-        bucket = result.setdefault(_variant_match_key(label), {})
+        bucket = result.setdefault(_variant_match_key(label), {"label": label, "points": {}})["points"]
         date = str(_cell_field(row, "price_date"))
         # Two subtypes can collapse to one label (1st Edition Normal/Holofoil):
         # the exact per-printing mapping (or the label-keyed cell) wins,

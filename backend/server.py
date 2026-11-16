@@ -49,6 +49,7 @@ from catalog_tools import (
     _variant_match_key,
     _is_default_main_raw_read,
     main_raw_cell_points_by_variant_date,
+    main_raw_cell_series_by_variant,
     main_raw_history_market,
     apply_printing_point,
     printing_cell_serves_condition,
@@ -8309,6 +8310,8 @@ class SpotlightScanService:
                         "condition": cond or None,
                         "grader": None,
                         "grade": None,
+                        # Raw lane only: which price source drew this line.
+                        "source": "scrydex",
                         "points": [],
                     }
             else:
@@ -8350,28 +8353,52 @@ class SpotlightScanService:
             # NM series is its raw_main cells ONLY, the same source as the headline
             # price. Mixing in Scrydex days zigzagged wherever the two disagree;
             # older days come from the TCGCSV archive backfill instead.
-            main_points = main_raw_cell_points_by_variant_date(
+            # A TCGCSV printing Scrydex has no series for (Computer Search's
+            # "Normal" is Scrydex's "unlimited") gets its own NM series, so the
+            # chart for the printing the headline quotes is never missing.
+            # Every TCGCSV-drawn series says so in `source`; older apps ignore it.
+            main_series = main_raw_cell_series_by_variant(
                 self.connection, card_id=card_id, start_date=start_date
             )
-            if main_points:
-                for series_entry in series_map.values():
-                    if str(series_entry.get("condition") or "").upper() != DEFAULT_RAW_CONDITION:
-                        continue
-                    by_date = main_points.get(
-                        _variant_match_key(_normalized_variant_label(series_entry.get("variantKey")))
-                    )
-                    if not by_date:
-                        continue
-                    series_entry["points"] = [
-                        {
-                            "date": point_date,
-                            "market": by_date[point_date]["market"],
-                            "low": by_date[point_date]["low"],
-                            "mid": by_date[point_date]["mid"],
-                            "high": by_date[point_date]["high"],
-                        }
-                        for point_date in sorted(by_date)
-                    ]
+            for match_key, main_entry in main_series.items():
+                by_date = main_entry["points"]
+                if not by_date:
+                    continue
+                points = [
+                    {
+                        "date": point_date,
+                        "market": by_date[point_date]["market"],
+                        "low": by_date[point_date]["low"],
+                        "mid": by_date[point_date]["mid"],
+                        "high": by_date[point_date]["high"],
+                    }
+                    for point_date in sorted(by_date)
+                ]
+                series_entry = next(
+                    (
+                        entry
+                        for (key_variant, _), entry in series_map.items()
+                        if key_variant == match_key
+                        and str(entry.get("condition") or "").upper() == DEFAULT_RAW_CONDITION
+                    ),
+                    None,
+                )
+                if series_entry is None:
+                    label = str(main_entry["label"])
+                    new_key = (match_key, DEFAULT_RAW_CONDITION)
+                    order.append(new_key)
+                    series_entry = series_map[new_key] = {
+                        "key": f"{label}|{DEFAULT_RAW_CONDITION}",
+                        "label": f"{label} · {DEFAULT_RAW_CONDITION}",
+                        "variantKey": label,
+                        "condition": DEFAULT_RAW_CONDITION,
+                        "grader": None,
+                        "grade": None,
+                        "source": "scrydex",
+                        "points": [],
+                    }
+                series_entry["points"] = points
+                series_entry["source"] = TCGCSV_PROVIDER
 
         series = [series_map[k] for k in order if series_map[k]["points"]]
         return {

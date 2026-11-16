@@ -383,6 +383,12 @@ class MainRawTrendSeriesTests(unittest.TestCase):
                 self.assertEqual([p["date"] for p in holo_nm["points"]], MAIN_DATES)
                 rh_nm = self._series(history, variant_key="reverseHolofoil", condition="NM")
                 self.assertEqual(self._point_markets(rh_nm["points"]), [20.0, 21.0])
+                self.assertEqual((holo_nm["source"], rh_nm["source"]), ("tcgcsv", "tcgcsv"))
+                self.assertEqual(
+                    self._series(history, variant_key="holofoil", condition="LP")["source"], "scrydex"
+                )
+                # Every TCGCSV printing already had a Scrydex series: none added.
+                self.assertEqual(len(history["series"]), len(baseline["series"]))
                 # LP and the no-main-data printing: identical to flag off.
                 self.assertEqual(
                     self._series(history, variant_key="holofoil", condition="LP"),
@@ -431,6 +437,153 @@ class MainRawTrendSeriesTests(unittest.TestCase):
                     surfaces["condition_history"], variant_key="reverseHolofoil", condition="NM"
                 )
                 self.assertEqual([p["date"] for p in rh_nm["points"]], MAIN_DATES + [extra_date])
+
+
+def _recent_dates(count: int) -> list[str]:
+    today = datetime.now(timezone.utc).date()
+    return [(today - timedelta(days=count - 1 - i)).isoformat() for i in range(count)]
+
+
+class ComputerSearchNormalPrintingTests(unittest.TestCase):
+    """base1-71 shape: Scrydex prices unlimited / unlimitedShadowless /
+    firstEditionShadowless, while TCGplayer sells the card as ONE product whose
+    subtype is bare "Normal" — a printing Scrydex has no series for. The PDP
+    defaults to that "Normal" printing (the one the headline quotes), so the
+    condition history must carry its NM line from TCGCSV."""
+
+    SCRYDEX_DATES = _recent_dates(6)[:4]  # Scrydex history stops early (staging)
+    MAIN_DATES = _recent_dates(6)  # TCGCSV keeps going to today
+    MAIN_NM = [2.96, 3.0, 3.15, 3.01, 3.5, 4.38]
+
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+        self.connection = connect(Path(self.tempdir.name) / "cs.sqlite")
+        self.addCleanup(self.connection.close)
+        apply_schema(self.connection, BACKEND_ROOT / "schema.sql")
+        _apply_price_history_cells_schema_patch(self.connection)
+        upsert_card(
+            self.connection,
+            card_id="base1-71",
+            name="Computer Search",
+            set_name="Base",
+            number="71/102",
+            rarity="Rare",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="base1-71",
+        )
+        series = (
+            ("unlimited", "NM", 4.0),
+            ("unlimited", "LP", 1.8),
+            ("unlimitedShadowless", "NM", 9.5),
+            ("firstEditionShadowless", "NM", 149.0),
+        )
+        for variant, condition, market in series:
+            kwargs = dict(
+                currency_code="USD",
+                variant=variant,
+                condition=condition,
+                low_price=market - 1,
+                market_price=market,
+                mid_price=None,
+                high_price=market + 1,
+                direct_low_price=None,
+                trend_price=None,
+                payload={"provider": SCRYDEX_PROVIDER},
+            )
+            for price_date in self.SCRYDEX_DATES:
+                upsert_price_history_daily(
+                    self.connection,
+                    card_id="base1-71",
+                    pricing_mode=RAW_PRICING_MODE,
+                    provider=SCRYDEX_PROVIDER,
+                    price_date=price_date,
+                    **kwargs,
+                )
+            upsert_price_snapshot(
+                self.connection,
+                card_id="base1-71",
+                pricing_mode=RAW_PRICING_MODE,
+                provider=SCRYDEX_PROVIDER,
+                **kwargs,
+            )
+        # The main lane exactly as sync_tcgcsv_prices writes it.
+        latest = self.MAIN_NM[-1]
+        self.connection.execute(
+            """
+            UPDATE card_price_snapshots
+            SET main_raw_market_price = ?, main_raw_low_price = 0.98,
+                main_raw_mid_price = 3.18, main_raw_high_price = 96.95,
+                main_raw_variant = 'Normal', main_raw_updated_at = ?,
+                main_raw_printings_json = ?
+            WHERE card_id = 'base1-71'
+            """,
+            (
+                latest,
+                _now_iso(),
+                json.dumps({"Normal": {"subTypeName": "Normal", "market": latest, "low": 0.98,
+                                       "mid": 3.18, "high": 96.95}}),
+            ),
+        )
+        for price_date, market in zip(self.MAIN_DATES, self.MAIN_NM):
+            self.connection.execute(
+                """
+                INSERT INTO card_price_history_cell (
+                    card_id, provider, price_date, lane, cell_key, variant_key, condition,
+                    grader, grade, is_perfect, is_signed, is_error,
+                    currency_code, low, market, mid, high, direct_low, trend, updated_at
+                ) VALUES ('base1-71', 'tcgcsv', ?, 'raw_main', 'raw_main|Normal|NM', 'Normal', 'NM',
+                          NULL, NULL, 0, 0, 0, 'USD', 0.98, ?, 3.18, 96.95, NULL, ?, ?)
+                """,
+                (price_date, market, market, _now_iso()),
+            )
+        self.connection.commit()
+        self.shim = _Shim(self.connection)
+
+    def _env(self, extra=None):
+        env = {"PRICE_HISTORY_SOURCE": "cells"}
+        env.update(extra or {})
+        return patch.dict(os.environ, env, clear=False)
+
+    @staticmethod
+    def _nm_series(history, variant_key):
+        return [
+            s for s in history["series"]
+            if s["condition"] == "NM" and str(s["variantKey"]).lower() == variant_key.lower()
+        ]
+
+    def test_normal_printing_gets_a_tcgcsv_nm_series_matching_the_headline(self):
+        with self._env(FLAG_ON):
+            history = self.shim.card_condition_history("base1-71", lane="raw", days=365)
+            trends = self.shim.card_price_trends("base1-71", mode="raw")
+            trends_normal = self.shim.card_price_trends("base1-71", mode="raw", variant="Normal")
+        normal = self._nm_series(history, "Normal")
+        self.assertEqual(len(normal), 1)
+        normal = normal[0]
+        self.assertEqual(normal["source"], "tcgcsv")
+        self.assertEqual(normal["key"], "Normal|NM")
+        self.assertEqual([p["date"] for p in normal["points"]], self.MAIN_DATES)
+        self.assertEqual([p["market"] for p in normal["points"]], self.MAIN_NM)
+        # The chart's last point IS the headline NM price (same TCGplayer product + subtype).
+        for trend_list in (trends, trends_normal):
+            nm_row = next(row for row in trend_list["rows"] if row["key"] == "NM")
+            self.assertEqual(normal["points"][-1]["market"], nm_row["currentPrice"])
+        # Scrydex printings and other conditions are untouched.
+        unlimited = self._nm_series(history, "unlimited")
+        self.assertEqual(len(unlimited), 1)
+        self.assertEqual(unlimited[0]["source"], "scrydex")
+        self.assertEqual([p["market"] for p in unlimited[0]["points"]], [4.0] * 4)
+        lp = [s for s in history["series"] if s["condition"] == "LP"]
+        self.assertEqual([(s["variantKey"].lower(), s["source"]) for s in lp], [("unlimited", "scrydex")])
+
+    def test_flag_off_has_no_tcgcsv_series(self):
+        with self._env():
+            os.environ.pop("RAW_MAIN_PRICE_SOURCE", None)
+            history = self.shim.card_condition_history("base1-71", lane="raw", days=365)
+        self.assertEqual(self._nm_series(history, "Normal"), [])
+        self.assertEqual({s["source"] for s in history["series"]}, {"scrydex"})
 
 
 if __name__ == "__main__":
