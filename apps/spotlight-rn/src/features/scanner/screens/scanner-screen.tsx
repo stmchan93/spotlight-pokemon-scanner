@@ -813,9 +813,8 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                 <>
                   <View style={styles.captureLoadingRow}>
                     <ActivityIndicator color={theme.colors.brand} size="small" />
-                    <Text style={styles.captureTitle}>FINDING MATCH</Text>
+                    <Text numberOfLines={1} style={styles.captureStatus}>{'Finding match'.toUpperCase()}</Text>
                   </View>
-                  <Text style={styles.captureSubtitle}>PHOTO CAPTURED AND QUEUED FOR SCAN REVIEW</Text>
                   {capture.binderPage ? <PocketBadge binderPage={capture.binderPage} /> : null}
                 </>
               ) : candidate ? (
@@ -5767,6 +5766,11 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     paddingHorizontal: 5,
     paddingVertical: 2,
+  },
+  captureStatus: {
+    // In-progress row status: Body, uppercased in JS.
+    ...textStyles.body,
+    color: colors.scannerTextPrimary,
   },
   captureTitle: {
     // Figma Title-small (SemiBold 17).
