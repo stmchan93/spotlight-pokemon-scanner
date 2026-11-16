@@ -13,7 +13,6 @@ import {
   SkeletonBlock,
   Text,
   TrendTriangle,
-  borderWidths,
   layout,
   radii,
   spacing,
@@ -49,7 +48,7 @@ const DELTA_TRIANGLE_SIZE = 7;
 const TCGPLAYER_LOGO = { width: 16.09, height: 12 };
 // Kept off the chip below: the delta row ends 4pt above it.
 const TCGPLAYER_HIT_SLOP = { top: 8, bottom: 4, left: 4, right: 8 };
-// Condition chip (6322:8987): 3pt vertical pad, 8x4 chevron at a 1pt stroke.
+// Chip chevron (6322:8987): 3pt vertical pad, 8x4 chevron at a 1pt stroke.
 // The viewBox crops iconoir's 24-unit box to the chevron (M6 9 L12 15 L18 9 +
 // its round caps), scaled 2/3 so the glyph is 8x4 and the stroke 1pt.
 const CHIP_PADDING_VERTICAL = 3;
@@ -300,11 +299,13 @@ export function CardPriceChartSection({
               onPress={() => setGraderSheetOpen(true)}
               style={({ pressed }) => [
                 styles.chip,
-                { borderColor: theme.colors.gray300, backgroundColor: theme.colors.gray0, opacity: pressed ? 0.7 : 1 },
+                { backgroundColor: theme.colors.gray100, opacity: pressed ? 0.7 : 1 },
               ]}
               testID={`${testID}-grader-chip`}
             >
-              <Text style={[theme.typography.captionTiny, { color: theme.colors.gray900 }]}>{graderLabel}</Text>
+              <Text style={[theme.typography.caption, { color: theme.colors.gray900 }]}>
+                {graderLabel.toUpperCase()}
+              </Text>
               <NavArrowDown color={theme.colors.gray900} {...CHIP_CHEVRON} />
             </Pressable>
           ) : null}
@@ -314,13 +315,12 @@ export function CardPriceChartSection({
             onPress={() => setSheetOpen(true)}
             style={({ pressed }) => [
               styles.chip,
-              { borderColor: theme.colors.gray300, backgroundColor: theme.colors.gray0, opacity: pressed ? 0.7 : 1 },
+              { backgroundColor: theme.colors.gray100, opacity: pressed ? 0.7 : 1 },
             ]}
             testID={`${testID}-chip`}
           >
-            {/* Compact chip (Figma 6322:8987): Regular 10, 8x4 chevron. */}
-            <Text style={[theme.typography.captionTiny, { color: theme.colors.gray900 }]}>
-              {showGraderChip ? chipRowLabel(selectedRow.label, selectedGrader) : selectedRow.label}
+            <Text style={[theme.typography.caption, { color: theme.colors.gray900 }]}>
+              {(showGraderChip ? chipRowLabel(selectedRow.label, selectedGrader) : selectedRow.label).toUpperCase()}
             </Text>
             <NavArrowDown color={theme.colors.gray900} {...CHIP_CHEVRON} />
           </Pressable>
@@ -400,8 +400,8 @@ function CardPriceChartSkeleton({ style, testID }: { style?: StyleProp<ViewStyle
         <SkeletonBlock height={textStyles.detailTitleBold.lineHeight} width={120} />
         <SkeletonBlock height={textStyles.titleXsmall.lineHeight} width={140} />
         <SkeletonBlock
-          height={textStyles.captionTiny.lineHeight + CHIP_PADDING_VERTICAL * 2}
-          radius={radii.pill}
+          height={textStyles.caption.lineHeight + CHIP_PADDING_VERTICAL * 2}
+          radius={radii.sm}
           width={72}
         />
       </View>
@@ -441,11 +441,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.xxxs,
   },
+  // App-wide chip (Figma 5938:13960): Caption 13 caps, gray-900 on gray-100,
+  // radius 8, no stroke; the chevron marks it as a picker.
   chip: {
     alignItems: 'center',
     borderCurve: 'continuous',
-    borderRadius: radii.pill,
-    borderWidth: borderWidths.containerRule,
+    borderRadius: radii.sm,
     flexDirection: 'row',
     gap: spacing.xxs,
     paddingHorizontal: spacing.xxs,

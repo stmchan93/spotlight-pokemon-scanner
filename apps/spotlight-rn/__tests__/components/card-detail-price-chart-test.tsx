@@ -101,8 +101,8 @@ describe('CardDetailScreen price chart', () => {
     });
 
     const graderChip = await screen.findByTestId('detail-price-chart-grader-chip');
-    expect(within(graderChip).getByText('Raw')).toBeTruthy();
-    expect(within(screen.getByTestId('detail-price-chart-chip')).getByText('Near Mint')).toBeTruthy();
+    expect(within(graderChip).getByText('RAW')).toBeTruthy();
+    expect(within(screen.getByTestId('detail-price-chart-chip')).getByText('NEAR MINT')).toBeTruthy();
 
     fireEvent.press(graderChip);
     fireEvent.press(await screen.findByTestId('detail-price-chart-grader-sheet-option-PSA'));
