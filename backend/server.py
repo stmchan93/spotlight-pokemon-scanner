@@ -10786,6 +10786,11 @@ class SpotlightScanService:
             "(SELECT email FROM user_emails WHERE user_id = :owner))",
         ),
         ("user_emails", "user_id = :owner"),
+        # In-app AI chat (mcp_server/assistant); tables come from schema.sql.
+        ("assistant_messages", "owner_user_id = :owner"),
+        ("assistant_threads", "owner_user_id = :owner"),
+        ("assistant_usage", "owner_user_id = :owner"),
+        ("user_ai_settings", "owner_user_id = :owner"),
     )
 
     # ------------------------------------------------------------------
@@ -19689,6 +19694,7 @@ class SpotlightScanService:
             "top": "add_top",
             "alternate": "add_alternate",
             "manual_search": "add_manual_search",
+            "assistant": "add_assistant",
         }
         confirmation_source = confirmation_source_map.get(selection_source, "add_unknown")
 

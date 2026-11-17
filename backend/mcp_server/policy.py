@@ -53,7 +53,8 @@ USER_CARD_FIELDS = frozenset(
         "similar",
         "language_pair",
         "my_holdings",
-        # HoldingSummary / movers
+        # HoldingSummary / movers; holding_id = deck entry id (user tier only)
+        "holding_id",
         "quantity",
         "condition",
         "grader",

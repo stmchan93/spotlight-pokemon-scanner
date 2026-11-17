@@ -1025,6 +1025,48 @@ CREATE TABLE IF NOT EXISTS art_themes (
     PRIMARY KEY (theme, facet, value)
 );
 
+-- In-app AI chat ("Ask Ekalight", mcp_server/assistant). Owner-scoped; the
+-- MCP process also creates these at startup. Account deletion clears all four.
+CREATE TABLE IF NOT EXISTS assistant_threads (
+    id TEXT PRIMARY KEY,
+    owner_user_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assistant_threads_owner ON assistant_threads(owner_user_id, updated_at DESC);
+CREATE TABLE IF NOT EXISTS assistant_messages (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    owner_user_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    text TEXT NOT NULL,
+    cards_json TEXT,
+    actions_json TEXT,
+    status TEXT NOT NULL DEFAULT 'ok',
+    client_message_id TEXT,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    cost_usd REAL,
+    tools_used TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_messages_client
+    ON assistant_messages(owner_user_id, client_message_id) WHERE client_message_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS assistant_usage (
+    owner_user_id TEXT NOT NULL,
+    day TEXT NOT NULL,
+    questions INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (owner_user_id, day)
+);
+CREATE TABLE IF NOT EXISTS user_ai_settings (
+    owner_user_id TEXT PRIMARY KEY,
+    allow_mcp_edits INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+
 -- Seed themes. INSERT OR IGNORE: restarts never duplicate or undo hand edits.
 INSERT OR IGNORE INTO art_themes (theme, facet, value) VALUES
     ('beach_day', 'scene', 'beach'),

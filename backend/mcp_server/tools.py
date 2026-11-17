@@ -492,7 +492,7 @@ class CollectionTools:
     def _holdings_for_card(self, owner_user_id: str, card_id: str) -> list[dict[str, Any]]:
         rows = self.conn.execute(
             """
-            SELECT condition, grader, grade, quantity, variant_name, cost_basis_total,
+            SELECT id, condition, grader, grade, quantity, variant_name, cost_basis_total,
                    cost_basis_currency_code, cost_basis_cents
             FROM deck_entries
             WHERE owner_user_id = ? AND card_id = ? AND quantity > 0
@@ -519,6 +519,7 @@ class CollectionTools:
                 variant = default_raw_variant or None
             holdings.append(
                 {
+                    "holding_id": str(row["id"]),
                     "condition": None
                     if (grader or grade)
                     else DECK_CONDITION_CODES.get(str(row["condition"] or "").strip().lower()),
@@ -608,6 +609,7 @@ class CollectionTools:
             gain, gain_basis = round(float(entry["sinceAddedChangeAmount"]) * quantity, 2), "since_added"
         return {
             **summary,
+            "holding_id": str(entry["id"]) if entry.get("id") is not None else None,
             "quantity": quantity,
             "condition": None
             if (grader or grade)
@@ -768,6 +770,7 @@ class CollectionTools:
             movers.append(
                 {
                     **{k: holding[k] for k in ("card_id", "name", "set", "number", "language", "app_url")},
+                    "holding_id": holding.get("holding_id"),
                     "quantity": holding["quantity"],
                     "condition": holding["condition"],
                     "grader": holding["grader"],
