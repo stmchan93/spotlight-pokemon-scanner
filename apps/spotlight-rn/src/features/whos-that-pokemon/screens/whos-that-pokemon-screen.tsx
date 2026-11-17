@@ -761,7 +761,7 @@ export function WhosThatPokemonScreen() {
     if (router.canGoBack()) {
       router.back();
     } else {
-      router.replace('/' as never);
+      router.replace('/social' as never);
     }
   }, [router]);
 

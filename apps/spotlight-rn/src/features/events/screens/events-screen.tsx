@@ -41,6 +41,7 @@ import { useSpotlightEvents } from '@/features/events/hooks/use-spotlight-events
 import { useSavedEvents } from '@/features/events/saved-events-store';
 import { tabBarBottomFadeHeight } from '@/lib/tab-bar-insets';
 import { PageSwipeGuard } from '@/components/page-tab-pager';
+import { useTabPagerLock } from '@/components/tab-pager/tab-pager-page-context';
 
 export type EventsTab = 'events' | 'saved' | 'past';
 
@@ -99,6 +100,8 @@ export function EventsScreen() {
   const headerImageHeight = sheetTop + HEADER_IMAGE_BELOW_SHEET;
   const chipRowTop = sheetTop - CHIP_ROW_ABOVE_SHEET;
   const { width: windowWidth } = useWindowDimensions();
+  // No horizontal swipe on Events at all: tap the tab bar to leave (user, 2026-11-16).
+  useTabPagerLock(true);
   const { events, failed, refresh } = useSpotlightEvents();
   const { isSaved, savedIds, toggle } = useSavedEvents();
   const [tab, setTab] = useState<EventsTab>('events');

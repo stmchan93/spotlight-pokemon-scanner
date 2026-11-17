@@ -56,11 +56,11 @@ import { useAuth } from '@/providers/auth-provider';
  */
 
 export const TAB_BAR_LABELS: Record<PagerTab, string> = {
-  index: 'HOME',
+  social: 'HOME',
   wishlist: 'WATCHLIST',
   scan: 'SCAN',
   events: 'EVENTS',
-  social: 'SOCIAL',
+  index: 'COLLECTION',
 };
 
 const ICON_SIZE = 24;
@@ -104,7 +104,8 @@ export function useTabBarBottomInset(): number {
 }
 
 const TAB_ICONS: Partial<Record<PagerTab, { outline: ImageSourcePropType; filled: ImageSourcePropType }>> = {
-  index: {
+  // The feed is Home; Collection (`index`) wears the profile avatar.
+  social: {
     outline: require('../../../assets/images/tab-icons/home.png'),
     filled: require('../../../assets/images/tab-icons/home-filled.png'),
   },

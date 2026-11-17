@@ -1,12 +1,13 @@
-import { usePathname } from 'expo-router';
+import { Redirect, usePathname } from 'expo-router';
 
 import { TabPager } from '@/components/tab-pager/tab-pager-navigator';
+import { shouldRedirectLaunchToHome } from '@/lib/launch-to-home';
 import { rememberActiveTab } from '@/lib/last-active-tab';
 
 /**
  * The bottom tabs: an Instagram-style horizontal pager with our own tab bar.
  *
- *   Home [Collection, Activity] | Watchlist | Scan | Events | Social [Social, News, Market]
+ *   Home [Social, News, Market] | Watchlist | Scan | Events | Collection [Collection, Activity]
  *
  * WHY A CUSTOM NAVIGATOR. Apple's native tab bar (expo-router NativeTabs) cannot
  * be dragged — UITabBarController has no interactive swipe — so the screens
@@ -30,7 +31,7 @@ import { rememberActiveTab } from '@/lib/last-active-tab';
  * with each page's inner pager and every gesture conflict are documented in the
  * navigator file.
  *
- * `index` is Collection; `/you` and `/portfolio` are redirect routes to it and
+ * `social` is Home (the feed, first tab); `index` is Collection (last tab); `/you` and `/portfolio` are redirect routes to it and
  * are not pages.
  */
 export default function TabsLayout() {
@@ -39,6 +40,11 @@ export default function TabsLayout() {
   // `rememberActiveTab` ignores `/scan` itself. A plain module write with no
   // subscribers, so it is safe during render.
   rememberActiveTab(pathname);
-  // The app opens on Home (`/`), the first tab (user, 2026-11-16).
-  return <TabPager backBehavior="firstRoute" />;
+  // The app opens on Home: the feed, first tab. A cold start lands on `/`
+  // (Collection), so redirect BEFORE the pager mounts and nothing slides.
+  if (shouldRedirectLaunchToHome(pathname)) {
+    return <Redirect href="/social" />;
+  }
+  // Android back returns to Home (the feed), not the first route file (`index`).
+  return <TabPager backBehavior="initialRoute" initialRouteName="social" />;
 }
