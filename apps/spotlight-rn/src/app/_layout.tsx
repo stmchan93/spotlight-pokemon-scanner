@@ -199,7 +199,13 @@ function AuthenticatedRoot() {
                 headerShown: false,
               }}
             >
-              <Stack.Screen name="(tabs)" />
+              {/*
+                The tabs are the stack's base and never slide. The cold-start
+                `/` -> Home (`/social`) redirect is a REPLACE of this route,
+                which native-stack animates like a push: the app opened with a
+                sideways slide (owner, 2026-11-16).
+              */}
+              <Stack.Screen name="(tabs)" options={{ animation: 'none' }} />
               <Stack.Screen name="(stack)" />
               {/*
                 Catalog search (and the expansion browser beside it) comes UP
