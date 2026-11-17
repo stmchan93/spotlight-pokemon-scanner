@@ -2,7 +2,6 @@ import { createContext, useContext, type ReactNode } from 'react';
 import { Platform } from 'react-native';
 import { initialWindowMetrics, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { spacing } from '@spotlight/design-system';
 
 /*
   ───────────────────────────────────────────────────────────────────────────────
