@@ -67,6 +67,10 @@ USER_CARD_FIELDS = frozenset(
         "added_at",
         # find_missing
         "buy_links",
+        # get_price_history (its payload has card_id, so it is shaped as a card)
+        "variant",
+        "points",
+        "source",
     }
 )
 PUBLIC_CARD_FIELDS = frozenset(
