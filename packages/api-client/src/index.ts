@@ -4,3 +4,5 @@ export * from './spotlight/types';
 export * from './spotlight/meta-feed-mock-data';
 export * from './spotlight/meta-feed-wire';
 export * from './spotlight/spotlight-events';
+export * from './spotlight/assistant-wire';
+export * from './spotlight/assistant-mock-data';
