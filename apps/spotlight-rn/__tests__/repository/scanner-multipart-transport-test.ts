@@ -266,16 +266,15 @@ describe('scanner multipart transport', () => {
     expect(payload.readFileAsBase64).toHaveBeenCalledWith('file:///normalized.jpg');
   });
 
-  it('full-upload failure on BOTH transports → normalized-only retry starts multipart again without source_image', async () => {
-    // Attempt 1: multipart full upload → 500. Attempt 2: same-call JSON
-    // belt-and-braces → 500. Outer retry then goes normalized-only, starting
-    // on multipart again (no latch from a 500): no source part, sourceImage
-    // null in the payload part.
+  it('full-upload failure on BOTH transports, twice → normalized-only retry starts multipart again without source_image', async () => {
+    // Attempts 1 and 2 each: multipart full upload → 500, then the same-call
+    // JSON belt-and-braces → 500. Attempt 3 goes normalized-only, starting on
+    // multipart again (no latch from a 500): no source part, sourceImage null.
     let artifactAttempts = 0;
     global.fetch = jest.fn().mockImplementation(async (url: string) => {
       if (String(url).includes('scan-artifacts')) {
         artifactAttempts += 1;
-        if (artifactAttempts <= 2) {
+        if (artifactAttempts <= 4) {
           return jsonResponse(500, { error: 'boom' });
         }
         return jsonResponse(200, { normalizedObjectPath: 'n', storage: 'gcs' });
@@ -293,7 +292,7 @@ describe('scanner multipart transport', () => {
     expect(result?.status).toBe('uploaded');
 
     const artifactCalls = callsTo('scan-artifacts');
-    expect(artifactCalls.length).toBeGreaterThanOrEqual(3);
+    expect(artifactCalls).toHaveLength(5);
     // First attempt streams both files as multipart...
     const firstParts = partsOf(artifactCalls[0][1]);
     expect(firstParts.some((part) => part.fieldName === 'source_image')).toBe(true);

@@ -1,11 +1,10 @@
 import { HttpSpotlightRepository } from '../../../../packages/api-client/src/spotlight/repository';
 import type { ScannerCapturePayload } from '../../../../packages/api-client/src/spotlight/types';
 
-// Regression coverage for the 2026-06 artifact-upload hardening: the upload is
-// retried with backoff, and every attempt AFTER the first posts a
-// normalized-only payload (source image stripped) to shrink the body. The
-// normalized image is the training-critical one, so dropping source on retry
-// has no training-data cost but improves landing odds on weak uplinks.
+// Artifact-upload retry policy: retried with backoff; the first two attempts
+// keep BOTH images (scanner rule: source_capture + normalized_target), and only
+// the last-resort attempts post normalized-only (the training-critical image)
+// to shrink the body on a weak uplink.
 
 function jsonResponse(status: number, body?: unknown) {
   return {
@@ -49,7 +48,7 @@ describe('scanner artifact upload — retry + normalized-only payload', () => {
     jest.restoreAllMocks();
   });
 
-  it('retries after a failure and drops the source image on the retry (first attempt keeps it)', async () => {
+  it('retries after one failure and KEEPS the source image on that retry', async () => {
     let artifactAttempts = 0;
     global.fetch = jest.fn().mockImplementation(async (url: string) => {
       if (String(url).includes('scan-artifacts')) {
@@ -74,13 +73,38 @@ describe('scanner artifact upload — retry + normalized-only payload', () => {
     const result = await uploadDone;
 
     const bodies = artifactBodies();
-    expect(bodies.length).toBeGreaterThanOrEqual(2);
-    // First attempt carries the full source image...
+    expect(bodies).toHaveLength(2);
     expect(bodies[0].sourceImage).toMatchObject({ jpegBase64: 'SRC' });
-    expect((bodies[0].normalizedImage as Record<string, unknown>).jpegBase64).toBe('NORM');
-    // ...the retry strips it to normalized-only.
-    expect(bodies[bodies.length - 1].sourceImage).toBeNull();
-    expect((bodies[bodies.length - 1].normalizedImage as Record<string, unknown>).jpegBase64).toBe('NORM');
+    expect(bodies[1].sourceImage).toMatchObject({ jpegBase64: 'SRC' });
+    expect((bodies[1].normalizedImage as Record<string, unknown>).jpegBase64).toBe('NORM');
+    expect(result?.status).toBe('uploaded');
+  }, 15000);
+
+  it('falls back to normalized-only after two full attempts fail', async () => {
+    let artifactAttempts = 0;
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (String(url).includes('scan-artifacts')) {
+        artifactAttempts += 1;
+        if (artifactAttempts <= 2) {
+          return jsonResponse(500, { error: 'boom' });
+        }
+        return jsonResponse(200, { normalizedObjectPath: 'n', storage: 'gcs' });
+      }
+      return jsonResponse(200, { scanID: 'scan-test', candidates: [] });
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const result = await new Promise<{ status: string } | null>((resolve) => {
+      void repository.matchScannerCapture(rawPayloadWithSource(), {
+        onArtifactUploadComplete: (r) => resolve(r),
+      });
+    });
+
+    const bodies = artifactBodies();
+    expect(bodies).toHaveLength(3);
+    expect(bodies[1].sourceImage).toMatchObject({ jpegBase64: 'SRC' });
+    expect(bodies[2].sourceImage).toBeNull();
+    expect((bodies[2].normalizedImage as Record<string, unknown>).jpegBase64).toBe('NORM');
     expect(result?.status).toBe('uploaded');
   }, 15000);
 

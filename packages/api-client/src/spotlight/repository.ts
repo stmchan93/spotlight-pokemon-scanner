@@ -637,7 +637,16 @@ export class SpotlightRepositoryRequestError extends Error {
     super(message);
     this.name = 'SpotlightRepositoryRequestError';
   }
+
+  /** How the request failed at the transport level (telemetry + retry policy). */
+  failure?: SpotlightRequestFailure;
+  /** Server-requested wait from a Retry-After header, in ms. */
+  retryAfterMs?: number | null;
+  /** Total HTTP sends made for this logical request (scan match retries). */
+  attemptCount?: number;
 }
+
+export type SpotlightRequestFailure = 'timeout' | 'network' | 'http' | 'invalid_response';
 
 export function isSpotlightRepositoryRequestError(
   error: unknown,
@@ -667,25 +676,22 @@ const inventoryPageSize = 1000;
  */
 const inventoryMaxPages = 20;
 const scanMatchRequestTimeoutMs = 20000;
-// Raw visual matches return in <1s on a healthy network. Retry transient
-// transport/timeout/HTTP failures a couple of times, so one stalled upload (weak
-// wifi, a far VPN exit) recovers on the next attempt instead of dead-ending to
-// "Photo captured, but matches could not load". Retrying is safe: the backend
-// upserts by the stable client-generated scanID (idempotent). Slabs are NOT
-// retried here and keep the single long timeout above — their matches take 40-50s
-// and a short timeout would false-fail them.
+// Raw visual matches return in <1s on a healthy network. Only RETRYABLE failures
+// (timeout, network error, 502/503/504) are re-sent, so one stalled upload
+// recovers instead of dead-ending to "matches could not load". Retrying is safe:
+// the backend upserts by the client-generated scanID. Slabs are NOT retried and
+// keep the single long timeout above (their matches take 40-50s).
 //
-// THE FIRST ATTEMPT IS THE ONE THAT CAN PAY A COLD INDEX. Every attempt used to
-// get 10s, and after a backend restart the first scan of a non-Pokémon game
-// builds that game's visual index INSIDE the request — measured at 12-16s on
-// staging. All three attempts then timed out identically (each retry hits the
-// same cold build), so the user waited 30s and got "matches could not load" on
-// scans the server had already answered 200. The backend now prewarms every
-// game's index at startup; this budget is the belt to that braces, and it only
-// costs anything on a scan that would otherwise have failed outright. Retries
-// stay short, because by then a stalled upload is the likelier story.
-const rawMatchFirstAttemptTimeoutMs = 30000;
-const rawMatchRetryTimeoutMs = 10000;
+// Budgets (Hawaii show 2026-10-24: congested cell, body read p50 4s / p90 28s;
+// requests hung ~82s before failing):
+// - Attempt 1 gets 20s: after a backend restart the first scan of a game can
+//   build that game's visual index inside the request (12-16s measured). The
+//   backend prewarms at startup now, so 20s is the cold-index belt plus ~4s of
+//   congested upload — down from 30s, which mostly bought hang time.
+// - Retries get 15s (was 10s, shorter than a congested upload, so retries were
+//   near-certain to fail). Worst case ≈ 20 + 15 + 15 + backoff ≈ 55s, vs ~82s.
+const rawMatchFirstAttemptTimeoutMs = 20000;
+const rawMatchRetryTimeoutMs = 15000;
 // A binder page is one request carrying nine images and one batched inference:
 // upload on a slow uplink (~10s for 9 JPEGs) plus a small-VM batch encode (~7s
 // measured on staging) can pass 20s legitimately. Timing out early creates a
@@ -695,7 +701,21 @@ const batchMatchRequestTimeoutMs = 75000;
 // pockets — no inference. ~1s typical; 20s covers a slow show-floor uplink.
 const binderPagePrepareTimeoutMs = 20000;
 const rawMatchAttempts = 3; // 1 initial attempt + up to 2 retries
-const rawMatchRetryBackoffsMs = [500, 1000];
+const rawMatchRetryBaseBackoffMs = 600;
+// A Retry-After longer than this is not worth holding a scan row for.
+const rawMatchMaxRetryWaitMs = 5000;
+
+/** Exponential backoff with jitter (50-100% of the step), honoring Retry-After. */
+export function scanMatchRetryDelayMs(
+  retryIndex: number,
+  retryAfterMs?: number | null,
+  random: () => number = Math.random,
+) {
+  const stepMs = rawMatchRetryBaseBackoffMs * 2 ** retryIndex;
+  const jitteredMs = Math.round(stepMs * (0.5 + random() * 0.5));
+  const serverMs = typeof retryAfterMs === 'number' && retryAfterMs > 0 ? retryAfterMs : 0;
+  return Math.min(rawMatchMaxRetryWaitMs, Math.max(jitteredMs, serverMs));
+}
 // The artifact upload carries the full normalized (+ optional source) image as
 // base64, so it's heavier than the match request and was being starved by the
 // 12s default while match got 20s. Give it its own, longer budget.
@@ -746,6 +766,8 @@ type JsonRequestOptions = {
   requestLabel?: string;
   logTransport?: boolean;
   timeoutMs?: number;
+  /** External abort (e.g. a queued artifact upload yielding to a scan match). */
+  signal?: AbortSignal;
 };
 
 type RepositoryClientContext = {
@@ -2327,12 +2349,17 @@ function markScanMultipartUnsupported() {
   scanMultipartUnsupportedThisSession = true;
 }
 
-function isMultipartUnsupportedStatus(status: number | null | undefined) {
-  // 400: deployed pre-multipart backends answer "Invalid JSON body".
-  // 502: observed live — the pre-multipart handler drops the connection on a
-  //      multipart body and the proxy answers 502.
+function isMultipartUnsupportedError(error: SpotlightRepositoryRequestError) {
+  const status = error.status;
   // 404/405/415: standard "endpoint/method/media-type unsupported".
-  return status === 400 || status === 404 || status === 405 || status === 415 || status === 502;
+  if (status === 404 || status === 405 || status === 415) {
+    return true;
+  }
+  // 400: pre-multipart backends answer "Invalid JSON body". A multipart-aware
+  // backend's own 400s ("multipart body is malformed" = truncated upload on a
+  // weak uplink) prove support, so they must not latch the bigger JSON body.
+  // 502 is NOT here: under congestion it is a transient proxy error (retried).
+  return status === 400 && !/multipart/i.test(error.message);
 }
 
 function scannerImageFileUri(
@@ -3663,6 +3690,27 @@ function errorMessageFromUnknown(error: unknown, fallback: string) {
 
 function isAbortError(error: unknown) {
   return error instanceof Error && error.name === 'AbortError';
+}
+
+/** Retry-After as ms: delta-seconds or an HTTP date. Null when absent/unparseable. */
+export function parseRetryAfterMs(value: string | null | undefined, nowMs = Date.now()): number | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (/^\d+(\.\d+)?$/.test(trimmed)) {
+    return Math.round(Number(trimmed) * 1000);
+  }
+  const dateMs = Date.parse(trimmed);
+  return Number.isFinite(dateMs) ? Math.max(0, dateMs - nowMs) : null;
+}
+
+/** Transport failures worth re-sending: the server never answered, or answered "try again". */
+export function isRetryableScanRequestError(error: SpotlightRepositoryRequestError) {
+  if (error.failure === 'timeout' || error.failure === 'network') {
+    return true;
+  }
+  return error.status === 502 || error.status === 503 || error.status === 504;
 }
 
 async function safeResponseText(response: Response) {
@@ -5538,6 +5586,13 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
   private activeBaseUrl: string;
 
+  // Scan uplink arbitration: artifact uploads run one at a time and only while
+  // no scan match is in flight; a starting match aborts (preempts) the active one.
+  private inFlightMatchCount = 0;
+  private matchIdleWaiters: (() => void)[] = [];
+  private artifactQueueTail: Promise<unknown> = Promise.resolve();
+  private activeArtifactAbort: AbortController | null = null;
+
   constructor(
     baseUrl: string | string[],
     options?: {
@@ -5559,6 +5614,40 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
   private get baseUrl() {
     return this.activeBaseUrl;
+  }
+
+  /** Marks a scan match in flight; returns the matching `end` callback. */
+  private beginMatchRequest() {
+    this.inFlightMatchCount += 1;
+    this.activeArtifactAbort?.abort();
+    let ended = false;
+    return () => {
+      if (ended) {
+        return;
+      }
+      ended = true;
+      this.inFlightMatchCount = Math.max(0, this.inFlightMatchCount - 1);
+      if (this.inFlightMatchCount === 0) {
+        const waiters = this.matchIdleWaiters;
+        this.matchIdleWaiters = [];
+        waiters.forEach((resolve) => resolve());
+      }
+    };
+  }
+
+  private waitForMatchIdle(): Promise<void> {
+    if (this.inFlightMatchCount === 0) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.matchIdleWaiters.push(resolve);
+    });
+  }
+
+  private enqueueArtifactUpload<T>(job: () => Promise<T>): Promise<T> {
+    const run = this.artifactQueueTail.then(job, job);
+    this.artifactQueueTail = run.catch(() => undefined);
+    return run;
   }
 
   private logRequestTransport(
@@ -6409,8 +6498,11 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     const binderPage = payload.binderPage ?? null;
     // Only the raw lane's /scan/visual-match speaks multipart (the slab lane's
     // /scan/match is not part of the multipart contract), and only when the
-    // capture has a normalized file on disk to stream.
-    let useMultipart = isRawMatch && !binderPage && !!normalizedFileUri && canAttemptScanMultipart();
+    // capture has a normalized file on disk to stream. Re-evaluated per attempt
+    // so only the session latch (not a transient failure) moves a scan to JSON.
+    const shouldUseMultipart = () => (
+      isRawMatch && !binderPage && !!normalizedFileUri && canAttemptScanMultipart()
+    );
 
     // Raw attempt 1 gets room for a cold server-side index; its retries give up
     // fast so a stalled upload can be replaced. Slabs keep the single long
@@ -6453,11 +6545,13 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       return jsonMatchBodyPromise;
     };
 
+    let httpSendCount = 0;
     const runMatchRequest = async (): Promise<JsonRequestResult<ScanMatchResponseDTO>> => {
-      if (useMultipart && normalizedFileUri) {
+      if (shouldUseMultipart() && normalizedFileUri) {
         const form = new FormData();
         form.append('payload', JSON.stringify(baseMatchPayload));
         appendMultipartJpegPart(form, 'normalized_image', normalizedFileUri, 'normalized.jpg');
+        httpSendCount += 1;
         const multipartResponse = await this.requestJson<ScanMatchResponseDTO>(
           `${this.baseUrl}/${endpointPath}`,
           {
@@ -6473,15 +6567,16 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         }
         // Older backend without multipart: remember for the rest of the app
         // session so later scans go straight to JSON.
-        if (isMultipartUnsupportedStatus(multipartResponse.error.status)) {
+        if (isMultipartUnsupportedError(multipartResponse.error)) {
           markScanMultipartUnsupported();
+        } else if (isRetryableScanRequestError(multipartResponse.error)) {
+          // Weak uplink / transient server: re-sending the SAME image as a
+          // 33% bigger base64 body immediately doubled every failed scan on
+          // the show floor. Let the outer backoff retry multipart instead.
+          return multipartResponse;
         }
-        // Belt and braces: ANY multipart failure retries THIS call over
-        // JSON+base64 before surfacing an error — a scan must never fail
-        // without having tried the legacy transport once. Non-negotiation
-        // failures (transient 500/network) do NOT latch, so the next scan
-        // attempts multipart again.
-        useMultipart = false;
+        // Otherwise (server answered a non-retryable error fast, so the bytes
+        // got through) try the legacy JSON transport once for THIS attempt.
       }
 
       const jsonBody = await resolveJsonMatchBody();
@@ -6495,6 +6590,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           meta: null,
         };
       }
+      httpSendCount += 1;
       return this.requestJson<ScanMatchResponseDTO>(
         `${this.baseUrl}/${endpointPath}`,
         {
@@ -6511,8 +6607,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     // Fire-and-forget the artifact (training image) upload. The backend accepts the same
     // client-generated scanID for both endpoints, and failures are surfaced via the
     // callback rather than thrown.
-    const fireArtifactUpload = () => {
-      void this.uploadScanArtifactsForMatch(payload, scanID)
+    const fireArtifactUpload = (queued: boolean) => {
+      void this.uploadScanArtifactsForMatch(payload, scanID, { queued })
         .then((result) => {
           options?.onArtifactUploadComplete?.(result);
           return result;
@@ -6531,36 +6627,44 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     // Slab matches take 40-50s on staging; if the heavier artifact upload were chained
     // behind the match, users often background the app before it kicks off, leaving zero
     // slab artifacts in GCS (see repo bug investigation 2026-05-19). So slabs upload in
-    // PARALLEL. Raw matches are <1s, so we DEFER the raw artifact upload until after the
-    // match resolves — that way the heavier source-image upload never competes with the
-    // match for uplink bandwidth on weak networks (the show-floor / VPN failure mode).
+    // PARALLEL, outside the queue. Raw uploads go through the artifact queue, which only
+    // sends while no match is in flight.
     if (!isRawMatch) {
-      fireArtifactUpload();
+      fireArtifactUpload(false);
     }
 
-    // Retry the raw match on transient transport/timeout/HTTP failures (mirrors the
-    // dashboard retry). A `200` — including a low-confidence/wrong match — is a success
-    // and is never retried. Retrying is idempotent (backend upserts by scanID). Slabs run
-    // a single attempt (no retry) to preserve their long-match behavior.
-    let response = await runMatchRequest();
-    if (isRawMatch) {
-      for (
-        let attempt = 2;
-        attempt <= rawMatchAttempts && response.kind === 'error';
-        attempt += 1
-      ) {
-        const backoffMs = rawMatchRetryBackoffsMs[attempt - 2]
-          ?? rawMatchRetryBackoffsMs[rawMatchRetryBackoffsMs.length - 1];
-        await new Promise((resolve) => setTimeout(resolve, backoffMs));
-        rawMatchAttemptTimeoutMs = rawMatchRetryTimeoutMs;
-        response = await runMatchRequest();
+    // Attempts run strictly one after another (never two sends of a scan in flight). A
+    // `200` — including a low-confidence/wrong match — is never retried; nor is a
+    // non-retryable error (4xx/500). Slabs run a single attempt.
+    const endMatch = this.beginMatchRequest();
+    let response: JsonRequestResult<ScanMatchResponseDTO>;
+    try {
+      response = await runMatchRequest();
+      if (isRawMatch) {
+        for (
+          let attempt = 2;
+          attempt <= rawMatchAttempts
+            && response.kind === 'error'
+            && isRetryableScanRequestError(response.error);
+          attempt += 1
+        ) {
+          await new Promise((resolve) => setTimeout(
+            resolve,
+            scanMatchRetryDelayMs(attempt - 2, response.kind === 'error' ? response.error.retryAfterMs : null),
+          ));
+          rawMatchAttemptTimeoutMs = rawMatchRetryTimeoutMs;
+          response = await runMatchRequest();
+        }
       }
-      // Deferred raw artifact upload: the match is done (success or final failure), so the
-      // upload now gets the uplink to itself.
-      fireArtifactUpload();
+    } finally {
+      endMatch();
+    }
+    if (isRawMatch) {
+      fireArtifactUpload(true);
     }
 
     if (response.kind !== 'success') {
+      response.error.attemptCount = httpSendCount;
       throw response.error;
     }
 
@@ -6580,7 +6684,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       resolverMode: normalizeString(response.data?.resolverMode),
       reviewDisposition: normalizeString(response.data?.reviewDisposition),
       reviewReason: normalizeString(response.data?.reviewReason),
-      requestAttemptCount: response.meta.attemptCount,
+      requestAttemptCount: httpSendCount,
       requestUrl: response.meta.requestUrl,
       roundTripMs,
       serverProcessingMs,
@@ -6666,7 +6770,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         if (multipartResponse.kind !== 'error') {
           return multipartResponse;
         }
-        if (isMultipartUnsupportedStatus(multipartResponse.error.status)) {
+        if (isMultipartUnsupportedError(multipartResponse.error)) {
           // Older backend without multipart: retry THIS call over JSON+base64
           // (a 404 also 404s over JSON, which the caller's per-pocket fallback
           // keys on).
@@ -6747,7 +6851,13 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       );
     };
 
-    const response = await runBatchRequest();
+    const endMatch = this.beginMatchRequest();
+    let response: JsonRequestResult<ScanMatchBatchResponseDTO>;
+    try {
+      response = await runBatchRequest();
+    } finally {
+      endMatch();
+    }
     if (response.kind !== 'success') {
       throw response.error;
     }
@@ -6868,7 +6978,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         if (multipartResponse.kind !== 'error') {
           return multipartResponse;
         }
-        if (isMultipartUnsupportedStatus(multipartResponse.error.status)) {
+        if (isMultipartUnsupportedError(multipartResponse.error)) {
           // Transport negotiation failure: retry THIS call over JSON+base64.
           // (An older backend without the endpoint 404s over JSON too — that
           // propagated 404 is what the caller's batch fallback keys on.)
@@ -8805,6 +8915,13 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           controller.abort();
         }, options?.timeoutMs ?? defaultHttpRequestTimeoutMs)
         : null;
+      const externalSignal = options?.signal;
+      const onExternalAbort = () => controller?.abort();
+      if (externalSignal?.aborted) {
+        controller?.abort();
+      } else {
+        externalSignal?.addEventListener?.('abort', onExternalAbort);
+      }
 
       try {
         response = await fetch(
@@ -8823,6 +8940,11 @@ export class HttpSpotlightRepository implements SpotlightRepository {
             : errorMessageFromUnknown(error, 'Could not reach the Spotlight backend.'),
           'request_failed',
         );
+        lastNetworkError.failure = isAbortError(error) ? 'timeout' : 'network';
+        if (externalSignal?.aborted) {
+          // Caller-initiated abort, not a timeout; the caller decides what it means.
+          break;
+        }
         if (options?.logTransport) {
           this.logRequestTransport(options.requestLabel ?? 'request', {
             attempt: attemptCount,
@@ -8838,6 +8960,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         if (timeoutId) {
           clearTimeout(timeoutId);
         }
+        externalSignal?.removeEventListener?.('abort', onExternalAbort);
       }
 
       this.promoteSuccessfulBaseUrl(candidateUrl);
@@ -8869,14 +8992,17 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
       if (!response.ok) {
         const detail = await safeResponseErrorDetail(response);
+        const httpError = new SpotlightRepositoryRequestError(
+          detail.message || `Request failed with status ${response.status}`,
+          'request_failed',
+          response.status,
+          detail.errorType,
+        );
+        httpError.failure = 'http';
+        httpError.retryAfterMs = parseRetryAfterMs(response.headers?.get?.('Retry-After'));
         return {
           kind: 'error',
-          error: new SpotlightRepositoryRequestError(
-            detail.message || `Request failed with status ${response.status}`,
-            'request_failed',
-            response.status,
-            detail.errorType,
-          ),
+          error: httpError,
           meta: requestMeta,
         };
       }
@@ -8897,13 +9023,15 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           meta: requestMeta,
         };
       } catch {
+        const invalidError = new SpotlightRepositoryRequestError(
+          'Received invalid JSON from the Spotlight backend.',
+          'invalid_response',
+          response.status,
+        );
+        invalidError.failure = 'invalid_response';
         return {
           kind: 'error',
-          error: new SpotlightRepositoryRequestError(
-            'Received invalid JSON from the Spotlight backend.',
-            'invalid_response',
-            response.status,
-          ),
+          error: invalidError,
           meta: requestMeta,
         };
       }
@@ -9060,6 +9188,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   private async uploadScanArtifactsForMatch(
     payload: ScannerCapturePayload,
     scanID: string | null,
+    options?: { queued?: boolean },
   ): Promise<ScannerArtifactUploadResult | null> {
     const uploadPayload = scanID ? createScanArtifactUploadPayload(payload, scanID) : null;
     if (!uploadPayload) {
@@ -9092,26 +9221,64 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       };
     }
 
-    // Retry with backoff. The upload is idempotent (backend upserts by scanID),
-    // so a transient network/VM hiccup shouldn't permanently drop the artifact.
-    // After the first attempt we post a NORMALIZED-ONLY payload (the training-
-    // critical image) to roughly halve the body and improve the odds it lands on
-    // a weak uplink — the backend persists normalized-only fine, so there's no
-    // training-data cost. NOTE: in-session retries don't cover the app-
-    // backgrounded case; a persistent cross-launch upload queue (deferred) is the
-    // remaining gap.
-    const normalizedOnlyPayload = { ...uploadPayload, sourceImage: null };
-    const retryBackoffsMs = [750, 1500, 3000];
+    if (options?.queued === false) {
+      return this.runScanArtifactUploadAttempts(uploadPayload, payload.readFileAsBase64, false);
+    }
+    return this.enqueueArtifactUpload(() => (
+      this.runScanArtifactUploadAttempts(uploadPayload, payload.readFileAsBase64, true)
+    ));
+  }
 
-    let result = await this.postScanArtifacts(uploadPayload, payload.readFileAsBase64);
-    for (
-      let attempt = 0;
-      result.status === 'failed' && attempt < retryBackoffsMs.length;
-      attempt += 1
-    ) {
-      const jitterMs = Math.floor(Math.random() * 250);
-      await new Promise((resolve) => setTimeout(resolve, retryBackoffsMs[attempt] + jitterMs));
-      result = await this.postScanArtifacts(normalizedOnlyPayload, payload.readFileAsBase64);
+  /*
+    Retry with backoff; idempotent (backend upserts by scanID). The first two
+    attempts send BOTH images (scanner rule: keep source_capture +
+    normalized_target); the last two fall back to NORMALIZED-ONLY (the
+    training-critical image, ~half the body) so something lands on a weak
+    uplink. A queued upload that yields to a scan match does not spend an
+    attempt. In-memory only: app-backgrounded loss is still the known gap.
+  */
+  private async runScanArtifactUploadAttempts(
+    uploadPayload: Record<string, unknown>,
+    readFileAsBase64: ScannerCapturePayload['readFileAsBase64'],
+    yieldToMatches: boolean,
+  ): Promise<ScannerArtifactUploadResult> {
+    const normalizedOnlyPayload = { ...uploadPayload, sourceImage: null };
+    const attemptPayloads = [uploadPayload, uploadPayload, normalizedOnlyPayload, normalizedOnlyPayload];
+    const retryBackoffsMs = [1500, 4000, 10000];
+    const maxPreemptions = 6;
+    let preemptions = 0;
+    let result: ScannerArtifactUploadResult = { status: 'failed', errorKind: 'request_failed' };
+
+    for (let attempt = 0; attempt < attemptPayloads.length;) {
+      while (yieldToMatches && this.inFlightMatchCount > 0) {
+        await this.waitForMatchIdle();
+      }
+      // Past the preemption cap the upload stops yielding so it can finish.
+      const controller = yieldToMatches && preemptions < maxPreemptions && typeof AbortController === 'function'
+        ? new AbortController()
+        : null;
+      if (controller) {
+        this.activeArtifactAbort = controller;
+      }
+      try {
+        result = await this.postScanArtifacts(attemptPayloads[attempt], readFileAsBase64, controller?.signal);
+      } finally {
+        if (controller && this.activeArtifactAbort === controller) {
+          this.activeArtifactAbort = null;
+        }
+      }
+      if (result.status !== 'failed') {
+        return result;
+      }
+      if (controller?.signal.aborted) {
+        preemptions += 1;
+        continue;
+      }
+      attempt += 1;
+      if (attempt < attemptPayloads.length) {
+        const jitterMs = Math.floor(Math.random() * 500);
+        await new Promise((resolve) => setTimeout(resolve, retryBackoffsMs[attempt - 1] + jitterMs));
+      }
     }
     return result;
   }
@@ -9119,6 +9286,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   private async postScanArtifacts(
     uploadPayload: Record<string, unknown>,
     readFileAsBase64?: ScannerCapturePayload['readFileAsBase64'],
+    signal?: AbortSignal,
   ): Promise<ScannerArtifactUploadResult> {
     const startedAt = Date.now();
     const url = `${this.baseUrl}/api/v1/scan-artifacts`;
@@ -9126,6 +9294,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       candidateStrategy: 'single_active',
       logTransport: true,
       requestLabel: 'api/v1/scan-artifacts',
+      signal,
       timeoutMs: scanArtifactUploadTimeoutMs,
     };
     const normalizedImage = (uploadPayload.normalizedImage ?? null) as ScannerImagePayload | null;
@@ -9165,12 +9334,15 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         }
         // Older backend without multipart: remember for the app session so
         // later uploads go straight to JSON.
-        if (isMultipartUnsupportedStatus(multipartResponse.error.status)) {
+        if (isMultipartUnsupportedError(multipartResponse.error)) {
           markScanMultipartUnsupported();
+        } else if (isRetryableScanRequestError(multipartResponse.error)) {
+          // Weak uplink / preempted: don't re-send a bigger base64 body now;
+          // the outer backoff retries.
+          return multipartResponse;
         }
-        // Belt and braces: ANY multipart failure falls through to the
-        // JSON+base64 body for this same upload (non-negotiation failures do
-        // not latch the session flag).
+        // Otherwise fall through to the JSON+base64 body for this same upload
+        // (non-negotiation failures do not latch the session flag).
       }
 
       // JSON+base64 path: materialize inline bytes lazily. The normalized image

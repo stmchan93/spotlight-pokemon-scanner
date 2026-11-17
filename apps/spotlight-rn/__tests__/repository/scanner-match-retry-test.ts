@@ -277,8 +277,8 @@ describe('scanner visual-match — per-attempt timeout budget', () => {
     await repository.matchScannerCapture(rawPayload());
 
     expect(matchAttempts).toBe(3);
-    // 30s once, then 10s for each retry — never three identical budgets.
-    expect(armedTimeouts.filter((ms) => ms === 30000)).toHaveLength(1);
-    expect(armedTimeouts.filter((ms) => ms === 10000)).toHaveLength(2);
+    // 20s once (cold-index belt), then 15s for each retry.
+    expect(armedTimeouts.filter((ms) => ms === 20000)).toHaveLength(1);
+    expect(armedTimeouts.filter((ms) => ms === 15000)).toHaveLength(2);
   });
 });

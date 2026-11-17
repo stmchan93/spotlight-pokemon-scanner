@@ -71,6 +71,25 @@ export function scannerErrorKind(error: unknown) {
   return 'UnknownError';
 }
 
+/**
+ * Transport detail for scan_match_failed so a weak-signal timeout, a dropped
+ * connection, and a server 5xx are distinguishable in PostHog.
+ */
+export function scanRequestFailureDetails(error: unknown): {
+  failureType: string | null;
+  httpStatus: number | null;
+  requestAttemptCount: number | null;
+} {
+  if (!isSpotlightRepositoryRequestError(error)) {
+    return { failureType: null, httpStatus: null, requestAttemptCount: null };
+  }
+  return {
+    failureType: error.failure ?? null,
+    httpStatus: typeof error.status === 'number' ? error.status : null,
+    requestAttemptCount: typeof error.attemptCount === 'number' ? error.attemptCount : null,
+  };
+}
+
 export function logScannerDiagnostic(message: string, error?: unknown) {
   if (process.env.NODE_ENV === 'test') {
     return;
@@ -237,9 +256,12 @@ export function buildScanMatchFailureProperties(params: {
   captureMs?: number | null;
   endToEndMs?: number | null;
   errorKind: string;
+  failureType?: string | null;
   game?: string | null;
+  httpStatus?: number | null;
   mode: ScannerMode;
   normalizeMs?: number | null;
+  requestAttemptCount?: number | null;
   slabAnalysisMs?: number | null;
 }) {
   const properties: Record<string, number | string> = {
@@ -247,6 +269,20 @@ export function buildScanMatchFailureProperties(params: {
     ...(params.game ? { game: params.game } : {}),
     mode: params.mode,
   };
+
+  // timeout | network | http | invalid_response
+  if (typeof params.failureType === 'string' && params.failureType.length > 0) {
+    properties.failure_type = params.failureType;
+  }
+
+  if (typeof params.httpStatus === 'number') {
+    properties.http_status = params.httpStatus;
+  }
+
+  // Same key as scan_match_succeeded: total HTTP sends for this scan.
+  if (typeof params.requestAttemptCount === 'number') {
+    properties.request_attempt_count = params.requestAttemptCount;
+  }
 
   if (typeof params.captureMs === 'number') {
     properties.capture_ms = params.captureMs;

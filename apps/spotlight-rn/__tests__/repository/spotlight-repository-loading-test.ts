@@ -1650,22 +1650,19 @@ describe('HttpSpotlightRepository', () => {
       .filter(([url]) => String(url).includes('/api/v1/scan/visual-match')).length;
 
     /*
-      Attempt 1 gets a 30s budget, not the 10s its retries get: after a backend
-      restart the first scan of a game builds that game's visual index inside
-      the request (12-16s on staging, 2026-09-10), and a 10s first attempt
-      turned a slow scan into a failed one — all three attempts timed out on the
-      same cold build. Still in flight at 29s.
+      Attempt 1 gets a 20s budget (retries get 15s): after a backend restart
+      the first scan of a game can build that game's visual index inside the
+      request (12-16s on staging, 2026-09-10). Still in flight at 19s.
     */
-    await jest.advanceTimersByTimeAsync(29000);
+    await jest.advanceTimersByTimeAsync(19000);
     expect(matchCallCount()).toBe(1);
 
-    // Cross it → attempt 1 aborts, and after the backoff a SECOND attempt fires
-    // (the retry the old single-attempt path never had), on the short budget.
-    await jest.advanceTimersByTimeAsync(3000);
+    // Cross it → attempt 1 aborts, and after the backoff a SECOND attempt fires.
+    await jest.advanceTimersByTimeAsync(2000);
     expect(matchCallCount()).toBeGreaterThanOrEqual(2);
 
-    // Let all remaining attempts + backoffs elapse → it surfaces the timeout, bounded.
-    await jest.advanceTimersByTimeAsync(60000);
+    // Worst case is bounded at ~55s (20 + 15 + 15 + backoff), not the old ~82s.
+    await jest.advanceTimersByTimeAsync(34000);
     expect(matchCallCount()).toBe(3); // 1 initial + 2 retries, no infinite loop
     await expect(capturedRejection).resolves.toMatchObject({
       kind: 'request_failed',

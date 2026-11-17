@@ -225,6 +225,7 @@ import {
   scannerLaneUnavailableReason,
   scannerPreparationReviewReason,
   scannerSlabInlineLabel,
+  scanRequestFailureDetails,
   slabContextFromAnalysis,
   summarizeTrayPrices,
   triggerScannerHaptic,
@@ -2320,6 +2321,7 @@ export function ScannerScreen({
     }
     noteScanTrouble();
     capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
+      ...scanRequestFailureDetails(error),
       game,
       captureMs,
       endToEndMs: Date.now() - scanStartedAt,
