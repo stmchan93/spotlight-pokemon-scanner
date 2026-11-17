@@ -58,6 +58,14 @@ export const AnalyticsEvent = {
   // Show feeds: every post tagged to a show (event_id), booth or attendee. Carry `event_id`.
   eventFeedViewed: 'event_feed_viewed',
   eventPostCreated: 'event_post_created',
+
+  // Ask Ekalight (docs/ai-chat-contracts-2026-11-17.md). `source` = home | scanner;
+  // limit_hit carries `is_guest`; action events carry `type` (the action type).
+  assistantOpened: 'assistant_opened',
+  assistantQuestionSent: 'assistant_question_sent',
+  assistantLimitHit: 'assistant_limit_hit',
+  assistantActionConfirmed: 'assistant_action_confirmed',
+  assistantActionDismissed: 'assistant_action_dismissed',
 } as const;
 
 export type AnalyticsEventName = (typeof AnalyticsEvent)[keyof typeof AnalyticsEvent];

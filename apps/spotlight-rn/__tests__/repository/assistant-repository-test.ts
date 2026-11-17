@@ -1,0 +1,224 @@
+import {
+  HttpSpotlightRepository,
+  MockSpotlightRepository,
+} from '../../../../packages/api-client/src/spotlight/repository';
+import {
+  AssistantRequestError,
+  buildAssistantSendBody,
+  isAssistantRequestError,
+  parseAssistantAction,
+  parseAssistantMessage,
+} from '../../../../packages/api-client/src/spotlight/assistant-wire';
+import { parseAssistantMarkdown } from '@/features/assistant/assistant-markdown';
+
+function jsonResponse(status: number, body?: unknown) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => (body === undefined ? '' : JSON.stringify(body)),
+  } as Response;
+}
+
+function lastRequest(): [string, RequestInit | undefined] {
+  const calls = (global.fetch as jest.Mock).mock.calls as [string, RequestInit | undefined][];
+  return calls[calls.length - 1];
+}
+
+const wireUsage = { limit: 3, used_today: 1, remaining_today: 2, resets_at: '2026-11-18T00:00:00Z', is_guest: false };
+
+const wireAssistantMessage = {
+  id: 'msg_2',
+  thread_id: 'thr_1',
+  role: 'assistant',
+  text: 'You own **Celebi**.',
+  cards: [
+    {
+      card_id: 'xyp-111',
+      name: 'Celebi',
+      set: 'XY Black Star Promos',
+      number: 'XY111',
+      language: 'en',
+      image_small_url: 'https://img/celebi.png',
+      price_usd: 37.54,
+      variant: null,
+      grader: null,
+      grade: null,
+      quantity_owned: 1,
+      app_url: 'spotlight://cards/xyp-111',
+    },
+    { name: 'no id — dropped' },
+  ],
+  actions: [
+    {
+      id: 'act_1',
+      type: 'add_to_collection',
+      summary: 'Add Celebi · NM · ×1',
+      params: { card_id: 'xyp-111', quantity: 1, condition: 'NM', variant_name: null, grader: null, grade: null, collection_id: null },
+      state: 'proposed',
+    },
+    { id: 'act_bad', type: 'delete_everything', params: {} },
+  ],
+  created_at: '2026-11-17T10:00:00Z',
+  status: 'ok',
+};
+
+describe('assistant wire normalization', () => {
+  it('normalizes a message: cards + actions camelCased, malformed rows dropped', () => {
+    const message = parseAssistantMessage(wireAssistantMessage);
+    expect(message).toMatchObject({ id: 'msg_2', threadId: 'thr_1', role: 'assistant', status: 'ok' });
+    expect(message?.cards).toEqual([
+      expect.objectContaining({ cardId: 'xyp-111', setName: 'XY Black Star Promos', priceUsd: 37.54, quantityOwned: 1, imageSmallUrl: 'https://img/celebi.png' }),
+    ]);
+    expect(message?.actions).toEqual([
+      expect.objectContaining({ id: 'act_1', type: 'add_to_collection', params: expect.objectContaining({ cardId: 'xyp-111', condition: 'NM', quantity: 1 }) }),
+    ]);
+  });
+
+  it('parses update_holding and watch_card params', () => {
+    expect(parseAssistantAction({ id: 'a', type: 'update_holding', summary: 's', params: { holding_id: 'entry-2', quantity: 3, condition: 'lp' }, state: 'confirmed' }))
+      .toEqual({ id: 'a', type: 'update_holding', summary: 's', state: 'confirmed', params: { holdingId: 'entry-2', quantity: 3, condition: 'LP' } });
+    expect(parseAssistantAction({ id: 'b', type: 'watch_card', summary: 's', params: { card_id: 'c1', variant: null, target_price_usd: 12.5 } }))
+      .toEqual({ id: 'b', type: 'watch_card', summary: 's', state: 'proposed', params: { cardId: 'c1', variant: null, targetPriceUsd: 12.5 } });
+  });
+
+  it('builds a snake_case send body and caps scanner context at 20 unique ids', () => {
+    const ids = Array.from({ length: 25 }, (_, index) => `card-${index % 22}`);
+    const body = buildAssistantSendBody({ threadId: null, clientMessageId: 'cid', text: 'hi', context: { source: 'scanner', cardIds: ids } });
+    expect(body).toEqual({
+      thread_id: null,
+      client_message_id: 'cid',
+      text: 'hi',
+      context: { source: 'scanner', card_ids: Array.from({ length: 20 }, (_, index) => `card-${index}`) },
+    });
+  });
+
+  it('parses only **bold** and "- " bullets', () => {
+    expect(parseAssistantMarkdown('Worth **$5**\n- one\n# not a heading')).toEqual([
+      { kind: 'paragraph', spans: [{ text: 'Worth ', bold: false }, { text: '$5', bold: true }] },
+      { kind: 'bullet', spans: [{ text: 'one', bold: false }] },
+      { kind: 'paragraph', spans: [{ text: '# not a heading', bold: false }] },
+    ]);
+  });
+});
+
+describe('HttpSpotlightRepository — assistant', () => {
+  const originalFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  const repository = () => new HttpSpotlightRepository('http://example.test', { getAccessToken: () => 'tok' });
+
+  it('POSTs a message with auth and normalizes the reply', async () => {
+    global.fetch = jest.fn().mockResolvedValue(jsonResponse(200, {
+      thread_id: 'thr_1',
+      user_message: { ...wireAssistantMessage, id: 'msg_1', role: 'user', cards: [], actions: [] },
+      message: wireAssistantMessage,
+      usage: wireUsage,
+    })) as typeof fetch;
+
+    const result = await repository().sendAssistantMessage({
+      threadId: null,
+      clientMessageId: 'client-1',
+      text: "What's my collection worth?",
+      context: { source: 'home' },
+    });
+
+    const [url, init] = lastRequest();
+    expect(url).toBe('http://example.test/api/v1/assistant/messages');
+    expect(init?.method).toBe('POST');
+    expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer tok');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      thread_id: null,
+      client_message_id: 'client-1',
+      text: "What's my collection worth?",
+      context: { source: 'home' },
+    });
+    expect(result.threadId).toBe('thr_1');
+    expect(result.usage).toEqual({ limit: 3, usedToday: 1, remainingToday: 2, resetsAt: '2026-11-18T00:00:00Z', isGuest: false });
+    expect(result.message.cards[0].cardId).toBe('xyp-111');
+  });
+
+  it('turns a 429 into a daily_limit error carrying usage', async () => {
+    global.fetch = jest.fn().mockResolvedValue(jsonResponse(429, {
+      error: 'daily_limit',
+      usage: { ...wireUsage, used_today: 1, remaining_today: 0, limit: 1, is_guest: true },
+    })) as typeof fetch;
+
+    const error = await repository()
+      .sendAssistantMessage({ threadId: 'thr_1', clientMessageId: 'c', text: 'hi' })
+      .catch((caught: unknown) => caught);
+    expect(isAssistantRequestError(error)).toBe(true);
+    expect((error as AssistantRequestError).code).toBe('daily_limit');
+    expect((error as AssistantRequestError).usage).toMatchObject({ remainingToday: 0, isGuest: true });
+  });
+
+  it.each([
+    [503, { error: 'assistant_disabled' }, 'assistant_disabled'],
+    [503, { error: 'assistant_busy' }, 'assistant_busy'],
+    [502, { error: 'assistant_failed' }, 'assistant_failed'],
+    [401, undefined, 'unauthenticated'],
+  ])('maps %s %j to %s', async (status, body, code) => {
+    global.fetch = jest.fn().mockResolvedValue(jsonResponse(status, body)) as typeof fetch;
+    const error = await repository().getAssistantUsage().catch((caught: unknown) => caught);
+    expect((error as AssistantRequestError).code).toBe(code);
+  });
+
+  it('reads threads, messages, deletes, and records action state at the contract paths', async () => {
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(jsonResponse(200, {
+        threads: [{ id: 'thr_1', title: 'Q', updated_at: '2026-11-17T10:00:00Z', last_message_preview: 'A' }],
+        next_cursor: 'c2',
+      }))
+      .mockResolvedValueOnce(jsonResponse(200, { messages: [wireAssistantMessage] }))
+      .mockResolvedValueOnce(jsonResponse(200, { deleted: true }))
+      .mockResolvedValueOnce(jsonResponse(200, { deleted: 4 }))
+      .mockResolvedValueOnce(jsonResponse(200, { action: { ...wireAssistantMessage.actions[0], state: 'confirmed' } }));
+    global.fetch = fetchMock as typeof fetch;
+    const repo = repository();
+
+    const page = await repo.listAssistantThreads({ limit: 20, cursor: 'c1' });
+    expect(page).toEqual({
+      threads: [{ id: 'thr_1', title: 'Q', updatedAt: '2026-11-17T10:00:00Z', lastMessagePreview: 'A' }],
+      nextCursor: 'c2',
+    });
+    expect(lastRequest()[0]).toBe('http://example.test/api/v1/assistant/threads?limit=20&cursor=c1');
+
+    const messages = await repo.getAssistantThreadMessages('thr_1');
+    expect(messages).toHaveLength(1);
+    expect(lastRequest()[0]).toBe('http://example.test/api/v1/assistant/threads/thr_1/messages?limit=50');
+
+    await expect(repo.deleteAssistantThread('thr_1')).resolves.toBe(true);
+    expect(lastRequest()[1]?.method).toBe('DELETE');
+    await expect(repo.deleteAllAssistantThreads()).resolves.toBe(4);
+    expect(lastRequest()[0]).toBe('http://example.test/api/v1/assistant/threads');
+
+    const action = await repo.setAssistantActionState('act_1', 'confirmed');
+    expect(action.state).toBe('confirmed');
+    expect(lastRequest()[0]).toBe('http://example.test/api/v1/assistant/actions/act_1');
+    expect(JSON.parse(String(lastRequest()[1]?.body))).toEqual({ state: 'confirmed' });
+  });
+});
+
+describe('MockSpotlightRepository — assistant', () => {
+  it('is idempotent on client_message_id and enforces the daily limit', async () => {
+    const repo = new MockSpotlightRepository();
+    const first = await repo.sendAssistantMessage({ threadId: null, clientMessageId: 'same', text: 'add a card' });
+    const replay = await repo.sendAssistantMessage({ threadId: null, clientMessageId: 'same', text: 'add a card' });
+    expect(replay).toBe(first);
+    expect(first.message.actions[0].type).toBe('add_to_collection');
+    expect(first.usage.remainingToday).toBe(2);
+
+    await repo.sendAssistantMessage({ threadId: first.threadId, clientMessageId: 'b', text: 'watch it' });
+    await repo.sendAssistantMessage({ threadId: first.threadId, clientMessageId: 'c', text: 'hello' });
+    const error = await repo
+      .sendAssistantMessage({ threadId: first.threadId, clientMessageId: 'd', text: 'one more' })
+      .catch((caught: unknown) => caught);
+    expect((error as AssistantRequestError).code).toBe('daily_limit');
+
+    const threads = await repo.listAssistantThreads();
+    expect(threads.threads[0].id).toBe(first.threadId);
+    const confirmed = await repo.setAssistantActionState(first.message.actions[0].id, 'confirmed');
+    expect(confirmed.state).toBe('confirmed');
+  });
+});

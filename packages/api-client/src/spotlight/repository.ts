@@ -13,6 +13,22 @@ import {
   updateInventoryForSale,
 } from './mock-data';
 import {
+  MOCK_ASSISTANT_DAILY_LIMIT,
+  buildMockAssistantReply,
+  mockAssistantUsage,
+  seedMockAssistantThread,
+} from './assistant-mock-data';
+import {
+  AssistantRequestError,
+  assistantErrorFromResponse,
+  buildAssistantSendBody,
+  parseAssistantAction,
+  parseAssistantMessages,
+  parseAssistantSendResult,
+  parseAssistantThreadsPage,
+  parseAssistantUsage,
+} from './assistant-wire';
+import {
   mockCalendarFeed,
   mockHotCards,
   mockMetaExposure,
@@ -215,6 +231,13 @@ import type {
   WhosThatPokemonResult,
   WhosThatShareCardPayload,
   WhosThatShareCardResult,
+  AssistantMessage,
+  AssistantProposedAction,
+  AssistantSendPayload,
+  AssistantSendResult,
+  AssistantThreadSummary,
+  AssistantThreadsPage,
+  AssistantUsage,
 } from './types';
 
 /** Catalog search load result augmented with the pagination `hasMore` flag. */
@@ -369,6 +392,27 @@ export interface SpotlightRepository {
   whosThatPokemon(payload: WhosThatPokemonPayload): Promise<WhosThatPokemonResult>;
   /** Server-composed "Who's That Pokémon" share card (PNG, base64). */
   whosThatShareCard(payload: WhosThatShareCardPayload): Promise<WhosThatShareCardResult>;
+  /*
+    Ask Ekalight (docs/ai-chat-contracts-2026-11-17.md). Every method THROWS an
+    `AssistantRequestError` on failure; its `code` is the contract's error
+    (`daily_limit` carries `usage`). The chat never writes: `setAssistantActionState`
+    only records what the user chose AFTER the app ran (or skipped) the real call.
+  */
+  sendAssistantMessage(payload: AssistantSendPayload): Promise<AssistantSendResult>;
+  getAssistantUsage(): Promise<AssistantUsage>;
+  listAssistantThreads(options?: { limit?: number; cursor?: string | null }): Promise<AssistantThreadsPage>;
+  /** Oldest → newest. */
+  getAssistantThreadMessages(
+    threadId: string,
+    options?: { limit?: number; before?: string | null },
+  ): Promise<AssistantMessage[]>;
+  deleteAssistantThread(threadId: string): Promise<boolean>;
+  /** Returns how many threads went. */
+  deleteAllAssistantThreads(): Promise<number>;
+  setAssistantActionState(
+    actionId: string,
+    state: 'confirmed' | 'dismissed',
+  ): Promise<AssistantProposedAction>;
   createLabelingSession(payload: LabelingSessionCreatePayload): Promise<LabelingSessionRecord>;
   uploadLabelingSessionArtifact(payload: LabelingSessionArtifactUploadPayload): Promise<LabelingSessionArtifactRecord>;
   completeLabelingSession(
@@ -660,6 +704,8 @@ const scanArtifactUploadTimeoutMs = 25000;
 // a vision model over it (share-card composition renders a PNG server-side), so
 // both calls get a longer budget than the 12s default.
 const whosThatPokemonRequestTimeoutMs = 30000;
+// One assistant question runs up to 4 LLM tool rounds server-side.
+const assistantMessageRequestTimeoutMs = 60000;
 // The consolidated dashboard endpoint computes every section server-side in one
 // request, so it gets a longer budget than a single section. Raised to 30s so a
 // cold-cache first load on the small VM (re-reading price history from disk) has
@@ -3793,6 +3839,12 @@ export class MockSpotlightRepository implements SpotlightRepository {
   // Access gate is OPEN in mock/dev so local + test flows aren't gated.
   private accessShowModeActive = true;
   private accessWhitelist: string[] = [];
+  private assistantThreads = new Map<string, { summary: AssistantThreadSummary; messages: AssistantMessage[] }>(
+    [seedMockAssistantThread()].map((thread) => [thread.summary.id, thread]),
+  );
+  private assistantUsedToday = 0;
+  private assistantReplies = new Map<string, AssistantSendResult>();
+  private assistantSequence = 0;
 
   /** Printings of `cardId` on the watchlist, oldest watch first ('' = main). */
   private watchedVariantsForCard(cardId: string): string[] {
@@ -4351,6 +4403,120 @@ export class MockSpotlightRepository implements SpotlightRepository {
       pngBase64:
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
     };
+  }
+
+  async sendAssistantMessage(payload: AssistantSendPayload): Promise<AssistantSendResult> {
+    // Same client_message_id → same answer, no second charge (the server contract).
+    const replay = this.assistantReplies.get(payload.clientMessageId);
+    if (replay) {
+      return replay;
+    }
+    const text = payload.text.trim();
+    if (!text || text.length > 1000) {
+      throw new AssistantRequestError('text must be 1..1000 chars', 'invalid_request', 400);
+    }
+    if (this.assistantUsedToday >= MOCK_ASSISTANT_DAILY_LIMIT) {
+      throw new AssistantRequestError('daily_limit', 'daily_limit', 429, mockAssistantUsage(this.assistantUsedToday));
+    }
+    const nextId = (prefix: string) => {
+      this.assistantSequence += 1;
+      return `${prefix}_mock_${this.assistantSequence}`;
+    };
+    const existing = payload.threadId ? this.assistantThreads.get(payload.threadId) : undefined;
+    const threadId = existing?.summary.id ?? nextId('thr');
+    const now = new Date().toISOString();
+    const reply = buildMockAssistantReply(text, payload.context, () => nextId('act'));
+    const userMessage: AssistantMessage = {
+      id: nextId('msg'),
+      threadId,
+      role: 'user',
+      text,
+      cards: [],
+      actions: [],
+      createdAt: now,
+      status: 'ok',
+    };
+    const message: AssistantMessage = {
+      id: nextId('msg'),
+      threadId,
+      role: 'assistant',
+      ...reply,
+      createdAt: now,
+      status: 'ok',
+    };
+    const thread = existing ?? {
+      summary: { id: threadId, title: text.slice(0, 60), updatedAt: now, lastMessagePreview: '' },
+      messages: [],
+    };
+    thread.messages.push(userMessage, message);
+    thread.summary = { ...thread.summary, updatedAt: now, lastMessagePreview: message.text.slice(0, 120) };
+    this.assistantThreads.set(threadId, thread);
+    this.assistantUsedToday += 1;
+    const result: AssistantSendResult = {
+      threadId,
+      userMessage,
+      message,
+      usage: mockAssistantUsage(this.assistantUsedToday),
+    };
+    this.assistantReplies.set(payload.clientMessageId, result);
+    return result;
+  }
+
+  async getAssistantUsage(): Promise<AssistantUsage> {
+    return mockAssistantUsage(this.assistantUsedToday);
+  }
+
+  async listAssistantThreads(options?: { limit?: number; cursor?: string | null }): Promise<AssistantThreadsPage> {
+    const limit = Math.max(1, options?.limit ?? 20);
+    const sorted = Array.from(this.assistantThreads.values())
+      .map((thread) => thread.summary)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    const start = options?.cursor ? Math.max(0, Number(options.cursor) || 0) : 0;
+    return {
+      threads: sorted.slice(start, start + limit),
+      nextCursor: start + limit < sorted.length ? String(start + limit) : null,
+    };
+  }
+
+  async getAssistantThreadMessages(
+    threadId: string,
+    _options?: { limit?: number; before?: string | null },
+  ): Promise<AssistantMessage[]> {
+    const thread = this.assistantThreads.get(threadId);
+    if (!thread) {
+      throw new AssistantRequestError('thread not found', 'not_found', 404);
+    }
+    return thread.messages.map((message) => ({
+      ...message,
+      actions: message.actions.map((action) => ({ ...action })),
+    }));
+  }
+
+  async deleteAssistantThread(threadId: string): Promise<boolean> {
+    return this.assistantThreads.delete(threadId);
+  }
+
+  async deleteAllAssistantThreads(): Promise<number> {
+    const count = this.assistantThreads.size;
+    this.assistantThreads.clear();
+    return count;
+  }
+
+  async setAssistantActionState(
+    actionId: string,
+    state: 'confirmed' | 'dismissed',
+  ): Promise<AssistantProposedAction> {
+    for (const thread of this.assistantThreads.values()) {
+      for (const message of thread.messages) {
+        const index = message.actions.findIndex((action) => action.id === actionId);
+        if (index >= 0) {
+          const updated = { ...message.actions[index], state } as AssistantProposedAction;
+          message.actions[index] = updated;
+          return updated;
+        }
+      }
+    }
+    throw new AssistantRequestError('action not found', 'not_found', 404);
   }
 
   async createLabelingSession(payload: LabelingSessionCreatePayload) {
@@ -6912,6 +7078,137 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     }
 
     return { pngBase64 };
+  }
+
+  /*
+    Ask Ekalight transport. Not routed through `requestJson`: a 429 body carries
+    `usage` and the contract's `error` code, both of which `requestJson` drops.
+    Active base URL only, no automatic retries — re-sending a question is the
+    USER's call (same client_message_id), never a silent re-post.
+  */
+  private async requestAssistant(
+    path: string,
+    init: RequestInit,
+    timeoutMs = defaultHttpRequestTimeoutMs,
+  ): Promise<unknown> {
+    const requestInit = await this.requestInitWithAuth(init);
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    let response: Response;
+    try {
+      response = await fetch(
+        `${this.baseUrl}${path}`,
+        controller ? { ...requestInit, signal: controller.signal } : requestInit,
+      );
+    } catch (error) {
+      throw new AssistantRequestError(
+        isAbortError(error)
+          ? 'Request timed out while contacting the Spotlight backend.'
+          : errorMessageFromUnknown(error, 'Could not reach the Spotlight backend.'),
+        'network',
+      );
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
+    const text = await safeResponseText(response);
+    let body: unknown = null;
+    if (text.trim()) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = null;
+      }
+    }
+    if (!response.ok) {
+      throw assistantErrorFromResponse(response.status, body);
+    }
+    return body;
+  }
+
+  async sendAssistantMessage(payload: AssistantSendPayload): Promise<AssistantSendResult> {
+    const body = await this.requestAssistant(
+      '/api/v1/assistant/messages',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildAssistantSendBody(payload)),
+      },
+      assistantMessageRequestTimeoutMs,
+    );
+    const result = parseAssistantSendResult(body);
+    if (!result) {
+      throw new AssistantRequestError('The assistant returned an invalid response.', 'unknown');
+    }
+    return result;
+  }
+
+  async getAssistantUsage(): Promise<AssistantUsage> {
+    const usage = parseAssistantUsage(await this.requestAssistant('/api/v1/assistant/usage', { method: 'GET' }));
+    if (!usage) {
+      throw new AssistantRequestError('The assistant returned an invalid usage response.', 'unknown');
+    }
+    return usage;
+  }
+
+  async listAssistantThreads(options?: { limit?: number; cursor?: string | null }): Promise<AssistantThreadsPage> {
+    const params = new URLSearchParams({ limit: String(Math.max(1, Math.min(options?.limit ?? 20, 100))) });
+    if (options?.cursor) {
+      params.set('cursor', options.cursor);
+    }
+    return parseAssistantThreadsPage(
+      await this.requestAssistant(`/api/v1/assistant/threads?${params.toString()}`, { method: 'GET' }),
+    );
+  }
+
+  async getAssistantThreadMessages(
+    threadId: string,
+    options?: { limit?: number; before?: string | null },
+  ): Promise<AssistantMessage[]> {
+    const params = new URLSearchParams({ limit: String(Math.max(1, Math.min(options?.limit ?? 50, 200))) });
+    if (options?.before) {
+      params.set('before', options.before);
+    }
+    return parseAssistantMessages(
+      await this.requestAssistant(
+        `/api/v1/assistant/threads/${encodeURIComponent(threadId)}/messages?${params.toString()}`,
+        { method: 'GET' },
+      ),
+    );
+  }
+
+  async deleteAssistantThread(threadId: string): Promise<boolean> {
+    const body = await this.requestAssistant(
+      `/api/v1/assistant/threads/${encodeURIComponent(threadId)}`,
+      { method: 'DELETE' },
+    );
+    return (body as { deleted?: unknown } | null)?.deleted === true;
+  }
+
+  async deleteAllAssistantThreads(): Promise<number> {
+    const body = await this.requestAssistant('/api/v1/assistant/threads', { method: 'DELETE' });
+    const deleted = (body as { deleted?: unknown } | null)?.deleted;
+    return typeof deleted === 'number' && Number.isFinite(deleted) ? deleted : 0;
+  }
+
+  async setAssistantActionState(
+    actionId: string,
+    state: 'confirmed' | 'dismissed',
+  ): Promise<AssistantProposedAction> {
+    const body = await this.requestAssistant(
+      `/api/v1/assistant/actions/${encodeURIComponent(actionId)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state }),
+      },
+    );
+    const action = parseAssistantAction((body as { action?: unknown } | null)?.action);
+    if (!action) {
+      throw new AssistantRequestError('The assistant returned an invalid action response.', 'unknown');
+    }
+    return action;
   }
 
   async createLabelingSession(payload: LabelingSessionCreatePayload) {

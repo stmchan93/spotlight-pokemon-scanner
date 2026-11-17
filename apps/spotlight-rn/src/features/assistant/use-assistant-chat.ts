@@ -1,0 +1,210 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+import {
+  createAssistantClientMessageId,
+  isAssistantRequestError,
+  type AssistantContext,
+  type AssistantErrorCode,
+  type AssistantMessage,
+  type AssistantUsage,
+  type SpotlightRepository,
+} from '@spotlight/api-client';
+
+/** The question in flight (or the one that failed and can be retried). */
+export type AssistantPendingQuestion = {
+  clientMessageId: string;
+  text: string;
+  status: 'sending' | 'failed';
+  errorCode: AssistantErrorCode | null;
+};
+
+export type AssistantSendOutcome = 'sent' | 'failed' | 'limit' | 'ignored';
+
+type UseAssistantChatOptions = {
+  repository: SpotlightRepository;
+  context: AssistantContext;
+  initialThreadId?: string | null;
+  /**
+   * Mint/await the guest identity before an authed call. Resolves false when
+   * there's no identity to send with (mint failed / signed out).
+   */
+  ensureIdentity: () => Promise<boolean>;
+  /** False for a not-yet-minted guest: reading usage on open would be wasted. */
+  canReadOnOpen: boolean;
+};
+
+export function assistantErrorCopy(code: AssistantErrorCode | null): string {
+  switch (code) {
+    case 'assistant_disabled':
+      return "Ask Ekalight isn't available right now.";
+    case 'assistant_busy':
+      return 'Ask Ekalight is busy right now. Try again later.';
+    case 'invalid_request':
+      return "That message couldn't be sent. Try rephrasing it.";
+    case 'unauthenticated':
+      return 'Sign in to ask Ekalight.';
+    case 'network':
+      return "Couldn't reach Ekalight. Check your connection.";
+    default:
+      return "Ekalight couldn't answer that. Try again.";
+  }
+}
+
+export function useAssistantChat({
+  repository,
+  context,
+  initialThreadId = null,
+  ensureIdentity,
+  canReadOnOpen,
+}: UseAssistantChatOptions) {
+  const [threadId, setThreadId] = useState<string | null>(initialThreadId);
+  const [messages, setMessages] = useState<AssistantMessage[]>([]);
+  const [pending, setPending] = useState<AssistantPendingQuestion | null>(null);
+  const [usage, setUsage] = useState<AssistantUsage | null>(null);
+  const [isLoadingThread, setIsLoadingThread] = useState(Boolean(initialThreadId));
+  const [threadError, setThreadError] = useState(false);
+  // Context goes with the FIRST question of a thread only; follow-ups ride the
+  // thread's own history.
+  const contextSentRef = useRef(Boolean(initialThreadId));
+  const loadGenerationRef = useRef(0);
+
+  const refreshUsage = useCallback(async () => {
+    try {
+      setUsage(await repository.getAssistantUsage());
+    } catch {
+      // Usage is decoration; a failed read just hides the pill.
+    }
+  }, [repository]);
+
+  useEffect(() => {
+    if (canReadOnOpen) {
+      void refreshUsage();
+    }
+  }, [canReadOnOpen, refreshUsage]);
+
+  const openThread = useCallback(async (nextThreadId: string | null) => {
+    const generation = ++loadGenerationRef.current;
+    setThreadId(nextThreadId);
+    setMessages([]);
+    setPending(null);
+    setThreadError(false);
+    contextSentRef.current = nextThreadId != null;
+    if (!nextThreadId) {
+      setIsLoadingThread(false);
+      return;
+    }
+    setIsLoadingThread(true);
+    try {
+      const loaded = await repository.getAssistantThreadMessages(nextThreadId);
+      if (generation === loadGenerationRef.current) {
+        setMessages(loaded);
+      }
+    } catch {
+      if (generation === loadGenerationRef.current) {
+        setThreadError(true);
+      }
+    } finally {
+      if (generation === loadGenerationRef.current) {
+        setIsLoadingThread(false);
+      }
+    }
+  }, [repository]);
+
+  useEffect(() => {
+    if (initialThreadId) {
+      void openThread(initialThreadId);
+    }
+    // Only the route's thread on mount; later switches go through openThread.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only
+  }, []);
+
+  const submit = useCallback(async (question: AssistantPendingQuestion): Promise<AssistantSendOutcome> => {
+    setPending({ ...question, status: 'sending', errorCode: null });
+    const generation = loadGenerationRef.current;
+    if (!(await ensureIdentity())) {
+      setPending({ ...question, status: 'failed', errorCode: 'unauthenticated' });
+      return 'failed';
+    }
+    try {
+      const result = await repository.sendAssistantMessage({
+        threadId,
+        clientMessageId: question.clientMessageId,
+        text: question.text,
+        context: contextSentRef.current ? { source: context.source } : context,
+      });
+      if (generation !== loadGenerationRef.current) {
+        return 'ignored';
+      }
+      contextSentRef.current = true;
+      setThreadId(result.threadId);
+      setMessages((current) => [...current, result.userMessage, result.message]);
+      setPending(null);
+      setUsage(result.usage);
+      return 'sent';
+    } catch (error) {
+      if (generation !== loadGenerationRef.current) {
+        return 'ignored';
+      }
+      const code = isAssistantRequestError(error) ? error.code : 'unknown';
+      if (code === 'daily_limit') {
+        setPending(null);
+        if (isAssistantRequestError(error) && error.usage) {
+          setUsage(error.usage);
+        } else {
+          setUsage((current) => current && { ...current, remainingToday: 0 });
+        }
+        return 'limit';
+      }
+      setPending({ ...question, status: 'failed', errorCode: code });
+      return 'failed';
+    }
+  }, [context, ensureIdentity, repository, threadId]);
+
+  const send = useCallback((text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || pending?.status === 'sending') {
+      return Promise.resolve<AssistantSendOutcome>('ignored');
+    }
+    return submit({
+      clientMessageId: createAssistantClientMessageId(),
+      text: trimmed,
+      status: 'sending',
+      errorCode: null,
+    });
+  }, [pending, submit]);
+
+  /** Re-sends the failed question with the SAME client_message_id (the idempotency key). */
+  const retry = useCallback(() => {
+    if (!pending || pending.status !== 'failed') {
+      return Promise.resolve<AssistantSendOutcome>('ignored');
+    }
+    return submit(pending);
+  }, [pending, submit]);
+
+  const replaceAction = useCallback((updated: AssistantMessage['actions'][number]) => {
+    setMessages((current) =>
+      current.map((message) =>
+        message.actions.some((action) => action.id === updated.id)
+          ? { ...message, actions: message.actions.map((action) => (action.id === updated.id ? updated : action)) }
+          : message,
+      ),
+    );
+  }, []);
+
+  const isLimitReached = usage != null && usage.limit != null && (usage.remainingToday ?? 0) <= 0;
+
+  return {
+    threadId,
+    messages,
+    pending,
+    usage,
+    isLimitReached,
+    isLoadingThread,
+    threadError,
+    send,
+    retry,
+    openThread,
+    refreshUsage,
+    replaceAction,
+  };
+}

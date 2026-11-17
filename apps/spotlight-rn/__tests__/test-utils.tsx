@@ -162,6 +162,34 @@ export function createTestSpotlightRepository(
       return overrides.whosThatShareCard?.(...args)
         ?? baseRepository.whosThatShareCard(...args);
     },
+    sendAssistantMessage: (...args) => {
+      return overrides.sendAssistantMessage?.(...args)
+        ?? baseRepository.sendAssistantMessage(...args);
+    },
+    getAssistantUsage: (...args) => {
+      return overrides.getAssistantUsage?.(...args)
+        ?? baseRepository.getAssistantUsage(...args);
+    },
+    listAssistantThreads: (...args) => {
+      return overrides.listAssistantThreads?.(...args)
+        ?? baseRepository.listAssistantThreads(...args);
+    },
+    getAssistantThreadMessages: (...args) => {
+      return overrides.getAssistantThreadMessages?.(...args)
+        ?? baseRepository.getAssistantThreadMessages(...args);
+    },
+    deleteAssistantThread: (...args) => {
+      return overrides.deleteAssistantThread?.(...args)
+        ?? baseRepository.deleteAssistantThread(...args);
+    },
+    deleteAllAssistantThreads: (...args) => {
+      return overrides.deleteAllAssistantThreads?.(...args)
+        ?? baseRepository.deleteAllAssistantThreads(...args);
+    },
+    setAssistantActionState: (...args) => {
+      return overrides.setAssistantActionState?.(...args)
+        ?? baseRepository.setAssistantActionState(...args);
+    },
     loadCardDetail: (...args) => {
       return overrides.loadCardDetail?.(...args)
         ?? baseRepository.loadCardDetail(...args);

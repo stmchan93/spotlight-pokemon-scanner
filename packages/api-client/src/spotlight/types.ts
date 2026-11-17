@@ -2204,7 +2204,8 @@ export type InventoryEntryCreateRequestPayload = {
   condition: DeckConditionCode | null;
   quantity?: number;
   sourceScanID: string | null;
-  selectionSource?: 'top' | 'alternate' | 'manual_search' | 'unknown';
+  /** 'assistant' = confirmed from an Ask Ekalight proposed action (backend maps it to `add_assistant`). */
+  selectionSource?: 'top' | 'alternate' | 'manual_search' | 'assistant' | 'unknown';
   selectedRank?: number | null;
   wasTopPrediction?: boolean | null;
   addedAt: string;
@@ -2806,3 +2807,135 @@ export type RawEbayListingsQuery = {
   /** Printing filter (e.g. '1st Edition'). Shapes the response only. */
   variant?: string | null;
 };
+
+/*
+  Ask Ekalight (in-app AI chat). Wire contract:
+  docs/ai-chat-contracts-2026-11-17.md — snake_case on the wire, normalized to
+  these camelCase shapes by `assistant-wire.ts`.
+*/
+export type AssistantContextSource = 'home' | 'scanner';
+
+export type AssistantContext = {
+  source: AssistantContextSource;
+  /** Scanner tray card ids (≤20); omitted from Home. */
+  cardIds?: string[];
+};
+
+export type AssistantUsage = {
+  /** null = unlimited (server allowlist). */
+  limit: number | null;
+  usedToday: number;
+  /** null = unlimited. */
+  remainingToday: number | null;
+  /** ISO-8601 UTC midnight when the count resets. */
+  resetsAt: string | null;
+  isGuest: boolean;
+};
+
+export type AssistantThreadSummary = {
+  id: string;
+  title: string;
+  updatedAt: string;
+  lastMessagePreview: string;
+};
+
+export type AssistantThreadsPage = {
+  threads: AssistantThreadSummary[];
+  nextCursor: string | null;
+};
+
+/** A card the assistant looked up — built server-side from TOOL RESULTS, never parsed from text. */
+export type AssistantCardRef = {
+  cardId: string;
+  name: string;
+  setName: string;
+  number: string;
+  language: string | null;
+  imageSmallUrl: string | null;
+  /** USD only; null = Ekalight has no price. */
+  priceUsd: number | null;
+  variant: string | null;
+  grader: string | null;
+  grade: string | null;
+  quantityOwned: number | null;
+  appUrl: string | null;
+};
+
+export type AssistantConditionCode = 'NM' | 'LP' | 'MP' | 'HP' | 'DMG';
+export type AssistantActionType = 'add_to_collection' | 'update_holding' | 'watch_card';
+export type AssistantActionState = 'proposed' | 'confirmed' | 'dismissed';
+
+export type AssistantAddToCollectionParams = {
+  cardId: string;
+  quantity: number;
+  /** null for slabs. */
+  condition: AssistantConditionCode | null;
+  variantName: string | null;
+  grader: string | null;
+  grade: string | null;
+  collectionId: string | null;
+};
+
+export type AssistantUpdateHoldingParams = {
+  /** Deck entry id. */
+  holdingId: string;
+  quantity: number | null;
+  condition: AssistantConditionCode | null;
+};
+
+export type AssistantWatchCardParams = {
+  cardId: string;
+  variant: string | null;
+  targetPriceUsd: number | null;
+};
+
+type AssistantProposedActionBase = {
+  id: string;
+  /** Server-built, shown on the confirm card. */
+  summary: string;
+  state: AssistantActionState;
+};
+
+export type AssistantProposedAction =
+  | (AssistantProposedActionBase & { type: 'add_to_collection'; params: AssistantAddToCollectionParams })
+  | (AssistantProposedActionBase & { type: 'update_holding'; params: AssistantUpdateHoldingParams })
+  | (AssistantProposedActionBase & { type: 'watch_card'; params: AssistantWatchCardParams });
+
+export type AssistantMessage = {
+  id: string;
+  threadId: string;
+  role: 'user' | 'assistant';
+  /** Plain text; light markdown only (**bold**, "- " bullets). */
+  text: string;
+  cards: AssistantCardRef[];
+  actions: AssistantProposedAction[];
+  createdAt: string;
+  status: 'ok' | 'error';
+};
+
+export type AssistantSendPayload = {
+  /** null starts a new thread. */
+  threadId: string | null;
+  /** Idempotency key: a retry MUST reuse it (same id → same answer, no double charge). */
+  clientMessageId: string;
+  text: string;
+  context?: AssistantContext | null;
+};
+
+export type AssistantSendResult = {
+  threadId: string;
+  userMessage: AssistantMessage;
+  message: AssistantMessage;
+  usage: AssistantUsage;
+};
+
+export type AssistantErrorCode =
+  | 'invalid_request'
+  | 'unauthenticated'
+  | 'daily_limit'
+  | 'assistant_disabled'
+  | 'assistant_busy'
+  | 'assistant_failed'
+  | 'not_found'
+  | 'network'
+  | 'unknown';

@@ -1,4 +1,4 @@
-import { Bell, EditPencil, Menu, Search, ShareIos } from 'iconoir-react-native';
+import { Bell, EditPencil, Menu, Search, ShareIos, Sparks } from 'iconoir-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -61,6 +61,8 @@ export type HomeHeaderTrailing =
 type HomeHeaderProps = {
   /** The drawer; only the profile variant (Collection) still shows the menu bubble. */
   onOpenMenu: () => void;
+  /** Ask Ekalight. When set, a sparkle bubble sits beside the leading control; the trailing capsule is untouched. */
+  onOpenAssistant?: () => void;
   /** Opens the full-screen card search — the trailing magnifier on Home, the pill on the profile. */
   onOpenSearch: () => void;
   /**
@@ -248,6 +250,7 @@ const HEADER_BACKDROP_FADE_DISTANCE = 56;
  */
 export function HomeHeader({
   onOpenMenu,
+  onOpenAssistant,
   floating = false,
   onOpenSearch,
   onOverCoverChange,
@@ -512,6 +515,23 @@ export function HomeHeader({
                 testID={`${testID}-home-mark`}
               />
             </View>
+          ) : null}
+          {onOpenAssistant ? (
+            <GlassNavBubble
+              accessibilityLabel="Ask Ekalight"
+              material="frost"
+              onPress={onOpenAssistant}
+              size="medium"
+              surface={chromeSurface}
+              testID={`${testID}-assistant`}
+            >
+              <Sparks
+                color={glyphColor}
+                strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                height={BUTTON_ICON_SIZE}
+                width={BUTTON_ICON_SIZE}
+              />
+            </GlassNavBubble>
           ) : null}
         </View>
 
