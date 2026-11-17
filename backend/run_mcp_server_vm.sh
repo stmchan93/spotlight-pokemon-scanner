@@ -10,6 +10,11 @@ if [ ! -f "$RUNTIME_CONFIG_FILE" ]; then
   exit 1
 fi
 
+# set -a exports every key in these files, so per-env settings (ASSISTANT_*,
+# SPOTLIGHT_MCP_*) in backend/.env.<env> and secrets (ANTHROPIC_API_KEY) in
+# backend/.env.<env>.secrets reach the process with no per-key list here.
+# SPOTLIGHT_PORT (main backend, 8788) comes from the runtime config; identify_card
+# calls the scanner there.
 set -a
 # shellcheck disable=SC1090
 . "$RUNTIME_CONFIG_FILE"

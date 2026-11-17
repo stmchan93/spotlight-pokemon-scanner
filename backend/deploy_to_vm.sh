@@ -762,6 +762,36 @@ if [ "$restart_failed" -ne 0 ]; then
   echo "Backend service recovered after a transient restart failure." >&2
 fi
 
+# The MCP server (/mcp + /api/v1/assistant) is its own unit running this same
+# code tree; without a restart it keeps serving the previous deploy's code.
+# Only boxes where the unit was installed get it.
+MCP_SERVICE_NAME="spotlight-mcp.service"
+MCP_PORT="$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_MCP_PORT")"
+MCP_HEALTH_URL="http://127.0.0.1:${MCP_PORT:-8790}/healthz"
+restart_mcp_service() {
+  local attempt=""
+  local body=""
+  if ! systemctl cat "$MCP_SERVICE_NAME" >/dev/null 2>&1; then
+    echo "MCP: $MCP_SERVICE_NAME not installed; nothing to restart."
+    return 0
+  fi
+  if ! sudo systemctl restart "$MCP_SERVICE_NAME"; then
+    echo "MCP: systemctl restart $MCP_SERVICE_NAME failed." >&2
+    systemctl status "$MCP_SERVICE_NAME" --no-pager --lines=40 || true
+    return 1
+  fi
+  for attempt in $(seq 1 "${SPOTLIGHT_MCP_HEALTH_ATTEMPTS:-45}"); do
+    if body="$(curl -fsS --max-time 3 "$MCP_HEALTH_URL" 2>/dev/null)"; then
+      echo "MCP: $MCP_SERVICE_NAME restarted; $MCP_HEALTH_URL -> $body"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "MCP: $MCP_HEALTH_URL never answered after restarting $MCP_SERVICE_NAME." >&2
+  systemctl status "$MCP_SERVICE_NAME" --no-pager --lines=40 || true
+  return 1
+}
+
 # Caddy fronts the backend on every public hostname. Old App Store / TestFlight
 # binaries and un-updated OTA bundles call the sslip.io name forever, so it stays
 # in the list alongside the ekalight.com names.
@@ -833,7 +863,16 @@ install_caddyfile() {
   echo "Caddy: now serving $PUBLIC_HOSTS (mcp routes: $mcp_routes; previous config: ${backup:-<none>})."
 }
 
+mcp_restart_failed=0
+restart_mcp_service || mcp_restart_failed=1
+
 install_caddyfile
+
+if [ "$mcp_restart_failed" -ne 0 ]; then
+  # Backend + Caddy are live; fail loudly so the MCP outage isn't missed.
+  echo "VM deploy finished, but $MCP_SERVICE_NAME is NOT healthy (see above)." >&2
+  exit 1
+fi
 
 echo "VM deploy complete"
 echo "  Environment: $ENVIRONMENT"
@@ -865,3 +904,4 @@ echo "  Caddy hosts: ${PUBLIC_HOSTS:-<unmanaged>}"
 echo "  eBay Browse: $(if env_flag_enabled "$EBAY_BROWSE_ENABLED_VALUE"; then printf '%s' "enabled"; else printf '%s' "disabled"; fi)"
 echo "  Health: curl http://127.0.0.1:8788/api/v1/health"
 echo "  Provider status: curl http://127.0.0.1:8788/api/v1/ops/provider-status"
+echo "  MCP health: curl $MCP_HEALTH_URL"
