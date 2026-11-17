@@ -470,7 +470,11 @@ def main(argv: list[str] | None = None) -> None:
     config = McpConfig.from_env()
     import uvicorn
 
-    uvicorn.run(build_app(config), host=config.host, port=config.port, log_level="info")
+    # MCP clients hold long-lived streams open; without a cap, shutdown waits for
+    # them until systemd SIGKILLs at 90s, and chat requests 502 the whole time.
+    uvicorn.run(
+        build_app(config), host=config.host, port=config.port, log_level="info", timeout_graceful_shutdown=5
+    )
 
 
 if __name__ == "__main__":

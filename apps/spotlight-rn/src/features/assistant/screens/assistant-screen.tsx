@@ -1,4 +1,4 @@
-import { ClockRotateRight, EditPencil, SendDiagonal } from 'iconoir-react-native';
+import { ClockRotateRight, SendDiagonal } from 'iconoir-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -443,9 +443,15 @@ export function AssistantScreen({
             <IconButton accessibilityLabel="Saved chats" onPress={openHistory} testID="assistant-open-history" variant="ghost">
               <ClockRotateRight color={theme.colors.gray900} height={HEADER_GLYPH_SIZE} width={HEADER_GLYPH_SIZE} />
             </IconButton>
-            <IconButton accessibilityLabel="New chat" onPress={startNewChat} testID="assistant-new-chat" variant="ghost">
-              <EditPencil color={theme.colors.gray900} height={HEADER_GLYPH_SIZE} width={HEADER_GLYPH_SIZE} />
-            </IconButton>
+            {/* A labeled button: a bare pencil read as "edit", not "new chat". */}
+            <Button
+              label="New chat"
+              labelStyleVariant="control"
+              onPress={startNewChat}
+              size="xs"
+              testID="assistant-new-chat"
+              variant="outline"
+            />
           </View>
         ) : null}
       </View>
@@ -546,7 +552,6 @@ const styles = StyleSheet.create({
   },
   intro: {
     gap: spacing.xxs,
-    paddingTop: spacing.lg,
   },
   suggestions: {
     alignItems: 'flex-start',
