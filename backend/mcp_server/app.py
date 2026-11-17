@@ -36,7 +36,7 @@ from mcp_server.filters import ToolInputError  # noqa: E402
 from mcp_server.identify import register_identify_card  # noqa: E402
 from mcp_server.policy import USER_POLICY, ResponsePolicy  # noqa: E402
 from mcp_server.rate_limit import RateLimitExceeded, UserRateLimiter  # noqa: E402
-from mcp_server.tools import CollectionTools  # noqa: E402
+from mcp_server.tools import WATCHLIST_DESCRIPTION, CollectionTools  # noqa: E402
 from mcp_server.write_tools import register_write_tools  # noqa: E402
 
 logger = logging.getLogger("ekalight.mcp")
@@ -320,6 +320,13 @@ def build_server(
         )
 
     @_register(server, policy)(
+        description=WATCHLIST_DESCRIPTION,
+        annotations=READ_ONLY,
+    )
+    async def get_my_watchlist(limit: Limit100 = 50, cursor: str | None = None) -> dict[str, Any]:
+        return await runner.run("get_my_watchlist", limit=limit, cursor=cursor)
+
+    @_register(server, policy)(
         description=(
             "The user's collection value in USD and how it moved over the range, with the top 5 "
             "gaining and losing holdings."
@@ -333,7 +340,8 @@ def build_server(
         description=(
             "Cards matching the filter that the user does not own, cheapest first. Use for 'what am I "
             "missing', set/theme completion, and shopping lists. Prices are USD from Ekalight's stored "
-            "market data."
+            "market data. When total_is_lower_bound is true the counts are minimums: say 'at least N'. "
+            "cheapest_completion_usd is null when not every missing card could be priced."
         ),
         annotations=READ_ONLY,
     )

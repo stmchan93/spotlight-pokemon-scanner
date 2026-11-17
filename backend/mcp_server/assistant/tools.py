@@ -1,4 +1,4 @@
-"""Tools the assistant model sees: the 7 CollectionTools reads (owner = the
+"""Tools the assistant model sees: the 8 CollectionTools reads (owner = the
 request user, DB-only) plus 3 propose_* tools that validate and return a
 ProposedAction without changing anything.
 
@@ -19,7 +19,7 @@ from catalog_tools import card_by_id
 from mcp_server.filters import ToolInputError
 from mcp_server.policy import USER_POLICY
 from mcp_server.assistant.store import new_id
-from mcp_server.tools import DECK_CONDITION_CODES, CollectionTools
+from mcp_server.tools import DECK_CONDITION_CODES, WATCHLIST_DESCRIPTION, CollectionTools
 from request_auth import RequestIdentity
 
 logger = logging.getLogger("ekalight.assistant")
@@ -30,7 +30,7 @@ MAX_QUANTITY = 999
 # Fields the model never needs (tiles carry them); dropping them saves tokens.
 MODEL_HIDDEN_KEYS = frozenset({"image_small_url", "app_url", "tcgplayer_id", "buy_links"})
 # Per-call ceilings for the model (the MCP tools allow more).
-MODEL_LIMITS = {"search_cards": 20, "find_missing": 20, "get_my_collection": 50}
+MODEL_LIMITS = {"search_cards": 20, "find_missing": 20, "get_my_collection": 50, "get_my_watchlist": 50}
 
 _FILTER_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -104,7 +104,9 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "name": "find_missing",
         "description": (
             "Cards matching the filter that the user does not own, cheapest first. Use for 'what am I missing', "
-            "set/theme completion, and shopping lists."
+            "set/theme completion, and shopping lists. If total_is_lower_bound is true, counts are minimums: "
+            "say 'at least N'. cheapest_completion_usd is null when not every missing card was priced; then "
+            "don't state a completion cost."
         ),
         "input_schema": _obj(
             {
@@ -129,6 +131,18 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "user's own copies (my_holdings, each with holding_id and printing)."
         ),
         "input_schema": _obj({"card_id": {"type": "string"}}, ["card_id"]),
+        "strict": True,
+    },
+    {
+        "name": "get_my_watchlist",
+        "description": WATCHLIST_DESCRIPTION,
+        "input_schema": _obj(
+            {
+                "limit": {"type": "integer", "description": "1-50, default 25."},
+                "cursor": {"type": "string", "description": "next_cursor from the previous call."},
+            },
+            [],
+        ),
         "strict": True,
     },
     {
@@ -160,12 +174,14 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "name": "propose_add_to_collection",
         "description": (
             "Propose adding a card to the user's collection. Nothing changes until the user taps Confirm. "
-            "Raw cards take a condition (default NM); slabs take grader + grade and no condition."
+            "Always pass quantity = the number of copies the user asked for ('add 2 ...' -> quantity 2; "
+            "'a'/'one' -> 1). Pass the condition they named (near mint -> NM); default NM. Raw cards take "
+            "a condition; slabs take grader + grade and no condition."
         ),
         "input_schema": _obj(
             {
                 "card_id": {"type": "string"},
-                "quantity": {"type": "integer", "description": "At least 1; default 1."},
+                "quantity": {"type": "integer", "description": "Number of copies the user asked to add (at least 1). Omitting it adds 1."},
                 "condition": {"type": "string", "enum": list(CONDITIONS)},
                 "variant_name": {"type": "string", "description": "Printing, e.g. '1st Edition Holofoil'."},
                 "grader": {"type": "string"},
@@ -180,12 +196,13 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "name": "propose_update_holding",
         "description": (
             "Propose changing the quantity (at least 1) and/or condition of one holding (holding_id from "
-            "get_my_collection or get_card my_holdings). Cannot delete. Nothing changes until the user confirms."
+            "get_my_collection or get_card my_holdings). quantity is the NEW TOTAL copies: 'I have 3 now' -> 3; "
+            "'add 2 more' to a holding of 1 -> 3. Cannot delete. Nothing changes until the user confirms."
         ),
         "input_schema": _obj(
             {
                 "holding_id": {"type": "string"},
-                "quantity": {"type": "integer"},
+                "quantity": {"type": "integer", "description": "New total number of copies (at least 1)."},
                 "condition": {"type": "string", "enum": list(CONDITIONS)},
             },
             ["holding_id"],
@@ -216,6 +233,7 @@ READ_TOOLS = (
     "find_missing",
     "list_facets",
     "get_card",
+    "get_my_watchlist",
     "get_portfolio_summary",
     "get_price_history",
 )
@@ -267,7 +285,7 @@ def card_refs(value: Any) -> list[dict[str, Any]]:
                     "language": node.get("language"),
                     "image_small_url": node.get("image_small_url"),
                     "price_usd": node.get("price_usd"),
-                    "variant": node.get("variant"),
+                    "variant": node.get("variant") or node.get("watch_variant"),
                     "grader": node.get("grader"),
                     "grade": node.get("grade"),
                     "quantity_owned": _quantity_owned(node),
@@ -328,13 +346,13 @@ class AssistantToolbox:
         kwargs: dict[str, Any] = {}
         if name in ("search_cards", "get_my_collection", "find_missing"):
             kwargs["card_filter"] = args.get("filter")
-            if name in MODEL_LIMITS:
-                default = 25 if name == "get_my_collection" else 10
-                try:
-                    limit = int(args.get("limit") or default)
-                except (TypeError, ValueError):
-                    limit = default
-                kwargs["limit"] = max(1, min(limit, MODEL_LIMITS[name]))
+        if name in MODEL_LIMITS:
+            default = 25 if name in ("get_my_collection", "get_my_watchlist") else 10
+            try:
+                limit = int(args.get("limit") or default)
+            except (TypeError, ValueError):
+                limit = default
+            kwargs["limit"] = max(1, min(limit, MODEL_LIMITS[name]))
         for key in ("owned", "sort", "cursor", "collection_id", "budget_usd", "card_id", "condition",
                     "grader", "grade", "variant"):
             if args.get(key) is not None:

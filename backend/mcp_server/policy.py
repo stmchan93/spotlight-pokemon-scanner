@@ -25,6 +25,7 @@ READ_TOOLS = (
     "search_cards",
     "get_card",
     "get_my_collection",
+    "get_my_watchlist",
     "get_portfolio_summary",
     "find_missing",
     "get_price_history",
@@ -86,6 +87,11 @@ USER_CARD_FIELDS = frozenset(
         "baseline_price_usd",
         # identify_card (0-1 visual match score)
         "confidence",
+        # get_my_watchlist
+        "watch_variant",
+        "target_price_usd",
+        "target_triggered_at",
+        "watched_at",
     }
 )
 PUBLIC_CARD_FIELDS = frozenset(

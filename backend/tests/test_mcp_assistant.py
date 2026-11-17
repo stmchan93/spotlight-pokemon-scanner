@@ -36,9 +36,9 @@ try:
     from mcp_server import app as mcp_app
     from mcp_server.assistant import AssistantConfig, build_assistant_service, install_assistant
     from mcp_server.assistant.config import cost_usd
-    from mcp_server.assistant.engine import REFUSAL_TEXT, TOO_LONG_TEXT, build_messages
+    from mcp_server.assistant.engine import REFUSAL_TEXT, SYSTEM_PROMPT, TOO_LONG_TEXT, build_messages
     from mcp_server.assistant.store import HISTORY_MESSAGES
-    from mcp_server.assistant.tools import MAX_CARDS, AssistantToolbox
+    from mcp_server.assistant.tools import MAX_CARDS, TOOL_DEFINITIONS, AssistantToolbox
 
     HAVE_DEPS = True
 except ImportError:  # pragma: no cover - requirements install anthropic + mcp
@@ -464,7 +464,8 @@ class ToolLoopTests(AssistantCase):
         self.assertEqual(call["system"][-1]["cache_control"], {"type": "ephemeral"})
         self.assertEqual(call["tools"][-1]["cache_control"], {"type": "ephemeral"})
         names = [tool["name"] for tool in call["tools"]]
-        self.assertEqual(len(names), 10)
+        self.assertEqual(len(names), 11)
+        self.assertIn("get_my_watchlist", names)
         self.assertTrue({"propose_add_to_collection", "propose_update_holding", "propose_watch_card"} <= set(names))
         strict = [tool for tool in call["tools"] if tool.get("strict")]
         # The API caps strict schemas at 24 optional params per request.
@@ -620,6 +621,27 @@ class ProposeTests(AssistantCase):
         self.assertEqual(action["params"], {"card_id": "ssp-1", "variant": None, "target_price_usd": 100.0})
         self.assertEqual(action["summary"], "Add Pikachu ex (Surging Sparks 238) to Watchlist · alert at $100.00 or less")
         self.assertEqual(self.count("card_favorites"), 0)
+
+    def test_watchlist_read_builds_tiles_and_is_owner_scoped(self) -> None:
+        self.conn.execute("INSERT INTO card_favorites (owner_user_id, card_id, variant_key, created_at, "
+                          "target_price_cents) VALUES (?, 'ssp-1', '', ?, 9900)", (USER_A, utc_now()))
+        self.conn.commit()
+        outcome = self.run_tool("get_my_watchlist", {})
+        self.assertFalse(outcome.is_error, outcome.content)
+        self.assertEqual([(i["card_id"], i["target_price_usd"]) for i in outcome.content["items"]], [("ssp-1", 99.0)])
+        self.assertNotIn("image_small_url", outcome.content["items"][0])  # stripped for the model
+        self.assertEqual([card["card_id"] for card in outcome.cards], ["ssp-1"])
+        self.assertTrue(outcome.cards[0]["image_small_url"])
+        self.assertEqual(self.run_tool("get_my_watchlist", {}, USER_B).content["items"], [])
+
+    def test_descriptions_steer_quantity_and_watchlist(self) -> None:
+        tools = {tool["name"]: tool for tool in TOOL_DEFINITIONS}
+        self.assertIn("Always pass quantity", tools["propose_add_to_collection"]["description"])
+        self.assertIn("NEW TOTAL", tools["propose_update_holding"]["description"])
+        self.assertIn("wishlist", tools["get_my_watchlist"]["description"])
+        self.assertIn("at least", tools["find_missing"]["description"])
+        self.assertIn("always pass quantity", SYSTEM_PROMPT)
+        self.assertIn("get_my_watchlist", SYSTEM_PROMPT)
 
     def test_refusal_drops_proposals(self) -> None:
         self.client.queue(
