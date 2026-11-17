@@ -115,7 +115,7 @@ Backend changes this implies (Agent A):
 
 ## Assistant tools (what Haiku sees)
 
-Read (wrap `CollectionTools`, owner = request user): `search_cards`, `get_card`, `get_my_collection`, `get_portfolio_summary`, `find_missing`, `get_price_history` (incl. `grader`/`grade`), `list_facets`. Same arguments as the MCP tools.
+Read (wrap `CollectionTools`, owner = request user): `search_cards`, `get_card`, `get_my_collection`, `get_my_watchlist`, `get_portfolio_summary`, `find_missing`, `get_price_history` (incl. `grader`/`grade`), `list_facets`. Same arguments as the MCP tools.
 
 Write (return a ProposedAction, change nothing): `propose_add_to_collection`, `propose_update_holding`, `propose_watch_card`. Validate params server-side before proposing: the card exists, the holding is owned, quantity ≥1, condition enum valid.
 

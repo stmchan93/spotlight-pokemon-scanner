@@ -22,6 +22,7 @@ import tag_card_art  # noqa: E402
 from catalog_tools import RAW_PRICING_MODE, apply_schema, connect, upsert_card, upsert_price_history_daily, utc_now  # noqa: E402,E501
 from mcp_server.filters import ToolInputError, decode_cursor  # noqa: E402
 from mcp_server.readonly_service import ReadOnlySpotlightService  # noqa: E402
+from mcp_server import tools as tools_module  # noqa: E402
 from mcp_server.tools import CollectionTools, usd_price  # noqa: E402
 from request_auth import RequestAuthError, RequestIdentity  # noqa: E402
 
@@ -52,11 +53,11 @@ class McpToolsCase(unittest.TestCase):
     # --- seeding -------------------------------------------------------------
 
     def card(self, card_id, name, *, number="1", language="English", rarity="Common", set_name="Surging Sparks",
-             set_code="SSP", release="2024-11-08", dex=None, tcgplayer_id=None):
+             set_code="SSP", release="2024-11-08", dex=None, tcgplayer_id=None, artist="Mitsuhiro Arita"):
         upsert_card(
             self.conn, card_id=card_id, name=name, set_name=set_name, number=number, rarity=rarity,
             variant="Raw", language=language, source_provider="scrydex", source_record_id=card_id,
-            set_id=set_code.lower(), set_ptcgo_code=set_code, set_release_date=release, artist="Mitsuhiro Arita",
+            set_id=set_code.lower(), set_ptcgo_code=set_code, set_release_date=release, artist=artist,
             supertype="Pokémon", national_pokedex_numbers=dex or [], image_url=f"https://img.example/{card_id}.png",
             source_payload={"id": card_id},
         )
@@ -297,6 +298,126 @@ class CollectionTests(McpToolsCase):
         self.assertEqual(self.call("get_price_history", card_id="jp-1")["points"], [])  # yen never returned
         with self.assertRaises(ToolInputError):
             self.call("get_price_history", card_id="ssp-1", condition="MINT")
+
+
+class StructuredFilterTests(McpToolsCase):
+    """Artist/set filters without text query the catalog directly, so price and
+    artist apply before any pool cap (eval: 'Arita cards under $20' found none)."""
+
+    def main_price(self, card_id, amount):
+        # TCGCSV main lane, as on staging; catalog search breaks score ties on it, pricier first.
+        self.price(card_id, amount)
+        self.conn.execute("UPDATE card_price_snapshots SET main_raw_market_price = ? WHERE card_id = ?",
+                          (amount, card_id))
+
+    def seed_prolific_artist(self, expensive=260, cheap=5):
+        for i in range(expensive):
+            card_id = f"vin-{i:03d}"
+            self.card(card_id, f"Vintage Holo {i}", number=str(i), set_name="Vintage", set_code="VIN",
+                      artist="Mitsuhiro Arita", rarity="Rare Holo")
+            self.main_price(card_id, 1000.0 + i)
+        for i in range(cheap):
+            card_id = f"bulk-{i}"
+            self.card(card_id, f"Bulk Common {i}", number=str(i), set_name="Modern", set_code="MOD",
+                      artist="Mitsuhiro Arita")
+            self.main_price(card_id, 1.0 + i)
+        self.card("other-1", "Other Artist Card", set_name="Modern", set_code="MOD", artist="Ken Sugimori")
+        self.price("other-1", 2.0)
+        self.conn.commit()
+
+    def test_artist_with_price_max_finds_cheap_cards_among_many_expensive(self) -> None:
+        self.seed_prolific_artist()
+        result = self.call("search_cards", card_filter={"artist": "Mitsuhiro Arita", "price_max_usd": 20})
+        ids = self.ids(result["results"])
+        self.assertTrue({f"bulk-{i}" for i in range(5)} <= set(ids), ids)
+        self.assertNotIn("other-1", ids)
+        self.assertTrue(all(item["price_usd"] <= 20 for item in result["results"]))
+        asc = self.call("search_cards", card_filter={"artist": "arita"}, sort="price_asc", limit=3)
+        self.assertEqual(self.ids(asc["results"]), ["ssp-3", "bulk-0", "bulk-1"])
+
+    def test_find_missing_by_artist_under_budget_price(self) -> None:
+        self.seed_prolific_artist()
+        result = self.call("find_missing", USER_B, card_filter={"artist": "Mitsuhiro Arita", "price_max_usd": 20})
+        self.assertEqual(self.ids(result["missing"])[:3], ["bulk-0", "bulk-1", "bulk-2"])
+        self.assertIn("ssp-2", self.ids(result["missing"]))  # $8 Surging Sparks card, not owned by B
+
+    def test_capped_set_pool_keeps_exact_counts_and_drops_completion_cost(self) -> None:
+        for i in range(6):
+            self.card(f"big-{i}", f"Big Set Card {i}", number=str(i), set_name="Big Set", set_code="BIG")
+            self.price(f"big-{i}", 1.0 + i)
+        self.holding("a-big", USER_A, "big-5")
+        self.conn.commit()
+        with mock.patch.object(tools_module, "STRUCTURED_MISSING_POOL_SIZE", 3):
+            result = self.call("find_missing", card_filter={"set": "Big Set"})
+            self.assertEqual(self.ids(result["missing"]), ["big-0", "big-1", "big-2"])
+            self.assertEqual((result["missing_count"], result["owned_count"], result["total_matching"]), (5, 1, 6))
+            self.assertIsNone(result["cheapest_completion_usd"])
+            self.assertNotIn("total_is_lower_bound", result)  # counts are exact
+            self.assertIn("note", result)
+            priced = self.call("find_missing", card_filter={"set": "Big Set", "price_max_usd": 100})
+            self.assertTrue(priced["total_is_lower_bound"])
+            self.assertIsNone(priced["cheapest_completion_usd"])
+        full = self.call("find_missing", card_filter={"set": "Big Set"})
+        self.assertEqual(full["missing_count"], 5)
+        self.assertEqual(full["cheapest_completion_usd"], 15.0)
+        self.assertNotIn("note", full)
+
+    def test_relevance_pool_cap_is_detected(self) -> None:
+        # catalog search returns at most CATALOG_SEARCH_MAX_RESULTS per call, below
+        # MISSING_POOL_SIZE: a full page must still read as capped ("197 of 200").
+        with mock.patch.object(tools_module, "CATALOG_SEARCH_MAX_RESULTS", 1):
+            result = self.call("find_missing", USER_B, card_filter={"text": "pikachu"})
+        self.assertTrue(result["total_is_lower_bound"])
+        self.assertIsNone(result["cheapest_completion_usd"])
+        self.assertIn("at least", result["note"])
+
+    def test_set_and_language_filters(self) -> None:
+        result = self.call("search_cards", card_filter={"set": "sv8"})
+        self.assertEqual(self.ids(result["results"]), ["jp-1"])  # set code, any case
+        result = self.call("search_cards", card_filter={"set": "Surging", "language": "Japanese"})
+        self.assertEqual(result["results"], [])
+        result = self.call("search_cards", card_filter={"set": "Surging Sparks", "rarity_bucket": ["sir"]})
+        self.assertEqual(self.ids(result["results"]), ["ssp-1"])
+        owned = self.call("search_cards", USER_B, card_filter={"set": "Surging Sparks"}, owned="not_owned")
+        self.assertEqual(sorted(self.ids(owned["results"])), ["ssp-1", "ssp-2"])
+        self.assertEqual(owned["total_estimate"], 2)
+
+
+class WatchlistTests(McpToolsCase):
+    def watch(self, owner, card_id, *, variant="", target_cents=None, created="2026-11-01T00:00:00Z"):
+        self.conn.execute(
+            "INSERT INTO card_favorites (owner_user_id, card_id, variant_key, created_at, target_price_cents) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (owner, card_id, variant, created, target_cents),
+        )
+        self.conn.commit()
+
+    def test_owner_scoped_newest_first_with_targets(self) -> None:
+        self.watch(USER_A, "ssp-2", target_cents=650, created="2026-11-02T00:00:00Z")
+        self.watch(USER_A, "ssp-1", variant="Holofoil", created="2026-11-01T00:00:00Z")
+        self.watch(USER_B, "ssp-3")
+        result = self.call("get_my_watchlist")
+        self.assertEqual(self.ids(result["items"]), ["ssp-2", "ssp-1"])
+        first, second = result["items"]
+        self.assertEqual((first["target_price_usd"], first["watch_variant"], first["price_usd"]), (6.5, None, 8.0))
+        self.assertEqual(first["watched_at"], "2026-11-02T00:00:00Z")
+        self.assertIsNone(first["target_triggered_at"])
+        self.assertEqual(second["watch_variant"], "Holofoil")
+        self.assertIsNone(second["price_usd"])  # no stored cell for that printing: never the main price
+        self.assertEqual(result["total_count"], 2)
+        self.assertEqual(self.ids(self.call("get_my_watchlist", USER_B)["items"]), ["ssp-3"])
+        self.assertEqual(self.call("get_my_watchlist", "user-c")["items"], [])
+
+    def test_pages(self) -> None:
+        for i, card_id in enumerate(("ssp-1", "ssp-2", "ssp-3")):
+            self.watch(USER_A, card_id, created=f"2026-11-0{i + 1}T00:00:00Z")
+        page = self.call("get_my_watchlist", limit=2)
+        self.assertEqual(self.ids(page["items"]), ["ssp-3", "ssp-2"])
+        rest = self.call("get_my_watchlist", limit=2, cursor=page["next_cursor"])
+        self.assertEqual(self.ids(rest["items"]), ["ssp-1"])
+        self.assertIsNone(rest["next_cursor"])
+        with self.assertRaises(ToolInputError):
+            self.call("get_my_watchlist", limit=101)
 
 
 class ReadOnlyServiceTests(McpToolsCase):

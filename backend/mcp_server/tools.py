@@ -22,6 +22,7 @@ from catalog_tools import (
     PSA_GRADE_PRICING_MODE,
     RAW_MAIN_PRICE_SOURCE_TCGCSV,
     RAW_PRICING_MODE,
+    SEALED_SUPERTYPE,
     _MANUAL_SEARCH_POOL_CEILING,
     _normalized_variant_label,
     _variant_match_key,
@@ -32,9 +33,11 @@ from catalog_tools import (
     price_snapshot_row,
     rarity_bucket,
     search_cards as catalog_search_cards,
+    tokenize,
 )
 from similar_cards import build_similar_cards_payload
 from tcgcsv_adapter import TCGCSV_PROVIDER
+import watch_printings
 
 from .filters import (
     ToolInputError,
@@ -51,6 +54,17 @@ GAME = "pokemon"
 # slices of this stable pool, so totals past it are lower bounds.
 SEARCH_POOL_SIZE = 200
 MISSING_POOL_SIZE = 300
+# catalog_tools.search_cards returns at most this many per call, whatever limit asks.
+CATALOG_SEARCH_MAX_RESULTS = 200
+# Artist/set filters without text skip relevance search and query the catalog
+# directly, so the pool is exhaustive up to these bounds. A set has <~400 cards,
+# so find_missing sees every card of a set.
+STRUCTURED_MISSING_POOL_SIZE = 500
+STRUCTURED_ROW_CEILING = 5000
+# The SQL price window is loose (snapshot price vs. the served price can differ);
+# the exact served price is re-checked in Python.
+PRICE_WINDOW_SLACK = 2.0
+MAX_WATCHLIST_READ = 200
 ART_PAGE_SIZE = 100
 # Holdings read per call; collections larger than this are reported truncated.
 MAX_HOLDINGS_READ = 1000
@@ -71,6 +85,14 @@ DECK_CONDITION_CODES = {
     "heavily_played": "HP",
     "damaged": "DMG",
 }
+
+# Shared by the MCP tool and the in-app assistant tool.
+WATCHLIST_DESCRIPTION = (
+    "The user's Watchlist: cards they are watching (not owned), newest first, with the watched printing "
+    "(watch_variant, null = main printing), stored USD price, their price-alert target (target_price_usd, "
+    "null = no alert) and when they started watching. Use this when the user asks about their watchlist, "
+    "wishlist, watched cards or price alerts — in Ekalight it is called the Watchlist."
+)
 
 # Art facets the CardFilter can filter on (list_facets hides the rest).
 FILTERABLE_FACETS = art_search.LIST_FILTER_FACETS
@@ -295,9 +317,142 @@ class CollectionTools:
             return False
         return True
 
-    def _catalog_pool(self, card_filter: dict[str, Any], *, size: int) -> tuple[list[dict[str, Any]], bool]:
+    @staticmethod
+    def _is_structured(card_filter: dict[str, Any]) -> bool:
+        return not card_filter.get("text") and bool(card_filter.get("artist") or card_filter.get("set"))
+
+    def _structured_rows(self, card_filter: dict[str, Any], *, order: str) -> tuple[list[Any], bool] | None:
+        """Every catalog row matching artist/set/language (+ a loose price window),
+        straight from SQL, or None when the filter needs relevance search (text, or
+        neither artist nor set). Relevance search caps its pool by text score and
+        breaks ties pricier-first, so filtering price/artist after it lost every
+        cheap match of a prolific artist; this applies them before any cap."""
+        if not self._is_structured(card_filter):
+            return None
+        approx = (
+            "COALESCE(s.main_raw_market_price, "
+            "CASE WHEN s.display_currency_code = 'USD' THEN s.default_raw_market_price END)"
+        )
+        # Unary + keeps game/language off idx_cards_game (it selects the whole table).
+        where = ["+c.game = ?", "COALESCE(c.supertype, '') != ?"]
+        params: list[Any] = [GAME, SEALED_SUPERTYPE]
+        artist = card_filter.get("artist")
+        if artist:
+            tokens = tokenize(artist)
+            if tokens and self._has_table("card_artist_aliases"):
+                for token in tokens:
+                    where.append(
+                        "c.id IN (SELECT card_id FROM card_artist_aliases "
+                        "WHERE normalized_token >= ? AND normalized_token < ?)"
+                    )
+                    params.extend([token, token + "\U0010ffff"])
+            else:
+                where.append("c.artist LIKE ?")
+                params.append(f"%{artist}%")
+        set_query = card_filter.get("set")
+        if set_query:
+            needle = set_query.casefold()
+            # DISTINCT over idx_cards_set_name is index-only; the substring match
+            # mirrors _matches_card_meta.
+            names = [
+                str(row[0])
+                for row in self.conn.execute("SELECT DISTINCT set_name FROM cards").fetchall()
+                if row[0] and needle in str(row[0]).casefold()
+            ]
+            codes = list(dict.fromkeys([set_query, set_query.lower(), set_query.upper()]))
+            marks = ",".join("?" for _ in codes)
+            clauses = [f"c.set_id IN ({marks})", f"c.set_ptcgo_code IN ({marks})"]
+            if names:
+                clauses.append(f"c.set_name IN ({','.join('?' for _ in names)})")
+            where.append("(" + " OR ".join(clauses) + ")")
+            params.extend(codes + codes + names)
+        if card_filter.get("language"):
+            where.append("+c.language = ? COLLATE NOCASE")
+            params.append(card_filter["language"])
+        low = card_filter.get("price_min_usd")
+        high = card_filter.get("price_max_usd")
+        if low is not None:
+            where.append(f"({approx} IS NULL OR {approx} >= ?)")
+            params.append(low / PRICE_WINDOW_SLACK)
+        if high is not None:
+            where.append(f"({approx} IS NULL OR {approx} <= ?)")
+            params.append(high * PRICE_WINDOW_SLACK + 1.0)
+        # The ceiling keeps the end the caller pages from: cheapest for price_asc.
+        direction = "ASC" if order == "price_asc" else "DESC"
+        rows = self.conn.execute(
+            f"""
+            SELECT c.id, c.game, c.rarity, c.set_release_date, c.artist, c.set_name AS setName,
+                   c.set_id AS setID, c.set_ptcgo_code AS setPtcgoCode, c.language, {approx} AS approx
+            FROM cards c LEFT JOIN card_price_snapshots s ON s.card_id = c.id
+            WHERE {' AND '.join(where)}
+            ORDER BY (approx IS NULL), approx {direction}, c.id
+            LIMIT ?
+            """,
+            (*params, STRUCTURED_ROW_CEILING + 1),
+        ).fetchall()
+        return rows[:STRUCTURED_ROW_CEILING], len(rows) > STRUCTURED_ROW_CEILING
+
+    def _catalog_pool(
+        self,
+        card_filter: dict[str, Any],
+        *,
+        size: int,
+        order: str = "relevance",
+        owned_ids: set[str] | None = None,
+        owned_mode: str = "any",
+        keep_owned: bool = False,
+    ) -> tuple[list[dict[str, Any]], bool, int | None]:
+        """Catalog candidates passing the non-price filters, plus (capped, exact
+        total). `exact_total` is the full match count when it is known exactly
+        (structured filter, no price filter), else None. Structured pools apply
+        `owned_mode` before the cap; `keep_owned` adds every owned match on top
+        of the capped not-owned side (find_missing counts owned exactly)."""
+        structured = self._structured_rows(card_filter, order=order)
+        if structured is not None:
+            return self._structured_pool(
+                card_filter, structured, size=size, order=order,
+                owned_ids=owned_ids or set(), owned_mode=owned_mode, keep_owned=keep_owned,
+            )
+        pool, capped = self._relevance_pool(card_filter, size=size)
+        return pool, capped, None
+
+    def _structured_pool(
+        self,
+        card_filter: dict[str, Any],
+        structured: tuple[list[Any], bool],
+        *,
+        size: int,
+        order: str,
+        owned_ids: set[str],
+        owned_mode: str,
+        keep_owned: bool,
+    ) -> tuple[list[dict[str, Any]], bool, int | None]:
+        rows, ceiling_hit = structured
+        # The SQL is a superset (token prefixes, code case variants); the exact
+        # meta check here keeps exact_total exact. Rarity buckets apply here too.
+        meta_filter = {k: v for k, v in card_filter.items() if k != "text"}
+        rows = [row for row in rows if self._matches_card_meta(dict(row), meta_filter)]
+        if order == "newest":
+            rows = sorted(rows, key=lambda row: str(row["set_release_date"] or ""), reverse=True)
+        owned_rows = [row for row in rows if row["id"] in owned_ids]
+        if owned_mode == "owned":
+            candidates = owned_rows
+        elif owned_mode == "not_owned":
+            candidates = [row for row in rows if row["id"] not in owned_ids]
+        else:
+            candidates = rows
+        extra = owned_rows if keep_owned and owned_mode == "not_owned" else []
+        capped = ceiling_hit or len(candidates) > size
+        has_price_filter = "price_min_usd" in card_filter or "price_max_usd" in card_filter
+        exact_total = None if (has_price_filter or ceiling_hit) else len(candidates) + len(extra)
+        ids = [str(row["id"]) for row in candidates[:size] + extra]
+        cards = cards_by_ids(self.conn, ids, include_source_payload=False)
+        return [cards[card_id] for card_id in ids if card_id in cards], capped, exact_total
+
+    def _relevance_pool(self, card_filter: dict[str, Any], *, size: int) -> tuple[list[dict[str, Any]], bool]:
         """Catalog search candidates (search order) passing the non-price filters.
         Second value: True when the underlying search hit its pool cap."""
+        size = min(size, CATALOG_SEARCH_MAX_RESULTS)
         terms: list[str] = []
         if card_filter.get("text"):
             terms.append(card_filter["text"])
@@ -456,7 +611,9 @@ class CollectionTools:
             }
 
         offset = self._offset_from_cursor(cursor, kind="search", query_hash=query_hash)
-        pool, capped = self._catalog_pool(card_filter, size=SEARCH_POOL_SIZE)
+        pool, capped, exact_total = self._catalog_pool(
+            card_filter, size=SEARCH_POOL_SIZE, order=sort, owned_ids=owned_ids, owned_mode=owned
+        )
         if owned_ids is not None:
             pool = [card for card in pool if (card["id"] in owned_ids) == (owned == "owned")]
         cards = {card["id"]: card for card in pool}
@@ -485,8 +642,9 @@ class CollectionTools:
             "next_cursor": encode_cursor({"k": "search", "q": query_hash, "o": next_offset})
             if next_offset < total
             else None,
-            "total_estimate": total,
-            **({"total_is_lower_bound": True} if capped else {}),
+            # Pages stop at the pool; the count need not when it is known exactly.
+            "total_estimate": exact_total if exact_total is not None else total,
+            **({"total_is_lower_bound": True} if capped and exact_total is None else {}),
         }
 
     def _holdings_for_card(self, owner_user_id: str, card_id: str) -> list[dict[str, Any]]:
@@ -708,6 +866,71 @@ class CollectionTools:
             **({"truncated_at": MAX_HOLDINGS_READ} if truncated else {}),
         }
 
+    def get_my_watchlist(
+        self, owner_user_id: str, *, limit: int | None = 50, cursor: str | None = None
+    ) -> dict[str, Any]:
+        """The owner's Watchlist (`card_favorites`), newest first. DB-only: a
+        printing watch is priced from its stored TCGplayer cell, everything else
+        from the card's stored main price."""
+        limit = clamp_limit(limit, default=50, maximum=100)
+        query_hash = self._query_hash("watchlist")
+        offset = self._offset_from_cursor(cursor, kind="watchlist", query_hash=query_hash)
+        columns = {str(row[1]) for row in self.conn.execute("PRAGMA table_info(card_favorites)").fetchall()}
+        optional = [name for name in ("target_price_cents", "target_triggered_at") if name in columns]
+        variant_sql = "variant_key" if "variant_key" in columns else "'' AS variant_key"
+        rows = self.conn.execute(
+            f"""
+            SELECT card_id, {variant_sql}, created_at{''.join(', ' + name for name in optional)}
+            FROM card_favorites
+            WHERE owner_user_id = ?
+            ORDER BY created_at DESC, card_id ASC
+            LIMIT ?
+            """,
+            (owner_user_id, MAX_WATCHLIST_READ + 1),
+        ).fetchall()
+        truncated = len(rows) > MAX_WATCHLIST_READ
+        rows = rows[:MAX_WATCHLIST_READ]
+        page_rows = rows[offset : offset + limit]
+        summaries = self._summaries([str(row["card_id"]) for row in page_rows])
+        variant_keys = [
+            (str(row["card_id"]), key)
+            for row in page_rows
+            if (key := watch_printings.normalize_variant_key(row["variant_key"]))
+        ]
+        printing_prices = watch_printings.latest_printing_prices(self.conn, variant_keys) if variant_keys else {}
+        items = []
+        for row in page_rows:
+            card_id = str(row["card_id"])
+            summary = summaries.get(card_id)
+            if summary is None:
+                continue
+            key = watch_printings.normalize_variant_key(row["variant_key"])
+            item = dict(summary)
+            if key:
+                market = (printing_prices.get((card_id, key)) or {}).get("market")
+                # A printing watch quotes its own printing, never the main one.
+                item["price_usd"] = round(float(market), 2) if isinstance(market, (int, float)) else None
+                item["price_source"] = "tcgplayer" if item["price_usd"] is not None else None
+            cents = row["target_price_cents"] if "target_price_cents" in optional else None
+            item.update(
+                {
+                    "watch_variant": printing_name(watch_printings.printing_label(key)) if key else None,
+                    "target_price_usd": round(int(cents) / 100.0, 2) if cents is not None else None,
+                    "target_triggered_at": row["target_triggered_at"] if "target_triggered_at" in optional else None,
+                    "watched_at": row["created_at"],
+                }
+            )
+            items.append(item)
+        next_offset = offset + limit
+        return {
+            "items": items,
+            "total_count": len(rows),
+            "next_cursor": encode_cursor({"k": "watchlist", "q": query_hash, "o": next_offset})
+            if next_offset < len(rows)
+            else None,
+            **({"truncated_at": MAX_WATCHLIST_READ} if truncated else {}),
+        }
+
     def get_portfolio_summary(self, owner_user_id: str, *, range_key: str = "30d") -> dict[str, Any]:
         if range_key not in PORTFOLIO_RANGES:
             raise ToolInputError(f"range must be one of {', '.join(PORTFOLIO_RANGES)}.")
@@ -854,6 +1077,7 @@ class CollectionTools:
                 raise ToolInputError("budget_usd must be >= 0.")
         collection_id = self._require_collection(owner_user_id, collection_id)
         owned_ids = self._owned_card_ids(owner_user_id, collection_id=collection_id)
+        exact_total: int | None = None
 
         if uses_art_filters(card_filter):
             # Ask art_search for the not-owned side directly so the pool cap only
@@ -879,13 +1103,21 @@ class CollectionTools:
             total_matching = missing_total + int(owned_side.get("total_estimate") or 0)
             owned_count = int(owned_side.get("total_estimate") or 0)
         else:
-            pool, capped = self._catalog_pool(card_filter, size=MISSING_POOL_SIZE)
+            pool, capped, exact_total = self._catalog_pool(
+                card_filter,
+                size=STRUCTURED_MISSING_POOL_SIZE if self._is_structured(card_filter) else MISSING_POOL_SIZE,
+                order="price_asc",
+                owned_ids=owned_ids,
+                owned_mode="not_owned",
+                keep_owned=True,
+            )
             cards = {card["id"]: card for card in pool}
             summaries = self._summaries(list(cards), cards=cards)
             matching = [summaries[card["id"]] for card in pool if card["id"] in summaries]
             matching = [item for item in matching if self._matches_price(item["price_usd"], card_filter)]
-            total_matching = len(matching)
             owned_count = sum(1 for item in matching if item["card_id"] in owned_ids)
+            total_matching = exact_total if exact_total is not None else len(matching)
+            missing_total = total_matching - owned_count
         missing = self._sort_by_price(
             [item for item in matching if item["card_id"] not in owned_ids], descending=False
         )
@@ -914,14 +1146,23 @@ class CollectionTools:
                 "game": GAME,
             }
             page.append({**item, "buy_links": buy_links(card, tcgplayer_product_id=item.get("tcgplayer_id"))})
+        counts_exact = exact_total is not None
         return {
             "missing": page,
-            "missing_count": len(missing),
+            "missing_count": len(missing) if budget_usd is not None else max(missing_total, len(missing)),
             "owned_count": owned_count,
             "total_matching": total_matching,
+            # None when capped: a completion cost over a partial list would understate it.
             "cheapest_completion_usd": cheapest_completion,
             **({"budget_spent_usd": round(sum(item["price_usd"] for item in missing), 2)} if budget_usd is not None else {}),
-            **({"total_is_lower_bound": True} if capped else {}),
+            **({"total_is_lower_bound": True} if capped and not counts_exact else {}),
+            **(
+                {"note": "Too many matches to price them all: only the cheapest missing cards were checked, "
+                         "so there is no full completion cost."
+                         + ("" if counts_exact else " Counts are minimums; say 'at least'.")}
+                if capped
+                else {}
+            ),
             **({"art_coverage": self._art_coverage()} if uses_art_filters(card_filter) else {}),
         }
 

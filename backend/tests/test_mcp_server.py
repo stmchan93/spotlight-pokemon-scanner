@@ -330,7 +330,8 @@ class HttpAppTests(_SeededDb):
         self.assertEqual(status, 200)
         tools = {tool["name"]: tool for tool in body["result"]["tools"]}
         read_tools = {"list_facets", "search_cards", "get_card", "get_my_collection",
-                      "get_portfolio_summary", "find_missing", "get_price_history", "identify_card"}
+                      "get_my_watchlist", "get_portfolio_summary", "find_missing", "get_price_history",
+                      "identify_card"}
         write_tools = {"add_to_collection", "update_holding", "watch_card"}
         self.assertEqual(set(tools), read_tools | write_tools)
         self.assertTrue(all(tools[name]["annotations"]["readOnlyHint"] for name in read_tools))
@@ -345,6 +346,14 @@ class HttpAppTests(_SeededDb):
         b = self.call_tool("get_my_collection", {}, make_jwt("user-b"))["structuredContent"]
         self.assertEqual([i["card_id"] for i in a["items"]], ["c-a"])
         self.assertEqual([i["card_id"] for i in b["items"]], ["c-b"])
+        conn = connect(self.db_path)
+        conn.execute("INSERT INTO card_favorites (owner_user_id, card_id, variant_key, created_at, target_price_cents) "
+                     "VALUES ('user-b', 'c-a', '', ?, 1500)", (utc_now(),))
+        conn.commit()
+        conn.close()
+        watch_b = self.call_tool("get_my_watchlist", {}, make_jwt("user-b"))["structuredContent"]
+        self.assertEqual([(i["card_id"], i["target_price_usd"]) for i in watch_b["items"]], [("c-a", 15.0)])
+        self.assertEqual(self.call_tool("get_my_watchlist", {}, make_jwt("user-a"))["structuredContent"]["items"], [])
         guest = self.call_tool("get_my_collection", {}, make_jwt("user-a", anonymous=True))
         self.assertTrue(guest["isError"])
         self.assertIn("Create a free Ekalight account", guest["content"][0]["text"])
