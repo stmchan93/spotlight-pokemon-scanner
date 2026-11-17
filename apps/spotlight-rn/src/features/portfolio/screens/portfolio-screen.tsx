@@ -99,6 +99,7 @@ import {
   type CollapsibleScrollTarget,
 } from '@/components/page-tab-pager';
 import { FocusedStatusBar } from '@/components/focused-status-bar';
+import { assistantHref } from '@/features/assistant/assistant-route';
 import { EkalightMark } from '@/components/ekalight-mark';
 import { ScanTabIcon } from '@/components/nav-tab-icons';
 import {
@@ -1386,6 +1387,10 @@ export function PortfolioScreen({
     router.push('/catalog/search' as never);
   }, [router]);
 
+  const handleOpenAssistant = useCallback(() => {
+    router.push(assistantHref('home'));
+  }, [router]);
+
   /*
     NO `+` IN THIS BAR ANY MORE. The profile toolbar (3670:47454) spends both
     trailing slots on edit and share, so the `+` that composed a post from every
@@ -1664,6 +1669,7 @@ export function PortfolioScreen({
     <HomeHeader
       onOverCoverChange={setIsBarOverCover}
       onOpenMenu={openDrawer}
+      onOpenAssistant={handleOpenAssistant}
       trailing={{
         kind: 'profile',
         onEditProfile: handleEditProfilePress,

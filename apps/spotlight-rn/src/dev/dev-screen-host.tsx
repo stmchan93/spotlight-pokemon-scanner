@@ -2,10 +2,11 @@ import { type ReactElement, useEffect, useState } from 'react';
 import { Image, ScrollView, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
-import type { SpotlightRepository } from '@spotlight/api-client';
+import { MOCK_ASSISTANT_SEED_THREAD_ID, type SpotlightRepository } from '@spotlight/api-client';
 import { Text, colors, textStyles } from '@spotlight/design-system';
 
 import { StaticTabsPageProvider } from '@/contexts/tabs-page-context';
+import { AssistantScreen } from '@/features/assistant/screens/assistant-screen';
 import { SignedOutFlow } from '@/features/auth/components/signed-out-flow';
 import { AccountScreen } from '@/features/auth/screens/account-screen';
 import { ChangePasswordScreen } from '@/features/auth/screens/change-password-screen';
@@ -125,6 +126,25 @@ const devScreens: Record<string, () => ReactElement> = {
   'feed-empty': () => <FeedScreen />,
   insights: () => <InsightsScreen />,
   portfolio: () => <PortfolioScreen />,
+  // Ask Ekalight on the mock repository: empty chat (Home), the seeded saved
+  // thread, and the Scanner entry with two tray cards as context.
+  assistant: () => <AssistantScreen onBack={() => undefined} onOpenCard={() => undefined} source="home" />,
+  'assistant-thread': () => (
+    <AssistantScreen
+      initialThreadId={MOCK_ASSISTANT_SEED_THREAD_ID}
+      onBack={() => undefined}
+      onOpenCard={() => undefined}
+      source="home"
+    />
+  ),
+  'assistant-scanner': () => (
+    <AssistantScreen
+      cardIds={['xyp-111', 'mcdonalds25-21']}
+      onBack={() => undefined}
+      onOpenCard={() => undefined}
+      source="scanner"
+    />
+  ),
   // The Top Trends section alone (Figma 4969:4101), fed by the dev
   // repository's `getTopMovers` — the feed route also carries it, but this
   // isolates the block for a tight diff against the "Title content" frame.

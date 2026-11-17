@@ -9,6 +9,7 @@ import {
   IconChevronDown,
   IconChevronLeft,
   IconSearch,
+  IconSparkles,
   IconX,
 } from '@tabler/icons-react-native';
 import {
@@ -79,6 +80,7 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import { assistantHref } from '@/features/assistant/assistant-route';
 import { useTabsPage } from '@/contexts/tabs-page-context';
 import {
   createTrayStore,
@@ -4362,6 +4364,16 @@ export function ScannerScreen({
     router.push('/catalog/search');
   }, [router]);
 
+  // Ask Ekalight with the tray as context. Reads the tray through its ref at
+  // tap time, so the button never re-renders with scan progress.
+  const handleOpenAssistant = useCallback(() => {
+    const cardIds = recentCapturesRef.current.flatMap((capture) => {
+      const candidate = capture.isLoadingCandidates ? null : activeCandidateForCapture(capture);
+      return candidate ? [candidate.cardId] : [];
+    });
+    router.push(assistantHref('scanner', cardIds));
+  }, [router]);
+
   // The inner scroll list participates in the gesture arena so the tray pan and
   // the list scroll resolve together (swipe down at the top collapses; once
   // scrolled, the same drag scrolls the list instead of collapsing).
@@ -4865,6 +4877,18 @@ export function ScannerScreen({
             testID="scanner-search-button"
           >
             <IconSearch color={colors.gray900} size={glassNavBubbleGlyphSize} strokeWidth={2} />
+          </GlassNavBubble>
+          {/* Top chrome, clear of the shutter and the tray. Not guest-gated:
+              guests get one question a day server-side. */}
+          <GlassNavBubble
+            accessibilityLabel="Ask Ekalight about these cards"
+            onPress={handleOpenAssistant}
+            size="medium"
+            material="frost"
+            surface="onLight"
+            testID="scanner-assistant-button"
+          >
+            <IconSparkles color={colors.gray900} size={glassNavBubbleGlyphSize} strokeWidth={2} />
           </GlassNavBubble>
         </View>
 
