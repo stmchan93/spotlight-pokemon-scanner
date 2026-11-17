@@ -10,3 +10,5 @@ transformers==5.5.4
 onnxruntime==1.26.0
 # Remote MCP server (backend/mcp_server, Streamable HTTP).
 mcp==2.3.0
+# In-app AI chat (backend/mcp_server/assistant): official Anthropic SDK.
+anthropic==2.9.0

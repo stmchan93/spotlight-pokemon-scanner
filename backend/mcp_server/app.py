@@ -411,6 +411,11 @@ def build_app(config: McpConfig):
     service = ReadOnlySpotlightService(Path(config.database_path), BACKEND_ROOT.parent)
     tools = CollectionTools(service, app_url_scheme=config.app_url_scheme)
     server = build_server(tools, config, token_verifier=SupabaseTokenVerifier(validator_for(config)))
+    if config.policy.account_data:
+        from mcp_server.assistant import install_assistant
+
+        # In-app chat (/api/v1/assistant/*): app session JWTs, guests allowed.
+        install_assistant(server, tools, config)
     # Accept the public Host the reverse proxy forwards, not only loopback.
     transport_security = TransportSecuritySettings(
         enable_dns_rebinding_protection=True, allowed_hosts=config.transport_allowed_hosts()

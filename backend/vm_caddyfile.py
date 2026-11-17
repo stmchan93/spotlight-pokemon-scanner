@@ -22,6 +22,8 @@ MCP_PATHS = (
     "/.well-known/oauth-protected-resource",
     "/.well-known/oauth-protected-resource/*",
     "/oauth/consent",
+    # In-app AI chat (mcp_server/assistant).
+    "/api/v1/assistant/*",
 )
 
 # Plain DNS names only: a value lands verbatim in the Caddyfile, so anything
