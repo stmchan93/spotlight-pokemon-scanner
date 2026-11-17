@@ -62,6 +62,8 @@ def _suggested_card_rows(
             FROM scan_events
             WHERE owner_user_id = ?
               AND created_at >= ?
+              -- identify_card guesses from Claude/ChatGPT aren't the user's scans
+              AND scan_id NOT LIKE 'mcp-%'
         ) s
         JOIN cards c ON c.id = s.card_id
         WHERE COALESCE(c.supertype, '') <> ?
