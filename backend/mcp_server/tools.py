@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote
@@ -19,6 +20,7 @@ import art_search
 
 from catalog_tools import (
     PSA_GRADE_PRICING_MODE,
+    RAW_MAIN_PRICE_SOURCE_TCGCSV,
     RAW_PRICING_MODE,
     _MANUAL_SEARCH_POOL_CEILING,
     _normalized_variant_label,
@@ -32,6 +34,7 @@ from catalog_tools import (
     search_cards as catalog_search_cards,
 )
 from similar_cards import build_similar_cards_payload
+from tcgcsv_adapter import TCGCSV_PROVIDER
 
 from .filters import (
     ToolInputError,
@@ -85,11 +88,32 @@ def usd_price(pricing: dict[str, Any] | None) -> tuple[float | None, str | None]
     for key in ("market", "mid", "low", "trend"):
         value = pricing.get(key)
         if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
-            source = str(pricing.get("source") or pricing.get("provider") or "").strip() or "ekalight"
+            source = price_source_label(pricing)
             if pricing.get("displayIsConverted"):
                 source += " (converted to USD from JPY)"
             return round(float(value), 2), source
     return None, None
+
+
+def price_source_label(pricing: dict[str, Any]) -> str:
+    """Who supplied the served number. `source`/`provider` name the snapshot ROW's
+    provider (Scrydex) even when the TCGCSV main lane served the raw headline;
+    `mainPriceSource` is the per-read stamp that says which lane actually won."""
+    if str(pricing.get("mainPriceSource") or "").strip().lower() == RAW_MAIN_PRICE_SOURCE_TCGCSV:
+        return "tcgplayer"
+    source = str(pricing.get("source") or pricing.get("provider") or "").strip().lower()
+    if source == TCGCSV_PROVIDER:  # printing-cell summaries stamp the provider directly
+        return "tcgplayer"
+    return source or "ekalight"
+
+
+def printing_name(value: Any) -> str | None:
+    """Human printing name for a stored variant: "First Edition Shadowless Holofoil"
+    -> "1st Edition Shadowless Holofoil"; blank -> None."""
+    text = " ".join(str(value or "").split())
+    if not text:
+        return None
+    return re.sub(r"^first edition\b", "1st Edition", text, flags=re.IGNORECASE)
 
 
 def _round_money(value: float | None) -> float | None:
@@ -468,7 +492,7 @@ class CollectionTools:
     def _holdings_for_card(self, owner_user_id: str, card_id: str) -> list[dict[str, Any]]:
         rows = self.conn.execute(
             """
-            SELECT condition, grader, grade, quantity, cost_basis_total,
+            SELECT condition, grader, grade, quantity, variant_name, cost_basis_total,
                    cost_basis_currency_code, cost_basis_cents
             FROM deck_entries
             WHERE owner_user_id = ? AND card_id = ? AND quantity > 0
@@ -478,10 +502,21 @@ class CollectionTools:
             (owner_user_id, card_id),
         ).fetchall()
         holdings = []
+        default_raw_variant: str | None = None
         for row in rows:
             grader = str(row["grader"] or "").strip() or None
             grade = str(row["grade"] or "").strip() or None
             quantity = int(row["quantity"] or 0)
+            if quantity <= 0:
+                continue
+            variant = printing_name(row["variant_name"])
+            if variant is None and not (grader or grade):
+                # A raw copy with no stored printing is valued as the card's
+                # served (main) printing; name that one.
+                if default_raw_variant is None:
+                    served = self._raw_pricing_by_id([card_id]).get(card_id) or {}
+                    default_raw_variant = printing_name(served.get("variant")) or ""
+                variant = default_raw_variant or None
             holdings.append(
                 {
                     "condition": None
@@ -489,6 +524,7 @@ class CollectionTools:
                     else DECK_CONDITION_CODES.get(str(row["condition"] or "").strip().lower()),
                     "grader": grader,
                     "grade": grade,
+                    "variant": variant,
                     "quantity": quantity,
                     "cost_basis_usd": self._cost_basis_usd(
                         total=row["cost_basis_total"],
@@ -578,6 +614,9 @@ class CollectionTools:
             else DECK_CONDITION_CODES.get(str(entry.get("condition") or "").lower()),
             "grader": grader,
             "grade": grade,
+            # The owned printing; else the one the entry was priced as.
+            "variant": printing_name(entry.get("variantName"))
+            or printing_name((pricing or {}).get("variant")),
             "value_usd": value,
             "gain_usd": gain,
             "gain_basis": gain_basis,
@@ -600,7 +639,9 @@ class CollectionTools:
             include_series=False,
             log_surface="mcp",
         )
-        entries = list(payload.get("entries") or [])
+        raw_entries = list(payload.get("entries") or [])
+        # Zero/NULL-quantity duplicate rows are not holdings and carry no value.
+        entries = [entry for entry in raw_entries if int(entry.get("quantity") or 0) > 0]
         card_ids = [str((entry.get("card") or {}).get("id") or "") for entry in entries]
         cards = cards_by_ids(self.conn, card_ids, include_source_payload=False)
         pairs = [
@@ -608,7 +649,7 @@ class CollectionTools:
             for entry, card_id in zip(entries, card_ids)
             if card_id in cards
         ]
-        return pairs, self._tcgplayer_ids(list(cards)), len(entries) >= MAX_HOLDINGS_READ
+        return pairs, self._tcgplayer_ids(list(cards)), len(raw_entries) >= MAX_HOLDINGS_READ
 
     def get_my_collection(
         self,
@@ -699,15 +740,28 @@ class CollectionTools:
             )
             holding["_key"] = str(entry["id"])
 
-        series = self.service._since_baseline_series_for_requests(requests, lane_scoped=True) if requests else {}
+        series = self.service._since_baseline_points_for_requests(requests, lane_scoped=True) if requests else {}
+        graded_keys = {req["key"] for req in requests if req["pricing_mode"] == PSA_GRADE_PRICING_MODE}
         movers: list[dict[str, Any]] = []
+        excluded = 0
         change_total = 0.0
         start_total = 0.0
         for holding in holdings:
-            points = series.get(holding.pop("_key", None) or "")
-            if not points or holding["price_usd"] is None:
+            key = holding.pop("_key", None) or ""
+            # USD days only: JP cards' older days are Scrydex JPY cells.
+            points = [p for p in series.get(key) or [] if p.get("currency") == "USD"]
+            if len(points) < 2 or holding["price_usd"] is None:
                 continue
-            start_unit = float(points[0])
+            start_unit = float(points[0]["value"])
+            if not self._trusted_baseline(
+                holding["card_id"],
+                points[0]["date"],
+                start_unit,
+                current=holding["price_usd"],
+                graded=key in graded_keys,
+            ):
+                excluded += 1
+                continue
             change = (holding["price_usd"] - start_unit) * holding["quantity"]
             change_total += change
             start_total += start_unit * holding["quantity"]
@@ -718,7 +772,10 @@ class CollectionTools:
                     "condition": holding["condition"],
                     "grader": holding["grader"],
                     "grade": holding["grade"],
+                    "variant": holding.get("variant"),
                     "value_usd": holding["value_usd"],
+                    "baseline_date": points[0]["date"],
+                    "baseline_price_usd": round(start_unit, 2),
                     "change_usd": round(change, 2),
                     "change_pct": round(change / (start_unit * holding["quantity"]) * 100, 2)
                     if start_unit > 0 and holding["quantity"] > 0
@@ -735,7 +792,13 @@ class CollectionTools:
             "change_usd": round(change_total, 2) if has_history else None,
             "change_pct": round(change_total / start_total * 100, 2) if start_total > 0 else None,
             "change_covers_holdings": len(movers),
+            "change_excluded_holdings": excluded,
             **({} if has_history else {"change_note": "No price history for these holdings in this range, so change is unknown (not zero)."}),
+            **(
+                {"change_excluded_note": "Holdings whose start price is implausible next to today's (bad provider history point) are left out of change."}
+                if excluded
+                else {}
+            ),
             "top_gainers": gainers[:5],
             "top_losers": losers[:5],
             "holdings_count": len(holdings),
@@ -743,6 +806,28 @@ class CollectionTools:
             "change_basis": "market move of cards currently held (from each card's add day if added in range); excludes buys/sells",
             **({"truncated_at": MAX_HOLDINGS_READ} if truncated else {}),
         }
+
+    # A start price more than this many times off today's is a bad history point
+    # (JP Scrydex yen stamped USD, broken JP anchors) unless TCGplayer printed it.
+    BASELINE_MAX_RATIO = 20.0
+
+    def _trusted_baseline(
+        self, card_id: str, price_date: str, baseline: float, *, current: float, graded: bool
+    ) -> bool:
+        if baseline <= 0 or current <= 0:
+            return False
+        ratio = baseline / current
+        if 1 / self.BASELINE_MAX_RATIO <= ratio <= self.BASELINE_MAX_RATIO:
+            return True
+        if graded:
+            return False  # graded history is Scrydex-only
+        # Trust it only if it is that day's TCGCSV (TCGplayer) main-lane price.
+        row = self.conn.execute(
+            "SELECT main_raw_market_price FROM card_price_history_daily WHERE card_id = ? AND price_date = ?",
+            (card_id, price_date),
+        ).fetchone()
+        main = row[0] if row is not None else None
+        return isinstance(main, (int, float)) and abs(float(main) - baseline) < 0.005
 
     def find_missing(
         self,
@@ -838,78 +923,225 @@ class CollectionTools:
         }
 
     def get_price_history(
-        self, owner_user_id: str, card_id: str, *, range_key: str = "90d", condition: str = "NM"
+        self,
+        owner_user_id: str,
+        card_id: str,
+        *,
+        range_key: str = "90d",
+        condition: str = "NM",
+        grader: str | None = None,
+        grade: str | None = None,
+        variant: str | None = None,
     ) -> dict[str, Any]:
+        """Daily USD history for one printing of a card, from stored cells only.
+
+        Raw NM mirrors the PDP chart: the TCGplayer (TCGCSV raw_main) series for
+        the printing, with Scrydex days only before the first TCGplayer day.
+        Other conditions are Scrydex. Graded (grader + grade) is the Scrydex
+        graded lane, plain slabs only (no signed/perfect/error cells)."""
         del owner_user_id  # catalog-wide; no account data
         if range_key not in HISTORY_RANGES:
             raise ToolInputError(f"range must be one of {', '.join(HISTORY_RANGES)}.")
+        grader_code = str(grader or "").strip().upper() or None
+        grade_code = self._history_grade_key(grade)
+        if bool(grader_code) != bool(grade_code):
+            raise ToolInputError("grader and grade must be given together, e.g. grader='PSA', grade='10'.")
+        graded = grader_code is not None
         condition_code = str(condition or "NM").strip().upper()
-        if condition_code not in HISTORY_CONDITIONS:
+        if not graded and condition_code not in HISTORY_CONDITIONS:
             raise ToolInputError(f"condition must be one of {', '.join(HISTORY_CONDITIONS)}.")
-        cell_condition = HISTORY_CONDITIONS[condition_code]
         card_id = str(card_id or "").strip()
-        history = self.service.card_condition_history(card_id, lane="raw", days=HISTORY_RANGES[range_key])
-        if history is None:
+        if not card_id or card_by_id(self.conn, card_id) is None:
             raise ToolInputError(f"Card not found: {card_id or '(empty)'}.")
 
-        candidates = [
-            series for series in history.get("series") or []
-            if str(series.get("condition") or "").upper() == cell_condition
-        ]
-        empty = {"card_id": card_id, "condition": condition_code, "variant": None, "points": [], "source": None}
-        if not candidates:
-            return empty
-        snapshot = price_snapshot_row(self.conn, card_id)
-        main_variant = None
-        if snapshot is not None:
-            keys = snapshot.keys()
-            main_variant = (snapshot["main_raw_variant"] if "main_raw_variant" in keys else None) or snapshot[
-                "default_raw_variant"
-            ]
-        target_key = _variant_match_key(_normalized_variant_label(main_variant)) if main_variant else None
-        chosen = next(
-            (
-                series for series in candidates
-                if target_key and _variant_match_key(_normalized_variant_label(series.get("variantKey"))) == target_key
-            ),
-            None,
-        ) or max(candidates, key=lambda series: len(series.get("points") or []))
-
         start_date = (datetime.now(timezone.utc).date() - timedelta(days=HISTORY_RANGES[range_key])).isoformat()
-        variant_key = chosen.get("variantKey") or ""
-        # card_condition_history reports one majority currency; drop non-USD days
-        # (Scrydex JPY) unless the TCGCSV main lane (USD) overrode that day.
-        non_usd_dates = {
-            str(row[0])
-            for row in self.conn.execute(
-                """
-                SELECT price_date FROM card_price_history_cell
-                WHERE card_id = ? AND lane = 'raw' AND variant_key = ? AND condition = ?
-                  AND price_date >= ? AND UPPER(COALESCE(currency_code, '')) <> 'USD'
-                """,
-                (card_id, variant_key, cell_condition, start_date),
-            ).fetchall()
-        }
-        main_dates: set[str] = set()
-        if cell_condition == "NM":
-            main_points = main_raw_cell_points_by_variant_date(self.conn, card_id=card_id, start_date=start_date)
-            main_dates = set(
-                (main_points.get(_variant_match_key(_normalized_variant_label(variant_key))) or {}).keys()
+        snapshot = price_snapshot_row(self.conn, card_id)
+        snapshot_keys = snapshot.keys() if snapshot is not None else ()
+        main_variant = snapshot["main_raw_variant"] if "main_raw_variant" in snapshot_keys else None
+        default_variant = snapshot["default_raw_variant"] if "default_raw_variant" in snapshot_keys else None
+
+        if graded:
+            scrydex = self._graded_history_cells(card_id, grader_code, grade_code, start_date)
+            tcgplayer: dict[str, dict[str, Any]] = {}
+        else:
+            scrydex = self._raw_history_cells(card_id, HISTORY_CONDITIONS[condition_code], start_date)
+            # TCGCSV is NM-only; {} when RAW_MAIN_PRICE_SOURCE is not tcgcsv (same gate as the app).
+            tcgplayer = (
+                main_raw_cell_points_by_variant_date(self.conn, card_id=card_id, start_date=start_date)
+                if condition_code == "NM"
+                else {}
             )
-        points = [
-            {"date": str(point["date"]), "usd": round(float(point["market"]), 2)}
-            for point in chosen.get("points") or []
-            if isinstance(point.get("market"), (int, float))
-            and (str(point["date"]) not in non_usd_dates or str(point["date"]) in main_dates)
-        ]
+
+        editioned = any(
+            self._history_has_edition(key)
+            for key in [*scrydex, *tcgplayer, main_variant, default_variant]
+        )
+
+        def printing_key(value: Any) -> str:
+            return self._history_printing_key(value, editioned=editioned)
+
+        labels: dict[str, str] = {}
+        scrydex_by_printing: dict[str, dict[str, float]] = {}
+        for variant_key, by_date in scrydex.items():
+            key = printing_key(variant_key)
+            labels.setdefault(key, _normalized_variant_label(variant_key))
+            scrydex_by_printing.setdefault(key, {}).update(by_date)
+        # Two TCGCSV subtypes can name one printing (base1-4: "Holofoil" until
+        # 9/13, "Unlimited Holofoil" after); the snapshot's current one wins a shared day.
+        main_match = _variant_match_key(_normalized_variant_label(main_variant)) if main_variant else None
+        tcgplayer_by_printing: dict[str, dict[str, float]] = {}
+        for match_key in sorted(tcgplayer, key=lambda k: k == main_match):
+            key = printing_key(match_key)
+            by_date = {
+                day: float(point["market"])
+                for day, point in tcgplayer[match_key].items()
+                if isinstance(point.get("market"), (int, float))
+            }
+            tcgplayer_by_printing.setdefault(key, {}).update(by_date)
+        for value in (default_variant, main_variant):  # Scrydex spelling first
+            if value:
+                labels.setdefault(printing_key(value), _normalized_variant_label(value))
+        for key in tcgplayer_by_printing:
+            labels.setdefault(key, _normalized_variant_label(key))
+
+        available = [key for key in labels if scrydex_by_printing.get(key) or tcgplayer_by_printing.get(key)]
+
+        def point_count(key: str) -> int:
+            return len(set(scrydex_by_printing.get(key, {})) | set(tcgplayer_by_printing.get(key, {})))
+
+        available.sort(key=lambda key: (-point_count(key), labels[key]))
+        requested = str(variant or "").strip()
+        if requested:
+            # "1st Edition Shadowless" names Scrydex's firstEditionShadowlessHolofoil.
+            wanted = printing_key(requested)
+            chosen = next((key for key in (wanted, f"{wanted}holofoil") if key in available), None)
+        else:
+            # The printing the app quotes, then the stored default, then the most data.
+            chosen = next(
+                (printing_key(v) for v in (main_variant, default_variant) if v and printing_key(v) in available),
+                available[0] if available else None,
+            )
+
+        result: dict[str, Any] = {
+            "card_id": card_id,
+            "condition": None if graded else condition_code,
+            "grader": grader_code,
+            "grade": grade_code,
+            "variant": labels.get(chosen) if chosen else (requested or None),
+            "available_variants": [labels[key] for key in available],
+            "points": [],
+            "source": None,
+            "sources": [],
+            "as_of": None,
+            "days_since_as_of": None,
+        }
+        if chosen is None:
+            return result
+
+        tcg_points = tcgplayer_by_printing.get(chosen, {})
+        first_tcg_day = min(tcg_points) if tcg_points else None
+        merged: dict[str, tuple[float, str]] = {
+            day: (usd, "scrydex")
+            for day, usd in scrydex_by_printing.get(chosen, {}).items()
+            if first_tcg_day is None or day < first_tcg_day
+        }
+        merged.update({day: (usd, "tcgplayer") for day, usd in tcg_points.items()})
+        days = sorted(merged)
+        if not days:
+            return result
+        sources = []
+        for name in ("scrydex", "tcgplayer"):
+            source_days = [day for day in days if merged[day][1] == name]
+            if source_days:
+                sources.append({"source": name, "from": source_days[0], "through": source_days[-1]})
+        points = [{"date": day, "usd": round(merged[day][0], 2)} for day in days]
         if len(points) > MAX_HISTORY_POINTS:
             step = (len(points) - 1) / (MAX_HISTORY_POINTS - 1)
             points = [points[round(i * step)] for i in range(MAX_HISTORY_POINTS)]
-        used_main = any(point["date"] in main_dates for point in points)
-        return {
-            "card_id": card_id,
-            "condition": condition_code,
-            "variant": chosen.get("variantKey"),
-            "points": points,
-            "source": ("tcgplayer" if used_main else "scrydex") if points else None,
-        }
+        as_of = days[-1]
+        result.update(
+            {
+                "points": points,
+                "source": merged[as_of][1],
+                "sources": sources,
+                "as_of": as_of,
+                "days_since_as_of": (datetime.now(timezone.utc).date() - datetime.fromisoformat(as_of[:10]).date()).days,
+            }
+        )
+        return result
+
+    def _raw_history_cells(self, card_id: str, condition: str, start_date: str) -> dict[str, dict[str, float]]:
+        """Scrydex raw cells for one condition: {variant_key: {date: usd}}. USD only."""
+        rows = self.conn.execute(
+            """
+            SELECT variant_key, price_date, market FROM card_price_history_cell
+            WHERE card_id = ? AND lane = 'raw' AND condition = ? AND price_date >= ?
+              AND UPPER(COALESCE(currency_code, '')) = 'USD'
+            ORDER BY price_date, updated_at
+            """,
+            (card_id, condition, start_date),
+        ).fetchall()
+        return self._history_cells_by_variant(rows)
+
+    def _graded_history_cells(
+        self, card_id: str, grader: str, grade: str, start_date: str
+    ) -> dict[str, dict[str, float]]:
+        """Scrydex graded cells for one grader/grade: {variant_key: {date: usd}}.
+        Plain slabs only (signed/perfect/error cells would leak a premium). USD only."""
+        rows = self.conn.execute(
+            """
+            SELECT variant_key, grade, price_date, market FROM card_price_history_cell
+            WHERE card_id = ? AND lane = 'graded' AND UPPER(COALESCE(grader, '')) = ? AND price_date >= ?
+              AND COALESCE(is_perfect, 0) = 0 AND COALESCE(is_signed, 0) = 0 AND COALESCE(is_error, 0) = 0
+              AND UPPER(COALESCE(currency_code, '')) = 'USD'
+            ORDER BY price_date, updated_at
+            """,
+            (card_id, grader, start_date),
+        ).fetchall()
+        return self._history_cells_by_variant([row for row in rows if self._history_grade_key(row["grade"]) == grade])
+
+    @staticmethod
+    def _history_cells_by_variant(rows: list[Any]) -> dict[str, dict[str, float]]:
+        out: dict[str, dict[str, float]] = {}
+        for row in rows:
+            market = row["market"]
+            if isinstance(market, (int, float)) and not isinstance(market, bool) and market > 0:
+                # Later rows win a shared day (ORDER BY updated_at).
+                out.setdefault(str(row["variant_key"] or ""), {})[str(row["price_date"])] = float(market)
+        return out
+
+    @staticmethod
+    def _history_grade_key(value: Any) -> str | None:
+        """'10', '10.0' and ' 10 ' are one grade; non-numeric grades compare upper-cased."""
+        text = str(value or "").strip().upper()
+        if not text:
+            return None
+        try:
+            number = float(text)
+        except ValueError:
+            return text
+        return str(int(number)) if number.is_integer() else str(number)
+
+    @staticmethod
+    def _history_has_edition(value: Any) -> bool:
+        key = _variant_match_key(_normalized_variant_label(value)) if value else ""
+        return key.startswith(("firstedition", "unlimited", "shadowless"))
+
+    @staticmethod
+    def _history_printing_key(value: Any, *, editioned: bool) -> str:
+        """One key per printing across Scrydex variant keys ('unlimitedHolofoil'),
+        TCGCSV subtypes ('Unlimited Holofoil', '1st Edition Holofoil'), their
+        Scrydex labels ('Unlimited', 'First Edition') and user input ('holo').
+        On a card with editions, a bare Holofoil/Normal is the Unlimited print
+        (TCGplayer's Base Set Charizard is 'Holofoil'; Scrydex's is 'unlimitedHolofoil')."""
+        key = _variant_match_key(_normalized_variant_label(value))
+        key = re.sub(r"holo(?!foil)", "holofoil", key)
+        if key in {"", "raw", "normal", "standard"}:
+            key = "normal"
+        elif key in {"unlimitedholofoil", "unlimitednormal"}:
+            key = "unlimited"
+        elif key in {"firsteditionholofoil", "firsteditionnormal"}:
+            key = "firstedition"
+        if editioned and key in {"holofoil", "normal"}:
+            key = "unlimited"
+        return key

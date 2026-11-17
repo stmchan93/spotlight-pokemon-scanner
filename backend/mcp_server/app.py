@@ -33,6 +33,7 @@ from request_auth import RequestIdentity  # noqa: E402
 
 from mcp_server.auth import GUEST_REJECTION_MESSAGE, McpConfig, validator_for  # noqa: E402
 from mcp_server.filters import ToolInputError  # noqa: E402
+from mcp_server.identify import register_identify_card  # noqa: E402
 from mcp_server.policy import USER_POLICY, ResponsePolicy  # noqa: E402
 from mcp_server.rate_limit import RateLimitExceeded, UserRateLimiter  # noqa: E402
 from mcp_server.tools import CollectionTools  # noqa: E402
@@ -55,8 +56,14 @@ class CardFilter(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    text: str | None = Field(None, description="Free text: card name, set, or number, e.g. 'charizard ex'.")
-    pokemon: list[str] | None = Field(None, description="Pokémon shown in the artwork (art search).")
+    text: str | None = Field(
+        None, description="Card name search (case-insensitive), optionally with set or number, e.g. 'charizard ex'."
+    )
+    name: str | None = Field(None, description="Alias of text.")
+    query: str | None = Field(None, description="Alias of text.")
+    pokemon: list[str] | None = Field(
+        None, description="Pokémon shown in the artwork (art search, incl. cameos); for card names use text."
+    )
     pokemon_role: Literal["any", "main", "background_or_cameo"] | None = Field(
         None, description="Whether the pokemon must be the main subject or a background/cameo."
     )
@@ -247,8 +254,14 @@ def build_server(
 
     @_register(server, policy)(
         description=(
-            "Search Ekalight's card catalog with a filter. owned='owned'/'not_owned' limits to cards "
-            "the user does or does not own. Prices are USD from Ekalight's stored market data."
+            "Search Ekalight's card catalog with a filter. Filter fields (all optional, ANDed): "
+            "text (card name, case-insensitive; aliases: name, query), set, artist, rarity_bucket, "
+            "language, price_min_usd, price_max_usd, and the art filters pokemon, pokemon_role, scene, "
+            "weather_time, activity, mood, art_style, palette, theme (values from list_facets). "
+            "Give at least one of text/set/artist/rarity_bucket or an art filter. "
+            "owned='owned'/'not_owned' limits to cards the user does or does not own. Prices are USD "
+            "from Ekalight's stored market data; price_source names who supplied each number "
+            "(tcgplayer or scrydex)."
         ),
         annotations=READ_ONLY,
     )
@@ -266,7 +279,8 @@ def build_server(
     @_register(server, policy)(
         description=(
             "One card: details, USD price, art tags, similar cards, its other-language counterpart, "
-            "and the user's own copies (my_holdings)."
+            "and the user's own copies (my_holdings, each with its printing as variant). Name the "
+            "printing when describing a holding."
         ),
         annotations=READ_ONLY,
     )
@@ -275,8 +289,9 @@ def build_server(
 
     @_register(server, policy)(
         description=(
-            "The user's collection holdings with quantity, condition/grade and USD value, optionally "
-            "filtered. total_value_usd covers all matching holdings, not just this page. Hidden "
+            "The user's collection holdings with quantity, condition/grade, printing (variant, e.g. "
+            "'1st Edition Holofoil') and USD value, optionally filtered (same filter fields as "
+            "search_cards). total_value_usd covers all matching holdings, not just this page. Hidden "
             "collections are excluded unless collection_id names one."
         ),
         annotations=READ_ONLY,
@@ -330,15 +345,40 @@ def build_server(
         )
 
     @_register(server, policy)(
-        description="Daily USD market price history for one card (raw, by condition).",
+        description=(
+            "Daily USD market price history for one printing of a card. Raw by condition (NM is the "
+            "TCGplayer market the app shows, older days from Scrydex), or graded slabs when grader and "
+            "grade are both given (e.g. grader='PSA', grade='10'). 'variant' picks the printing "
+            "(default: the card's main printing; available_variants lists the others). 'sources' "
+            "says which provider covers which dates. as_of is the newest stored point and "
+            "days_since_as_of how old it is: graded history can lag, so do not call it current "
+            "when days_since_as_of is large."
+        ),
         annotations=READ_ONLY,
     )
     async def get_price_history(
         card_id: str,
         range: Literal["30d", "90d", "1y"] = "90d",
         condition: Literal["NM", "LP", "MP", "HP", "DMG"] = "NM",
+        grader: Annotated[
+            str | None, Field(description="Grading company for slab history, e.g. PSA, CGC, BGS. Needs grade.")
+        ] = None,
+        grade: Annotated[str | None, Field(description="Slab grade, e.g. '10' or '9.5'. Needs grader.")] = None,
+        variant: Annotated[
+            str | None, Field(description="Printing, e.g. 'Holofoil', 'Reverse Holofoil', '1st Edition'.")
+        ] = None,
     ) -> dict[str, Any]:
-        return await runner.run("get_price_history", card_id=card_id, range_key=range, condition=condition)
+        return await runner.run(
+            "get_price_history",
+            card_id=card_id,
+            range_key=range,
+            condition=condition,
+            grader=grader,
+            grade=grade,
+            variant=variant,
+        )
+
+    register_identify_card(server, policy, runner, token_getter=token_getter)
 
     if policy.account_data:
 

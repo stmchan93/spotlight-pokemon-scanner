@@ -78,11 +78,23 @@ class RenderTests(unittest.TestCase):
         text = vm_caddyfile.render_caddyfile(["looty.34.134.72.20.sslip.io"], mcp_routes=True)
         self.assertIn(
             "@mcp path /mcp /mcp/* /.well-known/oauth-protected-resource "
-            "/.well-known/oauth-protected-resource/* /oauth/consent",
+            "/.well-known/oauth-protected-resource/* /oauth/consent "
+            "/api/v1/assistant /api/v1/assistant/*",
             text,
         )
         self.assertIn("handle @mcp {\n\t\treverse_proxy 127.0.0.1:8790\n\t}", text)
         self.assertIn("handle {\n\t\treverse_proxy 127.0.0.1:8788\n\t}", text)
+        # The MCP handle must precede the catch-all (both are mutually exclusive
+        # `handle` blocks; the catch-all has no matcher so it only gets the rest).
+        self.assertLess(text.index("handle @mcp {"), text.index("\thandle {"))
+
+    def test_assistant_api_routes_to_the_mcp_process(self) -> None:
+        self.assertIn("/api/v1/assistant", vm_caddyfile.MCP_PATHS)
+        self.assertIn("/api/v1/assistant/*", vm_caddyfile.MCP_PATHS)
+        # No broader /api/* path may leak to MCP: the scanner backend owns the rest.
+        self.assertFalse([p for p in vm_caddyfile.MCP_PATHS if p.startswith("/api/") and "assistant" not in p])
+        text = vm_caddyfile.render_caddyfile(["api.ekalight.com"], mcp_routes=False)
+        self.assertNotIn("assistant", text)
 
     def test_cli_rejects_bad_host_with_nonzero_exit(self) -> None:
         result = subprocess.run(
