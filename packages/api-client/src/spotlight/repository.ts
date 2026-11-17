@@ -121,6 +121,8 @@ import type {
   NormalizedPoint,
   NotificationPrefs,
   NotificationPrefsResult,
+  AiSettings,
+  AiSettingsResult,
   AlertPreferences,
   AlertPreferencesPatch,
   AlertPreferencesResult,
@@ -503,6 +505,13 @@ export interface SpotlightRepository {
    * Non-throwing, and `status` is what an optimistic toggle reverts on.
    */
   setNotificationPrefs(patch: Partial<NotificationPrefs>): Promise<NotificationPrefsResult>;
+  /**
+   * "Use with AI" settings. Never throws; null = couldn't load (the screen
+   * must not show a guessed state for a permission toggle).
+   */
+  getAiSettings(): Promise<AiSettings | null>;
+  /** Non-throwing; `status` is what an optimistic toggle reverts on. */
+  setAiSettings(next: AiSettings): Promise<AiSettingsResult>;
   /**
    * The Alerts screen's three switches. Never throws: a failed read is the
    * server defaults (all on), never "off".
@@ -1844,6 +1853,15 @@ function buildNotificationPrefs(value: unknown): NotificationPrefs {
     dealAlertsEnabled: normalizeBoolean(value.dealAlertsEnabled) ?? true,
     targetHitsEnabled: normalizeBoolean(value.targetHitsEnabled) ?? true,
   };
+}
+
+/** AI settings from the wire (snake_case); anything malformed is null, not "off". */
+function buildAiSettings(value: unknown): AiSettings | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const allowMcpEdits = normalizeBoolean(value.allow_mcp_edits);
+  return allowMcpEdits == null ? null : { allowMcpEdits };
 }
 
 /** Alert switches from the wire; a missing/malformed flag reads as ON (the server default). */
@@ -4816,6 +4834,17 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return { ...this.notificationPrefs };
   }
 
+  private aiSettings: AiSettings = { allowMcpEdits: false };
+
+  async getAiSettings(): Promise<AiSettings | null> {
+    return { ...this.aiSettings };
+  }
+
+  async setAiSettings(next: AiSettings): Promise<AiSettingsResult> {
+    this.aiSettings = { allowMcpEdits: next.allowMcpEdits };
+    return { status: 'ok', settings: { ...this.aiSettings } };
+  }
+
   async setNotificationPrefs(patch: Partial<NotificationPrefs>): Promise<NotificationPrefsResult> {
     // Partial, like the server: an absent key leaves that flag alone.
     if (typeof patch.dealAlertsEnabled === 'boolean') {
@@ -7523,6 +7552,21 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       return { status: 'failed', prefs: null };
     }
     return { status: 'ok', prefs: buildNotificationPrefs(response.data) };
+  }
+
+  async getAiSettings(): Promise<AiSettings | null> {
+    const response = await this.requestJson<unknown>(`${this.baseUrl}/api/v1/me/ai-settings`);
+    return response.kind === 'success' ? buildAiSettings(response.data) : null;
+  }
+
+  async setAiSettings(next: AiSettings): Promise<AiSettingsResult> {
+    const response = await this.requestJson<unknown>(`${this.baseUrl}/api/v1/me/ai-settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ allow_mcp_edits: next.allowMcpEdits }),
+    });
+    const settings = response.kind === 'success' ? buildAiSettings(response.data) : null;
+    return settings ? { status: 'ok', settings } : { status: 'failed', settings: null };
   }
 
   async fetchAlertPreferences(): Promise<AlertPreferences> {

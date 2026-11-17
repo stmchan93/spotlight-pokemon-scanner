@@ -37,6 +37,7 @@ from mcp_server.identify import register_identify_card  # noqa: E402
 from mcp_server.policy import USER_POLICY, ResponsePolicy  # noqa: E402
 from mcp_server.rate_limit import RateLimitExceeded, UserRateLimiter  # noqa: E402
 from mcp_server.tools import CollectionTools  # noqa: E402
+from mcp_server.write_tools import register_write_tools  # noqa: E402
 
 logger = logging.getLogger("ekalight.mcp")
 
@@ -46,6 +47,12 @@ INSTRUCTIONS = (
     "price means Ekalight has no USD price for that card. Every tool is read-only. Results are "
     "paginated: pass next_cursor back to get the next page. Use list_facets to see valid art "
     "filter values before using art filters."
+)
+WRITE_INSTRUCTIONS = (
+    " Exception: add_to_collection, update_holding and watch_card change the user's collection or "
+    "Watchlist. Always ask the user before calling them. They work only after the user turns on "
+    "'Let AI assistants edit my collection' in the Ekalight app (Settings → Use with AI); nothing "
+    "can be deleted."
 )
 
 RarityBucket = Literal["sir", "illustration", "ultra", "secret", "shiny", "promo", "standard", "other"]
@@ -240,7 +247,7 @@ def build_server(
     server = MCPServer(
         "ekalight",
         title="Ekalight",
-        instructions=INSTRUCTIONS,
+        instructions=INSTRUCTIONS + (WRITE_INSTRUCTIONS if policy.allows_tool("add_to_collection") else ""),
         token_verifier=token_verifier,
         auth=auth,
     )
@@ -380,6 +387,8 @@ def build_server(
 
     register_identify_card(server, policy, runner, token_getter=token_getter)
 
+    register_write_tools(server, policy, tools.service, runner._identity)
+
     if policy.account_data:
 
         @server.custom_route("/.well-known/oauth-protected-resource", methods=["GET"])
@@ -408,10 +417,14 @@ def build_server(
 def build_app(config: McpConfig):
     """Production wiring: read-only service over the shared SQLite DB + auth."""
     from mcp_server.readonly_service import ReadOnlySpotlightService
+    from mcp_server.write_tools import WritableSpotlightService
 
     if config.policy.account_data and not config.authorization_server_url:
         raise SystemExit("SUPABASE_URL or SPOTLIGHT_MCP_AUTHORIZATION_SERVER_URL is required.")
-    service = ReadOnlySpotlightService(Path(config.database_path), BACKEND_ROOT.parent)
+    # One service instance (its catalog index is large); the writable subclass
+    # keeps every provider refresh off, and only the gated write tools write.
+    service_class = WritableSpotlightService if config.policy.account_data else ReadOnlySpotlightService
+    service = service_class(Path(config.database_path), BACKEND_ROOT.parent)
     tools = CollectionTools(service, app_url_scheme=config.app_url_scheme)
     server = build_server(tools, config, token_verifier=SupabaseTokenVerifier(validator_for(config)))
     if config.policy.account_data:

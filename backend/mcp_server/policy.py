@@ -20,7 +20,7 @@ from typing import Any
 TIER_USER = "user"
 TIER_PUBLIC = "public"
 
-ALL_TOOLS = (
+READ_TOOLS = (
     "list_facets",
     "search_cards",
     "get_card",
@@ -30,6 +30,10 @@ ALL_TOOLS = (
     "get_price_history",
     "identify_card",
 )
+# Change the account; user tier only, and only while the owner's
+# "Let AI assistants edit my collection" toggle is on (mcp_server/write_tools.py).
+WRITE_TOOLS = ("add_to_collection", "update_holding", "watch_card")
+ALL_TOOLS = READ_TOOLS + WRITE_TOOLS
 
 # Keys of a card-shaped dict (CardSummary / HoldingSummary / get_card / movers).
 USER_CARD_FIELDS = frozenset(
