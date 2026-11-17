@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { ReactNode, RefObject } from 'react';
 import type { TextInput, TextInputProps } from 'react-native';
-import { Search as SearchIcon } from 'iconoir-react-native';
+import { NavArrowDown, Search as SearchIcon } from 'iconoir-react-native';
 
 import { IconButton, SearchField, Text, colors, spacing, textStyles } from '@spotlight/design-system';
 
@@ -35,7 +35,7 @@ type CollectionSearchRowProps = {
    * the viewer has hidden their balance, so this component stays presentational.
    */
   totalValueLabel?: string;
-  /** Tap on the collection name (no chevron, design review 2026-11-16). Inert when omitted. */
+  /** Tap on the collection name + chevron. Inert (no picker) when omitted. */
   onPressCollection?: () => void;
   /**
    * Optional element rendered at the right edge of the search row, after the
@@ -81,6 +81,7 @@ export function CollectionSearchRow({
           <Text numberOfLines={1} style={styles.summaryText}>
             {collectionName.toUpperCase()}
           </Text>
+          <NavArrowDown color={colors.gray900} height={24} width={24} />
         </Pressable>
         {totalValueLabel ? (
           <Text style={styles.summaryText} testID={`${testID}-total-value`}>
@@ -154,8 +155,8 @@ const styles = StyleSheet.create({
   collectionPicker: {
     alignItems: 'center',
     flexDirection: 'row',
-    // The name alone is the picker trigger; its chevron was removed in design
-    // review (2026-11-16). Shrinks so a long name truncates before the total.
+    // No gap — the 24px chevron glyph carries its own optical padding, which is
+    // how it sits flush against the label in Figma 2749:4750.
     flexShrink: 1,
   },
   summaryRow: {

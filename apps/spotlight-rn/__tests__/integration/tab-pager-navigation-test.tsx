@@ -126,8 +126,12 @@ describe('tab pager <-> expo-router', () => {
         return toValue;
       }) as never);
 
+    // Past the launch window, where route changes jump instead of slide.
+    const launchedAt = Date.now();
+    const now = jest.spyOn(Date, 'now').mockReturnValue(launchedAt + 5_000);
     fireEvent.press(screen.getByTestId('app-tab-scan'));
     await waitFor(() => expect(app.getPathname()).toBe('/scan'));
+    now.mockRestore();
     // Focused route, but not live: `activePage` is what gates the camera.
     expect(stubText('scan')).toBe('focused:portfolio');
 

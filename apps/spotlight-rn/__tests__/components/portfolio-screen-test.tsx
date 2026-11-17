@@ -372,10 +372,6 @@ describe('PortfolioScreen', () => {
     // Figma 2749:4749 — collection picker on the left, running total on the right.
     expect(screen.getByTestId('collection-search-row-collection')).toBeTruthy();
     expect(within(screen.getByTestId('collection-search-row-collection')).getByText('MAIN COLLECTION')).toBeTruthy();
-    // Design review 2026-11-16: the picker trigger is the name alone, no chevron.
-    expect(
-      within(screen.getByTestId('collection-search-row-collection')).queryByTestId('iconoir-nav-arrow-down'),
-    ).toBeNull();
     /*
       The total is a PLACEHOLDER until it is real, and only then a number. The
       old assertion allowed either, because `$0` satisfies a currency pattern —

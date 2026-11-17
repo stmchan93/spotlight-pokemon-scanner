@@ -58,38 +58,17 @@ export const LAST_CARD_TO_TAB_BAR_GAP = 16;
  * visible portion, so the two platforms show the same fade above the bar.
  */
 /**
- * iOS draws NO white fade: content runs clean under the glass bar, like the
- * system bar (owner, 2026-11-16, "look like Reddit's"). White under white glass
- * washed the bar out. It gets a progressive BLUR instead (`TabBarBackdrop`).
- * Android keeps the fade — its bar is opaque and sits above content. Both are
- * drawn by the pager for every tab page, never by the pages themselves.
+ * Pages never draw their own fade under the bar: the pager draws Figma
+ * 5938:16991 (blur + white wash) for every tab page — `TabBarBackdrop`.
+ * Kept for Android-only callers that still read it.
  */
 export const tabBarBottomFadeVisible = Platform.OS === 'android';
 
 /**
- * How far the iOS progressive blur reaches ABOVE the bar's top edge before it
- * is fully clear. Short of `floatingAffordanceGap`, so a FAB resting above the
- * bar is never blurred.
+ * expo-blur strength for Figma 5938:16991's 4px backdrop blur: a light blur
+ * (intensity is a 0-100 fraction of the system material, not a radius).
  */
-export const TAB_BAR_BLUR_OVERHANG = spacing.lg;
-
-/** Total height of the iOS progressive blur for a bar of `barHeight`. */
-export function tabBarBlurHeight(barHeight: number): number {
-  return barHeight + TAB_BAR_BLUR_OVERHANG;
-}
-
-/**
- * The bands that step the blur up toward the bottom edge, drawn in order (each
- * later band is shorter and stronger, and paints over the earlier ones). The
- * top band is the faintest, so the blur dissolves into clear content above.
- */
-export const TAB_BAR_BLUR_BANDS: readonly { heightFraction: number; intensity: number }[] = [
-  { heightFraction: 1, intensity: 4 },
-  { heightFraction: 0.8, intensity: 8 },
-  { heightFraction: 0.6, intensity: 14 },
-  { heightFraction: 0.4, intensity: 22 },
-  { heightFraction: 0.2, intensity: 32 },
-];
+export const TAB_BAR_BACKDROP_BLUR_INTENSITY = 12;
 
 export const TAB_BAR_BOTTOM_FADE_DESIGN_HEIGHT = 95;
 const IOS_HOME_INDICATOR_INSET_IN_MOCK = 34;
