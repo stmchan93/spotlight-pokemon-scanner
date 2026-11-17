@@ -108,10 +108,13 @@ class MarketMoversTests(unittest.TestCase):
     # --- tests --------------------------------------------------------------
 
     def test_same_source_pair_required(self) -> None:
-        # A: then has only default_raw, now has both -> default_raw pair.
+        # A: main lane "now" but no main "then" -> no Scrydex fallback.
         self._card("a")
         self._series("a", 10.0, 15.0)
         self._daily("a", 0, default=15.0, main=99.0)
+        # D: Scrydex-only English USD card -> default_raw pair.
+        self._card("d")
+        self._series("d", 10.0, 15.0)
         # B: currency flips JPY -> USD between the ends -> excluded.
         self._card("b", language="Japanese")
         self._series("b", 1000.0, 1000.0, currency="JPY")
@@ -123,9 +126,9 @@ class MarketMoversTests(unittest.TestCase):
         self._daily("c", 0, default=500.0, main=30.0)
         items = self._items(self._compute())
         by_id = {item["cardId"]: item for item in items}
-        self.assertEqual(set(by_id), {"a", "c"})
-        self.assertEqual(by_id["a"]["source"], "default_raw")
-        self.assertEqual(by_id["a"]["changePercent"], 50.0)
+        self.assertEqual(set(by_id), {"c", "d"})
+        self.assertEqual(by_id["d"]["source"], "default_raw")
+        self.assertEqual(by_id["d"]["changePercent"], 50.0)
         self.assertEqual(by_id["c"]["source"], "main_raw")
         self.assertEqual((by_id["c"]["priceThen"], by_id["c"]["priceNow"]), (20.0, 30.0))
 
@@ -154,24 +157,56 @@ class MarketMoversTests(unittest.TestCase):
         items = self._items(self._compute())
         self.assertEqual([item["cardId"] for item in items], ["edge"])
 
-    def test_jpy_pair_converted_with_a_single_rate(self) -> None:
+    def test_scrydex_jpy_and_japanese_default_raw_never_rank(self) -> None:
+        # JPY-labelled Scrydex series: excluded even with an FX rate.
         self._card("jp", language="Japanese")
         self._series("jp", 1000.0, 1500.0, currency="JPY")
+        # Yen-sized values labelled USD (prod Umbreon adv4_ja-62 shape).
+        self._card("adv4_ja-62", language="Japanese")
+        self._series("adv4_ja-62", 15000.0, 21000.0, currency="USD")
+        # Japanese card on the TCGCSV main lane is real USD -> ranks.
+        self._card("bw1w_ja-27", language="Japanese")
+        self._series("bw1w_ja-27", 6.0, 9.0, main=True)
+        items = self._items(self._compute())
+        self.assertEqual([item["cardId"] for item in items], ["bw1w_ja-27"])
+        self.assertEqual(items[0]["source"], "main_raw")
+
+    def test_newest_row_without_main_raw_keeps_the_main_lane(self) -> None:
+        # Prod 2026-11-17: Scrydex wrote tomorrow's row before TCGCSV did.
+        self._card("umbreon")
+        for days_ago, price in ((30, 10.0), (20, 11.0), (10, 12.0), (1, 13.0)):
+            self._daily("umbreon", days_ago, default=price * 100, main=price)
+        self._daily("umbreon", 0, default=9000.0)
         item = self._items(self._compute())[0]
-        self.assertEqual(item["currencyCode"], "USD")
-        self.assertEqual(item["priceThen"], 6.7)
-        self.assertEqual(item["priceNow"], 10.05)
-        self.assertEqual(item["changePercent"], 50.0)
-        # Without an FX row the JPY pair is simply ineligible.
-        self.connection.execute("DELETE FROM fx_rate_snapshots")
-        self.assertEqual(self._items(self._compute()), [])
+        self.assertEqual(item["source"], "main_raw")
+        self.assertEqual((item["priceThen"], item["priceNow"]), (10.0, 13.0))
+        self.assertEqual(item["nowDate"], _d(1))
+        self.assertEqual(item["sparkPoints"], [10.0, 11.0, 12.0, 13.0])
+
+    def test_single_step_outlier_jump_is_dropped(self) -> None:
+        # Lucario ru1-12: flat ~$280, then one step to $2997.81.
+        self._card("ru1-12")
+        for days_ago in range(30, 7, -1):
+            self._daily("ru1-12", days_ago, main=280.48 if days_ago > 27 else 279.99)
+        for days_ago in range(7, -1, -1):
+            self._daily("ru1-12", days_ago, main=2997.81 - days_ago)
+        # A dip-and-recover spike mid-series also disqualifies.
+        self._card("dip")
+        for days_ago, price in ((30, 10.0), (20, 11.0), (15, 0.5), (10, 12.0), (0, 14.0)):
+            self._daily("dip", days_ago, main=price)
+        # A 4x move that climbs through intermediate prices is kept.
+        self._card("climb")
+        for days_ago, price in ((30, 10.0), (24, 15.0), (18, 22.0), (12, 30.0), (0, 40.0)):
+            self._daily("climb", days_ago, main=price)
+        items = self._items(self._compute())
+        self.assertEqual([item["cardId"] for item in items], ["climb"])
 
     def test_noise_filters(self) -> None:
         # Flat anchor that jumps once: only two distinct prices -> excluded.
-        self._card("anchor", language="Japanese")
+        self._card("anchor")
         for days_ago in range(30, 0, -1):
-            self._daily("anchor", days_ago, default=3000.0, currency="JPY")
-        self._daily("anchor", 0, default=9000.0, currency="JPY")
+            self._daily("anchor", days_ago, default=20.0)
+        self._daily("anchor", 0, default=30.0)
         # Glitch: +2000% -> excluded even with a smooth series.
         self._card("glitch")
         self._series("glitch", 10.0, 210.0)
@@ -188,7 +223,7 @@ class MarketMoversTests(unittest.TestCase):
     def test_top_five_per_game_in_game_order(self) -> None:
         for i in range(7):
             self._card(f"p{i}", language="Japanese" if i % 2 else "English")
-            self._series(f"p{i}", 10.0, 10.0 + i + 1)
+            self._series(f"p{i}", 10.0, 10.0 + i + 1, main=bool(i % 2))
         self._card("op1", game="onepiece")
         self._series("op1", 10.0, 12.0)
         self._card("op2", game="onepiece")

@@ -7,9 +7,12 @@ per version token (``market_movers_version_token``) and dogpile-guards the
 recompute; see ``SpotlightScanService.market_top_movers``.
 
 Guardrails, all deliberate:
-- "then" and "now" must come from the SAME price source: both TCGCSV main-lane
-  (always USD) or both Scrydex default-raw in the same display currency. Mixing
-  a Scrydex-JPY→USD "then" with a TCGCSV "now" manufactures phantom moves.
+- "then" and "now" must come from the SAME price source. A card with a
+  TCGCSV main-lane (USD) price "now" is ranked on that lane only, resolved per
+  source: Scrydex writes the next date's rows before TCGCSV does, and a newest
+  row without main_raw must not demote the card to Scrydex default-raw.
+- Scrydex default-raw is only a fallback for non-Japanese cards stored in USD.
+  Scrydex raw-JP values are JPY anchors (sometimes labelled USD); never yen.
 - price NOW must be >= ``min_price_usd`` (penny cards produce absurd %).
 - gainers only; a change above ``max_change_pct`` is treated as a data glitch.
 - a main-lane pair must also be the SAME printing (``main_raw_variant``): a
@@ -19,10 +22,14 @@ Guardrails, all deliberate:
 - the 30-day series must contain >= ``min_distinct_prices`` distinct values —
   Scrydex's raw-JP anchors are flat single values that occasionally jump, and
   this is what keeps them out of the list without any per-card denylist.
+- no single day-to-day step in the series may exceed ``MAX_STEP_MULTIPLE``
+  (either direction): a real move climbs through intermediate prices, a bad
+  data point teleports (Lucario ru1-12, 2026-11-09: $279.99 → $2997.81).
 """
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
@@ -48,6 +55,7 @@ DEFAULT_PER_GAME = 5
 DEFAULT_MIN_PRICE_USD = 5.0
 DEFAULT_MAX_CHANGE_PCT = 1000.0
 MIN_DISTINCT_PRICES = 3
+MAX_STEP_MULTIPLE = 3.0
 SPARKLINE_POINTS = 30
 # The series-based noise filter is applied in batches down the ranked list
 # until ``per_game`` survive: the very top of a raw ranking is dense with
@@ -75,7 +83,7 @@ class Candidate:
     card_id: str
     game: str
     source: str
-    currency: str  # source currency of the pair (USD or JPY)
+    currency: str  # always USD
     price_then: float  # USD
     price_now: float  # USD
     then_date: str
@@ -120,6 +128,50 @@ def _dates_in_window(connection: sqlite3.Connection, start: str, end: str) -> li
     return [str(row[0]) for row in rows]
 
 
+def _latest_rows_per_card(
+    connection: sqlite3.Connection,
+    *,
+    start: str,
+    end: str,
+    has_main_column: bool,
+    has_main_variant_column: bool = False,
+    expected_cards: int | None = None,
+) -> tuple[dict[str, _DailyRow], dict[str, _DailyRow]]:
+    """(newest row, newest row WITH a main_raw price) per card within
+    [start, end], resolved independently: the Scrydex and TCGCSV syncs land
+    on different dates. Reads one price_date at a time newest-first and stops
+    once every expected card has a main-lane row."""
+    main_col = "main_raw_market_price" if has_main_column else "NULL"
+    variant_col = "main_raw_variant" if has_main_variant_column else "NULL"
+    out: dict[str, _DailyRow] = {}
+    out_main: dict[str, _DailyRow] = {}
+    for price_date in _dates_in_window(connection, start, end):
+        rows = connection.execute(
+            "SELECT card_id, price_date, display_currency_code, "
+            f"default_raw_market_price, {main_col}, {variant_col} "
+            "FROM card_price_history_daily WHERE price_date = ?",
+            (price_date,),
+        ).fetchall()
+        for row in rows:
+            card_id = str(row[0])
+            if card_id in out and card_id in out_main:
+                continue
+            daily = _DailyRow(
+                card_id=card_id,
+                price_date=str(row[1]),
+                currency=str(row[2] or "USD").upper(),
+                default_raw=_as_float(row[3]),
+                main_raw=_as_float(row[4]),
+                main_variant=row[5],
+            )
+            out.setdefault(card_id, daily)
+            if daily.main_raw is not None:
+                out_main.setdefault(card_id, daily)
+        if expected_cards is not None and len(out_main) >= expected_cards:
+            break
+    return out, out_main
+
+
 def _latest_row_per_card(
     connection: sqlite3.Connection,
     *,
@@ -129,10 +181,7 @@ def _latest_row_per_card(
     has_main_variant_column: bool = False,
     expected_cards: int | None = None,
 ) -> dict[str, _DailyRow]:
-    """Newest daily row per card within [start, end]. Reads one price_date at a
-    time newest-first (an index-prefix search) and stops as soon as every
-    expected card is resolved — the sync writes nearly every card every day,
-    so this is usually a single date's worth of rows."""
+    """Newest daily row per card within [start, end] (feed_prices/meta_pulse)."""
     main_col = "main_raw_market_price" if has_main_column else "NULL"
     variant_col = "main_raw_variant" if has_main_variant_column else "NULL"
     out: dict[str, _DailyRow] = {}
@@ -183,8 +232,7 @@ def _jpy_usd_rate(connection: sqlite3.Connection) -> Decimal | None:
 def _same_source_pair(
     then_row: _DailyRow, now_row: _DailyRow, *, jpy_usd: Decimal | None
 ) -> tuple[str, str, float, float] | None:
-    """(source, currency, price_then_usd, price_now_usd) or None when the two
-    ends can't be compared like-for-like."""
+    """Single-row pairing used by feed_prices; Top Trends uses ``_usd_pair``."""
     if (
         then_row.main_raw is not None
         and now_row.main_raw is not None
@@ -204,6 +252,93 @@ def _same_source_pair(
             if then_usd is not None and now_usd is not None:
                 return SOURCE_DEFAULT_RAW, "JPY", then_usd, now_usd
     return None
+
+
+_JA_ID = re.compile(r"_ja(?:-|$)")
+
+
+def _is_japanese(card_id: str, language: str | None) -> bool:
+    """Scrydex JP ids look like ``adv4_ja-62``; language may be unknown."""
+    lang = (language or "").strip().lower()
+    return lang in ("ja", "jp", "japanese") or bool(_JA_ID.search(str(card_id).lower()))
+
+
+def _usd_pair(
+    *,
+    then_main: _DailyRow | None,
+    now_main: _DailyRow | None,
+    then_row: _DailyRow | None,
+    now_row: _DailyRow | None,
+    japanese: bool,
+) -> tuple[str, float, float] | None:
+    """(source, price_then_usd, price_now_usd) or None when the two ends can't
+    be compared like-for-like in USD."""
+    if now_main is not None:
+        # Main-lane card: TCGCSV only, same printing at both ends.
+        if then_main is not None and then_main.main_variant == now_main.main_variant:
+            return SOURCE_MAIN_RAW, then_main.main_raw, now_main.main_raw
+        return None
+    if japanese or then_row is None or now_row is None:
+        return None
+    if (
+        then_row.default_raw is not None
+        and now_row.default_raw is not None
+        and then_row.currency == "USD"
+        and now_row.currency == "USD"
+    ):
+        return SOURCE_DEFAULT_RAW, then_row.default_raw, now_row.default_raw
+    return None
+
+
+def has_outlier_step(points: list[float], *, max_multiple: float = MAX_STEP_MULTIPLE) -> bool:
+    """True when any consecutive pair differs by more than ``max_multiple``x."""
+    for prev, cur in zip(points, points[1:]):
+        if prev <= 0 or cur <= 0:
+            continue
+        if max(prev, cur) / min(prev, cur) > max_multiple:
+            return True
+    return False
+
+
+def outlier_step_card_ids(
+    connection: sqlite3.Connection,
+    specs: dict[str, tuple[str, str | None]],
+    *,
+    start: str,
+    end: str,
+    max_multiple: float = MAX_STEP_MULTIPLE,
+) -> set[str]:
+    """Card ids whose [start, end] USD series (``specs``: card_id -> (source,
+    main variant)) has a single step above ``max_multiple``x."""
+    if not specs:
+        return set()
+    columns = _table_columns(connection, "card_price_history_daily")
+    main_col = "main_raw_market_price" if "main_raw_market_price" in columns else "NULL"
+    variant_col = "main_raw_variant" if "main_raw_variant" in columns else "NULL"
+    series: dict[str, list[float]] = {}
+    ids = sorted(specs)
+    for offset in range(0, len(ids), 900):
+        chunk = ids[offset : offset + 900]
+        rows = connection.execute(
+            "SELECT card_id, display_currency_code, default_raw_market_price, "
+            f"{main_col}, {variant_col} FROM card_price_history_daily "
+            f"WHERE card_id IN ({','.join('?' for _ in chunk)}) AND price_date BETWEEN ? AND ? "
+            "ORDER BY card_id, price_date ASC",
+            (*chunk, start, end),
+        ).fetchall()
+        for card_id, currency, default_raw, main_raw, variant in rows:
+            source, want_variant = specs[str(card_id)]
+            if source == SOURCE_MAIN_RAW:
+                if variant != want_variant:
+                    continue
+                value = _as_float(main_raw)
+            else:
+                if str(currency or "USD").upper() != "USD":
+                    continue
+                value = _as_float(default_raw)
+            if value is not None:
+                series.setdefault(str(card_id), []).append(value)
+    return {card_id for card_id, points in series.items() if has_outlier_step(points, max_multiple=max_multiple)}
 
 
 def rank_candidates(
@@ -248,7 +383,6 @@ def _series_for_candidates(
     end: str,
     has_main_column: bool,
     has_main_variant_column: bool = False,
-    jpy_usd: Decimal | None,
 ) -> dict[str, list[float]]:
     """USD daily series (oldest→newest) per candidate, read from the SAME
     source column and currency the pair was built from."""
@@ -275,11 +409,9 @@ def _series_for_candidates(
                 continue
             value = _as_float(row[4])
         else:
-            if str(row[2] or "USD").upper() != candidate.currency:
+            if str(row[2] or "USD").upper() != "USD":
                 continue
             value = _as_float(row[3])
-            if value is not None and candidate.currency == "JPY":
-                value = convert_price(value, rate=jpy_usd) if jpy_usd is not None else None
         if value is not None:
             series[card_id].append(value)
     return series
@@ -312,23 +444,30 @@ def _card_metadata(connection: sqlite3.Connection, card_ids: list[str]) -> dict[
 
 
 def _card_games(connection: sqlite3.Connection, card_ids: list[str]) -> dict[str, str]:
-    """{card_id: game} for the cards that have a "now" price. One chunked read
-    over the primary key instead of joining cards into the 45k-row date scan."""
-    out: dict[str, str] = {}
-    if "game" not in _table_columns(connection, "cards"):
-        # Pre-multi-game catalog: everything is Pokémon.
-        return {card_id: "pokemon" for card_id in card_ids}
+    """{card_id: game}, sealed excluded (hot_cards)."""
+    return {card_id: game for card_id, (game, _) in _card_games_and_languages(connection, card_ids).items()}
+
+
+def _card_games_and_languages(
+    connection: sqlite3.Connection, card_ids: list[str]
+) -> dict[str, tuple[str, str | None]]:
+    """{card_id: (game, language)} for the cards that have a "now" price. One
+    chunked read over the primary key instead of joining cards into the
+    45k-row date scan."""
+    out: dict[str, tuple[str, str | None]] = {}
+    game_col = "game" if "game" in _table_columns(connection, "cards") else "'pokemon'"
     chunk = 900  # under SQLite's default variable limit
     for start in range(0, len(card_ids), chunk):
         ids = card_ids[start : start + chunk]
         placeholders = ",".join("?" for _ in ids)
         for row in connection.execute(
-            f"SELECT id, game, supertype FROM cards WHERE id IN ({placeholders})", tuple(ids)
+            f"SELECT id, {game_col}, supertype, language FROM cards WHERE id IN ({placeholders})",
+            tuple(ids),
         ):
             # Sealed product is priced daily too, but Top Trends is card gainers.
             if row[2] == SEALED_SUPERTYPE:
                 continue
-            out[str(row[0])] = str(row[1] or "pokemon")
+            out[str(row[0])] = (str(row[1] or "pokemon"), row[3])
     return out
 
 
@@ -364,12 +503,11 @@ def compute_top_movers(
     history_columns = _table_columns(connection, "card_price_history_daily")
     has_main_column = "main_raw_market_price" in history_columns
     has_main_variant_column = "main_raw_variant" in history_columns
-    jpy_usd = _jpy_usd_rate(connection)
 
     # Bound the "now" read too: once every catalog card has a row there is
     # nothing older dates can add (saves 3 more 45k-row reads on a cold disk).
     card_count = int(connection.execute("SELECT COUNT(*) FROM cards").fetchone()[0] or 0)
-    now_rows = _latest_row_per_card(
+    now_rows, now_main_rows = _latest_rows_per_card(
         connection,
         start=_iso(ref_date - timedelta(days=NOW_TOLERANCE_DAYS)),
         end=_iso(ref_date),
@@ -378,38 +516,47 @@ def compute_top_movers(
         expected_cards=card_count or None,
     )
     then_end = ref_date - timedelta(days=window_days)
-    then_rows = _latest_row_per_card(
+    then_rows, then_main_rows = _latest_rows_per_card(
         connection,
         start=_iso(then_end - timedelta(days=THEN_TOLERANCE_DAYS)),
         end=_iso(then_end),
         has_main_column=has_main_column,
         has_main_variant_column=has_main_variant_column,
-        expected_cards=len(now_rows),
+        expected_cards=len(now_main_rows),
     )
-    games = _card_games(connection, list(now_rows.keys()))
+    games = _card_games_and_languages(connection, list(now_rows.keys()))
 
     candidates: list[Candidate] = []
     for card_id, now_row in now_rows.items():
-        then_row = then_rows.get(card_id)
-        game = games.get(card_id)
+        card_info = games.get(card_id)
         # No game = not a card here (sealed product, or a row no longer in `cards`).
-        if then_row is None or game is None:
+        if card_info is None:
             continue
-        pair = _same_source_pair(then_row, now_row, jpy_usd=jpy_usd)
+        game, language = card_info
+        now_main = now_main_rows.get(card_id)
+        then_main = then_main_rows.get(card_id)
+        then_row = then_rows.get(card_id)
+        pair = _usd_pair(
+            then_main=then_main, now_main=now_main, then_row=then_row, now_row=now_row,
+            japanese=_is_japanese(card_id, language),
+        )
         if pair is None:
             continue
-        source, currency, price_then, price_now = pair
+        source, price_then, price_now = pair
+        then_end_row, now_end_row = (
+            (then_main, now_main) if source == SOURCE_MAIN_RAW else (then_row, now_row)
+        )
         candidates.append(
             Candidate(
                 card_id=card_id,
                 game=game,
                 source=source,
-                currency=currency,
+                currency="USD",
                 price_then=price_then,
                 price_now=price_now,
-                then_date=then_row.price_date,
-                now_date=now_row.price_date,
-                main_variant=now_row.main_variant if source == SOURCE_MAIN_RAW else None,
+                then_date=then_end_row.price_date,
+                now_date=now_end_row.price_date,
+                main_variant=now_main.main_variant if source == SOURCE_MAIN_RAW else None,
             )
         )
 
@@ -425,12 +572,14 @@ def compute_top_movers(
                 _series_for_candidates(
                     connection, batch, start=series_start, end=_iso(ref_date),
                     has_main_column=has_main_column,
-                    has_main_variant_column=has_main_variant_column, jpy_usd=jpy_usd,
+                    has_main_variant_column=has_main_variant_column,
                 )
             )
             for candidate in batch:
                 points = series.get(candidate.card_id) or []
                 if len({round(p, 2) for p in points}) < MIN_DISTINCT_PRICES:
+                    continue
+                if has_outlier_step(points):
                     continue
                 kept.append(candidate)
                 if len(kept) >= per_game:

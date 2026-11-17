@@ -58,8 +58,10 @@ from fx_rates import convert_price
 from market_movers import (
     NOW_TOLERANCE_DAYS,
     THEN_TOLERANCE_DAYS,
+    SOURCE_MAIN_RAW,
     _jpy_usd_rate,
-    _latest_row_per_card,
+    _latest_rows_per_card,
+    outlier_step_card_ids,
 )
 
 LANE_RAW = "raw"
@@ -839,7 +841,8 @@ def raw_distinct_price_counts(
 def drop_step_moves(
     connection: sqlite3.Connection, pairs: list[PricePair], *, start: date, end: date
 ) -> list[PricePair]:
-    """Drops big raw moves that are a single price step (see STEP_MOVE_PCT)."""
+    """Drops big raw moves that are a single price step (see STEP_MOVE_PCT) or
+    whose series jumps >MAX_STEP_MULTIPLE in one step (Lucario ru1-12)."""
     suspects = [p for p in pairs if p.lane == LANE_RAW and abs(p.change_pct) >= STEP_MOVE_PCT]
     if not suspects:
         return pairs
@@ -847,6 +850,10 @@ def drop_step_moves(
     dropped = {
         p.card_id for p in suspects if counts.get(p.card_id, 0) < MIN_DISTINCT_RAW_PRICES
     }
+    dropped |= outlier_step_card_ids(
+        connection, {p.card_id: (SOURCE_MAIN_RAW, p.variant) for p in suspects},
+        start=start.isoformat(), end=end.isoformat(),
+    )
     return [p for p in pairs if not (p.lane == LANE_RAW and p.card_id in dropped)]
 
 
@@ -1064,7 +1071,8 @@ def compute_meta_pulse(
     raw_now: dict = {}
     if has_main:
         total_cards = int(connection.execute("SELECT COUNT(*) FROM cards").fetchone()[0] or 0)
-        raw_now = _latest_row_per_card(
+        # Main-lane rows only: a newer Scrydex-only row must not hide the card.
+        _, raw_now = _latest_rows_per_card(
             connection,
             start=(ref_date - timedelta(days=NOW_TOLERANCE_DAYS)).isoformat(), end=ref_date.isoformat(),
             has_main_column=True, has_main_variant_column=has_main_variant,
@@ -1083,7 +1091,7 @@ def compute_meta_pulse(
         then_end = ref_date - timedelta(days=window)
         pairs: list[PricePair] = []
         if raw_now:
-            raw_then = _latest_row_per_card(
+            _, raw_then = _latest_rows_per_card(
                 connection,
                 start=(then_end - timedelta(days=THEN_TOLERANCE_DAYS)).isoformat(), end=then_end.isoformat(),
                 has_main_column=True, has_main_variant_column=has_main_variant,
@@ -1688,8 +1696,8 @@ def _cards_by_ids(connection: sqlite3.Connection, card_ids: Iterable[str], game:
 def _raw_latest_for_cards(
     connection: sqlite3.Connection, card_ids: list[str], *, start: date, end: date, has_variant: bool
 ) -> dict[str, tuple[float | None, str | None]]:
-    """Newest daily row per card in [start, end] (the job's ``_latest_row_per_card``
-    rule, index-probed by card id): {card_id: (main raw usd | None, main variant)}."""
+    """Newest daily row WITH a main-lane price per card in [start, end] (the
+    job's rule, index-probed by card id): {card_id: (main raw usd, variant)}."""
     variant_col = "main_raw_variant" if has_variant else "NULL"
     newest: dict[str, tuple[str, float | None, str | None]] = {}
     for offset in range(0, len(card_ids), SQL_CHUNK):
@@ -1701,9 +1709,11 @@ def _raw_latest_for_cards(
         ).fetchall()
         for card_id, price_date, price, variant in rows:
             price_value = float(price) if price is not None and float(price) > 0 else None
+            if price_value is None:
+                continue
             current = newest.get(str(card_id))
             day = str(price_date)[:10]
-            if current is None or day > current[0] or (day == current[0] and current[1] is None and price_value):
+            if current is None or day > current[0]:
                 newest[str(card_id)] = (day, price_value, variant)
     return {card_id: (price, variant) for card_id, (_, price, variant) in newest.items()}
 

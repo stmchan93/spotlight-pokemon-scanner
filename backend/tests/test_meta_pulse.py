@@ -658,6 +658,44 @@ class ComputeTests(unittest.TestCase):
         small = [PricePair(card_id="s0", game="pokemon", lane=LANE_RAW, price_then=40.0, price_now=36.0)]
         self.assertEqual(drop_step_moves(self.connection, small, start=today - timedelta(days=14), end=today), small)
 
+    def test_newer_scrydex_only_row_keeps_the_raw_lane(self) -> None:
+        # Prod 2026-11-17: Scrydex wrote the newest date before TCGCSV did.
+        for i in range(10):
+            card_id = f"v{i}"
+            self._card(card_id)
+            for days_ago in range(30, 0, -1):
+                self._raw(card_id, days_ago, 10.0 + i if days_ago > 3 else (10.0 + i) * 1.1)
+            self.connection.execute(
+                "INSERT INTO card_price_history_daily (card_id, provider, price_date, display_currency_code, "
+                "default_raw_market_price, updated_at) VALUES (?, 'scrydex', ?, 'USD', 15000.0, ?)",
+                (card_id, _d(0), utc_now()),
+            )
+        result = self._compute(games=["pokemon"], windows=[7])
+        self.assertEqual(result["rawPairs"]["7"], 10)
+        payload = build_meta_pulse_payload(self.connection, game="pokemon", window_days=7, lane="all")
+        group = next(g for g in payload["groups"] if g["groupKey"] == "vintage:raw")
+        self.assertAlmostEqual(group["medianChangePercent"], 10.0)
+        self.assertTrue(all(c["priceNow"] < 100 for c in group["topCards"]))
+
+    def test_single_step_multiple_jump_is_dropped_even_with_distinct_prices(self) -> None:
+        # Lucario ru1-12: 280.48 / 279.99, then one step to ~$2997.
+        self._card("ru1-12")
+        for days_ago in range(14, -1, -1):
+            price = 280.48 if days_ago > 10 else (279.99 if days_ago > 4 else 2997.81 - days_ago)
+            self._raw("ru1-12", days_ago, price)
+        # A real climb through intermediate prices stays.
+        self._card("climb")
+        for days_ago, price in ((14, 10.0), (11, 15.0), (8, 22.0), (4, 30.0), (0, 40.0)):
+            self._raw("climb", days_ago, price)
+        pairs = [
+            PricePair(card_id="ru1-12", game="pokemon", lane=LANE_RAW, price_then=279.99,
+                      price_now=2997.81, variant="Holofoil"),
+            PricePair(card_id="climb", game="pokemon", lane=LANE_RAW, price_then=10.0,
+                      price_now=40.0, variant="Holofoil"),
+        ]
+        kept = drop_step_moves(self.connection, pairs, start=TODAY - timedelta(days=14), end=TODAY)
+        self.assertEqual([p.card_id for p in kept], ["climb"])
+
     # --- exposure (v4) --------------------------------------------------------
 
     def _own(self, owner: str, card_id: str, *, quantity: int = 1, grader: str | None = None,
