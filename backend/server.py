@@ -10808,7 +10808,6 @@ class SpotlightScanService:
         ("assistant_messages", "owner_user_id = :owner"),
         ("assistant_threads", "owner_user_id = :owner"),
         ("assistant_usage", "owner_user_id = :owner"),
-        ("user_ai_settings", "owner_user_id = :owner"),
     )
 
     # ------------------------------------------------------------------

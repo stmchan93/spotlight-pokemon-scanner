@@ -1061,11 +1061,6 @@ CREATE TABLE IF NOT EXISTS assistant_usage (
     cost_usd REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (owner_user_id, day)
 );
-CREATE TABLE IF NOT EXISTS user_ai_settings (
-    owner_user_id TEXT PRIMARY KEY,
-    allow_mcp_edits INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL
-);
 
 -- Seed themes. INSERT OR IGNORE: restarts never duplicate or undo hand edits.
 INSERT OR IGNORE INTO art_themes (theme, facet, value) VALUES
