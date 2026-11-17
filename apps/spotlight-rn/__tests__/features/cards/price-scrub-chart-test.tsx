@@ -161,6 +161,12 @@ describe('PriceScrubChart', () => {
     expect(screen.queryByTestId('price-scrub-chart-cursor')).toBeNull();
   });
 
+  it('restingDot={false} draws no end dot at rest (Home)', () => {
+    renderChart({ restingDot: false });
+    expect(screen.getByTestId('price-scrub-chart-canvas')).toBeTruthy();
+    expect(screen.queryByTestId('price-scrub-chart-dot')).toBeNull();
+  });
+
   it('renders sales data', () => {
     renderChart({
       variant: 'sales',

@@ -5,7 +5,11 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SpotlightThemeProvider, colors } from '@spotlight/design-system';
 
-import { ProfileHeader } from '../../src/features/profile/components/profile-header';
+import {
+  PROFILE_SHEET_OVERLAP,
+  ProfileHeader,
+  profileHeaderSheetTop,
+} from '../../src/features/profile/components/profile-header';
 
 function renderHeader(node: React.ReactElement) {
   // SafeAreaProvider is required: the cover bleeds under the status bar by
@@ -62,14 +66,14 @@ describe('ProfileHeader', () => {
     const photoBlock = StyleSheet.flatten(screen.getByTestId('profile-header').props.style);
     expect(photoBlock.marginTop).toBeUndefined();
     expect(photoBlock.height).toBeUndefined();
-    expect(photoBlock.minHeight).toBe(286 + 59);
+    expect(photoBlock.minHeight).toBe(286 + (PROFILE_SHEET_OVERLAP - 16) + 59);
     withPhoto.unmount();
 
     renderHeader(<ProfileHeader displayName="Ash" initials="AK" />);
     const block = StyleSheet.flatten(screen.getByTestId('profile-header').props.style);
     expect(block.marginTop).toBeUndefined();
     expect(block.height).toBeUndefined();
-    expect(block.minHeight).toBe(286 + 59);
+    expect(block.minHeight).toBe(286 + (PROFILE_SHEET_OVERLAP - 16) + 59);
   });
 
   it('holds the tab bar 24pt off the stats row when there is no bio', () => {
@@ -78,16 +82,29 @@ describe('ProfileHeader', () => {
       Collection/Activity bar should "hug the top" with 24pt between it and the
       Fame/Followers/Following row, instead of an awkward gap.
 
-      The padding is 24 PLUS the sheet lip, because the tab bar's rounded white
-      band is drawn OVER the block's last 16pt — pad only 24 and the sheet eats
-      it and the stats row sits flush against the labels.
+      The padding is 24 PLUS the sheet overlap, because the tab bar's rounded
+      white band is drawn OVER the block's last PROFILE_SHEET_OVERLAP pt — pad
+      only 24 and the sheet eats it and the stats row sits flush against the
+      labels.
     */
     renderHeader(<ProfileHeader displayName="Ash" initials="AK" />);
 
     const content = StyleSheet.flatten(
       screen.getByTestId('profile-header-content').props.style,
     ) as { paddingBottom?: number };
-    expect(content.paddingBottom).toBe(16 + 24);
+    expect(content.paddingBottom).toBe(PROFILE_SHEET_OVERLAP + 24);
+  });
+
+  it('tucks the cover under the sheet deep enough for its 20pt continuous corners', () => {
+    /*
+      Design review 2026-11-16: "corner radius is missing 1 pixel on the left
+      and right". A continuous (squircle) 20pt corner curves for ~1.5x its
+      radius; with a 16pt lap its last pixel of curve hung below the cover's
+      bottom edge. The lap must cover the whole curve, while the visible sheet
+      top (shared with Events) stays where the design puts it.
+    */
+    expect(PROFILE_SHEET_OVERLAP).toBeGreaterThanOrEqual(Math.ceil(20 * 1.528));
+    expect(profileHeaderSheetTop(59)).toBe(59 + 286 - 16);
   });
 
   it('lets the action row own the bottom gap when there is one', () => {

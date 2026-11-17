@@ -103,6 +103,7 @@ import { EkalightMark } from '@/components/ekalight-mark';
 import { ScanTabIcon } from '@/components/nav-tab-icons';
 import {
   LAST_CARD_TO_TAB_BAR_GAP,
+  useAutomaticInsetListBottomPadding,
   useFloatingAffordanceBottom,
 } from '@/lib/tab-bar-insets';
 import { usePortfolioScreenModel } from '@/features/portfolio/hooks/use-portfolio-screen-model';
@@ -125,7 +126,7 @@ import { getFeedRefreshVersion } from '@/features/social/screens/new-post-screen
 import { AnalyticsEvent, watchlistKindForCardId } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { normalizeSocialLink } from '@/features/profile/social-link';
-import { ProfileHeader } from '@/features/profile/components/profile-header';
+import { PROFILE_SHEET_OVERLAP, ProfileHeader } from '@/features/profile/components/profile-header';
 import { buildProfileShareMessage } from '@/features/profile/profile-share';
 import { buildProfileDeepLink } from '@/features/profile/profile-link';
 import { SharePostSheet } from '@/features/social/components/share-post-sheet';
@@ -583,8 +584,10 @@ export function PortfolioScreen({
   const searchInputRef = useRef<TextInput>(null);
 
   // LIST PADDING: the last card rests 16pt above the tab bar's top edge. The
-  // grid's own 4pt closing band counts toward the 16.
-  const bottomNavClearance = useFloatingAffordanceBottom(
+  // grid's own 4pt closing band counts toward the 16. These lists run
+  // `contentInsetAdjustmentBehavior="automatic"`, so UIKit's own bottom inset is
+  // netted out (see `useAutomaticInsetListBottomPadding`).
+  const bottomNavClearance = useAutomaticInsetListBottomPadding(
     LAST_CARD_TO_TAB_BAR_GAP - (viewMode === 'grid' ? cardGrid.gap : 0),
   );
   const wishlistToastBottom = useFloatingAffordanceBottom(theme.spacing.lg);
@@ -2463,11 +2466,13 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   // The profile block inside the pinned chrome. Pulls the tab-bar wrapper's
-  // rounded, opaque 16pt top band UP over this header's cover bottom, so the
+  // rounded, opaque top band UP over this header's cover bottom, so the
   // sheet-top -> label gap is 16 once (not stacked) and the bar's corners
-  // notch into the cover. The bar paints above this sibling by tree order.
+  // notch into the cover. The overlap is deeper than that 16 so the
+  // continuous corners finish over the photo — see `PROFILE_SHEET_OVERLAP`.
+  // The bar paints above this sibling by tree order.
   pinnedBlock: {
-    marginBottom: -16,
+    marginBottom: -PROFILE_SHEET_OVERLAP,
   },
   activityEmptyText: {
     // Empty-Activity message: plain centered text, no card chrome and no press

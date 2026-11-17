@@ -35,6 +35,15 @@ describe('AppTabBar', () => {
     expect(Object.values(TAB_BAR_LABELS)).not.toContain('WISHLIST');
   });
 
+  it('keeps WATCHLIST whole: labels ignore the system text size and shrink before clipping', () => {
+    renderBar();
+    const label = screen.getByTestId('app-tab-label-wishlist');
+    expect(label.props.children).toBe('WATCHLIST');
+    expect(label.props.maxFontSizeMultiplier).toBe(1);
+    expect(label.props.adjustsFontSizeToFit).toBe(true);
+    expect(label.props.numberOfLines).toBe(1);
+  });
+
   it('marks the focused page selected for accessibility', () => {
     renderBar(2);
     expect(screen.getByTestId('app-tab-scan').props.accessibilityState).toEqual({ selected: true });

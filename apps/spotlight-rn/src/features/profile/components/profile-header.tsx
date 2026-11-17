@@ -80,6 +80,19 @@ const AVATAR_SIZE = 80;
 const SHEET_LIP_HEIGHT = 16;
 
 /**
+ * How far the white sheet (the tab-bar wrapper, `radii.xl` top corners) laps
+ * the cover. The cover runs this far under the sheet's top edge so the rounded
+ * corners finish over the PHOTO: a continuous 20pt corner curves for ~1.5x its
+ * radius, and with only the 16pt lip its last ~1pt of curve fell below the
+ * cover's bottom edge, leaving a 1px step at the left and right corners (design
+ * review 2026-11-16). The extra lap is hidden under the sheet — the visible
+ * geometry (sheet top, label gap, content gap) is unchanged.
+ */
+export const PROFILE_SHEET_OVERLAP = SHEET_LIP_HEIGHT * 2;
+/** Cover hidden under the sheet beyond the designed lip. */
+const COVER_TUCK = PROFILE_SHEET_OVERLAP - SHEET_LIP_HEIGHT;
+
+/**
  * Where the white sheet under a resting profile header begins, from the top of
  * the screen. Other cover-and-sheet tabs (Events) start their sheet on the same
  * line so switching tabs doesn't make it jump.
@@ -138,7 +151,7 @@ export function ProfileHeader({
       style={[
         styles.block,
         {
-          minHeight: MIN_CONTENT_HEIGHT + insets.top,
+          minHeight: MIN_CONTENT_HEIGHT + COVER_TUCK + insets.top,
           // Ground under the scrim before the photo decodes, or with no cover
           // (Figma 4134:50938).
           backgroundColor: theme.colors.gray500,
@@ -190,7 +203,7 @@ export function ProfileHeader({
             paddingTop: insets.top + avatarTop,
             // The action row carries its own bottom spacing; without one this is
             // what holds the tab bar off the stats row.
-            paddingBottom: actionRow ? 0 : SHEET_LIP_HEIGHT + CONTENT_BOTTOM_GAP,
+            paddingBottom: actionRow ? 0 : PROFILE_SHEET_OVERLAP + CONTENT_BOTTOM_GAP,
           },
         ]}
         testID={`${testID}-content`}
@@ -301,8 +314,8 @@ export function ProfileHeader({
         The white sheet lip that used to render here moved onto the tab-bar
         wrapper in both consumer screens: they pull the bar's rounded, opaque
         16pt top band up over this block's bottom edge, and a lip under it was
-        invisible dead paint. `SHEET_LIP_HEIGHT` survives as the overlap the
-        action row's bottom margin must clear.
+        invisible dead paint. `PROFILE_SHEET_OVERLAP` is that overlap, which
+        the bottom padding and the action row's bottom margin must clear.
       */}
     </View>
   );
@@ -391,7 +404,7 @@ const styles = StyleSheet.create({
     // VISIBLE gap below is measured to the white sheet's top edge — and the
     // 22pt sheet lip is drawn absolutely OVER the block's last 22pt, so the
     // margin must clear the lip first or the sheet swallows the buttons.
-    marginBottom: SHEET_LIP_HEIGHT + 20,
+    marginBottom: PROFILE_SHEET_OVERLAP + 20,
     marginTop: 20,
   },
   bio: {

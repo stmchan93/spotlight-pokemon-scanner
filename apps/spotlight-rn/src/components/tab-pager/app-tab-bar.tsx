@@ -69,6 +69,10 @@ const AVATAR_SIZE = TAB_ICON_POINTS;
 const TAB_PADDING_TOP = 6;
 const TAB_PADDING_BOTTOM = 7;
 const TAB_GAP = 1;
+// Labels never grow with the system text size (the cell is a fixed 1/5 of the
+// bar) and may shrink to 80% before ellipsizing.
+const TAB_LABEL_MAX_FONT_SCALE = 1;
+const TAB_LABEL_MIN_FONT_SCALE = 0.8;
 // The iOS 26 glass capsule hugs the item row by this much on every side.
 const GLASS_OUTSET = 4;
 const ROW_SIDE_INSET = spacing.sm;
@@ -217,12 +221,34 @@ function SocialAvatar({ focused, position }: { focused: boolean; position: Share
   );
 }
 
-function TabLabel({ label, page, position }: { label: string; page: number; position: SharedValue<number> }) {
+function TabLabel({
+  label,
+  page,
+  position,
+  tab,
+}: {
+  label: string;
+  page: number;
+  position: SharedValue<number>;
+  tab: PagerTab;
+}) {
   const color = useAnimatedStyle(() => ({
     color: blendColor(pageSelectedness(position.value, page), scanProximity(position.value)),
   }));
   return (
-    <Reanimated.Text numberOfLines={1} style={[styles.label, color]}>
+    <Reanimated.Text
+      // WATCHLIST, the longest label, was ellipsized under larger text sizes
+      // ("watchlist label is blocked", design review 2026-11-16): this raw Text
+      // took the device's full font scale into a fixed 1/5-width cell. Tab
+      // labels hold their size like UITabBar's, and shrink rather than clip on
+      // the narrowest phones.
+      adjustsFontSizeToFit
+      maxFontSizeMultiplier={TAB_LABEL_MAX_FONT_SCALE}
+      minimumFontScale={TAB_LABEL_MIN_FONT_SCALE}
+      numberOfLines={1}
+      style={[styles.label, color]}
+      testID={`app-tab-label-${tab}`}
+    >
       {label}
     </Reanimated.Text>
   );
@@ -345,7 +371,7 @@ export function AppTabBar({ bottomInset, focusedPage, glassEpoch = 0, onSelectPa
               testID={`app-tab-${tab}`}
             >
               <View style={styles.iconSlot}>{icon}</View>
-              <TabLabel label={label} page={page} position={position} />
+              <TabLabel label={label} page={page} position={position} tab={tab} />
             </Pressable>
           );
         })}

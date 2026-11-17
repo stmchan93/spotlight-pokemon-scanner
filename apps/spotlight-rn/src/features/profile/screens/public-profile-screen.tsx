@@ -49,7 +49,7 @@ import {
   unfollowUser,
 } from '@/features/profile/profile-service';
 import { normalizeSocialLink } from '@/features/profile/social-link';
-import { ProfileHeader } from '@/features/profile/components/profile-header';
+import { PROFILE_SHEET_OVERLAP, ProfileHeader } from '@/features/profile/components/profile-header';
 import { findOrCreateDm } from '@/features/social/dm-service';
 import { PostCard } from '@/features/social/components/post-card';
 import { RepostAttribution } from '@/features/social/components/repost-attribution';
@@ -845,11 +845,12 @@ export function PublicProfileScreen({
   );
 
   const pagerHeader = (
-    // marginBottom -16: the tab-bar wrapper (rounded top, opaque 16) slides up
+    // Negative margin: the tab-bar wrapper (rounded top, opaque 16) slides up
     // OVER this header's cover bottom, so the sheet-top -> label gap is 16
-    // once and the corners notch into the cover. NO zIndex — the bar must
+    // once and the corners notch into the cover (deep enough that they finish
+    // over the photo — see `PROFILE_SHEET_OVERLAP`). NO zIndex — the bar must
     // paint above this sibling.
-    <View style={[styles.chrome, { backgroundColor: theme.colors.gray0, marginBottom: -16 }]}>
+    <View style={[styles.chrome, { backgroundColor: theme.colors.gray0, marginBottom: -PROFILE_SHEET_OVERLAP }]}>
       <ProfileHeader
         // 22 between the floating back bubble and the avatar (Figma
         // 4157:74176 -> 74405): bubble spans insets.top+8..+52, so 52+22 = 74.

@@ -4,8 +4,10 @@ import { useRouter } from 'expo-router';
 
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import {
+  LAST_CARD_TO_TAB_BAR_GAP,
   TabScreenProvider,
   floatingAffordanceGap,
+  resolveAutomaticInsetListBottomPadding,
   resolveFloatingAffordanceBottom,
 } from '@/lib/tab-bar-insets';
 
@@ -146,5 +148,35 @@ describe('floating affordance placement', () => {
         TEST_SAFE_AREA_BOTTOM + floatingAffordanceGap,
       );
     });
+  });
+});
+
+describe('resolveAutomaticInsetListBottomPadding', () => {
+  // iPhone 16 Pro: home indicator 34, so the JS bar is 8 + 54 + 34 = 96.
+  const BAR = 96;
+  const HOME_INDICATOR = 34;
+
+  it('iOS: nets out the home indicator UIKit already adds, so the last card rests exactly 16 above the bar', () => {
+    const padding = resolveAutomaticInsetListBottomPadding({
+      os: 'ios',
+      safeAreaBottom: BAR,
+      isTabScreen: true,
+      gap: LAST_CARD_TO_TAB_BAR_GAP,
+      windowBottomInset: HOME_INDICATOR,
+    });
+    // Where the list actually ends, measured from the screen bottom, less the bar.
+    expect(padding + HOME_INDICATOR - BAR).toBe(16);
+  });
+
+  it('Android: the automatic inset is a no-op, so it is the plain gap over the pre-inset container', () => {
+    expect(
+      resolveAutomaticInsetListBottomPadding({
+        os: 'android',
+        safeAreaBottom: 48,
+        isTabScreen: true,
+        gap: LAST_CARD_TO_TAB_BAR_GAP,
+        windowBottomInset: 48,
+      }),
+    ).toBe(16);
   });
 });

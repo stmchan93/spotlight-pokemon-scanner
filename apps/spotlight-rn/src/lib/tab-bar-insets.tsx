@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import { Platform } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { initialWindowMetrics, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { spacing } from '@spotlight/design-system';
 
@@ -156,5 +156,53 @@ export function useFloatingAffordanceBottom(gap: number = floatingAffordanceGap)
     safeAreaBottom: insets.bottom,
     isTabScreen,
     gap,
+  });
+}
+
+type AutomaticInsetListBottomPaddingArgs = FloatingAffordanceBottomArgs & {
+  /**
+   * The WINDOW's bottom safe area (home indicator), which UIKit already adds to
+   * a scroll view running `contentInsetAdjustmentBehavior="automatic"`.
+   */
+  windowBottomInset: number;
+};
+
+/**
+ * `paddingBottom` for a tab page's list that runs
+ * `contentInsetAdjustmentBehavior="automatic"`, so its last item rests `gap`
+ * above the tab bar's top edge.
+ *
+ * iOS: UIKit already insets such a list by the window's home-indicator area
+ * (it knows nothing of our JS bar), so padding by the full bar height counted
+ * that 34pt twice and the last card floated ~50pt above the bar instead of 16
+ * (design review 2026-11-16). Subtract what UIKit adds. Android: the prop is a
+ * no-op, so this equals {@link resolveFloatingAffordanceBottom}.
+ *
+ * Lists on RN's `never` default (Watchlist) want the floating-affordance value.
+ */
+export function resolveAutomaticInsetListBottomPadding({
+  windowBottomInset,
+  ...args
+}: AutomaticInsetListBottomPaddingArgs): number {
+  const clearance = resolveFloatingAffordanceBottom(args);
+  if (args.os !== 'ios') {
+    return clearance;
+  }
+  return Math.max(clearance - Math.max(windowBottomInset, 0), 0);
+}
+
+/** Hook form of {@link resolveAutomaticInsetListBottomPadding}. */
+export function useAutomaticInsetListBottomPadding(gap: number = LAST_CARD_TO_TAB_BAR_GAP): number {
+  const insets = useSafeAreaInsets();
+  const isTabScreen = useContext(TabScreenContext);
+
+  return resolveAutomaticInsetListBottomPadding({
+    os: Platform.OS,
+    safeAreaBottom: insets.bottom,
+    isTabScreen,
+    gap,
+    // The window's, not the context's: inside the pager the context's bottom is
+    // the whole bar. Same source the bar itself is sized from.
+    windowBottomInset: initialWindowMetrics?.insets.bottom ?? 0,
   });
 }

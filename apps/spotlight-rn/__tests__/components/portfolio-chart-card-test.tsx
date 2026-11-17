@@ -82,6 +82,13 @@ describe('PortfolioChartCard', () => {
     expect(screen.getByTestId('portfolio-price-chart-fill')).toBeTruthy();
   });
 
+  it('draws no positioning dot on the line at rest', () => {
+    renderChart();
+    layoutChart();
+    expect(screen.getByTestId('portfolio-price-chart-canvas')).toBeTruthy();
+    expect(screen.queryByTestId('portfolio-price-chart-dot')).toBeNull();
+  });
+
   it('emits onActivePointChange while the user scrubs the chart', () => {
     const { onActivePointChange } = renderChart();
 
