@@ -46,6 +46,8 @@ class AssistantConfig:
     daily_limit: int = 3
     guest_daily_limit: int = 1
     unlimited_user_ids: frozenset[str] = field(default_factory=frozenset)
+    # Staging: no per-user limit for anyone; the spend cap still applies.
+    unlimited_all: bool = False
     daily_spend_cap_usd: float = 5.0
     max_tool_rounds: int = 4
     max_output_tokens: int = 4000
@@ -60,6 +62,7 @@ class AssistantConfig:
             daily_limit=max(0, _env_int("ASSISTANT_DAILY_LIMIT", 3)),
             guest_daily_limit=max(0, _env_int("ASSISTANT_GUEST_DAILY_LIMIT", 1)),
             unlimited_user_ids=_env_ids("ASSISTANT_UNLIMITED_USER_IDS"),
+            unlimited_all=_env_flag("ASSISTANT_UNLIMITED_ALL"),
             daily_spend_cap_usd=max(0.0, _env_float("ASSISTANT_DAILY_SPEND_CAP_USD", 5.0)),
             max_tool_rounds=max(1, _env_int("ASSISTANT_MAX_TOOL_ROUNDS", 4)),
             max_output_tokens=max(256, _env_int("ASSISTANT_MAX_OUTPUT_TOKENS", 4000)),
@@ -68,7 +71,7 @@ class AssistantConfig:
 
     def limit_for(self, user_id: str, *, is_guest: bool) -> int | None:
         """Questions per UTC day; None = unlimited."""
-        if user_id in self.unlimited_user_ids:
+        if self.unlimited_all or user_id in self.unlimited_user_ids:
             return None
         return self.guest_daily_limit if is_guest else self.daily_limit
 

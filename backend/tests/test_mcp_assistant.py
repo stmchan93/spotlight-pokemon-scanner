@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import tempfile
 import time
@@ -13,6 +14,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_ROOT.parent
@@ -269,6 +271,15 @@ class LimitTests(AssistantCase):
         self.assertIsNone(usage["limit"])
         self.assertIsNone(usage["remaining_today"])
         self.assertEqual(usage["used_today"], 5)
+
+    def test_unlimited_all_lifts_limit_for_everyone(self) -> None:
+        from mcp_server.assistant.config import AssistantConfig
+
+        config = AssistantConfig(unlimited_all=True)
+        self.assertIsNone(config.limit_for("anyone", is_guest=False))
+        self.assertIsNone(config.limit_for("guest", is_guest=True))
+        with mock.patch.dict(os.environ, {"ASSISTANT_UNLIMITED_ALL": "1"}):
+            self.assertTrue(AssistantConfig.from_env().unlimited_all)
 
     def test_failed_turn_is_not_counted(self) -> None:
         self.client.queue(RuntimeError("network down"))
