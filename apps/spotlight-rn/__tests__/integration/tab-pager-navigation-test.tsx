@@ -113,6 +113,20 @@ describe('tab pager <-> expo-router', () => {
     expect(stubText('social')).toBe('focused:portfolio');
   });
 
+  it('jumps (no slide) for launch routing before the user has touched the strip', async () => {
+    const app = renderAppRouter('/', STUBS);
+    await waitFor(() => expect(screen.getByTestId('stub-index')).toBeTruthy());
+    const withTiming = jest.spyOn(Reanimated, 'withTiming');
+
+    // A redirect / deep link nobody tapped: the strip must not play a swipe.
+    act(() => {
+      router.navigate('/wishlist');
+    });
+    await waitFor(() => expect(app.getPathname()).toBe('/wishlist'));
+    expect(withTiming).not.toHaveBeenCalled();
+    withTiming.mockRestore();
+  });
+
   it('keeps the camera off until the strip has SETTLED on Scan', async () => {
     const app = renderAppRouter('/', STUBS);
     await waitFor(() => expect(screen.getByTestId('stub-index')).toBeTruthy());
@@ -126,12 +140,8 @@ describe('tab pager <-> expo-router', () => {
         return toValue;
       }) as never);
 
-    // Past the launch window, where route changes jump instead of slide.
-    const launchedAt = Date.now();
-    const now = jest.spyOn(Date, 'now').mockReturnValue(launchedAt + 5_000);
     fireEvent.press(screen.getByTestId('app-tab-scan'));
     await waitFor(() => expect(app.getPathname()).toBe('/scan'));
-    now.mockRestore();
     // Focused route, but not live: `activePage` is what gates the camera.
     expect(stubText('scan')).toBe('focused:portfolio');
 

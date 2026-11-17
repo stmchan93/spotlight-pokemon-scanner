@@ -142,8 +142,6 @@ const HORIZONTAL_BIAS = 1;
 const GUARD_WINDOW_MS = 50;
 /** Bar-tap slide. */
 const TAP_SLIDE_MS = 280;
-/** A route change this soon after the pager mounts is launch routing: jump, don't slide. */
-const LAUNCH_JUMP_WINDOW_MS = 1500;
 /** Release spring: near-critically damped, clamped so the strip never overshoots a page. */
 const SETTLE_SPRING = { damping: 30, mass: 1, overshootClamping: true, stiffness: 260 } as const;
 /**
@@ -387,10 +385,12 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
   // ── Route -> strip ─────────────────────────────────────────────────────────
   /** The page a finished swipe just put the strip on, so the route echo doesn't re-animate. */
   const settledBySwipeRef = useRef<number | null>(null);
-  // Route changes right after mount (the cold-start `/` -> Home redirect, a
-  // launch deep link) JUMP: sliding there played a five-page swipe on every
-  // app open (owner, 2026-11-16).
-  const mountedAtRef = useRef(Date.now());
+  // Until the user has touched the strip (a bar tap or a swipe), route changes
+  // are launch routing — the cold-start `/` -> Home redirect, a launch deep
+  // link, an auth redirect — and JUMP. Sliding there played a five-page swipe
+  // on every app open (owner, 2026-11-16). A time window was not enough: auth
+  // can hold the redirect back for seconds on a device.
+  const userMovedStripRef = useRef(false);
   useEffect(() => {
     if (focusedPage < 0) {
       return;
@@ -402,7 +402,7 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
       return;
     }
     settledBySwipeRef.current = null;
-    if (Date.now() - mountedAtRef.current < LAUNCH_JUMP_WINDOW_MS) {
+    if (!userMovedStripRef.current) {
       position.value = focusedPage;
       setSettledPage(focusedPage);
       return;
@@ -433,6 +433,7 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
   latest.current = { focusedPage, navigation, state };
 
   const handleSwipeSettled = useCallback((page: number, fromPage: number) => {
+    userMovedStripRef.current = true;
     const current = latest.current;
     if (page === current.focusedPage) {
       setSettledPage(page);
@@ -461,6 +462,7 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
   }, [mountPage]);
 
   const handleSelectPage = useCallback((page: number) => {
+    userMovedStripRef.current = true;
     const current = latest.current;
     const route = current.state.routes.find((candidate) => candidate.name === TAB_PAGER_ORDER[page]);
     if (!route) {

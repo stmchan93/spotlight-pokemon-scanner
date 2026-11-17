@@ -367,7 +367,10 @@ export function HomeHeader({
             },
           ] satisfies GlassNavBubbleGroupItem[]
         }
+        // Frost, like the search bubble beside it (Figma 5656:10066).
+        material="frost"
         size="medium"
+        surface={chromeSurface}
         testID={`${testID}-trailing`}
       />
     ) : (
@@ -464,7 +467,7 @@ export function HomeHeader({
             // `kind: 'home'` is the FEED (Social tab); its magnifier finds PEOPLE.
             <GlassNavBubble
               accessibilityLabel="Search people"
-              material="glass"
+              material="frost"
               onPress={onOpenSearch}
               size="medium"
               surface={chromeSurface}
