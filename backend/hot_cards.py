@@ -136,7 +136,7 @@ def _window_events(
     if _table_exists(connection, "scan_events"):
         for row in connection.execute(
             f"SELECT owner_user_id, {_scan_card_expr()}, created_at FROM scan_events "
-            "WHERE created_at >= ? AND created_at <= ?",
+            "WHERE created_at >= ? AND created_at <= ? AND scan_id NOT LIKE 'mcp-%'",
             (start, end),
         ):
             user = str(row[0] or "").strip()
@@ -190,7 +190,7 @@ def _baseline_user_days(
     if _table_exists(connection, "scan_events"):
         for row in connection.execute(
             f"SELECT owner_user_id, {_scan_card_expr()}, created_at FROM scan_events "
-            "WHERE created_at >= ? AND created_at < ?",
+            "WHERE created_at >= ? AND created_at < ? AND scan_id NOT LIKE 'mcp-%'",
             (start, end),
         ):
             user = str(row[0] or "").strip()

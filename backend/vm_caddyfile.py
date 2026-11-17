@@ -15,14 +15,16 @@ import sys
 
 BACKEND_UPSTREAM = "127.0.0.1:8788"
 MCP_UPSTREAM = "127.0.0.1:8790"
-# Paths owned by the separate MCP process (spotlight-mcp.service).
+# Paths owned by the separate MCP process (spotlight-mcp.service), incl. the
+# in-app assistant API. `handle @mcp` wins over the matcher-less catch-all
+# `handle` (Caddy sorts handles by matcher specificity; only one runs).
 MCP_PATHS = (
     "/mcp",
     "/mcp/*",
     "/.well-known/oauth-protected-resource",
     "/.well-known/oauth-protected-resource/*",
     "/oauth/consent",
-    # In-app AI chat (mcp_server/assistant).
+    "/api/v1/assistant",
     "/api/v1/assistant/*",
 )
 
