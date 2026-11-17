@@ -2678,6 +2678,20 @@ export type NotificationPrefsResult =
   | { status: 'failed'; prefs: null };
 
 /**
+ * "Use with AI" settings. `allowMcpEdits` = "Let AI assistants edit my
+ * collection": off by default; when on, the Claude/ChatGPT connector may add
+ * cards, change quantity/condition and watch cards (never delete).
+ */
+export type AiSettings = {
+  allowMcpEdits: boolean;
+};
+
+/** Non-throwing write outcome, so an optimistic Switch knows whether to revert. */
+export type AiSettingsResult =
+  | { status: 'ok'; settings: AiSettings }
+  | { status: 'failed'; settings: null };
+
+/**
  * The Alerts screen's three switches. ALL DEFAULT TRUE (server + here).
  * `dealAlertsEnabled` is the same server flag as `NotificationPrefs`'.
  */

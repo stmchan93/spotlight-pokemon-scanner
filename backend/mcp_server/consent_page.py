@@ -50,7 +50,8 @@ code{background:#111;padding:2px 6px;border-radius:6px;word-break:break-all}
 
   <div id="consent" class="hidden">
     <h1 id="title">Allow access?</h1>
-    <p><b id="client"></b> wants to read your Ekalight collection, prices and wishlist.</p>
+    <p><b id="client"></b> wants to read your Ekalight collection, prices and Watchlist.</p>
+    <p class="muted">It can add cards, change quantities or watch cards only if you turn on "Let AI assistants edit my collection" in the Ekalight app. It can never delete cards.</p>
     <p class="muted">Signed in as <span id="who"></span> · <a href="#" id="switch" style="color:#9d8bff">not you?</a></p>
     <p class="muted">It will send you back to <code id="redirect"></code></p>
     <div id="loopback" class="warn hidden">This sends the approval to an app running on your own computer (for example Claude Code). Only approve if you just started this.</div>

@@ -297,6 +297,12 @@ export function createTestSpotlightRepository(
       return overrides.setNotificationPrefs?.(...args)
         ?? baseRepository.setNotificationPrefs(...args);
     },
+    getAiSettings: (...args) => {
+      return overrides.getAiSettings?.(...args) ?? baseRepository.getAiSettings(...args);
+    },
+    setAiSettings: (...args) => {
+      return overrides.setAiSettings?.(...args) ?? baseRepository.setAiSettings(...args);
+    },
     fetchAlertPreferences: (...args) => {
       return overrides.fetchAlertPreferences?.(...args)
         ?? baseRepository.fetchAlertPreferences(...args);

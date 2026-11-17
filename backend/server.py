@@ -189,6 +189,7 @@ import calendar_feed
 import expo_push
 import hot_cards
 import market_alerts
+import user_ai_settings
 import watch_printings
 import meta_pulse
 import news_feed
@@ -2504,6 +2505,8 @@ class SpotlightScanService:
             youtube_feed.ensure_schema(bootstrap_connection)  # includes news_feed's tables
             # Alert prefs/timezone columns + the market-alert ledger (after the deal-radar patch).
             market_alerts.ensure_schema(bootstrap_connection)
+            # "Let AI assistants edit my collection" + MCP write idempotency.
+            user_ai_settings.ensure_schema(bootstrap_connection)
             bootstrap_connection.commit()
             self.index = load_index(bootstrap_connection)
         finally:
@@ -4820,6 +4823,19 @@ class SpotlightScanService:
         )
         self.connection.commit()
         return {"dealAlertsEnabled": deal, "targetHitsEnabled": target}
+
+    def ai_settings(self) -> dict[str, Any]:
+        """Absent row = off: MCP connectors stay read-only until the owner opts in."""
+        owner_user_id = self._current_owner_user_id()
+        return {"allow_mcp_edits": user_ai_settings.allow_mcp_edits(self.connection, owner_user_id)}
+
+    def set_ai_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        value = payload.get("allow_mcp_edits")
+        if not isinstance(value, bool):
+            raise ValueError("allow_mcp_edits must be a boolean")
+        user_ai_settings.set_allow_mcp_edits(self.connection, owner_user_id, value)
+        return {"allow_mcp_edits": value}
 
     def alert_prefs(self) -> dict[str, Any]:
         """The Alerts switches (+ stored zone) for THIS owner. Absent row = all on."""
@@ -10771,6 +10787,8 @@ class SpotlightScanService:
         ("scan_events", "owner_user_id = :owner"),
         ("card_favorites", "owner_user_id = :owner"),
         ("card_likes", "owner_user_id = :owner"),
+        ("user_ai_settings", "owner_user_id = :owner"),
+        ("mcp_write_requests", "owner_user_id = :owner"),
         ("card_views", "owner_user_id = :owner"),
         ("card_transactions", "owner_user_id = :owner"),
         ("collections", "owner_user_id = :owner"),
@@ -26148,6 +26166,14 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.OK, self.service.notification_prefs())
             return
 
+        if parsed.path == "/api/v1/me/ai-settings":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            with self.service.request_identity_context(identity):
+                self._write_json(HTTPStatus.OK, self.service.ai_settings())
+            return
+
         if parsed.path == "/api/v1/notifications/alert-prefs":
             identity = self._require_request_identity()
             if identity is None:
@@ -27625,6 +27651,27 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 daemon=True,
             ).start()
             self._write_json(HTTPStatus.OK, {"status": "started"})
+            return
+
+        if parsed.path == "/api/v1/me/ai-settings":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            payload = self._read_json_body()
+            if payload is None:
+                self._write_json(
+                    getattr(self, "_json_body_error_status", HTTPStatus.BAD_REQUEST)
+                    or HTTPStatus.BAD_REQUEST,
+                    {"error": getattr(self, "_json_body_error_message", None) or "Invalid JSON body"},
+                )
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    settings_payload = self.service.set_ai_settings(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            self._write_json(HTTPStatus.OK, settings_payload)
             return
 
         if parsed.path in {

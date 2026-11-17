@@ -1052,3 +1052,16 @@ INSERT OR IGNORE INTO art_themes (theme, facet, value) VALUES
     ('sleepy', 'activity', 'sleeping'),
     ('sleepy', 'activity', 'resting'),
     ('sleepy', 'objects', 'bed_pillow');
+
+-- "Let AI assistants edit my collection" (absent row = off). DDL is shared
+-- verbatim with backend/user_ai_settings.py and the chat backend.
+CREATE TABLE IF NOT EXISTS user_ai_settings (
+  owner_user_id TEXT PRIMARY KEY, allow_mcp_edits INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
+);
+
+-- MCP write-tool idempotency (request_id per owner); see backend/user_ai_settings.py.
+CREATE TABLE IF NOT EXISTS mcp_write_requests (
+  owner_user_id TEXT NOT NULL, request_id TEXT NOT NULL, tool TEXT NOT NULL,
+  response_json TEXT, created_at TEXT NOT NULL,
+  PRIMARY KEY (owner_user_id, request_id)
+);

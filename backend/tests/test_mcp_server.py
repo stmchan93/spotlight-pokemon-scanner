@@ -324,9 +324,18 @@ class HttpAppTests(_SeededDb):
         status, _, body = self.rpc("tools/list", token=make_jwt("user-a"))
         self.assertEqual(status, 200)
         tools = {tool["name"]: tool for tool in body["result"]["tools"]}
-        self.assertEqual(set(tools), {"list_facets", "search_cards", "get_card", "get_my_collection",
-                                      "get_portfolio_summary", "find_missing", "get_price_history"})
-        self.assertTrue(all(tool["annotations"]["readOnlyHint"] for tool in tools.values()))
+        read_tools = {"list_facets", "search_cards", "get_card", "get_my_collection",
+                      "get_portfolio_summary", "find_missing", "get_price_history"}
+        write_tools = {"add_to_collection", "update_holding", "watch_card"}
+        self.assertEqual(set(tools), read_tools | write_tools)
+        self.assertTrue(all(tools[name]["annotations"]["readOnlyHint"] for name in read_tools))
+        for name in write_tools:
+            self.assertFalse(tools[name]["annotations"]["readOnlyHint"])
+            self.assertFalse(tools[name]["annotations"]["destructiveHint"])
+        # Writes stay off until the owner turns them on in the app.
+        refused = self.call_tool("watch_card", {"card_id": "c-b"}, make_jwt("user-a"))
+        self.assertTrue(refused["isError"])
+        self.assertIn("Let AI assistants edit my collection", refused["content"][0]["text"])
         a = self.call_tool("get_my_collection", {}, make_jwt("user-a"))["structuredContent"]
         b = self.call_tool("get_my_collection", {}, make_jwt("user-b"))["structuredContent"]
         self.assertEqual([i["card_id"] for i in a["items"]], ["c-a"])

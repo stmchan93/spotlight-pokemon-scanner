@@ -471,6 +471,30 @@ export function AccountScreen() {
           <AlertSettingsSection />
         </SurfaceCard>
 
+        <SurfaceCard padding={20} radius={28}>
+          <View style={styles.collectionDataCard}>
+            <View style={styles.showModeCopy}>
+              <Text style={sectionTitle}>
+                USE WITH AI
+              </Text>
+              <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
+                Ask Claude or ChatGPT about your Ekalight collection.
+              </Text>
+            </View>
+            <View style={styles.collectionDataButtons}>
+              <Button
+                label="Use with AI"
+                onPress={() => {
+                  router.push('/account/ai' as never);
+                }}
+                size="lg"
+                testID="account-use-with-ai"
+                variant="outline"
+              />
+            </View>
+          </View>
+        </SurfaceCard>
+
         {/*
           Legal sits with Safety and Contact & support: App Review (Guideline
           1.2 / 5.1.1) expects the Terms and Privacy Policy to be reachable from

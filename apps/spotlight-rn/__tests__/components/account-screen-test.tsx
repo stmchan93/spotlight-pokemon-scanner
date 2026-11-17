@@ -112,6 +112,14 @@ describe('AccountScreen', () => {
     expect(push).toHaveBeenCalledWith('/account/blocked');
   });
 
+  it('routes to the Use with AI screen', () => {
+    renderWithProviders(<AccountScreen />);
+
+    expect(screen.getByText('USE WITH AI')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('account-use-with-ai'));
+    expect(push).toHaveBeenCalledWith('/account/ai');
+  });
+
   it('opens a prefilled support mailto when a mail client exists', async () => {
     mockCanOpenURL.mockResolvedValue(true);
 
