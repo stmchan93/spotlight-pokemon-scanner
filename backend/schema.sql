@@ -1102,3 +1102,33 @@ CREATE TABLE IF NOT EXISTS mcp_write_requests (
   response_json TEXT, created_at TEXT NOT NULL,
   PRIMARY KEY (owner_user_id, request_id)
 );
+
+-- Cards near their price lows (assistant/MCP find_price_lows). Small result
+-- tables written by the daily job in backend/price_lows.py; DDL mirrors
+-- price_lows.ensure_schema.
+CREATE TABLE IF NOT EXISTS price_lows (
+    window_days INTEGER NOT NULL,
+    card_id TEXT NOT NULL,
+    game TEXT NOT NULL,
+    source TEXT NOT NULL,
+    variant TEXT,
+    price_usd REAL NOT NULL,
+    low_usd REAL NOT NULL,
+    high_usd REAL NOT NULL,
+    pct_below_high REAL NOT NULL,
+    pct_above_low REAL NOT NULL,
+    days_covered INTEGER NOT NULL,
+    at_window_low INTEGER NOT NULL,
+    rank INTEGER NOT NULL,
+    as_of_date TEXT NOT NULL,
+    PRIMARY KEY (window_days, card_id)
+);
+CREATE INDEX IF NOT EXISTS idx_price_lows_rank ON price_lows(window_days, game, rank);
+CREATE TABLE IF NOT EXISTS price_lows_runs (
+    window_days INTEGER PRIMARY KEY,
+    version TEXT NOT NULL,
+    as_of_date TEXT,
+    computed_at TEXT NOT NULL,
+    stored_count INTEGER NOT NULL,
+    elapsed_ms REAL NOT NULL
+);

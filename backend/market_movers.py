@@ -66,6 +66,9 @@ CANDIDATE_MAX_EXAMINED = 300
 
 SOURCE_MAIN_RAW = "main_raw"
 SOURCE_DEFAULT_RAW = "default_raw"
+# runtime_settings copy of the env-window payload, written by the scanner
+# process on each recompute so the MCP process can read Top Trends cheaply.
+LATEST_PAYLOAD_SETTING_KEY = "market_movers_latest"
 
 
 @dataclass(frozen=True)
@@ -113,6 +116,17 @@ def market_movers_version_token(
     except sqlite3.Error:
         generation = "0"
     return f"{max_date}|psg:{generation}|w:{window_days}"
+
+
+def latest_persisted_payload(connection: sqlite3.Connection) -> dict[str, Any] | None:
+    """The last Top Trends payload the scanner process computed, or None."""
+    try:
+        setting = runtime_setting(connection, LATEST_PAYLOAD_SETTING_KEY)
+    except sqlite3.Error:
+        return None
+    value = (setting or {}).get("value") or {}
+    payload = value.get("payload") if isinstance(value, dict) else None
+    return payload if isinstance(payload, dict) else None
 
 
 def _iso(value: date) -> str:

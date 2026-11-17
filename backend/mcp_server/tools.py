@@ -23,6 +23,7 @@ from catalog_tools import (
     RAW_MAIN_PRICE_SOURCE_TCGCSV,
     RAW_PRICING_MODE,
     SEALED_SUPERTYPE,
+    SUPPORTED_GAMES,
     _MANUAL_SEARCH_POOL_CEILING,
     _normalized_variant_label,
     _variant_match_key,
@@ -35,6 +36,8 @@ from catalog_tools import (
     search_cards as catalog_search_cards,
     tokenize,
 )
+import meta_pulse
+from market_movers import latest_persisted_payload as latest_movers_payload
 from similar_cards import build_similar_cards_payload
 from tcgcsv_adapter import TCGCSV_PROVIDER
 import watch_printings
@@ -76,6 +79,11 @@ OWNED_MODES = ("any", "owned", "not_owned")
 COLLECTION_SORTS = ("value_desc", "gain_desc", "added_desc")
 PORTFOLIO_RANGES = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
 HISTORY_RANGES = {"30d": 30, "90d": 90, "1y": 365}
+PRICE_LOW_WINDOWS = {"90d": 90, "1y": 365}
+MAX_PRICE_LOWS = 20
+TREND_WINDOWS = {"7d": 7, "30d": 30, "90d": 90}
+MAX_TREND_CARDS = 5
+MAX_TREND_SETS = 3
 # Tool condition code -> card_price_history_cell condition code.
 HISTORY_CONDITIONS = {"NM": "NM", "LP": "LP", "MP": "MP", "HP": "HP", "DMG": "DM"}
 DECK_CONDITION_CODES = {
@@ -92,6 +100,21 @@ WATCHLIST_DESCRIPTION = (
     "(watch_variant, null = main printing), stored USD price, their price-alert target (target_price_usd, "
     "null = no alert) and when they started watching. Use this when the user asks about their watchlist, "
     "wishlist, watched cards or price alerts — in Ekalight it is called the Watchlist."
+)
+
+PRICE_LOWS_DESCRIPTION = (
+    "Cards whose raw USD price dropped at least 25% from their high in the window and now sit at or near "
+    "(within 5% of) that window's low, biggest drop first. Use for 'what's a good buy', 'what should I "
+    "invest in', 'what's cheap right now', 'what's at its low'. Each card has low_usd, high_usd, "
+    "pct_below_high, at_window_low and days_covered (history actually available; under a year means the "
+    "'1y low' covers only that span). owned='owned' checks the user's own cards. Past prices only; "
+    "this is not a forecast."
+)
+MARKET_TRENDS_DESCRIPTION = (
+    "What's trending: the top rising raw cards (change_pct, change_usd over cards_window_days) and the "
+    "English sets rising and falling most (basket of each set's top-10 cards, window 7d/30d/90d). Use for "
+    "'what's hot', 'what's trending', 'which sets are going up', and with find_price_lows for "
+    "'what's a good buy'. USD; past moves only, not a forecast."
 )
 
 # Art facets the CardFilter can filter on (list_facets hides the rest).
@@ -1164,6 +1187,190 @@ class CollectionTools:
                 else {}
             ),
             **({"art_coverage": self._art_coverage()} if uses_art_filters(card_filter) else {}),
+        }
+
+    def find_price_lows(
+        self,
+        owner_user_id: str,
+        card_filter: dict[str, Any] | None = None,
+        *,
+        game: str | None = None,
+        owned: str = "any",
+        window: str = "1y",
+        min_price_usd: float | None = None,
+        max_price_usd: float | None = None,
+        limit: int | None = 10,
+    ) -> dict[str, Any]:
+        """Raw cards that dropped and now sit at/near their window low, from the
+        daily price_lows tables (price_lows.py). DB-only."""
+        card_filter = normalize_card_filter(card_filter)
+        if uses_art_filters(card_filter):
+            raise ToolInputError("find_price_lows takes text/set/artist/rarity_bucket/language/price filters only.")
+        if window not in PRICE_LOW_WINDOWS:
+            raise ToolInputError(f"window must be one of {', '.join(PRICE_LOW_WINDOWS)}.")
+        if owned not in OWNED_MODES:
+            raise ToolInputError(f"owned must be one of {', '.join(OWNED_MODES)}.")
+        game = self._game_arg(game)
+        limit = clamp_limit(limit, default=10, maximum=MAX_PRICE_LOWS)
+        low_bound, high_bound = card_filter.get("price_min_usd"), card_filter.get("price_max_usd")
+        for name, value in (("min_price_usd", min_price_usd), ("max_price_usd", max_price_usd)):
+            if value is None:
+                continue
+            try:
+                amount = float(value)
+            except (TypeError, ValueError):
+                raise ToolInputError(f"{name} must be a number.") from None
+            if amount < 0:
+                raise ToolInputError(f"{name} must be >= 0.")
+            if name == "min_price_usd":
+                low_bound = amount if low_bound is None else max(low_bound, amount)
+            else:
+                high_bound = amount if high_bound is None else min(high_bound, amount)
+        window_days = PRICE_LOW_WINDOWS[window]
+        empty = {"cards": [], "window": window, "as_of": None}
+        if not self._has_table("price_lows_runs"):
+            return {**empty, "note": "Price-low data has not been computed yet."}
+        run = self.conn.execute(
+            "SELECT as_of_date FROM price_lows_runs WHERE window_days = ?", (window_days,)
+        ).fetchone()
+        if run is None:
+            return {**empty, "note": "Price-low data has not been computed yet."}
+
+        sql = (
+            "SELECT card_id, variant, price_usd, low_usd, high_usd, pct_below_high, pct_above_low, "
+            "days_covered, at_window_low, as_of_date FROM price_lows WHERE window_days = ?"
+        )
+        params: list[Any] = [window_days]
+        if game:
+            sql += " AND game = ?"
+            params.append(game)
+        if low_bound is not None:
+            sql += " AND price_usd >= ?"
+            params.append(low_bound)
+        if high_bound is not None:
+            sql += " AND price_usd <= ?"
+            params.append(high_bound)
+        sql += " ORDER BY pct_below_high DESC, price_usd DESC, card_id"
+        rows = self.conn.execute(sql, params).fetchall()
+        if owned != "any":
+            owned_ids = self._owned_card_ids(owner_user_id)
+            rows = [row for row in rows if (str(row[0]) in owned_ids) == (owned == "owned")]
+
+        meta_filter = {key: value for key, value in card_filter.items() if key not in ("price_min_usd", "price_max_usd")}
+        picked: list[Any] = []
+        cards: dict[str, dict[str, Any]] = {}
+        for offset in range(0, len(rows), 200):
+            chunk = rows[offset : offset + 200]
+            chunk_cards = cards_by_ids(self.conn, [str(row[0]) for row in chunk], include_source_payload=False)
+            for row in chunk:
+                card = chunk_cards.get(str(row[0]))
+                if card is None or (meta_filter and not self._matches_card_meta(card, meta_filter)):
+                    continue
+                cards[card["id"]] = card
+                picked.append(row)
+                if len(picked) >= limit:
+                    break
+            if len(picked) >= limit:
+                break
+        summaries = self._summaries([str(row[0]) for row in picked], cards=cards)
+        out: list[dict[str, Any]] = []
+        for row in picked:
+            summary = summaries.get(str(row[0]))
+            if summary is None:
+                continue
+            if summary.get("price_usd") is None:
+                summary["price_usd"] = _round_money(row[2])
+            out.append(
+                {
+                    **summary,
+                    "variant": printing_name(row[1]),
+                    "low_usd": _round_money(row[3]),
+                    "high_usd": _round_money(row[4]),
+                    "pct_below_high": row[5],
+                    "pct_above_low": row[6],
+                    "days_covered": int(row[7]),
+                    "at_window_low": bool(row[8]),
+                    "as_of": row[9],
+                }
+            )
+        result: dict[str, Any] = {"cards": out, "window": window, "as_of": run[0]}
+        if any(item["days_covered"] < window_days - 7 for item in out):
+            result["note"] = "Some cards have less history than the window; days_covered says how much."
+        return result
+
+    @staticmethod
+    def _game_arg(game: str | None) -> str | None:
+        text = str(game or "").strip().lower()
+        if not text or text == "any":
+            return None
+        if text not in SUPPORTED_GAMES:
+            raise ToolInputError(f"game must be one of {', '.join(SUPPORTED_GAMES)}.")
+        return text
+
+    def get_market_trends(
+        self, owner_user_id: str, *, game: str | None = None, window: str = "30d"
+    ) -> dict[str, Any]:
+        """What's rising: Top Trends card gainers (the scanner process's cached
+        payload) and Market Watch set trends (meta_pulse tables). DB-only."""
+        del owner_user_id  # catalog-wide market data
+        if window not in TREND_WINDOWS:
+            raise ToolInputError(f"window must be one of {', '.join(TREND_WINDOWS)}.")
+        game = self._game_arg(game)
+
+        movers = latest_movers_payload(self.conn) or {}
+        items: list[dict[str, Any]] = []
+        for block in movers.get("games") or []:
+            if game and block.get("game") != game:
+                continue
+            items.extend(item for item in block.get("items") or [] if item.get("currencyCode") == "USD")
+        items.sort(key=lambda item: (-float(item.get("changePercent") or 0), str(item.get("cardId"))))
+        items = items[:MAX_TREND_CARDS]
+        summaries = self._summaries([str(item["cardId"]) for item in items])
+        rising_cards = []
+        for item in items:
+            summary = summaries.get(str(item["cardId"]))
+            if summary is None:
+                continue
+            now, then = item.get("priceNow"), item.get("priceThen")
+            rising_cards.append(
+                {
+                    **summary,
+                    "change_pct": item.get("changePercent"),
+                    "change_usd": _round_money(now - then) if now is not None and then is not None else None,
+                    "window_days": movers.get("windowDays"),
+                }
+            )
+
+        set_game = game or GAME
+        rising_sets: list[dict[str, Any]] = []
+        falling_sets: list[dict[str, Any]] = []
+        sets_as_of = None
+        if self._has_table("meta_pulse_runs"):
+            payload = meta_pulse.build_meta_pulse_payload(
+                self.conn, game=set_game, window_days=TREND_WINDOWS[window], lane=meta_pulse.LANE_RAW,
+                kind=meta_pulse.KIND_SETS, max_groups_per_direction=MAX_TREND_SETS, top_cards_limit=0,
+            )
+            sets_as_of = payload.get("asOfDate")
+            for group in payload.get("groups") or []:
+                entry = {
+                    "set": group.get("label"),
+                    "change_pct": group.get("medianChangePercent"),
+                    "release_year": (group.get("releaseDate") or "")[:4] or None,
+                    "card_count": group.get("cardCount"),
+                }
+                (rising_sets if (group.get("medianChangePercent") or 0) >= 0 else falling_sets).append(entry)
+            falling_sets.sort(key=lambda entry: entry["change_pct"])
+
+        return {
+            "rising_cards": rising_cards,
+            "cards_window_days": movers.get("windowDays"),
+            "cards_as_of": movers.get("asOfDate"),
+            "rising_sets": rising_sets[:MAX_TREND_SETS],
+            "falling_sets": falling_sets[:MAX_TREND_SETS],
+            "sets_game": set_game,
+            "sets_window": window,
+            "sets_as_of": sets_as_of,
+            "note": "Sets are English main sets ranked by their top-10 cards' basket change.",
         }
 
     def get_price_history(

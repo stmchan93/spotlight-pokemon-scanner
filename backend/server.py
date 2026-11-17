@@ -171,9 +171,11 @@ from fx_rates import (
 )
 from market_movers import (
     DEFAULT_WINDOW_DAYS as MARKET_MOVERS_WINDOW_DAYS,
+    LATEST_PAYLOAD_SETTING_KEY as MARKET_MOVERS_LATEST_KEY,
     compute_top_movers,
     market_movers_version_token,
 )
+import price_lows
 from ebay_comps import (
     DEFAULT_RESULT_LIMIT as DEFAULT_EBAY_LISTING_LIMIT,
     MAX_RESULT_LIMIT as MAX_EBAY_LISTING_LIMIT,
@@ -2523,6 +2525,7 @@ class SpotlightScanService:
             _apply_access_gate_schema_patch(bootstrap_connection)
             # Small result tables for the feed jobs; no big-table indexes here.
             meta_pulse.ensure_schema(bootstrap_connection)
+            price_lows.ensure_schema(bootstrap_connection)
             hot_cards.ensure_schema(bootstrap_connection)
             spotlight_events_admin.ensure_schema(bootstrap_connection)
             spotlight_event_vendors_admin.ensure_schema(bootstrap_connection)
@@ -2590,6 +2593,8 @@ class SpotlightScanService:
         # there is exactly one payload to compute.
         self._market_movers_cache: dict[int, tuple[str, dict[str, Any]]] = {}
         self._market_movers_lock = threading.Lock()
+        # Daily price-lows job (price_lows.py) runs on the ops prewarm hook only.
+        self._price_lows_lock = threading.Lock()
         # Feed market blocks read small precomputed tables, so no dogpile locks:
         # meta keyed by (game, window, lane) on the job's version token, hot
         # cards by game on the newest run, set spotlight by set id (pick on its
@@ -23731,8 +23736,50 @@ class SpotlightScanService:
             payload = compute_top_movers(self.connection, window_days=window_days)
             if version is not None:
                 self._market_movers_cache[window_days] = (version, payload)
+                if window_days == _market_movers_window_days():
+                    self._persist_market_movers(version, payload)
             self._log_market_movers_timing(started_at, outcome="miss")
             return payload
+
+    def _persist_market_movers(self, version: str, payload: dict[str, Any]) -> None:
+        # The MCP process (assistant get_market_trends) reads this copy instead
+        # of recomputing Top Trends itself.
+        try:
+            upsert_runtime_setting(
+                self.connection,
+                key=MARKET_MOVERS_LATEST_KEY,
+                value={"version": version, "payload": payload},
+            )
+            self.connection.commit()
+        except Exception:  # noqa: BLE001 - the copy is best-effort
+            traceback.print_exc()
+
+    def refresh_price_lows(self, *, source: str = "ops") -> dict[str, Any]:
+        """Recompute the price_lows tables when the price data changed (no-op
+        otherwise). Own connection: the year-long aggregate must not share a
+        request thread's. Never raises; never runs at startup."""
+        started_at = perf_counter()
+        result: dict[str, Any] = {"event": "price_lows_refresh", "source": source}
+        if not self._price_lows_lock.acquire(blocking=False):
+            result["outcome"] = "already_running"
+            self._emit_structured_log(result)
+            return result
+        connection = None
+        try:
+            connection = self._new_connection()
+            result.update(price_lows.refresh_price_lows(connection))
+            result["outcome"] = "ok"
+        except Exception:  # noqa: BLE001 - best-effort job
+            traceback.print_exc()
+            result["outcome"] = "error"
+        finally:
+            if connection is not None:
+                connection.close()
+            self._price_lows_lock.release()
+        result["elapsedMs"] = round((perf_counter() - started_at) * 1000.0, 1)
+        result["windows"] = {str(k): v for k, v in (result.get("windows") or {}).items()}
+        self._emit_structured_log(result)
+        return result
 
     def _log_market_movers_timing(self, started_at: float, *, outcome: str) -> None:
         self._emit_structured_log(
@@ -28125,6 +28172,13 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 target=self.service.prewarm_market_movers,
                 kwargs={"source": "ops"},
                 name="market-movers-prewarm-ops",
+                daemon=True,
+            ).start()
+            # Same hook for the assistant's "near their lows" table.
+            threading.Thread(
+                target=self.service.refresh_price_lows,
+                kwargs={"source": "ops"},
+                name="price-lows-refresh-ops",
                 daemon=True,
             ).start()
             self._write_json(HTTPStatus.OK, {"status": "started"})

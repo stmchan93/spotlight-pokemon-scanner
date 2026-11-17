@@ -1,9 +1,9 @@
-"""Tools the assistant model sees: the 8 CollectionTools reads (owner = the
+"""Tools the assistant model sees: the 10 CollectionTools reads (owner = the
 request user, DB-only) plus 3 propose_* tools that validate and return a
 ProposedAction without changing anything.
 
 Strict mode: the API caps strict schemas at 24 optional parameters per request,
-and the three filter tools alone carry ~60 (CardFilter x 3), so those three are
+and the four filter tools alone carry ~80 (CardFilter x 4), so those four are
 sent non-strict and validated server-side by normalize_card_filter; every other
 tool (incl. all propose_* writes) is strict.
 """
@@ -14,12 +14,18 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from catalog_tools import card_by_id
+from catalog_tools import SUPPORTED_GAMES, card_by_id
 
 from mcp_server.filters import ToolInputError
 from mcp_server.policy import USER_POLICY
 from mcp_server.assistant.store import new_id
-from mcp_server.tools import DECK_CONDITION_CODES, WATCHLIST_DESCRIPTION, CollectionTools
+from mcp_server.tools import (
+    DECK_CONDITION_CODES,
+    MARKET_TRENDS_DESCRIPTION,
+    PRICE_LOWS_DESCRIPTION,
+    WATCHLIST_DESCRIPTION,
+    CollectionTools,
+)
 from request_auth import RequestIdentity
 
 logger = logging.getLogger("ekalight.assistant")
@@ -30,7 +36,14 @@ MAX_QUANTITY = 999
 # Fields the model never needs (tiles carry them); dropping them saves tokens.
 MODEL_HIDDEN_KEYS = frozenset({"image_small_url", "app_url", "tcgplayer_id", "buy_links"})
 # Per-call ceilings for the model (the MCP tools allow more).
-MODEL_LIMITS = {"search_cards": 20, "find_missing": 20, "get_my_collection": 50, "get_my_watchlist": 50}
+MODEL_LIMITS = {
+    "search_cards": 20,
+    "find_missing": 20,
+    "find_price_lows": 20,
+    "get_my_collection": 50,
+    "get_my_watchlist": 50,
+}
+FILTER_TOOLS = ("search_cards", "get_my_collection", "find_missing", "find_price_lows")
 
 _FILTER_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -171,6 +184,34 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "strict": True,
     },
     {
+        "name": "find_price_lows",
+        "description": PRICE_LOWS_DESCRIPTION,
+        "input_schema": _obj(
+            {
+                "filter": _FILTER_SCHEMA,
+                "game": {"type": "string", "enum": list(SUPPORTED_GAMES)},
+                "owned": {"type": "string", "enum": ["any", "owned", "not_owned"]},
+                "window": {"type": "string", "enum": ["90d", "1y"]},
+                "min_price_usd": {"type": "number"},
+                "max_price_usd": {"type": "number"},
+                "limit": {"type": "integer", "description": "1-20, default 6."},
+            },
+            [],
+        ),
+    },
+    {
+        "name": "get_market_trends",
+        "description": MARKET_TRENDS_DESCRIPTION,
+        "input_schema": _obj(
+            {
+                "game": {"type": "string", "enum": list(SUPPORTED_GAMES)},
+                "window": {"type": "string", "enum": ["7d", "30d", "90d"], "description": "Set-trend window; default 30d."},
+            },
+            [],
+        ),
+        "strict": True,
+    },
+    {
         "name": "propose_add_to_collection",
         "description": (
             "Propose adding a card to the user's collection. Nothing changes until the user taps Confirm. "
@@ -236,6 +277,8 @@ READ_TOOLS = (
     "get_my_watchlist",
     "get_portfolio_summary",
     "get_price_history",
+    "find_price_lows",
+    "get_market_trends",
 )
 
 
@@ -344,17 +387,17 @@ class AssistantToolbox:
 
     def _read(self, name: str, args: dict[str, Any], owner_user_id: str) -> ToolOutcome:
         kwargs: dict[str, Any] = {}
-        if name in ("search_cards", "get_my_collection", "find_missing"):
+        if name in FILTER_TOOLS:
             kwargs["card_filter"] = args.get("filter")
         if name in MODEL_LIMITS:
-            default = 25 if name in ("get_my_collection", "get_my_watchlist") else 10
+            default = {"get_my_collection": 25, "get_my_watchlist": 25, "find_price_lows": 6}.get(name, 10)
             try:
                 limit = int(args.get("limit") or default)
             except (TypeError, ValueError):
                 limit = default
             kwargs["limit"] = max(1, min(limit, MODEL_LIMITS[name]))
         for key in ("owned", "sort", "cursor", "collection_id", "budget_usd", "card_id", "condition",
-                    "grader", "grade", "variant"):
+                    "grader", "grade", "variant", "game", "window", "min_price_usd", "max_price_usd"):
             if args.get(key) is not None:
                 kwargs[key] = args[key]
         if "range" in args and args["range"] is not None:
