@@ -657,13 +657,15 @@ describe('CardDetailScreen', () => {
         <CardDetailScreen cardId="sm7-1" fromScan onBack={jest.fn()} scanReviewId={saveTreeckoScan()} />,
       );
 
-      // Owned copies stay visible, but the page is add mode — not an edit.
-      expect(await screen.findByTestId('detail-inventory', {}, { timeout: 5000 })).toBeTruthy();
+      // The page is add mode, not an edit. A single owned copy stays collapsed
+      // behind "Qty: 1" (owner, 2026-11-16); tapping the pill lists it.
+      expect(await screen.findByTestId('detail-inventory-header', {}, { timeout: 5000 })).toBeTruthy();
+      expect(screen.queryByTestId('detail-inventory')).toBeNull();
       expect(screen.getByTestId('detail-add-item')).toBeTruthy();
       expect(screen.queryByTestId('detail-save-edit')).toBeNull();
       expect(screen.queryByTestId('detail-owned-edit')).toBeNull();
-      // Expanded up front so it's clear you already own one.
-      expect(screen.getByLabelText('Collapse inventory')).toBeTruthy();
+      fireEvent.press(screen.getByTestId('detail-inventory-header'));
+      expect(await screen.findByTestId('detail-inventory')).toBeTruthy();
 
       await addFromSheet();
       await waitFor(() => {
@@ -686,7 +688,7 @@ describe('CardDetailScreen', () => {
         />,
       );
 
-      await screen.findByTestId('detail-inventory', {}, { timeout: 5000 });
+      await screen.findByTestId('detail-inventory-header', {}, { timeout: 5000 });
       expect(screen.queryByTestId('detail-save-edit')).toBeNull();
       await addFromSheet();
       await waitFor(() => {

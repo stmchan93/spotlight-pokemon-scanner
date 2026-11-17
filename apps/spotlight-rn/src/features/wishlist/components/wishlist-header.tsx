@@ -277,7 +277,7 @@ export function WishlistHeader({
             numberOfLines={1}
             style={styles.headerTitle}
             testID="wishlist-header-title"
-            variant="titleXsmall"
+            variant="titleMedium"
           >
             WATCHLIST
           </AppText>

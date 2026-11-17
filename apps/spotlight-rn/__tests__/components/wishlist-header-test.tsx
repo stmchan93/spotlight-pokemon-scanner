@@ -1,7 +1,7 @@
 import { Animated, StyleSheet } from 'react-native';
 import { fireEvent, screen } from '@testing-library/react-native';
 
-import { glassNavBubbleSizes } from '@spotlight/design-system';
+import { glassNavBubbleSizes, textStyles } from '@spotlight/design-system';
 
 import {
   WISHLIST_HEADER_BAR_HEIGHT,
@@ -286,6 +286,15 @@ describe('WishlistHeader', () => {
       const style = titleMotionStyle();
       expect(style.opacity).toBeCloseTo(0.5, 5);
       expect(style.transform[0].translateY).toBeCloseTo(-WISHLIST_HEADER_BAR_HEIGHT / 2, 5);
+    });
+  });
+
+  it('draws WATCHLIST in the card page header title style (titleMedium)', () => {
+    renderHeader();
+    const title = StyleSheet.flatten(screen.getByTestId('wishlist-header-title').props.style);
+    expect(title).toMatchObject({
+      fontFamily: textStyles.titleMedium.fontFamily,
+      fontSize: textStyles.titleMedium.fontSize,
     });
   });
 });

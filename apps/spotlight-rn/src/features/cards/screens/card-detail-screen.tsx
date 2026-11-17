@@ -594,8 +594,8 @@ export function CardDetailScreen({
   // listed in the Inventory dropdown but none is pre-selected for editing —
   // otherwise an unrelated old copy's condition/printing seeds the page.
   const opensAsNewCopy = !entryId && (fromScan || scanReviewId != null);
-  // Opened from a scan: show the copies you already own up front.
-  const [inventoryExpanded, setInventoryExpanded] = useState(opensAsNewCopy);
+  // null until the user taps the Qty pill; until then the default applies.
+  const [inventoryToggle, setInventoryToggle] = useState<boolean | null>(null);
 
   const selectedEntry = useMemo(() => {
     // An explicit entryId pins the EDITED entry by id across every pool — even
@@ -691,6 +691,10 @@ export function CardDetailScreen({
     }
     return detailPreview?.ownedEntry ? [detailPreview.ownedEntry] : [];
   }, [cachedOwnedEntries, detail?.ownedEntries, detailPreview?.ownedEntry]);
+  // Opened from a scan, more than one owned copy starts listed; a single copy
+  // stays collapsed behind "Qty: 1" (owner, 2026-11-16).
+  const ownedQuantity = inventoryEntries.reduce((sum, entry) => sum + entry.quantity, 0);
+  const inventoryExpanded = inventoryToggle ?? (opensAsNewCopy && ownedQuantity > 1);
 
   // Variant options for the configurator: prefer catalog variantOptions, fall
   // back to the market-history available variants.
@@ -2870,7 +2874,7 @@ export function CardDetailScreen({
             <InventoryQtyPill
               entries={inventoryEntries}
               expanded={inventoryExpanded}
-              onPress={() => setInventoryExpanded((current) => !current)}
+              onPress={() => setInventoryToggle(!inventoryExpanded)}
               testID="detail-inventory-header"
             />
           ) : null}
