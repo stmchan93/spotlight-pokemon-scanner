@@ -257,8 +257,9 @@ def connect(
     *,
     timeout_seconds: float = 5.0,
     busy_timeout_ms: int | None = None,
+    factory: type[sqlite3.Connection] | None = None,
 ) -> sqlite3.Connection:
-    connection = sqlite3.connect(str(database_path), timeout=timeout_seconds)
+    connection = sqlite3.connect(str(database_path), timeout=timeout_seconds, factory=factory or sqlite3.Connection)
     connection.row_factory = sqlite3.Row
     connection.execute(f"PRAGMA busy_timeout = {busy_timeout_ms or int(timeout_seconds * 1000)}")
     connection.execute("PRAGMA foreign_keys = ON")

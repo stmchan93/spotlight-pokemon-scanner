@@ -237,6 +237,11 @@ from recent_sales import (
 from slab_cert_resolver import resolve_psa_cert_from_scan_cache
 from tcgcsv_adapter import TCGCSV_PROVIDER, scrydex_variant_label_for_subtype
 from slab_set_aliases import resolve_slab_set_aliases
+from sqlite_lock_diagnostics import (
+    InstrumentedConnection,
+    ensure_watchdog_started as ensure_sqlite_watchdog_started,
+    is_lock_error as is_sqlite_lock_error,
+)
 from scan_artifact_store import (
     ARTIFACTS_JSON_BASENAME,
     SCAN_ARTIFACTS_GCS_BUCKET_ENV,
@@ -616,6 +621,21 @@ def _env_int(name: str, default: int) -> int:
         return max(1, int(os.environ.get(name, "") or default))
     except ValueError:
         return default
+
+
+SQLITE_BUSY_RETRY_AFTER_SECONDS = 5
+
+
+def _sqlite_busy_payload(operation: str | None, *, detail: Any = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "error": f"{operation or 'Request'} failed: database busy, retry shortly.",
+        "errorCode": "database_busy",
+        "retryable": True,
+        "retryAfterSeconds": SQLITE_BUSY_RETRY_AFTER_SECONDS,
+    }
+    if detail:
+        payload["detail"] = str(detail)
+    return payload
 
 
 def _strip_cross_language_set_suffix(set_name: str) -> str:
@@ -2464,6 +2484,11 @@ class SpotlightScanService:
         self.repo_root = repo_root
         self._thread_local = threading.local()
         self._state_lock = threading.RLock()
+        # Scan-event writes deferred by a locked DB; keyed by scanID (newest wins).
+        self._deferred_scan_events: dict[str, dict[str, Any]] = {}
+        self._deferred_scan_events_cv = threading.Condition()
+        self._deferred_scan_events_write_lock = threading.Lock()
+        self._deferred_scan_events_worker: threading.Thread | None = None
         supabase_url = os.environ.get(SUPABASE_URL_ENV) or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL")
         supabase_jwks_url = os.environ.get(SUPABASE_JWKS_URL_ENV) or os.environ.get("SPOTLIGHT_SUPABASE_JWKS_URL")
         supabase_jwt_secret = (
@@ -2616,12 +2641,12 @@ class SpotlightScanService:
     def connection(self) -> sqlite3.Connection:
         connection = getattr(self._thread_local, "connection", None)
         if connection is None:
-            connection = connect(self.database_path)
+            connection = connect(self.database_path, factory=InstrumentedConnection)
             self._thread_local.connection = connection
         return connection
 
     def _new_connection(self) -> sqlite3.Connection:
-        return connect(self.database_path)
+        return connect(self.database_path, factory=InstrumentedConnection)
 
     @contextmanager
     def request_identity_context(self, identity: RequestIdentity | None):
@@ -5913,9 +5938,21 @@ class SpotlightScanService:
         # Mirror this user's email locally (we only receive it live from the JWT).
         # access_status is hit by every signed-in user on launch, so this captures
         # everyone's email over time without a per-request write hot path.
-        self._record_user_email(
-            getattr(identity, "user_id", ""), getattr(identity, "email", "")
-        )
+        try:
+            self._record_user_email(
+                getattr(identity, "user_id", ""), getattr(identity, "email", "")
+            )
+        except sqlite3.OperationalError as error:
+            # Best-effort mirror; a locked DB must not fail app launch.
+            if not is_sqlite_lock_error(error):
+                raise
+            try:
+                self.connection.rollback()
+            except sqlite3.Error:
+                pass
+            self._emit_structured_log(
+                {"severity": "WARNING", "event": "user_email_mirror_skipped", "error": str(error)}
+            )
         return {
             "accessOpen": self._card_show_mode_active(),
             "allowed": self.access_allowed(identity),
@@ -11945,6 +11982,7 @@ class SpotlightScanService:
         }
 
     def record_sale(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self._flush_deferred_scan_event(str(payload.get("sourceScanID") or "").strip() or None)
         try:
             sale_payload = self._record_sale_without_commit(payload)
             self.connection.commit()
@@ -11958,6 +11996,9 @@ class SpotlightScanService:
         if not isinstance(sales, list) or not sales:
             raise ValueError("sales must be a non-empty list")
 
+        for sale_payload in sales:
+            if isinstance(sale_payload, dict):
+                self._flush_deferred_scan_event(str(sale_payload.get("sourceScanID") or "").strip() or None)
         results: list[dict[str, Any]] = []
         try:
             for sale_payload in sales:
@@ -13854,12 +13895,29 @@ class SpotlightScanService:
         structured_log_ms = (perf_counter() - structured_log_started_at) * 1000.0
 
         scan_log_started_at = perf_counter()
-        self._log_scan(
-            request_payload,
-            response_payload,
-            top_candidates,
-            prediction_candidates=prediction_candidates,
-        )
+        scan_id = str(request_payload.get("scanID") or "")
+        if self._deferred_scan_events:
+            # This write supersedes any older deferred write for the same scan.
+            with self._deferred_scan_events_cv:
+                self._deferred_scan_events.pop(scan_id, None)
+        try:
+            self._log_scan(
+                request_payload,
+                response_payload,
+                top_candidates,
+                prediction_candidates=prediction_candidates,
+            )
+        except sqlite3.OperationalError as error:
+            # A locked DB must never fail a scan that already matched.
+            if not is_sqlite_lock_error(error):
+                raise
+            self._defer_scan_event_write(
+                request_payload,
+                response_payload,
+                top_candidates,
+                prediction_candidates=prediction_candidates,
+                error=error,
+            )
         scan_log_ms = (perf_counter() - scan_log_started_at) * 1000.0
 
         self._record_backend_timing(
@@ -13868,6 +13926,169 @@ class SpotlightScanService:
             scanLogMs=scan_log_ms,
             finalizeScanResponseMs=structured_log_ms + scan_log_ms,
         )
+
+    def _defer_scan_event_write(
+        self,
+        request_payload: dict[str, Any],
+        response_payload: dict[str, Any],
+        top_candidates: list[dict[str, Any]],
+        *,
+        prediction_candidates: list[dict[str, Any]] | None,
+        error: BaseException,
+    ) -> None:
+        import copy
+
+        try:
+            self.connection.rollback()
+        except sqlite3.Error:
+            pass
+        scan_id = str(request_payload.get("scanID") or "")
+        max_entries = max(1, _env_int("SPOTLIGHT_SCAN_EVENT_DEFERRED_MAX", 200))
+        # Snapshot now: the caller keeps mutating response_payload (timings).
+        entry = {
+            "scanID": scan_id,
+            "ownerUserID": self._current_owner_user_id(),
+            "loggedAt": utc_now(),
+            "request": copy.deepcopy(request_payload),
+            "response": copy.deepcopy(response_payload),
+            "topCandidates": copy.deepcopy(top_candidates),
+            "predictionCandidates": copy.deepcopy(prediction_candidates) if prediction_candidates is not None else None,
+            "enqueuedAt": monotonic(),
+            "nextAttemptAt": monotonic() + 1.0,
+            "attempts": 1,
+        }
+        with self._deferred_scan_events_cv:
+            queue_full = scan_id not in self._deferred_scan_events and len(self._deferred_scan_events) >= max_entries
+            if not queue_full:
+                self._deferred_scan_events[scan_id] = entry
+                self._deferred_scan_events_cv.notify_all()
+            queue_depth = len(self._deferred_scan_events)
+        if queue_full:
+            self._emit_structured_log(
+                {
+                    "severity": "ERROR",
+                    "event": "scan_event_persist_failed",
+                    "scanID": scan_id,
+                    "reason": "deferred_queue_full",
+                    "error": str(error),
+                    "queueDepth": queue_depth,
+                }
+            )
+            return
+        self._emit_structured_log(
+            {
+                "severity": "WARNING",
+                "event": "scan_event_persist_deferred",
+                "scanID": scan_id,
+                "error": str(error),
+                "thread": threading.current_thread().name,
+                "queueDepth": queue_depth,
+            }
+        )
+        self._ensure_deferred_scan_event_worker()
+
+    def _ensure_deferred_scan_event_worker(self) -> None:
+        with self._deferred_scan_events_cv:
+            worker = self._deferred_scan_events_worker
+            if worker is not None and worker.is_alive():
+                return
+            worker = threading.Thread(
+                target=self._deferred_scan_event_loop,
+                name="scan-event-deferred-writer",
+                daemon=True,
+            )
+            self._deferred_scan_events_worker = worker
+        worker.start()
+
+    def _deferred_scan_event_loop(self) -> None:
+        while True:
+            with self._deferred_scan_events_cv:
+                while not self._deferred_scan_events:
+                    self._deferred_scan_events_cv.wait()
+                due = min(self._deferred_scan_events.values(), key=lambda item: item["nextAttemptAt"])
+                delay = due["nextAttemptAt"] - monotonic()
+                if delay > 0:
+                    self._deferred_scan_events_cv.wait(timeout=delay)
+                    continue
+            try:
+                self._write_deferred_scan_event(due["scanID"])
+            except Exception:  # noqa: BLE001 - the worker must keep running
+                traceback.print_exc()
+
+    def _write_deferred_scan_event(self, scan_id: str, *, raise_lock_error: bool = False) -> bool:
+        """Land one deferred scan event. Returns True when nothing is pending."""
+        if not self._deferred_scan_events_write_lock.acquire(timeout=15.0):
+            if raise_lock_error:
+                raise sqlite3.OperationalError("database is locked (deferred scan event write in progress)")
+            return False
+        try:
+            with self._deferred_scan_events_cv:
+                entry = self._deferred_scan_events.get(scan_id)
+            if entry is None:
+                return True
+            try:
+                self._log_scan(
+                    entry["request"],
+                    entry["response"],
+                    entry["topCandidates"],
+                    prediction_candidates=entry["predictionCandidates"],
+                    owner_user_id=entry["ownerUserID"],
+                    logged_at=entry["loggedAt"],
+                )
+            except Exception as error:  # noqa: BLE001
+                try:
+                    self.connection.rollback()
+                except sqlite3.Error:
+                    pass
+                max_age = _env_int("SPOTLIGHT_SCAN_EVENT_DEFERRED_MAX_SECONDS", 600)
+                retryable = is_sqlite_lock_error(error)
+                give_up = not retryable or monotonic() - entry["enqueuedAt"] >= max_age
+                with self._deferred_scan_events_cv:
+                    current = self._deferred_scan_events.get(scan_id) is entry
+                    if current:
+                        entry["attempts"] += 1
+                        if give_up:
+                            self._deferred_scan_events.pop(scan_id, None)
+                        else:
+                            backoff = min(30.0, 2.0 ** min(entry["attempts"], 5))
+                            entry["nextAttemptAt"] = monotonic() + backoff
+                if current and give_up:
+                    self._emit_structured_log(
+                        {
+                            "severity": "ERROR",
+                            "event": "scan_event_persist_failed",
+                            "scanID": scan_id,
+                            "reason": "retries_exhausted" if retryable else "non_retryable_error",
+                            "attempts": entry["attempts"],
+                            "error": str(error),
+                        }
+                    )
+                if retryable and raise_lock_error:
+                    raise
+                return False
+            with self._deferred_scan_events_cv:
+                if self._deferred_scan_events.get(scan_id) is entry:
+                    self._deferred_scan_events.pop(scan_id, None)
+            self._emit_structured_log(
+                {
+                    "severity": "INFO",
+                    "event": "scan_event_persist_recovered",
+                    "scanID": scan_id,
+                    "attempts": entry["attempts"] + 1,
+                    "deferredSeconds": round(monotonic() - entry["enqueuedAt"], 1),
+                }
+            )
+            return True
+        finally:
+            self._deferred_scan_events_write_lock.release()
+
+    def _flush_deferred_scan_event(self, scan_id: str | None) -> None:
+        """Land a deferred scan event before a path that reads/updates that row,
+        so a late retry can't clobber selection/confirmation. Raises the lock
+        error if the DB is still locked."""
+        if not scan_id or not self._deferred_scan_events:
+            return
+        self._write_deferred_scan_event(str(scan_id), raise_lock_error=True)
 
     def _scan_error_log_payload(self, request_payload: dict[str, Any], error: Exception) -> dict[str, Any]:
         return {
@@ -18320,6 +18541,7 @@ class SpotlightScanService:
 
     def log_feedback(self, payload: dict[str, Any]) -> None:
         owner_user_id = self._current_owner_user_id()
+        self._flush_deferred_scan_event(payload.get("scanID"))
         existing_event = self.connection.execute(
             """
             SELECT
@@ -19657,6 +19879,8 @@ class SpotlightScanService:
         scan_id = str(payload.get("sourceScanID") or "").strip() or None
         existing_event = None
         if scan_id:
+            if not _in_bulk:  # bulk flushes before its transaction opens
+                self._flush_deferred_scan_event(scan_id)
             existing_event = self.connection.execute(
                 """
                 SELECT request_json, response_json, matcher_source, matcher_version, created_at,
@@ -19900,6 +20124,9 @@ class SpotlightScanService:
         # and the entry's write fails instantly with "database is locked" (a
         # stale WAL snapshot never waits on busy_timeout) — 6 of 26 tray cards
         # dropped on prod 2026-10-04.
+        for entry in raw_entries:
+            if isinstance(entry, dict):
+                self._flush_deferred_scan_event(str(entry.get("sourceScanID") or "").strip() or None)
         self._begin_immediate_with_retry()
         try:
             for index, entry in enumerate(raw_entries):
@@ -24717,10 +24944,14 @@ class SpotlightScanService:
         top_candidates: list[dict[str, Any]],
         *,
         prediction_candidates: list[dict[str, Any]] | None = None,
+        owner_user_id: str | None = None,
+        logged_at: str | None = None,
     ) -> None:
+        # owner_user_id/logged_at are passed by the deferred-retry worker,
+        # which has no request identity of its own.
         scan_id = request_payload["scanID"]
-        now = utc_now()
-        owner_user_id = self._current_owner_user_id()
+        now = logged_at or utc_now()
+        owner_user_id = owner_user_id or self._current_owner_user_id()
         predicted_card_id = self._predicted_card_id(response_payload)
         if predicted_card_id is None and top_candidates:
             predicted_card_id = str(((top_candidates[0].get("candidate") or {}).get("id")) or "").strip() or None
@@ -24755,8 +24986,233 @@ class SpotlightScanService:
         self.connection.commit()
 
 
+# --- Per-request access log (`http_request`) ---------------------------------
+# One JSON line per HTTP request with status + total duration, so an incident is
+# one grep instead of stitching body-read / scan / disconnect / traceback lines.
+HTTP_SLOW_REQUEST_MS_ENV = "SPOTLIGHT_HTTP_SLOW_REQUEST_MS"
+DEFAULT_HTTP_SLOW_REQUEST_MS = 5000.0
+HTTP_LOG_HEALTH_ENV = "SPOTLIGHT_HTTP_LOG_HEALTH"
+# Polled by uptime/health checks; logged only when not a fast 2xx.
+_HTTP_QUIET_ROUTES = frozenset({"/api/v1/health"})
+# Collections whose next path segment is always an id (card, event, user, ...).
+_HTTP_ID_PARENT_ROUTES = frozenset({
+    "/api/v1/cards",
+    "/api/v1/events",
+    "/api/v1/admin/events",
+    "/api/v1/card-transactions",
+    "/api/v1/card-favorites",
+    "/api/v1/deal-alerts",
+    "/api/v1/post-media",
+    "/api/v1/profiles",
+    "/api/v1/review/image",
+    "/api/v1/moderation/media",
+    "/api/v1/market/sets",
+    "/api/v1/market/meta/groups",
+    "/api/v1/portfolio/sales",
+    "/api/v1/portfolio/buys",
+})
+_HTTP_STATIC_UNDER_ID_PARENT = frozenset({
+    "/api/v1/cards/search",
+    "/api/v1/cards/hydrate-pricing",
+    "/api/v1/portfolio/sales/batch",
+})
+_HTTP_STATIC_SEGMENT_RE = re.compile(r"^[a-z_-]+$")
+_HTTP_DISCONNECT_ERRORS = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
+
+
+def _http_slow_request_ms() -> float:
+    raw = str(os.environ.get(HTTP_SLOW_REQUEST_MS_ENV) or "").strip()
+    try:
+        value = float(raw) if raw else DEFAULT_HTTP_SLOW_REQUEST_MS
+    except ValueError:
+        return DEFAULT_HTTP_SLOW_REQUEST_MS
+    return value if value > 0 else DEFAULT_HTTP_SLOW_REQUEST_MS
+
+
+def _normalize_http_route(path: str) -> str:
+    """Request path without query string, ids collapsed to ``:id``.
+
+    Every literal route segment is lowercase letters/-/_ (plus ``v1``), so any
+    segment with a digit, dot, uppercase, or escape is an id; collection
+    prefixes in ``_HTTP_ID_PARENT_ROUTES`` catch digit-free ids (slugs)."""
+    raw = str(path or "").split("?", 1)[0].split("#", 1)[0]
+    segments = [segment for segment in raw.split("/") if segment]
+    normalized: list[str] = []
+    for index, segment in enumerate(segments):
+        parent = "/" + "/".join(segments[:index])
+        own = parent.rstrip("/") + "/" + segment
+        if parent in _HTTP_ID_PARENT_ROUTES and own not in _HTTP_STATIC_UNDER_ID_PARENT:
+            normalized.append(":id")
+        elif segment == "v1" or _HTTP_STATIC_SEGMENT_RE.match(segment):
+            normalized.append(segment[:48])
+        else:
+            normalized.append(":id")
+    return ("/" + "/".join(normalized))[:160]
+
+
+def _http_client_ip_prefix(headers: Any, client_address: Any) -> str | None:
+    """Coarse client network for the access log: IPv4 /24, IPv6 /48 — never
+    the full address. Caddy proxies from loopback, so X-Forwarded-For's first
+    hop is the real client; a direct connection falls back to the socket peer."""
+    candidate = ""
+    if headers is not None:
+        try:
+            forwarded = str(headers.get("X-Forwarded-For") or "")
+        except Exception:
+            forwarded = ""
+        candidate = forwarded.split(",", 1)[0].strip()
+    if not candidate:
+        try:
+            candidate = str((client_address or ("",))[0] or "")
+        except Exception:
+            candidate = ""
+    if not candidate:
+        return None
+    try:
+        address = ipaddress.ip_address(candidate)
+    except ValueError:
+        return "invalid"
+    prefix = 24 if address.version == 4 else 48
+    return str(ipaddress.ip_network(f"{address}/{prefix}", strict=False))
+
+
+def _instrument_http_request(handler_method: Any) -> Any:
+    """Wrap a ``do_<METHOD>`` so every request emits one ``http_request`` line.
+
+    Unhandled exceptions are logged (status 500, outcome ``exception``) and then
+    re-raised unchanged, so socketserver's traceback + connection close behave
+    exactly as before. Logging failures are swallowed: they never affect the
+    request."""
+
+    def instrumented(self: "SpotlightRequestHandler") -> None:
+        started = perf_counter()
+        try:
+            self._reset_http_request_log_state()
+        except Exception:
+            pass
+        error: BaseException | None = None
+        try:
+            handler_method(self)
+        except BaseException as caught:
+            error = caught
+            raise
+        finally:
+            try:
+                self._emit_http_request_log(started, error)
+            except Exception:
+                pass
+
+    instrumented.__name__ = getattr(handler_method, "__name__", "do_request")
+    instrumented.__doc__ = getattr(handler_method, "__doc__", None)
+    instrumented.__wrapped__ = handler_method  # type: ignore[attr-defined]
+    return instrumented
+
+
 class SpotlightRequestHandler(BaseHTTPRequestHandler):
     service: SpotlightScanService
+
+    # --- http_request access-log state (reset per request; keep-alive safe) ---
+    def _reset_http_request_log_state(self) -> None:
+        self._http_status: int | None = None
+        self._http_response_bytes: int | None = None
+        self._http_client_disconnected = False
+        self._http_body_read_ms: float | None = None
+        self._http_request_bytes: int | None = None
+        self._http_scan_id: str | None = None
+        self._json_body_error_status = None
+        self._json_body_error_message = None
+
+    def _note_http_body_read(self, byte_count: int, read_ms: float) -> None:
+        self._http_request_bytes = int(byte_count)
+        self._http_body_read_ms = round(float(read_ms), 1)
+
+    def _note_http_scan_id(self, payload: Any) -> None:
+        if isinstance(payload, dict):
+            scan_id = str(payload.get("scanID") or "").strip()
+            if scan_id:
+                self._http_scan_id = scan_id[:80]
+
+    def send_response(self, code: int, message: str | None = None) -> None:
+        self._http_status = int(code)
+        super().send_response(code, message)
+
+    def send_header(self, keyword: str, value: str) -> None:
+        if str(keyword).lower() == "content-length":
+            try:
+                self._http_response_bytes = int(value)
+            except (TypeError, ValueError):
+                pass
+        super().send_header(keyword, value)
+
+    def _emit_http_request_log(self, started: float, error: BaseException | None) -> None:
+        elapsed_ms = (perf_counter() - started) * 1000.0
+        total_ms = round(elapsed_ms, 1)
+        route = _normalize_http_route(getattr(self, "path", "") or "")
+        status = getattr(self, "_http_status", None)
+        body_rejected = getattr(self, "_json_body_error_status", None) is not None
+        if error is not None and isinstance(error, _HTTP_DISCONNECT_ERRORS):
+            outcome = "client_disconnected"
+        elif error is not None:
+            outcome = "exception"
+            # Nothing was sent (or the handler died mid-flight): the request
+            # failed server-side whatever status line may have gone out.
+            status = 500 if status is None or status < 500 else status
+        elif getattr(self, "_http_client_disconnected", False):
+            outcome = "client_disconnected"
+        elif status is None:
+            outcome = "no_response"
+        elif body_rejected and status >= 400:
+            outcome = "body_rejected"
+        elif status >= 500:
+            outcome = "server_error"
+        elif status >= 400:
+            outcome = "client_error"
+        else:
+            outcome = "ok"
+
+        slow = elapsed_ms >= _http_slow_request_ms()
+        warning = (
+            outcome in {"exception", "no_response"}
+            or (status is not None and status >= 500)
+            or slow
+        )
+        if (
+            route in _HTTP_QUIET_ROUTES
+            and not warning
+            and outcome == "ok"
+            and not _env_flag(HTTP_LOG_HEALTH_ENV, default=False)
+        ):
+            return
+
+        record: dict[str, Any] = {
+            "severity": "WARNING" if warning else "INFO",
+            "event": "http_request",
+            "method": str(getattr(self, "command", "") or "") or None,
+            "route": route,
+            "status": status,
+            "outcome": outcome,
+            "totalMs": total_ms,
+        }
+        if slow:
+            record["slow"] = True
+        if getattr(self, "_http_body_read_ms", None) is not None:
+            record["bodyReadMs"] = self._http_body_read_ms
+            record["requestBytes"] = self._http_request_bytes
+        if getattr(self, "_http_response_bytes", None) is not None:
+            record["responseBytes"] = self._http_response_bytes
+        scan_id = getattr(self, "_http_scan_id", None)
+        if scan_id:
+            record["scanID"] = scan_id
+        client_ip = _http_client_ip_prefix(
+            getattr(self, "headers", None), getattr(self, "client_address", None)
+        )
+        if client_ip:
+            record["clientIp"] = client_ip
+        if error is not None:
+            record["errorType"] = type(error).__name__
+        elif body_rejected and outcome == "body_rejected":
+            record["reason"] = str(getattr(self, "_json_body_error_message", "") or "")[:120]
+        print(json.dumps(record, separators=(",", ":")), flush=True)
 
     def _require_request_identity(self) -> RequestIdentity | None:
         try:
@@ -24959,6 +25415,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         try:
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
+            self._http_client_disconnected = True
             print(
                 "[HTTP] Client disconnected before image write completed: "
                 f"path={getattr(self, 'path', '<unknown>')} status={status.value}"
@@ -24974,6 +25431,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         try:
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
+            self._http_client_disconnected = True
             print(
                 "[HTTP] Client disconnected before public image write completed: "
                 f"path={getattr(self, 'path', '<unknown>')}"
@@ -24997,6 +25455,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         try:
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
+            self._http_client_disconnected = True
             print(
                 "[HTTP] Client disconnected before post-media write completed: "
                 f"path={getattr(self, 'path', '<unknown>')}"
@@ -25808,11 +26267,13 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         try:
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
+            self._http_client_disconnected = True
             print(
                 "[HTTP] Client disconnected before HTML write completed: "
                 f"path={getattr(self, 'path', '<unknown>')} status={status.value}"
             )
 
+    @_instrument_http_request
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
@@ -27575,6 +28036,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
         self._write_json(HTTPStatus.OK, {"postId": post_id})
 
+    @_instrument_http_request
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
 
@@ -28970,6 +29432,21 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             except FileNotFoundError as error:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
                 return
+            except sqlite3.OperationalError as error:
+                if not is_sqlite_lock_error(error):
+                    traceback.print_exc()
+                    self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Artifact upload failed: {error}"})
+                    return
+                self.service._emit_structured_log(  # noqa: SLF001
+                    {
+                        "severity": "WARNING",
+                        "event": "scan_artifacts_db_locked",
+                        "scanID": str(payload.get("scanID") or "") or None,
+                        "error": str(error),
+                    }
+                )
+                self._write_json(HTTPStatus.SERVICE_UNAVAILABLE, _sqlite_busy_payload("Artifact upload"))
+                return
             except Exception as error:
                 traceback.print_exc()
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Artifact upload failed: {error}"})
@@ -29276,6 +29753,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
 
         self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
 
+    @_instrument_http_request
     def do_PUT(self) -> None:
         parsed = urlparse(self.path)
 
@@ -29349,6 +29827,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
 
         self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
 
+    @_instrument_http_request
     def do_DELETE(self) -> None:
         parsed = urlparse(self.path)
 
@@ -29476,6 +29955,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         body_read_started = perf_counter()
         body = self.rfile.read(content_length)
         body_read_ms = (perf_counter() - body_read_started) * 1000.0
+        self._note_http_body_read(len(body), body_read_ms)
         parts = _parse_multipart_form_data(body, boundary)
         # One line per multipart scan upload: how long the BODY took to arrive
         # (client uplink) vs everything after. The 2026-08-30 binder-page
@@ -29510,6 +29990,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._json_body_error_message = "multipart payload part must be a JSON object"
             return None
         _inject_multipart_scan_images(request_path, payload, parts)
+        self._note_http_scan_id(payload)
         return payload
 
     def _read_raw_image_body(self) -> bytes | None:
@@ -29539,7 +30020,9 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._json_body_error_status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE
             self._json_body_error_message = f"image body exceeds {max_body_bytes} bytes"
             return None
+        body_read_started = perf_counter()
         body = self.rfile.read(content_length)
+        self._note_http_body_read(len(body), (perf_counter() - body_read_started) * 1000.0)
         if not body:
             self._json_body_error_status = HTTPStatus.BAD_REQUEST
             self._json_body_error_message = "image body is required"
@@ -29788,28 +30271,38 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._json_body_error_message = f"JSON body exceeds {max_body_bytes} bytes"
             return None
 
+        body_read_started = perf_counter()
         body = self.rfile.read(content_length)
+        self._note_http_body_read(len(body), (perf_counter() - body_read_started) * 1000.0)
         # An absent/empty body is a valid POST — treat it as an empty object so
         # bodyless requests (e.g. /api/v1/account/delete) reach their handler
         # instead of being rejected with a 400 before dispatch.
         if not body.strip():
             return {}
         try:
-            return json.loads(body.decode("utf-8"))
+            payload = json.loads(body.decode("utf-8"))
         except json.JSONDecodeError:
             self._json_body_error_status = HTTPStatus.BAD_REQUEST
             self._json_body_error_message = "Invalid JSON body"
             return None
+        self._note_http_scan_id(payload)
+        return payload
 
     def _write_json(self, status: HTTPStatus, payload: dict[str, Any]) -> None:
+        if status == HTTPStatus.INTERNAL_SERVER_ERROR and is_sqlite_lock_error(sys.exc_info()[1]):
+            # Generic fallback: a locked DB is retryable, not a server bug.
+            status, payload = HTTPStatus.SERVICE_UNAVAILABLE, _sqlite_busy_payload(None, detail=payload.get("error"))
         body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         self.send_response(status.value)
+        if status == HTTPStatus.SERVICE_UNAVAILABLE and payload.get("retryable"):
+            self.send_header("Retry-After", str(SQLITE_BUSY_RETRY_AFTER_SECONDS))
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         try:
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
+            self._http_client_disconnected = True
             print(
                 "[HTTP] Client disconnected before response write completed: "
                 f"path={getattr(self, 'path', '<unknown>')} status={status.value}"
@@ -29825,6 +30318,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         try:
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
+            self._http_client_disconnected = True
             print(
                 "[HTTP] Client disconnected before response write completed: "
                 f"path={getattr(self, 'path', '<unknown>')} status={status.value}"
@@ -29889,6 +30383,7 @@ def main() -> None:
     )
     server = SpotlightThreadingHTTPServer((config.host, config.port), SpotlightRequestHandler)
     print(f"Ekalight scan service listening on http://{config.host}:{config.port}", flush=True)
+    ensure_sqlite_watchdog_started()
 
     if _env_flag(PORTFOLIO_DASHBOARD_PREWARM_ENV, default=True):
         delay_raw = os.environ.get(PORTFOLIO_DASHBOARD_PREWARM_DELAY_ENV)
