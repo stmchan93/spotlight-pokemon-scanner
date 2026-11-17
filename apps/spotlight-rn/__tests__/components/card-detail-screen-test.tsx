@@ -85,14 +85,15 @@ describe('CardDetailScreen', () => {
     expect(screen.getByTestId('detail-back')).toBeTruthy();
     expect(screen.getByTestId('detail-share')).toBeTruthy();
     /*
-      Delete and share sit in ONE glass pill (Figma 3686:55175), not two
-      separate circles that happen to be adjacent — and back sits in the same
-      material opposite them, so the bar carries one chrome style rather than
-      two. `within` is what pins the GROUPING; asserting both testIDs exist
-      would still pass if they drifted back apart.
+      Unowned: share is a lone 44pt CIRCLE, the same shape as Back. A one-slot
+      capsule measured 48x44 and read as an oblong (design review 2026-11-16).
     */
-    const headerActions = screen.getByTestId('detail-header-actions');
-    expect(within(headerActions).getByTestId('detail-share')).toBeTruthy();
+    expect(screen.queryByTestId('detail-header-actions')).toBeNull();
+    const shareStyle = StyleSheet.flatten(screen.getByTestId('detail-share').props.style);
+    expect(shareStyle.width).toBe(44);
+    expect(shareStyle.height).toBe(44);
+    expect(shareStyle.borderRadius).toBe(22);
+    expect(shareStyle.borderCurve).toBe('continuous');
     // Back is a lone 44pt bubble, the same shape as Home's menu bubble.
     expect(screen.getByTestId('detail-back')).toBeTruthy();
     expect(screen.getByTestId('detail-hero-card')).toBeTruthy();
@@ -2370,6 +2371,18 @@ describe('CardDetailScreen', () => {
     expect(screen.queryByTestId('detail-share-button')).toBeNull();
     expect(screen.queryByTestId('detail-add-copy')).toBeNull();
     expect(screen.queryByTestId('detail-remove-item')).toBeNull();
+    /*
+      Delete and share sit in ONE glass capsule (Figma 3686:55175). `within`
+      pins the GROUPING; asserting both testIDs exist would still pass if they
+      drifted back apart.
+    */
+    const headerActions = screen.getByTestId('detail-header-actions');
+    expect(within(headerActions).getByTestId('detail-delete')).toBeTruthy();
+    expect(within(headerActions).getByTestId('detail-share')).toBeTruthy();
+    // Edit-field headings are capitalised in the string, not via textTransform.
+    expect(screen.getByText('CONDITION')).toBeTruthy();
+    expect(screen.getByText('QUANTITY')).toBeTruthy();
+    expect(screen.getByText('COST BASIS')).toBeTruthy();
   });
 
   it('SAVE persists edits via replace + cost basis and returns to Collection', async () => {

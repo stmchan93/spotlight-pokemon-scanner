@@ -65,8 +65,8 @@ export function OwnedEntryEditFields({
     <View style={styles.root} testID={testID}>
       {showGrade ? (
       <View style={styles.group}>
-        <Text style={[theme.typography.label, styles.groupTitle, { color: theme.colors.gray900 }]}>
-          {gradeTitle}
+        <Text style={[theme.typography.label, { color: theme.colors.gray900 }]}>
+          {gradeTitle.toUpperCase()}
         </Text>
         <Pressable
           accessibilityRole="button"
@@ -87,8 +87,8 @@ export function OwnedEntryEditFields({
       ) : null}
 
       <View style={styles.group}>
-        <Text style={[theme.typography.label, styles.groupTitle, { color: theme.colors.gray900 }]}>
-          Quantity
+        <Text style={[theme.typography.label, { color: theme.colors.gray900 }]}>
+          QUANTITY
         </Text>
         <View style={styles.stepper}>
           <Pressable
@@ -127,8 +127,8 @@ export function OwnedEntryEditFields({
       </View>
 
       <View style={styles.group}>
-        <Text style={[theme.typography.label, styles.groupTitle, { color: theme.colors.gray900 }]}>
-          Cost Basis
+        <Text style={[theme.typography.label, { color: theme.colors.gray900 }]}>
+          COST BASIS
         </Text>
         <View style={[styles.costBasisRow, { borderBottomColor: theme.colors.gray200 }]}>
           <View style={styles.costBasisLeft}>
@@ -189,11 +189,6 @@ export function OwnedEntryEditFields({
 }
 
 const styles = StyleSheet.create({
-  // Same Label-UPPERCASE header as the PDP option groups (Figma 5768:21988 /
-  // add-to-collection 4211:84974 "GRADE" / "QUANTITY" / "COST BASIS").
-  groupTitle: {
-    textTransform: 'uppercase',
-  },
   costBasisInput: {
     /*
       ALWAYS flexed, never conditionally. The flex used to be dropped the

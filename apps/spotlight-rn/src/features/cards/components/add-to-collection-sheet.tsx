@@ -252,8 +252,8 @@ export function AddToCollectionSheet({
                 />
 
                 <View style={styles.group}>
-                  <Text style={[theme.typography.label, styles.groupTitle, { color: theme.colors.gray900 }]}>
-                    {gradeTitle}
+                  <Text style={[theme.typography.label, { color: theme.colors.gray900 }]}>
+                    {gradeTitle.toUpperCase()}
                   </Text>
                   <Pressable
                     accessibilityRole="button"
@@ -275,8 +275,8 @@ export function AddToCollectionSheet({
             )}
 
             <View style={styles.group}>
-              <Text style={[theme.typography.label, styles.groupTitle, { color: theme.colors.gray900 }]}>
-                Quantity
+              <Text style={[theme.typography.label, { color: theme.colors.gray900 }]}>
+                QUANTITY
               </Text>
               <View style={styles.stepper}>
                 <Pressable
@@ -350,10 +350,6 @@ export function AddToCollectionSheet({
 }
 
 const styles = StyleSheet.create({
-  // Label-UPPERCASE group header, same as CardConfigurator (Figma 4211:84974).
-  groupTitle: {
-    textTransform: 'uppercase',
-  },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.4)',

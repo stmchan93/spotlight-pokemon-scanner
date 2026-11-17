@@ -9,6 +9,8 @@ import {
   View,
 } from 'react-native';
 import Animated, {
+  FadeInUp,
+  FadeOutUp,
   useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
@@ -67,6 +69,7 @@ import { OwnedEntryEditFields } from '@/features/cards/components/owned-entry-ed
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
 import { InventoryDropdown, InventoryQtyPill } from '@/features/cards/components/inventory-dropdown';
 import { CardDetailHero } from '@/features/cards/components/card-detail-hero';
+import { useReduceMotion } from '@/features/scanner/use-reduce-motion';
 import { printingImageFor, printingImagesForEntries } from '@/features/cards/printing-image';
 import { watchlistCardBasicsFromDetail } from '@/features/wishlist/watchlist-store';
 import { CardPriceChartSection } from '@/features/cards/components/card-price-chart-section';
@@ -202,6 +205,8 @@ const CHART_CARD_GUTTER = 20;
 const TOP_REVEAL_THRESHOLD = 8;
 const SCROLL_DOWN_HIDE_DELTA = 2;
 const FAST_UP_REVEAL_DELTA = 9;
+// Owned-copies list drop-out from the Qty pill.
+const INVENTORY_EXPAND_MS = 200;
 
 type DropdownOption = {
   id: string;
@@ -244,6 +249,7 @@ export function CardDetailScreen({
 }: CardDetailScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
+  const reduceMotion = useReduceMotion();
   const router = useRouter();
   const { gate } = useGuestGate();
   const {
@@ -2278,11 +2284,11 @@ export function CardDetailScreen({
   // the owned entry); we only add Quantity + Cost Basis here.
   const isOwnedEdit = selectedEntry != null;
   // Both header flanks take the wider of the back bubble and the trailing
-  // capsule (share, plus delete when an owned line is pinned).
-  const headerSideWidth = Math.max(
-    glassNavBubbleSizes.medium,
-    glassNavBubbleGroupWidth(selectedEntry ? 2 : 1, 'medium'),
-  );
+  // trailing control: a lone share bubble, or the delete + share capsule when
+  // an owned line is pinned.
+  const headerSideWidth = selectedEntry
+    ? Math.max(glassNavBubbleSizes.medium, glassNavBubbleGroupWidth(2, 'medium'))
+    : glassNavBubbleSizes.medium;
 
   /*
     SEEDS ON A NEW ENTRY, AND AGAIN WHEN THE STORED BASIS ITSELF CHANGES.
@@ -2870,13 +2876,20 @@ export function CardDetailScreen({
           ) : null}
         </View>
         {inventoryExpanded && inventoryEntries.length > 0 && !isSealed ? (
-          <InventoryDropdown
-            entries={inventoryEntries}
-            language={selectedLanguageChip}
-            onPressEntry={handlePressInventoryEntry}
-            onPressEntryMenu={handlePressInventoryEntryMenu}
-            testID="detail-inventory"
-          />
+          // Drops out of the Qty pill rather than popping in, so the tap reads
+          // as the pill expanding (design review 2026-11-16).
+          <Animated.View
+            entering={reduceMotion ? undefined : FadeInUp.duration(INVENTORY_EXPAND_MS)}
+            exiting={reduceMotion ? undefined : FadeOutUp.duration(INVENTORY_EXPAND_MS)}
+          >
+            <InventoryDropdown
+              entries={inventoryEntries}
+              language={selectedLanguageChip}
+              onPressEntry={handlePressInventoryEntry}
+              onPressEntryMenu={handlePressInventoryEntryMenu}
+              testID="detail-inventory"
+            />
+          </Animated.View>
         ) : null}
         </View>
 
@@ -3147,34 +3160,44 @@ export function CardDetailScreen({
             style={[styles.headerSide, styles.headerSideRight, { width: headerSideWidth }]}
             testID="detail-header-trailing"
           >
-            {/* Delete and share share ONE capsule, as Home's edit/share do. */}
-            <GlassNavBubbleGroup
-              items={[
-                ...(selectedEntry
-                  ? [
-                      {
-                        accessibilityLabel: 'Delete from collection',
-                        children: (
-                          <Trash color={theme.colors.gray900} height={glassNavBubbleGlyphSize} strokeWidth={glassNavBubbleGlyphStrokeWidth} width={glassNavBubbleGlyphSize} />
-                        ),
-                        onPress: gate(() => setConfirmDeleteOpen(true)),
-                        testID: 'detail-delete',
-                      },
-                    ]
-                  : []),
-                {
-                  accessibilityLabel: 'Share this card',
-                  children: (
-                    <ShareIos color={theme.colors.gray900} height={glassNavBubbleGlyphSize} strokeWidth={glassNavBubbleGlyphStrokeWidth} width={glassNavBubbleGlyphSize} />
-                  ),
-                  onPress: gate(handleShare),
-                  testID: 'detail-share',
-                },
-              ]}
-              material="frost"
-              size="medium"
-              testID="detail-header-actions"
-            />
+            {/* Delete and share share ONE capsule, as Home's edit/share do.
+                Share alone is a lone 44pt circle like Back — a one-slot capsule
+                measures 48x44 and read as an oblong. */}
+            {selectedEntry ? (
+              <GlassNavBubbleGroup
+                items={[
+                  {
+                    accessibilityLabel: 'Delete from collection',
+                    children: (
+                      <Trash color={theme.colors.gray900} height={glassNavBubbleGlyphSize} strokeWidth={glassNavBubbleGlyphStrokeWidth} width={glassNavBubbleGlyphSize} />
+                    ),
+                    onPress: gate(() => setConfirmDeleteOpen(true)),
+                    testID: 'detail-delete',
+                  },
+                  {
+                    accessibilityLabel: 'Share this card',
+                    children: (
+                      <ShareIos color={theme.colors.gray900} height={glassNavBubbleGlyphSize} strokeWidth={glassNavBubbleGlyphStrokeWidth} width={glassNavBubbleGlyphSize} />
+                    ),
+                    onPress: gate(handleShare),
+                    testID: 'detail-share',
+                  },
+                ]}
+                material="frost"
+                size="medium"
+                testID="detail-header-actions"
+              />
+            ) : (
+              <GlassNavBubble
+                accessibilityLabel="Share this card"
+                material="frost"
+                onPress={gate(handleShare)}
+                size="medium"
+                testID="detail-share"
+              >
+                <ShareIos color={theme.colors.gray900} height={glassNavBubbleGlyphSize} strokeWidth={glassNavBubbleGlyphStrokeWidth} width={glassNavBubbleGlyphSize} />
+              </GlassNavBubble>
+            )}
           </View>
         </View>
       </Animated.View>

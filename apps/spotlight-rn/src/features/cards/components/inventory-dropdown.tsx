@@ -74,6 +74,8 @@ export function InventoryQtyPill({ entries, expanded, onPress, testID }: Invento
     <Pressable
       accessibilityLabel={expanded ? 'Collapse inventory' : 'Expand inventory'}
       accessibilityRole="button"
+      // The pill is ~24pt tall; the slop takes it past the 44pt touch minimum.
+      hitSlop={{ bottom: 10, top: 10 }}
       onPress={onPress}
       style={({ pressed }) => [
         styles.pill,
