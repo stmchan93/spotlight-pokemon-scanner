@@ -36,7 +36,12 @@ from mcp_server.filters import ToolInputError  # noqa: E402
 from mcp_server.identify import register_identify_card  # noqa: E402
 from mcp_server.policy import USER_POLICY, ResponsePolicy  # noqa: E402
 from mcp_server.rate_limit import RateLimitExceeded, UserRateLimiter  # noqa: E402
-from mcp_server.tools import WATCHLIST_DESCRIPTION, CollectionTools  # noqa: E402
+from mcp_server.tools import (  # noqa: E402
+    MARKET_TRENDS_DESCRIPTION,
+    PRICE_LOWS_DESCRIPTION,
+    WATCHLIST_DESCRIPTION,
+    CollectionTools,
+)
 from mcp_server.write_tools import register_write_tools  # noqa: E402
 
 logger = logging.getLogger("ekalight.mcp")
@@ -392,6 +397,40 @@ def build_server(
             grade=grade,
             variant=variant,
         )
+
+    @_register(server, policy)(
+        description=PRICE_LOWS_DESCRIPTION,
+        annotations=READ_ONLY,
+    )
+    async def find_price_lows(
+        filter: CardFilter | None = None,
+        game: Annotated[str | None, Field(description="pokemon, onepiece, lorcana, riftbound or gundam; omit for all.")] = None,
+        owned: Literal["any", "owned", "not_owned"] = "any",
+        window: Literal["90d", "1y"] = "1y",
+        min_price_usd: Annotated[float, Field(ge=0)] | None = None,
+        max_price_usd: Annotated[float, Field(ge=0)] | None = None,
+        limit: Annotated[int, Field(ge=1, le=20)] = 10,
+    ) -> dict[str, Any]:
+        return await runner.run(
+            "find_price_lows",
+            card_filter=_filter_dict(filter),
+            game=game,
+            owned=owned,
+            window=window,
+            min_price_usd=min_price_usd,
+            max_price_usd=max_price_usd,
+            limit=limit,
+        )
+
+    @_register(server, policy)(
+        description=MARKET_TRENDS_DESCRIPTION,
+        annotations=READ_ONLY,
+    )
+    async def get_market_trends(
+        game: Annotated[str | None, Field(description="pokemon, onepiece, lorcana, riftbound or gundam; omit for all (sets default to pokemon).")] = None,
+        window: Literal["7d", "30d", "90d"] = "30d",
+    ) -> dict[str, Any]:
+        return await runner.run("get_market_trends", game=game, window=window)
 
     register_identify_card(server, policy, runner, token_getter=token_getter)
 

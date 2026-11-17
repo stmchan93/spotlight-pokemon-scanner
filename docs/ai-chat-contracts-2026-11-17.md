@@ -117,6 +117,8 @@ Backend changes this implies (Agent A):
 
 Read (wrap `CollectionTools`, owner = request user): `search_cards`, `get_card`, `get_my_collection`, `get_my_watchlist`, `get_portfolio_summary`, `find_missing`, `get_price_history` (incl. `grader`/`grade`), `list_facets`. Same arguments as the MCP tools.
 
+Market reads (added 2026-11-17, also MCP user tier only): `find_price_lows` (cards ≥25% below their window high and within 5% of the window low; reads the `price_lows` tables written by `backend/price_lows.py` on the ops prewarm hook after each price sync) and `get_market_trends` (Top Trends gainers from the scanner's persisted `market_movers_latest` runtime setting + Market Watch set trends from `meta_pulse_*`). Both DB-only, USD-only.
+
 Write (return a ProposedAction, change nothing): `propose_add_to_collection`, `propose_update_holding`, `propose_watch_card`. Validate params server-side before proposing: the card exists, the holding is owned, quantity ≥1, condition enum valid.
 
 Scanner context: when `context.card_ids` is present, tell the model "The user is looking at these scanned cards: …" with name/set/number/price per card (resolved server-side, ≤20).

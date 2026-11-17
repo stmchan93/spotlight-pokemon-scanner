@@ -475,8 +475,15 @@ class ToolLoopTests(AssistantCase):
         self.assertEqual(call["system"][-1]["cache_control"], {"type": "ephemeral"})
         self.assertEqual(call["tools"][-1]["cache_control"], {"type": "ephemeral"})
         names = [tool["name"] for tool in call["tools"]]
-        self.assertEqual(len(names), 11)
+        self.assertEqual(len(names), 13)
         self.assertIn("get_my_watchlist", names)
+        self.assertTrue({"find_price_lows", "get_market_trends"} <= set(names))
+        by_name = {tool["name"]: tool for tool in call["tools"]}
+        self.assertIn("good buy", by_name["find_price_lows"]["description"])
+        self.assertIn("trending", by_name["get_market_trends"]["description"])
+        self.assertTrue(by_name["get_market_trends"].get("strict"))
+        self.assertIn("find_price_lows", call["system"][-1]["text"])
+        self.assertIn("get_market_trends", call["system"][-1]["text"])
         self.assertTrue({"propose_add_to_collection", "propose_update_holding", "propose_watch_card"} <= set(names))
         strict = [tool for tool in call["tools"] if tool.get("strict")]
         # The API caps strict schemas at 24 optional params per request.
