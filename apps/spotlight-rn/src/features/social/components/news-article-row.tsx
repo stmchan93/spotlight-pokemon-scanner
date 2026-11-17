@@ -71,6 +71,8 @@ export function NewsArticleRow({
   // Retained after closing so the sheet keeps its content while it slides away.
   const [shareMounted, setShareMounted] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  // Keeps the host modal up through the sheet's closing slide.
+  const [shareExiting, setShareExiting] = useState(false);
   const likePending = useRef(false);
   const repostPending = useRef(false);
 
@@ -164,6 +166,7 @@ export function NewsArticleRow({
       if (await ensureThread()) {
         setShareMounted(true);
         setShareOpen(true);
+        setShareExiting(true);
       } else {
         alertUnavailable();
       }
@@ -299,11 +302,12 @@ export function NewsArticleRow({
           presentationStyle="overFullScreen"
           statusBarTranslucent
           transparent
-          visible={shareOpen}
+          visible={shareOpen || shareExiting}
         >
           <View style={styles.fill}>
             <SharePostSheet
               onClose={() => setShareOpen(false)}
+              onExited={() => setShareExiting(false)}
               payload={{ kind: 'post', postId }}
               testID={`${testID}-share-sheet`}
               visible={shareOpen}

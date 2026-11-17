@@ -118,6 +118,7 @@ export function SharePostSheet({
   visible,
   onClose,
   onSent,
+  onExited,
   testID = 'share-post-sheet',
 }: {
   payload: ShareSheetPayload;
@@ -127,6 +128,12 @@ export function SharePostSheet({
   onClose: () => void;
   /** Fired after each successful send, for callers that want to react. */
   onSent?: (recipient: Recipient) => void;
+  /**
+   * Fired once the closing slide has finished. A caller hosting this sheet in
+   * its own `Modal` keeps that modal up until then — hiding it on `visible`
+   * alone tears the sheet down mid-slide, so it vanished instead of sliding.
+   */
+  onExited?: () => void;
   testID?: string;
 }) {
   const theme = useSpotlightTheme();
@@ -145,16 +152,26 @@ export function SharePostSheet({
   // `OptionsSheet` so the transition reads identically.
   const [isRendered, setIsRendered] = useState(visible);
   const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  // The scrim fades with the slide instead of snapping in and out around it.
+  const backdropOpacity = translateY.interpolate({
+    inputRange: [0, SCREEN_HEIGHT],
+    outputRange: [1, 0],
+    extrapolate: 'clamp',
+  });
+  const onExitedRef = useRef(onExited);
+  onExitedRef.current = onExited;
 
   useEffect(() => {
     if (visible) {
       setIsRendered(true);
+      // Native driver: the sheet loads its recipients as it opens, and a
+      // JS-driven slide stuttered under that work.
       const animation = Animated.spring(translateY, {
         toValue: 0,
         damping: 34,
         mass: 1,
         stiffness: 320,
-        useNativeDriver: false,
+        useNativeDriver: true,
       });
       animation.start();
       return () => animation.stop();
@@ -164,11 +181,12 @@ export function SharePostSheet({
       toValue: SCREEN_HEIGHT,
       duration: 200,
       easing: Easing.in(Easing.cubic),
-      useNativeDriver: false,
+      useNativeDriver: true,
     });
     animation.start(({ finished }) => {
       if (finished) {
         setIsRendered(false);
+        onExitedRef.current?.();
       }
     });
     return () => animation.stop();
@@ -368,13 +386,15 @@ export function SharePostSheet({
 
   return (
     <View pointerEvents={visible ? 'auto' : 'none'} style={styles.root}>
-      <Pressable
-        accessibilityLabel="Close"
-        accessibilityRole="button"
-        onPress={onClose}
-        style={styles.backdrop}
-        testID={`${testID}-backdrop`}
-      />
+      <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
+        <Pressable
+          accessibilityLabel="Close"
+          accessibilityRole="button"
+          onPress={onClose}
+          style={styles.backdropHit}
+          testID={`${testID}-backdrop`}
+        />
+      </Animated.View>
       <Animated.View
         style={[
           styles.sheet,
@@ -451,6 +471,9 @@ const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
+  },
+  backdropHit: {
+    flex: 1,
   },
   body: {
     gap: 12,

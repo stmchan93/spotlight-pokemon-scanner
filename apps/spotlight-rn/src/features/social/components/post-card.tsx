@@ -447,9 +447,13 @@ export function PostCard({
   */
   const [prompt, setPrompt] = useState<{ kind: 'options' | 'block' | 'share' } | null>(null);
   const [promptOpen, setPromptOpen] = useState(false);
+  // Holds the host modal up while the share sheet slides away (it reports when
+  // it is gone); without it the modal vanished on close and the sheet with it.
+  const [shareExiting, setShareExiting] = useState(false);
   const openPrompt = useCallback((kind: 'options' | 'block' | 'share') => {
     setPrompt({ kind });
     setPromptOpen(true);
+    setShareExiting(kind === 'share');
   }, []);
   const closePrompt = useCallback(() => setPromptOpen(false), []);
 
@@ -880,7 +884,7 @@ export function PostCard({
           presentationStyle="overFullScreen"
           statusBarTranslucent
           transparent
-          visible={promptOpen}
+          visible={promptOpen || shareExiting}
         >
           <View style={styles.promptHost}>
             {prompt.kind === 'share' ? (
@@ -888,6 +892,7 @@ export function PostCard({
                 // NOT closed on send: the sheet's own "Sent" row is the
                 // confirmation, and sharing is usually plural. See the sheet.
                 onClose={closePrompt}
+                onExited={() => setShareExiting(false)}
                 payload={{ kind: 'post', postId: post.id }}
                 testID={`${testID}-share-sheet`}
                 visible={promptOpen}

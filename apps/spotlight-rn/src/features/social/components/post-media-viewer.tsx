@@ -1,6 +1,8 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
+  Animated,
   Modal,
+  PanResponder,
   ScrollView,
   StyleSheet,
   useWindowDimensions,
@@ -71,9 +73,44 @@ export function PostMediaViewer({
     setActivePage(Math.round(event.nativeEvent.contentOffset.x / width));
   };
 
+  /*
+    Swipe down to close, taken only from the toolbar strip — the same top-zone
+    rule as Search, so scrolling a long caption never closes the viewer. A
+    release past the threshold hands off to the Modal's own slide-down; anything
+    shorter springs back.
+  */
+  const dragY = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (visible) {
+      dragY.setValue(0);
+    }
+  }, [dragY, visible]);
+  const dismissResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gesture) =>
+          gesture.dy > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+        onPanResponderMove: (_event, gesture) => {
+          dragY.setValue(Math.max(0, gesture.dy));
+        },
+        onPanResponderRelease: (_event, gesture) => {
+          if (gesture.dy > DISMISS_DISTANCE || gesture.vy > DISMISS_VELOCITY) {
+            onClose();
+            return;
+          }
+          Animated.spring(dragY, { toValue: 0, useNativeDriver: true }).start();
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(dragY, { toValue: 0, useNativeDriver: true }).start();
+        },
+      }),
+    [dragY, onClose],
+  );
+
   return (
     <Modal
-      animationType="fade"
+      // `slide`: up from the bottom on open and back DOWN on close, like Search.
+      animationType="slide"
       onRequestClose={onClose}
       onShow={() => setActivePage(initialPage)}
       presentationStyle="overFullScreen"
@@ -82,11 +119,18 @@ export function PostMediaViewer({
       visible={visible}
     >
       <StatusBar style="light" />
-      <View
-        style={[styles.root, { backgroundColor: theme.colors.mediaBackdrop }]}
+      <Animated.View
+        style={[
+          styles.root,
+          { backgroundColor: theme.colors.mediaBackdrop, transform: [{ translateY: dragY }] },
+        ]}
         testID={testID}
       >
-        <View style={[styles.toolbar, { paddingTop: insets.top }]}>
+        <View
+          {...dismissResponder.panHandlers}
+          style={[styles.toolbar, { paddingTop: insets.top }]}
+          testID={`${testID}-drag-zone`}
+        >
           <GlassNavBubble
             accessibilityLabel="Close"
             onPress={onClose}
@@ -150,7 +194,7 @@ export function PostMediaViewer({
           {metrics}
         </ScrollView>
         {children}
-      </View>
+      </Animated.View>
     </Modal>
   );
 }
@@ -160,6 +204,9 @@ export function PostMediaViewer({
 const CONTENT_TOP_GAP = 14;
 const CONTENT_BOTTOM_GAP = 7;
 const TOOLBAR_HEIGHT = 44;
+/** A drag down the toolbar this far (pt), or this fast (pt/ms), closes the viewer. */
+const DISMISS_DISTANCE = 120;
+const DISMISS_VELOCITY = 0.8;
 
 const styles = StyleSheet.create({
   content: {

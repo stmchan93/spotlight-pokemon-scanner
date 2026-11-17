@@ -717,6 +717,19 @@ describe('PostCard share', () => {
     expect(await screen.findByTestId(SHARE_SHEET)).toBeTruthy();
   });
 
+  // The host modal stays up until the sheet has slid away, then goes with it —
+  // hiding it on close made the sheet vanish instead of sliding down.
+  it('slides the sheet away on close, then takes the host modal down', async () => {
+    await renderCard();
+
+    await pressById('post-card-share-button');
+    expect(await screen.findByTestId(SHARE_SHEET)).toBeTruthy();
+
+    await pressById(`${SHARE_SHEET}-backdrop`);
+
+    await waitFor(() => expect(screen.queryByTestId(SHARE_SHEET)).not.toBeOnTheScreen());
+  });
+
   it('sends the post to an existing thread without a caption', async () => {
     (fetchConversations as jest.Mock).mockResolvedValue([conversationWith('u-2', 'Misty')]);
     await renderCard();

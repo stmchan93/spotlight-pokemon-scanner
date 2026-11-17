@@ -221,10 +221,21 @@ function AuthenticatedRoot() {
                 taken only from the top of the screen so scrolling results back
                 up never closes search. Not `formSheet`: that would leave the
                 collection showing behind a search meant to take over.
+
+                `animation` is spelled out, not left to `vertical`'s implied
+                `slide_from_bottom`: native-stack only fills that in when
+                `animation` is undefined, and this navigator's `screenOptions`
+                sets `'default'` — which on iOS is the plain push from the right
+                with a horizontal-only swipe on iOS 26. Explicit, it slides up
+                and back DOWN on both platforms.
               */}
               <Stack.Screen
                 name="(sheet)"
-                options={{ gestureDirection: 'vertical', gestureResponseDistance: { top: SHEET_DISMISS_ZONE } }}
+                options={{
+                  animation: 'slide_from_bottom',
+                  gestureDirection: 'vertical',
+                  gestureResponseDistance: { top: SHEET_DISMISS_ZONE },
+                }}
               />
               <Stack.Screen name="(modal)" />
               {/*

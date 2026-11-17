@@ -241,6 +241,12 @@ jest.mock('@/features/portfolio/screens/sales-history-screen', () => ({
   },
 }));
 
+/** The `new-post` Stack.Screen's own options, so assertions don't match another route's. */
+function newPostBlockOf(rootLayout: string): string {
+  const start = rootLayout.indexOf('name="new-post"');
+  return start < 0 ? '' : rootLayout.slice(start, rootLayout.indexOf('/>', start));
+}
+
 describe('misc route wrappers', () => {
   beforeEach(() => {
     mockBack.mockReset();
@@ -351,7 +357,7 @@ describe('misc route wrappers', () => {
     // fragment whose default transition is an X-translate — drop this line and
     // the composer slides in from the RIGHT there, and nothing on iOS changes
     // to tell you.
-    expect(rootLayout).toContain("animation: 'slide_from_bottom'");
+    expect(newPostBlockOf(rootLayout)).toContain("animation: 'slide_from_bottom'");
 
     // No dismiss gesture on EITHER platform: exit is the X button or a posted
     // post. The old iOS-only opt-in is gone with it.
@@ -372,6 +378,27 @@ describe('misc route wrappers', () => {
     expect(newPostBlock).not.toMatch(
       /sheetAllowedDetents|sheetCornerRadius|sheetExpandsWhenScrolledToEdge|sheetGrabberVisible/,
     );
+  });
+
+  it('slides Search up and back down, with the swipe-down taken from the top only', () => {
+    // `gestureDirection: 'vertical'` only implies `slide_from_bottom` when
+    // `animation` is undefined, and the root stack's screenOptions set
+    // `'default'` — so without an explicit animation, Search opened as a plain
+    // push from the right on iOS and closed sideways.
+     
+    const fs = require('node:fs');
+     
+    const path = require('node:path');
+    const rootLayout: string = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'src', 'app', '_layout.tsx'),
+      'utf8',
+    );
+    const start = rootLayout.indexOf('name="(sheet)"');
+    expect(start).toBeGreaterThan(-1);
+    const sheetBlock = rootLayout.slice(start, rootLayout.indexOf('/>', start));
+    expect(sheetBlock).toContain("animation: 'slide_from_bottom'");
+    expect(sheetBlock).toContain("gestureDirection: 'vertical'");
+    expect(sheetBlock).toContain('gestureResponseDistance: { top: SHEET_DISMISS_ZONE }');
   });
 
   it('renders the account route screen', () => {
