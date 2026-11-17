@@ -55,7 +55,11 @@ async function ask(text = 'question') {
 }
 
 function renderScreen(repoOverrides: Parameters<typeof createTestSpotlightRepository>[0], props: Partial<React.ComponentProps<typeof AssistantScreen>> = {}) {
-  const repository = createTestSpotlightRepository(repoOverrides);
+  // No saved chats unless a test seeds them: otherwise the screen resumes the latest one.
+  const repository = createTestSpotlightRepository({
+    listAssistantThreads: async () => ({ threads: [], nextCursor: null }),
+    ...repoOverrides,
+  });
   const onOpenCard = jest.fn();
   renderWithProviders(
     <AssistantScreen onBack={jest.fn()} onOpenCard={onOpenCard} source="home" {...props} />,
@@ -106,6 +110,29 @@ describe('AssistantScreen', () => {
     });
     expect(sendAssistantMessage.mock.calls[1][0]).toMatchObject({ threadId: 'thr_1', context: { source: 'scanner' } });
     expect(sendAssistantMessage.mock.calls[1][0].context?.cardIds).toBeUndefined();
+  });
+
+  it('reopening resumes the latest saved chat and lists recent chats on a new one', async () => {
+    const threads = [
+      { id: 'thr_latest', title: 'Most expensive card?', updatedAt: '2026-11-17T17:36:00Z', lastMessagePreview: 'Charizard' },
+      { id: 'thr_older', title: 'Worth grading?', updatedAt: '2026-11-17T17:30:00Z', lastMessagePreview: 'Maybe' },
+    ];
+    const getAssistantThreadMessages = jest.fn(async (_threadId: string) => []);
+    renderScreen({ listAssistantThreads: async () => ({ threads, nextCursor: null }), getAssistantThreadMessages });
+    await waitFor(() => expect(getAssistantThreadMessages).toHaveBeenCalledWith('thr_latest'));
+    fireEvent.press(screen.getByTestId('assistant-new-chat'));
+    expect(await screen.findByTestId('assistant-recent-thr_older')).toBeTruthy();
+  });
+
+  it('a scanner open with tray cards starts a fresh chat', async () => {
+    const getAssistantThreadMessages = jest.fn(async (_threadId: string) => []);
+    const threads = [{ id: 'thr_latest', title: 'Old', updatedAt: '2026-11-17T17:36:00Z', lastMessagePreview: '' }];
+    renderScreen(
+      { listAssistantThreads: async () => ({ threads, nextCursor: null }), getAssistantThreadMessages },
+      { source: 'scanner', cardIds: ['xyp-111'] },
+    );
+    expect(await screen.findByTestId('assistant-recent-thr_latest')).toBeTruthy();
+    expect(getAssistantThreadMessages).not.toHaveBeenCalled();
   });
 
   it('retries a failed send with the SAME client_message_id', async () => {
@@ -245,7 +272,8 @@ describe('AssistantScreen', () => {
   });
 
   it('opens saved chats, resumes one, and deletes one', async () => {
-    renderScreen({});
+    // The base mock's seeded chat (opened on mount as the latest one).
+    renderScreen({ listAssistantThreads: undefined });
     fireEvent.press(screen.getByTestId('assistant-open-history'));
     fireEvent.press(await screen.findByTestId('assistant-thread-thr_mock_seed'));
     expect(await screen.findByText('What am I missing from Celestial Storm?')).toBeTruthy();

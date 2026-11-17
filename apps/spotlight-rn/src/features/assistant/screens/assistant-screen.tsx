@@ -81,9 +81,10 @@ function resetTimeLabel(resetsAt: string | null): string {
 
 function suggestionsFor(source: AssistantContextSource, hasTrayCards: boolean): string[] {
   if (source === 'scanner' && hasTrayCards) {
-    return ['Which of these is worth the most?', 'Are any of these worth grading?', 'Add these to my collection'];
+    // Tray questions first, but not only: the chat isn't limited to the tray.
+    return ['Which of these is worth the most?', 'Are any of these worth grading?', "What's my collection worth?"];
   }
-  return ["What's my collection worth?", 'What am I missing from my newest set?', 'Which of my cards went up this week?'];
+  return ["What's my collection worth?", 'Which of my cards went up this week?', "What's a Special Illustration Rare?"];
 }
 
 export function AssistantScreen({
@@ -167,6 +168,41 @@ export function AssistantScreen({
       setThreadsStatus('error');
     }
   }, [repository]);
+
+  // Reopening the chat continues the latest conversation instead of a blank one.
+  // A scanner open with tray cards is a fresh question about those cards.
+  const canReadOnOpen = !isGuest || Boolean(getAccessToken());
+  const resumeLatest = !initialThreadId && !(source === 'scanner' && cardIds.length > 0);
+  useEffect(() => {
+    if (!canReadOnOpen) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      setThreadsStatus('loading');
+      try {
+        const page = await repository.listAssistantThreads({ limit: 50 });
+        if (cancelled) {
+          return;
+        }
+        setThreads(page.threads);
+        setThreadsStatus('ready');
+        const latest = page.threads[0];
+        if (resumeLatest && latest) {
+          void chat.openThread(latest.id);
+        }
+      } catch {
+        if (!cancelled) {
+          setThreadsStatus('error');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Mount only: later thread switches go through openThread.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const openHistory = useCallback(() => {
     setView('history');
@@ -315,6 +351,7 @@ export function AssistantScreen({
     );
   }, [actionStates, chat, handleConfirmAction, handleDismissAction, onOpenCard, source, theme]);
 
+  const recentThreads = threads.filter((thread) => thread.id !== chat.threadId).slice(0, 3);
   const pill = usageLabel(chat.usage);
   const suggestions = suggestionsFor(source, cardIds.length > 0);
   const canSend = draft.trim().length > 0 && chat.pending?.status !== 'sending';
@@ -332,11 +369,11 @@ export function AssistantScreen({
     />
   ) : (
     <View style={styles.intro} testID="assistant-intro">
-      <Text style={theme.typography.titleSmall}>Ask about your cards</Text>
+      <Text style={theme.typography.titleSmall}>Ask me anything about cards</Text>
       <Text style={[theme.typography.body, { color: theme.colors.gray600 }]}>
         {source === 'scanner' && cardIds.length > 0
-          ? `I can see the ${cardIds.length} ${cardIds.length === 1 ? 'card' : 'cards'} in your tray.`
-          : 'Prices, what you own, what you are missing, and your Watchlist.'}
+          ? `I can see the ${cardIds.length} ${cardIds.length === 1 ? 'card' : 'cards'} in your tray. Ask about them, your collection, prices, sets, or anything TCG.`
+          : 'Your collection, prices, what you are missing, your Watchlist, or anything TCG.'}
       </Text>
       {chat.isLimitReached ? null : (
         <View style={styles.suggestions}>
@@ -351,6 +388,20 @@ export function AssistantScreen({
           ))}
         </View>
       )}
+      {recentThreads.length > 0 ? (
+        <View style={styles.suggestions} testID="assistant-recent-chats">
+          <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]}>Recent chats</Text>
+          {recentThreads.map((thread) => (
+            <PillButton
+              key={thread.id}
+              label={thread.title}
+              onPress={() => openSavedThread(thread.id)}
+              testID={`assistant-recent-${thread.id}`}
+              tone="soft"
+            />
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 
