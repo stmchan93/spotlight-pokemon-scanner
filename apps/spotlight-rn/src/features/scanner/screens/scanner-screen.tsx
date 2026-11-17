@@ -73,6 +73,7 @@ import {
   colors,
   radii,
   shadows,
+  SkeletonBlock,
   spacing,
   textStyles,
   useSpotlightTheme,
@@ -815,6 +816,14 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                     <ActivityIndicator color={theme.colors.brand} size="small" />
                     <Text numberOfLines={1} style={styles.captureStatus}>{'Finding match'.toUpperCase()}</Text>
                   </View>
+                  {/* Where the number · set line lands once matched. */}
+                  <SkeletonBlock
+                    height={textStyles.label.lineHeight}
+                    radius={radii.sm}
+                    style={styles.captureSubtitleSkeleton}
+                    testID={`scanner-tray-loading-skeleton-${capture.id}`}
+                    width="60%"
+                  />
                   {capture.binderPage ? <PocketBadge binderPage={capture.binderPage} /> : null}
                 </>
               ) : candidate ? (
@@ -5776,9 +5785,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     paddingVertical: 2,
   },
+  captureSubtitleSkeleton: {
+    // The design-system default (light `field`) glares on the black tray.
+    backgroundColor: colors.scannerSurfaceStrong,
+  },
   captureStatus: {
-    // In-progress row status: Body, uppercased in JS.
-    ...textStyles.body,
+    // In-progress row status: bold, but a step below a card name (titleSmall).
+    ...textStyles.titleXsmall,
     color: colors.scannerTextPrimary,
   },
   captureTitle: {

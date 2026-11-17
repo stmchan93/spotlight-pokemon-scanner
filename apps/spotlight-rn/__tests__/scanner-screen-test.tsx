@@ -1320,6 +1320,7 @@ describe('ScannerScreen', () => {
     expect(trayRow(0)).toBeTruthy();
     expect(screen.getByText('FINDING MATCH')).toBeTruthy();
     expect(screen.queryByText(/QUEUED FOR SCAN REVIEW/i)).toBeNull();
+    expect(screen.queryByText(/USUALLY TAKES/i)).toBeNull();
 
     await waitFor(() => {
       expect(resolveMatch).toBeTruthy();
