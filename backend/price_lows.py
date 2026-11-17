@@ -38,9 +38,10 @@ from market_movers import (
     SOURCE_MAIN_RAW,
     _card_games_and_languages,
     _is_japanese,
+    _as_float,
     _latest_rows_per_card,
+    has_outlier_step,
     market_movers_version_token,
-    outlier_step_card_ids,
 )
 
 WINDOWS = (90, 365)
@@ -87,7 +88,6 @@ class _Current:
 class _WindowStats:
     low: float
     high: float
-    distinct: int
     first_date: str
 
 
@@ -156,10 +156,8 @@ def evaluate(
     min_days_covered: int = MIN_DAYS_COVERED,
 ) -> dict[str, Any] | None:
     """Metrics when the card qualifies (price floor, near low, big drop, enough
-    history and distinct prices), else None. Step glitches are checked later."""
+    history), else None. Series guards run later on the survivors."""
     if current < min_price_usd or stats.low <= 0 or stats.high <= 0:
-        return None
-    if stats.distinct < MIN_DISTINCT_PRICES:
         return None
     days_covered = (date.fromisoformat(now_date[:10]) - date.fromisoformat(stats.first_date[:10])).days
     if days_covered < min_days_covered:
@@ -213,40 +211,101 @@ def _current_prices(
     return out
 
 
+_WindowMaps = tuple[dict[tuple[str, str | None], _WindowStats], dict[str, _WindowStats]]
+
+
 def _window_stats(
     connection: sqlite3.Connection,
     *,
-    start: str,
+    starts: dict[int, str],
     end: str,
     has_main: bool,
     has_variant: bool,
-) -> tuple[dict[tuple[str, str | None], _WindowStats], dict[str, _WindowStats]]:
-    """(main lane per (card, printing), default-raw USD per card) aggregates in
-    SQL, so the year-long scan stays in SQLite instead of Python."""
-    main: dict[tuple[str, str | None], _WindowStats] = {}
-    if has_main:
-        variant_col = "main_raw_variant" if has_variant else "NULL"
-        for row in connection.execute(
-            f"SELECT card_id, {variant_col}, MIN(main_raw_market_price), MAX(main_raw_market_price), "
-            "COUNT(DISTINCT ROUND(main_raw_market_price, 2)), MIN(price_date) "
-            "FROM card_price_history_daily "
-            "WHERE price_date BETWEEN ? AND ? AND main_raw_market_price > 0 "
-            f"GROUP BY card_id, {variant_col}",
-            (start, end),
-        ):
-            main[(str(row[0]), row[1])] = _WindowStats(float(row[2]), float(row[3]), int(row[4]), str(row[5]))
-    default: dict[str, _WindowStats] = {}
-    for row in connection.execute(
-        "SELECT card_id, MIN(default_raw_market_price), MAX(default_raw_market_price), "
-        "COUNT(DISTINCT ROUND(default_raw_market_price, 2)), MIN(price_date) "
-        "FROM card_price_history_daily "
-        "WHERE price_date BETWEEN ? AND ? AND default_raw_market_price > 0 "
-        "AND UPPER(display_currency_code) = 'USD' "
-        "GROUP BY card_id",
-        (start, end),
-    ):
-        default[str(row[0])] = _WindowStats(float(row[1]), float(row[2]), int(row[3]), str(row[4]))
-    return main, default
+) -> dict[int, _WindowMaps]:
+    """Per window: (main lane per (card, printing), default-raw USD per card)
+    low/high/first date. ONE sequential table scan for every window (NOT
+    INDEXED: a year of the date index is random row I/O, ~3.5x slower on a
+    16M-row synthetic year). Distinct counts are left to the series guard."""
+    main_col = "main_raw_market_price" if has_main else "NULL"
+    variant_col = "main_raw_variant" if has_variant else "NULL"
+    usd_default = (
+        "(CASE WHEN default_raw_market_price > 0 AND UPPER(display_currency_code) = 'USD' "
+        "THEN default_raw_market_price END)"
+    )
+    main_value = f"(CASE WHEN {main_col} > 0 THEN {main_col} END)"
+    windows = sorted(starts)
+    select: list[str] = []
+    params: list[Any] = []
+    for window in windows:
+        in_window = "price_date >= ?"
+        for value in (main_value, usd_default):
+            select.append(f"MIN(CASE WHEN {in_window} THEN {value} END)")
+            select.append(f"MAX(CASE WHEN {in_window} THEN {value} END)")
+            select.append(f"MIN(CASE WHEN {in_window} AND {value} IS NOT NULL THEN price_date END)")
+            params.extend([starts[window]] * 3)
+    sql = (
+        f"SELECT card_id, {variant_col}, {', '.join(select)} "
+        "FROM card_price_history_daily NOT INDEXED WHERE price_date BETWEEN ? AND ? "
+        f"GROUP BY card_id, {variant_col}"
+    )
+    out: dict[int, _WindowMaps] = {window: ({}, {}) for window in windows}
+    for row in connection.execute(sql, (*params, min(starts.values()), end)):
+        card_id = str(row[0])
+        for index, window in enumerate(windows):
+            base = 2 + index * 6
+            main, default = out[window]
+            if row[base] is not None:
+                main[(card_id, row[1])] = _WindowStats(float(row[base]), float(row[base + 1]), str(row[base + 2]))
+            if row[base + 3] is not None:
+                # Default-raw rows are split across main-variant groups; fold them.
+                low, high, first = float(row[base + 3]), float(row[base + 4]), str(row[base + 5])
+                prev = default.get(card_id)
+                if prev is not None:
+                    low, high, first = min(low, prev.low), max(high, prev.high), min(first, prev.first_date)
+                default[card_id] = _WindowStats(low, high, first)
+    return out
+
+
+def series_guard_failures(
+    connection: sqlite3.Connection,
+    specs: dict[str, tuple[str, str | None]],
+    *,
+    start: str,
+    end: str,
+) -> set[str]:
+    """Card ids whose window series (same source, printing and USD rule as
+    ``specs``: card_id -> (source, main variant)) has fewer than
+    MIN_DISTINCT_PRICES values or a step above MAX_STEP_MULTIPLE."""
+    if not specs:
+        return set()
+    columns = _table_columns(connection, "card_price_history_daily")
+    main_col = "main_raw_market_price" if "main_raw_market_price" in columns else "NULL"
+    variant_col = "main_raw_variant" if "main_raw_variant" in columns else "NULL"
+    series: dict[str, list[float]] = {card_id: [] for card_id in specs}
+    ids = sorted(specs)
+    for offset in range(0, len(ids), SQL_CHUNK):
+        chunk = ids[offset : offset + SQL_CHUNK]
+        rows = connection.execute(
+            "SELECT card_id, display_currency_code, default_raw_market_price, "
+            f"{main_col}, {variant_col} FROM card_price_history_daily "
+            f"WHERE card_id IN ({','.join('?' for _ in chunk)}) AND price_date BETWEEN ? AND ? "
+            "ORDER BY card_id, price_date ASC",
+            (*chunk, start, end),
+        ).fetchall()
+        for card_id, currency, default_raw, main_raw, variant in rows:
+            source, want_variant = specs[str(card_id)]
+            if source == SOURCE_MAIN_RAW:
+                value = _as_float(main_raw) if variant == want_variant else None
+            else:
+                value = _as_float(default_raw) if str(currency or "USD").upper() == "USD" else None
+            if value is not None:
+                series[str(card_id)].append(value)
+    return {
+        card_id
+        for card_id, points in series.items()
+        if len({round(p, 2) for p in points}) < MIN_DISTINCT_PRICES
+        or has_outlier_step(points, max_multiple=MAX_STEP_MULTIPLE)
+    }
 
 
 def compute_price_lows(
@@ -254,83 +313,100 @@ def compute_price_lows(
     *,
     window_days: int = DEFAULT_WINDOW_DAYS,
     today: date | None = None,
+    **kwargs: Any,
+) -> tuple[str | None, list[PriceLow]]:
+    """(as_of_date, ranked qualifying cards) for one window."""
+    as_of, by_window = compute_price_lows_windows(connection, windows=(window_days,), today=today, **kwargs)
+    return as_of, by_window.get(window_days, [])
+
+
+def compute_price_lows_windows(
+    connection: sqlite3.Connection,
+    *,
+    windows: tuple[int, ...] = WINDOWS,
+    today: date | None = None,
     min_price_usd: float = DEFAULT_MIN_PRICE_USD,
     near_low_pct: float = NEAR_LOW_PCT,
     min_drop_pct: float = MIN_DROP_PCT,
     min_days_covered: int = MIN_DAYS_COVERED,
     max_per_game: int = MAX_STORED_PER_GAME,
-) -> tuple[str | None, list[PriceLow]]:
-    """(as_of_date, ranked qualifying cards). Empty when the sync is stale."""
+) -> tuple[str | None, dict[int, list[PriceLow]]]:
+    """(as_of_date, {window: ranked qualifying cards}); one history scan for
+    all windows. Empty lists when the sync is stale."""
     today = today or datetime.now(timezone.utc).date()
+    empty: dict[int, list[PriceLow]] = {window: [] for window in windows}
     row = connection.execute("SELECT MAX(price_date) FROM card_price_history_daily").fetchone()
     if row is None or not row[0]:
-        return None, []
+        return None, empty
     try:
         ref_date = date.fromisoformat(str(row[0])[:10])
     except ValueError:
-        return None, []
-    if (today - ref_date).days > NOW_TOLERANCE_DAYS:
-        return ref_date.isoformat(), []
+        return None, empty
+    if (today - ref_date).days > NOW_TOLERANCE_DAYS or not windows:
+        return ref_date.isoformat(), empty
 
     columns = _table_columns(connection, "card_price_history_daily")
     has_main = "main_raw_market_price" in columns
     has_variant = "main_raw_variant" in columns
-    current = _current_prices(connection, ref_date, has_main=has_main, has_variant=has_variant)
-    start = (ref_date - timedelta(days=window_days)).isoformat()
+    current = {
+        card_id: cur
+        for card_id, cur in _current_prices(connection, ref_date, has_main=has_main, has_variant=has_variant).items()
+        if cur.price >= min_price_usd
+    }
     end = ref_date.isoformat()
-    main_stats, default_stats = _window_stats(
-        connection, start=start, end=end, has_main=has_main, has_variant=has_variant
-    )
+    starts = {window: (ref_date - timedelta(days=window)).isoformat() for window in windows}
+    stats_by_window = _window_stats(connection, starts=starts, end=end, has_main=has_main, has_variant=has_variant)
 
-    qualifying: list[PriceLow] = []
-    for cur in current.values():
-        if cur.price < min_price_usd:
-            continue
-        stats = (
-            main_stats.get((cur.card_id, cur.variant))
-            if cur.source == SOURCE_MAIN_RAW
-            else default_stats.get(cur.card_id)
-        )
-        if stats is None:
-            continue
-        metrics = evaluate(
-            cur.price, stats, now_date=cur.now_date, min_price_usd=min_price_usd,
-            near_low_pct=near_low_pct, min_drop_pct=min_drop_pct, min_days_covered=min_days_covered,
-        )
-        if metrics is None:
-            continue
-        qualifying.append(
-            PriceLow(
-                card_id=cur.card_id, game=cur.game, source=cur.source, variant=cur.variant,
-                price_usd=cur.price, low_usd=metrics["low"], high_usd=metrics["high"],
-                pct_below_high=metrics["pct_below_high"], pct_above_low=metrics["pct_above_low"],
-                days_covered=metrics["days_covered"], at_window_low=metrics["at_window_low"],
-                first_date=stats.first_date, now_date=cur.now_date,
+    out: dict[int, list[PriceLow]] = {}
+    for window in windows:
+        main_stats, default_stats = stats_by_window[window]
+        qualifying: list[PriceLow] = []
+        for cur in current.values():
+            stats = (
+                main_stats.get((cur.card_id, cur.variant))
+                if cur.source == SOURCE_MAIN_RAW
+                else default_stats.get(cur.card_id)
             )
-        )
+            if stats is None:
+                continue
+            metrics = evaluate(
+                cur.price, stats, now_date=cur.now_date, min_price_usd=min_price_usd,
+                near_low_pct=near_low_pct, min_drop_pct=min_drop_pct, min_days_covered=min_days_covered,
+            )
+            if metrics is None:
+                continue
+            qualifying.append(
+                PriceLow(
+                    card_id=cur.card_id, game=cur.game, source=cur.source, variant=cur.variant,
+                    price_usd=cur.price, low_usd=metrics["low"], high_usd=metrics["high"],
+                    pct_below_high=metrics["pct_below_high"], pct_above_low=metrics["pct_above_low"],
+                    days_covered=metrics["days_covered"], at_window_low=metrics["at_window_low"],
+                    first_date=stats.first_date, now_date=cur.now_date,
+                )
+            )
 
-    # Glitch guard on the full window series, walked down the ranking per game
-    # until max_per_game survive (only the kept pool is ever read back).
-    by_game: dict[str, list[PriceLow]] = {}
-    for item in rank_lows(qualifying):
-        by_game.setdefault(item.game, []).append(item)
-    kept: list[PriceLow] = []
-    for game_rows in by_game.values():
-        survivors: list[PriceLow] = []
-        for offset in range(0, len(game_rows), STEP_CHECK_BATCH):
-            batch = game_rows[offset : offset + STEP_CHECK_BATCH]
-            bad = outlier_step_card_ids(
-                connection,
-                {item.card_id: (item.source, item.variant) for item in batch},
-                start=start,
-                end=end,
-                max_multiple=MAX_STEP_MULTIPLE,
-            )
-            survivors.extend(item for item in batch if item.card_id not in bad)
-            if len(survivors) >= max_per_game:
-                break
-        kept.extend(survivors[:max_per_game])
-    return ref_date.isoformat(), rank_lows(kept)
+        # Series guards walk down the ranking per game until max_per_game
+        # survive (only the stored pool is ever read back).
+        by_game: dict[str, list[PriceLow]] = {}
+        for item in rank_lows(qualifying):
+            by_game.setdefault(item.game, []).append(item)
+        kept: list[PriceLow] = []
+        for game_rows in by_game.values():
+            survivors: list[PriceLow] = []
+            for offset in range(0, len(game_rows), STEP_CHECK_BATCH):
+                batch = game_rows[offset : offset + STEP_CHECK_BATCH]
+                bad = series_guard_failures(
+                    connection,
+                    {item.card_id: (item.source, item.variant) for item in batch},
+                    start=starts[window],
+                    end=end,
+                )
+                survivors.extend(item for item in batch if item.card_id not in bad)
+                if len(survivors) >= max_per_game:
+                    break
+            kept.extend(survivors[:max_per_game])
+        out[window] = rank_lows(kept)
+    return ref_date.isoformat(), out
 
 
 def write_price_lows(
@@ -384,18 +460,23 @@ def refresh_price_lows(
     report: dict[str, Any] = {"version": version, "windows": {}}
     if version is None:
         return report
+    stale = tuple(w for w in windows if force or stored_version(connection, w) != version)
     for window_days in windows:
-        if not force and stored_version(connection, window_days) == version:
+        if window_days not in stale:
             report["windows"][window_days] = {"skipped": True}
-            continue
-        started = time.perf_counter()
-        as_of, rows = compute_price_lows(connection, window_days=window_days, today=today)
-        elapsed_ms = (time.perf_counter() - started) * 1000.0
+    if not stale:
+        return report
+    started = time.perf_counter()
+    as_of, by_window = compute_price_lows_windows(connection, windows=stale, today=today)
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
+    for window_days in stale:
+        rows = by_window.get(window_days, [])
         write_price_lows(
             connection, window_days=window_days, as_of_date=as_of, rows=rows,
             version=version, elapsed_ms=elapsed_ms,
         )
-        report["windows"][window_days] = {"stored": len(rows), "asOf": as_of, "elapsedMs": round(elapsed_ms, 1)}
+        report["windows"][window_days] = {"stored": len(rows), "asOf": as_of}
+    report["elapsedMs"] = round(elapsed_ms, 1)
     return report
 
 
