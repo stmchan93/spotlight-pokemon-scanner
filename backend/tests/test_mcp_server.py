@@ -143,6 +143,11 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(card["name"], "Pikachu")
         self.assertEqual(card["price_usd"], 3.0)
 
+    def test_user_tier_keeps_price_history_points(self) -> None:
+        history = {"card_id": "c1", "condition": "NM", "variant": "normal",
+                   "points": [{"date": "2026-11-01", "usd": 3.0}], "source": "tcgplayer"}
+        self.assertEqual(USER_POLICY.shape(history), history)
+
     def test_public_tier_strips_prices_names_images(self) -> None:
         shaped = PUBLIC_POLICY.shape(self.SAMPLE)
         self.assertEqual(shaped["results"][0], {
@@ -325,7 +330,7 @@ class HttpAppTests(_SeededDb):
         self.assertEqual(status, 200)
         tools = {tool["name"]: tool for tool in body["result"]["tools"]}
         read_tools = {"list_facets", "search_cards", "get_card", "get_my_collection",
-                      "get_portfolio_summary", "find_missing", "get_price_history"}
+                      "get_portfolio_summary", "find_missing", "get_price_history", "identify_card"}
         write_tools = {"add_to_collection", "update_holding", "watch_card"}
         self.assertEqual(set(tools), read_tools | write_tools)
         self.assertTrue(all(tools[name]["annotations"]["readOnlyHint"] for name in read_tools))

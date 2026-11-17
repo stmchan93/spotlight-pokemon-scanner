@@ -37,10 +37,13 @@ LIST_FIELDS = (
     "rarity_bucket",
 )
 STRING_FIELDS = ("text", "artist", "theme", "set")
+# Assistants guess these for the card-name search; they mean `text`.
+TEXT_ALIASES = ("name", "query")
 POKEMON_ROLES = ("any", "main", "background_or_cameo")
 LANGUAGES = ("English", "Japanese", "any")
 ALL_FIELDS = (
     *STRING_FIELDS,
+    *TEXT_ALIASES,
     *LIST_FIELDS,
     "pokemon_role",
     "language",
@@ -60,7 +63,20 @@ def normalize_card_filter(raw: dict[str, Any] | None) -> dict[str, Any]:
         raise ToolInputError("filter must be an object.")
     unknown = sorted(set(raw) - set(ALL_FIELDS))
     if unknown:
-        raise ToolInputError(f"Unknown filter field(s): {', '.join(unknown)}.")
+        raise ToolInputError(
+            f"Unknown filter field(s): {', '.join(unknown)}. Accepted: {', '.join(ALL_FIELDS)}."
+        )
+
+    # Fold name/query aliases into `text` (same case-insensitive name match).
+    text_parts: list[str] = []
+    for field in ("text", *TEXT_ALIASES):
+        value = raw.get(field)
+        part = "" if value is None else str(value).strip()
+        if part and part.casefold() not in (existing.casefold() for existing in text_parts):
+            text_parts.append(part)
+    raw = {key: value for key, value in raw.items() if key not in TEXT_ALIASES}
+    if text_parts:
+        raw["text"] = " ".join(text_parts)
 
     clean: dict[str, Any] = {}
     for field in STRING_FIELDS:

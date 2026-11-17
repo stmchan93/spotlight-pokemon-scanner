@@ -28,6 +28,7 @@ READ_TOOLS = (
     "get_portfolio_summary",
     "find_missing",
     "get_price_history",
+    "identify_card",
 )
 # Change the account; user tier only, and only while the owner's
 # "Let AI assistants edit my collection" toggle is on (mcp_server/write_tools.py).
@@ -61,6 +62,7 @@ USER_CARD_FIELDS = frozenset(
         "condition",
         "grader",
         "grade",
+        "variant",
         "value_usd",
         "gain_usd",
         "gain_basis",
@@ -71,6 +73,18 @@ USER_CARD_FIELDS = frozenset(
         "added_at",
         # find_missing
         "buy_links",
+        # get_price_history (its payload has card_id, so it is shaped as a card)
+        "points",
+        "source",
+        "sources",
+        "as_of",
+        "days_since_as_of",
+        "available_variants",
+        # portfolio movers
+        "baseline_date",
+        "baseline_price_usd",
+        # identify_card (0-1 visual match score)
+        "confidence",
     }
 )
 PUBLIC_CARD_FIELDS = frozenset(
