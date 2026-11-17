@@ -57,6 +57,7 @@ USER_CARD_FIELDS = frozenset(
         "condition",
         "grader",
         "grade",
+        "variant",
         "value_usd",
         "gain_usd",
         "gain_basis",
@@ -68,9 +69,15 @@ USER_CARD_FIELDS = frozenset(
         # find_missing
         "buy_links",
         # get_price_history (its payload has card_id, so it is shaped as a card)
-        "variant",
         "points",
         "source",
+        "sources",
+        "as_of",
+        "days_since_as_of",
+        "available_variants",
+        # portfolio movers
+        "baseline_date",
+        "baseline_price_usd",
     }
 )
 PUBLIC_CARD_FIELDS = frozenset(

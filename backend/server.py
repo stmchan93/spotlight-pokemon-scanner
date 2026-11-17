@@ -23347,11 +23347,33 @@ class SpotlightScanService:
         lane_scoped: bool = False,
     ) -> dict[str, list[float]]:
         """Per-row market series from the baseline ("since") date to today,
-        oldest->newest, in ONE batched history read sized to the oldest baseline.
-        Only days priced on the row's CURRENT printing are kept, so a printing
-        switch in the history (Espeon ex ex10-102's WCD reprint -> Holofoil on
-        2026-09-14) can't draw a fake jump. Rows without a baseline date or with
-        fewer than two points are omitted. Best-effort, like the 30d sparkline.
+        oldest->newest (see ``_since_baseline_points_for_requests``), downsampled.
+        Rows with fewer than two points are omitted."""
+        result: dict[str, list[float]] = {}
+        points_by_key = self._since_baseline_points_for_requests(
+            spark_requests, reduced_reads=reduced_reads, lane_scoped=lane_scoped
+        )
+        for key, points in points_by_key.items():
+            if len(points) >= 2:
+                result[key] = self._downsample_sparkline(
+                    [point["value"] for point in points], target=SINCE_WATCHED_SPARK_POINTS
+                )
+        return result
+
+    def _since_baseline_points_for_requests(
+        self,
+        spark_requests: list[dict[str, Any]],
+        *,
+        reduced_reads: bool = False,
+        lane_scoped: bool = False,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Per-row ``[{date, value, currency}]`` from the baseline ("since") date
+        to today, oldest->newest, in ONE batched history read sized to the oldest
+        baseline. Only days priced on the row's CURRENT printing and in its
+        CURRENT currency are kept: a printing switch (Espeon ex ex10-102's WCD
+        reprint -> Holofoil on 2026-09-14) or a JP card whose old days are
+        Scrydex JPY cells and new days TCGCSV USD can't draw a fake jump.
+        Best-effort, like the 30d sparkline.
         ``lane_scoped``/``reduced_reads`` as in ``_sparklines_for_requests``."""
         # min_date: each row reads from its own baseline, not the oldest one's.
         dated = [
@@ -23387,26 +23409,34 @@ class SpotlightScanService:
             traceback.print_exc()
             return {}
         since_by_key = {str(req["key"]): str(req["since"])[:10] for req in dated}
-        result: dict[str, list[float]] = {}
+        result: dict[str, list[dict[str, Any]]] = {}
         for key, resolved_rows in history_rows_by_key.items():
             since = since_by_key.get(str(key))
             if not since or not resolved_rows:
                 continue
-            # Newest-first: the first row's printing is the one priced today.
+            # Newest-first: the first row's printing/currency is today's.
             current_variant = resolved_rows[0].get("variant")
-            values: list[float] = []
+            current_currency = str(resolved_rows[0].get("currencyCode") or "").strip().upper()
+            points: list[dict[str, Any]] = []
             for resolved_row in reversed(resolved_rows):
                 if str(resolved_row.get("date") or "")[:10] < since:
                     continue
                 if resolved_row.get("variant") != current_variant:
                     continue
+                currency = str(resolved_row.get("currencyCode") or "").strip().upper()
+                if currency and current_currency and currency != current_currency:
+                    continue
                 value = self._history_primary_price_value(resolved_row)
                 if value is not None:
-                    values.append(float(value))
-            if len(values) >= 2:
-                result[str(key)] = self._downsample_sparkline(
-                    values, target=SINCE_WATCHED_SPARK_POINTS
-                )
+                    points.append(
+                        {
+                            "date": str(resolved_row.get("date") or "")[:10],
+                            "value": float(value),
+                            "currency": currency or current_currency or None,
+                        }
+                    )
+            if points:
+                result[str(key)] = points
         return result
 
     @staticmethod
