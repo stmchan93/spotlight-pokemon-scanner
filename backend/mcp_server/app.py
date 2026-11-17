@@ -33,6 +33,7 @@ from request_auth import RequestIdentity  # noqa: E402
 
 from mcp_server.auth import GUEST_REJECTION_MESSAGE, McpConfig, validator_for  # noqa: E402
 from mcp_server.filters import ToolInputError  # noqa: E402
+from mcp_server.identify import register_identify_card  # noqa: E402
 from mcp_server.policy import USER_POLICY, ResponsePolicy  # noqa: E402
 from mcp_server.rate_limit import RateLimitExceeded, UserRateLimiter  # noqa: E402
 from mcp_server.tools import CollectionTools  # noqa: E402
@@ -339,6 +340,8 @@ def build_server(
         condition: Literal["NM", "LP", "MP", "HP", "DMG"] = "NM",
     ) -> dict[str, Any]:
         return await runner.run("get_price_history", card_id=card_id, range_key=range, condition=condition)
+
+    register_identify_card(server, policy, runner, token_getter=token_getter)
 
     if policy.account_data:
 

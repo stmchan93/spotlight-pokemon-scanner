@@ -28,6 +28,7 @@ ALL_TOOLS = (
     "get_portfolio_summary",
     "find_missing",
     "get_price_history",
+    "identify_card",
 )
 
 # Keys of a card-shaped dict (CardSummary / HoldingSummary / get_card / movers).
@@ -67,6 +68,8 @@ USER_CARD_FIELDS = frozenset(
         "added_at",
         # find_missing
         "buy_links",
+        # identify_card (0-1 visual match score)
+        "confidence",
     }
 )
 PUBLIC_CARD_FIELDS = frozenset(
