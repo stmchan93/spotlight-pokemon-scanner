@@ -691,10 +691,9 @@ export function CardDetailScreen({
     }
     return detailPreview?.ownedEntry ? [detailPreview.ownedEntry] : [];
   }, [cachedOwnedEntries, detail?.ownedEntries, detailPreview?.ownedEntry]);
-  // Opened from a scan, more than one owned copy starts listed; a single copy
-  // stays collapsed behind "Qty: 1" (owner, 2026-11-16).
-  const ownedQuantity = inventoryEntries.reduce((sum, entry) => sum + entry.quantity, 0);
-  const inventoryExpanded = inventoryToggle ?? (opensAsNewCopy && ownedQuantity > 1);
+  // The owned-copies list always starts collapsed behind the Qty pill; it opens
+  // only on a tap (owner, 2026-11-16, reversing the scan-opens-it rule).
+  const inventoryExpanded = inventoryToggle ?? false;
 
   // Variant options for the configurator: prefer catalog variantOptions, fall
   // back to the market-history available variants.
