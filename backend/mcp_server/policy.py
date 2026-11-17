@@ -30,6 +30,8 @@ READ_TOOLS = (
     "find_missing",
     "get_price_history",
     "identify_card",
+    "find_price_lows",
+    "get_market_trends",
 )
 # Change the account; user tier only, and only while the owner's
 # "Let AI assistants edit my collection" toggle is on (mcp_server/write_tools.py).
@@ -92,6 +94,14 @@ USER_CARD_FIELDS = frozenset(
         "target_price_usd",
         "target_triggered_at",
         "watched_at",
+        # find_price_lows / get_market_trends
+        "low_usd",
+        "high_usd",
+        "pct_below_high",
+        "pct_above_low",
+        "days_covered",
+        "at_window_low",
+        "window_days",
     }
 )
 PUBLIC_CARD_FIELDS = frozenset(
