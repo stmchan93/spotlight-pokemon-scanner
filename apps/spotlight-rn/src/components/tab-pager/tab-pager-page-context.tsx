@@ -24,6 +24,8 @@ export type TabPagerPageApi = {
   setLock: (key: string, locked: boolean) => void;
   /** Hide the bottom tab bar while this page shows a full-screen surface with its own footer. */
   setBarHidden: (key: string, hidden: boolean) => void;
+  /** Drop the blur/fade under the bar while this page's own footer sits above the bar. */
+  setBackdropHidden: (key: string, hidden: boolean) => void;
   /**
    * UI-thread timestamp of the last touch-down that landed on a guarded view
    * (`usePagerTouchGuardGesture`). The outer pan compares it with its own
@@ -178,4 +180,26 @@ export function useTabLanding(tab: PagerTab, onLand: (edge: LandingEdge) => void
       }
     });
   }, [tab]);
+}
+
+/**
+ * While `hidden`, the pager draws no blur/fade under the tab bar on this page.
+ * For page footers that sit ABOVE the bar (edit-mode action bars), which the
+ * backdrop's overhang would otherwise blur.
+ */
+export function useTabPagerHideBackdrop(hidden: boolean) {
+  const api = useTabPagerPage();
+  const key = useId();
+  useEffect(() => {
+    if (!api) {
+      return;
+    }
+    api.setBackdropHidden(key, hidden);
+  }, [api, key, hidden]);
+  useEffect(() => {
+    if (!api) {
+      return;
+    }
+    return () => api.setBackdropHidden(key, false);
+  }, [api, key]);
 }

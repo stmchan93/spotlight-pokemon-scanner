@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
-import { Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 
 import { AppTabBar, getAppTabBarHeight, TAB_BAR_LABELS } from '@/components/tab-pager/app-tab-bar';
 
@@ -82,6 +82,27 @@ describe('AppTabBar', () => {
     expect(screen.getByTestId('app-tab-bar-dark')).toBeTruthy();
     // Jest has no Liquid Glass and runs as iOS: the pre-26 blur bar.
     expect(screen.getByTestId('app-tab-bar-blur')).toBeTruthy();
+  });
+
+  it('never fades the light material: the dark slab covers it on Scan instead', () => {
+    renderBar(2);
+    // An effect view at alpha < 1 can come back see-through after a
+    // full-screen presentation ("the footer glass disappears").
+    expect(StyleSheet.flatten(screen.getByTestId('app-tab-bar-blur').props.style).opacity).toBeUndefined();
+  });
+
+  it('rebuilds the light material when the pager bumps its glass epoch', () => {
+    const position = { value: 0 } as never;
+    const view = render(
+      <AppTabBar bottomInset={34} focusedPage={0} glassEpoch={0} onSelectPage={jest.fn()} position={position} />,
+    );
+    const before = screen.getByTestId('app-tab-bar-blur').children[0];
+    view.rerender(
+      <AppTabBar bottomInset={34} focusedPage={0} glassEpoch={1} onSelectPage={jest.fn()} position={position} />,
+    );
+    const after = screen.getByTestId('app-tab-bar-blur').children[0];
+    // A new key is a new native effect view, not the old one re-shown.
+    expect(after).not.toBe(before);
   });
 
   it('keeps the scanner bar geometry: 8 + 54 row + max(25, home indicator)', () => {

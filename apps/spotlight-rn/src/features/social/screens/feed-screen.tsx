@@ -39,10 +39,8 @@ import {
   type CollapsiblePageProps,
   type CollapsibleScrollTarget,
 } from '@/components/page-tab-pager';
-import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { HOME_HEADER_BAR_HEIGHT, HomeHeader } from '@/components/home-header';
-import { tabBarBottomFadeHeight, tabBarBottomFadeVisible } from '@/lib/tab-bar-insets';
 import { PostCard } from '@/features/social/components/post-card';
 import { RepostAttribution } from '@/features/social/components/repost-attribution';
 import { MarketWatchPage } from '@/features/social/screens/market-watch-page';
@@ -915,37 +913,8 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         testID={`${testID}-pager`}
         value={activeTab}
       />
-      {/*
-        Bottom gradient (Figma 4407:283): solid white at the edge -> clear by
-        ~94% up a 95pt band, fading the feed out under the floating tab bar.
-
-        95 FLAT, not `insets.bottom + 95`: the mock's frame is drawn on a
-        home-indicator device, so its 95 already includes the bottom inset.
-        Adding the inset again pushed the fade ~34pt higher than designed and
-        it read as a haze over the content ("the gradient needs to be lower").
-
-        The frame's progressive 0->8 backdrop-blur is intentionally skipped:
-        expo-blur can't do gradient blur and a full BlurView reads as a hard
-        band.
-      */}
-      {tabBarBottomFadeVisible ? (
-      <View pointerEvents="none" style={[styles.bottomGradient, { height: tabBarBottomFadeHeight }]}>
-        <Svg height="100%" width="100%">
-          <Defs>
-            <LinearGradient id="homeBottomFade" x1="0" x2="0" y1="1" y2="0">
-              {/* Android: 70% at the edge, matched to the Collection's band
-                  (4134:49749) so the two tabs dissolve under the opaque bar the
-                  same way (owner, 2026-09-13). iOS keeps the feed frame's own
-                  100% (4407:283), where the band also runs under a translucent
-                  bar and reads lighter. */}
-              <Stop offset="0" stopColor="#FFFFFF" stopOpacity={Platform.OS === 'android' ? 0.7 : 1} />
-              <Stop offset="0.93684" stopColor="#FFFFFF" stopOpacity="0" />
-            </LinearGradient>
-          </Defs>
-          <Rect fill="url(#homeBottomFade)" height="100%" width="100%" x="0" y="0" />
-        </Svg>
-      </View>
-      ) : null}
+      {/* The blur/fade under the tab bar is drawn by the pager for every tab
+          page (`TabBarBackdrop`), so it is identical on all four. */}
       {/*
         AFTER the pager so tree order paints it on top, and so UIKit's
         `subviews[0]` walk still reaches the scroller for minimize-on-scroll.
@@ -977,14 +946,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
 const SOURCE_CHIP_ICON_SIZE = 16;
 
 const styles = StyleSheet.create({
-  bottomGradient: {
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    // Over the list, under the tab bar chrome.
-    zIndex: 4,
-  },
+
   // The filled pill itself (Figma 4299:94902): 8 padding around a 24pt avatar
   // makes the 40pt-tall capsule; fill + radius come from the theme inline.
   composePrompt: {

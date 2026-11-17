@@ -9,6 +9,7 @@ import {
   GlassNavBubbleGroup,
   glassNavBubbleGlyphSize,
   glassNavBubbleGlyphStrokeWidth,
+  glassNavBubbleGroupWidth,
   glassNavBubbleSizes,
   useSpotlightTheme,
   type GlassNavBubbleGroupItem,
@@ -17,7 +18,6 @@ import {
 import { EditDoneButton } from '@/components/edit-done-button';
 
 type WishlistHeaderProps = {
-  /** Opens the app drawer. Wishlist is a TAB, so there is nothing to go back to. */
   /** Opens the card catalog search. Omit to leave the search slot empty. */
   onOpenSearch?: () => void;
   /** Share the list as text. Omitted → the control is not rendered. */
@@ -97,10 +97,10 @@ type WishlistHeaderProps = {
 // whose catalog search is the top-bar "Search Cards" pill rather than anything
 // floating (the in-page magnifier there was removed as a duplicate).
 //
-// LAYOUT — the side slots are content-sized and the title is centred in what
-// is left between them (see `styles.headerSlot`). It was centred on the bar's
-// true centre for a while, which only works while the two slots are close in
-// width; the profile-matched 160pt capsule made that impossible on a phone.
+// LAYOUT — both side slots are the SAME fixed width, sized to the wider side
+// (`wishlistHeaderSideSlotWidth`), and the title takes the middle. Equal slots
+// keep the title on the screen's true centre; sizing them to the wider side
+// means neither control can ever run into it (see `styles.headerSlot`).
 //
 // SCROLL — the bubbles PIN, the title LEAVES, exactly as Home's bubbles pin
 // while its search pill leaves (`HomeHeader`). Mounted `floating`, the bar is
@@ -165,6 +165,17 @@ export const WISHLIST_TITLE_HIDE_DISTANCE = 56;
  */
 const TITLE_TRAVEL = BAR_PADDING_TOP + CONTROL_ROW_HEIGHT;
 
+/**
+ * Width of EACH side slot: the wider of the search bubble (left) and the
+ * edit/share capsule (right). Both slots take this width so the title sits on
+ * the bar's true centre and stops short of whichever side is wider. The capsule
+ * width is reserved in edit mode too (the Done pill is narrower), so the title
+ * never jumps when Done swaps in.
+ */
+export function wishlistHeaderSideSlotWidth(actionCount: number): number {
+  return Math.max(glassNavBubbleSizes.medium, glassNavBubbleGroupWidth(actionCount, 'medium'));
+}
+
 export function WishlistHeader({
   onOpenSearch,
   onShare,
@@ -178,6 +189,7 @@ export function WishlistHeader({
 }: WishlistHeaderProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
+  const sideSlot = { width: wishlistHeaderSideSlotWidth((onToggleEditMode ? 1 : 0) + (onShare ? 1 : 0)) };
 
   /*
     The title RIDES UP OUT of the row and is clipped away; the bubbles either
@@ -223,7 +235,7 @@ export function WishlistHeader({
       ]}
       testID={testID}
     >
-      <View style={styles.headerSlot}>
+      <View style={[styles.headerSlot, sideSlot]} testID={`${testID}-leading-slot`}>
         {/* Search leads where the menu was (user, 2026-11-16): the catalog search
             you add a card to the watchlist from. Stands down in edit mode. */}
         {onOpenSearch && !editMode ? (
@@ -271,7 +283,7 @@ export function WishlistHeader({
           </AppText>
         </Animated.View>
       </View>
-      <View style={[styles.headerSlot, styles.headerSlotRight]}>
+      <View style={[styles.headerSlot, styles.headerSlotRight, sideSlot]} testID={`${testID}-trailing-slot`}>
         {/* Stands down in edit mode, exactly as the old FAB did: the bar is
             handed over to Done, and browsing the catalog mid-selection is not
             what edit mode is for. */}
@@ -362,20 +374,14 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
   },
-  // Content-sized side slots, title in the space between. The slots USED to be
-  // equal-flex with the title on the bar's true centre — but the trailing
-  // capsule is now the profile bar's 3-slot, 20pt-gap capsule (160pt), and a
-  // true-centre title on a 402pt phone lands under it ("Wishlis…"). UIKit's
-  // own rule for a title that cannot centre: centre it between the bar items.
-  // Both side slots split the leftover width EQUALLY, so the title sits at the
-  // screen's centre. Sized by content (one menu bubble left, a three-button
-  // capsule right), the title was centred in the gap and read off-centre to
-  // the left ("the watchlist title is so weird", user 2026-11-16).
+  // Fixed, EQUAL side slots (width set at render from the wider side), title in
+  // the flexed middle. Equal-flex slots were tried and only split the leftover
+  // width, so on a narrow phone the edit/share capsule outgrew its half and ran
+  // into the title (design review, 2026-11-16).
   headerSlot: {
     alignItems: 'center',
-    flexBasis: 0,
     flexDirection: 'row',
-    flexGrow: 1,
+    flexShrink: 0,
     gap: 12,
   },
   headerSlotRight: {
@@ -384,11 +390,11 @@ const styles = StyleSheet.create({
   headerTitle: {
     textAlign: 'center',
   },
-  // Sized to the title; the equal side slots centre it on screen. `minWidth: 0`
-  // so the clip can shrink rather than push the capsule out.
+  // Takes the middle between the equal slots; `minWidth: 0` so a very narrow
+  // screen truncates the title rather than pushing a slot out.
   headerTitleClip: {
     alignItems: 'center',
-    flexShrink: 1,
+    flex: 1,
     minWidth: 0,
     overflow: 'hidden',
   },

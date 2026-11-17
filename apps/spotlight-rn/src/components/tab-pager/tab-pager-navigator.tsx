@@ -26,7 +26,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { InteractionManager, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { AppState, InteractionManager, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Freeze } from 'react-freeze';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Reanimated, {
@@ -55,6 +55,7 @@ import {
 import { TabsPageContext } from '@/contexts/tabs-page-context';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
+import { TabBarBackdrop } from '@/components/tab-pager/tab-bar-backdrop';
 import { TabScreenProvider } from '@/lib/tab-bar-insets';
 import {
   SCAN_PAGE_INDEX,
@@ -233,6 +234,61 @@ function useParentFocused(): boolean {
   return focused;
 }
 
+/**
+ * Bumps whenever the pager comes back from being covered: a pushed or
+ * full-screen-presented route leaving (the parent regains focus) or the app
+ * returning to the foreground.
+ *
+ * WHY. While covered, react-native-screens' `enableFreeze` suspends the whole
+ * `(tabs)` subtree (React hides it with `display: none`), and a full-screen
+ * presentation takes the presenting views out of the window. UIKit's effect
+ * views (the bar's Liquid Glass, the blur under it) can come back from that
+ * without rendering — the "footer glass disappears sometimes" report. Re-keying
+ * them rebuilds fresh effect views on the way back, without ever touching
+ * their opacity.
+ */
+function useCoveredEpoch(parentFocused: boolean): number {
+  const [epoch, setEpoch] = useState(0);
+  const wasFocusedRef = useRef(parentFocused);
+  useEffect(() => {
+    if (parentFocused && !wasFocusedRef.current) {
+      setEpoch((value) => value + 1);
+    }
+    wasFocusedRef.current = parentFocused;
+  }, [parentFocused]);
+  useEffect(() => {
+    let backgrounded = false;
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'background') {
+        backgrounded = true;
+      } else if (next === 'active' && backgrounded) {
+        backgrounded = false;
+        setEpoch((value) => value + 1);
+      }
+    });
+    return () => subscription.remove();
+  }, []);
+  return epoch;
+}
+
+/** Set or clear `key` in `page`'s key set, returning `current` when nothing changed. */
+function togglePageKey(
+  current: ReadonlyMap<number, ReadonlySet<string>>,
+  page: number,
+  key: string,
+  on: boolean,
+): ReadonlyMap<number, ReadonlySet<string>> {
+  const keys = current.get(page);
+  if (on ? keys?.has(key) : !keys?.has(key)) {
+    return current;
+  }
+  const nextKeys = new Set(keys);
+  if (on) nextKeys.add(key); else nextKeys.delete(key);
+  const next = new Map(current);
+  next.set(page, nextKeys);
+  return next;
+}
+
 function TabPagerView({ descriptors, navigation, state }: ViewProps) {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -245,18 +301,15 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
   // Pages can hide the bar under their own full-screen surfaces (binder review).
   const [barHiddenKeys, setBarHiddenKeys] = useState<ReadonlyMap<number, ReadonlySet<string>>>(() => new Map());
   const setPageBarHidden = useCallback((page: number, key: string, hidden: boolean) => {
-    setBarHiddenKeys((current) => {
-      const keys = current.get(page);
-      if (hidden ? keys?.has(key) : !keys?.has(key)) {
-        return current;
-      }
-      const nextKeys = new Set(keys);
-      if (hidden) nextKeys.add(key); else nextKeys.delete(key);
-      const next = new Map(current);
-      next.set(page, nextKeys);
-      return next;
-    });
+    setBarHiddenKeys((current) => togglePageKey(current, page, key, hidden));
   }, []);
+  // Pages can also stand the blur/fade under the bar down while their own
+  // footer sits above the bar (edit-mode action bars).
+  const [backdropHiddenKeys, setBackdropHiddenKeys] = useState<ReadonlyMap<number, ReadonlySet<string>>>(() => new Map());
+  const setPageBackdropHidden = useCallback((page: number, key: string, hidden: boolean) => {
+    setBackdropHiddenKeys((current) => togglePageKey(current, page, key, hidden));
+  }, []);
+  const coveredEpoch = useCoveredEpoch(parentFocused);
 
   const focusedPage = pageIndexForState(state);
   const pageHidesBar = (barHiddenKeys.get(focusedPage)?.size ?? 0) > 0;
@@ -323,9 +376,10 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
         next[page] = keys.size > 0;
         lockedPages.value = next;
       },
+      setBackdropHidden: (key: string, hidden: boolean) => setPageBackdropHidden(page, key, hidden),
       setBarHidden: (key: string, hidden: boolean) => setPageBarHidden(page, key, hidden),
     })),
-    [guardedAt, guardedStep, innerPositions, lockedPages, setPageBarHidden],
+    [guardedAt, guardedStep, innerPositions, lockedPages, setPageBackdropHidden, setPageBarHidden],
   );
 
   // ── Route -> strip ─────────────────────────────────────────────────────────
@@ -565,7 +619,9 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
               <TabPagerPage
                 active={isPageLive({ focusedPage, page, parentFocused, settledPage })}
                 api={pageApis[page]!}
+                backdropHidden={(backdropHiddenKeys.get(page)?.size ?? 0) > 0}
                 barHeight={barHidden ? 0 : barHeight}
+                coveredEpoch={coveredEpoch}
                 focused={focusedPage === page}
                 insets={insets}
                 key={TAB_PAGER_ORDER[page]}
@@ -594,6 +650,7 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
         <AppTabBar
           bottomInset={bottomInset}
           focusedPage={focusedPage}
+          glassEpoch={coveredEpoch}
           onSelectPage={handleSelectPage}
           position={position}
         />
@@ -606,7 +663,11 @@ type TabPagerPageProps = {
   /** Focused route AND the strip at rest on it AND not covered by a pushed screen. */
   active: boolean;
   api: TabPagerPageApi;
+  /** The page asked for no blur/fade under the bar (its own footer is up). */
+  backdropHidden: boolean;
   barHeight: number;
+  /** See `useCoveredEpoch`: re-keys the backdrop's effect views. */
+  coveredEpoch: number;
   focused: boolean;
   insets: ReturnType<typeof useSafeAreaInsets>;
   /** Two or more pages from where the strip rests: can't be revealed by a drag. */
@@ -626,7 +687,9 @@ type TabPagerPageProps = {
 const TabPagerPage = memo(function TabPagerPage({
   active,
   api,
+  backdropHidden,
   barHeight,
+  coveredEpoch,
   focused,
   frozen,
   insets,
@@ -691,7 +754,17 @@ const TabPagerPage = memo(function TabPagerPage({
         <TabsPageContext.Provider value={tabsPageValue}>
           {/* Off-screen pages stop re-rendering until they could be seen again. */}
           {/* No `autoFocus` inside tab pages: unfreezing rebuilds native views and re-fires it (keyboard over Scan, 2026-11-16). */}
-          <Freeze freeze={frozen}>{content}</Freeze>
+          {/* Content and backdrop share one box, so the backdrop's `bottom: 0`
+              is the bar's top on Android (page pre-inset) and the screen's
+              bottom on iOS (full-bleed) without re-deriving either. */}
+          <View style={styles.pageContent}>
+            <Freeze freeze={frozen}>{content}</Freeze>
+            {/* Every non-Scan page gets the SAME treatment under the bar, so
+                the bar reads identically on all of them. Scan is the camera. */}
+            {!isScan && content && !backdropHidden ? (
+              <TabBarBackdrop barHeight={barHeight} epoch={coveredEpoch} />
+            ) : null}
+          </View>
         </TabsPageContext.Provider>
       </TabPagerPageContext.Provider>
     </View>
@@ -702,6 +775,9 @@ const styles = StyleSheet.create({
   page: {
     height: '100%',
     overflow: 'hidden',
+  },
+  pageContent: {
+    flex: 1,
   },
   root: {
     flex: 1,

@@ -7,6 +7,7 @@ import {
   WISHLIST_HEADER_BAR_HEIGHT,
   WISHLIST_TITLE_HIDE_DISTANCE,
   WishlistHeader,
+  wishlistHeaderSideSlotWidth,
 } from '@/features/wishlist/components/wishlist-header';
 
 import { renderWithProviders } from '../test-utils';
@@ -56,6 +57,38 @@ describe('WishlistHeader', () => {
     read as "the Wishlist bar is lower"). NO bottom padding either, unlike
     Home's 56: the first thing in this list carries its own 24pt top margin.
   */
+  /*
+    Design review 2026-11-16: "Title is running into the top right components".
+    The edit+share capsule (104pt) is wider than the search bubble (44pt), so
+    BOTH slots are pinned to the capsule's width and the title takes the
+    flexed middle — centred on screen, never under either side.
+  */
+  describe('side slots', () => {
+    it('sizes both slots to the wider side, as literals', () => {
+      expect(wishlistHeaderSideSlotWidth(2)).toBe(104);
+      expect(wishlistHeaderSideSlotWidth(1)).toBe(48);
+      expect(wishlistHeaderSideSlotWidth(0)).toBe(44);
+    });
+
+    it('gives the leading and trailing slots the same width, fixed and unshrinkable', () => {
+      renderHeader({ onOpenSearch: jest.fn(), onShare: jest.fn(), onToggleEditMode: jest.fn() });
+      const leading = StyleSheet.flatten(screen.getByTestId('wishlist-header-leading-slot').props.style);
+      const trailing = StyleSheet.flatten(screen.getByTestId('wishlist-header-trailing-slot').props.style);
+      expect(leading.width).toBe(104);
+      expect(trailing.width).toBe(104);
+      expect(leading.flexShrink).toBe(0);
+      expect(trailing.flexShrink).toBe(0);
+      const clip = StyleSheet.flatten(screen.getByTestId('wishlist-header-title-clip').props.style);
+      expect(clip).toMatchObject({ flex: 1, minWidth: 0, overflow: 'hidden' });
+    });
+
+    it('keeps the capsule-wide slots in edit mode so the title does not jump when Done swaps in', () => {
+      renderHeader({ editMode: true, onOpenSearch: jest.fn(), onShare: jest.fn(), onToggleEditMode: jest.fn() });
+      expect(StyleSheet.flatten(screen.getByTestId('wishlist-header-leading-slot').props.style).width).toBe(104);
+      expect(StyleSheet.flatten(screen.getByTestId('wishlist-header-trailing-slot').props.style).width).toBe(104);
+    });
+  });
+
   it('reserves a bare 44pt control row: nothing above it, nothing below it', () => {
     expect(WISHLIST_HEADER_BAR_HEIGHT).toBe(44);
     expect(glassNavBubbleSizes.compact).toBe(40);

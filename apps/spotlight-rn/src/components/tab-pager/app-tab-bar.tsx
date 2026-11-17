@@ -230,7 +230,8 @@ function TabLabel({ label, page, position }: { label: string; page: number; posi
 
 const GLASS_LIFT_SHADOW_OPACITY = shadows.glassPill.shadowOpacity;
 
-function LightMaterial({ position }: { position: SharedValue<number> }) {
+function LightMaterial({ glassEpoch, position }: { glassEpoch: number; position: SharedValue<number> }) {
+  // Android's solid View is not an effect view, so it may fade.
   const fade = useAnimatedStyle(() => ({ opacity: 1 - scanProximity(position.value) }));
   // Fades the lift's shadow only. Never put opacity < 1 on the glass or its
   // parents: UIKit's effect view stops rendering after it has sat at alpha 0
@@ -242,21 +243,25 @@ function LightMaterial({ position }: { position: SharedValue<number> }) {
   if (Platform.OS === 'ios' && isLiquidGlassAvailable()) {
     return (
       <View pointerEvents="none" style={StyleSheet.absoluteFill} testID="app-tab-bar-glass">
-        {/* The lift is what separates the capsule from the pages' white bottom fade;
-            glass over white with no shadow reads as a washed-out smear. */}
+        {/* The lift separates the capsule from what is under it; glass over
+            white with no shadow reads as a washed-out smear. */}
         <Reanimated.View style={[styles.glassCapsule, shadows.glassPill, lift]} testID="app-tab-bar-glass-lift">
           {/* frostTint gives the glass a floor: untinted glass is only as bright as
               the page behind it and read as see-through over content. */}
-          <GlassSurface fallbackColor={colors.canvasElevated} glassTintColor={colors.frostTint} style={styles.glassFill} />
+          {/* Keyed by `glassEpoch`: rebuilt fresh after the pager was frozen or
+              covered, since UIKit can bring an effect view back blank. */}
+          <GlassSurface key={glassEpoch} fallbackColor={colors.canvasElevated} glassTintColor={colors.frostTint} style={styles.glassFill} />
         </Reanimated.View>
       </View>
     );
   }
   if (Platform.OS === 'ios') {
     return (
-      <Reanimated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.hairline, fade]} testID="app-tab-bar-blur">
-        <BlurView intensity={80} style={StyleSheet.absoluteFill} tint="systemChromeMaterialLight" />
-      </Reanimated.View>
+      // No opacity here either: a BlurView is the same UIKit effect view as the
+      // glass. The opaque dark slab covers it on Scan.
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.hairline]} testID="app-tab-bar-blur">
+        <BlurView intensity={80} key={glassEpoch} style={StyleSheet.absoluteFill} tint="systemChromeMaterialLight" />
+      </View>
     );
   }
   return (
@@ -272,12 +277,18 @@ export type AppTabBarProps = {
   bottomInset: number;
   /** The settled/focused page, for accessibility state. */
   focusedPage: number;
+  /**
+   * Bumped by the pager when it comes back from being covered (pushed screen,
+   * full-screen presentation, background). Re-keys the light material's effect
+   * view so it is rebuilt rather than left blank. Defaults to 0.
+   */
+  glassEpoch?: number;
   onSelectPage: (page: number) => void;
   /** Strip position in pages (0 = Home), shared with the pager. */
   position: SharedValue<number>;
 };
 
-export function AppTabBar({ bottomInset, focusedPage, onSelectPage, position }: AppTabBarProps) {
+export function AppTabBar({ bottomInset, focusedPage, glassEpoch = 0, onSelectPage, position }: AppTabBarProps) {
   const dark = useAnimatedStyle(() => ({ opacity: scanProximity(position.value) }));
   const rowWidth = useSharedValue(0);
   const pill = useAnimatedStyle(() => ({
@@ -295,7 +306,7 @@ export function AppTabBar({ bottomInset, focusedPage, onSelectPage, position }: 
       style={[styles.bar, { height: getAppTabBarHeight(bottomInset) }]}
       testID="app-tab-bar"
     >
-      <LightMaterial position={position} />
+      <LightMaterial glassEpoch={glassEpoch} position={position} />
       <Reanimated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.darkSlab, dark]} testID="app-tab-bar-dark" />
       <View
         onLayout={(event) => {

@@ -25,7 +25,6 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useRouter } from 'expo-router';
-import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from 'react-native-svg';
 import { CheckCircle, Trash, Xmark } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -87,6 +86,7 @@ import { buildEbaySearchUrl, buildTcgPlayerSearchUrl } from '@/features/cards/ma
 import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
 import {
   useTabLanding,
+  useTabPagerHideBackdrop,
   useTabPagerInnerPosition,
 } from '@/components/tab-pager/tab-pager-page-context';
 import { innerPageForLanding } from '@/lib/tab-pager';
@@ -103,8 +103,6 @@ import { EkalightMark } from '@/components/ekalight-mark';
 import { ScanTabIcon } from '@/components/nav-tab-icons';
 import {
   LAST_CARD_TO_TAB_BAR_GAP,
-  tabBarBottomFadeHeight,
-  tabBarBottomFadeVisible,
   useFloatingAffordanceBottom,
 } from '@/lib/tab-bar-insets';
 import { usePortfolioScreenModel } from '@/features/portfolio/hooks/use-portfolio-screen-model';
@@ -528,6 +526,8 @@ export function PortfolioScreen({
   // horizontal page swipe are locked (via setCollectionEditing) and tapping a
   // card toggles selection instead of opening it.
   const [editMode, setEditMode] = useState(false);
+  // The edit bar sits above the tab bar; the blur under the bar would reach it.
+  useTabPagerHideBackdrop(editMode);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -2192,24 +2192,6 @@ export function PortfolioScreen({
     {/* Overrides the route's static style: white glyphs over the cover, dark
         once the bar pins — mirrors the header's own contrast flip. */}
     {statusBar}
-    {/* Bottom white fade above the tab bar (Figma 4134:49749): white 70% ->
-        clear (the frame's 4px bottom blur is skipped — no gradient-masked blur
-        in RN). No top fade: the cover's own scrim in ProfileHeader (Figma
-        4134:49492) handles status-bar contrast, and a white wash there read as
-        a gray band over the photo. */}
-    {tabBarBottomFadeVisible ? (
-    <View pointerEvents="none" style={[styles.profileBottomFade, { height: tabBarBottomFadeHeight }]}>
-      <Svg height="100%" width="100%">
-        <Defs>
-          <SvgLinearGradient id="profileBottomFade" x1="0" x2="0" y1="1" y2="0">
-            <Stop offset="0" stopColor="#FFFFFF" stopOpacity="0.7" />
-            <Stop offset="0.93684" stopColor="#FFFFFF" stopOpacity="0" />
-          </SvgLinearGradient>
-        </Defs>
-        <Rect fill="url(#profileBottomFade)" height="100%" width="100%" x="0" y="0" />
-      </Svg>
-    </View>
-    ) : null}
     <SafeAreaView
       edges={['left', 'right']}
       style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
@@ -2460,15 +2442,7 @@ export function PortfolioScreen({
 }
 
 const styles = StyleSheet.create({
-  profileBottomFade: {
-    bottom: 0,
-    // Height is `tabBarBottomFadeHeight` at the render site — the same 95 is
-    // 61 on Android, see `tab-bar-insets.tsx`.
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    zIndex: 6,
-  },
+
   chartWrap: {
     // Gap from the % change line down to the time filter (7D/1M/…) is tuned to
     // 32px per feedback. The chrome wrapper already adds a 16px inter-child gap,

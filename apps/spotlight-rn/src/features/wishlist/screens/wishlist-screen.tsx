@@ -43,7 +43,7 @@ import {
 } from '@spotlight/design-system';
 
 import { AnimatedFlatList, PageSwipeGuard } from '@/components/page-tab-pager';
-import { PagerTouchGuard, useTabPagerLock } from '@/components/tab-pager/tab-pager-page-context';
+import { PagerTouchGuard, useTabPagerHideBackdrop, useTabPagerLock } from '@/components/tab-pager/tab-pager-page-context';
 import { useScrollToTop } from '@/components/scroll-to-top-fab';
 import { GridViewIcon, ListViewIcon } from '@/components/view-toggle-icons';
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
@@ -262,6 +262,8 @@ export function WishlistScreen() {
   const [editMode, setEditMode] = useState(false);
   // Edit mode owns every gesture on the screen; the tab pager stands down too.
   useTabPagerLock(editMode);
+  // The edit bar sits above the tab bar; the blur under the bar would reach it.
+  useTabPagerHideBackdrop(editMode);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [isDeleting, setIsDeleting] = useState(false);

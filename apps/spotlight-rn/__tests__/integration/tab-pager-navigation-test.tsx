@@ -47,6 +47,38 @@ describe('tab pager <-> expo-router', () => {
     await waitFor(() => expect(screen.queryByTestId('app-tab-bar')).not.toBeOnTheScreen());
   });
 
+  it('draws the same blur under the bar on every tab page, and none on Scan', async () => {
+    renderAppRouter('/', STUBS);
+    await waitFor(() => expect(screen.getByTestId('stub-index')).toBeTruthy());
+    for (const path of ['/wishlist', '/scan', '/events', '/social'] as const) {
+      act(() => {
+        router.push(path);
+      });
+    }
+    await waitFor(() => expect(screen.getByTestId('stub-social', { includeHiddenElements: true })).toBeTruthy());
+    const backdropOn = (page: string) =>
+      screen.getByTestId(`tab-pager-page-${page}`, { includeHiddenElements: true })
+        .findAll((node: { props: { testID?: string } }) => node.props.testID === 'tab-bar-backdrop-blur').length > 0;
+    expect(['index', 'wishlist', 'events', 'social'].map(backdropOn)).toEqual([true, true, true, true]);
+    expect(backdropOn('scan')).toBe(false);
+  });
+
+  it('drops the blur on a page that asks (an edit bar sits above the tab bar)', async () => {
+    const { useTabPagerHideBackdrop } = require('@/components/tab-pager/tab-pager-page-context');
+    function EditingWishlist() {
+      useTabPagerHideBackdrop(true);
+      return <Text testID="stub-wishlist">editing</Text>;
+    }
+    renderAppRouter('/wishlist', { ...STUBS, '(tabs)/wishlist': EditingWishlist });
+    await waitFor(() => expect(screen.getByTestId('stub-wishlist')).toBeTruthy());
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('tab-pager-page-wishlist').findAll((node: { props: { testID?: string } }) => node.props.testID === 'tab-bar-backdrop-blur'),
+      ).toHaveLength(0),
+    );
+    expect(screen.getByTestId('app-tab-bar')).toBeTruthy();
+  });
+
   it('opens on the route the URL names, mounting only that page', async () => {
     const app = renderAppRouter('/events', STUBS);
     await waitFor(() => expect(app.getPathname()).toBe('/events'));
