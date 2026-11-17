@@ -1043,6 +1043,8 @@ def _binder_pocket_jpegs_from_page(
                 pockets.append(out.getvalue())
         return pockets
 DECK_ENTRY_BULK_CREATE_MAX = 50
+# Entries per write transaction in create-bulk; keeps each lock hold short.
+DECK_ENTRY_BULK_CREATE_CHUNK = 10
 
 # Streamed binder lane: upload the page ONCE, then nine ordinary single
 # visual-match calls reference the stored pocket crops by token. Pockets live
@@ -18302,6 +18304,9 @@ class SpotlightScanService:
         # image far longer, so this is the difference between an old comp
         # carrying its photo and going grey forever.
         remember_ebay_listing_images(self.connection, ebay_items)
+        # Commit now: don't hold the write lock across the reads/FX below.
+        if self.connection.in_transaction:
+            self.connection.commit()
         stored_images = ebay_listing_images_by_item_id(self.connection, item_ids)
         counts = reconcile_recent_sales_prices(
             sales,
@@ -19861,32 +19866,41 @@ class SpotlightScanService:
             document=existing_document,
         )
 
-    def create_deck_entry(
+    def create_deck_entry(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Create one holding: slow reads first, then a short write txn."""
+        prepared = self._prepare_deck_entry(payload)
+        try:
+            response = self._write_prepared_deck_entry(prepared)
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        if prepared["scan_id"]:
+            self._confirm_scan_artifacts_best_effort(
+                scan_id=prepared["scan_id"], card_id=prepared["card_id"], added_at=prepared["added_at"]
+            )
+        return response
+
+    def _prepare_deck_entry(
         self,
         payload: dict[str, Any],
         *,
-        _in_bulk: bool = False,
-        _default_collection_id: str | None = None,
+        default_collection_id: str | None = None,
     ) -> dict[str, Any]:
-        """Create one holding. `_in_bulk` (create_deck_entries_bulk only)
-        leaves commit/rollback and the artifacts.json write to the caller so
-        the whole page lands in one transaction."""
+        """Every read/derivation a create needs, with NO write transaction open
+        (baseline pricing reads can be slow on a cold cells table)."""
         owner_user_id = self._current_owner_user_id()
         card_id = str(payload.get("cardID") or "").strip()
         if not card_id:
             raise ValueError("cardID is required")
 
         scan_id = str(payload.get("sourceScanID") or "").strip() or None
-        existing_event = None
+        predicted_card_id_fallback = None
         if scan_id:
-            if not _in_bulk:  # bulk flushes before its transaction opens
-                self._flush_deferred_scan_event(scan_id)
+            self._flush_deferred_scan_event(scan_id)
             existing_event = self.connection.execute(
                 """
-                SELECT request_json, response_json, matcher_source, matcher_version, created_at,
-                       selected_card_id, selected_rank, was_top_prediction, selection_source,
-                       confidence, review_disposition, correction_type, resolver_mode, resolver_path,
-                       predicted_card_id
+                SELECT predicted_card_id
                 FROM scan_events
                 WHERE scan_id = ?
                   AND owner_user_id = ?
@@ -19896,6 +19910,14 @@ class SpotlightScanService:
             ).fetchone()
             if existing_event is None:
                 raise FileNotFoundError("scan event not found")
+            if not str(existing_event["predicted_card_id"] or "").strip():
+                # Only parse the response blob when the column is empty.
+                response_row = self.connection.execute(
+                    "SELECT response_json FROM scan_events WHERE scan_id = ? LIMIT 1",
+                    (scan_id,),
+                ).fetchone()
+                response_payload = json.loads((response_row["response_json"] if response_row else None) or "{}")
+                predicted_card_id_fallback = self._predicted_card_id(response_payload)
 
         slab_context = payload.get("slabContext") if isinstance(payload.get("slabContext"), dict) else {}
         grader = str(slab_context.get("grader") or "").strip() or None
@@ -19953,12 +19975,10 @@ class SpotlightScanService:
         # Which collection this card joins. The client sends the one it is
         # showing; anything else (an older client, or "All Collection" being
         # active, where there is no single target) falls back to the default.
-        # `_ensure_owner_collections` also runs the lazy backfill, so the first
-        # add after the migration lands with every existing holding already
-        # assigned.
-        # The bulk path resolves this once up front: `_ensure_owner_collections`
-        # commits, which would end the bulk transaction mid-page.
-        default_collection_id = _default_collection_id or self._ensure_owner_collections(owner_user_id)
+        # `_ensure_owner_collections` also runs the lazy backfill (and commits),
+        # so the first add after the migration lands with every existing
+        # holding already assigned. Bulk resolves it once up front.
+        default_collection_id = default_collection_id or self._ensure_owner_collections(owner_user_id)
         requested_collection_id = str(payload.get("collectionID") or "").strip()
         collection_id = default_collection_id
         if requested_collection_id and requested_collection_id.lower() != "all":
@@ -19971,101 +19991,131 @@ class SpotlightScanService:
             if owns_collection is not None:
                 collection_id = requested_collection_id
 
-        try:
-            deck_entry_id = upsert_deck_entry(
-                self.connection,
-                owner_user_id=owner_user_id,
-                card_id=card_id,
-                grader=grader,
-                grade=grade,
-                cert_number=cert_number,
-                variant_name=variant_name,
-                condition=condition,
-                quantity=quantity,
-                added_at=added_at,
+        return {
+            "owner_user_id": owner_user_id,
+            "card_id": card_id,
+            "scan_id": scan_id,
+            "predicted_card_id_fallback": predicted_card_id_fallback,
+            "grader": grader,
+            "grade": grade,
+            "cert_number": cert_number,
+            "variant_name": variant_name,
+            "condition": condition,
+            "quantity": quantity,
+            "added_at": added_at,
+            "selection_source": selection_source,
+            "selected_rank": selected_rank,
+            "was_top_prediction": was_top_prediction,
+            "was_top_prediction_given": payload.get("wasTopPrediction") is not None,
+            "confirmation_source": confirmation_source,
+            "cost_basis_per_unit_cents": cost_basis_per_unit_cents,
+            "added_market_price": added_market_price,
+            "added_market_date": added_market_date,
+            "collection_id": collection_id,
+        }
+
+    def _write_prepared_deck_entry(self, prepared: dict[str, Any]) -> dict[str, Any]:
+        """The writes only; the caller owns the transaction."""
+        owner_user_id = prepared["owner_user_id"]
+        card_id = prepared["card_id"]
+        scan_id = prepared["scan_id"]
+        added_at = prepared["added_at"]
+        deck_entry_id = upsert_deck_entry(
+            self.connection,
+            owner_user_id=owner_user_id,
+            card_id=card_id,
+            grader=prepared["grader"],
+            grade=prepared["grade"],
+            cert_number=prepared["cert_number"],
+            variant_name=prepared["variant_name"],
+            condition=prepared["condition"],
+            quantity=prepared["quantity"],
+            added_at=added_at,
+            updated_at=added_at,
+            source_scan_id=scan_id,
+            source_confirmation_id=None,
+            added_market_price=prepared["added_market_price"],
+            added_market_date=prepared["added_market_date"],
+            collection_id=prepared["collection_id"],
+        )
+        if prepared["cost_basis_per_unit_cents"] is not None:
+            self._set_deck_entry_cost_basis_cents(
+                deck_entry_id=deck_entry_id,
+                cost_basis_cents=prepared["cost_basis_per_unit_cents"],
                 updated_at=added_at,
-                source_scan_id=scan_id,
-                source_confirmation_id=None,
-                added_market_price=added_market_price,
-                added_market_date=added_market_date,
-                collection_id=collection_id,
             )
-            if cost_basis_per_unit_cents is not None:
-                self._set_deck_entry_cost_basis_cents(
-                    deck_entry_id=deck_entry_id,
-                    cost_basis_cents=cost_basis_per_unit_cents,
-                    updated_at=added_at,
-                )
 
-            confirmation_id = None
-            if scan_id:
-                confirmation_id = upsert_scan_confirmation(
-                    self.connection,
-                    scan_id=scan_id,
-                    owner_user_id=owner_user_id,
-                    confirmed_card_id=card_id,
-                    confirmation_source=confirmation_source,
-                    selected_rank=selected_rank,
-                    was_top_prediction=was_top_prediction,
-                    deck_entry_id=deck_entry_id,
-                    created_at=added_at,
-                )
-                self.connection.execute(
-                    """
-                    UPDATE deck_entries
-                    SET updated_at = ?, source_scan_id = ?, source_confirmation_id = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        added_at,
-                        scan_id,
-                        confirmation_id,
-                        deck_entry_id,
-                    ),
-                )
-                request_payload = json.loads(existing_event["request_json"] or "{}")
-                response_payload = json.loads(existing_event["response_json"] or "{}")
-                upsert_scan_event(
-                    self.connection,
-                    scan_id=scan_id,
-                    owner_user_id=owner_user_id,
-                    request_payload=request_payload,
-                    response_payload=response_payload,
-                    matcher_source=str(existing_event["matcher_source"] or "remoteHybrid"),
-                    matcher_version=str(existing_event["matcher_version"] or MATCHER_VERSION),
-                    created_at=str(existing_event["created_at"] or added_at),
-                    predicted_card_id=str(existing_event["predicted_card_id"] or "").strip() or self._predicted_card_id(response_payload),
-                    selected_card_id=str(existing_event["selected_card_id"] or "").strip() or card_id,
-                    selected_rank=selected_rank if selected_rank is not None else existing_event["selected_rank"],
-                    was_top_prediction=was_top_prediction if payload.get("wasTopPrediction") is not None else bool(existing_event["was_top_prediction"] == 1),
-                    selection_source=selection_source if selection_source != "unknown" else (existing_event["selection_source"] or "unknown"),
-                    confirmed_card_id=card_id,
-                    confirmation_source=confirmation_source,
-                    deck_entry_id=deck_entry_id,
-                    confidence=existing_event["confidence"],
-                    review_disposition=existing_event["review_disposition"],
-                    correction_type=existing_event["correction_type"],
-                    resolver_mode=existing_event["resolver_mode"],
-                    resolver_path=existing_event["resolver_path"],
-                    completed_at=added_at,
-                    confirmed_at=added_at,
-                )
-
-            if not _in_bulk:
-                self.connection.commit()
-        except Exception:
-            if not _in_bulk:
-                self.connection.rollback()
-            raise
-
-        if scan_id and not _in_bulk:
-            self._confirm_scan_artifacts_best_effort(scan_id=scan_id, card_id=card_id, added_at=added_at)
+        confirmation_id = None
+        if scan_id:
+            confirmation_id = upsert_scan_confirmation(
+                self.connection,
+                scan_id=scan_id,
+                owner_user_id=owner_user_id,
+                confirmed_card_id=card_id,
+                confirmation_source=prepared["confirmation_source"],
+                selected_rank=prepared["selected_rank"],
+                was_top_prediction=prepared["was_top_prediction"],
+                deck_entry_id=deck_entry_id,
+                created_at=added_at,
+            )
+            self.connection.execute(
+                """
+                UPDATE deck_entries
+                SET updated_at = ?, source_scan_id = ?, source_confirmation_id = ?
+                WHERE id = ?
+                """,
+                (added_at, scan_id, confirmation_id, deck_entry_id),
+            )
+            # Confirmation columns only: no request/response blob rewrite, and
+            # the selected/predicted fallbacks read the row as it is now.
+            selection_source = prepared["selection_source"]
+            cursor = self.connection.execute(
+                """
+                UPDATE scan_events
+                SET matcher_source = COALESCE(NULLIF(matcher_source, ''), 'remoteHybrid'),
+                    matcher_version = COALESCE(NULLIF(matcher_version, ''), ?),
+                    predicted_card_id = COALESCE(NULLIF(TRIM(predicted_card_id), ''), ?),
+                    selected_card_id = COALESCE(NULLIF(TRIM(selected_card_id), ''), ?),
+                    selected_rank = COALESCE(?, selected_rank),
+                    was_top_prediction = CASE
+                        WHEN ? THEN ?
+                        WHEN was_top_prediction = 1 THEN 1
+                        ELSE 0
+                    END,
+                    selection_source = COALESCE(?, NULLIF(selection_source, ''), 'unknown'),
+                    confirmed_card_id = ?,
+                    confirmation_source = ?,
+                    deck_entry_id = ?,
+                    completed_at = ?,
+                    confirmed_at = ?
+                WHERE scan_id = ?
+                  AND owner_user_id = ?
+                """,
+                (
+                    MATCHER_VERSION,
+                    prepared["predicted_card_id_fallback"],
+                    card_id,
+                    prepared["selected_rank"],
+                    1 if prepared["was_top_prediction_given"] else 0,
+                    1 if prepared["was_top_prediction"] else 0,
+                    selection_source if selection_source != "unknown" else None,
+                    card_id,
+                    prepared["confirmation_source"],
+                    deck_entry_id,
+                    added_at,
+                    added_at,
+                    scan_id,
+                    owner_user_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise FileNotFoundError("scan event not found")
 
         return {
             "deckEntryID": deck_entry_id,
             "cardID": card_id,
-            "variantName": variant_name,
-            "condition": condition,
+            "variantName": prepared["variant_name"],
+            "condition": prepared["condition"],
             "confirmationID": confirmation_id,
             "sourceScanID": scan_id,
             "addedAt": added_at,
@@ -20103,10 +20153,12 @@ class SpotlightScanService:
                     raise
 
     def create_deck_entries_bulk(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Binder-page "add all": up to DECK_ENTRY_BULK_CREATE_MAX single-create
-        payloads in ONE transaction. Each entry runs the exact single-create
-        path (same owner scoping, dedupe, confirmation) inside a savepoint, so a
-        bad entry reports `{index, error}` while the rest still commit."""
+        """Binder-page / tray "add all": up to DECK_ENTRY_BULK_CREATE_MAX
+        single-create payloads. All slow reads (baseline pricing, scan lookup)
+        run first with no write lock held; the writes then land in short
+        BEGIN IMMEDIATE transactions of DECK_ENTRY_BULK_CREATE_CHUNK entries,
+        each entry in a savepoint, so a bad entry reports `{index, error}`
+        while the rest still commit."""
         owner_user_id = self._current_owner_user_id()
         raw_entries = payload.get("entries")
         if not isinstance(raw_entries, list) or not raw_entries:
@@ -20114,46 +20166,75 @@ class SpotlightScanService:
         if len(raw_entries) > DECK_ENTRY_BULK_CREATE_MAX:
             raise ValueError(f"entries must contain at most {DECK_ENTRY_BULK_CREATE_MAX} entries")
 
-        # Runs (and commits) its lazy backfill BEFORE the bulk transaction opens.
+        # Runs (and commits) its lazy backfill before any write transaction.
         default_collection_id = self._ensure_owner_collections(owner_user_id)
-
-        results: list[dict[str, Any]] = []
-        created: list[dict[str, Any]] = []
-        # Take the write lock BEFORE any entry reads. Otherwise the first
-        # SAVEPOINT opens a read-only transaction, a concurrent request commits,
-        # and the entry's write fails instantly with "database is locked" (a
-        # stale WAL snapshot never waits on busy_timeout) — 6 of 26 tray cards
-        # dropped on prod 2026-10-04.
+        # A still-locked deferred scan event fails the request (503) up front.
         for entry in raw_entries:
             if isinstance(entry, dict):
                 self._flush_deferred_scan_event(str(entry.get("sourceScanID") or "").strip() or None)
-        self._begin_immediate_with_retry()
-        try:
-            for index, entry in enumerate(raw_entries):
-                if not isinstance(entry, dict):
-                    results.append({"index": index, "error": "entry must be an object", "errorType": "ValueError"})
-                    continue
-                self.connection.execute("SAVEPOINT deck_entry_bulk_item")
-                try:
-                    response = self.create_deck_entry(
-                        entry,
-                        _in_bulk=True,
-                        _default_collection_id=default_collection_id,
-                    )
-                except Exception as exc:  # noqa: BLE001 - isolate the entry
-                    self.connection.execute("ROLLBACK TO SAVEPOINT deck_entry_bulk_item")
+
+        results_by_index: dict[int, dict[str, Any]] = {}
+
+        def entry_error(index: int, exc: BaseException) -> dict[str, Any]:
+            return {"index": index, "error": str(exc) or type(exc).__name__, "errorType": type(exc).__name__}
+
+        prepared_items: list[tuple[int, dict[str, Any]]] = []
+        for index, entry in enumerate(raw_entries):
+            if not isinstance(entry, dict):
+                results_by_index[index] = {"index": index, "error": "entry must be an object", "errorType": "ValueError"}
+                continue
+            try:
+                prepared = self._prepare_deck_entry(entry, default_collection_id=default_collection_id)
+            except Exception as exc:  # noqa: BLE001 - isolate the entry
+                if not isinstance(exc, (ValueError, FileNotFoundError)):
+                    traceback.print_exc()
+                results_by_index[index] = entry_error(index, exc)
+                continue
+            prepared_items.append((index, prepared))
+
+        created: list[dict[str, Any]] = []
+        chunk_size = max(1, DECK_ENTRY_BULK_CREATE_CHUNK)
+        for chunk_start in range(0, len(prepared_items), chunk_size):
+            chunk = prepared_items[chunk_start:chunk_start + chunk_size]
+            chunk_results: list[tuple[int, dict[str, Any], bool]] = []
+            try:
+                # Take the write lock BEFORE the entry writes: a deferred txn
+                # upgraded after a concurrent commit fails instantly with
+                # "database is locked" (6 of 26 tray cards dropped on prod
+                # 2026-10-04).
+                self._begin_immediate_with_retry()
+                for index, prepared in chunk:
+                    self.connection.execute("SAVEPOINT deck_entry_bulk_item")
+                    try:
+                        response = self._write_prepared_deck_entry(prepared)
+                    except Exception as exc:  # noqa: BLE001 - isolate the entry
+                        self.connection.execute("ROLLBACK TO SAVEPOINT deck_entry_bulk_item")
+                        self.connection.execute("RELEASE SAVEPOINT deck_entry_bulk_item")
+                        if not isinstance(exc, (ValueError, FileNotFoundError)):
+                            traceback.print_exc()
+                        chunk_results.append((index, entry_error(index, exc), False))
+                        continue
                     self.connection.execute("RELEASE SAVEPOINT deck_entry_bulk_item")
-                    if not isinstance(exc, (ValueError, FileNotFoundError)):
-                        traceback.print_exc()
-                    results.append({"index": index, "error": str(exc) or type(exc).__name__, "errorType": type(exc).__name__})
-                    continue
-                self.connection.execute("RELEASE SAVEPOINT deck_entry_bulk_item")
-                results.append({"index": index, **response})
-                created.append(response)
-            self.connection.commit()
-        except Exception:
-            self.connection.rollback()
-            raise
+                    chunk_results.append((index, {"index": index, **response}, True))
+                self.connection.commit()
+            except Exception as exc:
+                try:
+                    self.connection.rollback()
+                except sqlite3.Error:
+                    pass
+                if not created:
+                    raise  # nothing committed yet: same as before (503 on lock)
+                # Earlier chunks are committed. Report the rest as failed rather
+                # than erroring the request: the client then shows exactly what
+                # landed, and never retries already-committed adds.
+                traceback.print_exc()
+                for index, _prepared in prepared_items[chunk_start:]:
+                    results_by_index[index] = entry_error(index, exc)
+                break
+            for index, result, ok in chunk_results:
+                results_by_index[index] = result
+                if ok:
+                    created.append(result)
 
         for response in created:
             scan_id = str(response.get("sourceScanID") or "")
@@ -20164,6 +20245,7 @@ class SpotlightScanService:
                     added_at=str(response.get("addedAt") or ""),
                 )
 
+        results = [results_by_index[index] for index in sorted(results_by_index)]
         return {
             "results": results,
             "createdCount": len(created),

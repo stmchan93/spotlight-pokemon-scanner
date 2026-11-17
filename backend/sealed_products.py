@@ -119,6 +119,8 @@ def _image_url(product_row: dict[str, Any], size: str) -> str | None:
 def upsert_sealed_products(
     connection: sqlite3.Connection,
     rows: Iterable[tuple[int, dict[str, Any], dict[str, Any]]],
+    *,
+    pacer: Any = None,
 ) -> dict[str, int]:
     """Upsert `(category_id, group_row, product_row)` triples that are sealed.
 
@@ -138,6 +140,9 @@ def upsert_sealed_products(
             stats["skipped_not_sealed"] += 1
             continue
         game, language = game_language
+        if pacer is not None:
+            pacer.maybe_commit()
+            pacer.mark_write()
         product_id = str(product_row["productId"]).strip()
         name = re.sub(r"\s+", " ", str(product_row.get("name") or "")).strip()
         group_name = str((group_row or {}).get("name") or "").strip()

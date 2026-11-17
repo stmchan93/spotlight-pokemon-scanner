@@ -252,6 +252,17 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def sqlite_wal_autocheckpoint_pages() -> int:
+    """SPOTLIGHT_SQLITE_WAL_AUTOCHECKPOINT (pages, default 1000). 0 disables the
+    app's checkpoints so litestream owns them; only set 0 where litestream runs,
+    or the WAL grows without bound."""
+    raw = str(os.environ.get("SPOTLIGHT_SQLITE_WAL_AUTOCHECKPOINT") or "").strip()
+    try:
+        return max(0, int(raw)) if raw else 1000
+    except ValueError:
+        return 1000
+
+
 def connect(
     database_path: Path | str,
     *,
@@ -271,7 +282,7 @@ def connect(
     for pragma in (
         "PRAGMA synchronous = NORMAL",
         "PRAGMA temp_store = MEMORY",
-        "PRAGMA wal_autocheckpoint = 1000",
+        f"PRAGMA wal_autocheckpoint = {sqlite_wal_autocheckpoint_pages()}",
     ):
         try:
             connection.execute(pragma)

@@ -98,6 +98,14 @@ class SyncTcgcsvPricesTests(unittest.TestCase):
         kwargs.setdefault("price_date", "2026-08-25")
         return run_tcgcsv_price_sync(self.connection, **kwargs)
 
+    def test_sync_reports_write_lock_pacing(self):
+        self._seed_scrydex_snapshot()
+        stats = self._sync()
+        self.assertGreaterEqual(stats["write_txns"], 1)
+        self.assertIn("write_lock_hold_ms", stats)
+        self.assertIn("longest_txn_ms", stats)
+        self.assertFalse(self.connection.in_transaction)
+
     def test_existing_scrydex_snapshot_gets_main_columns_only(self):
         self._seed_scrydex_snapshot()
         before = self._snapshot_row()

@@ -40,6 +40,7 @@ from catalog_tools import (
 )
 from env_loader import load_backend_env_file
 from sealed_products import upsert_sealed_products
+from sqlite_write_pacing import WriteTxnPacer
 import tcgplayer_only_catalog
 from pricing_utils import cleaned_high_price, cleaned_price
 from tcgcsv_adapter import (
@@ -549,6 +550,9 @@ def run_tcgcsv_price_sync(
         )
         connection.commit()
 
+    # Short write txns + a yield between them so the backend's writers and
+    # litestream's checkpoint get the lock (prod 10/24: 7-minute lockout).
+    pacer = WriteTxnPacer(connection)
     try:
         requests_before = tcgcsv_adapter.request_count
         if group_by_product is None:
@@ -572,8 +576,8 @@ def run_tcgcsv_price_sync(
         # is read so this run prices the new rows too.
         sealed_stats: dict[str, int] = {}
         if crawled_products and not dry_run and not history_only and tcgcsv_sealed_ingest_enabled():
-            sealed_stats = upsert_sealed_products(connection, crawled_products)
-            connection.commit()
+            sealed_stats = upsert_sealed_products(connection, crawled_products, pacer=pacer)
+            pacer.commit()
 
         # TCGplayer-only products (plan docs/tcgplayer-only-catalog-plan-2026-09-29.md):
         # shadow classifies into tcgplayer_product_classifications; "on" also
@@ -589,13 +593,15 @@ def run_tcgcsv_price_sync(
                 product_price_map=product_price_map,
                 extra_card_claims={**load_tcgplayer_id_backfill(), **load_tcgplayer_id_overrides()},
                 mode=tcgplayer_only_mode,
+                pacer=pacer,
             )
-            connection.commit()
+            pacer.commit()
             if tcgplayer_only_mode == tcgplayer_only_catalog.MODE_ON:
                 tcgplayer_only_ingest = tcgplayer_only_catalog.ingest_tcgplayer_only_cards(
                     connection, crawled_products, product_price_map=product_price_map,
+                    pacer=pacer,
                 )
-                connection.commit()
+                pacer.commit()
                 if tcgplayer_only_ingest.get("created"):
                     # New product links: the process-wide guard cache predates them.
                     reset_collision_guard_cache()
@@ -654,6 +660,7 @@ def run_tcgcsv_price_sync(
                 stats["overrides_applied"] += 1
                 stats["priced"] += 1
                 if not dry_run:
+                    pacer.mark_write()
                     _write_card_main_price(
                         connection, card_id=card_id, prices=prices,
                         sub_type_name=sub_type_name, price_date=price_date, now=now,
@@ -662,8 +669,7 @@ def run_tcgcsv_price_sync(
                     )
                     _write_card_tcgplayer_id(connection, card_id, product_id)
                     pending += 1
-                    if pending % commit_every == 0:
-                        connection.commit()
+                    pacer.maybe_commit(force=pending % commit_every == 0)
                 continue
             backfill_pid = backfill.get(card_id)
             if backfill_pid:
@@ -699,6 +705,7 @@ def run_tcgcsv_price_sync(
                             "cardNumber": card_num, "productNumber": product_num,
                         })
                     if not dry_run:
+                        pacer.mark_write()
                         # A CONFIRMED mismatch clears any previously-written main
                         # lane immediately — a known-bad join must not keep
                         # serving until the staleness window expires.
@@ -707,12 +714,14 @@ def run_tcgcsv_price_sync(
                             write_snapshot=not history_only,
                         )
                         pending += 1
+                        pacer.maybe_commit(force=pending % commit_every == 0)
                     continue
             stats["priced"] += 1
             if backfill_pid:
                 stats["backfill_applied"] += 1
             if dry_run:
                 continue
+            pacer.mark_write()
             _write_card_main_price(
                 connection, card_id=card_id, prices=prices,
                 sub_type_name=sub_type_name, price_date=price_date, now=now,
@@ -724,14 +733,13 @@ def run_tcgcsv_price_sync(
             )
             _write_card_tcgplayer_id(connection, card_id, product_id)
             pending += 1
-            if pending % commit_every == 0:
-                connection.commit()
+            pacer.maybe_commit(force=pending % commit_every == 0)
 
         if dry_run:
             print(f"[tcgcsv] dry-run {json.dumps(stats)}")
             return stats
 
-        connection.commit()
+        pacer.commit(yield_after=False)
         # Store the publish marker only after a FULLY clean crawl: with failed
         # groups left un-marked, the next catch-up cron attempt re-crawls and
         # fills the gap instead of waiting for tomorrow.
@@ -757,9 +765,11 @@ def run_tcgcsv_price_sync(
                    "backfillApplied": stats["backfill_applied"],
                    **_tcgplayer_only_notes(tcgplayer_only_stats),
                    **({"tcgplayerOnlyIngest": tcgplayer_only_ingest} if tcgplayer_only_ingest else {}),
-                   "failedGroups": failed_groups[:20]},
+                   "failedGroups": failed_groups[:20],
+                   "writePacing": pacer.stats()},
         )
-        connection.commit()
+        pacer.commit(yield_after=False)
+        stats.update(pacer.stats())
         print(f"[tcgcsv] sync {json.dumps(stats)}")
         return stats
     except Exception as exc:

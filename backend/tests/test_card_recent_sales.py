@@ -263,6 +263,39 @@ class CardRecentSalesTests(unittest.TestCase):
         # The photo survives the cache round-trip via the row's source payload.
         self.assertEqual(cached["sales"][0]["imageURL"], "https://i.ebayimg.com/images/g/jbUAAeSw1yVqe6FK/s-l1600.jpg")
 
+    def test_recent_sales_commit_ebay_images_before_reconcile_reads(self) -> None:
+        # The image write must not hold the write lock across the reads/FX work.
+        import server as server_module
+
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        observed: list[tuple[bool, int]] = []
+        original_reader = server_module.ebay_listing_images_by_item_id
+
+        def reader(connection, item_ids):
+            other = connect(self.database_path)
+            try:
+                visible = other.execute("SELECT COUNT(*) FROM ebay_listing_images").fetchone()[0]
+            finally:
+                other.close()
+            observed.append((connection.in_transaction, visible))
+            return original_reader(connection, item_ids)
+
+        try:
+            with patch(
+                "server.fetch_scrydex_recent_sales",
+                return_value=self._scrydex_payload(price=5900.0, currency="USD"),
+            ), patch(
+                "server.fetch_ebay_items_by_legacy_ids",
+                return_value={"366618245287": {"priceAmount": 42.0, "priceCurrency": "USD",
+                                               "imageURL": "https://i.ebayimg.com/x.jpg"}},
+            ), patch("server.ebay_listing_images_by_item_id", side_effect=reader):
+                service.card_recent_sales("gym1-60", grader="PSA", grade="9", refresh=True)
+            self.assertFalse(service.connection.in_transaction)
+        finally:
+            service.connection.close()
+
+        self.assertEqual(observed, [(False, 1)])
+
     def test_recent_sales_convert_non_usd_scrydex_rows(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         try:

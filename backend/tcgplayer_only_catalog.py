@@ -613,6 +613,7 @@ def persist_classifications(
     *,
     mode: str = MODE_SHADOW,
     now: str | None = None,
+    pacer: Any = None,
 ) -> None:
     """Upsert shadow rows (first_seen_at kept) and drop shadow rows whose product
     the catalog has since claimed. Rows under a REAL status are never touched —
@@ -634,8 +635,7 @@ def persist_classifications(
     connection.executemany(
         "DELETE FROM tcgplayer_product_classifications WHERE product_id = ?", stale
     )
-    connection.executemany(
-        """
+    upsert_sql = """
         INSERT INTO tcgplayer_product_classifications (
             product_id, category_id, group_id, game, status, card_id, proposed_card_id,
             version_label, evidence_json, first_seen_at, updated_at
@@ -650,19 +650,25 @@ def persist_classifications(
             version_label = excluded.version_label,
             evidence_json = excluded.evidence_json,
             updated_at = excluded.updated_at
-        """,
-        [
-            (
-                c.product_id, c.category_id, c.group_id, game_key(c.game, c.language),
-                _SHADOW_STATUS[c.decision], c.card_id, c.proposed_card_id,
-                c.version_label or None, json.dumps(c.evidence, sort_keys=True, ensure_ascii=False),
-                now, now,
-            )
-            for c in classifications
-            if existing.get(c.product_id) not in REAL_STATUSES
-            and not (c.product_id in image_resolved and c.decision == DECISION_REVIEW)
-        ],
-    )
+        """
+    upsert_rows = [
+        (
+            c.product_id, c.category_id, c.group_id, game_key(c.game, c.language),
+            _SHADOW_STATUS[c.decision], c.card_id, c.proposed_card_id,
+            c.version_label or None, json.dumps(c.evidence, sort_keys=True, ensure_ascii=False),
+            now, now,
+        )
+        for c in classifications
+        if existing.get(c.product_id) not in REAL_STATUSES
+        and not (c.product_id in image_resolved and c.decision == DECISION_REVIEW)
+    ]
+    # Sliced so a pacer can commit between slices (one slice = one statement).
+    for start in range(0, len(upsert_rows), 500):
+        if pacer is not None:
+            pacer.mark_write()
+        connection.executemany(upsert_sql, upsert_rows[start:start + 500])
+        if pacer is not None:
+            pacer.maybe_commit()
 
 
 def run_shadow_classification(
@@ -674,6 +680,7 @@ def run_shadow_classification(
     overrides: Mapping[str, Mapping[str, Any]] | None = None,
     mode: str = MODE_SHADOW,
     now: str | None = None,
+    pacer: Any = None,
 ) -> dict[str, Any]:
     """Classify the crawl and persist shadow rows. Zero network; the caller commits.
     Returns {"counts": {game_key: {status: n}}, **classifier stats}."""
@@ -686,7 +693,7 @@ def run_shadow_classification(
         overrides=load_overrides() if overrides is None else overrides,
         product_price_map=product_price_map,
     )
-    persist_classifications(connection, classifications, claims, mode=mode, now=now)
+    persist_classifications(connection, classifications, claims, mode=mode, now=now, pacer=pacer)
     counts: dict[str, Counter] = defaultdict(Counter)
     for c in classifications:
         counts[game_key(c.game, c.language)][_SHADOW_STATUS[c.decision]] += 1
@@ -962,6 +969,7 @@ def ingest_tcgplayer_only_cards(
     product_price_map: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
     fetch_image: FetchImageFn | None = None,
     now: str | None = None,
+    pacer: Any = None,
 ) -> dict[str, Any]:
     """Mode "on", after the classification pass: every shadow_missing row (the
     rules' or the image resolver's) becomes a `cards` row + its group's set and
@@ -1012,6 +1020,10 @@ def ingest_tcgplayer_only_cards(
     }
     groups: dict[tuple[int, int], Mapping[str, Any]] = {}
     for product_id, card_id, status in targets:
+        if pacer is not None:
+            # Each product's card + status land together, so a commit here is safe.
+            pacer.maybe_commit()
+            pacer.mark_write()
         category_id, group_row, product_row = crawl[product_id]
         if product_id in verdicts:
             image_url, image_small_url = _image_urls(product_id, verdicts[product_id])

@@ -212,6 +212,17 @@ tail -f backend/logs/backend.log
 tail -f backend/logs/scrydex_sync.log
 ```
 
+### SQLite WAL checkpoints vs litestream
+
+`catalog_tools.connect()` sets `PRAGMA wal_autocheckpoint` from `SPOTLIGHT_SQLITE_WAL_AUTOCHECKPOINT` (pages; default `1000`, the old hardcoded value). Prod runs litestream, which also checkpoints; litestream's guidance is for the app to set `0` and let litestream own checkpoints, so app writers never stall on a checkpoint racing litestream's read transaction.
+
+- `0` is only safe on a box where litestream is running. With no litestream, nothing checkpoints and the WAL grows without bound.
+- Staging is the first place to flip it in principle, but staging runs **no litestream** (see `backend/.env.staging`), so setting `0` there would just grow the WAL. Staging can only check that the app runs correctly with the variable set to a non-default value.
+- Real validation has to happen on prod. Set `SPOTLIGHT_SQLITE_WAL_AUTOCHECKPOINT=0` in the prod env during a quiet window and restart (this needs the usual prod approval). Then, for a day, watch `ls -l spotlight.sqlite-wal` (it should stay bounded and shrink back after litestream's checkpoints), `journalctl -u litestream` for checkpoint errors, and the slow-lock logs. To roll back, remove the variable and restart.
+- Optional pre-prod rehearsal: run litestream on staging against a scratch bucket, set `0`, and watch the WAL under a load-test (`mixed.js`).
+
+Batch syncs (`sync_tcgcsv_prices.py`, `sync_scrydex_catalog.py`) write through `sqlite_write_pacing.WriteTxnPacer`. It commits once a write transaction has been open for `SPOTLIGHT_SYNC_TXN_BUDGET_MS` (default 250) and then sleeps for `SPOTLIGHT_SYNC_TXN_YIELD_MS` (default 75), so backend writers and litestream can get the lock. Total lock hold time and the longest transaction show up in the sync stats (`write_lock_hold_ms`, `longest_txn_ms`).
+
 For the staging labeling -> retrain -> guarded publish cycle on the VM, use:
 
 ```bash

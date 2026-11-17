@@ -30,6 +30,7 @@ from catalog_tools import (
 )
 from env_loader import load_backend_env_file
 from fx_rates import ensure_fx_rate_snapshot
+from sqlite_write_pacing import WriteTxnPacer
 from scrydex_adapter import (
     SCRYDEX_FULL_CATALOG_SYNC_SCOPE,
     SCRYDEX_PROVIDER,
@@ -243,6 +244,8 @@ def _refresh_fx_rates_for_catalog(connection: sqlite3.Connection) -> dict[str, A
                 quote_currency="USD",
                 allow_fetch=True,
             )
+            # Don't hold this write across the next currency's network fetch.
+            connection.commit()
             if snapshot is not None and snapshot.get("isFresh") is True:
                 summary["refreshed"] += 1
             else:
@@ -302,6 +305,9 @@ def _sync_scrydex_catalog_once(
         "gradedSnapshotsUpserted": 0,
     }
     request_type = catalog_sync_request_type(normalized_game, normalized_language)
+    # Short write txns + a yield between them so backend writers and
+    # litestream's checkpoint aren't starved during the page writes.
+    pacer = WriteTxnPacer(connection)
 
     try:
         page = 1
@@ -328,6 +334,7 @@ def _sync_scrydex_catalog_once(
 
             imported_at = utc_now()
             for payload in cards:
+                pacer.maybe_commit()
                 mapped_card = map_scrydex_card_for_game(payload, normalized_game)
                 # Stamp the game HERE, not in the mapper. Games without a
                 # dedicated mapper fall back to the Pokémon one, which does not
@@ -336,6 +343,7 @@ def _sync_scrydex_catalog_once(
                 # for game='lorcana'. The sync always knows its game; a mapper
                 # can forget.
                 mapped_card["game"] = normalized_game
+                pacer.mark_write()
                 upsert_catalog_card(
                     connection,
                     mapped_card,
@@ -363,7 +371,7 @@ def _sync_scrydex_catalog_once(
                 if counts.get("gradedCount"):
                     totals["gradedSnapshotsUpserted"] += 1
 
-            connection.commit()
+            pacer.commit(yield_after=False)
             update_provider_sync_run(
                 connection,
                 run_id,
@@ -424,6 +432,7 @@ def _sync_scrydex_catalog_once(
             "expansionsRefreshed": expansions_refreshed,
             "expansionsRefreshError": expansions_refresh_error,
             "fxRefresh": fx_summary,
+            "writePacing": pacer.stats(),
             "completedAt": completed_at,
             "databasePath": str(database_path),
         }
