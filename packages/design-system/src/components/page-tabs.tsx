@@ -18,8 +18,9 @@ export type PageTabsProps<V extends string> = {
   /**
    * `start` = left-aligned tabs on the page gutter (Figma Events 5476:7154).
    * `gutter` = the same with 16 inset, 16 between tabs and 12 per tab (Figma Social 6322:8030).
+   * `gutter-center` = `gutter` spacing with the row centred (Social hub, user 2026-11-18).
    */
-  align?: 'center' | 'start' | 'gutter';
+  align?: 'center' | 'start' | 'gutter' | 'gutter-center';
   /**
    * `compact` = the Figma "Collection Tabs" rail (5862:6907): Label 14 (same
    * metrics as Body-medium) boxed by 12pt side padding, 6pt word-to-underline,
@@ -54,6 +55,7 @@ export function PageTabs<V extends string>({
   const theme = useSpotlightTheme();
   const compact = size === 'compact';
   const captionLabels = labelSize === 'caption';
+  const gutterSpacing = align === 'gutter' || align === 'gutter-center';
   const selectedRole = captionLabels ? theme.typography.captionMedium : theme.typography.bodyMedium;
   const inactiveRole = captionLabels ? theme.typography.caption : theme.typography.body;
 
@@ -65,7 +67,8 @@ export function PageTabs<V extends string>({
           ? styles.containerCompact
           : align === 'start'
             ? styles.containerStart
-            : align === 'gutter' && styles.containerGutter,
+            : gutterSpacing && styles.containerGutter,
+        !compact && align === 'gutter-center' ? styles.containerGutterCenter : null,
       ]}
     >
       {tabs.map((tab) => {
@@ -78,7 +81,7 @@ export function PageTabs<V extends string>({
             onPress={() => onChange(tab.value)}
             style={({ pressed }) => [
               compact ? styles.tabCompact : styles.tab,
-              !compact && align === 'gutter' ? styles.tabGutter : null,
+              !compact && gutterSpacing ? styles.tabGutter : null,
               { opacity: pressed ? 0.7 : 1 },
             ]}
             testID={testID ? `${testID}-tab-${tab.value}` : undefined}
@@ -179,6 +182,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     justifyContent: 'flex-start',
     paddingHorizontal: spacing.sm,
+  },
+  containerGutterCenter: {
+    justifyContent: 'center',
   },
   tabGutter: {
     paddingHorizontal: spacing.xs,

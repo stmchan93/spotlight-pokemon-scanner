@@ -110,7 +110,7 @@ describe('HomeHeader', () => {
     capsule's contents for edit + share.
   */
   describe('the trailing control', () => {
-    it('Social leads with search where the menu was; the bell trails alone', () => {
+    it('Social leads with the menu; search and the bell share the right capsule', () => {
       const onOpenNotifications = jest.fn();
       const onOpenSearch = jest.fn();
       renderHeader({
@@ -119,8 +119,8 @@ describe('HomeHeader', () => {
         trailing: { kind: 'home', onOpenNotifications, unreadCount: 0 },
       });
 
-      // Social: search | capsule(bell). No menu (user, 2026-11-16).
-      expect(screen.queryByTestId('home-header-menu')).toBeNull();
+      // Social: menu | capsule(search, bell) (user, 2026-11-18).
+      expect(screen.getByTestId('home-header-menu')).toBeTruthy();
       expect(screen.getByTestId('home-header-trailing')).toBeTruthy();
 
       // NO SearchEntryPill on the home bar — search is a glyph slot, not a
@@ -140,11 +140,11 @@ describe('HomeHeader', () => {
       expect(onOpenNotifications).toHaveBeenCalledTimes(1);
     });
 
-    it('draws the Home capsule 44pt tall with one 36pt bell slot', () => {
+    it('draws the Home capsule 44pt tall with 36pt search + bell slots', () => {
       renderHeader({ floating: true, trailing: homeTrailing() });
 
       const capsule = StyleSheet.flatten(screen.getByTestId('home-header-trailing').props.style);
-      expect(capsule.width).toBe(glassNavBubbleGroupWidth(1, 'medium'));
+      expect(capsule.width).toBe(glassNavBubbleGroupWidth(2, 'medium'));
       expect(capsule.height).toBe(glassNavBubbleSizes.medium);
       expect(StyleSheet.flatten(screen.getByTestId('home-header-notifications').props.style).width).toBe(36);
     });

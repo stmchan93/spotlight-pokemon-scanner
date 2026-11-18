@@ -900,7 +900,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         tabBar={
           <View style={{ backgroundColor: theme.colors.gray0 }}>
             <PageTabs
-              align="gutter"
+              align="gutter-center"
               labelSize="caption"
               onChange={selectTab}
               tabs={HUB_TABS}

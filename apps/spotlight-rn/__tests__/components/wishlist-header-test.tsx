@@ -1,5 +1,5 @@
 import { Animated, StyleSheet } from 'react-native';
-import { fireEvent, screen } from '@testing-library/react-native';
+import { fireEvent, screen, within } from '@testing-library/react-native';
 
 import { glassNavBubbleSizes, textStyles } from '@spotlight/design-system';
 
@@ -25,7 +25,7 @@ import { renderWithProviders } from '../test-utils';
  */
 
 function renderHeader(props: Partial<Parameters<typeof WishlistHeader>[0]> = {}) {
-  return renderWithProviders(<WishlistHeader {...props} />);
+  return renderWithProviders(<WishlistHeader onOpenMenu={jest.fn()} {...props} />);
 }
 
 /** The `Animated.View` wrapping the title — the clip's only child. */
@@ -59,7 +59,7 @@ describe('WishlistHeader', () => {
   */
   /*
     Design review 2026-11-16: "Title is running into the top right components".
-    The edit+share capsule (104pt) is wider than the search bubble (44pt), so
+    The search+edit capsule (104pt) is wider than the menu bubble (44pt), so
     BOTH slots are pinned to the capsule's width and the title takes the
     flexed middle — centred on screen, never under either side.
   */
@@ -71,7 +71,7 @@ describe('WishlistHeader', () => {
     });
 
     it('gives the leading and trailing slots the same width, fixed and unshrinkable', () => {
-      renderHeader({ onOpenSearch: jest.fn(), onShare: jest.fn(), onToggleEditMode: jest.fn() });
+      renderHeader({ onOpenSearch: jest.fn(), onToggleEditMode: jest.fn() });
       const leading = StyleSheet.flatten(screen.getByTestId('wishlist-header-leading-slot').props.style);
       const trailing = StyleSheet.flatten(screen.getByTestId('wishlist-header-trailing-slot').props.style);
       expect(leading.width).toBe(104);
@@ -83,7 +83,7 @@ describe('WishlistHeader', () => {
     });
 
     it('keeps the capsule-wide slots in edit mode so the title does not jump when Done swaps in', () => {
-      renderHeader({ editMode: true, onOpenSearch: jest.fn(), onShare: jest.fn(), onToggleEditMode: jest.fn() });
+      renderHeader({ editMode: true, onOpenSearch: jest.fn(), onToggleEditMode: jest.fn() });
       expect(StyleSheet.flatten(screen.getByTestId('wishlist-header-leading-slot').props.style).width).toBe(104);
       expect(StyleSheet.flatten(screen.getByTestId('wishlist-header-trailing-slot').props.style).width).toBe(104);
     });
@@ -220,13 +220,13 @@ describe('WishlistHeader', () => {
       ['at rest', 0],
       ['after the title has gone', WISHLIST_TITLE_HIDE_DISTANCE],
     ])('stay put and stay tappable %s', (_label, offset) => {
+      const onOpenMenu = jest.fn();
       const onOpenSearch = jest.fn();
-      const onShare = jest.fn();
       const onToggleEditMode = jest.fn();
       renderHeader({
         floating: true,
+        onOpenMenu,
         onOpenSearch,
-        onShare,
         onToggleEditMode,
         scrollY: new Animated.Value(offset),
         titleVisible: offset === 0,
@@ -235,9 +235,9 @@ describe('WishlistHeader', () => {
       // None of the controls sit inside the clipped, animated title wrapper.
       const clip = screen.getByTestId('wishlist-header-title-clip');
       for (const testID of [
+        'wishlist-header-menu',
         'wishlist-header-search',
         'wishlist-header-edit',
-        'wishlist-header-share',
       ]) {
         const control = screen.getByTestId(testID);
         // Fully opaque at both ends — the fade belongs to the title alone.
@@ -252,12 +252,14 @@ describe('WishlistHeader', () => {
         }
       }
 
+      fireEvent.press(screen.getByTestId('wishlist-header-menu'));
       fireEvent.press(screen.getByTestId('wishlist-header-search'));
       fireEvent.press(screen.getByTestId('wishlist-header-edit'));
-      fireEvent.press(screen.getByTestId('wishlist-header-share'));
+      expect(onOpenMenu).toHaveBeenCalledTimes(1);
       expect(onOpenSearch).toHaveBeenCalledTimes(1);
       expect(onToggleEditMode).toHaveBeenCalledTimes(1);
-      expect(onShare).toHaveBeenCalledTimes(1);
+      // Share was removed from the bar (user, 2026-11-18).
+      expect(screen.queryByTestId('wishlist-header-share')).toBeNull();
     });
 
     /*
@@ -289,12 +291,20 @@ describe('WishlistHeader', () => {
     });
   });
 
-  it('draws WATCHLIST in the card page header title style (titleMedium)', () => {
+  it('draws WATCHLIST one step below the card header title (titleSmall)', () => {
     renderHeader();
     const title = StyleSheet.flatten(screen.getByTestId('wishlist-header-title').props.style);
     expect(title).toMatchObject({
-      fontFamily: textStyles.titleMedium.fontFamily,
-      fontSize: textStyles.titleMedium.fontSize,
+      fontFamily: textStyles.titleSmall.fontFamily,
+      fontSize: textStyles.titleSmall.fontSize,
     });
+  });
+
+  it('leads with the menu and puts search first in the trailing capsule', () => {
+    renderHeader({ onOpenSearch: jest.fn(), onToggleEditMode: jest.fn() });
+    expect(within(screen.getByTestId('wishlist-header-leading-slot')).getByTestId('wishlist-header-menu')).toBeTruthy();
+    const actions = screen.getByTestId('wishlist-header-actions');
+    expect(within(actions).getByTestId('wishlist-header-search')).toBeTruthy();
+    expect(within(actions).getByTestId('wishlist-header-edit')).toBeTruthy();
   });
 });

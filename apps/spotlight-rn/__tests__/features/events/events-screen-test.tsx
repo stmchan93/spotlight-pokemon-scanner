@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { fireEvent, screen } from '@testing-library/react-native';
+import { fireEvent, screen, within } from '@testing-library/react-native';
 import { Share, Text } from 'react-native';
 
 import type { SpotlightEventsFeed } from '@spotlight/api-client';
@@ -241,12 +241,16 @@ describe('EventsScreen', () => {
     expect(await screen.findByTestId('event-card-hawaii-2026-10')).toBeTruthy();
   });
 
-  it('leads with search where the menu was', async () => {
+  it('leads with the menu and puts search in the trailing capsule beside share', async () => {
     renderEvents();
     await screen.findByTestId('event-card-hawaii-2026-10');
-    expect(screen.queryByTestId('events-menu')).toBeNull();
-    fireEvent.press(screen.getByTestId('events-search'));
-    expect(screen.getByTestId('events-search-field')).toBeTruthy();
+    expect(screen.getByTestId('drawer-probe').props.children).toBe('closed');
+    fireEvent.press(screen.getByTestId('events-menu'));
+    expect(screen.getByTestId('drawer-probe').props.children).toBe('open');
+
+    const actions = screen.getByTestId('events-actions');
+    expect(within(actions).getByTestId('events-search')).toBeTruthy();
+    expect(within(actions).getByTestId('events-share')).toBeTruthy();
   });
 
   it('shares the upcoming lineup', async () => {

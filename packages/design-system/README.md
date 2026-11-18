@@ -1032,6 +1032,7 @@ Current API concepts:
 
 - centered, content-width tabs with a 40px gap (Figma 3184-17337) — not full-width `flex: 1` tabs
 - `align="gutter"`: left-aligned with a 16 inset, 16 between tabs and 12 per tab (Figma Social 6322:8030)
+- `align="gutter-center"`: `gutter` spacing with the row centred (the Social hub tabs)
 - active tab: `bodyMedium` / `textPrimary` with a 2px `textPrimary` underline hugging the label
 - inactive tab: `body` / `textSecondary`, no underline
 - a full-bleed `gray200` rail runs edge to edge under all tabs; the active underline shares its

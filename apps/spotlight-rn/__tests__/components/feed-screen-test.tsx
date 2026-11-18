@@ -425,6 +425,16 @@ describe('FeedScreen', () => {
       expect(screen.getByTestId('feed-tabs-tab-social').props.accessibilityState.selected).toBe(true);
     });
 
+    it('centres the tab row horizontally', async () => {
+      renderFeed();
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+
+      // The row of tabs is the PageTabs root's second child, after the rail.
+      const row = screen.getByTestId('feed-tabs').children[1];
+      const style = StyleSheet.flatten(typeof row === 'string' ? undefined : row.props.style);
+      expect(style.justifyContent).toBe('center');
+    });
+
     it('mounts News and Market Watch on their first visit, not before', async () => {
       renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
@@ -549,11 +559,11 @@ describe('FeedScreen', () => {
     expect(within(screen.getByTestId('feed-list')).queryByTestId('feed-header-rule')).toBeNull();
   });
 
-  it('leads with search where the menu was', async () => {
+  it('leads with the menu and keeps search on the right', async () => {
     renderFeed();
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-    expect(screen.queryByTestId('feed-header-menu')).toBeNull();
+    expect(screen.getByTestId('feed-header-menu')).toBeTruthy();
     expect(screen.getByTestId('feed-header-search')).toBeTruthy();
   });
 

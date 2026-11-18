@@ -915,9 +915,6 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
             onScrub={onPriceScrub}
             points={priceChartPoints}
             areaFill
-            // Design review 2026-11-16: no positioning dot at rest on Home; the
-            // dot still tracks the finger while scrubbing.
-            restingDot={false}
             testID="portfolio-price-chart"
             variant="line"
             yScale="fit"

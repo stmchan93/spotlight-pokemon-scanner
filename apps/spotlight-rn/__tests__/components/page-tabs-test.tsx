@@ -132,6 +132,12 @@ describe('PageTabs', () => {
     );
     expect(tabRow()).toMatchObject({ justifyContent: 'flex-start', gap: 16, paddingHorizontal: 16 });
     expect(StyleSheet.flatten(screen.getByTestId('page-tabs-tab-favorites').props.style).paddingHorizontal).toBe(12);
+    // Social hub: gutter spacing, but the row centred.
+    rerender(
+      <PageTabs<TabValue> align="gutter-center" tabs={TABS} value="portfolio" onChange={jest.fn()} testID="page-tabs" />,
+    );
+    expect(tabRow()).toMatchObject({ justifyContent: 'center', gap: 16, paddingHorizontal: 16 });
+    expect(StyleSheet.flatten(screen.getByTestId('page-tabs-tab-favorites').props.style).paddingHorizontal).toBe(12);
   });
 
   it('exposes the container testID and per-tab testIDs', () => {

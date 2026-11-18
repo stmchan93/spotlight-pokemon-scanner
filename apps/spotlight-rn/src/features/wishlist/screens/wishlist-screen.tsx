@@ -75,12 +75,10 @@ import {
   SINCE_WATCHED_SUFFIX,
   WATCHLIST_TREND_ACCESS,
 } from '@/features/wishlist/watchlist-trend-access';
-import { buildWishlistShareMessage } from '@/features/wishlist/wishlist-share';
-import { buildProfileDeepLink } from '@/features/profile/profile-link';
 import { SharePostSheet } from '@/features/social/components/share-post-sheet';
-import { useAuth } from '@/providers/auth-provider';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
+import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAppServices } from '@/providers/app-providers';
 
 // A watch is a (card, printing): one card watched in two printings is two rows,
@@ -220,6 +218,7 @@ export function WishlistScreen() {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { openDrawer } = useAppDrawer();
   const { isGuest, openLogin } = useGuestGate();
   const isFocused = useIsFocused();
   // Belt-and-suspenders: every entry point here is already guest-gated, but if a
@@ -235,8 +234,6 @@ export function WishlistScreen() {
   }, [isFocused, isGuest, openLogin]);
   const { spotlightRepository, dataVersion, watchlistStore } = useAppServices();
   // Your own identity, for the `spotlight://` link the share message carries.
-  const { currentUser } = useAuth();
-  const [shareSheetOpen, setShareSheetOpen] = useState(false);
   // A caught deal, as a message. Separate from the wishlist share above: that
   // one sends a profile REFERENCE, a deal is always text because the listing
   // URL is the payload and it has to survive leaving the app.
@@ -546,48 +543,6 @@ export function WishlistScreen() {
     }
     return entries;
   }, [activeFilter, favorites, query]);
-
-  /*
-    Share the LIST — the macro counterpart to card detail's per-card share.
-    "Here is what I'm hunting", sent to another collector.
-
-    Sent IN-APP, to a DM, rather than out through the OS share sheet. The
-    message carries a `spotlight://` link to your public Wishlist tab, and that
-    link only means anything to someone who already has the build — a DM is the
-    one channel where that is guaranteed. (See `profile-link.ts`; the OS sheet
-    becomes the right home for this the day universal links exist.)
-
-    Shares `visibleEntries`, so filters and search carry through: sharing the
-    whole wishlist while the screen shows six filtered cards would surprise.
-
-    Silent on an empty list — a share sheet offering to send nothing is worse
-    than the button appearing to do nothing, which is why
-    `buildWishlistShareMessage` returns null there.
-  */
-  const shareBody = useMemo(() => {
-    const message = buildWishlistShareMessage(visibleEntries, {
-      displayName: currentUser?.displayName,
-      handle: currentUser?.handle,
-    });
-    if (!message) {
-      return null;
-    }
-    const link = buildProfileDeepLink({
-      handle: currentUser?.handle,
-      userId: currentUser?.id,
-      tab: 'wishlist',
-    });
-    // No link when the viewer has neither a handle nor an id — the one-liner is
-    // still worth sending on its own.
-    return link ? `${message}\n\n${link}` : message;
-  }, [currentUser?.displayName, currentUser?.handle, currentUser?.id, visibleEntries]);
-
-  const handleShareWishlist = useCallback(() => {
-    if (!shareBody) {
-      return;
-    }
-    setShareSheetOpen(true);
-  }, [shareBody]);
 
   const handleOpenDetail = useCallback((entry: CardFavoriteEntry) => {
     // Favorites carry no owned slab → warm the default raw lane + hero image.
@@ -1011,8 +966,8 @@ export function WishlistScreen() {
       <WishlistHeader
         editMode={editMode}
         floating
+        onOpenMenu={openDrawer}
         onOpenSearch={handleOpenCatalogSearch}
-        onShare={handleShareWishlist}
         onToggleEditMode={() => (editMode ? handleExitEditMode() : setEditMode(true))}
         // This list is not inset, so it rests at 0 and the title's fade starts
         // the moment the page moves. See `LIST_REST_OFFSET`.
@@ -1097,39 +1052,8 @@ export function WishlistScreen() {
       />
 
       {/*
-        Only mounted once there is something to send — `shareBody` is null for an
-        empty list, and the sheet has no meaningful empty state of its own.
-      */}
-      {shareBody ? (
-        <SharePostSheet
-          onClose={() => setShareSheetOpen(false)}
-          /*
-            A REFERENCE when we know who we are, so the recipient gets the
-            preview card. The text form is the fallback for an identity-less
-            session — and it is also what still works against a project that has
-            not applied social_24.
-          */
-          payload={
-            currentUser?.id
-              ? {
-                  fallbackBody: shareBody,
-                  kind: 'profile',
-                  tab: 'wishlist',
-                  userId: currentUser.id,
-                }
-              : { kind: 'text', body: shareBody }
-          }
-          testID="wishlist-share-sheet"
-          title="Send watchlist to"
-          visible={shareSheetOpen}
-        />
-      ) : null}
-
-      {/*
-        The deal share. Its own sheet rather than a mode of the one above: the
-        payloads are different kinds (a profile reference vs. the listing text),
-        and a caught deal is the most forwardable thing this app produces — it
-        should not have to borrow the list share's state to get sent.
+        The deal share: a caught deal is the most forwardable thing this app
+        produces, so it gets its own sheet.
       */}
       {dealShareBody ? (
         <SharePostSheet

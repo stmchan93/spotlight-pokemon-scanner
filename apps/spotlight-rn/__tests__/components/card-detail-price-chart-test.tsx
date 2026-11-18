@@ -94,6 +94,19 @@ describe('CardDetailScreen price chart', () => {
     expect(getCardConditionHistory).toHaveBeenCalledTimes(1);
   });
 
+  it('draws the line with no end dot at rest', async () => {
+    const getCardConditionHistory = jest.fn(async () => rawHistory());
+    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+      spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardConditionHistory }),
+    });
+
+    const chart = await screen.findByTestId('detail-price-chart-chart');
+    fireEvent(chart, 'layout', { nativeEvent: { layout: { width: 300, height: 200, x: 0, y: 0 } } });
+    expect(await screen.findByTestId('detail-price-chart-chart-canvas')).toBeTruthy();
+    // The dot only appears under the finger while scrubbing.
+    expect(screen.queryByTestId('detail-price-chart-chart-dot')).toBeNull();
+  });
+
   it('switches Raw → PSA from the grader chip beside the row chip', async () => {
     const getCardConditionHistory = jest.fn(async () => rawHistory());
     renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {

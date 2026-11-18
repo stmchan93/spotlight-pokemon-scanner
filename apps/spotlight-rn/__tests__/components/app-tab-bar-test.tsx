@@ -31,7 +31,7 @@ describe('AppTabBar', () => {
   it('labels the five tabs in bar order, in capitals — WATCHLIST, never WISHLIST', () => {
     renderBar();
     const labels = screen.UNSAFE_getAllByType(Text).map((node) => node.props.children);
-    expect(labels).toEqual(['HOME', 'WATCHLIST', 'SCAN', 'EVENTS', 'COLLECTION']);
+    expect(labels).toEqual(['HOME', 'WATCHLIST', 'SCAN', 'EVENTS', 'SOCIAL']);
     expect(Object.values(TAB_BAR_LABELS)).not.toContain('WISHLIST');
   });
 
