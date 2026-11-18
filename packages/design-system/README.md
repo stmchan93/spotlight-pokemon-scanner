@@ -184,8 +184,12 @@ Use for reusable search inputs across inventory, catalog, and history surfaces.
 Current API concepts:
 
 - shared shell
-- optional custom leading node
+- optional custom leading node (`leading={null}` drops the search glyph)
 - RN `TextInput` props passthrough
+- `multiline` on `size="collection"`: starts at the search bar's 40pt
+  (`searchFieldCollectionHeight`), grows to `searchFieldMultilineMaxLines` (5)
+  lines, and bottom-aligns `trailing` with the last line. This is the Ask
+  Ekalight chat composer, so chat input matches every search bar.
 
 ### SearchEntryPill
 

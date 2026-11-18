@@ -2911,6 +2911,11 @@ export type AssistantMessage = {
   actions: AssistantProposedAction[];
   createdAt: string;
   status: 'ok' | 'error';
+  /**
+   * 0-3 short follow-up prompts the app shows as tappable chips under the
+   * LATEST assistant reply. Optional: older servers don't send it.
+   */
+  suggestions?: string[];
 };
 
 export type AssistantSendPayload = {

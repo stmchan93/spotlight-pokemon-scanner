@@ -63,6 +63,9 @@ export function useAssistantChat({
   const [usage, setUsage] = useState<AssistantUsage | null>(null);
   const [isLoadingThread, setIsLoadingThread] = useState(Boolean(initialThreadId));
   const [threadError, setThreadError] = useState(false);
+  // The reply that just arrived live (animates in, gets scrolled to). Never set
+  // for a loaded history.
+  const [lastReplyId, setLastReplyId] = useState<string | null>(null);
   // Context goes with the FIRST question of a thread only; follow-ups ride the
   // thread's own history.
   const contextSentRef = useRef(Boolean(initialThreadId));
@@ -88,6 +91,7 @@ export function useAssistantChat({
     setMessages([]);
     setPending(null);
     setThreadError(false);
+    setLastReplyId(null);
     contextSentRef.current = nextThreadId != null;
     if (!nextThreadId) {
       setIsLoadingThread(false);
@@ -138,6 +142,7 @@ export function useAssistantChat({
       contextSentRef.current = true;
       setThreadId(result.threadId);
       setMessages((current) => [...current, result.userMessage, result.message]);
+      setLastReplyId(result.message.id);
       setPending(null);
       setUsage(result.usage);
       return 'sent';
@@ -201,6 +206,7 @@ export function useAssistantChat({
     isLimitReached,
     isLoadingThread,
     threadError,
+    lastReplyId,
     send,
     retry,
     openThread,

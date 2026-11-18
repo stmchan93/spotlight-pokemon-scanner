@@ -1,13 +1,17 @@
-import { ClockRotateRight, SendDiagonal } from 'iconoir-react-native';
+import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
+import { ChatPlusIn, ClockRotateRight, Sparks } from 'iconoir-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  FlatList,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   View,
+  type LayoutChangeEvent,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type {
@@ -22,19 +26,27 @@ import {
   Button,
   IconButton,
   InlineLoader,
-  PillButton,
   StateCard,
   Text,
-  TextField,
+  Toast,
+  glassNavBubbleGlyphSize,
   layout,
   spacing,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { ChromeBackButton } from '@/components/chrome-back-button';
+import { ChromeBackButton, chromeBackButtonSize } from '@/components/chrome-back-button';
 import { runAssistantAction } from '@/features/assistant/assistant-action-runner';
+import { assistantIntroCopy, assistantStarterPrompts } from '@/features/assistant/assistant-prompts';
 import type { AssistantActionUiState } from '@/features/assistant/components/assistant-action-card';
-import { AssistantMessageBubble, UserBubble } from '@/features/assistant/components/assistant-message-bubble';
+import { AssistantComposer } from '@/features/assistant/components/assistant-composer';
+import {
+  AssistantMessageBubble,
+  UserBubble,
+  assistantRowEntering,
+} from '@/features/assistant/components/assistant-message-bubble';
+import { AssistantPromptChips } from '@/features/assistant/components/assistant-prompt-chips';
+import { AssistantThinkingIndicator } from '@/features/assistant/components/assistant-thinking-indicator';
 import { AssistantThreadList } from '@/features/assistant/components/assistant-thread-list';
 import {
   assistantErrorCopy,
@@ -44,12 +56,17 @@ import {
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
+import { useKeyboardVisible } from '@/lib/use-keyboard-visible';
 import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 
 const MAX_QUESTION_LENGTH = 1000;
-// Glyphs in the header's ghost buttons, matching the DM composer's send glyph.
 const HEADER_GLYPH_SIZE = 20;
+// Two 40pt header buttons + their gap; the left slot matches so the title centres.
+const HEADER_SIDE_WIDTH = chromeBackButtonSize * 2 + spacing.xxs;
+const INTRO_MARK_SIZE = 48;
+const COPIED_TOAST_MS = 1500;
+const REVEAL_FALLBACK_MS = 400;
 
 export type AssistantScreenProps = {
   source: AssistantContextSource;
@@ -63,6 +80,9 @@ export type AssistantScreenProps = {
 type ChatRow =
   | { kind: 'message'; key: string; message: AssistantMessage }
   | { kind: 'pending'; key: string; pending: AssistantPendingQuestion };
+
+/** What the next content-size change should do with the scroll position. */
+type ScrollIntent = 'none' | 'end' | 'jump' | 'reply';
 
 export function usageLabel(usage: AssistantUsage | null): string | null {
   if (!usage || usage.limit == null || usage.remainingToday == null) {
@@ -79,14 +99,6 @@ function resetTimeLabel(resetsAt: string | null): string {
   return `at ${date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
 }
 
-function suggestionsFor(source: AssistantContextSource, hasTrayCards: boolean): string[] {
-  if (source === 'scanner' && hasTrayCards) {
-    // Tray questions first, but not only: the chat isn't limited to the tray.
-    return ['Which of these is worth the most?', 'Are any of these worth grading?', "What's my collection worth?"];
-  }
-  return ["What's my collection worth?", 'Which of my cards went up this week?', "What's a Special Illustration Rare?"];
-}
-
 export function AssistantScreen({
   source,
   cardIds = [],
@@ -96,6 +108,7 @@ export function AssistantScreen({
 }: AssistantScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
+  const keyboardVisible = useKeyboardVisible();
   const services = useAppServices();
   const { spotlightRepository: repository } = services;
   const { ensureGuestSession, isGuest, openLogin } = useGuestGate();
@@ -129,8 +142,15 @@ export function AssistantScreen({
   const [threads, setThreads] = useState<AssistantThreadSummary[]>([]);
   const [threadsStatus, setThreadsStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [actionStates, setActionStates] = useState<Record<string, AssistantActionUiState>>({});
-  const listRef = useRef<FlatList<ChatRow>>(null);
+  const [copiedVisible, setCopiedVisible] = useState(false);
+  // A loaded history is hidden for the frame between its first paint (at the
+  // top) and the jump to its end, so opening a chat never visibly scrolls.
+  const [awaitingJump, setAwaitingJump] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
   const limitReportedRef = useRef(false);
+  const scrollIntentRef = useRef<ScrollIntent>('none');
+  const viewportHeightRef = useRef(0);
+  const rowOffsetsRef = useRef(new Map<string, { y: number; height: number }>());
 
   useEffect(() => {
     capturePostHogEvent(AnalyticsEvent.assistantOpened, { source });
@@ -143,6 +163,93 @@ export function AssistantScreen({
       capturePostHogEvent(AnalyticsEvent.assistantLimitHit, { is_guest: chat.usage?.isGuest ?? isGuest });
     }
   }, [chat.isLimitReached, chat.usage, isGuest]);
+
+  // ---- Scroll: the newest exchange stays in view without fighting the reader.
+  useEffect(() => {
+    // A loaded history lands at its end with no visible scroll.
+    if (!chat.isLoadingThread && chat.messages.length > 0 && chat.lastReplyId == null) {
+      scrollIntentRef.current = 'jump';
+      setAwaitingJump(true);
+    }
+    // Only a load completing (not every new message) should jump.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat.isLoadingThread]);
+
+  useEffect(() => {
+    if (chat.lastReplyId) {
+      scrollIntentRef.current = 'reply';
+    }
+  }, [chat.lastReplyId]);
+
+  useEffect(() => {
+    if (chat.pending) {
+      scrollIntentRef.current = 'end';
+    }
+  }, [chat.pending]);
+
+  const scrollToEnd = useCallback((animated: boolean) => {
+    scrollRef.current?.scrollToEnd({ animated });
+  }, []);
+
+  useEffect(() => {
+    if (keyboardVisible) {
+      // The keyboard shortens the list without changing its content.
+      requestAnimationFrame(() => scrollToEnd(true));
+    }
+  }, [keyboardVisible, scrollToEnd]);
+
+  /**
+   * Runs the pending scroll intent once the layout it needs exists. Called from
+   * both the content-size change and the reply row's own layout, because either
+   * can land first; a 'reply' intent waits until the reply has been measured.
+   */
+  const applyScrollIntent = useCallback(() => {
+    const intent = scrollIntentRef.current;
+    if (intent === 'none') {
+      return;
+    }
+    if (intent === 'reply' && chat.lastReplyId) {
+      const reply = rowOffsetsRef.current.get(chat.lastReplyId);
+      if (!reply) {
+        return;
+      }
+      scrollIntentRef.current = 'none';
+      // A reply taller than the screen is read from its top, like Claude/ChatGPT:
+      // park the question at the top instead of dropping the reader at the end.
+      const viewport = viewportHeightRef.current;
+      if (viewport > 0 && reply.height > viewport - spacing.xxxl) {
+        const question = chat.messages[chat.messages.length - 2];
+        const questionRow = question ? rowOffsetsRef.current.get(question.id) : undefined;
+        const top = Math.max(0, (questionRow?.y ?? reply.y) - spacing.sm);
+        scrollRef.current?.scrollTo({ animated: true, y: top });
+        return;
+      }
+      scrollToEnd(true);
+      return;
+    }
+    scrollIntentRef.current = 'none';
+    scrollToEnd(intent !== 'jump');
+    if (intent === 'jump') {
+      requestAnimationFrame(() => setAwaitingJump(false));
+    }
+  }, [chat.lastReplyId, chat.messages, scrollToEnd]);
+
+  useEffect(() => {
+    if (!awaitingJump) {
+      return undefined;
+    }
+    // Never leave a chat invisible if no content-size change arrives.
+    const timer = setTimeout(() => setAwaitingJump(false), REVEAL_FALLBACK_MS);
+    return () => clearTimeout(timer);
+  }, [awaitingJump]);
+
+  const recordRowLayout = useCallback((key: string, event: LayoutChangeEvent) => {
+    const { y, height } = event.nativeEvent.layout;
+    rowOffsetsRef.current.set(key, { y, height });
+    if (key === chat.lastReplyId) {
+      applyScrollIntent();
+    }
+  }, [applyScrollIntent, chat.lastReplyId]);
 
   const handleSend = useCallback(async (text: string) => {
     const question = text.trim();
@@ -157,6 +264,15 @@ export function AssistantScreen({
       setDraft(question);
     }
   }, [chat, source]);
+
+  const handleCopy = useCallback((text: string) => {
+    void Clipboard.setStringAsync(text)
+      .then(() => {
+        void Haptics.selectionAsync().catch(() => undefined);
+        setCopiedVisible(true);
+      })
+      .catch(() => undefined);
+  }, []);
 
   const loadThreads = useCallback(async () => {
     setThreadsStatus('loading');
@@ -302,13 +418,32 @@ export function AssistantScreen({
       : messageRows;
   }, [chat.messages, chat.pending]);
 
-  const renderRow = useCallback(({ item }: { item: ChatRow }) => {
+  // Follow-ups belong to the conversation's newest reply only, and only while
+  // the user can still ask.
+  const latestMessage = chat.messages[chat.messages.length - 1];
+  const followUps = !chat.pending && !chat.isLimitReached && latestMessage?.role === 'assistant'
+    ? latestMessage.suggestions ?? []
+    : [];
+
+  const renderRow = (item: ChatRow) => {
     if (item.kind === 'message') {
+      const isLatestReply = item.message.id === latestMessage?.id && followUps.length > 0;
       return (
         <AssistantMessageBubble
           actionStates={actionStates}
+          animateEntrance={item.message.id === chat.lastReplyId}
+          footer={isLatestReply ? (
+            <AssistantPromptChips
+              onSelect={(prompt) => void handleSend(prompt)}
+              prompts={followUps}
+              style={styles.followUps}
+              testID="assistant-followups"
+              testIDPrefix="assistant-followup"
+            />
+          ) : null}
           message={item.message}
           onConfirmAction={handleConfirmAction}
+          onCopy={handleCopy}
           onDismissAction={handleDismissAction}
           onOpenCard={onOpenCard}
         />
@@ -318,12 +453,13 @@ export function AssistantScreen({
     if (pending.status === 'sending') {
       return (
         <View style={styles.pendingGroup}>
-          <UserBubble testID="assistant-pending-question" text={pending.text} />
-          <InlineLoader
-            label={source === 'scanner' ? 'Checking these cards…' : 'Checking your collection…'}
-            style={styles.typing}
-            testID="assistant-sending"
-          />
+          <UserBubble animateEntrance testID="assistant-pending-question" text={pending.text} />
+          <Animated.View entering={assistantRowEntering}>
+            <AssistantThinkingIndicator
+              label={source === 'scanner' && cardIds.length > 0 ? 'Looking at your cards…' : 'Thinking…'}
+              testID="assistant-sending"
+            />
+          </Animated.View>
         </View>
       );
     }
@@ -332,7 +468,7 @@ export function AssistantScreen({
         dimmed
         footer={
           <View style={styles.failedRow} testID="assistant-send-failed">
-            <Text style={[theme.typography.caption, { color: theme.colors.dangerStrong }]}>
+            <Text style={[theme.typography.caption, styles.failedText, { color: theme.colors.dangerStrong }]}>
               {assistantErrorCopy(pending.errorCode)}
             </Text>
             <Button
@@ -349,15 +485,18 @@ export function AssistantScreen({
         text={pending.text}
       />
     );
-  }, [actionStates, chat, handleConfirmAction, handleDismissAction, onOpenCard, source, theme]);
+  };
 
   const recentThreads = threads.filter((thread) => thread.id !== chat.threadId).slice(0, 3);
   const pill = usageLabel(chat.usage);
-  const suggestions = suggestionsFor(source, cardIds.length > 0);
-  const canSend = draft.trim().length > 0 && chat.pending?.status !== 'sending';
+  const starterPrompts = assistantStarterPrompts(source, cardIds.length);
+  const intro = assistantIntroCopy(cardIds.length);
+  const isSending = chat.pending?.status === 'sending';
+  const hasConversation = rows.length > 0;
+  const canStartNewChat = hasConversation || chat.threadId != null;
 
   const emptyState = chat.isLoadingThread ? (
-    <InlineLoader style={styles.typing} testID="assistant-thread-loading" />
+    <InlineLoader testID="assistant-thread-loading" />
   ) : chat.threadError ? (
     <StateCard
       actionLabel="Try again"
@@ -369,35 +508,36 @@ export function AssistantScreen({
     />
   ) : (
     <View style={styles.intro} testID="assistant-intro">
-      <Text style={theme.typography.titleSmall}>Ask me anything about cards</Text>
-      <Text style={[theme.typography.body, { color: theme.colors.gray600 }]}>
-        {source === 'scanner' && cardIds.length > 0
-          ? `I can see the ${cardIds.length} ${cardIds.length === 1 ? 'card' : 'cards'} in your tray. Ask about them, your collection, prices, sets, or anything TCG.`
-          : 'Your collection, prices, what you are missing, your Watchlist, or anything TCG.'}
-      </Text>
+      <View style={[styles.introMark, { backgroundColor: theme.colors.purple50 }]}>
+        <Sparks color={theme.colors.purple500} height={glassNavBubbleGlyphSize} width={glassNavBubbleGlyphSize} />
+      </View>
+      <View style={styles.introCopy}>
+        <Text style={[theme.typography.titleLarge, styles.centerText]}>{intro.title}</Text>
+        <Text style={[theme.typography.bodyLarge, styles.centerText, { color: theme.colors.gray600 }]}>
+          {intro.body}
+        </Text>
+      </View>
       {chat.isLimitReached ? null : (
-        <View style={styles.suggestions}>
-          {suggestions.map((suggestion, index) => (
-            <PillButton
-              key={suggestion}
-              label={suggestion}
-              onPress={() => void handleSend(suggestion)}
-              testID={`assistant-suggestion-${index}`}
-              tone="soft"
-            />
-          ))}
-        </View>
+        <AssistantPromptChips
+          onSelect={(prompt) => void handleSend(prompt)}
+          prompts={starterPrompts}
+          style={styles.centeredChips}
+          testID="assistant-suggestions"
+          testIDPrefix="assistant-suggestion"
+        />
       )}
       {recentThreads.length > 0 ? (
-        <View style={styles.suggestions} testID="assistant-recent-chats">
-          <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]}>Recent chats</Text>
+        <View style={styles.recent} testID="assistant-recent-chats">
+          <Text style={[theme.typography.overline, { color: theme.colors.gray500 }]}>RECENT CHATS</Text>
           {recentThreads.map((thread) => (
-            <PillButton
+            <Button
               key={thread.id}
               label={thread.title}
+              labelStyleVariant="control"
               onPress={() => openSavedThread(thread.id)}
+              size="xs"
               testID={`assistant-recent-${thread.id}`}
-              tone="soft"
+              variant="ghost"
             />
           ))}
         </View>
@@ -427,33 +567,45 @@ export function AssistantScreen({
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={[styles.flex, { backgroundColor: theme.colors.gray0 }]}>
       <View style={styles.header}>
-        <ChromeBackButton
-          accessibilityLabel={view === 'history' ? 'Back to chat' : 'Back'}
-          onPress={view === 'history' ? () => setView('chat') : onBack}
-          testID="assistant-back"
-        />
+        <View style={[styles.headerSide, styles.headerSideLeft]}>
+          <ChromeBackButton
+            accessibilityLabel={view === 'history' ? 'Back to chat' : 'Back'}
+            onPress={view === 'history' ? () => setView('chat') : onBack}
+            testID="assistant-back"
+          />
+        </View>
         <View style={styles.headerTitle}>
-          <Text numberOfLines={1} style={theme.typography.titleSmall}>
+          <Text accessibilityRole="header" numberOfLines={1} style={theme.typography.titleSmall}>
             {view === 'history' ? 'Saved chats' : 'Ask Ekalight'}
           </Text>
           {pill && view === 'chat' ? <Badge label={pill} size="sm" testID="assistant-usage-pill" tone="brand" /> : null}
         </View>
-        {view === 'chat' ? (
-          <View style={styles.headerActions}>
-            <IconButton accessibilityLabel="Saved chats" onPress={openHistory} testID="assistant-open-history" variant="ghost">
-              <ClockRotateRight color={theme.colors.gray900} height={HEADER_GLYPH_SIZE} width={HEADER_GLYPH_SIZE} />
-            </IconButton>
-            {/* A labeled button: a bare pencil read as "edit", not "new chat". */}
-            <Button
-              label="New chat"
-              labelStyleVariant="control"
-              onPress={startNewChat}
-              size="xs"
-              testID="assistant-new-chat"
-              variant="outline"
-            />
-          </View>
-        ) : null}
+        <View style={[styles.headerSide, styles.headerSideRight]}>
+          {view === 'chat' ? (
+            <>
+              <IconButton
+                accessibilityLabel="Saved chats"
+                onPress={openHistory}
+                size={chromeBackButtonSize}
+                testID="assistant-open-history"
+                variant="elevated"
+              >
+                <ClockRotateRight color={theme.colors.textPrimary} height={HEADER_GLYPH_SIZE} width={HEADER_GLYPH_SIZE} />
+              </IconButton>
+              {canStartNewChat ? (
+                <IconButton
+                  accessibilityLabel="New chat"
+                  onPress={startNewChat}
+                  size={chromeBackButtonSize}
+                  testID="assistant-new-chat"
+                  variant="elevated"
+                >
+                  <ChatPlusIn color={theme.colors.textPrimary} height={HEADER_GLYPH_SIZE} width={HEADER_GLYPH_SIZE} />
+                </IconButton>
+              ) : null}
+            </>
+          ) : null}
+        </View>
       </View>
 
       {view === 'history' ? (
@@ -475,47 +627,54 @@ export function AssistantScreen({
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.flex}
         >
-          <FlatList
-            ListEmptyComponent={emptyState}
-            contentContainerStyle={styles.listContent}
-            data={rows}
-            keyExtractor={(item) => item.key}
+          <ScrollView
+            contentContainerStyle={[styles.listContent, hasConversation ? null : styles.listContentEmpty]}
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
             keyboardShouldPersistTaps="handled"
-            onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
-            ref={listRef}
-            renderItem={renderRow}
+            onContentSizeChange={applyScrollIntent}
+            onLayout={(event) => {
+              viewportHeightRef.current = event.nativeEvent.layout.height;
+            }}
+            ref={scrollRef}
+            style={awaitingJump ? styles.hidden : null}
             testID="assistant-messages"
+          >
+            {hasConversation
+              ? rows.map((row) => (
+                  <View key={row.key} onLayout={(event) => recordRowLayout(row.key, event)}>
+                    {renderRow(row)}
+                  </View>
+                ))
+              : emptyState}
+          </ScrollView>
+          <Toast
+            durationMs={COPIED_TOAST_MS}
+            message="Copied"
+            onDismiss={() => setCopiedVisible(false)}
+            showDismiss={false}
+            style={styles.toast}
+            testID="assistant-copied"
+            tone="dark"
+            visible={copiedVisible}
           />
           <View
             style={[
               styles.composer,
-              { borderTopColor: theme.colors.outlineSubtle, paddingBottom: Math.max(insets.bottom, spacing.xxs) },
+              // Safe-area bottom only while the keyboard is down; over the
+              // keyboard the home-indicator inset would be a dead gap.
+              { paddingBottom: keyboardVisible ? spacing.xxs : Math.max(insets.bottom, spacing.xxs) },
             ]}
           >
             {chat.isLimitReached ? (
               limitBlock
             ) : (
-              <View style={styles.composerRow}>
-                <View style={styles.flex}>
-                  <TextField
-                    maxLength={MAX_QUESTION_LENGTH}
-                    multiline
-                    onChangeText={setDraft}
-                    placeholder="Ask about your cards…"
-                    testID="assistant-input"
-                    value={draft}
-                  />
-                </View>
-                <IconButton
-                  accessibilityLabel="Send question"
-                  disabled={!canSend}
-                  onPress={() => void handleSend(draft)}
-                  testID="assistant-send"
-                  variant={canSend ? 'brand' : 'subtle'}
-                >
-                  <SendDiagonal color={theme.colors.gray900} height={18} width={18} />
-                </IconButton>
-              </View>
+              <AssistantComposer
+                isSending={isSending}
+                maxLength={MAX_QUESTION_LENGTH}
+                onChangeText={setDraft}
+                onSend={() => void handleSend(draft)}
+                value={draft}
+              />
             )}
           </View>
         </KeyboardAvoidingView>
@@ -528,6 +687,9 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
+  hidden: {
+    opacity: 0,
+  },
   header: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -535,48 +697,82 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xxs,
     paddingHorizontal: layout.pageGutter,
   },
+  headerSide: {
+    flexDirection: 'row',
+    gap: spacing.xxs,
+    width: HEADER_SIDE_WIDTH,
+  },
+  headerSideLeft: {
+    justifyContent: 'flex-start',
+  },
+  headerSideRight: {
+    justifyContent: 'flex-end',
+  },
   headerTitle: {
     alignItems: 'center',
     flex: 1,
-    flexDirection: 'row',
-    gap: spacing.xxs,
-  },
-  headerActions: {
-    flexDirection: 'row',
     gap: spacing.xxxs,
   },
   listContent: {
-    gap: spacing.sm,
+    flexGrow: 1,
+    gap: spacing.lg,
     paddingHorizontal: layout.pageGutter,
     paddingVertical: spacing.sm,
   },
-  intro: {
-    gap: spacing.xxs,
+  listContentEmpty: {
+    justifyContent: 'center',
   },
-  suggestions: {
-    alignItems: 'flex-start',
+  intro: {
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.lg,
+  },
+  introMark: {
+    alignItems: 'center',
+    borderCurve: 'continuous',
+    borderRadius: INTRO_MARK_SIZE / 2,
+    height: INTRO_MARK_SIZE,
+    justifyContent: 'center',
+    width: INTRO_MARK_SIZE,
+  },
+  introCopy: {
     gap: spacing.xxs,
-    paddingTop: spacing.xxs,
+    paddingHorizontal: spacing.xs,
+  },
+  centerText: {
+    textAlign: 'center',
+  },
+  centeredChips: {
+    justifyContent: 'center',
+  },
+  recent: {
+    alignItems: 'center',
+    gap: spacing.xxxs,
+    paddingTop: spacing.xs,
+  },
+  followUps: {
+    paddingTop: spacing.xxxs,
   },
   pendingGroup: {
-    gap: spacing.xs,
-  },
-  typing: {
-    alignSelf: 'flex-start',
+    gap: spacing.sm,
   },
   failedRow: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.xxs,
+    justifyContent: 'flex-end',
+  },
+  failedText: {
+    flexShrink: 1,
+  },
+  // Top of the thread: never under the composer or the keyboard.
+  toast: {
+    alignSelf: 'center',
+    position: 'absolute',
+    top: spacing.sm,
   },
   composer: {
-    borderTopWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: layout.pageGutter,
     paddingTop: spacing.xxs,
-  },
-  composerRow: {
-    alignItems: 'flex-end',
-    flexDirection: 'row',
-    gap: spacing.xxs,
   },
 });

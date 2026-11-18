@@ -1,4 +1,5 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import * as Clipboard from 'expo-clipboard';
 
 import {
   AssistantRequestError,
@@ -13,6 +14,10 @@ import {
 import { AssistantScreen } from '@/features/assistant/screens/assistant-screen';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../../test-utils';
+
+jest.mock('expo-clipboard', () => ({
+  setStringAsync: jest.fn(async () => true),
+}));
 
 const mockOpenLogin = jest.fn();
 let mockIsGuest = false;
@@ -281,5 +286,85 @@ describe('AssistantScreen', () => {
     fireEvent.press(screen.getByTestId('assistant-open-history'));
     fireEvent.press(await screen.findByTestId('assistant-thread-thr_mock_seed-delete'));
     expect(await screen.findByTestId('assistant-threads-empty')).toBeTruthy();
+  });
+
+  it('starter prompts on a new home chat send when tapped', async () => {
+    const sendAssistantMessage = jest.fn(async (_payload: AssistantSendPayload) => reply(null));
+    renderScreen({ sendAssistantMessage });
+    expect(await screen.findByText('Your card market, answered')).toBeTruthy();
+    expect(screen.getByText('Help me prep for a card show')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('assistant-suggestion-0'));
+    await waitFor(() => expect(sendAssistantMessage).toHaveBeenCalledTimes(1));
+    expect(sendAssistantMessage.mock.calls[0][0].text).toBe("What's my collection worth?");
+  });
+
+  it('a single scanned card gets card-specific starter prompts', async () => {
+    renderScreen({}, { source: 'scanner', cardIds: ['xyp-111'] });
+    expect(await screen.findByText('Ask about this card')).toBeTruthy();
+    expect(screen.getByText('Is this worth grading?')).toBeTruthy();
+    expect(screen.getByText("What's this card worth in PSA 10?")).toBeTruthy();
+  });
+
+  it('shows follow-up chips under the LATEST reply only, and tapping one sends it', async () => {
+    const sendAssistantMessage = jest.fn<Promise<AssistantSendResult>, [AssistantSendPayload]>()
+      .mockResolvedValueOnce(reply(null, { suggestions: ['Is Celebi worth grading?', 'Watch Celebi'] }))
+      .mockImplementationOnce(async () => {
+        const next = reply(null, { id: 'a2', suggestions: ['What else is trending?'] });
+        return { ...next, userMessage: { ...next.userMessage, id: 'u2' } };
+      });
+    renderScreen({ sendAssistantMessage });
+    await ask('first');
+    expect(await screen.findByTestId('assistant-followups')).toBeTruthy();
+    expect(screen.getByText('Is Celebi worth grading?')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('assistant-followup-0'));
+    await waitFor(() => expect(sendAssistantMessage).toHaveBeenCalledTimes(2));
+    expect(sendAssistantMessage.mock.calls[1][0].text).toBe('Is Celebi worth grading?');
+    expect(await screen.findByText('What else is trending?')).toBeTruthy();
+    // The earlier reply's chips are gone: only the newest reply offers follow-ups.
+    expect(screen.queryByText('Watch Celebi')).not.toBeOnTheScreen();
+    expect(screen.getAllByTestId('assistant-followups')).toHaveLength(1);
+  });
+
+  it('renders no follow-up chips when the server sends none (older backend)', async () => {
+    renderScreen({ sendAssistantMessage: jest.fn(async () => reply(null)) });
+    await ask('q');
+    await screen.findByTestId('assistant-card-xyp-111');
+    expect(screen.queryByTestId('assistant-followups')).not.toBeOnTheScreen();
+  });
+
+  it('shows the thinking row and a busy send button while waiting', async () => {
+    let resolveSend: (value: AssistantSendResult) => void = () => undefined;
+    const sendAssistantMessage = jest.fn(() => new Promise<AssistantSendResult>((resolve) => {
+      resolveSend = resolve;
+    }));
+    renderScreen({ sendAssistantMessage });
+    await ask('slow one');
+    expect(await screen.findByTestId('assistant-sending')).toBeTruthy();
+    expect(screen.getByTestId('assistant-send-spinner')).toBeTruthy();
+    expect(screen.getByTestId('assistant-pending-question')).toBeTruthy();
+    await act(async () => {
+      resolveSend(reply(null));
+    });
+    expect(await screen.findByTestId('assistant-card-xyp-111')).toBeTruthy();
+    expect(screen.queryByTestId('assistant-sending')).not.toBeOnTheScreen();
+  });
+
+  it('the send button is disabled until there is text', async () => {
+    const sendAssistantMessage = jest.fn(async () => reply(null));
+    renderScreen({ sendAssistantMessage });
+    await screen.findByTestId('assistant-intro');
+    fireEvent.press(screen.getByTestId('assistant-send'));
+    fireEvent.changeText(screen.getByTestId('assistant-input'), '   ');
+    fireEvent.press(screen.getByTestId('assistant-send'));
+    expect(sendAssistantMessage).not.toHaveBeenCalled();
+  });
+
+  it('long-pressing a reply copies its text without markdown markers', async () => {
+    renderScreen({ sendAssistantMessage: jest.fn(async () => reply(null)) });
+    await ask('q');
+    fireEvent(await screen.findByTestId('assistant-message-a1-press'), 'longPress');
+    await waitFor(() => expect(Clipboard.setStringAsync).toHaveBeenCalledWith('Here is Celebi.'));
+    expect(await screen.findByText('Copied')).toBeTruthy();
   });
 });

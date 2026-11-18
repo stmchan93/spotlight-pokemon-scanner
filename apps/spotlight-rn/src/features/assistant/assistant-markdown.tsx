@@ -3,15 +3,18 @@ import { StyleSheet, View, type StyleProp, type TextStyle } from 'react-native';
 import { Text, spacing, useSpotlightTheme } from '@spotlight/design-system';
 
 /*
-  The assistant's "light markdown": **bold** spans and "- " bullet lines, and
-  nothing else (contract). Everything else renders as the literal text, so a
-  stray `#` or `_` never turns into formatting the model didn't mean.
+  The assistant's "light markdown": **bold** spans, "#"/"##"/"###" headings,
+  "- " / "* " / "• " bullets and "1. " numbered lines. Nothing else: a stray
+  `_`, a lone `*`, or "#hashtag" (no space) renders as the literal text, so
+  the model never gets formatting it didn't mean.
 */
 
 export type AssistantTextSpan = { text: string; bold: boolean };
 export type AssistantTextBlock =
   | { kind: 'paragraph'; spans: AssistantTextSpan[] }
-  | { kind: 'bullet'; spans: AssistantTextSpan[] };
+  | { kind: 'heading'; spans: AssistantTextSpan[] }
+  | { kind: 'bullet'; spans: AssistantTextSpan[] }
+  | { kind: 'numbered'; marker: string; spans: AssistantTextSpan[] };
 
 export function parseAssistantInline(line: string): AssistantTextSpan[] {
   const spans: AssistantTextSpan[] = [];
@@ -38,14 +41,29 @@ export function parseAssistantMarkdown(text: string): AssistantTextBlock[] {
     if (!line.trim()) {
       continue;
     }
-    const bullet = /^\s*[-•]\s+(.*)$/.exec(line);
-    blocks.push(
-      bullet
-        ? { kind: 'bullet', spans: parseAssistantInline(bullet[1]) }
-        : { kind: 'paragraph', spans: parseAssistantInline(line) },
-    );
+    const heading = /^\s*#{1,3}\s+(.*)$/.exec(line);
+    if (heading) {
+      // A heading that is entirely **bold** shouldn't double up the weight.
+      blocks.push({ kind: 'heading', spans: parseAssistantInline(heading[1].replace(/^\*\*(.*)\*\*$/, '$1')) });
+      continue;
+    }
+    const bullet = /^\s*[-•*]\s+(.*)$/.exec(line);
+    if (bullet) {
+      blocks.push({ kind: 'bullet', spans: parseAssistantInline(bullet[1]) });
+      continue;
+    }
+    const numbered = /^\s*(\d{1,2})[.)]\s+(.*)$/.exec(line);
+    if (numbered) {
+      blocks.push({ kind: 'numbered', marker: `${numbered[1]}.`, spans: parseAssistantInline(numbered[2]) });
+      continue;
+    }
+    blocks.push({ kind: 'paragraph', spans: parseAssistantInline(line) });
   }
   return blocks;
+}
+
+function isListBlock(block: AssistantTextBlock | undefined): boolean {
+  return block?.kind === 'bullet' || block?.kind === 'numbered';
 }
 
 type AssistantRichTextProps = {
@@ -54,10 +72,14 @@ type AssistantRichTextProps = {
   testID?: string;
 };
 
+/** Reading typography for a reply: Body-large, list items tight, blocks spaced like a chat app. */
 export function AssistantRichText({ text, color, testID }: AssistantRichTextProps) {
   const theme = useSpotlightTheme();
-  const base: StyleProp<TextStyle> = [theme.typography.body, { color }];
-  const bold: StyleProp<TextStyle> = [theme.typography.bodyStrong, { color }];
+  const base: StyleProp<TextStyle> = [theme.typography.bodyLarge, { color }];
+  // Headline is SemiBold at Body-large's size/leading, so bold runs inline.
+  const bold: StyleProp<TextStyle> = [theme.typography.headline, { color }];
+  const heading: StyleProp<TextStyle> = [theme.typography.titleSmall, { color }];
+  const markerColor = { color: theme.colors.gray600 };
   const renderSpans = (spans: AssistantTextSpan[]) =>
     spans.map((span, index) => (
       <Text key={index} style={span.bold ? bold : base}>
@@ -65,33 +87,70 @@ export function AssistantRichText({ text, color, testID }: AssistantRichTextProp
       </Text>
     ));
 
+  const blocks = parseAssistantMarkdown(text);
   return (
     <View style={styles.root} testID={testID}>
-      {parseAssistantMarkdown(text).map((block, index) =>
-        block.kind === 'bullet' ? (
-          <View key={index} style={styles.bulletRow}>
-            <Text style={base}>{'•'}</Text>
-            <Text style={[base, styles.bulletText]}>{renderSpans(block.spans)}</Text>
-          </View>
-        ) : (
-          <Text key={index} style={base}>
-            {renderSpans(block.spans)}
+      {blocks.map((block, index) => {
+        const previous = blocks[index - 1];
+        // Consecutive list items sit tight; everything else gets paragraph air,
+        // and a heading gets a bit more above it than below.
+        const gapStyle = index === 0
+          ? null
+          : isListBlock(block) && isListBlock(previous)
+            ? styles.listGap
+            : block.kind === 'heading'
+              ? styles.headingGap
+              : styles.blockGap;
+        if (block.kind === 'bullet' || block.kind === 'numbered') {
+          return (
+            <View key={index} style={[styles.listRow, gapStyle]}>
+              <Text style={[base, markerColor, block.kind === 'numbered' ? styles.numberMarker : styles.bulletMarker]}>
+                {block.kind === 'numbered' ? block.marker : '•'}
+              </Text>
+              <Text style={[base, styles.listText]}>{renderSpans(block.spans)}</Text>
+            </View>
+          );
+        }
+        return (
+          <Text
+            accessibilityRole={block.kind === 'heading' ? 'header' : undefined}
+            key={index}
+            style={[block.kind === 'heading' ? heading : base, gapStyle]}
+          >
+            {block.kind === 'heading' ? block.spans.map((span) => span.text).join('') : renderSpans(block.spans)}
           </Text>
-        ),
-      )}
+        );
+      })}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: {
-    gap: spacing.xxxs,
+    alignSelf: 'stretch',
   },
-  bulletRow: {
+  blockGap: {
+    marginTop: spacing.xs,
+  },
+  headingGap: {
+    marginTop: spacing.sm,
+  },
+  listGap: {
+    marginTop: spacing.xxxs,
+  },
+  listRow: {
     flexDirection: 'row',
     gap: spacing.xxs,
+    paddingLeft: spacing.xxxs,
   },
-  bulletText: {
+  // Fixed marker columns so wrapped lines and multi-digit numbers align.
+  bulletMarker: {
+    minWidth: spacing.xs,
+  },
+  numberMarker: {
+    minWidth: spacing.md,
+  },
+  listText: {
     flex: 1,
   },
 });

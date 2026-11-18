@@ -153,6 +153,26 @@ function parseList<T>(value: unknown, parse: (item: unknown) => T | null): T[] {
   return Array.isArray(value) ? value.map(parse).filter((item): item is T => item != null) : [];
 }
 
+export const ASSISTANT_MAX_SUGGESTIONS = 3;
+
+/** Follow-up prompts: strings only, trimmed, de-duplicated, at most 3. */
+export function parseAssistantSuggestions(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  for (const item of value) {
+    const text = typeof item === 'string' ? item.trim() : '';
+    if (text && !seen.has(text)) {
+      seen.add(text);
+    }
+    if (seen.size >= ASSISTANT_MAX_SUGGESTIONS) {
+      break;
+    }
+  }
+  return [...seen];
+}
+
 export function parseAssistantMessage(value: unknown): AssistantMessage | null {
   const raw = asRecord(value);
   const id = raw ? asString(raw.id) : null;
@@ -170,6 +190,7 @@ export function parseAssistantMessage(value: unknown): AssistantMessage | null {
     actions: role === 'assistant' ? parseList(raw.actions, parseAssistantAction) : [],
     createdAt: asString(raw.created_at) ?? '',
     status: raw.status === 'error' ? 'error' : 'ok',
+    suggestions: role === 'assistant' ? parseAssistantSuggestions(raw.suggestions) : [],
   };
 }
 

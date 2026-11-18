@@ -69,7 +69,7 @@ export function mockAssistantUsage(usedToday: number, limit: number | null = MOC
   };
 }
 
-type MockReply = Pick<AssistantMessage, 'text' | 'cards' | 'actions'>;
+type MockReply = Pick<AssistantMessage, 'text' | 'cards' | 'actions' | 'suggestions'>;
 
 /** Canned answer keyed off the question's wording, so each action type is reachable from the composer. */
 export function buildMockAssistantReply(
@@ -92,6 +92,7 @@ export function buildMockAssistantReply(
       text: "**Celebi** is $37.54 right now. Confirm and I'll add it to your Watchlist with an alert under **$30.00**.",
       cards: [celebi],
       actions: [action],
+      suggestions: ['What else is on my Watchlist?', 'Show its price history'],
     };
   }
 
@@ -107,6 +108,7 @@ export function buildMockAssistantReply(
       text: 'You have **2× Oshawott** right now. Confirm to change it to 3.',
       cards: [oshawott],
       actions: [action],
+      suggestions: ["What's my collection worth now?"],
     };
   }
 
@@ -130,6 +132,7 @@ export function buildMockAssistantReply(
       text: "I found **Treecko** (Celestial Storm 1/168). Tap Confirm and I'll add one in Near Mint.",
       cards: [treecko],
       actions: [action],
+      suggestions: ['What else am I missing from Celestial Storm?', 'Is Treecko worth grading?'],
     };
   }
 
@@ -138,6 +141,7 @@ export function buildMockAssistantReply(
       text: 'Of the cards in your tray, **Celebi** is worth the most at $37.54.\n- Celebi: $37.54\n- Oshawott: $0.56',
       cards: [celebi, oshawott],
       actions: [],
+      suggestions: ['Is Celebi worth grading?', 'Watch Celebi with an alert under $30', "What's it worth in PSA 10?"],
     };
   }
 
@@ -145,6 +149,7 @@ export function buildMockAssistantReply(
     text: "Your collection is worth about **$85.92** today.\n- Most valuable: **Celebi** at $37.54\n- You own 2× Oshawott at $0.56 each\n\nPrices are Ekalight's daily market data, not live.",
     cards: [celebi, oshawott],
     actions: [],
+    suggestions: ['Which of my cards went up this week?', 'Is Celebi worth grading?', 'What am I missing from Celestial Storm?'],
   };
 }
 

@@ -8,6 +8,7 @@ import {
   isAssistantRequestError,
   parseAssistantAction,
   parseAssistantMessage,
+  parseAssistantSuggestions,
 } from '../../../../packages/api-client/src/spotlight/assistant-wire';
 import { parseAssistantMarkdown } from '@/features/assistant/assistant-markdown';
 
@@ -92,12 +93,36 @@ describe('assistant wire normalization', () => {
     });
   });
 
-  it('parses only **bold** and "- " bullets', () => {
-    expect(parseAssistantMarkdown('Worth **$5**\n- one\n# not a heading')).toEqual([
+  it('parses **bold**, headings, bullets and numbered lines; a stray # stays literal', () => {
+    expect(parseAssistantMarkdown('Worth **$5**\n- one\n* two\n#not a heading\n## Top picks\n1. Celebi\n2) Oshawott')).toEqual([
       { kind: 'paragraph', spans: [{ text: 'Worth ', bold: false }, { text: '$5', bold: true }] },
       { kind: 'bullet', spans: [{ text: 'one', bold: false }] },
-      { kind: 'paragraph', spans: [{ text: '# not a heading', bold: false }] },
+      { kind: 'bullet', spans: [{ text: 'two', bold: false }] },
+      { kind: 'paragraph', spans: [{ text: '#not a heading', bold: false }] },
+      { kind: 'heading', spans: [{ text: 'Top picks', bold: false }] },
+      { kind: 'numbered', marker: '1.', spans: [{ text: 'Celebi', bold: false }] },
+      { kind: 'numbered', marker: '2.', spans: [{ text: 'Oshawott', bold: false }] },
     ]);
+  });
+
+  it('a line that starts with **bold** is a paragraph, not a bullet', () => {
+    expect(parseAssistantMarkdown('**Celebi** is $37.54')[0].kind).toBe('paragraph');
+  });
+
+  it('parses follow-up suggestions: strings only, trimmed, de-duplicated, capped at 3', () => {
+    expect(parseAssistantSuggestions([' Is it worth grading? ', 7, null, '', 'Is it worth grading?', 'PSA 10 price?', 'Trend?', 'Fourth'])).toEqual([
+      'Is it worth grading?',
+      'PSA 10 price?',
+      'Trend?',
+    ]);
+    expect(parseAssistantSuggestions(undefined)).toEqual([]);
+    expect(parseAssistantSuggestions('not a list')).toEqual([]);
+  });
+
+  it('carries suggestions on assistant messages only, and tolerates an older server without them', () => {
+    expect(parseAssistantMessage({ ...wireAssistantMessage, suggestions: ['Watch it', 3] })?.suggestions).toEqual(['Watch it']);
+    expect(parseAssistantMessage(wireAssistantMessage)?.suggestions).toEqual([]);
+    expect(parseAssistantMessage({ ...wireAssistantMessage, role: 'user', suggestions: ['x'] })?.suggestions).toEqual([]);
   });
 });
 
@@ -113,7 +138,7 @@ describe('HttpSpotlightRepository — assistant', () => {
     global.fetch = jest.fn().mockResolvedValue(jsonResponse(200, {
       thread_id: 'thr_1',
       user_message: { ...wireAssistantMessage, id: 'msg_1', role: 'user', cards: [], actions: [] },
-      message: wireAssistantMessage,
+      message: { ...wireAssistantMessage, suggestions: ['Is Celebi worth grading?'] },
       usage: wireUsage,
     })) as typeof fetch;
 
@@ -135,6 +160,7 @@ describe('HttpSpotlightRepository — assistant', () => {
       context: { source: 'home' },
     });
     expect(result.threadId).toBe('thr_1');
+    expect(result.message.suggestions).toEqual(['Is Celebi worth grading?']);
     expect(result.usage).toEqual({ limit: 3, usedToday: 1, remainingToday: 2, resetsAt: '2026-11-18T00:00:00Z', isGuest: false });
     expect(result.message.cards[0].cardId).toBe('xyp-111');
   });
