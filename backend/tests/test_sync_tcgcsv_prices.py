@@ -254,6 +254,33 @@ class SyncTcgcsvPricesTests(unittest.TestCase):
         advanced = self._sync(last_updated="2026-08-26T20:00:00Z")
         self.assertEqual(advanced["priced"], 1)
 
+    def test_price_date_is_tcgcsv_publish_date_not_run_date(self):
+        # Overnight sync (Nov 19 UTC) of the Nov 18 publish labels the day Nov 18.
+        with mock.patch.object(sync_tcgcsv_prices, "_today_price_date", return_value="2026-11-19"):
+            self._sync(price_date=None, last_updated="2026-11-18T20:05:44+0000")
+        dates = [r[0] for r in self.connection.execute(
+            "SELECT DISTINCT price_date FROM card_price_history_cell "
+            "WHERE card_id='swsh7-215' AND lane='raw_main'"
+        )]
+        self.assertEqual(dates, ["2026-11-18"])
+
+    def test_price_date_falls_back_to_today_without_a_marker(self):
+        with mock.patch.object(sync_tcgcsv_prices, "_today_price_date", return_value="2026-11-19"):
+            self._sync(price_date=None, last_updated=None)
+        dates = [r[0] for r in self.connection.execute(
+            "SELECT DISTINCT price_date FROM card_price_history_cell "
+            "WHERE card_id='swsh7-215' AND lane='raw_main'"
+        )]
+        self.assertEqual(dates, ["2026-11-19"])
+
+    def test_publish_date_parsing(self):
+        parse = sync_tcgcsv_prices._price_date_from_last_updated
+        self.assertEqual(parse("2026-11-18T20:05:44+0000"), "2026-11-18")
+        self.assertEqual(parse("2026-11-18T20:05:44Z"), "2026-11-18")
+        self.assertEqual(parse("2026-11-18T23:30:00-0500"), "2026-11-19")  # UTC date
+        self.assertIsNone(parse(""))
+        self.assertIsNone(parse("not a date"))
+
     def test_partial_crawl_prices_but_does_not_store_marker(self):
         # One flaky group: its cards keep yesterday's main via staleness; the
         # marker stays un-advanced so the next cron attempt re-crawls the day.

@@ -114,6 +114,25 @@ def _today_price_date() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 
+def _price_date_from_last_updated(value: str | None) -> str | None:
+    """UTC date of TCGCSV's publish marker (e.g. ``2026-10-24T20:05:44+0000``).
+    Prices are labeled with the day TCGCSV published them, not the day we ran,
+    so an overnight sync doesn't shift every chart point a day late."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            parsed = datetime.strptime(text, "%Y-%m-%dT%H:%M:%S%z")
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).date().isoformat()
+
+
 def _card_variant_product_ids(connection: sqlite3.Connection) -> dict[str, dict[str, str]]:
     """{card_id: {normalized_variant_label: tcgplayer_product_id}}.
 
@@ -518,7 +537,7 @@ def run_tcgcsv_price_sync(
     only — no snapshot, no publish marker, no generation bump (the backfill
     caller bumps once at the end). Used by backfill_tcgcsv_history.py to replay
     TCGCSV's daily archives; the join/verification logic is identical."""
-    price_date = price_date or _today_price_date()
+    explicit_price_date = price_date
 
     # Publish-marker guard (their docs: check last-updated.txt first; one pull per
     # 24h). The cron fires several catch-up minutes around the ~13:05 PT publish;
@@ -532,6 +551,8 @@ def run_tcgcsv_price_sync(
             stats = {"skipped_not_updated": 1}
             print(f"[tcgcsv] skip (last-updated unchanged: {last_updated})")
             return stats
+
+    price_date = explicit_price_date or _price_date_from_last_updated(last_updated) or _today_price_date()
 
     has_tcgplayer_ids = connection.execute(
         "SELECT COUNT(*) FROM cards WHERE tcgplayer_id IS NOT NULL AND tcgplayer_id != ''"

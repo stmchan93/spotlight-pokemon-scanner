@@ -129,8 +129,8 @@ One row per card everywhere, no provider-key migration:
   via the staleness window) rather than aborting the other ~380 groups, with a
   >40-failed-groups abort for "TCGCSV is down"; and whole-DAY retry — the
   publish marker is stored only after a fully clean crawl, so the catch-up
-  cron attempts (`5,35 4,5 * * *` PT since 2026-11-18, after the 3 AM PT
-  Scrydex sync; moved out of card-show hours) automatically re-crawl a failed or partial day.
+  cron attempts (`5,35 1,2 * * *` PT since 2026-11-18, before the 3 AM PT
+  Scrydex sync; moved out of card-show hours; prices labeled with TCGCSV's publish date) automatically re-crawl a failed or partial day.
 - Subtype selection: card's default variant label → subTypeName (Normal,
   Holofoil, Reverse Holofoil, First Edition→1st Edition Holofoil,
   Unlimited→Unlimited Holofoil), then the fixed TCGplayer subtype order.

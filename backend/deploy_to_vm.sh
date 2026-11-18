@@ -341,15 +341,15 @@ MARKET_ALERTS_LOG_FILE="$LOG_DIR/market_alerts.log"
 BOOTH_RECAPS_LOG_FILE="$LOG_DIR/booth_recaps.log"
 TORCH_CPU_INDEX_URL="${SPOTLIGHT_VM_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}"
 TORCH_PACKAGE_SPEC="${SPOTLIGHT_VM_TORCH_PACKAGE_SPEC:-torch==2.11.0+cpu}"
-# Heavy price syncs run at 3-6 AM PT: outside card-show hours in every US
+# Heavy price syncs run at 1-3:30 AM PT: outside card-show hours in every US
 # timezone (the 10/24 Hawaii show lost scans to the 1:35 PM PT TCGCSV write).
 SYNC_CRON_SCHEDULE="${SPOTLIGHT_VM_SYNC_CRON:-0 3 * * *}"
 SYNC_CRON_TIMEZONE="${SPOTLIGHT_VM_SYNC_CRON_TZ:-America/Los_Angeles}"
-# TCGCSV main-lane price sync — 4:05 AM PT, after the 3 AM Scrydex sync. The
-# previous day's ~13:05 PT publish is long done; the 4:35-5:35 slots are
-# catch-ups for a failed crawl (the last-updated guard makes extra attempts
-# one-request no-ops). Last slot 5:35 PT = 8:35 ET, before East Coast shows open.
-TCGCSV_SYNC_CRON_SCHEDULE="${SPOTLIGHT_VM_TCGCSV_SYNC_CRON:-5,35 4,5 * * *}"
+# TCGCSV main-lane price sync — 1:05 AM PT, finishing before the 3 AM Scrydex
+# sync. The previous day's ~13:05 PT publish is long done, and prices are
+# labeled with that publish date (not the run date). 1:35-2:35 are catch-ups for
+# a failed crawl; the last-updated guard makes extra attempts one-request no-ops.
+TCGCSV_SYNC_CRON_SCHEDULE="${SPOTLIGHT_VM_TCGCSV_SYNC_CRON:-5,35 1,2 * * *}"
 BACKEND_HOST="${SPOTLIGHT_VM_BACKEND_HOST:-127.0.0.1}"
 PUBLIC_BASE_URL="${SPOTLIGHT_VM_PUBLIC_BASE_URL:-}"
 # Public hostnames Caddy answers on (see install_caddyfile below). Unset primary
