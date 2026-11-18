@@ -2,7 +2,8 @@
 
 Haiku 5.5 runs adaptive thinking by default, so `thinking` is omitted; each
 response's full content (thinking blocks included) is appended unchanged
-within the turn. Only text is persisted across turns.
+within the turn. Across turns only text is sent, plus a provenance note per
+prior answer (build_messages).
 """
 
 from __future__ import annotations
@@ -35,6 +36,12 @@ Accuracy (never break these):
 - Scanned cards in the message are optional context; the user may ask about anything else.
 - Buy/sell/"investing"/"good buy"/"what's hot or trending" questions: don't refuse and don't predict or promise gains. Use get_market_trends for what's rising and which sets are moving, and find_price_lows for cards that dropped and now sit near their lows; if days_covered is under a year, say how much history it covers (e.g. "lowest in 4 months"). Give the takeaway in 1-2 sentences (the tiles show the cards) plus one short line that it's not a prediction.
 - Off-topic requests (not cards/TCG/collecting/this app): decline in one sentence.
+- Only state what the tool results show. Never say a filter or sort was applied (e.g. "sealed products are excluded", "English only", "One Piece only") unless the tool input used it. If the results don't match the request (e.g. they still include sealed products or the wrong game), re-query with the right filter, or say plainly what the results include.
+
+Earlier turns:
+- Your earlier answers were based on tool results you can no longer see. The [Looked up with: ...] note after an earlier answer records what you looked up and which cards it showed; reuse those card ids instead of searching again.
+- Trust your earlier answers. Never correct, retract, or disown an earlier answer unless the user says it's wrong or a new tool result contradicts it; then just give the right fact.
+- Never write a [Looked up with: ...] note yourself.
 
 How to answer:
 - Takeaway first: the first sentence answers the question with a concrete number or verdict from the tools. Then add detail only if it helps.
@@ -43,6 +50,7 @@ How to answer:
 - The app shows a card tile (image, name, set, number, price) for every card you looked up, so never list cards or repeat their prices one by one. Say e.g. "Here are 5 under $20" and let the tiles show them.
 - Use a bulleted list only for a comparison or steps; max 3 bullets, one short line each. Plain text; **bold** is fine, no headings or tables.
 - No filler ("based on Ekalight's data", "great question") and no caveats unless they change the answer.
+- Speak like a knowledgeable collector, not a system: never mention tools, tool calls, searches or lookups you ran, "this chat", system details, or data providers by name.
 
 Show off Ekalight when it helps (never spammy):
 - When a feature solves the user's obvious next step, mention it in one short clause, at most once per answer. Skip it when nothing fits.
@@ -118,6 +126,73 @@ def split_suggestions(text: str, stop_reason: str | None = None) -> tuple[str, l
     return visible, suggestions
 
 
+# Provenance for prior assistant turns: history is text-only, so without this
+# the model sees its own numbers with no sign of the lookups behind them and
+# "corrects" answers that were right.
+PROVENANCE_PREFIX = "[Looked up with:"
+MAX_PROVENANCE_CALLS = 6
+MAX_PROVENANCE_CARDS = 8
+_ARG_SKIP = frozenset({"limit", "cursor"})
+_ECHOED_NOTE = re.compile(r"^\s*\[Looked up with:[^\n]*\]\s*$", re.MULTILINE)
+
+
+def _arg_text(value: Any) -> str | None:
+    if isinstance(value, bool) or value is None:
+        return None if value is None else str(value).lower()
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        value = " ".join(value.split())
+        return value[:40] if value else None
+    if isinstance(value, list):
+        parts = [part for part in (_arg_text(item) for item in value[:3]) if part]
+        return "|".join(parts) or None
+    return None
+
+
+def summarize_tool_call(name: str, arguments: Any) -> str:
+    """Compact `name(key=value, ...)`; nested filter dicts are flattened."""
+    pairs: list[str] = []
+
+    def walk(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        for key, value in node.items():
+            if key in _ARG_SKIP:
+                continue
+            if isinstance(value, dict):
+                walk(value)
+                continue
+            rendered = _arg_text(value)
+            if rendered is not None:
+                pairs.append(f"{key}={rendered}")
+
+    walk(arguments)
+    call = f"{name}({', '.join(pairs)})"
+    return call if len(call) <= 160 else call[:159] + "…"
+
+
+def provenance_note(tool_calls: list[str], cards: list[dict[str, Any]]) -> str | None:
+    """Model-only note appended to a prior assistant answer; None if nothing was looked up."""
+    calls = list(dict.fromkeys(str(call) for call in tool_calls if call))[:MAX_PROVENANCE_CALLS]
+    if not calls:
+        return None
+    note = f"{PROVENANCE_PREFIX} {'; '.join(calls)}"
+    shown = []
+    for card in cards[:MAX_PROVENANCE_CARDS]:
+        if not isinstance(card, dict) or not card.get("card_id"):
+            continue
+        label = " ".join(str(card[key]) for key in ("name", "set") if card.get(key))
+        if card.get("number"):
+            label += f" #{card['number']}"
+        if card.get("grader") and card.get("grade"):
+            label += f" {card['grader']} {card['grade']}"
+        shown.append(f"{label} [{card['card_id']}]" if label else f"[{card['card_id']}]")
+    if shown:
+        note += f". Cards shown: {'; '.join(shown)}"
+    return note + "]"
+
+
 class AssistantFailed(RuntimeError):
     """LLM or network failure; the turn is not counted. `cost_usd` = tokens already spent."""
 
@@ -134,6 +209,7 @@ class TurnResult:
     actions: list[dict[str, Any]] = field(default_factory=list)
     suggestions: list[str] = field(default_factory=list)
     tools_used: list[str] = field(default_factory=list)
+    tool_calls: list[str] = field(default_factory=list)  # summarize_tool_call() per call, for history provenance
     rounds: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
@@ -152,14 +228,19 @@ TOOLS_PAYLOAD = _tools_payload()
 SYSTEM_PAYLOAD = [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}]
 
 
-def build_messages(history: list[dict[str, str]], question: str, context: str | None) -> list[dict[str, Any]]:
-    """Text-only history (must start with a user turn) + this question."""
+def build_messages(history: list[dict[str, Any]], question: str, context: str | None) -> list[dict[str, Any]]:
+    """Text history (must start with a user turn) + this question. Prior assistant
+    answers carry a provenance note built from their stored tool calls + tiles."""
     messages: list[dict[str, Any]] = []
     for item in history:
         role = item["role"] if item["role"] in ("user", "assistant") else None
         text = str(item.get("text") or "").strip()
         if role is None or not text:
             continue
+        if role == "assistant":
+            note = provenance_note(item.get("tool_calls") or [], item.get("cards") or [])
+            if note:
+                text += "\n\n" + note
         if not messages and role != "user":
             continue
         if messages and messages[-1]["role"] == role:
@@ -243,6 +324,7 @@ class AssistantEngine:
             tool_results = []
             for block, outcome in zip(tool_uses, outcomes):
                 result.tools_used.append(block.name)
+                result.tool_calls.append(summarize_tool_call(block.name, block.input))
                 tool_results.append(
                     {
                         "type": "tool_result",
@@ -268,6 +350,7 @@ class AssistantEngine:
             if getattr(block, "type", None) == "text" and str(getattr(block, "text", "")).strip()
         )
         text, suggestions = split_suggestions(text, result.stop_reason)
+        text = _ECHOED_NOTE.sub("", text).strip()
         if result.stop_reason == "refusal":
             result.text, result.status = REFUSAL_TEXT, "error"
             result.actions = []

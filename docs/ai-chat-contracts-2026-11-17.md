@@ -150,7 +150,8 @@ CREATE TABLE IF NOT EXISTS assistant_messages (
   status TEXT NOT NULL DEFAULT 'ok', client_message_id TEXT,
   input_tokens INTEGER, output_tokens INTEGER, cost_usd REAL, tools_used TEXT,
   created_at TEXT NOT NULL,
-  suggestions_json TEXT           -- added 2026-11-18; older DBs get it via store.COLUMN_PATCHES (ALTER TABLE, idempotent)
+  suggestions_json TEXT,          -- added 2026-11-18; older DBs get it via store.COLUMN_PATCHES (ALTER TABLE, idempotent)
+  tool_calls_json TEXT            -- added 2026-11-18: compact 'name(key=value)' per tool call, for history provenance (same patch path)
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_messages_client ON assistant_messages(owner_user_id, client_message_id) WHERE client_message_id IS NOT NULL;
@@ -162,7 +163,7 @@ CREATE TABLE IF NOT EXISTS user_ai_settings (
   owner_user_id TEXT PRIMARY KEY, allow_mcp_edits INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
 );
 ```
-Raw tool payloads are not stored. History sent to the model = the last 10 messages of the thread (text only). Account deletion must delete the user's rows in all four tables (find the existing account-deletion path and extend it).
+Raw tool payloads are not stored. History sent to the model = the last 10 messages of the thread: text, plus (2026-11-18) a model-only `[Looked up with: ...; Cards shown: ...]` note after each prior assistant answer built from `tool_calls_json` (fallback `tools_used`) and `cards_json`, so the model doesn't disown earlier tool-backed answers. Never shown to users. Account deletion must delete the user's rows in all four tables (find the existing account-deletion path and extend it).
 
 ## MCP write tools (Agent C)
 

@@ -179,6 +179,7 @@ class AssistantService:
             "output_tokens": turn.output_tokens,
             "cost_usd": round(turn.cost_usd, 6),
             "tools_used": turn.tools_used,
+            "tool_calls": turn.tool_calls,
         }
         thread_id, question, message = await asyncio.to_thread(
             self.store.save_turn,
