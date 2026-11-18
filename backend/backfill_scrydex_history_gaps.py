@@ -48,7 +48,13 @@ GAP_DAY_COVERAGE_THRESHOLD = 0.8
 # 2026-11-16), so 99 days back keeps every card at ONE credit.
 DEFAULT_LOOKBACK_DAYS = 99
 SCRYDEX_HISTORY_MAX_DAYS_PER_REQUEST = 100
+# One row per Scrydex request (the credit ledger the cycle budget counts).
 PROGRESS_TABLE = "scrydex_history_backfill_attempts"
+# One row per (card, day) already tried. A card is fetched again only for days
+# it has NOT been tried for: when a new gap day appears, keying "done" on the
+# whole gap list re-queued every finished card and re-billed it (2026-11-17/18:
+# 2,000 credits for ~3k days instead of ~10k).
+DATES_TABLE = "scrydex_history_backfill_dates"
 
 TIER_OWNED_OR_WATCHED = 0
 TIER_GRADED = 1
@@ -69,6 +75,29 @@ def ensure_progress_table(connection: sqlite3.Connection) -> None:
         )
         """
     )
+    connection.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {DATES_TABLE} (
+            card_id TEXT NOT NULL,
+            price_date TEXT NOT NULL,
+            status TEXT NOT NULL,
+            attempted_at TEXT NOT NULL,
+            PRIMARY KEY (card_id, price_date)
+        )
+        """
+    )
+    if connection.execute(f"SELECT 1 FROM {DATES_TABLE} LIMIT 1").fetchone() is None:
+        # Seed from requests made before this table existed: every day a
+        # settled request asked for has been tried.
+        for card_id, gap_dates, attempted_at in connection.execute(
+            f"SELECT card_id, gap_dates, attempted_at FROM {PROGRESS_TABLE} WHERE status <> 'error'"
+        ).fetchall():
+            for day in gap_dates.split("@", 1)[0].split(","):
+                if day:
+                    connection.execute(
+                        f"INSERT OR IGNORE INTO {DATES_TABLE} (card_id, price_date, status, attempted_at) VALUES (?, ?, 'tried', ?)",
+                        (card_id, day, attempted_at),
+                    )
     connection.commit()
 
 
@@ -176,16 +205,24 @@ def _progress_table_exists(connection: sqlite3.Connection) -> bool:
     ).fetchone() is not None
 
 
-def attempted_cards(connection: sqlite3.Connection, gap_key: str) -> set[str]:
+def tried_dates(connection: sqlite3.Connection) -> dict[str, set[str]]:
+    """(card -> days) already tried. Errored requests record no days, so they retry."""
+    exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (DATES_TABLE,)
+    ).fetchone()
+    by_card: dict[str, set[str]] = {}
+    if exists is not None:
+        for card_id, price_date in connection.execute(f"SELECT card_id, price_date FROM {DATES_TABLE}"):
+            by_card.setdefault(card_id, set()).add(price_date)
+        return by_card
     if not _progress_table_exists(connection):
-        return set()
-    return {
-        row[0]
-        for row in connection.execute(
-            # Errors (timeouts, 5xx) retry next night; ok / no_data are settled.
-            f"SELECT card_id FROM {PROGRESS_TABLE} WHERE gap_dates = ? AND status <> 'error'", (gap_key,)
-        )
-    }
+        return by_card
+    # Dry run before the first real run: same seed ensure_progress_table writes.
+    for card_id, gap_dates in connection.execute(
+        f"SELECT card_id, gap_dates FROM {PROGRESS_TABLE} WHERE status <> 'error'"
+    ):
+        by_card.setdefault(card_id, set()).update(day for day in gap_dates.split("@", 1)[0].split(",") if day)
+    return by_card
 
 
 def billing_cycle_start(today: date, cycle_day: int) -> date:
@@ -230,18 +267,18 @@ def backfill_card(
     *,
     today: date,
     fetch: Callable[..., dict[str, Any]] = fetch_scrydex_price_history,
-) -> int:
-    """One request; writes only the card's missing gap dates. Returns dates written."""
+) -> set[str]:
+    """One request; writes only the card's missing gap dates. Returns the days written."""
     earliest = date.fromisoformat(candidate["missingDates"][0])
     days = min((today - earliest).days + 1, SCRYDEX_HISTORY_MAX_DAYS_PER_REQUEST)
     payload = fetch(candidate["cardId"], game=candidate["game"], days=days)
     filtered = filter_payload_to_dates(payload, candidate["missingDates"])
     if not filtered["data"]:
-        return 0
+        return set()
     persist_scrydex_price_history_payload(
-        connection, card_id=candidate["cardId"], payload=filtered, game=candidate["game"], commit=True
+        connection, card_id=candidate["cardId"], payload=filtered, game=candidate["game"], commit=False
     )
-    return len(filtered["data"])
+    return {entry["date"] for entry in filtered["data"]}
 
 
 def run_backfill(
@@ -264,7 +301,6 @@ def run_backfill(
     start_date = (today - timedelta(days=lookback_days)).isoformat()
     gap_dates, counts = find_gap_dates(connection, start_date=start_date, end_date=end_date)
     good_dates = [day for day in _date_range(start_date, end_date) if day not in gap_dates and counts.get(day, 0) > 0]
-    gap_key = ",".join(gap_dates)
     summary: dict[str, Any] = {
         "gapDates": gap_dates,
         "dryRun": dry_run,
@@ -282,8 +318,12 @@ def run_backfill(
         for candidate in find_candidate_cards(connection, gap_dates=gap_dates, good_dates=good_dates[-5:])
         if candidate["tier"] <= max_tier
     ]
-    already = attempted_cards(connection, gap_key)
-    pending = [candidate for candidate in candidates if candidate["cardId"] not in already]
+    tried = tried_dates(connection)
+    pending = []
+    for candidate in candidates:
+        remaining = [day for day in candidate["missingDates"] if day not in tried.get(candidate["cardId"], set())]
+        if remaining:
+            pending.append({**candidate, "missingDates": remaining})
     cycle_start = billing_cycle_start(today, cycle_day)
     cycle_used = requests_this_cycle(connection, cycle_start)
     allowance = max(0, min(max_requests, cycle_budget - cycle_used))
@@ -305,10 +345,10 @@ def run_backfill(
     for candidate in pending[:allowance]:
         status = "ok"
         error_text = None
-        written = 0
+        written: set[str] = set()
         try:
             written = backfill_card(connection, candidate, today=today, fetch=fetch)
-            if written == 0:
+            if not written:
                 status = "no_data"
         except sqlite3.OperationalError as exc:
             # A lock is ours, not the card's: leave it unrecorded so tomorrow retries.
@@ -322,15 +362,25 @@ def run_backfill(
             error_text = str(exc)[:500]
             summary["errors"] += 1
         summary["requests"] += 1
-        summary["datesWritten"] += written
+        summary["datesWritten"] += len(written)
+        attempted_at = datetime.now(timezone.utc).isoformat()
+        requested = ",".join(candidate["missingDates"])
         connection.execute(
             f"""
-            INSERT OR REPLACE INTO {PROGRESS_TABLE}
+            INSERT INTO {PROGRESS_TABLE}
                 (card_id, gap_dates, attempted_at, status, dates_written, error_text)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (candidate["cardId"], gap_key, datetime.now(timezone.utc).isoformat(), status, written, error_text),
+            # `@attempted_at` keeps every request its own ledger row.
+            (candidate["cardId"], f"{requested}@{attempted_at}", attempted_at, status, len(written), error_text),
         )
+        if status != "error":
+            for day in candidate["missingDates"]:
+                connection.execute(
+                    f"INSERT OR REPLACE INTO {DATES_TABLE} (card_id, price_date, status, attempted_at) VALUES (?, ?, ?, ?)",
+                    (candidate["cardId"], day, "filled" if day in written else "no_data", attempted_at),
+                )
+        # History rows, ledger, and tried-days land together or not at all.
         connection.commit()
         if sleep_seconds:
             time.sleep(sleep_seconds)
