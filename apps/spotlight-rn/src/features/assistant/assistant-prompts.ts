@@ -54,7 +54,7 @@ export function assistantIntroCopy(trayCardCount: number): AssistantIntroCopy {
     };
   }
   return {
-    title: 'Your card market, answered',
-    body: 'Prices, your collection, market trends, what to buy or sell, whether grading is worth it, and show prep. All in USD from Ekalight market data.',
+    title: 'Ask me anything about cards',
+    body: 'Prices, your collection, sets, market trends, what to buy or sell, and whether grading is worth it, for Pokémon and any other TCG. All in USD from Ekalight market data.',
   };
 }

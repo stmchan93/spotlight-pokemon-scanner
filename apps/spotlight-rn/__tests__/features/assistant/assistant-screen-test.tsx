@@ -125,6 +125,8 @@ describe('AssistantScreen', () => {
     const getAssistantThreadMessages = jest.fn(async (_threadId: string) => []);
     renderScreen({ listAssistantThreads: async () => ({ threads, nextCursor: null }), getAssistantThreadMessages });
     await waitFor(() => expect(getAssistantThreadMessages).toHaveBeenCalledWith('thr_latest'));
+    // A labeled button: a bare icon read as "edit" (owner, 2026-11-17).
+    expect(screen.getByText('New chat')).toBeTruthy();
     fireEvent.press(screen.getByTestId('assistant-new-chat'));
     expect(await screen.findByTestId('assistant-recent-thr_older')).toBeTruthy();
   });
@@ -291,7 +293,7 @@ describe('AssistantScreen', () => {
   it('starter prompts on a new home chat send when tapped', async () => {
     const sendAssistantMessage = jest.fn(async (_payload: AssistantSendPayload) => reply(null));
     renderScreen({ sendAssistantMessage });
-    expect(await screen.findByText('Your card market, answered')).toBeTruthy();
+    expect(await screen.findByText('Ask me anything about cards')).toBeTruthy();
     expect(screen.getByText('Help me prep for a card show')).toBeTruthy();
     fireEvent.press(screen.getByTestId('assistant-suggestion-0'));
     await waitFor(() => expect(sendAssistantMessage).toHaveBeenCalledTimes(1));

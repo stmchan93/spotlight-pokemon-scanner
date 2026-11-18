@@ -1,6 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import { ChatPlusIn, ClockRotateRight, Sparks } from 'iconoir-react-native';
+import { ClockRotateRight, Sparks } from 'iconoir-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -593,15 +593,15 @@ export function AssistantScreen({
                 <ClockRotateRight color={theme.colors.textPrimary} height={HEADER_GLYPH_SIZE} width={HEADER_GLYPH_SIZE} />
               </IconButton>
               {canStartNewChat ? (
-                <IconButton
-                  accessibilityLabel="New chat"
+                // A labeled button: a bare icon read as "edit", not "new chat" (owner, 2026-11-17).
+                <Button
+                  label="New chat"
+                  labelStyleVariant="control"
                   onPress={startNewChat}
-                  size={chromeBackButtonSize}
+                  size="xs"
                   testID="assistant-new-chat"
-                  variant="elevated"
-                >
-                  <ChatPlusIn color={theme.colors.textPrimary} height={HEADER_GLYPH_SIZE} width={HEADER_GLYPH_SIZE} />
-                </IconButton>
+                  variant="outline"
+                />
               ) : null}
             </>
           ) : null}
