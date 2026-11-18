@@ -19,11 +19,14 @@ from urllib.parse import quote
 import art_search
 
 from catalog_tools import (
+    GAMES,
     PSA_GRADE_PRICING_MODE,
     RAW_MAIN_PRICE_SOURCE_TCGCSV,
     RAW_PRICING_MODE,
+    SEALED_CARD_ID_PREFIX,
     SEALED_SUPERTYPE,
     SUPPORTED_GAMES,
+    _graded_contexts_payload,
     _MANUAL_SEARCH_POOL_CEILING,
     _normalized_variant_label,
     _variant_match_key,
@@ -34,10 +37,12 @@ from catalog_tools import (
     price_snapshot_row,
     rarity_bucket,
     search_cards as catalog_search_cards,
+    slab_recent_sales_cache,
     tokenize,
 )
 import meta_pulse
-from market_movers import latest_persisted_payload as latest_movers_payload
+from market_movers import _is_japanese, latest_persisted_payload as latest_movers_payload
+from sealed_products import search_sealed_products
 from similar_cards import build_similar_cards_payload
 from tcgcsv_adapter import TCGCSV_PROVIDER
 import watch_printings
@@ -75,6 +80,17 @@ MAX_SIMILAR = 10
 MAX_HISTORY_POINTS = 120
 
 SEARCH_SORTS = ("relevance", "price_asc", "price_desc", "newest")
+PRICE_SORTS = ("price_asc", "price_desc")
+# Sealed hits appended to a text search when product is "any".
+SEALED_TEXT_POOL_SIZE = 50
+# find_top_graded: graded cells newer than this are "current"; else the snapshot
+# blobs are read (staging writes no graded cells by design).
+GRADED_CELL_MAX_AGE_DAYS = 7
+GRADED_CANDIDATE_ROWS = 4000
+# Top candidates re-priced from cached verified sales, like the PDP headline.
+GRADED_SALE_OVERLAY = 40
+GRADED_SLABS_PER_CARD = 4
+MAX_TOP_GRADED = 20
 OWNED_MODES = ("any", "owned", "not_owned")
 COLLECTION_SORTS = ("value_desc", "gain_desc", "added_desc")
 PORTFOLIO_RANGES = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
@@ -117,6 +133,29 @@ MARKET_TRENDS_DESCRIPTION = (
     "'what's a good buy'. USD; past moves only, not a forecast."
 )
 
+TOP_GRADED_DESCRIPTION = (
+    "The most valuable GRADED cards (slabs) by stored graded market price, priciest first: use for "
+    "'most expensive graded cards', 'priciest PSA 10s', and alongside search_cards sort=price_desc when "
+    "the user asks for the most expensive cards (graded prices are often the better answer). Optional "
+    "grader (PSA, CGC, BGS, ...) and grade ('10'); filter takes game/set/text/artist/rarity_bucket/language. "
+    "Each card has graded_price_usd with its grader/grade/variant, price_source ('ebay_sold' = last verified "
+    "sale within 180 days, else 'scrydex' graded market) and as_of. Japanese cards are left out unless "
+    "filter.language is Japanese. USD, stored data only."
+)
+GAME_FILTER_NOTE = (
+    "filter.game picks the TCG: pokemon (default), onepiece (One Piece), lorcana (Disney Lorcana), "
+    "riftbound, gundam. For 'One Piece cards' set game='onepiece'; do not put the game name in text."
+)
+PRODUCT_FILTER_NOTE = (
+    "filter.product: 'any' (default: single cards and sealed product together), 'single' when the user "
+    "wants single cards only / not sealed, 'sealed' for booster boxes, ETBs, bundles, tins."
+)
+PRICE_RANK_NOTE = (
+    "Price sorts (priciest/cheapest lists) leave out Japanese cards unless filter.language is Japanese, "
+    "and then rank only TCGplayer USD prices. With sort=price_desc/price_asc and no text, the whole game "
+    "is ranked (a filter of just {game} is fine)."
+)
+
 # Art facets the CardFilter can filter on (list_facets hides the rest).
 FILTERABLE_FACETS = art_search.LIST_FILTER_FACETS
 
@@ -150,6 +189,23 @@ def price_source_label(pricing: dict[str, Any]) -> str:
     if source == TCGCSV_PROVIDER:  # printing-cell summaries stamp the provider directly
         return "tcgplayer"
     return source or "ekalight"
+
+
+def is_sealed_card(card: dict[str, Any]) -> bool:
+    return card.get("supertype") == SEALED_SUPERTYPE or str(card.get("id") or "").startswith(SEALED_CARD_ID_PREFIX)
+
+
+def is_japanese_card(card_id: Any, language: Any) -> bool:
+    return _is_japanese(str(card_id or ""), str(language or ""))
+
+
+def distrust_japanese_anchor(item: dict[str, Any]) -> dict[str, Any]:
+    """A Japanese card's USD price is trusted only from TCGplayer: Scrydex raw-JP
+    values are yen anchors that can be stamped USD. Others get price_usd null."""
+    if is_japanese_card(item.get("card_id"), item.get("language")) and item.get("price_source") != "tcgplayer":
+        item["price_usd"] = None
+        item["price_source"] = None
+    return item
 
 
 def printing_name(value: Any) -> str | None:
@@ -324,6 +380,12 @@ class CollectionTools:
             bucket = card.get("rarityBucket") or rarity_bucket(card.get("rarity"), card.get("game"))
             if bucket not in buckets:
                 return False
+        game = card_filter.get("game")
+        if game and (card.get("game") or GAME) != game:
+            return False
+        product = card_filter.get("product")
+        if product and is_sealed_card(card) != (product == "sealed"):
+            return False
         return True
 
     @staticmethod
@@ -341,24 +403,59 @@ class CollectionTools:
         return True
 
     @staticmethod
-    def _is_structured(card_filter: dict[str, Any]) -> bool:
-        return not card_filter.get("text") and bool(card_filter.get("artist") or card_filter.get("set"))
-
-    def _structured_rows(self, card_filter: dict[str, Any], *, order: str) -> tuple[list[Any], bool] | None:
-        """Every catalog row matching artist/set/language (+ a loose price window),
-        straight from SQL, or None when the filter needs relevance search (text, or
-        neither artist nor set). Relevance search caps its pool by text score and
-        breaks ties pricier-first, so filtering price/artist after it lost every
-        cheap match of a prolific artist; this applies them before any cap."""
-        if not self._is_structured(card_filter):
-            return None
-        approx = (
-            "COALESCE(s.main_raw_market_price, "
-            "CASE WHEN s.display_currency_code = 'USD' THEN s.default_raw_market_price END)"
+    def _is_structured(card_filter: dict[str, Any], order: str = "relevance") -> bool:
+        """No text: answer straight from SQL. Text needs relevance search."""
+        if card_filter.get("text"):
+            return False
+        return order in PRICE_SORTS or any(
+            card_filter.get(field) is not None
+            for field in ("artist", "set", "rarity_bucket", "game", "product", "price_min_usd", "price_max_usd")
         )
+
+    @staticmethod
+    def _price_ranked_japanese_ok(card_filter: dict[str, Any]) -> bool:
+        return card_filter.get("language") == "Japanese"
+
+    def _rarities_for_buckets(self, game: str, buckets: list[str]) -> list[str]:
+        rows = self.conn.execute("SELECT DISTINCT rarity FROM cards WHERE +game = ?", (game,)).fetchall()
+        return [str(row[0]) for row in rows if row[0] is not None and rarity_bucket(row[0], game) in buckets]
+
+    def _structured_rows(
+        self, card_filter: dict[str, Any], *, order: str, price_ranked: bool = False
+    ) -> tuple[list[Any], bool] | None:
+        """Every catalog row matching the non-text filters (+ a loose price window),
+        straight from SQL, or None when the filter needs relevance search (text).
+        Relevance search caps its pool by text score and breaks ties pricier-first,
+        so filtering price/artist after it lost every cheap match of a prolific
+        artist; this applies them before any cap."""
+        if not self._is_structured(card_filter, order):
+            return None
+        # Japanese rows only count a TCGplayer (main lane) price: Scrydex raw-JP
+        # numbers are yen anchors, sometimes stamped USD.
+        approx = (
+            "COALESCE(s.main_raw_market_price, CASE WHEN s.display_currency_code = 'USD' "
+            "AND COALESCE(c.language, '') != 'Japanese' COLLATE NOCASE THEN s.default_raw_market_price END)"
+        )
+        game = card_filter.get("game") or GAME
         # Unary + keeps game/language off idx_cards_game (it selects the whole table).
-        where = ["+c.game = ?", "COALESCE(c.supertype, '') != ?"]
-        params: list[Any] = [GAME, SEALED_SUPERTYPE]
+        where = ["+c.game = ?"]
+        params: list[Any] = [game]
+        product = card_filter.get("product")
+        if product == "sealed":
+            where.append("c.supertype = ?")
+            params.append(SEALED_SUPERTYPE)
+        elif product == "single":
+            where.append("COALESCE(c.supertype, '') != ?")
+            params.append(SEALED_SUPERTYPE)
+        if price_ranked and not self._price_ranked_japanese_ok(card_filter):
+            where.append("COALESCE(c.language, '') != 'Japanese' COLLATE NOCASE")
+        buckets = card_filter.get("rarity_bucket")
+        if buckets:
+            rarities = self._rarities_for_buckets(game, buckets)
+            if not rarities:
+                return [], False
+            where.append(f"c.rarity IN ({','.join('?' for _ in rarities)})")
+            params.extend(rarities)
         artist = card_filter.get("artist")
         if artist:
             tokens = tokenize(artist)
@@ -405,7 +502,8 @@ class CollectionTools:
         rows = self.conn.execute(
             f"""
             SELECT c.id, c.game, c.rarity, c.set_release_date, c.artist, c.set_name AS setName,
-                   c.set_id AS setID, c.set_ptcgo_code AS setPtcgoCode, c.language, {approx} AS approx
+                   c.set_id AS setID, c.set_ptcgo_code AS setPtcgoCode, c.language, c.supertype,
+                   {approx} AS approx
             FROM cards c LEFT JOIN card_price_snapshots s ON s.card_id = c.id
             WHERE {' AND '.join(where)}
             ORDER BY (approx IS NULL), approx {direction}, c.id
@@ -424,13 +522,14 @@ class CollectionTools:
         owned_ids: set[str] | None = None,
         owned_mode: str = "any",
         keep_owned: bool = False,
+        price_ranked: bool = False,
     ) -> tuple[list[dict[str, Any]], bool, int | None]:
         """Catalog candidates passing the non-price filters, plus (capped, exact
         total). `exact_total` is the full match count when it is known exactly
         (structured filter, no price filter), else None. Structured pools apply
         `owned_mode` before the cap; `keep_owned` adds every owned match on top
         of the capped not-owned side (find_missing counts owned exactly)."""
-        structured = self._structured_rows(card_filter, order=order)
+        structured = self._structured_rows(card_filter, order=order, price_ranked=price_ranked)
         if structured is not None:
             return self._structured_pool(
                 card_filter, structured, size=size, order=order,
@@ -487,27 +586,36 @@ class CollectionTools:
         buckets = card_filter.get("rarity_bucket") or []
         if not terms and not buckets:
             raise ToolInputError(
-                "Give at least one of text, set, artist, rarity_bucket, or an art filter "
+                "Give at least one of text, set, artist, rarity_bucket, game, or an art filter "
                 "(pokemon, scene, mood, theme, ...)."
             )
         query = " ".join(terms)
+        game = card_filter.get("game") or GAME
+        product = card_filter.get("product") or "any"
         raw_results: list[dict[str, Any]] = []
         capped = False
-        bucket_args: list[str | None] = [buckets[0]] if len(buckets) == 1 else (buckets if not terms else [None])
-        for bucket in bucket_args:
-            found = list(
-                catalog_search_cards(
-                    self.conn,
-                    query,
-                    limit=size,
-                    game=GAME,
-                    offset=0,
-                    pool_ceiling=_MANUAL_SEARCH_POOL_CEILING,
-                    rarity_bucket_filter=bucket,
+        if product != "sealed":
+            bucket_args: list[str | None] = [buckets[0]] if len(buckets) == 1 else (buckets if not terms else [None])
+            for bucket in bucket_args:
+                found = list(
+                    catalog_search_cards(
+                        self.conn,
+                        query,
+                        limit=size,
+                        game=game,
+                        offset=0,
+                        pool_ceiling=_MANUAL_SEARCH_POOL_CEILING,
+                        rarity_bucket_filter=bucket,
+                    )
                 )
-            )
-            capped = capped or len(found) >= size
-            raw_results.extend(found)
+                capped = capped or len(found) >= size
+                raw_results.extend(found)
+        if product != "single" and card_filter.get("text"):
+            # Card search never returns sealed product; it has its own name search.
+            sealed_size = size if product == "sealed" else SEALED_TEXT_POOL_SIZE
+            sealed = search_sealed_products(self.conn, card_filter["text"], game=game, limit=sealed_size)
+            capped = capped or (product == "sealed" and len(sealed) >= sealed_size)
+            raw_results.extend(sealed)
         seen: set[str] = set()
         pool: list[dict[str, Any]] = []
         for card in raw_results:
@@ -606,8 +714,16 @@ class CollectionTools:
         limit = clamp_limit(limit, default=20, maximum=50)
         owned_ids = self._owned_card_ids(owner_user_id) if owned != "any" else None
         query_hash = self._query_hash(card_filter, owned, sort)
+        price_ranked = sort in PRICE_SORTS
+        japanese_ok = self._price_ranked_japanese_ok(card_filter)
+
+        def ranked_ok(item: dict[str, Any]) -> bool:
+            # Priciest/cheapest lists: no Japanese cards unless asked for.
+            return japanese_ok or not is_japanese_card(item["card_id"], item.get("language"))
 
         if uses_art_filters(card_filter):
+            if card_filter.get("game", GAME) != GAME or card_filter.get("product") == "sealed":
+                raise ToolInputError("Art filters cover Pokémon single cards only.")
             payload = decode_cursor(cursor, kind="search_art")
             if payload is not None and payload.get("q") != query_hash:
                 raise ToolInputError("cursor belongs to a different query; start again without cursor.")
@@ -624,8 +740,11 @@ class CollectionTools:
             ids = [str(card_id) for card_id in (result.get("card_ids") or [])][:limit]
             summaries = self._summaries(ids)
             next_art = result.get("next_cursor")
+            results = [summaries[card_id] for card_id in ids if card_id in summaries]
+            if price_ranked:
+                results = [distrust_japanese_anchor(item) for item in results if ranked_ok(item)]
             return {
-                "results": [summaries[card_id] for card_id in ids if card_id in summaries],
+                "results": results,
                 "next_cursor": encode_cursor({"k": "search_art", "q": query_hash, "c": next_art})
                 if next_art
                 else None,
@@ -635,7 +754,8 @@ class CollectionTools:
 
         offset = self._offset_from_cursor(cursor, kind="search", query_hash=query_hash)
         pool, capped, exact_total = self._catalog_pool(
-            card_filter, size=SEARCH_POOL_SIZE, order=sort, owned_ids=owned_ids, owned_mode=owned
+            card_filter, size=SEARCH_POOL_SIZE, order=sort, owned_ids=owned_ids, owned_mode=owned,
+            price_ranked=price_ranked,
         )
         if owned_ids is not None:
             pool = [card for card in pool if (card["id"] in owned_ids) == (owned == "owned")]
@@ -645,9 +765,11 @@ class CollectionTools:
         )
         if needs_prices:
             summaries = self._summaries(list(cards), cards=cards)
-            items = [summaries[card["id"]] for card in pool if card["id"] in summaries]
+            items = [distrust_japanese_anchor(summaries[card["id"]]) for card in pool if card["id"] in summaries]
+            if price_ranked:
+                items = [item for item in items if ranked_ok(item)]
             items = [item for item in items if self._matches_price(item["price_usd"], card_filter)]
-            if sort in ("price_asc", "price_desc"):
+            if price_ranked:
                 items = self._sort_by_price(items, descending=sort == "price_desc")
             page = items[offset : offset + limit]
             total = len(items)
@@ -863,7 +985,10 @@ class CollectionTools:
                 max_ids=MAX_HOLDINGS_READ,
             )
             allowed = set(art_ids) & owned_ids
-            pairs = [(entry, card) for entry, card in pairs if card["id"] in allowed]
+            pairs = [
+                (entry, card) for entry, card in pairs
+                if card["id"] in allowed and self._matches_card_meta(card, card_filter)
+            ]
         else:
             pairs = [(entry, card) for entry, card in pairs if self._matches_card_meta(card, card_filter)]
 
@@ -1101,8 +1226,11 @@ class CollectionTools:
         collection_id = self._require_collection(owner_user_id, collection_id)
         owned_ids = self._owned_card_ids(owner_user_id, collection_id=collection_id)
         exact_total: int | None = None
+        games: dict[str, str] = {}
 
         if uses_art_filters(card_filter):
+            if card_filter.get("game", GAME) != GAME or card_filter.get("product") == "sealed":
+                raise ToolInputError("Art filters cover Pokémon single cards only.")
             # Ask art_search for the not-owned side directly so the pool cap only
             # bounds what we return, and count the owned side exactly.
             pool_ids, missing_total, capped = self._art_ids(
@@ -1122,21 +1250,22 @@ class CollectionTools:
                 limit=1,
             )
             summaries = self._summaries(pool_ids)
-            matching = [summaries[card_id] for card_id in pool_ids if card_id in summaries]
+            matching = [distrust_japanese_anchor(summaries[card_id]) for card_id in pool_ids if card_id in summaries]
             total_matching = missing_total + int(owned_side.get("total_estimate") or 0)
             owned_count = int(owned_side.get("total_estimate") or 0)
         else:
             pool, capped, exact_total = self._catalog_pool(
                 card_filter,
-                size=STRUCTURED_MISSING_POOL_SIZE if self._is_structured(card_filter) else MISSING_POOL_SIZE,
+                size=STRUCTURED_MISSING_POOL_SIZE if self._is_structured(card_filter, "price_asc") else MISSING_POOL_SIZE,
                 order="price_asc",
                 owned_ids=owned_ids,
                 owned_mode="not_owned",
                 keep_owned=True,
             )
             cards = {card["id"]: card for card in pool}
+            games = {card_id: str(card.get("game") or GAME) for card_id, card in cards.items()}
             summaries = self._summaries(list(cards), cards=cards)
-            matching = [summaries[card["id"]] for card in pool if card["id"] in summaries]
+            matching = [distrust_japanese_anchor(summaries[card["id"]]) for card in pool if card["id"] in summaries]
             matching = [item for item in matching if self._matches_price(item["price_usd"], card_filter)]
             owned_count = sum(1 for item in matching if item["card_id"] in owned_ids)
             total_matching = exact_total if exact_total is not None else len(matching)
@@ -1166,7 +1295,7 @@ class CollectionTools:
                 "setName": item["set"],
                 "number": item["number"],
                 "language": item["language"],
-                "game": GAME,
+                "game": games.get(item["card_id"], GAME),
             }
             page.append({**item, "buy_links": buy_links(card, tcgplayer_product_id=item.get("tcgplayer_id"))})
         counts_exact = exact_total is not None
@@ -1211,6 +1340,10 @@ class CollectionTools:
         if owned not in OWNED_MODES:
             raise ToolInputError(f"owned must be one of {', '.join(OWNED_MODES)}.")
         game = self._game_arg(game)
+        if card_filter.get("game"):
+            if game and game != card_filter["game"]:
+                raise ToolInputError("game and filter.game disagree; pass one.")
+            game = card_filter["game"]
         limit = clamp_limit(limit, default=10, maximum=MAX_PRICE_LOWS)
         low_bound, high_bound = card_filter.get("price_min_usd"), card_filter.get("price_max_usd")
         for name, value in (("min_price_usd", min_price_usd), ("max_price_usd", max_price_usd)):
@@ -1297,6 +1430,223 @@ class CollectionTools:
         if any(item["days_covered"] < window_days - 7 for item in out):
             result["note"] = "Some cards have less history than the window; days_covered says how much."
         return result
+
+    def find_top_graded(
+        self,
+        owner_user_id: str,
+        card_filter: dict[str, Any] | None = None,
+        *,
+        grader: str | None = None,
+        grade: str | None = None,
+        owned: str = "any",
+        limit: int | None = 10,
+    ) -> dict[str, Any]:
+        """Priciest graded cards from stored graded prices. DB-only: the current
+        Scrydex graded cells (else the snapshot's graded contexts), with the top
+        candidates re-priced from cached verified sales like the PDP headline."""
+        card_filter = normalize_card_filter(card_filter)
+        if uses_art_filters(card_filter):
+            raise ToolInputError("find_top_graded takes game/text/set/artist/rarity_bucket/language filters only.")
+        if card_filter.get("product") == "sealed":
+            raise ToolInputError("Sealed product has no graded prices.")
+        if owned not in OWNED_MODES:
+            raise ToolInputError(f"owned must be one of {', '.join(OWNED_MODES)}.")
+        limit = clamp_limit(limit, default=10, maximum=MAX_TOP_GRADED)
+        grader_code = str(grader or "").strip().upper() or None
+        grade_code = self._history_grade_key(grade)
+        if grade_code and not grader_code:
+            raise ToolInputError("grade needs grader, e.g. grader='PSA', grade='10'.")
+        game = card_filter.get("game") or GAME
+        result: dict[str, Any] = {"cards": [], "game": game, "grader": grader_code, "grade": grade_code}
+        if not GAMES[game].has_graded_pricing:
+            return {**result, "note": f"Ekalight has no graded prices for {GAMES[game].display_name}."}
+        japanese_ok = self._price_ranked_japanese_ok(card_filter)
+
+        entries = self._graded_cell_entries(game, grader_code, grade_code, japanese_ok=japanese_ok)
+        if entries is None:
+            entries = self._graded_snapshot_entries(game, grader_code, grade_code, japanese_ok=japanese_ok)
+        owned_ids = self._owned_card_ids(owner_user_id) if owned != "any" else None
+        meta_filter = {k: v for k, v in card_filter.items() if k not in ("price_min_usd", "price_max_usd")}
+
+        # Each card's priciest few slabs; cards ranked by their best one.
+        by_card: dict[str, list[dict[str, Any]]] = {}
+        for entry in sorted(entries, key=lambda entry: -entry["market"]):
+            slabs = by_card.setdefault(entry["card_id"], [])
+            if len(slabs) < GRADED_SLABS_PER_CARD:
+                slabs.append(entry)
+        ranked = sorted(by_card.values(), key=lambda slabs: (-slabs[0]["market"], slabs[0]["card_id"]))
+        ranked = [slabs[0] | {"_slabs": slabs} for slabs in ranked]
+        if owned_ids is not None:
+            ranked = [entry for entry in ranked if (entry["card_id"] in owned_ids) == (owned == "owned")]
+        want = max(limit, min(GRADED_SALE_OVERLAY, limit * 3))
+        picked: list[dict[str, Any]] = []
+        cards: dict[str, dict[str, Any]] = {}
+        for offset in range(0, len(ranked), 200):
+            chunk = ranked[offset : offset + 200]
+            chunk_cards = cards_by_ids(self.conn, [entry["card_id"] for entry in chunk], include_source_payload=False)
+            for entry in chunk:
+                card = chunk_cards.get(entry["card_id"])
+                if card is None or is_sealed_card(card) or not self._matches_card_meta(card, meta_filter):
+                    continue
+                if not japanese_ok and is_japanese_card(card["id"], card.get("language")):
+                    continue
+                cards[card["id"]] = card
+                picked.append(entry)
+            if len(picked) >= want:
+                break
+        # A cached verified sale can reorder a card's slabs (PSA 10 sold above CGC 10's market).
+        repriced = []
+        for entry in picked[:want]:
+            slabs = entry["_slabs"]
+            for slab in slabs:
+                self._overlay_last_sale(slab, cards[entry["card_id"]])
+            repriced.append(max(slabs, key=lambda slab: slab["market"]))
+        picked = [entry for entry in repriced if self._matches_price(entry["market"], card_filter)]
+        picked.sort(key=lambda entry: (-entry["market"], entry["card_id"]))
+        picked = picked[:limit]
+
+        summaries = self._summaries([entry["card_id"] for entry in picked], cards=cards)
+        out = []
+        for entry in picked:
+            summary = summaries.get(entry["card_id"])
+            if summary is None:
+                continue
+            price = round(float(entry["market"]), 2)
+            out.append(
+                {
+                    **summary,
+                    # Tiles show price_usd: the slab price here, not the raw one.
+                    "price_usd": price,
+                    "graded_price_usd": price,
+                    "price_source": entry["source"],
+                    "price_basis": "graded",
+                    "grader": entry["grader"],
+                    "grade": entry["grade"],
+                    "variant": printing_name(_normalized_variant_label(entry["variant"])) if entry["variant"] else None,
+                    "as_of": entry["as_of"],
+                }
+            )
+        result["cards"] = out
+        if not out:
+            result["note"] = "Ekalight has no stored graded prices matching this."
+        return result
+
+    @staticmethod
+    def _grade_sql(grade_code: str | None) -> tuple[str, list[Any]]:
+        if grade_code is None:
+            return "", []
+        try:
+            return " AND CAST(cell.grade AS REAL) = ?", [float(grade_code)]
+        except ValueError:
+            return " AND UPPER(cell.grade) = ?", [grade_code]
+
+    def _graded_cell_entries(
+        self, game: str, grader: str | None, grade: str | None, *, japanese_ok: bool
+    ) -> list[dict[str, Any]] | None:
+        """Plain USD graded cells from the newest graded day; None when that day is
+        older than GRADED_CELL_MAX_AGE_DAYS or there are no graded cells."""
+        # ORDER BY rides idx_cell_date backwards; +lane keeps it off the graded index.
+        row = self.conn.execute(
+            "SELECT price_date FROM card_price_history_cell WHERE +lane = 'graded' ORDER BY price_date DESC LIMIT 1"
+        ).fetchone()
+        cutoff = (datetime.now(timezone.utc).date() - timedelta(days=GRADED_CELL_MAX_AGE_DAYS)).isoformat()
+        if row is None or str(row[0]) < cutoff:
+            return None
+        price_date = str(row[0])
+        sql = (
+            "SELECT cell.card_id, cell.grader, cell.grade, cell.variant_key, cell.market "
+            "FROM card_price_history_cell cell JOIN cards c ON c.id = cell.card_id "
+            "WHERE cell.price_date = ? AND +cell.lane = 'graded' AND cell.market > 0 "
+            "AND COALESCE(cell.is_perfect, 0) = 0 AND COALESCE(cell.is_signed, 0) = 0 "
+            "AND COALESCE(cell.is_error, 0) = 0 AND UPPER(COALESCE(cell.currency_code, 'USD')) = 'USD' "
+            "AND +c.game = ?"
+        )
+        params: list[Any] = [price_date, game]
+        if grader:
+            sql += " AND UPPER(cell.grader) = ?"
+            params.append(grader)
+        grade_sql, grade_params = self._grade_sql(grade)
+        sql += grade_sql
+        params.extend(grade_params)
+        if not japanese_ok:
+            sql += " AND COALESCE(c.language, '') != 'Japanese' COLLATE NOCASE"
+        sql += " ORDER BY cell.market DESC LIMIT ?"
+        params.append(GRADED_CANDIDATE_ROWS)
+        return [
+            {
+                "card_id": str(r[0]),
+                "grader": str(r[1] or "").strip().upper(),
+                "grade": self._history_grade_key(r[2]),
+                "variant": str(r[3] or "").strip() or None,
+                "market": float(r[4]),
+                "source": "scrydex",
+                "as_of": price_date,
+            }
+            for r in self.conn.execute(sql, params).fetchall()
+        ]
+
+    def _graded_snapshot_entries(
+        self, game: str, grader: str | None, grade: str | None, *, japanese_ok: bool
+    ) -> list[dict[str, Any]]:
+        """Fallback: the graded contexts stored on each card's price snapshot."""
+        sql = (
+            "SELECT s.card_id, s.display_currency_code, s.graded_contexts_json, s.updated_at "
+            "FROM card_price_snapshots s JOIN cards c ON c.id = s.card_id "
+            "WHERE +c.game = ? AND LENGTH(COALESCE(s.graded_contexts_json, '')) > 20"
+        )
+        if not japanese_ok:
+            sql += " AND COALESCE(c.language, '') != 'Japanese' COLLATE NOCASE"
+        entries: list[dict[str, Any]] = []
+        for card_id, currency, blob, updated_at in self.conn.execute(sql, (game,)).fetchall():
+            graders = _graded_contexts_payload(blob).get("graders") or {}
+            for grader_name, grades in graders.items():
+                grader_code = str(grader_name or "").strip().upper()
+                if not isinstance(grades, dict) or (grader and grader_code != grader):
+                    continue
+                for grade_name, items in grades.items():
+                    grade_code = self._history_grade_key(grade_name)
+                    if not isinstance(items, list) or (grade and grade_code != grade):
+                        continue
+                    for item in items:
+                        if not isinstance(item, dict) or item.get("isSigned") or item.get("isPerfect") or item.get("isError"):
+                            continue
+                        market = item.get("market")
+                        if not isinstance(market, (int, float)) or isinstance(market, bool) or market <= 0:
+                            continue
+                        if str(item.get("currencyCode") or currency or "USD").strip().upper() != "USD":
+                            continue
+                        entries.append(
+                            {
+                                "card_id": str(card_id),
+                                "grader": grader_code,
+                                "grade": grade_code,
+                                "variant": str(item.get("variant") or "").strip() or None,
+                                "market": float(market),
+                                "source": "scrydex",
+                                "as_of": str(updated_at or "")[:10] or None,
+                            }
+                        )
+        return entries
+
+    def _overlay_last_sale(self, entry: dict[str, Any], card: dict[str, Any]) -> None:
+        """The PDP's graded price of record: the last verified USD sale within
+        180 days from the cached comps (never fetched here), else Scrydex."""
+        from server import RECENT_SALES_MAX_LIMIT, _filter_recent_sales_rows  # heavy module; loaded by the service
+
+        if not entry.get("grader") or not entry.get("grade"):
+            return
+        cached = slab_recent_sales_cache(
+            self.conn, card_id=entry["card_id"], grader=entry["grader"], grade=entry["grade"],
+            source="ebay", limit=RECENT_SALES_MAX_LIMIT,
+        )
+        filtered = _filter_recent_sales_rows(
+            cached, variant_key=entry.get("variant"), limit=RECENT_SALES_MAX_LIMIT, card=card
+        )
+        average = (filtered or {}).get("recentAverage")
+        if average and isinstance(average.get("amount"), (int, float)):
+            entry["market"] = float(average["amount"])
+            entry["source"] = "ebay_sold"
+            entry["as_of"] = str(average.get("latestSoldAt") or "").replace("/", "-") or entry["as_of"]
 
     @staticmethod
     def _game_arg(game: str | None) -> str | None:

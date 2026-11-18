@@ -445,5 +445,214 @@ class ReadOnlyServiceTests(McpToolsCase):
             self.call("get_my_collection", cursor=first["next_cursor"])
 
 
+class RankingCorrectnessTests(McpToolsCase):
+    """Owner chats 2026-11-18: One Piece missed (no game filter), sealed boxes in
+    'priciest cards', Japanese Scrydex yen anchors topping price lists, and no
+    graded ranking."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        env = mock.patch.dict("os.environ", {"RAW_MAIN_PRICE_SOURCE": "tcgcsv"})
+        env.start()
+        self.addCleanup(env.stop)
+        self.seed_ranking()
+
+    def main_price(self, card_id, amount):
+        self.price(card_id, amount)
+        self.conn.execute(
+            "UPDATE card_price_snapshots SET main_raw_market_price = ?, main_raw_updated_at = ? WHERE card_id = ?",
+            (amount, utc_now(), card_id),
+        )
+
+    def game_card(self, card_id, name, game, *, supertype="Character", rarity="Super Rare", language="English",
+                  set_name="Romance Dawn", set_code="OP01"):
+        upsert_card(
+            self.conn, card_id=card_id, name=name, set_name=set_name, number="1", rarity=rarity, variant="Raw",
+            language=language, source_provider="scrydex", source_record_id=card_id, set_id=set_code.lower(),
+            set_ptcgo_code=set_code, set_release_date="2022-12-02", artist=None, supertype=supertype,
+            national_pokedex_numbers=[], image_url=None, source_payload={"id": card_id}, game=game,
+        )
+
+    def graded_cell(self, card_id, grader, grade, market, *, days_ago=0, currency="USD", signed=0):
+        self.conn.execute(
+            "INSERT INTO card_price_history_cell (card_id, provider, price_date, lane, cell_key, variant_key, "
+            "grader, grade, is_perfect, is_signed, is_error, currency_code, market, updated_at) "
+            "VALUES (?, 'scrydex', ?, 'graded', ?, 'holofoil', ?, ?, 0, ?, 0, ?, ?, ?)",
+            (card_id, _days_ago(days_ago), f"g|{grader}|{grade}|{signed}", grader, grade, signed, currency,
+             market, utc_now()),
+        )
+
+    def seed_ranking(self) -> None:
+        self.game_card("onepiece~OP01-001", "Monkey.D.Luffy", "onepiece")
+        self.game_card("onepiece~OP01-002", "Roronoa Zoro", "onepiece")
+        self.main_price("onepiece~OP01-001", 900.0)
+        self.main_price("onepiece~OP01-002", 50.0)
+        self.card("sv-fluffy", "Fluffy Berry", number="150", set_name="Paldea Evolved", set_code="PAL")
+        self.main_price("sv-fluffy", 0.3)
+        self.game_card("tcgp-sealed-513409", "151 Booster Bundle Display Case", "pokemon", supertype="Sealed",
+                       rarity="Sealed", set_name="SV: Scarlet & Violet 151", set_code="MEW")
+        self.main_price("tcgp-sealed-513409", 11999.95)
+        # The known-bad Scrydex raw-JP anchor ($4,003 "USD") vs a TCGplayer-priced JP card.
+        self.card("jp-entei", "Entei", number="105", language="Japanese", set_name="Unseen Forces JP",
+                  set_code="PCG5")
+        self.price("jp-entei", 4003.0)
+        self.card("jp-tcg", "Lugia", number="9", language="Japanese", set_name="VSTAR Universe", set_code="S12A")
+        self.main_price("jp-tcg", 300.0)
+        self.conn.commit()
+
+    # --- game ----------------------------------------------------------------
+
+    def test_game_filter_finds_and_price_ranks_one_piece(self) -> None:
+        priciest = self.call("search_cards", card_filter={"game": "One Piece"}, sort="price_desc")
+        self.assertEqual(self.ids(priciest["results"]), ["onepiece~OP01-001", "onepiece~OP01-002"])
+        cheapest = self.call("search_cards", card_filter={"game": "onepiece"}, sort="price_asc", limit=1)
+        self.assertEqual(self.ids(cheapest["results"]), ["onepiece~OP01-002"])
+        luffy = self.call("search_cards", card_filter={"text": "luffy", "game": "onepiece"})
+        self.assertEqual(self.ids(luffy["results"]), ["onepiece~OP01-001"])
+        # Without a game the catalog stays Pokémon: never a One Piece card.
+        pokemon = self.call("search_cards", card_filter={}, sort="price_desc", limit=50)
+        self.assertFalse(any(card_id.startswith("onepiece~") for card_id in self.ids(pokemon["results"])))
+
+    def test_game_filter_on_missing_and_collection(self) -> None:
+        missing = self.call("find_missing", card_filter={"game": "onepiece"})
+        self.assertEqual(self.ids(missing["missing"]), ["onepiece~OP01-002", "onepiece~OP01-001"])
+        self.holding("a-op", USER_A, "onepiece~OP01-001")
+        self.conn.commit()
+        mine = self.call("get_my_collection", card_filter={"game": "onepiece"})
+        self.assertEqual(self.ids(mine["items"]), ["onepiece~OP01-001"])
+
+    def test_filter_validation(self) -> None:
+        from mcp_server.filters import normalize_card_filter
+
+        self.assertEqual(normalize_card_filter({"game": "Disney Lorcana"}), {"game": "lorcana"})
+        self.assertEqual(normalize_card_filter({"game": "any", "product": "any"}), {})
+        self.assertEqual(normalize_card_filter({"text": "One Piece"}), {"game": "onepiece"})
+        self.assertEqual(normalize_card_filter({"text": "luffy", "game": "onepiece"}),
+                         {"text": "luffy", "game": "onepiece"})
+        fluffy = self.call("search_cards", card_filter={"text": "One Piece"}, sort="price_desc")
+        self.assertEqual(self.ids(fluffy["results"])[0], "onepiece~OP01-001")
+        with self.assertRaises(ToolInputError):
+            normalize_card_filter({"game": "magic"})
+        with self.assertRaises(ToolInputError):
+            normalize_card_filter({"product": "boxes"})
+        with self.assertRaises(ToolInputError):
+            self.call("search_cards", card_filter={"scene": ["beach"], "game": "onepiece"})
+
+    # --- product -------------------------------------------------------------
+
+    def test_product_default_any_single_and_sealed(self) -> None:
+        both = self.call("search_cards", card_filter={}, sort="price_desc", limit=3)
+        self.assertEqual(self.ids(both["results"])[0], "tcgp-sealed-513409")
+        singles = self.call("search_cards", card_filter={"product": "single"}, sort="price_desc", limit=50)
+        self.assertNotIn("tcgp-sealed-513409", self.ids(singles["results"]))
+        self.assertEqual(self.ids(singles["results"])[0], "ssp-1")
+        sealed = self.call("search_cards", card_filter={"product": "sealed"}, sort="price_desc")
+        self.assertEqual(self.ids(sealed["results"]), ["tcgp-sealed-513409"])
+        # Text search: sealed product joins card hits unless product=single.
+        text_any = self.call("search_cards", card_filter={"text": "booster bundle"})
+        self.assertIn("tcgp-sealed-513409", self.ids(text_any["results"]))
+        text_single = self.call("search_cards", card_filter={"text": "booster bundle", "product": "single"})
+        self.assertNotIn("tcgp-sealed-513409", self.ids(text_single["results"]))
+        by_rarity = self.call("search_cards", card_filter={"rarity_bucket": ["other"], "product": "single"},
+                              sort="price_desc")
+        self.assertNotIn("tcgp-sealed-513409", self.ids(by_rarity["results"]))
+
+    # --- Japanese prices -----------------------------------------------------
+
+    def test_price_rankings_leave_out_japanese_unless_asked(self) -> None:
+        priciest = self.call("search_cards", card_filter={"product": "single"}, sort="price_desc", limit=50)
+        ids = self.ids(priciest["results"])
+        self.assertFalse({"jp-entei", "jp-tcg", "jp-1"} & set(ids), ids)
+        cheapest = self.call("search_cards", card_filter={"text": "lugia"}, sort="price_asc")
+        self.assertNotIn("jp-tcg", self.ids(cheapest["results"]))
+        japanese = self.call("search_cards", card_filter={"language": "Japanese"}, sort="price_desc")
+        by_id = {item["card_id"]: item for item in japanese["results"]}
+        self.assertEqual(self.ids(japanese["results"])[0], "jp-tcg")  # TCGplayer price ranks
+        self.assertEqual(by_id["jp-tcg"]["price_usd"], 300.0)
+        self.assertIsNone(by_id["jp-entei"]["price_usd"])  # Scrydex anchor: no fake number
+        # Relevance search keeps Japanese cards (no ranking), and find_missing nulls the anchor.
+        self.assertIn("jp-entei", self.ids(self.call("search_cards", card_filter={"text": "entei"})["results"]))
+        missing = self.call("find_missing", card_filter={"set": "Unseen Forces JP"})
+        self.assertIsNone(missing["missing"][0]["price_usd"])
+        self.assertIsNone(missing["cheapest_completion_usd"])
+
+    # --- graded --------------------------------------------------------------
+
+    def seed_graded(self) -> None:
+        self.graded_cell("ssp-1", "PSA", "10", 300.0)
+        self.graded_cell("ssp-1", "CGC", "10", 350.0)
+        self.graded_cell("ssp-1", "PSA", "10", 5000.0, signed=1)  # autograph premium: never ranks
+        self.graded_cell("ssp-2", "PSA", "10", 500.0)
+        self.graded_cell("ssp-3", "PSA", "9", 20.0)
+        self.graded_cell("jp-1", "PSA", "10", 9000.0)
+        self.graded_cell("ssp-4", "PSA", "10", 99999.0, days_ago=3, currency="JPY")
+        from catalog_tools import replace_slab_recent_sales_cache
+
+        replace_slab_recent_sales_cache(
+            self.conn, card_id="ssp-1", grader="PSA", grade="10", source="ebay",
+            sales=[{"sourceSaleID": "s1", "title": "Pikachu ex 238 PSA 10", "price": 700.0, "currencyCode": "USD",
+                    "soldAt": _days_ago(5)}],
+        )
+        self.conn.commit()
+
+    def test_top_graded_uses_last_sale_then_scrydex_and_skips_japanese(self) -> None:
+        self.seed_graded()
+        result = self.call("find_top_graded")
+        cards = result["cards"]
+        self.assertEqual(self.ids(cards), ["ssp-1", "ssp-2", "ssp-3"])
+        top = cards[0]
+        self.assertEqual((top["grader"], top["grade"], top["graded_price_usd"], top["price_source"]),
+                         ("PSA", "10", 700.0, "ebay_sold"))
+        self.assertEqual(top["price_usd"], 700.0)
+        self.assertEqual(top["price_basis"], "graded")
+        self.assertEqual((cards[1]["graded_price_usd"], cards[1]["price_source"]), (500.0, "scrydex"))
+        cgc = self.call("find_top_graded", grader="cgc", grade="10.0")
+        self.assertEqual([(c["card_id"], c["graded_price_usd"]) for c in cgc["cards"]], [("ssp-1", 350.0)])
+        japanese = self.call("find_top_graded", card_filter={"language": "Japanese"})
+        self.assertEqual(self.ids(japanese["cards"]), ["jp-1"])
+        self.assertEqual(self.ids(self.call("find_top_graded", owned="owned")["cards"]), ["ssp-1", "ssp-2", "ssp-3"])
+        self.assertEqual(self.ids(self.call("find_top_graded", USER_B, owned="owned")["cards"]), ["ssp-3"])
+        none = self.call("find_top_graded", card_filter={"game": "riftbound"})
+        self.assertEqual(none["cards"], [])
+        self.assertIn("no graded prices", none["note"])
+        with self.assertRaises(ToolInputError):
+            self.call("find_top_graded", grade="10")
+
+    def test_top_graded_falls_back_to_snapshot_contexts_without_fresh_cells(self) -> None:
+        import json
+
+        self.graded_cell("ssp-2", "PSA", "10", 500.0, days_ago=30)  # stale: staging writes none
+        contexts = {"graders": {"PSA": {"10": [{"market": 250.0, "currencyCode": "USD", "variant": "Holofoil"},
+                                                {"market": 9000.0, "isSigned": True}]}}}
+        self.conn.execute("UPDATE card_price_snapshots SET graded_contexts_json = ? WHERE card_id = 'ssp-1'",
+                          (json.dumps(contexts),))
+        self.conn.commit()
+        cards = self.call("find_top_graded")["cards"]
+        self.assertEqual([(c["card_id"], c["graded_price_usd"], c["price_source"]) for c in cards],
+                         [("ssp-1", 250.0, "scrydex")])
+        self.assertEqual(cards[0]["variant"], "Holofoil")
+
+    def test_tier_exposure_and_strict_budget(self) -> None:
+        from mcp_server.assistant.tools import TOOL_DEFINITIONS
+        from mcp_server.policy import PUBLIC_POLICY, USER_POLICY
+
+        self.assertTrue(USER_POLICY.allows_tool("find_top_graded"))
+        self.assertFalse(PUBLIC_POLICY.allows_tool("find_top_graded"))
+        self.seed_graded()
+        shaped_user = USER_POLICY.shape(self.call("find_top_graded"))
+        self.assertEqual(shaped_user["cards"][0]["graded_price_usd"], 700.0)
+        shaped_public = PUBLIC_POLICY.shape(self.call("find_top_graded"))
+        self.assertNotIn("graded_price_usd", shaped_public["cards"][0])
+        self.assertNotIn("price_usd", shaped_public["cards"][0])
+        by_name = {tool["name"]: tool for tool in TOOL_DEFINITIONS}
+        self.assertFalse(by_name["find_top_graded"].get("strict"))  # takes a CardFilter
+        strict = [tool for tool in TOOL_DEFINITIONS if tool.get("strict")]
+        optional = sum(len(set(t["input_schema"]["properties"]) - set(t["input_schema"]["required"])) for t in strict)
+        self.assertLessEqual(optional, 24)
+        filter_props = by_name["search_cards"]["input_schema"]["properties"]["filter"]["properties"]
+        self.assertIn("onepiece", filter_props["game"]["enum"])
+        self.assertEqual(filter_props["product"]["enum"], ["any", "single", "sealed"])
+
+
 if __name__ == "__main__":
     unittest.main()
