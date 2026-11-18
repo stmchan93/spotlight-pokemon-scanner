@@ -126,7 +126,7 @@ describe('AssistantScreen', () => {
     renderScreen({ listAssistantThreads: async () => ({ threads, nextCursor: null }), getAssistantThreadMessages });
     await waitFor(() => expect(getAssistantThreadMessages).toHaveBeenCalledWith('thr_latest'));
     // A labeled button: a bare icon read as "edit" (owner, 2026-11-17).
-    expect(screen.getByText('New chat')).toBeTruthy();
+    expect(screen.getByLabelText('New chat')).toBeTruthy();
     fireEvent.press(screen.getByTestId('assistant-new-chat'));
     expect(await screen.findByTestId('assistant-recent-thr_older')).toBeTruthy();
   });
