@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS assistant_messages (
     role TEXT NOT NULL, text TEXT NOT NULL, cards_json TEXT, actions_json TEXT,
     status TEXT NOT NULL DEFAULT 'ok', client_message_id TEXT,
     input_tokens INTEGER, output_tokens INTEGER, cost_usd REAL, tools_used TEXT,
-    created_at TEXT NOT NULL, suggestions_json TEXT
+    created_at TEXT NOT NULL, suggestions_json TEXT, tool_calls_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_messages_client
@@ -48,7 +48,10 @@ PREVIEW_CHARS = 120
 
 
 # Columns added after the tables first shipped: (table, column, SQL type).
-COLUMN_PATCHES = (("assistant_messages", "suggestions_json", "TEXT"),)
+COLUMN_PATCHES = (
+    ("assistant_messages", "suggestions_json", "TEXT"),
+    ("assistant_messages", "tool_calls_json", "TEXT"),
+)
 
 
 def ensure_schema(connection: sqlite3.Connection) -> None:
@@ -109,6 +112,16 @@ def _suggestions(raw: Any) -> list[str]:
     except (TypeError, ValueError):
         return []
     return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
+
+
+def _json_list(raw: Any) -> list[Any]:
+    if not raw:
+        return []
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    return value if isinstance(value, list) else []
 
 
 def message_payload(row: sqlite3.Row) -> dict[str, Any]:
@@ -175,18 +188,32 @@ class AssistantStore:
             (thread_id, owner_user_id),
         ).fetchone()
 
-    def history(self, owner_user_id: str, thread_id: str) -> list[dict[str, str]]:
-        """Last HISTORY_MESSAGES messages of the thread, oldest first, text only."""
+    def history(self, owner_user_id: str, thread_id: str) -> list[dict[str, Any]]:
+        """Last HISTORY_MESSAGES messages of the thread, oldest first: text plus,
+        for assistant rows, the tool calls and tiles behind the answer."""
         rows = self.conn.execute(
             """
-            SELECT role, text FROM assistant_messages
+            SELECT role, text, tools_used, tool_calls_json, cards_json FROM assistant_messages
             WHERE thread_id = ? AND owner_user_id = ?
             ORDER BY created_at DESC, rowid DESC
             LIMIT ?
             """,
             (thread_id, owner_user_id, HISTORY_MESSAGES),
         ).fetchall()
-        return [{"role": str(row["role"]), "text": str(row["text"])} for row in reversed(rows)]
+        history: list[dict[str, Any]] = []
+        for row in reversed(rows):
+            item: dict[str, Any] = {"role": str(row["role"]), "text": str(row["text"])}
+            if item["role"] == "assistant":
+                # Rows from before tool_calls_json: bare tool names still beat nothing.
+                calls = _json_list(row["tool_calls_json"]) or _json_list(row["tools_used"])
+                item["tool_calls"] = [str(call) for call in calls if isinstance(call, str)]
+                item["cards"] = [
+                    {key: card.get(key) for key in ("card_id", "name", "set", "number", "grader", "grade")}
+                    for card in _json_list(row["cards_json"])
+                    if isinstance(card, dict) and card.get("card_id")
+                ]
+            history.append(item)
+        return history
 
     def list_threads(self, owner_user_id: str, *, limit: int, cursor: str | None) -> dict[str, Any]:
         position = _decode_cursor(cursor)
@@ -320,8 +347,8 @@ class AssistantStore:
                 """
                 INSERT INTO assistant_messages (id, thread_id, owner_user_id, role, text, cards_json, actions_json,
                                                 status, client_message_id, input_tokens, output_tokens, cost_usd,
-                                                tools_used, created_at, suggestions_json)
-                VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                                tools_used, created_at, suggestions_json, tool_calls_json)
+                VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     reply_id,
@@ -338,6 +365,7 @@ class AssistantStore:
                     json.dumps(reply.get("tools_used") or []),
                     reply_created,
                     json.dumps(reply.get("suggestions") or []),
+                    json.dumps(reply.get("tool_calls") or []),
                 ),
             )
             conn.execute(

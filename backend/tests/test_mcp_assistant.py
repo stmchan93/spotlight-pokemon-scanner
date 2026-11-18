@@ -44,7 +44,9 @@ try:
         SYSTEM_PROMPT,
         TOO_LONG_TEXT,
         build_messages,
+        provenance_note,
         split_suggestions,
+        summarize_tool_call,
     )
     from mcp_server.assistant.store import HISTORY_MESSAGES, ensure_schema, message_payload
     from mcp_server.assistant.tools import MAX_CARDS, TOOL_DEFINITIONS, AssistantToolbox
@@ -839,12 +841,14 @@ class SuggestionTurnTests(AssistantCase):
         ensure_schema(conn)
         columns = [row[1] for row in conn.execute("PRAGMA table_info(assistant_messages)")]
         self.assertEqual(columns.count("suggestions_json"), 1)
+        self.assertEqual(columns.count("tool_calls_json"), 1)
         old = message_payload(conn.execute("SELECT * FROM assistant_messages").fetchone())
         self.assertEqual(old["suggestions"], [])
         conn.execute("UPDATE assistant_messages SET suggestions_json = 'not json'")
         self.assertEqual(message_payload(conn.execute("SELECT * FROM assistant_messages").fetchone())["suggestions"], [])
         conn.close()
         self.assertIn("suggestions_json", (BACKEND_ROOT / "schema.sql").read_text())
+        self.assertIn("tool_calls_json", (BACKEND_ROOT / "schema.sql").read_text())
 
     def test_system_prompt_keeps_safety_rules_and_asks_for_followups(self) -> None:
         for rule in (
@@ -864,6 +868,85 @@ class SuggestionTurnTests(AssistantCase):
         self.assertNotIn("Wishlist", SYSTEM_PROMPT)
         # Nothing volatile in the cached prefix.
         self.assertNotRegex(SYSTEM_PROMPT, r"20\d\d-\d\d-\d\d")
+
+
+class ProvenanceTests(AssistantCase):
+    """Prior answers carry what was looked up, so the model never disowns them."""
+
+    def first_turn(self) -> str:
+        self.client.queue(
+            message([tool_use("get_card", {"card_id": "ssp-1"}, "p1"),
+                     tool_use("get_price_history", {"card_id": "ssp-1", "range": "90d"}, "p2")], "tool_use"),
+            message([text("Pikachu ex is **$120** raw.")]),
+        )
+        return self.ask("What's my Pikachu ex worth?").json()["thread_id"]
+
+    def test_prior_answer_gets_provenance_note_after_reload_from_db(self) -> None:
+        thread_id = self.first_turn()
+        stored = self.conn.execute(
+            "SELECT tool_calls_json FROM assistant_messages WHERE role = 'assistant' AND thread_id = ?", (thread_id,)
+        ).fetchone()
+        self.assertEqual(json.loads(stored["tool_calls_json"]),
+                         ["get_card(card_id=ssp-1)", "get_price_history(card_id=ssp-1, range=90d)"])
+        self.build()  # fresh service + engine: history comes only from the DB
+        self.client.queue(message([text("Still $120.")]))
+        self.ask("Is that a good price?", thread_id=thread_id)
+        sent = self.client.messages.calls[-1]["messages"]
+        self.assertEqual([m["role"] for m in sent], ["user", "assistant", "user"])
+        prior = sent[1]["content"]
+        self.assertTrue(prior.startswith("Pikachu ex is **$120** raw.\n\n[Looked up with: "))
+        self.assertIn("get_card(card_id=ssp-1); get_price_history(card_id=ssp-1, range=90d)", prior)
+        self.assertIn("Cards shown: Pikachu ex Surging Sparks #238 [ssp-1]", prior)
+        self.assertTrue(prior.endswith("]"))
+        # The note is model-only: the app never sees it.
+        listed = self.http.get(f"/api/v1/assistant/threads/{thread_id}/messages", headers=bearer(USER_A)).json()
+        self.assertEqual(listed["messages"][1]["text"], "Pikachu ex is **$120** raw.")
+
+    def test_rows_without_tool_calls_fall_back_to_tool_names(self) -> None:
+        thread_id = self.first_turn()
+        self.conn.execute("UPDATE assistant_messages SET tool_calls_json = NULL WHERE thread_id = ?", (thread_id,))
+        self.conn.commit()
+        self.client.queue(message([text("ok")]))
+        self.ask("And graded?", thread_id=thread_id)
+        prior = self.client.messages.calls[-1]["messages"][1]["content"]
+        self.assertIn("[Looked up with: get_card; get_price_history.", prior)
+
+    def test_answer_without_tools_gets_no_note(self) -> None:
+        self.client.queue(message([text("PSA 10 is gem mint.")]))
+        thread_id = self.ask("What is a PSA 10?").json()["thread_id"]
+        self.ask("And a 9?", thread_id=thread_id)
+        self.assertEqual(self.client.messages.calls[-1]["messages"][1]["content"], "PSA 10 is gem mint.")
+
+    def test_echoed_note_is_stripped_from_new_answers(self) -> None:
+        self.client.queue(message([text("It's $120.\n[Looked up with: get_card(card_id=ssp-1)]")]))
+        self.assertEqual(self.ask().json()["message"]["text"], "It's $120.")
+
+    def test_summarize_flattens_filters_and_skips_paging(self) -> None:
+        call = summarize_tool_call(
+            "search_cards", {"filter": {"text": "kyogre ex", "language": "English", "pokemon": ["Kyogre", "Groudon"]},
+                             "sort": "price_desc", "limit": 10, "cursor": "abc"})
+        self.assertEqual(call, "search_cards(text=kyogre ex, language=English, pokemon=Kyogre|Groudon, sort=price_desc)")
+        self.assertLessEqual(len(summarize_tool_call("search_cards", {"text": "x" * 500, "set": "y" * 500})), 160)
+        self.assertIsNone(provenance_note([], [{"card_id": "ssp-1", "name": "Pikachu ex"}]))
+        note = provenance_note(["get_card(card_id=a)"] * 3, [{"card_id": "a", "name": "A", "grader": "PSA", "grade": "10"}])
+        self.assertEqual(note, "[Looked up with: get_card(card_id=a). Cards shown: A PSA 10 [a]]")
+
+    def test_system_prompt_has_coherence_rules(self) -> None:
+        for rule in (
+            "based on tool results you can no longer see",
+            "Trust your earlier answers",
+            "Never correct, retract, or disown an earlier answer unless the user says it's wrong or a new tool "
+            "result contradicts it",
+            "Never write a [Looked up with: ...] note yourself",
+            'never mention tools, tool calls, searches or lookups you ran, "this chat"',
+            "Only state what the tool results show",
+            "Never say a filter or sort was applied",
+            "unless the tool input used it",
+            "re-query with the right filter",
+            "under 50 words",
+            "about 90 words",
+        ):
+            self.assertIn(rule, SYSTEM_PROMPT)
 
 
 if __name__ == "__main__":
