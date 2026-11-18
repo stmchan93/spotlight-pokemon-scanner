@@ -38,8 +38,15 @@ try:
     from mcp_server import app as mcp_app
     from mcp_server.assistant import AssistantConfig, build_assistant_service, install_assistant
     from mcp_server.assistant.config import cost_usd
-    from mcp_server.assistant.engine import REFUSAL_TEXT, SYSTEM_PROMPT, TOO_LONG_TEXT, build_messages
-    from mcp_server.assistant.store import HISTORY_MESSAGES
+    from mcp_server.assistant.engine import (
+        EMPTY_TEXT,
+        REFUSAL_TEXT,
+        SYSTEM_PROMPT,
+        TOO_LONG_TEXT,
+        build_messages,
+        split_suggestions,
+    )
+    from mcp_server.assistant.store import HISTORY_MESSAGES, ensure_schema, message_payload
     from mcp_server.assistant.tools import MAX_CARDS, TOOL_DEFINITIONS, AssistantToolbox
 
     HAVE_DEPS = True
@@ -715,6 +722,148 @@ class MainBackendContractTests(AssistantCase):
             self.assertEqual(row["confirmation_source"], "add_assistant")
         finally:
             writable.connection.close()
+
+
+@unittest.skipUnless(HAVE_DEPS, "anthropic / mcp not installed")
+class SplitSuggestionsTests(unittest.TestCase):
+    def test_parses_and_strips_block(self) -> None:
+        visible, items = split_suggestions(
+            "It's about **$120** raw.\n\n<followups>\nIs it worth grading?\n- Add it to my Watchlist\n"
+            '2. "Show its price history"\n</followups>'
+        )
+        self.assertEqual(visible, "It's about **$120** raw.")
+        self.assertEqual(items, ["Is it worth grading?", "Add it to my Watchlist", "Show its price history"])
+
+    def test_absent_block_leaves_text_alone(self) -> None:
+        self.assertEqual(split_suggestions("Just an answer."), ("Just an answer.", []))
+        # A stray closing tag never shows.
+        self.assertEqual(split_suggestions("Answer.</followups>"), ("Answer.", []))
+
+    def test_caps_dedupes_and_drops_bad_lines(self) -> None:
+        body = "\n".join([
+            "Is it worth grading?", "is it worth grading?", "x" * 41, "<b>bad</b>", "Price in ¥?",
+            "", "Compare to PSA 10", "Watch it under $40", "A fourth one",
+        ])
+        visible, items = split_suggestions(f"Answer.\n<followups>\n{body}\n</followups>")
+        self.assertEqual(visible, "Answer.")
+        self.assertEqual(items, ["Is it worth grading?", "Compare to PSA 10", "Watch it under $40"])
+
+    def test_json_list_inside_block_and_malformed_json(self) -> None:
+        self.assertEqual(
+            split_suggestions('Ok.\n<followups>["Is it worth grading?", 3, "Add to Watchlist"]</followups>'),
+            ("Ok.", ["Is it worth grading?", "Add to Watchlist"]),
+        )
+        self.assertEqual(split_suggestions('Ok.\n<followups>["broken</followups>'), ("Ok.", []))
+        self.assertEqual(split_suggestions('Ok.\n<followups>{"a": 1}</followups>'), ("Ok.", []))
+
+    def test_unclosed_block(self) -> None:
+        # Finished but forgot the closing tag: keep the chips.
+        self.assertEqual(split_suggestions("Ok.\n<FollowUps>\nIs it worth grading?"), ("Ok.", ["Is it worth grading?"]))
+        # Cut off by max_tokens: the last line may be half a prompt, so drop all.
+        self.assertEqual(split_suggestions("Ok.\n<followups>\nIs it worth gr", "max_tokens"), ("Ok.", []))
+
+    def test_code_fenced_block_and_text_after_block_stay_hidden(self) -> None:
+        visible, items = split_suggestions("Ok.\n```\n<followups>\nWhat's trending?\n</followups>\n```\nextra")
+        self.assertEqual((visible, items), ("Ok.", ["What's trending?"]))
+
+
+class SuggestionTurnTests(AssistantCase):
+    REPLY = "**$120** raw.\n<followups>\nIs it worth grading?\nAdd it to my Watchlist\n</followups>"
+
+    def test_suggestions_on_reply_persisted_and_listed(self) -> None:
+        self.client.queue(message([thinking(), text(self.REPLY)]))
+        body = self.ask("What's my Pikachu ex worth?", cmid="sugg-1").json()
+        reply = body["message"]
+        self.assertEqual(reply["text"], "**$120** raw.")
+        self.assertEqual(reply["suggestions"], ["Is it worth grading?", "Add it to my Watchlist"])
+        self.assertEqual(body["user_message"]["suggestions"], [])
+        stored = self.conn.execute(
+            "SELECT text, suggestions_json FROM assistant_messages WHERE id = ?", (reply["id"],)
+        ).fetchone()
+        self.assertEqual(stored["text"], "**$120** raw.")
+        self.assertEqual(json.loads(stored["suggestions_json"]), reply["suggestions"])
+
+        listed = self.http.get(
+            f"/api/v1/assistant/threads/{body['thread_id']}/messages", headers=bearer(USER_A)
+        ).json()["messages"]
+        self.assertEqual([m["suggestions"] for m in listed], [[], reply["suggestions"]])
+        preview = self.http.get("/api/v1/assistant/threads", headers=bearer(USER_A)).json()["threads"][0]
+        self.assertEqual(preview["last_message_preview"], "**$120** raw.")
+        # Idempotent replay returns the same chips without a second call.
+        again = self.ask("What's my Pikachu ex worth?", cmid="sugg-1").json()["message"]
+        self.assertEqual(again["suggestions"], reply["suggestions"])
+        self.assertEqual(len(self.client.messages.calls), 1)
+
+    def test_history_sent_to_model_has_no_followups_block(self) -> None:
+        self.client.queue(message([text(self.REPLY)]))
+        thread_id = self.ask().json()["thread_id"]
+        self.ask("Is it worth grading?", thread_id=thread_id)
+        sent = self.client.messages.calls[-1]["messages"]
+        self.assertEqual(sent[1], {"role": "assistant", "content": "**$120** raw."})
+
+    def test_absent_and_malformed_blocks_give_empty_list(self) -> None:
+        self.client.queue(message([text("Plain answer.")]))
+        self.assertEqual(self.ask().json()["message"]["suggestions"], [])
+        self.client.queue(message([text("Answer.\n<followups>\n" + "y" * 80 + "\n</followups>")]))
+        reply = self.ask().json()["message"]
+        self.assertEqual((reply["text"], reply["suggestions"]), ("Answer.", []))
+
+    def test_block_only_reply_is_an_error_without_suggestions(self) -> None:
+        self.client.queue(message([text("<followups>\nWhat's trending?\n</followups>")]))
+        reply = self.ask().json()["message"]
+        self.assertEqual((reply["status"], reply["text"], reply["suggestions"]), ("error", EMPTY_TEXT, []))
+
+    def test_refusal_and_truncation_have_no_suggestions(self) -> None:
+        self.client.queue(message([text("<followups>\nHi\n</followups>")], "refusal"))
+        self.assertEqual(self.ask().json()["message"]["suggestions"], [])
+        self.client.queue(message([text("Your top card is\n<followups>\nIs it wor")], "max_tokens"))
+        reply = self.ask().json()["message"]
+        self.assertEqual((reply["text"], reply["suggestions"]), ("Your top card is…", []))
+
+    def test_schema_patch_adds_column_to_old_table_idempotently(self) -> None:
+        import sqlite3
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            "CREATE TABLE assistant_messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, owner_user_id TEXT NOT NULL,"
+            " role TEXT NOT NULL, text TEXT NOT NULL, cards_json TEXT, actions_json TEXT,"
+            " status TEXT NOT NULL DEFAULT 'ok', client_message_id TEXT, input_tokens INTEGER, output_tokens INTEGER,"
+            " cost_usd REAL, tools_used TEXT, created_at TEXT NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO assistant_messages (id, thread_id, owner_user_id, role, text, created_at)"
+            " VALUES ('m-old', 't', 'u', 'assistant', 'old reply', '2026-11-17T00:00:00Z')"
+        )
+        ensure_schema(conn)
+        ensure_schema(conn)
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(assistant_messages)")]
+        self.assertEqual(columns.count("suggestions_json"), 1)
+        old = message_payload(conn.execute("SELECT * FROM assistant_messages").fetchone())
+        self.assertEqual(old["suggestions"], [])
+        conn.execute("UPDATE assistant_messages SET suggestions_json = 'not json'")
+        self.assertEqual(message_payload(conn.execute("SELECT * FROM assistant_messages").fetchone())["suggestions"], [])
+        conn.close()
+        self.assertIn("suggestions_json", (BACKEND_ROOT / "schema.sql").read_text())
+
+    def test_system_prompt_keeps_safety_rules_and_asks_for_followups(self) -> None:
+        for rule in (
+            "Never show yen",
+            "Never invent a card, price",
+            "Use the tools for every fact",
+            'Watchlist" (never "wishlist")',
+            "don't predict or promise gains",
+            "find_price_lows",
+            "get_market_trends",
+            "call a propose_* tool",
+            "never invent others",
+            "<followups>",
+            "under 40 characters",
+        ):
+            self.assertIn(rule, SYSTEM_PROMPT)
+        self.assertNotIn("Wishlist", SYSTEM_PROMPT)
+        # Nothing volatile in the cached prefix.
+        self.assertNotRegex(SYSTEM_PROMPT, r"20\d\d-\d\d-\d\d")
 
 
 if __name__ == "__main__":

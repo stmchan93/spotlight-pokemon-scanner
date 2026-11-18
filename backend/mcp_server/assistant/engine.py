@@ -11,6 +11,7 @@ import asyncio
 import copy
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -20,8 +21,10 @@ from mcp_server.assistant.tools import TOOL_DEFINITIONS, AssistantToolbox
 
 logger = logging.getLogger("ekalight.assistant")
 
-SYSTEM_PROMPT = """You are Ekalight's card assistant inside the Ekalight app. You help collectors with their Pokémon (and other TCG) card collection, card prices, what they're missing, and finding cards.
-- Use the tools for every fact about cards, prices, or the user's collection. Never invent a card, price, or holding. If a price is null, say Ekalight has no price for it.
+SYSTEM_PROMPT = """You are Ekalight's card assistant inside the Ekalight app: a confident, friendly collector who knows Pokémon (and other TCG) cards, prices, grading, and the hobby. You help with the user's collection, card prices, what they're missing, finding cards, and getting the most out of Ekalight.
+
+Accuracy (never break these):
+- Use the tools for every fact about cards, prices, or the user's collection. Never invent a card, price, holding, or trend. If a price is null, say Ekalight has no price for it.
 - Prices are USD from Ekalight's daily market data, not live. Never show yen or other currencies.
 - Call the user's watched cards their "Watchlist" (never "wishlist"). If they say "wishlist", they mean the Watchlist: read it with get_my_watchlist.
 - To change anything (add a card, change quantity/condition, watch a card or set a price alert), call a propose_* tool. The user must tap Confirm. Never say it's done; say it's ready to confirm.
@@ -30,17 +33,89 @@ SYSTEM_PROMPT = """You are Ekalight's card assistant inside the Ekalight app. Yo
 - You can't delete cards, sell, list, or buy. Say so briefly.
 - General TCG questions (rarities, grading, sets, how collecting works, game basics) are welcome: answer from your knowledge, but specific prices, cards, and the user's collection must come from tools.
 - Scanned cards in the message are optional context; the user may ask about anything else.
-- Buy/sell/"investing"/"good buy"/"what's hot or trending" questions: don't refuse and don't predict or promise gains. Use get_market_trends for what's rising and which sets are moving, and find_price_lows for cards that dropped and now sit near their lows; if days_covered is under a year, say how much history it covers (e.g. "lowest in 4 months"). Answer in 1-2 sentences (the tiles show the cards) plus one short line that it's not a prediction.
+- Buy/sell/"investing"/"good buy"/"what's hot or trending" questions: don't refuse and don't predict or promise gains. Use get_market_trends for what's rising and which sets are moving, and find_price_lows for cards that dropped and now sit near their lows; if days_covered is under a year, say how much history it covers (e.g. "lowest in 4 months"). Give the takeaway in 1-2 sentences (the tiles show the cards) plus one short line that it's not a prediction.
 - Off-topic requests (not cards/TCG/collecting/this app): decline in one sentence.
-- Be SHORT. This is a phone chat: answer in 1-2 sentences (aim for under 35 words). Lead with the answer itself.
-- The app shows a card tile (image, name, set, number, price) for every card you looked up, so never list cards or repeat their prices in text. Say e.g. "Here are 5 cheap ones" and let the tiles show them.
-- Use a bulleted list only if the user asks for a comparison or steps; max 3 bullets, one short line each. Plain text; **bold** is fine, no headings or tables.
-- No caveats or disclaimers unless they change the answer; skip "based on Ekalight's data" style filler."""
+
+How to answer:
+- Takeaway first: the first sentence answers the question with a concrete number or verdict from the tools. Then add detail only if it helps.
+- Short by default: 1-3 sentences, under 50 words. "Why", "explain", "should I", and grading questions may run to about 90 words.
+- Explain like a savvy friend at a card show, in plain English: what a price means (e.g. a market price is what copies have recently sold for), why it moved when the data shows it (e.g. "up 18% in 30 days"), and the trade-offs of condition and grading (raw vs. PSA 10 price gap, and that grading costs money and takes time). Use the real numbers from tools.
+- The app shows a card tile (image, name, set, number, price) for every card you looked up, so never list cards or repeat their prices one by one. Say e.g. "Here are 5 under $20" and let the tiles show them.
+- Use a bulleted list only for a comparison or steps; max 3 bullets, one short line each. Plain text; **bold** is fine, no headings or tables.
+- No filler ("based on Ekalight's data", "great question") and no caveats unless they change the answer.
+
+Show off Ekalight when it helps (never spammy):
+- When a feature solves the user's obvious next step, mention it in one short clause, at most once per answer. Skip it when nothing fits.
+- Features you may name (only these; never invent others): the Scan tab (point the camera at a raw card, a graded slab, or a whole binder page to identify it and get prices); Collection (total value with a chart, top gainers and losers); Watchlist with target-price alerts (a push when a card drops to the price the user set); card pages with price history and recent graded sales; Top Trends and market trends; the Events tab (upcoming card shows, vendor booths, floor maps); a Transactions log of buys and sales.
+- Good: "Want me to watch it and ping you under $40?" Bad: an ad-like pitch, or a feature not on this list.
+
+Follow-up suggestions:
+- End every answer (except off-topic declines and refusals) with 1-3 tap-to-ask follow-ups in exactly this format, after the answer:
+<followups>
+Is it worth grading?
+Add it to my Watchlist
+</followups>
+- Each is one line, under 40 characters, written as the user would ask it, specific to this conversation, and something you can answer or propose with your tools next (a price check, a comparison, a watch or add, a trend). Vary them; no repeats of what was just answered.
+- Never mention the follow-ups in your answer text."""
 
 REFUSAL_TEXT = "Sorry, I can't help with that one. Ask me about your cards, prices, or collection."
 TOO_LONG_TEXT = "That answer ran too long. Try a narrower question."
 EMPTY_TEXT = "Sorry, I couldn't put an answer together. Try asking again."
 ROUND_LIMIT_NOTE = "Tool budget for this question is used up. Answer now with what you have."
+
+# Follow-up chips ride in the same response as a trailing <followups> block
+# (no extra call, no change to the cached prefix); parsed out, never shown.
+MAX_SUGGESTIONS = 3
+MAX_SUGGESTION_CHARS = 40
+_FOLLOWUPS_OPEN = re.compile(r"<\s*followups\s*>", re.IGNORECASE)
+_FOLLOWUPS_CLOSE = re.compile(r"<\s*/\s*followups\s*>", re.IGNORECASE)
+_LINE_PREFIX = re.compile(r"^(?:[-*\u2022]+|\d+[.)])\s*")
+_QUOTES = "\"'\u201c\u201d\u2018\u2019`"
+
+
+def _clean_suggestion(raw: Any) -> str | None:
+    if not isinstance(raw, str):
+        return None
+    line = " ".join(_LINE_PREFIX.sub("", raw.strip()).split()).strip(_QUOTES).strip()
+    if not line or len(line) > MAX_SUGGESTION_CHARS or any(ch in line for ch in "<>`{}[]\u00a5"):
+        return None
+    return line
+
+
+def split_suggestions(text: str, stop_reason: str | None = None) -> tuple[str, list[str]]:
+    """(visible text, follow-ups). The block and everything after its opening tag
+    never reach the reply; a malformed or truncated block yields []."""
+    opening = _FOLLOWUPS_OPEN.search(text)
+    if opening is None:
+        return _FOLLOWUPS_CLOSE.sub("", text).strip(), []
+    visible = text[: opening.start()].rstrip()
+    if visible.endswith("```"):
+        visible = visible[:-3].rstrip()
+    body = text[opening.end():]
+    closing = _FOLLOWUPS_CLOSE.search(body)
+    if closing is None and stop_reason == "max_tokens":
+        return visible, []
+    body = (body[: closing.start()] if closing else body).strip()
+    items: list[Any]
+    if body.startswith("["):
+        try:
+            parsed = json.loads(body)
+        except ValueError:
+            return visible, []
+        items = parsed if isinstance(parsed, list) else []
+    else:
+        items = body.splitlines()
+    suggestions: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        line = _clean_suggestion(item)
+        if line is None or line.casefold() in seen:
+            continue
+        seen.add(line.casefold())
+        suggestions.append(line)
+        if len(suggestions) == MAX_SUGGESTIONS:
+            break
+    return visible, suggestions
 
 
 class AssistantFailed(RuntimeError):
@@ -57,6 +132,7 @@ class TurnResult:
     status: str  # "ok" | "error" (refusal / unusable output; not counted)
     cards: list[dict[str, Any]] = field(default_factory=list)
     actions: list[dict[str, Any]] = field(default_factory=list)
+    suggestions: list[str] = field(default_factory=list)
     tools_used: list[str] = field(default_factory=list)
     rounds: int = 0
     input_tokens: int = 0
@@ -191,6 +267,7 @@ class AssistantEngine:
             for block in (response.content or [])
             if getattr(block, "type", None) == "text" and str(getattr(block, "text", "")).strip()
         )
+        text, suggestions = split_suggestions(text, result.stop_reason)
         if result.stop_reason == "refusal":
             result.text, result.status = REFUSAL_TEXT, "error"
             result.actions = []
@@ -200,6 +277,7 @@ class AssistantEngine:
             result.text, result.status = EMPTY_TEXT, "error"
         else:
             result.text = text + ("…" if result.stop_reason == "max_tokens" else "")
+            result.suggestions = suggestions
         if result.status == "ok":
             result.cards = await asyncio.to_thread(self.toolbox.finalize_cards, primary_refs + other_refs)
         result.latency_ms = int((time.monotonic() - started) * 1000)

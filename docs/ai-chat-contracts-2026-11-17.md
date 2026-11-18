@@ -85,6 +85,7 @@ AssistantMessage = {
   "text": str,                    # plain text; light markdown allowed: **bold**, bullet lines
   "cards": [CardRef],             # ≤12, built from TOOL RESULTS, never parsed from text
   "actions": [ProposedAction],    # assistant only
+  "suggestions": [str],           # assistant only (added 2026-11-18): 0-3 tap-to-ask follow-up prompts, each <=40 chars; [] for user messages, errors, refusals, and older rows. Tapping one = send it as the next question in the same thread.
   "created_at": ISO,
   "status": "ok" | "error"
 }
@@ -124,6 +125,7 @@ Write (return a ProposedAction, change nothing): `propose_add_to_collection`, `p
 Scanner context: when `context.card_ids` is present, tell the model "The user is looking at these scanned cards: …" with name/set/number/price per card (resolved server-side, ≤20).
 
 ## System prompt (draft; Agent A owns final wording)
+Final wording lives in `backend/mcp_server/assistant/engine.py` `SYSTEM_PROMPT` (rewritten 2026-11-18: takeaway-first explanations, feature mentions limited to a fixed list of real features, and a trailing `<followups>` block that `split_suggestions` strips into `AssistantMessage.suggestions`). The draft below is historical.
 ```
 You are Ekalight's card assistant inside the Ekalight app. You help collectors with their Pokémon (and other TCG) card collection, card prices, what they're missing, and finding cards.
 - Use the tools for every fact about cards, prices, or the user's collection. Never invent a card, price, or holding. If a price is null, say Ekalight has no price for it.
@@ -147,7 +149,8 @@ CREATE TABLE IF NOT EXISTS assistant_messages (
   role TEXT NOT NULL, text TEXT NOT NULL, cards_json TEXT, actions_json TEXT,
   status TEXT NOT NULL DEFAULT 'ok', client_message_id TEXT,
   input_tokens INTEGER, output_tokens INTEGER, cost_usd REAL, tools_used TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  suggestions_json TEXT           -- added 2026-11-18; older DBs get it via store.COLUMN_PATCHES (ALTER TABLE, idempotent)
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_messages_client ON assistant_messages(owner_user_id, client_message_id) WHERE client_message_id IS NOT NULL;
