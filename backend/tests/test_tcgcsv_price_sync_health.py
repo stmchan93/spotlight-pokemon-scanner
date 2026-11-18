@@ -59,9 +59,15 @@ class TcgcsvPriceSyncHealthTests(unittest.TestCase):
         self.assertAlmostEqual(health["hoursSinceSuccess"], 3, delta=0.2)
 
     def test_missed_day_is_stale(self):
-        self._run(status=PROVIDER_SYNC_STATUS_SUCCEEDED, completed_hours_ago=40)
+        self._run(status=PROVIDER_SYNC_STATUS_SUCCEEDED, completed_hours_ago=48)
         with patch.dict(os.environ, ENABLED):
             self.assertFalse(tcgcsv_price_sync_health(self.connection)["fresh"])
+
+    def test_schedule_move_gap_is_still_fresh(self):
+        # 1:05 PM -> 1:05 AM PT move leaves one ~36h gap between successes.
+        self._run(status=PROVIDER_SYNC_STATUS_SUCCEEDED, completed_hours_ago=36)
+        with patch.dict(os.environ, ENABLED):
+            self.assertTrue(tcgcsv_price_sync_health(self.connection)["fresh"])
 
     def test_never_succeeded_is_stale(self):
         self._run(status="failed", completed_hours_ago=1)

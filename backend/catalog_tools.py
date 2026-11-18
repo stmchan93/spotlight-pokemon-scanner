@@ -1477,7 +1477,9 @@ def provider_sync_run_is_fresh(
     return datetime.now(timezone.utc) - completed <= timedelta(hours=max_age_hours)
 
 
-TCGCSV_PRICE_SYNC_MAX_AGE_HOURS = 30.0
+# 40h: a missed day (48h) still trips it, but the one-time 36h gap from moving
+# the sync from 1:05 PM to 1:05 AM PT (2026-11-18) does not.
+TCGCSV_PRICE_SYNC_MAX_AGE_HOURS = 40.0
 
 
 def tcgcsv_price_sync_health(
@@ -1487,7 +1489,7 @@ def tcgcsv_price_sync_health(
 ) -> dict[str, Any]:
     """Freshness of the daily TCGCSV (TCGplayer) price sync, keyed on the last
     SUCCEEDED run so an in-flight run never reads as an outage. Daily cadence +
-    30h means one missed or failed day trips it."""
+    40h means one missed or failed day trips it."""
     enabled = str(os.environ.get("TCGCSV_SYNC_ENABLED") or "").strip().lower() in {"1", "true", "yes", "on"}
     row = connection.execute(
         """
