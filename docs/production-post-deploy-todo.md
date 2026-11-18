@@ -21,7 +21,7 @@ Why it waits for a deploy: prod has no sealed catalog yet. The sealed code
 
 1. **Catalog.** The TCGCSV sync ingests sealed products from its own crawl
    (`TCGCSV_SEALED_INGEST`, on by default). Run it once instead of waiting
-   for the daily 6 PM PT run:
+   for the daily 4:05 AM PT run:
    `ssh prod: cd /home/stephenchan && ./spotlight/run_tcgcsv_sync_vm.sh`
    Check: `SELECT COUNT(*) FROM cards WHERE supertype='Sealed'` is ~4,000
    (staging had 4,055).
