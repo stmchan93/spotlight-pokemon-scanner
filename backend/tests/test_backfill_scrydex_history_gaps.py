@@ -206,6 +206,54 @@ class BackfillScrydexHistoryGapsTests(unittest.TestCase):
         self._run(max_requests=100)
         self.assertEqual(self.fetch_calls.count(self.fetch_calls[0]), 2)
 
+    def test_new_gap_day_only_refetches_that_day(self) -> None:
+        requested: list[tuple[str, list[str]]] = []
+
+        def fetch(card_id: str, *, game: str, days: int) -> dict:
+            window = [(TODAY - timedelta(days=offset)).isoformat() for offset in range(days - 1, -1, -1)]
+            if card_id == "sv1-0":
+                window = [day for day in window if day != "2026-11-13"]  # Scrydex has nothing that day
+            requested.append((card_id, days))
+            return _history_payload(window, 99.0)
+
+        self._run(fetch=fetch)
+        self.assertEqual(len(requested), 20)
+        # A new failed day shows up later (e.g. a sync that missed 11/10).
+        self.connection.execute("DELETE FROM card_price_history_daily WHERE price_date = '2026-11-10'")
+        self.connection.execute("DELETE FROM card_price_history_cell WHERE price_date = '2026-11-10'")
+        self.connection.commit()
+        requested.clear()
+        summary = self._run(fetch=fetch)
+        # Every card is fetched once more, for the new day only — sv1-0's
+        # empty 11/13 is not asked for again.
+        self.assertEqual(summary["requests"], 20)
+        self.assertEqual(summary["datesWritten"], 20)
+        self.assertEqual({days for _, days in requested}, {(TODAY - date(2026, 11, 10)).days + 1})
+        requested.clear()
+        self.assertEqual(self._run(fetch=fetch)["requests"], 0)
+
+    def test_every_request_is_its_own_ledger_row(self) -> None:
+        def flaky_fetch(card_id: str, *, game: str, days: int) -> dict:
+            self.fetch_calls.append((card_id, days))
+            raise TimeoutError("timed out")
+
+        self._run(fetch=flaky_fetch, max_requests=3)
+        self._run(fetch=flaky_fetch, max_requests=3)
+        cycle = backfill.requests_this_cycle(self.connection, date(2026, 11, 7))
+        self.assertEqual(cycle, 6)
+
+    def test_requests_logged_before_the_dates_table_count_as_tried(self) -> None:
+        backfill.ensure_progress_table(self.connection)
+        self.connection.execute(f"DROP TABLE {backfill.DATES_TABLE}")
+        for card_id in self.card_ids:
+            self.connection.execute(
+                f"INSERT INTO {backfill.PROGRESS_TABLE} (card_id, gap_dates, attempted_at, status) VALUES (?, ?, ?, 'no_data')",
+                (card_id, "2026-11-12,2026-11-13", "2026-11-15T00:00:00+00:00"),
+            )
+        self.connection.commit()
+        self.assertEqual(self._run(dry_run=True)["pending"], 0)
+        self.assertEqual(self._run()["requests"], 0)
+
     def test_billing_cycle_start(self) -> None:
         self.assertEqual(backfill.billing_cycle_start(date(2026, 11, 16), 7), date(2026, 11, 7))
         self.assertEqual(backfill.billing_cycle_start(date(2026, 12, 3), 7), date(2026, 11, 7))
