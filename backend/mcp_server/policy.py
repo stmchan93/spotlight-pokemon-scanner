@@ -32,6 +32,7 @@ READ_TOOLS = (
     "identify_card",
     "find_price_lows",
     "get_market_trends",
+    "find_top_graded",
 )
 # Change the account; user tier only, and only while the owner's
 # "Let AI assistants edit my collection" toggle is on (mcp_server/write_tools.py).
@@ -102,6 +103,9 @@ USER_CARD_FIELDS = frozenset(
         "days_covered",
         "at_window_low",
         "window_days",
+        # find_top_graded
+        "graded_price_usd",
+        "price_basis",
     }
 )
 PUBLIC_CARD_FIELDS = frozenset(

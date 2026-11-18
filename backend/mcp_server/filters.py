@@ -6,7 +6,7 @@ import base64
 import json
 from typing import Any
 
-from catalog_tools import RARITY_BUCKET_KEYS
+from catalog_tools import GAMES, RARITY_BUCKET_KEYS, SUPPORTED_GAMES, _normalized_game_key
 
 
 class ToolInputError(ValueError):
@@ -41,12 +41,21 @@ STRING_FIELDS = ("text", "artist", "theme", "set")
 TEXT_ALIASES = ("name", "query")
 POKEMON_ROLES = ("any", "main", "background_or_cameo")
 LANGUAGES = ("English", "Japanese", "any")
+PRODUCTS = ("single", "sealed", "any")
+# "One Piece", "one-piece", "Disney Lorcana" -> the catalog's cards.game key.
+GAME_NAMES = {
+    _normalized_game_key(name): game_id
+    for game_id, game in GAMES.items()
+    for name in (game_id, game.display_name, *game.aliases)
+}
 ALL_FIELDS = (
     *STRING_FIELDS,
     *TEXT_ALIASES,
     *LIST_FIELDS,
     "pokemon_role",
     "language",
+    "game",
+    "product",
     "price_min_usd",
     "price_max_usd",
 )
@@ -77,6 +86,11 @@ def normalize_card_filter(raw: dict[str, Any] | None) -> dict[str, Any]:
     raw = {key: value for key, value in raw.items() if key not in TEXT_ALIASES}
     if text_parts:
         raw["text"] = " ".join(text_parts)
+        # text="One Piece" means the game (it matched Pokémon "Fluffy Berry").
+        named_game = GAME_NAMES.get(_normalized_game_key(raw["text"]))
+        if named_game and not str(raw.get("game") or "").strip():
+            raw["game"] = named_game
+            del raw["text"]
 
     clean: dict[str, Any] = {}
     for field in STRING_FIELDS:
@@ -127,6 +141,21 @@ def normalize_card_filter(raw: dict[str, Any] | None) -> dict[str, Any]:
             raise ToolInputError("language must be English, Japanese, or any.")
         if matched != "any":
             clean["language"] = matched
+
+    game = raw.get("game")
+    if game is not None and str(game).strip() and str(game).strip().lower() != "any":
+        key = GAME_NAMES.get(_normalized_game_key(str(game)))
+        if key is None:
+            raise ToolInputError(f"game must be one of {', '.join(SUPPORTED_GAMES)} (or any).")
+        clean["game"] = key
+
+    product = raw.get("product")
+    if product is not None and str(product).strip():
+        product = str(product).strip().lower()
+        if product not in PRODUCTS:
+            raise ToolInputError(f"product must be one of {', '.join(PRODUCTS)}.")
+        if product != "any":
+            clean["product"] = product
 
     for field in ("price_min_usd", "price_max_usd"):
         value = raw.get(field)

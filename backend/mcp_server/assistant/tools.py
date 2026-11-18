@@ -1,9 +1,9 @@
-"""Tools the assistant model sees: the 10 CollectionTools reads (owner = the
+"""Tools the assistant model sees: the 11 CollectionTools reads (owner = the
 request user, DB-only) plus 3 propose_* tools that validate and return a
 ProposedAction without changing anything.
 
 Strict mode: the API caps strict schemas at 24 optional parameters per request,
-and the four filter tools alone carry ~80 (CardFilter x 4), so those four are
+and the five filter tools alone carry ~100 (CardFilter x 5), so those five are
 sent non-strict and validated server-side by normalize_card_filter; every other
 tool (incl. all propose_* writes) is strict.
 """
@@ -21,8 +21,12 @@ from mcp_server.policy import USER_POLICY
 from mcp_server.assistant.store import new_id
 from mcp_server.tools import (
     DECK_CONDITION_CODES,
+    GAME_FILTER_NOTE,
     MARKET_TRENDS_DESCRIPTION,
     PRICE_LOWS_DESCRIPTION,
+    PRICE_RANK_NOTE,
+    PRODUCT_FILTER_NOTE,
+    TOP_GRADED_DESCRIPTION,
     WATCHLIST_DESCRIPTION,
     CollectionTools,
 )
@@ -44,17 +48,31 @@ MODEL_LIMITS = {
     "find_price_lows": 20,
     "get_my_collection": 50,
     "get_my_watchlist": 50,
+    "find_top_graded": 20,
 }
-FILTER_TOOLS = ("search_cards", "get_my_collection", "find_missing", "find_price_lows")
+FILTER_TOOLS = ("search_cards", "get_my_collection", "find_missing", "find_price_lows", "find_top_graded")
 
 _FILTER_SCHEMA: dict[str, Any] = {
     "type": "object",
-    "description": "All fields optional; combined with AND. Give at least one of text/set/artist/rarity_bucket or an art filter.",
+    "description": (
+        "All fields optional; combined with AND. Give at least one of text/set/artist/rarity_bucket/game "
+        "or an art filter (a price sort may use just {game})."
+    ),
     "properties": {
         "text": {"type": "string", "description": "Card name search (case-insensitive), optionally with set or number, e.g. 'charizard ex'."},
         "set": {"type": "string", "description": "Set name or code, e.g. 'Evolving Skies'."},
         "artist": {"type": "string", "description": "Illustrator name."},
         "language": {"type": "string", "enum": ["English", "Japanese", "any"]},
+        "game": {
+            "type": "string",
+            "enum": [*SUPPORTED_GAMES, "any"],
+            "description": "TCG; default pokemon. One Piece = onepiece, Disney Lorcana = lorcana. Never put a game name in text.",
+        },
+        "product": {
+            "type": "string",
+            "enum": ["any", "single", "sealed"],
+            "description": "Default any (cards and sealed together). single when the user wants single cards / not sealed; sealed for booster boxes, ETBs, bundles, tins.",
+        },
         "rarity_bucket": {
             "type": "array",
             "items": {"type": "string", "enum": ["sir", "illustration", "ultra", "secret", "shiny", "promo", "standard", "other"]},
@@ -84,7 +102,9 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "name": "search_cards",
         "description": (
             "Search Ekalight's card catalog. owned='owned'/'not_owned' limits to cards the user does or does "
-            "not own. Prices are USD from Ekalight's stored daily market data."
+            "not own. Prices are USD from Ekalight's stored daily market data. "
+            + GAME_FILTER_NOTE + " " + PRODUCT_FILTER_NOTE + " " + PRICE_RANK_NOTE
+            + " For 'most expensive cards' also call find_top_graded: graded slab prices are often the better answer."
         ),
         "input_schema": _obj(
             {
@@ -121,7 +141,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "Cards matching the filter that the user does not own, cheapest first. Use for 'what am I missing', "
             "set/theme completion, and shopping lists. If total_is_lower_bound is true, counts are minimums: "
             "say 'at least N'. cheapest_completion_usd is null when not every missing card was priced; then "
-            "don't state a completion cost."
+            "don't state a completion cost. " + GAME_FILTER_NOTE
         ),
         "input_schema": _obj(
             {
@@ -197,6 +217,20 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "min_price_usd": {"type": "number"},
                 "max_price_usd": {"type": "number"},
                 "limit": {"type": "integer", "description": "1-20, default 6."},
+            },
+            [],
+        ),
+    },
+    {
+        "name": "find_top_graded",
+        "description": TOP_GRADED_DESCRIPTION,
+        "input_schema": _obj(
+            {
+                "filter": _FILTER_SCHEMA,
+                "grader": {"type": "string", "description": "e.g. PSA, CGC, BGS."},
+                "grade": {"type": "string", "description": "e.g. '10'. Needs grader."},
+                "owned": {"type": "string", "enum": ["any", "owned", "not_owned"]},
+                "limit": {"type": "integer", "description": "1-20, default 10."},
             },
             [],
         ),
@@ -281,6 +315,7 @@ READ_TOOLS = (
     "get_price_history",
     "find_price_lows",
     "get_market_trends",
+    "find_top_graded",
 )
 
 

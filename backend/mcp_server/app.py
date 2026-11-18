@@ -37,7 +37,11 @@ from mcp_server.identify import register_identify_card  # noqa: E402
 from mcp_server.policy import USER_POLICY, ResponsePolicy  # noqa: E402
 from mcp_server.rate_limit import RateLimitExceeded, UserRateLimiter  # noqa: E402
 from mcp_server.tools import (  # noqa: E402
+    GAME_FILTER_NOTE,
     MARKET_TRENDS_DESCRIPTION,
+    PRICE_RANK_NOTE,
+    PRODUCT_FILTER_NOTE,
+    TOP_GRADED_DESCRIPTION,
     PRICE_LOWS_DESCRIPTION,
     WATCHLIST_DESCRIPTION,
     CollectionTools,
@@ -90,6 +94,20 @@ class CardFilter(BaseModel):
     set: str | None = Field(None, description="Set name or code, e.g. 'Evolving Skies'.")
     rarity_bucket: list[RarityBucket] | None = Field(None, description="Rarity groups.")
     language: Literal["English", "Japanese", "any"] | None = Field(None, description="Card language.")
+    game: str | None = Field(
+        None,
+        description=(
+            "TCG: pokemon (default), onepiece (One Piece), lorcana (Disney Lorcana), riftbound, gundam, "
+            "or any. Friendly names like 'One Piece' are accepted."
+        ),
+    )
+    product: Literal["single", "sealed", "any"] | None = Field(
+        None,
+        description=(
+            "any (default): single cards and sealed product; single: cards only, no sealed; sealed: booster "
+            "boxes, ETBs, bundles, tins."
+        ),
+    )
     price_min_usd: float | None = Field(None, ge=0, description="Minimum USD market price.")
     price_max_usd: float | None = Field(None, ge=0, description="Maximum USD market price.")
 
@@ -268,12 +286,13 @@ def build_server(
         description=(
             "Search Ekalight's card catalog with a filter. Filter fields (all optional, ANDed): "
             "text (card name, case-insensitive; aliases: name, query), set, artist, rarity_bucket, "
-            "language, price_min_usd, price_max_usd, and the art filters pokemon, pokemon_role, scene, "
-            "weather_time, activity, mood, art_style, palette, theme (values from list_facets). "
-            "Give at least one of text/set/artist/rarity_bucket or an art filter. "
+            "language, game, product, price_min_usd, price_max_usd, and the art filters pokemon, "
+            "pokemon_role, scene, weather_time, activity, mood, art_style, palette, theme (values from "
+            "list_facets; Pokémon singles only). "
+            + GAME_FILTER_NOTE + " " + PRODUCT_FILTER_NOTE + " " + PRICE_RANK_NOTE + " "
             "owned='owned'/'not_owned' limits to cards the user does or does not own. Prices are USD "
             "from Ekalight's stored market data; price_source names who supplied each number "
-            "(tcgplayer or scrydex)."
+            "(tcgplayer or scrydex). For the most valuable graded slabs use find_top_graded."
         ),
         annotations=READ_ONLY,
     )
@@ -345,8 +364,10 @@ def build_server(
         description=(
             "Cards matching the filter that the user does not own, cheapest first. Use for 'what am I "
             "missing', set/theme completion, and shopping lists. Prices are USD from Ekalight's stored "
-            "market data. When total_is_lower_bound is true the counts are minimums: say 'at least N'. "
-            "cheapest_completion_usd is null when not every missing card could be priced."
+            "market data (Japanese cards are priced only from TCGplayer, else null). When "
+            "total_is_lower_bound is true the counts are minimums: say 'at least N'. "
+            "cheapest_completion_usd is null when not every missing card could be priced. "
+            + GAME_FILTER_NOTE + " " + PRODUCT_FILTER_NOTE
         ),
         annotations=READ_ONLY,
     )
@@ -431,6 +452,26 @@ def build_server(
         window: Literal["7d", "30d", "90d"] = "30d",
     ) -> dict[str, Any]:
         return await runner.run("get_market_trends", game=game, window=window)
+
+    @_register(server, policy)(
+        description=TOP_GRADED_DESCRIPTION,
+        annotations=READ_ONLY,
+    )
+    async def find_top_graded(
+        filter: CardFilter | None = None,
+        grader: Annotated[str | None, Field(description="Grading company, e.g. PSA, CGC, BGS.")] = None,
+        grade: Annotated[str | None, Field(description="Slab grade, e.g. '10'. Needs grader.")] = None,
+        owned: Literal["any", "owned", "not_owned"] = "any",
+        limit: Annotated[int, Field(ge=1, le=20)] = 10,
+    ) -> dict[str, Any]:
+        return await runner.run(
+            "find_top_graded",
+            card_filter=_filter_dict(filter),
+            grader=grader,
+            grade=grade,
+            owned=owned,
+            limit=limit,
+        )
 
     register_identify_card(server, policy, runner, token_getter=token_getter)
 

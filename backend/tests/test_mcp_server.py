@@ -331,7 +331,7 @@ class HttpAppTests(_SeededDb):
         tools = {tool["name"]: tool for tool in body["result"]["tools"]}
         read_tools = {"list_facets", "search_cards", "get_card", "get_my_collection",
                       "get_my_watchlist", "get_portfolio_summary", "find_missing", "get_price_history",
-                      "identify_card", "find_price_lows", "get_market_trends"}
+                      "identify_card", "find_price_lows", "get_market_trends", "find_top_graded"}
         write_tools = {"add_to_collection", "update_holding", "watch_card"}
         self.assertEqual(set(tools), read_tools | write_tools)
         self.assertTrue(all(tools[name]["annotations"]["readOnlyHint"] for name in read_tools))
