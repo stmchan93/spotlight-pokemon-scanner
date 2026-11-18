@@ -1050,7 +1050,8 @@ CREATE TABLE IF NOT EXISTS assistant_messages (
     cost_usd REAL,
     tools_used TEXT,
     created_at TEXT NOT NULL,
-    suggestions_json TEXT
+    suggestions_json TEXT,
+    charts_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_messages_client

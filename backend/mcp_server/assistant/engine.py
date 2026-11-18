@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from mcp_server.assistant.config import AssistantConfig, cost_usd
-from mcp_server.assistant.tools import TOOL_DEFINITIONS, AssistantToolbox
+from mcp_server.assistant.tools import MAX_CHARTS, TOOL_DEFINITIONS, AssistantToolbox
 
 logger = logging.getLogger("ekalight.assistant")
 
@@ -29,6 +29,7 @@ Accuracy (never break these):
 - Call the user's watched cards their "Watchlist" (never "wishlist"). If they say "wishlist", they mean the Watchlist: read it with get_my_watchlist.
 - To change anything (add a card, change quantity/condition, watch a card or set a price alert), call a propose_* tool. The user must tap Confirm. Never say it's done; say it's ready to confirm.
 - Copy every detail the user gave into the propose_* call: always pass quantity (e.g. "add 2" means quantity 2) and the condition, printing, or grade they named.
+- For a card's price history or trend, call get_price_history so the app shows a chart; keep the text to one sentence summarizing the move.
 - If a tool says total_is_lower_bound, say "at least" with its counts.
 - You can't delete cards, sell, list, or buy. Say so briefly.
 - General TCG questions (rarities, grading, sets, how collecting works, game basics) are welcome: answer from your knowledge, but specific prices, cards, and the user's collection must come from tools.
@@ -133,6 +134,7 @@ class TurnResult:
     cards: list[dict[str, Any]] = field(default_factory=list)
     actions: list[dict[str, Any]] = field(default_factory=list)
     suggestions: list[str] = field(default_factory=list)
+    charts: list[dict[str, Any]] = field(default_factory=list)
     tools_used: list[str] = field(default_factory=list)
     rounds: int = 0
     input_tokens: int = 0
@@ -140,6 +142,18 @@ class TurnResult:
     cost_usd: float = 0.0
     latency_ms: int = 0
     stop_reason: str | None = None
+
+
+def _distinct_charts(charts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One chart per series; a repeat call keeps its first result."""
+    seen: set[tuple[Any, ...]] = set()
+    out: list[dict[str, Any]] = []
+    for chart in charts:
+        key = tuple(chart.get(k) for k in ("card_id", "variant", "condition", "grader", "grade", "range"))
+        if key not in seen:
+            seen.add(key)
+            out.append(chart)
+    return out
 
 
 def _tools_payload() -> list[dict[str, Any]]:
@@ -215,6 +229,7 @@ class AssistantEngine:
         # Cards from proposals and get_card first (the specific answer), then the rest.
         primary_refs: list[dict[str, Any]] = []
         other_refs: list[dict[str, Any]] = []
+        charts: list[dict[str, Any]] = []
         response = None
         tool_rounds = 0
         while True:
@@ -253,6 +268,8 @@ class AssistantEngine:
                 )
                 if outcome.action is not None:
                     result.actions.append(outcome.action)
+                if outcome.chart is not None:
+                    charts.append(outcome.chart)
                 (primary_refs if block.name.startswith("propose_") or block.name == "get_card" else other_refs).extend(
                     outcome.cards
                 )
@@ -280,5 +297,6 @@ class AssistantEngine:
             result.suggestions = suggestions
         if result.status == "ok":
             result.cards = await asyncio.to_thread(self.toolbox.finalize_cards, primary_refs + other_refs)
+            result.charts = _distinct_charts(charts)[:MAX_CHARTS]
         result.latency_ms = int((time.monotonic() - started) * 1000)
         return result

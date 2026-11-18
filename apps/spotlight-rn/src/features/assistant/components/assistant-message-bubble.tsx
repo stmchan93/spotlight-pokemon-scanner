@@ -12,6 +12,7 @@ import {
   type AssistantActionUiState,
 } from '@/features/assistant/components/assistant-action-card';
 import { AssistantCardTile } from '@/features/assistant/components/assistant-card-tile';
+import { AssistantPriceChartCard } from '@/features/assistant/components/assistant-price-chart';
 
 const ENTER_MS = 220;
 const PRESSED_OPACITY = 0.7;
@@ -76,6 +77,14 @@ export function AssistantMessageBubble({
           text={message.text}
         />
       </Pressable>
+      {(message.charts ?? []).map((chart, index) => (
+        <AssistantPriceChartCard
+          chart={chart}
+          key={`${chart.cardId}-${index}`}
+          onOpenCard={onOpenCard}
+          testID={`${testID}-chart-${index}`}
+        />
+      ))}
       {message.cards.length > 0 ? (
         <ScrollView
           contentContainerStyle={styles.cardRail}
