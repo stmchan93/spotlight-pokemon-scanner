@@ -86,6 +86,7 @@ AssistantMessage = {
   "cards": [CardRef],             # ≤12, built from TOOL RESULTS, never parsed from text
   "actions": [ProposedAction],    # assistant only
   "suggestions": [str],           # assistant only (added 2026-11-18): 0-3 tap-to-ask follow-up prompts, each <=40 chars; [] for user messages, errors, refusals, and older rows. Tapping one = send it as the next question in the same thread.
+  "charts": [PriceChart],         # assistant only (added 2026-11-18): 0-2; [] for user messages, errors, refusals, and older rows
   "created_at": ISO,
   "status": "ok" | "error"
 }
@@ -94,6 +95,15 @@ CardRef = {
   "image_small_url", "price_usd": float | null,
   "variant": str | null, "grader": str | null, "grade": str | null,
   "quantity_owned": int | null, "app_url"
+}
+PriceChart = {                    # one per distinct get_price_history series the model called this turn,
+                                  # built from the TOOL RESULT (never model text); omitted when <2 points
+  "card_id", "name",
+  "variant": str | null, "condition": "NM".."DMG" | null (null when graded),
+  "grader": str | null, "grade": str | null,
+  "range": "30d" | "90d" | "1y",
+  "points": [{"date": "YYYY-MM-DD", "usd": float}],   # oldest first, USD only, <=90 (downsampled, ends kept)
+  "source": "tcgplayer" | "scrydex" | null           # source of the newest point
 }
 ProposedAction = {
   "id": "act_...", "type": "add_to_collection" | "update_holding" | "watch_card",
@@ -152,6 +162,7 @@ CREATE TABLE IF NOT EXISTS assistant_messages (
   created_at TEXT NOT NULL,
   suggestions_json TEXT,          -- added 2026-11-18; older DBs get it via store.COLUMN_PATCHES (ALTER TABLE, idempotent)
   tool_calls_json TEXT            -- added 2026-11-18: compact 'name(key=value)' per tool call, for history provenance (same patch path)
+  charts_json TEXT                -- added 2026-11-18 (PriceChart list); same COLUMN_PATCHES path
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_messages_client ON assistant_messages(owner_user_id, client_message_id) WHERE client_message_id IS NOT NULL;

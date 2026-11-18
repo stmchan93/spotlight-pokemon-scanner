@@ -5,6 +5,7 @@ import type {
   AssistantCardRef,
   AssistantContext,
   AssistantMessage,
+  AssistantPriceChart,
   AssistantProposedAction,
   AssistantThreadSummary,
   AssistantUsage,
@@ -69,7 +70,29 @@ export function mockAssistantUsage(usedToday: number, limit: number | null = MOC
   };
 }
 
-type MockReply = Pick<AssistantMessage, 'text' | 'cards' | 'actions' | 'suggestions'>;
+/** Celebi NM over ~3 months: $31 to $37.54 (deterministic, every 3rd day). */
+export function mockAssistantPriceChart(endDate = '2026-11-17'): AssistantPriceChart {
+  const end = new Date(`${endDate}T12:00:00Z`).getTime();
+  const points = Array.from({ length: 30 }, (_, index) => {
+    const daysAgo = (29 - index) * 3;
+    const date = new Date(end - daysAgo * 86_400_000).toISOString().slice(0, 10);
+    const usd = index === 29 ? 37.54 : Math.round((31 + index * 0.2 + Math.sin(index / 2) * 0.8) * 100) / 100;
+    return { date, usd };
+  });
+  return {
+    cardId: mockAssistantCards.celebi.cardId,
+    name: 'Celebi',
+    variant: null,
+    condition: 'NM',
+    grader: null,
+    grade: null,
+    range: '90d',
+    points,
+    source: 'tcgplayer',
+  };
+}
+
+type MockReply = Pick<AssistantMessage, 'text' | 'cards' | 'actions' | 'suggestions' | 'charts'>;
 
 /** Canned answer keyed off the question's wording, so each action type is reachable from the composer. */
 export function buildMockAssistantReply(
@@ -93,6 +116,16 @@ export function buildMockAssistantReply(
       cards: [celebi],
       actions: [action],
       suggestions: ['What else is on my Watchlist?', 'Show its price history'],
+    };
+  }
+
+  if (/\b(history|trend|chart)\b/.test(question)) {
+    return {
+      text: '**Celebi** climbed about **21%** over the past 3 months, to $37.54.',
+      cards: [celebi],
+      actions: [],
+      charts: [mockAssistantPriceChart()],
+      suggestions: ["What's it worth in PSA 10?", 'Watch Celebi with an alert under $30'],
     };
   }
 

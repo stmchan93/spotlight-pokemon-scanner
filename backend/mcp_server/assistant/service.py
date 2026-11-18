@@ -174,6 +174,7 @@ class AssistantService:
             "cards": turn.cards,
             "actions": turn.actions,
             "suggestions": turn.suggestions,
+            "charts": turn.charts,
             "status": turn.status,
             "input_tokens": turn.input_tokens,
             "output_tokens": turn.output_tokens,

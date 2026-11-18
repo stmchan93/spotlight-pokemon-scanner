@@ -1,7 +1,8 @@
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import type { AssistantCardRef } from '@spotlight/api-client';
-import { Text, layout, radii, spacing, useSpotlightTheme } from '@spotlight/design-system';
+import { AppText, Text, layout, radii, spacing, useSpotlightTheme } from '@spotlight/design-system';
 
 import { CachedImage } from '@/components/cached-image';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
@@ -23,6 +24,9 @@ type AssistantCardTileProps = {
 export function AssistantCardTile({ card, onPress, testID }: AssistantCardTileProps) {
   const theme = useSpotlightTheme();
   const owned = card.quantityOwned ?? 0;
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [card.imageSmallUrl]);
+  const showImage = Boolean(card.imageSmallUrl) && !imageFailed;
   return (
     <Pressable
       accessibilityLabel={`${card.name}, ${assistantCardMeta(card)}`}
@@ -38,10 +42,21 @@ export function AssistantCardTile({ card, onPress, testID }: AssistantCardTilePr
       ]}
       testID={testID}
     >
-      <View style={[styles.art, { backgroundColor: theme.colors.gray100 }]}>
-        {card.imageSmallUrl ? (
-          <CachedImage contentFit="contain" style={styles.fill} uri={card.imageSmallUrl} />
-        ) : null}
+      <View style={[styles.art, { backgroundColor: showImage ? theme.colors.gray100 : theme.colors.field }]}>
+        {showImage ? (
+          <CachedImage
+            contentFit="contain"
+            onError={() => setImageFailed(true)}
+            style={styles.fill}
+            testID={testID ? `${testID}-image` : undefined}
+            uri={card.imageSmallUrl}
+          />
+        ) : (
+          // Same "CARD" placeholder as the inventory tile and list rows.
+          <AppText color="textSecondary" testID={testID ? `${testID}-placeholder` : undefined} variant="micro">
+            CARD
+          </AppText>
+        )}
       </View>
       <Text numberOfLines={1} style={theme.typography.labelStrong}>
         {card.name}
@@ -77,6 +92,7 @@ const styles = StyleSheet.create({
     aspectRatio: layout.rowThumbnailWidth / layout.rowThumbnailHeight,
     borderCurve: 'continuous',
     borderRadius: layout.inventoryArtRadiusRaw,
+    justifyContent: 'center',
     marginBottom: spacing.xxxs,
     overflow: 'hidden',
     width: '100%',

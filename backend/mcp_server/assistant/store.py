@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS assistant_messages (
     role TEXT NOT NULL, text TEXT NOT NULL, cards_json TEXT, actions_json TEXT,
     status TEXT NOT NULL DEFAULT 'ok', client_message_id TEXT,
     input_tokens INTEGER, output_tokens INTEGER, cost_usd REAL, tools_used TEXT,
-    created_at TEXT NOT NULL, suggestions_json TEXT, tool_calls_json TEXT
+    created_at TEXT NOT NULL, suggestions_json TEXT, tool_calls_json TEXT, charts_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_messages_client
@@ -51,6 +51,7 @@ PREVIEW_CHARS = 120
 COLUMN_PATCHES = (
     ("assistant_messages", "suggestions_json", "TEXT"),
     ("assistant_messages", "tool_calls_json", "TEXT"),
+    ("assistant_messages", "charts_json", "TEXT"),
 )
 
 
@@ -124,10 +125,22 @@ def _json_list(raw: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def _charts(raw: Any) -> list[dict[str, Any]]:
+    if not raw:
+        return []
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
 def message_payload(row: sqlite3.Row) -> dict[str, Any]:
     """AssistantMessage wire shape."""
     role = str(row["role"])
-    raw_suggestions = row["suggestions_json"] if "suggestions_json" in row.keys() else None
+    keys = row.keys()
+    raw_suggestions = row["suggestions_json"] if "suggestions_json" in keys else None
+    raw_charts = row["charts_json"] if "charts_json" in keys else None
     return {
         "id": row["id"],
         "thread_id": row["thread_id"],
@@ -136,6 +149,7 @@ def message_payload(row: sqlite3.Row) -> dict[str, Any]:
         "cards": json.loads(row["cards_json"]) if row["cards_json"] else [],
         "actions": (json.loads(row["actions_json"]) if row["actions_json"] else []) if role == "assistant" else [],
         "suggestions": _suggestions(raw_suggestions) if role == "assistant" else [],
+        "charts": _charts(raw_charts) if role == "assistant" else [],
         "created_at": row["created_at"],
         "status": row["status"],
     }
@@ -347,8 +361,8 @@ class AssistantStore:
                 """
                 INSERT INTO assistant_messages (id, thread_id, owner_user_id, role, text, cards_json, actions_json,
                                                 status, client_message_id, input_tokens, output_tokens, cost_usd,
-                                                tools_used, created_at, suggestions_json, tool_calls_json)
-                VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                                tools_used, created_at, suggestions_json, tool_calls_json, charts_json)
+                VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     reply_id,
@@ -366,6 +380,7 @@ class AssistantStore:
                     reply_created,
                     json.dumps(reply.get("suggestions") or []),
                     json.dumps(reply.get("tool_calls") or []),
+                    json.dumps(reply.get("charts") or []),
                 ),
             )
             conn.execute(

@@ -5,10 +5,12 @@
 import type {
   AssistantActionState,
   AssistantCardRef,
+  AssistantChartRange,
   AssistantConditionCode,
   AssistantContext,
   AssistantErrorCode,
   AssistantMessage,
+  AssistantPriceChart,
   AssistantProposedAction,
   AssistantSendPayload,
   AssistantSendResult,
@@ -173,6 +175,45 @@ export function parseAssistantSuggestions(value: unknown): string[] {
   return [...seen];
 }
 
+export const ASSISTANT_MAX_CHARTS = 2;
+const ASSISTANT_MAX_CHART_POINTS = 90;
+const chartRanges: readonly AssistantChartRange[] = ['30d', '90d', '1y'];
+
+/** A chart needs at least two dated USD points; anything else is dropped. */
+export function parseAssistantPriceChart(value: unknown): AssistantPriceChart | null {
+  const raw = asRecord(value);
+  const cardId = raw ? asString(raw.card_id) : null;
+  if (!raw || !cardId) {
+    return null;
+  }
+  const points = (Array.isArray(raw.points) ? raw.points : [])
+    .map((item) => {
+      const point = asRecord(item);
+      const date = point ? asString(point.date) : null;
+      const usd = point ? asNumber(point.usd) : null;
+      return date && /^\d{4}-\d{2}-\d{2}/.test(date) && usd != null ? { date: date.slice(0, 10), usd } : null;
+    })
+    .filter((point): point is { date: string; usd: number } => point != null)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-ASSISTANT_MAX_CHART_POINTS);
+  if (points.length < 2) {
+    return null;
+  }
+  const range = chartRanges.find((option) => option === raw.range) ?? '90d';
+  const grader = asString(raw.grader);
+  return {
+    cardId,
+    name: asString(raw.name) ?? '',
+    variant: asString(raw.variant),
+    condition: grader ? null : asCondition(raw.condition),
+    grader,
+    grade: grader ? asString(raw.grade) : null,
+    range,
+    points,
+    source: raw.source === 'tcgplayer' || raw.source === 'scrydex' ? raw.source : null,
+  };
+}
+
 export function parseAssistantMessage(value: unknown): AssistantMessage | null {
   const raw = asRecord(value);
   const id = raw ? asString(raw.id) : null;
@@ -191,6 +232,7 @@ export function parseAssistantMessage(value: unknown): AssistantMessage | null {
     createdAt: asString(raw.created_at) ?? '',
     status: raw.status === 'error' ? 'error' : 'ok',
     suggestions: role === 'assistant' ? parseAssistantSuggestions(raw.suggestions) : [],
+    charts: role === 'assistant' ? parseList(raw.charts, parseAssistantPriceChart).slice(0, ASSISTANT_MAX_CHARTS) : [],
   };
 }
 

@@ -2916,6 +2916,28 @@ export type AssistantMessage = {
    * LATEST assistant reply. Optional: older servers don't send it.
    */
   suggestions?: string[];
+  /**
+   * 0-2 price charts the server built from get_price_history tool results.
+   * Optional: older servers and older rows don't send it.
+   */
+  charts?: AssistantPriceChart[];
+};
+
+export type AssistantChartRange = '30d' | '90d' | '1y';
+
+/** One printing's daily USD price series, as of the turn that drew it. */
+export type AssistantPriceChart = {
+  cardId: string;
+  name: string;
+  variant: string | null;
+  /** Raw condition; null for a graded series. */
+  condition: AssistantConditionCode | null;
+  grader: string | null;
+  grade: string | null;
+  range: AssistantChartRange;
+  /** Oldest first; `date` is "YYYY-MM-DD". USD only. */
+  points: { date: string; usd: number }[];
+  source: 'tcgplayer' | 'scrydex' | null;
 };
 
 export type AssistantSendPayload = {

@@ -32,6 +32,8 @@ logger = logging.getLogger("ekalight.assistant")
 
 CONDITIONS = ("NM", "LP", "MP", "HP", "DMG")
 MAX_CARDS = 12
+MAX_CHARTS = 2
+MAX_CHART_POINTS = 90
 MAX_QUANTITY = 999
 # Fields the model never needs (tiles carry them); dropping them saves tokens.
 MODEL_HIDDEN_KEYS = frozenset({"image_small_url", "app_url", "tcgplayer_id", "buy_links"})
@@ -288,6 +290,7 @@ class ToolOutcome:
     is_error: bool = False
     cards: list[dict[str, Any]] = field(default_factory=list)
     action: dict[str, Any] | None = None
+    chart: dict[str, Any] | None = None
 
 
 def strip_for_model(value: Any) -> Any:
@@ -341,6 +344,34 @@ def card_refs(value: Any) -> list[dict[str, Any]]:
 
     walk(value)
     return found
+
+
+def price_chart(result: Any, *, name: str | None, range_key: str) -> dict[str, Any] | None:
+    """Chart attachment from a get_price_history RESULT (USD points), or None
+    when there is no line to draw. Downsampled to MAX_CHART_POINTS, ends kept."""
+    if not isinstance(result, dict) or not result.get("card_id"):
+        return None
+    points = [
+        {"date": str(point["date"])[:10], "usd": round(float(point["usd"]), 2)}
+        for point in result.get("points") or []
+        if isinstance(point, dict) and point.get("date") and isinstance(point.get("usd"), (int, float))
+    ]
+    if len(points) < 2:
+        return None
+    if len(points) > MAX_CHART_POINTS:
+        step = (len(points) - 1) / (MAX_CHART_POINTS - 1)
+        points = [points[round(i * step)] for i in range(MAX_CHART_POINTS)]
+    return {
+        "card_id": str(result["card_id"]),
+        "name": name,
+        "variant": result.get("variant"),
+        "condition": result.get("condition"),
+        "grader": result.get("grader"),
+        "grade": result.get("grade"),
+        "range": range_key,
+        "points": points,
+        "source": result.get("source"),
+    }
 
 
 def _optional_str(value: Any, *, limit: int = 80) -> str | None:
@@ -409,7 +440,13 @@ class AssistantToolbox:
         except ValueError as error:
             raise ToolInputError(str(error)) from None
         result = self.policy.shape(getattr(self.tools, name)(owner_user_id, **kwargs))
-        return ToolOutcome(strip_for_model(result), cards=card_refs(result))
+        chart = None
+        if name == "get_price_history" and isinstance(result, dict):
+            card = card_by_id(self.conn, str(result.get("card_id") or ""))
+            chart = price_chart(
+                result, name=card.get("name") if card else None, range_key=kwargs.get("range_key") or "90d"
+            )
+        return ToolOutcome(strip_for_model(result), cards=card_refs(result), chart=chart)
 
     # --- proposals -----------------------------------------------------------
 
