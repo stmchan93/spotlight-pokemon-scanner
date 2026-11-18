@@ -2,6 +2,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useRef } from 'react';
 
+import { SLIDE_UP_SCREEN_OPTIONS } from '@/lib/navigation-presentation';
 import { TabsPageContext } from '@/contexts/tabs-page-context';
 
 export default function BrowseStackLayout() {
@@ -33,7 +34,11 @@ export default function BrowseStackLayout() {
           },
           headerShown: false,
         }}
-      />
+      >
+        {/* Pushed from inside this stack (e.g. a card page): slide up too. */}
+        <Stack.Screen name="assistant" options={SLIDE_UP_SCREEN_OPTIONS} />
+        <Stack.Screen name="edit-profile" options={SLIDE_UP_SCREEN_OPTIONS} />
+      </Stack>
     </TabsPageContext.Provider>
   );
 }

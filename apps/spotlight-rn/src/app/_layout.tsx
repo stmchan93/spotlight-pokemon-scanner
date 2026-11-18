@@ -59,6 +59,7 @@ import {
   resolveSessionOwnerKey,
   useAuth,
 } from '@/providers/auth-provider';
+import { SLIDE_UP_DISMISS_ZONE, slideUpStackGroupOptions } from '@/lib/navigation-presentation';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -84,7 +85,8 @@ SplashScreen.setOptions({ duration: 220, fade: true });
 enableFreeze(true);
 
 /** How far down from the top a swipe can start to close Search (pt). */
-const SHEET_DISMISS_ZONE = 140;
+const SHEET_DISMISS_ZONE = SLIDE_UP_DISMISS_ZONE;
+
 
 const navigationTheme: Theme = {
   dark: false,
@@ -206,7 +208,7 @@ function AuthenticatedRoot() {
                 sideways slide (owner, 2026-11-16).
               */}
               <Stack.Screen name="(tabs)" options={{ animation: 'none' }} />
-              <Stack.Screen name="(stack)" />
+              <Stack.Screen name="(stack)" options={slideUpStackGroupOptions} />
               {/*
                 Catalog search (and the expansion browser beside it) comes UP
                 from the bottom as a full-screen surface rather than pushing in
