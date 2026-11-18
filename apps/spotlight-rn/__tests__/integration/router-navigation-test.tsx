@@ -14,12 +14,13 @@ function WishlistTabStub() {
 
 describe('mobile app routing', () => {
   it('boots into Home, and reaches the Scanner tab', async () => {
-    // The app opens on Home, the feed (`/social`), not the Scanner (user, 2026-11-16).
+    // The app opens on Home (`/`, the collection), not the Scanner (user, 2026-11-16).
     const app = renderAppRouter('/', { '(tabs)/scan': ScanTabStub });
 
     await waitFor(() => {
-      expect(app.getPathname()).toBe('/social');
+      expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
     });
+    expect(app.getPathname()).toBe('/');
     expect(screen.getByTestId('tab-pager')).toBeTruthy();
 
     act(() => {

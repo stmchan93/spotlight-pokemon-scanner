@@ -1,4 +1,4 @@
-import { EditPencil, Search, ShareIos } from 'iconoir-react-native';
+import { EditPencil, Menu, Search } from 'iconoir-react-native';
 import { useMemo } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,10 +18,10 @@ import {
 import { EditDoneButton } from '@/components/edit-done-button';
 
 type WishlistHeaderProps = {
-  /** Opens the card catalog search. Omit to leave the search slot empty. */
+  /** Opens the app drawer. Wishlist is a TAB, so there is nothing to go back to. */
+  onOpenMenu: () => void;
+  /** Opens the card catalog search. Omitted → the control is not rendered. */
   onOpenSearch?: () => void;
-  /** Share the list as text. Omitted → the control is not rendered. */
-  onShare?: () => void;
   /** When true the bar shows a "Done" action instead of the edit pencil. */
   editMode?: boolean;
   /** Enables the edit-mode toggle in the right slot. */
@@ -90,12 +90,9 @@ type WishlistHeaderProps = {
 // everywhere else. The 8pt `hitSlop` inside the primitive keeps the touch target
 // over the 44pt minimum.
 //
-// SEARCH — the catalog search used to be a floating magnifier FAB
-// (`CollectionAddFab`) pinned above the tab bar. It is a bubble in this bar now,
-// beside Edit: same destination (/catalog/search), same accessibility label,
-// same primitive as every other control here. That also matches Collection,
-// whose catalog search is the top-bar "Search Cards" pill rather than anything
-// floating (the in-page magnifier there was removed as a duplicate).
+// SEARCH — the first item of the trailing capsule, beside Edit, matching
+// `HomeHeader` (user, 2026-11-18). Same destination (/catalog/search) the old
+// floating magnifier FAB had.
 //
 // LAYOUT — both side slots are the SAME fixed width, sized to the wider side
 // (`wishlistHeaderSideSlotWidth`), and the title takes the middle. Equal slots
@@ -113,13 +110,6 @@ type WishlistHeaderProps = {
 // see glassNavBubbleGlyphSize's doc for why 20 here would look small and thin.
 const BUTTON_ICON_SIZE = glassNavBubbleGlyphSize;
 const BUTTON_ICON_STROKE = glassNavBubbleGlyphStrokeWidth;
-// Share glyph ratio lifted from the profile bar (`HomeHeader`): iconoir's
-// ShareIos is a tall glyph, drawn 0.9× wide so it sits optically level with
-// the pencil beside it. Same numbers there and here, or the two bars' share
-// glyphs read as two sizes.
-// Full size, same as the Events toolbar's share glyph (user, 2026-10-18).
-const SHARE_ICON_WIDTH = BUTTON_ICON_SIZE;
-const SHARE_ICON_HEIGHT = BUTTON_ICON_SIZE;
 /**
  * 0 to match `HomeHeader`: every tab bar hangs its control row directly off the
  * safe-area inset, so the bubbles sit at the same height on every tab. (Figma's
@@ -133,7 +123,7 @@ const BAR_PADDING_TOP = 0;
  * bubble (`size="medium"`), the `GlassNavBubbleGroup`, and the `EditDoneButton`
  * that swaps in for it — so the shared bubble token IS the row height, and it
  * does not change when edit mode swaps the wider "Done" pill in. The title
- * (`titleMedium`, 23.4pt tall) never sets it.
+ * (`titleSmall`, 22pt line) never sets it.
  */
 const CONTROL_ROW_HEIGHT = glassNavBubbleSizes.medium;
 /**
@@ -166,8 +156,8 @@ export const WISHLIST_TITLE_HIDE_DISTANCE = 56;
 const TITLE_TRAVEL = BAR_PADDING_TOP + CONTROL_ROW_HEIGHT;
 
 /**
- * Width of EACH side slot: the wider of the search bubble (left) and the
- * edit/share capsule (right). Both slots take this width so the title sits on
+ * Width of EACH side slot: the wider of the menu bubble (left) and the
+ * search/edit capsule (right). Both slots take this width so the title sits on
  * the bar's true centre and stops short of whichever side is wider. The capsule
  * width is reserved in edit mode too (the Done pill is narrower), so the title
  * never jumps when Done swaps in.
@@ -177,8 +167,8 @@ export function wishlistHeaderSideSlotWidth(actionCount: number): number {
 }
 
 export function WishlistHeader({
+  onOpenMenu,
   onOpenSearch,
-  onShare,
   editMode = false,
   floating = false,
   onToggleEditMode,
@@ -189,7 +179,7 @@ export function WishlistHeader({
 }: WishlistHeaderProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
-  const sideSlot = { width: wishlistHeaderSideSlotWidth((onToggleEditMode ? 1 : 0) + (onShare ? 1 : 0)) };
+  const sideSlot = { width: wishlistHeaderSideSlotWidth((onOpenSearch ? 1 : 0) + (onToggleEditMode ? 1 : 0)) };
 
   /*
     The title RIDES UP OUT of the row and is clipped away; the bubbles either
@@ -236,20 +226,16 @@ export function WishlistHeader({
       testID={testID}
     >
       <View style={[styles.headerSlot, sideSlot]} testID={`${testID}-leading-slot`}>
-        {/* Search leads where the menu was (user, 2026-11-16): the catalog search
-            you add a card to the watchlist from. Stands down in edit mode. */}
-        {onOpenSearch && !editMode ? (
-          <GlassNavBubble
-            accessibilityLabel="Search the card catalog"
-            material="frost"
-            onPress={onOpenSearch}
-            size="medium"
-            surface="onLight"
-            testID="wishlist-header-search"
-          >
-            <Search color={theme.colors.gray900} height={BUTTON_ICON_SIZE} strokeWidth={BUTTON_ICON_STROKE} width={BUTTON_ICON_SIZE} />
-          </GlassNavBubble>
-        ) : null}
+        <GlassNavBubble
+          accessibilityLabel="Open menu"
+          material="frost"
+          onPress={onOpenMenu}
+          size="medium"
+          surface="onLight"
+          testID="wishlist-header-menu"
+        >
+          <Menu color={theme.colors.gray900} height={BUTTON_ICON_SIZE} strokeWidth={BUTTON_ICON_STROKE} width={BUTTON_ICON_SIZE} />
+        </GlassNavBubble>
       </View>
       {/*
         The clip is on the TITLE'S OWN wrapper. It is what actually removes the
@@ -258,7 +244,7 @@ export function WishlistHeader({
         crucially, a half-faded title never draws up beside the clock. Clipping
         any further up the row would shave the glass controls instead.
 
-        Safe to clip tight to the text: `titleMedium`'s 23.4pt line box already
+        Safe to clip tight to the text: `titleSmall`'s 22pt line box already
         contains the font's descenders, and "Watchlist" has none to lose anyway.
       */}
       <View style={styles.headerTitleClip} testID={`${testID}-title-clip`}>
@@ -277,16 +263,14 @@ export function WishlistHeader({
             numberOfLines={1}
             style={styles.headerTitle}
             testID="wishlist-header-title"
-            variant="titleMedium"
+            // One step below the card header's titleMedium (user, 2026-11-18).
+            variant="titleSmall"
           >
             WATCHLIST
           </AppText>
         </Animated.View>
       </View>
       <View style={[styles.headerSlot, styles.headerSlotRight, sideSlot]} testID={`${testID}-trailing-slot`}>
-        {/* Stands down in edit mode, exactly as the old FAB did: the bar is
-            handed over to Done, and browsing the catalog mid-selection is not
-            what edit mode is for. */}
         {editMode ? (
           // Edit mode still hands the whole bar over to Done — browsing the
           // catalog mid-selection is not what edit mode is for.
@@ -295,7 +279,7 @@ export function WishlistHeader({
           ) : null
         ) : (
           /*
-            Add / edit / share in ONE capsule — the SAME `GlassNavBubbleGroup`
+            Search / edit in ONE capsule — the SAME `GlassNavBubbleGroup`
             (medium, frost) the You/profile bar draws its search / edit / share
             in (`HomeHeader`), so the two tabs' trailing controls are one
             object: same 44pt capsule, same 36pt slots on a 20pt gap, same
@@ -307,6 +291,24 @@ export function WishlistHeader({
           <GlassNavBubbleGroup
             items={
               [
+                // Search sits on the right with the other icons (user, 2026-11-18).
+                ...(onOpenSearch
+                  ? [
+                      {
+                        accessibilityLabel: 'Search the card catalog',
+                        children: (
+                          <Search
+                            color={theme.colors.gray900}
+                            height={BUTTON_ICON_SIZE}
+                            strokeWidth={BUTTON_ICON_STROKE}
+                            width={BUTTON_ICON_SIZE}
+                          />
+                        ),
+                        onPress: onOpenSearch,
+                        testID: 'wishlist-header-search',
+                      },
+                    ]
+                  : []),
                 ...(onToggleEditMode
                   ? [
                       {
@@ -321,27 +323,6 @@ export function WishlistHeader({
                         ),
                         onPress: onToggleEditMode,
                         testID: 'wishlist-header-edit',
-                      },
-                    ]
-                  : []),
-                // Shares the LIST — "here is what I'm hunting" — as text. The
-                // macro counterpart to card detail's per-card share. No link,
-                // because there is nothing to link to: the wishlist is private
-                // and the public profile has no Wishlist tab.
-                ...(onShare
-                  ? [
-                      {
-                        accessibilityLabel: 'Share watchlist',
-                        children: (
-                          <ShareIos
-                            color={theme.colors.gray900}
-                            height={SHARE_ICON_HEIGHT}
-                            strokeWidth={BUTTON_ICON_STROKE}
-                            width={SHARE_ICON_WIDTH}
-                          />
-                        ),
-                        onPress: onShare,
-                        testID: 'wishlist-header-share',
                       },
                     ]
                   : []),
@@ -376,7 +357,7 @@ const styles = StyleSheet.create({
   },
   // Fixed, EQUAL side slots (width set at render from the wider side), title in
   // the flexed middle. Equal-flex slots were tried and only split the leftover
-  // width, so on a narrow phone the edit/share capsule outgrew its half and ran
+  // width, so on a narrow phone the trailing capsule outgrew its half and ran
   // into the title (design review, 2026-11-16).
   headerSlot: {
     alignItems: 'center',

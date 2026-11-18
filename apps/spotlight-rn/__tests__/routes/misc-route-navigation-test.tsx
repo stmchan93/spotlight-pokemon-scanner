@@ -282,17 +282,9 @@ describe('misc route wrappers', () => {
 
     // The tabs layout is the tab pager (`@/components/tab-pager`); page ORDER
     // and the bar are pinned by the pager's own tests. Android back goes to Home.
-    // A cold start on `/` (Collection) redirects to Home, the feed.
     mockPathname.mockReturnValue('/');
-    const cold = render(<TabsLayout />);
-    expect(screen.getByTestId('redirect-target').props.children).toBe(JSON.stringify('/social'));
-    cold.unmount();
-    mockPathname.mockReturnValue('/social');
     render(<TabsLayout />);
-    expect(JSON.parse(screen.getByTestId('tab-pager').props.children)).toEqual({
-      backBehavior: 'initialRoute',
-      initialRouteName: 'social',
-    });
+    expect(JSON.parse(screen.getByTestId('tab-pager').props.children)).toEqual({ backBehavior: 'firstRoute' });
   });
 
 

@@ -20,16 +20,16 @@ import {
 } from '@/lib/tab-pager';
 
 describe('tab pager order and route <-> page mapping', () => {
-  it('lays the strip out Home (feed) | Watchlist | Scan | Events | Collection', () => {
-    expect(TAB_PAGER_ORDER).toEqual(['social', 'wishlist', 'scan', 'events', 'index']);
+  it('lays the strip out Home | Watchlist | Scan | Events | Social', () => {
+    expect(TAB_PAGER_ORDER).toEqual(['index', 'wishlist', 'scan', 'events', 'social']);
   });
 
   it('maps each tab route to its strip index and redirect routes to none', () => {
-    expect(pageIndexForRoute('social')).toBe(0);
+    expect(pageIndexForRoute('index')).toBe(0);
     expect(pageIndexForRoute('wishlist')).toBe(1);
     expect(pageIndexForRoute('scan')).toBe(2);
     expect(pageIndexForRoute('events')).toBe(3);
-    expect(pageIndexForRoute('index')).toBe(4);
+    expect(pageIndexForRoute('social')).toBe(4);
     expect(pageIndexForRoute('you')).toBe(-1);
     expect(pageIndexForRoute('portfolio')).toBe(-1);
     expect(pageIndexForRoute(undefined)).toBe(-1);
@@ -37,7 +37,7 @@ describe('tab pager order and route <-> page mapping', () => {
 
   it('reads the focused page off navigator state, whatever order the routes are in', () => {
     const routes = [{ name: 'you' }, { name: 'social' }, { name: 'index' }, { name: 'scan' }];
-    expect(pageIndexForState({ index: 1, routes })).toBe(0);
+    expect(pageIndexForState({ index: 1, routes })).toBe(4);
     expect(pageIndexForState({ index: 3, routes })).toBe(2);
     expect(pageIndexForState({ index: 0, routes })).toBe(-1);
   });

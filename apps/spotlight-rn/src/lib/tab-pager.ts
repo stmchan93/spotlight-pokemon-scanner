@@ -4,12 +4,11 @@
  * maths. Everything a gesture worklet calls is marked `'worklet'` so the same
  * function runs on the UI thread in the app and in plain JS under jest.
  *
- *   Home [Social, News, Market] | Watchlist | Scan | Events | Collection [Collection, Activity]
- *   (routes `social` and `index`; swapped 2026-11-16, user: the feed is Home)
+ *   Home [Collection, Activity] | Watchlist | Scan | Events | Social [Social, News, Market]
  */
 
 /** Bottom-tab route names in strip order, left -> right. The one place it is defined. */
-export const TAB_PAGER_ORDER = ['social', 'wishlist', 'scan', 'events', 'index'] as const;
+export const TAB_PAGER_ORDER = ['index', 'wishlist', 'scan', 'events', 'social'] as const;
 
 export type PagerTab = (typeof TAB_PAGER_ORDER)[number];
 

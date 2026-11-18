@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { Search, ShareIos, Xmark } from 'iconoir-react-native';
+import { Menu, Search, ShareIos, Xmark } from 'iconoir-react-native';
 
 import type { SpotlightEvent } from '@spotlight/api-client';
 import {
@@ -41,6 +41,7 @@ import { useSpotlightEvents } from '@/features/events/hooks/use-spotlight-events
 import { useSavedEvents } from '@/features/events/saved-events-store';
 import { tabBarBottomFadeHeight } from '@/lib/tab-bar-insets';
 import { PageSwipeGuard } from '@/components/page-tab-pager';
+import { useAppDrawer } from '@/providers/app-drawer-provider';
 
 export type EventsTab = 'events' | 'saved' | 'past';
 
@@ -99,6 +100,7 @@ export function EventsScreen() {
   const headerImageHeight = sheetTop + HEADER_IMAGE_BELOW_SHEET;
   const chipRowTop = sheetTop - CHIP_ROW_ABOVE_SHEET;
   const { width: windowWidth } = useWindowDimensions();
+  const { openDrawer } = useAppDrawer();
   const { events, failed, refresh } = useSpotlightEvents();
   const { isSaved, savedIds, toggle } = useSavedEvents();
   const [tab, setTab] = useState<EventsTab>('events');
@@ -352,15 +354,8 @@ export function EventsScreen() {
 
       {/* Fixed chrome over the photo, so the drawer stays one tap away. */}
       <View pointerEvents="box-none" style={[styles.toolbar, { paddingHorizontal: gutter, top: insets.top }]}>
-        {/* Search leads where the menu was (user, 2026-11-16). */}
-        <GlassNavBubble
-          accessibilityLabel={searchOpen ? 'Close search' : 'Search events'}
-          material="frost"
-          onPress={toggleSearch}
-          size="medium"
-          testID="events-search"
-        >
-          <Search
+        <GlassNavBubble accessibilityLabel="Open menu" material="frost" onPress={openDrawer} size="medium" testID="events-menu">
+          <Menu
             color={theme.colors.gray900}
             height={glassNavBubbleGlyphSize}
             strokeWidth={glassNavBubbleGlyphStrokeWidth}
@@ -369,6 +364,20 @@ export function EventsScreen() {
         </GlassNavBubble>
         <GlassNavBubbleGroup
           items={[
+            // Search sits on the right with the other icons (user, 2026-11-18).
+            {
+              accessibilityLabel: searchOpen ? 'Close search' : 'Search events',
+              children: (
+                <Search
+                  color={theme.colors.gray900}
+                  height={glassNavBubbleGlyphSize}
+                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                  width={glassNavBubbleGlyphSize}
+                />
+              ),
+              onPress: toggleSearch,
+              testID: 'events-search',
+            },
             {
               accessibilityLabel: 'Share events',
               children: (

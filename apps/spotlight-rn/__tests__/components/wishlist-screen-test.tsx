@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
-import {Animated, Share, StyleSheet} from 'react-native';
+import {Animated, StyleSheet} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 
@@ -167,13 +167,12 @@ describe('WishlistScreen', () => {
   // was pushed in from the drawer, which by then popped you to whatever you had
   // visited before — or did nothing. A tab is a root: hamburger, like Home and
   // You, plus the same left-edge drag.
-  it('leads with search (no menu), keeps the edge drag, and has no back button', async () => {
+  it('leads with the menu, keeps the edge drag, and has no back button', async () => {
     renderWishlistScreen();
     await screen.findByTestId('wishlist-header-title');
 
     expect(screen.queryByTestId('wishlist-header-back')).toBeNull();
-    expect(screen.queryByTestId('wishlist-header-menu')).toBeNull();
-    expect(screen.getByTestId('wishlist-header-search')).toBeTruthy();
+    expect(screen.getByTestId('wishlist-header-menu')).toBeTruthy();
     expect(screen.getByTestId('drawer-edge-swipe')).toBeTruthy();
   });
 
@@ -695,7 +694,7 @@ describe('WishlistScreen', () => {
     expect(push).toHaveBeenCalledWith('/catalog/search');
   });
 
-  it('groups edit and share into one pill; search leads on its own', async () => {
+  it('groups search and edit into one pill, with no share button', async () => {
     const repository = createTestSpotlightRepository({
       getCardFavorites: async () => [buildFavoriteEntry({ cardId: 'charizard', name: 'Charizard' })],
     });
@@ -703,92 +702,15 @@ describe('WishlistScreen', () => {
     renderWishlistScreen(repository);
 
     /*
-      Figma 3725:59578 — one glass pill, not three separate bubbles. `within`
+      Figma 3725:59578 — one glass pill, not separate bubbles. `within`
       is what pins the GROUPING; asserting the three testIDs exist would still
       pass if they drifted back apart into individual circles.
     */
     const actions = await screen.findByTestId('wishlist-header-actions');
-    expect(within(actions).queryByTestId('wishlist-header-search')).toBeNull();
-    expect(screen.getByTestId('wishlist-header-search')).toBeTruthy();
+    expect(within(actions).getByTestId('wishlist-header-search')).toBeTruthy();
     expect(within(actions).getByTestId('wishlist-header-edit')).toBeTruthy();
-    expect(within(actions).getByTestId('wishlist-header-share')).toBeTruthy();
-  });
-
-  it('sends the wishlist as a hydrated reference, not a card list or a raw URL', async () => {
-    const shareSpy = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' } as never);
-    const repository = createTestSpotlightRepository({
-      getCardFavorites: async () => [
-        buildFavoriteEntry({ cardId: 'charizard', name: 'Charizard' }),
-        buildFavoriteEntry({ cardId: 'gengar', name: 'Gengar ex' }),
-      ],
-    });
-
-    renderWishlistScreen(repository);
-    // Wait for the favourites to land — sharing before they load would share
-    // an empty list, which is a different (also tested) path.
-    await screen.findByText('Charizard');
-
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('wishlist-header-share'));
-    });
-
-    /*
-      Sent IN-APP now, not out through the OS share sheet: the message carries a
-      `spotlight://` link to the sender's public Wishlist tab, which only
-      resolves for someone who already has the build. A DM is the one channel
-      where that is guaranteed.
-    */
-    expect(shareSpy).not.toHaveBeenCalled();
-    const sheet = await screen.findByTestId('wishlist-share-sheet');
-    expect(sheet).toBeTruthy();
-    expect(screen.getByText('Send watchlist to')).toBeTruthy();
-
-    // Pick a recipient and assert what actually lands in the thread.
-    await act(async () => {
-      fireEvent.press(await screen.findByText('Misty'));
-    });
-
-    const { sendMessage } = jest.requireMock('@/features/social/dm-service');
-    await waitFor(() => {
-      expect(sendMessage).toHaveBeenCalledTimes(1);
-    });
-    /*
-      A REFERENCE, not text (social_24). This went through three forms and the
-      last one is the point:
-
-        1. the card list as text — duplicated what the link already showed
-        2. a one-liner plus a `spotlight://` URL — the URL rendered PURPLE on the
-           sender's own purple bubble, so it was invisible to the person sending
-           it and read as "sharing just sends text"
-        3. an attachment id, hydrated into a preview card on every read
-
-      Only (3) can respect a block created after the send: text baked into a body
-      is a permanent pointer nobody can revoke.
-    */
-    const [, body, options] = (sendMessage as jest.Mock).mock.calls[0];
-    // Caption-less: `body` is NOT NULL, so the attachment carries the meaning.
-    expect(body).toBe('');
-    expect(options).toMatchObject({ sharedProfileTab: 'wishlist' });
-    expect(options.sharedProfileUserId).toBeTruthy();
-
-    shareSpy.mockRestore();
-  });
-
-  it('stays silent when there is nothing to share', async () => {
-    const shareSpy = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' } as never);
-    const repository = createTestSpotlightRepository({ getCardFavorites: async () => [] });
-
-    renderWishlistScreen(repository);
-
-    await act(async () => {
-      fireEvent.press(await screen.findByTestId('wishlist-header-share'));
-    });
-
-    // Opening the OS sheet with a header and no cards under it is worse than
-    // the button appearing to do nothing.
-    expect(shareSpy).not.toHaveBeenCalled();
-
-    shareSpy.mockRestore();
+    // Share was removed from the bar (user, 2026-11-18).
+    expect(screen.queryByTestId('wishlist-header-share')).toBeNull();
   });
 
   // A header button is chrome, not an overlay on the list, so it survives the

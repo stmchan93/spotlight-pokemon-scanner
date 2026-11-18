@@ -378,10 +378,10 @@ export function PostCard({
   const openAuthorProfile = useCallback(() => {
     // Routing underneath the viewer would leave it presented over the profile.
     setViewerOpen(false);
-    // Tapping YOURSELF goes to the Collection tab (`/`) — your own — not to
+    // Tapping YOURSELF goes to the Home tab — your own collection — not to
     // `/u/<your handle>`. The public route would push a read-only copy of your
     // own profile on top of the feed: no Edit, no Collection tabs, and a back
-    // button to get out of a place you already live. Collection is the real thing.
+    // button to get out of a place you already live. Home is the real thing.
     // (It was `/you` until the tabs were reordered; `/you` still redirects.)
     if (currentUser?.id && post.authorId === currentUser.id) {
       router.navigate('/' as never);

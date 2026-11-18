@@ -49,8 +49,6 @@ export type PriceScrubChartProps = {
   areaFill?: boolean;
   /** Faint grid texture over the area fill (Portfolio); off = plain gradient. */
   fillGrid?: boolean;
-  /** Dot on the last point at rest. Off = the dot shows only while scrubbing (Home). */
-  restingDot?: boolean;
   testID?: string;
 };
 
@@ -82,7 +80,6 @@ function PriceScrubChartImpl({
   yScale = 'padded',
   areaFill = false,
   fillGrid = true,
-  restingDot = true,
   testID = 'price-scrub-chart',
 }: PriceScrubChartProps) {
   const theme = useSpotlightTheme();
@@ -267,7 +264,8 @@ function PriceScrubChartImpl({
   }
 
   const active = activeIndex != null ? coords[activeIndex] : undefined;
-  const dot = active ?? (restingDot ? coords[coords.length - 1] : undefined);
+  // No dot at rest (user, 2026-11-18): it only marks the finger while scrubbing.
+  const dot = active;
   const clipWidth = active ? active.x + 10 : width + 20;
   const dimColor = theme.colors.gray200;
   const strokeWidth = variant === 'line' ? LINE_WIDTH : SALES_LINE_WIDTH;

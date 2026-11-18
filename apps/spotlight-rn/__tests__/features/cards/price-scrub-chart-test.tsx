@@ -154,16 +154,28 @@ describe('PriceScrubChart', () => {
     expect(screen.queryByTestId('price-scrub-chart-canvas')).toBeNull();
   });
 
-  it('renders line data with an end dot and no baseline', () => {
+  it('renders line data with no end dot and no baseline at rest', () => {
     renderChart();
+    expect(screen.getByTestId('price-scrub-chart-canvas')).toBeTruthy();
     expect(screen.queryByTestId('price-scrub-chart-baseline')).toBeNull();
-    expect(screen.getByTestId('price-scrub-chart-dot')).toBeTruthy();
+    expect(screen.queryByTestId('price-scrub-chart-dot')).toBeNull();
     expect(screen.queryByTestId('price-scrub-chart-cursor')).toBeNull();
   });
 
-  it('restingDot={false} draws no end dot at rest (Home)', () => {
-    renderChart({ restingDot: false });
-    expect(screen.getByTestId('price-scrub-chart-canvas')).toBeTruthy();
+  it('shows the dot under the finger only while scrubbing', () => {
+    renderChart();
+    const drag = getByGestureTestId('price-scrub-chart-drag');
+    act(() => {
+      drag.handlers.onStart?.({ x: 98 } as never);
+    });
+    expect(screen.getByTestId('price-scrub-chart-dot').props.cx).toBeCloseTo(100, 0);
+    act(() => {
+      drag.handlers.onUpdate?.({ x: 205 } as never);
+    });
+    expect(screen.getByTestId('price-scrub-chart-dot').props.cx).toBeCloseTo(200, 0);
+    act(() => {
+      drag.handlers.onEnd?.({} as never, true);
+    });
     expect(screen.queryByTestId('price-scrub-chart-dot')).toBeNull();
   });
 
@@ -272,6 +284,7 @@ describe('PriceScrubChart', () => {
         windowStartMs={START}
       />,
     );
-    expect(screen.getByTestId('price-scrub-chart-dot')).toBeTruthy();
+    expect(screen.getByTestId('price-scrub-chart-canvas')).toBeTruthy();
+    expect(screen.queryByTestId('price-scrub-chart-dot')).toBeNull();
   });
 });
