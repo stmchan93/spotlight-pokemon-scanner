@@ -69,6 +69,7 @@ export function PageTabs<V extends string>({
             ? styles.containerStart
             : gutterSpacing && styles.containerGutter,
         !compact && align === 'gutter-center' ? styles.containerGutterCenter : null,
+        scrollable ? styles.scrollContent : null,
       ]}
     >
       {tabs.map((tab) => {
@@ -144,6 +145,9 @@ export function PageTabs<V extends string>({
       />
       {scrollable ? (
         <ScrollView
+          // Grows to the bar's width so a centred set that fits sits centred;
+          // a set wider than the screen still scrolls from the start.
+          contentContainerStyle={styles.scrollContent}
           horizontal
           keyboardShouldPersistTaps="handled"
           showsHorizontalScrollIndicator={false}
@@ -185,6 +189,9 @@ const styles = StyleSheet.create({
   },
   containerGutterCenter: {
     justifyContent: 'center',
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   tabGutter: {
     paddingHorizontal: spacing.xs,
