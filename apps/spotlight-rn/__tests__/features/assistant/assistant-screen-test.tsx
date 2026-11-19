@@ -294,10 +294,10 @@ describe('AssistantScreen', () => {
     const sendAssistantMessage = jest.fn(async (_payload: AssistantSendPayload) => reply(null));
     renderScreen({ sendAssistantMessage });
     expect(await screen.findByText('Ask me anything about cards')).toBeTruthy();
-    expect(screen.getByText('Help me prep for a card show')).toBeTruthy();
+    expect(screen.getByText('Cards with the most recent new high sales')).toBeTruthy();
     fireEvent.press(screen.getByTestId('assistant-suggestion-0'));
     await waitFor(() => expect(sendAssistantMessage).toHaveBeenCalledTimes(1));
-    expect(sendAssistantMessage.mock.calls[0][0].text).toBe("What's my collection worth?");
+    expect(sendAssistantMessage.mock.calls[0][0].text).toBe('Undervalued cards');
   });
 
   it('a single scanned card gets card-specific starter prompts', async () => {

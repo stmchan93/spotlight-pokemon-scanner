@@ -2,6 +2,9 @@ import type { AssistantContextSource } from '@spotlight/api-client';
 
 export const ASSISTANT_STARTER_PROMPT_LIMIT = 6;
 
+// Owner-picked defaults (2026-11-19), shown first when no tray cards are in play.
+const MARKET_PROMPTS = ['Undervalued cards', 'Cards with the most recent new high sales', 'What cards are likely to go up?'];
+
 export type AssistantIntroCopy = { title: string; body: string };
 
 /** Starter prompts for a new chat, tailored to where it was opened from and what's in the tray. */
@@ -27,19 +30,17 @@ export function assistantStarterPrompts(source: AssistantContextSource, trayCard
     ];
   } else if (source === 'scanner') {
     prompts = [
+      ...MARKET_PROMPTS,
       "What's trending in the market right now?",
       'Help me prep for a card show',
-      'What cards are near their price lows?',
       "What's my collection worth?",
     ];
   } else {
     prompts = [
+      ...MARKET_PROMPTS,
       "What's my collection worth?",
-      'Which of my cards went up this week?',
-      "What's trending in the market right now?",
-      'Which of my cards should I sell?',
       'Is anything I own worth grading?',
-      'Help me prep for a card show',
+      "What's trending in the market right now?",
     ];
   }
   return prompts.slice(0, ASSISTANT_STARTER_PROMPT_LIMIT);
