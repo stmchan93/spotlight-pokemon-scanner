@@ -335,8 +335,10 @@ export function EventsScreen() {
             </View>
           ) : null}
           <PageSwipeGuard>
-            {/* Same tabs as Collection / Activity on the profile (user, 2026-11-16). */}
-            <PageTabs
+                        <PageTabs
+              // Tight and centred like Social's tabs: the default 40pt gap is for
+              // two tabs and spread five-plus regions apart (owner, 2026-11-19).
+              align="gutter-center"
               labelSize="caption"
               onChange={setRegion}
               scrollable
