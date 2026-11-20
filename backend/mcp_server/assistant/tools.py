@@ -690,12 +690,24 @@ def pin_printings(refs: list[dict[str, Any]], text: str) -> list[dict[str, Any]]
     printing of that set is pinned by number and a slab's grader is named),
     else just the first one listed. A pinned card keeps its raw ref and the
     slabs whose grader the text names. Order kept."""
+    keep, _ = _pins(refs, text)
+    return [ref for ref in refs if id(ref) in keep]
+
+
+def explicit_pins(refs: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
+    """Refs the text pins by number or set (not the first-listed fallback)."""
+    _, explicit = _pins(refs, text)
+    return [ref for ref in refs if id(ref) in explicit]
+
+
+def _pins(refs: list[dict[str, Any]], text: str) -> tuple[set[int], set[int]]:
     groups: dict[str, list[dict[str, Any]]] = {}
     for ref in refs:
         groups.setdefault(_name_key(ref), []).append(ref)
     set_keys = {_set_key(ref) for ref in refs} - {""}
     named_sets = _uncovered({key: _phrase_spans(key, text) for key in set_keys})
     keep: set[int] = set()
+    explicit: set[int] = set()
     for group in groups.values():
         by_number = [ref for ref in group if _number_in_text(ref.get("number"), text)]
         numbered_sets = {_set_key(ref) for ref in by_number}
@@ -703,11 +715,12 @@ def pin_printings(refs: list[dict[str, Any]], text: str) -> list[dict[str, Any]]
             ref for ref in group
             if _set_key(ref) in named_sets and _set_key(ref) not in numbered_sets and _slab_mentioned(ref, text)
         ]
+        explicit.update(id(ref) for ref in by_number + by_set)
         pins = by_number + by_set or group[:1]
         pinned = {str(ref["card_id"]) for ref in pins}
         keep.update(id(ref) for ref in pins)
         keep.update(id(ref) for ref in group if str(ref["card_id"]) in pinned and _slab_mentioned(ref, text))
-    return [ref for ref in refs if id(ref) in keep]
+    return keep, explicit
 
 
 # The answer asks the user to pick ("Which Charizard do you mean?"): candidates stay.
@@ -808,7 +821,9 @@ def choose_tiles(
         return _append_new(listed, always), charts
     kept = pin_printings([tile for tile in selection or [] if _name_key(tile) in named_names], text)
     covered = {_name_key(tile) for tile in kept}
-    _append_new(kept, [ref for ref in named if _name_key(ref) not in covered])
+    # A selected name hides its other printings unless the text pins one ('CGC 9.5 Mickey Mouse from Challenge Promos').
+    explicit = {id(ref) for ref in explicit_pins(named, text)}
+    _append_new(kept, [ref for ref in named if _name_key(ref) not in covered or id(ref) in explicit])
     return _append_new(kept, always), charts
 
 
@@ -867,11 +882,49 @@ def order_by_mention(tiles: list[dict[str, Any]], text: str) -> list[dict[str, A
     return sorted(tiles, key=first)
 
 
-def single_leaders(tiles: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The first raw tile and the first graded tile."""
+def _named_ids(tiles: list[dict[str, Any]], text: str) -> set[int]:
+    return {id(tile) for tile in pin_printings(named_refs(tiles, text), text)}
+
+
+def single_leaders(tiles: list[dict[str, Any]], text: str = "") -> list[dict[str, Any]]:
+    """The first raw tile and the first graded tile, plus every tile the text names."""
     raw = next((tile for tile in tiles if _slab(tile)[0] is None), None)
     graded = next((tile for tile in tiles if _slab(tile)[0] is not None), None)
-    return [tile for tile in (raw, graded) if tile is not None]
+    keep = {id(tile) for tile in (raw, graded) if tile is not None} | _named_ids(tiles, text)
+    return [tile for tile in tiles if id(tile) in keep]
+
+
+def cap_unnamed(tiles: list[dict[str, Any]], text: str, cap: int) -> list[dict[str, Any]]:
+    """Every named tile (in mention order), then unnamed ones while under the cap."""
+    named = _named_ids(tiles, text)
+    room = cap - sum(1 for tile in tiles if id(tile) in named)
+    out: list[dict[str, Any]] = []
+    for tile in order_by_mention(tiles, text):
+        if id(tile) in named:
+            out.append(tile)
+        elif room > 0:
+            out.append(tile)
+            room -= 1
+    return out
+
+
+def _slab_phrase(ref: dict[str, Any], text: str) -> bool:
+    grader, grade = _slab(ref)
+    return bool(grader and grade) and bool(
+        re.search(r"(?<!\w)" + re.escape(grader) + r"\s*" + re.escape(grade) + r"(?!\w|\.\d)", text, re.IGNORECASE)
+    )
+
+
+def named_slabs(tiles: list[dict[str, Any]], pool: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
+    """Tiles plus graded refs the text names with their slab ('CGC 9.5 ... Mickey Mouse')."""
+    names = {_name_key(ref) for ref in named_refs(pool, text)}
+    out = list(tiles)
+    for ref in pool:
+        if _name_key(ref) in names and _slab_phrase(ref, text) and not any(
+            _name_key(tile) == _name_key(ref) and _slab(tile) == _slab(ref) for tile in out
+        ):
+            out.append(ref)
+    return out
 
 
 def apply_question_rules(
@@ -890,8 +943,9 @@ def apply_question_rules(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str | None]:
     """Owner rules keyed on the question shape, applied after choose_tiles:
     collection value -> top holdings by value; counterpart -> the counterpart
-    (+ the scanned source); movers/highs/lows/trends -> at most 3 named cards;
-    a singular 'the most expensive card' -> one raw + one graded leader."""
+    (+ the scanned source); movers/highs/lows/trends -> at most 3 cards; a
+    singular 'the most expensive card' -> one raw + one graded leader. Caps
+    only drop tiles the text doesn't name."""
     if always_ids:
         return tiles, charts, label  # proposals decide their own tiles
     wanted = counterpart_language(question)
@@ -918,10 +972,12 @@ def apply_question_rules(
         return ranked[:MAX_HOLDING_TILES], charts, HOLDINGS_LABEL
     if is_movers_question(question) or tools_used & RANKING_TOOLS:
         if len(tiles) > MAX_RANKED_TILES:
-            tiles = order_by_mention(tiles, text)[:MAX_RANKED_TILES]
+            tiles = cap_unnamed(tiles, text, MAX_RANKED_TILES)
         return tiles, charts, label
+    if "find_top_graded" in tools_used and not charts:
+        tiles = named_slabs(tiles, pool, text)
     if asks_for_single_leader(question) and tools_used & {"search_cards", "find_top_graded"} and not charts:
-        return single_leaders(tiles), charts, label
+        return single_leaders(tiles, text), charts, label
     return tiles, charts, label
 
 

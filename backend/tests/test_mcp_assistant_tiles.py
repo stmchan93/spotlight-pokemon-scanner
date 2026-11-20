@@ -490,13 +490,22 @@ class QuestionRuleTests(unittest.TestCase):
     def test_movers_and_ranking_answers_keep_three_named_in_text_order(self) -> None:
         names = ["Kyogre-EX", "Snorlax", "Gyarados", "Vaporeon", "Mimikyu VMAX"]
         cards = [ref(str(i), name) for i, name in enumerate(names)]
-        text = "Snorlax and Kyogre-EX gained most; Mimikyu VMAX rose 30%. Gyarados and Vaporeon also rose."
+        text = "Snorlax and Kyogre-EX gained most; Mimikyu VMAX rose 30%."
         tiles, _, _ = self.rules(cards, "What were my biggest gainers this month?", text)
         self.assertEqual(self.ids(tiles), ["1", "0", "4"])
         tiles, _, _ = self.rules(cards, "Cards with new highs", text, tools_used={"find_new_highs"})
         self.assertEqual(len(tiles), 3)
         tiles, _, _ = self.rules(cards, "Show me Pikachu cards", text, tools_used={"search_cards"})
         self.assertEqual(len(tiles), 5)
+
+    def test_ranking_cap_only_drops_unnamed_tiles(self) -> None:
+        names = ["Kyogre-EX", "Snorlax", "Gyarados", "Vaporeon", "Mimikyu VMAX"]
+        cards = [ref(str(i), name) for i, name in enumerate(names)]
+        text = "Snorlax and Kyogre-EX gained most; Mimikyu VMAX rose 30%. Gyarados and Vaporeon also rose."
+        tiles, _, _ = self.rules(cards, "What were my biggest gainers this month?", text)
+        self.assertEqual(self.ids(tiles), ["1", "0", "4", "2", "3"])
+        tiles, _, _ = self.rules(cards, "What's likely to go up?", "Snorlax leads.", tools_used={"get_market_trends"})
+        self.assertEqual(self.ids(tiles), ["1", "0", "2"])
 
     def test_counterpart_question_shows_the_counterpart_plus_a_scanned_source(self) -> None:
         en = ref("sv3pt5-199", "Charizard ex", language="English")
@@ -513,6 +522,10 @@ class QuestionRuleTests(unittest.TestCase):
                  ref("g2", "Elsa", grader="PSA", grade="10")]
         tiles, _, _ = self.rules(cards, "What's the most expensive One Piece card?", tools_used={"search_cards"})
         self.assertEqual(self.ids(tiles), ["r1", "g1"])
+        # Every card the text names stays a tile (the re-ask named the runners-up).
+        text = "Rocks is the top single, ahead of Nami. The top slab is a PSA 10 Mickey."
+        tiles, _, _ = self.rules(cards, "What's the most expensive One Piece card?", text, tools_used={"search_cards"})
+        self.assertEqual(self.ids(tiles), ["r1", "r2", "g1"])
         tiles, _, _ = self.rules(cards, "What are the most expensive Lorcana cards?", tools_used={"search_cards"})
         self.assertEqual(len(tiles), 4)
 

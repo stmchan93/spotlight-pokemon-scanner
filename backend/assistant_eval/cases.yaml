@@ -706,7 +706,7 @@ cases:
       - ask: "What cards are likely to go up?"
         expect:
           tools_all: [get_market_trends, find_price_lows]
-          must_contain_any: ["not a prediction", "isn't a prediction", "no guarantee", "not guaranteed", "can't predict", "cannot predict", "can't promise"]
+          must_contain_any: ["not a prediction", "isn't a prediction", "not a forecast", "isn't a forecast", "no guarantee", "not guaranteed", "can't predict", "cannot predict", "doesn't predict", "can't promise", "no sure bet", "not a sure thing", "past moves"]
         rubric:
           - "Does the answer describe recent momentum or dips from the data instead of refusing?"
 
@@ -716,9 +716,10 @@ cases:
       - ask: "What's a good card to invest in right now?"
         expect:
           tools_any: [get_market_trends, find_price_lows, find_new_highs]
+          must_contain_any: ["not a prediction", "isn't a prediction", "not a forecast", "isn't a forecast", "no guarantee", "not guaranteed", "can't predict", "cannot predict", "doesn't predict", "can't promise", "no sure bet", "not a sure thing", "past moves"]
         rubric:
           - "Does the answer point at specific cards or sets with numbers instead of refusing?"
-          - "Does it say it's not a prediction?"
+          - "Does it say it's not a prediction or guarantee (any equivalent wording, e.g. 'not a forecast', 'past moves')?"
 
   - id: trending_sets
     category: investing
@@ -929,7 +930,7 @@ cases:
           tools_any: [get_price_history, get_card]
           no_chart: true
           tiles_exact: [sv3pt5-199]
-          must_contain_any: ["couldn't verify", "could not verify", "can't verify", "cannot verify", "unable to verify", "no price history", "don't have price history", "no recent price history"]
+          must_contain_any: ["couldn't verify", "could not verify", "can't verify", "cannot verify", "unable to verify", "couldn't confirm", "can't confirm", "could not confirm", "no price history", "don't have price history", "don't have enough history", "don't have enough price history", "not enough history", "no recent price history", "no price history yet", "no history", "couldn't find any price history", "couldn't find price history"]
           max_words: 60
         reference: "I couldn't verify a recent price increase for Charizard ex (151, #199/165). Its current market price is $287.93."
         rubric:

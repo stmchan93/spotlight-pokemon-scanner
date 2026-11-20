@@ -823,7 +823,8 @@ class SuggestionTurnTests(AssistantCase):
         self.assertEqual((reply["text"], reply["suggestions"]), ("Answer.", []))
 
     def test_block_only_reply_is_an_error_without_suggestions(self) -> None:
-        self.client.queue(message([text("<followups>\nWhat's trending?\n</followups>")]))
+        # The empty answer gets one tools-off retry; still empty -> error.
+        self.client.queue(message([text("<followups>\nWhat's trending?\n</followups>")]), message([]))
         reply = self.ask().json()["message"]
         self.assertEqual((reply["status"], reply["text"], reply["suggestions"]), ("error", EMPTY_TEXT, []))
 

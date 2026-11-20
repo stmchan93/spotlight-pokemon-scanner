@@ -304,6 +304,23 @@ def _row_text(row: dict[str, Any]) -> str:
     )
 
 
+MAX_STEPS = 3
+
+
+def _largest_steps(points: list[dict[str, Any]]) -> str:
+    """'; largest steps: 2026-10-28 $350.00 -> $480.00, ...' so dated claims are checkable."""
+    steps = [
+        (abs(float(b["usd"]) - float(a["usd"])), b["date"], float(a["usd"]), float(b["usd"]))
+        for a, b in zip(points, points[1:]) if float(b["usd"]) != float(a["usd"])
+    ]
+    top = sorted(steps, key=lambda step: step[0], reverse=True)[:MAX_STEPS]
+    if not top:
+        return ""
+    return "; largest steps: " + ", ".join(
+        f"{date} ${before:,.2f} -> ${after:,.2f}" for _, date, before, after in sorted(top, key=lambda step: step[1])
+    )
+
+
 def result_fields(data: Any, *, depth: int = 3) -> dict[str, Any]:
     """Scalar fields (dotted paths) of a tool result, skipping card dicts; date/usd
     point lists collapse to count/first/last/min/max."""
@@ -324,7 +341,7 @@ def result_fields(data: Any, *, depth: int = 3) -> dict[str, Any]:
                     fields[path] = (
                         f"{len(points)} pts, {points[0]['date']} ${prices[0]:,.2f} -> {points[-1]['date']} "
                         f"${prices[-1]:,.2f}, min ${min(prices):,.2f}, max ${max(prices):,.2f}"
-                    )
+                    ) + _largest_steps(points)
                 elif value and all(not isinstance(item, (dict, list)) for item in value):
                     fields[path] = _clip(", ".join(str(item) for item in value), 160)
                 elif value and all(isinstance(item, dict) and not _is_card(item) for item in value):
@@ -807,9 +824,13 @@ def check_must_not_contain(record: dict[str, Any], patterns: dict[str, str], nam
     return _fail(name, "; ".join(hits)) if hits else _ok(name)
 
 
+def _plain_quotes(text: str) -> str:
+    return text.replace("\u2019", "'").replace("\u2018", "'")
+
+
 def check_must_contain_any(record: dict[str, Any], needles: list[str]) -> CheckResult:
-    answer = str(record.get("answer") or "").casefold()
-    if any(str(needle).casefold() in answer for needle in needles):
+    answer = _plain_quotes(str(record.get("answer") or "")).casefold()
+    if any(_plain_quotes(str(needle)).casefold() in answer for needle in needles):
         return _ok("must_contain_any")
     return _fail("must_contain_any", f"answer has none of {needles}")
 
@@ -1141,7 +1162,7 @@ def compact_tool_results(record: dict[str, Any], budget: int = MAX_TOOL_RESULT_C
             continue
         fields = result_fields(data)
         if fields:
-            header += " -> " + _clip(json.dumps(fields, ensure_ascii=False, default=str), 900)
+            header += " -> " + _clip(json.dumps(fields, ensure_ascii=False, default=str), 1100)
         cards = [_card_line(card) for card in result_cards(data)]
         named = [str(card.get("name") or "").casefold() in answer for card in result_cards(data)]
         blocks.append({"header": header, "cards": cards, "named": named, "keep": [False] * len(cards)})
