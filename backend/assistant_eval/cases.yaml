@@ -601,18 +601,18 @@ cases:
       delete:
         - {table: slab_recent_sales, where: {card_id: bw5-104, grader: PSA, grade: "10"}}
         - {table: slab_recent_sales_cache, where: {card_id: bw5-104, grader: PSA, grade: "10"}}
-        - {table: slab_recent_sales, where: {card_id: xy5-141, grader: PSA, grade: "10"}}
-        - {table: slab_recent_sales_cache, where: {card_id: xy5-141, grader: PSA, grade: "10"}}
+        - {table: slab_recent_sales, where: {card_id: xy5g_ja-77, grader: PSA, grade: "10"}}
+        - {table: slab_recent_sales_cache, where: {card_id: xy5g_ja-77, grader: PSA, grade: "10"}}
       insert:
         - table: slab_recent_sales_cache
           rows:
             - {card_id: bw5-104, grader: PSA, grade: "10", source: ebay, status: available, result_count: 2, fetched_at: $NOW, created_at: $NOW, updated_at: $NOW}
-            - {card_id: xy5-141, grader: PSA, grade: "10", source: ebay, status: available, result_count: 1, fetched_at: $NOW, created_at: $NOW, updated_at: $NOW}
+            - {card_id: xy5g_ja-77, grader: PSA, grade: "10", source: ebay, status: available, result_count: 1, fetched_at: $NOW, created_at: $NOW, updated_at: $NOW}
         - table: slab_recent_sales
           rows:
             - {id: eval-fixture-kyogre-1, card_id: bw5-104, grader: PSA, grade: "10", source: ebay, source_sale_id: eval-fixture-kyogre-1, rank: 1, title: "EVAL FIXTURE Kyogre-EX Dark Explorers 104/108 PSA 10", sold_at: $TODAY, price: 1450.0, currency_code: USD, created_at: $NOW}
             - {id: eval-fixture-kyogre-2, card_id: bw5-104, grader: PSA, grade: "10", source: ebay, source_sale_id: eval-fixture-kyogre-2, rank: 2, title: "EVAL FIXTURE Kyogre-EX Dark Explorers 104/108 PSA 10", sold_at: $TODAY, price: 1500.0, currency_code: USD, created_at: $NOW}
-            - {id: eval-fixture-teammates-1, card_id: xy5-141, grader: PSA, grade: "10", source: ebay, source_sale_id: eval-fixture-teammates-1, rank: 1, title: "EVAL FIXTURE Teammates Primal Clash 141/160 PSA 10", sold_at: $TODAY, price: 45.0, currency_code: USD, created_at: $NOW}
+            - {id: eval-fixture-teammates-1, card_id: xy5g_ja-77, grader: PSA, grade: "10", source: ebay, source_sale_id: eval-fixture-teammates-1, rank: 1, title: "EVAL FIXTURE Teammates 077/070 PSA 10", sold_at: $TODAY, price: 45.0, currency_code: USD, created_at: $NOW}
     turns:
       - ask: "Is anything I own worth grading?"
         expect:

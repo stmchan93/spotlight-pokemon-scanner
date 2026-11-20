@@ -1033,9 +1033,9 @@ class RunnerEndToEndTests(AssistantCase):
         from assistant_eval.fixtures import CaseFixtures
 
         self.card("bw5-104", "Kyogre-EX", number="104/108", set_name="Dark Explorers")
-        self.card("xy5-141", "Teammates", number="141/160", set_name="Primal Clash")
+        self.card("xy5g_ja-77", "Teammates", number="077/070", set_name="ガイアボルケーノ")
         self.price("bw5-104", 504.48)
-        self.price("xy5-141", 2.0)
+        self.price("xy5g_ja-77", 2.0)
         self.holding("k1", USER_A, "bw5-104")
         self.conn.commit()
         case = next(c for c in load_case_file(DEFAULT_CASES_PATH)["cases"] if c["id"] == "worth_grading")
@@ -1043,7 +1043,7 @@ class RunnerEndToEndTests(AssistantCase):
         fixtures = CaseFixtures(db_path, USER_A)
         try:
             fixtures.apply(case["fixtures"])
-            result = self.tools.grading_upside(USER_A, ["bw5-104", "xy5-141"])
+            result = self.tools.grading_upside(USER_A, ["bw5-104", "xy5g_ja-77"])
         finally:
             fixtures.cleanup()
             fixtures.close()
@@ -1053,7 +1053,7 @@ class RunnerEndToEndTests(AssistantCase):
         self.assertIn(kyogre["comp_price_usd"], (1450.0, 1500.0))
         self.assertEqual(kyogre["comp_sale_count"], 2)
         self.assertAlmostEqual(kyogre["gross_premium_usd"], round(kyogre["comp_price_usd"] - 504.48, 2))
-        self.assertEqual((by_id["xy5-141"]["comp_source"], by_id["xy5-141"]["comp_price_usd"]), ("ebay_sold", 45.0))
+        self.assertEqual((by_id["xy5g_ja-77"]["comp_source"], by_id["xy5g_ja-77"]["comp_price_usd"]), ("ebay_sold", 45.0))
         # The case's own result check passes on this real result.
         expect = case["turns"][0]["expect"]
         record = turn_record(tool_results=[{"name": "grading_upside", "data": result}])
