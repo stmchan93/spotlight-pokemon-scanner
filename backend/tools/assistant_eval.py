@@ -54,6 +54,7 @@ from assistant_eval.fixtures import CaseFixtures, case_needs_db_copy, copy_datab
 from assistant_eval.grading import (  # noqa: E402
     WRITE_TOOLS,
     CheckResult,
+    attach_artwork,
     grade_turn,
     judge_check,
     judge_model,
@@ -133,8 +134,12 @@ class ToolRecorder:
     def __init__(self, toolbox: Any) -> None:
         from mcp_server.assistant.engine import summarize_tool_call
         from mcp_server.assistant.tools import strip_for_model
+        from mcp_server.assistant.length_guard import is_art_search
+
+        self._is_art_search = is_art_search
 
         self._original = toolbox.run
+        self._conn = getattr(toolbox, "conn", None)
         self._summarize = summarize_tool_call
         self._strip = strip_for_model
         self.calls: list[dict[str, Any]] = []
@@ -144,6 +149,8 @@ class ToolRecorder:
         outcome = self._original(name, arguments, owner_user_id=owner_user_id, **kwargs)
         data = self._strip(outcome.content)
         result = json.dumps(data, default=str, ensure_ascii=False, separators=(",", ":"))
+        if name == "search_cards" and self._is_art_search(arguments) and self._conn is not None:
+            data = attach_artwork(data, self._describe_art)  # judge-only; the model never saw it
         self.calls.append(
             {
                 "name": name,
@@ -151,10 +158,18 @@ class ToolRecorder:
                 "is_error": bool(outcome.is_error),
                 "call": self._summarize(name, arguments),
                 "result": result if len(result) <= MAX_TOOL_RESULT_CHARS else result[: MAX_TOOL_RESULT_CHARS - 1] + "…",
-                "data": json.loads(result) if len(result) <= MAX_TOOL_DATA_CHARS else None,
+                "data": json.loads(json.dumps(data, default=str)) if len(result) <= MAX_TOOL_DATA_CHARS else None,
             }
         )
         return outcome
+
+    def _describe_art(self, card_id: str) -> str | None:
+        import art_search
+
+        try:
+            return (art_search.get_card_art(self._conn, card_id) or {}).get("alt_text")
+        except Exception:  # noqa: BLE001 - no art tables: the judge goes without
+            return None
 
     def take(self) -> list[dict[str, Any]]:
         calls, self.calls = self.calls, []

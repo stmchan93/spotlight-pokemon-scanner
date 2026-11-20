@@ -24,9 +24,10 @@ WORD_LIMITS: dict[str, int] = {
     "art_search": 45,
     "no_data": 50,  # a lookup failed or found nothing
     "refusal": 40,  # no tools ran and it isn't a knowledge question
-    "narrowing": 80,  # "only singles, not sealed" / "just the English ones"
+    # "only singles, not sealed": two SHORT sentences; long compound pairs read as three.
+    "narrowing": 40,
 }
-SENTENCE_LIMITS: dict[str, int] = {"narrowing": 2, "refusal": 2}
+SENTENCE_LIMITS: dict[str, int] = {"narrowing": 2, "refusal": 2, "art_search": 2}
 REWRITE_MAX_TOKENS = 1024  # room for adaptive thinking at low effort
 REWRITE_INSTRUCTION = (
     "Rewrite to at most {limit} words{sentences}. Keep every number, card name, set, date and the 'not a prediction' "
@@ -158,6 +159,8 @@ def _sentences(paragraph: str) -> list[str]:
     for match in _SENTENCE_END.finditer(paragraph):
         before = paragraph[start:match.start()].split()
         last = before[-1].casefold().lstrip("(\"'") if before else ""
+        if len(before) == 1 and last.isdigit():
+            continue  # "1. Umbreon": a numbered-list marker, not a sentence
         if match.group().startswith(".") and (last in _ABBREVIATIONS or (len(last) == 1 and last.isalpha())):
             continue
         parts.append(paragraph[start:match.start() + 1])

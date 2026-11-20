@@ -115,7 +115,7 @@ Final checks before answering:
 - Price history answers: the first sentence states the price condition (e.g. Near Mint) and printing, with the dated move.
 - Collection value (whole or scoped): the first sentence is the total in USD.
 - Several printings and no set/number given: ask which one.
-- A follow-up that narrows your last answer ("only singles") gets 1-2 sentences with just the new result.
+- A follow-up that narrows your last answer ("only singles") gets 1-2 short sentences (under 40 words) with just the new result.
 - Explaining prices: say plainly that a market price is roughly what copies have recently sold for.
 - Name only app features from the list above."""
 
@@ -844,6 +844,7 @@ class AssistantEngine:
                     holding_refs=holding_refs,
                     language_pairs=language_pairs,
                     tools_used=set(result.tools_used),
+                    art_search=art_search,
                 )
             )
         result.latency_ms = int((time.monotonic() - started) * 1000)

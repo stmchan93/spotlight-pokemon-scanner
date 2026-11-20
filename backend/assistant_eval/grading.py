@@ -259,7 +259,25 @@ _CARD_FIELDS = ("card_id", "name", "set", "number", "language", "price_usd", "va
                 "comp_source", "comp_sale_count", "comp_missing",
                 # history coverage (price lows/highs rows) so the judge can check "N days of history"
                 "days_covered", "at_window_low", "pct_below_high", "pct_above_low", "high_date", "low_date",
-                "first_date", "last_date", "covers_full_range")
+                "first_date", "last_date", "covers_full_range",
+                "artwork")  # art-search results: the artwork description, so the judge can check the scene
+
+
+MAX_ARTWORK_CHARS = 240
+
+
+def attach_artwork(data: Any, describe: Callable[[str], str | None]) -> Any:
+    """Copy of an art-search result whose cards carry `artwork` (their alt text) from describe(card_id)."""
+    if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+        return data
+    results = []
+    for item in data["results"]:
+        if isinstance(item, dict) and item.get("card_id") and not item.get("artwork"):
+            text = describe(str(item["card_id"]))
+            if text:
+                item = {**item, "artwork": _clip(" ".join(str(text).split()), MAX_ARTWORK_CHARS)}
+        results.append(item)
+    return {**data, "results": results}
 
 
 def _is_card(node: Any) -> bool:
@@ -1139,10 +1157,13 @@ def _card_line(card: dict[str, Any]) -> str:
     parts.append(_money(card.get("price_usd")))
     extras = [
         f"{key}={value}" for key, value in card.items()
-        if key not in ("card_id", "name", "set", "number", "language", "grader", "grade", "variant", "price_usd")
+        if key not in ("card_id", "name", "set", "number", "language", "grader", "grade", "variant", "price_usd",
+                       "artwork")
     ]
     if extras:
         parts.append(", ".join(extras))
+    if card.get("artwork"):
+        parts.append(f"artwork: {card['artwork']}")
     return "  - " + " | ".join(parts)
 
 
