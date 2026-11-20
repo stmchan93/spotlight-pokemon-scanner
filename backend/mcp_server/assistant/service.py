@@ -181,6 +181,7 @@ class AssistantService:
         try:
             turn = await self.engine.run_turn(
                 owner_user_id=user_id, history=history, question=request["text"], context=context,
+                context_card_ids=request["card_ids"],
                 client_message_id=request["client_message_id"] if request["direct_add"] else None,
             )
         except AssistantFailed as failure:
@@ -206,6 +207,8 @@ class AssistantService:
             "flags": flags,
             "text": turn.text,
             "cards": turn.cards,
+            "cards_label": turn.cards_label,
+            "cards_view_all": turn.cards_view_all,
             "actions": turn.actions,
             "suggestions": turn.suggestions,
             "charts": turn.charts,

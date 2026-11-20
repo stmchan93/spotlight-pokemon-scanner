@@ -6,6 +6,8 @@ import type {
   AssistantActionState,
   AssistantActionUndo,
   AssistantCardRef,
+  AssistantCardSparkline,
+  AssistantCardsViewAll,
   AssistantChartRange,
   AssistantConditionCode,
   AssistantContext,
@@ -41,6 +43,8 @@ function asInt(value: unknown): number | null {
   const number = asNumber(value);
   return number == null ? null : Math.trunc(number);
 }
+
+const chartRanges: readonly AssistantChartRange[] = ['30d', '90d', '1y'];
 
 const conditionCodes: readonly AssistantConditionCode[] = ['NM', 'LP', 'MP', 'HP', 'DMG'];
 
@@ -98,7 +102,33 @@ export function parseAssistantCardRef(value: unknown): AssistantCardRef | null {
     grade: asString(raw.grade),
     quantityOwned: asInt(raw.quantity_owned),
     appUrl: asString(raw.app_url),
+    sparkline: parseAssistantCardSparkline(raw.sparkline),
   };
+}
+
+const ASSISTANT_MAX_SPARKLINE_POINTS = 30;
+
+/** Needs two or more USD points; anything else means "no sparkline". */
+export function parseAssistantCardSparkline(value: unknown): AssistantCardSparkline | null {
+  const raw = asRecord(value);
+  if (!raw || !Array.isArray(raw.points)) {
+    return null;
+  }
+  const points = raw.points
+    .map(asNumber)
+    .filter((point): point is number => point != null)
+    .slice(-ASSISTANT_MAX_SPARKLINE_POINTS);
+  if (points.length < 2) {
+    return null;
+  }
+  const range = chartRanges.find((option) => option === raw.range) ?? '90d';
+  return { range, points, changePct: asNumber(raw.change_pct) };
+}
+
+export function parseAssistantCardsViewAll(value: unknown): AssistantCardsViewAll | null {
+  const raw = asRecord(value);
+  const total = raw ? asInt(raw.total) : null;
+  return raw && raw.screen === 'watchlist' && total != null && total > 0 ? { screen: 'watchlist', total } : null;
 }
 
 export function parseAssistantAction(value: unknown): AssistantProposedAction | null {
@@ -199,7 +229,6 @@ export function parseAssistantSuggestions(value: unknown): string[] {
 
 export const ASSISTANT_MAX_CHARTS = 2;
 const ASSISTANT_MAX_CHART_POINTS = 90;
-const chartRanges: readonly AssistantChartRange[] = ['30d', '90d', '1y'];
 
 /** A chart needs at least two dated USD points; anything else is dropped. */
 export function parseAssistantPriceChart(value: unknown): AssistantPriceChart | null {
@@ -278,6 +307,8 @@ export function parseAssistantMessage(value: unknown): AssistantMessage | null {
     role,
     text: typeof raw.text === 'string' ? raw.text : '',
     cards: parseList(raw.cards, parseAssistantCardRef).slice(0, 12),
+    cardsLabel: role === 'assistant' ? asString(typeof raw.cards_label === 'string' ? raw.cards_label.trim() : null) : null,
+    cardsViewAll: role === 'assistant' ? parseAssistantCardsViewAll(raw.cards_view_all) : null,
     // Actions are assistant-only by contract.
     actions: role === 'assistant' ? parseList(raw.actions, parseAssistantAction) : [],
     createdAt: asString(raw.created_at) ?? '',

@@ -12,12 +12,14 @@ tool (incl. all propose_* writes) is strict.
 from __future__ import annotations
 
 import logging
+import re
+import sqlite3
 from dataclasses import dataclass, field
 from typing import Any
 
 from catalog_tools import SUPPORTED_GAMES, card_by_id
 
-from mcp_server.filters import ToolInputError
+from mcp_server.filters import ToolInputError, uses_art_filters
 from mcp_server.policy import USER_POLICY
 from mcp_server.assistant.direct_add import (
     ADD_NOW_TOOL,
@@ -52,6 +54,11 @@ MAX_CARDS = 12
 MAX_CHARTS = 2
 MAX_CHART_POINTS = 90
 MAX_QUANTITY = 999
+MAX_LABEL_CHARS = 40
+MAX_WATCHLIST_TILES = 8
+MAX_SPARKLINE_POINTS = 30
+# find_price_lows / find_new_highs window -> get_price_history range.
+SPARKLINE_RANGES = {"90d": "90d", "1y": "1y"}
 # Fields the model never needs (tiles carry them); dropping them saves tokens.
 MODEL_HIDDEN_KEYS = frozenset({"image_small_url", "app_url", "tcgplayer_id", "buy_links"})
 # Per-call ceilings for the model (the MCP tools allow more).
@@ -360,6 +367,37 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         ),
         "strict": True,
     },
+    {
+        "name": "show_cards",
+        "description": (
+            "Choose the card tiles shown under your answer. Call it once, in the same message as your final "
+            "answer, with exactly the cards the answer is about, in display order: every card you name, and "
+            "nothing else. Show several candidates only when you ask the user to pick one. Use card ids from "
+            "this turn's tool results, the scanned cards, or your earlier answers. Pass grader+grade for a "
+            "graded price and variant for a specific printing; otherwise null. label: a short header for the "
+            "tiles (e.g. 'Top holdings by value', 'Highest-value cards you're missing') or null. cards: [] "
+            "shows no tiles."
+        ),
+        "input_schema": _obj(
+            {
+                "cards": {
+                    "type": "array",
+                    "items": _obj(
+                        {
+                            "card_id": {"type": "string"},
+                            "variant": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                            "grader": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                            "grade": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                        },
+                        ["card_id", "variant", "grader", "grade"],
+                    ),
+                },
+                "label": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+            },
+            ["cards", "label"],
+        ),
+        "strict": True,
+    },
 ]
 
 READ_TOOLS = (
@@ -473,6 +511,180 @@ def _optional_str(value: Any, *, limit: int = 80) -> str | None:
     return text[:limit] if text else None
 
 
+# --- tile selection ----------------------------------------------------------
+
+
+def clean_label(value: Any) -> str | None:
+    text = " ".join(str(value or "").split())
+    if not text or any(ch in text for ch in "<>{}[]`"):
+        return None
+    return text[:MAX_LABEL_CHARS].rstrip()
+
+
+def _slab(ref: dict[str, Any]) -> tuple[str | None, str | None]:
+    grader = str(ref.get("grader") or "").strip().upper() or None
+    return grader, (str(ref.get("grade") or "").strip() or None) if grader else None
+
+
+def _best_ref(candidates: list[dict[str, Any]], grader: str | None, grade: str | None,
+              variant: str | None) -> dict[str, Any]:
+    """Exact slab + printing, then slab, then the raw ref, then whatever we have."""
+
+    def same_slab(ref: dict[str, Any]) -> bool:
+        return _slab(ref) == (grader, grade)
+
+    def same_variant(ref: dict[str, Any]) -> bool:
+        return variant is None or str(ref.get("variant") or "").casefold() == variant.casefold()
+
+    for test in (lambda ref: same_slab(ref) and same_variant(ref), same_slab, lambda ref: _slab(ref)[0] is None):
+        for ref in candidates:
+            if test(ref):
+                return ref
+    return candidates[0]
+
+
+def select_tiles(items: Any, refs: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Resolve show_cards items against refs the server produced (tool results,
+    scanned cards, earlier tiles). Unknown ids are dropped, never invented."""
+    by_id: dict[str, list[dict[str, Any]]] = {}
+    for ref in refs:
+        by_id.setdefault(str(ref["card_id"]), []).append(ref)
+    tiles: list[dict[str, Any]] = []
+    dropped: list[str] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        card_id = _optional_str(item.get("card_id"), limit=200)
+        if not card_id:
+            continue
+        candidates = by_id.get(card_id)
+        if not candidates:
+            dropped.append(card_id)
+            continue
+        grader, grade = _slab(item)
+        tile = dict(_best_ref(candidates, grader, grade, _optional_str(item.get("variant"))))
+        key = (card_id, *(value or "" for value in _slab(tile)))
+        if key in seen:
+            continue
+        seen.add(key)
+        tiles.append(tile)
+        if len(tiles) >= MAX_CARDS:
+            break
+    return tiles, dropped
+
+
+def _name_key(ref: dict[str, Any]) -> str:
+    return " ".join(str(ref.get("name") or "").split()).casefold()
+
+
+def _number_in_text(number: Any, text: str) -> bool:
+    number = str(number or "").strip().lstrip("#")
+    return bool(number) and re.search(r"(?<![\w/])#?" + re.escape(number) + r"(?!\w)", text, re.IGNORECASE) is not None
+
+
+def named_refs(refs: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
+    """Refs whose card name is in the answer text (a name seen only inside a
+    longer matched name doesn't count); a number in the text narrows a name to
+    that printing."""
+    spans: dict[str, list[tuple[int, int]]] = {}
+    for ref in refs:
+        key = _name_key(ref)
+        if not key or key in spans:
+            continue
+        pattern = r"(?<!\w)" + r"\s+".join(re.escape(part) for part in key.split()) + r"(?!\w)"
+        spans[key] = [match.span() for match in re.finditer(pattern, text, re.IGNORECASE)]
+    matched = {key: found for key, found in spans.items() if found}
+
+    def covered(key: str) -> bool:
+        return all(
+            any(
+                other != key and len(other) > len(key) and o_start <= start and end <= o_end
+                for other, other_spans in matched.items()
+                for o_start, o_end in other_spans
+            )
+            for start, end in matched[key]
+        )
+
+    names = {key for key in matched if not covered(key)}
+    named = [ref for ref in refs if _name_key(ref) in names]
+    numbered = {_name_key(ref) for ref in named if _number_in_text(ref.get("number"), text)}
+    return [ref for ref in named if _name_key(ref) not in numbered or _number_in_text(ref.get("number"), text)]
+
+
+def art_groups(conn: sqlite3.Connection, card_ids: list[str]) -> dict[str, str]:
+    ids = list(dict.fromkeys(str(card_id) for card_id in card_ids if card_id))
+    groups: dict[str, str] = {}
+    try:
+        for start in range(0, len(ids), 500):
+            chunk = ids[start : start + 500]
+            rows = conn.execute(
+                "SELECT card_id, art_group_id FROM card_art_group_members "
+                f"WHERE card_id IN ({','.join('?' * len(chunk))})",
+                chunk,
+            ).fetchall()
+            groups.update({str(row[0]): str(row[1]) for row in rows})
+    except sqlite3.OperationalError:  # no art tables on this DB
+        return {}
+    return groups
+
+
+def _language(item: dict[str, Any]) -> str:
+    language = str(item.get("language") or "").strip().casefold()
+    if language:
+        return language
+    return "japanese" if "_ja-" in str(item.get("card_id") or "") else "english"
+
+
+def collapse_same_art(
+    items: list[dict[str, Any]],
+    groups: dict[str, str],
+    *,
+    preferred_language: str | None = None,
+    across_languages: bool = True,
+) -> tuple[list[dict[str, Any]], int]:
+    """One item per artwork (art group), in the slot of its first appearance;
+    within a group the preferred language wins. across_languages=False merges
+    only same-language reprints, so an EN/JP counterpart pair stays."""
+    preferred = (preferred_language or "").casefold() or None
+    slots: dict[Any, int] = {}
+    out: list[dict[str, Any]] = []
+    for item in items:
+        group = groups.get(str(item.get("card_id")))
+        key = None if group is None else (group if across_languages else (group, _language(item)))
+        if key is None or key not in slots:
+            if key is not None:
+                slots[key] = len(out)
+            out.append(item)
+            continue
+        index = slots[key]
+        if out[index].get("card_id") == item.get("card_id"):
+            out.append(item)  # same card in another grade: not a duplicate artwork
+        elif preferred and _language(out[index]) != preferred and _language(item) == preferred:
+            out[index] = item
+    return out, len(items) - len(out)
+
+
+def watchlist_order(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Cards with a target first (closest to it first), then by market price, unpriced last."""
+
+    def key(item: dict[str, Any]) -> tuple[int, float]:
+        price, target = item.get("price_usd"), item.get("target_price_usd")
+        priced = isinstance(price, (int, float)) and not isinstance(price, bool)
+        if isinstance(target, (int, float)) and target > 0:
+            return (0, price / target) if priced else (1, 0.0)
+        return (2, -float(price)) if priced else (3, 0.0)
+
+    return sorted(items, key=key)
+
+
+def downsample(values: list[Any], size: int) -> list[Any]:
+    if len(values) <= size:
+        return values
+    step = (len(values) - 1) / (size - 1)
+    return [values[round(i * step)] for i in range(size)]
+
+
 def _card_label(card: dict[str, Any]) -> str:
     where = " ".join(part for part in (str(card.get("setName") or "").strip(), str(card.get("number") or "").strip()) if part)
     return f"{card.get('name')} ({where})" if where else str(card.get("name"))
@@ -540,6 +752,11 @@ class AssistantToolbox:
         except ValueError as error:
             raise ToolInputError(str(error)) from None
         result = self.policy.shape(getattr(self.tools, name)(owner_user_id, **kwargs))
+        if name == "search_cards" and isinstance(result, dict) and uses_art_filters(kwargs.get("card_filter") or {}):
+            result = self._collapse_art_results(result, kwargs.get("card_filter") or {})
+        if name == "get_my_watchlist" and isinstance(result, dict) and isinstance(result.get("items"), list):
+            result["items"] = watchlist_order(result["items"])
+            result["order"] = "target price set first (closest to target first), then market price high to low"
         chart = None
         if name == "get_price_history" and isinstance(result, dict):
             card = card_by_id(self.conn, str(result.get("card_id") or ""))
@@ -547,6 +764,18 @@ class AssistantToolbox:
                 result, name=card.get("name") if card else None, range_key=kwargs.get("range_key") or "90d"
             )
         return ToolOutcome(strip_for_model(result), cards=card_refs(result), chart=chart)
+
+    def _collapse_art_results(self, result: dict[str, Any], card_filter: dict[str, Any]) -> dict[str, Any]:
+        """Art searches show one printing per artwork so the user sees more distinct scenes."""
+        items = [item for item in result.get("results") or [] if isinstance(item, dict)]
+        language = str(card_filter.get("language") or "")
+        preferred = language if language in ("English", "Japanese") else "English"
+        kept, hidden = collapse_same_art(
+            items, art_groups(self.conn, [str(item.get("card_id")) for item in items]), preferred_language=preferred
+        )
+        if not hidden:
+            return result
+        return {**result, "results": kept, "same_art_printings_hidden": hidden}
 
     # --- proposals -----------------------------------------------------------
 
@@ -800,31 +1029,109 @@ class AssistantToolbox:
     # --- tiles ---------------------------------------------------------------
 
     def finalize_cards(self, refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Dedupe (card + slab), cap at MAX_CARDS, fill image/price from the DB
-        for refs that came from slim payloads (e.g. portfolio movers)."""
+        """Dedupe (card + slab, then same-language reprints of one artwork), cap
+        at MAX_CARDS, fill name/image/price from the DB for slim refs."""
         seen: set[tuple[str, str, str]] = set()
-        out: list[dict[str, Any]] = []
+        unique: list[dict[str, Any]] = []
         for ref in refs:
             key = (ref["card_id"], str(ref.get("grader") or ""), str(ref.get("grade") or ""))
             if key in seen:
                 continue
             seen.add(key)
-            out.append(dict(ref))
-            if len(out) >= MAX_CARDS:
-                break
-        missing = [ref["card_id"] for ref in out if not ref.get("image_small_url") or not ref.get("app_url")]
+            unique.append(dict(ref))
+        groups = art_groups(self.conn, [ref["card_id"] for ref in unique])
+        out = collapse_same_art(unique, groups, across_languages=False)[0][:MAX_CARDS]
+        missing = [
+            ref["card_id"] for ref in out if not ref.get("image_small_url") or not ref.get("app_url") or not ref.get("name")
+        ]
         if missing:
             summaries = self.tools._summaries(missing)
             for ref in out:
                 summary = summaries.get(ref["card_id"])
                 if summary is None:
                     continue
-                for key in ("image_small_url", "app_url", "set", "number", "language"):
+                for key in ("name", "image_small_url", "app_url", "set", "number", "language"):
                     if not ref.get(key):
                         ref[key] = summary.get(key)
                 if ref.get("price_usd") is None and not (ref.get("grader") or ref.get("grade")):
                     ref["price_usd"] = summary.get("price_usd")
-        return out
+        # A scanned/earlier id that no longer resolves has no name: no tile.
+        return [ref for ref in out if ref.get("name")]
+
+    def build_tiles(
+        self,
+        *,
+        owner_user_id: str,
+        turn_refs: list[dict[str, Any]],
+        selection: list[dict[str, Any]] | None,
+        label: str | None,
+        text: str,
+        charts: list[dict[str, Any]],
+        watchlist_ids: set[str],
+        watchlist_total: int | None,
+        sparkline_windows: dict[str, tuple[str, str | None]],
+    ) -> tuple[list[dict[str, Any]], str | None, dict[str, Any] | None]:
+        """(cards, cards_label, cards_view_all). show_cards' selection wins; without
+        it: the cards named in the text, else the charted card, else every card
+        the tools returned."""
+        if selection is not None:
+            tiles = list(selection)
+        else:
+            label = None
+            chart_ids = {chart["card_id"] for chart in charts}
+            tiles = (
+                named_refs(turn_refs, text)
+                or [ref for ref in turn_refs if ref["card_id"] in chart_ids]
+                or list(turn_refs)
+            )
+        for chart in charts:  # a chart always has its card's tile
+            if not any(tile["card_id"] == chart["card_id"] for tile in tiles):
+                candidates = [ref for ref in turn_refs if ref["card_id"] == chart["card_id"]]
+                tiles.append(
+                    dict(_best_ref(candidates, *_slab(chart), chart.get("variant")))
+                    if candidates
+                    else {"card_id": chart["card_id"]}
+                )
+        on_watchlist = bool(watchlist_ids) and bool(tiles) and all(tile["card_id"] in watchlist_ids for tile in tiles)
+        if on_watchlist:
+            tiles = tiles[:MAX_WATCHLIST_TILES]
+        cards = self.finalize_cards(tiles)
+        view_all = None
+        if on_watchlist and watchlist_total and watchlist_total > len(cards):
+            view_all = {"screen": "watchlist", "total": int(watchlist_total)}
+        for card in cards[:MAX_WATCHLIST_TILES]:
+            window = sparkline_windows.get(card["card_id"])
+            if window and not card.get("grader"):
+                line = self.sparkline(owner_user_id, card["card_id"], range_key=window[0], variant=window[1])
+                if line is not None:
+                    card["sparkline"] = line
+        return cards, label, view_all
+
+    def sparkline(
+        self, owner_user_id: str, card_id: str, *, range_key: str, variant: str | None
+    ) -> dict[str, Any] | None:
+        """Compact stored-history series for a tile (DB-only), or None."""
+        identity = RequestIdentity(user_id=owner_user_id, auth_source="assistant")
+        chart = None
+        try:
+            with self.tools.service.request_identity_context(identity):
+                for wanted in dict.fromkeys((variant, None)):
+                    result = self.tools.get_price_history(owner_user_id, card_id, range_key=range_key, variant=wanted)
+                    chart = price_chart(result, name=None, range_key=range_key)
+                    if chart is not None:
+                        break
+        except Exception:  # noqa: BLE001 - a missing sparkline never fails an answer
+            logger.debug("assistant sparkline failed for %s", card_id, exc_info=True)
+            return None
+        if chart is None:
+            return None
+        points = downsample([point["usd"] for point in chart["points"]], MAX_SPARKLINE_POINTS)
+        first, last = points[0], points[-1]
+        return {
+            "range": range_key,
+            "points": points,
+            "change_pct": round((last - first) / first * 100, 1) if first else None,
+        }
 
     def scanner_context(self, card_ids: list[str]) -> str | None:
         """'The user is looking at these scanned cards: …' line for the model."""

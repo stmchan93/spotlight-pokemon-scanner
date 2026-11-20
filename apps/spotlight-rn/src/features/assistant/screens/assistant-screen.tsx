@@ -80,6 +80,8 @@ export type AssistantScreenProps = {
   initialThreadId?: string | null;
   onBack: () => void;
   onOpenCard: (cardId: string) => void;
+  /** "View all N" under a Watchlist preview. */
+  onOpenWatchlist?: () => void;
 };
 
 type ChatRow =
@@ -110,6 +112,7 @@ export function AssistantScreen({
   initialThreadId = null,
   onBack,
   onOpenCard,
+  onOpenWatchlist,
 }: AssistantScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
@@ -490,6 +493,7 @@ export function AssistantScreen({
           onUndoAction={handleUndoAction}
           onFeedback={handleFeedback}
           onOpenCard={onOpenCard}
+          onOpenWatchlist={onOpenWatchlist}
         />
       );
     }
