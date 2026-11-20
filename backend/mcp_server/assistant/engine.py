@@ -20,6 +20,7 @@ from typing import Any
 from mcp_server.assistant.config import AssistantConfig, cost_usd
 from mcp_server.assistant.direct_add import ADD_NOW_TOOL, TurnWrites
 from mcp_server.assistant import length_guard
+from mcp_server.assistant.shared_answers import tool_record
 from mcp_server.assistant.tools import (
     SPARKLINE_RANGES,
     TOOL_DEFINITIONS,
@@ -445,6 +446,7 @@ class TurnResult:
     charts: list[dict[str, Any]] = field(default_factory=list)
     tools_used: list[str] = field(default_factory=list)
     tool_calls: list[str] = field(default_factory=list)  # summarize_tool_call() per call, for history provenance
+    tool_inputs: list[dict[str, Any]] = field(default_factory=list)  # shared_answers.tool_record() per call
     rounds: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
@@ -706,6 +708,7 @@ class AssistantEngine:
                 arguments = arguments_by_id[block.id]
                 result.tools_used.append(block.name)
                 result.tool_calls.append(summarize_tool_call(block.name, arguments))
+                result.tool_inputs.append(tool_record(block.name, arguments, outcome.content, outcome.cards))
                 payload = json.dumps(outcome.content, default=str, separators=(",", ":"))
                 tool_payloads.append(payload)
                 results_by_id[block.id] = {
