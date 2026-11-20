@@ -17,6 +17,7 @@ from assistant_eval.grading import (
     TILE_PREDICATE_KEYS,
     TILE_SORT_KEYS,
     tile_specs,
+    tops,
 )
 
 DEFAULT_CASES_PATH = Path(__file__).resolve().parent / "cases.yaml"
@@ -163,6 +164,10 @@ def _validate_expect(where: str, expect: Any, known: frozenset[str], banned: Ite
             errors.append(f"{where}.tiles_label: bad regex: {error}")
     if "tiles_sorted" in expect and expect["tiles_sorted"] not in TILE_SORT_KEYS:
         errors.append(f"{where}.tiles_sorted: must be one of {TILE_SORT_KEYS}")
+    if "tiles_from_tools" in expect:
+        _tools(f"{where}.tiles_from_tools", expect["tiles_from_tools"], known, errors)
+    if "tiles_include_top" in expect:
+        _tools(f"{where}.tiles_include_top", tops(expect["tiles_include_top"]), known, errors)
     if "tiles_max" in expect and (not isinstance(expect["tiles_max"], int) or expect["tiles_max"] < 0):
         errors.append(f"{where}.tiles_max: must be a non-negative integer")
     for i, spec in enumerate(expect.get("tool_result_where") or []):

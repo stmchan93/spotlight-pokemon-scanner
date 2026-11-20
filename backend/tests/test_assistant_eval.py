@@ -296,6 +296,35 @@ class TileCheckTests(unittest.TestCase):
                            cards=[tile("m", "Mickey Mouse - Wayward Sorcerer")])
         self.assertTrue(check(tray, {"named_cards_in_tiles": True}, "named_cards_in_tiles").passed)
 
+    def test_data_independent_tile_rules(self) -> None:
+        """Market cases check tiles against the ranking tool, not pinned ids."""
+        lows = {"name": "find_price_lows", "data": {"cards": [
+            tile("p1", "Pikachu ex", price_usd=21.66), tile("e1", "Espeon ex", price_usd=33.5), tile("b1", "Blastoise"),
+        ]}}
+        graded_top = {"name": "find_top_graded", "data": {"cards": [
+            tile("base1-4", "Charizard", grader="PSA", grade="10"), tile("ex13-104", "Pikachu", grader="PSA", grade="10"),
+        ]}}
+        record = turn_record(answer="Pikachu ex and Espeon ex sit near their lows.", tool_results=[lows],
+                             cards=[tile("p1", "Pikachu ex"), tile("e1", "Espeon ex")])
+        self.assertTrue(check(record, {"tiles_all_named": True}, "tiles_all_named").passed)
+        self.assertTrue(check(record, {"tiles_from_tools": ["find_price_lows"]}, "tiles_from_tools").passed)
+        extra = {**record, "cards": record["cards"] + [tile("b1", "Blastoise")]}
+        self.assertIn("Blastoise", check(extra, {"tiles_all_named": True}, "tiles_all_named").reason)
+        stray = {**record, "cards": record["cards"] + [tile("zz", "Mew")]}
+        self.assertFalse(check(stray, {"tiles_from_tools": ["find_price_lows"]}, "tiles_from_tools").passed)
+        self.assertFalse(check(record, {"tiles_from_tools": ["find_new_highs"]}, "tiles_from_tools").passed)
+
+        top = turn_record(tool_results=[graded_top], cards=[tile("base1-4", "Charizard", grader="PSA", grade="10")])
+        self.assertTrue(check(top, {"tiles_include_top": "find_top_graded"}, "tiles_include_top").passed)
+        raw_only = {**top, "cards": [tile("base1-4", "Charizard")]}  # the raw card isn't the graded leader
+        self.assertFalse(check(raw_only, {"tiles_include_top": "find_top_graded"}, "tiles_include_top").passed)
+        wrong_grade = {**top, "cards": [tile("base1-4", "Charizard", grader="PSA", grade="9")]}
+        self.assertFalse(check(wrong_grade, {"tiles_from_tools": ["find_top_graded"]}, "tiles_from_tools").passed)
+        both = turn_record(tool_results=[graded_top, lows], cards=[tile("base1-4", "Charizard", grader="PSA", grade="10"),
+                                                                   tile("p1", "Pikachu ex")])
+        names = [c.name for c in grade_turn(both, {"tiles_include_top": ["find_top_graded", "find_price_lows"]}, {})]
+        self.assertEqual(names.count("tiles_include_top"), 2)
+
     def test_price_trusted_tiles(self) -> None:
         kyogre = tile("bw5-104", "Kyogre-EX", grader="PSA", grade="10", price_usd=999999)
         record = turn_record(cards=[kyogre], tool_results=[])
@@ -558,6 +587,16 @@ class JudgeContextTests(unittest.TestCase):
         # The default budget is 12k and fits far more than run 1's 3000 chars.
         self.assertEqual(grading.MAX_TOOL_RESULT_CHARS, 12000)
         self.assertGreater(len(grading.compact_tool_results(record)), 9000)
+
+    def test_plain_rows_are_shown_not_counted(self) -> None:
+        """Run 2's trending_sets judge saw 'rising_sets: 3 items' and failed a correct answer."""
+        data = {"rising_sets": [{"set": "Plasma Storm", "change_pct": 66.3, "card_count": 40},
+                                {"set": "Secret Wonders", "change_pct": 15.5}],
+                "falling_sets": [{"set": "Ascended Heroes", "change_pct": -24.8}]}
+        text = grading.compact_tool_results(turn_record(tool_results=[{"name": "get_market_trends", "data": data}]))
+        self.assertIn("set=Plasma Storm, change_pct=66.3, card_count=40; set=Secret Wonders, change_pct=15.5", text)
+        self.assertIn("set=Ascended Heroes, change_pct=-24.8", text)
+        self.assertNotIn("items", text)
 
     def test_old_records_fall_back_to_text(self) -> None:
         record = turn_record(tool_results=[{"call": "get_card(card_id=x)", "result": '{"name":"Shanks"}'}])

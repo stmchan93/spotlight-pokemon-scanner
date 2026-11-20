@@ -20,10 +20,12 @@
 # Card ids used below: sv3pt5-199 = Charizard ex 151 #199, sv3-223 = Charizard ex
 # Obsidian Flames #223, xy5-54 = Kyogre-EX Primal Clash, bw5-104 = Kyogre-EX Dark
 # Explorers #104, sv2a_ja-201 = Japanese Charizard ex (Pokémon Card 151) #201,
-# base1-4 = Base Set Charizard, base6-11 = Legendary Collection Gengar, base4-10 =
-# Base Set 2 Mewtwo, dp5-97 = Majestic Dawn Garchomp LV.X, base1-58 = Base Set Pikachu.
-# Reference tile sets for market-data questions (L011, L017, L027) are a snapshot of
-# run 1's data: refresh them when the market moves.
+# base1-58 = Base Set Pikachu.
+# Market-data questions (movers, lows, highs, top graded, priciest Lorcana) don't pin
+# card ids, which go stale as prices move: their tiles must come from the ranking tool's
+# results (tiles_from_tools), include its leader where the question asks for one
+# (tiles_include_top), be exactly the cards the answer names (tiles_all_named +
+# named_cards_in_tiles), and stay within the owner's count.
 
 defaults:
   status: ok
@@ -65,7 +67,11 @@ cases:
       - ask: "What were my biggest gainers this month?"
         expect:
           tools_any: [get_portfolio_summary, get_my_collection]
-          tiles_exact: [{name_regex: '^Kyogre-EX$'}, {name_regex: '^Snorlax'}, {name_regex: '^Gyarados'}]
+          # Owner (L017): only the gainers the answer cites (run 1: Kyogre-EX, Snorlax, Gyarados).
+          tiles_from_tools: [get_portfolio_summary, get_my_collection]
+          tiles_min: 1
+          tiles_max: 3
+          tiles_all_named: true
           named_cards_in_tiles: true
         reference: "Your biggest gainers over the past 30 days were Kyogre-EX (+$18.49, +3.8%) and Snorlax (+$11.79, +7.2%) by dollar gain. Gyarados gained 14%."
         rubric:
@@ -129,7 +135,8 @@ cases:
         rubric:
           - "Does the answer state how many Surging Sparks cards are missing (\"at least N\" when the tool marks the count as a lower bound)?"
           - "Does it leave out cheapest-card commentary?"
-          - "Does it avoid a full completion cost unless every missing card is priced (a subtotal labelled with its coverage, like \"$X for Y of N cards\", is fine)?"
+          # Reworded (same meaning): run 2's judge read the double negative backwards ("that's fine" -> fail).
+          - "Is any completion cost it gives either a full cost backed by every missing card being priced in the tool results (priced count = missing count, or a cheapest_completion_usd), or a subtotal labelled with its coverage (\"$X for Y of N cards\")? Giving no cost also passes."
 
   - id: complete_151_cost
     review_label: L018
@@ -193,10 +200,12 @@ cases:
       - ask: "Find cards with rainy night art"
         expect:
           tools_any: [search_cards]
-          tiles_exact:
-            - {name_regex: '^Rain Castform$'}
-            - {name_regex: '^Umbreon$', set_regex: 'Dark Explorers'}
-            - {name_regex: '^Night Pok[eé]mon Center$'}
+          # Owner (L019): the three closest matches the answer names (run 1: Rain Castform,
+          # Umbreon (Dark Explorers), Night Pokémon Center); ids depend on search ranking.
+          tiles_from_tools: [search_cards]
+          tiles_min: 1
+          tiles_max: 3
+          tiles_all_named: true
           named_cards_in_tiles: true
         reference: "I found a mix of cards with rain or nighttime artwork, though I couldn't confirm that every scene shows both. Rain Castform, Umbreon (Dark Explorers), and Night Pokémon Center are the closest matches, and the selection includes a Japanese print."
         rubric:
@@ -582,12 +591,18 @@ cases:
           tool_args:
             - tool: find_top_graded
               where: {grader: PSA, grade: "10"}
-          tiles_exact:
-            - {id: base1-4, grader: PSA, grade: "10", variant_regex: 'first|1st'}
-            - {id: base6-11, grader: PSA, grade: "10", variant_regex: 'reverse'}
+          # Owner (L010): two PSA 10 tiles, the top trusted result first. Run 1's #2 (Gengar
+          # base6-11, $408,000) is now excluded as untrusted, so ids aren't pinned.
+          tiles_from_tools: [find_top_graded]
+          tiles_include_top: find_top_graded
+          tiles_within: [{grader: PSA, grade: "10"}]
+          tiles_min: 2
+          tiles_max: 2
+          tiles_all_named: true
+          named_cards_in_tiles: true
           tiles_none_match: [{price_gte: 999999}]
           tiles_price_trusted: true
-        reference: "The top verified PSA 10 is the 1st Edition Shadowless Base Set Charizard at about $409,540, with the Legendary Collection Reverse Holofoil Gengar close behind at about $408,000."
+        reference: "The top PSA 10 is the 1st Edition Shadowless Base Set Charizard at about $409,540, followed by [the next trusted PSA 10 in the results] at about $[price]. (Say \"verified\" only for recorded sales.)"
         rubric:
           - "Does the answer name the top PSA 10 with its graded USD price, consistent with the tool results?"
           - "Does it avoid citing an obvious placeholder price (e.g. $999,999) or a price the tool marks as untrusted?"
@@ -651,11 +666,14 @@ cases:
       - ask: "Undervalued cards"
         expect:
           tools_all: [find_price_lows]
-          tiles_exact:
-            - {name_regex: '^Pikachu ex$', set_regex: 'promo'}
-            - {name_regex: '^Espeon ex$', set_regex: 'promo'}
-            - {name_regex: '^Umbreon ex$', set_regex: 'promo'}
+          # Owner (L011): about three near-low cards, each named and from the near-low results
+          # (run 1: the Mega Evolution Promo Pikachu ex / Espeon ex / Umbreon ex).
+          tiles_from_tools: [find_price_lows]
+          tiles_min: 1
+          tiles_max: 3
+          tiles_all_named: true
           named_cards_in_tiles: true
+          tiles_none_match: [{sealed: true}]
         reference: "Pikachu ex, Espeon ex, and Umbreon ex from the Mega Evolution Promo set are all sitting at or near their lows after falling 67% to 95% from their highs. This is a snapshot of past prices, not a prediction."
         rubric:
           - "Does the answer describe cards near their lows with drops that match the tool results?"
@@ -668,7 +686,11 @@ cases:
       - ask: "Cards with the most recent new high sales"
         expect:
           tools_all: [find_new_highs]
-          tiles_exact: [base4-10, dp5-97]
+          # Owner (L027): only the cards named (run 1: Mewtwo base4-10, Garchomp LV.X dp5-97).
+          tiles_from_tools: [find_new_highs]
+          tiles_min: 1
+          tiles_max: 3
+          tiles_all_named: true
           named_cards_in_tiles: true
         reference: "Recent Pokémon cards with new high sales include Base Set 2 Mewtwo (Holofoil) at $164.96 and Majestic Dawn Garchomp LV.X at $379.00."
         rubric:
@@ -832,11 +854,14 @@ cases:
               mode: all
               where: {filter.game: lorcana}
           tiles_none_match: [{game_not: lorcana}, {sealed: true}]
-          tiles_exact:
-            - {name_regex: '^Mickey Mouse', graded: true, grader: CGC, grade: "9.5"}
-            - {name_regex: "^Elsa's Ice Palace", graded: true, grader: PSA, grade: "10"}
-            - {name_regex: '^Mickey Mouse', graded: false, set_regex: 'Fabled'}
-            - {name_regex: '^Buzz Lightyear', graded: false, set_regex: 'Wilds Unknown'}
+          # Owner (L015): four tiles, two graded + two raw (run 1: Mickey Mouse C1 CGC 9.5,
+          # Elsa's Ice Palace PSA 10, Mickey Mouse Fabled, Buzz Lightyear). Raw prices move,
+          # so the leaders are checked against the results instead of pinned.
+          tiles_from_tools: [search_cards, find_top_graded]
+          tiles_include_top: [search_cards, find_top_graded]
+          tiles_min: 4
+          tiles_max: 4
+          tiles_all_named: true
           named_cards_in_tiles: true
         reference: "Among graded Lorcana cards in Ekalight, Mickey Mouse (Challenge Promos C1 #5, CGC 9.5 Cold Foil) is listed at $38,000, followed by Elsa's Ice Palace (C1 #7, PSA 10) at $35,000. Among raw cards, Mickey Mouse (Fabled #242) leads at about $4,167, followed by Buzz Lightyear (Wilds Unknown #241) at about $3,593."
         rubric:

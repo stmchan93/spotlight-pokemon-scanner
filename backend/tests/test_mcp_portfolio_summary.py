@@ -65,6 +65,13 @@ class PortfolioSummaryBaselineTests(McpToolsCase):
         self.assertEqual(summary["change_usd"], -390.0)
         self.assertEqual(summary["value_usd"], 232.0)
 
+    def test_percent_leaders_are_ranked_by_percent(self) -> None:
+        summary = self.call("get_portfolio_summary", range_key="1y")
+        self.assertEqual([m["card_id"] for m in summary["top_losers_pct"]], ["en-crash", "jp-munchlax"])
+        self.assertEqual([m["card_id"] for m in summary["top_gainers_pct"]], ["en-plain"])
+        self.assertEqual(summary["top_gainers_pct"][0]["change_pct"], 20.0)
+        self.assertIn("change_pct", summary["movers_basis"])
+
     def test_short_range_unaffected(self) -> None:
         summary = self.call("get_portfolio_summary", range_key="30d")
         movers = self.movers(summary)
