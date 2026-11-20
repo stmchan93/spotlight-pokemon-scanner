@@ -446,8 +446,10 @@ class TurnResult:
     tools_used: list[str] = field(default_factory=list)
     tool_calls: list[str] = field(default_factory=list)  # summarize_tool_call() per call, for history provenance
     rounds: int = 0
-    input_tokens: int = 0
+    input_tokens: int = 0  # whole prompt: uncached + cache reads + cache writes
     output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     cost_usd: float = 0.0
     latency_ms: int = 0
     stop_reason: str | None = None
@@ -456,6 +458,28 @@ class TurnResult:
     word_limit: int | None = None
     sentence_limit: int | None = None
     length_guard: str | None = None  # None | "rewrite" | "trim" | "drop" (internal-wording sentences dropped)
+
+
+def _usage_tokens(usage: Any, name: str) -> int:
+    value = getattr(usage, name, None)
+    return int(value) if isinstance(value, (int, float)) else 0
+
+
+def add_usage(result: TurnResult, usage: Any) -> None:
+    """Sums one response's usage into the turn (tool rounds and the length-guard rewrite alike)."""
+    if usage is None:
+        return
+    read = _usage_tokens(usage, "cache_read_input_tokens")
+    write = _usage_tokens(usage, "cache_creation_input_tokens")
+    result.input_tokens += _usage_tokens(usage, "input_tokens") + read + write
+    result.cache_read_tokens += read
+    result.cache_write_tokens += write
+    result.output_tokens += _usage_tokens(usage, "output_tokens")
+    result.cost_usd += cost_usd(usage)
+
+
+def cache_hit_ratio(input_tokens: int, cache_read_tokens: int) -> float:
+    return round(cache_read_tokens / input_tokens, 4) if input_tokens > 0 else 0.0
 
 
 def _distinct_charts(charts: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -526,6 +550,21 @@ def build_messages(history: list[dict[str, Any]], question: str, context: str | 
     return messages
 
 
+def with_history_breakpoint(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Copy with every prior message as text blocks and a breakpoint on the last one, so a
+    follow-up turn reads the history the previous turn wrote. Block form for all of them keeps
+    a once-marked message byte-identical when it later sits mid-history."""
+    if len(messages) < 2:
+        return messages
+    prior = [
+        {"role": m["role"], "content": [dict(block) for block in m["content"]] if isinstance(m["content"], list)
+         else [{"type": "text", "text": m["content"]}]}
+        for m in messages[:-1]
+    ]
+    prior[-1]["content"][-1]["cache_control"] = {"type": "ephemeral"}
+    return [*prior, messages[-1]]
+
+
 class AssistantEngine:
     def __init__(self, config: AssistantConfig, toolbox: AssistantToolbox, client: Any) -> None:
         self.config = config
@@ -540,7 +579,8 @@ class AssistantEngine:
             tools=TOOLS_PAYLOAD,
             tool_choice={"type": "none"} if final else {"type": "auto"},
             output_config={"effort": self.config.effort},
-            # Third breakpoint: caches the growing conversation across tool rounds.
+            # Breakpoints (max 4): tools, system, end of history (with_history_breakpoint), and this
+            # automatic one on the last block, so round 2+ reads round 1.
             cache_control={"type": "ephemeral"},
             messages=messages,
         )
@@ -576,11 +616,7 @@ class AssistantEngine:
                 output_config={"effort": "low"},
                 messages=[{"role": "user", "content": text}],
             )
-            usage = getattr(response, "usage", None)
-            if usage is not None:
-                result.input_tokens += int(getattr(usage, "input_tokens", 0) or 0)
-                result.output_tokens += int(getattr(usage, "output_tokens", 0) or 0)
-                result.cost_usd += cost_usd(usage)
+            add_usage(result, getattr(response, "usage", None))
             if getattr(response, "stop_reason", None) == "end_turn":
                 rewrite = _response_text(response).strip()
         except Exception as error:  # noqa: BLE001 - the trim below is the fallback
@@ -612,13 +648,7 @@ class AssistantEngine:
     @staticmethod
     def _account(result: TurnResult, response: Any) -> None:
         result.rounds += 1
-        usage = getattr(response, "usage", None)
-        if usage is not None:
-            result.input_tokens += int(getattr(usage, "input_tokens", 0) or 0) + int(
-                getattr(usage, "cache_read_input_tokens", 0) or 0
-            ) + int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
-            result.output_tokens += int(getattr(usage, "output_tokens", 0) or 0)
-            result.cost_usd += cost_usd(usage)
+        add_usage(result, getattr(response, "usage", None))
 
     async def _answer_now(self, messages: list[dict[str, Any]], result: TurnResult) -> Any | None:
         """One tools-off call after an empty final message; None if it fails."""
@@ -649,7 +679,7 @@ class AssistantEngine:
         client_message_id: str | None = None,
     ) -> TurnResult:
         started = time.monotonic()
-        messages = build_messages(history, question, context)
+        messages = with_history_breakpoint(build_messages(history, question, context))
         result = TurnResult(text="", status="ok")
         writes = TurnWrites(client_message_id=client_message_id, question=question)
         executed_refs: list[dict[str, Any]] = []

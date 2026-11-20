@@ -57,6 +57,21 @@ def _rate(cases: list[dict[str, Any]]) -> dict[str, Any]:
     return {"passed": passed, "total": len(cases), "pass_rate": (passed / len(cases)) if cases else 0.0}
 
 
+def token_usage(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Prompt-cache totals over turns that recorded usage (older JSONL rows have none)."""
+    rows = [r for r in records if isinstance(r.get("input_tokens"), int)]
+    total_in = sum(r["input_tokens"] for r in rows)
+    read = sum(int(r.get("cache_read_tokens") or 0) for r in rows)
+    return {
+        "usage_turns": len(rows),
+        "cache_hit_ratio": (read / total_in) if total_in else None,
+        "cache_read_tokens": read,
+        "cache_write_tokens": sum(int(r.get("cache_write_tokens") or 0) for r in rows),
+        "avg_input_tokens": (total_in / len(rows)) if rows else None,
+        "avg_output_tokens": (sum(int(r.get("output_tokens") or 0) for r in rows) / len(rows)) if rows else None,
+    }
+
+
 def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
     cases = case_results(records)
     graded = [case for case in cases.values() if case["passed"] is not None]
@@ -77,6 +92,7 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         "pass_counts": {case_id: case["pass_count"] for case_id, case in cases.items() if case["pass_count"]},
         "chat_cost_usd": sum(case["chat_cost"] for case in cases.values()),
         "judge_cost_usd": sum(case["judge_cost"] for case in cases.values()),
+        **token_usage(records),
         "skipped_cases": [case_id for case_id, case in cases.items()
                           if any(t.get("status") == "skipped" for t in case["turns"])],
         "skipped_checks": sum(1 for r in records for c in r.get("checks") or [] if c.get("skipped")),
@@ -133,6 +149,14 @@ def render_report(records: list[dict[str, Any]], *, diff: dict[str, list[str]] |
     lines += [
         f"- Cost: chat ${summary['chat_cost_usd']:.4f} + judge ${summary['judge_cost_usd']:.4f} = "
         f"${summary['chat_cost_usd'] + summary['judge_cost_usd']:.4f}",
+    ]
+    if summary["cache_hit_ratio"] is not None:
+        lines.append(
+            f"- Tokens: cache hit {summary['cache_hit_ratio']:.0%} of input; avg {summary['avg_input_tokens']:.0f} in / "
+            f"{summary['avg_output_tokens']:.0f} out per turn (cache read {summary['cache_read_tokens']}, "
+            f"write {summary['cache_write_tokens']})"
+        )
+    lines += [
         "",
         "| Category | Passed | Total |",
         "|---|---|---|",
