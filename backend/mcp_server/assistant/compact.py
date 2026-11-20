@@ -176,6 +176,18 @@ def _movers(result: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+PORTFOLIO_LEADER_KEYS = ("top_gainer_by_usd", "top_gainer_by_pct", "top_loser_by_usd", "top_loser_by_pct")
+PORTFOLIO_LEADER_FIELDS = ("card_id", "name", "grader", "grade", "change_usd", "change_pct")
+
+
+def _portfolio_leaders(result: dict[str, Any]) -> dict[str, Any]:
+    """Leader entries repeat a ranked list's first card: keep just who and the move."""
+    for key in PORTFOLIO_LEADER_KEYS:
+        if isinstance(result.get(key), dict):
+            result[key] = {k: result[key].get(k) for k in PORTFOLIO_LEADER_FIELDS}
+    return result
+
+
 def compact_result(tool: str, content: Any, arguments: Any = None) -> Any:
     if not isinstance(content, dict) or "error" in content and len(content) <= 2:
         return content
@@ -206,6 +218,8 @@ def compact_result(tool: str, content: Any, arguments: Any = None) -> Any:
             ]
     elif tool == "find_movers":
         result = _movers(result)
+    elif tool == "get_portfolio_summary":
+        result = _portfolio_leaders(result)
     flt = arguments.get("filter") if isinstance(arguments, dict) else None
     # Artist matters on the card page and for artist searches, nowhere else.
     artist = tool == "get_card" or (isinstance(flt, dict) and bool(flt.get("artist")))

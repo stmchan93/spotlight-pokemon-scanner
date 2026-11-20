@@ -44,6 +44,16 @@ _INTERNAL = re.compile(
     r"\btag(?:s|ged|ging)?\b|\bsearch(?:es)?\b|\bmatched\b|\bmatching\b|\btools?\b|\bfilter(?:ed|s)?\s+by\b",
     re.IGNORECASE,
 )
+# Art-search answers whose question named no language: print-language commentary is unrequested.
+NO_LANGUAGE_INSTRUCTION = "Do not mention print language (English, Japanese)."
+_LANGUAGE_ASK = re.compile(r"\b(english|japanese|jp|jpn|en|language)\b", re.IGNORECASE)
+_LANGUAGE = re.compile(r"\b(?:english|japanese|jpn?|language)\b", re.IGNORECASE)
+_LANGUAGE_PAREN = re.compile(r"\s*\((?:english|japanese|jpn?|en)\)", re.IGNORECASE)
+_LANGUAGE_ADJ = re.compile(
+    r"\b(?:english|japanese|jpn?|en)\s+(?=(?:options?|prints?|printings?|versions?|cop(?:y|ies)|cards?|ones?|"
+    r"releases?|picks?)\b)",
+    re.IGNORECASE,
+)
 _ALWAYS_MASKED = re.compile(r"\btag\s+team\b|\bpok[eé]mon\s+tools?\b", re.IGNORECASE)
 
 _WORD = re.compile(r"[^\s*_#>`-]\S*")  # same counting as the eval's word_count
@@ -51,6 +61,8 @@ _EXPLANATION = re.compile(
     r"\b(why|explain|how (?:does|do|is|are)|what(?:'s| is| are) (?:a|an|the difference)|difference|should i|vs\.?|versus)\b",
     re.IGNORECASE,
 )
+# The definition form alone ("what's a SIR?"); on a market-data turn "what's a good card to buy" is a pick, not a definition.
+_DEFINITION_ONLY = re.compile(r"\bwhat(?:'s| is| are) (?:a|an)\b", re.IGNORECASE)
 _HISTORY = re.compile(r"\b(history|trend|chart|over (?:the )?(?:past|last)|since)\b", re.IGNORECASE)
 _NUMBER = re.compile(r"(?<![\w.])\d[\d,]*(?:\.\d+)?")
 _SENTENCE_END = re.compile(r"[.!?]\s+(?=\S)")
@@ -84,7 +96,9 @@ def turn_kind(
     used = set(tools_used or ())
     if no_data:
         return "no_data"
-    if _EXPLANATION.search(question or ""):
+    if _EXPLANATION.search(question or "") and not (
+        DISCLAIMER_TOOLS & used and _EXPLANATION.search(_DEFINITION_ONLY.sub(" ", question or "")) is None
+    ):
         return "explanation"
     if not used:
         return "refusal"
@@ -119,8 +133,12 @@ def is_narrowing_question(question: str) -> bool:
     return len(str(question or "").split()) <= 10 and bool(_NARROWING.search(question or ""))
 
 
+def has_disclaimer(text: str) -> bool:
+    return bool(_DISCLAIMER.search(text or ""))
+
+
 def needs_disclaimer(text: str, tools_used: list[str] | set[str]) -> bool:
-    return bool(DISCLAIMER_TOOLS & set(tools_used or ())) and not _DISCLAIMER.search(text or "")
+    return bool(DISCLAIMER_TOOLS & set(tools_used or ())) and not has_disclaimer(text)
 
 
 def add_disclaimer(text: str) -> str:
@@ -204,21 +222,32 @@ def _masked(text: str, names: list[str] | tuple[str, ...]) -> str:
     return out
 
 
-def has_internal_wording(text: str, names: list[str] | tuple[str, ...] = ()) -> bool:
-    """Talk of tags / search matching / tools / filters, outside card names."""
-    return _INTERNAL.search(_masked(text, names)) is not None
+def asks_language(question: str) -> bool:
+    return bool(_LANGUAGE_ASK.search(question or ""))
+
+
+def strip_language_mentions(text: str) -> str:
+    """'the priciest English option' -> 'the priciest option'; '(Japanese)' dropped."""
+    return _LANGUAGE_ADJ.sub("", _LANGUAGE_PAREN.sub("", str(text or "")))
+
+
+def has_internal_wording(text: str, names: list[str] | tuple[str, ...] = (), *, language: bool = False) -> bool:
+    """Talk of tags / search matching / tools / filters (and, with language=True, print
+    language), outside card names."""
+    masked = _masked(text, names)
+    return _INTERNAL.search(masked) is not None or (language and _LANGUAGE.search(masked) is not None)
 
 
 _CLAUSE_COMMA = re.compile(r",\s+(?![^()]*\))")  # commas outside parentheses
 
 
-def _scrub_sentence(sentence: str, names: list[str] | tuple[str, ...]) -> str:
+def _scrub_sentence(sentence: str, names: list[str] | tuple[str, ...], language: bool = False) -> str:
     """The clauses before the first one with internal wording ('' if the first has it)."""
-    if not has_internal_wording(sentence, names):
+    if not has_internal_wording(sentence, names, language=language):
         return sentence
     kept: list[str] = []
     for clause in _CLAUSE_COMMA.split(sentence):
-        if has_internal_wording(clause, names):
+        if has_internal_wording(clause, names, language=language):
             break
         kept.append(clause)
     if not kept:
@@ -227,11 +256,11 @@ def _scrub_sentence(sentence: str, names: list[str] | tuple[str, ...]) -> str:
     return ", ".join(kept).rstrip(" ,;:") + end
 
 
-def drop_internal_sentences(text: str, names: list[str] | tuple[str, ...] = ()) -> str:
+def drop_internal_sentences(text: str, names: list[str] | tuple[str, ...] = (), *, language: bool = False) -> str:
     """The text without clauses/sentences that mention internal mechanics (a sentence keeps
     its clauses before the offending one); unchanged if that would leave nothing."""
     kept = [
-        " ".join(part for part in (_scrub_sentence(s, names) for s in _sentences(paragraph)) if part)
+        " ".join(part for part in (_scrub_sentence(s, names, language) for s in _sentences(paragraph)) if part)
         for paragraph in _paragraphs(text)
     ]
     kept = [paragraph for paragraph in kept if paragraph.strip()]

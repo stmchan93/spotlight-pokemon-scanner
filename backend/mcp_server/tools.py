@@ -1288,7 +1288,13 @@ class CollectionTools:
         gainers = sorted((m for m in movers if m["change_usd"] > 0), key=lambda m: m["change_usd"], reverse=True)
         losers = sorted((m for m in movers if m["change_usd"] < 0), key=lambda m: m["change_usd"])
         # Percent leaders among single cards, so "dropped the most" in % isn't guessed from the $ list.
-        singles = [m for m in movers if m["card_id"] not in sealed_ids and m["change_pct"] is not None]
+        # Same unit-price floor as find_movers (start and now): a $0.30 -> $0.48 card isn't a +60% "leader".
+        floor = scoped_movers.MIN_PRICE_USD
+        singles = [
+            m for m in movers
+            if m["card_id"] not in sealed_ids and m["change_pct"] is not None
+            and m["baseline_price_usd"] >= floor and (m["baseline_price_usd"] + m["change_usd"] / m["quantity"]) >= floor
+        ]
         pct_gainers = sorted((m for m in singles if m["change_usd"] > 0), key=lambda m: m["change_pct"], reverse=True)
         pct_losers = sorted((m for m in singles if m["change_usd"] < 0), key=lambda m: m["change_pct"])
         has_history = bool(movers)
@@ -1317,9 +1323,16 @@ class CollectionTools:
             "top_losers": losers[:5],
             "top_gainers_pct": [self._pct_mover(m) for m in pct_gainers[:3]],
             "top_losers_pct": [self._pct_mover(m) for m in pct_losers[:3]],
+            # The single leader of each ranking, so the answer never infers one from the other list.
+            "top_gainer_by_usd": self._pct_mover(gainers[0]) if gainers else None,
+            "top_gainer_by_pct": self._pct_mover(pct_gainers[0]) if pct_gainers else None,
+            "top_loser_by_usd": self._pct_mover(losers[0]) if losers else None,
+            "top_loser_by_pct": self._pct_mover(pct_losers[0]) if pct_losers else None,
             "movers_basis": (
                 "top_gainers/top_losers rank all holdings (sealed included) by change_usd (dollars); "
-                "top_gainers_pct/top_losers_pct rank single cards only by change_pct."
+                f"top_gainers_pct/top_losers_pct rank single cards priced at least ${floor:.0f} (start and now) "
+                "by change_pct. top_gainer_by_usd/top_gainer_by_pct/top_loser_by_usd/top_loser_by_pct are the "
+                "leaders of those rankings: name a leader only from these fields."
             ),
             "holdings_count": len(holdings),
             "unpriced_count": sum(1 for holding in holdings if holding["value_usd"] is None),
