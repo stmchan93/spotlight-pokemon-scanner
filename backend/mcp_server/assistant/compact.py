@@ -40,6 +40,10 @@ WINDOW_PHRASES = {7: "past week", 30: "past 30 days", 90: "past 90 days", 365: "
 COVERED_SLACK_DAYS = 7
 NEUTRAL_WINDOW = "recently"
 _COVERAGE_NOTE_HINTS = ("days_covered", "covers_full_window", "less history", "history starts")
+GRADING_BASIS = (
+    "gross_premium = comp price - raw market price, before grading fees and shipping. "
+    "comp_missing = no usable PSA 10 comp: say so for that card."
+)
 # holding_id feeds propose_update_holding; the prompt sends updates through get_my_collection/get_card.
 HOLDING_ID_TOOLS = frozenset({"get_my_collection", "get_card"})
 
@@ -272,6 +276,9 @@ def compact_result(tool: str, content: Any, arguments: Any = None) -> Any:
         result = _window_cards(result)
     elif tool == "get_portfolio_summary":
         result = _portfolio_leaders(result)
+    elif tool == "grading_upside" and "basis" in result:
+        # The shared basis prose ("graded market estimate") invited data-source caveats in answers.
+        result["basis"] = GRADING_BASIS
     flt = arguments.get("filter") if isinstance(arguments, dict) else None
     # Artist matters on the card page and for artist searches, nowhere else.
     artist = tool == "get_card" or (isinstance(flt, dict) and bool(flt.get("artist")))

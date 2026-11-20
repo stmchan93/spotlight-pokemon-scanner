@@ -208,6 +208,8 @@ def _validate_expect(where: str, expect: Any, known: frozenset[str], banned: Ite
         else:
             for path, matcher in (action.get("params") or {}).items():
                 _check_matcher(f"{where}.expect_action.params.{path}", matcher, errors)
+    if "scan_tray_named" in expect and not isinstance(expect["scan_tray_named"], bool):
+        errors.append(f"{where}.scan_tray_named: must be true or false")
     for key in ("max_words", "tiles_min"):
         if key in expect and (not isinstance(expect[key], int) or expect[key] < 1):
             errors.append(f"{where}.{key}: must be a positive integer")

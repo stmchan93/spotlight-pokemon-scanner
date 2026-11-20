@@ -601,7 +601,7 @@ class ToolLoopTests(AssistantCase):
         response = self.ask("Which is worth the most?", context={"source": "scanner", "card_ids": ["ssp-1", "ssp-2", "nope"]})
         self.assertEqual(response.status_code, 200)
         content = self.client.messages.calls[0]["messages"][-1]["content"]
-        self.assertIn("The user is looking at these scanned cards", content[0]["text"])
+        self.assertIn("The user's scan tray contains:", content[0]["text"])
         self.assertIn("Pikachu ex · Surging Sparks · #238 · $120.00", content[0]["text"])
         self.assertNotIn("nope", content[0]["text"])
         self.assertEqual(content[1]["text"], "Which is worth the most?")

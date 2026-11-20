@@ -36,7 +36,8 @@ REWRITE_INSTRUCTION = (
 
 NO_INTERNAL_INSTRUCTION = (
     "Do not mention tags, searches, tools, filters or how results were found. "
-    "Do not mention how much price history exists or its date range."
+    "Do not mention how much price history exists or its date range. "
+    "No caveats about where the data comes from (estimates, recorded sales)."
 )
 REWRITE_INTERNAL_ONLY = (
     "Rewrite this answer with the same facts and about the same length. Keep every number, card name, set, date "
@@ -60,6 +61,15 @@ _COVERAGE = re.compile(
     r"|\bshort[-\s]lived\s+spikes?\b"
     r"|\b(?:not|isn'?t|doesn'?t\s+cover)\s+(?:a\s+)?(?:full|whole|complete)\s+year\b"
     r"|\bclosest\s+window\b",
+    re.IGNORECASE,
+)
+# Owner 2026-11-20: no data-source caveats ("PSA 10 figures are market estimates based on recorded sales").
+# Grading-fees and "not a prediction" lines are not caveats about the data and stay.
+_CAVEAT = re.compile(
+    r"\bmarket[-\s]estimates?\b|\bestimates?\s+based\s+on\b"
+    r"|\bbased\s+on\s+(?:recorded|recent|completed|past|actual|reported)\s+sales\b"
+    r"|\bdata\s+(?:may|might|could)\b|\baccording\s+to\s+(?:our|the|ekalight'?s?)\s+data\b"
+    r"|\b(?:based\s+on\s+)?ekalight'?s\s+data\b",
     re.IGNORECASE,
 )
 # Art-search answers whose question named no language: print-language commentary is unrequested.
@@ -221,6 +231,16 @@ def _paragraphs(text: str) -> list[str]:
     return [p for p in re.split(r"\n\s*\n|\n", str(text or "")) if p.strip()]
 
 
+def _join(paragraphs: list[str]) -> str:
+    """Paragraphs back into text; consecutive bullets stay one list."""
+    out = ""
+    for paragraph in paragraphs:
+        if out:
+            out += "\n" if _BULLET.match(paragraph) and _BULLET.match(out.rsplit("\n", 1)[-1]) else "\n\n"
+        out += paragraph
+    return out
+
+
 def split_sentences(text: str) -> list[str]:
     return [sentence for paragraph in _paragraphs(text) for sentence in _sentences(paragraph)]
 
@@ -251,11 +271,12 @@ def strip_language_mentions(text: str) -> str:
 
 def has_internal_wording(text: str, names: list[str] | tuple[str, ...] = (), *, language: bool = False) -> bool:
     """Talk of tags / search matching / tools / filters (and, with language=True, print
-    language) or price-history coverage, outside card names."""
+    language), price-history coverage or data-source caveats, outside card names."""
     masked = _masked(text, names)
     return (
         _INTERNAL.search(masked) is not None
         or _COVERAGE.search(masked) is not None
+        or _CAVEAT.search(masked) is not None
         or (language and _LANGUAGE.search(masked) is not None)
     )
 
@@ -264,6 +285,7 @@ def has_coverage_disclosure(text: str) -> bool:
     return _COVERAGE.search(str(text or "")) is not None
 
 
+_BULLET = re.compile(r"^\s*[-*\u2022]\s")
 _CLAUSE_COMMA = re.compile(r",\s+(?![^()]*\))")  # commas outside parentheses
 
 
@@ -290,7 +312,7 @@ def drop_internal_sentences(text: str, names: list[str] | tuple[str, ...] = (), 
         for paragraph in _paragraphs(text)
     ]
     kept = [paragraph for paragraph in kept if paragraph.strip()]
-    return "\n\n".join(kept) if kept else text
+    return _join(kept) if kept else text
 
 
 def trim_to_limit(text: str, limit: int, max_sentences: int | None = None) -> str:
@@ -330,4 +352,66 @@ def trim_to_limit(text: str, limit: int, max_sentences: int | None = None) -> st
         else:
             out.append(sentence)
         last_index = index
-    return "\n\n".join(out)
+    return _join(out)
+
+
+# The app renders only **bold** and "- " bullets, so a markdown table shows raw pipes (owner 2026-11-20).
+_TABLE_ROW = re.compile(r"^\s*\|?(?:[^|\n]*\|){2,}[^|\n]*$")
+_TABLE_SEPARATOR = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(?:\|\s*:?-{2,}:?\s*)+\|?\s*$")
+
+
+def _cells(line: str) -> list[str]:
+    inner = line.strip()
+    inner = inner[1:] if inner.startswith("|") else inner
+    inner = inner[:-1] if inner.endswith("|") else inner
+    return [cell.strip() for cell in inner.split("|")]
+
+
+def has_table(text: str) -> bool:
+    lines = str(text or "").splitlines()
+    return any(_TABLE_SEPARATOR.match(line) for line in lines) or any(
+        _TABLE_ROW.match(a) and _TABLE_ROW.match(b) for a, b in zip(lines, lines[1:])
+    )
+
+
+def _row_bullet(cells: list[str], header: list[str] | None) -> str:
+    first = cells[0].replace("**", "").strip() if cells else ""
+    rest = []
+    for index, cell in enumerate(cells[1:], start=1):
+        if cell in ("", "-", "–", "—"):
+            continue
+        name = header[index].strip("* ") if header and index < len(header) else ""
+        rest.append(f"{name} {cell}" if name and not cell.casefold().startswith(name.casefold()) else cell)
+    name, paren, detail = first.partition(" (")
+    head = f"**{name}**" + (f" ({detail}" if paren else "") if first else ""
+    return "- " + (f"{head}: {' · '.join(rest)}" if head and rest else head or " · ".join(rest))
+
+
+def tables_to_bullets(text: str) -> str:
+    """Each markdown table becomes one '- **col1**: Header2 col2 · Header3 col3' bullet per data row."""
+    if not has_table(text):
+        return text
+    lines = str(text).splitlines()
+    out: list[str] = []
+    index = 0
+    while index < len(lines):
+        block_end = index
+        while block_end < len(lines) and _TABLE_ROW.match(lines[block_end]):
+            block_end += 1
+        block = lines[index:block_end]
+        if len(block) < 2 and not (block and _TABLE_SEPARATOR.match(block[0])):
+            out.append(lines[index])
+            index += 1
+            continue
+        header = None
+        if len(block) >= 2 and _TABLE_SEPARATOR.match(block[1]):
+            header, block = _cells(block[0]), block[2:]
+        bullets = [_row_bullet(_cells(row), header) for row in block if not _TABLE_SEPARATOR.match(row)]
+        bullets = [bullet for bullet in bullets if bullet.strip("- ")]
+        if out and out[-1].strip() and bullets:
+            out.append("")
+        out.extend(bullets)
+        if block_end < len(lines) and lines[block_end].strip() and bullets:
+            out.append("")
+        index = block_end
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()

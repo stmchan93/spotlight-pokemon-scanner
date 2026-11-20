@@ -8,6 +8,15 @@ Answers must NEVER say how much price history Ekalight has: no "only 30-61 days 
 
 How it's enforced: the model gets `window_label` ("past year" when covered, else "recently") instead of `days_covered` / `covers_full_*` / `first_date` / `range_start`; a code backstop (`length_guard`) rewrites or drops coverage sentences; tile sparklines are labelled only with a range their series covers (1y/90d/30d/7d) and appear on tiles from every market/movers tool (`get_market_trends`, `find_movers`, `find_price_lows`, `find_new_highs`). Eval: default banned pattern `history_coverage`, automatic `no_uncovered_window_claim` check (replaces `history_range_stated`), and the L011/L020/movers rubrics were updated.
 
+## Update 2026-11-20: no tables; bullet per card; tray named; no data-source caveats (owner decision)
+
+From "What are these worth in a PSA 10?" asked from the scanner tray. The app renders only **bold** and "- " bullets, so a markdown table showed raw pipes.
+- **No tables, ever.** Grading answers use one bullet per card: "- **Kyogre-EX** (Dark Explorers 104/108): raw $504.48 → PSA 10 $1,450 (+$945.52, +187%)"; no comp: "- **Lugia** (HGSS02): raw $485.99 · no recent PSA 10 sale". Keep the short grading-fees sentence. This replaces the L026 table template below.
+- **Name the scan tray.** With scanner context, an answer about "these/this/them" says where the cards come from: "Of the N cards in your scan tray…" or "This scanned card…". The model's preamble reads "The user's scan tray contains: …".
+- **No data-source caveats**: no "market estimates", "based on recorded sales", "estimates based on", "data may…", "according to our data", "Ekalight's data shows". "Not a prediction" and grading-fees lines stay.
+
+How it's enforced: prompt rules + final checks; a code backstop (`length_guard.tables_to_bullets`, no extra call) turns any table into "- **col1**: Header2 col2 · …" bullets; caveat phrases join the internal-wording backstop (rewrite, else drop the sentence); `grading_upside`'s basis prose no longer says "estimate". Eval: default banned patterns `markdown_table` and `data_source_caveat`; automatic `scan_tray_named` check on scanner turns whose question says these/this/them (skipped for action turns; opt out with `scan_tray_named: false`); L026 now forbids pipes and its reference is the bullet format.
+
 ## Product decisions (cross-cutting)
 
 1. **Tiles = the cards the answer is about**, not every card a tool returned. Check the final rendered card IDs (and language, raw condition, grader, grade where relevant). A search can return 8 candidates while the answer shows only the 1 that answers the question. Every card named in the text must appear as a tile, and tiles must not show cards the answer isn't about. Multiple candidate tiles are right only when the assistant is asking the user to choose (e.g. "How much is Charizard?" → which printing?).
@@ -128,7 +137,7 @@ Reference: "I found a mix of cards with rain or nighttime artwork, though I coul
 ### L025 One Piece follow-up — keep; show only Rocks.D.Xebec and Nami; winner consistent with L009 unless data changed (and the answer explains it).
 
 ### L026 Worth grading
-Template: "Your strongest grading candidates are Kyogre-EX, Lugia, and Teammates. Here's what a PSA 10 sold for compared with each card's raw market price." Then a table: Card | Raw market price | PSA 10 comp (from matching sales) | Gross premium ($ and %).
+Template: "Your strongest grading candidates are Kyogre-EX, Lugia, and Teammates." Then one bullet per card (superseded the original table, see the 2026-11-20 update above): "- **Kyogre-EX** (Dark Explorers 104/108): raw $504.48 → PSA 10 $1,450 (+$945.52, +187%)".
 - Gross premium = PSA 10 price − raw price; % = difference ÷ raw price. Show net premium too if fees/shipping are available. If a comp is missing, say so for that card. Three candidate tiles. The eval needs PSA 10 comp inputs before it can require the dollar/percent gains.
 
 ### L027 Recent new highs
