@@ -5,7 +5,10 @@ and replayed to later askers without an LLM call.
 
 Key = (normalized question, scope, data version, engine fingerprint). The data
 version is the price_lows / market movers token (newest price date + pricing
-sync generation), so a price sync invalidates; rows also expire after 24h."""
+sync generation), so a price sync invalidates; rows also expire after 24h.
+
+Knowledge answers ("What's a SIR?", "PSA vs CGC?") ran no tools, so they do not
+depend on prices: keyed on a fixed version (+ engine fingerprint), 7-day expiry."""
 
 from __future__ import annotations
 
@@ -17,6 +20,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 TTL = timedelta(hours=24)
+KNOWLEDGE_TTL = timedelta(days=7)
+KNOWLEDGE_SCOPE = "knowledge"
+KNOWLEDGE_VERSION = "knowledge"
 
 # Reads whose result is the same for every user (when called without owned filters).
 MARKET_TOOLS = frozenset(
@@ -42,6 +48,22 @@ QUESTION_ALIASES = {
     "what's trending in the market": "what's trending in the market right now",
 }
 
+# Questions about the asker's own things are never shared, whatever tools ran.
+_PERSONAL = re.compile(
+    r"\b(my|mine|i own|i have|i've got|i got|i bought|collection|watchlist|wishlist|portfolio|holdings?)\b"
+)
+# Knowledge asks the length guard does not class as explanations ("What does NM mean?").
+_KNOWLEDGE = re.compile(r"\bwhat does\b.*\bmean\b|\bmeaning of\b|\bstand for\b")
+# An off-topic decline or a clarifying question must not be replayed to others.
+_DECLINE = re.compile(
+    r"\b(?:i can only|i can't help|i cannot help|i'm not able to|i am not able to|only help with|outside (?:of )?what|"
+    r"not something i)\b",
+    re.IGNORECASE,
+)
+_LEADING_FILLER = re.compile(r"^(?:(?:hey|so)\b[\s,]*)+")
+_WHAT_IS = re.compile(r"\bwhat(?: is|s)\b")
+_THE = re.compile(r"\bthe\b")
+
 _QUOTES = str.maketrans({"‘": "'", "’": "'", "‛": "'", "′": "'",
                          "“": '"', "”": '"', "‟": '"', "″": '"'})
 _TRAILING_PUNCT = re.compile(r"[\s.?!,;:…]+$")
@@ -55,10 +77,26 @@ CREATE INDEX IF NOT EXISTS idx_assistant_shared_answers_expires ON assistant_sha
 """
 
 
-def normalize_question(text: str) -> str:
+def _normalize(text: str) -> str:
     value = " ".join(str(text or "").translate(_QUOTES).lower().split())
-    value = _TRAILING_PUNCT.sub("", value)
-    return QUESTION_ALIASES.get(value, value)
+    value = _LEADING_FILLER.sub("", value)
+    value = _WHAT_IS.sub("what's", value)
+    value = " ".join(_THE.sub(" ", value).split())
+    return _TRAILING_PUNCT.sub("", value)
+
+
+_ALIASES = {_normalize(key): _normalize(value) for key, value in QUESTION_ALIASES.items()}
+
+
+def normalize_question(text: str) -> str:
+    """Exact-match key: lowercased, curly quotes, "what is"/"whats" -> "what's",
+    leading "hey"/"so" and every "the" dropped, trailing punctuation stripped."""
+    value = _normalize(text)
+    return _ALIASES.get(value, value)
+
+
+def personal_question(text: str) -> bool:
+    return bool(_PERSONAL.search(str(text or "").translate(_QUOTES).lower()))
 
 
 def data_version(conn: sqlite3.Connection) -> str | None:
@@ -103,8 +141,35 @@ def market_wide_call(record: dict[str, Any]) -> bool:
 
 
 def request_eligible(request: dict[str, Any]) -> bool:
-    """First message of a new thread with no scanned cards."""
-    return request.get("thread_id") is None and not request.get("card_ids")
+    """First message of a new thread, no scanned cards, not about the asker's own things."""
+    return (
+        request.get("thread_id") is None
+        and not request.get("card_ids")
+        and not personal_question(request.get("text") or "")
+    )
+
+
+def knowledge_cacheable(question: str, turn: Any, flags: list[str]) -> bool:
+    """A clean pure-knowledge answer: no tools at all, so nothing price- or user-dependent."""
+    from mcp_server.assistant.length_guard import turn_kind
+
+    if getattr(turn, "status", None) != "ok" or getattr(turn, "actions", None):
+        return False
+    if getattr(turn, "tool_errors", None) or getattr(turn, "round_limit_hit", False):
+        return False
+    if any(flag not in NON_QUALITY_FLAGS for flag in flags):
+        return False
+    if getattr(turn, "tools_used", None) or getattr(turn, "tool_inputs", None):
+        return False
+    if getattr(turn, "cards", None) or getattr(turn, "charts", None):
+        return False
+    text = str(getattr(turn, "text", "") or "").strip()
+    if not text or text.endswith("?") or _DECLINE.search(text):
+        return False
+    # No tools + not a knowledge question = the length guard's "refusal" kind.
+    if turn_kind(question, []) == "refusal" and not _KNOWLEDGE.search(normalize_question(question)):
+        return False
+    return True
 
 
 def turn_cacheable(turn: Any, flags: list[str]) -> bool:
@@ -171,7 +236,7 @@ def _iso(moment: datetime) -> str:
 
 
 class SharedAnswerStore:
-    """Not owner-scoped by design: rows hold only user-neutral market answers."""
+    """Not owner-scoped by design: rows hold only user-neutral market and knowledge answers."""
 
     def __init__(self, conn_provider: Any) -> None:
         self._conn_provider = conn_provider
@@ -197,7 +262,7 @@ class SharedAnswerStore:
         return reply if isinstance(reply, dict) else None
 
     def put(self, key: str, *, question_norm: str, version: str, reply: dict[str, Any],
-            now: datetime | None = None) -> None:
+            now: datetime | None = None, ttl: timedelta = TTL) -> None:
         moment = now or datetime.now(timezone.utc)
         stamp = _iso(moment)
         conn = self.conn
@@ -213,6 +278,6 @@ class SharedAnswerStore:
             ON CONFLICT(key) DO UPDATE SET reply_json = excluded.reply_json, created_at = excluded.created_at,
                 expires_at = excluded.expires_at
             """,
-            (key, question_norm, version, json.dumps(reply, default=str), stamp, _iso(moment + TTL)),
+            (key, question_norm, version, json.dumps(reply, default=str), stamp, _iso(moment + ttl)),
         )
         conn.commit()

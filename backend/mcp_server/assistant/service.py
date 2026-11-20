@@ -171,8 +171,18 @@ class AssistantService:
         if usage["limit"] is not None and usage["used_today"] >= usage["limit"]:
             return 429, {"error": "daily_limit", "usage": usage}
         # A shared answer costs nothing, so it is served before the spend cap check.
-        shared_key, shared_version, question_norm = None, None, ""
+        shared_key, shared_version, question_norm, knowledge_key = None, None, "", None
         if self.config.shared_answers and shared_answers.request_eligible(request):
+            question_norm = shared_answers.normalize_question(request["text"])
+            fingerprint = shared_answers.engine_fingerprint(self.config.model, SYSTEM_PROMPT)
+            # Knowledge answers don't depend on prices, so they are looked up without a version read.
+            knowledge_key = shared_answers.cache_key(
+                question_norm, version=shared_answers.KNOWLEDGE_VERSION, fingerprint=fingerprint,
+                scope=shared_answers.KNOWLEDGE_SCOPE,
+            )
+            cached = await asyncio.to_thread(self.shared.get, knowledge_key, shared_answers.KNOWLEDGE_VERSION)
+            if cached is not None:
+                return await self._send_cached(caller, request, cached, day)
             try:
                 # Resolve the connection inside the worker: connections are per-thread
                 # (check_same_thread), so one fetched on the loop thread fails there.
@@ -180,11 +190,7 @@ class AssistantService:
             except Exception:  # noqa: BLE001 - the cache must never fail a question
                 logger.exception("assistant shared answer version failed")
             if shared_version:
-                question_norm = shared_answers.normalize_question(request["text"])
-                shared_key = shared_answers.cache_key(
-                    question_norm, version=shared_version,
-                    fingerprint=shared_answers.engine_fingerprint(self.config.model, SYSTEM_PROMPT),
-                )
+                shared_key = shared_answers.cache_key(question_norm, version=shared_version, fingerprint=fingerprint)
                 cached = await asyncio.to_thread(self.shared.get, shared_key, shared_version)
                 if cached is not None:
                     return await self._send_cached(caller, request, cached, day)
@@ -241,14 +247,20 @@ class AssistantService:
             "tools_used": turn.tools_used,
             "tool_calls": turn.tool_calls,
         }
-        if shared_key and shared_answers.turn_cacheable(turn, flags):
-            try:
+        try:
+            if knowledge_key and shared_answers.knowledge_cacheable(request["text"], turn, flags):
+                await asyncio.to_thread(
+                    self.shared.put, knowledge_key, question_norm=question_norm,
+                    version=shared_answers.KNOWLEDGE_VERSION, reply=shared_answers.shared_reply(turn),
+                    ttl=shared_answers.KNOWLEDGE_TTL,
+                )
+            elif shared_key and shared_answers.turn_cacheable(turn, flags):
                 await asyncio.to_thread(
                     self.shared.put, shared_key, question_norm=question_norm, version=shared_version,
                     reply=shared_answers.shared_reply(turn),
                 )
-            except Exception:  # noqa: BLE001
-                logger.exception("assistant shared answer store failed")
+        except Exception:  # noqa: BLE001
+            logger.exception("assistant shared answer store failed")
         thread_id, question, message = await asyncio.to_thread(
             self.store.save_turn,
             user_id,

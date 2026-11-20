@@ -32,7 +32,8 @@ class NormalizeTests(unittest.TestCase):
     def test_normalization_and_aliases(self) -> None:
         norm = shared_answers.normalize_question
         self.assertEqual(norm("  What cards are   LIKELY to go up?? "), "what cards are likely to go up")
-        self.assertEqual(norm("What’s trending in the market right now?"), "what's trending in the market right now")
+        self.assertEqual(norm("What’s trending in the market right now?"), "what's trending in market right now")
+        self.assertEqual(norm("What's trending right now"), norm("what is trending in the market right now"))
         self.assertEqual(norm("Show me undervalued cards."), "undervalued cards")
         self.assertEqual(norm("Undervalued cards"), "undervalued cards")
         # No fuzzy matching: a different wording is a different key.
@@ -260,6 +261,143 @@ class SharedAnswerTests(SharedAnswerCase):
         props = capture.call_args[0][1]
         self.assertTrue(props["cached"])
         self.assertEqual(props["cost_usd"], 0.0)
+
+
+KNOWLEDGE_Q = "What's a SIR?"
+KNOWLEDGE_A = "A SIR is a Special Illustration Rare: a full-card alternate artwork printed above the set number."
+
+
+class KnowledgeNormalizeTests(unittest.TestCase):
+    @unittest.skipUnless(HAVE_DEPS, "anthropic / mcp not installed")
+    def test_light_normalization_variants(self) -> None:
+        norm = shared_answers.normalize_question
+        for variant in ("what is a sir", "Whats a SIR?", "What’s a SIR??", "Hey, what's a SIR", "so what is a sir",
+                        "hey so whats a sir"):
+            with self.subTest(variant=variant):
+                self.assertEqual(norm(variant), "what's a sir")
+        self.assertEqual(norm("What's the difference between PSA and CGC?"), "what's difference between psa and cgc")
+        # Conservative: "the" inside a word and other fillers are untouched.
+        self.assertEqual(norm("Theme decks explained"), "theme decks explained")
+        self.assertEqual(norm("okay what's a sir"), "okay what's a sir")
+
+    @unittest.skipUnless(HAVE_DEPS, "anthropic / mcp not installed")
+    def test_personal_questions(self) -> None:
+        for question in ("What's my collection worth?", "Is the Charizard I own a SIR?", "what's in my watchlist",
+                         "Explain my portfolio", "Which of mine are SIRs?"):
+            with self.subTest(question=question):
+                self.assertFalse(shared_answers.request_eligible({"thread_id": None, "text": question}))
+        self.assertTrue(shared_answers.request_eligible({"thread_id": None, "text": "Show me undervalued cards"}))
+
+
+class KnowledgeAnswerTests(SharedAnswerCase):
+    def queue_knowledge(self, answer: str = KNOWLEDGE_A) -> None:
+        self.client.queue(message([text(answer)]))
+
+    def knowledge_rows(self) -> int:
+        return self.count("assistant_shared_answers", "version = ?", (shared_answers.KNOWLEDGE_VERSION,))
+
+    def test_knowledge_answer_replayed_to_another_user_at_zero_cost(self) -> None:
+        self.queue_knowledge()
+        first = self.ask(KNOWLEDGE_Q, user=USER_A)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual((self.calls(), self.knowledge_rows()), (1, 1))
+        second = self.ask("hey what is a sir", user=USER_B)
+        self.assertEqual(self.calls(), 1)
+        body = second.json()
+        self.assertEqual(body["message"]["text"], first.json()["message"]["text"])
+        row = self.conn.execute(
+            "SELECT cached, cost_usd, owner_user_id FROM assistant_messages WHERE id = ?", (body["message"]["id"],)
+        ).fetchone()
+        self.assertEqual((row["cached"], row["cost_usd"], row["owner_user_id"]), (1, 0.0, USER_B))
+
+    def test_price_version_change_does_not_invalidate(self) -> None:
+        self.queue_knowledge()
+        self.ask(KNOWLEDGE_Q, user=USER_A)
+        self.version = "2026-11-21|psg:9|w:0"
+        self.ask(KNOWLEDGE_Q, user=USER_B)
+        self.version = None  # no price data at all: knowledge still served
+        self.ask("Whats a SIR", user=FOUNDER)
+        self.assertEqual(self.calls(), 1)
+
+    def test_knowledge_expiry_is_7_days(self) -> None:
+        self.queue_knowledge()
+        self.ask(KNOWLEDGE_Q, user=USER_A)
+        key, created, expires = self.conn.execute(
+            "SELECT key, created_at, expires_at FROM assistant_shared_answers"
+        ).fetchone()
+        parse = lambda value: datetime.fromisoformat(value.replace("Z", "+00:00"))  # noqa: E731
+        self.assertEqual(parse(expires) - parse(created), timedelta(days=7))
+        store = shared_answers.SharedAnswerStore(lambda: self.conn)
+        version = shared_answers.KNOWLEDGE_VERSION
+        self.assertIsNotNone(store.get(key, version, now=parse(created) + timedelta(days=6, hours=23)))
+        self.assertIsNone(store.get(key, version, now=parse(created) + timedelta(days=7, seconds=1)))
+
+    def test_engine_change_misses(self) -> None:
+        self.queue_knowledge()
+        self.ask(KNOWLEDGE_Q, user=USER_A)
+        with mock.patch.object(shared_answers, "engine_fingerprint", return_value="other-model|x"):
+            self.queue_knowledge()
+            self.ask(KNOWLEDGE_Q, user=USER_B)
+        self.assertEqual(self.calls(), 2)
+
+    def test_refusals_declines_and_clarifications_are_not_cached(self) -> None:
+        cases = [
+            ("Write me a poem about the ocean", "Here is a short poem about waves."),  # turn_kind 'refusal'
+            ("What's a good pizza recipe?", "I can only help with cards and collecting in Ekalight."),
+            ("What's a SIR?", "Do you mean Pokémon or One Piece?"),
+        ]
+        for question, answer in cases:
+            with self.subTest(question=question):
+                self.queue_knowledge(answer)
+                self.ask(question, user=USER_A)
+        self.client.queue(message([text("")], "refusal"))
+        self.ask("What is a hit?", user=USER_A)
+        self.flags = ["long_answer"]
+        self.queue_knowledge()
+        self.ask("What does Near Mint mean?", user=USER_A)
+        self.assertEqual(self.shared_rows(), 0)
+
+    def test_slow_flag_and_what_does_mean_are_cached(self) -> None:
+        self.flags = ["slow"]
+        self.queue_knowledge("Near Mint means the card looks unplayed apart from tiny flaws.")
+        self.ask("What does Near Mint mean?", user=USER_A)
+        self.flags = []
+        self.queue_knowledge("PSA has the deepest resale market; CGC grades subgrades more strictly.")
+        self.ask("PSA vs CGC?", user=USER_A)
+        self.assertEqual(self.knowledge_rows(), 2)
+
+    def test_personal_questions_are_never_cached(self) -> None:
+        for question in ("What's a SIR in my collection?", "Why is my watchlist empty?",
+                         "Explain the grade on the card I own"):
+            with self.subTest(question=question):
+                self.queue_knowledge()
+                self.ask(question, user=USER_A)
+        self.assertEqual(self.shared_rows(), 0)
+
+    def test_scanner_context_and_follow_ups_bypass(self) -> None:
+        self.queue_knowledge()
+        first = self.ask(KNOWLEDGE_Q, user=USER_A).json()
+        self.queue_knowledge()
+        self.ask(KNOWLEDGE_Q, user=USER_A, thread_id=first["thread_id"])
+        self.queue_knowledge()
+        self.ask(KNOWLEDGE_Q, user=USER_B, context={"source": "scanner", "card_ids": ["ssp-1"]})
+        self.assertEqual(self.calls(), 3)
+
+    def test_price_dependent_example_answer_stays_on_the_price_version(self) -> None:
+        # A knowledge question answered with a priced catalog example is a market answer.
+        question = "What's a SIR? Show an example"
+        self.queue_market("search_cards", {"filter": {"text": "pikachu"}}, "A SIR like Pikachu ex runs $120.00.")
+        self.ask(question, user=USER_A)
+        self.assertEqual(self.knowledge_rows(), 0)
+        self.assertEqual(
+            self.conn.execute("SELECT version FROM assistant_shared_answers").fetchone()[0], self.version
+        )
+        self.ask(question, user=USER_B)
+        self.assertEqual(self.calls(), 2)
+        self.version = "2026-11-21|psg:2|w:0"
+        self.queue_market("search_cards", {"filter": {"text": "pikachu"}}, "A SIR like Pikachu ex runs $130.00.")
+        self.ask(question, user=FOUNDER)
+        self.assertEqual(self.calls(), 4)
 
 
 @unittest.skipUnless(HAVE_DEPS, "anthropic / mcp not installed")
