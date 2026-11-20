@@ -1,20 +1,47 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  Image,
-  Pressable,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { NavArrowLeft } from 'iconoir-react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FlatList, Image, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
-import { DEFAULT_CARD_GAME, type CardGame, type CatalogSearchResult } from '@spotlight/api-client';
-import { SearchField, StateCard, Text, Toast, colors, useSpotlightTheme } from '@spotlight/design-system';
+import {
+  DEFAULT_CARD_GAME,
+  deckConditionOptions,
+  type CardGame,
+  type CatalogSearchResult,
+  type ExpansionRecord,
+  type InventoryCardEntry,
+  type RarityBucket,
+} from '@spotlight/api-client';
+import {
+  GlassNavBubble,
+  PillButton,
+  SearchField,
+  StateCard,
+  Toast,
+  cardGrid,
+  glassNavBubbleGlyphSize,
+  glassNavBubbleGlyphStrokeWidth,
+  layout,
+  spacing,
+  useSpotlightTheme,
+} from '@spotlight/design-system';
 
-import { ChromeBackButton } from '@/components/chrome-back-button';
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { consumeCardAddedNotice } from '@/features/cards/card-added-notice';
+import { invalidateCardDetailCache } from '@/features/cards/card-detail-prefetch';
+import { OwnedCopiesSheet } from '@/features/catalog/components/owned-copies-sheet';
+import { SetCardTile } from '@/features/catalog/components/set-card-tile';
+import { SetProgressCard } from '@/features/catalog/components/set-progress-card';
+import {
+  countOwnedCards,
+  filterSetCards,
+  rarityChipsForCards,
+  setCompletion,
+} from '@/features/catalog/set-progress';
+import { eventGradientStops } from '@/features/events/event-accent';
+import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { useAppServices } from '@/providers/app-providers';
 
 type ExpansionDetailScreenProps = {
@@ -26,68 +53,46 @@ type ExpansionDetailScreenProps = {
   onOpenCard: (result: CatalogSearchResult) => void;
 };
 
-function CardCell({
-  result,
-  isOpening,
-  onPress,
-}: {
-  result: CatalogSearchResult;
-  isOpening: boolean;
-  onPress: () => void;
-}) {
-  const theme = useSpotlightTheme();
-  const [hasImageError, setHasImageError] = useState(false);
+/** The whole set in one call (the backend's ceiling); search + chips filter it locally. */
+export const SET_PAGE_CARD_LIMIT = 1000;
 
-  return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={isOpening}
-      onPress={onPress}
-      style={({ pressed }) => [styles.cardCell, { opacity: isOpening ? 0.82 : pressed ? 0.88 : 1 }]}
-    >
-      <View
-        style={[
-          styles.cardImageFrame,
-          {
-            backgroundColor: theme.colors.field,
-            borderColor: theme.colors.outlineSubtle,
-          },
-        ]}
-      >
-        {result.imageUrl && !hasImageError ? (
-          <Image
-            onError={() => setHasImageError(true)}
-            resizeMode="contain"
-            source={{ uri: result.imageUrl }}
-            style={styles.cardImage}
-          />
-        ) : (
-          <Text
-            numberOfLines={3}
-            style={[styles.cardImageFallback, theme.typography.caption, { color: theme.colors.textSecondary }]}
-          >
-            {result.name}
-          </Text>
-        )}
-        {isOpening ? (
-          <View style={styles.cardOpeningOverlay}>
-            <ActivityIndicator color={theme.colors.brand} size="small" />
-          </View>
-        ) : null}
-      </View>
-      <Text numberOfLines={1} style={[styles.cardName, theme.typography.caption, { color: theme.colors.textPrimary }]}>
-        {result.name}
-      </Text>
-      <Text
-        numberOfLines={1}
-        style={[styles.cardMeta, theme.typography.caption, { color: theme.colors.textSecondary }]}
-      >
-        {result.cardNumber}
-      </Text>
-    </Pressable>
-  );
+// Figma 6425:3296 geometry: the wash behind the logo and header card, and the
+// centred set logo below the toolbar.
+const WASH_HEIGHT = 353;
+const LOGO_WIDTH = 167;
+const LOGO_HEIGHT = 80;
+const LOGO_TOP_BELOW_SAFE_AREA = 55;
+
+type CopiesSheetState = { card: CatalogSearchResult; copies: InventoryCardEntry[] } | null;
+
+function chunkPairs<T>(items: readonly T[]): T[][] {
+  const rows: T[][] = [];
+  for (let index = 0; index < items.length; index += 2) {
+    rows.push(items.slice(index, index + 2));
+  }
+  return rows;
 }
 
+const NEAR_MINT = deckConditionOptions.find((option) => option.code === 'near_mint') ?? null;
+
+/**
+ * A set's page with completion (Figma 6425:3296): logo, a header card with
+ * name, release date, progress and the FULL set's value, a card search and
+ * rarity chips, then EVERY card in the set two-up — the ones you don't own
+ * faded — each with − QTY +.
+ *
+ * + adds one copy (default printing, Near Mint, raw) through the same
+ *   `createInventoryEntry` the card page's ADD ITEM uses.
+ * − removes one copy. Owned in exactly one form → that entry is decremented
+ *   (deleted at 0). Owned in more than one form → a sheet asks which copy; the
+ *   rule is no guessing.
+ *
+ * Both are optimistic (tile + header progress move at once) and roll back with
+ * a toast on failure. The shared Collection caches get the same optimistic
+ * entry the card page writes; leaving the page bumps `refreshData()` once so
+ * the Collection, the dashboard and the sets list's progress reconcile to the
+ * server — one refetch per visit, not per tap.
+ */
 export function ExpansionDetailScreen({
   expansionId,
   expansionName,
@@ -95,94 +100,301 @@ export function ExpansionDetailScreen({
   onClose,
   onOpenCard,
 }: ExpansionDetailScreenProps) {
-  // Cards are added from inside a set too, so the confirmation has to land here
-  // as well as on the search screen. On FOCUS — this screen stays mounted under
-  // the card page.
-  const [addedNotice, setAddedNotice] = useState<string | null>(null);
+  const theme = useSpotlightTheme();
+  const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const {
+    activeCollectionID,
+    dataVersion,
+    inventoryEntriesCache,
+    prependOptimisticInventoryEntry,
+    refreshData,
+    removeOptimisticInventoryEntries,
+    spotlightRepository,
+  } = useAppServices();
+  const { gate } = useGuestGate();
+
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const dirtyRef = useRef(false);
+  // On FOCUS: this screen stays mounted under the card page, so the "Added to
+  // your collection" handoff has to be read when it comes back. On BLUR (and
+  // unmount): one refresh if anything changed here.
   useFocusEffect(
     useCallback(() => {
       const notice = consumeCardAddedNotice();
       if (notice) {
-        setAddedNotice(notice);
+        setToastMessage(notice);
       }
-    }, []),
+      return () => {
+        if (dirtyRef.current) {
+          dirtyRef.current = false;
+          refreshData();
+        }
+      };
+    }, [refreshData]),
   );
-  const theme = useSpotlightTheme();
-  const insets = useSafeAreaInsets();
-  const { spotlightRepository } = useAppServices();
+
+  const [expansion, setExpansion] = useState<ExpansionRecord | null>(null);
+  const [cards, setCards] = useState<CatalogSearchResult[]>([]);
+  const [hasLoadedCards, setHasLoadedCards] = useState(false);
+  const [entries, setEntries] = useState<InventoryCardEntry[] | null>(null);
+  const entriesRef = useRef<InventoryCardEntry[] | null>(null);
+  entriesRef.current = entries;
+  const inventoryCacheRef = useRef(inventoryEntriesCache);
+  inventoryCacheRef.current = inventoryEntriesCache;
 
   const [cardQuery, setCardQuery] = useState('');
-  const [cards, setCards] = useState<CatalogSearchResult[]>([]);
-  const [isLoadingCards, setIsLoadingCards] = useState(true);
-  const [openingResultId, setOpeningResultId] = useState<string | null>(null);
-  const openingResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [rarity, setRarity] = useState<RarityBucket | null>(null);
+  const [pendingCardIds, setPendingCardIds] = useState<ReadonlySet<string>>(new Set());
+  const pendingRef = useRef(new Set<string>());
+  const [copiesSheet, setCopiesSheet] = useState<CopiesSheetState>(null);
 
+  // The set's own record carries the totals (`cardCount`, `setValue`) and logo.
   useEffect(() => {
+    let cancelled = false;
+    void spotlightRepository.listExpansions(game)
+      .then((records) => {
+        if (!cancelled) {
+          setExpansion(records.find((record) => record.id === expansionId) ?? null);
+        }
+      })
+      .catch(() => undefined);
     return () => {
-      if (openingResetTimerRef.current) {
-        clearTimeout(openingResetTimerRef.current);
-      }
+      cancelled = true;
     };
+  }, [expansionId, game, spotlightRepository]);
+
+  // Cards + the user's copies. Re-read on `dataVersion` so a card added from
+  // the card page shows here on return; no loading flash once cards exist.
+  useEffect(() => {
+    let cancelled = false;
+    void spotlightRepository.listCardsInExpansion(expansionId, '', SET_PAGE_CARD_LIMIT, game)
+      .then((results) => {
+        if (!cancelled) {
+          setCards(results);
+          setHasLoadedCards(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setHasLoadedCards(true);
+        }
+      });
+    void spotlightRepository.getInventoryEntries()
+      .then((loaded) => {
+        if (!cancelled) {
+          setEntries(loaded);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [dataVersion, expansionId, game, spotlightRepository]);
+
+  const setPending = useCallback((cardId: string, pending: boolean) => {
+    if (pending) {
+      pendingRef.current.add(cardId);
+    } else {
+      pendingRef.current.delete(cardId);
+    }
+    setPendingCardIds(new Set(pendingRef.current));
   }, []);
 
-  useEffect(() => {
-    setIsLoadingCards(true);
-    setCards([]);
+  const shiftOwned = useCallback((cardId: string, delta: number) => {
+    setCards((current) => current.map((card) => (
+      card.cardId === cardId
+        ? { ...card, ownedQuantity: Math.max(0, (card.ownedQuantity ?? 0) + delta) }
+        : card
+    )));
+  }, []);
 
-    const trimmedQuery = cardQuery.trim();
-    let isCancelled = false;
+  const upsertEntry = useCallback((entry: InventoryCardEntry) => {
+    setEntries((current) => {
+      const list = current ?? [];
+      return list.some((candidate) => candidate.id === entry.id)
+        ? list.map((candidate) => (candidate.id === entry.id ? entry : candidate))
+        : [entry, ...list];
+    });
+  }, []);
 
-    const timeout = setTimeout(() => {
-      void spotlightRepository.listCardsInExpansion(expansionId, trimmedQuery, 60, game)
-        .then((results) => {
-          if (!isCancelled) {
-            setCards(results);
-            setIsLoadingCards(false);
-          }
-        })
-        .catch(() => {
-          if (!isCancelled) {
-            setCards([]);
-            setIsLoadingCards(false);
-          }
-        });
-    }, trimmedQuery.length >= 1 ? 275 : 0);
+  const dropEntry = useCallback((entryId: string) => {
+    setEntries((current) => (current ? current.filter((entry) => entry.id !== entryId) : current));
+  }, []);
 
-    return () => {
-      isCancelled = true;
-      clearTimeout(timeout);
-    };
-  }, [expansionId, cardQuery, game, spotlightRepository]);
-
-  const openCard = useCallback((result: CatalogSearchResult) => {
-    if (openingResetTimerRef.current) {
-      clearTimeout(openingResetTimerRef.current);
+  const handleIncrement = useCallback((card: CatalogSearchResult) => {
+    if (pendingRef.current.has(card.cardId)) {
+      return;
     }
-    setOpeningResultId(result.id);
-    onOpenCard(result);
-    openingResetTimerRef.current = setTimeout(() => {
-      setOpeningResultId((current) => (current === result.id ? null : current));
-      openingResetTimerRef.current = null;
-    }, 350);
-  }, [onOpenCard]);
+    setPending(card.cardId, true);
+    shiftOwned(card.cardId, 1);
+    const addedAt = new Date().toISOString();
+    const variantName = card.defaultVariantLabel ?? null;
+    void spotlightRepository.createInventoryEntry({
+      cardID: card.cardId,
+      slabContext: null,
+      variantName,
+      condition: 'near_mint',
+      quantity: 1,
+      sourceScanID: null,
+      selectionSource: 'manual_search',
+      addedAt,
+      // Same target as the card page's ADD ITEM: the collection on screen in
+      // the Collection tab ("All" lets the backend pick the default).
+      collectionID: activeCollectionID,
+    })
+      .then((response) => {
+        // The backend merges into an existing identical copy, returning its id.
+        const existing = entriesRef.current?.find((entry) => entry.id === response.deckEntryID) ?? null;
+        const next: InventoryCardEntry = existing
+          ? { ...existing, quantity: existing.quantity + 1 }
+          : {
+            id: response.deckEntryID,
+            cardId: card.cardId,
+            name: card.name,
+            cardNumber: card.cardNumber,
+            setName: card.setName,
+            imageUrl: card.imageUrl,
+            smallImageUrl: card.smallImageUrl ?? null,
+            marketPrice: card.marketPrice ?? 0,
+            hasMarketPrice: card.marketPrice != null,
+            currencyCode: card.currencyCode ?? 'USD',
+            quantity: 1,
+            addedAt: response.addedAt || addedAt,
+            kind: 'raw',
+            variantName: response.variantName ?? variantName,
+            conditionCode: 'near_mint',
+            conditionLabel: NEAR_MINT?.label ?? null,
+            conditionShortLabel: NEAR_MINT?.shortLabel ?? null,
+            slabContext: null,
+            rarityBucket: card.rarityBucket,
+            game: card.game,
+            catalogSource: card.catalogSource,
+          };
+        upsertEntry(next);
+        // A merged copy only replaces a row the active collection's cache
+        // already holds; a new one is prepended exactly like the card page's add.
+        if (!existing || inventoryCacheRef.current?.some((entry) => entry.id === next.id)) {
+          prependOptimisticInventoryEntry(next);
+        }
+        invalidateCardDetailCache(card.cardId);
+        dirtyRef.current = true;
+      })
+      .catch(() => {
+        shiftOwned(card.cardId, -1);
+        setToastMessage(`Couldn't add ${card.name}. Try again.`);
+      })
+      .finally(() => setPending(card.cardId, false));
+  }, [
+    activeCollectionID,
+    prependOptimisticInventoryEntry,
+    setPending,
+    shiftOwned,
+    spotlightRepository,
+    upsertEntry,
+  ]);
+
+  const removeOneFrom = useCallback((card: CatalogSearchResult, entry: InventoryCardEntry) => {
+    if (pendingRef.current.has(card.cardId)) {
+      return;
+    }
+    setPending(card.cardId, true);
+    shiftOwned(card.cardId, -1);
+    const nextQuantity = entry.quantity - 1;
+    if (nextQuantity > 0) {
+      upsertEntry({ ...entry, quantity: nextQuantity });
+    } else {
+      dropEntry(entry.id);
+    }
+    const write = nextQuantity > 0
+      ? spotlightRepository.setPortfolioEntryQuantity({ deckEntryID: entry.id, quantity: nextQuantity })
+      : spotlightRepository.deletePortfolioEntry({ deckEntryID: entry.id });
+    void Promise.resolve(write)
+      .then(() => {
+        if (nextQuantity > 0) {
+          if (inventoryCacheRef.current?.some((cached) => cached.id === entry.id)) {
+            prependOptimisticInventoryEntry({ ...entry, quantity: nextQuantity });
+          }
+        } else {
+          removeOptimisticInventoryEntries([entry.id]);
+        }
+        invalidateCardDetailCache(card.cardId);
+        dirtyRef.current = true;
+      })
+      .catch(() => {
+        shiftOwned(card.cardId, 1);
+        upsertEntry(entry);
+        setToastMessage(`Couldn't remove ${card.name}. Try again.`);
+      })
+      .finally(() => setPending(card.cardId, false));
+  }, [
+    dropEntry,
+    prependOptimisticInventoryEntry,
+    removeOptimisticInventoryEntries,
+    setPending,
+    shiftOwned,
+    spotlightRepository,
+    upsertEntry,
+  ]);
+
+  const handleDecrement = useCallback(async (card: CatalogSearchResult) => {
+    if (pendingRef.current.has(card.cardId)) {
+      return;
+    }
+    let all = entriesRef.current;
+    if (!all || !all.some((entry) => entry.cardId === card.cardId)) {
+      // Not loaded yet, or stale: ask once before deciding.
+      all = await spotlightRepository.getInventoryEntries().catch(() => all ?? []);
+      setEntries(all);
+    }
+    const copies = all.filter((entry) => entry.cardId === card.cardId && entry.quantity > 0);
+    if (copies.length === 0) {
+      setToastMessage(`Couldn't find your copy of ${card.name}.`);
+      return;
+    }
+    if (copies.length === 1) {
+      removeOneFrom(card, copies[0]);
+      return;
+    }
+    setCopiesSheet({ card, copies });
+  }, [removeOneFrom, spotlightRepository]);
+
+  const onIncrement = useMemo(() => gate(handleIncrement), [gate, handleIncrement]);
+  const onDecrement = useCallback((card: CatalogSearchResult) => {
+    void handleDecrement(card);
+  }, [handleDecrement]);
+
+  const chips = useMemo(() => rarityChipsForCards(cards, game), [cards, game]);
+  // A chip that vanished (it was this set's only bucket match) drops back to ALL.
+  const activeRarity = rarity && chips.some((chip) => chip.bucket === rarity) ? rarity : null;
+  const visibleCards = useMemo(
+    () => filterSetCards(cards, cardQuery, activeRarity),
+    [activeRarity, cardQuery, cards],
+  );
+  const rows = useMemo(() => chunkPairs(visibleCards), [visibleCards]);
+
+  // Y = the set's served total (secret rares included); before an older
+  // backend sends one, the whole set we loaded is the same list.
+  const completion = setCompletion(
+    expansion?.cardCount ?? (hasLoadedCards && cards.length > 0 ? cards.length : null),
+    countOwnedCards(cards),
+  );
+  const totalValueLabel = expansion?.setValue != null ? formatCurrency(expansion.setValue, 'USD') : null;
+  const washStops = eventGradientStops(theme.colors.eventAccent);
+  const logoUrl = expansion?.imageUrl ?? null;
+  const [hasLogoError, setHasLogoError] = useState(false);
 
   const renderCardsState = () => {
-    if (isLoadingCards && cards.length === 0) {
+    if (!hasLoadedCards) {
       return (
-        <StateCard
-          centered
-          loading
-          message="Loading cards from this set."
-          style={styles.stateCard}
-          title="Loading"
-        />
+        <StateCard centered loading message="Loading cards from this set." style={styles.stateCard} title="Loading" />
       );
     }
-    if (cards.length === 0) {
+    if (visibleCards.length === 0) {
       return (
         <StateCard
           centered
-          message={cardQuery.trim().length >= 1 ? 'Try a different name or number.' : 'No cards found in this set yet.'}
+          message={cards.length > 0 ? 'Try a different name or number.' : 'No cards found in this set yet.'}
           style={styles.stateCard}
           title="No cards"
         />
@@ -191,146 +403,215 @@ export function ExpansionDetailScreen({
     return null;
   };
 
-  return (
-    <SafeAreaView
-      edges={['top', 'left', 'right', 'bottom']}
-      style={[styles.screen, { backgroundColor: colors.gray0 }]}
-    >
-      <FlatList
-        ListHeaderComponent={
-          <View style={styles.contentTop}>
-            <View style={styles.searchHeader}>
-              <View style={styles.searchHeaderBackRow}>
-                <ChromeBackButton onPress={onClose} style={styles.closeButton} />
-              </View>
-              <Text numberOfLines={2} style={[theme.typography.display, { color: theme.colors.textPrimary }]}>
-                {expansionName}
-              </Text>
-            </View>
-            <SearchField
-              autoCapitalize="none"
-              autoCorrect={false}
-              containerStyle={[styles.searchField, { backgroundColor: theme.colors.surface }]}
-              onChangeText={setCardQuery}
-              placeholder="Search by name or number"
-              returnKeyType="search"
-              uppercasePlaceholder
-              value={cardQuery}
+  const header = (
+    <View>
+      <Svg height={WASH_HEIGHT} pointerEvents="none" style={styles.wash} width={windowWidth}>
+        <Defs>
+          <LinearGradient id="setPageWash" x1="0" x2="0" y1="0" y2="1">
+            {washStops.map((stop) => (
+              <Stop key={stop.offset} offset={stop.offset} stopColor={stop.color} stopOpacity="1" />
+            ))}
+          </LinearGradient>
+        </Defs>
+        <Rect fill="url(#setPageWash)" height={WASH_HEIGHT} width={windowWidth} x="0" y="0" />
+      </Svg>
+      <View style={[styles.hero, { paddingTop: insets.top + LOGO_TOP_BELOW_SAFE_AREA }]}>
+        <View style={styles.logoSlot}>
+          {logoUrl && !hasLogoError ? (
+            <Image
+              onError={() => setHasLogoError(true)}
+              resizeMode="contain"
+              source={{ uri: logoUrl }}
+              style={styles.logo}
+              testID="set-page-logo"
             />
-            {renderCardsState()}
-          </View>
-        }
-        contentContainerStyle={styles.cardListContent}
-        data={cards}
+          ) : null}
+        </View>
+        <SetProgressCard
+          completion={completion}
+          name={expansion?.name ?? expansionName}
+          releaseDate={expansion?.releaseDate ?? null}
+          testID="set-page-header"
+          totalValueLabel={totalValueLabel}
+          variant="header"
+        />
+      </View>
+      <View style={[styles.controls, { backgroundColor: theme.colors.gray0 }]}>
+        <SearchField
+          autoCapitalize="none"
+          autoCorrect={false}
+          containerStyle={{ backgroundColor: theme.colors.gray100 }}
+          onChangeText={setCardQuery}
+          placeholder="Search card"
+          returnKeyType="search"
+          testID="set-page-search"
+          uppercasePlaceholder
+          value={cardQuery}
+        />
+        {chips.length > 0 ? (
+          <ScrollView
+            contentContainerStyle={styles.chips}
+            horizontal
+            keyboardShouldPersistTaps="handled"
+            showsHorizontalScrollIndicator={false}
+            style={styles.chipScroller}
+            testID="set-page-rarity-chips"
+          >
+            <PillButton
+              label="ALL"
+              labelRole="caption"
+              onPress={() => setRarity(null)}
+              selected={activeRarity === null}
+              testID="set-page-rarity-all"
+              tone="filled"
+            />
+            {chips.map((chip) => (
+              <PillButton
+                key={chip.bucket}
+                label={chip.label}
+                labelRole="caption"
+                onPress={() => setRarity(chip.bucket)}
+                selected={activeRarity === chip.bucket}
+                testID={`set-page-rarity-${chip.bucket}`}
+                tone="filled"
+              />
+            ))}
+          </ScrollView>
+        ) : null}
+        {renderCardsState()}
+      </View>
+    </View>
+  );
+
+  return (
+    <View style={[styles.screen, { backgroundColor: cardGrid.background }]}>
+      <FlatList
+        ListHeaderComponent={header}
+        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.lg }]}
+        data={rows}
+        keyExtractor={(row) => row[0].id}
         keyboardShouldPersistTaps="handled"
-        keyExtractor={(item) => item.id}
-        numColumns={3}
-        renderItem={({ item }) => (
-          <CardCell
-            isOpening={openingResultId === item.id}
-            onPress={() => openCard(item)}
-            result={item}
-          />
+        renderItem={({ item: row }) => (
+          <View style={styles.row}>
+            {row.map((card, index) => (
+              <SetCardTile
+                card={card}
+                column={index === 0 ? 'left' : 'right'}
+                isPending={pendingCardIds.has(card.cardId)}
+                key={card.id}
+                onDecrement={onDecrement}
+                onIncrement={onIncrement}
+                onPress={onOpenCard}
+              />
+            ))}
+            {row.length < 2 ? <View style={styles.rowSpacer} /> : null}
+          </View>
         )}
         showsVerticalScrollIndicator={false}
+        testID="set-page-grid"
+      />
+
+      <View pointerEvents="box-none" style={[styles.toolbar, { top: insets.top + spacing.xxs }]}>
+        <GlassNavBubble accessibilityLabel="Back" material="frost" onPress={onClose} size="medium" testID="set-page-back">
+          <NavArrowLeft
+            color={theme.colors.gray900}
+            height={glassNavBubbleGlyphSize}
+            strokeWidth={glassNavBubbleGlyphStrokeWidth}
+            width={glassNavBubbleGlyphSize}
+          />
+        </GlassNavBubble>
+      </View>
+
+      <OwnedCopiesSheet
+        cardName={copiesSheet?.card.name ?? ''}
+        copies={copiesSheet?.copies ?? []}
+        onClose={() => setCopiesSheet(null)}
+        onSelect={(entry) => {
+          const card = copiesSheet?.card;
+          setCopiesSheet(null);
+          if (card) {
+            removeOneFrom(card, entry);
+          }
+        }}
+        visible={copiesSheet !== null}
       />
 
       <Toast
-        message={addedNotice ?? ''}
-        onDismiss={() => setAddedNotice(null)}
-        // Inset carried on `bottom` itself — Yoga's web-conformant absolute
-        // layout ignores the SafeAreaView's padding (same note as the catalog
-        // search toast), so without it Android's nav bar covered the toast.
-        style={[styles.addedToast, { bottom: insets.bottom + 24 }]}
+        message={toastMessage ?? ''}
+        onDismiss={() => setToastMessage(null)}
+        // Inset carried on `bottom` itself — Yoga's absolute layout ignores
+        // parent padding, so without it Android's nav bar covered the toast.
+        style={[styles.toast, { bottom: insets.bottom + spacing.lg }]}
         testID="expansion-added-toast"
-        visible={addedNotice !== null}
+        visible={toastMessage !== null}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // `Toast` is unpositioned by design — 16 in from each edge, like card detail.
-  addedToast: {
-    // `bottom` is inline — it needs the safe-area inset (see the render note).
-    left: 16,
-    position: 'absolute',
-    right: 16,
+  chipScroller: {
+    marginHorizontal: -layout.pageGutter,
   },
-  cardCell: {
+  chips: {
+    gap: 10,
+    paddingHorizontal: layout.pageGutter,
+  },
+  // Figma 6425:3297: white band, 16 in, 10 between search and chips.
+  controls: {
+    gap: 10,
+    marginTop: spacing.xxs,
+    paddingBottom: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
+    paddingTop: spacing.sm,
+  },
+  hero: {
     alignItems: 'center',
-    flex: 1 / 3,
-    gap: 4,
-    padding: 6,
+    gap: spacing.md,
+    paddingHorizontal: layout.pageGutter,
   },
-  cardImage: {
+  listContent: {
+    gap: cardGrid.gap,
+  },
+  logo: {
     height: '100%',
-    resizeMode: 'contain',
     width: '100%',
   },
-  cardImageFallback: {
-    paddingHorizontal: 4,
-    textAlign: 'center',
+  logoSlot: {
+    height: LOGO_HEIGHT,
+    width: LOGO_WIDTH,
   },
-  cardImageFrame: {
-    alignItems: 'center',
-    aspectRatio: 0.72,
-    borderCurve: 'continuous',
-    borderRadius: 8,
-    borderWidth: 1,
-    justifyContent: 'center',
-    overflow: 'hidden',
-    width: '100%',
+  row: {
+    alignItems: 'stretch',
+    flexDirection: 'row',
+    gap: cardGrid.gap,
   },
-  cardListContent: {
-    paddingBottom: 24,
-    paddingHorizontal: 10,
-  },
-  // Meta line under the name: the Figma tiles set small labels in caps
-  // (Collection 5938:16740 "NEAR MINT"); the name above stays a proper noun.
-  // Full width like `cardName`: a content-sized one-line text is measured
-  // before the transform on iOS and ellipsizes the wider caps.
-  cardMeta: {
-    textAlign: 'center',
-    textTransform: 'uppercase',
-    width: '100%',
-  },
-  cardName: {
-    textAlign: 'center',
-    width: '100%',
-  },
-  cardOpeningOverlay: {
-    alignItems: 'center',
-    bottom: 0,
-    justifyContent: 'center',
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    top: 0,
-  },
-  closeButton: {
-    flexShrink: 0,
-  },
-  contentTop: {
-    gap: 20,
-    paddingBottom: 20,
-    paddingHorizontal: 16,
-    paddingTop: 12,
+  rowSpacer: {
+    flex: 1,
   },
   screen: {
     flex: 1,
   },
-  searchField: {
-  },
-  searchHeader: {
-    alignItems: 'flex-start',
-    gap: 18,
-  },
-  searchHeaderBackRow: {
-    alignSelf: 'flex-start',
-  },
   stateCard: {
-    gap: 16,
-    paddingVertical: 24,
+    gap: spacing.sm,
+    paddingVertical: spacing.lg,
+  },
+  toast: {
+    left: layout.pageGutter,
+    position: 'absolute',
+    right: layout.pageGutter,
+  },
+  toolbar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    left: 0,
+    paddingHorizontal: layout.pageGutter,
+    position: 'absolute',
+    right: 0,
+  },
+  wash: {
+    left: 0,
+    position: 'absolute',
+    top: 0,
   },
 });

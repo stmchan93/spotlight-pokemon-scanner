@@ -29,6 +29,8 @@ import {
   RankBadge,
   RankedCardRow,
   PillButton,
+  ProgressBar,
+  QuantityStepper,
   ScreenHeader,
   SearchEntryPill,
   SearchField,
@@ -220,6 +222,15 @@ export function DesignSystemCatalogScreen({
                 variant="accent"
               />
             </View>
+
+            <ProgressBar testID="catalog-progress-bar" value={0.62} />
+            <QuantityStepper
+              formatValue={(value) => `QTY: ${value}`}
+              onChange={() => undefined}
+              testID="catalog-quantity-stepper-tile"
+              value={1}
+              variant="tile"
+            />
 
             <Button
               label="Marketplace"
