@@ -2,16 +2,18 @@ import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import type { AssistantCardRef } from '@spotlight/api-client';
-import { AppText, PriceSparkline, Text, layout, radii, spacing, useSpotlightTheme } from '@spotlight/design-system';
+import { AppText, PriceSparkline, Text, spacing, useSpotlightTheme } from '@spotlight/design-system';
 
 import { CachedImage } from '@/components/cached-image';
 import { assistantRangeCaption } from '@/features/assistant/components/assistant-price-chart';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
-const TILE_WIDTH = 132;
+// The card image is 86x120 at a 4pt radius (Figma 6528:16786); the tile is the image's width.
+const TILE_WIDTH = 86;
+const ART_HEIGHT = 120;
+const ART_RADIUS = 4;
 const SPARKLINE_HEIGHT = 22;
-// Tile width minus its horizontal padding (spacing.xxs each side).
-const SPARKLINE_WIDTH = TILE_WIDTH - spacing.xxs * 2;
+const SPARKLINE_WIDTH = TILE_WIDTH;
 
 /** "Celebi" + "XY Black Star Promos · XY111" + price + owned qty. USD only; null price = "No price". */
 export function assistantCardMeta(card: AssistantCardRef): string {
@@ -36,14 +38,7 @@ export function AssistantCardTile({ card, onPress, testID }: AssistantCardTilePr
       accessibilityLabel={`${card.name}, ${assistantCardMeta(card)}`}
       accessibilityRole="button"
       onPress={() => onPress(card.cardId)}
-      style={({ pressed }) => [
-        styles.tile,
-        {
-          backgroundColor: theme.colors.gray0,
-          borderColor: theme.colors.gray200,
-          opacity: pressed ? 0.86 : 1,
-        },
-      ]}
+      style={({ pressed }) => [styles.tile, { opacity: pressed ? 0.86 : 1 }]}
       testID={testID}
     >
       <View style={[styles.art, { backgroundColor: showImage ? theme.colors.gray100 : theme.colors.field }]}>
@@ -62,10 +57,11 @@ export function AssistantCardTile({ card, onPress, testID }: AssistantCardTilePr
           </AppText>
         )}
       </View>
-      <Text numberOfLines={1} style={theme.typography.labelStrong}>
+      {/* Name + price stay under the art: replies don't list prices in text, the tiles carry them. */}
+      <Text numberOfLines={2} style={[theme.typography.captionMedium, { color: theme.colors.gray900 }]}>
         {card.name}
       </Text>
-      <Text numberOfLines={1} style={[theme.typography.caption, { color: theme.colors.gray600 }]}>
+      <Text numberOfLines={1} style={[theme.typography.cardMeta, { color: theme.colors.gray600 }]}>
         {assistantCardMeta(card)}
       </Text>
       {card.sparkline ? (
@@ -79,7 +75,7 @@ export function AssistantCardTile({ card, onPress, testID }: AssistantCardTilePr
           />
           <Text
             numberOfLines={1}
-            style={[theme.typography.caption, { color: theme.colors.gray600 }]}
+            style={[theme.typography.cardMeta, { color: theme.colors.gray600 }]}
             testID={testID ? `${testID}-sparkline-period` : undefined}
           >
             {assistantRangeCaption(card.sparkline.range)}
@@ -91,7 +87,7 @@ export function AssistantCardTile({ card, onPress, testID }: AssistantCardTilePr
           {card.priceUsd != null ? formatCurrency(card.priceUsd, 'USD') : 'No price'}
         </Text>
         {owned > 0 ? (
-          <Text style={[theme.typography.caption, { color: theme.colors.purple500 }]}>
+          <Text style={[theme.typography.cardMeta, { color: theme.colors.purple500 }]}>
             {`Own ×${owned}`}
           </Text>
         ) : null}
@@ -102,18 +98,14 @@ export function AssistantCardTile({ card, onPress, testID }: AssistantCardTilePr
 
 const styles = StyleSheet.create({
   tile: {
-    borderCurve: 'continuous',
-    borderRadius: radii.md,
-    borderWidth: 1,
     gap: spacing.xxxs,
-    padding: spacing.xxs,
     width: TILE_WIDTH,
   },
   art: {
     alignItems: 'center',
-    aspectRatio: layout.rowThumbnailWidth / layout.rowThumbnailHeight,
     borderCurve: 'continuous',
-    borderRadius: layout.inventoryArtRadiusRaw,
+    borderRadius: ART_RADIUS,
+    height: ART_HEIGHT,
     justifyContent: 'center',
     marginBottom: spacing.xxxs,
     overflow: 'hidden',
@@ -128,7 +120,9 @@ const styles = StyleSheet.create({
   },
   footer: {
     alignItems: 'center',
+    columnGap: spacing.xxxs,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
   },
 });

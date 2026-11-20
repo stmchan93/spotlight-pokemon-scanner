@@ -155,7 +155,8 @@ export const colors = {
    * 72% splits the difference: the backdrop gets ~28% say — visible frost,
    * a face that drifts only between light gray and white.
    */
-  frostTint: 'rgba(255, 255, 255, 0.72)',
+  // Figma 6502:7672 "Fill + Shadow": white 65% over the glass.
+  frostTint: 'rgba(255, 255, 255, 0.65)',
   // Tappable link text over dark/photo backgrounds (profile header cover).
   linkOnDark: '#D6E8FF',
   // Chrome drawn over video thumbnails (VideoTile): the duration badge's
@@ -473,6 +474,15 @@ export const textStyles = {
     fontFamily: fontFamilies.bodySemiBold,
     fontSize: 16,
     lineHeight: 21,
+    color: colors.textPrimary,
+  } satisfies TextStyle,
+  // Raw Regular 15 — Ask Ekalight's reading/typing size (composer, bubbles,
+  // replies, prompt chips; Figma 6502:16657 + 6530:17260 draw "Body" at 15).
+  chatBody: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyRegular,
+    fontSize: 15,
+    lineHeight: 20,
     color: colors.textPrimary,
   } satisfies TextStyle,
   // Raw SemiBold 15 (mover-tile price, drawer stats)

@@ -69,16 +69,21 @@ function isListBlock(block: AssistantTextBlock | undefined): boolean {
 type AssistantRichTextProps = {
   text: string;
   color: string;
+  /** Headings and bold runs; defaults to `color`. */
+  strongColor?: string;
   testID?: string;
 };
 
-/** Reading typography for a reply: Body-large, list items tight, blocks spaced like a chat app. */
-export function AssistantRichText({ text, color, testID }: AssistantRichTextProps) {
+/**
+ * Reading typography for a reply (Figma 6502:16657): Regular 15 body, SemiBold
+ * 17 headings 4pt above their text, list items tight, blocks spaced like a chat app.
+ */
+export function AssistantRichText({ text, color, strongColor = color, testID }: AssistantRichTextProps) {
   const theme = useSpotlightTheme();
-  const base: StyleProp<TextStyle> = [theme.typography.bodyLarge, { color }];
-  // Headline is SemiBold at Body-large's size/leading, so bold runs inline.
-  const bold: StyleProp<TextStyle> = [theme.typography.headline, { color }];
-  const heading: StyleProp<TextStyle> = [theme.typography.titleSmall, { color }];
+  const base: StyleProp<TextStyle> = [theme.typography.chatBody, { color }];
+  // bodyStrong is SemiBold at chatBody's size/leading, so bold runs inline.
+  const bold: StyleProp<TextStyle> = [theme.typography.bodyStrong, { color: strongColor }];
+  const heading: StyleProp<TextStyle> = [theme.typography.titleSmall, { color: strongColor }];
   const markerColor = { color: theme.colors.gray600 };
   const renderSpans = (spans: AssistantTextSpan[]) =>
     spans.map((span, index) => (
@@ -96,11 +101,13 @@ export function AssistantRichText({ text, color, testID }: AssistantRichTextProp
         // and a heading gets a bit more above it than below.
         const gapStyle = index === 0
           ? null
-          : isListBlock(block) && isListBlock(previous)
-            ? styles.listGap
-            : block.kind === 'heading'
-              ? styles.headingGap
-              : styles.blockGap;
+          : previous?.kind === 'heading'
+            ? styles.afterHeadingGap
+            : isListBlock(block) && isListBlock(previous)
+              ? styles.listGap
+              : block.kind === 'heading'
+                ? styles.headingGap
+                : styles.blockGap;
         if (block.kind === 'bullet' || block.kind === 'numbered') {
           return (
             <View key={index} style={[styles.listRow, gapStyle]}>
@@ -136,6 +143,9 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   listGap: {
+    marginTop: spacing.xxxs,
+  },
+  afterHeadingGap: {
     marginTop: spacing.xxxs,
   },
   listRow: {

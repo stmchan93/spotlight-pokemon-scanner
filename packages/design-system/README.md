@@ -219,6 +219,19 @@ Current API concepts:
   8pt in from the pill's left edge with 4pt between them, which is what the
   frame draws — the label is not centred in the full pill
 
+### GlassNavPill
+
+File: `src/components/glass-nav-pill.tsx`
+
+A text action in a top bar ("NEW CHAT", "CLEAR ALL" on Ask Ekalight, Figma
+6530:17111 / 6530:17044), in the same frost glass as `GlassNavBubble
+material="frost"` so it sits beside those bubbles as one family.
+
+- `label` — shown as given; pass uppercase copy in JS, never `textTransform`
+- `size` — height from `glassNavBubbleSizes` (default `compact`, 40pt); width follows the label with 12pt insets
+- label role: `typography.captionMedium` (Figma Caption-medium, 13/500) in `gray900`
+- `disabled` dims to 45% like the bubbles
+
 ### TextField
 
 File: `src/components/text-field.tsx`

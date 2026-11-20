@@ -35,6 +35,12 @@ export type GlassSurfaceProps = ViewProps & {
    * and turns muddy (2026-09-04).
    */
   forceFallback?: boolean;
+  /**
+   * Native touch response (iOS 26+ interactive glass: the material swells and
+   * glows under the finger, like system buttons). Only for glass that is
+   * itself the touch target. Ignored on fallback targets.
+   */
+  interactive?: boolean;
 };
 
 /**
@@ -55,6 +61,7 @@ export function GlassSurface({
   glassColorScheme = 'auto',
   glassEffectStyle = 'regular',
   forceFallback = false,
+  interactive = false,
   style,
   children,
   ...rest
@@ -64,6 +71,7 @@ export function GlassSurface({
       <GlassView
         colorScheme={glassColorScheme}
         glassEffectStyle={glassEffectStyle}
+        isInteractive={interactive}
         style={style}
         tintColor={glassTintColor}
         {...rest}

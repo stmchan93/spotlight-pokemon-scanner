@@ -17,6 +17,7 @@ export * from './components/follow-button';
 export * from './components/glass-button-group';
 export * from './components/glass-nav-bubble';
 export * from './components/glass-nav-bubble-group';
+export * from './components/glass-nav-pill';
 export * from './components/glass-surface';
 export * from './components/grader-wordmark';
 export * from './components/icon-button';

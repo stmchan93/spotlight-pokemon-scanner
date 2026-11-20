@@ -20,6 +20,8 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
+
+import { assistantHref } from '@/features/assistant/assistant-route';
 import { MapPin } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -922,6 +924,8 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       <HomeHeader
         floating
         onOpenMenu={openDrawer}
+        // Figma 6430:11305: Ask Ekalight is the right-hand bubble on Social.
+        onOpenAssistant={() => router.push(assistantHref('home'))}
         onOpenSearch={openSearch}
         scrollRestOffset={listTopOffset}
         scrollY={headerScrollY}

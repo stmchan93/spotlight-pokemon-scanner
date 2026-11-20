@@ -1,6 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import { ClockRotateRight, Plus, Sparks } from 'iconoir-react-native';
+import { ClockRotateRight, NavArrowLeft, Xmark } from 'iconoir-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -20,29 +20,34 @@ import type {
   AssistantMessage,
   AssistantProposedAction,
   AssistantThreadSummary,
-  AssistantUsage,
 } from '@spotlight/api-client';
 import {
-  Badge,
   Button,
-  IconButton,
+  GlassNavBubble,
+  GlassNavPill,
   InlineLoader,
   StateCard,
   Text,
   Toast,
   glassNavBubbleGlyphSize,
+  glassNavBubbleGlyphStrokeWidth,
   layout,
   spacing,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { ChromeBackButton, chromeBackButtonSize } from '@/components/chrome-back-button';
+import { EkalightMark } from '@/components/ekalight-mark';
 import {
   refreshAfterExecutedAdd,
   runAssistantAction,
   undoExecutedAdd,
 } from '@/features/assistant/assistant-action-runner';
-import { assistantIntroCopy, assistantStarterPrompts } from '@/features/assistant/assistant-prompts';
+import {
+  assistantCardContextLine,
+  assistantGreeting,
+  assistantRemainingCaption,
+  assistantStarterPrompts,
+} from '@/features/assistant/assistant-prompts';
 import type { AssistantActionUiState } from '@/features/assistant/components/assistant-action-card';
 import { AssistantComposer } from '@/features/assistant/components/assistant-composer';
 import {
@@ -66,10 +71,9 @@ import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 
 const MAX_QUESTION_LENGTH = 1000;
-const HEADER_GLYPH_SIZE = 20;
-// Two 40pt header buttons + their gap; the left slot matches so the title centres.
-const HEADER_SIDE_WIDTH = chromeBackButtonSize * 2 + spacing.xxs;
-const INTRO_MARK_SIZE = 48;
+// The purple Ekalight mark on a new chat (Figma 6502:16508: 52x48, Color/purple/500).
+const INTRO_MARK_WIDTH = 52;
+const INTRO_MARK_HEIGHT = 48;
 const COPIED_TOAST_MS = 1500;
 const REVEAL_FALLBACK_MS = 400;
 
@@ -90,13 +94,6 @@ type ChatRow =
 
 /** What the next content-size change should do with the scroll position. */
 type ScrollIntent = 'none' | 'end' | 'jump' | 'reply';
-
-export function usageLabel(usage: AssistantUsage | null): string | null {
-  if (!usage || usage.limit == null || usage.remainingToday == null) {
-    return null;
-  }
-  return `${usage.remainingToday} left today`;
-}
 
 function resetTimeLabel(resetsAt: string | null): string {
   const date = resetsAt ? new Date(resetsAt) : null;
@@ -120,7 +117,7 @@ export function AssistantScreen({
   const services = useAppServices();
   const { spotlightRepository: repository } = services;
   const { ensureGuestSession, isGuest, openLogin } = useGuestGate();
-  const { getAccessToken } = useAuth();
+  const { currentUser, getAccessToken } = useAuth();
 
   const context = useMemo(
     () => ({ source, ...(cardIds.length > 0 ? { cardIds } : {}) }),
@@ -345,7 +342,7 @@ export function AssistantScreen({
     void chat.openThread(threadId);
   }, [chat]);
 
-  const deleteThread = useCallback(async (threadId: string) => {
+  const removeThread = useCallback(async (threadId: string) => {
     const previous = threads;
     setThreads((current) => current.filter((thread) => thread.id !== threadId));
     try {
@@ -358,6 +355,13 @@ export function AssistantScreen({
       Alert.alert("Couldn't delete that chat", 'Try again in a moment.');
     }
   }, [chat, repository, threads]);
+
+  const deleteThread = useCallback((threadId: string) => {
+    Alert.alert('Delete this chat?', "It's removed from your history.", [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => void removeThread(threadId) },
+    ]);
+  }, [removeThread]);
 
   const clearAll = useCallback(() => {
     Alert.alert('Clear all chats?', 'This deletes every saved chat with Ekalight.', [
@@ -535,13 +539,18 @@ export function AssistantScreen({
     );
   };
 
-  const recentThreads = threads.filter((thread) => thread.id !== chat.threadId).slice(0, 3);
-  const pill = usageLabel(chat.usage);
-  const starterPrompts = assistantStarterPrompts(source, cardIds.length);
-  const intro = assistantIntroCopy(cardIds.length);
+  const headerGlyph = {
+    color: theme.colors.gray900,
+    height: glassNavBubbleGlyphSize,
+    strokeWidth: glassNavBubbleGlyphStrokeWidth,
+    width: glassNavBubbleGlyphSize,
+  };
+  const remainingCaption = assistantRemainingCaption(chat.usage);
+  const starterPrompts = assistantStarterPrompts(cardIds.length);
+  const greeting = assistantGreeting(currentUser?.displayName, isGuest);
+  const cardContextLine = assistantCardContextLine(cardIds.length);
   const isSending = chat.pending?.status === 'sending';
   const hasConversation = rows.length > 0;
-  const canStartNewChat = hasConversation || chat.threadId != null;
 
   const emptyState = chat.isLoadingThread ? (
     <InlineLoader testID="assistant-thread-loading" />
@@ -556,40 +565,31 @@ export function AssistantScreen({
     />
   ) : (
     <View style={styles.intro} testID="assistant-intro">
-      <View style={[styles.introMark, { backgroundColor: theme.colors.purple50 }]}>
-        <Sparks color={theme.colors.purple500} height={glassNavBubbleGlyphSize} width={glassNavBubbleGlyphSize} />
-      </View>
-      <View style={styles.introCopy}>
-        <Text style={[theme.typography.titleLarge, styles.centerText]}>{intro.title}</Text>
-        <Text style={[theme.typography.bodyLarge, styles.centerText, { color: theme.colors.gray600 }]}>
-          {intro.body}
+      <View style={styles.introHead}>
+        <EkalightMark
+          color={theme.colors.purple500}
+          height={INTRO_MARK_HEIGHT}
+          testID="assistant-intro-mark"
+          width={INTRO_MARK_WIDTH}
+        />
+        <Text style={[theme.typography.titleSmall, styles.centerText]} testID="assistant-greeting">
+          {greeting}
         </Text>
+        {cardContextLine ? (
+          <Text style={[theme.typography.caption, styles.centerText, { color: theme.colors.gray600 }]}>
+            {cardContextLine}
+          </Text>
+        ) : null}
       </View>
       {chat.isLimitReached ? null : (
         <AssistantPromptChips
+          layout="stack"
           onSelect={(prompt) => void handleSend(prompt)}
           prompts={starterPrompts}
-          style={styles.centeredChips}
           testID="assistant-suggestions"
           testIDPrefix="assistant-suggestion"
         />
       )}
-      {recentThreads.length > 0 ? (
-        <View style={styles.recent} testID="assistant-recent-chats">
-          <Text style={[theme.typography.overline, { color: theme.colors.gray500 }]}>RECENT CHATS</Text>
-          {recentThreads.map((thread) => (
-            <Button
-              key={thread.id}
-              label={thread.title}
-              labelStyleVariant="control"
-              onPress={() => openSavedThread(thread.id)}
-              size="xs"
-              testID={`assistant-recent-${thread.id}`}
-              variant="ghost"
-            />
-          ))}
-        </View>
-      ) : null}
     </View>
   );
 
@@ -614,56 +614,67 @@ export function AssistantScreen({
 
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={[styles.flex, { backgroundColor: theme.colors.gray0 }]}>
-      <View style={styles.header}>
-        <View style={[styles.headerSide, styles.headerSideLeft]}>
-          <ChromeBackButton
-            accessibilityLabel={view === 'history' ? 'Back to chat' : 'Back'}
-            onPress={view === 'history' ? () => setView('chat') : onBack}
+      {view === 'history' ? (
+        // Figma 6530:16826: back, centred HISTORY, CLEAR ALL.
+        <View style={styles.header} testID="assistant-history-header">
+          <GlassNavBubble
+            accessibilityLabel="Back to chat"
+            material="frost"
+            onPress={() => setView('chat')}
+            size="compact"
             testID="assistant-back"
+          >
+            <NavArrowLeft {...headerGlyph} />
+          </GlassNavBubble>
+          <View pointerEvents="none" style={styles.headerTitle}>
+            <Text accessibilityRole="header" style={[theme.typography.titleXsmall, { color: theme.colors.gray900 }]}>
+              HISTORY
+            </Text>
+          </View>
+          <GlassNavPill
+            accessibilityLabel="Clear all chats"
+            disabled={threads.length === 0}
+            label="CLEAR ALL"
+            onPress={clearAll}
+            testID="assistant-threads-clear-all"
           />
         </View>
-        <View style={styles.headerTitle}>
-          <Text accessibilityRole="header" numberOfLines={1} style={theme.typography.titleSmall}>
-            {view === 'history' ? 'Saved chats' : 'Ask Ekalight'}
-          </Text>
-          {pill && view === 'chat' ? <Badge label={pill} size="sm" testID="assistant-usage-pill" tone="brand" /> : null}
+      ) : (
+        // Figma 6502:16506: close left; history + NEW CHAT right. No title, no usage badge.
+        <View style={styles.header} testID="assistant-chat-header">
+          <GlassNavBubble
+            accessibilityLabel="Close"
+            material="frost"
+            onPress={onBack}
+            size="compact"
+            testID="assistant-back"
+          >
+            <Xmark {...headerGlyph} />
+          </GlassNavBubble>
+          <View style={styles.headerActions}>
+            <GlassNavBubble
+              accessibilityLabel="Chat history"
+              material="frost"
+              onPress={openHistory}
+              size="compact"
+              testID="assistant-open-history"
+            >
+              <ClockRotateRight {...headerGlyph} />
+            </GlassNavBubble>
+            <GlassNavPill
+              accessibilityLabel="New chat"
+              label="NEW CHAT"
+              onPress={startNewChat}
+              testID="assistant-new-chat"
+            />
+          </View>
         </View>
-        <View style={[styles.headerSide, styles.headerSideRight]}>
-          {view === 'chat' ? (
-            <>
-              <IconButton
-                accessibilityLabel="Saved chats"
-                onPress={openHistory}
-                size={chromeBackButtonSize}
-                testID="assistant-open-history"
-                variant="elevated"
-              >
-                <ClockRotateRight color={theme.colors.textPrimary} height={HEADER_GLYPH_SIZE} width={HEADER_GLYPH_SIZE} />
-              </IconButton>
-              {canStartNewChat ? (
-                // A plus, not a pencil: the pencil read as "edit" (owner, 2026-11-18).
-                <IconButton
-                  accessibilityLabel="New chat"
-                  onPress={startNewChat}
-                  size={chromeBackButtonSize}
-                  testID="assistant-new-chat"
-                  variant="elevated"
-                >
-                  <Plus color={theme.colors.textPrimary} height={HEADER_GLYPH_SIZE} width={HEADER_GLYPH_SIZE} />
-                </IconButton>
-              ) : null}
-            </>
-          ) : null}
-        </View>
-      </View>
+      )}
 
       {view === 'history' ? (
         <AssistantThreadList
-          activeThreadId={chat.threadId}
           bottomInset={insets.bottom}
-          onClearAll={clearAll}
-          onDeleteThread={(threadId) => void deleteThread(threadId)}
-          onNewChat={startNewChat}
+          onDeleteThread={deleteThread}
           onOpenThread={openSavedThread}
           onRetry={() => void loadThreads()}
           status={threadsStatus}
@@ -717,13 +728,23 @@ export function AssistantScreen({
             {chat.isLimitReached ? (
               limitBlock
             ) : (
-              <AssistantComposer
-                isSending={isSending}
-                maxLength={MAX_QUESTION_LENGTH}
-                onChangeText={setDraft}
-                onSend={() => void handleSend(draft)}
-                value={draft}
-              />
+              <>
+                {remainingCaption ? (
+                  <Text
+                    style={[theme.typography.caption, styles.remaining, { color: theme.colors.gray600 }]}
+                    testID="assistant-remaining"
+                  >
+                    {remainingCaption}
+                  </Text>
+                ) : null}
+                <AssistantComposer
+                  isSending={isSending}
+                  maxLength={MAX_QUESTION_LENGTH}
+                  onChangeText={setDraft}
+                  onSend={() => void handleSend(draft)}
+                  value={draft}
+                />
+              </>
             )}
           </View>
         </KeyboardAvoidingView>
@@ -739,65 +760,51 @@ const styles = StyleSheet.create({
   hidden: {
     opacity: 0,
   },
+  // Figma toolbar 6530:17088: 16pt sides, 8pt above and below the 40pt controls.
   header: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: spacing.xxs,
-    paddingBottom: spacing.xxs,
+    justifyContent: 'space-between',
     paddingHorizontal: layout.pageGutter,
+    paddingVertical: spacing.xxs,
   },
-  headerSide: {
+  headerActions: {
+    alignItems: 'center',
     flexDirection: 'row',
-    gap: spacing.xxs,
-    width: HEADER_SIDE_WIDTH,
+    gap: spacing.sm,
   },
-  headerSideLeft: {
-    justifyContent: 'flex-start',
-  },
-  headerSideRight: {
-    justifyContent: 'flex-end',
-  },
+  // Centred on the screen, not between the unequal side controls.
   headerTitle: {
     alignItems: 'center',
-    flex: 1,
-    gap: spacing.xxxs,
+    bottom: 0,
+    justifyContent: 'center',
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
   },
+  // 16pt under the toolbar, 32pt between turns (Figma 6502:16657).
   listContent: {
     flexGrow: 1,
-    gap: spacing.lg,
+    gap: spacing.xxl,
     paddingHorizontal: layout.pageGutter,
     paddingVertical: spacing.sm,
   },
   listContentEmpty: {
     justifyContent: 'center',
   },
+  // Mark + greeting 16pt apart; the prompts 32pt below (Figma 6530:17376).
   intro: {
     alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.xxl,
     paddingVertical: spacing.lg,
   },
-  introMark: {
+  introHead: {
     alignItems: 'center',
-    borderCurve: 'continuous',
-    borderRadius: INTRO_MARK_SIZE / 2,
-    height: INTRO_MARK_SIZE,
-    justifyContent: 'center',
-    width: INTRO_MARK_SIZE,
-  },
-  introCopy: {
-    gap: spacing.xxs,
-    paddingHorizontal: spacing.xs,
+    gap: spacing.sm,
   },
   centerText: {
     textAlign: 'center',
-  },
-  centeredChips: {
-    justifyContent: 'center',
-  },
-  recent: {
-    alignItems: 'center',
-    gap: spacing.xxxs,
-    paddingTop: spacing.xs,
   },
   followUps: {
     paddingTop: spacing.xxxs,
@@ -823,5 +830,9 @@ const styles = StyleSheet.create({
   composer: {
     paddingHorizontal: layout.pageGutter,
     paddingTop: spacing.xxs,
+  },
+  remaining: {
+    paddingBottom: spacing.xxs,
+    textAlign: 'center',
   },
 });

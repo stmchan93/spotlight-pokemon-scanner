@@ -145,6 +145,8 @@ export function GlassNavBubble({
         styles.bubble,
         { borderCurve: 'continuous', borderRadius: radius, height: diameter, width: diameter },
         hasGlass ? null : fallbackShell,
+        // Frost keeps its lift on real glass too (Figma 6502:7672: 0 8 40, 15%).
+        hasGlass && material === 'frost' ? theme.shadows.glassPill : null,
         { opacity: disabled ? 0.45 : pressed ? 0.84 : 1 },
         style,
       ]}
@@ -182,6 +184,7 @@ export function GlassNavBubble({
           glassColorScheme="light"
           glassEffectStyle="regular"
           glassTintColor={theme.colors.frostTint}
+          interactive
           style={[
             styles.glass,
             hasGlass ? null : theme.shadows.glassPill,

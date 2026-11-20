@@ -1,17 +1,16 @@
-import type { AssistantContextSource } from '@spotlight/api-client';
+import type { AssistantUsage } from '@spotlight/api-client';
 
-export const ASSISTANT_STARTER_PROMPT_LIMIT = 6;
+// Owner-picked (2026-11-20): every entry point without specific cards gets exactly these.
+export const ASSISTANT_MARKET_PROMPTS = [
+  'Undervalued cards',
+  'Cards with most recently new high sales',
+  'What cards are likely to go up',
+] as const;
 
-// Owner-picked defaults (2026-11-19), shown first when no tray cards are in play.
-const MARKET_PROMPTS = ['Undervalued cards', 'Cards with the most recent new high sales', 'What cards are likely to go up?'];
-
-export type AssistantIntroCopy = { title: string; body: string };
-
-/** Starter prompts for a new chat, tailored to where it was opened from and what's in the tray. */
-export function assistantStarterPrompts(source: AssistantContextSource, trayCardCount: number): string[] {
-  let prompts: string[];
+/** Starter prompts for a new chat: card-specific when opened with cards, else the three market prompts. */
+export function assistantStarterPrompts(trayCardCount: number): string[] {
   if (trayCardCount === 1) {
-    prompts = [
+    return [
       "What's this card worth?",
       'Is this worth grading?',
       "What's this card worth in PSA 10?",
@@ -19,8 +18,9 @@ export function assistantStarterPrompts(source: AssistantContextSource, trayCard
       'Watch this card and alert me if it drops',
       "What's my collection worth?",
     ];
-  } else if (trayCardCount > 1) {
-    prompts = [
+  }
+  if (trayCardCount > 1) {
+    return [
       'Which of these is worth the most?',
       'Are any of these worth grading?',
       'What are these worth in PSA 10?',
@@ -28,34 +28,31 @@ export function assistantStarterPrompts(source: AssistantContextSource, trayCard
       'Add these to my collection',
       "What's my collection worth?",
     ];
-  } else if (source === 'scanner') {
-    prompts = [
-      ...MARKET_PROMPTS,
-      "What's trending in the market right now?",
-      'Help me prep for a card show',
-      "What's my collection worth?",
-    ];
-  } else {
-    prompts = [
-      ...MARKET_PROMPTS,
-      "What's my collection worth?",
-      'Is anything I own worth grading?',
-      "What's trending in the market right now?",
-    ];
   }
-  return prompts.slice(0, ASSISTANT_STARTER_PROMPT_LIMIT);
+  return [...ASSISTANT_MARKET_PROMPTS];
 }
 
-export function assistantIntroCopy(trayCardCount: number): AssistantIntroCopy {
-  if (trayCardCount > 0) {
-    const cards = trayCardCount === 1 ? 'this card' : `these ${trayCardCount} cards`;
-    return {
-      title: `Ask about ${cards}`,
-      body: 'Prices in raw and graded, whether grading pays off, recent trends, and what to keep or sell.',
-    };
+/** "Hi, Stephen" from the profile's display name; guests and nameless users get "Hi there". */
+export function assistantGreeting(displayName: string | null | undefined, isGuest: boolean): string {
+  const first = isGuest ? '' : (displayName ?? '').trim().split(/\s+/)[0] ?? '';
+  return first ? `Hi, ${first}` : 'Hi there';
+}
+
+/** A line under the greeting when the chat carries cards, so the user knows they're attached. */
+export function assistantCardContextLine(trayCardCount: number): string | null {
+  if (trayCardCount <= 0) {
+    return null;
   }
-  return {
-    title: 'Ask me anything about cards',
-    body: 'Prices, your collection, sets, market trends, what to buy or sell, and whether grading is worth it, for Pokémon and any other TCG. All in USD from Ekalight market data.',
-  };
+  return trayCardCount === 1 ? 'Ask about this card' : `Ask about these ${trayCardCount} cards`;
+}
+
+/** Only shown when running low: 1 or 2 left on a limited plan. 0 shows the limit block instead. */
+export const ASSISTANT_LOW_REMAINING_THRESHOLD = 2;
+
+export function assistantRemainingCaption(usage: AssistantUsage | null): string | null {
+  const remaining = usage?.remainingToday;
+  if (!usage || usage.limit == null || remaining == null || remaining <= 0 || remaining > ASSISTANT_LOW_REMAINING_THRESHOLD) {
+    return null;
+  }
+  return `${remaining} ${remaining === 1 ? 'question' : 'questions'} left today`;
 }
