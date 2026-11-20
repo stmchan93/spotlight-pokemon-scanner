@@ -200,6 +200,115 @@ class PriceLowsComputeTests(unittest.TestCase):
         self.assertIn("stored", third["windows"][365])
 
 
+    # --- new highs (same job, same scan) -------------------------------------
+
+    def _highs(self, **kwargs):
+        self.connection.commit()
+        return price_lows.compute_price_highs(self.connection, today=TODAY, **kwargs)[1]
+
+    def test_high_thresholds_recency_and_rank(self) -> None:
+        self._card("fresh")
+        self._path("fresh", [(200, 50.0), (10, 60.0), (0, 80.0)])  # high today, +60%
+        self._card("fresh-small")
+        self._path("fresh-small", [(200, 60.0), (10, 62.0), (0, 72.0)])  # high today, +20%
+        self._card("three-days")
+        self._path("three-days", [(200, 50.0), (10, 60.0), (3, 80.0), (0, 79.0)])  # high 3 days ago, 1.25% off
+        self._card("old-high")
+        self._path("old-high", [(200, 50.0), (30, 80.0), (0, 79.5)])  # near the high, but it was set 30 days ago
+        self._card("pulled-back")
+        self._path("pulled-back", [(200, 50.0), (10, 60.0), (3, 80.0), (0, 75.0)])  # 6% off the high
+        self._card("small-rise")
+        self._path("small-rise", [(200, 70.0), (10, 72.0), (0, 79.0)])  # only +12.9% over the low
+        rows = self._highs()
+        self.assertEqual([r.card_id for r in rows], ["fresh", "fresh-small", "three-days"])
+        fresh, _, three = rows
+        self.assertEqual((fresh.high_usd, fresh.high_date, fresh.low_usd), (80.0, TODAY.isoformat(), 50.0))
+        self.assertAlmostEqual(fresh.pct_above_low, 60.0, places=1)
+        self.assertEqual(fresh.days_covered, 200)
+        self.assertEqual((three.high_date, three.high_usd, three.price_usd), (_d(3), 80.0, 79.0))
+        # The 90d window has a higher low, so a smaller rise, but the same new high.
+        self.assertIn("fresh", [r.card_id for r in self._highs(window_days=90)])
+
+    def test_high_short_history_and_penny_excluded(self) -> None:
+        self._card("young")
+        self._path("young", [(20, 50.0), (10, 60.0), (0, 80.0)])
+        self._card("penny")
+        self._path("penny", [(200, 3.0), (10, 4.0), (0, 8.0)])
+        self.assertEqual(self._highs(), [])
+
+    def test_high_jpy_and_japanese_default_raw_excluded(self) -> None:
+        self._card("jp-yen", language="Japanese")
+        self._path("jp-yen", [(200, 5000.0), (10, 6000.0), (0, 9000.0)], lane="default", currency="JPY")
+        self._card("adv4_ja-62", language="Unknown")
+        self._path("adv4_ja-62", [(200, 50.0), (10, 60.0), (0, 90.0)], lane="default", currency="USD")
+        self._card("en-scrydex")
+        self._path("en-scrydex", [(200, 50.0), (10, 60.0), (0, 90.0)], lane="default", currency="USD")
+        rows = self._highs()
+        self.assertEqual([r.card_id for r in rows], ["en-scrydex"])
+        self.assertEqual(rows[0].source, price_lows.SOURCE_DEFAULT_RAW)
+
+    def test_high_printing_switch_is_not_a_new_high(self) -> None:
+        # Blended, $40 holo -> $105 championship deck reads as +160%; per printing it's +5%.
+        self._card("espeon")
+        self._path("espeon", [(300, 40.0), (60, 41.0)], variant="Holofoil")
+        self._path("espeon", [(55, 100.0), (10, 101.0), (0, 105.0)], variant="World Championship Deck")
+        self.assertEqual(self._highs(), [])
+
+    def test_high_glitch_spike_is_not_a_new_high(self) -> None:
+        self._card("spike")
+        self._path("spike", [(200, 50.0), (10, 52.0), (0, 52.5)])
+        self._daily("spike", 0, main=300.0)  # one-day teleport today
+        self._card("clean")
+        self._path("clean", [(200, 50.0), (10, 60.0), (0, 80.0)])
+        self.assertEqual([r.card_id for r in self._highs()], ["clean"])
+
+    def test_sealed_counts_for_highs_not_lows(self) -> None:
+        upsert_card(
+            self.connection, card_id="tcgp-sealed-1", name="Booster Box", set_name="Test Set", number="",
+            rarity="Sealed", variant="Raw", language="English", game="pokemon", source_provider="tcgcsv",
+            source_record_id="tcgp-sealed-1", supertype="Sealed",
+        )
+        self._path("tcgp-sealed-1", [(200, 100.0), (10, 120.0), (0, 160.0)])
+        highs = self._highs()
+        self.assertEqual([(r.card_id, r.sealed) for r in highs], [("tcgp-sealed-1", True)])
+        self.connection.execute("DELETE FROM card_price_history_daily")
+        self._path("tcgp-sealed-1", [(200, 100.0), (0, 60.0)])
+        self.assertEqual(self._ids(), [])
+
+    def test_one_history_scan_feeds_lows_and_highs(self) -> None:
+        self._card("at-low")
+        self._path("at-low", [(200, 100.0), (0, 60.0)])
+        self._card("fresh")
+        self._path("fresh", [(200, 50.0), (10, 60.0), (0, 80.0)])
+        self.connection.commit()
+        statements: list[str] = []
+        self.connection.set_trace_callback(statements.append)
+        try:
+            _, lows, highs = price_lows.compute_price_signals(self.connection, windows=(90, 365), today=TODAY)
+        finally:
+            self.connection.set_trace_callback(None)
+        self.assertEqual(sum("NOT INDEXED" in sql for sql in statements), 1)
+        self.assertEqual([r.card_id for r in lows[365]], ["at-low"])
+        self.assertEqual([r.card_id for r in highs[365]], ["fresh"])
+        self.assertEqual([r.card_id for r in highs[90]], ["fresh"])
+
+    def test_refresh_writes_highs_and_backfills_missing_highs_run(self) -> None:
+        self._card("fresh")
+        self._path("fresh", [(200, 50.0), (10, 60.0), (0, 80.0)])
+        self.connection.commit()
+        first = price_lows.refresh_price_lows(self.connection, today=TODAY)
+        self.assertEqual(first["windows"][365]["highs"], 1)
+        row = self.connection.execute(
+            "SELECT card_id, rank, high_usd, high_date, low_usd, pct_above_low, sealed FROM price_highs "
+            "WHERE window_days = 365"
+        ).fetchone()
+        self.assertEqual(tuple(row), ("fresh", 1, 80.0, TODAY.isoformat(), 50.0, 60.0, 0))
+        self.assertTrue(price_lows.refresh_price_lows(self.connection, today=TODAY)["windows"][365]["skipped"])
+        # A DB whose lows were computed before highs existed recomputes once.
+        self.connection.execute("DELETE FROM price_highs_runs")
+        self.connection.commit()
+        self.assertEqual(price_lows.refresh_price_lows(self.connection, today=TODAY)["windows"][365]["highs"], 1)
+
     def test_service_refresh_and_movers_copy_for_mcp(self) -> None:
         from market_movers import latest_persisted_payload
         from server import SpotlightScanService
@@ -395,8 +504,89 @@ class FindPriceLowsToolTests(unittest.TestCase):
         self.assertEqual(result["rising_cards"], [])
         self.assertEqual(result["rising_sets"], [])
 
+    # --- find_new_highs -------------------------------------------------------
+
+    def high(self, card_id: str, *, high_date: str = "2026-11-17", pct: float = 30.0, price: float = 50.0,
+             game: str = "pokemon", sealed: bool = False, days: int = 365) -> price_lows.PriceHigh:
+        return price_lows.PriceHigh(
+            card_id=card_id, game=game, source="main_raw", variant="Holofoil", sealed=sealed, price_usd=price,
+            high_usd=price, high_date=high_date, low_usd=round(price / (1 + pct / 100), 2), pct_above_low=pct,
+            days_covered=days, first_date="2025-11-17", now_date="2026-11-17",
+        )
+
+    def seed_highs(self, rows: list[price_lows.PriceHigh], window_days: int = 365) -> None:
+        price_lows.write_price_highs(
+            self.conn, window_days=window_days, as_of_date="2026-11-17",
+            rows=price_lows.rank_highs(rows), version="v1", elapsed_ms=1.0,
+        )
+
+    def test_new_highs_not_computed_yet(self) -> None:
+        result = self.tools.find_new_highs("user-a")
+        self.assertEqual(result["cards"], [])
+        self.assertIn("not been computed", result["note"])
+
+    def test_new_highs_ranked_by_date_then_rise_with_fields(self) -> None:
+        for card_id in ("a", "b", "c"):
+            self.card(card_id)
+        self.seed_highs([
+            self.high("a", high_date="2026-11-14", pct=90.0),
+            self.high("b", high_date="2026-11-17", pct=20.0, days=120),
+            self.high("c", high_date="2026-11-17", pct=40.0),
+        ])
+        result = self.tools.find_new_highs("user-a")
+        self.assertEqual([c["card_id"] for c in result["cards"]], ["c", "b", "a"])
+        b = result["cards"][1]
+        self.assertEqual((b["high_date"], b["high_usd"], b["pct_above_low"], b["days_covered"]),
+                         ("2026-11-17", 50.0, 20.0, 120))
+        self.assertEqual(b["low_usd"], round(50.0 / 1.2, 2))
+        self.assertEqual((b["as_of"], b["variant"]), ("2026-11-17", "Holofoil"))
+        self.assertIn("days_covered", result["note"])
+        shaped = USER_POLICY.shape(result)
+        self.assertEqual(shaped["cards"][1]["high_date"], "2026-11-17")
+        self.assertEqual(shaped["cards"][1]["low_usd"], b["low_usd"])
+        self.assertEqual([c["card_id"] for c in self.tools.find_new_highs("user-a", limit=1)["cards"]], ["c"])
+
+    def test_new_highs_filters(self) -> None:
+        self.card("es", set_name="Evolving Skies")
+        self.card("jp", set_name="VSTAR Universe", language="Japanese")
+        self.card("op", set_name="Romance Dawn", game="onepiece")
+        self.card("box", set_name="Evolving Skies")
+        self.conn.execute("UPDATE cards SET supertype = 'Sealed' WHERE id = 'box'")
+        self.seed_highs([
+            self.high("es", pct=20.0, price=20.0), self.high("jp", pct=50.0), self.high("op", pct=60.0, game="onepiece"),
+            self.high("box", pct=30.0, price=200.0, sealed=True),
+        ])
+        self.seed_highs([self.high("es", pct=16.0, price=20.0)], window_days=90)
+        self.holding("user-a", "es")
+        self.holding("user-b", "box")
+        ids = lambda *a, **kw: [c["card_id"] for c in self.tools.find_new_highs("user-a", *a, **kw)["cards"]]  # noqa: E731
+        self.assertEqual(ids(), ["op", "box", "es"])  # Japanese left out by default
+        self.assertEqual(ids({"language": "Japanese"}), ["jp"])
+        self.assertEqual(ids({"product": "sealed"}), ["box"])
+        self.assertEqual(ids({"product": "single", "game": "pokemon"}), ["es"])
+        self.assertEqual(ids(game="onepiece"), ["op"])
+        self.assertEqual(ids({"set": "Evolving Skies", "price_max_usd": 100}), ["es"])
+        self.assertEqual(ids(owned="owned"), ["es"])
+        self.assertEqual(ids(owned="not_owned"), ["op", "box"])
+        self.assertEqual(ids(window="90d"), ["es"])
+        for bad in ({"window": "5y"}, {"game": "magic"}, {"card_filter": {"scene": ["beach"]}}, {"limit": 21},
+                    {"owned": "mine"}):
+            with self.assertRaises(ToolInputError):
+                self.tools.find_new_highs("user-a", **bad)
+
+    def test_new_highs_assistant_tool_returns_tiles(self) -> None:
+        self.card("a")
+        self.seed_highs([self.high("a")])
+        outcome = AssistantToolbox(self.tools).run(
+            "find_new_highs", {"filter": {"product": "single"}, "window": "1y"}, owner_user_id="user-a"
+        )
+        self.assertFalse(outcome.is_error)
+        self.assertEqual([c["card_id"] for c in outcome.cards], ["a"])
+        self.assertEqual(outcome.content["cards"][0]["high_date"], "2026-11-17")
+        self.assertNotIn("image_small_url", outcome.content["cards"][0])
+
     def test_tier_exposure(self) -> None:
-        for name in ("find_price_lows", "get_market_trends"):
+        for name in ("find_price_lows", "find_new_highs", "get_market_trends"):
             self.assertTrue(USER_POLICY.allows_tool(name))
             self.assertFalse(PUBLIC_POLICY.allows_tool(name))
 
