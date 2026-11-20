@@ -89,6 +89,12 @@ def text(value: str) -> "TextBlock":
     return TextBlock(type="text", text=value)
 
 
+def content_text(msg: dict[str, Any]) -> str:
+    """Sent history messages are text blocks (the last carries the history cache breakpoint)."""
+    content = msg["content"]
+    return content if isinstance(content, str) else "".join(block["text"] for block in content)
+
+
 def tool_use(name: str, arguments: dict[str, Any], block_id: str = "tu_1") -> "ToolUseBlock":
     return ToolUseBlock(type="tool_use", id=block_id, name=name, input=arguments)
 
@@ -366,7 +372,7 @@ class IdempotencyAndThreadTests(AssistantCase):
         self.ask("And my Charizard?", thread_id=thread_id)
         sent = self.client.messages.calls[-1]["messages"]
         self.assertEqual([m["role"] for m in sent], ["user", "assistant", "user"])
-        self.assertEqual(sent[1]["content"], "First answer.")
+        self.assertEqual(content_text(sent[1]), "First answer.")
 
         listing = self.http.get("/api/v1/assistant/threads", headers=bearer(USER_A)).json()
         self.assertEqual(len(listing["threads"]), 1)
@@ -391,7 +397,7 @@ class IdempotencyAndThreadTests(AssistantCase):
         sent = self.client.messages.calls[-1]["messages"]
         # last 10 stored messages (5 turns) + this question
         self.assertEqual(len(sent), HISTORY_MESSAGES + 1)
-        self.assertTrue(all(isinstance(m["content"], str) for m in sent[:-1]))
+        self.assertTrue(all(block["type"] == "text" for m in sent[:-1] for block in m["content"]))
 
     def test_thread_pagination(self) -> None:
         for _ in range(3):
@@ -813,7 +819,7 @@ class SuggestionTurnTests(AssistantCase):
         thread_id = self.ask().json()["thread_id"]
         self.ask("Is it worth grading?", thread_id=thread_id)
         sent = self.client.messages.calls[-1]["messages"]
-        self.assertEqual(sent[1], {"role": "assistant", "content": "**$120** raw."})
+        self.assertEqual((sent[1]["role"], content_text(sent[1])), ("assistant", "**$120** raw."))
 
     def test_absent_and_malformed_blocks_give_empty_list(self) -> None:
         self.client.queue(message([text("Plain answer.")]))
@@ -906,7 +912,7 @@ class ProvenanceTests(AssistantCase):
         self.ask("Is that a good price?", thread_id=thread_id)
         sent = self.client.messages.calls[-1]["messages"]
         self.assertEqual([m["role"] for m in sent], ["user", "assistant", "user"])
-        prior = sent[1]["content"]
+        prior = content_text(sent[1])
         self.assertTrue(prior.startswith("Pikachu ex is **$120** raw.\n\n[Looked up with: "))
         self.assertIn("get_card(card_id=ssp-1); get_price_history(card_id=ssp-1, range=90d)", prior)
         self.assertIn("Cards shown: Pikachu ex Surging Sparks #238 [ssp-1]", prior)
@@ -921,14 +927,14 @@ class ProvenanceTests(AssistantCase):
         self.conn.commit()
         self.client.queue(message([text("ok")]))
         self.ask("And graded?", thread_id=thread_id)
-        prior = self.client.messages.calls[-1]["messages"][1]["content"]
+        prior = content_text(self.client.messages.calls[-1]["messages"][1])
         self.assertIn("[Looked up with: get_card; get_price_history.", prior)
 
     def test_answer_without_tools_gets_no_note(self) -> None:
         self.client.queue(message([text("PSA 10 is gem mint.")]))
         thread_id = self.ask("What is a PSA 10?").json()["thread_id"]
         self.ask("And a 9?", thread_id=thread_id)
-        self.assertEqual(self.client.messages.calls[-1]["messages"][1]["content"], "PSA 10 is gem mint.")
+        self.assertEqual(content_text(self.client.messages.calls[-1]["messages"][1]), "PSA 10 is gem mint.")
 
     def test_echoed_note_is_stripped_from_new_answers(self) -> None:
         self.client.queue(message([text("It's $120.\n[Looked up with: get_card(card_id=ssp-1)]")]))

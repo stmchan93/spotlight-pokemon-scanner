@@ -224,7 +224,8 @@ async def run_case(
         thread_id = payload["thread_id"]
         reply = payload["message"]
         row = assistant.store.conn.execute(
-            "SELECT tools_used, tool_calls_json, cost_usd FROM assistant_messages WHERE id = ?", (reply["id"],)
+            "SELECT tools_used, tool_calls_json, cost_usd, input_tokens, output_tokens, cache_read_tokens, "
+            "cache_write_tokens FROM assistant_messages WHERE id = ?", (reply["id"],)
         ).fetchone()
         charts = reply.get("charts") or []
         cards = tile_records(assistant.toolbox.conn, reply.get("cards") or [])
@@ -255,6 +256,10 @@ async def run_case(
                 for a in reply.get("actions") or []
             ],
             "cost_usd": row["cost_usd"],
+            "input_tokens": row["input_tokens"],
+            "output_tokens": row["output_tokens"],
+            "cache_read_tokens": row["cache_read_tokens"],
+            "cache_write_tokens": row["cache_write_tokens"],
             "latency_ms": latency_ms,
         }
         if "cards_label" in reply:  # absent until show_cards lands; tiles_label skips then
@@ -440,6 +445,11 @@ def finish(args: argparse.Namespace, records: list[dict[str, Any]]) -> int:
     )
     for name, tally in summary["categories"].items():
         print(f"#   {name}: {tally['passed']}/{tally['total']}", file=sys.stderr)
+    if summary["cache_hit_ratio"] is not None:
+        print(
+            f"# cache hit {summary['cache_hit_ratio']:.0%}; avg {summary['avg_input_tokens']:.0f} in / "
+            f"{summary['avg_output_tokens']:.0f} out per turn", file=sys.stderr,
+        )
     if summary["skipped_cases"]:
         print(f"# not run: {', '.join(summary['skipped_cases'])}", file=sys.stderr)
     if summary["skipped_checks"]:

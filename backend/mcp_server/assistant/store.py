@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS assistant_messages (
     status TEXT NOT NULL DEFAULT 'ok', client_message_id TEXT,
     input_tokens INTEGER, output_tokens INTEGER, cost_usd REAL, tools_used TEXT,
     created_at TEXT NOT NULL, suggestions_json TEXT, tool_calls_json TEXT, charts_json TEXT,
-    flags_json TEXT, cards_label TEXT, cards_view_all_json TEXT
+    flags_json TEXT, cards_label TEXT, cards_view_all_json TEXT,
+    cache_read_tokens INTEGER, cache_write_tokens INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_messages_client
@@ -71,6 +72,9 @@ COLUMN_PATCHES = (
     ("assistant_messages", "flags_json", "TEXT"),
     ("assistant_messages", "cards_label", "TEXT"),
     ("assistant_messages", "cards_view_all_json", "TEXT"),
+    # Prompt-cache usage per turn (input_tokens is the whole prompt, these included).
+    ("assistant_messages", "cache_read_tokens", "INTEGER"),
+    ("assistant_messages", "cache_write_tokens", "INTEGER"),
 )
 
 
@@ -408,8 +412,9 @@ class AssistantStore:
                 INSERT INTO assistant_messages (id, thread_id, owner_user_id, role, text, cards_json, actions_json,
                                                 status, client_message_id, input_tokens, output_tokens, cost_usd,
                                                 tools_used, created_at, suggestions_json, tool_calls_json, charts_json,
-                                                flags_json, cards_label, cards_view_all_json)
-                VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                                flags_json, cards_label, cards_view_all_json, cache_read_tokens,
+                                                cache_write_tokens)
+                VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     reply_id,
@@ -431,6 +436,8 @@ class AssistantStore:
                     json.dumps(reply.get("flags") or []),
                     reply.get("cards_label"),
                     json.dumps(reply["cards_view_all"]) if reply.get("cards_view_all") else None,
+                    reply.get("cache_read_tokens"),
+                    reply.get("cache_write_tokens"),
                 ),
             )
             conn.execute(

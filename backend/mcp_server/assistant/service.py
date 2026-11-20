@@ -12,7 +12,7 @@ from typing import Any
 from mcp_server.assistant.analytics import EVENT_FEEDBACK, TurnAnalytics
 from mcp_server.assistant.config import AssistantConfig
 from mcp_server.assistant.direct_add import UndoUnavailable, undo_expired
-from mcp_server.assistant.engine import AssistantEngine, AssistantFailed
+from mcp_server.assistant.engine import AssistantEngine, AssistantFailed, cache_hit_ratio
 from mcp_server.assistant.flags import flag_turn
 from mcp_server.assistant.store import (
     FEEDBACK_NOTE_CHARS,
@@ -215,6 +215,8 @@ class AssistantService:
             "status": turn.status,
             "input_tokens": turn.input_tokens,
             "output_tokens": turn.output_tokens,
+            "cache_read_tokens": turn.cache_read_tokens,
+            "cache_write_tokens": turn.cache_write_tokens,
             "cost_usd": round(turn.cost_usd, 6),
             "tools_used": turn.tools_used,
             "tool_calls": turn.tool_calls,
@@ -230,8 +232,8 @@ class AssistantService:
             day=day,
         )
         logger.info(
-            "assistant_turn user=%s source=%s status=%s stop=%s rounds=%d tools=%s in=%d out=%d cost_usd=%.6f "
-            "latency_ms=%d flags=%s",
+            "assistant_turn user=%s source=%s status=%s stop=%s rounds=%d tools=%s in=%d out=%d cache_read=%d "
+            "cache_write=%d cache_hit=%.2f cost_usd=%.6f latency_ms=%d flags=%s",
             user_id,
             request["source"],
             turn.status,
@@ -240,6 +242,9 @@ class AssistantService:
             ",".join(turn.tools_used) or "-",
             turn.input_tokens,
             turn.output_tokens,
+            turn.cache_read_tokens,
+            turn.cache_write_tokens,
+            cache_hit_ratio(turn.input_tokens, turn.cache_read_tokens),
             turn.cost_usd,
             turn.latency_ms,
             ",".join(flags) or "-",
@@ -251,6 +256,9 @@ class AssistantService:
                 "cost_usd": round(turn.cost_usd, 6),
                 "input_tokens": turn.input_tokens,
                 "output_tokens": turn.output_tokens,
+                "cache_read_tokens": turn.cache_read_tokens,
+                "cache_write_tokens": turn.cache_write_tokens,
+                "cache_hit_ratio": cache_hit_ratio(turn.input_tokens, turn.cache_read_tokens),
                 "rounds": turn.rounds,
                 "tools": list(turn.tools_used),
                 "latency_ms": turn.latency_ms,
