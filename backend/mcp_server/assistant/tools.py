@@ -339,9 +339,9 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             {
                 "card_id": {"type": "string"},
                 "quantity": {"type": "integer", "description": "Copies the user asked to add ('a'/'one' -> 1)."},
+                # anyOf, not type:[string,null]+enum: the API rejects enum values under a type list.
                 "condition": {
-                    "type": ["string", "null"],
-                    "enum": [*CONDITIONS, None],
+                    "anyOf": [{"type": "string", "enum": list(CONDITIONS)}, {"type": "null"}],
                     "description": "The condition the user named (near mint -> NM); null for slabs.",
                 },
                 "variant_name": {"type": ["string", "null"], "description": "Printing, e.g. 'Reverse Holofoil'."},
