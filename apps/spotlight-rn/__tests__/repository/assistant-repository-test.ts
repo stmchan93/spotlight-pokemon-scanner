@@ -82,6 +82,20 @@ describe('assistant wire normalization', () => {
       .toEqual({ id: 'b', type: 'watch_card', summary: 's', state: 'proposed', params: { cardId: 'c1', variant: null, targetPriceUsd: 12.5 } });
   });
 
+  it('parses an executed add with its undo info', () => {
+    const parsed = parseAssistantAction({
+      id: 'act_x', type: 'add_to_collection', summary: 'Added', state: 'done',
+      params: { card_id: 'c1', quantity: 2, condition: 'NM' },
+      undo: { deck_entry_id: 'deckentry:1', quantity_added: 2, expires_at: '2026-11-21T00:00:00Z' },
+    });
+    expect(parsed).toMatchObject({
+      state: 'done',
+      undo: { deckEntryId: 'deckentry:1', quantityAdded: 2, expiresAt: '2026-11-21T00:00:00Z' },
+    });
+    expect(parseAssistantAction({ id: 'u', type: 'add_to_collection', summary: '', state: 'undone', params: { card_id: 'c1' } })?.state)
+      .toBe('undone');
+  });
+
   it('builds a snake_case send body and caps scanner context at 20 unique ids', () => {
     const ids = Array.from({ length: 25 }, (_, index) => `card-${index % 22}`);
     const body = buildAssistantSendBody({ threadId: null, clientMessageId: 'cid', text: 'hi', context: { source: 'scanner', cardIds: ids } });
@@ -89,6 +103,7 @@ describe('assistant wire normalization', () => {
       thread_id: null,
       client_message_id: 'cid',
       text: 'hi',
+      capabilities: ['direct_add'],
       context: { source: 'scanner', card_ids: Array.from({ length: 20 }, (_, index) => `card-${index}`) },
     });
   });
@@ -157,6 +172,7 @@ describe('HttpSpotlightRepository — assistant', () => {
       thread_id: null,
       client_message_id: 'client-1',
       text: "What's my collection worth?",
+      capabilities: ['direct_add'],
       context: { source: 'home' },
     });
     expect(result.threadId).toBe('thr_1');
@@ -223,6 +239,20 @@ describe('HttpSpotlightRepository — assistant', () => {
     expect(action.state).toBe('confirmed');
     expect(lastRequest()[0]).toBe('http://example.test/api/v1/assistant/actions/act_1');
     expect(JSON.parse(String(lastRequest()[1]?.body))).toEqual({ state: 'confirmed' });
+  });
+
+  it('undoes an executed add at the contract path and maps refusals', async () => {
+    const executed = { ...wireAssistantMessage.actions[0], state: 'undone' };
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(jsonResponse(200, { action: executed }))
+      .mockResolvedValueOnce(jsonResponse(409, { error: 'undo_expired', detail: 'x' }));
+    global.fetch = fetchMock as typeof fetch;
+    const repo = repository();
+    await expect(repo.undoAssistantAction('act_1')).resolves.toMatchObject({ state: 'undone' });
+    expect(fetchMock.mock.calls[0][0]).toBe('http://example.test/api/v1/assistant/actions/act_1/undo');
+    expect(fetchMock.mock.calls[0][1]?.method).toBe('POST');
+    const error = await repo.undoAssistantAction('act_1').catch((caught: unknown) => caught);
+    expect((error as AssistantRequestError).code).toBe('undo_expired');
   });
 });
 

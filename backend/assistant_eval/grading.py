@@ -251,7 +251,8 @@ def tool_invocations(record: dict[str, Any]) -> list[tuple[str, Callable[[str], 
 # --- tool results ----------------------------------------------------------------
 
 _CARD_FIELDS = ("card_id", "name", "set", "number", "language", "price_usd", "variant", "condition", "grader",
-                "grade", "quantity", "price_trusted", "rarity_bucket")
+                "grade", "quantity", "quantity_owned", "owned", "price_trusted", "price_verified", "rarity_bucket",
+                "comp_source", "comp_sale_count", "comp_missing")
 
 
 def _is_card(node: Any) -> bool:
@@ -583,7 +584,9 @@ def check_tiles_within(record: dict[str, Any], spec: Any) -> CheckResult:
 
 
 def _tile_quantity(card: dict[str, Any]) -> Any:
-    for key in ("quantity", "quantity_added"):
+    # Direct-add tiles carry quantity_owned (owned after the add); the L007 fixture
+    # clears prior copies so that equals the amount added.
+    for key in ("quantity", "quantity_added", "quantity_owned"):
         if card.get(key) is not None:
             return card[key]
     return None
@@ -762,10 +765,20 @@ def check_proposed_card_ids(record: dict[str, Any], card_ids: list[str]) -> Chec
 
 
 def _successful_writes(record: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        call for call in record.get("tool_args") or []
-        if isinstance(call, dict) and call.get("name") in WRITE_TOOLS and not call.get("is_error")
-    ]
+    """Direct-add calls that wrote. add_to_collection_now falls back to a proposal
+    (no error, added=false) when details aren't exact, so the result decides."""
+    calls = [call for call in record.get("tool_args") or [] if isinstance(call, dict)]
+    results = record.get("tool_results") or []
+    paired = len(results) == len(calls)
+    writes = []
+    for index, call in enumerate(calls):
+        if call.get("name") not in WRITE_TOOLS or call.get("is_error"):
+            continue
+        data = results[index].get("data") if paired and isinstance(results[index], dict) else None
+        if isinstance(data, dict) and "added" in data and data["added"] is not True:
+            continue
+        writes.append(call)
+    return writes
 
 
 def check_expect_write(record: dict[str, Any], spec: dict[str, Any], known_tools: frozenset[str] | None = None) -> CheckResult:

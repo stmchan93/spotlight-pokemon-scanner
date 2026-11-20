@@ -66,6 +66,7 @@ export const AnalyticsEvent = {
   assistantLimitHit: 'assistant_limit_hit',
   assistantActionConfirmed: 'assistant_action_confirmed',
   assistantActionDismissed: 'assistant_action_dismissed',
+  assistantActionUndone: 'assistant_action_undone',
   // UI tap only (`rating`, `reason`); the server's `assistant_feedback` is the count of record.
   assistantFeedbackTapped: 'assistant_feedback_tapped',
 } as const;

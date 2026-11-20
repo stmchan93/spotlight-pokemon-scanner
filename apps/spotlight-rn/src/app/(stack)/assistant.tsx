@@ -13,6 +13,8 @@ export default function AssistantRoute() {
     (cardId: string) => router.push({ pathname: '/cards/[cardId]', params: { cardId } }),
     [router],
   );
+  // Same push the deal-alert notification tap uses to reach the Watchlist tab.
+  const openWatchlist = useCallback(() => router.push('/wishlist'), [router]);
 
   return (
     <AssistantScreen
@@ -20,6 +22,7 @@ export default function AssistantRoute() {
       initialThreadId={threadId}
       onBack={() => router.back()}
       onOpenCard={openCard}
+      onOpenWatchlist={openWatchlist}
       source={source}
     />
   );

@@ -366,17 +366,20 @@ cases:
     review_label: L007
     category: writes
     writes: true
+    fixtures:
+      # No prior copies, so the tile's owned-now quantity equals the 2 added.
+      delete: [{table: deck_entries, where: {owner_user_id: $USER, card_id: sv3pt5-199}}]
     state_checks:
       holding_delta: [{card_id: sv3pt5-199, delta: 2}]
     turns:
       - ask: "Add 2 near mint Charizard ex 151 #199 to my collection"
         expect:
           tools_all: [add_to_collection_now]
+          tools_none: [propose_add_to_collection]
           expect_write: {params: {card_id: sv3pt5-199, quantity: 2, condition: NM}}
           undo_offered: true
           tiles_exact: [sv3pt5-199]
           tile_quantity: {card_id: sv3pt5-199, quantity: 2}
-          actions_allowed: true
         reference: "Added 2 Near Mint copies of Charizard ex (151, #199/165) to your collection."
         rubric:
           - "Does the answer report the add as done only if the write succeeded in the tool results (otherwise not claim it)?"
@@ -385,7 +388,6 @@ cases:
         retry: true
         expect:
           expect_no_write: true
-          actions_allowed: true
 
   - id: add_then_change_quantity
     review_label: L023
@@ -589,7 +591,7 @@ cases:
         rubric:
           - "Does the answer name the top PSA 10 with its graded USD price, consistent with the tool results?"
           - "Does it avoid citing an obvious placeholder price (e.g. $999,999) or a price the tool marks as untrusted?"
-          - "If it says \"verified\", do the tool results mark those prices as trusted?"
+          - "If it says \"verified\", do the tool results mark those prices price_verified (a recorded sale)?"
 
   - id: worth_grading
     review_label: L026
@@ -608,13 +610,17 @@ cases:
             - {card_id: xy5-141, grader: PSA, grade: "10", source: ebay, status: available, result_count: 1, fetched_at: $NOW, created_at: $NOW, updated_at: $NOW}
         - table: slab_recent_sales
           rows:
-            - {id: eval-fixture-kyogre-1, card_id: bw5-104, grader: PSA, grade: "10", source: ebay, source_sale_id: eval-fixture-kyogre-1, rank: 1, title: "EVAL FIXTURE Kyogre-EX Dark Explorers 104/108 PSA 10", sold_at: "2026/11/10", price: 1450.0, currency_code: USD, created_at: $NOW}
-            - {id: eval-fixture-kyogre-2, card_id: bw5-104, grader: PSA, grade: "10", source: ebay, source_sale_id: eval-fixture-kyogre-2, rank: 2, title: "EVAL FIXTURE Kyogre-EX Dark Explorers 104/108 PSA 10", sold_at: "2026/11/02", price: 1500.0, currency_code: USD, created_at: $NOW}
-            - {id: eval-fixture-teammates-1, card_id: xy5-141, grader: PSA, grade: "10", source: ebay, source_sale_id: eval-fixture-teammates-1, rank: 1, title: "EVAL FIXTURE Teammates Primal Clash 141/160 PSA 10", sold_at: "2026/11/05", price: 45.0, currency_code: USD, created_at: $NOW}
+            - {id: eval-fixture-kyogre-1, card_id: bw5-104, grader: PSA, grade: "10", source: ebay, source_sale_id: eval-fixture-kyogre-1, rank: 1, title: "EVAL FIXTURE Kyogre-EX Dark Explorers 104/108 PSA 10", sold_at: $TODAY, price: 1450.0, currency_code: USD, created_at: $NOW}
+            - {id: eval-fixture-kyogre-2, card_id: bw5-104, grader: PSA, grade: "10", source: ebay, source_sale_id: eval-fixture-kyogre-2, rank: 2, title: "EVAL FIXTURE Kyogre-EX Dark Explorers 104/108 PSA 10", sold_at: $TODAY, price: 1500.0, currency_code: USD, created_at: $NOW}
+            - {id: eval-fixture-teammates-1, card_id: xy5-141, grader: PSA, grade: "10", source: ebay, source_sale_id: eval-fixture-teammates-1, rank: 1, title: "EVAL FIXTURE Teammates Primal Clash 141/160 PSA 10", sold_at: $TODAY, price: 45.0, currency_code: USD, created_at: $NOW}
     turns:
       - ask: "Is anything I own worth grading?"
         expect:
-          tools_any: [grading_upside, get_my_collection, find_top_graded, get_card, get_price_history]
+          tools_all: [grading_upside]
+          tool_result_where:
+            # The seeded sales are what grading_upside reads (slab_recent_sales, source ebay).
+            - tool: grading_upside
+              where: {cards.card_id: bw5-104, cards.comp_source: ebay_sold}
           tiles_min: 3
           tiles_max: 3
           tiles_include: [{name_regex: '^Kyogre-EX$'}]

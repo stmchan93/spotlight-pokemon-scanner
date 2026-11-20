@@ -67,6 +67,13 @@ Errors:
 ### `POST /api/v1/assistant/actions/{action_id}` body `{"state":"confirmed"|"dismissed"}` → `{"action": ProposedAction}`
 Records the user's choice AFTER the app performed (or skipped) the real write. Owner-scoped; 404 on someone else's action.
 
+### Direct add + `POST /api/v1/assistant/actions/{action_id}/undo` (added 2026-11-20, owner review decision 2)
+- A fully specified single add (explicit add + one exact printing + quantity + stated condition, or stated grader + grade) is executed server-side by the assistant tool `add_to_collection_now` (`mcp_server/assistant/direct_add.py`): `CollectionWriteTools.add_to_collection` → `create_deck_entry` with `selectionSource "assistant"`, live pricing off. No `allow_mcp_edits` gate (that toggle is for external MCP clients).
+- Only when the send body carries `"capabilities": ["direct_add"]` (older app builds would show it as a Confirm card and add twice). Otherwise, and on any ambiguity (several printings and none named, condition/grade not stated in the question, a second add in the same turn, several adds in one round), the tool falls back to a normal proposal.
+- Idempotency: `mcp_write_requests` key `assistant:{client_message_id}:{sha256(card_id, quantity, condition, variant_name, grader, grade)[:24]}`; the action id is derived from the same key, so a retried/replayed turn returns the stored result and never adds twice.
+- The reply carries an executed action: same shape as an `add_to_collection` ProposedAction plus `state: "done"` and `undo: {deck_entry_id, quantity_added, expires_at}` (24h); the tiles are just that card with its new `quantity_owned`.
+- Undo (body none) → `{"action": ...state "undone"}`. Takes back exactly `quantity_added` from that holding (holding removed when it reaches 0, via `set_deck_entry_quantity`). Owner-scoped (404), idempotent (already undone → 200), 409 `not_undoable` (not a server-made add), `undo_expired`, `cannot_undo` (holding gone).
+
 ### `POST /api/v1/assistant/messages/{message_id}/feedback` (added 2026-11-19)
 Body `{"rating": "up"|"down"|null, "reason": null|"wrong"|"not_helpful"|"too_long"|"wrong_cards"|"other", "note": null|str (≤500 chars, trimmed; "" = null)}`. `rating` is required; `null` clears (reason/note ignored). → `{"message_id", "feedback": Feedback|null}`.
 - Owner-scoped: 404 for another user's or an unknown message; 400 `invalid_request` for a user message or bad values.
@@ -90,7 +97,9 @@ ThreadSummary = {
 AssistantMessage = {
   "id", "thread_id", "role": "user" | "assistant",
   "text": str,                    # plain text; light markdown allowed: **bold**, bullet lines
-  "cards": [CardRef],             # ≤12, built from TOOL RESULTS, never parsed from text
+  "cards": [CardRef],             # ≤12, built from TOOL RESULTS, never parsed from text. 2026-11-20: = the model's show_cards selection (see "Tile selection")
+  "cards_label": str | null,      # assistant only (2026-11-20): section header above the tiles, ≤40 chars
+  "cards_view_all": {"screen": "watchlist", "total": int} | null,  # assistant only (2026-11-20): "View all N" under a capped (≤8) Watchlist preview
   "actions": [ProposedAction],    # assistant only
   "suggestions": [str],           # assistant only (added 2026-11-18): 0-3 tap-to-ask follow-up prompts, each <=40 chars; [] for user messages, errors, refusals, and older rows. Tapping one = send it as the next question in the same thread.
   "charts": [PriceChart],         # assistant only (added 2026-11-18): 0-2; [] for user messages, errors, refusals, and older rows
@@ -145,6 +154,8 @@ Search/ranking (added 2026-11-18, MCP user tier + assistant): CardFilter gains `
 
 Write (return a ProposedAction, change nothing): `propose_add_to_collection`, `propose_update_holding`, `propose_watch_card`. Validate params server-side before proposing: the card exists, the holding is owned, quantity ≥1, condition enum valid.
 
+Tile selection (added 2026-11-20, owner review decisions 1/6/7): strict tool `show_cards(cards: [{card_id, variant|null, grader|null, grade|null}], label: str|null)` (all params required/nullable, so zero optional params). The model calls it once, ideally in the same message as its answer (then no extra round; one lone show_cards round doesn't spend the lookup budget). Ids resolve only against refs the server produced this turn, the scanned `context.card_ids`, or earlier tiles in the thread; anything else is dropped and reported back as `not_shown`. Without show_cards: tiles = cards whose name appears in the answer text (a number in the text narrows to that printing), else the charted card, else every tool card (the old behaviour). A chart always keeps its card's tile. Tiles drop same-language reprints sharing an artwork (`card_art_group_members`; EN/JP counterparts stay); art searches return one printing per artwork (filter language, else English, preferred). Tiles from `find_price_lows`/`find_new_highs` carry `sparkline: {range, points: [usd, ≤30], change_pct}` from stored history (DB-only). `get_my_watchlist` items are sorted targets-first (closest to target), then market price desc; an all-Watchlist tile set is capped at 8 with `cards_view_all`.
+
 Scanner context: when `context.card_ids` is present, tell the model "The user is looking at these scanned cards: …" with name/set/number/price per card (resolved server-side, ≤20).
 
 ## System prompt (draft; Agent A owns final wording)
@@ -176,6 +187,7 @@ CREATE TABLE IF NOT EXISTS assistant_messages (
   suggestions_json TEXT,          -- added 2026-11-18; older DBs get it via store.COLUMN_PATCHES (ALTER TABLE, idempotent)
   tool_calls_json TEXT            -- added 2026-11-18: compact 'name(key=value)' per tool call, for history provenance (same patch path)
   charts_json TEXT                -- added 2026-11-18 (PriceChart list); same COLUMN_PATCHES path
+  cards_label TEXT, cards_view_all_json TEXT  -- added 2026-11-20; same COLUMN_PATCHES path
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_messages_client ON assistant_messages(owner_user_id, client_message_id) WHERE client_message_id IS NOT NULL;

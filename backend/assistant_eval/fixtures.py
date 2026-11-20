@@ -11,7 +11,7 @@ Fixtures write to the database, so the runner only applies them to a COPY
     holding_delta: [{card_id: sv3pt5-199, delta: 2}]   # SUM(quantity) after - before, whole case
 
 Deleted rows are put back and inserted rows removed after the case, so cases in
-one run don't leak into each other. `$USER` = --user-id, `$NOW` = UTC ISO time.
+one run don't leak into each other. `$USER` = --user-id, `$NOW` = UTC ISO time, `$TODAY` = YYYY/MM/DD.
 """
 
 from __future__ import annotations
@@ -81,7 +81,8 @@ def copy_database(source: str | Path, destination: str | Path) -> Path:
 
 def _fill(value: Any, user_id: str, now: str) -> Any:
     if isinstance(value, str):
-        return value.replace("$USER", user_id).replace("$NOW", now)
+        # $TODAY = sold_at format (YYYY/MM/DD): comps must stay inside the recent-sales window.
+        return value.replace("$USER", user_id).replace("$NOW", now).replace("$TODAY", now[:10].replace("-", "/"))
     return value
 
 

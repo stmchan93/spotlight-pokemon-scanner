@@ -46,7 +46,8 @@ from test_mcp_assistant import HAVE_DEPS, USER_A, AssistantCase, message, text, 
 TOOLS = frozenset(
     {"search_cards", "get_my_collection", "find_missing", "list_facets", "get_card", "get_my_watchlist",
      "get_portfolio_summary", "get_price_history", "find_price_lows", "find_new_highs", "get_market_trends",
-     "find_top_graded", "propose_add_to_collection", "propose_update_holding", "propose_watch_card"}
+     "find_top_graded", "grading_upside", "propose_add_to_collection", "propose_update_holding", "propose_watch_card", "show_cards",
+     "add_to_collection_now"}
 )
 
 DEFAULTS = {
@@ -350,8 +351,8 @@ class SealedGameTests(unittest.TestCase):
 class PlannedFeatureTests(unittest.TestCase):
     """Checks against other agents' planned tools/fields skip while those are absent."""
 
-    BUILD = TOOLS  # today's tools: no show_cards / add_to_collection_now / grading_upside
-    MERGED = TOOLS | {"show_cards", "add_to_collection_now", "grading_upside"}
+    BUILD = TOOLS - grading.PLANNED_TOOLS  # a build from before show_cards / add_to_collection_now / grading_upside
+    MERGED = TOOLS
 
     def write_record(self, **overrides: Any) -> dict[str, Any]:
         fields = {
@@ -388,6 +389,30 @@ class PlannedFeatureTests(unittest.TestCase):
         self.assertFalse(check(failed_write, spec, "expect_write", self.MERGED).passed)
         # An executed action isn't a "proposed" one, so it doesn't trip the no-actions default.
         self.assertTrue(check(record, {}, "actions").passed)
+        # add_to_collection_now falls back to a proposal (no error, added=false): not a write.
+        fallback = self.write_record(tool_results=[{"name": "add_to_collection_now", "data": {"added": False, "reason": "condition not given"}}],
+                                     action_details=[{"type": "add_to_collection", "state": "proposed", "params": {"card_id": "sv3pt5-199"}}])
+        self.assertTrue(check(fallback, {"expect_no_write": True}, "expect_no_write").passed)
+        self.assertFalse(check(fallback, spec, "expect_write", self.MERGED).passed)
+        self.assertFalse(check(fallback, {}, "actions").passed)
+        # O's real undo payload shape: action.undo = {deck_entry_id, quantity_added, expires_at}.
+        real = self.write_record(tool_results=[{"name": "add_to_collection_now", "data": {"added": True}}],
+                                 action_details=[{"type": "add_to_collection", "state": "done",
+                                                  "undo": {"deck_entry_id": "d1", "quantity_added": 2, "expires_at": "x"}}])
+        self.assertTrue(check(real, {"undo_offered": True}, "undo_offered", self.MERGED).passed)
+        # The direct-add tile carries quantity_owned (L007 clears prior copies first).
+        tiled = turn_record(cards=[{**CHARIZARD, "quantity_owned": 2}])
+        quantity = check(tiled, {"tile_quantity": {"card_id": "sv3pt5-199", "quantity": 2}}, "tile_quantity")
+        self.assertTrue(quantity.passed and not quantity.skipped)
+
+    def test_merged_build_runs_every_planned_check(self) -> None:
+        """With all 18 tools present, no shipped check skips for a missing tool."""
+        data = load_case_file(DEFAULT_CASES_PATH)
+        record = turn_record(tool_results=[])
+        for case in data["cases"]:
+            for turn in case["turns"]:
+                for result in grade_turn(record, turn.get("expect"), data["defaults"], self.MERGED):
+                    self.assertFalse(result.skipped and "not in this build" in result.reason, (case["id"], result))
 
     def test_proposed_card_ids(self) -> None:
         record = turn_record(action_details=[
@@ -951,13 +976,13 @@ class RunnerFixtureTests(unittest.TestCase):
         runner = load_runner()
         case = {"id": "add", "category": "writes", "writes": True, "review_label": "L007",
                 "state_checks": {"holding_delta": [{"card_id": "sv3pt5-199", "delta": 2}]}, "turns": [{"ask": "Add 2"}]}
-        merged = TOOLS | {"add_to_collection_now"}
+        merged = TOOLS
         ok = runner.state_check_results(case, {"sv3pt5-199": 1}, {"sv3pt5-199": 3}, merged)
         self.assertTrue(ok[0].passed and not ok[0].skipped)
         doubled = runner.state_check_results(case, {"sv3pt5-199": 1}, {"sv3pt5-199": 5}, merged)
         self.assertFalse(doubled[0].passed)
         self.assertIn("changed by 4", doubled[0].reason)
-        self.assertTrue(runner.state_check_results(case, {}, {}, TOOLS)[0].skipped)
+        self.assertTrue(runner.state_check_results(case, {}, {}, TOOLS - grading.PLANNED_TOOLS)[0].skipped)
         skipped = runner.skipped_record(case, 1, "needs --db-copy")
         self.assertNotIn("passed", skipped)
         self.assertIsNone(case_results([skipped])["add"]["passed"])
@@ -1002,6 +1027,39 @@ class RunnerEndToEndTests(AssistantCase):
         self.assertIn("[ssp-1]", record["tiles"][0])
         self.assertIn("scanned cards", record["scanner_context"] or "")
         self.assertEqual(record["context_cards"][0]["card_id"], "ssp-1")
+
+    def test_l026_fixture_feeds_grading_upside(self) -> None:
+        """The shipped L026 comp rows are exactly what grading_upside reads."""
+        from assistant_eval.fixtures import CaseFixtures
+
+        self.card("bw5-104", "Kyogre-EX", number="104/108", set_name="Dark Explorers")
+        self.card("xy5-141", "Teammates", number="141/160", set_name="Primal Clash")
+        self.price("bw5-104", 504.48)
+        self.price("xy5-141", 2.0)
+        self.holding("k1", USER_A, "bw5-104")
+        self.conn.commit()
+        case = next(c for c in load_case_file(DEFAULT_CASES_PATH)["cases"] if c["id"] == "worth_grading")
+        db_path = Path(self.tempdir.name) / "assistant.sqlite"
+        fixtures = CaseFixtures(db_path, USER_A)
+        try:
+            fixtures.apply(case["fixtures"])
+            result = self.tools.grading_upside(USER_A, ["bw5-104", "xy5-141"])
+        finally:
+            fixtures.cleanup()
+            fixtures.close()
+        by_id = {item["card_id"]: item for item in result["cards"]}
+        kyogre = by_id["bw5-104"]
+        self.assertEqual(kyogre["comp_source"], "ebay_sold")
+        self.assertIn(kyogre["comp_price_usd"], (1450.0, 1500.0))
+        self.assertEqual(kyogre["comp_sale_count"], 2)
+        self.assertAlmostEqual(kyogre["gross_premium_usd"], round(kyogre["comp_price_usd"] - 504.48, 2))
+        self.assertEqual((by_id["xy5-141"]["comp_source"], by_id["xy5-141"]["comp_price_usd"]), ("ebay_sold", 45.0))
+        # The case's own result check passes on this real result.
+        expect = case["turns"][0]["expect"]
+        record = turn_record(tool_results=[{"name": "grading_upside", "data": result}])
+        self.assertTrue(grading.check_tool_result_where(record, expect["tool_result_where"][0], TOOLS).passed)
+        # Cleanup removed the comps again.
+        self.assertTrue(self.tools.grading_upside(USER_A, ["bw5-104"])["cards"][0]["comp_missing"])
 
     def test_retry_turn_resends_the_same_request(self) -> None:
         runner = load_runner()

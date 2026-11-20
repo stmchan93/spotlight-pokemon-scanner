@@ -128,8 +128,8 @@ class ToolRecorder:
         self.calls: list[dict[str, Any]] = []
         toolbox.run = self.run
 
-    def run(self, name: str, arguments: dict[str, Any], *, owner_user_id: str):
-        outcome = self._original(name, arguments, owner_user_id=owner_user_id)
+    def run(self, name: str, arguments: dict[str, Any], *, owner_user_id: str, **kwargs: Any):
+        outcome = self._original(name, arguments, owner_user_id=owner_user_id, **kwargs)
         data = self._strip(outcome.content)
         result = json.dumps(data, default=str, ensure_ascii=False, separators=(",", ":"))
         self.calls.append(
@@ -179,7 +179,10 @@ async def run_case(
             "reference": turn.get("reference"), "retry": bool(turn.get("retry")),
         }
         if not (turn.get("retry") and body is not None):
-            body = {"thread_id": thread_id, "client_message_id": str(uuid.uuid4()), "text": turn["ask"]}
+            body = {
+                "thread_id": thread_id, "client_message_id": str(uuid.uuid4()), "text": turn["ask"],
+                "capabilities": ["direct_add"],
+            }
             if turn.get("card_ids"):
                 body["context"] = {"source": "scanner", "card_ids": turn["card_ids"]}
         context, context_cards = await asyncio.to_thread(scanner_info, assistant.toolbox, turn.get("card_ids") or [])
