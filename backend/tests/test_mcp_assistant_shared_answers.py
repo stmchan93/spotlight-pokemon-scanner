@@ -98,6 +98,32 @@ class SharedAnswerTests(SharedAnswerCase):
         self.assertEqual(self.http.get(f"/api/v1/assistant/threads/{body['thread_id']}/messages",
                                        headers=bearer(USER_A)).status_code, 404)
 
+    def test_version_reads_the_connection_on_its_own_thread(self) -> None:
+        # Live connections are per-thread (check_same_thread): fetching one on the
+        # event-loop thread and using it in a worker silently disabled the cache.
+        import threading
+        from mcp_server.assistant.store import AssistantStore
+
+        seen: dict[str, int] = {}
+        original = AssistantStore.conn
+
+        def conn(store):
+            seen["conn_thread"] = threading.get_ident()  # last access before the version read
+            return original.fget(store)
+
+        def version(_conn):
+            seen.setdefault("version_thread", threading.get_ident())
+            seen.setdefault("conn_thread_at_version", seen.get("conn_thread"))
+            return self.version
+
+        with mock.patch.object(AssistantStore, "conn", property(conn)), \
+                mock.patch.object(shared_answers, "data_version", side_effect=version):
+            seen.clear()
+            self.queue_market()
+            self.ask(QUESTION, user=USER_A)
+        self.assertIn("version_thread", seen)
+        self.assertEqual(seen["conn_thread_at_version"], seen["version_thread"])
+
     def test_cached_answer_counts_toward_daily_limit(self) -> None:
         self.queue_market()
         self.ask(QUESTION, user=USER_A)

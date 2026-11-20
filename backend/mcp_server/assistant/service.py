@@ -174,7 +174,9 @@ class AssistantService:
         shared_key, shared_version, question_norm = None, None, ""
         if self.config.shared_answers and shared_answers.request_eligible(request):
             try:
-                shared_version = await asyncio.to_thread(shared_answers.data_version, self.store.conn)
+                # Resolve the connection inside the worker: connections are per-thread
+                # (check_same_thread), so one fetched on the loop thread fails there.
+                shared_version = await asyncio.to_thread(lambda: shared_answers.data_version(self.store.conn))
             except Exception:  # noqa: BLE001 - the cache must never fail a question
                 logger.exception("assistant shared answer version failed")
             if shared_version:
