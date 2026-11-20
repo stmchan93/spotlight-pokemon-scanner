@@ -99,7 +99,8 @@ cases:
           tools_any: [get_my_collection]
           tiles_min: 1
         rubric:
-          - "Does the answer name the user's single most valuable card with its value?"
+          # "Most valuable card" = highest per-copy price (run 3 ranked by holding total).
+          - "Does the answer name the user's single most valuable card (highest per-copy price) with its value?"
           - "Does it avoid listing all five cards with prices one by one?"
 
   - id: collection_one_piece_value
@@ -236,7 +237,8 @@ cases:
               where: {filter.rarity_bucket: {contains: sir}}
           tiles_min: 1
         rubric:
-          - "Are all cards in the tool results priced under $50?"
+          # The search's price filter is under test, not other lookups (run 3's judge read collection results).
+          - "Are all cards in the search_cards results priced under $50?"
           - "Does the text avoid a card-by-card price list?"
 
   # --- price history -----------------------------------------------------------

@@ -146,15 +146,19 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "get_my_collection",
         "description": (
-            "The user's holdings with holding_id, quantity, condition/grade, printing (variant) and USD value, "
-            "optionally filtered. total_value_usd covers all matching holdings, not just this page. Hidden "
-            "collections are excluded unless collection_id names one."
+            "The user's own holdings (use only for questions about their collection) with holding_id, quantity, "
+            "condition/grade, printing (variant), price_usd (one copy) and value_usd (price_usd x quantity). "
+            "sort: 'price_desc' (per-copy price) for 'most valuable cards'/'priciest card I own'/'most valuable "
+            "slab'; 'value_desc' (holding total) for 'top holdings' and what the collection is worth. "
+            "holding_type='graded' = slabs only, 'raw' = ungraded only. total_value_usd covers all matching "
+            "holdings, not just this page. Hidden collections are excluded unless collection_id names one."
         ),
         "input_schema": _obj(
             {
                 "filter": _FILTER_SCHEMA,
                 "collection_id": {"type": "string"},
-                "sort": {"type": "string", "enum": ["value_desc", "gain_desc", "added_desc"]},
+                "sort": {"type": "string", "enum": ["value_desc", "price_desc", "gain_desc", "added_desc"]},
+                "holding_type": {"type": "string", "enum": ["any", "raw", "graded"]},
                 "limit": {"type": "integer", "description": "1-50, default 25."},
                 "cursor": {"type": "string"},
             },
@@ -214,8 +218,18 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "name": "get_portfolio_summary",
-        "description": "The user's collection value in USD, how it moved over the range, and top gainers/losers.",
-        "input_schema": _obj({"range": {"type": "string", "enum": ["7d", "30d", "90d", "1y"]}}, []),
+        "description": (
+            "The user's collection value in USD, how it moved over the range, top_holdings (largest by value), "
+            "and top gainers/losers. focus='movers' for gainers/losers questions (returns only the movers); "
+            "focus='value' (default) for what the collection is worth."
+        ),
+        "input_schema": _obj(
+            {
+                "range": {"type": "string", "enum": ["7d", "30d", "90d", "1y"]},
+                "focus": {"type": "string", "enum": ["value", "movers"]},
+            },
+            [],
+        ),
         "strict": True,
     },
     {
@@ -796,6 +810,119 @@ def choose_tiles(
     return _append_new(kept, always), charts
 
 
+# --- question-shaped tile rules (deterministic; the model over-selects) -------
+
+MAX_RANKED_TILES = 3  # movers / highs / lows / trends answers name at most three cards
+MAX_HOLDING_TILES = 8
+HOLDINGS_LABEL = "Top holdings by value"
+RANKING_TOOLS = frozenset({"find_new_highs", "find_price_lows", "get_market_trends"})
+_VALUE_WORDS = re.compile(r"\b(worth|value|valued)\b", re.IGNORECASE)
+_COLLECTION_WORDS = re.compile(r"\b(collection|portfolio|holdings|binder)\b", re.IGNORECASE)
+_SINGULAR_TOP = re.compile(
+    r"\bthe\s+(most expensive|priciest|most valuable)\s+(?:[\w.'\u2019-]+\s+){0,3}?(card|single|slab)\b(?!s)",
+    re.IGNORECASE,
+)
+_COUNTERPART = re.compile(
+    r"\b(japanese|english|jp|en)\s+(version|counterpart|printing|equivalent|release)s?\b"
+    r"|\b(version|counterpart|printing|equivalent|release)s?\s+in\s+(japanese|english)\b",
+    re.IGNORECASE,
+)
+
+
+def is_collection_value_question(question: str) -> bool:
+    """'What's my collection worth?', 'How much is my One Piece collection worth?'."""
+    return bool(_VALUE_WORDS.search(question or "")) and bool(_COLLECTION_WORDS.search(question or ""))
+
+
+def asks_for_single_leader(question: str) -> bool:
+    """'What's the most expensive One Piece card?' (singular): one leader per kind (raw, graded)."""
+    return bool(_SINGULAR_TOP.search(question or ""))
+
+
+def counterpart_language(question: str) -> str | None:
+    """'Is there a Japanese version of X?' -> 'japanese'; None if not a counterpart question."""
+    match = _COUNTERPART.search(question or "")
+    if match is None:
+        return None
+    word = (match.group(1) or match.group(4) or "").casefold()
+    return "japanese" if word in ("japanese", "jp") else "english"
+
+
+def holding_value(ref: dict[str, Any]) -> float:
+    price = ref.get("price_usd")
+    if not isinstance(price, (int, float)) or isinstance(price, bool):
+        return -1.0
+    return float(price) * float(ref.get("quantity_owned") or 1)
+
+
+def order_by_mention(tiles: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
+    """Named cards in the order the text names them; un-named tiles after (stable)."""
+
+    def first(tile: dict[str, Any]) -> int:
+        spans = _phrase_spans(_name_key(tile), text) if _name_key(tile) else []
+        return min((start for start, _ in spans), default=len(text) + 1)
+
+    return sorted(tiles, key=first)
+
+
+def single_leaders(tiles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The first raw tile and the first graded tile."""
+    raw = next((tile for tile in tiles if _slab(tile)[0] is None), None)
+    graded = next((tile for tile in tiles if _slab(tile)[0] is not None), None)
+    return [tile for tile in (raw, graded) if tile is not None]
+
+
+def apply_question_rules(
+    tiles: list[dict[str, Any]],
+    charts: list[dict[str, Any]],
+    label: str | None,
+    *,
+    question: str,
+    text: str,
+    pool: list[dict[str, Any]],
+    holding_refs: list[dict[str, Any]],
+    language_pairs: dict[str, str],
+    keep_ids: frozenset[str] | set[str] = frozenset(),
+    always_ids: frozenset[str] | set[str] = frozenset(),
+    tools_used: frozenset[str] | set[str] = frozenset(),
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str | None]:
+    """Owner rules keyed on the question shape, applied after choose_tiles:
+    collection value -> top holdings by value; counterpart -> the counterpart
+    (+ the scanned source); movers/highs/lows/trends -> at most 3 named cards;
+    a singular 'the most expensive card' -> one raw + one graded leader."""
+    if always_ids:
+        return tiles, charts, label  # proposals decide their own tiles
+    wanted = counterpart_language(question)
+    if wanted and language_pairs:
+        refs_by_id: dict[str, dict[str, Any]] = {}
+        for ref in [*tiles, *pool]:
+            if _slab(ref)[0] is None:
+                refs_by_id.setdefault(str(ref["card_id"]), ref)
+        counterparts = [
+            target for source, target in language_pairs.items()
+            if _language(refs_by_id.get(target) or {"card_id": target}) == wanted
+            and _language(refs_by_id.get(source) or {"card_id": source}) != wanted
+        ]
+        if counterparts:
+            sources = [source for source, target in language_pairs.items() if target in counterparts and source in keep_ids]
+            ids = list(dict.fromkeys([*sources, *counterparts]))
+            picked = [dict(refs_by_id.get(card_id) or {"card_id": card_id}) for card_id in ids]
+            return picked, [chart for chart in charts if chart["card_id"] in ids], label
+    if holding_refs and is_collection_value_question(question) and not is_movers_question(question) and not charts:
+        holding_ids = {ref["card_id"] for ref in holding_refs}
+        named_holdings = [tile for tile in tiles if tile["card_id"] in holding_ids]
+        ranked = _append_new(list(holding_refs), named_holdings)
+        ranked.sort(key=holding_value, reverse=True)
+        return ranked[:MAX_HOLDING_TILES], charts, HOLDINGS_LABEL
+    if is_movers_question(question) or tools_used & RANKING_TOOLS:
+        if len(tiles) > MAX_RANKED_TILES:
+            tiles = order_by_mention(tiles, text)[:MAX_RANKED_TILES]
+        return tiles, charts, label
+    if asks_for_single_leader(question) and tools_used & {"search_cards", "find_top_graded"} and not charts:
+        return single_leaders(tiles), charts, label
+    return tiles, charts, label
+
+
 def art_groups(conn: sqlite3.Connection, card_ids: list[str]) -> dict[str, str]:
     ids = list(dict.fromkeys(str(card_id) for card_id in card_ids if card_id))
     groups: dict[str, str] = {}
@@ -874,6 +1001,29 @@ def _card_label(card: dict[str, Any]) -> str:
     return f"{card.get('name')} ({where})" if where else str(card.get("name"))
 
 
+_MOVERS_QUESTION = re.compile(
+    r"\b(gainers?|losers?|movers?|biggest (gain|drop|jump|loss|fall|mover)s?|"
+    r"(up|down|risen|fallen|grown|gained|lost|dropped|fell|rose|climbed|jumped) the most)\b",
+    re.IGNORECASE,
+)
+MAX_MOVERS = 3
+MOVER_KEYS = ("range", "top_gainers", "top_losers", "top_gainers_pct", "top_losers_pct", "movers_basis",
+              "change_note")
+
+
+def is_movers_question(question: str) -> bool:
+    return bool(_MOVERS_QUESTION.search(question or ""))
+
+
+def movers_only(summary: dict[str, Any]) -> dict[str, Any]:
+    """Gainers/losers questions: just the top movers, no collection value or overall change to mention."""
+    out = {key: summary[key] for key in MOVER_KEYS if key in summary}
+    for key in ("top_gainers", "top_losers", "top_gainers_pct", "top_losers_pct"):
+        if isinstance(out.get(key), list):
+            out[key] = out[key][:MAX_MOVERS]
+    return out
+
+
 class AssistantToolbox:
     """Sync tool execution; the engine runs each call in a worker thread."""
 
@@ -892,7 +1042,7 @@ class AssistantToolbox:
         try:
             with self.tools.service.request_identity_context(identity):
                 if name in READ_TOOLS:
-                    return self._read(name, dict(arguments or {}), owner_user_id)
+                    return self._read(name, dict(arguments or {}), owner_user_id, question=turn.question if turn else "")
                 if name == "propose_add_to_collection":
                     return self._propose_add(dict(arguments or {}), owner_user_id)
                 if name == ADD_NOW_TOOL:
@@ -910,13 +1060,14 @@ class AssistantToolbox:
 
     # --- reads ---------------------------------------------------------------
 
-    def _read(self, name: str, args: dict[str, Any], owner_user_id: str) -> ToolOutcome:
+    def _read(self, name: str, args: dict[str, Any], owner_user_id: str, *, question: str = "") -> ToolOutcome:
         kwargs: dict[str, Any] = {}
         if name in FILTER_TOOLS:
             kwargs["card_filter"] = args.get("filter")
         if name in MODEL_LIMITS:
             default = {
-                "get_my_collection": 25, "get_my_watchlist": 25, "find_price_lows": 6, "find_new_highs": 6,
+                # Investing answers name at most 3 cards: the model sees about that many.
+                "get_my_collection": 25, "get_my_watchlist": 25, "find_price_lows": 3, "find_new_highs": 3,
             }.get(name, 10)
             try:
                 limit = int(args.get("limit") or default)
@@ -924,7 +1075,7 @@ class AssistantToolbox:
                 limit = default
             kwargs["limit"] = max(1, min(limit, MODEL_LIMITS[name]))
         for key in ("owned", "sort", "cursor", "collection_id", "budget_usd", "card_id", "card_ids", "condition",
-                    "grader", "grade", "variant", "game", "window", "min_price_usd", "max_price_usd"):
+                    "grader", "grade", "variant", "game", "window", "min_price_usd", "max_price_usd", "holding_type"):
             if args.get(key) is not None:
                 kwargs[key] = args[key]
         if "range" in args and args["range"] is not None:
@@ -943,6 +1094,11 @@ class AssistantToolbox:
         result = self.policy.shape(getattr(self.tools, name)(owner_user_id, **kwargs))
         if name == "search_cards" and isinstance(result, dict) and uses_art_filters(kwargs.get("card_filter") or {}):
             result = self._collapse_art_results(result, kwargs.get("card_filter") or {})
+        if name == "get_portfolio_summary" and isinstance(result, dict):
+            movers = args.get("focus") == "movers" or is_movers_question(question)
+            result = movers_only(result) if movers else result
+        if name in ("get_portfolio_summary", "get_my_collection") and isinstance(result, dict):
+            result.pop("unpriced_count", None)  # owner (L001): no unpriced-holdings note
         if name == "get_my_watchlist" and isinstance(result, dict) and isinstance(result.get("items"), list):
             result["items"] = watchlist_order(result["items"])
             result["order"] = "target price set first (closest to target first), then market price high to low"
@@ -1265,18 +1421,29 @@ class AssistantToolbox:
         list_ids: set[str] | None = None,
         question: str = "",
         fixed: bool = False,
+        holding_refs: list[dict[str, Any]] | None = None,
+        language_pairs: dict[str, str] | None = None,
+        tools_used: set[str] | frozenset[str] = frozenset(),
     ) -> tuple[list[dict[str, Any]], str | None, dict[str, Any] | None, list[dict[str, Any]]]:
         """(cards, cards_label, cards_view_all, charts). fixed=True (an executed
-        direct add) shows the selection as is; otherwise choose_tiles decides."""
+        direct add) shows the selection as is; otherwise choose_tiles decides,
+        then the question-shaped rules (apply_question_rules)."""
         if fixed:
             tiles = list(selection or [])
         else:
             if selection is None:
                 label = None
+            extra_refs = self._named_extra_refs(extra_refs or [])
             tiles, charts = choose_tiles(
-                selection, list(turn_refs), text, charts, extra_refs=extra_refs or [], keep_ids=keep_ids or set(),
+                selection, list(turn_refs), text, charts, extra_refs=extra_refs, keep_ids=keep_ids or set(),
                 always_ids=always_ids or set(), watchlist_ids=watchlist_ids, list_ids=list_ids or set(),
                 question=question,
+            )
+            tiles, charts, label = apply_question_rules(
+                tiles, charts, label, question=question, text=text,
+                pool=list(turn_refs) + [ref for ref in extra_refs if ref.get("name")],
+                holding_refs=holding_refs or [], language_pairs=language_pairs or {},
+                keep_ids=keep_ids or set(), always_ids=always_ids or set(), tools_used=tools_used,
             )
         charts = charts[:MAX_CHARTS]
         on_watchlist = bool(watchlist_ids) and bool(tiles) and all(tile["card_id"] in watchlist_ids for tile in tiles)
@@ -1293,6 +1460,24 @@ class AssistantToolbox:
                 if line is not None:
                     card["sparkline"] = line
         return cards, label, view_all, charts
+
+    def _named_extra_refs(self, refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Scanned-card refs arrive as bare ids: add name/set/number so the
+        answer's text can name them (and they become tiles)."""
+        bare = [str(ref["card_id"]) for ref in refs if not ref.get("name")]
+        if not bare:
+            return refs
+        summaries = self.tools._summaries(bare)
+        out = []
+        for ref in refs:
+            summary = summaries.get(str(ref["card_id"])) if not ref.get("name") else None
+            if summary is None:
+                out.append(ref)
+                continue
+            out.append({**ref, **{key: summary.get(key) for key in (
+                "name", "set", "number", "language", "price_usd", "image_small_url", "app_url",
+            )}})
+        return out
 
     def sparkline(
         self, owner_user_id: str, card_id: str, *, range_key: str, variant: str | None

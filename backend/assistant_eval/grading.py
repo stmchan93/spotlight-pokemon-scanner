@@ -1065,7 +1065,7 @@ JUDGE_SCHEMA: dict[str, Any] = {
 }
 
 JUDGE_SYSTEM = """You check one answer from "Ask Ekalight", the AI assistant in a trading-card collection app, against numbered yes/no criteria. Answer each criterion strictly and literally: pass=true only if the answer clearly meets it.
-App conventions (not mistakes): card tiles (name, set, price, image) show under the answer, so the text needn't list cards or prices; USD only; watched cards = "Watchlist". Writes are proposed for the user to Confirm, except a fully specified single add (exact printing, quantity, condition), which is done directly and offers Undo.
+App conventions (not mistakes): card tiles (name, set, price, image) show under the answer, so the text needn't list cards or prices; USD only; watched cards = "Watchlist". Writes are proposed for the user to Confirm, except a fully specified single add (exact printing, quantity, condition), which is done directly and offers Undo. Real app features: users can delete or edit a card themselves from its ⋯ menu in Collection or on its card page.
 A reference answer, when given, shows what a good answer says: equivalent meaning passes; exact wording is not required. Its numbers may be stale, so check facts against the tool results and scanner context, not the reference.
 Return one {n, pass} per criterion and a reason of at most 30 words."""
 
