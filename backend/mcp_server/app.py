@@ -363,11 +363,13 @@ def build_server(
 
     @_register(server, policy)(
         description=(
-            "Cards matching the filter that the user does not own, cheapest first. Use for 'what am I "
-            "missing', set/theme completion, and shopping lists. Prices are USD from Ekalight's stored "
-            "market data (Japanese cards are priced only from TCGplayer, else null). When "
-            "total_is_lower_bound is true the counts are minimums: say 'at least N'. "
-            "cheapest_completion_usd is null when not every missing card could be priced. "
+            "Cards matching the filter that the user does not own: sort='price_asc' (default, cheapest "
+            "first, for budgets/shopping lists) or 'value_desc' (highest value first: chase cards, 'what am "
+            "I missing'). Prices are USD from Ekalight's stored market data (Japanese cards are priced only "
+            "from TCGplayer, else null). When total_is_lower_bound is true the counts are minimums: say "
+            "'at least N'. cheapest_completion_usd is null unless every missing card is priced; then "
+            "priced_subtotal_usd covers priced_count of missing_count cards. A set name resolves to one "
+            "set (English unless filter.language says otherwise); set_resolved says which. "
             + GAME_FILTER_NOTE + " " + PRODUCT_FILTER_NOTE
         ),
         annotations=READ_ONLY,
@@ -376,6 +378,7 @@ def build_server(
         filter: CardFilter,
         collection_id: str | None = None,
         budget_usd: Annotated[float, Field(ge=0)] | None = None,
+        sort: Literal["price_asc", "value_desc"] = "price_asc",
         limit: Limit50 = 20,
     ) -> dict[str, Any]:
         return await runner.run(
@@ -383,6 +386,7 @@ def build_server(
             card_filter=_filter_dict(filter),
             collection_id=collection_id,
             budget_usd=budget_usd,
+            sort=sort,
             limit=limit,
         )
 
@@ -394,7 +398,8 @@ def build_server(
             "(default: the card's main printing; available_variants lists the others). 'sources' "
             "says which provider covers which dates. as_of is the newest stored point and "
             "days_since_as_of how old it is: graded history can lag, so do not call it current "
-            "when days_since_as_of is large."
+            "when days_since_as_of is large. first_date/last_date give the span actually covered; "
+            "when covers_full_range is false, state that span and never call it a full-range return."
         ),
         annotations=READ_ONLY,
     )
