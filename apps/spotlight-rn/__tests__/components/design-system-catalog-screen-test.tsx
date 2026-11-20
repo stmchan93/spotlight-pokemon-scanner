@@ -34,6 +34,7 @@ describe('DesignSystemCatalogScreen', () => {
     expect(screen.getByTestId('catalog-pill-button-soft')).toBeTruthy();
     expect(screen.getByTestId('catalog-search-field')).toBeTruthy();
     expect(screen.getByTestId('catalog-search-entry-pill')).toBeTruthy();
+    expect(screen.getByTestId('catalog-glass-nav-pill')).toHaveTextContent('NEW CHAT');
     expect(screen.getByTestId('catalog-text-field')).toBeTruthy();
     expect(screen.getByTestId('catalog-segmented-control-inverted')).toBeTruthy();
     expect(screen.getByTestId('catalog-state-card-action')).toBeTruthy();

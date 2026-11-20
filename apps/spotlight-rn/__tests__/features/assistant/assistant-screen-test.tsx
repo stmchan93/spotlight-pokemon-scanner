@@ -1,5 +1,6 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import * as Clipboard from 'expo-clipboard';
+import { Alert, StyleSheet, type AlertButton } from 'react-native';
 
 import {
   AssistantRequestError,
@@ -11,6 +12,11 @@ import {
   type AssistantSendResult,
 } from '@spotlight/api-client';
 
+import {
+  ASSISTANT_MARKET_PROMPTS,
+  assistantGreeting,
+  assistantRemainingCaption,
+} from '@/features/assistant/assistant-prompts';
 import { AssistantScreen } from '@/features/assistant/screens/assistant-screen';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../../test-utils';
@@ -73,6 +79,17 @@ function renderScreen(repoOverrides: Parameters<typeof createTestSpotlightReposi
   return { repository, onOpenCard };
 }
 
+/** Auto-answers the next confirm dialog with its destructive button. */
+function confirmNextAlert() {
+  return jest.spyOn(Alert, 'alert').mockImplementationOnce((_title, _message, buttons?: AlertButton[]) => {
+    buttons?.find((button) => button.style === 'destructive')?.onPress?.();
+  });
+}
+
+function sendButtonColor() {
+  return StyleSheet.flatten(screen.getByTestId('assistant-send').props.style).backgroundColor;
+}
+
 beforeEach(() => {
   mockIsGuest = false;
   mockOpenLogin.mockClear();
@@ -80,14 +97,19 @@ beforeEach(() => {
 });
 
 describe('AssistantScreen', () => {
-  it('shows the usage pill, sends a question, and renders text + tappable card tiles', async () => {
-    const { onOpenCard } = renderScreen({});
-    expect(await screen.findByText('3 LEFT TODAY')).toBeTruthy();
+  it('sends a question, renders text + tappable card tiles, and shows the low-remaining caption only at 2 or fewer', async () => {
+    const getAssistantUsage = jest.fn(async () => mockAssistantUsage(0));
+    const { onOpenCard } = renderScreen({ getAssistantUsage });
+    await waitFor(() => expect(getAssistantUsage).toHaveBeenCalled());
+    // 3 left: no caption.
+    expect(screen.queryByTestId('assistant-remaining')).not.toBeOnTheScreen();
     expect(mockCapture).toHaveBeenCalledWith('assistant_opened', { source: 'home' });
 
     await ask("What's my collection worth?");
     expect(await screen.findByTestId('assistant-card-xyp-111')).toBeTruthy();
-    expect(screen.getByText('2 LEFT TODAY')).toBeTruthy();
+    expect(screen.getByTestId('assistant-remaining')).toHaveTextContent('2 questions left today');
+    // The tile keeps its name and USD price under the art.
+    expect(within(screen.getByTestId('assistant-card-xyp-111')).getByText('Celebi')).toBeTruthy();
     expect(screen.getByText('$37.54')).toBeTruthy();
     expect(mockCapture).toHaveBeenCalledWith('assistant_question_sent', { source: 'home' });
 
@@ -95,11 +117,55 @@ describe('AssistantScreen', () => {
     expect(onOpenCard).toHaveBeenCalledWith('xyp-111');
   });
 
-  it('hides the pill when the limit is null (unlimited)', async () => {
+  it('never shows the remaining caption when unlimited', async () => {
     const getAssistantUsage = jest.fn(async () => mockAssistantUsage(5, null));
     renderScreen({ getAssistantUsage });
     await waitFor(() => expect(getAssistantUsage).toHaveBeenCalled());
-    expect(screen.queryByTestId('assistant-usage-pill')).not.toBeOnTheScreen();
+    expect(screen.queryByTestId('assistant-remaining')).not.toBeOnTheScreen();
+  });
+
+  it('remaining caption copy: only 1 or 2 left on a limited plan', () => {
+    expect(assistantRemainingCaption(mockAssistantUsage(0))).toBeNull();
+    expect(assistantRemainingCaption(mockAssistantUsage(1))).toBe('2 questions left today');
+    expect(assistantRemainingCaption(mockAssistantUsage(2))).toBe('1 question left today');
+    expect(assistantRemainingCaption(mockAssistantUsage(3))).toBeNull();
+    expect(assistantRemainingCaption(mockAssistantUsage(9, null))).toBeNull();
+    expect(assistantRemainingCaption(null)).toBeNull();
+  });
+
+  it('header: close left, history + NEW CHAT right, no title and no usage badge', async () => {
+    const onBack = jest.fn();
+    renderScreen({}, { onBack });
+    await screen.findByTestId('assistant-intro');
+    expect(screen.getByLabelText('Close')).toBeTruthy();
+    expect(screen.getByLabelText('Chat history')).toBeTruthy();
+    expect(screen.getByText('NEW CHAT')).toBeTruthy();
+    expect(screen.queryByText('Ask Ekalight')).not.toBeOnTheScreen();
+    expect(screen.queryByText(/left today/i)).not.toBeOnTheScreen();
+    fireEvent.press(screen.getByTestId('assistant-back'));
+    expect(onBack).toHaveBeenCalled();
+  });
+
+  it('greets the signed-in user by first name with the purple mark', async () => {
+    renderScreen({});
+    expect(await screen.findByTestId('assistant-greeting')).toHaveTextContent('Hi, UI');
+    expect(screen.getByTestId('assistant-intro-mark')).toBeTruthy();
+    // Recent chats are not listed on a new chat any more.
+    expect(screen.queryByText('RECENT CHATS')).not.toBeOnTheScreen();
+  });
+
+  it('a guest is greeted "Hi there"', async () => {
+    mockIsGuest = true;
+    renderScreen({});
+    expect(await screen.findByTestId('assistant-greeting')).toHaveTextContent('Hi there');
+  });
+
+  it('greeting falls back to "Hi there" without a usable name', () => {
+    expect(assistantGreeting('Stephen Chan', false)).toBe('Hi, Stephen');
+    expect(assistantGreeting('  Ash  ', false)).toBe('Hi, Ash');
+    expect(assistantGreeting(null, false)).toBe('Hi there');
+    expect(assistantGreeting('   ', false)).toBe('Hi there');
+    expect(assistantGreeting('Guest', true)).toBe('Hi there');
   });
 
   it('sends scanner tray ids as context on the first question only', async () => {
@@ -117,7 +183,7 @@ describe('AssistantScreen', () => {
     expect(sendAssistantMessage.mock.calls[1][0].context?.cardIds).toBeUndefined();
   });
 
-  it('reopening resumes the latest saved chat and lists recent chats on a new one', async () => {
+  it('reopening resumes the latest saved chat; NEW CHAT starts a blank one', async () => {
     const threads = [
       { id: 'thr_latest', title: 'Most expensive card?', updatedAt: '2026-11-17T17:36:00Z', lastMessagePreview: 'Charizard' },
       { id: 'thr_older', title: 'Worth grading?', updatedAt: '2026-11-17T17:30:00Z', lastMessagePreview: 'Maybe' },
@@ -125,10 +191,10 @@ describe('AssistantScreen', () => {
     const getAssistantThreadMessages = jest.fn(async (_threadId: string) => []);
     renderScreen({ listAssistantThreads: async () => ({ threads, nextCursor: null }), getAssistantThreadMessages });
     await waitFor(() => expect(getAssistantThreadMessages).toHaveBeenCalledWith('thr_latest'));
-    // A labeled button: a bare icon read as "edit" (owner, 2026-11-17).
     expect(screen.getByLabelText('New chat')).toBeTruthy();
     fireEvent.press(screen.getByTestId('assistant-new-chat'));
-    expect(await screen.findByTestId('assistant-recent-thr_older')).toBeTruthy();
+    expect(await screen.findByTestId('assistant-intro')).toBeTruthy();
+    expect(screen.queryByTestId('assistant-recent-thr_older')).not.toBeOnTheScreen();
   });
 
   it('a scanner open with tray cards starts a fresh chat', async () => {
@@ -138,7 +204,8 @@ describe('AssistantScreen', () => {
       { listAssistantThreads: async () => ({ threads, nextCursor: null }), getAssistantThreadMessages },
       { source: 'scanner', cardIds: ['xyp-111'] },
     );
-    expect(await screen.findByTestId('assistant-recent-thr_latest')).toBeTruthy();
+    expect(await screen.findByTestId('assistant-intro')).toBeTruthy();
+    await act(async () => undefined);
     expect(getAssistantThreadMessages).not.toHaveBeenCalled();
   });
 
@@ -278,26 +345,68 @@ describe('AssistantScreen', () => {
     expect(createInventoryEntry).not.toHaveBeenCalled();
   });
 
-  it('opens saved chats, resumes one, and deletes one', async () => {
+  it('HISTORY: back, title, CLEAR ALL, rows with date/question/trash, and no composer', async () => {
     // The base mock's seeded chat (opened on mount as the latest one).
+    renderScreen({ listAssistantThreads: undefined });
+    fireEvent.press(screen.getByTestId('assistant-open-history'));
+    expect(await screen.findByTestId('assistant-thread-thr_mock_seed')).toBeTruthy();
+    expect(screen.getByText('HISTORY')).toBeTruthy();
+    expect(screen.getByText('CLEAR ALL')).toBeTruthy();
+    expect(screen.getByLabelText('Back to chat')).toBeTruthy();
+    expect(screen.queryByTestId('assistant-input')).not.toBeOnTheScreen();
+    expect(screen.queryByTestId('assistant-composer')).not.toBeOnTheScreen();
+
+    fireEvent.press(screen.getByTestId('assistant-back'));
+    expect(await screen.findByTestId('assistant-input')).toBeTruthy();
+  });
+
+  it('opens a saved chat from HISTORY, and deletes one only after confirming', async () => {
     renderScreen({ listAssistantThreads: undefined });
     fireEvent.press(screen.getByTestId('assistant-open-history'));
     fireEvent.press(await screen.findByTestId('assistant-thread-thr_mock_seed'));
     expect(await screen.findByText('What am I missing from Celestial Storm?')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('assistant-open-history'));
+    // Cancelled: the row stays.
+    const cancel = jest.spyOn(Alert, 'alert').mockImplementationOnce(() => undefined);
     fireEvent.press(await screen.findByTestId('assistant-thread-thr_mock_seed-delete'));
+    expect(cancel).toHaveBeenCalledWith('Delete this chat?', expect.any(String), expect.any(Array));
+    expect(screen.getByTestId('assistant-thread-thr_mock_seed')).toBeTruthy();
+
+    confirmNextAlert();
+    fireEvent.press(screen.getByTestId('assistant-thread-thr_mock_seed-delete'));
     expect(await screen.findByTestId('assistant-threads-empty')).toBeTruthy();
   });
 
-  it('starter prompts on a new home chat send when tapped', async () => {
+  it('CLEAR ALL asks first, then empties the history', async () => {
+    const deleteAllAssistantThreads = jest.fn(async () => 1);
+    renderScreen({ listAssistantThreads: undefined, deleteAllAssistantThreads });
+    fireEvent.press(screen.getByTestId('assistant-open-history'));
+    await screen.findByTestId('assistant-thread-thr_mock_seed');
+    confirmNextAlert();
+    fireEvent.press(screen.getByTestId('assistant-threads-clear-all'));
+    await waitFor(() => expect(deleteAllAssistantThreads).toHaveBeenCalledTimes(1));
+    expect(await screen.findByTestId('assistant-threads-empty')).toBeTruthy();
+  });
+
+  it.each(['home', 'scanner'] as const)('a %s chat without cards offers exactly the 3 market prompts, centred one per row', async (source) => {
     const sendAssistantMessage = jest.fn(async (_payload: AssistantSendPayload) => reply(null));
-    renderScreen({ sendAssistantMessage });
-    expect(await screen.findByText('Ask me anything about cards')).toBeTruthy();
-    expect(screen.getByText('Cards with the most recent new high sales')).toBeTruthy();
-    fireEvent.press(screen.getByTestId('assistant-suggestion-0'));
+    renderScreen({ sendAssistantMessage }, { source });
+    const chips = await screen.findByTestId('assistant-suggestions');
+    expect(StyleSheet.flatten(chips.props.style)).toMatchObject({ alignItems: 'center' });
+    expect(StyleSheet.flatten(chips.props.style).flexDirection).not.toBe('row');
+    expect(ASSISTANT_MARKET_PROMPTS).toEqual([
+      'Undervalued cards',
+      'Cards with most recently new high sales',
+      'What cards are likely to go up',
+    ]);
+    ASSISTANT_MARKET_PROMPTS.forEach((prompt, index) => {
+      expect(screen.getByTestId(`assistant-suggestion-${index}`)).toHaveTextContent(prompt);
+    });
+    expect(screen.queryByTestId('assistant-suggestion-3')).not.toBeOnTheScreen();
+    fireEvent.press(screen.getByTestId('assistant-suggestion-1'));
     await waitFor(() => expect(sendAssistantMessage).toHaveBeenCalledTimes(1));
-    expect(sendAssistantMessage.mock.calls[0][0].text).toBe('Undervalued cards');
+    expect(sendAssistantMessage.mock.calls[0][0].text).toBe('Cards with most recently new high sales');
   });
 
   it('a single scanned card gets card-specific starter prompts', async () => {
@@ -305,6 +414,7 @@ describe('AssistantScreen', () => {
     expect(await screen.findByText('Ask about this card')).toBeTruthy();
     expect(screen.getByText('Is this worth grading?')).toBeTruthy();
     expect(screen.getByText("What's this card worth in PSA 10?")).toBeTruthy();
+    expect(screen.queryByText('Undervalued cards')).not.toBeOnTheScreen();
   });
 
   it('shows follow-up chips under the LATEST reply only, and tapping one sends it', async () => {
@@ -410,14 +520,23 @@ describe('AssistantScreen', () => {
     expect(screen.queryByTestId('assistant-sending')).not.toBeOnTheScreen();
   });
 
-  it('the send button is disabled until there is text', async () => {
+  it('the send button is gray and disabled until there is text, then black', async () => {
     const sendAssistantMessage = jest.fn(async () => reply(null));
     renderScreen({ sendAssistantMessage });
     await screen.findByTestId('assistant-intro');
+    expect(screen.getByPlaceholderText('Chat with Ekalight')).toBeTruthy();
+    expect(sendButtonColor()).toBe('#E8E8E8');
+    expect(screen.getByTestId('assistant-send')).toBeDisabled();
     fireEvent.press(screen.getByTestId('assistant-send'));
     fireEvent.changeText(screen.getByTestId('assistant-input'), '   ');
     fireEvent.press(screen.getByTestId('assistant-send'));
     expect(sendAssistantMessage).not.toHaveBeenCalled();
+
+    fireEvent.changeText(screen.getByTestId('assistant-input'), 'Is Celebi worth grading?');
+    expect(sendButtonColor()).toBe('#1A1A1A');
+    expect(screen.getByTestId('assistant-send')).toBeEnabled();
+    // With text the composer stacks: text on top, send on its own row.
+    expect(StyleSheet.flatten(screen.getByTestId('assistant-composer').props.style).flexDirection).toBe('column');
   });
 
   it('long-pressing a reply copies its text without markdown markers', async () => {

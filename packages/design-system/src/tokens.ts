@@ -458,6 +458,15 @@ export const textStyles = {
     lineHeight: 21,
     color: colors.textPrimary,
   } satisfies TextStyle,
+  // Raw Regular 15 — Ask Ekalight's reading/typing size (composer, bubbles,
+  // replies, prompt chips; Figma 6502:16657 + 6530:17260 draw "Body" at 15).
+  chatBody: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyRegular,
+    fontSize: 15,
+    lineHeight: 20,
+    color: colors.textPrimary,
+  } satisfies TextStyle,
   // Raw SemiBold 15 (mover-tile price, drawer stats)
   bodyStrong: {
     ...numericFontVariant,

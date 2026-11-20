@@ -85,7 +85,8 @@ export function AssistantMessageBubble({
         testID={`${testID}-press`}
       >
         <AssistantRichText
-          color={message.status === 'error' ? theme.colors.dangerStrong : theme.colors.textPrimary}
+          color={message.status === 'error' ? theme.colors.dangerStrong : theme.colors.gray800}
+          strongColor={message.status === 'error' ? theme.colors.dangerStrong : theme.colors.gray900}
           testID={`${testID}-text`}
           text={message.text}
         />
@@ -180,7 +181,7 @@ export function UserBubble({
           },
         ]}
       >
-        <Text style={[theme.typography.bodyLarge, { color: theme.colors.textPrimary }]}>{text}</Text>
+        <Text style={[theme.typography.chatBody, { color: theme.colors.gray900 }]}>{text}</Text>
       </Pressable>
       {footer}
     </Animated.View>
@@ -188,21 +189,21 @@ export function UserBubble({
 }
 
 const styles = StyleSheet.create({
+  // 16pt between the reply's text and its card images (Figma 6528:16791).
   assistantColumn: {
     alignSelf: 'stretch',
-    gap: spacing.xs,
+    gap: spacing.sm,
   },
   userColumn: {
     alignItems: 'flex-end',
     gap: spacing.xxxs,
   },
-  // Soft gray, right-aligned, no tail: the question is context, the reply is the content.
+  // Gray-100, right-aligned, no tail, 12pt padding, 289 of 361 wide (Figma 6502:16698).
   userBubble: {
     borderCurve: 'continuous',
-    borderRadius: radii.xl,
-    maxWidth: '85%',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
+    borderRadius: radii.lg,
+    maxWidth: '80%',
+    padding: spacing.xs,
   },
   // Pulls the header onto its rail; the column gap would split them.
   cardsHeader: {
@@ -214,7 +215,7 @@ const styles = StyleSheet.create({
     marginHorizontal: -layout.pageGutter,
   },
   cardRail: {
-    gap: spacing.xxs,
+    gap: spacing.xs,
     paddingHorizontal: layout.pageGutter,
   },
 });

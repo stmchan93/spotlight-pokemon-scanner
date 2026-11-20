@@ -16,6 +16,7 @@ import {
   GlassButtonGroup,
   glassButtonGroupControlSize,
   GlassNavBubbleGroup,
+  GlassNavPill,
   GraderWordmark,
   IconButton,
   InventoryCardTile,
@@ -469,6 +470,9 @@ export function DesignSystemCatalogScreen({
               ]}
               testID="catalog-glass-nav-bubble-group"
             />
+
+            {/* A text action in the same frost glass (Ask Ekalight NEW CHAT). */}
+            <GlassNavPill label="NEW CHAT" onPress={() => {}} testID="catalog-glass-nav-pill" />
 
             <StateCard
               actionLabel="Retry"
