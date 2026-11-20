@@ -396,9 +396,17 @@ describe('misc route wrappers', () => {
     const start = rootLayout.indexOf('name="(sheet)"');
     expect(start).toBeGreaterThan(-1);
     const sheetBlock = rootLayout.slice(start, rootLayout.indexOf('/>', start));
-    expect(sheetBlock).toContain("animation: 'slide_from_bottom'");
-    expect(sheetBlock).toContain("gestureDirection: 'vertical'");
-    expect(sheetBlock).toContain('gestureResponseDistance: { top: SHEET_DISMISS_ZONE }');
+    // One shared slide-up preset (also Ask Ekalight / Edit profile).
+    expect(sheetBlock).toContain('options={SLIDE_UP_SCREEN_OPTIONS}');
+    const { SLIDE_UP_SCREEN_OPTIONS } = jest.requireActual<typeof import('@/lib/navigation-presentation')>(
+      '@/lib/navigation-presentation',
+    );
+    expect(SLIDE_UP_SCREEN_OPTIONS).toMatchObject({
+      animation: 'slide_from_bottom',
+      animationDuration: 300,
+      gestureDirection: 'vertical',
+      gestureResponseDistance: { top: 140 },
+    });
   });
 
   it('renders the account route screen', () => {

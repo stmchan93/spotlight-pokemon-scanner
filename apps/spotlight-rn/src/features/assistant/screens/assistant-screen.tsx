@@ -552,7 +552,15 @@ export function AssistantScreen({
   const isSending = chat.pending?.status === 'sending';
   const hasConversation = rows.length > 0;
 
-  const emptyState = chat.isLoadingThread ? (
+  // Opening resumes the latest chat: until we know whether there is one, draw
+  // nothing rather than flashing the greeting, then a spinner, then the chat
+  // (owner, 2026-11-20: "it flickers after I open it").
+  const resolvingOpen =
+    resumeLatest && canReadOnOpen && !hasConversation && (threadsStatus === 'loading' || chat.isLoadingThread);
+
+  const emptyState = resolvingOpen ? (
+    <View testID="assistant-opening" />
+  ) : chat.isLoadingThread ? (
     <InlineLoader testID="assistant-thread-loading" />
   ) : chat.threadError ? (
     <StateCard

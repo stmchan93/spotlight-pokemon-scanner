@@ -5,8 +5,14 @@
  */
 export const SLIDE_UP_DISMISS_ZONE = 140;
 
+/** Duration of the bottom-up slide (iOS). */
+export const SLIDE_UP_DURATION_MS = 300;
+
 export const SLIDE_UP_SCREEN_OPTIONS = {
   animation: 'slide_from_bottom',
+  // iOS runs slide_from_bottom as a custom transition that defaults to 500ms,
+  // noticeably slower than a native push (~350ms) (owner, 2026-11-20).
+  animationDuration: SLIDE_UP_DURATION_MS,
   gestureDirection: 'vertical',
   gestureResponseDistance: { top: SLIDE_UP_DISMISS_ZONE },
 } as const;

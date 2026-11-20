@@ -59,7 +59,7 @@ import {
   resolveSessionOwnerKey,
   useAuth,
 } from '@/providers/auth-provider';
-import { SLIDE_UP_DISMISS_ZONE, slideUpStackGroupOptions } from '@/lib/navigation-presentation';
+import { SLIDE_UP_DURATION_MS, SLIDE_UP_SCREEN_OPTIONS, slideUpStackGroupOptions } from '@/lib/navigation-presentation';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -85,7 +85,6 @@ SplashScreen.setOptions({ duration: 220, fade: true });
 enableFreeze(true);
 
 /** How far down from the top a swipe can start to close Search (pt). */
-const SHEET_DISMISS_ZONE = SLIDE_UP_DISMISS_ZONE;
 
 
 const navigationTheme: Theme = {
@@ -239,11 +238,7 @@ function AuthenticatedRoot() {
               */}
               <Stack.Screen
                 name="(sheet)"
-                options={{
-                  animation: 'slide_from_bottom',
-                  gestureDirection: 'vertical',
-                  gestureResponseDistance: { top: SHEET_DISMISS_ZONE },
-                }}
+                options={SLIDE_UP_SCREEN_OPTIONS}
               />
               <Stack.Screen name="(modal)" />
               {/*
@@ -303,6 +298,7 @@ function AuthenticatedRoot() {
                     not match iOS.
                   */
                   animation: 'slide_from_bottom',
+                  animationDuration: SLIDE_UP_DURATION_MS,
                   // No dismiss gesture anywhere. Exit is the X button, Android's
                   // hardware back, or a completed post — all deliberate presses
                   // on a specific target rather than a stray swipe.
