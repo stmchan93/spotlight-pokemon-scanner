@@ -124,3 +124,78 @@ describe('assistant card tile image fallback', () => {
     expect(screen.getByTestId('tile-placeholder')).toHaveTextContent('CARD');
   });
 });
+
+describe('assistant tile section: label, sparkline, View all', () => {
+  function renderWithWatchlist(message: AssistantMessage, onOpenWatchlist?: () => void) {
+    renderWithProviders(
+      <AssistantMessageBubble
+        actionStates={{}}
+        message={message}
+        onConfirmAction={jest.fn()}
+        onDismissAction={jest.fn()}
+        onOpenCard={jest.fn()}
+        onOpenWatchlist={onOpenWatchlist}
+      />,
+    );
+  }
+
+  it('renders the label as a header above the tiles', () => {
+    renderBubble(reply({ cards: [mockAssistantCards.celebi], cardsLabel: 'Top holdings by value' }));
+    expect(screen.getByTestId('assistant-message-a1-cards-label-title')).toHaveTextContent('Top holdings by value');
+    expect(screen.queryByTestId('assistant-message-a1-cards-view-all')).toBeNull();
+  });
+
+  it('shows no header without a label, or without tiles', () => {
+    renderBubble(reply({ cards: [mockAssistantCards.celebi] }));
+    expect(screen.queryByTestId('assistant-message-a1-cards-label')).toBeNull();
+    renderBubble(reply({ id: 'a2', cards: [], cardsLabel: 'Orphan label' }));
+    expect(screen.queryByText('Orphan label')).toBeNull();
+  });
+
+  it('links "View all N" to the Watchlist', () => {
+    const onOpenWatchlist = jest.fn();
+    renderWithWatchlist(
+      reply({ cards: [mockAssistantCards.celebi], cardsViewAll: { screen: 'watchlist', total: 17 } }),
+      onOpenWatchlist,
+    );
+    expect(screen.getByTestId('assistant-message-a1-cards-label-title')).toHaveTextContent('Your Watchlist');
+    expect(screen.getByText('View all 17')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('assistant-message-a1-cards-view-all'));
+    expect(onOpenWatchlist).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides View all when the screen has no Watchlist route', () => {
+    renderWithWatchlist(reply({ cards: [mockAssistantCards.celebi], cardsViewAll: { screen: 'watchlist', total: 17 } }));
+    expect(screen.queryByTestId('assistant-message-a1-cards-view-all')).toBeNull();
+  });
+
+  it('draws a sparkline with its period on near-low tiles only', () => {
+    const card = { ...mockAssistantCards.celebi, sparkline: { range: '1y' as const, points: [40, 30, 12], changePct: -70 } };
+    renderWithProviders(<AssistantCardTile card={card} onPress={jest.fn()} testID="tile" />);
+    expect(screen.getByTestId('tile-sparkline')).toBeTruthy();
+    expect(screen.getByTestId('tile-sparkline-period')).toHaveTextContent('Past year');
+    renderWithProviders(<AssistantCardTile card={mockAssistantCards.treecko} onPress={jest.fn()} testID="plain" />);
+    expect(screen.queryByTestId('plain-sparkline')).toBeNull();
+  });
+
+  it('parses cards_label, cards_view_all and tile sparklines', () => {
+    const parsed = parseAssistantMessage({
+      id: 'm',
+      role: 'assistant',
+      text: 'x',
+      cards_label: " Chase cards you're missing ",
+      cards_view_all: { screen: 'watchlist', total: 17 },
+      cards: [
+        { card_id: 'a', name: 'A', sparkline: { range: '90d', points: [3, 'x', 2, 1], change_pct: -66.7 } },
+        { card_id: 'b', name: 'B', sparkline: { range: '1y', points: [1] } },
+      ],
+    });
+    expect(parsed?.cardsLabel).toBe("Chase cards you're missing");
+    expect(parsed?.cardsViewAll).toEqual({ screen: 'watchlist', total: 17 });
+    expect(parsed?.cards[0].sparkline).toEqual({ range: '90d', points: [3, 2, 1], changePct: -66.7 });
+    expect(parsed?.cards[1].sparkline).toBeNull();
+    const old = parseAssistantMessage({ id: 'o', role: 'assistant', text: 'x', cards_view_all: { screen: 'feed', total: 3 } });
+    expect(old?.cardsLabel).toBeNull();
+    expect(old?.cardsViewAll).toBeNull();
+  });
+});

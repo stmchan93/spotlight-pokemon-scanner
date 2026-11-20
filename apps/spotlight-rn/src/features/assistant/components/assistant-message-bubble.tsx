@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import type { AssistantFeedbackInput, AssistantMessage, AssistantProposedAction } from '@spotlight/api-client';
-import { layout, radii, spacing, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { layout, radii, SectionHeader, spacing, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import { AssistantRichText } from '@/features/assistant/assistant-markdown';
 import {
@@ -36,6 +36,8 @@ type AssistantMessageBubbleProps = {
   message: AssistantMessage;
   actionStates: Readonly<Record<string, AssistantActionUiState>>;
   onOpenCard: (cardId: string) => void;
+  /** "View all N" under a capped Watchlist preview; omitted = no link. */
+  onOpenWatchlist?: () => void;
   onConfirmAction: (action: AssistantProposedAction, message: AssistantMessage) => void;
   onDismissAction: (action: AssistantProposedAction) => void;
   onCopy?: (text: string) => void;
@@ -51,6 +53,7 @@ export function AssistantMessageBubble({
   message,
   actionStates,
   onOpenCard,
+  onOpenWatchlist,
   onConfirmAction,
   onDismissAction,
   onCopy,
@@ -60,6 +63,9 @@ export function AssistantMessageBubble({
 }: AssistantMessageBubbleProps) {
   const theme = useSpotlightTheme();
   const testID = `assistant-message-${message.id}`;
+  const viewAll = message.cardsViewAll && onOpenWatchlist ? message.cardsViewAll : null;
+  // The header shows for a label, or to carry "View all" (titled after its screen).
+  const cardsTitle = message.cardsLabel || (viewAll ? 'Your Watchlist' : null);
 
   if (message.role === 'user') {
     return <UserBubble animateEntrance={animateEntrance} onCopy={onCopy} testID={testID} text={message.text} />;
@@ -89,6 +95,18 @@ export function AssistantMessageBubble({
           testID={`${testID}-chart-${index}`}
         />
       ))}
+      {message.cards.length > 0 && cardsTitle ? (
+        <View style={styles.cardsHeader}>
+          <SectionHeader
+            actionLabel={viewAll ? `View all ${viewAll.total}` : undefined}
+            actionTestID={`${testID}-cards-view-all`}
+            onActionPress={viewAll ? onOpenWatchlist : undefined}
+            size="compact"
+            testID={`${testID}-cards-label`}
+            title={cardsTitle}
+          />
+        </View>
+      ) : null}
       {message.cards.length > 0 ? (
         <ScrollView
           contentContainerStyle={styles.cardRail}
@@ -181,6 +199,10 @@ const styles = StyleSheet.create({
     maxWidth: '85%',
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
+  },
+  // Pulls the header onto its rail; the column gap would split them.
+  cardsHeader: {
+    marginBottom: -spacing.xxs,
   },
   // Bleeds to the screen edges so the rail scrolls under the gutter.
   cardRailScroller: {
