@@ -396,9 +396,9 @@ describe('AssistantScreen', () => {
     expect(StyleSheet.flatten(chips.props.style)).toMatchObject({ alignItems: 'center' });
     expect(StyleSheet.flatten(chips.props.style).flexDirection).not.toBe('row');
     expect(ASSISTANT_MARKET_PROMPTS).toEqual([
-      'Undervalued cards',
-      'Cards with most recently new high sales',
-      'What cards are likely to go up',
+      'What are some undervalued cards?',
+      "What's my collection worth?",
+      'Which of my cards should I get graded?',
     ]);
     ASSISTANT_MARKET_PROMPTS.forEach((prompt, index) => {
       expect(screen.getByTestId(`assistant-suggestion-${index}`)).toHaveTextContent(prompt);
@@ -406,7 +406,7 @@ describe('AssistantScreen', () => {
     expect(screen.queryByTestId('assistant-suggestion-3')).not.toBeOnTheScreen();
     fireEvent.press(screen.getByTestId('assistant-suggestion-1'));
     await waitFor(() => expect(sendAssistantMessage).toHaveBeenCalledTimes(1));
-    expect(sendAssistantMessage.mock.calls[0][0].text).toBe('Cards with most recently new high sales');
+    expect(sendAssistantMessage.mock.calls[0][0].text).toBe("What's my collection worth?");
   });
 
   it('a single scanned card gets card-specific starter prompts', async () => {
@@ -414,7 +414,7 @@ describe('AssistantScreen', () => {
     expect(await screen.findByText('Ask about this card')).toBeTruthy();
     expect(screen.getByText('Is this worth grading?')).toBeTruthy();
     expect(screen.getByText("What's this card worth in PSA 10?")).toBeTruthy();
-    expect(screen.queryByText('Undervalued cards')).not.toBeOnTheScreen();
+    expect(screen.queryByText('What are some undervalued cards?')).not.toBeOnTheScreen();
   });
 
   it('shows follow-up chips under the LATEST reply only, and tapping one sends it', async () => {

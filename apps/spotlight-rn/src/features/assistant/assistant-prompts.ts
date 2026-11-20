@@ -2,9 +2,10 @@ import type { AssistantUsage } from '@spotlight/api-client';
 
 // Owner-picked (2026-11-20): every entry point without specific cards gets exactly these.
 export const ASSISTANT_MARKET_PROMPTS = [
-  'Undervalued cards',
-  'Cards with most recently new high sales',
-  'What cards are likely to go up',
+  // One market question, two everyday-collector ones (owner, 2026-11-20).
+  'What are some undervalued cards?',
+  "What's my collection worth?",
+  'Which of my cards should I get graded?',
 ] as const;
 
 /** Starter prompts for a new chat: card-specific when opened with cards, else the three market prompts. */
