@@ -1057,7 +1057,8 @@ CREATE TABLE IF NOT EXISTS assistant_messages (
     cards_label TEXT,
     cards_view_all_json TEXT,
     cache_read_tokens INTEGER,
-    cache_write_tokens INTEGER
+    cache_write_tokens INTEGER,
+    cached INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_messages_client
@@ -1082,6 +1083,18 @@ CREATE TABLE IF NOT EXISTS assistant_feedback (
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_feedback_owner ON assistant_feedback(owner_user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_assistant_feedback_rating ON assistant_feedback(rating, updated_at DESC);
+-- Market-wide assistant answers replayed across users (mcp_server/assistant/shared_answers.py).
+-- Not owner-scoped: rows hold only user-neutral answers, keyed by question + price data version.
+CREATE TABLE IF NOT EXISTS assistant_shared_answers (
+    key TEXT PRIMARY KEY,
+    question_norm TEXT NOT NULL,
+    version TEXT NOT NULL,
+    reply_json TEXT NOT NULL,
+    hits INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assistant_shared_answers_expires ON assistant_shared_answers(expires_at);
 
 -- Seed themes. INSERT OR IGNORE: restarts never duplicate or undo hand edits.
 INSERT OR IGNORE INTO art_themes (theme, facet, value) VALUES

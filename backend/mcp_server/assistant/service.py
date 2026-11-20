@@ -12,7 +12,8 @@ from typing import Any
 from mcp_server.assistant.analytics import EVENT_FEEDBACK, TurnAnalytics
 from mcp_server.assistant.config import AssistantConfig
 from mcp_server.assistant.direct_add import UndoUnavailable, undo_expired
-from mcp_server.assistant.engine import AssistantEngine, AssistantFailed, cache_hit_ratio
+from mcp_server.assistant import shared_answers
+from mcp_server.assistant.engine import SYSTEM_PROMPT, AssistantEngine, AssistantFailed, cache_hit_ratio
 from mcp_server.assistant.flags import flag_turn
 from mcp_server.assistant.store import (
     FEEDBACK_NOTE_CHARS,
@@ -66,6 +67,7 @@ class AssistantService:
         # One turn at a time per user: keeps the limit check and the
         # client_message_id lookup race-free (single MCP process).
         self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
+        self.shared = shared_answers.SharedAnswerStore(lambda: self.store.conn)
 
     @property
     def available(self) -> bool:
@@ -168,6 +170,22 @@ class AssistantService:
         usage = await asyncio.to_thread(self._usage_sync, caller)
         if usage["limit"] is not None and usage["used_today"] >= usage["limit"]:
             return 429, {"error": "daily_limit", "usage": usage}
+        # A shared answer costs nothing, so it is served before the spend cap check.
+        shared_key, shared_version, question_norm = None, None, ""
+        if self.config.shared_answers and shared_answers.request_eligible(request):
+            try:
+                shared_version = await asyncio.to_thread(shared_answers.data_version, self.store.conn)
+            except Exception:  # noqa: BLE001 - the cache must never fail a question
+                logger.exception("assistant shared answer version failed")
+            if shared_version:
+                question_norm = shared_answers.normalize_question(request["text"])
+                shared_key = shared_answers.cache_key(
+                    question_norm, version=shared_version,
+                    fingerprint=shared_answers.engine_fingerprint(self.config.model, SYSTEM_PROMPT),
+                )
+                cached = await asyncio.to_thread(self.shared.get, shared_key, shared_version)
+                if cached is not None:
+                    return await self._send_cached(caller, request, cached, day)
         spent = await asyncio.to_thread(self.store.spend_today, day)
         if spent >= self.config.daily_spend_cap_usd:
             logger.warning("assistant daily spend cap reached: %.4f >= %.2f", spent, self.config.daily_spend_cap_usd)
@@ -221,6 +239,14 @@ class AssistantService:
             "tools_used": turn.tools_used,
             "tool_calls": turn.tool_calls,
         }
+        if shared_key and shared_answers.turn_cacheable(turn, flags):
+            try:
+                await asyncio.to_thread(
+                    self.shared.put, shared_key, question_norm=question_norm, version=shared_version,
+                    reply=shared_answers.shared_reply(turn),
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("assistant shared answer store failed")
         thread_id, question, message = await asyncio.to_thread(
             self.store.save_turn,
             user_id,
@@ -269,6 +295,57 @@ class AssistantService:
                 "flag_count": len(flags),
                 "question": request["text"][:ANALYTICS_QUESTION_CHARS],
                 "answer_preview": turn.text[:ANALYTICS_ANSWER_CHARS],
+                "thread_id": thread_id,
+                "message_id": message["id"],
+                "cached": False,
+            },
+        )
+        return 200, {
+            "thread_id": thread_id,
+            "user_message": question,
+            "message": message,
+            "usage": await asyncio.to_thread(self._usage_sync, caller),
+        }
+
+    async def _send_cached(
+        self, caller: Caller, request: dict[str, Any], cached: dict[str, Any], day: str
+    ) -> tuple[int, dict[str, Any]]:
+        """Replay a shared market answer: no LLM call, still a counted question."""
+        user_id = caller.user_id
+        reply = shared_answers.replay(cached)
+        thread_id, question, message = await asyncio.to_thread(
+            self.store.save_turn,
+            user_id,
+            thread_id=None,
+            client_message_id=request["client_message_id"],
+            question=request["text"],
+            reply=reply,
+            counted=True,
+            day=day,
+        )
+        await asyncio.to_thread(self.store.mark_cached, user_id, message["id"])
+        logger.info(
+            "assistant_turn user=%s source=%s status=ok cached=1 tools=%s cost_usd=0",
+            user_id, request["source"], ",".join(reply["tools_used"]) or "-",
+        )
+        self.analytics.capture(
+            user_id,
+            {
+                "status": "ok",
+                "cached": True,
+                "cost_usd": 0.0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "rounds": 0,
+                "tools": list(reply["tools_used"]),
+                "latency_ms": 0,
+                "source": request["source"],
+                "is_guest": caller.is_guest,
+                "model": self.config.model,
+                "flags": [],
+                "flag_count": 0,
+                "question": request["text"][:ANALYTICS_QUESTION_CHARS],
+                "answer_preview": reply["text"][:ANALYTICS_ANSWER_CHARS],
                 "thread_id": thread_id,
                 "message_id": message["id"],
             },

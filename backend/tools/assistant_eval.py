@@ -225,7 +225,7 @@ async def run_case(
         reply = payload["message"]
         row = assistant.store.conn.execute(
             "SELECT tools_used, tool_calls_json, cost_usd, input_tokens, output_tokens, cache_read_tokens, "
-            "cache_write_tokens FROM assistant_messages WHERE id = ?", (reply["id"],)
+            "cache_write_tokens, cached FROM assistant_messages WHERE id = ?", (reply["id"],)
         ).fetchone()
         charts = reply.get("charts") or []
         cards = tile_records(assistant.toolbox.conn, reply.get("cards") or [])
@@ -260,6 +260,7 @@ async def run_case(
             "output_tokens": row["output_tokens"],
             "cache_read_tokens": row["cache_read_tokens"],
             "cache_write_tokens": row["cache_write_tokens"],
+            "cached": bool(row["cached"]),
             "latency_ms": latency_ms,
         }
         if "cards_label" in reply:  # absent until show_cards lands; tiles_label skips then
@@ -344,6 +345,8 @@ async def run(args: argparse.Namespace, data: dict[str, Any], cases: list[dict[s
         unlimited_user_ids=frozenset({args.user_id}),
         daily_spend_cap_usd=max(env.daily_spend_cap_usd, 1.0),
         api_key=env.api_key,
+        # Off by default: a replayed answer would grade the cache, not the model.
+        shared_answers=args.shared_cache,
     )
     service = ReadOnlySpotlightService(Path(args.database_path), BACKEND_ROOT.parent)
     assistant = build_assistant_service(CollectionTools(service), config)
@@ -492,6 +495,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--export-labels", help="Write ~30 answers to this CSV for human pass/fail labels.")
     parser.add_argument("--label-count", type=int, default=30)
     parser.add_argument("--calibrate", help="Labeled CSV from --export-labels: judge-vs-human agreement.")
+    parser.add_argument("--shared-cache", action=argparse.BooleanOptionalAction, default=False,
+                        help="Serve/store shared market answers (default --no-shared-cache: every case hits the model).")
     parser.add_argument("--keep-threads", action="store_true", help="Keep the eval threads in the DB.")
     parser.add_argument("--quiet", action="store_true", help="Don't print JSONL to stdout.")
     parser.add_argument("--list", action="store_true", help="Print the selected cases and exit (no API calls).")

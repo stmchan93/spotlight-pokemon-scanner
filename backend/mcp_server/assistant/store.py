@@ -15,6 +15,8 @@ from typing import Any
 
 import user_ai_settings
 
+from mcp_server.assistant.shared_answers import SCHEMA_SQL as SHARED_ANSWERS_SCHEMA_SQL
+
 # Mirrors backend/schema.sql (the main server creates them from there).
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS assistant_threads (
@@ -29,7 +31,7 @@ CREATE TABLE IF NOT EXISTS assistant_messages (
     input_tokens INTEGER, output_tokens INTEGER, cost_usd REAL, tools_used TEXT,
     created_at TEXT NOT NULL, suggestions_json TEXT, tool_calls_json TEXT, charts_json TEXT,
     flags_json TEXT, cards_label TEXT, cards_view_all_json TEXT,
-    cache_read_tokens INTEGER, cache_write_tokens INTEGER
+    cache_read_tokens INTEGER, cache_write_tokens INTEGER, cached INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_messages_client
@@ -75,6 +77,7 @@ COLUMN_PATCHES = (
     # Prompt-cache usage per turn (input_tokens is the whole prompt, these included).
     ("assistant_messages", "cache_read_tokens", "INTEGER"),
     ("assistant_messages", "cache_write_tokens", "INTEGER"),
+    ("assistant_messages", "cached", "INTEGER"),
 )
 
 
@@ -83,6 +86,7 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
     # Direct adds share the MCP write tools' idempotency ledger.
     user_ai_settings.ensure_schema(connection)
     connection.executescript(FEEDBACK_SCHEMA_SQL)
+    connection.executescript(SHARED_ANSWERS_SCHEMA_SQL)
     for table, column, sql_type in COLUMN_PATCHES:
         columns = {str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
         if column not in columns:
@@ -455,6 +459,13 @@ class AssistantStore:
         ).fetchall()
         by_id = {row["id"]: row for row in rows}
         return thread_id, message_payload(by_id[user_id]), message_payload(by_id[reply_id])
+
+    def mark_cached(self, owner_user_id: str, message_id: str) -> None:
+        """Flag a reply that replayed a shared answer (no LLM call)."""
+        self.conn.execute(
+            "UPDATE assistant_messages SET cached = 1 WHERE id = ? AND owner_user_id = ?", (message_id, owner_user_id)
+        )
+        self.conn.commit()
 
     # --- actions -------------------------------------------------------------
 

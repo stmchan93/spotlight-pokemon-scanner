@@ -27,6 +27,7 @@ Source of truth for the parallel build agents. Plan: `docs/ai-features-master-pl
 | `ASSISTANT_UNLIMITED_USER_IDS` | `` | Comma-separated Supabase user ids with no limit (founder + staging testers) |
 | `ASSISTANT_DAILY_SPEND_CAP_USD` | `5` | Server-wide; when exceeded → 503 `assistant_busy` until next UTC day |
 | `ASSISTANT_MAX_TOOL_ROUNDS` | `4` | |
+| `ASSISTANT_SHARED_ANSWERS` | `1` | Shared market-answer cache (below); `0` = kill switch |
 | `ANTHROPIC_API_KEY` | (exists) | Already used by `anthropic_adapter.py` |
 
 One question = one user message that got an assistant answer. Failed or errored turns do NOT count.
@@ -204,6 +205,14 @@ CREATE TABLE IF NOT EXISTS user_ai_settings (
 );
 ```
 Raw tool payloads are not stored. History sent to the model = the last 10 messages of the thread: text, plus (2026-11-18) a model-only `[Looked up with: ...; Cards shown: ...]` note after each prior assistant answer built from `tool_calls_json` (fallback `tools_used`) and `cards_json`, so the model doesn't disown earlier tool-backed answers. Never shown to users. Account deletion must delete the user's rows in all five tables (incl. `assistant_feedback`) (find the existing account-deletion path and extend it).
+
+### Shared market answers (added 2026-11-20, cost lever)
+Market-wide questions ("Undervalued cards", "What's trending…") have one answer for everyone until prices change, so it is computed once (`mcp_server/assistant/shared_answers.py`, table `assistant_shared_answers(key PK, question_norm, version, reply_json, hits, created_at, expires_at)`, not owner-scoped).
+- Eligible request: first message of a new thread (`thread_id` null), no `context.card_ids`.
+- Stored only when the turn is `ok`, has no actions/tool errors/round-limit, carries no quality flag (`slow`/`expensive` are ignored), and every tool call was a market-wide read (`get_market_trends`, `find_price_lows`, `find_new_highs`, `list_facets`, `search_cards`, `find_top_graded`) with `owned` unset/`any`, no collection/holding args, and no user data in the result (`my_holdings`, `resolved_owned_*`, `quantity_owned`); `show_cards` is allowed; at least one non-`list_facets` lookup.
+- Key = sha256(normalized question, scope (reserved, ""), data version, model + system-prompt hash). Normalization: lowercase, trim, collapse whitespace, curly→straight quotes, strip trailing punctuation, then exact match or `QUESTION_ALIASES`. Data version = `price_lows_version_token` (newest price date + `pricing_sync_generation`); rows also expire after 24h.
+- Hit: no LLM call; the reply (text, cards without `quantity_owned`, cards_label, charts/sparklines, suggestions, tool_calls for history) is saved in the user's own new thread with its own ids, `cost_usd`/tokens 0, `assistant_messages.cached = 1`; it still counts as a question (daily limit) and is served even past the spend cap. Log line and PostHog `assistant_turn_cost` carry `cached: true` (misses `cached: false`).
+- Eval: `backend/tools/assistant_eval.py` bypasses the cache by default (`--no-shared-cache`); `--shared-cache` turns it on.
 
 ## MCP write tools (Agent C)
 
