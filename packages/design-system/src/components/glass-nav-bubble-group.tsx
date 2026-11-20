@@ -186,6 +186,8 @@ export function GlassNavBubbleGroup({
           width: glassNavBubbleGroupWidth(items.length, size),
         },
         hasGlass ? null : fallbackShell,
+        // Frost keeps its lift on real glass too (Figma 6502:7681: 0 8 40, 15%).
+        hasGlass && material === 'frost' ? theme.shadows.glassPill : null,
         style,
       ]}
       testID={testID}
