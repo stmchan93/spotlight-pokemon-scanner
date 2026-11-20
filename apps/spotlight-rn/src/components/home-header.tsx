@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { EkalightAiRing, EkalightAiSparkle } from '@/components/ekalight-ai-glyph';
+
 import {
   EkalightWordmark,
   GlassNavBubble,
@@ -168,7 +170,7 @@ const SHARE_ICON_HEIGHT = BUTTON_ICON_SIZE;
 // Home's leading brand lockup: the mark + "ekalight" wordmark, 36 tall
 // (Figma 5067:2029 — the shared primitive's own 104.726:32 box scaled to it,
 // which lands on the frame's 117.817 exactly). The width follows the artwork.
-const HOME_WORDMARK_HEIGHT = 36;
+const HOME_WORDMARK_HEIGHT = 32;
 /**
  * Height of the control row itself — the bubbles, the trailing capsule, and the
  * profile bar's search pill are all the same 44 (Figma 4299:94902). Taken from
@@ -328,26 +330,11 @@ export function HomeHeader({
     104 wide, and on the profile bar the flexed pill's width is the row's
     remainder against exactly that.
   */
-  const trailingControl =
+  const homeUtilities =
     trailing.kind === 'home' ? (
       <GlassNavBubbleGroup
         items={
           [
-            {
-              // Search sits on the right with the other icons (user, 2026-11-18).
-              // `kind: 'home'` is the FEED (Social tab); its magnifier finds PEOPLE.
-              accessibilityLabel: 'Search people',
-              children: (
-                <Search
-                  color={glyphColor}
-                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                  height={BUTTON_ICON_SIZE}
-                  width={BUTTON_ICON_SIZE}
-                />
-              ),
-              onPress: onOpenSearch,
-              testID: `${testID}-search`,
-            },
             {
               accessibilityLabel:
                 trailing.unreadCount > 0
@@ -383,14 +370,48 @@ export function HomeHeader({
               onPress: trailing.onOpenNotifications,
               testID: `${testID}-notifications`,
             },
+            {
+              // No search in Figma 6430:11305; it rides with the bell (owner, 2026-11-20).
+              // `kind: 'home'` is the FEED (Social tab); its magnifier finds PEOPLE.
+              accessibilityLabel: 'Search people',
+              children: (
+                <Search
+                  color={glyphColor}
+                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                  height={BUTTON_ICON_SIZE}
+                  width={BUTTON_ICON_SIZE}
+                />
+              ),
+              onPress: onOpenSearch,
+              testID: `${testID}-search`,
+            },
           ] satisfies GlassNavBubbleGroupItem[]
         }
-        // Frost, like the search bubble beside it (Figma 5656:10066).
         material="frost"
         size="medium"
         surface={chromeSurface}
-        testID={`${testID}-trailing`}
+        testID={`${testID}-utilities`}
       />
+    ) : null;
+
+  const trailingControl =
+    trailing.kind === 'home' ? (
+      onOpenAssistant ? (
+        <GlassNavBubble
+          accessibilityLabel="Ask Ekalight"
+          material="frost"
+          onPress={onOpenAssistant}
+          size="medium"
+          surface={chromeSurface}
+          testID={`${testID}-assistant`}
+        >
+          {/* Figma 6430:11311: the gradient flare inside a gradient-ringed frost bubble. */}
+          <EkalightAiSparkle />
+          <EkalightAiRing size={glassNavBubbleSizes.medium} />
+        </GlassNavBubble>
+      ) : (
+        <View style={{ width: glassNavBubbleSizes.medium }} />
+      )
     ) : (
       <GlassNavBubbleGroup
         items={
@@ -479,6 +500,9 @@ export function HomeHeader({
         ]}
         testID={`${testID}-row`}
       >
+        {trailing.kind === 'home' ? (
+          homeUtilities
+        ) : (
         <View style={styles.leadingGroup}>
           <GlassNavBubble
             accessibilityLabel="Open menu"
@@ -495,22 +519,6 @@ export function HomeHeader({
               width={BUTTON_ICON_SIZE}
             />
           </GlassNavBubble>
-          {trailing.kind === 'home' ? (
-            /*
-              The brand lockup is PERMANENT chrome, not an entrance. It neither
-              animates in on launch nor fades on scroll — both were removed
-              2026-09-09 ("it should just stay, remove the animation"). It sits
-              beside the menu bubble for the whole scroll, exactly as the frame
-              draws it, so there is deliberately no `scrollY` wiring here.
-            */
-            <View pointerEvents="none">
-              <EkalightWordmark
-                color={theme.colors.purple500}
-                height={HOME_WORDMARK_HEIGHT}
-                testID={`${testID}-home-mark`}
-              />
-            </View>
-          ) : null}
           {onOpenAssistant ? (
             <GlassNavBubble
               accessibilityLabel="Ask Ekalight"
@@ -529,6 +537,18 @@ export function HomeHeader({
             </GlassNavBubble>
           ) : null}
         </View>
+        )}
+
+        {trailing.kind === 'home' ? (
+          /*
+            Figma 6430:11305: the black lockup CENTRED on the bar, between the
+            bell (left) and Ask Ekalight (right). Permanent chrome: no entrance
+            or scroll animation (2026-09-09).
+          */
+          <View pointerEvents="none" style={styles.centerMark}>
+            <EkalightWordmark color={theme.colors.gray900} height={HOME_WORDMARK_HEIGHT} testID={`${testID}-home-mark`} />
+          </View>
+        ) : null}
 
         {/*
           NEITHER variant has a pill anymore (profile's "Search Cards" pill was
@@ -560,6 +580,17 @@ const styles = StyleSheet.create({
     // What lays Home out: menu leading, capsule trailing, nothing between. On
     // the profile the flexed pill fills the middle anyway, so this is inert.
     justifyContent: 'space-between',
+  },
+  // Fills the row and centres the lockup on the SCREEN, not between the side
+  // controls (whose widths differ).
+  centerMark: {
+    alignItems: 'center',
+    bottom: 0,
+    justifyContent: 'center',
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
   },
   leadingGroup: {
     alignItems: 'center',

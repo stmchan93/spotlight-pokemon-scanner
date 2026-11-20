@@ -110,7 +110,7 @@ describe('HomeHeader', () => {
     capsule's contents for edit + share.
   */
   describe('the trailing control', () => {
-    it('Social leads with the menu; search and the bell share the right capsule', () => {
+    it('Social (Figma 6430:11305): bell + search capsule left, centred lockup, Ask Ekalight right', () => {
       const onOpenNotifications = jest.fn();
       const onOpenSearch = jest.fn();
       renderHeader({
@@ -119,9 +119,10 @@ describe('HomeHeader', () => {
         trailing: { kind: 'home', onOpenNotifications, unreadCount: 0 },
       });
 
-      // Social: menu | capsule(search, bell) (user, 2026-11-18).
-      expect(screen.getByTestId('home-header-menu')).toBeTruthy();
-      expect(screen.getByTestId('home-header-trailing')).toBeTruthy();
+      // Social: capsule(bell, search) | lockup | Ask Ekalight. No menu bubble.
+      expect(screen.queryByTestId('home-header-menu')).toBeNull();
+      expect(screen.getByTestId('home-header-utilities')).toBeTruthy();
+      expect(screen.getByTestId('home-header-home-mark')).toBeTruthy();
 
       // NO SearchEntryPill on the home bar — search is a glyph slot, not a
       // field, so the pill's copy must not render anywhere.
@@ -140,10 +141,21 @@ describe('HomeHeader', () => {
       expect(onOpenNotifications).toHaveBeenCalledTimes(1);
     });
 
+    it('puts Ask Ekalight on the right with the gradient flare and ring', () => {
+      const onOpenAssistant = jest.fn();
+      renderHeader({ floating: true, onOpenAssistant, trailing: homeTrailing() });
+      const ai = screen.getByTestId('home-header-assistant');
+      expect(ai.props.accessibilityLabel).toBe('Ask Ekalight');
+      expect(screen.getByTestId('ekalight-ai-sparkle')).toBeTruthy();
+      expect(screen.getByTestId('ekalight-ai-ring')).toBeTruthy();
+      fireEvent.press(ai);
+      expect(onOpenAssistant).toHaveBeenCalledTimes(1);
+    });
+
     it('draws the Home capsule 44pt tall with 36pt search + bell slots', () => {
       renderHeader({ floating: true, trailing: homeTrailing() });
 
-      const capsule = StyleSheet.flatten(screen.getByTestId('home-header-trailing').props.style);
+      const capsule = StyleSheet.flatten(screen.getByTestId('home-header-utilities').props.style);
       expect(capsule.width).toBe(glassNavBubbleGroupWidth(2, 'medium'));
       expect(capsule.height).toBe(glassNavBubbleSizes.medium);
       expect(StyleSheet.flatten(screen.getByTestId('home-header-notifications').props.style).width).toBe(36);
@@ -162,7 +174,7 @@ describe('HomeHeader', () => {
         StyleSheet.flatten(screen.getByTestId('home-header-notifications').props.style).overflow,
       ).toBe('visible');
       expect(
-        StyleSheet.flatten(screen.getByTestId('home-header-trailing').props.style).overflow,
+        StyleSheet.flatten(screen.getByTestId('home-header-utilities').props.style).overflow,
       ).toBe('visible');
       // The unread count is spoken from the bell slot itself.
       expect(screen.getByTestId('home-header-notifications').props.accessibilityLabel).toBe(

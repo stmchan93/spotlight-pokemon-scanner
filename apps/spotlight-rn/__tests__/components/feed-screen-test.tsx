@@ -559,12 +559,13 @@ describe('FeedScreen', () => {
     expect(within(screen.getByTestId('feed-list')).queryByTestId('feed-header-rule')).toBeNull();
   });
 
-  it('leads with the menu and keeps search on the right', async () => {
+  it('heads Social with bell + search left and Ask Ekalight right (Figma 6430:11305)', async () => {
     renderFeed();
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-    expect(screen.getByTestId('feed-header-menu')).toBeTruthy();
+    expect(screen.queryByTestId('feed-header-menu')).toBeNull();
     expect(screen.getByTestId('feed-header-search')).toBeTruthy();
+    expect(screen.getByTestId('feed-header-assistant')).toBeTruthy();
   });
 
   // This gesture has been dropped TWICE by rewrites of this screen, so it is
