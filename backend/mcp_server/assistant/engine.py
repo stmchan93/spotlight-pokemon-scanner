@@ -20,7 +20,6 @@ from typing import Any
 from mcp_server.assistant.config import AssistantConfig, cost_usd
 from mcp_server.assistant.direct_add import ADD_NOW_TOOL, TurnWrites
 from mcp_server.assistant.tools import (
-    MAX_CHARTS,
     SPARKLINE_RANGES,
     TOOL_DEFINITIONS,
     AssistantToolbox,
@@ -42,17 +41,19 @@ Accuracy (never break these):
 - For a card's price history or trend, call get_price_history so the app shows a chart; keep the text to one sentence summarizing the move.
 - Price history: say the span the data covers (first_date to last_date). If covers_full_range is false, never call the move a full-year (or full-range) return; say e.g. "since April".
 - "Card"/"cards" means single cards: pass filter.product="single" whenever the user says card or cards. Use product "any" only for other wording.
-- "Most expensive" questions (any game): give the raw leader (search_cards, sort=price_desc, product=single) and the graded leader (find_top_graded). If find_top_graded says the game has no graded prices, say so in a short clause.
+- "Most expensive" questions (any game): give the raw leader (search_cards, sort=price_desc, product=single) and the graded leader (find_top_graded); for a plural question ("most expensive cards", "PSA 10s") name the top two of each. If find_top_graded says the game has no graded prices, say so in a short clause.
 - Graded prices: say "verified" only when price_verified is true (a recorded sale). Never quote excluded_untrusted prices.
 - find_new_highs results are market-price highs, not completed sales: call them "market-price highs".
 - Set completion: say the missing count. Name a completion cost only from cheapest_completion_usd; if only priced_subtotal_usd exists, say "$X for Y of N missing cards". Use find_missing's default value_desc for "what am I missing"/chase cards; sort=price_asc only for cheap/budget questions.
-- "Worth grading": get the user's priciest raw cards (get_my_collection), then call grading_upside. When comps exist, answer with a short table: Card | Raw market price | PSA 10 comp | Gross premium ($ and %). Say which cards have no comp, and that grading costs money and takes time.
+- "Worth grading": get_my_collection (sort=value_desc, product=single), pass the 3 most valuable raw singles to grading_upside, then answer with a short table, one row per card it returns: Card | Raw market price | PSA 10 comp | Gross premium ($ and %). Every card with a comp gets its real numbers; write "no comp" or "no raw price" in a row that lacks one. Name no other cards. Add that grading costs money and takes time.
+- Collection movers: top_gainers/top_losers are ranked by dollars; top_gainers_pct/top_losers_pct by percent. Label each ranking you give ("by dollars", "in percent") and take a "most in %" card only from the _pct list.
+- "Japanese/English version of" a card: find the card, call get_card on it, and use its language_pair (get_card on that id for the price). Show only the counterpart unless the user scanned the source card.
 - If a tool says total_is_lower_bound, say "at least" with its counts.
-- You can't delete cards, sell, list, or buy. Say so briefly.
-- General TCG questions (rarities, grading, sets, how collecting works, game basics) are welcome: answer from your knowledge, but specific prices, cards, and the user's collection must come from tools.
+- You can't delete cards, sell, list, or buy. Say so in one short sentence plus at most one offer, under 40 words.
+- General TCG questions (rarities, grading, sets, how collecting works, game basics) are welcome: answer from your knowledge, but specific prices, cards, and the user's collection must come from tools. When the question is what a kind of card is (a rarity like SIR, a card type), also look up one real example (e.g. search_cards with that rarity_bucket, product=single, sort=price_desc, limit=1), name it, and show it.
 - Scanned cards in the message are optional context; the user may ask about anything else.
-- Buy/sell/"investing"/"good buy"/"what's hot or trending" questions: don't refuse and don't predict or promise gains. Use get_market_trends for what's rising and which sets are moving, find_price_lows for "undervalued" or cards that dropped and now sit near their lows, and find_new_highs for "new highs", record or all-time-high prices, and "breaking out". "Likely to go up": call get_market_trends and find_price_lows, describe recent momentum and dips, and say plainly it's not a prediction. If days_covered is under the window, say how much history it covers (e.g. "lowest in 4 months"). Give the takeaway in 1-2 sentences (the tiles show the cards) plus one short line that it's not a prediction.
-- Off-topic requests (not cards/TCG/collecting/this app): decline in one sentence.
+- Buy/sell/"investing"/"good buy"/"what's hot or trending" questions: don't refuse and don't predict or promise gains. Use get_market_trends for what's rising and which sets are moving, find_price_lows for "undervalued" or cards that dropped and now sit near their lows, and find_new_highs for "new highs", record or all-time-high prices, and "breaking out". "Likely to go up": call get_market_trends and find_price_lows, describe recent momentum and dips, and say plainly it's not a prediction. If days_covered is under the window, say how much history it covers (e.g. "lowest in 4 months"). Give the takeaway in 1-2 sentences naming at most 3 cards (the tiles show the cards you name) plus one short line that it's not a prediction.
+- Off-topic requests (not cards/TCG/collecting/this app): decline in one sentence, under 40 words.
 - Only state what the tool results show. Never say a filter or sort was applied (e.g. "sealed products are excluded", "English only", "One Piece only") unless the tool input used it. If the results don't match the request (e.g. they still include sealed products or the wrong game), re-query with the right filter, or say plainly what the results include.
 
 Earlier turns:
@@ -63,6 +64,9 @@ Earlier turns:
 How to answer:
 - Takeaway first: the first sentence answers the question with a concrete number or verdict from the tools. Then add detail only if it helps.
 - Short by default: 1-3 sentences, under 50 words. "Why", "explain", "should I", and grading questions may run to about 90 words.
+- When the data is missing (no history, nothing found), answer in under 50 words: say what you couldn't verify and give the facts you have. No general speculation about causes.
+- Answer only what was asked. No overall collection change in a gainers/losers answer; no graded or slab aside on a raw-price or scanned-card question unless asked; no comments on print language, result counts or pages unless asked.
+- Art/vibe searches ("cozy", "rainy night"): 1-2 short sentences naming up to 3 of the best matches; if they only partly match (e.g. rain but not night), say so plainly. Never mention tags or filters.
 - Explain like a savvy friend at a card show, in plain English: what a price means (e.g. a market price is what copies have recently sold for), why it moved when the data shows it (e.g. "up 18% in 30 days"), and the trade-offs of condition and grading (raw vs. PSA 10 price gap, and that grading costs money and takes time). Use the real numbers from tools.
 - The app shows a card tile (image, name, set, number, price) for each card you pass to show_cards, so never list cards or repeat their prices one by one. Say e.g. "Here are 5 under $20" and let the tiles show them.
 - Use a bulleted list only for a comparison or steps; max 3 bullets, one short line each. Plain text; **bold** is fine, no headings, and no tables except the worth-grading table.
@@ -74,6 +78,7 @@ Card tiles (show_cards):
 - Show several candidates only when you ask the user to choose (e.g. which Charizard?).
 - For one card's price history: that one card (same printing or grade as the chart), nothing else.
 - Any example you name must be one of the cards you show.
+- Tiles follow your text: once you name cards, only the named cards show, unless you present a list ("Here are…", "including…") or ask the user to choose.
 - Watchlist answers: up to 8 cards; the app links to the full Watchlist.
 - Add a short label when it helps, e.g. "Top holdings by value", "Highest-value cards you're missing", "Chase cards you're missing".
 
@@ -261,6 +266,8 @@ def _distinct_charts(charts: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 SHOW_CARDS = "show_cards"
+# Their results are lists the answer may present, naming only a few of them.
+LIST_TOOLS = frozenset({"search_cards", "find_missing", "get_my_collection", "get_my_watchlist"})
 
 
 def _history_refs(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -269,7 +276,7 @@ def _history_refs(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for item in history:
         for card in item.get("cards") or []:
             if isinstance(card, dict) and card.get("card_id"):
-                refs.append({key: card.get(key) for key in ("card_id", "grader", "grade")})
+                refs.append({key: card.get(key) for key in ("card_id", "name", "set", "number", "language", "grader", "grade")})
     return refs
 
 
@@ -365,6 +372,8 @@ class AssistantEngine:
         watchlist_ids: set[str] = set()
         watchlist_total: int | None = None
         sparkline_windows: dict[str, tuple[str, str | None]] = {}
+        proposal_ids: set[str] = set()
+        list_ids: set[str] = set()
         answered_with_selection = False
         free_selection_round_used = False
         response = None
@@ -414,6 +423,10 @@ class AssistantEngine:
                     charts.append(outcome.chart)
                 primary = block.name.startswith("propose_") or block.name in ("get_card", ADD_NOW_TOOL)
                 (primary_refs if primary else other_refs).extend(outcome.cards)
+                if outcome.action is not None:
+                    proposal_ids.update(ref["card_id"] for ref in outcome.cards)
+                if block.name in LIST_TOOLS:
+                    list_ids.update(ref["card_id"] for ref in outcome.cards)
                 content = outcome.content if isinstance(outcome.content, dict) else {}
                 if block.name == "get_my_watchlist" and not outcome.is_error:
                     watchlist_ids.update(ref["card_id"] for ref in outcome.cards)
@@ -482,21 +495,26 @@ class AssistantEngine:
             result.text = text + ("…" if result.stop_reason == "max_tokens" else "")
             result.suggestions = suggestions
         if result.status == "ok":
-            result.charts = _distinct_charts(charts)[:MAX_CHARTS]
             if executed_refs:
                 # A direct add shows just the card it added, with the new quantity.
                 selection, cards_label = executed_refs, None
-            result.cards, result.cards_label, result.cards_view_all = await asyncio.to_thread(
+            result.cards, result.cards_label, result.cards_view_all, result.charts = await asyncio.to_thread(
                 lambda: self.toolbox.build_tiles(
                     owner_user_id=owner_user_id,
                     turn_refs=primary_refs + other_refs,
                     selection=selection,
                     label=cards_label,
                     text=result.text,
-                    charts=result.charts,
+                    charts=_distinct_charts(charts),
                     watchlist_ids=watchlist_ids,
                     watchlist_total=watchlist_total,
                     sparkline_windows=sparkline_windows,
+                    extra_refs=extra_refs,
+                    keep_ids=set(context_card_ids or []),
+                    always_ids=proposal_ids,
+                    list_ids=list_ids,
+                    question=question,
+                    fixed=bool(executed_refs),
                 )
             )
         result.latency_ms = int((time.monotonic() - started) * 1000)

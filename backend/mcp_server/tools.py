@@ -119,6 +119,8 @@ MAX_NEW_HIGHS = 20
 TREND_WINDOWS = {"7d": 7, "30d": 30, "90d": 90}
 MAX_TREND_CARDS = 5
 MAX_TREND_SETS = 3
+# CardFilter keys that scope a query but are not art_search filter keys.
+ART_SCOPE_KEYS = frozenset({"game", "product"})
 # Tool condition code -> card_price_history_cell condition code.
 HISTORY_CONDITIONS = {"NM": "NM", "LP": "LP", "MP": "MP", "HP": "HP", "DMG": "DM"}
 DECK_CONDITION_CODES = {
@@ -269,6 +271,12 @@ class CollectionTools:
     # ------------------------------------------------------------------
 
     def _art_call(self, fn_name: str, *args: Any, **kwargs: Any) -> Any:
+        # game/product are scope checks done by the callers (art tags are Pokémon
+        # singles only); art_search rejects them as unknown filter keys.
+        args = tuple(
+            {key: value for key, value in arg.items() if key not in ART_SCOPE_KEYS} if isinstance(arg, dict) else arg
+            for arg in args
+        )
         try:
             return getattr(art_search, fn_name)(*args, **kwargs)
         except art_search.ArtFilterError as error:
@@ -1172,9 +1180,12 @@ class CollectionTools:
 
         holdings: list[dict[str, Any]] = []
         requests: list[dict[str, Any]] = []
+        sealed_ids: set[str] = set()
         for entry, card in pairs:
             holding = self._holding_summary(entry, card)
             holdings.append(holding)
+            if is_sealed_card(card):
+                sealed_ids.add(str(card["id"]))
             pricing = (entry.get("card") or {}).get("pricing") or {}
             # FX-converted prices have native-currency history; no USD start point.
             if holding["price_usd"] is None or pricing.get("displayIsConverted"):
@@ -1244,6 +1255,10 @@ class CollectionTools:
         value = sum(holding["value_usd"] for holding in holdings if holding["value_usd"] is not None)
         gainers = sorted((m for m in movers if m["change_usd"] > 0), key=lambda m: m["change_usd"], reverse=True)
         losers = sorted((m for m in movers if m["change_usd"] < 0), key=lambda m: m["change_usd"])
+        # Percent leaders among single cards, so "dropped the most" in % isn't guessed from the $ list.
+        singles = [m for m in movers if m["card_id"] not in sealed_ids and m["change_pct"] is not None]
+        pct_gainers = sorted((m for m in singles if m["change_usd"] > 0), key=lambda m: m["change_pct"], reverse=True)
+        pct_losers = sorted((m for m in singles if m["change_usd"] < 0), key=lambda m: m["change_pct"])
         has_history = bool(movers)
         # change_pct is relative to the whole collection's start value (today's
         # value minus the change; holdings without history count as flat), so
@@ -1268,6 +1283,12 @@ class CollectionTools:
             ),
             "top_gainers": gainers[:5],
             "top_losers": losers[:5],
+            "top_gainers_pct": [self._pct_mover(m) for m in pct_gainers[:3]],
+            "top_losers_pct": [self._pct_mover(m) for m in pct_losers[:3]],
+            "movers_basis": (
+                "top_gainers/top_losers rank all holdings (sealed included) by change_usd (dollars); "
+                "top_gainers_pct/top_losers_pct rank single cards only by change_pct."
+            ),
             "holdings_count": len(holdings),
             "unpriced_count": sum(1 for holding in holdings if holding["value_usd"] is None),
             "change_basis": (
@@ -1279,6 +1300,11 @@ class CollectionTools:
             ),
             **({"truncated_at": MAX_HOLDINGS_READ} if truncated else {}),
         }
+
+    @staticmethod
+    def _pct_mover(mover: dict[str, Any]) -> dict[str, Any]:
+        keys = ("card_id", "name", "set", "number", "language", "grader", "grade", "variant", "change_usd", "change_pct")
+        return {key: mover.get(key) for key in keys}
 
     # A start price more than this many times off today's is a bad history point
     # (JP Scrydex yen stamped USD, broken JP anchors) unless TCGplayer printed it.

@@ -27,6 +27,7 @@ if HAVE_DEPS:
         MAX_WATCHLIST_TILES,
         TOOL_DEFINITIONS,
         AssistantToolbox,
+        choose_tiles,
         clean_label,
         collapse_same_art,
         named_refs,
@@ -212,13 +213,14 @@ class FallbackTests(TilesCase):
         )
         self.assertEqual(len(reply["charts"]), 1)
         self.assertEqual(self.ids(reply["cards"]), ["ssp-1"])
-        # An explicit selection that forgets the charted card still gets its tile.
+        # An explicit selection that forgets the charted card still gets its tile (first);
+        # another card the text names stays.
         reply = self.reply(
             message([tool_use("get_price_history", {"card_id": "ssp-1"}, "h"),
                      tool_use("search_cards", {"filter": {"text": "charizard"}}, "s")], "tool_use"),
             message([text("Charizard ex is $8."), show("ssp-2")], "tool_use"),
         )
-        self.assertEqual(self.ids(reply["cards"]), ["ssp-2", "ssp-1"])
+        self.assertEqual(self.ids(reply["cards"]), ["ssp-1", "ssp-2"])
 
 
 class SameArtTests(TilesCase):
@@ -229,6 +231,22 @@ class SameArtTests(TilesCase):
         self.assertEqual(sorted(ids), ["ssp-1", "ssp-3"])
         self.assertEqual(outcome.content["same_art_printings_hidden"], 2)
         self.assertEqual(sorted(card["card_id"] for card in outcome.cards), ["ssp-1", "ssp-3"])
+
+    def test_art_search_accepts_game_and_product_scope(self) -> None:
+        # "cards" means product=single; art search must not reject it as an unknown key.
+        toolbox = AssistantToolbox(self.tools)
+        outcome = toolbox.run("search_cards", {"filter": {"scene": ["beach"], "game": "pokemon", "product": "single"}},
+                              owner_user_id=USER_A)
+        self.assertFalse(outcome.is_error, outcome.content)
+        self.assertEqual(sorted(item["card_id"] for item in outcome.content["results"]), ["ssp-1", "ssp-3"])
+        outcome = toolbox.run("search_cards", {"filter": {"scene": ["beach"], "game": "onepiece"}}, owner_user_id=USER_A)
+        self.assertTrue(outcome.is_error)
+
+    def test_grading_upside_compares_at_most_three_candidates(self) -> None:
+        outcome = AssistantToolbox(self.tools).run(
+            "grading_upside", {"card_ids": ["ssp-1", "ssp-2", "ssp-3", "ssp-4"]}, owner_user_id=USER_A)
+        self.assertFalse(outcome.is_error, outcome.content)
+        self.assertEqual(sorted(card["card_id"] for card in outcome.content["cards"]), ["ssp-1", "ssp-2", "ssp-3"])
 
     def test_collapse_prefers_language_and_keeps_slot(self) -> None:
         groups = {"jp-1": "g", "ssp-1": "g", "ssp-3": "e"}
@@ -309,6 +327,137 @@ class WatchlistTests(TilesCase):
                  {"card_id": "near", "price_usd": 11.0, "target_price_usd": 10.0},
                  {"card_id": "pricey", "price_usd": 90.0}]
         self.assertEqual([i["card_id"] for i in watchlist_order(items)], ["near", "far", "pricey", "cheap", "none"])
+
+
+def ref(card_id: str, name: str, number: str = "1", set_name: str = "Set", **extra: Any) -> dict[str, Any]:
+    return {"card_id": card_id, "name": name, "number": number, "set": set_name, **extra}
+
+
+@unittest.skipUnless(HAVE_DEPS, "assistant deps missing")
+class ChooseTilesTests(unittest.TestCase):
+    """Tile discipline in code: what the answer is about, whatever the model selected."""
+
+    KYOGRE = [ref("bw5-104", "Kyogre-EX", "104/108", "Dark Explorers"), ref("xy5-148", "Kyogre-EX", "148/160", "Primal Clash"),
+              ref("xy5-54", "Kyogre-EX", "54/160", "Primal Clash")]
+
+    @staticmethod
+    def ids(tiles: list[dict[str, Any]]) -> list[str]:
+        return [tile["card_id"] for tile in tiles]
+
+    @staticmethod
+    def chart(card_id: str) -> dict[str, Any]:
+        return {"card_id": card_id, "variant": None, "grader": None, "grade": None, "points": []}
+
+    def test_chart_shows_only_the_charted_card(self) -> None:
+        charizards = [ref("sv3pt5-199", "Charizard ex", "199/165", "151"), ref("sv3pt5-183", "Charizard ex", "183/165", "151"),
+                      ref("sv3pt5-6", "Charizard ex", "006/165", "151")]
+        tiles, charts = choose_tiles(None, charizards, "Charizard ex 151 #199 is down 31% since April.",
+                                     [self.chart("sv3pt5-199")])
+        self.assertEqual(self.ids(tiles), ["sv3pt5-199"])
+        self.assertEqual(len(charts), 1)
+        # The model's selection of other printings is dropped too.
+        tiles, _ = choose_tiles(list(self.KYOGRE), self.KYOGRE, "Kyogre-EX held near $319, then jumped.",
+                                [self.chart("bw5-104")])
+        self.assertEqual(self.ids(tiles), ["bw5-104"])
+
+    def test_two_charts_narrow_to_the_printing_the_text_pins(self) -> None:
+        tiles, charts = choose_tiles(
+            list(self.KYOGRE[:2]), self.KYOGRE, "The Dark Explorers Kyogre-EX (104/108) is worth $504.",
+            [self.chart("bw5-104"), self.chart("xy5-148")],
+        )
+        self.assertEqual(self.ids(tiles), ["bw5-104"])
+        self.assertEqual([chart["card_id"] for chart in charts], ["bw5-104"])
+
+    def test_chart_keeps_the_scanned_card(self) -> None:
+        refs = [ref("sv2a_ja-201", "Charizard ex", "201/165", "Pokémon Card 151"), ref("sv3pt5-199", "Charizard ex", "199/165", "151")]
+        tiles, _ = choose_tiles(list(refs), refs, "The English counterpart is Charizard ex #199/165.",
+                                [self.chart("sv3pt5-199")], keep_ids={"sv2a_ja-201"})
+        self.assertEqual(self.ids(tiles), ["sv3pt5-199", "sv2a_ja-201"])
+
+    def test_named_cards_cap_the_selection(self) -> None:
+        refs = [ref("bw5-104", "Kyogre-EX"), ref("base2-11", "Snorlax"), ref("base1-6", "Gyarados"),
+                ref("base2-12", "Vaporeon"), ref("swsh8b_ja-77", "Mimikyu VMAX")]
+        tiles, _ = choose_tiles(list(refs), refs, "Kyogre-EX (+$18.49) and Snorlax (+$11.79) led; Gyarados gained 14%.", [])
+        self.assertEqual(self.ids(tiles), ["bw5-104", "base2-11", "base1-6"])
+
+    def test_named_card_missing_from_selection_is_added(self) -> None:
+        refs = [ref("base4-10", "Mewtwo", "10/130", "Base Set 2"), ref("smp-SM77", "Mewtwo", "SM77"),
+                ref("dp5-97", "Garchomp LV.X", "97/100", "Majestic Dawn"), ref("xy7-68", "Lugia-EX")]
+        tiles, _ = choose_tiles([refs[0], refs[1], refs[3]], refs,
+                                "Base Set 2 Mewtwo hit $164.96 and Majestic Dawn Garchomp LV.X $379.", [])
+        self.assertEqual(self.ids(tiles), ["base4-10", "dp5-97"])
+
+    def test_top_n_keeps_one_printing_per_name_unless_pinned(self) -> None:
+        refs = [ref("p-107", "Pikachu ex", "107"), ref("p-109", "Pikachu ex", "109"), ref("e-108", "Espeon ex", "108"),
+                ref("b-4", "Blastoise", "4/165")]
+        tiles, _ = choose_tiles(list(refs), refs, "Pikachu ex and Espeon ex sit near their lows.", [])
+        self.assertEqual(self.ids(tiles), ["p-107", "e-108"])
+        tiles, _ = choose_tiles(list(refs), refs, "Pikachu ex #109 and Espeon ex sit near their lows.", [])
+        self.assertEqual(self.ids(tiles), ["p-109", "e-108"])
+
+    def test_set_pins_a_printing_the_number_does_not(self) -> None:
+        refs = [ref("sv3pt5-199", "Charizard ex", "199/165", "151"),
+                ref("sv3-223", "Charizard ex", "223/197", "Obsidian Flames"), ref("xy5-54", "Kyogre-EX", "54/160")]
+        text = "The 151 Charizard ex (#199/165) is worth the most. The Obsidian Flames Charizard ex is $84 and Kyogre-EX $19."
+        tiles, _ = choose_tiles(list(refs), refs, text, [])
+        self.assertEqual(self.ids(tiles), ["sv3pt5-199", "sv3-223", "xy5-54"])
+
+    def test_names_without_tiles_resolve_from_tool_results(self) -> None:
+        refs = [ref("lorcana~FBL-242", "Mickey Mouse", "242/204", "Fabled"),
+                ref("lorcana~WILD-241", "Buzz Lightyear", "241/204", "Wilds Unknown"),
+                ref("lorcana~C1-5", "Mickey Mouse", "5/C1", "Challenge Promos", grader="CGC", grade="9.5"),
+                ref("lorcana~FBL-111", "Mickey Mouse", "111/204", "Fabled", grader="BGS", grade="10")]
+        text = "Mickey Mouse from Fabled (#242/204) leads raw; Buzz Lightyear follows. Graded: Mickey Mouse (#5/C1) CGC 9.5."
+        expected = ["lorcana~FBL-242", "lorcana~WILD-241", "lorcana~C1-5"]
+        self.assertEqual(self.ids(choose_tiles([], refs, text, [])[0]), expected)  # show_cards picked nothing
+        self.assertEqual(self.ids(choose_tiles(None, refs, text, [])[0]), expected)  # show_cards never called
+        # Pinned by set: the Fabled BGS 10 slab stays out unless the text names BGS.
+        text = "Mickey Mouse from Fabled leads raw at $4,167, then Buzz Lightyear. Top graded: Challenge Promos Mickey Mouse, CGC 9.5."
+        self.assertEqual(self.ids(choose_tiles([], refs, text, [])[0]), expected)
+
+    def test_asking_to_choose_keeps_candidates(self) -> None:
+        refs = [ref("c1", "Charizard", "4/102", "Base"), ref("c2", "Charizard", "11/108"), ref("c3", "Charizard ex", "199/165")]
+        tiles, _ = choose_tiles(list(refs), refs, "There are many Charizard printings. Which set or number do you mean?", [])
+        self.assertEqual(self.ids(tiles), ["c1", "c2", "c3"])
+        # An offer ending in "?" is not a choice question.
+        tiles, _ = choose_tiles(list(refs), refs, "Base Charizard (4/102) is $400. Want me to watch it?", [])
+        self.assertEqual(self.ids(tiles), ["c1"])
+
+    def test_watchlist_preview_and_browse_examples_keep_the_list(self) -> None:
+        refs = [ref(f"w{i}", f"Card {chr(65 + i)}") for i in range(5)]
+        ids = {r["card_id"] for r in refs}
+        tiles, _ = choose_tiles(None, refs, "Card A is your priciest at $67.", [], watchlist_ids=ids)
+        self.assertEqual(len(tiles), 5)
+        tiles, _ = choose_tiles(list(refs), refs, "Here are cozy sleeping cards, including Card A and Card B.", [],
+                                list_ids=ids)
+        self.assertEqual(len(tiles), 5)
+        # Not a browse list (e.g. near-lows): the examples marker doesn't widen it.
+        tiles, _ = choose_tiles(list(refs), refs, "Several cards are near lows, including Card A.", [])
+        self.assertEqual(self.ids(tiles), ["w0"])
+
+    def test_list_answers_keep_the_list_and_its_stated_size(self) -> None:
+        refs = [ref(f"s{i}", f"Card {chr(65 + i)}") for i in range(8)]
+        ids = {r["card_id"] for r in refs}
+        text = "There are 169 under $50; the priciest eight are led by Card A."
+        self.assertEqual(len(choose_tiles(list(refs), refs, text, [], list_ids=ids)[0]), 8)
+        tiles, _ = choose_tiles(list(refs), refs, "Here are your top three, led by Card A.", [], list_ids=ids)
+        self.assertEqual(self.ids(tiles), ["s0", "s1", "s2"])
+        # The user asked for five: five tiles even though the answer names one.
+        tiles, _ = choose_tiles(list(refs), refs, "Your top holding is Card A.", [],
+                                question="What are my 5 most valuable cards?")
+        self.assertEqual(self.ids(tiles), ["s0", "s1", "s2", "s3", "s4"])
+
+    def test_no_names_keeps_selection_and_proposals_always_show(self) -> None:
+        refs = [ref("a", "Alpha"), ref("b", "Beta"), ref("c", "Gamma")]
+        tiles, _ = choose_tiles([refs[0], refs[1]], refs, "Here are 2 under $20.", [])
+        self.assertEqual(self.ids(tiles), ["a", "b"])
+        tiles, _ = choose_tiles([refs[0]], refs, "Alpha is ready to confirm.", [], always_ids={"c"})
+        self.assertEqual(self.ids(tiles), ["a", "c"])
+
+    def test_select_tiles_accepts_an_id_without_its_game_prefix(self) -> None:
+        refs = [ref("lorcana~FBL-242", "Mickey Mouse")]
+        tiles, dropped = select_tiles([{"card_id": "FBL-242", "variant": None, "grader": None, "grade": None}], refs)
+        self.assertEqual((self.ids(tiles), dropped), (["lorcana~FBL-242"], []))
 
 
 if __name__ == "__main__":

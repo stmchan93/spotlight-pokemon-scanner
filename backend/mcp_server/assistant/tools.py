@@ -58,6 +58,7 @@ MAX_QUANTITY = 999
 MAX_LABEL_CHARS = 40
 MAX_WATCHLIST_TILES = 8
 MAX_SPARKLINE_POINTS = 30
+MAX_GRADING_CANDIDATES = 3
 # find_price_lows / find_new_highs window -> get_price_history range.
 SPARKLINE_RANGES = {"90d": "90d", "1y": "1y"}
 # Fields the model never needs (tiles carry them); dropping them saves tokens.
@@ -191,8 +192,10 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "get_card",
         "description": (
-            "One card: details, USD price, art tags, similar card ids, its other-language counterpart, and the "
-            "user's own copies (my_holdings, each with holding_id and printing)."
+            "One card: details, USD price, art tags, similar card ids, language_pair (the card_id of its linked "
+            "Japanese/English counterpart: use it for 'is there a Japanese/English version' questions, then "
+            "get_card on that id for its price), and the user's own copies (my_holdings, each with holding_id "
+            "and printing)."
         ),
         "input_schema": _obj({"card_id": {"type": "string"}}, ["card_id"]),
         "strict": True,
@@ -283,9 +286,11 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "name": "grading_upside",
-        "description": GRADING_UPSIDE_DESCRIPTION,
+        "description": GRADING_UPSIDE_DESCRIPTION.replace("up to 10 card_ids (usually ", "up to 3 card_ids (")
+        + " Pass the user's 3 most valuable raw singles (get_my_collection sort=value_desc, product=single; skip "
+        "slabs); they are the candidates to compare.",
         "input_schema": _obj(
-            {"card_ids": {"type": "array", "items": {"type": "string"}, "description": "1-10 card ids."}},
+            {"card_ids": {"type": "array", "items": {"type": "string"}, "description": "1-3 card ids, most valuable first."}},
             ["card_ids"],
         ),
         "strict": True,
@@ -577,7 +582,7 @@ def select_tiles(items: Any, refs: list[dict[str, Any]]) -> tuple[list[dict[str,
         card_id = _optional_str(item.get("card_id"), limit=200)
         if not card_id:
             continue
-        candidates = by_id.get(card_id)
+        candidates = by_id.get(card_id) or _unprefixed_match(by_id, card_id)
         if not candidates:
             dropped.append(card_id)
             continue
@@ -593,27 +598,43 @@ def select_tiles(items: Any, refs: list[dict[str, Any]]) -> tuple[list[dict[str,
     return tiles, dropped
 
 
+def _unprefixed_match(by_id: dict[str, list[dict[str, Any]]], card_id: str) -> list[dict[str, Any]] | None:
+    """'FBL-242' for 'lorcana~FBL-242': the model sometimes drops the game prefix.
+    Only an unambiguous match counts."""
+    found = [refs for ref_id, refs in by_id.items() if ref_id.partition("~")[2] == card_id]
+    return found[0] if len(found) == 1 else None
+
+
 def _name_key(ref: dict[str, Any]) -> str:
     return " ".join(str(ref.get("name") or "").split()).casefold()
 
 
 def _number_in_text(number: Any, text: str) -> bool:
+    """The full number ('199/165', '#199/165') or, after '#', its part before the
+    slash with or without leading zeros ('#199', '#6' for 006/165)."""
     number = str(number or "").strip().lstrip("#")
-    return bool(number) and re.search(r"(?<![\w/])#?" + re.escape(number) + r"(?!\w)", text, re.IGNORECASE) is not None
+    if not number:
+        return False
+    if re.search(r"(?<![\w/])#?" + re.escape(number) + r"(?!\w)", text, re.IGNORECASE):
+        return True
+    head = number.split("/")[0]
+    return any(
+        re.search(r"#" + re.escape(form) + r"(?!\w)", text, re.IGNORECASE)
+        for form in {head, head.lstrip("0")} if form and form != number
+    )
 
 
-def named_refs(refs: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
-    """Refs whose card name is in the answer text (a name seen only inside a
-    longer matched name doesn't count); a number in the text narrows a name to
-    that printing."""
-    spans: dict[str, list[tuple[int, int]]] = {}
-    for ref in refs:
-        key = _name_key(ref)
-        if not key or key in spans:
-            continue
-        pattern = r"(?<!\w)" + r"\s+".join(re.escape(part) for part in key.split()) + r"(?!\w)"
-        spans[key] = [match.span() for match in re.finditer(pattern, text, re.IGNORECASE)]
-    matched = {key: found for key, found in spans.items() if found}
+def _phrase_spans(phrase: str, text: str) -> list[tuple[int, int]]:
+    parts = phrase.split()
+    if not parts:
+        return []
+    pattern = r"(?<!\w)" + r"\s+".join(re.escape(part) for part in parts) + r"(?!\w)"
+    return [match.span() for match in re.finditer(pattern, text, re.IGNORECASE)]
+
+
+def _uncovered(matched: dict[str, list[tuple[int, int]]]) -> set[str]:
+    """Keys with a mention not inside a longer key's mention ('Charizard' in
+    'Charizard ex', set 'Base' in 'Base Set 2')."""
 
     def covered(key: str) -> bool:
         return all(
@@ -625,10 +646,154 @@ def named_refs(refs: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
             for start, end in matched[key]
         )
 
-    names = {key for key in matched if not covered(key)}
+    return {key for key, found in matched.items() if found and not covered(key)}
+
+
+def named_refs(refs: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
+    """Refs whose card name is in the answer text (a name seen only inside a
+    longer matched name doesn't count); a number in the text narrows a name to
+    that printing."""
+    keys = {_name_key(ref) for ref in refs} - {""}
+    names = _uncovered({key: _phrase_spans(key, text) for key in keys})
     named = [ref for ref in refs if _name_key(ref) in names]
     numbered = {_name_key(ref) for ref in named if _number_in_text(ref.get("number"), text)}
     return [ref for ref in named if _name_key(ref) not in numbered or _number_in_text(ref.get("number"), text)]
+
+
+def _set_key(ref: dict[str, Any]) -> str:
+    key = " ".join(str(ref.get("set") or "").split()).casefold()
+    return key if len(key) >= 3 else ""
+
+
+def _slab_mentioned(ref: dict[str, Any], text: str) -> bool:
+    grader = _slab(ref)[0]
+    return grader is None or bool(_phrase_spans(grader, text))
+
+
+def pin_printings(refs: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
+    """Per card name, the printings the text pins (number; or set, when no
+    printing of that set is pinned by number and a slab's grader is named),
+    else just the first one listed. A pinned card keeps its raw ref and the
+    slabs whose grader the text names. Order kept."""
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for ref in refs:
+        groups.setdefault(_name_key(ref), []).append(ref)
+    set_keys = {_set_key(ref) for ref in refs} - {""}
+    named_sets = _uncovered({key: _phrase_spans(key, text) for key in set_keys})
+    keep: set[int] = set()
+    for group in groups.values():
+        by_number = [ref for ref in group if _number_in_text(ref.get("number"), text)]
+        numbered_sets = {_set_key(ref) for ref in by_number}
+        by_set = [
+            ref for ref in group
+            if _set_key(ref) in named_sets and _set_key(ref) not in numbered_sets and _slab_mentioned(ref, text)
+        ]
+        pins = by_number + by_set or group[:1]
+        pinned = {str(ref["card_id"]) for ref in pins}
+        keep.update(id(ref) for ref in pins)
+        keep.update(id(ref) for ref in group if str(ref["card_id"]) in pinned and _slab_mentioned(ref, text))
+    return [ref for ref in refs if id(ref) in keep]
+
+
+# The answer asks the user to pick ("Which Charizard do you mean?"): candidates stay.
+_CHOICE_QUESTION = re.compile(r"[^.?!\n]*\b(which|do you mean|did you mean)\b[^.?!\n]*\?", re.IGNORECASE)
+# The answer presents a list and names some of it ("Here are...", "including X", "led by X").
+_LIST_MARKER = re.compile(r"\b(here are|here's|including|such as|led by)\b", re.IGNORECASE)
+_COUNT_WORDS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+                "ten": 10, "eleven": 11, "twelve": 12}
+_COUNT = r"(\d{1,2}|" + "|".join(_COUNT_WORDS) + r")"
+_LIST_COUNT = re.compile(
+    r"\b(?:(?:top|my|your|these|the|next|priciest|cheapest)\s+" + _COUNT
+    + r"|" + _COUNT + r"\s+(?:most|cheapest|priciest|best|biggest|highest|lowest))\b",
+    re.IGNORECASE,
+)
+
+
+def list_count(text: str) -> int | None:
+    """N in 'my 5 most valuable', 'top three', 'the priciest eight'."""
+    match = _LIST_COUNT.search(text)
+    if match is None:
+        return None
+    word = (match.group(1) or match.group(2)).casefold()
+    count = int(word) if word.isdigit() else _COUNT_WORDS[word]
+    return count if count >= 2 else None
+
+
+def asks_to_choose(text: str) -> bool:
+    return _CHOICE_QUESTION.search(text) is not None
+
+
+def _same_tile(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    return a.get("card_id") == b.get("card_id") and _slab(a) == _slab(b)
+
+
+def _append_new(tiles: list[dict[str, Any]], items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for item in items:
+        if not any(_same_tile(item, tile) for tile in tiles):
+            tiles.append(item)
+    return tiles
+
+
+def choose_tiles(
+    selection: list[dict[str, Any]] | None,
+    refs: list[dict[str, Any]],
+    text: str,
+    charts: list[dict[str, Any]],
+    *,
+    extra_refs: list[dict[str, Any]] | tuple[()] = (),
+    keep_ids: frozenset[str] | set[str] = frozenset(),
+    always_ids: frozenset[str] | set[str] = frozenset(),
+    watchlist_ids: frozenset[str] | set[str] = frozenset(),
+    list_ids: frozenset[str] | set[str] = frozenset(),
+    question: str = "",
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(tiles, charts) = the cards the answer is about, decided in code (the model
+    over-selects). refs: this turn's tool-result refs; extra_refs: scanned and
+    earlier-tile refs with names. keep_ids: scanned cards (kept when selected);
+    always_ids: proposal cards; list_ids: cards from list tools (search,
+    find_missing, the user's collection/Watchlist), whose answers may name a few
+    cards of a longer list; question: a count the user asked for ('my 5 most
+    valuable') sizes the list."""
+    pool = list(refs) + [ref for ref in extra_refs if ref.get("name")]
+    named = pin_printings(named_refs(pool, text), text)
+    named_names = {_name_key(ref) for ref in named}
+    always = [ref for ref in pool if ref["card_id"] in always_ids]
+
+    chart_ids = list(dict.fromkeys(str(chart["card_id"]) for chart in charts))
+    if chart_ids:
+        # A charted card: that card (and its chart) only, plus other cards the text names.
+        pinned = [card_id for card_id in chart_ids if any(ref["card_id"] == card_id for ref in named)]
+        if len(chart_ids) > 1 and pinned:
+            chart_ids = pinned
+        charts = [chart for chart in charts if chart["card_id"] in chart_ids]
+        candidates_pool = list(selection or []) + pool
+        tiles: list[dict[str, Any]] = []
+        for chart in charts:
+            candidates = [ref for ref in candidates_pool if ref["card_id"] == chart["card_id"]]
+            _append_new(tiles, [dict(_best_ref(candidates, *_slab(chart), chart.get("variant"))) if candidates
+                                else {"card_id": chart["card_id"]}])
+        chart_names = {_name_key(ref) for ref in candidates_pool if ref["card_id"] in chart_ids and ref.get("name")}
+        _append_new(tiles, [ref for ref in named if ref["card_id"] not in chart_ids and _name_key(ref) not in chart_names])
+        _append_new(tiles, [tile for tile in selection or [] if tile["card_id"] in keep_ids])
+        return _append_new(tiles, always), charts
+
+    if asks_to_choose(text):
+        return (list(selection) if selection else named_refs(refs, text) or list(refs)), charts
+    if not named:
+        return _append_new(list(selection if selection is not None else refs), always), charts
+    if watchlist_ids and all(ref["card_id"] in watchlist_ids for ref in named):
+        # Watchlist answers show a preview of the list, not just the cards named.
+        return (list(selection) if selection else [ref for ref in refs if ref["card_id"] in watchlist_ids]), charts
+    requested = list_count(question)
+    if selection and requested:
+        return _append_new(_append_new(list(selection[:requested]), named), always), charts
+    if selection and _LIST_MARKER.search(text) and all(tile["card_id"] in list_ids for tile in selection):
+        listed = _append_new(list(selection[: list_count(text) or len(selection)]), named)
+        return _append_new(listed, always), charts
+    kept = pin_printings([tile for tile in selection or [] if _name_key(tile) in named_names], text)
+    covered = {_name_key(tile) for tile in kept}
+    _append_new(kept, [ref for ref in named if _name_key(ref) not in covered])
+    return _append_new(kept, always), charts
 
 
 def art_groups(conn: sqlite3.Connection, card_ids: list[str]) -> dict[str, str]:
@@ -764,6 +929,9 @@ class AssistantToolbox:
                 kwargs[key] = args[key]
         if "range" in args and args["range"] is not None:
             kwargs["range_key"] = args["range"]
+        if name == "grading_upside" and isinstance(kwargs.get("card_ids"), list):
+            # The answer compares every candidate in a table; three keep it readable.
+            kwargs["card_ids"] = kwargs["card_ids"][:MAX_GRADING_CANDIDATES]
         if name == "get_card":
             kwargs["include_holdings"] = True
         if name == "find_missing" and "sort" not in kwargs and "budget_usd" not in kwargs:
@@ -1091,28 +1259,26 @@ class AssistantToolbox:
         watchlist_ids: set[str],
         watchlist_total: int | None,
         sparkline_windows: dict[str, tuple[str, str | None]],
-    ) -> tuple[list[dict[str, Any]], str | None, dict[str, Any] | None]:
-        """(cards, cards_label, cards_view_all). show_cards' selection wins; without
-        it: the cards named in the text, else the charted card, else every card
-        the tools returned."""
-        if selection is not None:
-            tiles = list(selection)
+        extra_refs: list[dict[str, Any]] | None = None,
+        keep_ids: set[str] | None = None,
+        always_ids: set[str] | None = None,
+        list_ids: set[str] | None = None,
+        question: str = "",
+        fixed: bool = False,
+    ) -> tuple[list[dict[str, Any]], str | None, dict[str, Any] | None, list[dict[str, Any]]]:
+        """(cards, cards_label, cards_view_all, charts). fixed=True (an executed
+        direct add) shows the selection as is; otherwise choose_tiles decides."""
+        if fixed:
+            tiles = list(selection or [])
         else:
-            label = None
-            chart_ids = {chart["card_id"] for chart in charts}
-            tiles = (
-                named_refs(turn_refs, text)
-                or [ref for ref in turn_refs if ref["card_id"] in chart_ids]
-                or list(turn_refs)
+            if selection is None:
+                label = None
+            tiles, charts = choose_tiles(
+                selection, list(turn_refs), text, charts, extra_refs=extra_refs or [], keep_ids=keep_ids or set(),
+                always_ids=always_ids or set(), watchlist_ids=watchlist_ids, list_ids=list_ids or set(),
+                question=question,
             )
-        for chart in charts:  # a chart always has its card's tile
-            if not any(tile["card_id"] == chart["card_id"] for tile in tiles):
-                candidates = [ref for ref in turn_refs if ref["card_id"] == chart["card_id"]]
-                tiles.append(
-                    dict(_best_ref(candidates, *_slab(chart), chart.get("variant")))
-                    if candidates
-                    else {"card_id": chart["card_id"]}
-                )
+        charts = charts[:MAX_CHARTS]
         on_watchlist = bool(watchlist_ids) and bool(tiles) and all(tile["card_id"] in watchlist_ids for tile in tiles)
         if on_watchlist:
             tiles = tiles[:MAX_WATCHLIST_TILES]
@@ -1126,7 +1292,7 @@ class AssistantToolbox:
                 line = self.sparkline(owner_user_id, card["card_id"], range_key=window[0], variant=window[1])
                 if line is not None:
                     card["sparkline"] = line
-        return cards, label, view_all
+        return cards, label, view_all, charts
 
     def sparkline(
         self, owner_user_id: str, card_id: str, *, range_key: str, variant: str | None
