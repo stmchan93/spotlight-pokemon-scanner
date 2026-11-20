@@ -61,7 +61,7 @@ Accuracy (never break these):
 - Collection worth: get_portfolio_summary; give the total value first (the tiles show the top holdings). Scoped worth ("my One Piece cards", "my Japanese cards"): get_my_collection with that filter; the first sentence states its total_value_usd.
 - The user's most valuable cards or slabs: get_my_collection sort=price_desc (per-copy price; holding_type="graded" for slabs, product="single" for cards). The #1 is the highest price_usd; mention a holding's total (value_usd) only as an aside. "Top holdings" and the collection total use value_desc.
 - Movers inside a set, rarity or card name ("which Evolving Skies card dropped the most this month", "biggest SIR gainers this week"): find_movers with direction and the window the user named (week=7d, month=30d, 3 months=90d, year=1y; default 30d). State the window, and if covers_full_window is false say how much history it covers.
-- Collection movers: call get_portfolio_summary with focus="movers"; name at most 3 cards. top_gainers/top_losers are ranked by dollars; top_gainers_pct/top_losers_pct by percent. Label each ranking you give ("by dollars", "in percent") and take a "most in %" card only from the _pct list.
+- Collection movers: call get_portfolio_summary with focus="movers"; name at most 3 cards. top_gainers/top_losers are ranked by dollars; top_gainers_pct/top_losers_pct by percent. Label each ranking you give ("by dollars", "in percent"); a leader ("biggest", "led", "most in %") comes only from top_gainer_by_usd/top_gainer_by_pct (losers: top_loser_by_usd/top_loser_by_pct), never inferred from the other list.
 - "Japanese/English version of" a card: find the card, call get_card on it, and use its language_pair (get_card on that id for the price). Talk about the counterpart (set, number, USD price); mention the source card only if the user scanned it.
 - If a tool says total_is_lower_bound, say "at least" with its counts.
 - You can't delete cards, sell, list, or buy. Say so in one short sentence plus at most one offer, under 40 words. The user can delete a card themselves from its ⋯ menu in Collection or from its card page.
@@ -118,6 +118,8 @@ Final checks before answering:
 - Never mention tags, filters, searches, or what was or wasn't searched, excluded or filtered. Art answers never use the words tag, tagged, or matching.
 - Price history answers: the first sentence states the price condition (e.g. Near Mint) and printing, with the dated move.
 - Collection value (whole or scoped): the first sentence is the total in USD.
+- Raw + graded leaders: the first sentence names the single priciest card overall (usually the graded one) and its price; the other side follows.
+- Art answers: no print-language remarks (English/Japanese) unless the user asked.
 - Several printings and no set/number given: ask which one.
 - A follow-up that narrows your last answer ("only singles") gets 1-2 short sentences (under 40 words) with just the new result.
 - Explaining prices: say plainly that a market price is roughly what copies have recently sold for.
@@ -592,7 +594,7 @@ class AssistantEngine:
 
     async def _enforce_length(
         self, text: str, result: TurnResult, tool_payloads: list[str], *, reserve: int = 0, reserve_sentences: int = 0,
-        names: list[str] | tuple[str, ...] = (),
+        names: list[str] | tuple[str, ...] = (), no_language: bool = False,
     ) -> str:
         """Over the turn's word (or sentence) limit, or talking about tags/searches/tools/filters:
         one low-effort rewrite covering both, kept only if it fixes them and every tool-backed
@@ -602,8 +604,10 @@ class AssistantEngine:
         sentences = max(1, result.sentence_limit - reserve_sentences) if result.sentence_limit else None
         if not limit or "\n|" in "\n" + text:
             return text
+        if no_language:
+            text = length_guard.strip_language_mentions(text)
         over = length_guard.over_limit(text, limit, sentences)
-        internal = length_guard.has_internal_wording(text, names)
+        internal = length_guard.has_internal_wording(text, names, language=no_language)
         if not over and not internal:
             return text
         if over:
@@ -612,6 +616,8 @@ class AssistantEngine:
             ) + (" " + length_guard.NO_INTERNAL_INSTRUCTION if internal else "")
         else:
             system = length_guard.REWRITE_INTERNAL_ONLY
+        if internal and no_language:
+            system += " " + length_guard.NO_LANGUAGE_INSTRUCTION
         rewrite = ""
         try:
             response = await self.client.messages.create(
@@ -637,13 +643,14 @@ class AssistantEngine:
         if (
             rewrite
             and shorter
-            and not (internal and length_guard.has_internal_wording(rewrite, names))
+            and not (internal and length_guard.has_internal_wording(rewrite, names, language=no_language))
+            and not (length_guard.has_disclaimer(text) and not length_guard.has_disclaimer(rewrite))
             and length_guard.keeps_numbers(text, rewrite, backed)
         ):
             result.length_guard = "rewrite"
             return rewrite
         if internal:
-            text = length_guard.drop_internal_sentences(text, names)
+            text = length_guard.drop_internal_sentences(text, names, language=no_language)
         if length_guard.over_limit(text, limit, sentences):
             result.length_guard = "trim"
             return length_guard.trim_to_limit(text, limit, sentences)
@@ -865,19 +872,25 @@ class AssistantEngine:
             result.sentence_limit = length_guard.sentence_limit_for(
                 question, looked_up, no_data=no_data, art_search=art_search
             )
-            # Appended lines (choice question, disclaimer) must survive the guard: reserve their words.
-            appended = ensure_choice_question(text, ask_which) != text
-            disclaim = length_guard.needs_disclaimer(text, looked_up)
-            reserve = (length_guard.word_count(ask_which or "") if appended else 0) + (
-                length_guard.word_count(length_guard.DISCLAIMER_TEXT) if disclaim else 0
-            )
-            text = await self._enforce_length(
-                text, result, tool_payloads, reserve=reserve, reserve_sentences=int(appended) + int(disclaim),
-                names=[str(ref["name"]) for ref in primary_refs + other_refs + extra_refs if ref.get("name")],
-            )
-            text = ensure_choice_question(text, ask_which)
+            # The disclaimer goes in BEFORE the guard (whose trim keeps the 'not a prediction' line), so the
+            # final text is within the limit; the appended choice question still reserves its words.
             if length_guard.needs_disclaimer(text, looked_up):
                 text = length_guard.add_disclaimer(text)
+            appended = ensure_choice_question(text, ask_which) != text
+            reserve = length_guard.word_count(ask_which or "") if appended else 0
+            text = await self._enforce_length(
+                text, result, tool_payloads, reserve=reserve, reserve_sentences=int(appended),
+                names=[str(ref["name"]) for ref in primary_refs + other_refs + extra_refs if ref.get("name")],
+                no_language=(art_search or "list_facets" in looked_up) and not length_guard.asks_language(question),
+            )
+            if length_guard.needs_disclaimer(text, looked_up):
+                # The guard dropped a model-worded disclaimer: re-add ours and re-trim around it.
+                text = length_guard.add_disclaimer(text)
+                words = max(10, (result.word_limit or 0) - reserve)
+                sentences = max(1, result.sentence_limit - int(appended)) if result.sentence_limit else None
+                if result.word_limit and length_guard.over_limit(text, words, sentences):
+                    text = length_guard.trim_to_limit(text, words, sentences)
+            text = ensure_choice_question(text, ask_which)
             result.text = text + ("…" if result.stop_reason == "max_tokens" else "")
             result.suggestions = suggestions
         if result.status == "ok":

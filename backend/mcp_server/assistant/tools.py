@@ -227,7 +227,9 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "description": (
             "The user's collection value in USD, how it moved over the range, top_holdings (largest by value), "
             "and top gainers/losers. focus='movers' for the user's collection gainers/losers ('my biggest gainers "
-            "this month'; returns only the movers); focus='value' (default) for what the collection is worth. "
+            "this month'; returns only the movers; name the dollar and percent leaders only from "
+            "top_gainer_by_usd/top_gainer_by_pct/top_loser_by_usd/top_loser_by_pct); focus='value' (default) for "
+            "what the collection is worth. "
             "Movers within a set, rarity or card name (incl. 'my <set> cards'): find_movers."
         ),
         "input_schema": _obj(
@@ -949,6 +951,11 @@ def named_slabs(tiles: list[dict[str, Any]], pool: list[dict[str, Any]], text: s
     return out
 
 
+MISSING_LABEL = "Highest-value cards you're missing"
+# A budget/cheapest ask sorts find_missing price_asc: those tiles aren't the highest-value ones.
+_CHEAP_ASK = re.compile(r"\b(cheap\w*|under|below|less than|budget|afford\w*|least)\b|\$\s*\d", re.IGNORECASE)
+
+
 def apply_question_rules(
     tiles: list[dict[str, Any]],
     charts: list[dict[str, Any]],
@@ -970,6 +977,8 @@ def apply_question_rules(
     only drop tiles the text doesn't name."""
     if always_ids:
         return tiles, charts, label  # proposals decide their own tiles
+    if label is None and tiles and "find_missing" in tools_used and not _CHEAP_ASK.search(question or ""):
+        label = MISSING_LABEL
     wanted = counterpart_language(question)
     if wanted and language_pairs:
         refs_by_id: dict[str, dict[str, Any]] = {}
@@ -1133,8 +1142,9 @@ _MOVERS_QUESTION = re.compile(
     re.IGNORECASE,
 )
 MAX_MOVERS = 3
-MOVER_KEYS = ("range", "top_gainers", "top_losers", "top_gainers_pct", "top_losers_pct", "movers_basis",
-              "change_note")
+MOVER_LEADER_KEYS = ("top_gainer_by_usd", "top_gainer_by_pct", "top_loser_by_usd", "top_loser_by_pct")
+MOVER_KEYS = ("range", *MOVER_LEADER_KEYS, "top_gainers", "top_losers", "top_gainers_pct", "top_losers_pct",
+              "movers_basis", "change_note")
 
 
 # --- answer-shaping hints in tool results ---------------------------------------
