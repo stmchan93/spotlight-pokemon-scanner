@@ -174,6 +174,32 @@ class CheckTests(unittest.TestCase):
         self.assertIn("banned", failed_names(grade_turn(record, {}, DEFAULTS)))
         self.assertNotIn("banned", failed_names(grade_turn(record, {"allow": ["yen_word"]}, DEFAULTS)))
 
+    def test_scan_tray_must_be_named(self) -> None:
+        tray = {"question": "What are these worth in a PSA 10?", "context_card_ids": ["bw5-104", "hgss2-1"]}
+        bare = turn_record(**tray, answer="Kyogre-EX gains $945.52 in a PSA 10.")
+        self.assertIn("scan_tray_named", failed_names(grade_turn(bare, {}, DEFAULTS)))
+        named = turn_record(**tray, answer="Of the 2 cards in your scan tray, Kyogre-EX gains the most.")
+        self.assertIn("scan_tray_named", [c.name for c in grade_turn(named, {}, DEFAULTS) if c.passed])
+        names = lambda record, expect: [c.name for c in grade_turn(record, expect, DEFAULTS)]  # noqa: E731
+        self.assertNotIn("scan_tray_named", names(turn_record(answer="x"), {}))  # no tray context
+        self.assertNotIn("scan_tray_named", names(turn_record(**{**tray, "question": "What's my collection worth?"}), {}))
+        self.assertNotIn("scan_tray_named", names(bare, {"scan_tray_named": False}))
+
+    def test_shipped_defaults_ban_tables_and_data_caveats(self) -> None:
+        defaults = load_case_file(DEFAULT_CASES_PATH)["defaults"]
+        owner = turn_record(answer=(
+            "| Card | Raw | PSA 10 |\n|---|---|---|\n| Kyogre-EX | $504.48 | $1,450 |\n\n"
+            "PSA 10 figures are market estimates based on recorded sales."
+        ))
+        failed = {c.name: c.reason for c in grade_turn(owner, {}, defaults) if not c.passed}
+        self.assertIn("markdown_table", failed["banned"])
+        self.assertIn("data_source_caveat", failed["banned"])
+        good = turn_record(answer=(
+            "- **Kyogre-EX** (Dark Explorers 104/108): raw $504.48 → PSA 10 $1,450 (+$945.52, +187%)\n"
+            "- **Lugia** (HGSS02): raw $485.99 · no recent PSA 10 sale\n\nGrading costs money and takes time."
+        ))
+        self.assertNotIn("banned", failed_names(grade_turn(good, {}, defaults)))
+
     def test_expected_action_params(self) -> None:
         record = turn_record(action_details=[{"type": "add_to_collection", "params": {"card_id": "sv3pt5-199", "quantity": 2, "condition": "NM"}}])
         ok = grade_turn(record, {"expect_action": {"type": "add_to_collection", "params": {"quantity": 2, "condition": "NM"}}}, DEFAULTS)
@@ -623,7 +649,7 @@ class JudgeContextTests(unittest.TestCase):
     def test_prompt_has_scanner_context_reference_and_label(self) -> None:
         record = turn_record(
             question="Which of these is worth the most?", context_card_ids=["sv3pt5-199"],
-            scanner_context="The user is looking at these scanned cards:\n- Charizard ex · 151 · #199/165 · $287.93 (card_id: sv3pt5-199)",
+            scanner_context="The user's scan tray contains:\n- Charizard ex · 151 · #199/165 · $287.93 (card_id: sv3pt5-199)",
             reference="Charizard ex (151) is worth the most at $287.93.", cards_label="Your scan tray",
             tool_results=[],
         )
@@ -1140,7 +1166,7 @@ class RunnerEndToEndTests(AssistantCase):
         self.assertIn("Pikachu ex", record["tool_results"][0]["result"])
         self.assertEqual(record["cards"][0]["card_id"], "ssp-1")
         self.assertEqual(record["context_card_ids"], ["ssp-1"])
-        self.assertIn("scanned cards", json.dumps(self.client.messages.calls[0]["messages"]))
+        self.assertIn("scan tray contains", json.dumps(self.client.messages.calls[0]["messages"]))
         expect = {"tool_args": [{"tool": "search_cards", "where": {"filter.text": {"contains": "pikachu"}}}], "tiles_min": 1}
         runner.grade_case({**case, "turns": [{**case["turns"][0], "expect": expect}]}, records, DEFAULTS, None)
         self.assertTrue(record["passed"], record["checks"])
@@ -1148,7 +1174,7 @@ class RunnerEndToEndTests(AssistantCase):
         self.assertIsInstance(record["tool_results"][0]["data"], dict)
         self.assertIn("game", record["cards"][0])
         self.assertIn("[ssp-1]", record["tiles"][0])
-        self.assertIn("scanned cards", record["scanner_context"] or "")
+        self.assertIn("scan tray contains", record["scanner_context"] or "")
         self.assertEqual(record["context_cards"][0]["card_id"], "ssp-1")
 
     def test_l026_fixture_feeds_grading_upside(self) -> None:

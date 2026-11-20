@@ -374,14 +374,14 @@ class GradingUpsideTests(ChatFixCase):
         self.assertEqual(result["not_found"], ["nope"])
         self.assertEqual(self.ids(result["cards"]), ["xy5-54", "lugia", "teammates"])  # biggest premium first
 
-    def test_assistant_tool_is_strict_without_optional_params_and_prompt_has_table(self) -> None:
+    def test_assistant_tool_is_strict_without_optional_params_and_prompt_has_bullets(self) -> None:
         from mcp_server.assistant.engine import SYSTEM_PROMPT
         from mcp_server.assistant.tools import TOOL_DEFINITIONS, AssistantToolbox
 
         tool = next(tool for tool in TOOL_DEFINITIONS if tool["name"] == "grading_upside")
         self.assertTrue(tool["strict"])
         self.assertEqual(tool["input_schema"]["required"], ["card_ids"])
-        self.assertIn("Card | Raw market price | PSA 10 comp | Gross premium", SYSTEM_PROMPT)
+        self.assertIn("raw $504.48 → PSA 10 $1,450 (+$945.52, +187%)", SYSTEM_PROMPT)  # owner 2026-11-20: no tables
         outcome = AssistantToolbox(self.tools).run("grading_upside", {"card_ids": ["xy5-54"]}, owner_user_id=USER_A)
         self.assertFalse(outcome.is_error, outcome.content)
         self.assertEqual(outcome.content["cards"][0]["comp_price_usd"], 400.0)

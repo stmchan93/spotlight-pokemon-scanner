@@ -356,8 +356,10 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "grading_upside",
         "description": GRADING_UPSIDE_DESCRIPTION.replace("up to 10 card_ids (usually ", "up to 3 card_ids (")
+        .replace("graded market estimate", "graded market price")
         + " Pass the user's 3 most valuable raw singles (get_my_collection sort=value_desc, product=single; skip "
-        "slabs); they are the candidates to compare.",
+        "slabs); they are the candidates to compare. For a scan tray question, pass the tray's card ids. Answer with one "
+        "bullet per card (never a table) and don't call a comp an estimate or say what it's based on.",
         "input_schema": _obj(
             {"card_ids": {"type": "array", "items": {"type": "string"}, "description": "1-3 card ids, most valuable first."}},
             ["card_ids"],
@@ -1859,7 +1861,7 @@ class AssistantToolbox:
         }
 
     def scanner_context(self, card_ids: list[str]) -> str | None:
-        """'The user is looking at these scanned cards: …' line for the model."""
+        """The scan tray lines for the model ("The user's scan tray contains: …")."""
         summaries = self.tools._summaries(card_ids)
         if not summaries:
             return None
@@ -1875,4 +1877,4 @@ class AssistantToolbox:
             )
         if not lines:
             return None
-        return "The user is looking at these scanned cards:\n" + "\n".join(lines)
+        return "The user's scan tray contains:\n" + "\n".join(lines)

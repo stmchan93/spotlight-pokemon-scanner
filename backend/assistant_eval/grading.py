@@ -86,6 +86,8 @@ EXPECT_KEYS = frozenset(
         "proposed_card_ids",
         # tool results
         "tool_result_where",
+        # false = skip the automatic scan-tray naming check
+        "scan_tray_named",
     }
 )
 MATCHER_OPS = frozenset({"not", "in", "not_in", "exists", "contains", "gte", "lte"})
@@ -1025,6 +1027,21 @@ def check_no_uncovered_window_claim(record: dict[str, Any]) -> CheckResult | Non
     return _ok("no_uncovered_window_claim")
 
 
+# Owner 2026-11-20: a scanner-tray question about "these/this/them" must say the cards are the scan tray.
+_DEICTIC = re.compile(r"\b(these|this|them|they|those)\b", re.IGNORECASE)
+_SCAN_TRAY = re.compile(r"\bscan tray\b|\bscanned cards?\b", re.IGNORECASE)
+
+
+def check_scan_tray_named(record: dict[str, Any], expect: dict[str, Any]) -> CheckResult | None:
+    """None when the turn has no tray context, isn't about "these/this", proposes an action, or opts out."""
+    if (not record.get("context_card_ids") or expect.get("scan_tray_named") is False or expect.get("expect_action")
+            or not _DEICTIC.search(str(record.get("question") or ""))):
+        return None
+    if _SCAN_TRAY.search(str(record.get("answer") or "")):
+        return _ok("scan_tray_named")
+    return _fail("scan_tray_named", "a scan-tray answer must say the cards are the scan tray")
+
+
 def check_max_cost(record: dict[str, Any], ceiling: float) -> CheckResult:
     cost = float(record.get("cost_usd") or 0.0)
     return _ok("max_cost_usd") if cost <= ceiling else _fail("max_cost_usd", f"${cost:.4f} > ${ceiling:.4f}")
@@ -1089,6 +1106,9 @@ def grade_turn(
         results.append(check_no_chart(record))
     if expect.get("chart_card_matches_tile"):
         results.append(check_chart_card_matches_tile(record))
+    tray = check_scan_tray_named(record, expect)
+    if tray is not None:
+        results.append(tray)
     window_claim = check_no_uncovered_window_claim(record)
     if window_claim is not None:
         results.append(window_claim)

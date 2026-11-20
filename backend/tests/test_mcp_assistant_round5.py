@@ -72,6 +72,22 @@ class LengthGuardUnitTests(unittest.TestCase):
         self.assertTrue(length_guard.keeps_numbers("Sold for $1,450 vs $504.48 (187%).", "$1,450 vs $504.48.", backed))
         self.assertFalse(length_guard.keeps_numbers("Sold for $1,450 vs $504.48.", "Sold for $1,450.", backed))
 
+    def test_table_to_bullets(self) -> None:
+        self.assertFalse(length_guard.has_table("Kyogre-EX | $504.48 | one line is not a table"))
+        self.assertTrue(length_guard.has_table("| A | B |\n|---|---|"))
+        no_header = length_guard.tables_to_bullets("| Pikachu ex | $120 | NM |\n| Charizard ex | $8 | LP |")
+        self.assertEqual(no_header, "- **Pikachu ex**: $120 · NM\n- **Charizard ex**: $8 · LP")
+        self.assertEqual(length_guard.tables_to_bullets("No table here."), "No table here.")
+
+    def test_data_source_caveats_count_as_internal_wording(self) -> None:
+        for caveat in ("PSA 10 figures are market estimates based on recorded sales.",
+                       "These are estimates based on recent sales.", "Data may lag a day.",
+                       "According to our data, it's up.", "Ekalight's data shows a rise."):
+            self.assertTrue(length_guard.has_internal_wording(caveat), caveat)
+        for fine in ("Grading costs money and takes time.", "This is past price data, not a prediction.",
+                     "Kyogre-EX sold for $1,450 in a PSA 10."):
+            self.assertFalse(length_guard.has_internal_wording(fine), fine)
+
     def test_empty_results(self) -> None:
         self.assertTrue(length_guard.is_empty_result({"points": []}, is_error=False))
         self.assertTrue(length_guard.is_empty_result({}, is_error=True))
@@ -123,12 +139,39 @@ class LengthGuardEngineTests(AssistantCase):
         self.assertEqual((turn.status, turn.length_guard), ("ok", "trim"))
         self.assertLessEqual(length_guard.word_count(turn.text), turn.word_limit)
 
-    def test_tables_are_left_alone(self) -> None:
-        table = LONG + "\n\n| Card | Raw |\n|---|---|\n| Pikachu ex | $120.00 |"
-        client = self.script(table)
-        turn = self.run_turn(client, "How much is Pikachu ex 238?")
+    def test_owner_table_becomes_bullets_without_an_extra_call(self) -> None:
+        # Owner 2026-11-20: "What are these worth in a PSA 10?" came back as a raw-pipe table plus a caveat.
+        answer = (
+            "Of the 2 cards in your scan tray, Kyogre-EX gains the most in a PSA 10.\n\n"
+            "| Card | Raw | PSA 10 | Gross premium |\n|---|---|---|---|\n"
+            "| **Kyogre-EX** (Dark Explorers 104/108) | $504.48 | $1,450 | +$945.52 (+187%) |\n"
+            "| Lugia (HGSS02) | $485.99 | no recent sale | — |\n\n"
+            "Grading costs money and takes time."
+        )
+        client = self.script(answer)
+        turn = self.run_turn(client, "What are these worth in a PSA 10?")
         self.assertEqual(len(client.messages.calls), 2)
-        self.assertIn("| Pikachu ex |", turn.text)
+        self.assertNotIn("|", turn.text)
+        self.assertIn(
+            "- **Kyogre-EX** (Dark Explorers 104/108): Raw $504.48 · PSA 10 $1,450 · Gross premium +$945.52 (+187%)\n"
+            "- **Lugia** (HGSS02): Raw $485.99 · PSA 10 no recent sale",
+            turn.text,
+        )
+        self.assertTrue(turn.text.endswith("Grading costs money and takes time."))
+
+    def test_data_source_caveat_is_dropped_and_fees_line_kept(self) -> None:
+        answer = (
+            "Of the 2 cards in your scan tray, Kyogre-EX gains the most in a PSA 10.\n\n"
+            "- **Kyogre-EX** (Dark Explorers 104/108): raw $504.48 → PSA 10 $1,450 (+$945.52, +187%)\n"
+            "- **Lugia** (HGSS02): raw $485.99 · no recent PSA 10 sale\n\n"
+            "PSA 10 figures are market estimates based on recorded sales. Grading costs money and takes time."
+        )
+        client = self.script(answer, RuntimeError("no rewrite"))
+        turn = self.run_turn(client, "What are these worth in a PSA 10?")
+        self.assertEqual(turn.length_guard, "drop")
+        self.assertNotIn("estimate", turn.text)
+        self.assertIn("(+$945.52, +187%)\n- **Lugia**", turn.text)  # bullets stay one list
+        self.assertTrue(turn.text.endswith("Grading costs money and takes time."))
 
 
 @unittest.skipUnless(HAVE_DEPS, "anthropic / mcp not installed")
@@ -234,8 +277,11 @@ class AnswerShapeTests(unittest.TestCase):
     @unittest.skipUnless(HAVE_DEPS, "anthropic / mcp not installed")
     def test_prompt_rules(self) -> None:
         for rule in ("never say tag, tagged, matching", "states the price condition (e.g. Near Mint)",
-                     "open with the actual move and dates", "ambiguous=true", "total_value_usd"):
+                     "open with the actual move and dates", "ambiguous=true", "total_value_usd",
+                     "never a table", "Of the 3 cards in your scan tray", "This scanned card", "market estimates",
+                     "raw $504.48 → PSA 10 $1,450 (+$945.52, +187%)", "no recent PSA 10 sale"):
             self.assertIn(rule, SYSTEM_PROMPT)
+        self.assertNotIn("except the worth-grading table", SYSTEM_PROMPT)
 
 
 if __name__ == "__main__":

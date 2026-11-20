@@ -79,6 +79,12 @@ class CompactPerToolTests(unittest.TestCase):
                             if isinstance(before[field], float):
                                 self.assertAlmostEqual(after[field], before[field], places=2)
 
+    def test_grading_basis_has_no_estimate_wording(self) -> None:
+        # Owner 2026-11-20: the shared "graded market estimate" prose led to data-source caveats.
+        out = compact_result("grading_upside", {"cards": [], "basis": "'scrydex_market' = graded market estimate"})
+        self.assertNotIn("estimate", out["basis"])
+        self.assertIn("grading fees", out["basis"])
+
     def test_heavy_fields_dropped(self) -> None:
         for item in SAMPLES:
             small = keys_in(compact_result(item["tool"], item["content"], item["arguments"]))
