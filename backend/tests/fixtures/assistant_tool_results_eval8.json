@@ -1,0 +1,3242 @@
+[
+ {
+  "tool": "add_to_collection_now",
+  "arguments": {
+   "card_id": "sv3pt5-199",
+   "quantity": 2,
+   "condition": "NM",
+   "variant_name": null,
+   "grader": null,
+   "grade": null
+  },
+  "content": {
+   "added": true,
+   "action_id": "act_2f80b4f441c42ebdef65f5bd",
+   "summary": "Added Charizard ex (151 199/165) · NM · ×2",
+   "quantity_added": 2,
+   "quantity_owned_now": 2,
+   "note": "Saved. Tell the user it was added; the app shows an Undo button."
+  }
+ },
+ {
+  "tool": "find_missing",
+  "arguments": {
+   "filter": {
+    "set": "Evolving Skies",
+    "price_max_usd": 10,
+    "game": "pokemon"
+   },
+   "limit": 20,
+   "sort": "value_desc"
+  },
+  "content": {
+   "missing": [
+    {
+     "card_id": "swsh7-173",
+     "name": "Suicune V",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "173/203",
+     "language": "English",
+     "rarity_bucket": "ultra",
+     "artist": "Ayaka Yoshida",
+     "price_usd": 9.95,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-226",
+     "name": "Froslass",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "226/203",
+     "language": "English",
+     "rarity_bucket": "secret",
+     "artist": "Studio Bora Inc.",
+     "price_usd": 9.78,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-237",
+     "name": "Metal Energy",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "237/203",
+     "language": "English",
+     "rarity_bucket": "secret",
+     "artist": null,
+     "price_usd": 9.64,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-216",
+     "name": "Garbodor VMAX",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "216/203",
+     "language": "English",
+     "rarity_bucket": "secret",
+     "artist": "5ban Graphics",
+     "price_usd": 9.61,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-213",
+     "name": "Lycanroc VMAX",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "213/203",
+     "language": "English",
+     "rarity_bucket": "secret",
+     "artist": "Mitsuhiro Arita",
+     "price_usd": 9.53,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-41",
+     "name": "Glaceon VMAX",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "041/203",
+     "language": "English",
+     "rarity_bucket": "ultra",
+     "artist": "PLANETA Tsuji",
+     "price_usd": 9.01,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-29",
+     "name": "Gyarados VMAX",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "029/203",
+     "language": "English",
+     "rarity_bucket": "ultra",
+     "artist": "Shin Nagasawa",
+     "price_usd": 8.65,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-8",
+     "name": "Leafeon VMAX",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "008/203",
+     "language": "English",
+     "rarity_bucket": "ultra",
+     "artist": "PLANETA Tsuji",
+     "price_usd": 8.59,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-206",
+     "name": "Trevenant VMAX",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "206/203",
+     "language": "English",
+     "rarity_bucket": "secret",
+     "artist": "MUGENUP",
+     "price_usd": 7.55,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-210",
+     "name": "Dracozolt VMAX",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "210/203",
+     "language": "English",
+     "rarity_bucket": "secret",
+     "artist": "5ban Graphics",
+     "price_usd": 7.54,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-235",
+     "name": "Lightning Energy",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "235/203",
+     "language": "English",
+     "rarity_bucket": "secret",
+     "artist": null,
+     "price_usd": 7.51,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-225",
+     "name": "Zinnia's Resolve",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "225/203",
+     "language": "English",
+     "rarity_bucket": "secret",
+     "artist": "Taira Akitsu",
+     "price_usd": 6.49,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-221",
+     "name": "Aroma Lady",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "221/203",
+     "language": "English",
+     "rarity_bucket": "secret",
+     "artist": "En Morikura",
+     "price_usd": 6.42,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-74",
+     "name": "Sylveon V",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "074/203",
+     "language": "English",
+     "rarity_bucket": "ultra",
+     "artist": "aky CG Works",
+     "price_usd": 6.27,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-170",
+     "name": "Volcarona V",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "170/203",
+     "language": "English",
+     "rarity_bucket": "ultra",
+     "artist": "Eske Yoshinob",
+     "price_usd": 6.09,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-202",
+     "name": "Raihan",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "202/203",
+     "language": "English",
+     "rarity_bucket": "ultra",
+     "artist": "kirisAki",
+     "price_usd": 6.05,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-195",
+     "name": "Noivern V",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "195/203",
+     "language": "English",
+     "rarity_bucket": "ultra",
+     "artist": "Ayaka Yoshida",
+     "price_usd": 5.85,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-94",
+     "name": "Umbreon V",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "094/203",
+     "language": "English",
+     "rarity_bucket": "ultra",
+     "artist": "5ban Graphics",
+     "price_usd": 5.78,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-219",
+     "name": "Duraludon VMAX",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "219/203",
+     "language": "English",
+     "rarity_bucket": "secret",
+     "artist": "PLANETA Mochizuki",
+     "price_usd": 5.74,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "swsh7-203",
+     "name": "Zinnia's Resolve",
+     "set": "Evolving Skies",
+     "set_code": "EVS",
+     "number": "203/203",
+     "language": "English",
+     "rarity_bucket": "ultra",
+     "artist": "Taira Akitsu",
+     "price_usd": 5.64,
+     "price_source": "tcgplayer"
+    }
+   ],
+   "sort": "value_desc",
+   "missing_count": 192,
+   "owned_count": 0,
+   "total_matching": 192,
+   "cheapest_completion_usd": 270.9,
+   "priced_subtotal_usd": 270.9,
+   "priced_count": 192,
+   "set_resolved": {
+    "query": "Evolving Skies",
+    "set": "Evolving Skies",
+    "set_code": "swsh7",
+    "language": "English"
+   }
+  }
+ },
+ {
+  "tool": "find_new_highs",
+  "arguments": {
+   "filter": {
+    "product": "single"
+   },
+   "limit": 6
+  },
+  "content": {
+   "cards": [
+    {
+     "card_id": "lorcana~WITW-156",
+     "name": "Judy Hopps",
+     "set": "Whispers in the Well",
+     "set_code": "10",
+     "number": "156/204",
+     "language": "English",
+     "rarity_bucket": "ultra",
+     "artist": null,
+     "price_usd": 11.21,
+     "price_source": "tcgplayer",
+     "variant": "Normal",
+     "high_usd": 11.21,
+     "high_date": "2026-11-19",
+     "low_usd": 0.75,
+     "pct_above_low": 1394.7,
+     "days_covered": 104,
+     "as_of": "2026-11-19"
+    },
+    {
+     "card_id": "riftbound~OGN-38",
+     "name": "Kadregrin The Infernal",
+     "set": "Origins",
+     "set_code": "OGN",
+     "number": "038/298",
+     "language": "English",
+     "rarity_bucket": "ultra",
+     "artist": "Six More Vodka",
+     "price_usd": 15.05,
+     "price_source": "tcgplayer",
+     "variant": "Foil",
+     "high_usd": 15.05,
+     "high_date": "2026-11-19",
+     "low_usd": 3.18,
+     "pct_above_low": 373.3,
+     "days_covered": 104,
+     "as_of": "2026-11-19"
+    },
+    {
+     "card_id": "riftbound~UNL-145a",
+     "name": "Pyke, Returned",
+     "set": "Unleashed",
+     "set_code": "UNL",
+     "number": "145a/219",
+     "language": "English",
+     "rarity_bucket": "illustration",
+     "artist": "Six More Vodka",
+     "price_usd": 16.18,
+     "price_source": "tcgplayer",
+     "variant": "Foil",
+     "high_usd": 16.18,
+     "high_date": "2026-11-19",
+     "low_usd": 3.84,
+     "pct_above_low": 321.4,
+     "days_covered": 104,
+     "as_of": "2026-11-19"
+    },
+    {
+     "card_id": "smp-SM77",
+     "name": "Mewtwo",
+     "set": "SM Black Star Promos",
+     "set_code": "PR-SM",
+     "number": "SM77",
+     "language": "English",
+     "rarity_bucket": "promo",
+     "artist": "Kouki Saitou",
+     "price_usd": 50.63,
+     "price_source": "tcgplayer",
+     "variant": "Holofoil",
+     "high_usd": 50.63,
+     "high_date": "2026-11-19",
+     "low_usd": 18.06,
+     "pct_above_low": 180.3,
+     "days_covered": 104,
+     "as_of": "2026-11-19"
+    },
+    {
+     "card_id": "pl2-RT6",
+     "name": "Charon's Choice",
+     "set": "Rising Rivals",
+     "set_code": "RR",
+     "number": "RT6",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "Ken Sugimori",
+     "price_usd": 28.67,
+     "price_source": "tcgplayer",
+     "variant": "Reverse Holofoil",
+     "high_usd": 28.67,
+     "high_date": "2026-11-19",
+     "low_usd": 10.48,
+     "pct_above_low": 173.6,
+     "days_covered": 104,
+     "as_of": "2026-11-19"
+    },
+    {
+     "card_id": "bw8-25",
+     "name": "Articuno-EX",
+     "set": "Plasma Storm",
+     "set_code": "PLS",
+     "number": "25/135",
+     "language": "English",
+     "rarity_bucket": "ultra",
+     "artist": "Toyste Beach",
+     "price_usd": 50.0,
+     "price_source": "tcgplayer",
+     "variant": "Holofoil",
+     "high_usd": 50.0,
+     "high_date": "2026-11-19",
+     "low_usd": 18.73,
+     "pct_above_low": 167.0,
+     "days_covered": 104,
+     "as_of": "2026-11-19"
+    }
+   ],
+   "window": "1y",
+   "as_of": "2026-11-19",
+   "note": "Some cards have less history than the window; days_covered says how much."
+  }
+ },
+ {
+  "tool": "find_price_lows",
+  "arguments": {
+   "filter": {
+    "game": "pokemon"
+   },
+   "limit": 6,
+   "window": "1y"
+  },
+  "content": {
+   "cards": [
+    {
+     "card_id": "tcgplayer-713257",
+     "name": "Pikachu ex",
+     "set": "ME: Mega Evolution Promo",
+     "set_code": "MEP",
+     "number": "107",
+     "language": "English",
+     "rarity_bucket": "promo",
+     "artist": null,
+     "price_usd": 20.91,
+     "price_source": "tcgplayer",
+     "variant": "Holofoil",
+     "low_usd": 20.91,
+     "high_usd": 400.0,
+     "pct_below_high": 94.8,
+     "pct_above_low": 0.0,
+     "days_covered": 43,
+     "at_window_low": true,
+     "as_of": "2026-11-19"
+    },
+    {
+     "card_id": "tcgplayer-713256",
+     "name": "Pikachu ex",
+     "set": "ME: Mega Evolution Promo",
+     "set_code": "MEP",
+     "number": "109",
+     "language": "English",
+     "rarity_bucket": "promo",
+     "artist": null,
+     "price_usd": 22.87,
+     "price_source": "tcgplayer",
+     "variant": "Holofoil",
+     "low_usd": 22.87,
+     "high_usd": 299.99,
+     "pct_below_high": 92.4,
+     "pct_above_low": 0.0,
+     "days_covered": 51,
+     "at_window_low": true,
+     "as_of": "2026-11-19"
+    },
+    {
+     "card_id": "tcgplayer-713258",
+     "name": "Espeon ex",
+     "set": "ME: Mega Evolution Promo",
+     "set_code": "MEP",
+     "number": "108",
+     "language": "English",
+     "rarity_bucket": "promo",
+     "artist": null,
+     "price_usd": 32.63,
+     "price_source": "tcgplayer",
+     "variant": "Holofoil",
+     "low_usd": 32.63,
+     "high_usd": 199.99,
+     "pct_below_high": 83.7,
+     "pct_above_low": 0.0,
+     "days_covered": 40,
+     "at_window_low": true,
+     "as_of": "2026-11-19"
+    },
+    {
+     "card_id": "ecard1-4",
+     "name": "Blastoise",
+     "set": "Expedition Base Set",
+     "set_code": "EX",
+     "number": "4/165",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "Kimiya Masago",
+     "price_usd": 96.21,
+     "price_source": "tcgplayer",
+     "variant": "Holofoil",
+     "low_usd": 94.22,
+     "high_usd": 400.0,
+     "pct_below_high": 75.9,
+     "pct_above_low": 2.1,
+     "days_covered": 104,
+     "at_window_low": false,
+     "as_of": "2026-11-19"
+    },
+    {
+     "card_id": "tcgplayer-716981",
+     "name": "Metagross",
+     "set": "M6a: MEGA Expansion 30th Celebration",
+     "set_code": "m6a",
+     "number": "146/103",
+     "language": "Japanese",
+     "rarity_bucket": "standard",
+     "artist": null,
+     "price_usd": 12.98,
+     "price_source": "tcgplayer",
+     "variant": "Holofoil",
+     "low_usd": 12.98,
+     "high_usd": 44.95,
+     "pct_below_high": 71.1,
+     "pct_above_low": 0.0,
+     "days_covered": 51,
+     "at_window_low": true,
+     "as_of": "2026-11-19"
+    },
+    {
+     "card_id": "tcgplayer-713259",
+     "name": "Umbreon ex",
+     "set": "ME: Mega Evolution Promo",
+     "set_code": "MEP",
+     "number": "110",
+     "language": "English",
+     "rarity_bucket": "promo",
+     "artist": null,
+     "price_usd": 63.63,
+     "price_source": "tcgplayer",
+     "variant": "Holofoil",
+     "low_usd": 62.34,
+     "high_usd": 199.99,
+     "pct_below_high": 68.2,
+     "pct_above_low": 2.1,
+     "days_covered": 40,
+     "at_window_low": false,
+     "as_of": "2026-11-19"
+    }
+   ],
+   "window": "1y",
+   "as_of": "2026-11-19",
+   "note": "Some cards have less history than the window; days_covered says how much."
+  }
+ },
+ {
+  "tool": "find_top_graded",
+  "arguments": {
+   "filter": {
+    "game": "pokemon"
+   },
+   "grader": "PSA",
+   "grade": "10",
+   "limit": 10
+  },
+  "content": {
+   "cards": [
+    {
+     "card_id": "base1-4",
+     "name": "Charizard",
+     "set": "Base",
+     "set_code": "BS",
+     "number": "4/102",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "Mitsuhiro Arita",
+     "price_usd": 409539.86,
+     "price_source": "scrydex",
+     "graded_price_usd": 409539.86,
+     "price_basis": "graded",
+     "price_trusted": true,
+     "price_trust_reason": "graded market price in line with the card's other grades",
+     "price_verified": false,
+     "grader": "PSA",
+     "grade": "10",
+     "variant": "1st Edition Shadowless Holofoil",
+     "as_of": "2026-07-19"
+    },
+    {
+     "card_id": "ex13-104",
+     "name": "Pikachu ☆",
+     "set": "Holon Phantoms",
+     "set_code": "HP",
+     "number": "104/110",
+     "language": "English",
+     "rarity_bucket": "shiny",
+     "artist": "Masakazu Fukuda",
+     "price_usd": 113721.53,
+     "price_source": "scrydex",
+     "graded_price_usd": 113721.53,
+     "price_basis": "graded",
+     "price_trusted": true,
+     "price_trust_reason": "graded market price in line with the card's other grades",
+     "price_verified": false,
+     "grader": "PSA",
+     "grade": "10",
+     "variant": "Holofoil",
+     "as_of": "2026-07-19"
+    },
+    {
+     "card_id": "base6-64",
+     "name": "Snorlax",
+     "set": "Legendary Collection",
+     "set_code": "LC",
+     "number": "64/110",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "Ken Sugimori",
+     "price_usd": 99448.72,
+     "price_source": "scrydex",
+     "graded_price_usd": 99448.72,
+     "price_basis": "graded",
+     "price_trusted": true,
+     "price_trust_reason": "graded market price in line with the card's other grades",
+     "price_verified": false,
+     "grader": "PSA",
+     "grade": "10",
+     "variant": "Reverse Holofoil",
+     "as_of": "2026-07-19"
+    },
+    {
+     "card_id": "ecard3-146",
+     "name": "Charizard",
+     "set": "Skyridge",
+     "set_code": "SK",
+     "number": "146/144",
+     "language": "English",
+     "rarity_bucket": "secret",
+     "artist": "Kouki Saitou",
+     "price_usd": 98057.81,
+     "price_source": "scrydex",
+     "graded_price_usd": 98057.81,
+     "price_basis": "graded",
+     "price_trusted": true,
+     "price_trust_reason": "graded market price in line with the card's other grades",
+     "price_verified": false,
+     "grader": "PSA",
+     "grade": "10",
+     "variant": "Holofoil",
+     "as_of": "2026-07-19"
+    },
+    {
+     "card_id": "wb1-5",
+     "name": "Pikachu",
+     "set": "Poké Card Creator Pack",
+     "set_code": "wb1",
+     "number": "5",
+     "language": "English",
+     "rarity_bucket": "other",
+     "artist": "Sylvia Forrest",
+     "price_usd": 80030.33,
+     "price_source": "scrydex",
+     "graded_price_usd": 80030.33,
+     "price_basis": "graded",
+     "price_trusted": true,
+     "price_trust_reason": "graded market price in line with the card's other grades",
+     "price_verified": false,
+     "grader": "PSA",
+     "grade": "10",
+     "variant": "Normal",
+     "as_of": "2026-07-19"
+    },
+    {
+     "card_id": "ex13-102",
+     "name": "Gyarados ☆ δ",
+     "set": "Holon Phantoms",
+     "set_code": "HP",
+     "number": "102/110",
+     "language": "English",
+     "rarity_bucket": "shiny",
+     "artist": "Masakazu Fukuda",
+     "price_usd": 72789.23,
+     "price_source": "scrydex",
+     "graded_price_usd": 72789.23,
+     "price_basis": "graded",
+     "price_trusted": true,
+     "price_trust_reason": "graded market price in line with the card's other grades",
+     "price_verified": false,
+     "grader": "PSA",
+     "grade": "10",
+     "variant": "Holofoil",
+     "as_of": "2026-07-19"
+    },
+    {
+     "card_id": "ecard2-149",
+     "name": "Lugia",
+     "set": "Aquapolis",
+     "set_code": "AQ",
+     "number": "149/147",
+     "language": "English",
+     "rarity_bucket": "secret",
+     "artist": "Naoyo Kimura",
+     "price_usd": 72040.16,
+     "price_source": "scrydex",
+     "graded_price_usd": 72040.16,
+     "price_basis": "graded",
+     "price_trusted": true,
+     "price_trust_reason": "graded market price in line with the card's other grades",
+     "price_verified": false,
+     "grader": "PSA",
+     "grade": "10",
+     "variant": "Holofoil",
+     "as_of": "2026-07-19"
+    },
+    {
+     "card_id": "ex13-103",
+     "name": "Mewtwo ☆",
+     "set": "Holon Phantoms",
+     "set_code": "HP",
+     "number": "103/110",
+     "language": "English",
+     "rarity_bucket": "shiny",
+     "artist": "Masakazu Fukuda",
+     "price_usd": 71840.15,
+     "price_source": "scrydex",
+     "graded_price_usd": 71840.15,
+     "price_basis": "graded",
+     "price_trusted": true,
+     "price_trust_reason": "graded market price in line with the card's other grades",
+     "price_verified": false,
+     "grader": "PSA",
+     "grade": "10",
+     "variant": "Holofoil",
+     "as_of": "2026-07-19"
+    },
+    {
+     "card_id": "ex15-101",
+     "name": "Mew ☆ δ",
+     "set": "Dragon Frontiers",
+     "set_code": "DF",
+     "number": "101/101",
+     "language": "English",
+     "rarity_bucket": "shiny",
+     "artist": "Masakazu Fukuda",
+     "price_usd": 67550.0,
+     "price_source": "scrydex",
+     "graded_price_usd": 67550.0,
+     "price_basis": "graded",
+     "price_trusted": true,
+     "price_trust_reason": "graded market price in line with the card's other grades",
+     "price_verified": false,
+     "grader": "PSA",
+     "grade": "10",
+     "variant": "Holofoil",
+     "as_of": "2026-07-19"
+    },
+    {
+     "card_id": "base6-74",
+     "name": "Eevee",
+     "set": "Legendary Collection",
+     "set_code": "LC",
+     "number": "74/110",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "Kagemaru Himeno",
+     "price_usd": 66000.0,
+     "price_source": "scrydex",
+     "graded_price_usd": 66000.0,
+     "price_basis": "graded",
+     "price_trusted": true,
+     "price_trust_reason": "graded market price in line with the card's other grades",
+     "price_verified": false,
+     "grader": "PSA",
+     "grade": "10",
+     "variant": "Reverse Holofoil",
+     "as_of": "2026-07-19"
+    }
+   ],
+   "game": "pokemon",
+   "grader": "PSA",
+   "grade": "10",
+   "excluded_untrusted": [
+    {
+     "card_id": "np-37",
+     "label": "Kyogre ex (Nintendo Black Star Promos #037)",
+     "grader": "PSA",
+     "grade": "10",
+     "listed_price_usd": 999999.0,
+     "reason": "placeholder price (a round all-9s listing, not a sale)"
+    },
+    {
+     "card_id": "base6-11",
+     "label": "Gengar (Legendary Collection #11/110)",
+     "grader": "PSA",
+     "grade": "10",
+     "listed_price_usd": 408000.0,
+     "reason": "over 25x the same card's best lower grade"
+    },
+    {
+     "card_id": "base6-86",
+     "label": "Pikachu (Legendary Collection #86/110)",
+     "grader": "PSA",
+     "grade": "10",
+     "listed_price_usd": 214468.62,
+     "reason": "over 25x the same card's best lower grade"
+    },
+    {
+     "card_id": "ecard1-19",
+     "label": "Mew (Expedition Base Set #19/165)",
+     "grader": "PSA",
+     "grade": "10",
+     "listed_price_usd": 199999.99,
+     "reason": "placeholder price (a round all-9s listing, not a sale)"
+    },
+    {
+     "card_id": "si1-1",
+     "label": "Mew (Southern Islands #1/18)",
+     "grader": "PSA",
+     "grade": "10",
+     "listed_price_usd": 140000.0,
+     "reason": "over 25x the same card's best lower grade"
+    }
+   ],
+   "excluded_untrusted_note": "Listed graded prices that look like placeholders or outliers; left out of the ranking. Don't quote them as prices."
+  }
+ },
+ {
+  "tool": "get_card",
+  "arguments": {
+   "card_id": "sv2a_ja-201"
+  },
+  "content": {
+   "card_id": "sv2a_ja-201",
+   "name": "Charizard ex",
+   "set": "ポケモンカード151",
+   "set_code": "SV2a",
+   "number": "201/165",
+   "language": "Japanese",
+   "rarity_bucket": "sir",
+   "artist": "miki kudo",
+   "price_usd": 370.86,
+   "price_source": "tcgplayer",
+   "artwork": {
+    "activity": [
+     {
+      "confidence": 0.95,
+      "value": "flying"
+     }
+    ],
+    "appearing_pokemon": [
+     {
+      "confidence": 0.98,
+      "dex": 6,
+      "name": "Charizard",
+      "role": "main"
+     }
+    ],
+    "art_style": "painterly",
+    "characters": [],
+    "composition": "full_art_scene",
+    "mood": [
+     {
+      "confidence": 0.8,
+      "value": "majestic"
+     },
+     {
+      "confidence": 0.6,
+      "value": "dramatic"
+     },
+     {
+      "confidence": 0.4,
+      "low_confidence": true,
+      "value": "adventurous"
+     }
+    ],
+    "objects": [
+     {
+      "confidence": 0.6,
+      "value": "rocks"
+     },
+     {
+      "confidence": 0.4,
+      "low_confidence": true,
+      "value": "energy_effects"
+     }
+    ],
+    "palette": [
+     {
+      "color": "gray",
+      "share": 0.374
+     },
+     {
+      "color": "beige",
+      "share": 0.358
+     },
+     {
+      "color": "white",
+      "share": 0.149
+     }
+    ],
+    "scene": [
+     {
+      "confidence": 0.9,
+      "value": "volcano"
+     },
+     {
+      "confidence": 0.8,
+      "value": "sky_clouds"
+     },
+     {
+      "confidence": 0.5,
+      "low_confidence": true,
+      "value": "mountain"
+     }
+    ],
+    "weather_time": [
+     {
+      "confidence": 0.55,
+      "low_confidence": true,
+      "value": "sunset_sunrise"
+     },
+     {
+      "confidence": 0.3,
+      "low_confidence": true,
+      "value": "day"
+     }
+    ]
+   },
+   "alt_text": "Charizard soaring through a cloudy purple sky with flame trailing from its tail, above a glowing erupting volcano and a canyon landscape.",
+   "similar": [
+    "sv2a_ja-185",
+    "swshp_ja-143",
+    "sv3_ja-134",
+    "swsh10b_ja-10",
+    "advp_ja-54",
+    "ecard1_ja-71",
+    "smp_ja-366",
+    "sm6a_ja-3",
+    "pcg8_ja-32",
+    "sm3h_ja-52"
+   ],
+   "language_pair": "sv3pt5-199",
+   "my_holdings": []
+  }
+ },
+ {
+  "tool": "get_market_trends",
+  "arguments": {
+   "game": "pokemon",
+   "window": "30d"
+  },
+  "content": {
+   "rising_cards": [
+    {
+     "card_id": "tk6a-8",
+     "name": "Fairy Energy",
+     "set": "XY Trainer Kit Sylveon",
+     "set_code": "tk6a",
+     "number": "8/30",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": null,
+     "price_usd": 5.0,
+     "price_source": "tcgplayer",
+     "change_pct": 385.4,
+     "change_usd": 3.97,
+     "window_days": 30
+    },
+    {
+     "card_id": "dpp-DP33",
+     "name": "Dusknoir",
+     "set": "DP Black Star Promos",
+     "set_code": "PR-DPP",
+     "number": "DP33",
+     "language": "English",
+     "rarity_bucket": "promo",
+     "artist": "Kent Kanetsuna",
+     "price_usd": 33.79,
+     "price_source": "tcgplayer",
+     "change_pct": 314.6,
+     "change_usd": 25.64,
+     "window_days": 30
+    },
+    {
+     "card_id": "xy7_ja-64",
+     "name": "Porygon",
+     "set": "バンデットリング",
+     "set_code": "XY7",
+     "number": "064/081",
+     "language": "Japanese",
+     "rarity_bucket": "standard",
+     "artist": "Yukiko Baba",
+     "price_usd": 5.0,
+     "price_source": "tcgplayer",
+     "change_pct": 244.8,
+     "change_usd": 3.55,
+     "window_days": 30
+    },
+    {
+     "card_id": "dp5t_ja-1007",
+     "name": "Sneasel",
+     "set": "怒りの神殿",
+     "set_code": "DP5",
+     "number": "",
+     "language": "Japanese",
+     "rarity_bucket": "standard",
+     "artist": "Midori Harada",
+     "price_usd": 6.0,
+     "price_source": "tcgplayer",
+     "change_pct": 242.9,
+     "change_usd": 4.25,
+     "window_days": 30
+    },
+    {
+     "card_id": "ebb1_ja-99",
+     "name": "Pokémon Enterprise",
+     "set": "EXバトルブースト",
+     "set_code": "EBB",
+     "number": "099/093",
+     "language": "Japanese",
+     "rarity_bucket": "other",
+     "artist": null,
+     "price_usd": 100.0,
+     "price_source": "tcgplayer",
+     "change_pct": 233.4,
+     "change_usd": 70.01,
+     "window_days": 30
+    }
+   ],
+   "cards_window_days": 30,
+   "cards_as_of": "2026-11-19",
+   "rising_sets": [
+    {
+     "set": "Plasma Storm",
+     "change_pct": 66.9,
+     "release_year": "2013",
+     "card_count": 41
+    },
+    {
+     "set": "Secret Wonders",
+     "change_pct": 15.5,
+     "release_year": "2007",
+     "card_count": 46
+    },
+    {
+     "set": "Majestic Dawn",
+     "change_pct": 17.8,
+     "release_year": "2008",
+     "card_count": 49
+    }
+   ],
+   "falling_sets": [
+    {
+     "set": "Ascended Heroes",
+     "change_pct": -24.0,
+     "release_year": "2026",
+     "card_count": 69
+    },
+    {
+     "set": "Destined Rivals",
+     "change_pct": -16.2,
+     "release_year": "2025",
+     "card_count": 52
+    },
+    {
+     "set": "Chaos Rising",
+     "change_pct": -14.4,
+     "release_year": "2026",
+     "card_count": 19
+    }
+   ],
+   "sets_game": "pokemon",
+   "sets_window": "30d",
+   "sets_as_of": "2026-11-18",
+   "note": "Sets are English main sets ranked by their top-10 cards' basket change."
+  }
+ },
+ {
+  "tool": "get_my_collection",
+  "arguments": {
+   "filter": {
+    "product": "single"
+   },
+   "sort": "value_desc",
+   "holding_type": "raw",
+   "limit": 10
+  },
+  "content": {
+   "total_value_usd": 5318.51,
+   "total_count": 74,
+   "items": [
+    {
+     "card_id": "xy5g_ja-77",
+     "name": "Teammates",
+     "set": "ガイアボルケーノ",
+     "set_code": "XY5",
+     "number": "077/070",
+     "language": "Japanese",
+     "rarity_bucket": "ultra",
+     "artist": "Hitoshi Ariga",
+     "price_usd": 461.96,
+     "price_source": "scrydex (converted to USD from JPY)",
+     "holding_id": "deckentry:2919ec91c8d347f9a9efe1a499884810",
+     "quantity": 6,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Unlimited Holofoil",
+     "value_usd": 2771.76,
+     "gain_usd": 0.0,
+     "gain_basis": "since_added",
+     "collection": "Main Collection",
+     "added_at": "2026-08-12T02:32:15.005Z"
+    },
+    {
+     "card_id": "bw5-104",
+     "name": "Kyogre-EX",
+     "set": "Dark Explorers",
+     "set_code": "DEX",
+     "number": "104/108",
+     "language": "English",
+     "rarity_bucket": "ultra",
+     "artist": "5ban Graphics",
+     "price_usd": 504.48,
+     "price_source": "tcgplayer",
+     "holding_id": "deckentry:6ac39bd0b4be42ffbbcda7417e8d6b09",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Holofoil",
+     "value_usd": 504.48,
+     "gain_usd": 18.49,
+     "gain_basis": "since_added",
+     "collection": "Main Collection",
+     "added_at": "2026-11-16T20:22:06.745Z"
+    },
+    {
+     "card_id": "hsp-HGSS02",
+     "name": "Lugia",
+     "set": "HGSS Black Star Promos",
+     "set_code": "PR-HS",
+     "number": "HGSS02",
+     "language": "English",
+     "rarity_bucket": "promo",
+     "artist": "Takashi Yamaguchi",
+     "price_usd": 485.99,
+     "price_source": "tcgplayer",
+     "holding_id": "deckentry:5aec3e4d7bdf4dd08e96bbc10625b897",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Holofoil",
+     "value_usd": 485.99,
+     "gain_usd": -62.8,
+     "gain_basis": "since_added",
+     "collection": "Newe",
+     "added_at": "2026-10-18T06:02:39.300Z"
+    },
+    {
+     "card_id": "onepiece~OP11-054",
+     "name": "Nami",
+     "set": "A Fist Of Divine Speed",
+     "set_code": "OP11",
+     "number": "OP11-054",
+     "language": "English",
+     "rarity_bucket": "ultra",
+     "artist": null,
+     "price_usd": 215.64,
+     "price_source": "tcgplayer",
+     "holding_id": "deckentry:a9e1e7bd98a44c01be382d6d4cbbbd38",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Third Anniversary",
+     "value_usd": 215.64,
+     "gain_usd": -1.35,
+     "gain_basis": "since_added",
+     "collection": "Newe",
+     "added_at": "2026-10-01T05:53:08.681Z"
+    },
+    {
+     "card_id": "base2-11",
+     "name": "Snorlax",
+     "set": "Jungle",
+     "set_code": "JU",
+     "number": "11/64",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "Ken Sugimori",
+     "price_usd": 175.37,
+     "price_source": "tcgplayer",
+     "holding_id": "deckentry:6d8f6c0756784580a5845cd0374e0d3c",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Unlimited Holofoil",
+     "value_usd": 175.37,
+     "gain_usd": 18.29,
+     "gain_basis": "since_added",
+     "collection": "Newe",
+     "added_at": "2026-10-04T23:34:41.690Z"
+    },
+    {
+     "card_id": "base1-15",
+     "name": "Venusaur",
+     "set": "Base",
+     "set_code": "BS",
+     "number": "15/102",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "Mitsuhiro Arita",
+     "price_usd": 134.84,
+     "price_source": "tcgplayer",
+     "holding_id": "deckentry:7b15e1041f034051bfb3a8b43d70d7ef",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Holofoil",
+     "value_usd": 134.84,
+     "gain_usd": -35.11,
+     "gain_basis": "since_added",
+     "collection": "Newe",
+     "added_at": "2026-10-04T23:34:41.690Z"
+    },
+    {
+     "card_id": "hsp-HGSS09",
+     "name": "Typhlosion",
+     "set": "HGSS Black Star Promos",
+     "set_code": "PR-HS",
+     "number": "HGSS09",
+     "language": "English",
+     "rarity_bucket": "promo",
+     "artist": "Wataru Kawahara",
+     "price_usd": 90.99,
+     "price_source": "tcgplayer",
+     "holding_id": "deckentry:733503c3896041668689eee0f7672a1d",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Holofoil",
+     "value_usd": 90.99,
+     "gain_usd": 0.0,
+     "gain_basis": "since_added",
+     "collection": "Main Collection",
+     "added_at": "2026-11-16T20:22:06.745Z"
+    },
+    {
+     "card_id": "swsh8b_ja-223",
+     "name": "Pikachu VMAX",
+     "set": "VMAXクライマックス",
+     "set_code": "S8b",
+     "number": "223/184",
+     "language": "Japanese",
+     "rarity_bucket": "illustration",
+     "artist": "Souichirou Gunjima",
+     "price_usd": 89.78,
+     "price_source": "tcgplayer",
+     "holding_id": "deckentry:a38bb25c381a4e13affb9cba54e80716",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Holofoil",
+     "value_usd": 89.78,
+     "gain_usd": 16.15,
+     "gain_basis": "since_added",
+     "collection": "Main Collection",
+     "added_at": "2026-08-12T20:17:58.287Z"
+    },
+    {
+     "card_id": "sv3pt5-168",
+     "name": "Charmander",
+     "set": "151",
+     "set_code": "MEW",
+     "number": "168/165",
+     "language": "English",
+     "rarity_bucket": "illustration",
+     "artist": "miki kudo",
+     "price_usd": 76.55,
+     "price_source": "tcgplayer",
+     "holding_id": "deckentry:3eb811413f4946a096fe47b21097de56",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Holofoil",
+     "value_usd": 76.55,
+     "gain_usd": -10.61,
+     "gain_basis": "since_added",
+     "collection": "Btt",
+     "added_at": "2026-10-19T07:57:20.905Z"
+    },
+    {
+     "card_id": "base1-6",
+     "name": "Gyarados",
+     "set": "Base",
+     "set_code": "BS",
+     "number": "6/102",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "Mitsuhiro Arita",
+     "price_usd": 62.04,
+     "price_source": "tcgplayer",
+     "holding_id": "deckentry:79df45b80b09492f9af39e6ca92133b9",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Holofoil",
+     "value_usd": 62.04,
+     "gain_usd": 14.49,
+     "gain_basis": "since_added",
+     "collection": "Newe",
+     "added_at": "2026-10-04T23:34:41.690Z"
+    }
+   ],
+   "value_basis": "price_usd is the price of one copy; value_usd = price_usd x quantity (the holding's total).",
+   "next_cursor": "eyJrIjoiY29sbGVjdGlvbiIsIm8iOjEwLCJxIjoiYzY4M2ZiMDI5MWZiIn0"
+  }
+ },
+ {
+  "tool": "get_my_watchlist",
+  "arguments": {
+   "limit": 50
+  },
+  "content": {
+   "items": [
+    {
+     "card_id": "rsv10pt5-105",
+     "name": "Oshawott",
+     "set": "White Flare",
+     "set_code": "WHT",
+     "number": "105/086",
+     "language": "English",
+     "rarity_bucket": "illustration",
+     "artist": "OKACHEKE",
+     "price_usd": 67.41,
+     "price_source": "tcgplayer",
+     "watch_variant": "Holofoil",
+     "target_price_usd": null,
+     "target_triggered_at": null,
+     "watched_at": "2026-10-19T06:53:48.028010+00:00"
+    },
+    {
+     "card_id": "sc1_ja-5",
+     "name": "Torchic",
+     "set": "シャイニーコレクション",
+     "set_code": "SC",
+     "number": "005/020",
+     "language": "Japanese",
+     "rarity_bucket": "standard",
+     "artist": "Kanako Eo",
+     "price_usd": 39.0,
+     "price_source": "tcgplayer",
+     "watch_variant": "1st Edition",
+     "target_price_usd": null,
+     "target_triggered_at": null,
+     "watched_at": "2026-10-18T06:02:43.332813+00:00"
+    },
+    {
+     "card_id": "sv2a_ja-168",
+     "name": "Charmander",
+     "set": "ポケモンカード151",
+     "set_code": "SV2a",
+     "number": "168/165",
+     "language": "Japanese",
+     "rarity_bucket": "illustration",
+     "artist": "miki kudo",
+     "price_usd": 21.11,
+     "price_source": "tcgplayer",
+     "watch_variant": "Holofoil",
+     "target_price_usd": null,
+     "target_triggered_at": null,
+     "watched_at": "2026-10-18T06:03:42.759531+00:00"
+    },
+    {
+     "card_id": "me3-62",
+     "name": "Meowth ex",
+     "set": "Perfect Order",
+     "set_code": "POR",
+     "number": "062/088",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "5ban Graphics",
+     "price_usd": 1.78,
+     "price_source": "tcgplayer",
+     "watch_variant": null,
+     "target_price_usd": null,
+     "target_triggered_at": null,
+     "watched_at": "2026-08-11T04:44:04.708215+00:00"
+    },
+    {
+     "card_id": "me3-97",
+     "name": "Drapion",
+     "set": "Perfect Order",
+     "set_code": "POR",
+     "number": "097/088",
+     "language": "English",
+     "rarity_bucket": "illustration",
+     "artist": "kawayoo",
+     "price_usd": 1.09,
+     "price_source": "tcgplayer",
+     "watch_variant": null,
+     "target_price_usd": null,
+     "target_triggered_at": null,
+     "watched_at": "2026-08-10T04:15:03.279332+00:00"
+    },
+    {
+     "card_id": "me3-21",
+     "name": "Mega Starmie ex",
+     "set": "Perfect Order",
+     "set_code": "POR",
+     "number": "021/088",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "5ban Graphics",
+     "price_usd": 0.57,
+     "price_source": "tcgplayer",
+     "watch_variant": null,
+     "target_price_usd": null,
+     "target_triggered_at": null,
+     "watched_at": "2026-08-11T04:44:05.168354+00:00"
+    },
+    {
+     "card_id": "me5-55",
+     "name": "Morpeko ex",
+     "set": "Pitch Black",
+     "set_code": "PBL",
+     "number": "055/084",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "aky GG Works",
+     "price_usd": 0.53,
+     "price_source": "tcgplayer",
+     "watch_variant": null,
+     "target_price_usd": null,
+     "target_triggered_at": null,
+     "watched_at": "2026-08-11T04:44:05.533796+00:00"
+    },
+    {
+     "card_id": "me3-47",
+     "name": "Mega Zygarde ex",
+     "set": "Perfect Order",
+     "set_code": "POR",
+     "number": "047/088",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "takuyoa",
+     "price_usd": 0.46,
+     "price_source": "tcgplayer",
+     "watch_variant": null,
+     "target_price_usd": null,
+     "target_triggered_at": null,
+     "watched_at": "2026-08-11T04:44:04.808420+00:00"
+    },
+    {
+     "card_id": "me3-12",
+     "name": "Decidueye ex",
+     "set": "Perfect Order",
+     "set_code": "POR",
+     "number": "012/088",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "aky CG Works",
+     "price_usd": 0.44,
+     "price_source": "tcgplayer",
+     "watch_variant": null,
+     "target_price_usd": null,
+     "target_triggered_at": null,
+     "watched_at": "2026-08-11T04:44:05.408441+00:00"
+    },
+    {
+     "card_id": "me3-55",
+     "name": "Mega Skarmory ex",
+     "set": "Perfect Order",
+     "set_code": "POR",
+     "number": "055/088",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "5ban Graphics",
+     "price_usd": 0.42,
+     "price_source": "tcgplayer",
+     "watch_variant": null,
+     "target_price_usd": null,
+     "target_triggered_at": null,
+     "watched_at": "2026-08-11T04:44:04.935578+00:00"
+    },
+    {
+     "card_id": "sv10-50",
+     "name": "Misty's Lapras",
+     "set": "Destined Rivals",
+     "set_code": "DRI",
+     "number": "050/182",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "En Morikura",
+     "price_usd": 0.22,
+     "price_source": "tcgplayer",
+     "watch_variant": null,
+     "target_price_usd": null,
+     "target_triggered_at": null,
+     "watched_at": "2026-08-11T04:44:05.649453+00:00"
+    },
+    {
+     "card_id": "sv10-91",
+     "name": "Primeape",
+     "set": "Destined Rivals",
+     "set_code": "DRI",
+     "number": "091/182",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "GOTO minori",
+     "price_usd": 0.2,
+     "price_source": "tcgplayer",
+     "watch_variant": null,
+     "target_price_usd": null,
+     "target_triggered_at": null,
+     "watched_at": "2026-08-12T03:17:21.418429+00:00"
+    },
+    {
+     "card_id": "me3-76",
+     "name": "Judge",
+     "set": "Perfect Order",
+     "set_code": "POR",
+     "number": "076/088",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "kantaro",
+     "price_usd": 0.18,
+     "price_source": "tcgplayer",
+     "watch_variant": null,
+     "target_price_usd": null,
+     "target_triggered_at": null,
+     "watched_at": "2026-08-12T20:17:53.277858+00:00"
+    },
+    {
+     "card_id": "me3-24",
+     "name": "Aurorus",
+     "set": "Perfect Order",
+     "set_code": "POR",
+     "number": "024/088",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "HACCAN",
+     "price_usd": 0.16,
+     "price_source": "tcgplayer",
+     "watch_variant": null,
+     "target_price_usd": null,
+     "target_triggered_at": null,
+     "watched_at": "2026-08-11T04:44:05.048408+00:00"
+    },
+    {
+     "card_id": "sv10-107",
+     "name": "Mudbray",
+     "set": "Destined Rivals",
+     "set_code": "DRI",
+     "number": "107/182",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "Aliya Chen",
+     "price_usd": 0.14,
+     "price_source": "tcgplayer",
+     "watch_variant": null,
+     "target_price_usd": null,
+     "target_triggered_at": null,
+     "watched_at": "2026-08-12T20:17:04.278169+00:00"
+    },
+    {
+     "card_id": "me3-33",
+     "name": "Espurr",
+     "set": "Perfect Order",
+     "set_code": "POR",
+     "number": "033/088",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "Terada Tera",
+     "price_usd": 0.14,
+     "price_source": "tcgplayer",
+     "watch_variant": null,
+     "target_price_usd": null,
+     "target_triggered_at": null,
+     "watched_at": "2026-08-11T04:44:04.575089+00:00"
+    },
+    {
+     "card_id": "tcgp-sealed-712809",
+     "name": "Legacy - Pre-Rift Event Kit",
+     "set": "Legacy",
+     "set_code": "LGC",
+     "number": "",
+     "language": "English",
+     "rarity_bucket": "other",
+     "artist": null,
+     "price_usd": null,
+     "price_source": null,
+     "watch_variant": null,
+     "target_price_usd": null,
+     "target_triggered_at": null,
+     "watched_at": "2026-10-18T06:08:04.866480+00:00"
+    }
+   ],
+   "total_count": 17,
+   "next_cursor": null,
+   "order": "target price set first (closest to target first), then market price high to low"
+  }
+ },
+ {
+  "tool": "get_portfolio_summary",
+  "arguments": {
+   "focus": "value"
+  },
+  "content": {
+   "range": "30d",
+   "value_usd": 6513.47,
+   "change_usd": -717.3,
+   "change_pct": -9.92,
+   "start_value_usd": 7230.77,
+   "covered_start_value_usd": 3787.5,
+   "covered_change_pct": -18.94,
+   "change_covers_holdings": 68,
+   "change_excluded_holdings": 0,
+   "top_gainers": [
+    {
+     "card_id": "bw5-104",
+     "name": "Kyogre-EX",
+     "set": "Dark Explorers",
+     "number": "104/108",
+     "language": "English",
+     "holding_id": "deckentry:6ac39bd0b4be42ffbbcda7417e8d6b09",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Holofoil",
+     "value_usd": 504.48,
+     "baseline_date": "2026-11-16",
+     "baseline_price_usd": 485.99,
+     "change_usd": 18.49,
+     "change_pct": 3.8
+    },
+    {
+     "card_id": "base2-11",
+     "name": "Snorlax",
+     "set": "Jungle",
+     "number": "11/64",
+     "language": "English",
+     "holding_id": "deckentry:6d8f6c0756784580a5845cd0374e0d3c",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Unlimited Holofoil",
+     "value_usd": 175.37,
+     "baseline_date": "2026-10-21",
+     "baseline_price_usd": 163.58,
+     "change_usd": 11.79,
+     "change_pct": 7.21
+    },
+    {
+     "card_id": "base1-6",
+     "name": "Gyarados",
+     "set": "Base",
+     "number": "6/102",
+     "language": "English",
+     "holding_id": "deckentry:79df45b80b09492f9af39e6ca92133b9",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Holofoil",
+     "value_usd": 62.04,
+     "baseline_date": "2026-10-21",
+     "baseline_price_usd": 54.6,
+     "change_usd": 7.44,
+     "change_pct": 13.63
+    },
+    {
+     "card_id": "base2-12",
+     "name": "Vaporeon",
+     "set": "Jungle",
+     "number": "12/64",
+     "language": "English",
+     "holding_id": "deckentry:652251a914a44261b973f308547b9472",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Unlimited Holofoil",
+     "value_usd": 57.15,
+     "baseline_date": "2026-10-21",
+     "baseline_price_usd": 50.54,
+     "change_usd": 6.61,
+     "change_pct": 13.08
+    },
+    {
+     "card_id": "swsh8b_ja-77",
+     "name": "Mimikyu VMAX",
+     "set": "VMAXクライマックス",
+     "number": "077/184",
+     "language": "Japanese",
+     "holding_id": "deckentry:9a5abb76b50e42b5b037651d5bcd0c8d",
+     "quantity": 2,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Holofoil",
+     "value_usd": 15.58,
+     "baseline_date": "2026-10-21",
+     "baseline_price_usd": 5.95,
+     "change_usd": 3.68,
+     "change_pct": 30.92
+    }
+   ],
+   "top_losers": [
+    {
+     "card_id": "tcgp-sealed-712808",
+     "name": "Legacy - Booster Display Case",
+     "set": "Legacy",
+     "number": "",
+     "language": "English",
+     "holding_id": "deckentry:a939d7b5fc8a44be93ed1b795564fa19",
+     "quantity": 1,
+     "condition": null,
+     "grader": null,
+     "grade": null,
+     "variant": "Normal",
+     "value_usd": 814.66,
+     "baseline_date": "2026-10-21",
+     "baseline_price_usd": 1440.0,
+     "change_usd": -625.34,
+     "change_pct": -43.43
+    },
+    {
+     "card_id": "hsp-HGSS02",
+     "name": "Lugia",
+     "set": "HGSS Black Star Promos",
+     "number": "HGSS02",
+     "language": "English",
+     "holding_id": "deckentry:5aec3e4d7bdf4dd08e96bbc10625b897",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Holofoil",
+     "value_usd": 485.99,
+     "baseline_date": "2026-10-21",
+     "baseline_price_usd": 548.79,
+     "change_usd": -62.8,
+     "change_pct": -11.44
+    },
+    {
+     "card_id": "base1-15",
+     "name": "Venusaur",
+     "set": "Base",
+     "number": "15/102",
+     "language": "English",
+     "holding_id": "deckentry:7b15e1041f034051bfb3a8b43d70d7ef",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Holofoil",
+     "value_usd": 134.84,
+     "baseline_date": "2026-10-21",
+     "baseline_price_usd": 167.66,
+     "change_usd": -32.82,
+     "change_pct": -19.58
+    },
+    {
+     "card_id": "me3-95",
+     "name": "Espurr",
+     "set": "Perfect Order",
+     "number": "095/088",
+     "language": "English",
+     "holding_id": "deckentry:792ad77ca2cb4913a19eda2342253261",
+     "quantity": 12,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Holofoil",
+     "value_usd": 32.04,
+     "baseline_date": "2026-10-21",
+     "baseline_price_usd": 3.54,
+     "change_usd": -10.44,
+     "change_pct": -24.58
+    },
+    {
+     "card_id": "sv3pt5-168",
+     "name": "Charmander",
+     "set": "151",
+     "number": "168/165",
+     "language": "English",
+     "holding_id": "deckentry:3eb811413f4946a096fe47b21097de56",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Holofoil",
+     "value_usd": 76.55,
+     "baseline_date": "2026-10-21",
+     "baseline_price_usd": 86.33,
+     "change_usd": -9.78,
+     "change_pct": -11.33
+    }
+   ],
+   "top_gainers_pct": [
+    {
+     "card_id": "swsh6-135",
+     "name": "Dyna Tree Hill",
+     "set": "Chilling Reign",
+     "number": "135/198",
+     "language": "English",
+     "grader": null,
+     "grade": null,
+     "variant": "Normal",
+     "change_usd": 0.18,
+     "change_pct": 60.0
+    },
+    {
+     "card_id": "sve-15",
+     "name": "Basic Darkness Energy",
+     "set": "Scarlet & Violet Energies",
+     "number": "015",
+     "language": "English",
+     "grader": null,
+     "grade": null,
+     "variant": "Normal",
+     "change_usd": 0.06,
+     "change_pct": 40.0
+    },
+    {
+     "card_id": "me1-8",
+     "name": "Chikorita",
+     "set": "Mega Evolution",
+     "number": "008/132",
+     "language": "English",
+     "grader": null,
+     "grade": null,
+     "variant": "Normal",
+     "change_usd": 0.06,
+     "change_pct": 31.58
+    }
+   ],
+   "top_losers_pct": [
+    {
+     "card_id": "onepiece~OP16-002",
+     "name": "Izo",
+     "set": "The Time Of Battle",
+     "number": "OP16-002",
+     "language": "English",
+     "grader": null,
+     "grade": null,
+     "variant": "Normal",
+     "change_usd": -0.09,
+     "change_pct": -60.0
+    },
+    {
+     "card_id": "onepiece~tcgplayer-718692",
+     "name": "Karoo",
+     "set": "The Dominance of God",
+     "number": "OP18-001",
+     "language": "English",
+     "grader": null,
+     "grade": null,
+     "variant": "Normal",
+     "change_usd": -9.6,
+     "change_pct": -53.39
+    },
+    {
+     "card_id": "sv10-107",
+     "name": "Mudbray",
+     "set": "Destined Rivals",
+     "number": "107/182",
+     "language": "English",
+     "grader": null,
+     "grade": null,
+     "variant": "Normal",
+     "change_usd": -0.07,
+     "change_pct": -33.33
+    }
+   ],
+   "movers_basis": "top_gainers/top_losers rank all holdings (sealed included) by change_usd (dollars); top_gainers_pct/top_losers_pct rank single cards only by change_pct.",
+   "holdings_count": 81,
+   "top_holdings": [
+    {
+     "card_id": "xy5g_ja-77",
+     "name": "Teammates",
+     "set": "ガイアボルケーノ",
+     "number": "077/070",
+     "language": "Japanese",
+     "holding_id": "deckentry:2919ec91c8d347f9a9efe1a499884810",
+     "quantity": 6,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Unlimited Holofoil",
+     "price_usd": 461.96,
+     "value_usd": 2771.76
+    },
+    {
+     "card_id": "tcgp-sealed-712808",
+     "name": "Legacy - Booster Display Case",
+     "set": "Legacy",
+     "number": "",
+     "language": "English",
+     "holding_id": "deckentry:a939d7b5fc8a44be93ed1b795564fa19",
+     "quantity": 1,
+     "condition": null,
+     "grader": null,
+     "grade": null,
+     "variant": "Normal",
+     "price_usd": 814.66,
+     "value_usd": 814.66
+    },
+    {
+     "card_id": "bw5-104",
+     "name": "Kyogre-EX",
+     "set": "Dark Explorers",
+     "number": "104/108",
+     "language": "English",
+     "holding_id": "deckentry:6ac39bd0b4be42ffbbcda7417e8d6b09",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Holofoil",
+     "price_usd": 504.48,
+     "value_usd": 504.48
+    },
+    {
+     "card_id": "hsp-HGSS02",
+     "name": "Lugia",
+     "set": "HGSS Black Star Promos",
+     "number": "HGSS02",
+     "language": "English",
+     "holding_id": "deckentry:5aec3e4d7bdf4dd08e96bbc10625b897",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Holofoil",
+     "price_usd": 485.99,
+     "value_usd": 485.99
+    },
+    {
+     "card_id": "me3-95",
+     "name": "Espurr",
+     "set": "Perfect Order",
+     "number": "095/088",
+     "language": "English",
+     "holding_id": "deckentry:e9eb4cf3ed864b0a83e1b5327a744bd6",
+     "quantity": 2,
+     "condition": null,
+     "grader": "PSA",
+     "grade": "10",
+     "variant": "Holofoil",
+     "price_usd": 108.26,
+     "value_usd": 216.52
+    },
+    {
+     "card_id": "onepiece~OP11-054",
+     "name": "Nami",
+     "set": "A Fist Of Divine Speed",
+     "number": "OP11-054",
+     "language": "English",
+     "holding_id": "deckentry:a9e1e7bd98a44c01be382d6d4cbbbd38",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Third Anniversary",
+     "price_usd": 215.64,
+     "value_usd": 215.64
+    },
+    {
+     "card_id": "base2-11",
+     "name": "Snorlax",
+     "set": "Jungle",
+     "number": "11/64",
+     "language": "English",
+     "holding_id": "deckentry:6d8f6c0756784580a5845cd0374e0d3c",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Unlimited Holofoil",
+     "price_usd": 175.37,
+     "value_usd": 175.37
+    },
+    {
+     "card_id": "base1-15",
+     "name": "Venusaur",
+     "set": "Base",
+     "number": "15/102",
+     "language": "English",
+     "holding_id": "deckentry:7b15e1041f034051bfb3a8b43d70d7ef",
+     "quantity": 1,
+     "condition": "NM",
+     "grader": null,
+     "grade": null,
+     "variant": "Holofoil",
+     "price_usd": 134.84,
+     "value_usd": 134.84
+    }
+   ],
+   "change_basis": "Market move of cards currently held (from each card's add day if added in range); excludes buys/sells. change_usd sums the change_covers_holdings holdings with price history; change_pct = change_usd / start_value_usd, where start_value_usd = value_usd - change_usd (holdings without history count as unchanged). covered_change_pct is the same move relative to only the covered holdings' start value (covered_start_value_usd)."
+  }
+ },
+ {
+  "tool": "get_price_history",
+  "arguments": {
+   "card_id": "sv3pt5-199",
+   "condition": "NM",
+   "variant": "Normal",
+   "range": "1y"
+  },
+  "content": {
+   "card_id": "sv3pt5-199",
+   "condition": "NM",
+   "grader": null,
+   "grade": null,
+   "variant": "Holofoil",
+   "available_variants": [
+    "Holofoil"
+   ],
+   "points": [
+    {
+     "date": "2026-04-16",
+     "usd": 417.43
+    },
+    {
+     "date": "2026-04-18",
+     "usd": 425.02
+    },
+    {
+     "date": "2026-04-19",
+     "usd": 425.02
+    },
+    {
+     "date": "2026-04-21",
+     "usd": 425.02
+    },
+    {
+     "date": "2026-04-23",
+     "usd": 429.72
+    },
+    {
+     "date": "2026-04-24",
+     "usd": 427.21
+    },
+    {
+     "date": "2026-04-26",
+     "usd": 421.47
+    },
+    {
+     "date": "2026-04-28",
+     "usd": 438.55
+    },
+    {
+     "date": "2026-04-29",
+     "usd": 438.55
+    },
+    {
+     "date": "2026-05-01",
+     "usd": 433.79
+    },
+    {
+     "date": "2026-05-03",
+     "usd": 425.47
+    },
+    {
+     "date": "2026-05-04",
+     "usd": 425.07
+    },
+    {
+     "date": "2026-05-06",
+     "usd": 427.4
+    },
+    {
+     "date": "2026-05-08",
+     "usd": 433.61
+    },
+    {
+     "date": "2026-05-09",
+     "usd": 437.05
+    },
+    {
+     "date": "2026-05-11",
+     "usd": 445.12
+    },
+    {
+     "date": "2026-05-13",
+     "usd": 456.88
+    },
+    {
+     "date": "2026-05-14",
+     "usd": 455.52
+    },
+    {
+     "date": "2026-05-16",
+     "usd": 452.34
+    },
+    {
+     "date": "2026-05-18",
+     "usd": 452.48
+    },
+    {
+     "date": "2026-05-19",
+     "usd": 449.01
+    },
+    {
+     "date": "2026-05-21",
+     "usd": 454.29
+    },
+    {
+     "date": "2026-05-23",
+     "usd": 500.42
+    },
+    {
+     "date": "2026-05-24",
+     "usd": 500.42
+    },
+    {
+     "date": "2026-05-26",
+     "usd": 495.54
+    },
+    {
+     "date": "2026-05-28",
+     "usd": 498.0
+    },
+    {
+     "date": "2026-05-29",
+     "usd": 496.0
+    },
+    {
+     "date": "2026-05-31",
+     "usd": 449.12
+    },
+    {
+     "date": "2026-06-02",
+     "usd": 444.37
+    },
+    {
+     "date": "2026-06-03",
+     "usd": 451.28
+    },
+    {
+     "date": "2026-06-05",
+     "usd": 480.24
+    },
+    {
+     "date": "2026-06-07",
+     "usd": 475.44
+    },
+    {
+     "date": "2026-06-09",
+     "usd": 467.44
+    },
+    {
+     "date": "2026-06-10",
+     "usd": 466.81
+    },
+    {
+     "date": "2026-06-12",
+     "usd": 487.0
+    },
+    {
+     "date": "2026-06-14",
+     "usd": 497.52
+    },
+    {
+     "date": "2026-06-15",
+     "usd": 497.52
+    },
+    {
+     "date": "2026-06-17",
+     "usd": 487.71
+    },
+    {
+     "date": "2026-06-19",
+     "usd": 473.79
+    },
+    {
+     "date": "2026-06-20",
+     "usd": 471.83
+    },
+    {
+     "date": "2026-06-22",
+     "usd": 464.86
+    },
+    {
+     "date": "2026-06-24",
+     "usd": 440.36
+    },
+    {
+     "date": "2026-06-25",
+     "usd": 440.36
+    },
+    {
+     "date": "2026-06-27",
+     "usd": 436.08
+    },
+    {
+     "date": "2026-06-29",
+     "usd": 430.3
+    },
+    {
+     "date": "2026-06-30",
+     "usd": 425.9
+    },
+    {
+     "date": "2026-07-02",
+     "usd": 420.01
+    },
+    {
+     "date": "2026-07-04",
+     "usd": 421.0
+    },
+    {
+     "date": "2026-07-05",
+     "usd": 414.9
+    },
+    {
+     "date": "2026-07-07",
+     "usd": 408.9
+    },
+    {
+     "date": "2026-07-09",
+     "usd": 406.14
+    },
+    {
+     "date": "2026-07-10",
+     "usd": 405.18
+    },
+    {
+     "date": "2026-07-12",
+     "usd": 400.85
+    },
+    {
+     "date": "2026-07-14",
+     "usd": 397.38
+    },
+    {
+     "date": "2026-07-15",
+     "usd": 397.07
+    },
+    {
+     "date": "2026-07-17",
+     "usd": 400.44
+    },
+    {
+     "date": "2026-07-19",
+     "usd": 403.4
+    },
+    {
+     "date": "2026-08-07",
+     "usd": 371.54
+    },
+    {
+     "date": "2026-08-09",
+     "usd": 369.61
+    },
+    {
+     "date": "2026-08-11",
+     "usd": 376.35
+    },
+    {
+     "date": "2026-08-12",
+     "usd": 371.98
+    },
+    {
+     "date": "2026-08-14",
+     "usd": 372.36
+    },
+    {
+     "date": "2026-08-16",
+     "usd": 369.52
+    },
+    {
+     "date": "2026-08-17",
+     "usd": 362.33
+    },
+    {
+     "date": "2026-08-19",
+     "usd": 368.17
+    },
+    {
+     "date": "2026-08-21",
+     "usd": 373.9
+    },
+    {
+     "date": "2026-08-22",
+     "usd": 374.44
+    },
+    {
+     "date": "2026-08-24",
+     "usd": 376.89
+    },
+    {
+     "date": "2026-08-26",
+     "usd": 376.47
+    },
+    {
+     "date": "2026-08-27",
+     "usd": 376.47
+    },
+    {
+     "date": "2026-08-29",
+     "usd": 373.17
+    },
+    {
+     "date": "2026-08-31",
+     "usd": 369.13
+    },
+    {
+     "date": "2026-09-01",
+     "usd": 366.88
+    },
+    {
+     "date": "2026-09-03",
+     "usd": 363.66
+    },
+    {
+     "date": "2026-09-05",
+     "usd": 364.75
+    },
+    {
+     "date": "2026-09-06",
+     "usd": 365.31
+    },
+    {
+     "date": "2026-09-08",
+     "usd": 367.19
+    },
+    {
+     "date": "2026-09-10",
+     "usd": 368.84
+    },
+    {
+     "date": "2026-09-11",
+     "usd": 369.38
+    },
+    {
+     "date": "2026-09-13",
+     "usd": 369.63
+    },
+    {
+     "date": "2026-09-15",
+     "usd": 368.05
+    },
+    {
+     "date": "2026-09-16",
+     "usd": 366.21
+    },
+    {
+     "date": "2026-09-18",
+     "usd": 362.2
+    },
+    {
+     "date": "2026-09-20",
+     "usd": 357.9
+    },
+    {
+     "date": "2026-09-21",
+     "usd": 356.95
+    },
+    {
+     "date": "2026-09-23",
+     "usd": 353.46
+    },
+    {
+     "date": "2026-09-25",
+     "usd": 346.38
+    },
+    {
+     "date": "2026-09-26",
+     "usd": 346.31
+    },
+    {
+     "date": "2026-09-28",
+     "usd": 354.07
+    },
+    {
+     "date": "2026-09-30",
+     "usd": 351.69
+    },
+    {
+     "date": "2026-10-02",
+     "usd": 345.23
+    },
+    {
+     "date": "2026-10-03",
+     "usd": 343.96
+    },
+    {
+     "date": "2026-10-05",
+     "usd": 336.78
+    },
+    {
+     "date": "2026-10-07",
+     "usd": 327.86
+    },
+    {
+     "date": "2026-10-08",
+     "usd": 322.37
+    },
+    {
+     "date": "2026-10-10",
+     "usd": 322.94
+    },
+    {
+     "date": "2026-10-12",
+     "usd": 321.7
+    },
+    {
+     "date": "2026-10-13",
+     "usd": 325.0
+    },
+    {
+     "date": "2026-10-15",
+     "usd": 322.7
+    },
+    {
+     "date": "2026-10-17",
+     "usd": 317.64
+    },
+    {
+     "date": "2026-10-18",
+     "usd": 313.36
+    },
+    {
+     "date": "2026-10-20",
+     "usd": 309.65
+    },
+    {
+     "date": "2026-10-22",
+     "usd": 305.08
+    },
+    {
+     "date": "2026-10-23",
+     "usd": 297.0
+    },
+    {
+     "date": "2026-10-25",
+     "usd": 294.42
+    },
+    {
+     "date": "2026-10-27",
+     "usd": 294.76
+    },
+    {
+     "date": "2026-10-28",
+     "usd": 300.21
+    },
+    {
+     "date": "2026-10-30",
+     "usd": 300.29
+    },
+    {
+     "date": "2026-11-01",
+     "usd": 300.72
+    },
+    {
+     "date": "2026-11-02",
+     "usd": 298.96
+    },
+    {
+     "date": "2026-11-04",
+     "usd": 298.38
+    },
+    {
+     "date": "2026-11-06",
+     "usd": 296.64
+    },
+    {
+     "date": "2026-11-07",
+     "usd": 295.26
+    },
+    {
+     "date": "2026-11-09",
+     "usd": 291.28
+    },
+    {
+     "date": "2026-11-11",
+     "usd": 294.0
+    },
+    {
+     "date": "2026-11-12",
+     "usd": 291.94
+    },
+    {
+     "date": "2026-11-14",
+     "usd": 292.22
+    },
+    {
+     "date": "2026-11-16",
+     "usd": 285.96
+    },
+    {
+     "date": "2026-11-17",
+     "usd": 283.39
+    },
+    {
+     "date": "2026-11-19",
+     "usd": 281.34
+    }
+   ],
+   "source": "tcgplayer",
+   "sources": [
+    {
+     "source": "scrydex",
+     "from": "2026-04-16",
+     "through": "2026-07-19"
+    },
+    {
+     "source": "tcgplayer",
+     "from": "2026-08-07",
+     "through": "2026-11-19"
+    }
+   ],
+   "as_of": "2026-11-19",
+   "days_since_as_of": 1,
+   "range_start": "2025-11-20",
+   "first_date": "2026-04-16",
+   "last_date": "2026-11-19",
+   "covers_full_range": false,
+   "variant_note": "No 'Normal' printing; this card's only priced printing is Holofoil.",
+   "first_usd": 417.43,
+   "last_usd": 281.34,
+   "summary": "Charizard ex (151 #199/165), Near Mint Holofoil: $417.43 on 2026-04-16 -> $281.34 on 2026-11-19 (-32.6%)."
+  }
+ },
+ {
+  "tool": "grading_upside",
+  "arguments": {
+   "card_ids": [
+    "xy5g_ja-77",
+    "bw5-104",
+    "hsp-HGSS02"
+   ]
+  },
+  "content": {
+   "cards": [
+    {
+     "card_id": "bw5-104",
+     "name": "Kyogre-EX",
+     "set": "Dark Explorers",
+     "set_code": "DEX",
+     "number": "104/108",
+     "language": "English",
+     "rarity_bucket": "ultra",
+     "artist": "5ban Graphics",
+     "price_usd": 504.48,
+     "price_source": "collection",
+     "owned": true,
+     "raw_price_usd": 504.48,
+     "comp_grader": "PSA",
+     "comp_grade": "10",
+     "comp_price_usd": 1450.0,
+     "comp_source": "ebay_sold",
+     "comp_sale_count": 2,
+     "comp_as_of": "2026-11-20",
+     "comp_variant": "Holofoil",
+     "comp_missing": false,
+     "gross_premium_usd": 945.52,
+     "gross_premium_pct": 187.4
+    },
+    {
+     "card_id": "hsp-HGSS02",
+     "name": "Lugia",
+     "set": "HGSS Black Star Promos",
+     "set_code": "PR-HS",
+     "number": "HGSS02",
+     "language": "English",
+     "rarity_bucket": "promo",
+     "artist": "Takashi Yamaguchi",
+     "price_usd": 485.99,
+     "price_source": "collection",
+     "owned": true,
+     "raw_price_usd": 485.99,
+     "comp_grader": "PSA",
+     "comp_grade": "10",
+     "comp_price_usd": 1107.35,
+     "comp_source": "scrydex_market",
+     "comp_sale_count": null,
+     "comp_as_of": "2026-07-19",
+     "comp_variant": "Holofoil",
+     "comp_missing": false,
+     "gross_premium_usd": 621.36,
+     "gross_premium_pct": 127.9
+    },
+    {
+     "card_id": "xy5g_ja-77",
+     "name": "Teammates",
+     "set": "ガイアボルケーノ",
+     "set_code": "XY5",
+     "number": "077/070",
+     "language": "Japanese",
+     "rarity_bucket": "ultra",
+     "artist": "Hitoshi Ariga",
+     "price_usd": 461.96,
+     "price_source": "collection",
+     "owned": true,
+     "raw_price_usd": 461.96,
+     "comp_grader": "PSA",
+     "comp_grade": "10",
+     "comp_price_usd": 45.0,
+     "comp_source": "ebay_sold",
+     "comp_sale_count": 1,
+     "comp_as_of": "2026-11-20",
+     "comp_variant": "Unlimited Holofoil",
+     "comp_missing": false,
+     "gross_premium_usd": -416.96,
+     "gross_premium_pct": -90.3
+    }
+   ],
+   "grader": "PSA",
+   "grade": "10",
+   "basis": "gross_premium = comp price - raw market price (no grading fees or shipping). comp_source 'ebay_sold' = last verified sale (comp_sale_count recent sales on file); 'scrydex_market' = graded market estimate, not a sale. comp_missing = no usable comp: say so for that card."
+  }
+ },
+ {
+  "tool": "list_facets",
+  "arguments": {},
+  "content": {
+   "facets": {
+    "scene": [
+     {
+      "value": "abstract_background",
+      "count": 11794
+     },
+     {
+      "value": "forest",
+      "count": 4598
+     },
+     {
+      "value": "field_meadow",
+      "count": 4098
+     },
+     {
+      "value": "mountain",
+      "count": 2360
+     },
+     {
+      "value": "sky_clouds",
+      "count": 1798
+     },
+     {
+      "value": "ocean_underwater",
+      "count": 1495
+     },
+     {
+      "value": "river_lake",
+      "count": 1413
+     },
+     {
+      "value": "flowers_garden",
+      "count": 1321
+     },
+     {
+      "value": "snow_ice",
+      "count": 975
+     },
+     {
+      "value": "city_street",
+      "count": 952
+     },
+     {
+      "value": "cave",
+      "count": 930
+     },
+     {
+      "value": "beach",
+      "count": 709
+     },
+     {
+      "value": "town_village",
+      "count": 697
+     },
+     {
+      "value": "desert",
+      "count": 578
+     },
+     {
+      "value": "indoor_home",
+      "count": 482
+     },
+     {
+      "value": "ruins_temple",
+      "count": 468
+     },
+     {
+      "value": "jungle",
+      "count": 453
+     },
+     {
+      "value": "space_stars",
+      "count": 416
+     },
+     {
+      "value": "stadium_arena",
+      "count": 349
+     },
+     {
+      "value": "volcano",
+      "count": 330
+     },
+     {
+      "value": "lab",
+      "count": 273
+     },
+     {
+      "value": "kitchen_food",
+      "count": 100
+     },
+     {
+      "value": "shop_market",
+      "count": 83
+     },
+     {
+      "value": "other",
+      "count": 79
+     },
+     {
+      "value": "restaurant_cafe",
+      "count": 68
+     },
+     {
+      "value": "school_library",
+      "count": 67
+     },
+     {
+      "value": "festival_fair",
+      "count": 67
+     },
+     {
+      "value": "bedroom",
+      "count": 60
+     }
+    ],
+    "weather_time": [
+     {
+      "value": "none_visible",
+      "count": 20718
+     },
+     {
+      "value": "day",
+      "count": 12037
+     },
+     {
+      "value": "night",
+      "count": 2067
+     },
+     {
+      "value": "sunset_sunrise",
+      "count": 1179
+     },
+     {
+      "value": "storm",
+      "count": 596
+     },
+     {
+      "value": "snow",
+      "count": 305
+     },
+     {
+      "value": "rain",
+      "count": 199
+     },
+     {
+      "value": "rainbow",
+      "count": 97
+     },
+     {
+      "value": "fog",
+      "count": 45
+     }
+    ],
+    "activity": [
+     {
+      "value": "posing",
+      "count": 12357
+     },
+     {
+      "value": "flying",
+      "count": 3960
+     },
+     {
+      "value": "battling",
+      "count": 3209
+     },
+     {
+      "value": "swimming",
+      "count": 1615
+     },
+     {
+      "value": "running",
+      "count": 1504
+     },
+     {
+      "value": "resting",
+      "count": 1472
+     },
+     {
+      "value": "playing",
+      "count": 698
+     },
+     {
+      "value": "sleeping",
+      "count": 289
+     },
+     {
+      "value": "eating",
+      "count": 165
+     },
+     {
+      "value": "hiding",
+      "count": 165
+     },
+     {
+      "value": "other",
+      "count": 161
+     },
+     {
+      "value": "celebrating",
+      "count": 125
+     },
+     {
+      "value": "reading",
+      "count": 52
+     },
+     {
+      "value": "hugging_group",
+      "count": 26
+     },
+     {
+      "value": "cooking",
+      "count": 22
+     }
+    ],
+    "mood": [
+     {
+      "value": "dramatic",
+      "count": 10513
+     },
+     {
+      "value": "fierce",
+      "count": 9582
+     },
+     {
+      "value": "cute",
+      "count": 7902
+     },
+     {
+      "value": "cheerful",
+      "count": 5927
+     },
+     {
+      "value": "peaceful",
+      "count": 4813
+     },
+     {
+      "value": "majestic",
+      "count": 3600
+     },
+     {
+      "value": "spooky",
+      "count": 1461
+     },
+     {
+      "value": "funny",
+      "count": 1000
+     },
+     {
+      "value": "cozy",
+      "count": 514
+     },
+     {
+      "value": "adventurous",
+      "count": 353
+     },
+     {
+      "value": "festive",
+      "count": 178
+     },
+     {
+      "value": "melancholy",
+      "count": 76
+     }
+    ],
+    "art_style": [
+     {
+      "value": "cgi_3d",
+      "count": 17565
+     },
+     {
+      "value": "painterly",
+      "count": 16947
+     },
+     {
+      "value": "graphic_flat",
+      "count": 5709
+     },
+     {
+      "value": "anime_cel",
+      "count": 1080
+     },
+     {
+      "value": "photo_composite",
+      "count": 1012
+     },
+     {
+      "value": "watercolor",
+      "count": 769
+     },
+     {
+      "value": "mixed",
+      "count": 499
+     },
+     {
+      "value": "pencil_sketch",
+      "count": 293
+     },
+     {
+      "value": "clay_model",
+      "count": 112
+     },
+     {
+      "value": "papercraft",
+      "count": 105
+     },
+     {
+      "value": "pixel",
+      "count": 3
+     }
+    ],
+    "palette": [
+     {
+      "value": "beige",
+      "count": 32558
+     },
+     {
+      "value": "gray",
+      "count": 29470
+     },
+     {
+      "value": "white",
+      "count": 15073
+     },
+     {
+      "value": "gold",
+      "count": 10338
+     },
+     {
+      "value": "light_blue",
+      "count": 7376
+     },
+     {
+      "value": "brown",
+      "count": 7318
+     },
+     {
+      "value": "navy",
+      "count": 6339
+     },
+     {
+      "value": "yellow",
+      "count": 6301
+     },
+     {
+      "value": "pink",
+      "count": 3510
+     },
+     {
+      "value": "teal",
+      "count": 3349
+     },
+     {
+      "value": "black",
+      "count": 3180
+     },
+     {
+      "value": "orange",
+      "count": 2922
+     },
+     {
+      "value": "red",
+      "count": 1467
+     },
+     {
+      "value": "purple",
+      "count": 1285
+     },
+     {
+      "value": "green",
+      "count": 980
+     },
+     {
+      "value": "blue",
+      "count": 171
+     }
+    ]
+   },
+   "themes": [
+    {
+     "id": "night_sky",
+     "label": "Night sky",
+     "count": 2370
+    },
+    {
+     "id": "beach_day",
+     "label": "Beach day",
+     "count": 2205
+    },
+    {
+     "id": "sleepy",
+     "label": "Sleepy",
+     "count": 1617
+    },
+    {
+     "id": "snow_day",
+     "label": "Snow day",
+     "count": 998
+    },
+    {
+     "id": "cozy_home",
+     "label": "Cozy at home",
+     "count": 758
+    },
+    {
+     "id": "food",
+     "label": "Food",
+     "count": 727
+    },
+    {
+     "id": "festival",
+     "label": "Festival",
+     "count": 321
+    },
+    {
+     "id": "rainy_day",
+     "label": "Rainy day",
+     "count": 234
+    }
+   ],
+   "art_coverage": {
+    "tagged_cards": 44113,
+    "catalog_cards": 50671,
+    "note": "Art tags cover 44,113 of 50,671 cards so far; untagged cards never match art filters."
+   }
+  }
+ },
+ {
+  "tool": "propose_add_to_collection",
+  "arguments": {
+   "card_id": "xy5-54",
+   "quantity": 1,
+   "condition": "NM"
+  },
+  "content": {
+   "proposed": true,
+   "action_id": "act_1461a3288f2a01f75393e5fb",
+   "summary": "Add Kyogre-EX (Primal Clash 54/160) · NM · ×1",
+   "note": "Shown to the user with a Confirm button. Nothing has changed yet."
+  }
+ },
+ {
+  "tool": "propose_update_holding",
+  "arguments": {
+   "holding_id": "deckentry:6ac39bd0b4be42ffbbcda7417e8d6b09",
+   "quantity": 1,
+   "condition": "LP"
+  },
+  "content": {
+   "proposed": true,
+   "action_id": "act_75b7e7dd1abdfbbe2897ddb9",
+   "summary": "Update Kyogre-EX (Dark Explorers 104/108) · ×1 → ×1 · NM → LP",
+   "note": "Shown to the user with a Confirm button. Nothing has changed yet."
+  }
+ },
+ {
+  "tool": "propose_watch_card",
+  "arguments": {
+   "card_id": "sv3pt5-199",
+   "target_price_usd": 400
+  },
+  "content": {
+   "proposed": true,
+   "action_id": "act_474ff8ba9bf042b7c397c4b9",
+   "summary": "Add Charizard ex (151 199/165) to Watchlist · alert at $400.00 or less",
+   "note": "Shown to the user with a Confirm button. Nothing has changed yet."
+  }
+ },
+ {
+  "tool": "search_cards",
+  "arguments": {
+   "filter": {
+    "text": "charizard",
+    "game": "pokemon",
+    "product": "single"
+   },
+   "limit": 10,
+   "sort": "price_desc"
+  },
+  "content": {
+   "results": [
+    {
+     "card_id": "neo4-107",
+     "name": "Shining Charizard",
+     "set": "Neo Destiny",
+     "set_code": "N4",
+     "number": "107/105",
+     "language": "English",
+     "rarity_bucket": "shiny",
+     "artist": "Hironobu Yoshida",
+     "price_usd": 3998.99,
+     "price_source": "scrydex"
+    },
+    {
+     "card_id": "ecard3-146",
+     "name": "Charizard",
+     "set": "Skyridge",
+     "set_code": "SK",
+     "number": "146/144",
+     "language": "English",
+     "rarity_bucket": "secret",
+     "artist": "Kouki Saitou",
+     "price_usd": 2999.99,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "ex3-100",
+     "name": "Charizard",
+     "set": "Dragon",
+     "set_code": "DR",
+     "number": "100/97",
+     "language": "English",
+     "rarity_bucket": "secret",
+     "artist": "Mitsuhiro Arita",
+     "price_usd": 1499.99,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "base1-4",
+     "name": "Charizard",
+     "set": "Base",
+     "set_code": "BS",
+     "number": "4/102",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "Mitsuhiro Arita",
+     "price_usd": 1001.05,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "ex15-100",
+     "name": "Charizard ☆ δ",
+     "set": "Dragon Frontiers",
+     "set_code": "DF",
+     "number": "100/101",
+     "language": "English",
+     "rarity_bucket": "shiny",
+     "artist": "Masakazu Fukuda",
+     "price_usd": 950.0,
+     "price_source": "scrydex"
+    },
+    {
+     "card_id": "ex14-4",
+     "name": "Charizard δ",
+     "set": "Crystal Guardians",
+     "set_code": "CG",
+     "number": "4/100",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "Kouki Saitou",
+     "price_usd": 939.5,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "sm3-150",
+     "name": "Charizard-GX",
+     "set": "Burning Shadows",
+     "set_code": "BUS",
+     "number": "150/147",
+     "language": "English",
+     "rarity_bucket": "secret",
+     "artist": "5ban Graphics",
+     "price_usd": 845.39,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "sma-SV49",
+     "name": "Charizard-GX",
+     "set": "Hidden Fates Shiny Vault",
+     "set_code": "sma",
+     "number": "SV49/SV94",
+     "language": "English",
+     "rarity_bucket": "shiny",
+     "artist": "5ban Graphics",
+     "price_usd": 790.27,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "bw8-136",
+     "name": "Charizard",
+     "set": "Plasma Storm",
+     "set_code": "PLS",
+     "number": "136/135",
+     "language": "English",
+     "rarity_bucket": "secret",
+     "artist": "Ayaka Yoshida",
+     "price_usd": 649.98,
+     "price_source": "tcgplayer"
+    },
+    {
+     "card_id": "gym2-2",
+     "name": "Blaine's Charizard",
+     "set": "Gym Challenge",
+     "set_code": "G2",
+     "number": "2/132",
+     "language": "English",
+     "rarity_bucket": "standard",
+     "artist": "Ken Sugimori",
+     "price_usd": 596.76,
+     "price_source": "tcgplayer"
+    }
+   ],
+   "next_cursor": "eyJrIjoic2VhcmNoIiwibyI6MTAsInEiOiI3ODVjNWExMmU1YTAifQ",
+   "total_estimate": 115,
+   "total_is_lower_bound": true,
+   "ambiguous": true,
+   "ask_which": "Which Charizard do you mean: Skyridge #146/144, Dragon #100/97 or Base #4/102?",
+   "ambiguity_note": "Several printings match. Ask which one (set and number) instead of quoting one price."
+  }
+ }
+]
