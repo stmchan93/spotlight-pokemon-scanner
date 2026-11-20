@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -158,6 +159,11 @@ class ListExpansionsEndpointTests(unittest.TestCase):
             )
         self.connection.commit()
         self.service = SpotlightScanService(self.database_path, REPO_ROOT)
+        # Never reach Scrydex from a unit test: with a key in the environment the
+        # endpoint's empty-game sync pulled the LIVE One Piece set list (and spent credits).
+        sync_patch = patch("server.sync_scrydex_expansions", return_value=None)
+        sync_patch.start()
+        self.addCleanup(sync_patch.stop)
 
     def tearDown(self) -> None:
         self.connection.close()
