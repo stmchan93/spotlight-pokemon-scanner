@@ -218,6 +218,8 @@ class TurnResult:
     cost_usd: float = 0.0
     latency_ms: int = 0
     stop_reason: str | None = None
+    tool_errors: list[str] = field(default_factory=list)  # names of tools that returned is_error
+    round_limit_hit: bool = False
 
 
 def _distinct_charts(charts: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -348,6 +350,8 @@ class AssistantEngine:
                         **({"is_error": True} if outcome.is_error else {}),
                     }
                 )
+                if outcome.is_error:
+                    result.tool_errors.append(block.name)
                 if outcome.action is not None:
                     result.actions.append(outcome.action)
                 if outcome.chart is not None:
@@ -361,6 +365,7 @@ class AssistantEngine:
             messages.append({"role": "user", "content": tool_results})
 
         result.stop_reason = getattr(response, "stop_reason", None)
+        result.round_limit_hit = tool_rounds >= self.config.max_tool_rounds
         text = "\n\n".join(
             str(block.text).strip()
             for block in (response.content or [])
