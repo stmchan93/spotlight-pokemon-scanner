@@ -823,6 +823,8 @@ type CardPricingSummaryDTO = {
 
 type CardCandidateDTO = {
   id: string;
+  /** Set-page rows carry their served price flat here instead of a `pricing` block. */
+  marketPrice?: number | null;
   name: string;
   setName: string;
   number: string;
@@ -8552,8 +8554,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         setName: card.setName,
         subtitle: null,
         imageUrl: pickImageUrl([card.imageLargeURL, card.imageSmallURL], this.baseUrl),
-        marketPrice: card.pricing.market,
-        currencyCode: card.pricing.currencyCode,
+        // The set endpoint sends `marketPrice` flat (no `pricing` block), so the
+        // set page showed no prices; read either shape.
+        marketPrice: card.pricing.market ?? (typeof result.marketPrice === 'number' ? result.marketPrice : null),
+        currencyCode: card.pricing.currencyCode ?? 'USD',
         ownedQuantity: inventoryEntries
           .filter((entry: InventoryCardEntry) => entry.cardId === card.id)
           .reduce((sum: number, entry: InventoryCardEntry) => sum + entry.quantity, 0),

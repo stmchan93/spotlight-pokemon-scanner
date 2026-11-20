@@ -93,4 +93,19 @@ describe('expansion requests carry the lane', () => {
       'http://example.test/api/v1/expansions/sv1/cards?game=pokemon&limit=50',
     );
   });
+
+  it('reads the set page price from the flat marketPrice the set endpoint sends', async () => {
+    captureUrls({
+      '/api/v1/expansions/': {
+        results: [{ id: 'me5-1', name: 'Tropius', setName: 'Pitch Black', number: '1', marketPrice: 0.11 }],
+      },
+      '/api/v1/deck/entries': { entries: [] },
+    });
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const cards = await repository.listCardsInExpansion('me5');
+
+    expect(cards[0]?.marketPrice).toBe(0.11);
+    expect(cards[0]?.currencyCode).toBe('USD');
+  });
 });
