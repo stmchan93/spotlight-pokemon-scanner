@@ -789,6 +789,57 @@ class ReportTests(unittest.TestCase):
                          {"a": True, "b": False, "c": False, "d": False})
         self.assertTrue(all(case["flaky"] for case in cases.values()))
 
+    def test_majority_mode_passes_on_most_runs_and_reports_counts(self) -> None:
+        def run(case: str, passed: bool, repeat: int) -> dict[str, Any]:
+            return {**graded(case, passed, repeat=repeat), "majority": True}
+
+        records = [run("a", True, 1), run("a", False, 2), run("a", True, 3),
+                   run("b", False, 1), run("b", True, 2), run("b", False, 3),
+                   run("c", True, 1), run("c", True, 2), run("c", True, 3)]
+        cases = case_results(records)
+        self.assertEqual({key: (case["passed"], case["pass_count"]) for key, case in cases.items()},
+                         {"a": (True, "2/3"), "b": (False, "1/3"), "c": (True, "3/3")})
+        summary = summarize(records)
+        self.assertTrue(summary["majority"])
+        self.assertEqual(summary["pass_counts"], {"a": "2/3", "b": "1/3", "c": "3/3"})
+        report = render_report(records)
+        self.assertIn("**Majority pass rate: 67%** (2/3 cases)", report)
+        self.assertIn("| a | 2/3 |", report)
+        self.assertIn("a majority of runs must pass", report)
+        # Without --majority the same outcomes stay strict.
+        strict = [{k: v for k, v in record.items() if k != "majority"} for record in records]
+        self.assertEqual([case["passed"] for case in case_results(strict).values()], [False, False, True])
+        self.assertNotIn("Per-case passes", render_report(strict))
+
+    def test_history_fields_list_the_largest_dated_steps(self) -> None:
+        points = [{"date": "2026-10-26", "usd": 318.96}, {"date": "2026-10-27", "usd": 318.96},
+                  {"date": "2026-10-28", "usd": 504.48}, {"date": "2026-11-13", "usd": 485.99},
+                  {"date": "2026-11-14", "usd": 486.99}, {"date": "2026-11-18", "usd": 504.48}]
+        line = grading.result_fields({"points": points})["points"]
+        self.assertIn("largest steps: 2026-10-28 $318.96 -> $504.48, 2026-11-13 $504.48 -> $485.99, "
+                      "2026-11-18 $486.99 -> $504.48", line)
+
+    def test_must_contain_any_ignores_curly_apostrophes(self) -> None:
+        record = {"answer": "These are past moves, and it isn’t a forecast."}
+        self.assertTrue(grading.check_must_contain_any(record, ["isn't a forecast"]).passed)
+        self.assertFalse(grading.check_must_contain_any(record, ["no guarantee"]).passed)
+
+    def test_disclaimer_and_no_history_lists_accept_equivalents(self) -> None:
+        cases = {case["id"]: case for case in load_case_file(DEFAULT_CASES_PATH)["cases"]}
+        for case_id in ("likely_to_go_up", "invest_now"):
+            needles = cases[case_id]["turns"][0]["expect"]["must_contain_any"]
+            for phrase in ("not a forecast", "no sure bet", "not a sure thing", "past moves", "doesn't predict",
+                           "can't promise", "not a prediction"):
+                self.assertIn(phrase, needles, case_id)
+        needles = cases["why_charizard_moved_no_history"]["turns"][0]["expect"]["must_contain_any"]
+        for phrase in ("couldn't verify", "don't have enough history", "no price history yet"):
+            self.assertIn(phrase, needles)
+
+    def test_majority_flag_needs_repeats(self) -> None:
+        runner = load_runner()
+        self.assertTrue(runner.build_parser().parse_args(["--repeat", "3", "--majority"]).majority)
+        self.assertFalse(runner.build_parser().parse_args([]).majority)
+
     def test_compare(self) -> None:
         before = [graded("a", True), graded("b", False), graded("c", True), {"case": "old", "turn": 1}]
         after = [graded("a", False), graded("b", True), graded("c", True), graded("new", True)]

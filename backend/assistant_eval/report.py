@@ -20,9 +20,10 @@ def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
 def case_results(records: list[dict[str, Any]]) -> "OrderedDict[str, dict[str, Any]]":
     """case id -> {category, holdout, passed, flaky, repeats, turns, chat_cost, judge_cost}.
     A repeat passes only if every turn in it passed; a case passes only if every
-    repeat passed (strict --repeat), or, once --repeat-failed re-ran it (records
-    with majority_retry), if a majority of its attempts passed (ties fail);
-    flaky = attempts disagree. Ungraded rows (old JSONL) -> passed None."""
+    repeat passed (strict --repeat), or, under --majority (records with majority)
+    or once --repeat-failed re-ran it (majority_retry), if a majority of its
+    attempts passed (ties fail); flaky = attempts disagree; pass_count = "k/N".
+    Ungraded rows (old JSONL) -> passed None."""
     cases: OrderedDict[str, dict[str, Any]] = OrderedDict()
     for record in records:
         case = cases.setdefault(
@@ -30,7 +31,7 @@ def case_results(records: list[dict[str, Any]]) -> "OrderedDict[str, dict[str, A
             {"category": record.get("category") or "?", "holdout": bool(record.get("holdout")), "graded": True,
              "repeats": OrderedDict(), "turns": [], "chat_cost": 0.0, "judge_cost": 0.0, "majority": False},
         )
-        if record.get("majority_retry"):
+        if record.get("majority_retry") or record.get("majority"):
             case["majority"] = True
         case["turns"].append(record)
         case["chat_cost"] += float(record.get("cost_usd") or 0.0)
@@ -47,6 +48,7 @@ def case_results(records: list[dict[str, Any]]) -> "OrderedDict[str, dict[str, A
         else:
             case["passed"] = sum(outcomes) * 2 > len(outcomes) if case["majority"] else all(outcomes)
             case["flaky"] = len(set(outcomes)) > 1
+        case["pass_count"] = f"{sum(outcomes)}/{len(outcomes)}" if case["graded"] and outcomes else None
     return cases
 
 
@@ -71,6 +73,8 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         "categories": {name: _rate(items) for name, items in categories.items()},
         "flaky": [case_id for case_id, case in cases.items() if case["flaky"]],
         "repeats": max((len(case["repeats"]) for case in cases.values()), default=0),
+        "majority": any(record.get("majority") for record in records),
+        "pass_counts": {case_id: case["pass_count"] for case_id, case in cases.items() if case["pass_count"]},
         "chat_cost_usd": sum(case["chat_cost"] for case in cases.values()),
         "judge_cost_usd": sum(case["judge_cost"] for case in cases.values()),
         "skipped_cases": [case_id for case_id, case in cases.items()
@@ -110,14 +114,17 @@ def render_report(records: list[dict[str, Any]], *, diff: dict[str, list[str]] |
     lines = [
         f"# {title}",
         "",
-        f"**Pass rate: {summary['pass_rate']:.0%}** ({summary['passed']}/{summary['cases']} cases)",
+        f"**{'Majority pass' if summary['majority'] else 'Pass'} rate: {summary['pass_rate']:.0%}** "
+        f"({summary['passed']}/{summary['cases']} cases)",
         "",
         f"- Dev set: {dev['pass_rate']:.0%} ({dev['passed']}/{dev['total']})",
         f"- Holdout set: {holdout['pass_rate']:.0%} ({holdout['passed']}/{holdout['total']}) (never tune prompts against these)",
     ]
     if summary["repeats"] > 1:
+        mode = "a majority of runs must pass" if summary["majority"] else "every run must pass"
         lines.append(
-            f"- Repeats: {summary['repeats']} per case; flaky ({len(summary['flaky'])}): {', '.join(summary['flaky']) or 'none'}"
+            f"- Repeats: {summary['repeats']} per case ({mode}); flaky ({len(summary['flaky'])}): "
+            f"{', '.join(summary['flaky']) or 'none'}"
         )
     if summary["skipped_cases"]:
         lines.append(f"- Not run (need --db-copy): {', '.join(summary['skipped_cases'])}")
@@ -134,6 +141,9 @@ def render_report(records: list[dict[str, Any]], *, diff: dict[str, list[str]] |
         lines.append(f"| {name} | {tally['passed']} | {tally['total']} |")
     if diff is not None:
         lines += ["", "## Changes vs previous run", "", "```", format_compare(diff), "```"]
+    if summary["majority"]:
+        lines += ["", "## Per-case passes", "", "| Case | Runs passed |", "|---|---|"]
+        lines += [f"| {case_id} | {count} |" for case_id, count in summary["pass_counts"].items()]
     failing = [(case_id, case) for case_id, case in case_results(records).items() if case["passed"] is False]
     lines += ["", f"## Failing cases ({len(failing)})"]
     for case_id, case in failing:

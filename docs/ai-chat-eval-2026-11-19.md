@@ -59,6 +59,7 @@ Useful options:
 | `--compare /tmp/eval-<last>.jsonl` | Lists cases that flipped pass/fail vs that run (also added to the report). |
 | `--min-pass 0.85` (or `85`) | Exit code 1 if the pass rate is below this (for scripts/CI). |
 | `--repeat 3` | Runs each case 3 times. A case passes only if all 3 pass. Cases whose result changes between runs are listed as **flaky**. |
+| `--repeat 3 --majority` | Runs each case 3 times; a case passes if most runs pass (2/3; a tie fails, so use an odd N). The report headline becomes the **majority pass rate** and a "Per-case passes" table shows each case's count (e.g. `2/3`). Without `--majority`, `--repeat` stays strict. |
 | `--repeat-failed 2` | After the run, re-runs only the failing cases 2 more times. Such a case passes if most of its attempts pass (a tie fails) and is listed as **flaky** when attempts disagree. Use it to separate wording noise from real failures; `--repeat` stays the strict all-pass gate. Costs only the failing cases' re-runs. |
 | `--from-results run.jsonl` | No API calls: re-render a report, compare, or export labels from a saved run. |
 | `--list` / `--validate` | Print the cases (with label and whether they need `--db-copy`) / check the case file. No API calls. |

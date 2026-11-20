@@ -14,11 +14,15 @@ toward the daily cap). Guide: docs/ai-chat-eval-2026-11-19.md.
   backend/.venv/bin/python backend/tools/assistant_eval.py \\
       --database-path backend/data/spotlight_scanner.sqlite --user-id <supabase user id> \\
       [--db-copy] [--case one_piece_priciest_reask] [--category investing] [--no-judge] [--repeat 3] \\
-      [--repeat-failed 2] \\
+      [--majority] [--repeat-failed 2] \\
       [--out results.jsonl] [--report report.md] [--compare previous.jsonl] [--min-pass 0.8]
 
 --db-copy runs against a temp COPY of the DB. Cases with `fixtures` or
 `writes: true` (direct adds) only run with it; without it they are reported as skipped.
+
+--repeat N alone is strict: a case passes only if all N runs pass. --repeat N --majority
+passes a case when most of its N runs pass (use an odd N; ties fail); the report shows
+the majority pass rate and each case's pass count (e.g. 2/3).
 
 Offline (no API calls): --list, --validate, --from-results old.jsonl (re-render
 report/compare/export-labels from a saved run).
@@ -373,6 +377,9 @@ async def run(args: argparse.Namespace, data: dict[str, Any], cases: list[dict[s
         if majority:
             for record in records:
                 record["majority_retry"] = True
+        if args.majority:
+            for record in records:
+                record["majority"] = True
         emit(records)
 
     try:
@@ -446,6 +453,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="LLM judge on rubric turns (default on; --no-judge = code checks only, no judge cost).")
     parser.add_argument("--repeat", type=int, default=1,
                         help="Run each case N times; strict: a case passes only if every repeat passes.")
+    parser.add_argument("--majority", action="store_true",
+                        help="With --repeat N: a case passes when a majority of its N runs pass (ties fail); "
+                             "the report lists per-case pass counts.")
     parser.add_argument("--repeat-failed", type=int, default=0, metavar="N",
                         help="After the run, re-run only failing cases N more times; such a case passes on a "
                              "majority of all its attempts (ties fail) and is flagged flaky when attempts disagree.")
@@ -501,6 +511,8 @@ def main() -> None:
         raise SystemExit("--repeat must be >= 1")
     if args.repeat_failed < 0:
         raise SystemExit("--repeat-failed must be >= 0")
+    if args.majority and args.repeat < 2:
+        raise SystemExit("--majority needs --repeat N with N >= 2 (odd N avoids ties)")
     temp_dir = prepare_database(args)
     try:
         records = asyncio.run(run(args, data, cases))

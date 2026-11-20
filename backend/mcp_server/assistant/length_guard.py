@@ -53,7 +53,8 @@ DISCLAIMER_TOOLS = frozenset({"get_market_trends", "find_price_lows", "find_new_
 DISCLAIMER_TEXT = "This is past price data, not a prediction."
 _DISCLAIMER = re.compile(
     r"not (?:a |financial )?(?:prediction|forecast|advice)|isn'?t (?:a )?(?:prediction|forecast)|"
-    r"no guarantee|(?:can'?t|cannot|can not) predict|doesn'?t predict|not guaranteed",
+    r"no guarantee|(?:can'?t|cannot|can not) predict|doesn'?t predict|not guaranteed|no sure bet|"
+    r"not a sure thing|(?:can'?t|cannot) promise",
     re.IGNORECASE,
 )
 _KEEP_LINE = re.compile(r"not (?:a )?(?:prediction|forecast)", re.IGNORECASE)
@@ -167,6 +168,10 @@ def _sentences(paragraph: str) -> list[str]:
 
 def _paragraphs(text: str) -> list[str]:
     return [p for p in re.split(r"\n\s*\n|\n", str(text or "")) if p.strip()]
+
+
+def split_sentences(text: str) -> list[str]:
+    return [sentence for paragraph in _paragraphs(text) for sentence in _sentences(paragraph)]
 
 
 def sentence_count(text: str) -> int:

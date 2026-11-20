@@ -43,6 +43,8 @@ Accuracy (never break these):
 - To change anything (add a card, change quantity/condition, watch a card or set a price alert), call a propose_* tool. The user must tap Confirm. Never say it's done; say it's ready to confirm.
 - Exception: when the user asks to add one card and names its exact printing, quantity, and condition (or grader + grade), call add_to_collection_now instead; it saves right away. Say it's added only if the result has added=true.
 - Copy every detail the user gave into the propose_* call: always pass quantity (e.g. "add 2" means quantity 2) and the condition, printing, or grade they named.
+- A price the user names for an alert ("alert me under $400") is target_price_usd in propose_watch_card, even if the card is already below it; say the $400 alert is ready to confirm.
+- A span the user names for price history ("past year", "3 months", "30 days") sets get_price_history's range (1y, 90d, 30d).
 - For a card's price history or trend, call get_price_history so the app shows a chart; keep the text to one sentence summarizing the move. That sentence names the printing and the price condition (e.g. "the Near Mint Holofoil price of Kyogre-EX (Dark Explorers 104/108)"); the result's summary line has them with the dated move.
 - "Why did X move/go up": open with the actual move and dates from the history (e.g. "Charizard ex fell from $374 on Aug 22 to $288 on Nov 18"), then the cause only if a tool result supports it. If the history doesn't show the move the user assumed, say what it shows.
 - A price question naming a card without set or number: if search_cards returns ambiguous=true, don't pick one printing's price; ask which one they mean (use its ask_which) and show the candidates. If it returns resolved_owned_card_id, use that printing (the one the user owns) without asking.
@@ -306,6 +308,123 @@ def ensure_choice_question(text: str, ask_which: str | None) -> str:
     return f"{text}\n\n{ask_which}" if text else ask_which
 
 
+# --- answer text split across rounds ------------------------------------------
+# Haiku often writes the real answer next to a tool call, then a final message that
+# covers only the extra lookup (or nothing). Substantive earlier text is kept.
+ANSWER_NOW_NOTE = "Answer the user's question now using the tool results above. No more tools."
+MIN_SUBSTANTIVE_WORDS = 12
+NEAR_DUPLICATE = 0.8
+_PREAMBLE = re.compile(
+    r"^\W*(?:let me|let's|i'll|i will|i need to|i should|i'm going to|i am going to|now,? i|first,? i|next,? i|"
+    r"checking|looking (?:up|into|at|for)|one moment|hang on|ok(?:ay)?\b|alright\b|sure\b|the search|searching)"
+    r"|\blet me\b",
+    re.IGNORECASE,
+)
+_TOKEN = re.compile(r"\$?\d[\d,]*(?:\.\d+)?%?|[^\W\d_][\w'’-]*")
+_STOPWORDS = frozenset(
+    "the and for are was its it's this that with from has have but not you your yours their our".split()
+)
+
+
+def substantive_text(raw: str) -> str:
+    """Text written alongside tool calls minus 'let me check' sentences; '' unless what's
+    left has a number or at least MIN_SUBSTANTIVE_WORDS words."""
+    visible = strip_pseudo_calls(_ECHOED_NOTE.sub("", split_suggestions(raw)[0])).strip()
+    lines: list[str] = []
+    for line in visible.splitlines():
+        if line.lstrip().startswith("|") or not line.strip():
+            lines.append(line)
+            continue
+        kept = [sentence for sentence in length_guard.split_sentences(line) if not _PREAMBLE.search(sentence)]
+        if kept:
+            lines.append(" ".join(kept))
+    out = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    if not out or not (re.search(r"\d", out) or length_guard.word_count(out) >= MIN_SUBSTANTIVE_WORDS):
+        return ""
+    return out
+
+
+def _content_tokens(text: str) -> set[str]:
+    tokens = set()
+    for token in _TOKEN.findall(text.casefold()):
+        token = token.replace(",", "").lstrip("$").rstrip("%")
+        if token[:1].isdigit() or (len(token) >= 3 and token not in _STOPWORDS):
+            tokens.add(token)
+    return tokens
+
+
+def _share(part: set[str], other: set[str]) -> float:
+    return len(part & other) / len(part) if part else 1.0
+
+
+def merge_answer_parts(parts: list[str]) -> str:
+    """Earlier substantive text + the final text, in order. A part that mostly repeats a
+    kept one is dropped; a kept part that a later one restates is replaced by it."""
+    kept: list[tuple[str, set[str]]] = []
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        tokens = _content_tokens(part)
+        if any(_share(tokens, other) >= NEAR_DUPLICATE for _, other in kept):
+            continue
+        kept = [(text, other) for text, other in kept if _share(other, tokens) < NEAR_DUPLICATE]
+        kept.append((part, tokens))
+    return "\n\n".join(text for text, _ in kept)
+
+
+# --- arguments corrected from the question ---------------------------------------
+RANGE_ORDER = {"7d": 0, "30d": 1, "90d": 2, "1y": 3}
+_RANGE_PATTERNS = (
+    ("1y", re.compile(r"\b(?:past|last|this|previous|a|one|1)\s+year\b|\b12[\s-]*months?\b|\b1\s?y(?:r)?\b"
+                      r"|\b365\s*days\b|\byear[\s-]+over[\s-]+year\b", re.IGNORECASE)),
+    ("90d", re.compile(r"\b90[\s-]*days?\b|\b(?:3|three)[\s-]*months?\b|\bquarter\b", re.IGNORECASE)),
+    ("30d", re.compile(r"\b30[\s-]*days?\b|\b(?:past|last|this|a|one|1)\s+month\b", re.IGNORECASE)),
+)
+_WATCH_WORDS = re.compile(r"\b(alert|under|below|drops?|dips?|falls?|less than|target|notify|ping)\b", re.IGNORECASE)
+_TARGET_AMOUNT = re.compile(
+    r"\b(?:under|below|drops?|dips?|falls?|less than|target|at)\b[^$\d]{0,20}\$\s?(\d[\d,]*(?:\.\d+)?)", re.IGNORECASE
+)
+
+
+def history_range_for(question: str) -> str | None:
+    """'past year' -> 1y, '3 months' -> 90d, 'last month' -> 30d."""
+    for key, pattern in _RANGE_PATTERNS:
+        if pattern.search(question or ""):
+            return key
+    return None
+
+
+def question_target_usd(question: str) -> float | None:
+    """'alert me if it drops under $400' -> 400.0."""
+    if not _WATCH_WORDS.search(question or ""):
+        return None
+    amounts = _MONEY.findall(question or "")
+    match = _TARGET_AMOUNT.search(question or "")
+    token = match.group(1) if match else (amounts[0] if len(amounts) == 1 else None)
+    try:
+        value = float(token.replace(",", "")) if token else None
+    except ValueError:
+        return None
+    return value if value and value > 0 else None
+
+
+def correct_tool_arguments(name: str, arguments: Any, question: str) -> dict[str, Any]:
+    """Fill what the question states but the model dropped: a history range at least as
+    long as asked for, and the watch target price the user named."""
+    args = dict(arguments) if isinstance(arguments, dict) else {}
+    if name == "get_price_history":
+        wanted = history_range_for(question)
+        current = args.get("range")
+        if wanted and RANGE_ORDER.get(str(current), -1) < RANGE_ORDER[wanted]:
+            args["range"] = wanted
+    elif name == "propose_watch_card" and args.get("target_price_usd") is None:
+        target = question_target_usd(question)
+        if target is not None:
+            args["target_price_usd"] = target
+    return args
+
+
 class AssistantFailed(RuntimeError):
     """LLM or network failure; the turn is not counted. `cost_usd` = tokens already spent."""
 
@@ -470,10 +589,33 @@ class AssistantEngine:
         result.length_guard = "trim"
         return length_guard.trim_to_limit(text, limit, sentences)
 
-    async def _run_tool(self, block: Any, owner_user_id: str, writes: TurnWrites):
-        arguments = block.input if isinstance(block.input, dict) else {}
+    @staticmethod
+    def _account(result: TurnResult, response: Any) -> None:
+        result.rounds += 1
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            result.input_tokens += int(getattr(usage, "input_tokens", 0) or 0) + int(
+                getattr(usage, "cache_read_input_tokens", 0) or 0
+            ) + int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+            result.output_tokens += int(getattr(usage, "output_tokens", 0) or 0)
+            result.cost_usd += cost_usd(usage)
+
+    async def _answer_now(self, messages: list[dict[str, Any]], result: TurnResult) -> Any | None:
+        """One tools-off call after an empty final message; None if it fails."""
+        last = messages[-1]
+        content = last["content"] if isinstance(last["content"], list) else [{"type": "text", "text": last["content"]}]
+        retry = [*messages[:-1], {**last, "content": [*content, {"type": "text", "text": ANSWER_NOW_NOTE}]}]
+        try:
+            response = await self._create(retry, final=True)
+        except Exception as error:  # noqa: BLE001 - the generic error text is the fallback
+            logger.warning("assistant answer-now call failed: %s", type(error).__name__)
+            return None
+        self._account(result, response)
+        return response
+
+    async def _run_tool(self, name: str, arguments: dict[str, Any], owner_user_id: str, writes: TurnWrites):
         return await asyncio.to_thread(
-            self.toolbox.run, block.name, arguments, owner_user_id=owner_user_id, turn=writes
+            self.toolbox.run, name, arguments, owner_user_id=owner_user_id, turn=writes
         )
 
     async def run_turn(
@@ -512,8 +654,8 @@ class AssistantEngine:
         art_search = False
         ask_which: str | None = None
         collection_totals: list[tuple[float, str | None]] = []
-        # Text the model wrote next to tool calls: the answer if the last response has none.
-        earlier_text = ""
+        # Substantive text the model wrote next to tool calls (raw, with any follow-ups block).
+        earlier_texts: list[str] = []
         answered_with_selection = False
         free_selection_round_used = False
         response = None
@@ -525,29 +667,25 @@ class AssistantEngine:
             except Exception as error:  # noqa: BLE001 - SDK/network errors all mean "failed turn"
                 logger.warning("assistant LLM call failed: %s", type(error).__name__)
                 raise AssistantFailed("llm_call_failed", cost=result.cost_usd) from error
-            result.rounds += 1
-            usage = getattr(response, "usage", None)
-            if usage is not None:
-                result.input_tokens += int(getattr(usage, "input_tokens", 0) or 0) + int(
-                    getattr(usage, "cache_read_input_tokens", 0) or 0
-                ) + int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
-                result.output_tokens += int(getattr(usage, "output_tokens", 0) or 0)
-                result.cost_usd += cost_usd(usage)
+            self._account(result, response)
             if response.stop_reason != "tool_use" or final:
                 break
-            earlier_text = _response_text(response) or earlier_text
             tool_uses = [block for block in response.content if getattr(block, "type", None) == "tool_use"]
             if not tool_uses:
                 break
             # Full content back unchanged (thinking blocks stay valid in-turn).
             messages.append({"role": "assistant", "content": response.content})
             work = [block for block in tool_uses if block.name != SHOW_CARDS]
+            arguments_by_id = {block.id: correct_tool_arguments(block.name, block.input, question) for block in work}
             writes.plan_round([block.name for block in work])
-            outcomes = await asyncio.gather(*(self._run_tool(block, owner_user_id, writes) for block in work))
+            outcomes = await asyncio.gather(
+                *(self._run_tool(block.name, arguments_by_id[block.id], owner_user_id, writes) for block in work)
+            )
             results_by_id: dict[str, dict[str, Any]] = {}
             for block, outcome in zip(work, outcomes):
+                arguments = arguments_by_id[block.id]
                 result.tools_used.append(block.name)
-                result.tool_calls.append(summarize_tool_call(block.name, block.input))
+                result.tool_calls.append(summarize_tool_call(block.name, arguments))
                 payload = json.dumps(outcome.content, default=str, separators=(",", ":"))
                 tool_payloads.append(payload)
                 results_by_id[block.id] = {
@@ -561,7 +699,7 @@ class AssistantEngine:
                     empty_flags.append(empty)
                 if block.name == "get_price_history":
                     history_empty.append(empty)
-                if block.name == "search_cards" and length_guard.is_art_search(block.input):
+                if block.name == "search_cards" and length_guard.is_art_search(arguments):
                     art_search = True
                 if outcome.is_error:
                     result.tool_errors.append(block.name)
@@ -621,6 +759,7 @@ class AssistantEngine:
             ):
                 answered_with_selection = True
                 break
+            earlier_texts.append(_response_text(response))
             if not work and not free_selection_round_used:
                 # A lone show_cards round (once) doesn't spend the lookup budget.
                 free_selection_round_used = True
@@ -633,13 +772,21 @@ class AssistantEngine:
 
         result.stop_reason = "end_turn" if answered_with_selection else getattr(response, "stop_reason", None)
         result.round_limit_hit = tool_rounds >= self.config.max_tool_rounds
-        text = _response_text(response)
-        if not text and result.stop_reason in ("end_turn", "tool_use") and re.search(r"\d", earlier_text):
-            # Answered (with numbers, not a "let me check" preamble) alongside its last lookup.
-            text = earlier_text
-        text, suggestions = split_suggestions(text, result.stop_reason)
+        text, suggestions = split_suggestions(_response_text(response), result.stop_reason)
         text = strip_pseudo_calls(_ECHOED_NOTE.sub("", text)).strip()
         executed = [action for action in result.actions if action.get("state") == "done"]
+        if result.stop_reason != "refusal":
+            earlier = [part for part in (substantive_text(raw) for raw in earlier_texts) if part]
+            if not suggestions:
+                suggestions = next((s for raw in reversed(earlier_texts) if (s := split_suggestions(raw)[1])), [])
+            text = merge_answer_parts([*earlier, text])
+            if not text and not executed and result.stop_reason in ("end_turn", "tool_use"):
+                retry = await self._answer_now(messages, result)
+                if retry is not None and getattr(retry, "stop_reason", None) != "refusal":
+                    result.stop_reason = getattr(retry, "stop_reason", None)
+                    text, retry_suggestions = split_suggestions(_response_text(retry), result.stop_reason)
+                    text = strip_pseudo_calls(_ECHOED_NOTE.sub("", text)).strip()
+                    suggestions = retry_suggestions or suggestions
         if executed and (result.stop_reason == "refusal" or not text):
             # The write already happened: the reply must say so and carry Undo.
             result.text = "\n".join(f"{action['summary']}." for action in executed)
