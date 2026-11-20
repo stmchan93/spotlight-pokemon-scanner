@@ -305,10 +305,12 @@
       "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts"
     },
     {
-      "figmaNodeId": "TODO",
-      "figmaUrl": "TODO",
+      "figmaNodeId": "6552:1913",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6552-1913",
       "screenName": "ExpansionBrowser",
       "componentPaths": [
+        "apps/spotlight-rn/src/features/catalog/screens/game-sets-screen.tsx",
+        "apps/spotlight-rn/src/features/catalog/components/set-progress-card.tsx",
         "apps/spotlight-rn/src/features/catalog/screens/expansion-browser-screen.tsx",
         "apps/spotlight-rn/src/app/(sheet)/catalog/expansion-browser.tsx"
       ],
@@ -316,11 +318,13 @@
       "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts"
     },
     {
-      "figmaNodeId": "TODO",
-      "figmaUrl": "TODO",
+      "figmaNodeId": "6425:3296",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6425-3296",
       "screenName": "ExpansionDetail",
       "componentPaths": [
         "apps/spotlight-rn/src/features/catalog/screens/expansion-detail-screen.tsx",
+        "apps/spotlight-rn/src/features/catalog/components/set-card-tile.tsx",
+        "apps/spotlight-rn/src/features/catalog/components/owned-copies-sheet.tsx",
         "apps/spotlight-rn/src/app/(sheet)/catalog/expansion/[expansionId].tsx"
       ],
       "deepLink": "spotlight://dev/expansion-detail",

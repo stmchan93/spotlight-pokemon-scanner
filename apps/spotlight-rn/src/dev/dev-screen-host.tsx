@@ -210,7 +210,12 @@ const devScreens: Record<string, () => ReactElement> = {
   'catalog-search': () => (
     <CatalogSearchScreen initialQuery="Treecko" onClose={noop} onOpenCard={noop} onSelectGame={noop} />
   ),
-  'expansion-browser': () => <ExpansionBrowserScreen onClose={noop} onSelectGame={noop} />,
+  // Sets list with progress (Figma 6552:1913): 100% (151), partial, and 0% sets.
+  'expansion-browser': () => (
+    <ExpansionBrowserScreen onClose={noop} onOpenAssistant={noop} onOpenCard={noop} onSelectExpansion={noop} />
+  ),
+  // Set page (Figma 6425:3296): faded unowned tiles, rarity chips, and Grovyle
+  // (#003) held raw + PSA 10, so its − opens the "which copy?" sheet.
   'expansion-detail': () => (
     <ExpansionDetailScreen
       expansionId={DEV_EXPANSION_ID}

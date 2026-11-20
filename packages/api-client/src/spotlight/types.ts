@@ -1139,8 +1139,9 @@ export const RARITY_FILTER_BUCKETS: readonly RarityFilterBucket[] = [
 ];
 
 /**
- * User-facing chip labels for the filterable buckets. This map is the ONLY
- * client home for these labels — never restate them in screens.
+ * User-facing chip labels for the filterable buckets. This map (and the set
+ * page's `SET_RARITY_CHIP_LABELS` below) is the ONLY client home for these labels —
+ * never restate them in screens.
  */
 export const RARITY_BUCKET_LABELS: Record<RarityFilterBucket, string> = {
   sir: 'SIR',
@@ -1149,6 +1150,49 @@ export const RARITY_BUCKET_LABELS: Record<RarityFilterBucket, string> = {
   secret: 'Secret',
   shiny: 'Shiny',
 };
+
+/**
+ * The set page's rarity chips (Figma 6425:3296: ALL, HR, SIR, IR, ULTRA RARE…),
+ * in chip order, with per-game labels. The set page shows only the buckets
+ * present in that set's cards. Separate from `RARITY_BUCKET_LABELS` because
+ * the set page speaks each game's printed-rarity shorthand, while the
+ * Collection/Watchlist chips keep their longer names. `standard` and `other`
+ * never get a chip. Adjust labels/order HERE only.
+ *
+ * Bucket meaning per game (backend `catalog_tools`): Pokémon secret = Hyper
+ * Rare ("HR"); One Piece secret = Secret + Treasure Rare, illustration = Manga
+ * Rare, ultra = Super Rare / Special Card; Lorcana illustration = Enchanted,
+ * secret = Iconic, ultra = Super Rare / Legendary / Epic.
+ */
+export const SET_RARITY_CHIP_ORDER: readonly RarityBucket[] = [
+  'secret',
+  'sir',
+  'illustration',
+  'ultra',
+  'shiny',
+  'promo',
+];
+
+const SET_RARITY_CHIP_LABELS_DEFAULT: Partial<Record<RarityBucket, string>> = {
+  secret: 'HR',
+  sir: 'SIR',
+  illustration: 'IR',
+  ultra: 'ULTRA RARE',
+  shiny: 'SHINY',
+  promo: 'PROMO',
+};
+
+export const SET_RARITY_CHIP_LABELS: Partial<Record<CardGame, Partial<Record<RarityBucket, string>>>> = {
+  pokemon: SET_RARITY_CHIP_LABELS_DEFAULT,
+  onepiece: { ...SET_RARITY_CHIP_LABELS_DEFAULT, secret: 'SEC', illustration: 'MANGA', ultra: 'SUPER RARE' },
+  lorcana: { ...SET_RARITY_CHIP_LABELS_DEFAULT, secret: 'ICONIC', illustration: 'ENCHANTED', ultra: 'SUPER RARE' },
+};
+
+/** The set page's chips for one game, in chip order (unlisted games use the Pokémon labels). */
+export function setRarityChipsForGame(game?: CardGame | null): { bucket: RarityBucket; label: string }[] {
+  const labels = (game && SET_RARITY_CHIP_LABELS[game]) || SET_RARITY_CHIP_LABELS_DEFAULT;
+  return SET_RARITY_CHIP_ORDER.flatMap((bucket) => (labels[bucket] ? [{ bucket, label: labels[bucket] as string }] : []));
+}
 
 export type ProductKind = 'card' | 'sealed';
 
@@ -1247,6 +1291,33 @@ export type ExpansionRecord = {
   language?: string | null;
   releaseDate: string | null;
   imageUrl: string | null;
+  /**
+   * Every card in the set, secret rares included — the "of Y" on the sets list
+   * and set page. Absent on older backends: completion is then unknown and the
+   * UI hides it rather than guessing.
+   */
+  cardCount?: number;
+  /**
+   * What the WHOLE set is worth (each card's served NM default-printing price,
+   * USD). Null when nothing is priced; absent on older backends. Hidden either way.
+   */
+  setValue?: number | null;
+};
+
+/** One set the signed-in user owns at least one card of. */
+export type SetProgressEntry = {
+  expansionId: string;
+  /** Distinct cards owned in this set (any printing, raw or graded). */
+  ownedCount: number;
+};
+
+/**
+ * `GET /api/v1/collection/set-progress?game=` — owner-scoped. Only sets with
+ * `ownedCount > 0` are listed; a set that is missing is at 0.
+ */
+export type SetProgress = {
+  game: string;
+  sets: SetProgressEntry[];
 };
 
 export type MarketHistoryOption = {

@@ -121,6 +121,7 @@ import type {
   DealAlertsPage,
   DealBaselineSource,
   ExpansionRecord,
+  SetProgress,
   InventoryEntryBulkCreateResponsePayload,
   InventoryEntryBulkCreateResultEntry,
   InventoryEntryCreateRequestPayload,
@@ -617,6 +618,12 @@ export interface SpotlightRepository {
     limit?: number,
     game?: CardGame,
   ): Promise<CatalogSearchResult[]>;
+  /**
+   * The signed-in user's owned-card count per set for one game
+   * (`GET /api/v1/collection/set-progress`). Never throws: a failed read, a
+   * signed-out caller and an older backend all come back as no sets (0%).
+   */
+  getSetProgress(game: CardGame): Promise<SetProgress>;
   getAccessStatus(): Promise<AccessStatus>;
   redeemInviteCode(code: string): Promise<AccessRedeemResult>;
   joinAccessWaitlist(email: string): Promise<AccessWaitlistResult>;
@@ -5355,9 +5362,17 @@ export class MockSpotlightRepository implements SpotlightRepository {
   }
 
   async setPortfolioEntryQuantity(payload: SetPortfolioEntryQuantityRequestPayload) {
+    const existing = this.inventoryEntries.find((entry) => entry.id === payload.deckEntryID);
+    if (existing) {
+      this.inventoryEntries = payload.quantity <= 0
+        ? this.inventoryEntries.filter((entry) => entry.id !== payload.deckEntryID)
+        : this.inventoryEntries.map((entry) => (
+          entry.id === payload.deckEntryID ? { ...entry, quantity: payload.quantity } : entry
+        ));
+    }
     return {
       deckEntryID: payload.deckEntryID,
-      cardID: 'mock-card',
+      cardID: existing?.cardId ?? 'mock-card',
       quantity: payload.quantity,
       deleted: payload.quantity === 0,
     };
@@ -5558,6 +5573,18 @@ export class MockSpotlightRepository implements SpotlightRepository {
 
   async listExpansions(_game?: CardGame): Promise<ExpansionRecord[]> {
     return [];
+  }
+
+  async getSetProgress(game: CardGame): Promise<SetProgress> {
+    // Plausible fixed numbers; the mock catalog carries no set ids to count from.
+    const sets = game === 'pokemon'
+      ? [
+          { expansionId: 'sv8', ownedCount: 42 },
+          { expansionId: 'sv3pt5', ownedCount: 207 },
+          { expansionId: 'sm7', ownedCount: 3 },
+        ]
+      : [];
+    return { game, sets };
   }
 
   async listCardsInExpansion(
@@ -8419,6 +8446,25 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return Array.isArray(response.data?.expansions) ? response.data.expansions : [];
   }
 
+  async getSetProgress(game: CardGame): Promise<SetProgress> {
+    const params = new URLSearchParams({ game });
+    const response = await this.requestJsonRead<{ game?: string; sets?: unknown }>(
+      `${this.baseUrl}/api/v1/collection/set-progress?${params.toString()}`,
+    );
+    if (response.kind !== 'success' || !Array.isArray(response.data?.sets)) {
+      return { game, sets: [] };
+    }
+    const sets = (response.data.sets as unknown[]).flatMap((raw) => {
+      const entry = raw as { expansionId?: unknown; ownedCount?: unknown } | null;
+      const expansionId = typeof entry?.expansionId === 'string' ? entry.expansionId : null;
+      const ownedCount = typeof entry?.ownedCount === 'number' && Number.isFinite(entry.ownedCount)
+        ? Math.max(0, Math.floor(entry.ownedCount))
+        : 0;
+      return expansionId && ownedCount > 0 ? [{ expansionId, ownedCount }] : [];
+    });
+    return { game: typeof response.data.game === 'string' ? response.data.game : game, sets };
+  }
+
   async listCardsInExpansion(
     expansionId: string,
     query = '',
@@ -8427,7 +8473,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     // id — without it a One Piece set drills into an empty list.
     game: CardGame = DEFAULT_CARD_GAME,
   ): Promise<CatalogSearchResult[]> {
-    const params = new URLSearchParams({ game, limit: String(Math.max(1, Math.min(limit, 200))) });
+    // 1000 = the backend's ceiling; the set page loads a whole set in one call.
+    const params = new URLSearchParams({ game, limit: String(Math.max(1, Math.min(limit, 1000))) });
     if (query.trim()) {
       params.set('q', query.trim());
     }

@@ -163,6 +163,8 @@ export const colors = {
   // scrim and the round play button.
   mediaScrim: 'rgba(0, 0, 0, 0.75)',
   mediaPlayButton: 'rgba(255, 255, 255, 0.9)',
+  // Purple mid-stop of the Search sets-list banner wash (Figma 6552:1916).
+  setsBannerWash: '#875FAD',
 } as const;
 
 /**
@@ -197,6 +199,8 @@ export const spacing = {
 // Keep the pair together in new styles — View/Pressable styles only, the
 // RN/expo Image style types don't accept borderCurve (clip via the wrapper).
 export const radii = {
+  // Figma radius-4: the set page's QTY stepper bar (6425:3344).
+  xs: 4,
   sm: 8,
   md: 12,
   lg: 16,
@@ -233,6 +237,12 @@ export const cardGrid = {
   gap: 4,
   tileFill: colors.gray0,
   tileRadius: 4,
+  /**
+   * Art/text opacity of a tile for a card the user does NOT own (set page
+   * completion grid, Figma 6425:3296). The frame draws no faded tile, so the
+   * value is ours; one home so every "missing card" reads the same.
+   */
+  unownedOpacity: 0.4,
 } as const;
 
 export const layout = {
@@ -425,6 +435,14 @@ export const textStyles = {
     fontSize: 12,
     lineHeight: 16,
     color: colors.gray600,
+  } satisfies TextStyle,
+  // Raw Medium 10 (set page tile stepper "QTY: 1", Figma 6425:3346).
+  captionTinyMedium: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 10,
+    lineHeight: 13,
+    color: colors.gray900,
   } satisfies TextStyle,
   // Raw Regular 10 (Top Trends game caption "Pokemon", Figma 5768:27141).
   captionTiny: {

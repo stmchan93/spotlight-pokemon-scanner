@@ -5539,6 +5539,38 @@ def search_cards_local(
     return search_cards(connection, query, limit=limit, game=game)
 
 
+# A whole set in one call (the set page grid); the biggest sets are ~400 cards.
+EXPANSION_CARDS_MAX_LIMIT = 1000
+
+_COLLECTOR_NUMBER_DIGITS = re.compile(r"\d+")
+
+
+def collector_number_sort_key(number: object) -> tuple[Any, ...]:
+    """Numeric-aware collector-number order: 2 < 10 < 100, and secret rares
+    (201/197) after the main set. Plain numbers first, then prefixed subsets
+    (TG01, GG01, SV001) grouped by prefix; no digits at all sorts last.
+    Keyed on the LAST digit run before any "/" so "OP01-001" sorts by 001."""
+    text = str(number or "").strip()
+    head = text.split("/", 1)[0].strip()
+    runs = list(_COLLECTOR_NUMBER_DIGITS.finditer(head))
+    if not runs:
+        return (2, "", 0, text.lower())
+    last = runs[-1]
+    prefix = (head[: last.start()]).lower()
+    return (0 if not prefix else 1, prefix, int(last.group()), text.lower())
+
+
+def expansion_card_counts(connection: sqlite3.Connection, *, game: str) -> dict[str, int]:
+    """`{set_id: card rows}` for one game: the same rows `get_cards_by_expansion`
+    serves, secret rares included (they are ordinary rows of the set)."""
+    rows = connection.execute(
+        "SELECT set_id, COUNT(*) FROM cards "
+        "WHERE set_id IS NOT NULL AND set_id != '' AND game = ? GROUP BY set_id",
+        (normalize_game(game),),
+    ).fetchall()
+    return {str(row[0]): int(row[1]) for row in rows}
+
+
 def get_cards_by_expansion(
     connection: sqlite3.Connection,
     set_id: str,
@@ -5560,14 +5592,17 @@ def get_cards_by_expansion(
     normalized_set_id = str(set_id or "").strip()
     if not normalized_set_id:
         return []
-    clamped_limit = max(1, min(limit, 200))
+    clamped_limit = max(1, min(limit, EXPANSION_CARDS_MAX_LIMIT))
     normalized_query = str(query or "").strip()
 
     if not normalized_query:
+        # Whole set fetched, then sorted in Python: SQL's text ORDER BY puts
+        # "10" before "2". A set is a few hundred rows at most.
         rows = connection.execute(
-            "SELECT * FROM cards WHERE set_id = ? AND +game = ? ORDER BY number ASC LIMIT ?",
-            (normalized_set_id, game, clamped_limit),
+            "SELECT * FROM cards WHERE set_id = ? AND +game = ?",
+            (normalized_set_id, game),
         ).fetchall()
+        rows = sorted(rows, key=lambda row: collector_number_sort_key(row["number"]))[:clamped_limit]
         return [r for r in (_card_row_to_dict(row) for row in rows) if r is not None]
 
     clean = normalized_query.lstrip("#").strip()
@@ -5594,13 +5629,16 @@ def get_cards_by_expansion(
         WHERE set_id = ?
           AND +game = ?
           AND ({" OR ".join(or_parts)})
-        ORDER BY
-          CASE WHEN LOWER(name) LIKE ? THEN 0 ELSE 1 END,
-          number ASC
-        LIMIT ?
     """
-    final_params: list[Any] = [normalized_set_id, game, *params, f"{clean.lower()}%", clamped_limit]
-    rows = connection.execute(sql, tuple(final_params)).fetchall()
+    rows = connection.execute(sql, (normalized_set_id, game, *params)).fetchall()
+    name_prefix = clean.lower()
+    rows = sorted(
+        rows,
+        key=lambda row: (
+            0 if str(row["name"] or "").lower().startswith(name_prefix) else 1,
+            collector_number_sort_key(row["number"]),
+        ),
+    )[:clamped_limit]
     return [r for r in (_card_row_to_dict(row) for row in rows) if r is not None]
 
 

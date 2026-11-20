@@ -34,6 +34,7 @@ export * from './components/page-tabs';
 export * from './components/pill-button';
 export * from './components/price-sparkline';
 export * from './components/price-text';
+export * from './components/progress-bar';
 export * from './components/quantity-stepper';
 export * from './components/radio-dot';
 export * from './components/rank-badge';

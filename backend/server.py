@@ -141,6 +141,7 @@ from catalog_tools import (
     search_cards_local_title_only,
     search_cards_local_title_set,
     expansion_count,
+    expansion_card_counts,
     get_cards_by_expansion,
     list_local_expansions,
     list_persisted_expansions,
@@ -2200,6 +2201,9 @@ META_EXPOSURE_CACHE_MAX_ENTRIES = 2048
 # Set pages other than this week's pick are built on demand from history reads.
 SET_SPOTLIGHT_CACHE_TTL_SECONDS = 3600.0
 SET_SPOTLIGHT_CACHE_MAX_ENTRIES = 256
+# Sets-list totals (cardCount/setValue) recompute at least this often even when
+# the pricing version token holds still.
+EXPANSION_TOTALS_CACHE_TTL_SECONDS = 2 * 60 * 60
 # PDP "More like this" (similar_cards.py; rows written by run_similar_cards_vm.sh).
 SIMILAR_CARDS_ENABLED_ENV = "SIMILAR_CARDS_ENABLED"
 
@@ -2609,6 +2613,13 @@ class SpotlightScanService:
         self._meta_exposure_cache: dict[tuple[str, str, int], tuple[str, float, dict[str, Any]]] = {}
         self._hot_cards_cache: dict[str, tuple[str, dict[str, Any]]] = {}
         self._set_spotlight_cache: dict[str, tuple[str, float, dict[str, Any]]] = {}
+        # Sets list totals per game: (version token, computed-at monotonic, totals).
+        # Sets list totals + per-card USD price per game:
+        # (version token, computed-at monotonic, set totals, {card_id: usd}).
+        self._expansion_totals_cache: dict[
+            str, tuple[str, float, dict[str, dict[str, Any]], dict[str, float]]
+        ] = {}
+        self._expansion_totals_lock = threading.Lock()
         self._feed_cache_lock = threading.Lock()
         self.artifact_store = build_scan_artifact_store(
             repo_root=repo_root,
@@ -15004,12 +15015,193 @@ class SpotlightScanService:
         expansions = list_persisted_expansions(self.connection, game=normalized_game)
         if not expansions:
             expansions = list_local_expansions(self.connection, game=normalized_game)
+        totals = self._expansion_set_totals(normalized_game)
+        for expansion in expansions:
+            set_totals = totals.get(str(expansion.get("id") or ""), {})
+            expansion["cardCount"] = int(set_totals.get("cardCount") or 0)
+            expansion["setValue"] = set_totals.get("setValue")
         return {"expansions": expansions}
 
+    def _expansion_set_totals(self, game: str) -> dict[str, dict[str, Any]]:
+        return self._expansion_pricing_bundle(game)[0]
+
+    def _expansion_card_prices(self, game: str) -> dict[str, float]:
+        """`{card_id: served headline USD price}`: the values summed into setValue."""
+        return self._expansion_pricing_bundle(game)[1]
+
+    def _expansion_pricing_bundle(
+        self, game: str
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, float]]:
+        """`{set_id: {"cardCount", "setValue"}}` for one game, global (not per
+        user). Cached on the pricing version token (newest price day + sync
+        generation) plus a TTL, because the served main price also moves with
+        on-view refreshes and main-lane staleness, neither of which bumps it.
+        A stale entry is served while one background thread recomputes; only
+        the very first read per game waits (~2s for Pokémon)."""
+        try:
+            version = market_movers_version_token(self.connection, window_days=0) or "none"
+        except Exception:  # noqa: BLE001 - cache bookkeeping must never break the list
+            traceback.print_exc()
+            version = "none"
+        cached = self._expansion_totals_cache.get(game)
+        if cached is not None:
+            if cached[0] != version or monotonic() - cached[1] >= EXPANSION_TOTALS_CACHE_TTL_SECONDS:
+                if self._expansion_totals_lock.acquire(blocking=False):
+                    threading.Thread(
+                        target=self._refresh_expansion_set_totals_locked,
+                        args=(game, version),
+                        name=f"expansion-totals-{game}",
+                        daemon=True,
+                    ).start()
+            return cached[2], cached[3]
+        with self._expansion_totals_lock:
+            cached = self._expansion_totals_cache.get(game)
+            if cached is not None:
+                return cached[2], cached[3]
+            return self._store_expansion_set_totals(game, version)
+
+    def _refresh_expansion_set_totals_locked(self, game: str, version: str) -> None:
+        try:
+            self._store_expansion_set_totals(game, version)
+        except Exception:  # noqa: BLE001 - keep serving the stale totals
+            traceback.print_exc()
+        finally:
+            self._expansion_totals_lock.release()
+            # One-shot thread: hand back its thread-local connection.
+            connection = getattr(self._thread_local, "connection", None)
+            if connection is not None:
+                try:
+                    connection.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                del self._thread_local.connection
+
+    def _store_expansion_set_totals(
+        self, game: str, version: str
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, float]]:
+        started_at = perf_counter()
+        totals, card_prices = self._compute_expansion_set_totals(game)
+        self._expansion_totals_cache[game] = (version, monotonic(), totals, card_prices)
+        print(
+            json.dumps(
+                {
+                    "event": "expansion_set_totals_compute",
+                    "game": game,
+                    "sets": len(totals),
+                    "elapsedMs": round((perf_counter() - started_at) * 1000, 1),
+                },
+                separators=(",", ":"),
+            ),
+            flush=True,
+        )
+        return totals, card_prices
+
+    def _compute_expansion_set_totals(
+        self, game: str
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, float]]:
+        totals: dict[str, dict[str, Any]] = {
+            set_id: {"cardCount": count, "setValue": None}
+            for set_id, count in expansion_card_counts(self.connection, game=game).items()
+        }
+        sums: dict[str, float] = {}
+        card_prices: dict[str, float] = {}
+        pricing_context = self._raw_pricing_context()
+        # Same resolver the search results and card page use (main lane first,
+        # Scrydex fallback, default printing, NM); unpriced cards have no
+        # snapshot row and are skipped by the JOIN.
+        rows = self.connection.execute(
+            """
+            SELECT c.set_id AS expansion_set_id, s.*
+            FROM cards c
+            JOIN card_price_snapshots s ON s.card_id = c.id
+            WHERE c.game = ? AND c.set_id IS NOT NULL AND c.set_id != ''
+            """,
+            (game,),
+        )
+        for row in rows:
+            try:
+                pricing = self._display_pricing_summary_for_context(
+                    str(row["card_id"]),
+                    pricing_context=pricing_context,
+                    snapshot_row=row,
+                )
+            except Exception:  # noqa: BLE001 - one bad snapshot must not blank every set
+                continue
+            if not pricing:
+                continue
+            # USD only: an unconverted JPY summary (no FX rate) is skipped, never summed.
+            if str(pricing.get("currencyCode") or "").upper() != "USD":
+                continue
+            market = pricing.get("market")
+            if not isinstance(market, (int, float)) or isinstance(market, bool) or market <= 0:
+                continue
+            set_id = str(row["expansion_set_id"])
+            card_prices[str(row["card_id"])] = float(market)
+            sums[set_id] = sums.get(set_id, 0.0) + float(market)
+        for set_id, total in sums.items():
+            totals.setdefault(set_id, {"cardCount": 0, "setValue": None})["setValue"] = round(total, 2)
+        return totals, card_prices
+
+    def collection_set_progress(self, game: str) -> dict[str, Any]:
+        """Distinct cards the caller owns per set: any printing, condition,
+        raw or graded, quantity > 0. Owner-scoped; one grouped query."""
+        normalized_game = normalize_game(game)
+        owner_user_id = self._current_owner_user_id()
+        rows = self.connection.execute(
+            """
+            SELECT c.set_id AS set_id, COUNT(DISTINCT d.card_id) AS owned_count
+            FROM deck_entries d
+            JOIN cards c ON c.id = d.card_id
+            WHERE d.owner_user_id = ?
+              AND d.quantity > 0
+              AND c.game = ?
+              AND c.set_id IS NOT NULL AND c.set_id != ''
+            GROUP BY c.set_id
+            """,
+            (owner_user_id, normalized_game),
+        ).fetchall()
+        return {
+            "game": normalized_game,
+            "sets": [
+                {"expansionId": str(row["set_id"]), "ownedCount": int(row["owned_count"])}
+                for row in rows
+                if int(row["owned_count"] or 0) > 0
+            ],
+        }
+
     def search_expansion_cards(
-        self, expansion_id: str, *, game: str, query: str = "", limit: int = 50
+        self,
+        expansion_id: str,
+        *,
+        game: str,
+        query: str = "",
+        limit: int = 50,
+        owner_user_id: str | None = None,
     ) -> dict[str, Any]:
         cards = get_cards_by_expansion(self.connection, expansion_id, game=game, query=query, limit=limit)
+        owned: dict[str, int] = {}
+        card_ids = [str(card.get("id") or "") for card in cards if card.get("id")]
+        if owner_user_id and card_ids:
+            placeholders = ",".join("?" for _ in card_ids)
+            for row in self.connection.execute(
+                f"""
+                SELECT card_id, SUM(quantity) AS quantity
+                FROM deck_entries
+                WHERE owner_user_id = ? AND quantity > 0 AND card_id IN ({placeholders})
+                GROUP BY card_id
+                """,
+                (owner_user_id, *card_ids),
+            ):
+                owned[str(row["card_id"])] = int(row["quantity"] or 0)
+        guard = collision_guard(self.connection)["colliding_product_ids"]
+        # From the cached per-game map (the setValue inputs), not a per-card lookup.
+        card_prices = self._expansion_card_prices(normalize_game(game)) if cards else {}
+        for card in cards:
+            card["ownedQuantity"] = owned.get(str(card.get("id") or ""), 0)
+            card["marketPrice"] = card_prices.get(str(card.get("id") or ""))
+            # Same compact subset /cards/search ships; a whole set of full
+            # Scrydex blobs would be several MB.
+            card["sourcePayload"] = tcgplayer_variants_subset(card.get("sourcePayload"), guard)
         return {"results": cards}
 
     def _persist_mapped_catalog_card(
@@ -27815,10 +28007,33 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             # Same boundary rule as /cards/search: `set_id` is only unique
             # WITHIN a game, so the lane has to come off the request.
             game = normalize_game(query_params.get("game", [""])[0])
+            # Public endpoint: identity only personalizes ownedQuantity, so a
+            # missing or bad token degrades to 0 owned instead of a 401.
+            owner_user_id: str | None = None
+            if str(self.headers.get("Authorization") or "").strip() or not self.service.authenticator.auth_required:
+                try:
+                    owner_user_id = self.service.authenticator.resolve_identity(
+                        self.headers.get("Authorization")
+                    ).user_id
+                except RequestAuthError:
+                    owner_user_id = None
             self._write_json(
                 HTTPStatus.OK,
-                self.service.search_expansion_cards(expansion_id, game=game, query=query, limit=limit),
+                self.service.search_expansion_cards(
+                    expansion_id, game=game, query=query, limit=limit, owner_user_id=owner_user_id
+                ),
             )
+            return
+
+        if parsed.path == "/api/v1/collection/set-progress":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_access(identity):
+                return
+            game = normalize_game(parse_qs(parsed.query).get("game", [""])[0])
+            with self.service.request_identity_context(identity):
+                self._write_json(HTTPStatus.OK, self.service.collection_set_progress(game))
             return
 
         if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith("/ebay/raw-listings"):

@@ -1,7 +1,14 @@
-import { act, screen } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
-import { MockSpotlightRepository, mockCatalogResults } from '@spotlight/api-client';
+import {
+  MockSpotlightRepository,
+  type CatalogSearchResult,
+  type ExpansionRecord,
+  type InventoryCardEntry,
+  type InventoryEntryCreateResponsePayload,
+} from '@spotlight/api-client';
+import { cardGrid } from '@spotlight/design-system';
 
 import { ExpansionDetailScreen } from '@/features/catalog/screens/expansion-detail-screen';
 
@@ -11,36 +18,229 @@ import { renderWithProviders } from '../test-utils';
 // navigator above it, running the callback once on mount is the stand-in.
 jest.mock('expo-router', () => ({
   useFocusEffect: (callback: () => void | (() => void)) => require('react').useEffect(callback, [callback]),
+  useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
 }));
 
-describe('ExpansionDetailScreen', () => {
+function card(overrides: Partial<CatalogSearchResult> & { cardId: string; name: string }): CatalogSearchResult {
+  return {
+    id: overrides.cardId,
+    cardNumber: '#001/120',
+    setName: 'Delta Reign',
+    imageUrl: 'https://cdn.spotlight.test/card.png',
+    marketPrice: 1.5,
+    currencyCode: 'USD',
+    game: 'pokemon',
+    ...overrides,
+  };
+}
+
+function entry(overrides: Partial<InventoryCardEntry> & { id: string; cardId: string }): InventoryCardEntry {
+  return {
+    name: 'Card',
+    cardNumber: '#001/120',
+    setName: 'Delta Reign',
+    imageUrl: '',
+    marketPrice: 1,
+    hasMarketPrice: true,
+    currencyCode: 'USD',
+    quantity: 1,
+    addedAt: '2026-11-01T00:00:00.000Z',
+    kind: 'raw',
+    variantName: 'Normal',
+    conditionCode: 'near_mint',
+    conditionLabel: 'Near Mint',
+    conditionShortLabel: 'NM',
+    slabContext: null,
+    ...overrides,
+  };
+}
+
+const SET: ExpansionRecord = {
+  id: 'dri',
+  name: 'Delta Reign',
+  series: null,
+  code: 'DRI',
+  language: 'English',
+  releaseDate: '2026-05-22',
+  imageUrl: 'https://cdn.spotlight.test/logo.png',
+  cardCount: 3,
+  setValue: 1012.78,
+};
+
+const CARDS = [
+  card({ cardId: 'gengar', name: 'Gengar', cardNumber: '#001/120', rarityBucket: 'standard', ownedQuantity: 1 }),
+  card({ cardId: 'mew', name: 'Mew', cardNumber: '#121/120', rarityBucket: 'secret', ownedQuantity: 0, marketPrice: null }),
+  card({ cardId: 'lugia', name: 'Lugia', cardNumber: '#050/120', rarityBucket: 'ultra', ownedQuantity: 2 }),
+];
+
+const ENTRIES = [
+  entry({ id: 'e-gengar', cardId: 'gengar', quantity: 1 }),
+  entry({ id: 'e-lugia-raw', cardId: 'lugia', quantity: 1 }),
+  entry({
+    id: 'e-lugia-psa',
+    cardId: 'lugia',
+    quantity: 1,
+    kind: 'graded',
+    variantName: null,
+    conditionCode: null,
+    conditionLabel: null,
+    slabContext: { grader: 'PSA', grade: '10', certNumber: null, variantName: 'PSA 10' },
+  }),
+];
+
+function mockSet() {
+  jest.spyOn(MockSpotlightRepository.prototype, 'listExpansions').mockResolvedValue([SET]);
+  const listCards = jest.spyOn(MockSpotlightRepository.prototype, 'listCardsInExpansion').mockResolvedValue(CARDS);
+  jest.spyOn(MockSpotlightRepository.prototype, 'getInventoryEntries').mockResolvedValue(ENTRIES);
+  return { listCards };
+}
+
+async function renderSet() {
+  renderWithProviders(
+    <ExpansionDetailScreen expansionId="dri" expansionName="Delta Reign" game="pokemon" onClose={jest.fn()} onOpenCard={jest.fn()} />,
+  );
+  await screen.findByTestId('set-card-gengar');
+  await screen.findByText('TOTAL VALUE: $1,012.78');
+}
+
+function qty(cardId: string) {
+  return screen.getByTestId(`set-card-${cardId}-stepper-value`).props.children;
+}
+
+describe('ExpansionDetailScreen (set page)', () => {
   afterEach(() => {
     jest.restoreAllMocks();
   });
 
-  it('sets the card number in caps under a name that keeps its own casing', async () => {
-    const card = mockCatalogResults[0];
-    jest.spyOn(MockSpotlightRepository.prototype, 'listCardsInExpansion').mockResolvedValue([card]);
+  it('loads the whole set in one call and shows the header progress and full-set value', async () => {
+    const { listCards } = mockSet();
+    await renderSet();
 
-    renderWithProviders(
-      <ExpansionDetailScreen
-        expansionId="sm7"
-        expansionName="Celestial Storm"
-        onClose={jest.fn()}
-        onOpenCard={jest.fn()}
-      />,
+    expect(listCards).toHaveBeenCalledWith('dri', '', 1000, 'pokemon');
+    const header = screen.getByTestId('set-page-header');
+    expect(within(header).getByText('DELTA REIGN')).toBeTruthy();
+    expect(within(header).getByText('5/22/2026')).toBeTruthy();
+    expect(within(header).getByText('2 of 3 CARDS')).toBeTruthy();
+    expect(within(header).getByText('67%')).toBeTruthy();
+    expect(screen.getByText('#121/120')).toBeTruthy();
+    // Price under the number, USD; an unpriced card has no price line.
+    expect(screen.getByTestId('set-card-gengar-price').props.children).toBe('$1.50');
+    expect(screen.queryByTestId('set-card-mew-price')).toBeNull();
+  });
+
+  it('fades the cards you do not own, with no "missing" label', async () => {
+    mockSet();
+    await renderSet();
+
+    const opacityOf = (cardId: string) => StyleSheet.flatten(screen.getByTestId(`set-card-${cardId}-open`).props.style).opacity;
+    expect(opacityOf('mew')).toBe(cardGrid.unownedOpacity);
+    expect(opacityOf('gengar')).toBe(1);
+    expect(screen.queryByText(/missing/i)).toBeNull();
+    // − is off at zero; + is always on.
+    expect(screen.getByTestId('set-card-mew-stepper-decrement').props.accessibilityState).toMatchObject({ disabled: true });
+  });
+
+  it('shows ALL plus only the rarity chips this set has, and filters by them', async () => {
+    mockSet();
+    await renderSet();
+
+    expect(screen.getByTestId('set-page-rarity-all')).toBeTruthy();
+    expect(screen.getByText('HR')).toBeTruthy();
+    expect(screen.getByText('ULTRA RARE')).toBeTruthy();
+    expect(screen.queryByText('SIR')).toBeNull();
+    expect(screen.queryByText('IR')).toBeNull();
+    expect(screen.queryByTestId('set-page-rarity-standard')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('set-page-rarity-secret'));
+    expect(screen.getByTestId('set-card-mew')).toBeTruthy();
+    expect(screen.queryByTestId('set-card-gengar')).toBeNull();
+  });
+
+  it('+ adds one NM raw copy optimistically through the existing create call', async () => {
+    mockSet();
+    let resolveCreate: (value: InventoryEntryCreateResponsePayload) => void = () => undefined;
+    const create = jest.spyOn(MockSpotlightRepository.prototype, 'createInventoryEntry').mockImplementation(
+      () => new Promise((resolve) => {
+        resolveCreate = resolve as (value: InventoryEntryCreateResponsePayload) => void;
+      }),
     );
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await renderSet();
 
-    // Casing is a style on the meta line, never a rewrite of the string.
-    const number = await screen.findByText(card.cardNumber);
-    expect(StyleSheet.flatten(number.props.style)).toMatchObject({ textTransform: 'uppercase' });
-    // Two "Treecko"s: the display title is the set, the tile name is the card.
-    for (const name of screen.getAllByText(card.name)) {
-      expect(StyleSheet.flatten(name.props.style).textTransform).toBeUndefined();
-    }
-    expect(StyleSheet.flatten(screen.getByText('Celestial Storm').props.style).textTransform).toBeUndefined();
+    fireEvent.press(screen.getByTestId('set-card-mew-stepper-increment'));
+
+    // Tile and header move before the server answers.
+    expect(qty('mew')).toBe('QTY: 1');
+    expect(screen.getByText('3 of 3 CARDS')).toBeTruthy();
+    expect(screen.getByText('100%')).toBeTruthy();
+    expect(StyleSheet.flatten(screen.getByTestId('set-card-mew-open').props.style).opacity).toBe(1);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      cardID: 'mew',
+      condition: 'near_mint',
+      quantity: 1,
+      slabContext: null,
+      sourceScanID: null,
+    }));
+
+    await act(async () => {
+      resolveCreate({
+        deckEntryID: 'e-mew',
+        cardID: 'mew',
+        variantName: null,
+        condition: 'near_mint',
+        confirmationID: null,
+        sourceScanID: null,
+        addedAt: '2026-11-20T00:00:00.000Z',
+      });
+    });
+    expect(qty('mew')).toBe('QTY: 1');
+  });
+
+  it('+ rolls back with a toast when the add fails', async () => {
+    mockSet();
+    jest.spyOn(MockSpotlightRepository.prototype, 'createInventoryEntry').mockRejectedValue(new Error('offline'));
+    await renderSet();
+
+    fireEvent.press(screen.getByTestId('set-card-mew-stepper-increment'));
+
+    expect(await screen.findByText("Couldn't add Mew. Try again.")).toBeTruthy();
+    expect(qty('mew')).toBe('QTY: 0');
+    expect(screen.getByText('2 of 3 CARDS')).toBeTruthy();
+  });
+
+  it('− on a card owned in one form removes that copy directly', async () => {
+    mockSet();
+    const remove = jest.spyOn(MockSpotlightRepository.prototype, 'deletePortfolioEntry')
+      .mockResolvedValue({ deckEntryID: 'e-gengar', cardID: 'gengar' });
+    await renderSet();
+
+    fireEvent.press(screen.getByTestId('set-card-gengar-stepper-decrement'));
+
+    await waitFor(() => expect(remove).toHaveBeenCalledWith({ deckEntryID: 'e-gengar' }));
+    expect(qty('gengar')).toBe('QTY: 0');
+    expect(screen.queryByTestId('owned-copies-sheet')).toBeNull();
+    expect(screen.getByText('1 of 3 CARDS')).toBeTruthy();
+  });
+
+  it('− on a card owned in more than one form asks which copy', async () => {
+    mockSet();
+    const remove = jest.spyOn(MockSpotlightRepository.prototype, 'deletePortfolioEntry')
+      .mockResolvedValue({ deckEntryID: 'e-lugia-psa', cardID: 'lugia' });
+    const setQuantity = jest.spyOn(MockSpotlightRepository.prototype, 'setPortfolioEntryQuantity');
+    await renderSet();
+
+    fireEvent.press(screen.getByTestId('set-card-lugia-stepper-decrement'));
+
+    const sheet = await screen.findByTestId('owned-copies-sheet');
+    expect(within(sheet).getByText('Normal · Near Mint')).toBeTruthy();
+    expect(within(sheet).getByText('PSA 10')).toBeTruthy();
+    // Nothing is removed until a copy is picked.
+    expect(remove).not.toHaveBeenCalled();
+    expect(qty('lugia')).toBe('QTY: 2');
+
+    fireEvent.press(screen.getByTestId('owned-copies-sheet-row-e-lugia-psa'));
+
+    await waitFor(() => expect(remove).toHaveBeenCalledWith({ deckEntryID: 'e-lugia-psa' }));
+    expect(setQuantity).not.toHaveBeenCalled();
+    expect(qty('lugia')).toBe('QTY: 1');
   });
 });

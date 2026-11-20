@@ -12,9 +12,12 @@ import {
   type CardRecentSalesRecord,
   type CatalogSearchResult,
   type ExpansionRecord,
+  type InventoryCardEntry,
   type PortfolioPerformance,
   type PortfolioPerformanceRow,
+  type RarityBucket,
   type RawPricingMatrix,
+  type SetProgress,
   type SimilarCards,
   type SpotlightRepository,
   type TopMovers,
@@ -624,6 +627,8 @@ function expansion(
   code: string | null,
   releaseDate: string,
   language: string | null = 'English',
+  cardCount?: number,
+  setValue: number | null = null,
 ): ExpansionRecord {
   return {
     id,
@@ -633,56 +638,129 @@ function expansion(
     language,
     releaseDate,
     imageUrl: `https://images.pokemontcg.io/${id}/logo.png`,
+    ...(cardCount !== undefined ? { cardCount, setValue } : {}),
   };
 }
 
+// Celestial Storm: its first ten cards plus four rares, real names/numbers;
+// prices are placeholders (two unpriced, to show the hidden price line). Owned copies below exercise the set page's faded
+// tiles, partial progress, and the "which copy?" sheet (Grovyle: raw + PSA 10).
+const devExpansionCardRows: readonly (readonly [string, string, number | null, RarityBucket, number])[] = [
+  ['1', 'Treecko', 0.31, 'standard', 1],
+  ['2', 'Treecko', 0.28, 'standard', 0],
+  ['3', 'Grovyle', 0.35, 'standard', 2],
+  ['4', 'Sceptile', 1.12, 'standard', 1],
+  ['5', 'Shroomish', 0.19, 'standard', 0],
+  ['6', 'Breloom', 0.42, 'standard', 0],
+  ['7', 'Seedot', 0.17, 'standard', 0],
+  ['8', 'Nuzleaf', null, 'standard', 0],
+  ['9', 'Shiftry', 0.88, 'standard', 0],
+  ['10', 'Nincada', 0.15, 'standard', 0],
+  ['109', 'Rayquaza GX', 6.4, 'ultra', 1],
+  ['160', 'Rayquaza GX', 24.9, 'ultra', 0],
+  ['175', 'Rayquaza GX', 61.5, 'secret', 0],
+  ['177', 'Sceptile GX', null, 'secret', 0],
+];
+
+const devExpansionCards: CatalogSearchResult[] = devExpansionCardRows.map(
+  ([number, name, marketPrice, rarityBucket, ownedQuantity]) => ({
+    id: `sm7-${number}`,
+    cardId: `sm7-${number}`,
+    name,
+    cardNumber: `#${number.padStart(3, '0')}/168`,
+    setName: DEV_EXPANSION_NAME,
+    imageUrl: `https://images.pokemontcg.io/sm7/${number}.png`,
+    marketPrice,
+    currencyCode: 'USD',
+    game: 'pokemon' as const,
+    rarityBucket,
+    ownedQuantity,
+  }),
+);
+
 const devExpansionsByGame: Partial<Record<CardGame, ExpansionRecord[]>> = {
   pokemon: [
-    expansion('sv8pt5', 'Prismatic Evolutions', 'Scarlet & Violet', 'PRE', '2025-01-17'),
-    expansion('sv8', 'Surging Sparks', 'Scarlet & Violet', 'SSP', '2024-11-08'),
-    expansion('sv3pt5', '151', 'Scarlet & Violet', 'MEW', '2023-09-22'),
-    expansion(DEV_EXPANSION_ID, DEV_EXPANSION_NAME, 'Sun & Moon', 'CES', '2018-08-03'),
-    expansion('swsh12pt5', 'Crown Zenith', 'Sword & Shield', 'CRZ', '2023-01-20'),
-    expansion('base1', 'Base', 'Base', 'BS', '1999-01-09'),
-    expansion('m2_ja', 'インフェルノX', 'Mega Evolution', 'M2', '2025-09-26', 'Japanese'),
-    expansion('sv2a_ja', 'ポケモンカード151', 'Scarlet & Violet', 'SV2a', '2023-06-16', 'Japanese'),
+    expansion('sv8pt5', 'Prismatic Evolutions', 'Scarlet & Violet', 'PRE', '2025-01-17', 'English', 180, 4210.55),
+    expansion('sv8', 'Surging Sparks', 'Scarlet & Violet', 'SSP', '2024-11-08', 'English', 252, 2894.1),
+    expansion('sv3pt5', '151', 'Scarlet & Violet', 'MEW', '2023-09-22', 'English', 207, 3120.4),
+    expansion(DEV_EXPANSION_ID, DEV_EXPANSION_NAME, 'Sun & Moon', 'CES', '2018-08-03', 'English', devExpansionCards.length, 1012.78),
+    expansion('swsh12pt5', 'Crown Zenith', 'Sword & Shield', 'CRZ', '2023-01-20', 'English', 230, null),
+    expansion('base1', 'Base', 'Base', 'BS', '1999-01-09', 'English', 102, 14820),
+    expansion('m2_ja', 'インフェルノX', 'Mega Evolution', 'M2', '2025-09-26', 'Japanese', 116, 640.2),
+    expansion('sv2a_ja', 'ポケモンカード151', 'Scarlet & Violet', 'SV2a', '2023-06-16', 'Japanese', 210, 1890),
   ],
   onepiece: [
-    expansion('op05', 'Awakening of the New Era', null, 'OP05', '2023-12-08', null),
-    expansion('op01', 'Romance Dawn', null, 'OP01', '2022-12-02', null),
-    expansion('op03', 'Pillars of Strength', null, 'OP03', '2023-06-30', null),
+    expansion('op05', 'Awakening of the New Era', null, 'OP05', '2023-12-08', null, 154, 1420.3),
+    expansion('op01', 'Romance Dawn', null, 'OP01', '2022-12-02', null, 154, 2210),
+    expansion('op03', 'Pillars of Strength', null, 'OP03', '2023-06-30', null, 154, 980.75),
   ],
   lorcana: [
-    expansion('tfc', 'The First Chapter', null, 'TFC', '2023-08-18', null),
-    expansion('rof', 'Rise of the Floodborn', null, 'ROF', '2023-11-17', null),
+    expansion('tfc', 'The First Chapter', null, 'TFC', '2023-08-18', null, 216, 1650),
+    expansion('rof', 'Rise of the Floodborn', null, 'ROF', '2023-11-17', null, 216, 1105.4),
   ],
 };
 
-// Celestial Storm's first ten cards, real names/numbers; prices are placeholders.
-const devExpansionCards: CatalogSearchResult[] = (
-  [
-    ['1', 'Treecko', 0.31],
-    ['2', 'Treecko', 0.28],
-    ['3', 'Grovyle', 0.35],
-    ['4', 'Sceptile', 1.12],
-    ['5', 'Shroomish', 0.19],
-    ['6', 'Breloom', 0.42],
-    ['7', 'Seedot', 0.17],
-    ['8', 'Nuzleaf', 0.21],
-    ['9', 'Shiftry', 0.88],
-    ['10', 'Nincada', 0.15],
-  ] as const
-).map(([number, name, marketPrice]) => ({
-  id: `sm7-${number}`,
-  cardId: `sm7-${number}`,
-  name,
-  cardNumber: `#${number.padStart(3, '0')}/168`,
-  setName: DEV_EXPANSION_NAME,
-  imageUrl: `https://images.pokemontcg.io/sm7/${number}.png`,
-  marketPrice,
-  currencyCode: 'USD',
-  game: 'pokemon' as const,
-}));
+// Sets list progress: 100% (151), partial (Prismatic, Celestial Storm, Base,
+// Romance Dawn), and 0% for everything absent — the response lists only sets
+// with ownedCount > 0, exactly like the backend.
+const devSetProgress: Partial<Record<CardGame, SetProgress['sets']>> = {
+  pokemon: [
+    { expansionId: 'sv8pt5', ownedCount: 84 },
+    { expansionId: 'sv3pt5', ownedCount: 207 },
+    {
+      expansionId: DEV_EXPANSION_ID,
+      ownedCount: devExpansionCards.filter((card) => (card.ownedQuantity ?? 0) > 0).length,
+    },
+    { expansionId: 'base1', ownedCount: 12 },
+  ],
+  onepiece: [{ expansionId: 'op01', ownedCount: 31 }],
+};
+
+function devSetEntry(
+  card: CatalogSearchResult,
+  id: string,
+  quantity: number,
+  graded: { grader: string; grade: string } | null = null,
+): InventoryCardEntry {
+  return {
+    id,
+    cardId: card.cardId,
+    name: card.name,
+    cardNumber: card.cardNumber,
+    setName: card.setName,
+    imageUrl: card.imageUrl,
+    marketPrice: card.marketPrice ?? 0,
+    hasMarketPrice: card.marketPrice != null,
+    currencyCode: 'USD',
+    quantity,
+    addedAt: '2026-11-01T12:00:00.000Z',
+    kind: graded ? 'graded' : 'raw',
+    variantName: graded ? null : 'Normal',
+    conditionCode: graded ? null : 'near_mint',
+    conditionLabel: graded ? null : 'Near Mint',
+    conditionShortLabel: graded ? null : 'NM',
+    slabContext: graded
+      ? { grader: graded.grader, grade: graded.grade, certNumber: null, variantName: `${graded.grader} ${graded.grade}` }
+      : null,
+    game: 'pokemon',
+  };
+}
+
+// The inventory behind the owned Celestial Storm tiles. Grovyle is held in two
+// forms, so its − opens the "which copy?" sheet; the others decrement directly.
+let devSetEntries: InventoryCardEntry[] = devExpansionCards.flatMap((card) => {
+  const quantity = card.ownedQuantity ?? 0;
+  if (quantity === 0) {
+    return [];
+  }
+  if (card.cardId === 'sm7-3') {
+    return [
+      devSetEntry(card, 'dev-set-sm7-3-raw', 1),
+      devSetEntry(card, 'dev-set-sm7-3-psa10', 1, { grader: 'PSA', grade: '10' }),
+    ];
+  }
+  return [devSetEntry(card, `dev-set-${card.cardId}`, quantity)];
+});
 
 const imageUrlKeyPattern = /image.*url|url.*image|avatarurl/i;
 
@@ -750,8 +828,33 @@ function withLocalImages(
       if (property === 'listExpansions') {
         return async (game?: CardGame) => rewriteImageUrls(devExpansionsByGame[game ?? 'pokemon'] ?? []);
       }
+      if (property === 'getSetProgress') {
+        return async (game: CardGame): Promise<SetProgress> => ({ game, sets: devSetProgress[game] ?? [] });
+      }
+      // − on a dev set copy edits the dev inventory (the stock mock doesn't hold it).
+      if (property === 'deletePortfolioEntry' || property === 'setPortfolioEntryQuantity') {
+        const original = Reflect.get(target, property, receiver) as (payload: { deckEntryID: string; quantity?: number }) => Promise<unknown>;
+        return async (payload: { deckEntryID: string; quantity?: number }) => {
+          const devEntry = devSetEntries.find((entry) => entry.id === payload.deckEntryID);
+          if (!devEntry) {
+            return original.call(target, payload);
+          }
+          const quantity = property === 'deletePortfolioEntry' ? 0 : payload.quantity ?? 0;
+          devSetEntries = quantity > 0
+            ? devSetEntries.map((entry) => (entry.id === devEntry.id ? { ...entry, quantity } : entry))
+            : devSetEntries.filter((entry) => entry.id !== devEntry.id);
+          return { deckEntryID: devEntry.id, cardID: devEntry.cardId, quantity, deleted: quantity === 0 };
+        };
+      }
+      if (property === 'getInventoryEntries') {
+        return async (...args: unknown[]) => {
+          const base = await (Reflect.get(target, property, receiver) as (...a: unknown[]) => Promise<InventoryCardEntry[]>)
+            .apply(target, args);
+          return rewriteImageUrls([...devSetEntries, ...base]);
+        };
+      }
       if (property === 'listCardsInExpansion') {
-        return async (expansionId: string, query?: string, limit = 60) => {
+        return async (expansionId: string, query?: string, limit = 1000) => {
           if (expansionId !== DEV_EXPANSION_ID) {
             return [];
           }

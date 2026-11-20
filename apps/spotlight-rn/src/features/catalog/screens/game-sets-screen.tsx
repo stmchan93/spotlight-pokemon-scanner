@@ -1,6 +1,17 @@
+import { NavArrowLeft, Sparks } from 'iconoir-react-native';
 import { useCallback, useRef, useState } from 'react';
-import { FlatList, Keyboard, StyleSheet, type TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  FlatList,
+  Image,
+  Keyboard,
+  ScrollView,
+  StyleSheet,
+  type TextInput,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import {
   gameDisplayName,
@@ -8,58 +19,81 @@ import {
   type CatalogSearchResult,
   type ExpansionRecord,
 } from '@spotlight/api-client';
-import { SearchField, StateCard, Text, colors, useSpotlightTheme } from '@spotlight/design-system';
+import {
+  GlassNavBubble,
+  PillButton,
+  SearchField,
+  StateCard,
+  Text,
+  glassNavBubbleGlyphSize,
+  glassNavBubbleGlyphStrokeWidth,
+  layout,
+  spacing,
+  useSpotlightTheme,
+} from '@spotlight/design-system';
 
-import { ChromeBackButton } from '@/components/chrome-back-button';
 import { CatalogResultsGrid } from '@/features/catalog/components/catalog-results-grid';
-import { ExpansionCell } from '@/features/catalog/components/expansion-cell';
+import { SetProgressCard } from '@/features/catalog/components/set-progress-card';
 import { useCatalogCardSearch } from '@/features/catalog/hooks/use-catalog-card-search';
 import { useGameExpansions } from '@/features/catalog/hooks/use-game-expansions';
+import { useSetProgress } from '@/features/catalog/hooks/use-set-progress';
+import { setCompletion } from '@/features/catalog/set-progress';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 
 type GameSetsScreenProps = {
+  /** The game the chips start on. The chips switch games in place. */
   game: CardGame;
   onClose: () => void;
   onSelectExpansion: (expansion: ExpansionRecord, game: CardGame) => void;
   onOpenCard: (result: CatalogSearchResult) => void;
+  /** Ask Ekalight (the sparkle). Absent hides the button rather than leaving it dead. */
+  onOpenAssistant?: () => void;
 };
 
+// Figma 6552:1914 header wash height.
+const WASH_HEIGHT = 323;
+const SETS_BANNER = require('../../../../assets/images/catalog/sets-banner.jpg');
+
 /**
- * One game's sets, newest first — with the search box still on it.
+ * Sets list with set progress (Figma 6552:1913): the title is the game, GAME
+ * CHIPS switch games in place, and every set of that game is a card — logo,
+ * name, release date, a progress bar, "X of Y CARDS" and the percent —
+ * newest first, 0% sets included.
  *
- * A ROUTE, not a level inside the browse screen. Holding the set list as screen
- * state meant a right-swipe popped the whole search sheet instead of going back
- * to the game grid (user, 2026-09-10). Pushing it makes the platform's back
- * gesture do the obvious thing for free, and the header back agrees with it.
+ * THE SEARCH FOLLOWS YOU DOWN. It is the same card search the catalog has,
+ * scoped to the game on screen; set names are searchable, so "obsidian flames"
+ * still finds that set's cards. While a query is live the results replace the
+ * set list.
  *
- * THE SEARCH FOLLOWS YOU DOWN. It was taken off this screen on the grounds that
- * the screen above already had one, which meant the only way to look a card up
- * from here was to go back a level first (user, 2026-09-10). It is the same
- * field, scoped to THIS game: the game is on screen, in the title, so a query
- * typed here is asking about Pokémon or Lorcana specifically and answers from
- * every game would be noise. Set names are searchable, so "obsidian flames"
- * still finds the set's cards.
- *
- * NO LANGUAGE TABS. The list is chronological, and a Japanese set sits wherever
- * its release date puts it.
+ * The header is FIXED and only the body below swaps: the search field must
+ * never sit in a subtree a state change replaces, or it remounts and drops the
+ * keyboard mid-word (user, 2026-09-10 — "luffy" searched "lu").
  */
 export function GameSetsScreen({
-  game,
+  game: initialGame,
   onClose,
   onOpenCard,
   onSelectExpansion,
+  onOpenAssistant,
 }: GameSetsScreenProps) {
   const theme = useSpotlightTheme();
-  const { byGame, error, hasLoaded, isLoading } = useGameExpansions();
+  const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const [game, setGame] = useState<CardGame>(initialGame);
+  const { byGame, error, games, hasLoaded, isLoading } = useGameExpansions();
+  const { ownedByExpansion } = useSetProgress(game);
   const search = useCatalogCardSearch({ scope: game });
   // Blurred when a result opens, so no focus survives to be restored when the
   // card page pops back to this screen.
   const searchFieldRef = useRef<TextInput>(null);
   const [openingResultId, setOpeningResultId] = useState<string | null>(null);
 
-  // The backend already returns `release_date DESC NULLS LAST, name ASC`, which
-  // IS newest-first; the list renders that order verbatim.
+  // The backend returns `release_date DESC NULLS LAST, name ASC` — newest first,
+  // rendered verbatim.
   const expansions = byGame[game] ?? [];
+  // The route's game stays a chip even before its sets load, so the row never
+  // jumps under the selected chip.
+  const chipGames = games.includes(game) ? games : [game, ...games];
 
   const openResult = useCallback(
     (result: CatalogSearchResult) => {
@@ -142,20 +176,8 @@ export function GameSetsScreen({
     return null;
   };
 
-  /*
-    THE HEADER IS FIXED, and the body below it is what swaps.
-
-    It used to ride along as the set grid's `ListHeaderComponent` and move into
-    a plain `View` once a query went live. React reads those as two different
-    positions, so the search field UNMOUNTED AND REMOUNTED the moment the query
-    reached two characters — dropping first responder mid-word. Typing "luffy"
-    searched "lu" and swallowed the rest (user, 2026-09-10). Nothing that holds
-    keyboard focus may sit in a subtree that a state change replaces.
-  */
   const body = () => {
     if (search.hasActiveQuery) {
-      // Only once there is something to show — otherwise the grid's empty list
-      // would sit under the state card in the header.
       if (search.results.length === 0 || search.errorMessage) {
         return null;
       }
@@ -172,79 +194,171 @@ export function GameSetsScreen({
     }
     return (
       <FlatList
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.lg }]}
         data={expansions}
         key="sets"
         keyExtractor={(item) => item.id}
         keyboardShouldPersistTaps="handled"
-        numColumns={2}
         renderItem={({ item }) => (
-          <ExpansionCell
-            expansion={item}
+          <SetProgressCard
+            completion={setCompletion(item.cardCount, ownedByExpansion[item.id] ?? 0)}
+            logoUrl={item.imageUrl}
+            name={item.name}
             onPress={() => onSelectExpansion(item, game)}
+            releaseDate={item.releaseDate}
             testID={`game-sets-expansion-${item.id}`}
           />
         )}
         showsVerticalScrollIndicator={false}
-        testID="game-sets-grid"
+        style={styles.body}
+        testID="game-sets-list"
       />
     );
   };
 
   return (
-    <SafeAreaView
-      edges={['top', 'left', 'right', 'bottom']}
-      style={[styles.screen, { backgroundColor: colors.gray0 }]}
-    >
-      <View style={styles.contentTop}>
-        <View style={styles.header}>
-          <ChromeBackButton onPress={onClose} style={styles.closeButton} testID="game-sets-back" />
-          <Text style={[theme.typography.display, { color: theme.colors.textPrimary }]}>
-            {`${gameDisplayName(game)} Sets`}
-          </Text>
+    <View style={[styles.screen, { backgroundColor: theme.colors.gray50 }]}>
+      {/* Header banner (Figma 6552:1915) under its wash (6552:1916): clear at
+          the top, purple at the middle, into the gray-50 page. */}
+      <Image
+        resizeMode="cover"
+        source={SETS_BANNER}
+        style={[styles.wash, { height: WASH_HEIGHT, width: windowWidth }]}
+        testID="game-sets-banner"
+      />
+      <Svg height={WASH_HEIGHT} pointerEvents="none" style={styles.wash} width={windowWidth}>
+        <Defs>
+          <LinearGradient id="gameSetsWash" x1="0" x2="0" y1="0" y2="1">
+            <Stop offset="0" stopColor={theme.colors.gray500} stopOpacity="0" />
+            <Stop offset="0.5" stopColor={theme.colors.setsBannerWash} stopOpacity="0.8" />
+            <Stop offset="1" stopColor={theme.colors.gray50} stopOpacity="1" />
+          </LinearGradient>
+        </Defs>
+        <Rect fill="url(#gameSetsWash)" height={WASH_HEIGHT} width={windowWidth} x="0" y="0" />
+      </Svg>
+
+      <View style={[styles.header, { paddingTop: insets.top + spacing.xxs }]}>
+        <View style={styles.toolbar}>
+          <GlassNavBubble
+            accessibilityLabel="Back"
+            material="frost"
+            onPress={onClose}
+            size="medium"
+            testID="game-sets-back"
+          >
+            <NavArrowLeft
+              color={theme.colors.gray900}
+              height={glassNavBubbleGlyphSize}
+              strokeWidth={glassNavBubbleGlyphStrokeWidth}
+              width={glassNavBubbleGlyphSize}
+            />
+          </GlassNavBubble>
+          {onOpenAssistant ? (
+            <GlassNavBubble
+              accessibilityLabel="Ask Ekalight"
+              material="frost"
+              onPress={onOpenAssistant}
+              size="medium"
+              testID="game-sets-assistant"
+            >
+              <Sparks
+                color={theme.colors.gray900}
+                height={glassNavBubbleGlyphSize}
+                strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                width={glassNavBubbleGlyphSize}
+              />
+            </GlassNavBubble>
+          ) : null}
         </View>
-        <SearchField
-          ref={searchFieldRef}
-          autoCapitalize="none"
-          autoCorrect={false}
-          containerStyle={{ backgroundColor: theme.colors.surface }}
-          onChangeText={search.setQuery}
-          placeholder="Search by name, set, or number"
-          returnKeyType="search"
-          testID="game-sets-search"
-          uppercasePlaceholder
-          value={search.query}
-        />
+        <Text style={[styles.title, theme.typography.titleLarge, { color: theme.colors.gray0 }]}>
+          {gameDisplayName(game)}
+        </Text>
+        <View style={styles.controls}>
+          <SearchField
+            ref={searchFieldRef}
+            autoCapitalize="none"
+            autoCorrect={false}
+            containerStyle={{ backgroundColor: theme.colors.gray0 }}
+            onChangeText={search.setQuery}
+            placeholder="Search card"
+            returnKeyType="search"
+            testID="game-sets-search"
+            uppercasePlaceholder
+            value={search.query}
+          />
+          <ScrollView
+            contentContainerStyle={styles.chips}
+            horizontal
+            keyboardShouldPersistTaps="handled"
+            showsHorizontalScrollIndicator={false}
+            style={styles.chipScroller}
+            testID="game-sets-game-chips"
+          >
+            {chipGames.map((chipGame) => (
+              <PillButton
+                key={chipGame}
+                label={gameDisplayName(chipGame)}
+                labelRole="caption"
+                onPress={() => setGame(chipGame)}
+                selected={chipGame === game}
+                testID={`game-sets-game-${chipGame}`}
+                // Figma's "Secondary" chip, the same one News / Market Watch use.
+                tone="secondary"
+                uppercase
+              />
+            ))}
+          </ScrollView>
+        </View>
         {search.hasActiveQuery ? renderSearchState() : renderSetsState()}
       </View>
       {body()}
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  closeButton: {
-    flexShrink: 0,
+  body: {
+    flex: 1,
   },
-  contentTop: {
-    gap: 20,
-    paddingBottom: 20,
-    paddingHorizontal: 16,
-    paddingTop: 12,
+  chipScroller: {
+    // Full-bleed: the chip row scrolls under the page gutter.
+    marginHorizontal: -layout.pageGutter,
+  },
+  chips: {
+    gap: 10,
+    paddingHorizontal: layout.pageGutter,
+  },
+  controls: {
+    gap: 10,
   },
   header: {
-    alignItems: 'flex-start',
-    gap: 18,
+    paddingBottom: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
   },
   listContent: {
-    paddingBottom: 24,
-    paddingHorizontal: 8,
+    gap: spacing.sm,
+    paddingHorizontal: layout.pageGutter,
   },
   screen: {
     flex: 1,
   },
   stateCard: {
-    gap: 16,
-    paddingVertical: 24,
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    paddingVertical: spacing.lg,
+  },
+  title: {
+    marginBottom: layout.titleBodyGap,
+    marginTop: spacing.sm,
+  },
+  toolbar: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  wash: {
+    left: 0,
+    position: 'absolute',
+    top: 0,
   },
 });

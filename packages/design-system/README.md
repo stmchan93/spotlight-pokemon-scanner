@@ -44,6 +44,9 @@ Defined in `src/tokens.ts`:
 - `spacing`
 - `radii` — always paired with `borderCurve: 'continuous'` (iOS smooth corners ≈ Figma 60% smoothing; not valid on Image styles — clip via the wrapper View)
   - `radii.sheet` (20) — **rule: every bottom/sliding sheet uses `radii.sheet` on its top corners and square (0) bottom corners** (`border-radius: 20px 20px 0 0`, Figma 5753:18889), with `overflow: 'hidden'`. `SheetSurface` applies it; hand-built sheets set `borderTopLeftRadius`/`borderTopRightRadius: radii.sheet`. Centered dialogs and popover menus are not sheets.
+  - `radii.xs` (4) — Figma radius-4, the set page tile's QTY stepper bar
+- `cardGrid` — the card-view grid (gray-50 page, white tiles, 4pt gap/radius); `cardGrid.unownedOpacity` (0.4) fades a tile for a card the user doesn't own (set page completion grid)
+- `textStyles.captionTinyMedium` — raw Medium 10 (set page stepper "QTY: 1"), flagged non-library like `captionTiny`
 - `layout` — includes `rowThumbnailWidth`/`rowThumbnailHeight` (58x80, the `CardListRow` raw art slot; radius `inventoryArtRadiusRaw`) and `swipeActionWidth` (88, the action behind a swipe-left row); `tabBarRowHeight` / `tabBarMinBottomPadding` / `tabBarIconSlotHeight` (54 / 25 / 28, the Scanner's solid JS tab bar)
 - `shadows`
 - `textStyles`
@@ -1013,6 +1016,31 @@ Current API concepts:
   - `elevated`
   - `muted`
   - `field`
+
+### ProgressBar
+
+File: `src/components/progress-bar.tsx`
+
+Use for a completion bar (set progress on the sets list and the set page,
+Figma "Collection Progress" 6552:1961). Prop-driven, tokens only.
+
+- `value` — fraction complete, 0..1; clamped (NaN → 0, Infinity → 1) via the exported `clampProgress`
+- `size`: `'md'` (6pt, default — the Figma bar) | `'sm'` (4pt)
+- `tone`: `'accent'` (purple500 fill, default) | `'neutral'` (gray900 fill)
+- gray200 track at `radii.pill` with `overflow: 'hidden'`; the fill is a rounded bar whose width is `value` of the track
+- `accessibilityRole="progressbar"` with `accessibilityValue.now` in percent; fill has `testID` `${testID}-fill`
+- Figma only draws the 100% state (track and fill both purple500), so the track color is ours
+
+### QuantityStepper
+
+File: `src/components/quantity-stepper.tsx`
+
+`value` + `onChange(next)` (clamped to `min`/`max`), `disabled`, `formatValue`
+for the readout ("QTY: 1").
+
+- `variant="pill"` (default): 40pt rounded field-colored stepper with ghost `IconButton`s
+- `variant="tile"`: the full-width gray100 bar under a grid tile (Figma 6425:3344): radius `radii.xs`, 10/6 padding, 10pt iconoir `Minus`/`Plus` at the ends (gray400 when disabled), `captionTinyMedium` readout centred
+- testIDs: `${testID}-decrement`, `${testID}-increment`, `${testID}-value`
 
 ### PillButton
 

@@ -455,6 +455,10 @@ export function createTestSpotlightRepository(
       return overrides.listCardsInExpansion?.(...args)
         ?? baseRepository.listCardsInExpansion(...args);
     },
+    getSetProgress: async (...args) => {
+      return overrides.getSetProgress?.(...args)
+        ?? baseRepository.getSetProgress(...args);
+    },
     getAccessStatus: (...args) => {
       return overrides.getAccessStatus?.(...args)
         ?? baseRepository.getAccessStatus(...args);
