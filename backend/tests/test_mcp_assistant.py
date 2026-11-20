@@ -484,7 +484,10 @@ class ToolLoopTests(AssistantCase):
         self.assertEqual(call["system"][-1]["cache_control"], {"type": "ephemeral"})
         self.assertEqual(call["tools"][-1]["cache_control"], {"type": "ephemeral"})
         names = [tool["name"] for tool in call["tools"]]
-        self.assertEqual(len(names), 16)
+        self.assertEqual(len(names), 18)
+        self.assertIn("add_to_collection_now", names)
+        self.assertIn("show_cards", names)
+        self.assertIn("grading_upside", names)
         self.assertIn("find_top_graded", names)
         self.assertIn("find_new_highs", names)
         self.assertIn("get_my_watchlist", names)

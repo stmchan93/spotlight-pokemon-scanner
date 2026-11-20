@@ -190,6 +190,10 @@ export function createTestSpotlightRepository(
       return overrides.setAssistantActionState?.(...args)
         ?? baseRepository.setAssistantActionState(...args);
     },
+    undoAssistantAction: (...args) => {
+      return overrides.undoAssistantAction?.(...args)
+        ?? baseRepository.undoAssistantAction(...args);
+    },
     setAssistantFeedback: (...args) => {
       return overrides.setAssistantFeedback?.(...args)
         ?? baseRepository.setAssistantFeedback(...args);

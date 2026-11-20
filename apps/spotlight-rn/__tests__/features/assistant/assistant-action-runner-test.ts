@@ -1,6 +1,11 @@
-import { mockInventoryEntries, type AssistantProposedAction } from '@spotlight/api-client';
+import { AssistantRequestError, mockInventoryEntries, type AssistantProposedAction } from '@spotlight/api-client';
 
-import { runAssistantAction, type AssistantActionDeps } from '@/features/assistant/assistant-action-runner';
+import {
+  isExecutedAssistantAction,
+  runAssistantAction,
+  undoExecutedAdd,
+  type AssistantActionDeps,
+} from '@/features/assistant/assistant-action-runner';
 import { createWatchlistStore } from '@/features/wishlist/watchlist-store';
 
 import { createTestSpotlightRepository } from '../../test-utils';
@@ -62,5 +67,45 @@ describe('runAssistantAction', () => {
       d,
     );
     expect(outcome.status).toBe('failed');
+  });
+});
+
+describe('undoExecutedAdd', () => {
+  const executed: AssistantProposedAction = {
+    id: 'act_d',
+    type: 'add_to_collection',
+    summary: 'Added Celebi · NM · ×2',
+    state: 'done',
+    params: { cardId: 'xyp-111', quantity: 2, condition: 'NM', variantName: null, grader: null, grade: null, collectionId: null },
+    undo: { deckEntryId: 'entry-9', quantityAdded: 2, expiresAt: null },
+  };
+
+  it('undoes server-side and refreshes collection data', async () => {
+    const undoAssistantAction = jest.fn(async () => ({ ...executed, state: 'undone' as const }));
+    const d = deps({ undoAssistantAction });
+    const outcome = await undoExecutedAdd(executed, d);
+    expect(outcome).toEqual({ status: 'undone', action: { ...executed, state: 'undone' } });
+    expect(undoAssistantAction).toHaveBeenCalledWith('act_d');
+    expect(d.refreshData).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps refusals to copy and does not refresh', async () => {
+    const d = deps({
+      undoAssistantAction: jest.fn(async () => {
+        throw new AssistantRequestError('cannot_undo', 'cannot_undo', 409);
+      }),
+    });
+    await expect(undoExecutedAdd(executed, d)).resolves.toEqual({
+      status: 'failed',
+      message: "That card isn't in your collection anymore.",
+    });
+    expect(d.refreshData).not.toHaveBeenCalled();
+  });
+
+  it('only server-executed adds count as executed', () => {
+    expect(isExecutedAssistantAction(executed)).toBe(true);
+    expect(isExecutedAssistantAction({ ...executed, state: 'undone' })).toBe(true);
+    expect(isExecutedAssistantAction({ ...executed, state: 'proposed' })).toBe(false);
+    expect(isExecutedAssistantAction({ ...executed, state: 'confirmed' })).toBe(false);
   });
 });

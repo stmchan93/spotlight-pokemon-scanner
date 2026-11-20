@@ -28,6 +28,10 @@ const rangeCaption: Record<AssistantChartRange, string> = {
   '1y': 'Past year',
 };
 
+export function assistantRangeCaption(range: AssistantChartRange): string {
+  return rangeCaption[range];
+}
+
 /** "NM · Past 3 months", "PSA 10 · Reverse Holofoil · Past year". */
 export function assistantChartSeriesLabel(chart: AssistantPriceChart): string {
   const lane = chart.grader ? [chart.grader, chart.grade].filter(Boolean).join(' ') : chart.condition ?? 'NM';

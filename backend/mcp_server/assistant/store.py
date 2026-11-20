@@ -13,6 +13,8 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import user_ai_settings
+
 # Mirrors backend/schema.sql (the main server creates them from there).
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS assistant_threads (
@@ -26,7 +28,7 @@ CREATE TABLE IF NOT EXISTS assistant_messages (
     status TEXT NOT NULL DEFAULT 'ok', client_message_id TEXT,
     input_tokens INTEGER, output_tokens INTEGER, cost_usd REAL, tools_used TEXT,
     created_at TEXT NOT NULL, suggestions_json TEXT, tool_calls_json TEXT, charts_json TEXT,
-    flags_json TEXT
+    flags_json TEXT, cards_label TEXT, cards_view_all_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_messages_client
@@ -67,11 +69,15 @@ COLUMN_PATCHES = (
     ("assistant_messages", "tool_calls_json", "TEXT"),
     ("assistant_messages", "charts_json", "TEXT"),
     ("assistant_messages", "flags_json", "TEXT"),
+    ("assistant_messages", "cards_label", "TEXT"),
+    ("assistant_messages", "cards_view_all_json", "TEXT"),
 )
 
 
 def ensure_schema(connection: sqlite3.Connection) -> None:
     connection.executescript(SCHEMA_SQL)
+    # Direct adds share the MCP write tools' idempotency ledger.
+    user_ai_settings.ensure_schema(connection)
     connection.executescript(FEEDBACK_SCHEMA_SQL)
     for table, column, sql_type in COLUMN_PATCHES:
         columns = {str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
@@ -164,12 +170,21 @@ def message_payload(row: sqlite3.Row, feedback: dict[str, Any] | None = None) ->
     raw_suggestions = row["suggestions_json"] if "suggestions_json" in keys else None
     raw_charts = row["charts_json"] if "charts_json" in keys else None
     raw_flags = row["flags_json"] if "flags_json" in keys else None
+    is_reply = role == "assistant"
+    raw_view_all = row["cards_view_all_json"] if is_reply and "cards_view_all_json" in keys else None
+    try:
+        view_all = json.loads(raw_view_all) if raw_view_all else None
+    except (TypeError, ValueError):
+        view_all = None
     return {
         "id": row["id"],
         "thread_id": row["thread_id"],
         "role": role,
         "text": row["text"],
         "cards": json.loads(row["cards_json"]) if row["cards_json"] else [],
+        # Section header above the tiles, and the "View all N" link (e.g. the Watchlist).
+        "cards_label": (row["cards_label"] if "cards_label" in keys else None) if is_reply else None,
+        "cards_view_all": view_all if isinstance(view_all, dict) else None,
         "actions": (json.loads(row["actions_json"]) if row["actions_json"] else []) if role == "assistant" else [],
         "suggestions": _suggestions(raw_suggestions) if role == "assistant" else [],
         "charts": _charts(raw_charts) if role == "assistant" else [],
@@ -393,8 +408,8 @@ class AssistantStore:
                 INSERT INTO assistant_messages (id, thread_id, owner_user_id, role, text, cards_json, actions_json,
                                                 status, client_message_id, input_tokens, output_tokens, cost_usd,
                                                 tools_used, created_at, suggestions_json, tool_calls_json, charts_json,
-                                                flags_json)
-                VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                                flags_json, cards_label, cards_view_all_json)
+                VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     reply_id,
@@ -414,6 +429,8 @@ class AssistantStore:
                     json.dumps(reply.get("tool_calls") or []),
                     json.dumps(reply.get("charts") or []),
                     json.dumps(reply.get("flags") or []),
+                    reply.get("cards_label"),
+                    json.dumps(reply["cards_view_all"]) if reply.get("cards_view_all") else None,
                 ),
             )
             conn.execute(
@@ -434,9 +451,10 @@ class AssistantStore:
 
     # --- actions -------------------------------------------------------------
 
-    def set_action_state(self, owner_user_id: str, action_id: str, state: str) -> dict[str, Any] | None:
-        """Returns the updated action, None when the caller owns no such action.
-        Raises ValueError on an invalid transition."""
+    def find_action(
+        self, owner_user_id: str, action_id: str
+    ) -> tuple[str, list[dict[str, Any]], dict[str, Any]] | None:
+        """(message id, that message's actions, the action), owner-scoped."""
         rows = self.conn.execute(
             """
             SELECT id, actions_json FROM assistant_messages
@@ -447,21 +465,32 @@ class AssistantStore:
         for row in rows:
             actions = json.loads(row["actions_json"] or "[]")
             for action in actions:
-                if action.get("id") != action_id:
-                    continue
-                current = action.get("state")
-                if current == state:
-                    return action
-                if current != "proposed":
-                    raise ValueError(f"action is already {current}")
-                action["state"] = state
-                self.conn.execute(
-                    "UPDATE assistant_messages SET actions_json = ? WHERE id = ? AND owner_user_id = ?",
-                    (json.dumps(actions), row["id"], owner_user_id),
-                )
-                self.conn.commit()
-                return action
+                if action.get("id") == action_id:
+                    return str(row["id"]), actions, action
         return None
+
+    def save_actions(self, owner_user_id: str, message_id: str, actions: list[dict[str, Any]]) -> None:
+        self.conn.execute(
+            "UPDATE assistant_messages SET actions_json = ? WHERE id = ? AND owner_user_id = ?",
+            (json.dumps(actions), message_id, owner_user_id),
+        )
+        self.conn.commit()
+
+    def set_action_state(self, owner_user_id: str, action_id: str, state: str) -> dict[str, Any] | None:
+        """Returns the updated action, None when the caller owns no such action.
+        Raises ValueError on an invalid transition."""
+        found = self.find_action(owner_user_id, action_id)
+        if found is None:
+            return None
+        message_id, actions, action = found
+        current = action.get("state")
+        if current == state:
+            return action
+        if current != "proposed":
+            raise ValueError(f"action is already {current}")
+        action["state"] = state
+        self.save_actions(owner_user_id, message_id, actions)
+        return action
 
 
     # --- feedback ------------------------------------------------------------
