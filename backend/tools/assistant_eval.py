@@ -308,6 +308,7 @@ async def run(args: argparse.Namespace, data: dict[str, Any], cases: list[dict[s
         model=env.model,
         max_tool_rounds=env.max_tool_rounds,
         max_output_tokens=env.max_output_tokens,
+        effort=env.effort,
         unlimited_user_ids=frozenset({args.user_id}),
         daily_spend_cap_usd=max(env.daily_spend_cap_usd, 1.0),
         api_key=env.api_key,

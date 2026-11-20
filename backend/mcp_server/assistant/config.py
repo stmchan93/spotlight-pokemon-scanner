@@ -39,6 +39,11 @@ def _env_ids(name: str) -> frozenset[str]:
     return frozenset(item.strip() for item in (os.environ.get(name) or "").split(",") if item.strip())
 
 
+def _env_effort() -> str:
+    value = (os.environ.get("ASSISTANT_EFFORT") or "low").strip().lower()
+    return value if value in ("low", "medium", "high") else "low"
+
+
 @dataclass(frozen=True)
 class AssistantConfig:
     enabled: bool = False
@@ -51,6 +56,8 @@ class AssistantConfig:
     daily_spend_cap_usd: float = 5.0
     max_tool_rounds: int = 4
     max_output_tokens: int = 4000
+    # Haiku 5.5 effort: low|medium|high. Trades instruction-following for latency/cost.
+    effort: str = "low"
     request_timeout_seconds: float = 60.0
     api_key: str | None = None
 
@@ -66,6 +73,7 @@ class AssistantConfig:
             daily_spend_cap_usd=max(0.0, _env_float("ASSISTANT_DAILY_SPEND_CAP_USD", 5.0)),
             max_tool_rounds=max(1, _env_int("ASSISTANT_MAX_TOOL_ROUNDS", 4)),
             max_output_tokens=max(256, _env_int("ASSISTANT_MAX_OUTPUT_TOKENS", 4000)),
+            effort=_env_effort(),
             api_key=(os.environ.get("ANTHROPIC_API_KEY") or "").strip() or None,
         )
 

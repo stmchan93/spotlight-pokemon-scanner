@@ -334,7 +334,7 @@ class AssistantEngine:
             system=SYSTEM_PAYLOAD,
             tools=TOOLS_PAYLOAD,
             tool_choice={"type": "none"} if final else {"type": "auto"},
-            output_config={"effort": "low"},
+            output_config={"effort": self.config.effort},
             # Third breakpoint: caches the growing conversation across tool rounds.
             cache_control={"type": "ephemeral"},
             messages=messages,

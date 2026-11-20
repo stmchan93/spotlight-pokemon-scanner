@@ -52,6 +52,7 @@ def main() -> None:
         model=config.model,
         max_tool_rounds=config.max_tool_rounds,
         max_output_tokens=config.max_output_tokens,
+        effort=config.effort,
         unlimited_user_ids=frozenset({args.user_id}),
         daily_spend_cap_usd=max(config.daily_spend_cap_usd, 1.0),
         api_key=config.api_key,
