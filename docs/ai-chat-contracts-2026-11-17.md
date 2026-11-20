@@ -206,3 +206,5 @@ App endpoints for the toggle (main backend, `server.py`):
 
 ## Analytics
 App-side PostHog (existing client): `assistant_opened{source}`, `assistant_question_sent{source}`, `assistant_limit_hit{is_guest}`, `assistant_action_confirmed{type}`, `assistant_action_dismissed{type}`. Server logs per message: tools used, rounds, tokens, cost_usd, latency_ms (stored on the message row).
+
+Quality flags (2026-11-19): `mcp_server/assistant/flags.py` tags every answer with deterministic review flags (`assistant_messages.flags_json`, `flags` on AssistantMessage; app ignores it). The server `assistant_turn_cost` event carries `flags`, `flag_count`, `question` (≤200), `answer_preview` (≤300), `thread_id`, `message_id`. Review: `python3 backend/tools/assistant_review.py --db <db> --since 7d [--flag code] [--limit N] [--sample N]`.

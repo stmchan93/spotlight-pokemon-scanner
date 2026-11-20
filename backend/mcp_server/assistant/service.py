@@ -12,6 +12,7 @@ from typing import Any
 from mcp_server.assistant.analytics import TurnAnalytics
 from mcp_server.assistant.config import AssistantConfig
 from mcp_server.assistant.engine import AssistantEngine, AssistantFailed
+from mcp_server.assistant.flags import flag_turn
 from mcp_server.assistant.store import AssistantStore, next_utc_midnight, utc_day
 from mcp_server.assistant.tools import AssistantToolbox
 
@@ -21,6 +22,9 @@ MAX_TEXT_CHARS = 1000
 MAX_CONTEXT_CARDS = 20
 MAX_CLIENT_ID_CHARS = 100
 SOURCES = ("home", "scanner")
+# PostHog review table: enough text to judge an answer without opening the DB.
+ANALYTICS_QUESTION_CHARS = 200
+ANALYTICS_ANSWER_CHARS = 300
 
 
 @dataclass(frozen=True)
@@ -173,11 +177,19 @@ class AssistantService:
             self.analytics.capture(
                 user_id,
                 {"status": "failed", "cost_usd": round(failure.cost_usd, 6), "source": request["source"],
-                 "is_guest": caller.is_guest, "model": self.config.model},
+                 "is_guest": caller.is_guest, "model": self.config.model,
+                 "flags": ["refusal_or_error"], "flag_count": 1,
+                 "question": request["text"][:ANALYTICS_QUESTION_CHARS], "thread_id": thread_id},
             )
             return 502, {"error": "assistant_failed"}
 
+        try:
+            flags = flag_turn(request["text"], turn, request)
+        except Exception:  # noqa: BLE001 - review flags must never fail an answer
+            logger.exception("assistant flag_turn failed")
+            flags = []
         reply = {
+            "flags": flags,
             "text": turn.text,
             "cards": turn.cards,
             "actions": turn.actions,
@@ -202,7 +214,7 @@ class AssistantService:
         )
         logger.info(
             "assistant_turn user=%s source=%s status=%s stop=%s rounds=%d tools=%s in=%d out=%d cost_usd=%.6f "
-            "latency_ms=%d",
+            "latency_ms=%d flags=%s",
             user_id,
             request["source"],
             turn.status,
@@ -213,6 +225,7 @@ class AssistantService:
             turn.output_tokens,
             turn.cost_usd,
             turn.latency_ms,
+            ",".join(flags) or "-",
         )
         self.analytics.capture(
             user_id,
@@ -227,6 +240,12 @@ class AssistantService:
                 "source": request["source"],
                 "is_guest": caller.is_guest,
                 "model": self.config.model,
+                "flags": flags,
+                "flag_count": len(flags),
+                "question": request["text"][:ANALYTICS_QUESTION_CHARS],
+                "answer_preview": turn.text[:ANALYTICS_ANSWER_CHARS],
+                "thread_id": thread_id,
+                "message_id": message["id"],
             },
         )
         return 200, {
