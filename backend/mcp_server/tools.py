@@ -41,7 +41,8 @@ from catalog_tools import (
     tokenize,
 )
 import meta_pulse
-from market_movers import _is_japanese, latest_persisted_payload as latest_movers_payload
+from market_movers import NOW_TOLERANCE_DAYS, _is_japanese, latest_persisted_payload as latest_movers_payload
+import scoped_movers
 from sealed_products import search_sealed_products
 from similar_cards import build_similar_cards_payload
 from tcgcsv_adapter import TCGCSV_PROVIDER
@@ -119,6 +120,12 @@ PRICE_LOW_WINDOWS = {"90d": 90, "1y": 365}
 MAX_PRICE_LOWS = 20
 MAX_NEW_HIGHS = 20
 TREND_WINDOWS = {"7d": 7, "30d": 30, "90d": 90}
+MOVER_DIRECTIONS = ("up", "down")
+MOVER_RANKS = ("pct", "usd")
+MOVER_OWNED_MODES = ("any", "owned")
+MAX_MOVERS = 10
+MOVERS_ALT_COUNT = 3
+MOVER_SCOPE_KEYS = ("set", "rarity_bucket", "text", "artist")
 MAX_TREND_CARDS = 5
 MAX_TREND_SETS = 3
 # CardFilter keys that scope a query but are not art_search filter keys.
@@ -159,6 +166,21 @@ NEW_HIGHS_DESCRIPTION = (
     "sales or individual graded sales: call them 'market-price highs'. Japanese cards "
     "are left out unless filter.language is Japanese; filter.product picks singles/sealed (default both). "
     "owned='owned' checks the user's own cards. Past prices only; this is not a forecast."
+)
+MOVERS_DESCRIPTION = (
+    "Biggest price movers INSIDE a scope: which cards of a set, a rarity, a card name, or the user's own "
+    "cards rose or fell the most over a window (7d, 30d, 90d, 1y). Use for 'which <set> card dropped/fell/"
+    "gained/rose the most this week/month/year', 'biggest SIR gainers', 'biggest decliners in <set>'. "
+    "direction 'up' (gainers) or 'down' (decliners); window: week=7d, month=30d, 3 months=90d, year=1y. "
+    "Needs a scope: filter.set, filter.rarity_bucket (with filter.game for other games), filter.text, or "
+    "owned='owned' (combine owned='owned' with a set/rarity for 'my <set> cards'). Whole-game gainers without a "
+    "scope: use get_market_trends. The user's whole-collection gainers/losers: use get_portfolio_summary. "
+    "Each card has start_usd/end_usd (start_date/end_date), change_usd, change_pct, days_covered and "
+    "covers_full_window (false = history starts after the window start: say how much it covers). cards is "
+    "ranked by change_pct (ranked_by); top_by_usd is the same move ranked in dollars. Raw market price (TCGplayer, "
+    "else Scrydex), one printing per card; cards under $3 and glitchy histories are left out. Japanese cards are "
+    "left out unless filter.language is Japanese. A set name resolves to one set, English unless filter.language "
+    "says otherwise (set_resolved). Past prices only; not a forecast."
 )
 MARKET_TRENDS_DESCRIPTION = (
     "What's trending: the top rising raw cards (change_pct, change_usd over cards_window_days) and the "
@@ -2245,6 +2267,157 @@ class CollectionTools:
             "sets_as_of": sets_as_of,
             "note": "Sets are English main sets ranked by their top-10 cards' basket change.",
         }
+
+    def find_movers(
+        self,
+        owner_user_id: str,
+        card_filter: dict[str, Any] | None = None,
+        *,
+        direction: str = "down",
+        window: str = "30d",
+        owned: str = "any",
+        rank_by: str = "pct",
+        limit: int | None = 5,
+    ) -> dict[str, Any]:
+        """Biggest movers inside a scope, computed on the fly from stored daily
+        prices (scoped_movers.py). DB-only."""
+        card_filter, set_resolved = self._resolve_set(normalize_card_filter(card_filter))
+        if uses_art_filters(card_filter):
+            raise ToolInputError("find_movers takes game/product/text/set/artist/rarity_bucket/language/price filters only.")
+        if direction not in MOVER_DIRECTIONS:
+            raise ToolInputError("direction must be 'up' (gainers) or 'down' (decliners).")
+        if window not in scoped_movers.WINDOWS:
+            raise ToolInputError(f"window must be one of {', '.join(scoped_movers.WINDOWS)}.")
+        if owned not in MOVER_OWNED_MODES:
+            raise ToolInputError("owned must be 'any' or 'owned'.")
+        if rank_by not in MOVER_RANKS:
+            raise ToolInputError("rank_by must be 'pct' or 'usd'.")
+        limit = clamp_limit(limit, default=5, maximum=MAX_MOVERS)
+        if owned != "owned" and not any(card_filter.get(key) for key in MOVER_SCOPE_KEYS):
+            if direction == "up":
+                raise ToolInputError(
+                    "find_movers needs a scope (filter.set, filter.rarity_bucket, filter.text, or owned='owned'). "
+                    "For the biggest gainers across a whole game, call get_market_trends (Top Trends) instead."
+                )
+            raise ToolInputError(
+                "find_movers needs a scope: filter.set, filter.rarity_bucket, filter.text, or owned='owned'."
+            )
+        window_days = scoped_movers.WINDOWS[window]
+        base: dict[str, Any] = {
+            "window": window,
+            "direction": direction,
+            "ranked_by": rank_by,
+            **({"set_resolved": set_resolved} if set_resolved else {}),
+        }
+        ref_date = scoped_movers.newest_price_date(self.conn)
+        if ref_date is None:
+            return {**base, "cards": [], "as_of": None, "note": "No stored price history yet."}
+
+        scope, capped = self._mover_scope(owner_user_id, card_filter, owned=owned)
+        moves = scoped_movers.compute_moves(self.conn, scope, window_days=window_days, ref_date=ref_date)
+        low, high = card_filter.get("price_min_usd"), card_filter.get("price_max_usd")
+        moves = [
+            move for move in moves
+            if (low is None or move.end_usd >= low) and (high is None or move.end_usd <= high)
+        ]
+        ranked = scoped_movers.rank_moves(moves, direction=direction, by=rank_by)[:limit]
+        alt_by = "usd" if rank_by == "pct" else "pct"
+        alt = scoped_movers.rank_moves(moves, direction=direction, by=alt_by)[:MOVERS_ALT_COUNT]
+        summaries = self._summaries([move.card_id for move in ranked + alt])
+
+        def entry(move: scoped_movers.Move) -> dict[str, Any] | None:
+            summary = summaries.get(move.card_id)
+            if summary is None:
+                return None
+            return {
+                **distrust_japanese_anchor(dict(summary)),
+                "variant": printing_name(move.variant),
+                "start_usd": _round_money(move.start_usd),
+                "end_usd": _round_money(move.end_usd),
+                "change_usd": _round_money(move.change_usd),
+                "change_pct": round(move.change_pct, 1),
+                "start_date": move.start_date,
+                "end_date": move.end_date,
+                "days_covered": move.days_covered,
+                "covers_full_window": move.covers_full_window,
+            }
+
+        cards = [item for item in (entry(move) for move in ranked) if item is not None]
+        result: dict[str, Any] = {
+            **base,
+            "as_of": ref_date.isoformat(),
+            "window_start": (ref_date - timedelta(days=window_days)).isoformat(),
+            "cards": cards,
+            f"top_by_{alt_by}": [item for item in (entry(move) for move in alt) if item is not None],
+            "scanned_cards": len(scope),
+            "cards_with_history": len(moves),
+            "min_price_usd": scoped_movers.MIN_PRICE_USD,
+        }
+        notes: list[str] = []
+        if not cards:
+            verb = "rose" if direction == "up" else "fell"
+            notes.append(
+                f"No card in this scope {verb} over the window (cards under ${scoped_movers.MIN_PRICE_USD:.0f} "
+                "or without comparable history are left out)."
+            )
+        elif any(not item["covers_full_window"] for item in cards):
+            notes.append(
+                "Some cards' history starts after the window start: covers_full_window is false and days_covered "
+                "says how much it covers."
+            )
+        if capped:
+            result["capped_at"] = scoped_movers.MAX_SCANNED_CARDS
+            notes.append(
+                f"Only the {scoped_movers.MAX_SCANNED_CARDS:,} highest-priced matching cards were checked; "
+                "narrow the scope for a complete answer."
+            )
+        if (datetime.now(timezone.utc).date() - ref_date).days > NOW_TOLERANCE_DAYS:
+            notes.append(f"The newest stored prices are from {ref_date.isoformat()}.")
+        if notes:
+            result["note"] = " ".join(notes)
+        return result
+
+    def _mover_scope(
+        self, owner_user_id: str, card_filter: dict[str, Any], *, owned: str
+    ) -> tuple[dict[str, str | None], bool]:
+        """({card_id: language} to compute, capped). Japanese cards only when
+        filter.language is Japanese; the price filter applies to the end price later."""
+        meta_filter = {k: v for k, v in card_filter.items() if k not in ("price_min_usd", "price_max_usd")}
+        japanese_ok = self._price_ranked_japanese_ok(card_filter)
+        capped = False
+        if owned == "owned":
+            owned_ids = sorted(self._owned_card_ids(owner_user_id))
+            rows = [row for row in self._mover_card_rows(owned_ids) if self._matches_card_meta(row, meta_filter)]
+        elif meta_filter.get("text"):
+            # A name scope is the best-matching SEARCH_POOL_SIZE cards; not reported as capped.
+            rows, _ = self._relevance_pool(meta_filter, size=SEARCH_POOL_SIZE)
+        else:
+            structured = self._structured_rows(meta_filter, order="price_desc", price_ranked=True)
+            raw_rows, capped = structured if structured is not None else ([], False)
+            rows = [dict(row) for row in raw_rows]
+            rows = [row for row in rows if self._matches_card_meta(row, meta_filter)]
+        scope: dict[str, str | None] = {}
+        for row in rows:
+            card_id = str(row.get("id") or "")
+            if not card_id or (not japanese_ok and is_japanese_card(card_id, row.get("language"))):
+                continue
+            scope.setdefault(card_id, row.get("language"))
+        if len(scope) > scoped_movers.MAX_SCANNED_CARDS:
+            scope = dict(list(scope.items())[: scoped_movers.MAX_SCANNED_CARDS])
+            capped = True
+        return scope, capped
+
+    def _mover_card_rows(self, card_ids: list[str]) -> list[dict[str, Any]]:
+        """Light catalog rows (the fields _matches_card_meta reads) for owned scopes."""
+        out: list[dict[str, Any]] = []
+        for chunk in _chunked_sql_values(card_ids):
+            rows = self.conn.execute(
+                "SELECT id, game, name, number, artist, rarity, set_name AS setName, set_id AS setID, "
+                f"set_ptcgo_code AS setPtcgoCode, language, supertype FROM cards WHERE id IN ({','.join('?' for _ in chunk)})",
+                tuple(chunk),
+            ).fetchall()
+            out.extend(dict(row) for row in rows)
+        return out
 
     def get_price_history(
         self,

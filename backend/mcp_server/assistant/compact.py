@@ -144,6 +144,38 @@ def _artwork(artwork: Any) -> Any:
     return out
 
 
+MOVER_ALT_KEYS = ("card_id", "name", "change_usd", "change_pct")
+
+
+def _movers(result: dict[str, Any]) -> dict[str, Any]:
+    """The move is the answer: drop the display price (end_usd is the move's end),
+    the end date when it is as_of, and coverage fields when the window is covered.
+    Alt-ranking entries already in cards shrink to their move."""
+    as_of = result.get("as_of")
+    cards: list[Any] = []
+    for item in result.get("cards") or []:
+        if not isinstance(item, dict):
+            cards.append(item)
+            continue
+        item = {k: v for k, v in item.items() if k not in ("price_usd", "price_source")}
+        if item.get("end_date") == as_of:
+            item.pop("end_date")
+        if item.get("covers_full_window") is True:
+            item.pop("covers_full_window")
+            item.pop("days_covered", None)
+        cards.append(item)
+    result["cards"] = cards
+    listed = {item.get("card_id") for item in cards if isinstance(item, dict)}
+    for key in ("top_by_usd", "top_by_pct"):
+        if isinstance(result.get(key), list):
+            result[key] = [
+                {k: item.get(k) for k in MOVER_ALT_KEYS} if isinstance(item, dict) and item.get("card_id") in listed
+                else _movers({"cards": [item], "as_of": as_of})["cards"][0]
+                for item in result[key]
+            ]
+    return result
+
+
 def compact_result(tool: str, content: Any, arguments: Any = None) -> Any:
     if not isinstance(content, dict) or "error" in content and len(content) <= 2:
         return content
@@ -172,6 +204,8 @@ def compact_result(tool: str, content: Any, arguments: Any = None) -> Any:
                 {k: v for k, v in item.items() if k not in ("listed_price_usd", "card_id")} if isinstance(item, dict) else item
                 for item in result["excluded_untrusted"]
             ]
+    elif tool == "find_movers":
+        result = _movers(result)
     flt = arguments.get("filter") if isinstance(arguments, dict) else None
     # Artist matters on the card page and for artist searches, nowhere else.
     artist = tool == "get_card" or (isinstance(flt, dict) and bool(flt.get("artist")))

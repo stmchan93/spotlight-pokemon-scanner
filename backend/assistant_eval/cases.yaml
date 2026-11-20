@@ -700,6 +700,65 @@ cases:
           - "If the highs come from market-price history (not completed sales), does it call them market-price highs?"
           - "Does it avoid predicting further gains?"
 
+  # Scoped movers (find_movers): the ranking comes from stored daily prices, so tiles must
+  # come from its results, be the cards named (at most 3), and skip Japanese/sealed.
+  - id: set_movers_down_month
+    category: investing
+    turns:
+      - ask: "Which Evolving Skies card dropped the most this month?"
+        expect:
+          tools_any: [find_movers]
+          tool_args:
+            - tool: find_movers
+              where: {filter.set: {contains: evolving}, direction: down, window: 30d}
+          tiles_from_tools: [find_movers]
+          tiles_min: 1
+          tiles_max: 3
+          named_cards_in_tiles: true
+          tiles_none_match: [{japanese: true}, {sealed: true}]
+          must_contain_any: ["month", "30 days", "30-day"]
+        rubric:
+          - "Does the answer name the Evolving Skies card with the largest drop in the tool results, with its real numbers?"
+          - "Does it say the window (this month / 30 days) and, if the history doesn't cover the whole window, how much it covers?"
+
+  - id: rarity_movers_up_week
+    category: investing
+    turns:
+      - ask: "What were the biggest SIR gainers this week?"
+        expect:
+          tools_any: [find_movers]
+          tool_args:
+            - tool: find_movers
+              where: {filter.rarity_bucket: sir, direction: up, window: 7d}
+          tiles_from_tools: [find_movers]
+          tiles_min: 1
+          tiles_max: 3
+          named_cards_in_tiles: true
+          tiles_none_match: [{japanese: true}, {sealed: true}]
+          must_contain_any: ["week", "7 days", "7-day", "seven days"]
+        rubric:
+          - "Does the answer name special illustration rares that gained the most this week, with numbers from the tool results?"
+          - "Does it avoid predicting further gains?"
+
+  - id: set_movers_up_90d
+    category: investing
+    turns:
+      - ask: "Which Surging Sparks cards rose the most in the last 90 days?"
+        expect:
+          tools_any: [find_movers]
+          tool_args:
+            - tool: find_movers
+              where: {filter.set: {contains: surging}, direction: up, window: 90d}
+          tiles_from_tools: [find_movers]
+          tiles_min: 1
+          tiles_max: 3
+          named_cards_in_tiles: true
+          tiles_none_match: [{japanese: true}, {sealed: true}]
+          must_contain_any: ["90 days", "90-day", "three months", "3 months"]
+        rubric:
+          - "Does the answer name Surging Sparks cards that rose the most, with real numbers from the tool results?"
+          - "Does it state the 90-day window and, if covers_full_window is false for a named card, how much history it covers?"
+
   - id: likely_to_go_up
     category: investing
     turns:
