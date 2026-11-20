@@ -18,7 +18,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from mcp_server.assistant.config import AssistantConfig, cost_usd
-from mcp_server.assistant.tools import MAX_CHARTS, TOOL_DEFINITIONS, AssistantToolbox
+from mcp_server.assistant.tools import (
+    MAX_CHARTS,
+    SPARKLINE_RANGES,
+    TOOL_DEFINITIONS,
+    AssistantToolbox,
+    clean_label,
+    select_tiles,
+)
 
 logger = logging.getLogger("ekalight.assistant")
 
@@ -48,10 +55,18 @@ How to answer:
 - Takeaway first: the first sentence answers the question with a concrete number or verdict from the tools. Then add detail only if it helps.
 - Short by default: 1-3 sentences, under 50 words. "Why", "explain", "should I", and grading questions may run to about 90 words.
 - Explain like a savvy friend at a card show, in plain English: what a price means (e.g. a market price is what copies have recently sold for), why it moved when the data shows it (e.g. "up 18% in 30 days"), and the trade-offs of condition and grading (raw vs. PSA 10 price gap, and that grading costs money and takes time). Use the real numbers from tools.
-- The app shows a card tile (image, name, set, number, price) for every card you looked up, so never list cards or repeat their prices one by one. Say e.g. "Here are 5 under $20" and let the tiles show them.
+- The app shows a card tile (image, name, set, number, price) for each card you pass to show_cards, so never list cards or repeat their prices one by one. Say e.g. "Here are 5 under $20" and let the tiles show them.
 - Use a bulleted list only for a comparison or steps; max 3 bullets, one short line each. Plain text; **bold** is fine, no headings or tables.
 - No filler ("based on Ekalight's data", "great question") and no caveats unless they change the answer.
 - Speak like a knowledgeable collector, not a system: never mention tools, tool calls, searches or lookups you ran, "this chat", system details, or data providers by name.
+
+Card tiles (show_cards):
+- When the answer is about specific cards, call show_cards in the same message as your answer with exactly those cards, in the order you mention them. Every card you name must be in it; never show cards the answer isn't about.
+- Show several candidates only when you ask the user to choose (e.g. which Charizard?).
+- For one card's price history: that one card (same printing or grade as the chart), nothing else.
+- Any example you name must be one of the cards you show.
+- Watchlist answers: up to 8 cards; the app links to the full Watchlist.
+- Add a short label when it helps, e.g. "Top holdings by value", "Highest-value cards you're missing", "Chase cards you're missing".
 
 Show off Ekalight when it helps (never spammy):
 - When a feature solves the user's obvious next step, mention it in one short clause, at most once per answer. Skip it when nothing fits.
@@ -209,6 +224,8 @@ class TurnResult:
     cards: list[dict[str, Any]] = field(default_factory=list)
     actions: list[dict[str, Any]] = field(default_factory=list)
     suggestions: list[str] = field(default_factory=list)
+    cards_label: str | None = None
+    cards_view_all: dict[str, Any] | None = None
     charts: list[dict[str, Any]] = field(default_factory=list)
     tools_used: list[str] = field(default_factory=list)
     tool_calls: list[str] = field(default_factory=list)  # summarize_tool_call() per call, for history provenance
@@ -232,6 +249,19 @@ def _distinct_charts(charts: list[dict[str, Any]]) -> list[dict[str, Any]]:
             seen.add(key)
             out.append(chart)
     return out
+
+
+SHOW_CARDS = "show_cards"
+
+
+def _history_refs(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Tiles from earlier answers: show_cards may reuse them without a new lookup."""
+    refs = []
+    for item in history:
+        for card in item.get("cards") or []:
+            if isinstance(card, dict) and card.get("card_id"):
+                refs.append({key: card.get(key) for key in ("card_id", "grader", "grade")})
+    return refs
 
 
 def _tools_payload() -> list[dict[str, Any]]:
@@ -305,6 +335,7 @@ class AssistantEngine:
         history: list[dict[str, str]],
         question: str,
         context: str | None = None,
+        context_card_ids: list[str] | None = None,
     ) -> TurnResult:
         started = time.monotonic()
         messages = build_messages(history, question, context)
@@ -313,6 +344,15 @@ class AssistantEngine:
         primary_refs: list[dict[str, Any]] = []
         other_refs: list[dict[str, Any]] = []
         charts: list[dict[str, Any]] = []
+        # Beyond this turn's results, show_cards may use scanned cards and earlier tiles.
+        extra_refs = [{"card_id": card_id} for card_id in context_card_ids or []] + _history_refs(history)
+        selection: list[dict[str, Any]] | None = None
+        cards_label: str | None = None
+        watchlist_ids: set[str] = set()
+        watchlist_total: int | None = None
+        sparkline_windows: dict[str, tuple[str, str | None]] = {}
+        answered_with_selection = False
+        free_selection_round_used = False
         response = None
         tool_rounds = 0
         while True:
@@ -337,19 +377,18 @@ class AssistantEngine:
                 break
             # Full content back unchanged (thinking blocks stay valid in-turn).
             messages.append({"role": "assistant", "content": response.content})
-            outcomes = await asyncio.gather(*(self._run_tool(block, owner_user_id) for block in tool_uses))
-            tool_results = []
-            for block, outcome in zip(tool_uses, outcomes):
+            work = [block for block in tool_uses if block.name != SHOW_CARDS]
+            outcomes = await asyncio.gather(*(self._run_tool(block, owner_user_id) for block in work))
+            results_by_id: dict[str, dict[str, Any]] = {}
+            for block, outcome in zip(work, outcomes):
                 result.tools_used.append(block.name)
                 result.tool_calls.append(summarize_tool_call(block.name, block.input))
-                tool_results.append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": json.dumps(outcome.content, default=str, separators=(",", ":")),
-                        **({"is_error": True} if outcome.is_error else {}),
-                    }
-                )
+                results_by_id[block.id] = {
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": json.dumps(outcome.content, default=str, separators=(",", ":")),
+                    **({"is_error": True} if outcome.is_error else {}),
+                }
                 if outcome.is_error:
                     result.tool_errors.append(block.name)
                 if outcome.action is not None:
@@ -359,12 +398,50 @@ class AssistantEngine:
                 (primary_refs if block.name.startswith("propose_") or block.name == "get_card" else other_refs).extend(
                     outcome.cards
                 )
+                content = outcome.content if isinstance(outcome.content, dict) else {}
+                if block.name == "get_my_watchlist" and not outcome.is_error:
+                    watchlist_ids.update(ref["card_id"] for ref in outcome.cards)
+                    if isinstance(content.get("total_count"), int):
+                        watchlist_total = content["total_count"]
+                if block.name in ("find_price_lows", "find_new_highs") and content.get("window") in SPARKLINE_RANGES:
+                    for ref in outcome.cards:
+                        sparkline_windows.setdefault(ref["card_id"], (SPARKLINE_RANGES[content["window"]], ref.get("variant")))
+            # Selections resolve after this round's lookups, so a parallel call can name their cards.
+            for block in tool_uses:
+                if block.name != SHOW_CARDS:
+                    continue
+                result.tools_used.append(SHOW_CARDS)
+                arguments = block.input if isinstance(block.input, dict) else {}
+                selection, dropped = select_tiles(arguments.get("cards"), primary_refs + other_refs + extra_refs)
+                cards_label = clean_label(arguments.get("label"))
+                reply: dict[str, Any] = {"shown": len(selection)}
+                if dropped:
+                    reply["not_shown"] = dropped
+                    reply["note"] = "Only cards from this turn's results, the scanned cards, or earlier answers can be shown."
+                results_by_id[block.id] = {
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": json.dumps(reply, separators=(",", ":")),
+                }
+            tool_results = [results_by_id[block.id] for block in tool_uses]
+            # Answer text + show_cards in one message: that is the final answer, no extra round.
+            if not work and any(
+                getattr(block, "type", None) == "text" and str(getattr(block, "text", "")).strip()
+                for block in response.content
+            ):
+                answered_with_selection = True
+                break
+            if not work and not free_selection_round_used:
+                # A lone show_cards round (once) doesn't spend the lookup budget.
+                free_selection_round_used = True
+                messages.append({"role": "user", "content": tool_results})
+                continue
             tool_rounds += 1
             if tool_rounds >= self.config.max_tool_rounds:
                 tool_results.append({"type": "text", "text": ROUND_LIMIT_NOTE})
             messages.append({"role": "user", "content": tool_results})
 
-        result.stop_reason = getattr(response, "stop_reason", None)
+        result.stop_reason = "end_turn" if answered_with_selection else getattr(response, "stop_reason", None)
         result.round_limit_hit = tool_rounds >= self.config.max_tool_rounds
         text = "\n\n".join(
             str(block.text).strip()
@@ -384,7 +461,19 @@ class AssistantEngine:
             result.text = text + ("…" if result.stop_reason == "max_tokens" else "")
             result.suggestions = suggestions
         if result.status == "ok":
-            result.cards = await asyncio.to_thread(self.toolbox.finalize_cards, primary_refs + other_refs)
             result.charts = _distinct_charts(charts)[:MAX_CHARTS]
+            result.cards, result.cards_label, result.cards_view_all = await asyncio.to_thread(
+                lambda: self.toolbox.build_tiles(
+                    owner_user_id=owner_user_id,
+                    turn_refs=primary_refs + other_refs,
+                    selection=selection,
+                    label=cards_label,
+                    text=result.text,
+                    charts=result.charts,
+                    watchlist_ids=watchlist_ids,
+                    watchlist_total=watchlist_total,
+                    sparkline_windows=sparkline_windows,
+                )
+            )
         result.latency_ms = int((time.monotonic() - started) * 1000)
         return result

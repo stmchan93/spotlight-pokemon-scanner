@@ -2859,6 +2859,21 @@ export type AssistantCardRef = {
   grade: string | null;
   quantityOwned: number | null;
   appUrl: string | null;
+  /** Small stored-history series on "near lows"/"new highs" tiles; null otherwise. */
+  sparkline?: AssistantCardSparkline | null;
+};
+
+export type AssistantCardSparkline = {
+  range: AssistantChartRange;
+  /** USD, oldest → newest, at most 30 points. */
+  points: number[];
+  changePct: number | null;
+};
+
+/** "View all N" under a capped tile preview (only the Watchlist today). */
+export type AssistantCardsViewAll = {
+  screen: 'watchlist';
+  total: number;
 };
 
 export type AssistantConditionCode = 'NM' | 'LP' | 'MP' | 'HP' | 'DMG';
@@ -2908,6 +2923,9 @@ export type AssistantMessage = {
   /** Plain text; light markdown only (**bold**, "- " bullets). */
   text: string;
   cards: AssistantCardRef[];
+  /** Section header above the tiles (e.g. "Top holdings by value"); optional on older servers. */
+  cardsLabel?: string | null;
+  cardsViewAll?: AssistantCardsViewAll | null;
   actions: AssistantProposedAction[];
   createdAt: string;
   status: 'ok' | 'error';

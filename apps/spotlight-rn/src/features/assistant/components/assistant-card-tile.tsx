@@ -2,12 +2,16 @@ import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import type { AssistantCardRef } from '@spotlight/api-client';
-import { AppText, Text, layout, radii, spacing, useSpotlightTheme } from '@spotlight/design-system';
+import { AppText, PriceSparkline, Text, layout, radii, spacing, useSpotlightTheme } from '@spotlight/design-system';
 
 import { CachedImage } from '@/components/cached-image';
+import { assistantRangeCaption } from '@/features/assistant/components/assistant-price-chart';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
 const TILE_WIDTH = 132;
+const SPARKLINE_HEIGHT = 22;
+// Tile width minus its horizontal padding (spacing.xxs each side).
+const SPARKLINE_WIDTH = TILE_WIDTH - spacing.xxs * 2;
 
 /** "Celebi" + "XY Black Star Promos · XY111" + price + owned qty. USD only; null price = "No price". */
 export function assistantCardMeta(card: AssistantCardRef): string {
@@ -64,6 +68,24 @@ export function AssistantCardTile({ card, onPress, testID }: AssistantCardTilePr
       <Text numberOfLines={1} style={[theme.typography.caption, { color: theme.colors.gray600 }]}>
         {assistantCardMeta(card)}
       </Text>
+      {card.sparkline ? (
+        // Why a "near lows"/"new highs" card was surfaced: its recent move, period labelled.
+        <View style={styles.sparkline} testID={testID ? `${testID}-sparkline` : undefined}>
+          <PriceSparkline
+            height={SPARKLINE_HEIGHT}
+            points={card.sparkline.points}
+            trendPct={card.sparkline.changePct}
+            width={SPARKLINE_WIDTH}
+          />
+          <Text
+            numberOfLines={1}
+            style={[theme.typography.caption, { color: theme.colors.gray600 }]}
+            testID={testID ? `${testID}-sparkline-period` : undefined}
+          >
+            {assistantRangeCaption(card.sparkline.range)}
+          </Text>
+        </View>
+      ) : null}
       <View style={styles.footer}>
         <Text style={theme.typography.labelStrong} testID={testID ? `${testID}-price` : undefined}>
           {card.priceUsd != null ? formatCurrency(card.priceUsd, 'USD') : 'No price'}
@@ -100,6 +122,9 @@ const styles = StyleSheet.create({
   fill: {
     height: '100%',
     width: '100%',
+  },
+  sparkline: {
+    gap: spacing.xxxs,
   },
   footer: {
     alignItems: 'center',
