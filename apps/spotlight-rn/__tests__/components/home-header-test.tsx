@@ -110,7 +110,7 @@ describe('HomeHeader', () => {
     capsule's contents for edit + share.
   */
   describe('the trailing control', () => {
-    it('Social (Figma 6430:11305): bell + search capsule left, centred lockup, Ask Ekalight right', () => {
+    it('Social: Ask Ekalight left, centred lockup, bell + search capsule right', () => {
       const onOpenNotifications = jest.fn();
       const onOpenSearch = jest.fn();
       renderHeader({
@@ -119,7 +119,7 @@ describe('HomeHeader', () => {
         trailing: { kind: 'home', onOpenNotifications, unreadCount: 0 },
       });
 
-      // Social: capsule(bell, search) | lockup | Ask Ekalight. No menu bubble.
+      // Social: Ask Ekalight | lockup | capsule(bell, search). No menu bubble.
       expect(screen.queryByTestId('home-header-menu')).toBeNull();
       expect(screen.getByTestId('home-header-utilities')).toBeTruthy();
       expect(screen.getByTestId('home-header-home-mark')).toBeTruthy();

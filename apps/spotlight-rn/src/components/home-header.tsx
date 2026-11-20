@@ -394,7 +394,9 @@ export function HomeHeader({
       />
     ) : null;
 
-  const trailingControl =
+  // Social: Ask Ekalight LEADS, bell + search trail (owner, 2026-11-20 —
+  // swapped from Figma 6430:11305's bell-left / AI-right).
+  const homeAssistant =
     trailing.kind === 'home' ? (
       onOpenAssistant ? (
         <GlassNavBubble
@@ -412,6 +414,11 @@ export function HomeHeader({
       ) : (
         <View style={{ width: glassNavBubbleSizes.medium }} />
       )
+    ) : null;
+
+  const trailingControl =
+    trailing.kind === 'home' ? (
+      homeUtilities
     ) : (
       <GlassNavBubbleGroup
         items={
@@ -501,7 +508,7 @@ export function HomeHeader({
         testID={`${testID}-row`}
       >
         {trailing.kind === 'home' ? (
-          homeUtilities
+          homeAssistant
         ) : (
         <View style={styles.leadingGroup}>
           <GlassNavBubble

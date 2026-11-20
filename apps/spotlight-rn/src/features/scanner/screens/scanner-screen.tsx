@@ -7,9 +7,7 @@ import { memo, type MutableRefObject, useCallback, useEffect, useLayoutEffect, u
 import {
   IconArrowsExchange,
   IconChevronDown,
-  IconChevronLeft,
   IconSearch,
-  IconSparkles,
   IconX,
 } from '@tabler/icons-react-native';
 import {
@@ -69,6 +67,7 @@ import {
   Button,
   GlassNavBubble,
   glassNavBubbleGlyphSize,
+  glassNavBubbleSizes,
   GlassSurface,
   Text,
   colors,
@@ -80,6 +79,7 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import { EkalightAiRing, EkalightAiSparkle } from '@/components/ekalight-ai-glyph';
 import { assistantHref } from '@/features/assistant/assistant-route';
 import { useTabsPage } from '@/contexts/tabs-page-context';
 import {
@@ -1147,7 +1147,6 @@ const selectNoPriceSelections = () => emptyPriceSelections;
 
 export function ScannerScreen({
   devPreview,
-  onExitToPortfolio,
   reserveTabBarSpace = false,
   onTopLevelSwipeEnabledChange,
 }: ScannerScreenProps = {}) {
@@ -4343,24 +4342,6 @@ export function ScannerScreen({
     });
   }, []);
 
-  const handleExitScanner = useCallback(() => {
-    if (onExitToPortfolio) {
-      onExitToPortfolio();
-      return;
-    }
-
-    if (router.canGoBack()) {
-      router.back();
-      return;
-    }
-
-    /*
-      Unreachable in practice — `(tabs)/scan.tsx` always passes
-      `onExitToPortfolio`. Not re-pointed at `/you`: `dismissTo` dispatches POP_TO,
-      which `NativeBottomTabsRouter` cannot handle for a tab (see `app-drawer.tsx`).
-    */
-    router.dismissTo('/');
-  }, [onExitToPortfolio, router]);
 
   const handleOpenCatalogSearch = useCallback(() => {
     router.push('/catalog/search');
@@ -4847,15 +4828,19 @@ export function ScannerScreen({
             },
           ]}
         >
+          {/* Ask Ekalight leads where the back chevron was (owner, 2026-11-20):
+              Scan is a tab, so the tab bar is the way out. Not guest-gated:
+              guests get one question a day server-side. */}
           <GlassNavBubble
-            accessibilityLabel="Exit scanner"
-            onPress={gate(handleExitScanner)}
+            accessibilityLabel="Ask Ekalight about these cards"
+            onPress={handleOpenAssistant}
             size="medium"
             material="frost"
             surface="onLight"
-            testID="scanner-back-button"
+            testID="scanner-assistant-button"
           >
-            <IconChevronLeft color={colors.gray900} size={glassNavBubbleGlyphSize} strokeWidth={2} />
+            <EkalightAiSparkle />
+            <EkalightAiRing size={glassNavBubbleSizes.medium} />
           </GlassNavBubble>
           <View style={styles.topChromeCenter}>
             <ScanTargetPill
@@ -4879,18 +4864,6 @@ export function ScannerScreen({
             testID="scanner-search-button"
           >
             <IconSearch color={colors.gray900} size={glassNavBubbleGlyphSize} strokeWidth={2} />
-          </GlassNavBubble>
-          {/* Top chrome, clear of the shutter and the tray. Not guest-gated:
-              guests get one question a day server-side. */}
-          <GlassNavBubble
-            accessibilityLabel="Ask Ekalight about these cards"
-            onPress={handleOpenAssistant}
-            size="medium"
-            material="frost"
-            surface="onLight"
-            testID="scanner-assistant-button"
-          >
-            <IconSparkles color={colors.gray900} size={glassNavBubbleGlyphSize} strokeWidth={2} />
           </GlassNavBubble>
         </View>
 

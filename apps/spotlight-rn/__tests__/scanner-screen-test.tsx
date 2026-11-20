@@ -230,7 +230,8 @@ describe('ScannerScreen', () => {
     // The frame's own treatment (closed outline, colours, the pocket grid
     // nested inside it) is covered in `scanner-reticle-frame-test.tsx`.
     expect(screen.getByTestId('scanner-reticle')).toBeTruthy();
-    expect(screen.getByTestId('scanner-back-button')).toBeTruthy();
+    expect(screen.getByTestId('scanner-assistant-button')).toBeTruthy();
+    expect(screen.queryByTestId('scanner-back-button')).toBeNull();
     expect(screen.queryByTestId('scanner-account-button')).toBeNull();
     expect(screen.queryByTestId('scanner-slab-guide')).toBeNull();
     const previewStyle = StyleSheet.flatten(screen.getByTestId('scanner-preview').props.style);
@@ -1676,7 +1677,7 @@ describe('ScannerScreen', () => {
     // 4299:93955); the zoom dock has the bottom controls row to itself.
     expect(screen.getByTestId('scanner-target-pill')).toBeTruthy();
     expect(screen.getByTestId('scanner-zoom-control')).toBeTruthy();
-    expect(screen.getByTestId('scanner-back-button')).toBeTruthy();
+    expect(screen.getByTestId('scanner-assistant-button')).toBeTruthy();
     expect(screen.getByTestId('scanner-search-button')).toBeTruthy();
 
     await waitForScannerReady();
@@ -1769,7 +1770,7 @@ describe('ScannerScreen', () => {
       its own contrast, which is the point of the material.
     */
     await waitForScannerReady();
-    expect(screen.getByTestId('scanner-back-button')).toBeTruthy();
+    expect(screen.getByTestId('scanner-assistant-button')).toBeTruthy();
     expect(screen.queryByTestId('scanner-top-chrome-backdrop')).toBeNull();
   });
 
@@ -2159,16 +2160,6 @@ describe('ScannerScreen', () => {
         },
       });
     });
-  });
-
-  // Fallback exit, unreachable in the app (`scan.tsx` always passes
-  // `onExitToPortfolio`). Used to assert a dead `page` param.
-  it('exits to the app root from the back button when there is nothing to pop', () => {
-    renderScannerScreen();
-
-    fireEvent.press(screen.getByTestId('scanner-back-button'));
-
-    expect(mockDismissTo).toHaveBeenCalledWith('/');
   });
 
   // The #1 complaint across competitor scanners: a card silently lands on the
