@@ -4,19 +4,26 @@ import { StyleSheet, View } from 'react-native';
 import type { AssistantProposedAction } from '@spotlight/api-client';
 import { Button, Text, radii, spacing, useSpotlightTheme } from '@spotlight/design-system';
 
+import { isExecutedAssistantAction } from '@/features/assistant/assistant-action-runner';
+
 export type AssistantActionUiState =
   | { status: 'proposed' }
   | { status: 'running' }
   | { status: 'done' }
   | { status: 'dismissed' }
-  | { status: 'failed'; message: string };
+  | { status: 'failed'; message: string }
+  | { status: 'undoing' }
+  | { status: 'undone' };
 
 export function initialActionUiState(action: AssistantProposedAction): AssistantActionUiState {
-  if (action.state === 'confirmed') {
+  if (action.state === 'confirmed' || action.state === 'done') {
     return { status: 'done' };
   }
   if (action.state === 'dismissed') {
     return { status: 'dismissed' };
+  }
+  if (action.state === 'undone') {
+    return { status: 'undone' };
   }
   return { status: 'proposed' };
 }
@@ -32,16 +39,73 @@ function doneCopy(action: AssistantProposedAction): string {
   }
 }
 
+function undoAvailable(action: AssistantProposedAction, now = Date.now()): boolean {
+  if (!action.undo) {
+    return false;
+  }
+  const expiresAt = action.undo.expiresAt ? Date.parse(action.undo.expiresAt) : Number.NaN;
+  return Number.isNaN(expiresAt) || expiresAt > now;
+}
+
 type AssistantActionCardProps = {
   action: AssistantProposedAction;
   state: AssistantActionUiState;
   onConfirm: (action: AssistantProposedAction) => void;
   onDismiss: (action: AssistantProposedAction) => void;
+  onUndo?: (action: AssistantProposedAction) => void;
 };
 
-export function AssistantActionCard({ action, state, onConfirm, onDismiss }: AssistantActionCardProps) {
+/** A server-executed add: "✓ Added …" with Undo, no Confirm. */
+function ExecutedActionCard({ action, state, onUndo }: Omit<AssistantActionCardProps, 'onConfirm' | 'onDismiss'>) {
   const theme = useSpotlightTheme();
   const testID = `assistant-action-${action.id}`;
+  const undone = state.status === 'undone';
+  const canUndo = !undone && onUndo != null && undoAvailable(action);
+
+  return (
+    <View
+      style={[styles.card, styles.executed, { backgroundColor: theme.colors.purple50, borderColor: theme.colors.purple200 }]}
+      testID={testID}
+    >
+      <View style={styles.executedText}>
+        <View style={styles.resolved} testID={`${testID}-${undone ? 'undone' : 'done'}`}>
+          {undone ? null : <Check color={theme.colors.green500} height={16} strokeWidth={2} width={16} />}
+          <Text style={[theme.typography.bodyStrong, styles.shrink]}>{action.summary}</Text>
+        </View>
+        {undone ? (
+          <Text style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}>
+            Undone · removed from your collection
+          </Text>
+        ) : null}
+        {state.status === 'failed' ? (
+          <Text style={[theme.typography.caption, { color: theme.colors.dangerStrong }]} testID={`${testID}-error`}>
+            {state.message}
+          </Text>
+        ) : null}
+      </View>
+      {canUndo ? (
+        <Button
+          disabled={state.status === 'undoing'}
+          label={state.status === 'undoing' ? 'Undoing…' : 'Undo'}
+          labelStyleVariant="control"
+          onPress={() => onUndo?.(action)}
+          size="sm"
+          testID={`${testID}-undo`}
+          variant="outline"
+        />
+      ) : null}
+    </View>
+  );
+}
+
+export function AssistantActionCard({ action, state, onConfirm, onDismiss, onUndo }: AssistantActionCardProps) {
+  const theme = useSpotlightTheme();
+  const testID = `assistant-action-${action.id}`;
+
+  if (isExecutedAssistantAction(action)) {
+    return <ExecutedActionCard action={action} onUndo={onUndo} state={state} />;
+  }
+
   const showButtons = state.status === 'proposed' || state.status === 'running' || state.status === 'failed';
 
   return (
@@ -99,6 +163,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: spacing.xxs,
     padding: spacing.xs,
+  },
+  executed: {
+    alignItems: 'center',
+    flexDirection: 'row',
+  },
+  executedText: {
+    flex: 1,
+    gap: spacing.xxxs,
+  },
+  shrink: {
+    flexShrink: 1,
   },
   buttons: {
     flexDirection: 'row',

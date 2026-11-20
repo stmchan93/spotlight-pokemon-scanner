@@ -280,19 +280,19 @@ cases:
         rubric:
           - "Does the answer say the Watchlist add is ready to confirm (not already done)?"
 
-  # --- writes (proposed, never executed) ------------------------------------
+  # --- writes (proposed; a fully specified add is executed with Undo, L007) --
   - id: add_quantity_2
     category: writes
     turns:
       - ask: "Add 2 near mint Charizard ex 151 #199 to my collection"
         expect:
-          tools_all: [propose_add_to_collection]
+          tools_all: [add_to_collection_now]
           tool_args:
-            - tool: propose_add_to_collection
+            - tool: add_to_collection_now
               where: {quantity: 2}
           expect_action: {type: add_to_collection, params: {card_id: sv3pt5-199, quantity: 2, condition: NM}}
         rubric:
-          - "Does the answer say it is ready to confirm rather than already added?"
+          - "Does the answer say the two Near Mint copies were added (done, not pending confirmation)?"
 
   - id: add_then_change_quantity
     category: writes

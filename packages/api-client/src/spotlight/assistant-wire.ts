@@ -4,6 +4,7 @@
 // older server never breaks the chat.
 import type {
   AssistantActionState,
+  AssistantActionUndo,
   AssistantCardRef,
   AssistantChartRange,
   AssistantConditionCode,
@@ -48,8 +49,20 @@ function asCondition(value: unknown): AssistantConditionCode | null {
   return raw && (conditionCodes as readonly string[]).includes(raw) ? (raw as AssistantConditionCode) : null;
 }
 
+const actionStates: readonly AssistantActionState[] = ['proposed', 'confirmed', 'dismissed', 'done', 'undone'];
+
 function asActionState(value: unknown): AssistantActionState {
-  return value === 'confirmed' || value === 'dismissed' ? value : 'proposed';
+  return (actionStates as readonly unknown[]).includes(value) ? (value as AssistantActionState) : 'proposed';
+}
+
+function parseActionUndo(value: unknown): AssistantActionUndo | null {
+  const raw = asRecord(value);
+  const deckEntryId = raw ? asString(raw.deck_entry_id) : null;
+  const quantityAdded = raw ? asInt(raw.quantity_added) : null;
+  if (!raw || !deckEntryId || quantityAdded == null || quantityAdded < 1) {
+    return null;
+  }
+  return { deckEntryId, quantityAdded, expiresAt: asString(raw.expires_at) };
 }
 
 export function parseAssistantUsage(value: unknown): AssistantUsage | null {
@@ -95,7 +108,13 @@ export function parseAssistantAction(value: unknown): AssistantProposedAction | 
     return null;
   }
   const params = asRecord(raw.params) ?? {};
-  const base = { id, summary: asString(raw.summary) ?? '', state: asActionState(raw.state) };
+  const undo = parseActionUndo(raw.undo);
+  const base = {
+    id,
+    summary: asString(raw.summary) ?? '',
+    state: asActionState(raw.state),
+    ...(undo ? { undo } : {}),
+  };
   switch (raw.type) {
     case 'add_to_collection': {
       const cardId = asString(params.card_id);
@@ -316,6 +335,8 @@ export function buildAssistantSendBody(payload: AssistantSendPayload): Record<st
     thread_id: payload.threadId ?? null,
     client_message_id: payload.clientMessageId,
     text: payload.text,
+    // Tells the server this build renders executed adds with Undo (direct add).
+    capabilities: ['direct_add'],
   };
   const context: AssistantContext | null | undefined = payload.context;
   if (context) {
@@ -356,6 +377,9 @@ const knownErrorCodes: readonly AssistantErrorCode[] = [
   'assistant_disabled',
   'assistant_busy',
   'assistant_failed',
+  'not_undoable',
+  'undo_expired',
+  'cannot_undo',
 ];
 
 /** Maps an HTTP failure (status + parsed JSON body, if any) to an AssistantRequestError. */

@@ -11,6 +11,7 @@ from typing import Any
 
 from mcp_server.assistant.analytics import EVENT_FEEDBACK, TurnAnalytics
 from mcp_server.assistant.config import AssistantConfig
+from mcp_server.assistant.direct_add import UndoUnavailable, undo_expired
 from mcp_server.assistant.engine import AssistantEngine, AssistantFailed
 from mcp_server.assistant.flags import flag_turn
 from mcp_server.assistant.store import (
@@ -29,6 +30,7 @@ MAX_TEXT_CHARS = 1000
 MAX_CONTEXT_CARDS = 20
 MAX_CLIENT_ID_CHARS = 100
 SOURCES = ("home", "scanner")
+DIRECT_ADD_CAPABILITY = "direct_add"
 # PostHog review table: enough text to judge an answer without opening the DB.
 ANALYTICS_QUESTION_CHARS = 200
 ANALYTICS_ANSWER_CHARS = 300
@@ -130,6 +132,10 @@ class AssistantService:
             "text": text,
             "source": source or "home",
             "card_ids": card_ids,
+            # Older app builds render any action as a Confirm card; a direct add
+            # there would be added twice on Confirm, so they only get proposals.
+            "direct_add": isinstance(capabilities := body.get("capabilities"), list)
+            and DIRECT_ADD_CAPABILITY in capabilities,
         }, None
 
     async def send(self, caller: Caller, body: Any) -> tuple[int, dict[str, Any]]:
@@ -174,7 +180,8 @@ class AssistantService:
         assert self.engine is not None
         try:
             turn = await self.engine.run_turn(
-                owner_user_id=user_id, history=history, question=request["text"], context=context
+                owner_user_id=user_id, history=history, question=request["text"], context=context,
+                client_message_id=request["client_message_id"] if request["direct_add"] else None,
             )
         except AssistantFailed as failure:
             await asyncio.to_thread(self.store.record_failed_cost, user_id, day, failure.cost_usd)
@@ -317,6 +324,36 @@ class AssistantService:
         if action is None:
             return NOT_FOUND
         return 200, {"action": action}
+
+    def _undo_sync(self, user_id: str, action_id: str) -> tuple[int, dict[str, Any]]:
+        found = self.store.find_action(user_id, action_id)
+        if found is None:
+            return NOT_FOUND
+        message_id, actions, action = found
+        if action.get("state") == "undone":
+            return 200, {"action": action}
+        if action.get("state") != "done" or action.get("type") != "add_to_collection" or not action.get("undo"):
+            return 409, {"error": "not_undoable", "detail": "Only an add the assistant made can be undone."}
+        if undo_expired(action):
+            return 409, {"error": "undo_expired", "detail": "Undo is only available for 24 hours."}
+        # State first: a crash between the two writes loses the undo instead of
+        # letting a retry take the copies back twice.
+        action["state"] = "undone"
+        self.store.save_actions(user_id, message_id, actions)
+        try:
+            self.toolbox.undo_add(user_id, action)
+        except Exception as error:
+            action["state"] = "done"
+            self.store.save_actions(user_id, message_id, actions)
+            if isinstance(error, UndoUnavailable):
+                return 409, {"error": "cannot_undo", "detail": str(error)}
+            raise
+        return 200, {"action": action}
+
+    async def undo_action(self, caller: Caller, action_id: str) -> tuple[int, dict[str, Any]]:
+        # Same per-user lock as turns: an undo never interleaves with a retried add.
+        async with self._lock(caller.user_id):
+            return await asyncio.to_thread(self._undo_sync, caller.user_id, action_id)
 
     # --- feedback ------------------------------------------------------------
 

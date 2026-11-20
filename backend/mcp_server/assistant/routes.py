@@ -116,6 +116,9 @@ def register_assistant_routes(server: Any, service: AssistantService, auth: Assi
             return 400, {"error": "invalid_request", "detail": "body must be JSON"}
         return await service.set_action_state(caller, request.path_params["action_id"], body)
 
+    async def undo(request: Request, caller: Caller):
+        return await service.undo_action(caller, request.path_params["action_id"])
+
     async def feedback(request: Request, caller: Caller):
         body = await _body(request)
         if body is _INVALID_JSON:
@@ -129,6 +132,7 @@ def register_assistant_routes(server: Any, service: AssistantService, auth: Assi
         (f"{PREFIX}/threads/{{thread_id}}", ["DELETE"], thread),
         (f"{PREFIX}/threads/{{thread_id}}/messages", ["GET"], thread_messages),
         (f"{PREFIX}/actions/{{action_id}}", ["POST"], action),
+        (f"{PREFIX}/actions/{{action_id}}/undo", ["POST"], undo),
         (f"{PREFIX}/messages/{{message_id}}/feedback", ["POST"], feedback),
     )
     for path, methods, handler in routes:

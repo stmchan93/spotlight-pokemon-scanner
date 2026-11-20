@@ -1,6 +1,7 @@
 import {
   buildWatchKey,
   deckConditionOptions,
+  isAssistantRequestError,
   type AssistantCardRef,
   type AssistantConditionCode,
   type AssistantProposedAction,
@@ -18,8 +19,10 @@ import { capturePostHogEvent } from '@/lib/observability/posthog';
   Confirm on a ProposedAction runs the SAME repository call the app's own
   Add / Edit / Watch controls run (contract table in
   docs/ai-chat-contracts-2026-11-17.md), then the same post-success cache work
-  those controls do. The chat backend never writes; it only records the
-  outcome afterwards (`setAssistantActionState`, done by the caller).
+  those controls do. The chat backend never writes a proposal; it only records
+  the outcome afterwards (`setAssistantActionState`, done by the caller).
+  Exception: a fully specified add arrives already executed (state `done`);
+  the app only refreshes its caches and offers Undo.
 */
 
 export type AssistantActionDeps = {
@@ -237,5 +240,46 @@ export async function runAssistantAction(
       status: 'failed',
       message: error instanceof AssistantActionError ? error.message : "Couldn't do that right now. Try again.",
     };
+  }
+}
+
+/** An add the server already made (direct add): rendered with Undo, never Confirm. */
+export function isExecutedAssistantAction(action: AssistantProposedAction): boolean {
+  return action.state === 'done' || action.state === 'undone';
+}
+
+/** After a server-side add or its undo: the cache work the Confirm path does after its write. */
+export function refreshAfterExecutedAdd(
+  action: AssistantProposedAction,
+  deps: Pick<AssistantActionDeps, 'refreshData'>,
+) {
+  if (action.type === 'add_to_collection') {
+    invalidateCardDetailCache(action.params.cardId);
+  }
+  deps.refreshData();
+}
+
+const undoErrorCopy: Partial<Record<string, string>> = {
+  undo_expired: 'Undo is only available for 24 hours.',
+  cannot_undo: "That card isn't in your collection anymore.",
+  not_undoable: "This change can't be undone here.",
+};
+
+export type AssistantUndoOutcome =
+  | { status: 'undone'; action: AssistantProposedAction }
+  | { status: 'failed'; message: string };
+
+/** Undo a server-executed add, then refresh like any collection write. Never throws. */
+export async function undoExecutedAdd(
+  action: AssistantProposedAction,
+  deps: Pick<AssistantActionDeps, 'repository' | 'refreshData'>,
+): Promise<AssistantUndoOutcome> {
+  try {
+    const updated = await deps.repository.undoAssistantAction(action.id);
+    refreshAfterExecutedAdd(action, deps);
+    return { status: 'undone', action: updated };
+  } catch (error) {
+    const code = isAssistantRequestError(error) ? error.code : null;
+    return { status: 'failed', message: (code && undoErrorCopy[code]) || "Couldn't undo that. Try again." };
   }
 }

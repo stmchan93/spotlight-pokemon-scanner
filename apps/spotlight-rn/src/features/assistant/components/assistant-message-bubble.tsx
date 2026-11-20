@@ -38,6 +38,8 @@ type AssistantMessageBubbleProps = {
   onOpenCard: (cardId: string) => void;
   onConfirmAction: (action: AssistantProposedAction, message: AssistantMessage) => void;
   onDismissAction: (action: AssistantProposedAction) => void;
+  /** Undo on a server-executed add. */
+  onUndoAction?: (action: AssistantProposedAction) => void;
   onCopy?: (text: string) => void;
   /** 👍/👎 under assistant replies; omitted = no controls. */
   onFeedback?: (message: AssistantMessage, input: AssistantFeedbackInput) => void;
@@ -53,6 +55,7 @@ export function AssistantMessageBubble({
   onOpenCard,
   onConfirmAction,
   onDismissAction,
+  onUndoAction,
   onCopy,
   onFeedback,
   animateEntrance = false,
@@ -113,6 +116,7 @@ export function AssistantMessageBubble({
           key={action.id}
           onConfirm={(next) => onConfirmAction(next, message)}
           onDismiss={onDismissAction}
+          onUndo={onUndoAction}
           state={actionStates[action.id] ?? initialActionUiState(action)}
         />
       ))}

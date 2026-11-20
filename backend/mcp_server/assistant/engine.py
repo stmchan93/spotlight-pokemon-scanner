@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from mcp_server.assistant.config import AssistantConfig, cost_usd
+from mcp_server.assistant.direct_add import ADD_NOW_TOOL, TurnWrites
 from mcp_server.assistant.tools import MAX_CHARTS, TOOL_DEFINITIONS, AssistantToolbox
 
 logger = logging.getLogger("ekalight.assistant")
@@ -29,6 +30,7 @@ Accuracy (never break these):
 - Prices are USD from Ekalight's daily market data, not live. Never show yen or other currencies.
 - Call the user's watched cards their "Watchlist" (never "wishlist"). If they say "wishlist", they mean the Watchlist: read it with get_my_watchlist.
 - To change anything (add a card, change quantity/condition, watch a card or set a price alert), call a propose_* tool. The user must tap Confirm. Never say it's done; say it's ready to confirm.
+- Exception: when the user asks to add one card and names its exact printing, quantity, and condition (or grader + grade), call add_to_collection_now instead; it saves right away. Say it's added only if the result has added=true.
 - Copy every detail the user gave into the propose_* call: always pass quantity (e.g. "add 2" means quantity 2) and the condition, printing, or grade they named.
 - For a card's price history or trend, call get_price_history so the app shows a chart; keep the text to one sentence summarizing the move.
 - If a tool says total_is_lower_bound, say "at least" with its counts.
@@ -294,9 +296,11 @@ class AssistantEngine:
             messages=messages,
         )
 
-    async def _run_tool(self, block: Any, owner_user_id: str):
+    async def _run_tool(self, block: Any, owner_user_id: str, writes: TurnWrites):
         arguments = block.input if isinstance(block.input, dict) else {}
-        return await asyncio.to_thread(self.toolbox.run, block.name, arguments, owner_user_id=owner_user_id)
+        return await asyncio.to_thread(
+            self.toolbox.run, block.name, arguments, owner_user_id=owner_user_id, turn=writes
+        )
 
     async def run_turn(
         self,
@@ -305,10 +309,13 @@ class AssistantEngine:
         history: list[dict[str, str]],
         question: str,
         context: str | None = None,
+        client_message_id: str | None = None,
     ) -> TurnResult:
         started = time.monotonic()
         messages = build_messages(history, question, context)
         result = TurnResult(text="", status="ok")
+        writes = TurnWrites(client_message_id=client_message_id, question=question)
+        executed_refs: list[dict[str, Any]] = []
         # Cards from proposals and get_card first (the specific answer), then the rest.
         primary_refs: list[dict[str, Any]] = []
         other_refs: list[dict[str, Any]] = []
@@ -337,7 +344,8 @@ class AssistantEngine:
                 break
             # Full content back unchanged (thinking blocks stay valid in-turn).
             messages.append({"role": "assistant", "content": response.content})
-            outcomes = await asyncio.gather(*(self._run_tool(block, owner_user_id) for block in tool_uses))
+            writes.plan_round([block.name for block in tool_uses])
+            outcomes = await asyncio.gather(*(self._run_tool(block, owner_user_id, writes) for block in tool_uses))
             tool_results = []
             for block, outcome in zip(tool_uses, outcomes):
                 result.tools_used.append(block.name)
@@ -354,11 +362,12 @@ class AssistantEngine:
                     result.tool_errors.append(block.name)
                 if outcome.action is not None:
                     result.actions.append(outcome.action)
+                    if outcome.action.get("state") == "done":
+                        executed_refs.extend(outcome.cards)
                 if outcome.chart is not None:
                     charts.append(outcome.chart)
-                (primary_refs if block.name.startswith("propose_") or block.name == "get_card" else other_refs).extend(
-                    outcome.cards
-                )
+                primary = block.name.startswith("propose_") or block.name in ("get_card", ADD_NOW_TOOL)
+                (primary_refs if primary else other_refs).extend(outcome.cards)
             tool_rounds += 1
             if tool_rounds >= self.config.max_tool_rounds:
                 tool_results.append({"type": "text", "text": ROUND_LIMIT_NOTE})
@@ -373,7 +382,12 @@ class AssistantEngine:
         )
         text, suggestions = split_suggestions(text, result.stop_reason)
         text = _ECHOED_NOTE.sub("", text).strip()
-        if result.stop_reason == "refusal":
+        executed = [action for action in result.actions if action.get("state") == "done"]
+        if executed and (result.stop_reason == "refusal" or not text):
+            # The write already happened: the reply must say so and carry Undo.
+            result.text = "\n".join(f"{action['summary']}." for action in executed)
+            result.actions = executed
+        elif result.stop_reason == "refusal":
             result.text, result.status = REFUSAL_TEXT, "error"
             result.actions = []
         elif result.stop_reason == "max_tokens" and not text:
@@ -384,7 +398,9 @@ class AssistantEngine:
             result.text = text + ("…" if result.stop_reason == "max_tokens" else "")
             result.suggestions = suggestions
         if result.status == "ok":
-            result.cards = await asyncio.to_thread(self.toolbox.finalize_cards, primary_refs + other_refs)
+            # A direct add shows just the card it added, with the new quantity.
+            refs = executed_refs or primary_refs + other_refs
+            result.cards = await asyncio.to_thread(self.toolbox.finalize_cards, refs)
             result.charts = _distinct_charts(charts)[:MAX_CHARTS]
         result.latency_ms = int((time.monotonic() - started) * 1000)
         return result
