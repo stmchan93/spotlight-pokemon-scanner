@@ -59,6 +59,7 @@ Useful options:
 | `--compare /tmp/eval-<last>.jsonl` | Lists cases that flipped pass/fail vs that run (also added to the report). |
 | `--min-pass 0.85` (or `85`) | Exit code 1 if the pass rate is below this (for scripts/CI). |
 | `--repeat 3` | Runs each case 3 times. A case passes only if all 3 pass. Cases whose result changes between runs are listed as **flaky**. |
+| `--repeat-failed 2` | After the run, re-runs only the failing cases 2 more times. Such a case passes if most of its attempts pass (a tie fails) and is listed as **flaky** when attempts disagree. Use it to separate wording noise from real failures; `--repeat` stays the strict all-pass gate. Costs only the failing cases' re-runs. |
 | `--from-results run.jsonl` | No API calls: re-render a report, compare, or export labels from a saved run. |
 | `--list` / `--validate` | Print the cases (with label and whether they need `--db-copy`) / check the case file. No API calls. |
 | `--keep-threads` | Leave the eval threads in the DB to look at them in the app. |
@@ -160,6 +161,8 @@ All `expect` keys:
 - `max_words`, `max_cost_usd`, `must_contain_any` (plain text), `must_not_contain` (regexes), `allow: [yen_word]` (turns off one default banned pattern), `status` (defaults to `ok`).
 
 Turn keys besides `ask` / `card_ids` / `expect` / `rubric`: `reference` (owner's reference answer for the judge) and `retry: true` (resend the previous turn's exact request with the same `client_message_id`; its `ask` must repeat the previous one). Case keys: `review_label`, `fixtures`, `writes`, `state_checks` (see above).
+
+The app enforces word limits in code too (`backend/mcp_server/assistant/length_guard.py`, one `WORD_LIMITS` table: default 80, explanations 90, price-history and collection value 60, art searches 45, no-data fallbacks 50, refusals 40). An over-limit answer gets one low-effort rewrite call (kept only if every tool-backed number survives), else a sentence-boundary trim; its cost is part of the turn's cost. Keep case `max_words` at or above the matching limit.
 
 The defaults at the top of the file apply to every turn: 80 words, $0.02 per turn, and the banned patterns (tool talk, "wishlist", ¥/yen/JPY, self-correction phrases, data-provider names, leaked `<followups>` / `[Looked up with:` text).
 

@@ -1880,10 +1880,15 @@ class CollectionTools:
             if GAMES[game].has_graded_pricing:
                 peers.update(self._graded_peer_entries(game, game_ids, from_cells=True))
 
+        held_prices = self._raw_holding_prices(owner_user_id, set(present) & owned)
         out = []
         for card_id in present:
             card = cards[card_id]
             summary = distrust_japanese_anchor(dict(summaries[card_id]))
+            if held_prices.get(card_id) is not None:
+                # Same raw price the user's collection shows for this holding.
+                summary["price_usd"] = held_prices[card_id]
+                summary["price_source"] = "collection"
             raw = summary.get("price_usd")
             comp = None
             if GAMES[str(card.get("game") or GAME)].has_graded_pricing:
@@ -1922,6 +1927,22 @@ class CollectionTools:
         if not_found:
             result["not_found"] = not_found
         return result
+
+    def _raw_holding_prices(self, owner_user_id: str, card_ids: set[str]) -> dict[str, float]:
+        """card_id -> per-copy price of the user's priciest raw holding of it, as get_my_collection prices it."""
+        if not card_ids:
+            return {}
+        pairs, tcg_ids, _ = self._owner_holdings(owner_user_id, collection_id=None)
+        out: dict[str, float] = {}
+        for entry, card in pairs:
+            if card["id"] not in card_ids:
+                continue
+            item = self._holding_summary(entry, card, tcgplayer_id=tcg_ids.get(card["id"]))
+            price = item.get("price_usd")
+            if item.get("grader") or item.get("grade") or price is None:
+                continue
+            out[card["id"]] = max(price, out.get(card["id"], price))
+        return out
 
     def _graded_comp(
         self, card: dict[str, Any], grader: str, grade: str, peers: list[dict[str, Any]], raw: float | None

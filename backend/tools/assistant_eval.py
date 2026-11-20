@@ -14,6 +14,7 @@ toward the daily cap). Guide: docs/ai-chat-eval-2026-11-19.md.
   backend/.venv/bin/python backend/tools/assistant_eval.py \\
       --database-path backend/data/spotlight_scanner.sqlite --user-id <supabase user id> \\
       [--db-copy] [--case one_piece_priciest_reask] [--category investing] [--no-judge] [--repeat 3] \\
+      [--repeat-failed 2] \\
       [--out results.jsonl] [--report report.md] [--compare previous.jsonl] [--min-pass 0.8]
 
 --db-copy runs against a temp COPY of the DB. Cases with `fixtures` or
@@ -54,7 +55,14 @@ from assistant_eval.grading import (  # noqa: E402
     judge_model,
     judge_turn,
 )
-from assistant_eval.report import compare, format_compare, load_jsonl, render_report, summarize  # noqa: E402
+from assistant_eval.report import (  # noqa: E402
+    case_results,
+    compare,
+    format_compare,
+    load_jsonl,
+    render_report,
+    summarize,
+)
 
 MAX_TOOL_RESULT_CHARS = 4000  # text copy for humans; the judge uses the structured `data`
 MAX_TOOL_DATA_CHARS = 60000
@@ -338,33 +346,48 @@ async def run(args: argparse.Namespace, data: dict[str, Any], cases: list[dict[s
                 out.flush()
         all_records.extend(records)
 
+    async def run_once(case: dict[str, Any], repeat: int, *, majority: bool = False) -> None:
+        if case_needs_db_copy(case) and not args.db_copy:
+            emit([skipped_record(case, repeat, "needs --db-copy (fixtures or writes)")])
+            return
+        fixtures = CaseFixtures(args.database_path, args.user_id) if case_needs_db_copy(case) else None
+        tracked = [spec["card_id"] for spec in (case.get("state_checks") or {}).get("holding_delta") or []]
+        try:
+            if fixtures:
+                fixtures.apply(case.get("fixtures"))
+                if case.get("writes"):
+                    fixtures.snapshot_owner_holdings()
+            before = {card_id: fixtures.holding_quantity(card_id) for card_id in tracked} if fixtures else {}
+            records, thread_id = await run_case(assistant, caller, recorder, case, repeat)
+            after = {card_id: fixtures.holding_quantity(card_id) for card_id in tracked} if fixtures else {}
+        finally:
+            if fixtures:
+                fixtures.cleanup()
+                fixtures.close()
+        if thread_id:
+            threads.append(thread_id)
+        case_checks = state_check_results(case, before, after, known_tools) if tracked else None
+        await asyncio.to_thread(
+            grade_case, case, records, defaults, judge_client, known_tools=known_tools, case_checks=case_checks
+        )
+        if majority:
+            for record in records:
+                record["majority_retry"] = True
+        emit(records)
+
     try:
         for case in cases:
             for repeat in range(1, args.repeat + 1):
-                if case_needs_db_copy(case) and not args.db_copy:
-                    emit([skipped_record(case, repeat, "needs --db-copy (fixtures or writes)")])
+                await run_once(case, repeat)
+        if args.repeat_failed:
+            # Noise check: re-run only failing cases; report.case_results then passes a case
+            # on a majority of all its attempts and flags mixed outcomes as flaky.
+            failing = {case_id for case_id, case in case_results(all_records).items() if case["passed"] is False}
+            for case in cases:
+                if case["id"] not in failing:
                     continue
-                fixtures = CaseFixtures(args.database_path, args.user_id) if case_needs_db_copy(case) else None
-                tracked = [spec["card_id"] for spec in (case.get("state_checks") or {}).get("holding_delta") or []]
-                try:
-                    if fixtures:
-                        fixtures.apply(case.get("fixtures"))
-                        if case.get("writes"):
-                            fixtures.snapshot_owner_holdings()
-                    before = {card_id: fixtures.holding_quantity(card_id) for card_id in tracked} if fixtures else {}
-                    records, thread_id = await run_case(assistant, caller, recorder, case, repeat)
-                    after = {card_id: fixtures.holding_quantity(card_id) for card_id in tracked} if fixtures else {}
-                finally:
-                    if fixtures:
-                        fixtures.cleanup()
-                        fixtures.close()
-                if thread_id:
-                    threads.append(thread_id)
-                case_checks = state_check_results(case, before, after, known_tools) if tracked else None
-                await asyncio.to_thread(
-                    grade_case, case, records, defaults, judge_client, known_tools=known_tools, case_checks=case_checks
-                )
-                emit(records)
+                for extra in range(1, args.repeat_failed + 1):
+                    await run_once(case, args.repeat + extra, majority=True)
     finally:
         if not args.keep_threads:
             for thread_id in threads:
@@ -421,7 +444,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--category", action="append", help="Run only these categories (repeatable).")
     parser.add_argument("--judge", action=argparse.BooleanOptionalAction, default=True,
                         help="LLM judge on rubric turns (default on; --no-judge = code checks only, no judge cost).")
-    parser.add_argument("--repeat", type=int, default=1, help="Run each case N times; cases that flip are marked flaky.")
+    parser.add_argument("--repeat", type=int, default=1,
+                        help="Run each case N times; strict: a case passes only if every repeat passes.")
+    parser.add_argument("--repeat-failed", type=int, default=0, metavar="N",
+                        help="After the run, re-run only failing cases N more times; such a case passes on a "
+                             "majority of all its attempts (ties fail) and is flagged flaky when attempts disagree.")
     parser.add_argument("--out", help="Write the graded JSONL here.")
     parser.add_argument("--report", help="Write a markdown report here.")
     parser.add_argument("--compare", help="Previous results JSONL: list cases that flipped pass/fail.")
@@ -472,6 +499,8 @@ def main() -> None:
         raise SystemExit("--user-id is required to run cases.")
     if args.repeat < 1:
         raise SystemExit("--repeat must be >= 1")
+    if args.repeat_failed < 0:
+        raise SystemExit("--repeat-failed must be >= 0")
     temp_dir = prepare_database(args)
     try:
         records = asyncio.run(run(args, data, cases))

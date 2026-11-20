@@ -17,7 +17,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from typing import Any
 
-from catalog_tools import SUPPORTED_GAMES, card_by_id
+from catalog_tools import SUPPORTED_GAMES, card_by_id, game_display_name
 
 from mcp_server.filters import ToolInputError, uses_art_filters
 from mcp_server.policy import USER_POLICY
@@ -792,7 +792,8 @@ def choose_tiles(
         return _append_new(tiles, always), charts
 
     if asks_to_choose(text):
-        return (list(selection) if selection else named_refs(refs, text) or list(refs)), charts
+        picked = list(selection) if selection else named_refs(refs, text) or list(refs)
+        return picked[:MAX_CHOICE_TILES], charts
     if not named:
         return _append_new(list(selection if selection is not None else refs), always), charts
     if watchlist_ids and all(ref["card_id"] in watchlist_ids for ref in named):
@@ -1011,6 +1012,96 @@ MOVER_KEYS = ("range", "top_gainers", "top_losers", "top_gainers_pct", "top_lose
               "change_note")
 
 
+# --- answer-shaping hints in tool results ---------------------------------------
+
+MAX_CHOICE_TILES = 6
+_PRICE_QUESTION = re.compile(r"\b(how much|price|priced|worth|value|cost|costs|going for)\b", re.IGNORECASE)
+# Rankings, history, the user's own cards, lists: not a single-card price lookup.
+_NOT_SINGLE_LOOKUP = re.compile(
+    r"\b(most|cheapest|priciest|expensive|top|best|highest|lowest|history|trend|chart|over time|why|all|every|"
+    r"cards|list|show|my|i own|under|over|below|above)\b|\d",
+    re.IGNORECASE,
+)
+CONDITION_NAMES = {"NM": "Near Mint", "LP": "Lightly Played", "MP": "Moderately Played", "HP": "Heavily Played",
+                   "DMG": "Damaged"}
+
+
+def _printing_label(item: dict[str, Any]) -> str:
+    where = str(item.get("set") or "").strip()
+    if item.get("number"):
+        where = f"{where} #{item['number']}".strip()
+    return where
+
+
+def ambiguity_hint(result: dict[str, Any], card_filter: Any, question: str) -> dict[str, Any]:
+    """{ambiguous, ask_which} when a price question names a card (no set/number) and the
+    lookup found several printings; {} when one printing clearly matches."""
+    flt = card_filter if isinstance(card_filter, dict) else {}
+    text = str(flt.get("text") or "").strip()
+    if not text or flt.get("set") or not _PRICE_QUESTION.search(question or "") or _NOT_SINGLE_LOOKUP.search(question or ""):
+        return {}
+    items = [item for item in result.get("results") or [] if isinstance(item, dict) and item.get("card_id")]
+    exact = [item for item in items if str(item.get("name") or "").casefold() == text.casefold()]
+    candidates = exact or items
+    lowered = (question or "").casefold()
+    named_sets = [item for item in candidates if item.get("set") and str(item["set"]).casefold() in lowered]
+    if named_sets:
+        candidates = named_sets
+    printings: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in candidates:
+        printings.setdefault((str(item.get("set") or ""), str(item.get("number") or "")), item)
+    if len(printings) < 2:
+        return {}
+    options = [_printing_label(item) for item in list(printings.values())[:3]]
+    name = str(candidates[0].get("name") or text)
+    return {
+        "ambiguous": True,
+        "ask_which": f"Which {name} do you mean: {', '.join(options[:-1])} or {options[-1]}?",
+        "ambiguity_note": "Several printings match. Ask which one (set and number) instead of quoting one price.",
+    }
+
+
+def collection_total_first(result: dict[str, Any], card_filter: Any, question: str) -> dict[str, Any]:
+    """Scoped collection-value answers lead with the scope's total: put it first and name the scope."""
+    flt = card_filter if isinstance(card_filter, dict) else {}
+    game = flt.get("game") if flt.get("game") not in (None, "any") else None
+    head: dict[str, Any] = {"total_value_usd": result.get("total_value_usd"), "total_count": result.get("total_count")}
+    if game:
+        head["scope_label"] = game_display_name(game)
+    if is_collection_value_question(question):
+        head["answer_first"] = "Give total_value_usd first: it is the value of every matching holding."
+    return {**head, **{key: value for key, value in result.items() if key not in head}}
+
+
+def neutral_art_coverage(coverage: dict[str, Any]) -> dict[str, Any]:
+    """Coverage stats without tag wording, so the answer never talks about 'tags'."""
+    covered, total = coverage.get("tagged_cards"), coverage.get("catalog_cards")
+    out: dict[str, Any] = {"described_cards": covered, "catalog_cards": total}
+    if isinstance(covered, int) and isinstance(total, int):
+        out["note"] = f"Artwork descriptions cover {covered:,} of {total:,} cards so far."
+    return out
+
+
+def history_summary(result: dict[str, Any], card: dict[str, Any] | None) -> str:
+    """'Charizard ex (151 #199/165), Near Mint Holofoil: $374.44 on 2026-08-22 -> $287.93 on 2026-11-18 (-23.1%).'"""
+    if result.get("grader"):
+        basis = f"{result['grader']} {result.get('grade')}"
+    else:
+        code = str(result.get("condition") or "NM")
+        basis = CONDITION_NAMES.get(code, code)
+    if result.get("variant"):
+        basis += f" {result['variant']}"
+    who = ""
+    if card:
+        where = " ".join(p for p in (str(card.get("setName") or ""), f"#{card['number']}" if card.get("number") else "") if p)
+        who = f"{card.get('name')}" + (f" ({where})" if where else "") + ", "
+    first, last = result.get("first_usd"), result.get("last_usd")
+    if not isinstance(first, (int, float)) or not isinstance(last, (int, float)):
+        return f"{who}{basis}."
+    move = f" ({(last - first) / first * 100:+.1f}%)" if first else ""
+    return f"{who}{basis}: ${first:,.2f} on {result.get('first_date')} -> ${last:,.2f} on {result.get('last_date')}{move}."
+
+
 def is_movers_question(question: str) -> bool:
     return bool(_MOVERS_QUESTION.search(question or ""))
 
@@ -1099,6 +1190,17 @@ class AssistantToolbox:
             result = movers_only(result) if movers else result
         if name in ("get_portfolio_summary", "get_my_collection") and isinstance(result, dict):
             result.pop("unpriced_count", None)  # owner (L001): no unpriced-holdings note
+        if name == "get_my_collection" and isinstance(result, dict):
+            result = collection_total_first(result, kwargs.get("card_filter"), question)
+        if name == "search_cards" and isinstance(result, dict) and not uses_art_filters(kwargs.get("card_filter") or {}):
+            result = {**result, **ambiguity_hint(result, kwargs.get("card_filter"), question)}
+        if name == "search_cards" and isinstance(result, dict) and isinstance(result.get("art_coverage"), dict):
+            result = {**result, "art_coverage": neutral_art_coverage(result["art_coverage"])}
+        if name == "get_card" and isinstance(result, dict) and "tags" in result:
+            result = {("artwork" if key == "tags" else key): value for key, value in result.items()}
+        if name == "get_price_history" and isinstance(result, dict) and result.get("points"):
+            summary_card = card_by_id(self.conn, str(result.get("card_id") or ""))
+            result = {**result, "summary": history_summary(result, summary_card)}
         if name == "get_my_watchlist" and isinstance(result, dict) and isinstance(result.get("items"), list):
             result["items"] = watchlist_order(result["items"])
             result["order"] = "target price set first (closest to target first), then market price high to low"
