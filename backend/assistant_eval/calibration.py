@@ -15,7 +15,8 @@ from typing import Any, Callable
 
 from assistant_eval.grading import JudgeResult, rubric_criteria
 
-CSV_COLUMNS = ["label_id", "case", "category", "turn", "question", "answer", "tiles", "criteria", "human_pass", "human_note"]
+CSV_COLUMNS = ["label_id", "case", "category", "turn", "question", "answer", "tile_ids", "tile_names", "tiles",
+               "cards_label", "reference", "criteria", "human_pass", "human_note"]
 _YES = {"yes", "y", "pass", "true", "1", "ok"}
 _NO = {"no", "n", "fail", "false", "0"}
 
@@ -23,6 +24,11 @@ _NO = {"no", "n", "fail", "false", "0"}
 def sidecar_path(csv_path: str | Path) -> Path:
     path = Path(csv_path)
     return path.with_name(path.stem + ".records.jsonl")
+
+
+def _tile_name(card: dict[str, Any]) -> str:
+    slab = f" {card.get('grader')} {card.get('grade')}" if card.get("grader") else ""
+    return f"{card.get('name')}{slab}"
 
 
 def _prior_turns(records: list[dict[str, Any]], record: dict[str, Any]) -> list[dict[str, Any]]:
@@ -66,7 +72,11 @@ def export_labels(records: list[dict[str, Any]], csv_path: str | Path, count: in
                     "turn": record.get("turn"),
                     "question": record.get("question"),
                     "answer": record.get("answer"),
-                    "tiles": "; ".join((record.get("tiles") or [])[:8]),
+                    "tile_ids": "; ".join(str(card.get("card_id")) for card in record.get("cards") or []),
+                    "tile_names": "; ".join(_tile_name(card) for card in record.get("cards") or []),
+                    "tiles": "; ".join(record.get("tiles") or []),
+                    "cards_label": record.get("cards_label") or "",
+                    "reference": record.get("reference") or "",
                     "criteria": " | ".join(criteria),
                     "human_pass": "",
                     "human_note": "",

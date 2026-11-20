@@ -3,9 +3,9 @@
 Runs the case file (backend/assistant_eval/cases.yaml) through
 AssistantService.send against a DB + user id, grades every turn with code
 checks (+ an LLM judge unless --no-judge), and prints JSONL, one line per turn:
-{case, category, turn, question, status, answer, suggestions, tools,
-tool_calls, tool_args, tiles, cards, charts, actions, cost_usd, latency_ms,
-checks, judge, passed}.
+{case, category, turn, question, reference, status, answer, suggestions, tools,
+tool_calls, tool_args, tool_results, tiles, cards, cards_label, charts, actions,
+scanner_context, cost_usd, latency_ms, checks, judge, passed}.
 
 Makes REAL Anthropic calls (needs ANTHROPIC_API_KEY). Threads it creates are
 deleted at the end unless --keep-threads; usage/spend rows stay (they count
@@ -13,8 +13,11 @@ toward the daily cap). Guide: docs/ai-chat-eval-2026-11-19.md.
 
   backend/.venv/bin/python backend/tools/assistant_eval.py \\
       --database-path backend/data/spotlight_scanner.sqlite --user-id <supabase user id> \\
-      [--case one_piece_priciest_reask] [--category investing] [--no-judge] [--repeat 3] \\
+      [--db-copy] [--case one_piece_priciest_reask] [--category investing] [--no-judge] [--repeat 3] \\
       [--out results.jsonl] [--report report.md] [--compare previous.jsonl] [--min-pass 0.8]
+
+--db-copy runs against a temp COPY of the DB. Cases with `fixtures` or
+`writes: true` (direct adds) only run with it; without it they are reported as skipped.
 
 Offline (no API calls): --list, --validate, --from-results old.jsonl (re-render
 report/compare/export-labels from a saved run).
@@ -28,7 +31,9 @@ import argparse
 import asyncio
 import json
 import os
+import shutil
 import sys
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -40,10 +45,19 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from assistant_eval.calibration import calibrate, export_labels, format_calibration  # noqa: E402
 from assistant_eval.cases import DEFAULT_CASES_PATH, load_case_file, select_cases, validate_cases  # noqa: E402
-from assistant_eval.grading import grade_turn, judge_check, judge_model, judge_turn  # noqa: E402
+from assistant_eval.fixtures import CaseFixtures, case_needs_db_copy, copy_database  # noqa: E402
+from assistant_eval.grading import (  # noqa: E402
+    WRITE_TOOLS,
+    CheckResult,
+    grade_turn,
+    judge_check,
+    judge_model,
+    judge_turn,
+)
 from assistant_eval.report import compare, format_compare, load_jsonl, render_report, summarize  # noqa: E402
 
-MAX_TOOL_RESULT_CHARS = 1500
+MAX_TOOL_RESULT_CHARS = 4000  # text copy for humans; the judge uses the structured `data`
+MAX_TOOL_DATA_CHARS = 60000
 
 
 def _tile(card: dict[str, Any]) -> str:
@@ -52,17 +66,57 @@ def _tile(card: dict[str, Any]) -> str:
         parts.append(f"#{card['number']}")
     if card.get("grader") and card.get("grade"):
         parts.append(f"{card['grader']} {card['grade']}")
+    if card.get("variant"):
+        parts.append(str(card["variant"]))
+    if card.get("language") and str(card["language"]).casefold() != "english":
+        parts.append(str(card["language"]))
+    if str(card.get("supertype") or "").casefold() == "sealed":
+        parts.append("sealed")
+    if card.get("game") and card["game"] != "pokemon":
+        parts.append(str(card["game"]))
     price = card.get("price_usd")
     parts.append(f"${price:,.2f}" if isinstance(price, (int, float)) else "no price")
-    return " · ".join(parts)
+    return " · ".join(parts) + f" [{card.get('card_id')}]"
 
 
-_CARD_KEYS = ("card_id", "name", "set", "number", "language", "price_usd", "variant", "grader", "grade")
+_CARD_KEYS = ("card_id", "name", "set", "number", "language", "price_usd", "variant", "grader", "grade",
+              "quantity", "quantity_added", "quantity_owned")
+
+
+def catalog_meta(conn: Any, card_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """game / supertype / language / rarity from the catalog row (sealed ids have no game prefix)."""
+    ids = list(dict.fromkeys(str(card_id) for card_id in card_ids if card_id))
+    if not ids:
+        return {}
+    rows = conn.execute(
+        f"SELECT id, game, supertype, language, rarity FROM cards WHERE id IN ({','.join('?' for _ in ids)})", ids
+    ).fetchall()
+    return {
+        str(row[0]): {"game": row[1] or "pokemon", "supertype": row[2], "language": row[3], "rarity": row[4]}
+        for row in rows
+    }
+
+
+def tile_records(conn: Any, cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    try:
+        meta = catalog_meta(conn, [card.get("card_id") for card in cards])
+    except Exception:  # noqa: BLE001 - tiles still record without catalog meta
+        meta = {}
+    out = []
+    for card in cards:
+        row = {key: card.get(key) for key in _CARD_KEYS}
+        extra = meta.get(str(card.get("card_id"))) or {}
+        row["game"] = extra.get("game")
+        row["supertype"] = extra.get("supertype")
+        row["rarity"] = extra.get("rarity")
+        row["language"] = row["language"] or extra.get("language")
+        out.append(row)
+    return out
 
 
 class ToolRecorder:
-    """Wraps AssistantToolbox.run to keep each call's structured args and a
-    compact result (for arg checks and the judge). Reset per turn."""
+    """Wraps AssistantToolbox.run to keep each call's structured args and result
+    (for arg/result checks and the judge). Reset per turn."""
 
     def __init__(self, toolbox: Any) -> None:
         from mcp_server.assistant.engine import summarize_tool_call
@@ -76,7 +130,8 @@ class ToolRecorder:
 
     def run(self, name: str, arguments: dict[str, Any], *, owner_user_id: str):
         outcome = self._original(name, arguments, owner_user_id=owner_user_id)
-        result = json.dumps(self._strip(outcome.content), default=str, ensure_ascii=False, separators=(",", ":"))
+        data = self._strip(outcome.content)
+        result = json.dumps(data, default=str, ensure_ascii=False, separators=(",", ":"))
         self.calls.append(
             {
                 "name": name,
@@ -84,6 +139,7 @@ class ToolRecorder:
                 "is_error": bool(outcome.is_error),
                 "call": self._summarize(name, arguments),
                 "result": result if len(result) <= MAX_TOOL_RESULT_CHARS else result[: MAX_TOOL_RESULT_CHARS - 1] + "…",
+                "data": json.loads(result) if len(result) <= MAX_TOOL_DATA_CHARS else None,
             }
         )
         return outcome
@@ -93,20 +149,40 @@ class ToolRecorder:
         return calls
 
 
+def scanner_info(toolbox: Any, card_ids: list[str]) -> tuple[str | None, list[dict[str, Any]]]:
+    """The scanner context line the model sees, plus the tray cards (for named-card checks)."""
+    if not card_ids:
+        return None, []
+    try:
+        context = toolbox.scanner_context(card_ids)
+        summaries = toolbox.tools._summaries(card_ids)
+    except Exception:  # noqa: BLE001 - grading still works off the ids
+        return None, []
+    cards = [
+        {"card_id": card_id, "name": summaries[card_id].get("name"), "price_usd": summaries[card_id].get("price_usd")}
+        for card_id in card_ids if card_id in summaries
+    ]
+    return context, cards
+
+
 async def run_case(
     assistant: Any, caller: Any, recorder: ToolRecorder, case: dict[str, Any], repeat: int,
 ) -> tuple[list[dict[str, Any]], str | None]:
     thread_id = None
     records: list[dict[str, Any]] = []
+    body: dict[str, Any] | None = None
     for number, turn in enumerate(case["turns"], start=1):
         base = {
             "case": case["id"], "category": case["category"], "holdout": bool(case.get("holdout")),
-            "repeat": repeat, "turn": number, "question": turn["ask"],
+            "review_label": case.get("review_label"), "repeat": repeat, "turn": number, "question": turn["ask"],
             "context_card_ids": turn.get("card_ids") or [], "rubric": turn.get("rubric"),
+            "reference": turn.get("reference"), "retry": bool(turn.get("retry")),
         }
-        body: dict[str, Any] = {"thread_id": thread_id, "client_message_id": str(uuid.uuid4()), "text": turn["ask"]}
-        if turn.get("card_ids"):
-            body["context"] = {"source": "scanner", "card_ids": turn["card_ids"]}
+        if not (turn.get("retry") and body is not None):
+            body = {"thread_id": thread_id, "client_message_id": str(uuid.uuid4()), "text": turn["ask"]}
+            if turn.get("card_ids"):
+                body["context"] = {"source": "scanner", "card_ids": turn["card_ids"]}
+        context, context_cards = await asyncio.to_thread(scanner_info, assistant.toolbox, turn.get("card_ids") or [])
         recorder.take()
         started = time.monotonic()
         status, payload = await assistant.send(caller, body)
@@ -121,41 +197,69 @@ async def run_case(
             "SELECT tools_used, tool_calls_json, cost_usd FROM assistant_messages WHERE id = ?", (reply["id"],)
         ).fetchone()
         charts = reply.get("charts") or []
-        records.append(
-            {
-                **base,
-                "status": reply["status"],
-                "answer": reply["text"],
-                "suggestions": reply["suggestions"],
-                "tools": json.loads(row["tools_used"] or "[]"),
-                "tool_calls": json.loads(row["tool_calls_json"] or "[]"),
-                "tool_args": [{k: call[k] for k in ("name", "arguments", "is_error")} for call in calls],
-                "tool_results": [{k: call[k] for k in ("name", "call", "result")} for call in calls],
-                "tiles": [_tile(card) for card in reply["cards"]],
-                "cards": [{key: card.get(key) for key in _CARD_KEYS} for card in reply["cards"]],
-                "charts": [f"{c.get('name')} {c.get('range')} {len(c.get('points') or [])}pts" for c in charts],
-                "chart_series": [
-                    {"card_id": c.get("card_id"), "name": c.get("name"), "range": c.get("range"), "points": len(c.get("points") or [])}
-                    for c in charts
-                ],
-                "actions": [action.get("summary") for action in reply["actions"]],
-                "action_details": [
-                    {"type": a.get("type"), "params": a.get("params"), "summary": a.get("summary")} for a in reply["actions"]
-                ],
-                "cost_usd": row["cost_usd"],
-                "latency_ms": latency_ms,
-            }
-        )
+        cards = tile_records(assistant.toolbox.conn, reply.get("cards") or [])
+        record = {
+            **base,
+            "status": reply["status"],
+            "answer": reply["text"],
+            "suggestions": reply.get("suggestions"),
+            "scanner_context": context,
+            "context_cards": context_cards,
+            "tools": json.loads(row["tools_used"] or "[]"),
+            "tool_calls": json.loads(row["tool_calls_json"] or "[]"),
+            "tool_args": [{k: call[k] for k in ("name", "arguments", "is_error")} for call in calls],
+            "tool_results": [{k: call[k] for k in ("name", "call", "is_error", "result", "data")} for call in calls],
+            "tiles": [_tile(card) for card in cards],
+            "cards": cards,
+            "charts": [f"{c.get('name')} {c.get('range')} {len(c.get('points') or [])}pts" for c in charts],
+            "chart_series": [
+                {"card_id": c.get("card_id"), "name": c.get("name"), "variant": c.get("variant"),
+                 "range": c.get("range"), "points": len(c.get("points") or [])}
+                for c in charts
+            ],
+            "actions": [action.get("summary") for action in reply.get("actions") or []],
+            "action_details": [
+                {key: a.get(key) for key in ("type", "params", "summary", "state")} | (
+                    {key: a[key] for key in a if "undo" in key.casefold()}
+                )
+                for a in reply.get("actions") or []
+            ],
+            "cost_usd": row["cost_usd"],
+            "latency_ms": latency_ms,
+        }
+        if "cards_label" in reply:  # absent until show_cards lands; tiles_label skips then
+            record["cards_label"] = reply.get("cards_label")
+        records.append(record)
     return records, thread_id
+
+
+def state_check_results(case: dict[str, Any], before: dict[str, int], after: dict[str, int],
+                        known_tools: frozenset[str] | None) -> list[CheckResult]:
+    """Case-level DB checks (whole case, so a retried add must still net exactly +delta)."""
+    results = []
+    write_tool_known = known_tools is None or any(tool in known_tools for tool in WRITE_TOOLS)
+    for spec in (case.get("state_checks") or {}).get("holding_delta") or []:
+        card_id, want = spec["card_id"], int(spec["delta"])
+        name = f"holding_delta:{card_id}"
+        if not write_tool_known:
+            results.append(CheckResult(name, True, "add_to_collection_now not in this build", skipped=True))
+            continue
+        got = after.get(card_id, 0) - before.get(card_id, 0)
+        results.append(CheckResult(name, got == want, "" if got == want else f"quantity changed by {got}, expected {want}"))
+    return results
 
 
 def grade_case(
     case: dict[str, Any], records: list[dict[str, Any]], defaults: dict[str, Any], judge_client: Any | None,
+    *, known_tools: frozenset[str] | None = None, case_checks: list[CheckResult] | None = None,
 ) -> None:
-    """Adds checks / judge / passed to each turn record in place."""
+    """Adds checks / judge / passed to each turn record in place. case_checks
+    (DB state) attach to the last turn."""
     for index, record in enumerate(records):
         turn = case["turns"][record["turn"] - 1]
-        checks = grade_turn(record, turn.get("expect"), defaults)
+        checks = grade_turn(record, turn.get("expect"), defaults, known_tools)
+        if case_checks and index == len(records) - 1:
+            checks += case_checks
         judge = None
         if judge_client is not None and turn.get("rubric") and record.get("status") == "ok":
             prior = [{"question": r["question"], "answer": r.get("answer"), "tiles": r.get("tiles") or []} for r in records[:index]]
@@ -169,7 +273,26 @@ def grade_case(
         records[-1]["passed"] = False
 
 
+def skipped_record(case: dict[str, Any], repeat: int, reason: str) -> dict[str, Any]:
+    """No `passed` key: the report counts it as not graded."""
+    return {"case": case["id"], "category": case["category"], "holdout": bool(case.get("holdout")),
+            "review_label": case.get("review_label"), "repeat": repeat, "turn": 1,
+            "question": case["turns"][0]["ask"], "status": "skipped", "skip_reason": reason, "answer": "", "cost_usd": 0.0}
+
+
+def prepare_database(args: argparse.Namespace) -> str | None:
+    """--db-copy: point args.database_path at a temp copy; returns the temp dir to remove."""
+    if not args.db_copy:
+        return None
+    temp_dir = tempfile.mkdtemp(prefix="assistant-eval-db-")
+    copy = copy_database(args.database_path, Path(temp_dir) / "eval.sqlite")
+    print(f"# running against a DB copy: {copy}", file=sys.stderr)
+    args.database_path = str(copy)
+    return temp_dir
+
+
 async def run(args: argparse.Namespace, data: dict[str, Any], cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    from assistant_eval.cases import assistant_tool_names
     from mcp_server.assistant import build_assistant_service
     from mcp_server.assistant.config import AssistantConfig
     from mcp_server.assistant.service import Caller
@@ -190,6 +313,7 @@ async def run(args: argparse.Namespace, data: dict[str, Any], cases: list[dict[s
     assistant = build_assistant_service(CollectionTools(service), config)
     recorder = ToolRecorder(assistant.toolbox)
     caller = Caller(user_id=args.user_id, is_guest=False)
+    known_tools = assistant_tool_names()
     judge_client = None
     if args.judge:
         import anthropic
@@ -199,21 +323,44 @@ async def run(args: argparse.Namespace, data: dict[str, Any], cases: list[dict[s
     out = open(args.out, "w", encoding="utf-8") if args.out else None
     all_records: list[dict[str, Any]] = []
     threads: list[str] = []
+
+    def emit(records: list[dict[str, Any]]) -> None:
+        for record in records:
+            line = json.dumps(record, ensure_ascii=False, default=str)
+            if not args.quiet:
+                print(line, flush=True)
+            if out:
+                out.write(line + "\n")
+                out.flush()
+        all_records.extend(records)
+
     try:
         for case in cases:
             for repeat in range(1, args.repeat + 1):
-                records, thread_id = await run_case(assistant, caller, recorder, case, repeat)
+                if case_needs_db_copy(case) and not args.db_copy:
+                    emit([skipped_record(case, repeat, "needs --db-copy (fixtures or writes)")])
+                    continue
+                fixtures = CaseFixtures(args.database_path, args.user_id) if case_needs_db_copy(case) else None
+                tracked = [spec["card_id"] for spec in (case.get("state_checks") or {}).get("holding_delta") or []]
+                try:
+                    if fixtures:
+                        fixtures.apply(case.get("fixtures"))
+                        if case.get("writes"):
+                            fixtures.snapshot_owner_holdings()
+                    before = {card_id: fixtures.holding_quantity(card_id) for card_id in tracked} if fixtures else {}
+                    records, thread_id = await run_case(assistant, caller, recorder, case, repeat)
+                    after = {card_id: fixtures.holding_quantity(card_id) for card_id in tracked} if fixtures else {}
+                finally:
+                    if fixtures:
+                        fixtures.cleanup()
+                        fixtures.close()
                 if thread_id:
                     threads.append(thread_id)
-                await asyncio.to_thread(grade_case, case, records, defaults, judge_client)
-                for record in records:
-                    line = json.dumps(record, ensure_ascii=False, default=str)
-                    if not args.quiet:
-                        print(line, flush=True)
-                    if out:
-                        out.write(line + "\n")
-                        out.flush()
-                all_records.extend(records)
+                case_checks = state_check_results(case, before, after, known_tools) if tracked else None
+                await asyncio.to_thread(
+                    grade_case, case, records, defaults, judge_client, known_tools=known_tools, case_checks=case_checks
+                )
+                emit(records)
     finally:
         if not args.keep_threads:
             for thread_id in threads:
@@ -244,6 +391,10 @@ def finish(args: argparse.Namespace, records: list[dict[str, Any]]) -> int:
     )
     for name, tally in summary["categories"].items():
         print(f"#   {name}: {tally['passed']}/{tally['total']}", file=sys.stderr)
+    if summary["skipped_cases"]:
+        print(f"# not run: {', '.join(summary['skipped_cases'])}", file=sys.stderr)
+    if summary["skipped_checks"]:
+        print(f"# {summary['skipped_checks']} checks skipped (planned features not in this build)", file=sys.stderr)
     if summary["flaky"]:
         print(f"# flaky: {', '.join(summary['flaky'])}", file=sys.stderr)
     if diff is not None:
@@ -258,6 +409,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--database-path", default=str(BACKEND_ROOT / "data" / "spotlight_scanner.sqlite"))
     parser.add_argument("--user-id", help="Owner whose collection the tools read (required to run cases).")
+    parser.add_argument("--db-copy", action="store_true",
+                        help="Copy the DB to a temp file first and run there (required for fixture/write cases).")
+    parser.add_argument("--keep-db-copy", action="store_true", help="Don't delete the --db-copy file at the end.")
     parser.add_argument("--cases", default=str(DEFAULT_CASES_PATH), help="Case file (.yaml or .json).")
     parser.add_argument("--case", action="append", help="Run only these case ids (repeatable).")
     parser.add_argument("--category", action="append", help="Run only these categories (repeatable).")
@@ -294,7 +448,8 @@ def main() -> None:
         raise SystemExit(str(error))
     if args.list:
         for case in cases:
-            print(json.dumps({"case": case["id"], "category": case["category"], "holdout": bool(case.get("holdout")),
+            print(json.dumps({"case": case["id"], "label": case.get("review_label"), "category": case["category"],
+                              "holdout": bool(case.get("holdout")), "needs_db_copy": case_needs_db_copy(case),
                               "questions": [turn["ask"] for turn in case["turns"]]}, ensure_ascii=False))
         return
     if args.from_results:
@@ -313,7 +468,12 @@ def main() -> None:
         raise SystemExit("--user-id is required to run cases.")
     if args.repeat < 1:
         raise SystemExit("--repeat must be >= 1")
-    records = asyncio.run(run(args, data, cases))
+    temp_dir = prepare_database(args)
+    try:
+        records = asyncio.run(run(args, data, cases))
+    finally:
+        if temp_dir and not args.keep_db_copy:
+            shutil.rmtree(temp_dir, ignore_errors=True)
     raise SystemExit(finish(args, records))
 
 

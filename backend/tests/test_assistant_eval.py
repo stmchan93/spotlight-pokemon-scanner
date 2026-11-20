@@ -196,6 +196,237 @@ class CheckTests(unittest.TestCase):
         self.assertIn("status", failed_names(grade_turn(turn_record(status="error"), {}, DEFAULTS)))
 
 
+def tile(card_id: str, name: str, **extra: Any) -> dict[str, Any]:
+    return {"card_id": card_id, "name": name, **extra}
+
+
+def check(record: dict[str, Any], expect: dict[str, Any], name: str, known_tools: frozenset[str] | None = None):
+    return next(c for c in grade_turn(record, expect, {}, known_tools) if c.name.startswith(name))
+
+
+CHARIZARD = tile("sv3pt5-199", "Charizard ex", set="151", number="199/165", price_usd=287.93)
+OBSIDIAN = tile("sv3-223", "Charizard ex", set="Obsidian Flames", number="223/197", price_usd=84.09)
+KYOGRE = tile("xy5-54", "Kyogre-EX", set="Primal Clash", price_usd=19.39)
+
+
+class TileCheckTests(unittest.TestCase):
+    def test_tiles_exact_include_within_max(self) -> None:
+        record = turn_record(cards=[OBSIDIAN, CHARIZARD])
+        self.assertTrue(check(record, {"tiles_exact": ["sv3pt5-199", "sv3-223"]}, "tiles_exact").passed)
+        ordered = check(record, {"tiles_exact": {"tiles": ["sv3pt5-199", "sv3-223"], "ordered": True}}, "tiles_exact")
+        self.assertFalse(ordered.passed)
+        self.assertIn("in order", ordered.reason)
+        # Text can be right while the tiles are wrong: one extra tile fails.
+        self.assertFalse(check(record, {"tiles_exact": ["sv3pt5-199"]}, "tiles_exact").passed)
+        self.assertTrue(check(record, {"tiles_exact": [{"name_regex": "^Charizard ex$", "set_regex": "151"},
+                                                       {"number": "223"}]}, "tiles_exact").passed)
+        self.assertTrue(check(record, {"tiles_include": ["sv3pt5-199"]}, "tiles_include").passed)
+        missing = check(record, {"tiles_include": ["xy5-54"]}, "tiles_include")
+        self.assertFalse(missing.passed)
+        self.assertIn("xy5-54", missing.reason)
+        self.assertTrue(check(record, {"tiles_within": ["sv3pt5-199", "sv3-223", "xy5-54"]}, "tiles_within").passed)
+        self.assertFalse(check(record, {"tiles_within": ["sv3pt5-199"]}, "tiles_within").passed)
+        self.assertFalse(check(record, {"tiles_max": 1}, "tiles_max").passed)
+        self.assertTrue(check(turn_record(cards=[]), {"tiles_max": 0}, "tiles_max").passed)
+
+    def test_graded_and_price_predicates(self) -> None:
+        slab = tile("base1-4", "Charizard", grader="PSA", grade="10", variant="firstEditionShadowlessHolofoil", price_usd=409540)
+        raw = tile("base1-4", "Charizard", price_usd=500)
+        record = turn_record(cards=[slab, raw])
+        spec = [{"id": "base1-4", "grader": "PSA", "grade": "10", "variant_regex": "first"}, {"id": "base1-4", "graded": False}]
+        self.assertTrue(check(record, {"tiles_exact": spec}, "tiles_exact").passed)
+        placeholder = turn_record(cards=[tile("bw5-104", "Kyogre-EX", grader="PSA", grade="10", price_usd=999999)])
+        self.assertFalse(check(placeholder, {"tiles_none_match": [{"price_gte": 999999}]}, "tiles_none_match").passed)
+        self.assertTrue(tile_matches(tile("a", "x", rarity="Special Illustration Rare"), {"rarity_regex": "special illustration"}))
+
+    def test_tile_quantity_label_and_sort(self) -> None:
+        record = turn_record(cards=[dict(CHARIZARD)])
+        quantity = check(record, {"tile_quantity": {"card_id": "sv3pt5-199", "quantity": 2}}, "tile_quantity")
+        self.assertTrue(quantity.passed and quantity.skipped)
+        record["cards"][0]["quantity"] = 2
+        self.assertTrue(check(record, {"tile_quantity": {"card_id": "sv3pt5-199", "quantity": 2}}, "tile_quantity").passed)
+        record["cards"][0]["quantity"] = 4
+        self.assertFalse(check(record, {"tile_quantity": {"card_id": "sv3pt5-199", "quantity": 2}}, "tile_quantity").passed)
+        self.assertFalse(check(record, {"tile_quantity": {"card_id": "xy5-54", "quantity": 2}}, "tile_quantity").passed)
+
+        label = {"tiles_label": "top holdings by value"}
+        self.assertTrue(check(record, label, "tiles_label").skipped)  # app sends no cards_label yet
+        self.assertTrue(check(turn_record(cards=[], cards_label=None), label, "tiles_label").passed)
+        self.assertTrue(check({**record, "cards_label": "Top holdings by value"}, label, "tiles_label").passed)
+        self.assertFalse(check({**record, "cards_label": "Your cards"}, label, "tiles_label").passed)
+
+        unsorted = turn_record(cards=[KYOGRE, CHARIZARD])
+        self.assertFalse(check(unsorted, {"tiles_sorted": "price"}, "tiles_sorted").passed)
+        self.assertTrue(check(turn_record(cards=[CHARIZARD, KYOGRE]), {"tiles_sorted": "price"}, "tiles_sorted").passed)
+        # value = price x quantity owned: 30 Kyogres outrank one Charizard
+        by_value = turn_record(cards=[{**KYOGRE, "quantity_owned": 30}, CHARIZARD])
+        self.assertTrue(check(by_value, {"tiles_sorted": "value"}, "tiles_sorted").passed)
+        self.assertTrue(check(turn_record(cards=[tile("a", "x")]), {"tiles_sorted": "price"}, "tiles_sorted").skipped)
+
+    def test_chart_card_matches_tile(self) -> None:
+        good = turn_record(cards=[CHARIZARD], chart_series=[{"card_id": "sv3pt5-199", "points": 30}])
+        self.assertTrue(check(good, {"chart_card_matches_tile": True}, "chart_card_matches_tile").passed)
+        five = turn_record(cards=[CHARIZARD, OBSIDIAN], chart_series=[{"card_id": "sv3pt5-199", "points": 30}])
+        self.assertIn("expected exactly 1", check(five, {"chart_card_matches_tile": True}, "chart_card").reason)
+        other = turn_record(cards=[OBSIDIAN], chart_series=[{"card_id": "sv3pt5-199", "points": 30}])
+        self.assertFalse(check(other, {"chart_card_matches_tile": True}, "chart_card").passed)
+        variant = turn_record(cards=[{**CHARIZARD, "variant": "holofoil"}],
+                              chart_series=[{"card_id": "sv3pt5-199", "variant": "reverseHolofoil", "points": 3}])
+        self.assertIn("variant", check(variant, {"chart_card_matches_tile": True}, "chart_card").reason)
+        self.assertFalse(check(turn_record(cards=[CHARIZARD]), {"chart_card_matches_tile": True}, "chart_card").passed)
+        self.assertFalse(check(good, {"no_chart": True}, "no_chart").passed)
+
+    def test_named_cards_must_be_tiles(self) -> None:
+        results = [{"name": "search_cards", "call": "search_cards(...)", "data": {"cards": [
+            {"card_id": "a", "name": "Cyndaquil"}, {"card_id": "b", "name": "Swinub"}, {"card_id": "c", "name": "Charizard"},
+            {"card_id": "d", "name": "Charizard ex"},
+        ]}}]
+        record = turn_record(answer="Cozy picks include Cyndaquil and Swinub, plus Charizard ex.", tool_results=results,
+                             cards=[tile("a", "Cyndaquil"), tile("d", "Charizard ex")])
+        failed = check(record, {"named_cards_in_tiles": True}, "named_cards_in_tiles")
+        self.assertFalse(failed.passed)
+        self.assertIn("Swinub", failed.reason)
+        self.assertNotIn("'Charizard'", failed.reason)  # 'Charizard ex' won the overlap
+        record["cards"].append(tile("b", "Swinub"))
+        self.assertTrue(check(record, {"named_cards_in_tiles": True}, "named_cards_in_tiles").passed)
+        # Scanner tray names count too; subtitled tile names match their prefix.
+        tray = turn_record(answer="Mickey Mouse is worth the most.", tool_results=[],
+                           context_cards=[{"card_id": "m", "name": "Mickey Mouse"}],
+                           cards=[tile("m", "Mickey Mouse - Wayward Sorcerer")])
+        self.assertTrue(check(tray, {"named_cards_in_tiles": True}, "named_cards_in_tiles").passed)
+
+    def test_price_trusted_tiles(self) -> None:
+        kyogre = tile("bw5-104", "Kyogre-EX", grader="PSA", grade="10", price_usd=999999)
+        record = turn_record(cards=[kyogre], tool_results=[])
+        self.assertTrue(check(record, {"tiles_price_trusted": True}, "tiles_price_trusted").skipped)
+        record["tool_results"] = [{"name": "find_top_graded", "data": {"cards": [{**kyogre, "price_trusted": False}]}}]
+        self.assertFalse(check(record, {"tiles_price_trusted": True}, "tiles_price_trusted").passed)
+        record["tool_results"][0]["data"]["cards"][0]["price_trusted"] = True
+        self.assertTrue(check(record, {"tiles_price_trusted": True}, "tiles_price_trusted").passed)
+
+
+class SealedGameTests(unittest.TestCase):
+    """Sealed ids are tcgp-sealed-* with no game prefix: game/supertype come from the catalog row."""
+
+    def test_game_and_sealed_from_data(self) -> None:
+        box = {"card_id": "tcgp-sealed-555", "name": "OP-09 Booster Box", "game": "onepiece", "supertype": "Sealed"}
+        self.assertFalse(tile_matches(box, {"game_not": "onepiece"}))
+        self.assertTrue(tile_matches(box, {"game": "onepiece", "sealed": True}))
+        # The id alone would have said pokemon:
+        self.assertTrue(tile_matches({"card_id": "tcgp-sealed-555"}, {"game": "pokemon"}))
+        single = {"card_id": "tcgp-sealed-oddity", "name": "x", "game": "pokemon", "supertype": "Pokémon"}
+        self.assertFalse(tile_matches(single, {"sealed": True}))
+        record = turn_record(cards=[box])
+        self.assertTrue(check(record, {"tiles_none_match": [{"game_not": "onepiece"}]}, "tiles_none_match").passed)
+        self.assertFalse(check(record, {"tiles_none_match": [{"sealed": True}]}, "tiles_none_match").passed)
+
+    def test_runner_records_catalog_game(self) -> None:
+        import sqlite3
+
+        runner = load_runner()
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE cards (id TEXT, game TEXT, supertype TEXT, language TEXT, rarity TEXT)")
+        conn.executemany("INSERT INTO cards VALUES (?, ?, ?, ?, ?)", [
+            ("tcgp-sealed-555", "onepiece", "Sealed", "English", None),
+            ("sv2a_ja-201", "pokemon", "Pokémon", "Japanese", "Special Art Rare"),
+        ])
+        cards = runner.tile_records(conn, [
+            {"card_id": "tcgp-sealed-555", "name": "OP-09 Booster Box", "price_usd": 120.0},
+            {"card_id": "sv2a_ja-201", "name": "Charizard ex", "language": None, "quantity_owned": 1},
+            {"card_id": "missing-1", "name": "Ghost"},
+        ])
+        self.assertEqual((cards[0]["game"], cards[0]["supertype"]), ("onepiece", "Sealed"))
+        self.assertEqual(cards[1]["language"], "Japanese")
+        self.assertEqual(cards[1]["quantity_owned"], 1)
+        self.assertIsNone(cards[2]["game"])
+        tiles = [runner._tile(card) for card in cards]
+        self.assertIn("sealed", tiles[0])
+        self.assertIn("onepiece", tiles[0])
+        self.assertIn("[tcgp-sealed-555]", tiles[0])
+        self.assertIn("Japanese", tiles[1])
+        self.assertTrue(tile_matches(cards[0], {"sealed": True, "game": "onepiece"}))
+
+
+class PlannedFeatureTests(unittest.TestCase):
+    """Checks against other agents' planned tools/fields skip while those are absent."""
+
+    BUILD = TOOLS  # today's tools: no show_cards / add_to_collection_now / grading_upside
+    MERGED = TOOLS | {"show_cards", "add_to_collection_now", "grading_upside"}
+
+    def write_record(self, **overrides: Any) -> dict[str, Any]:
+        fields = {
+            "tools": ["add_to_collection_now"],
+            "tool_args": [{"name": "add_to_collection_now", "is_error": False,
+                           "arguments": {"card_id": "sv3pt5-199", "quantity": 2, "condition": "NM"}}],
+            "tool_results": [{"name": "add_to_collection_now", "data": {"added": True, "undo_token": "u1"}}],
+            "action_details": [{"type": "add_to_collection", "state": "executed", "params": {"card_id": "sv3pt5-199"}}],
+        }
+        return turn_record(**{**fields, **overrides})
+
+    def test_planned_tools_skip_before_merge(self) -> None:
+        record = turn_record()
+        self.assertTrue(check(record, {"tools_all": ["add_to_collection_now"]}, "tools_all", self.BUILD).skipped)
+        self.assertFalse(check(record, {"tools_all": ["add_to_collection_now"]}, "tools_all", self.MERGED).passed)
+        # A mixed list keeps the tools that exist.
+        mixed = check(record, {"tools_any": ["grading_upside", "search_cards"]}, "tools_any", self.BUILD)
+        self.assertTrue(mixed.passed and not mixed.skipped)
+        self.assertTrue(check(record, {"expect_write": {"params": {"quantity": 2}}}, "expect_write", self.BUILD).skipped)
+        self.assertTrue(check(record, {"undo_offered": True}, "undo_offered", self.BUILD).skipped)
+
+    def test_direct_add_write_undo_and_no_write(self) -> None:
+        record = self.write_record()
+        spec = {"expect_write": {"params": {"card_id": "sv3pt5-199", "quantity": 2, "condition": "NM"}}}
+        self.assertTrue(check(record, spec, "expect_write", self.MERGED).passed)
+        self.assertFalse(check(record, {"expect_write": {"params": {"quantity": 3}}}, "expect_write", self.MERGED).passed)
+        self.assertTrue(check(record, {"undo_offered": True}, "undo_offered", self.MERGED).passed)
+        no_undo = self.write_record(tool_results=[{"name": "add_to_collection_now", "data": {"added": True}}],
+                                    action_details=[{"type": "add_to_collection", "state": "executed"}])
+        self.assertFalse(check(no_undo, {"undo_offered": True}, "undo_offered", self.MERGED).passed)
+        self.assertFalse(check(record, {"expect_no_write": True}, "expect_no_write").passed)
+        failed_write = self.write_record(tool_args=[{"name": "add_to_collection_now", "is_error": True, "arguments": {}}])
+        self.assertTrue(check(failed_write, {"expect_no_write": True}, "expect_no_write").passed)
+        self.assertFalse(check(failed_write, spec, "expect_write", self.MERGED).passed)
+        # An executed action isn't a "proposed" one, so it doesn't trip the no-actions default.
+        self.assertTrue(check(record, {}, "actions").passed)
+
+    def test_proposed_card_ids(self) -> None:
+        record = turn_record(action_details=[
+            {"type": "add_to_collection", "params": {"card_id": "xy5-54"}},
+            {"type": "add_to_collection", "params": {"card_id": "sv3pt5-199"}},
+        ])
+        self.assertTrue(check(record, {"proposed_card_ids": ["sv3pt5-199", "xy5-54"]}, "proposed_card_ids").passed)
+        self.assertFalse(check(record, {"proposed_card_ids": ["sv3pt5-199"]}, "proposed_card_ids").passed)
+
+    def test_tool_result_where_and_history_range(self) -> None:
+        old = turn_record(tool_results=[{"name": "find_missing", "data": {"missing_count": 278}}])
+        spec = {"tool_result_where": [{"tool": "find_missing", "where": {"priced_subtotal_usd": {"gte": 0}}}]}
+        self.assertTrue(check(old, spec, "tool_result:find_missing").skipped)
+        new = turn_record(tool_results=[{"name": "find_missing", "data": {"missing_count": 278, "priced_subtotal_usd": 12.5}}])
+        self.assertTrue(check(new, spec, "tool_result:find_missing").passed)
+        nested = turn_record(tool_results=[{"name": "find_top_graded", "data": {"cards": [{"price_trusted": False}, {"price_trusted": True}]}}])
+        trusted = {"tool_result_where": [{"tool": "find_top_graded", "where": {"cards.price_trusted": True}}]}
+        self.assertTrue(check(nested, trusted, "tool_result:find_top_graded").passed)
+        self.assertTrue(check(turn_record(), {"tool_result_where": [{"tool": "grading_upside", "where": {"x": 1}}]},
+                              "tool_result:grading_upside", self.BUILD).skipped)
+
+        history = {"card_id": "sv3pt5-199", "first_date": "2026-04-02", "last_date": "2026-11-18", "covers_full_range": False}
+        partial = turn_record(answer="Up 31% over the past year.", tool_results=[{"name": "get_price_history", "data": history}])
+        self.assertFalse(check(partial, {"history_range_stated": True}, "history_range_stated").passed)
+        partial["answer"] = "Since early April it's up 31%."
+        self.assertTrue(check(partial, {"history_range_stated": True}, "history_range_stated").passed)
+        partial["answer"] = "Since Apr 2 it's up 31%."
+        self.assertTrue(check(partial, {"history_range_stated": True}, "history_range_stated").passed)
+        no_flag = turn_record(tool_results=[{"name": "get_price_history", "data": {"card_id": "x"}}])
+        self.assertTrue(check(no_flag, {"history_range_stated": True}, "history_range_stated").skipped)
+
+    def test_skipped_checks_reach_the_report(self) -> None:
+        record = turn_record(passed=True, checks=[{"name": "tiles_label", "passed": True, "skipped": True, "reason": "x"}])
+        summary = summarize([record, {"case": "w", "category": "writes", "status": "skipped", "turn": 1}])
+        self.assertEqual(summary["skipped_checks"], 1)
+        self.assertEqual(summary["skipped_cases"], ["w"])
+        self.assertIn("need --db-copy", render_report([record, {"case": "w", "category": "writes", "status": "skipped"}]))
+
+
 class FakeJudgeMessages:
     def __init__(self, reply: Any) -> None:
         self.reply = reply
@@ -275,6 +506,56 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(judge_turn(fake_judge(None), [], turn_record()).error, "empty rubric")
 
 
+class JudgeContextTests(unittest.TestCase):
+    """Run 1's judge saw tool results cut at 3000 chars and no scanner context."""
+
+    def big_search(self) -> dict[str, Any]:
+        cards = [{"card_id": f"c{i}", "name": f"Filler {i}", "set": "Some Set", "number": f"{i}/200",
+                  "price_usd": 1.0 + i, "image_small_url": "https://x/" + "y" * 80} for i in range(200)]
+        cards.append({"card_id": "sv3pt5-199", "name": "Charizard ex", "set": "151", "number": "199/165",
+                      "price_usd": 287.93, "price_trusted": True})
+        return {"total": 201, "lower_bound": False, "cards": cards,
+                "points": [{"date": "2026-04-01", "usd": 200.0}, {"date": "2026-11-18", "usd": 287.93}]}
+
+    def test_compact_results_keep_named_cards_and_key_fields(self) -> None:
+        record = turn_record(
+            answer="Charizard ex is the one at $287.93.",
+            tool_results=[{"name": "search_cards", "call": "search_cards(text=charizard)", "data": self.big_search(),
+                           "result": "{...}"}],
+        )
+        text = grading.compact_tool_results(record, budget=2000)
+        self.assertLessEqual(len(text), 2600)
+        self.assertIn("sv3pt5-199 | Charizard ex | 151 #199/165 | $287.93 | price_trusted=True", text)
+        self.assertIn('"total": 201', text)
+        self.assertIn("2026-04-01 $200.00 -> 2026-11-18 $287.93", text)
+        self.assertIn("more cards not shown", text)
+        self.assertNotIn("image_small_url", text)
+        # The default budget is 12k and fits far more than run 1's 3000 chars.
+        self.assertEqual(grading.MAX_TOOL_RESULT_CHARS, 12000)
+        self.assertGreater(len(grading.compact_tool_results(record)), 9000)
+
+    def test_old_records_fall_back_to_text(self) -> None:
+        record = turn_record(tool_results=[{"call": "get_card(card_id=x)", "result": '{"name":"Shanks"}'}])
+        self.assertIn('get_card(card_id=x) -> {"name":"Shanks"}', grading.compact_tool_results(record))
+
+    def test_prompt_has_scanner_context_reference_and_label(self) -> None:
+        record = turn_record(
+            question="Which of these is worth the most?", context_card_ids=["sv3pt5-199"],
+            scanner_context="The user is looking at these scanned cards:\n- Charizard ex · 151 · #199/165 · $287.93 (card_id: sv3pt5-199)",
+            reference="Charizard ex (151) is worth the most at $287.93.", cards_label="Your scan tray",
+            tool_results=[],
+        )
+        prompt = grading.judge_prompt(["Picks the highest?"], record)
+        self.assertIn("Scanner context the assistant saw:", prompt)
+        self.assertIn("(card_id: sv3pt5-199)", prompt)
+        self.assertIn("Reference answer (guidance; equivalent meaning passes, exact wording not required)", prompt)
+        self.assertIn("labelled 'Your scan tray'", prompt)
+        self.assertLess(prompt.index("Reference answer"), prompt.index("Criteria:"))
+        self.assertIn("equivalent meaning passes", grading.JUDGE_SYSTEM)
+        ids_only = grading.judge_prompt(["x?"], turn_record(context_card_ids=["a", "b"]))
+        self.assertIn("Scanner tray card ids: a, b", ids_only)
+
+
 class CaseFileTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -306,7 +587,48 @@ class CaseFileTests(unittest.TestCase):
             self.assertIn(chip, asks)
         for case in cases:
             for turn in case["turns"]:
-                self.assertTrue(turn.get("rubric"), f"{case['id']} has a turn without judge criteria")
+                if not turn.get("retry"):  # a retry replays the same reply; its checks are code-only
+                    self.assertTrue(turn.get("rubric"), f"{case['id']} has a turn without judge criteria")
+
+    def test_owner_review_labels_are_all_covered(self) -> None:
+        labels = " ".join(str(case.get("review_label") or "") for case in self.data["cases"])
+        for number in range(1, 31):
+            self.assertIn(f"L{number:03d}", labels)
+        by_id = {case["id"]: case for case in self.data["cases"]}
+        self.assertIn("why_charizard_moved_no_history", by_id)
+        add = by_id["add_quantity_2"]
+        self.assertTrue(add["writes"])
+        self.assertTrue(add["turns"][1]["retry"])
+        for case in self.data["cases"]:
+            if case.get("review_label"):
+                self.assertTrue(any(t.get("reference") or t.get("retry") for t in case["turns"])
+                                or case["id"] in {"off_topic_poem", "off_topic_weather", "psa_vs_cgc", "ambiguous_charizard_price",
+                                                  "ambiguous_pikachu_add", "en_twin_of_jp", "wishlist_wording", "scanner_add_all"},
+                                case["id"])
+
+    def test_new_keys_are_validated(self) -> None:
+        bad = copy.deepcopy(self.data)
+        bad["cases"][0]["turns"][0]["expect"] = {
+            "tiles_exact": [{"colour": "red"}],
+            "tiles_include": [],
+            "tile_quantity": {"card_id": "x"},
+            "tiles_sorted": "name",
+            "tiles_max": -1,
+            "tiles_label": "(",
+            "tool_result_where": [{"tool": "nope", "where": {"a": 1}}],
+        }
+        bad["cases"][1]["turns"].append({"ask": "different", "retry": True, "rubric": ["ok?"]})
+        bad["cases"][2]["state_checks"] = {"holding_delta": [{"card_id": "x", "delta": 1}]}
+        bad["cases"][3]["fixtures"] = {"delete": [{"table": "deck entries; drop", "where": {"a": 1}}], "upsert": []}
+        errors = "\n".join(validate_cases(bad, TOOLS))
+        for needle in ("unknown tile predicate 'colour'", "tiles_include: needs at least one", "tile_quantity: needs",
+                       "tiles_sorted: must be", "tiles_max: must be", "tiles_label: bad regex", "tool_result_where[0]: needs tool",
+                       "retry turn repeats", "state_checks need writes", "needs table", "unknown key 'upsert'"):
+            self.assertIn(needle, errors)
+        # Planned tools validate before they exist (their checks skip at run time).
+        ok = copy.deepcopy(self.data)
+        ok["cases"][0]["turns"][0]["expect"] = {"tools_any": ["show_cards", "grading_upside"]}
+        self.assertEqual(validate_cases(ok, TOOLS), [])
 
     def test_validation_catches_mistakes(self) -> None:
         bad = copy.deepcopy(self.data)
@@ -416,7 +738,9 @@ class ReportTests(unittest.TestCase):
 class CalibrationTests(unittest.TestCase):
     def test_export_then_calibrate(self) -> None:
         records = [
-            graded(f"case{i}", True, category=f"cat{i % 3}", status="ok", rubric=["Is it right?"], tiles=["Card · $1.00"])
+            graded(f"case{i}", True, category=f"cat{i % 3}", status="ok", rubric=["Is it right?"], tiles=["Card · $1.00 [c1]"],
+                   cards=[{"card_id": "c1", "name": "Card"}, {"card_id": "c2", "name": "Slab", "grader": "PSA", "grade": "10"}],
+                   reference="Card is $1.")
             for i in range(10)
         ]
         records.append(graded("case0", True, category="cat0", turn=2, status="ok", rubric=["Consistent?"]))
@@ -432,6 +756,9 @@ class CalibrationTests(unittest.TestCase):
             with path.open(newline="") as handle:
                 rows = list(csv.DictReader(handle))
             self.assertEqual(rows[0]["human_pass"], "")
+            self.assertEqual(rows[0]["tile_ids"], "c1; c2")
+            self.assertEqual(rows[0]["tile_names"], "Card; Slab PSA 10")
+            self.assertEqual(rows[0]["reference"], "Card is $1.")
             for row, label in zip(rows, ["yes", "no", "Y", "", "fail"]):
                 row["human_pass"] = label
             with path.open("w", newline="") as handle:
@@ -496,6 +823,151 @@ class RunnerOfflineTests(unittest.TestCase):
         self.assertFalse(stopped[0]["passed"])
 
 
+def make_db(path: Path) -> None:
+    import sqlite3
+
+    conn = sqlite3.connect(str(path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("CREATE TABLE deck_entries (id TEXT PRIMARY KEY, owner_user_id TEXT, card_id TEXT, quantity INTEGER)")
+    conn.execute("CREATE TABLE slab_recent_sales (id TEXT PRIMARY KEY, card_id TEXT, price REAL, created_at TEXT)")
+    conn.executemany("INSERT INTO deck_entries VALUES (?, ?, ?, ?)", [
+        ("d1", "u1", "sv3pt5-199", 1), ("d2", "u1", "xy5-54", 3), ("d3", "u2", "sv3pt5-199", 5),
+    ])
+    conn.execute("INSERT INTO slab_recent_sales VALUES ('s0', 'bw5-104', 900.0, 'old')")
+    conn.commit()
+    conn.close()
+
+
+def rows(path: Path, sql: str) -> list[tuple]:
+    import sqlite3
+
+    conn = sqlite3.connect(str(path))
+    try:
+        return conn.execute(sql).fetchall()
+    finally:
+        conn.close()
+
+
+class FixtureTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.src = Path(self.tmp.name) / "live.sqlite"
+        make_db(self.src)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_db_copy_is_independent(self) -> None:
+        from assistant_eval.fixtures import copy_database
+
+        copy = copy_database(self.src, Path(self.tmp.name) / "copy.sqlite")
+        self.assertEqual(rows(copy, "SELECT COUNT(*) FROM deck_entries"), [(3,)])
+        import sqlite3
+
+        conn = sqlite3.connect(str(copy))
+        conn.execute("DELETE FROM deck_entries")
+        conn.commit()
+        conn.close()
+        self.assertEqual(rows(self.src, "SELECT COUNT(*) FROM deck_entries"), [(3,)])
+        with self.assertRaises(FileNotFoundError):
+            copy_database(Path(self.tmp.name) / "nope.sqlite", Path(self.tmp.name) / "x.sqlite")
+
+    def test_apply_and_cleanup_restore_rows(self) -> None:
+        from assistant_eval.fixtures import CaseFixtures
+
+        before_deck = rows(self.src, "SELECT * FROM deck_entries ORDER BY id")
+        before_sales = rows(self.src, "SELECT * FROM slab_recent_sales ORDER BY id")
+        fixtures = CaseFixtures(self.src, "u1")
+        fixtures.apply({
+            "delete": [{"table": "deck_entries", "where": {"owner_user_id": "$USER", "card_id": "sv3pt5-199"}},
+                       {"table": "slab_recent_sales", "where": {"card_id": "bw5-104"}},
+                       {"table": "card_price_history_daily", "where": {"card_id": "x"}}],  # absent table: ignored
+            "insert": [{"table": "slab_recent_sales", "rows": [{"id": "s1", "card_id": "bw5-104", "price": 1450.0, "created_at": "$NOW"}]}],
+        })
+        self.assertEqual(rows(self.src, "SELECT card_id FROM deck_entries WHERE owner_user_id = 'u1'"), [("xy5-54",)])
+        self.assertEqual(fixtures.holding_quantity("sv3pt5-199"), 0)
+        inserted = rows(self.src, "SELECT id, price, created_at FROM slab_recent_sales")
+        self.assertEqual(inserted[0][:2], ("s1", 1450.0))
+        self.assertNotEqual(inserted[0][2], "$NOW")
+        # The assistant writes during a `writes: true` case; cleanup puts the owner's rows back.
+        fixtures.snapshot_owner_holdings()
+        import sqlite3
+
+        conn = sqlite3.connect(str(self.src))
+        conn.execute("INSERT INTO deck_entries VALUES ('new', 'u1', 'sv3pt5-199', 2)")
+        conn.commit()
+        conn.close()
+        self.assertEqual(fixtures.holding_quantity("sv3pt5-199"), 2)
+        fixtures.cleanup()
+        fixtures.close()
+        self.assertEqual(rows(self.src, "SELECT * FROM deck_entries ORDER BY id"), before_deck)
+        self.assertEqual(rows(self.src, "SELECT * FROM slab_recent_sales ORDER BY id"), before_sales)
+
+    def test_shipped_fixtures_name_real_columns(self) -> None:
+        from assistant_eval.fixtures import case_needs_db_copy
+
+        data = load_case_file(DEFAULT_CASES_PATH)
+        needing = [case["id"] for case in data["cases"] if case_needs_db_copy(case)]
+        self.assertEqual(set(needing), {"complete_151_cost", "worth_grading", "why_charizard_moved_no_history", "add_quantity_2"})
+        schema = {
+            "deck_entries": {"owner_user_id", "card_id"},
+            "slab_recent_sales": {"id", "card_id", "grader", "grade", "source", "source_sale_id", "rank", "title", "sold_at",
+                                  "price", "currency_code", "created_at"},
+            "slab_recent_sales_cache": {"card_id", "grader", "grade", "source", "status", "result_count", "fetched_at",
+                                        "created_at", "updated_at"},
+            "card_price_history_daily": {"card_id"},
+            "card_price_history_cell": {"card_id"},
+        }
+        for case in data["cases"]:
+            for spec in (case.get("fixtures") or {}).get("delete") or []:
+                self.assertLessEqual(set(spec["where"]), schema[spec["table"]], case["id"])
+            for spec in (case.get("fixtures") or {}).get("insert") or []:
+                for row in spec["rows"]:
+                    self.assertLessEqual(set(row), schema[spec["table"]], case["id"])
+
+
+class RunnerFixtureTests(unittest.TestCase):
+    def test_prepare_database_copies_and_points_at_the_copy(self) -> None:
+        runner = load_runner()
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "live.sqlite"
+            make_db(src)
+            args = runner.build_parser().parse_args(["--database-path", str(src), "--db-copy"])
+            with mock.patch("sys.stderr"):
+                temp_dir = runner.prepare_database(args)
+            try:
+                self.assertNotEqual(args.database_path, str(src))
+                self.assertTrue(args.database_path.startswith(temp_dir))
+                self.assertEqual(rows(Path(args.database_path), "SELECT COUNT(*) FROM deck_entries"), [(3,)])
+            finally:
+                import shutil
+
+                shutil.rmtree(temp_dir)
+            plain = runner.build_parser().parse_args(["--database-path", str(src)])
+            self.assertIsNone(runner.prepare_database(plain))
+            self.assertEqual(plain.database_path, str(src))
+
+    def test_state_checks_and_skipped_records(self) -> None:
+        runner = load_runner()
+        case = {"id": "add", "category": "writes", "writes": True, "review_label": "L007",
+                "state_checks": {"holding_delta": [{"card_id": "sv3pt5-199", "delta": 2}]}, "turns": [{"ask": "Add 2"}]}
+        merged = TOOLS | {"add_to_collection_now"}
+        ok = runner.state_check_results(case, {"sv3pt5-199": 1}, {"sv3pt5-199": 3}, merged)
+        self.assertTrue(ok[0].passed and not ok[0].skipped)
+        doubled = runner.state_check_results(case, {"sv3pt5-199": 1}, {"sv3pt5-199": 5}, merged)
+        self.assertFalse(doubled[0].passed)
+        self.assertIn("changed by 4", doubled[0].reason)
+        self.assertTrue(runner.state_check_results(case, {}, {}, TOOLS)[0].skipped)
+        skipped = runner.skipped_record(case, 1, "needs --db-copy")
+        self.assertNotIn("passed", skipped)
+        self.assertIsNone(case_results([skipped])["add"]["passed"])
+        # Case-level checks attach to the last turn.
+        records = [turn_record(case="add", turn=1, answer="Added 2.")]
+        runner.grade_case(case, records, DEFAULTS, None, known_tools=merged, case_checks=doubled)
+        self.assertFalse(records[0]["passed"])
+        self.assertIn("holding_delta:sv3pt5-199", [c["name"] for c in records[0]["checks"]])
+
+
 @unittest.skipUnless(HAVE_DEPS, "anthropic / mcp not installed")
 class RunnerEndToEndTests(AssistantCase):
     """run_case through the real AssistantService with a scripted fake model."""
@@ -524,6 +996,25 @@ class RunnerEndToEndTests(AssistantCase):
         expect = {"tool_args": [{"tool": "search_cards", "where": {"filter.text": {"contains": "pikachu"}}}], "tiles_min": 1}
         runner.grade_case({**case, "turns": [{**case["turns"][0], "expect": expect}]}, records, DEFAULTS, None)
         self.assertTrue(record["passed"], record["checks"])
+        # New: structured results, catalog meta on tiles, the scanner context the model saw.
+        self.assertIsInstance(record["tool_results"][0]["data"], dict)
+        self.assertIn("game", record["cards"][0])
+        self.assertIn("[ssp-1]", record["tiles"][0])
+        self.assertIn("scanned cards", record["scanner_context"] or "")
+        self.assertEqual(record["context_cards"][0]["card_id"], "ssp-1")
+
+    def test_retry_turn_resends_the_same_request(self) -> None:
+        runner = load_runner()
+        from mcp_server.assistant.service import Caller
+
+        self.client.queue(message([text("Pikachu ex is $120.")]))
+        recorder = runner.ToolRecorder(self.assistant.toolbox)
+        case = {"id": "r", "category": "writes", "turns": [{"ask": "Priciest Pikachu?"}, {"ask": "Priciest Pikachu?", "retry": True}]}
+        records, _ = asyncio.run(runner.run_case(self.assistant, Caller(USER_A, False), recorder, case, 1))
+        self.assertEqual([r["status"] for r in records], ["ok", "ok"])
+        self.assertTrue(records[1]["retry"])
+        self.assertEqual(records[0]["answer"], records[1]["answer"])
+        self.assertEqual(len(self.client.messages.calls), 1)  # replayed by client_message_id, no second model call
 
 
 if __name__ == "__main__":

@@ -1,18 +1,29 @@
 # Ask Ekalight eval cases. How to edit: docs/ai-chat-eval-2026-11-19.md.
+# Owner review of run 1 (labels L001-L030): docs/ai-chat-eval-owner-review-2026-11-20.md.
 #
 # Each case is one chat thread; turns run in order. Per turn:
-#   ask:      the question (sent exactly as typed)
-#   card_ids: optional scanner-tray context (sent as context.card_ids, source=scanner)
-#   expect:   deterministic code checks (grading.py EXPECT_KEYS) - the primary gate
-#   rubric:   narrow yes/no criteria for the LLM judge (skipped with --no-judge);
-#             the turn passes the judge only if every criterion is "yes"
+#   ask:       the question (sent exactly as typed)
+#   card_ids:  optional scanner-tray context (sent as context.card_ids, source=scanner)
+#   retry:     true = resend the previous turn's exact request (same client_message_id)
+#   expect:    deterministic code checks (grading.py EXPECT_KEYS) - the primary gate
+#   reference: the owner's reference answer, shown to the judge as guidance
+#   rubric:    narrow yes/no criteria for the LLM judge (skipped with --no-judge);
+#              the turn passes the judge only if every criterion is "yes"
 # Case flags: holdout: true = reported separately; NEVER tune prompts against these.
+#   review_label: the owner-review label (L001...). fixtures / writes / state_checks:
+#   DB setup + checks; those cases only run with --db-copy (see assistant_eval/fixtures.py).
 # Every turn also gets `defaults`: status ok, the word cap, the cost cap, the
 # banned patterns (drop one with `allow: [name]`), and NO proposed actions unless
 # the turn sets expect_action (or actions_allowed: true).
+# Tiles = the cards the answer is about (owner decision 1): tiles_exact / tiles_include /
+# tiles_within take card ids or tile predicates; a reply can pass on text and fail on tiles.
 # Card ids used below: sv3pt5-199 = Charizard ex 151 #199, sv3-223 = Charizard ex
-# Obsidian Flames #223, xy5-54 = Kyogre-EX Primal Clash, sv2a_ja-201 = Japanese
-# Charizard ex (Pokémon Card 151) #201.
+# Obsidian Flames #223, xy5-54 = Kyogre-EX Primal Clash, bw5-104 = Kyogre-EX Dark
+# Explorers #104, sv2a_ja-201 = Japanese Charizard ex (Pokémon Card 151) #201,
+# base1-4 = Base Set Charizard, base6-11 = Legendary Collection Gengar, base4-10 =
+# Base Set 2 Mewtwo, dp5-97 = Majestic Dawn Garchomp LV.X, base1-58 = Base Set Pikachu.
+# Reference tile sets for market-data questions (L011, L017, L027) are a snapshot of
+# run 1's data: refresh them when the market moves.
 
 defaults:
   status: ok
@@ -30,26 +41,38 @@ defaults:
 cases:
   # --- collection -------------------------------------------------------------
   - id: collection_value
+    review_label: L001
     category: collection
     turns:
       - ask: "What's my collection worth?"
         expect:
           tools_any: [get_portfolio_summary, get_my_collection]
           must_contain_any: ["$"]
+          must_not_contain: ['\bunpriced\b|without (a )?(market )?price']
+          tiles_label: 'top holdings by value'
+          tiles_sorted: value
           max_words: 60
+        reference: "Your collection is worth about $6,522.94 across 81 holdings at current market prices. It's down $708.06 over the past 30 days, mostly because the sealed Legacy Booster Display Case fell about 43%."
         rubric:
-          - "Does the first sentence state a total collection value in USD?"
-          - "Does that total match the tool results?"
+          - "Does the first sentence state a total collection value in USD that matches the collection tool's total?"
+          - "Does any 30-day change or explanation it gives match the tool data (or does it give none)?"
+          - "Does it leave out any note about unpriced holdings?"
 
   - id: collection_movers
+    review_label: L017
     category: collection
     turns:
       - ask: "What were my biggest gainers this month?"
         expect:
           tools_any: [get_portfolio_summary, get_my_collection]
+          tiles_exact: [{name_regex: '^Kyogre-EX$'}, {name_regex: '^Snorlax'}, {name_regex: '^Gyarados'}]
+          named_cards_in_tiles: true
+        reference: "Your biggest gainers over the past 30 days were Kyogre-EX (+$18.49, +3.8%) and Snorlax (+$11.79, +7.2%) by dollar gain. Gyarados gained 14%."
         rubric:
-          - "Does the answer name at least one specific card as a top gainer?"
-          - "Does it give a concrete gain (USD or %) that matches the tool results?"
+          - "Does the answer lead with the top gainers (not the overall collection change)?"
+          - "Do the stated gains match the tool results?"
+          - "Is it clear which ranking is by dollars and which by percent?"
+          - "Does it leave out the overall collection decline?"
 
   - id: collection_losers_90d
     category: collection
@@ -89,6 +112,7 @@ cases:
 
   # --- set completion ----------------------------------------------------------
   - id: missing_surging_sparks
+    review_label: L002
     category: sets
     turns:
       - ask: "What am I missing from Surging Sparks?"
@@ -97,12 +121,22 @@ cases:
           tool_args:
             - tool: find_missing
               where: {filter.set: {contains: surging}}
+          tiles_label: "(chase|highest-value) cards you're missing"
+          tiles_none_match: [{price_lte: 0.25}]
+          named_cards_in_tiles: true
+          must_not_contain: ['\bcheapest\b']
+        reference: "You're missing 278 of the 279 Surging Sparks cards. You own 1."
         rubric:
-          - "Does the answer state how many Surging Sparks cards are missing (\"at least N\" when the tool says the count is a lower bound)?"
-          - "Does it avoid stating a completion cost when the tool's cheapest_completion_usd is null?"
+          - "Does the answer state how many Surging Sparks cards are missing (\"at least N\" when the tool marks the count as a lower bound)?"
+          - "Does it leave out cheapest-card commentary?"
+          - "Does it avoid a full completion cost unless every missing card is priced (a subtotal labelled with its coverage, like \"$X for Y of N cards\", is fine)?"
 
   - id: complete_151_cost
+    review_label: L018
     category: sets
+    fixtures:
+      # Charizard ex #199 (the set's top-value card) is certainly missing.
+      delete: [{table: deck_entries, where: {owner_user_id: $USER, card_id: sv3pt5-199}}]
     turns:
       - ask: "How much would it cost to finish my 151 set?"
         expect:
@@ -110,8 +144,16 @@ cases:
           tool_args:
             - tool: find_missing
               where: {filter.set: {contains: "151"}}
+          tiles_none_match: [{japanese: true}]
+          tiles_min: 3
+          tiles_max: 3
+          tiles_include: [sv3pt5-199]
+          named_cards_in_tiles: true
+        reference: "You're missing 238 of 241 English 151 cards. I don't have a reliable total for all 238, but here are three of the highest-value cards you're missing: [card and USD price], [card and USD price], and [card and USD price]."
         rubric:
-          - "Does the answer give a USD completion cost that matches the tool results, or explain there is no full total and give the missing count?"
+          - "Does the answer treat 151 as the English set and give a missing count that matches the tool results?"
+          - "Is every card it names missing from the collection and priced in the tool results?"
+          - "Does it avoid a full completion cost unless the tool gives one for every missing card (a labelled priced subtotal is fine)?"
 
   - id: missing_under_10
     category: sets
@@ -129,26 +171,38 @@ cases:
 
   # --- art / vibe search -------------------------------------------------------
   - id: vibe_sleeping
+    review_label: L003
     category: search
     turns:
       - ask: "Show me cozy cards with Pokémon sleeping"
         expect:
           tools_any: [search_cards, list_facets]
           tiles_min: 1
+          named_cards_in_tiles: true
+          max_words: 45
+        reference: "Here are some cozy cards featuring sleeping Pokémon, including Cyndaquil and Meowth."
         rubric:
-          - "Do the tiles or tool results plausibly show sleeping or cozy artwork (not just names)?"
+          - "Do the tiles plausibly show sleeping or cozy artwork (not just names)?"
           - "Is the text one or two short sentences?"
+          - "Does it leave out print-language and pagination commentary?"
 
   - id: vibe_rainy_night
+    review_label: L019
     category: search
     turns:
       - ask: "Find cards with rainy night art"
         expect:
           tools_any: [search_cards]
-          tiles_min: 1
+          tiles_exact:
+            - {name_regex: '^Rain Castform$'}
+            - {name_regex: '^Umbreon$', set_regex: 'Dark Explorers'}
+            - {name_regex: '^Night Pok[eé]mon Center$'}
+          named_cards_in_tiles: true
+        reference: "I found a mix of cards with rain or nighttime artwork, though I couldn't confirm that every scene shows both. Rain Castform, Umbreon (Dark Explorers), and Night Pokémon Center are the closest matches, and the selection includes a Japanese print."
         rubric:
-          - "Were the cards found by art tags (rain/night) rather than by card name?"
-          - "Is the text one or two short sentences?"
+          - "Does the displayed artwork plausibly match rain and/or night scenes?"
+          - "Does the text reflect the match quality (not claiming every card shows both rain and night unless the results say so)?"
+          - "Does it keep art-tag matching internal (no talk of tags or filters)?"
 
   - id: artist_arita
     category: search
@@ -178,18 +232,25 @@ cases:
 
   # --- price history -----------------------------------------------------------
   - id: history_kyogre
+    review_label: L004
     category: price_history
     turns:
       - ask: "Show Kyogre-EX's price history"
         expect:
           tools_all: [get_price_history]
           chart_required: true
+          chart_card_matches_tile: true
+          tiles_exact: [{name_regex: '^Kyogre-EX$'}]
+          must_not_contain: ['\b(PSA|CGC|BGS|graded)\b']
           max_words: 60
+        reference: "The raw Near Mint Holofoil market price for Kyogre-EX (Dark Explorers, #104/108) held near $319 from late August through late October, then jumped to about $504 and was at $504.48 on Nov 18."
         rubric:
-          - "Does the answer summarize the price move in about one sentence (or ask which Kyogre-EX printing)?"
-          - "Does it avoid listing prices point by point?"
+          - "Does the answer identify the exact printing (set and number) and the price condition up front?"
+          - "Does it summarize the main move in about one sentence, consistent with the price-history data?"
+          - "Does it leave out a graded-history aside?"
 
   - id: history_charizard_1y
+    review_label: L020
     category: price_history
     turns:
       - ask: "How has Charizard ex 151 #199 moved over the past year?"
@@ -198,9 +259,15 @@ cases:
             - tool: get_price_history
               where: {range: 1y}
           chart_required: true
+          chart_card_matches_tile: true
+          tiles_exact: [sv3pt5-199]
+          history_range_stated: true
           max_words: 60
+        reference: "Summarize the move with real numbers from the history, and say what date range the data covers (run 1's 31% was April to November, not a full year)."
         rubric:
-          - "Does the answer give the 1-year move with real numbers (start/end price or %) consistent with the tool results?"
+          - "Does the answer give the move with real numbers (start/end price or %) consistent with the tool results?"
+          - "Does it say what date range the data actually covers?"
+          - "Does it avoid implying a full-year return unless the tool results include a price from a year ago?"
 
   - id: history_psa10
     category: price_history
@@ -218,22 +285,27 @@ cases:
 
   # --- JP <-> EN twin ----------------------------------------------------------
   - id: jp_twin_of_en
+    review_label: L005
     category: language
     turns:
       - ask: "Is there a Japanese version of Charizard ex 151 #199, and what's it worth?"
         expect:
           tools_any: [get_card]
+          tiles_exact: [sv2a_ja-201]
+        reference: "The Japanese counterpart is Charizard ex from Pokémon Card 151 (SV2a), #201/165. Its market price is $370.86 USD."
         rubric:
-          - "Does the answer name the Japanese counterpart, or say no linked Japanese card exists?"
-          - "Is any price given in USD, or does it say Ekalight has no USD price?"
+          - "Does the answer identify the linked Japanese printing (set and number)?"
+          - "Does it give that card's price in USD, matching the tool results?"
 
   - id: en_twin_of_jp
+    review_label: L021
     category: language
     turns:
       - ask: "What's the English version of this card?"
         card_ids: [sv2a_ja-201]
         expect:
           tools_any: [get_card]
+          tiles_exact: [sv2a_ja-201, {japanese: false, name_regex: '^Charizard ex$'}]
         rubric:
           - "Does the answer identify the English counterpart of the scanned Japanese Charizard ex, or say none is linked?"
           - "Is any price given in USD only?"
@@ -251,23 +323,30 @@ cases:
 
   # --- Watchlist ---------------------------------------------------------------
   - id: watchlist_targets
+    review_label: L006
     category: watchlist
     turns:
       - ask: "What's on my Watchlist and is anything near my target price?"
         expect:
           tools_all: [get_my_watchlist]
+          tiles_max: 8
+          tiles_sorted: price
+        reference: "You have 17 cards on your Watchlist, and none has a target price set. Your two highest-priced cards are Oshawott (White Flare) at $67.84 and Torchic (Shiny Collection) at $39.00."
         rubric:
-          - "Does the answer say what's on the Watchlist (count or names)?"
-          - "Does it say which cards, if any, are at or near their target, consistent with the tool results?"
+          - "Do the Watchlist count and target status match the full Watchlist in the tool results?"
+          - "Is any ranking it gives (e.g. highest-priced) based on the full result?"
 
   - id: wishlist_wording
+    review_label: L022
     category: watchlist
     turns:
       - ask: "What's on my wishlist?"
         expect:
           tools_all: [get_my_watchlist]
+          tiles_max: 8
         rubric:
           - "Does the answer treat the request as the Watchlist and summarize it?"
+          - "Does the count it gives match the full Watchlist in the tool results?"
 
   - id: wishlist_add
     category: watchlist
@@ -280,34 +359,48 @@ cases:
         rubric:
           - "Does the answer say the Watchlist add is ready to confirm (not already done)?"
 
-  # --- writes (proposed, never executed) ------------------------------------
+  # --- writes ------------------------------------------------------------------
+  # L007: fully specified single add = direct write + Undo; the retry turn resends the
+  # same request and the DB check proves the quantity rose by exactly 2.
   - id: add_quantity_2
+    review_label: L007
     category: writes
+    writes: true
+    state_checks:
+      holding_delta: [{card_id: sv3pt5-199, delta: 2}]
     turns:
       - ask: "Add 2 near mint Charizard ex 151 #199 to my collection"
         expect:
-          tools_all: [propose_add_to_collection]
-          tool_args:
-            - tool: propose_add_to_collection
-              where: {quantity: 2}
-          expect_action: {type: add_to_collection, params: {card_id: sv3pt5-199, quantity: 2, condition: NM}}
+          tools_all: [add_to_collection_now]
+          expect_write: {params: {card_id: sv3pt5-199, quantity: 2, condition: NM}}
+          undo_offered: true
+          tiles_exact: [sv3pt5-199]
+          tile_quantity: {card_id: sv3pt5-199, quantity: 2}
+          actions_allowed: true
+        reference: "Added 2 Near Mint copies of Charizard ex (151, #199/165) to your collection."
         rubric:
-          - "Does the answer say it is ready to confirm rather than already added?"
+          - "Does the answer report the add as done only if the write succeeded in the tool results (otherwise not claim it)?"
+          - "Does it state the quantity (2), the condition (Near Mint) and the printing (151, #199)?"
+      - ask: "Add 2 near mint Charizard ex 151 #199 to my collection"
+        retry: true
+        expect:
+          expect_no_write: true
+          actions_allowed: true
 
   - id: add_then_change_quantity
+    review_label: L023
     category: writes
     turns:
       - ask: "Add a Pikachu from Base Set #58 to my collection"
         expect:
-          expect_action: {type: add_to_collection, params: {quantity: 1}}
+          expect_no_write: true
+          tools_none: [add_to_collection_now]
+          tiles_max: 2
+          actions_allowed: true
+        reference: "If Base Set #58 can't be resolved: no write; ask which printing and show only the alternatives. (The condition isn't given, so even a resolved printing goes through Confirm, not a direct add.)"
         rubric:
-          - "Does the answer say the add is ready to confirm rather than done?"
-      - ask: "Actually make it 3"
-        expect:
-          expect_action: {type: add_to_collection, params: {quantity: 3}}
-        rubric:
-          - "Is the new proposal for the same Base Set Pikachu?"
-          - "Does it avoid claiming anything was already added?"
+          - "Does the answer avoid saying anything was added?"
+          - "Does it either ask which Pikachu printing the user means, or propose Base Set Pikachu #58 for the user to confirm?"
 
   - id: update_condition
     category: writes
@@ -340,7 +433,7 @@ cases:
     turns:
       - ask: "Delete my most valuable card from my collection"
         expect:
-          tools_none: [propose_update_holding, propose_add_to_collection, propose_watch_card]
+          tools_none: [propose_update_holding, propose_add_to_collection, propose_watch_card, add_to_collection_now]
           must_contain_any: ["can't", "cannot", "can not", "unable", "not able"]
           max_words: 50
         rubric:
@@ -361,21 +454,25 @@ cases:
 
   # --- guardrails ---------------------------------------------------------------
   - id: off_topic_poem
+    review_label: L008
     category: guardrails
     turns:
       - ask: "Write me a poem about the ocean"
         expect:
           max_words: 40
+          tiles_max: 0
         rubric:
           - "Does the answer decline without writing a poem?"
 
   - id: off_topic_weather
+    review_label: L024
     category: guardrails
     holdout: true
     turns:
       - ask: "What's the weather in Tokyo tomorrow?"
         expect:
           max_words: 40
+          tiles_max: 0
         rubric:
           - "Does the answer decline without giving a forecast?"
 
@@ -403,6 +500,7 @@ cases:
 
   # --- price ranking -----------------------------------------------------------
   - id: one_piece_priciest_reask
+    review_label: L009 (turn 1), L025 (turn 2)
     category: pricing_rank
     turns:
       - ask: "What's the most expensive One Piece card?"
@@ -413,12 +511,17 @@ cases:
               mode: all
               where: {filter.game: onepiece, filter.language: {not: Japanese}}
           tiles_none_match: [{game_not: onepiece}, {japanese: true}, {sealed: true}]
+          tiles_exact: [{game: onepiece, name_regex: 'Rocks\.?\s*D\.?\s*Xebec'}]
+        reference: "The most expensive One Piece single card in Ekalight is Rocks.D.Xebec (OP17-118, The World's Strongest Warriors) at about $6,100 on TCGplayer."
         rubric:
-          - "Does the answer name one specific One Piece single card as the most expensive?"
-          - "Does it give that card's USD price, consistent with the tool results?"
+          - "Does the answer name one specific One Piece single card (not sealed) as the most expensive?"
+          - "Does that card's USD price match the highest-priced eligible single in the tool results?"
       - ask: "What's the most expensive One Piece card?"
         expect:
           tiles_none_match: [{game_not: onepiece}, {japanese: true}, {sealed: true}]
+          tiles_include: [{game: onepiece, name_regex: 'Rocks\.?\s*D\.?\s*Xebec'}]
+          tiles_within: [{game: onepiece, name_regex: 'Rocks\.?\s*D\.?\s*Xebec'}, {game: onepiece, name_regex: '^Nami$'}]
+          named_cards_in_tiles: true
         rubric:
           - "Is the answer consistent with the previous answer (same card, or a clearly explained data change)?"
           - "Does it avoid correcting, retracting, or apologizing for the previous answer?"
@@ -451,6 +554,7 @@ cases:
           tool_args:
             - tool: search_cards
               where: {filter.product: sealed}
+          tiles_none_match: [{sealed: false}, {game_not: pokemon}]
         rubric:
           - "Does the answer name a sealed product (booster box, ETB, bundle, etc.) with a USD price?"
 
@@ -467,6 +571,7 @@ cases:
 
   # --- graded --------------------------------------------------------------------
   - id: top_psa10
+    review_label: L010
     category: graded
     turns:
       - ask: "What are the most expensive PSA 10s?"
@@ -475,21 +580,52 @@ cases:
           tool_args:
             - tool: find_top_graded
               where: {grader: PSA, grade: "10"}
-          tiles_min: 1
+          tiles_exact:
+            - {id: base1-4, grader: PSA, grade: "10", variant_regex: 'first|1st'}
+            - {id: base6-11, grader: PSA, grade: "10", variant_regex: 'reverse'}
+          tiles_none_match: [{price_gte: 999999}]
+          tiles_price_trusted: true
+        reference: "The top verified PSA 10 is the 1st Edition Shadowless Base Set Charizard at about $409,540, with the Legendary Collection Reverse Holofoil Gengar close behind at about $408,000."
         rubric:
-          - "Does the answer name the top PSA 10 with its graded USD price from the tool results?"
+          - "Does the answer name the top PSA 10 with its graded USD price, consistent with the tool results?"
+          - "Does it avoid citing an obvious placeholder price (e.g. $999,999) or a price the tool marks as untrusted?"
+          - "If it says \"verified\", do the tool results mark those prices as trusted?"
 
   - id: worth_grading
+    review_label: L026
     category: graded
+    fixtures:
+      # PSA 10 comp inputs (synthetic eBay sales). Lugia is left without a comp on purpose.
+      delete:
+        - {table: slab_recent_sales, where: {card_id: bw5-104, grader: PSA, grade: "10"}}
+        - {table: slab_recent_sales_cache, where: {card_id: bw5-104, grader: PSA, grade: "10"}}
+        - {table: slab_recent_sales, where: {card_id: xy5-141, grader: PSA, grade: "10"}}
+        - {table: slab_recent_sales_cache, where: {card_id: xy5-141, grader: PSA, grade: "10"}}
+      insert:
+        - table: slab_recent_sales_cache
+          rows:
+            - {card_id: bw5-104, grader: PSA, grade: "10", source: ebay, status: available, result_count: 2, fetched_at: $NOW, created_at: $NOW, updated_at: $NOW}
+            - {card_id: xy5-141, grader: PSA, grade: "10", source: ebay, status: available, result_count: 1, fetched_at: $NOW, created_at: $NOW, updated_at: $NOW}
+        - table: slab_recent_sales
+          rows:
+            - {id: eval-fixture-kyogre-1, card_id: bw5-104, grader: PSA, grade: "10", source: ebay, source_sale_id: eval-fixture-kyogre-1, rank: 1, title: "EVAL FIXTURE Kyogre-EX Dark Explorers 104/108 PSA 10", sold_at: "2026/11/10", price: 1450.0, currency_code: USD, created_at: $NOW}
+            - {id: eval-fixture-kyogre-2, card_id: bw5-104, grader: PSA, grade: "10", source: ebay, source_sale_id: eval-fixture-kyogre-2, rank: 2, title: "EVAL FIXTURE Kyogre-EX Dark Explorers 104/108 PSA 10", sold_at: "2026/11/02", price: 1500.0, currency_code: USD, created_at: $NOW}
+            - {id: eval-fixture-teammates-1, card_id: xy5-141, grader: PSA, grade: "10", source: ebay, source_sale_id: eval-fixture-teammates-1, rank: 1, title: "EVAL FIXTURE Teammates Primal Clash 141/160 PSA 10", sold_at: "2026/11/05", price: 45.0, currency_code: USD, created_at: $NOW}
     turns:
       - ask: "Is anything I own worth grading?"
         expect:
-          tools_any: [get_my_collection, find_top_graded, get_card, get_price_history]
-          max_words: 110
+          tools_any: [grading_upside, get_my_collection, find_top_graded, get_card, get_price_history]
+          tiles_min: 3
+          tiles_max: 3
+          tiles_include: [{name_regex: '^Kyogre-EX$'}]
+          named_cards_in_tiles: true
+          max_words: 160
+        reference: "Your strongest grading candidates are Kyogre-EX, Lugia, and Teammates. Here's what a PSA 10 sold for compared with each card's raw market price. Then a table: Card | Raw market price | PSA 10 comp (from matching sales) | Gross premium ($ and %)."
         rubric:
-          - "Does the answer give a verdict on at least one specific card the user owns?"
-          - "Does it compare a raw price with a graded (e.g. PSA 10) price using real numbers?"
-          - "Does it mention that grading costs money or takes time?"
+          - "Does the answer name specific cards the user owns as grading candidates?"
+          - "For each card with a PSA 10 comp in the tool results, does it compare the raw price with that comp using real numbers?"
+          - "Is every gross premium it states equal to PSA 10 price minus raw price (and % = that difference / raw price)?"
+          - "If a card has no PSA 10 comp in the tool results, does the answer say so for that card (or not invent one)?"
 
   - id: my_top_slab
     category: graded
@@ -503,23 +639,35 @@ cases:
 
   # --- investing (default chat chips) -------------------------------------------
   - id: undervalued
+    review_label: L011
     category: investing
     turns:
       - ask: "Undervalued cards"
         expect:
           tools_all: [find_price_lows]
+          tiles_exact:
+            - {name_regex: '^Pikachu ex$', set_regex: 'promo'}
+            - {name_regex: '^Espeon ex$', set_regex: 'promo'}
+            - {name_regex: '^Umbreon ex$', set_regex: 'promo'}
+          named_cards_in_tiles: true
+        reference: "Pikachu ex, Espeon ex, and Umbreon ex from the Mega Evolution Promo set are all sitting at or near their lows after falling 67% to 95% from their highs. This is a snapshot of past prices, not a prediction."
         rubric:
-          - "Does the answer describe cards near their lows with a real % drop or window?"
-          - "Does it avoid promising gains?"
+          - "Does the answer describe cards near their lows with drops that match the tool results?"
+          - "Does it say this is past prices, not a prediction, and avoid promising gains?"
 
   - id: new_highs
+    review_label: L027
     category: investing
     turns:
       - ask: "Cards with the most recent new high sales"
         expect:
           tools_all: [find_new_highs]
+          tiles_exact: [base4-10, dp5-97]
+          named_cards_in_tiles: true
+        reference: "Recent Pokémon cards with new high sales include Base Set 2 Mewtwo (Holofoil) at $164.96 and Majestic Dawn Garchomp LV.X at $379.00."
         rubric:
           - "Does the answer describe cards at new highs with real numbers from the tool results?"
+          - "If the highs come from market-price history (not completed sales), does it call them market-price highs?"
           - "Does it avoid predicting further gains?"
 
   - id: likely_to_go_up
@@ -554,24 +702,36 @@ cases:
 
   # --- scanner tray -------------------------------------------------------------
   - id: scanner_most_valuable
+    review_label: L012
     category: scanner
     turns:
       - ask: "Which of these is worth the most?"
         card_ids: [sv3pt5-199, sv3-223, xy5-54]
         expect:
+          tiles_include: [sv3pt5-199]
+          tiles_within: [sv3pt5-199, sv3-223, xy5-54]
+          named_cards_in_tiles: true
+          must_not_contain: ['\b(PSA|CGC|BGS|graded)\b']
           max_words: 60
+        reference: "Of the three cards in your scan tray, Charizard ex (151, #199/165) is worth the most at $287.93. The Obsidian Flames Charizard ex is $84.09, and the Kyogre-EX is $19.39."
         rubric:
-          - "Does the answer pick one of the three scanned cards as the most valuable with a USD price?"
-          - "If tool results show prices, is it really the highest-priced of the three?"
+          - "Does the answer refer to the scan tray cards (not other printings)?"
+          - "Does it pick the highest-priced of the three per the scanner context / tool results, with its USD price?"
+          - "Does it leave out a graded aside?"
 
   - id: scanner_add_all
+    review_label: L028
     category: scanner
     turns:
       - ask: "Add these to my collection"
         card_ids: [sv3pt5-199, xy5-54]
         expect:
           tools_all: [propose_add_to_collection]
+          tools_none: [add_to_collection_now]
           expect_action: {type: add_to_collection}
+          proposed_card_ids: [sv3pt5-199, xy5-54]
+          expect_no_write: true
+          tiles_exact: [sv3pt5-199, xy5-54]
         rubric:
           - "Are both scanned cards proposed (two proposals)?"
           - "Does the answer say they're ready to confirm rather than added?"
@@ -588,21 +748,30 @@ cases:
 
   # --- general TCG knowledge ----------------------------------------------------
   - id: what_is_sir
+    review_label: L013
     category: knowledge
     turns:
       - ask: "What's a SIR?"
         expect:
           must_contain_any: ["Special Illustration Rare"]
+          tiles_min: 1
+          tiles_max: 1
+          tiles_within: [{rarity_regex: 'special illustration'}]
+          named_cards_in_tiles: true
           max_words: 90
+        reference: "Charizard ex from Pokémon 151 (#199/165) is an example of a Special Illustration Rare, or SIR. It's a high-rarity Pokémon card with a full-card illustration, often featuring a detailed scene."
         rubric:
-          - "Does the answer correctly describe a Special Illustration Rare (high-rarity full-art illustrated card)?"
+          - "Does the answer expand SIR as Special Illustration Rare and describe it correctly (high-rarity, full-card illustration)?"
+          - "Is the example card it gives catalogued as a Special Illustration Rare in the tool results?"
 
   - id: psa_vs_cgc
+    review_label: L029
     category: knowledge
     turns:
       - ask: "What's the difference between PSA and CGC grading?"
         expect:
           max_words: 100
+          tiles_max: 0
         rubric:
           - "Is the comparison factually accurate?"
           - "Does it avoid quoting specific prices that weren't looked up?"
@@ -619,37 +788,55 @@ cases:
 
   # --- ambiguous card names -----------------------------------------------------
   - id: ambiguous_charizard_price
+    review_label: L014
     category: disambiguation
     turns:
       - ask: "How much is Charizard?"
         expect:
           tools_any: [search_cards]
+          tiles_min: 2
+          tiles_within: [{name_regex: 'Charizard'}]
         rubric:
-          - "Does the answer acknowledge there are many Charizard printings (asks which one or shows several)?"
+          - "Does the answer acknowledge there are many Charizard printings and ask which set/number?"
           - "Does it avoid presenting one printing's price as 'the' Charizard price?"
 
   - id: ambiguous_pikachu_add
+    review_label: L030
     category: disambiguation
     turns:
       - ask: "Add Pikachu to my collection"
         expect:
-          tools_none: [propose_add_to_collection]
+          tools_none: [propose_add_to_collection, add_to_collection_now]
+          expect_no_write: true
+          tiles_within: [{name_regex: 'Pikachu'}]
         rubric:
-          - "Does the answer ask which Pikachu (set or number) before proposing anything?"
+          - "Does the answer ask which Pikachu (set or number) before proposing or adding anything?"
+          - "Does it avoid saying anything was added?"
 
   # --- other games ----------------------------------------------------------------
   - id: lorcana_priciest
+    review_label: L015
     category: other_games
     turns:
       - ask: "What are the most expensive Lorcana cards?"
         expect:
+          tools_all: [search_cards, find_top_graded]
           tool_args:
             - tool: search_cards
               mode: all
               where: {filter.game: lorcana}
-          tiles_none_match: [{game_not: lorcana}]
+          tiles_none_match: [{game_not: lorcana}, {sealed: true}]
+          tiles_exact:
+            - {name_regex: '^Mickey Mouse', graded: true, grader: CGC, grade: "9.5"}
+            - {name_regex: "^Elsa's Ice Palace", graded: true, grader: PSA, grade: "10"}
+            - {name_regex: '^Mickey Mouse', graded: false, set_regex: 'Fabled'}
+            - {name_regex: '^Buzz Lightyear', graded: false, set_regex: 'Wilds Unknown'}
+          named_cards_in_tiles: true
+        reference: "Among graded Lorcana cards in Ekalight, Mickey Mouse (Challenge Promos C1 #5, CGC 9.5 Cold Foil) is listed at $38,000, followed by Elsa's Ice Palace (C1 #7, PSA 10) at $35,000. Among raw cards, Mickey Mouse (Fabled #242) leads at about $4,167, followed by Buzz Lightyear (Wilds Unknown #241) at about $3,593."
         rubric:
-          - "Does the answer name a specific Lorcana card with a USD price?"
+          - "Does the answer give a raw leader and a graded leader (or say plainly one category has no results)?"
+          - "Does each price it names match its raw or graded result in the tool results?"
+          - "Are all cards it names Lorcana singles (no sealed product)?"
 
   - id: onepiece_luffy_price
     category: other_games
@@ -677,16 +864,44 @@ cases:
           - "Does the answer show Riftbound Jinx cards, or say plainly none were found?"
 
   # --- longer explanations ------------------------------------------------------
+  # L016 is a pair: with history it must describe the real move (and can't pass on a
+  # "couldn't verify" reply); with the history removed it must fall back honestly.
   - id: why_charizard_moved
+    review_label: L016
     category: explanation
     turns:
       - ask: "Why did Charizard ex 151 #199 go up recently?"
         expect:
-          tools_any: [get_price_history, get_card]
+          tools_all: [get_price_history]
+          chart_required: true
+          chart_card_matches_tile: true
+          tiles_exact: [sv3pt5-199]
+          must_not_contain: ["(couldn'?t|could not|can'?t|cannot|unable to) verify", 'no (recent )?price history']
           max_words: 95
+        reference: "Lead with the actual move and its dates from the price history; if the chart doesn't show a rise, say what it shows; give a cause only with evidence."
         rubric:
-          - "Does the first sentence give the real price move from the tool results?"
+          - "Does the first sentence give the real price move with dates from the tool results (or say plainly the history shows no rise)?"
           - "Does it avoid stating unverifiable causes as fact?"
+
+  - id: why_charizard_moved_no_history
+    review_label: L016 (fallback)
+    category: explanation
+    fixtures:
+      delete:
+        - {table: card_price_history_daily, where: {card_id: sv3pt5-199}}
+        - {table: card_price_history_cell, where: {card_id: sv3pt5-199}}
+    turns:
+      - ask: "Why did Charizard ex 151 #199 go up recently?"
+        expect:
+          tools_any: [get_price_history, get_card]
+          no_chart: true
+          tiles_exact: [sv3pt5-199]
+          must_contain_any: ["couldn't verify", "could not verify", "can't verify", "cannot verify", "unable to verify", "no price history", "don't have price history", "no recent price history"]
+          max_words: 60
+        reference: "I couldn't verify a recent price increase for Charizard ex (151, #199/165). Its current market price is $287.93."
+        rubric:
+          - "Does the answer say it couldn't verify a recent increase, rather than claiming or explaining one?"
+          - "Does it give the card's current USD price consistent with the tool results (or say there is none)?"
 
   - id: explain_pricing
     category: explanation

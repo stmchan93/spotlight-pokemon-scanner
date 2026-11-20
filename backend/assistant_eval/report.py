@@ -69,6 +69,9 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         "repeats": max((len(case["repeats"]) for case in cases.values()), default=0),
         "chat_cost_usd": sum(case["chat_cost"] for case in cases.values()),
         "judge_cost_usd": sum(case["judge_cost"] for case in cases.values()),
+        "skipped_cases": [case_id for case_id, case in cases.items()
+                          if any(t.get("status") == "skipped" for t in case["turns"])],
+        "skipped_checks": sum(1 for r in records for c in r.get("checks") or [] if c.get("skipped")),
     }
 
 
@@ -112,6 +115,10 @@ def render_report(records: list[dict[str, Any]], *, diff: dict[str, list[str]] |
         lines.append(
             f"- Repeats: {summary['repeats']} per case; flaky ({len(summary['flaky'])}): {', '.join(summary['flaky']) or 'none'}"
         )
+    if summary["skipped_cases"]:
+        lines.append(f"- Not run (need --db-copy): {', '.join(summary['skipped_cases'])}")
+    if summary["skipped_checks"]:
+        lines.append(f"- Checks skipped (planned feature not in this build): {summary['skipped_checks']}")
     lines += [
         f"- Cost: chat ${summary['chat_cost_usd']:.4f} + judge ${summary['judge_cost_usd']:.4f} = "
         f"${summary['chat_cost_usd'] + summary['judge_cost_usd']:.4f}",
@@ -136,6 +143,9 @@ def render_report(records: list[dict[str, Any]], *, diff: dict[str, list[str]] |
             lines += ["", f"**Turn {record.get('turn')}: {record.get('question')}**", "", _quote(record.get("answer"))]
             if record.get("tool_calls"):
                 lines += ["", f"Tools: `{'; '.join(record['tool_calls'])}`"]
+            if record.get("tiles"):
+                label = f" ({record['cards_label']})" if record.get("cards_label") else ""
+                lines += ["", f"Tiles{label}: {'; '.join(record['tiles'])}"]
             failed = [check for check in record.get("checks") or [] if not check.get("passed")]
             if failed:
                 lines.append("")

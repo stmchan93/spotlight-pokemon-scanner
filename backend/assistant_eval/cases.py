@@ -7,11 +7,25 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
-from assistant_eval.grading import ACTION_TYPES, EXPECT_KEYS, KNOWN_GAMES, MATCHER_OPS, TILE_PREDICATE_KEYS
+from assistant_eval.fixtures import validate_fixtures, validate_state_checks
+from assistant_eval.grading import (
+    ACTION_TYPES,
+    EXPECT_KEYS,
+    KNOWN_GAMES,
+    MATCHER_OPS,
+    PLANNED_TOOLS,
+    TILE_PREDICATE_KEYS,
+    TILE_SORT_KEYS,
+    tile_specs,
+)
 
 DEFAULT_CASES_PATH = Path(__file__).resolve().parent / "cases.yaml"
-CASE_KEYS = frozenset({"id", "category", "description", "holdout", "turns"})
-TURN_KEYS = frozenset({"ask", "card_ids", "expect", "rubric"})
+CASE_KEYS = frozenset(
+    {"id", "category", "description", "holdout", "turns", "review_label", "fixtures", "writes", "state_checks"}
+)
+# reference: the owner's reference answer (judge guidance). retry: resend the previous
+# turn's exact request (same client_message_id), e.g. to prove a write is idempotent.
+TURN_KEYS = frozenset({"ask", "card_ids", "expect", "rubric", "reference", "retry"})
 _ID = re.compile(r"^[a-z0-9_]+$")
 
 
@@ -75,6 +89,25 @@ def _check_matcher(where: str, spec: Any, errors: list[str]) -> None:
         errors.append(f"{where}: a list is not a matcher; use {{in: [...]}}")
 
 
+def _check_tile_predicate(where: str, predicate: Any, errors: list[str], *, allow_id: bool) -> None:
+    if allow_id and isinstance(predicate, str) and predicate:
+        return
+    if not isinstance(predicate, dict) or not predicate:
+        errors.append(f"{where}: must be {'a card id or ' if allow_id else ''}a non-empty mapping")
+        return
+    for key in sorted(set(predicate) - TILE_PREDICATE_KEYS):
+        errors.append(f"{where}: unknown tile predicate {key!r}")
+    for key in ("game", "game_not"):
+        if key in predicate and predicate[key] not in KNOWN_GAMES:
+            errors.append(f"{where}: {key} must be one of {KNOWN_GAMES}")
+    for key in ("name_regex", "set_regex", "variant_regex", "rarity_regex"):
+        if key in predicate:
+            try:
+                re.compile(str(predicate[key]))
+            except re.error as error:
+                errors.append(f"{where}.{key}: bad regex: {error}")
+
+
 def _tools(where: str, names: Any, known: frozenset[str], errors: list[str]) -> None:
     if not isinstance(names, list) or not names:
         errors.append(f"{where}: must be a non-empty list of tool names")
@@ -106,15 +139,49 @@ def _validate_expect(where: str, expect: Any, known: frozenset[str], banned: Ite
         for path, matcher in spec["where"].items():
             _check_matcher(f"{spot}.where.{path}", matcher, errors)
     for i, predicate in enumerate(expect.get("tiles_none_match") or []):
-        spot = f"{where}.tiles_none_match[{i}]"
-        if not isinstance(predicate, dict) or not predicate:
-            errors.append(f"{spot}: must be a non-empty mapping")
+        _check_tile_predicate(f"{where}.tiles_none_match[{i}]", predicate, errors, allow_id=False)
+    for key in ("tiles_exact", "tiles_include", "tiles_within"):
+        if key not in expect:
             continue
-        for key in sorted(set(predicate) - TILE_PREDICATE_KEYS):
-            errors.append(f"{spot}: unknown tile predicate {key!r}")
-        for key in ("game", "game_not"):
-            if key in predicate and predicate[key] not in KNOWN_GAMES:
-                errors.append(f"{spot}: {key} must be one of {KNOWN_GAMES}")
+        specs, _ = tile_specs(expect[key])
+        if not specs and key != "tiles_exact":
+            errors.append(f"{where}.{key}: needs at least one card id or tile predicate")
+        for i, spec in enumerate(specs):
+            _check_tile_predicate(f"{where}.{key}[{i}]", spec, errors, allow_id=True)
+    quantity = expect.get("tile_quantity")
+    if quantity is not None:
+        if not isinstance(quantity, dict) or not isinstance(quantity.get("quantity"), int) or not (
+            quantity.get("card_id") or quantity.get("match")
+        ):
+            errors.append(f"{where}.tile_quantity: needs card_id (or match) and an integer quantity")
+        elif quantity.get("match") is not None:
+            _check_tile_predicate(f"{where}.tile_quantity.match", quantity["match"], errors, allow_id=True)
+    if "tiles_label" in expect:
+        try:
+            re.compile(str(expect["tiles_label"]))
+        except re.error as error:
+            errors.append(f"{where}.tiles_label: bad regex: {error}")
+    if "tiles_sorted" in expect and expect["tiles_sorted"] not in TILE_SORT_KEYS:
+        errors.append(f"{where}.tiles_sorted: must be one of {TILE_SORT_KEYS}")
+    if "tiles_max" in expect and (not isinstance(expect["tiles_max"], int) or expect["tiles_max"] < 0):
+        errors.append(f"{where}.tiles_max: must be a non-negative integer")
+    for i, spec in enumerate(expect.get("tool_result_where") or []):
+        spot = f"{where}.tool_result_where[{i}]"
+        if not isinstance(spec, dict) or spec.get("tool") not in known or not isinstance(spec.get("where"), dict) or not spec["where"]:
+            errors.append(f"{spot}: needs tool = a known tool name and a non-empty where")
+            continue
+        for path, matcher in spec["where"].items():
+            _check_matcher(f"{spot}.where.{path}", matcher, errors)
+    write = expect.get("expect_write")
+    if write is not None:
+        if not isinstance(write, dict):
+            errors.append(f"{where}.expect_write: must be a mapping with params")
+        else:
+            for path, matcher in (write.get("params") or {}).items():
+                _check_matcher(f"{where}.expect_write.params.{path}", matcher, errors)
+    ids = expect.get("proposed_card_ids")
+    if ids is not None and (not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids)):
+        errors.append(f"{where}.proposed_card_ids: must be a non-empty list of card ids")
     for key in ("must_not_contain", "must_contain_any"):
         if key in expect:
             value = expect[key]
@@ -145,7 +212,8 @@ def _validate_expect(where: str, expect: Any, known: frozenset[str], banned: Ite
 
 def validate_cases(data: Any, known_tools: frozenset[str] | None = None) -> list[str]:
     """Human-readable problems; [] means the file is well-formed."""
-    known = known_tools if known_tools is not None else assistant_tool_names()
+    # Planned tools (other agents' work) may be named before they exist; their checks skip.
+    known = (known_tools if known_tools is not None else assistant_tool_names()) | PLANNED_TOOLS
     errors: list[str] = []
     if not isinstance(data, dict) or not isinstance(data.get("cases"), list):
         return ["top level must be a mapping with a `cases` list"]
@@ -177,6 +245,14 @@ def validate_cases(data: Any, known_tools: frozenset[str] | None = None) -> list
             errors.append(f"{where}: unknown key {key!r}")
         if "holdout" in case and not isinstance(case["holdout"], bool):
             errors.append(f"{where}: holdout must be true/false")
+        if "writes" in case and not isinstance(case["writes"], bool):
+            errors.append(f"{where}: writes must be true/false")
+        if "fixtures" in case:
+            validate_fixtures(where, case["fixtures"], errors)
+        if "state_checks" in case:
+            validate_state_checks(where, case["state_checks"], errors)
+            if not case.get("writes"):
+                errors.append(f"{where}: state_checks need writes: true (they run on the DB copy)")
         if not isinstance(case.get("category"), str) or not case["category"].strip():
             errors.append(f"{where}: category is required")
         turns = case.get("turns")
@@ -199,6 +275,14 @@ def validate_cases(data: Any, known_tools: frozenset[str] | None = None) -> list
                 or not all(isinstance(item, str) and item for item in card_ids)
             ):
                 errors.append(f"{spot}: card_ids must be 1..20 card id strings")
+            if "reference" in turn and (not isinstance(turn["reference"], str) or not turn["reference"].strip()):
+                errors.append(f"{spot}: reference must be a non-empty string")
+            if turn.get("retry") is not None:
+                if not isinstance(turn["retry"], bool):
+                    errors.append(f"{spot}: retry must be true/false")
+                elif turn["retry"] and (number == 1 or turns[number - 2].get("ask") != ask
+                                        or turns[number - 2].get("card_ids") != card_ids):
+                    errors.append(f"{spot}: a retry turn repeats the previous turn's ask/card_ids exactly")
             if "rubric" in turn:
                 rubric = turn["rubric"]
                 items = [rubric] if isinstance(rubric, str) else rubric
