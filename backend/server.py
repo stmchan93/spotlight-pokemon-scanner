@@ -188,6 +188,7 @@ from ebay_comps import (
 # and the qualified names keep the seam visible at every call site.
 import ebay_listings
 from sealed_products import is_sealed_card, search_sealed_products
+from expansion_eras import classify_expansions, parse_payload as parse_expansion_payload
 import calendar_feed
 import expo_push
 import hot_cards
@@ -15015,12 +15016,29 @@ class SpotlightScanService:
         expansions = list_persisted_expansions(self.connection, game=normalized_game)
         if not expansions:
             expansions = list_local_expansions(self.connection, game=normalized_game)
+        # Online-only (TCG Pocket) sets are dropped here, and every set gains
+        # `era` + `isPromo` for the grouped sets list (expansion_eras.py).
+        expansions = classify_expansions(expansions, self._expansion_classification_meta(normalized_game))
         totals = self._expansion_set_totals(normalized_game)
         for expansion in expansions:
             set_totals = totals.get(str(expansion.get("id") or ""), {})
             expansion["cardCount"] = int(set_totals.get("cardCount") or 0)
             expansion["setValue"] = set_totals.get("setValue")
         return {"expansions": expansions}
+
+    def _expansion_classification_meta(self, game: str) -> dict[str, dict[str, Any]]:
+        """`{id: {"source_provider", "payload"}}` for one game's expansion rows."""
+        rows = self.connection.execute(
+            "SELECT id, source_provider, source_payload_json FROM expansions WHERE +game = ?",
+            (game,),
+        ).fetchall()
+        return {
+            str(row["id"]): {
+                "source_provider": row["source_provider"],
+                "payload": parse_expansion_payload(row["source_payload_json"]),
+            }
+            for row in rows
+        }
 
     def _expansion_set_totals(self, game: str) -> dict[str, dict[str, Any]]:
         return self._expansion_pricing_bundle(game)[0]

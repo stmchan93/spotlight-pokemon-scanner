@@ -1,5 +1,5 @@
 import { NavArrowLeft } from 'iconoir-react-native';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Image,
@@ -25,6 +25,7 @@ import {
   GlassNavBubble,
   PillButton,
   SearchField,
+  SectionHeader,
   StateCard,
   Text,
   glassNavBubbleGlyphSize,
@@ -40,7 +41,7 @@ import { SetProgressCard } from '@/features/catalog/components/set-progress-card
 import { useCatalogCardSearch } from '@/features/catalog/hooks/use-catalog-card-search';
 import { useGameExpansions } from '@/features/catalog/hooks/use-game-expansions';
 import { useSetProgress } from '@/features/catalog/hooks/use-set-progress';
-import { setCompletion } from '@/features/catalog/set-progress';
+import { groupSetsByEra, setCompletion, type SetListRow } from '@/features/catalog/set-progress';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 
 type GameSetsScreenProps = {
@@ -62,6 +63,11 @@ const SETS_BANNER = require('../../../../assets/images/catalog/sets-banner.jpg')
  * CHIPS switch games in place, and every set of that game is a card — logo,
  * name, release date, a progress bar, "X of Y CARDS" and the percent —
  * newest first, 0% sets included.
+ *
+ * GROUPED BY ERA when the backend sends one (Pokémon: "MEGA EVOLUTION",
+ * "SCARLET & VIOLET", …): eras newest first, each era's promos after its main
+ * sets. Games with no eras stay one flat list, promos last. Online-only sets
+ * (TCG Pocket) never arrive — the backend drops them.
  *
  * THE SEARCH FOLLOWS YOU DOWN. It is the same card search the catalog has,
  * scoped to the game on screen; set names are searchable, so "obsidian flames"
@@ -91,9 +97,10 @@ export function GameSetsScreen({
   const searchFieldRef = useRef<TextInput>(null);
   const [openingResultId, setOpeningResultId] = useState<string | null>(null);
 
-  // The backend returns `release_date DESC NULLS LAST, name ASC` — newest first,
-  // rendered verbatim.
-  const expansions = byGame[game] ?? [];
+  // The backend returns `release_date DESC NULLS LAST, name ASC` — newest first;
+  // grouping keeps that order inside each era.
+  const expansions = useMemo(() => byGame[game] ?? [], [byGame, game]);
+  const rows = useMemo(() => groupSetsByEra(expansions), [expansions]);
   // The route's game stays a chip even before its sets load, so the row never
   // jumps under the selected chip.
   const chipGames = games.includes(game) ? games : [game, ...games];
@@ -198,20 +205,26 @@ export function GameSetsScreen({
     return (
       <FlatList
         contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.lg }]}
-        data={expansions}
+        data={rows}
         key="sets"
-        keyExtractor={(item) => item.id}
+        keyExtractor={(row: SetListRow) => row.key}
         keyboardShouldPersistTaps="handled"
-        renderItem={({ item }) => (
-          <SetProgressCard
-            completion={setCompletion(item.cardCount, ownedByExpansion[item.id] ?? 0)}
-            logoUrl={item.imageUrl}
-            name={item.name}
-            onPress={() => onSelectExpansion(item, game)}
-            releaseDate={item.releaseDate}
-            testID={`game-sets-expansion-${item.id}`}
-          />
-        )}
+        renderItem={({ item: row }: { item: SetListRow }) =>
+          row.kind === 'era' ? (
+            <View style={styles.eraHeader}>
+              <SectionHeader size="compact" testID={`game-sets-era-${row.era}`} title={row.era} uppercase />
+            </View>
+          ) : (
+            <SetProgressCard
+              completion={setCompletion(row.expansion.cardCount, ownedByExpansion[row.expansion.id] ?? 0)}
+              logoUrl={row.expansion.imageUrl}
+              name={row.expansion.name}
+              onPress={() => onSelectExpansion(row.expansion, game)}
+              releaseDate={row.expansion.releaseDate}
+              testID={`game-sets-expansion-${row.expansion.id}`}
+            />
+          )
+        }
         showsVerticalScrollIndicator={false}
         style={styles.body}
         testID="game-sets-list"
@@ -330,6 +343,10 @@ const styles = StyleSheet.create({
   },
   controls: {
     gap: 10,
+  },
+  // The list's own gap sits under the heading; extra air above separates eras.
+  eraHeader: {
+    marginTop: spacing.sm,
   },
   header: {
     paddingBottom: spacing.sm,

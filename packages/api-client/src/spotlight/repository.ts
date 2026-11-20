@@ -8443,7 +8443,16 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     if (response.kind !== 'success') {
       return [];
     }
-    return Array.isArray(response.data?.expansions) ? response.data.expansions : [];
+    if (!Array.isArray(response.data?.expansions)) {
+      return [];
+    }
+    // `era` / `isPromo` are additive: anything that is not a non-empty string /
+    // literal true reads as "no era" / "not a promo".
+    return response.data.expansions.map((expansion) => ({
+      ...expansion,
+      era: typeof expansion.era === 'string' && expansion.era.trim() ? expansion.era.trim() : null,
+      isPromo: expansion.isPromo === true,
+    }));
   }
 
   async getSetProgress(game: CardGame): Promise<SetProgress> {

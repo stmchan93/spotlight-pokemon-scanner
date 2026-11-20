@@ -1,9 +1,10 @@
-import type { CatalogSearchResult, InventoryCardEntry } from '@spotlight/api-client';
+import type { CatalogSearchResult, ExpansionRecord, InventoryCardEntry } from '@spotlight/api-client';
 
 import {
   completionCountLabel,
   filterSetCards,
   formatSetReleaseDate,
+  groupSetsByEra,
   ownedCopyLabel,
   ownedCountsByExpansion,
   rarityChipsForCards,
@@ -107,5 +108,57 @@ describe('ownedCopyLabel', () => {
       kind: 'graded',
       slabContext: { grader: 'PSA', grade: '10', certNumber: null, variantName: 'PSA 10' },
     } as InventoryCardEntry)).toBe('PSA 10');
+  });
+});
+
+function set(id: string, releaseDate: string, era: string | null, isPromo = false): ExpansionRecord {
+  return { id, name: id, series: era, code: null, releaseDate, imageUrl: null, era, isPromo };
+}
+
+function rowLabels(expansions: ExpansionRecord[]): string[] {
+  return groupSetsByEra(expansions).map((row) => (row.kind === 'era' ? `# ${row.era}` : row.expansion.id));
+}
+
+describe('groupSetsByEra', () => {
+  it("orders eras newest first by their newest MAIN set, promos after each era's mains", () => {
+    // Backend order: newest first. A brand-new promo in the old era must not
+    // pull that era above the newer one.
+    const expansions = [
+      set('sv-promo-2026', '2026/11/06', 'Scarlet & Violet', true),
+      set('me2', '2025/11/14', 'Mega Evolution'),
+      set('mep', '2025/09/26', 'Mega Evolution', true),
+      set('me1', '2025/09/26', 'Mega Evolution'),
+      set('sv10', '2025/05/30', 'Scarlet & Violet'),
+      set('svp', '2023/01/01', 'Scarlet & Violet', true),
+      set('sv1', '2023/03/31', 'Scarlet & Violet'),
+    ];
+    expect(rowLabels(expansions)).toEqual([
+      '# Mega Evolution',
+      'me2',
+      'me1',
+      'mep',
+      '# Scarlet & Violet',
+      'sv10',
+      'sv1',
+      'sv-promo-2026',
+      'svp',
+    ]);
+  });
+
+  it('keeps games without eras flat, newest first, promos last', () => {
+    const expansions = [
+      set('op-promo', '2026/01/01', null, true),
+      set('op10', '2025/03/21', null),
+      set('op01', '2022/12/02', null),
+    ];
+    expect(rowLabels(expansions)).toEqual(['op10', 'op01', 'op-promo']);
+  });
+
+  it("leaves an older backend's list (no era / isPromo) untouched", () => {
+    const legacy: ExpansionRecord[] = [
+      { id: 'b', name: 'b', series: null, code: null, releaseDate: '2025/01/01', imageUrl: null },
+      { id: 'a', name: 'a', series: null, code: null, releaseDate: '2024/01/01', imageUrl: null },
+    ];
+    expect(rowLabels(legacy)).toEqual(['b', 'a']);
   });
 });

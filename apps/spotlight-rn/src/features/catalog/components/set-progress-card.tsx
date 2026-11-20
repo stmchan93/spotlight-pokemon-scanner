@@ -46,10 +46,15 @@ export function SetProgressCard({
   const [hasLogoError, setHasLogoError] = useState(false);
   const isHeader = variant === 'header';
   const date = formatSetReleaseDate(releaseDate);
+  // No logo (TCGplayer-only sets have none) or a logo that failed: the NAME
+  // takes the logo slot as a wordmark, and the title row keeps just the date,
+  // so the card never shows an empty box or the name twice.
+  const showsLogo = !isHeader && Boolean(logoUrl) && !hasLogoError;
+  const nameInLogoSlot = !isHeader && !showsLogo;
 
   const body = (
     <>
-      {!isHeader && logoUrl && !hasLogoError ? (
+      {showsLogo && logoUrl ? (
         <Image
           accessibilityIgnoresInvertColors
           onError={() => setHasLogoError(true)}
@@ -59,13 +64,24 @@ export function SetProgressCard({
           testID={testID ? `${testID}-logo` : undefined}
         />
       ) : null}
+      {nameInLogoSlot ? (
+        <View style={styles.logoNameSlot} testID={testID ? `${testID}-logo-name` : undefined}>
+          <Text numberOfLines={2} style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
+            {name}
+          </Text>
+        </View>
+      ) : null}
       <View style={styles.titleRow}>
-        <Text
-          numberOfLines={1}
-          style={[styles.title, theme.typography.feedRowTitle, { color: theme.colors.gray900 }]}
-        >
-          {isHeader ? name.toUpperCase() : name}
-        </Text>
+        {nameInLogoSlot ? (
+          <View style={styles.title} />
+        ) : (
+          <Text
+            numberOfLines={1}
+            style={[styles.title, theme.typography.feedRowTitle, { color: theme.colors.gray900 }]}
+          >
+            {isHeader ? name.toUpperCase() : name}
+          </Text>
+        )}
         {date ? (
           <Text
             numberOfLines={1}
@@ -152,6 +168,11 @@ const styles = StyleSheet.create({
   listLogo: {
     height: LIST_LOGO_HEIGHT,
     width: LIST_LOGO_WIDTH,
+  },
+  // Same height as the logo slot so cards with and without a logo line up.
+  logoNameSlot: {
+    justifyContent: 'center',
+    minHeight: LIST_LOGO_HEIGHT,
   },
   progressBlock: {
     gap: spacing.xxxs,

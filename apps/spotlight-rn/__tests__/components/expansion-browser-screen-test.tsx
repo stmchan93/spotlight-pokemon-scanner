@@ -5,6 +5,8 @@ import { CARD_GAMES, MockSpotlightRepository, type CardGame, type ExpansionRecor
 import { ExpansionBrowserScreen } from '@/features/catalog/screens/expansion-browser-screen';
 import { GameSetsScreen } from '@/features/catalog/screens/game-sets-screen';
 
+import { type SetListRow } from '@/features/catalog/set-progress';
+
 import { renderWithProviders } from '../test-utils';
 
 /**
@@ -98,7 +100,11 @@ describe('GameSetsScreen', () => {
     );
 
     const list = await screen.findByTestId('game-sets-list');
-    expect(list.props.data.map((item: ExpansionRecord) => item.id)).toEqual(['sv8', 'sv-jp-1', 'sm7']);
+    expect(list.props.data.map((row: SetListRow) => (row.kind === 'set' ? row.expansion.id : row.era))).toEqual([
+      'sv8',
+      'sv-jp-1',
+      'sm7',
+    ]);
     expect(screen.getByText('Pokémon')).toBeTruthy();
     expect(screen.getByPlaceholderText(/search card/i)).toBeTruthy();
 
@@ -275,5 +281,55 @@ describe('GameSetsScreen', () => {
     await waitFor(() => expect(screen.queryByTestId('game-sets-list')).not.toBeOnTheScreen());
 
     expect(screen.getByTestId('game-sets-search')).toBe(field);
+  });
+});
+
+describe('GameSetsScreen era grouping', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('groups sets under era headings, newest era first, promos after mains', async () => {
+    mockSetProgress();
+    jest.spyOn(MockSpotlightRepository.prototype, 'listExpansions').mockImplementation(async () => [
+      expansion({ id: 'tcgplayer-group-1', name: "McDonald's Promos 2026", releaseDate: '2026/11/06', era: 'Mega Evolution', isPromo: true, imageUrl: null }),
+      expansion({ id: 'me2', name: 'Phantasmal Flames', releaseDate: '2025/11/14', era: 'Mega Evolution', isPromo: false }),
+      expansion({ id: 'sv10', name: 'Destined Rivals', releaseDate: '2025/05/30', era: 'Scarlet & Violet', isPromo: false }),
+      expansion({ id: 'svp', name: 'SV Black Star Promos', releaseDate: '2023/01/01', era: 'Scarlet & Violet', isPromo: true }),
+      expansion({ id: 'sv1', name: 'Scarlet & Violet', releaseDate: '2023/03/31', era: 'Scarlet & Violet', isPromo: false }),
+    ]);
+
+    renderWithProviders(
+      <GameSetsScreen game="pokemon" onClose={jest.fn()} onOpenCard={jest.fn()} onSelectExpansion={jest.fn()} />,
+    );
+
+    const list = await screen.findByTestId('game-sets-list');
+    expect(
+      list.props.data.map((row: SetListRow) => (row.kind === 'era' ? `# ${row.era}` : row.expansion.id)),
+    ).toEqual(['# Mega Evolution', 'me2', 'tcgplayer-group-1', '# Scarlet & Violet', 'sv10', 'sv1', 'svp']);
+    expect(screen.getByText('MEGA EVOLUTION')).toBeTruthy();
+    expect(screen.getByText('SCARLET & VIOLET')).toBeTruthy();
+  });
+
+  it('shows the set name in place of a missing logo, and the logo when there is one', async () => {
+    mockSetProgress();
+    jest.spyOn(MockSpotlightRepository.prototype, 'listExpansions').mockImplementation(async () => [
+      expansion({ id: 'no-logo', name: 'ME06: Delta Reign', releaseDate: '2026/11/06', imageUrl: null }),
+      expansion({ id: 'with-logo', name: 'Phantasmal Flames', releaseDate: '2025/11/14' }),
+    ]);
+
+    renderWithProviders(
+      <GameSetsScreen game="pokemon" onClose={jest.fn()} onOpenCard={jest.fn()} onSelectExpansion={jest.fn()} />,
+    );
+
+    const slot = await screen.findByTestId('game-sets-expansion-no-logo-logo-name');
+    expect(slot).toHaveTextContent('ME06: Delta Reign');
+    expect(screen.queryByTestId('game-sets-expansion-no-logo-logo')).toBeNull();
+    // Shown once, not again in the title row.
+    expect(screen.getAllByText('ME06: Delta Reign')).toHaveLength(1);
+
+    expect(screen.getByTestId('game-sets-expansion-with-logo-logo')).toBeTruthy();
+    expect(screen.queryByTestId('game-sets-expansion-with-logo-logo-name')).toBeNull();
+    expect(screen.getByText('Phantasmal Flames')).toBeTruthy();
   });
 });

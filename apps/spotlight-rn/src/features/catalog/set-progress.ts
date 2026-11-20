@@ -2,6 +2,7 @@ import {
   setRarityChipsForGame,
   type CardGame,
   type CatalogSearchResult,
+  type ExpansionRecord,
   type InventoryCardEntry,
   type RarityBucket,
   type SetProgress,
@@ -132,4 +133,68 @@ export function ownedCopyLabel(entry: InventoryCardEntry): string {
     parts.push(entry.conditionLabel ?? entry.conditionShortLabel ?? 'Near Mint');
   }
   return parts.join(' · ');
+}
+
+/** One row of the grouped sets list: an era heading or a set card. */
+export type SetListRow =
+  | { kind: 'era'; key: string; era: string }
+  | { kind: 'set'; key: string; expansion: ExpansionRecord };
+
+function releaseKey(expansion: ExpansionRecord): string {
+  return (expansion.releaseDate ?? '').trim().replace(/-/g, '/');
+}
+
+/** Main sets in arrival order, then promos in arrival order. */
+function mainsThenPromos(expansions: ExpansionRecord[]): ExpansionRecord[] {
+  return [...expansions.filter((item) => !item.isPromo), ...expansions.filter((item) => item.isPromo)];
+}
+
+/**
+ * The sets list's rows. `expansions` arrive newest first (the backend's order).
+ *
+ * With eras (the backend's `era`, Scrydex series): one heading per era, eras
+ * newest first by their newest MAIN set, and inside each era its main sets then
+ * its promos, both newest first. Sets without an era (not expected once the
+ * backend assigns one) trail at the end with no heading.
+ *
+ * Without eras (One Piece, Lorcana, … carry no series; older backends send no
+ * `era`): the flat newest-first list, promos last.
+ */
+export function groupSetsByEra(expansions: ExpansionRecord[]): SetListRow[] {
+  const setRow = (expansion: ExpansionRecord): SetListRow => ({ kind: 'set', key: expansion.id, expansion });
+  if (!expansions.some((item) => item.era)) {
+    return mainsThenPromos(expansions).map(setRow);
+  }
+
+  const groups = new Map<string, ExpansionRecord[]>();
+  const unassigned: ExpansionRecord[] = [];
+  for (const expansion of expansions) {
+    if (expansion.era) {
+      const group = groups.get(expansion.era) ?? [];
+      group.push(expansion);
+      groups.set(expansion.era, group);
+    } else {
+      unassigned.push(expansion);
+    }
+  }
+
+  const newest = (group: ExpansionRecord[]) => {
+    const mains = group.filter((item) => !item.isPromo);
+    return (mains.length > 0 ? mains : group).reduce(
+      (latest, item) => (releaseKey(item) > latest ? releaseKey(item) : latest),
+      '',
+    );
+  };
+  // Stable sort: eras tied on date keep first-appearance order.
+  const eras = [...groups.entries()]
+    .map(([era, group]) => ({ era, group, newest: newest(group) }))
+    .sort((a, b) => (a.newest === b.newest ? 0 : a.newest > b.newest ? -1 : 1));
+
+  const rows: SetListRow[] = [];
+  for (const { era, group } of eras) {
+    rows.push({ kind: 'era', key: `era:${era}`, era });
+    rows.push(...mainsThenPromos(group).map(setRow));
+  }
+  rows.push(...mainsThenPromos(unassigned).map(setRow));
+  return rows;
 }

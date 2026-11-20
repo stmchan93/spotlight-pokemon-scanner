@@ -1302,6 +1302,15 @@ export type ExpansionRecord = {
    * USD). Null when nothing is priced; absent on older backends. Hidden either way.
    */
   setValue?: number | null;
+  /**
+   * The era heading the sets list groups this set under (Scrydex series, e.g.
+   * "Scarlet & Violet"; series-less sets are assigned one by release date).
+   * Null for games with no series data; absent on older backends — the list is
+   * then flat.
+   */
+  era?: string | null;
+  /** Promo set (TCGplayer-only group in an era'd game, or a promo name): listed after its era's main sets. */
+  isPromo?: boolean;
 };
 
 /** One set the signed-in user owns at least one card of. */
