@@ -998,6 +998,52 @@ def art_groups(conn: sqlite3.Connection, card_ids: list[str]) -> dict[str, str]:
     return groups
 
 
+def artwork_groups(conn: sqlite3.Connection, card_ids: list[str]) -> dict[str, str]:
+    """art_groups plus EN<->JP linked pairs (card_language_links) merged into one group,
+    since a pair tagged before its link landed sits in two groups."""
+    ids = list(dict.fromkeys(str(card_id) for card_id in card_ids if card_id))
+    groups = art_groups(conn, ids)
+    if not ids:
+        return groups
+    try:
+        rows = conn.execute(
+            "SELECT card_id, counterpart_card_id FROM card_language_links "
+            f"WHERE card_id IN ({','.join('?' * len(ids))})",
+            ids,
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return groups
+    wanted = set(ids)
+    for source, target in rows:
+        source, target = str(source), str(target)
+        if target not in wanted:
+            continue
+        key = groups.get(source) or groups.get(target) or source
+        stale = {groups.get(source), groups.get(target)} - {None, key}
+        for card_id, group in list(groups.items()):
+            if group in stale:
+                groups[card_id] = key
+        groups[source] = groups[target] = key
+    return groups
+
+
+MAX_ART_TILES = 3
+_ASKS_JAPANESE = re.compile(r"\b(japanese|jp|jpn)\b", re.IGNORECASE)
+
+
+def art_search_tiles(
+    tiles: list[dict[str, Any]], groups: dict[str, str], *, question: str, text: str
+) -> list[dict[str, Any]]:
+    """Art/vibe answers: one tile per artwork across languages (English unless the
+    user asked for Japanese), named cards first, at most MAX_ART_TILES."""
+    preferred = "japanese" if _ASKS_JAPANESE.search(question or "") else "english"
+    tiles = collapse_same_art(tiles, groups, preferred_language=preferred)[0]
+    named = _named_ids(tiles, text)
+    ordered = [tile for tile in order_by_mention(tiles, text) if id(tile) in named]
+    ordered += [tile for tile in tiles if id(tile) not in named]
+    return ordered[:MAX_ART_TILES]
+
+
 def _language(item: dict[str, Any]) -> str:
     language = str(item.get("language") or "").strip().casefold()
     if language:
@@ -1278,7 +1324,7 @@ class AssistantToolbox:
             raise ToolInputError(str(error)) from None
         result = self.policy.shape(getattr(self.tools, name)(owner_user_id, **kwargs))
         if name == "search_cards" and isinstance(result, dict) and uses_art_filters(kwargs.get("card_filter") or {}):
-            result = self._collapse_art_results(result, kwargs.get("card_filter") or {})
+            result = self._collapse_art_results(result, kwargs.get("card_filter") or {}, question)
         if name == "get_portfolio_summary" and isinstance(result, dict):
             movers = args.get("focus") == "movers" or is_movers_question(question)
             result = movers_only(result) if movers else result
@@ -1307,13 +1353,16 @@ class AssistantToolbox:
             )
         return ToolOutcome(strip_for_model(result), cards=card_refs(result), chart=chart)
 
-    def _collapse_art_results(self, result: dict[str, Any], card_filter: dict[str, Any]) -> dict[str, Any]:
+    def _collapse_art_results(
+        self, result: dict[str, Any], card_filter: dict[str, Any], question: str = ""
+    ) -> dict[str, Any]:
         """Art searches show one printing per artwork so the user sees more distinct scenes."""
         items = [item for item in result.get("results") or [] if isinstance(item, dict)]
         language = str(card_filter.get("language") or "")
-        preferred = language if language in ("English", "Japanese") else "English"
+        if language not in ("English", "Japanese"):
+            language = "Japanese" if _ASKS_JAPANESE.search(question or "") else "English"
         kept, hidden = collapse_same_art(
-            items, art_groups(self.conn, [str(item.get("card_id")) for item in items]), preferred_language=preferred
+            items, artwork_groups(self.conn, [str(item.get("card_id")) for item in items]), preferred_language=language
         )
         if not hidden:
             return result
@@ -1621,6 +1670,7 @@ class AssistantToolbox:
         holding_refs: list[dict[str, Any]] | None = None,
         language_pairs: dict[str, str] | None = None,
         tools_used: set[str] | frozenset[str] = frozenset(),
+        art_search: bool = False,
     ) -> tuple[list[dict[str, Any]], str | None, dict[str, Any] | None, list[dict[str, Any]]]:
         """(cards, cards_label, cards_view_all, charts). fixed=True (an executed
         direct add) shows the selection as is; otherwise choose_tiles decides,
@@ -1642,6 +1692,10 @@ class AssistantToolbox:
                 holding_refs=holding_refs or [], language_pairs=language_pairs or {},
                 keep_ids=keep_ids or set(), always_ids=always_ids or set(), tools_used=tools_used,
             )
+            # Counterpart questions keep their EN/JP pair; other art answers show one tile per artwork.
+            if art_search and not always_ids and not charts and counterpart_language(question) is None:
+                groups = artwork_groups(self.conn, [str(tile["card_id"]) for tile in tiles])
+                tiles = art_search_tiles(tiles, groups, question=question, text=text)
         charts = charts[:MAX_CHARTS]
         on_watchlist = bool(watchlist_ids) and bool(tiles) and all(tile["card_id"] in watchlist_ids for tile in tiles)
         if on_watchlist:

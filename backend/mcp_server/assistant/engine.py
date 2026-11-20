@@ -115,7 +115,7 @@ Final checks before answering:
 - Price history answers: the first sentence states the price condition (e.g. Near Mint) and printing, with the dated move.
 - Collection value (whole or scoped): the first sentence is the total in USD.
 - Several printings and no set/number given: ask which one.
-- A follow-up that narrows your last answer ("only singles") gets 1-2 sentences with just the new result.
+- A follow-up that narrows your last answer ("only singles") gets 1-2 short sentences (under 40 words) with just the new result.
 - Explaining prices: say plainly that a market price is roughly what copies have recently sold for.
 - Name only app features from the list above."""
 
@@ -455,7 +455,7 @@ class TurnResult:
     round_limit_hit: bool = False
     word_limit: int | None = None
     sentence_limit: int | None = None
-    length_guard: str | None = None  # None | "rewrite" | "trim"
+    length_guard: str | None = None  # None | "rewrite" | "trim" | "drop" (internal-wording sentences dropped)
 
 
 def _distinct_charts(charts: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -546,22 +546,33 @@ class AssistantEngine:
         )
 
     async def _enforce_length(
-        self, text: str, result: TurnResult, tool_payloads: list[str], *, reserve: int = 0, reserve_sentences: int = 0
+        self, text: str, result: TurnResult, tool_payloads: list[str], *, reserve: int = 0, reserve_sentences: int = 0,
+        names: list[str] | tuple[str, ...] = (),
     ) -> str:
-        """Over the turn's word (or sentence) limit: one low-effort rewrite, kept only if it fits
-        and every tool-backed number survives; else a sentence-boundary trim. Tables are left alone."""
+        """Over the turn's word (or sentence) limit, or talking about tags/searches/tools/filters:
+        one low-effort rewrite covering both, kept only if it fixes them and every tool-backed
+        number survives; else drop the internal sentences, then a sentence-boundary trim.
+        Tables are left alone."""
         limit = max(10, result.word_limit - reserve) if result.word_limit else None
         sentences = max(1, result.sentence_limit - reserve_sentences) if result.sentence_limit else None
-        if not limit or "\n|" in "\n" + text or not length_guard.over_limit(text, limit, sentences):
+        if not limit or "\n|" in "\n" + text:
             return text
+        over = length_guard.over_limit(text, limit, sentences)
+        internal = length_guard.has_internal_wording(text, names)
+        if not over and not internal:
+            return text
+        if over:
+            system = length_guard.REWRITE_INSTRUCTION.format(
+                limit=limit, sentences=f" and {sentences} sentences" if sentences else ""
+            ) + (" " + length_guard.NO_INTERNAL_INSTRUCTION if internal else "")
+        else:
+            system = length_guard.REWRITE_INTERNAL_ONLY
         rewrite = ""
         try:
             response = await self.client.messages.create(
                 model=self.config.model,
                 max_tokens=length_guard.REWRITE_MAX_TOKENS,
-                system=length_guard.REWRITE_INSTRUCTION.format(
-                    limit=limit, sentences=f" and {sentences} sentences" if sentences else ""
-                ),
+                system=system,
                 output_config={"effort": "low"},
                 messages=[{"role": "user", "content": text}],
             )
@@ -575,19 +586,28 @@ class AssistantEngine:
         except Exception as error:  # noqa: BLE001 - the trim below is the fallback
             logger.warning("assistant length rewrite failed: %s", type(error).__name__)
         backed = length_guard.tool_numbers(tool_payloads)
-        if (
-            rewrite
-            and not length_guard.over_limit(rewrite, limit, sentences)
+        shorter = not over or (
+            not length_guard.over_limit(rewrite, limit, sentences)
             and (
                 length_guard.word_count(rewrite) < length_guard.word_count(text)
                 or length_guard.sentence_count(rewrite) < length_guard.sentence_count(text)
             )
+        )
+        if (
+            rewrite
+            and shorter
+            and not (internal and length_guard.has_internal_wording(rewrite, names))
             and length_guard.keeps_numbers(text, rewrite, backed)
         ):
             result.length_guard = "rewrite"
             return rewrite
-        result.length_guard = "trim"
-        return length_guard.trim_to_limit(text, limit, sentences)
+        if internal:
+            text = length_guard.drop_internal_sentences(text, names)
+        if length_guard.over_limit(text, limit, sentences):
+            result.length_guard = "trim"
+            return length_guard.trim_to_limit(text, limit, sentences)
+        result.length_guard = "drop"
+        return text
 
     @staticmethod
     def _account(result: TurnResult, response: Any) -> None:
@@ -813,7 +833,8 @@ class AssistantEngine:
                 length_guard.word_count(length_guard.DISCLAIMER_TEXT) if disclaim else 0
             )
             text = await self._enforce_length(
-                text, result, tool_payloads, reserve=reserve, reserve_sentences=int(appended) + int(disclaim)
+                text, result, tool_payloads, reserve=reserve, reserve_sentences=int(appended) + int(disclaim),
+                names=[str(ref["name"]) for ref in primary_refs + other_refs + extra_refs if ref.get("name")],
             )
             text = ensure_choice_question(text, ask_which)
             if length_guard.needs_disclaimer(text, looked_up):
@@ -844,6 +865,7 @@ class AssistantEngine:
                     holding_refs=holding_refs,
                     language_pairs=language_pairs,
                     tools_used=set(result.tools_used),
+                    art_search=art_search,
                 )
             )
         result.latency_ms = int((time.monotonic() - started) * 1000)
