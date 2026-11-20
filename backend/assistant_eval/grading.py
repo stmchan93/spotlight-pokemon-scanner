@@ -73,6 +73,10 @@ EXPECT_KEYS = frozenset(
         "tiles_sorted",
         "tiles_price_trusted",
         "named_cards_in_tiles",
+        # data-independent tile rules (survive price movement)
+        "tiles_all_named",
+        "tiles_from_tools",
+        "tiles_include_top",
         "chart_card_matches_tile",
         "no_chart",
         # writes
@@ -286,6 +290,17 @@ def result_cards(data: Any) -> list[dict[str, Any]]:
     return found
 
 
+MAX_ROWS = 6
+
+
+def _row_text(row: dict[str, Any]) -> str:
+    """'set=Plasma Storm, change_pct=66.3' for a non-card result row (scalars only)."""
+    return ", ".join(
+        f"{key}={value}" for key, value in row.items()
+        if value is not None and not isinstance(value, (dict, list))
+    )
+
+
 def result_fields(data: Any, *, depth: int = 3) -> dict[str, Any]:
     """Scalar fields (dotted paths) of a tool result, skipping card dicts; date/usd
     point lists collapse to count/first/last/min/max."""
@@ -309,6 +324,10 @@ def result_fields(data: Any, *, depth: int = 3) -> dict[str, Any]:
                     )
                 elif value and all(not isinstance(item, (dict, list)) for item in value):
                     fields[path] = _clip(", ".join(str(item) for item in value), 160)
+                elif value and all(isinstance(item, dict) and not _is_card(item) for item in value):
+                    fields[path] = _clip("; ".join(_row_text(item) for item in value[:MAX_ROWS]), 400) + (
+                        f" (+{len(value) - MAX_ROWS} more)" if len(value) > MAX_ROWS else ""
+                    )
                 elif value and not any(_is_card(item) for item in value):
                     fields[path] = f"{len(value)} items"
             elif value is not None:
@@ -683,6 +702,64 @@ def check_named_cards_in_tiles(record: dict[str, Any]) -> CheckResult:
     return _ok("named_cards_in_tiles")
 
 
+def _named_tile(tile_name: str, names: list[str]) -> bool:
+    tile_name = tile_name.strip().casefold()
+    return any(tile_name == name.casefold() or tile_name.startswith(name.casefold() + " ") for name in names)
+
+
+def check_tiles_all_named(record: dict[str, Any]) -> CheckResult:
+    """Every tile is a card the answer names (no un-named extras)."""
+    names = named_cards(record)
+    extra = [_tile_label(card) for card in _tiles(record) if not _named_tile(str(card.get("name") or ""), names)]
+    if extra:
+        return _fail("tiles_all_named", f"tiles the answer doesn't name: {extra}")
+    return _ok("tiles_all_named")
+
+
+def _result_keys(record: dict[str, Any], tools: list[str]) -> list[tuple[str, str, str]]:
+    keys = []
+    for tool in tools:
+        for item in _tool_results(record, tool):
+            for card in result_cards(item.get("data")):
+                keys.append((str(card["card_id"]), str(card.get("grader") or ""), str(card.get("grade") or "")))
+    return keys
+
+
+def _tile_in(card: dict[str, Any], keys: list[tuple[str, str, str]]) -> bool:
+    card_id, grader, grade = str(card.get("card_id")), str(card.get("grader") or ""), str(card.get("grade") or "")
+    return any(key[0] == card_id and (not grader or (key[1].casefold(), key[2]) == (grader.casefold(), grade))
+               for key in keys)
+
+
+def check_tiles_from_tools(record: dict[str, Any], tools: list[str]) -> CheckResult:
+    """Every tile came out of these tools' results (same card, and same slab for a graded tile)."""
+    keys = _result_keys(record, tools)
+    if not keys:
+        return _fail("tiles_from_tools", f"no cards in {tools} results")
+    extra = [_tile_label(card) for card in _tiles(record) if not _tile_in(card, keys)]
+    if extra:
+        return _fail("tiles_from_tools", f"tiles not in {tools} results: {extra}")
+    return _ok("tiles_from_tools")
+
+
+def tops(value: Any) -> list[str]:
+    """tiles_include_top: one tool name or a list of them."""
+    if not value:
+        return []
+    return [str(item) for item in value] if isinstance(value, list) else [str(value)]
+
+
+def check_tiles_include_top(record: dict[str, Any], tool: str) -> CheckResult:
+    """The tool's first (top-ranked) result card is a tile (same slab when graded)."""
+    keys = _result_keys(record, [tool])
+    if not keys:
+        return _fail("tiles_include_top", f"no cards in {tool} results")
+    top = keys[0]
+    if any(_tile_in(card, [top]) and bool(card.get("grader")) == bool(top[1]) for card in _tiles(record)):
+        return _ok("tiles_include_top")
+    return _fail("tiles_include_top", f"top {tool} result {top} is not a tile (tiles: {_tiles_text(_tiles(record))})")
+
+
 def check_chart(record: dict[str, Any]) -> CheckResult:
     if record.get("chart_series") or record.get("charts"):
         return _ok("chart_required")
@@ -923,6 +1000,12 @@ def grade_turn(
         results.append(check_tiles_price_trusted(record))
     if expect.get("named_cards_in_tiles"):
         results.append(check_named_cards_in_tiles(record))
+    if expect.get("tiles_all_named"):
+        results.append(check_tiles_all_named(record))
+    if expect.get("tiles_from_tools"):
+        results.append(check_tiles_from_tools(record, list(expect["tiles_from_tools"])))
+    for tool in tops(expect.get("tiles_include_top")):
+        results.append(check_tiles_include_top(record, tool))
     if expect.get("chart_required"):
         results.append(check_chart(record))
     if expect.get("no_chart"):
