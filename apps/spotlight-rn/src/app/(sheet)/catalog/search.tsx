@@ -5,6 +5,8 @@ import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
 import { CatalogSearchScreen } from '@/features/catalog/screens/catalog-search-screen';
 import { useAppServices } from '@/providers/app-providers';
 
+import ExpansionBrowserRoute from './expansion-browser';
+
 export default function CatalogSearchRoute() {
   const router = useRouter();
   const { spotlightRepository } = useAppServices();
@@ -15,6 +17,13 @@ export default function CatalogSearchRoute() {
     q?: string | string[];
   }>();
   const initialQuery = Array.isArray(params.q) ? params.q[0] ?? '' : params.q ?? '';
+
+  // Search opens on the set-progress sets list (Figma 6552:1913: game chips,
+  // per-set completion, a card search box scoped to the game). Only a search
+  // handed in through `q` still lands on the all-games results page.
+  if (!initialQuery) {
+    return <ExpansionBrowserRoute />;
+  }
 
   return (
     <CatalogSearchScreen

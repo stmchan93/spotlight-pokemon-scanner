@@ -1,4 +1,4 @@
-import { NavArrowLeft, Sparks } from 'iconoir-react-native';
+import { NavArrowLeft } from 'iconoir-react-native';
 import { useCallback, useRef, useState } from 'react';
 import {
   FlatList,
@@ -11,6 +11,8 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { EkalightAiRing, EkalightAiSparkle } from '@/components/ekalight-ai-glyph';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import {
@@ -26,6 +28,7 @@ import {
   StateCard,
   Text,
   glassNavBubbleGlyphSize,
+  glassNavBubbleSizes,
   glassNavBubbleGlyphStrokeWidth,
   layout,
   spacing,
@@ -261,12 +264,9 @@ export function GameSetsScreen({
               size="medium"
               testID="game-sets-assistant"
             >
-              <Sparks
-                color={theme.colors.gray900}
-                height={glassNavBubbleGlyphSize}
-                strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                width={glassNavBubbleGlyphSize}
-              />
+              {/* Same gradient flare + ring as the Social header (Figma 6552:1913). */}
+              <EkalightAiSparkle />
+              <EkalightAiRing size={glassNavBubbleSizes.medium} />
             </GlassNavBubble>
           ) : null}
         </View>
