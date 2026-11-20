@@ -130,7 +130,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "not own. Prices are USD from Ekalight's stored daily market data. "
             + GAME_FILTER_NOTE + " " + PRODUCT_FILTER_NOTE + " " + PRICE_RANK_NOTE
             + " For 'most expensive cards' (any game) use product='single' with sort=price_desc for the raw "
-            "leader AND call find_top_graded for the graded leader."
+            "leader AND call find_top_graded for the graded leader. If resolved_owned_card_id is set, use it: it is "
+            "the one matching printing the user owns."
         ),
         "input_schema": _obj(
             {
@@ -1022,6 +1023,11 @@ _NOT_SINGLE_LOOKUP = re.compile(
     r"cards|list|show|my|i own|under|over|below|above)\b|\d",
     re.IGNORECASE,
 )
+# Rankings and lists span printings: owning one doesn't make it the card meant.
+_RANKING_QUESTION = re.compile(
+    r"\b(most|cheapest|priciest|expensive|top|best|highest|lowest|all|every|list|under|over|below|above)\b",
+    re.IGNORECASE,
+)
 CONDITION_NAMES = {"NM": "Near Mint", "LP": "Lightly Played", "MP": "Moderately Played", "HP": "Heavily Played",
                    "DMG": "Damaged"}
 
@@ -1033,13 +1039,12 @@ def _printing_label(item: dict[str, Any]) -> str:
     return where
 
 
-def ambiguity_hint(result: dict[str, Any], card_filter: Any, question: str) -> dict[str, Any]:
-    """{ambiguous, ask_which} when a price question names a card (no set/number) and the
-    lookup found several printings; {} when one printing clearly matches."""
+def _named_printings(result: dict[str, Any], card_filter: Any, question: str) -> list[dict[str, Any]]:
+    """One item per (set, number) of the card the filter names (no set filter); [] otherwise."""
     flt = card_filter if isinstance(card_filter, dict) else {}
     text = str(flt.get("text") or "").strip()
-    if not text or flt.get("set") or not _PRICE_QUESTION.search(question or "") or _NOT_SINGLE_LOOKUP.search(question or ""):
-        return {}
+    if not text or flt.get("set"):
+        return []
     items = [item for item in result.get("results") or [] if isinstance(item, dict) and item.get("card_id")]
     exact = [item for item in items if str(item.get("name") or "").casefold() == text.casefold()]
     candidates = exact or items
@@ -1050,9 +1055,42 @@ def ambiguity_hint(result: dict[str, Any], card_filter: Any, question: str) -> d
     printings: dict[tuple[str, str], dict[str, Any]] = {}
     for item in candidates:
         printings.setdefault((str(item.get("set") or ""), str(item.get("number") or "")), item)
+    return list(printings.values())
+
+
+def owned_printing_hint(conn: Any, owner_user_id: str, result: dict[str, Any], card_filter: Any,
+                        question: str) -> dict[str, Any]:
+    """Several printings match but the user owns exactly one: that one is the card they mean."""
+    if _RANKING_QUESTION.search(question or ""):
+        return {}
+    printings = _named_printings(result, card_filter, question)
     if len(printings) < 2:
         return {}
-    options = [_printing_label(item) for item in list(printings.values())[:3]]
+    ids =[str(item["card_id"]) for item in printings]
+    marks = ",".join("?" for _ in ids)
+    owned = [str(row[0]) for row in conn.execute(
+        f"SELECT DISTINCT card_id FROM deck_entries WHERE owner_user_id = ? AND quantity > 0 AND card_id IN ({marks})",
+        [owner_user_id, *ids],
+    ).fetchall()]
+    if len(owned) != 1:
+        return {}
+    item = next(item for item in printings if str(item["card_id"]) == owned[0])
+    return {
+        "resolved_owned_card_id": owned[0],
+        "resolved_owned_note": f"The user owns only {item.get('name')} ({_printing_label(item)}): use this printing.",
+    }
+
+
+def ambiguity_hint(result: dict[str, Any], card_filter: Any, question: str) -> dict[str, Any]:
+    """{ambiguous, ask_which} when a price question names a card (no set/number) and the
+    lookup found several printings; {} when one printing clearly matches."""
+    if not _PRICE_QUESTION.search(question or "") or _NOT_SINGLE_LOOKUP.search(question or ""):
+        return {}
+    candidates = _named_printings(result, card_filter, question)
+    if len(candidates) < 2:
+        return {}
+    text = str((card_filter or {}).get("text") or "").strip()
+    options = [_printing_label(item) for item in candidates[:3]]
     name = str(candidates[0].get("name") or text)
     return {
         "ambiguous": True,
@@ -1193,7 +1231,8 @@ class AssistantToolbox:
         if name == "get_my_collection" and isinstance(result, dict):
             result = collection_total_first(result, kwargs.get("card_filter"), question)
         if name == "search_cards" and isinstance(result, dict) and not uses_art_filters(kwargs.get("card_filter") or {}):
-            result = {**result, **ambiguity_hint(result, kwargs.get("card_filter"), question)}
+            owned_hint = owned_printing_hint(self.conn, owner_user_id, result, kwargs.get("card_filter"), question)
+            result = {**result, **(owned_hint or ambiguity_hint(result, kwargs.get("card_filter"), question))}
         if name == "search_cards" and isinstance(result, dict) and isinstance(result.get("art_coverage"), dict):
             result = {**result, "art_coverage": neutral_art_coverage(result["art_coverage"])}
         if name == "get_card" and isinstance(result, dict) and "tags" in result:

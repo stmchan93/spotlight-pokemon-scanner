@@ -24,10 +24,12 @@ WORD_LIMITS: dict[str, int] = {
     "art_search": 45,
     "no_data": 50,  # a lookup failed or found nothing
     "refusal": 40,  # no tools ran and it isn't a knowledge question
+    "narrowing": 80,  # "only singles, not sealed" / "just the English ones"
 }
+SENTENCE_LIMITS: dict[str, int] = {"narrowing": 2, "refusal": 2}
 REWRITE_MAX_TOKENS = 1024  # room for adaptive thinking at low effort
 REWRITE_INSTRUCTION = (
-    "Rewrite to at most {limit} words. Keep every number, card name, set, date and the 'not a prediction' "
+    "Rewrite to at most {limit} words{sentences}. Keep every number, card name, set, date and the 'not a prediction' "
     "line if present. Same language. No preamble."
 )
 
@@ -38,7 +40,22 @@ _EXPLANATION = re.compile(
 )
 _HISTORY = re.compile(r"\b(history|trend|chart|over (?:the )?(?:past|last)|since)\b", re.IGNORECASE)
 _NUMBER = re.compile(r"(?<![\w.])\d[\d,]*(?:\.\d+)?")
-_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=\S)")
+_SENTENCE_END = re.compile(r"[.!?]\s+(?=\S)")
+# A period after these is not a sentence end ("No. 4", "St. Louis", "e.g. a").
+_ABBREVIATIONS = frozenset({"no", "nos", "st", "mr", "mrs", "ms", "dr", "jr", "sr", "vs", "vol", "e.g", "i.e", "etc",
+                            "approx", "ed", "pg", "pp"})
+_NARROWING = re.compile(
+    r"^\W*(?:(?:show|give|list|keep)\s+(?:me\s+)?)?(?:only|just)\b"
+    r"|\bnot (?:the )?(?:sealed|graded|raw|japanese|english)\b",
+    re.IGNORECASE,
+)
+DISCLAIMER_TOOLS = frozenset({"get_market_trends", "find_price_lows", "find_new_highs"})
+DISCLAIMER_TEXT = "This is past price data, not a prediction."
+_DISCLAIMER = re.compile(
+    r"not (?:a |financial )?(?:prediction|forecast|advice)|isn'?t (?:a )?(?:prediction|forecast)|"
+    r"no guarantee|(?:can'?t|cannot|can not) predict|doesn'?t predict|not guaranteed",
+    re.IGNORECASE,
+)
 _KEEP_LINE = re.compile(r"not (?:a )?(?:prediction|forecast)", re.IGNORECASE)
 ART_FILTER_KEYS = frozenset({"pokemon", "scene", "weather_time", "activity", "mood", "art_style", "palette", "theme"})
 
@@ -47,23 +64,53 @@ def word_count(text: str) -> int:
     return len(_WORD.findall(str(text or "")))
 
 
+def turn_kind(
+    question: str, tools_used: list[str] | set[str], *, no_data: bool = False, art_search: bool = False
+) -> str:
+    used = set(tools_used or ())
+    if no_data:
+        return "no_data"
+    if _EXPLANATION.search(question or ""):
+        return "explanation"
+    if not used:
+        return "refusal"
+    if art_search or "list_facets" in used:
+        return "art_search"
+    if "get_price_history" in used and _HISTORY.search(question or ""):
+        return "price_history"
+    if is_narrowing_question(question):
+        return "narrowing"
+    if is_collection_value_question(question) and not is_movers_question(question):
+        return "collection_value"
+    return "default"
+
+
 def limit_for(
     question: str, tools_used: list[str] | set[str], *, no_data: bool = False, art_search: bool = False
 ) -> int:
-    used = set(tools_used or ())
-    if no_data:
-        return WORD_LIMITS["no_data"]
-    if _EXPLANATION.search(question or ""):
-        return WORD_LIMITS["explanation"]
-    if not used:
-        return WORD_LIMITS["refusal"]
-    if art_search or "list_facets" in used:
-        return WORD_LIMITS["art_search"]
-    if "get_price_history" in used and _HISTORY.search(question or ""):
-        return WORD_LIMITS["price_history"]
-    if is_collection_value_question(question) and not is_movers_question(question):
-        return WORD_LIMITS["collection_value"]
-    return WORD_LIMITS["default"]
+    return WORD_LIMITS[turn_kind(question, tools_used, no_data=no_data, art_search=art_search)]
+
+
+def sentence_limit_for(
+    question: str, tools_used: list[str] | set[str], *, no_data: bool = False, art_search: bool = False
+) -> int | None:
+    kind = turn_kind(question, tools_used, no_data=no_data, art_search=art_search)
+    if kind != "explanation" and is_narrowing_question(question):
+        kind = "narrowing"  # an empty narrowed result is still a short reply
+    return SENTENCE_LIMITS.get(kind)
+
+
+def is_narrowing_question(question: str) -> bool:
+    """A short follow-up that narrows the previous results."""
+    return len(str(question or "").split()) <= 10 and bool(_NARROWING.search(question or ""))
+
+
+def needs_disclaimer(text: str, tools_used: list[str] | set[str]) -> bool:
+    return bool(DISCLAIMER_TOOLS & set(tools_used or ())) and not _DISCLAIMER.search(text or "")
+
+
+def add_disclaimer(text: str) -> str:
+    return f"{text.rstrip()}\n\n{DISCLAIMER_TEXT}" if text.strip() else DISCLAIMER_TEXT
 
 
 def is_art_search(arguments: Any) -> bool:
@@ -105,25 +152,50 @@ def keeps_numbers(original: str, rewrite: str, backed: set[float]) -> bool:
 
 
 def _sentences(paragraph: str) -> list[str]:
-    return [part.strip() for part in _SENTENCE_END.split(paragraph) if part.strip()]
+    parts: list[str] = []
+    start = 0
+    for match in _SENTENCE_END.finditer(paragraph):
+        before = paragraph[start:match.start()].split()
+        last = before[-1].casefold().lstrip("(\"'") if before else ""
+        if match.group().startswith(".") and (last in _ABBREVIATIONS or (len(last) == 1 and last.isalpha())):
+            continue
+        parts.append(paragraph[start:match.start() + 1])
+        start = match.end()
+    parts.append(paragraph[start:])
+    return [part.strip() for part in parts if part.strip()]
 
 
-def trim_to_limit(text: str, limit: int) -> str:
-    """Whole sentences in order until the cap; a 'not a prediction' line is kept.
-    A first sentence that alone runs over is cut at a word boundary."""
-    paragraphs = [[s for s in _sentences(p)] for p in re.split(r"\n\s*\n|\n", str(text or "")) if p.strip()]
+def _paragraphs(text: str) -> list[str]:
+    return [p for p in re.split(r"\n\s*\n|\n", str(text or "")) if p.strip()]
+
+
+def sentence_count(text: str) -> int:
+    return sum(len(_sentences(p)) for p in _paragraphs(text))
+
+
+def over_limit(text: str, limit: int, max_sentences: int | None) -> bool:
+    return word_count(text) > limit or (max_sentences is not None and sentence_count(text) > max_sentences)
+
+
+def trim_to_limit(text: str, limit: int, max_sentences: int | None = None) -> str:
+    """Whole sentences in order until the word (and sentence) cap; a 'not a prediction'
+    line is kept. A first sentence that alone runs over is cut at a word boundary."""
+    paragraphs = [_sentences(p) for p in _paragraphs(text)]
     flat = [(index, sentence) for index, sentences in enumerate(paragraphs) for sentence in sentences]
     if not flat:
         return ""
     must = [item for item in flat[1:] if _KEEP_LINE.search(item[1])]
+    if max_sentences is not None:
+        must = must[: max(0, max_sentences - 1)]
     budget = limit - sum(word_count(sentence) for _, sentence in must)
+    room = None if max_sentences is None else max(1, max_sentences - len(must))
     kept: list[tuple[int, str]] = []
     used = 0
     for item in flat:
         if item in must:
             continue
         words = word_count(item[1])
-        if used + words > budget:
+        if used + words > budget or (room is not None and len(kept) >= room):
             break
         kept.append(item)
         used += words

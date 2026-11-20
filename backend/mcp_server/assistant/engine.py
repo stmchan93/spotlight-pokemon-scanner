@@ -45,7 +45,7 @@ Accuracy (never break these):
 - Copy every detail the user gave into the propose_* call: always pass quantity (e.g. "add 2" means quantity 2) and the condition, printing, or grade they named.
 - For a card's price history or trend, call get_price_history so the app shows a chart; keep the text to one sentence summarizing the move. That sentence names the printing and the price condition (e.g. "the Near Mint Holofoil price of Kyogre-EX (Dark Explorers 104/108)"); the result's summary line has them with the dated move.
 - "Why did X move/go up": open with the actual move and dates from the history (e.g. "Charizard ex fell from $374 on Aug 22 to $288 on Nov 18"), then the cause only if a tool result supports it. If the history doesn't show the move the user assumed, say what it shows.
-- A price question naming a card without set or number: if search_cards returns ambiguous=true, don't pick one printing's price; ask which one they mean (use its ask_which) and show the candidates.
+- A price question naming a card without set or number: if search_cards returns ambiguous=true, don't pick one printing's price; ask which one they mean (use its ask_which) and show the candidates. If it returns resolved_owned_card_id, use that printing (the one the user owns) without asking.
 - Price history: say the span the data covers (first_date to last_date). If covers_full_range is false, never call the move a full-year (or full-range) return; say e.g. "since April".
 - "Card"/"cards" means single cards: pass filter.product="single" whenever the user says card or cards. Use product "any" only for other wording.
 - "Most expensive" questions (any game): give the raw leader (search_cards, sort=price_desc, product=single) and the graded leader (find_top_graded); for a singular question ("the most expensive card") name only the #1 of each; for a plural question ("most expensive cards", "PSA 10s") name the top two of each. If find_top_graded says the game has no graded prices, say so in a short clause.
@@ -335,6 +335,7 @@ class TurnResult:
     tool_errors: list[str] = field(default_factory=list)  # names of tools that returned is_error
     round_limit_hit: bool = False
     word_limit: int | None = None
+    sentence_limit: int | None = None
     length_guard: str | None = None  # None | "rewrite" | "trim"
 
 
@@ -425,18 +426,23 @@ class AssistantEngine:
             messages=messages,
         )
 
-    async def _enforce_length(self, text: str, result: TurnResult, tool_payloads: list[str], *, reserve: int = 0) -> str:
-        """Over the turn's word limit: one low-effort rewrite, kept only if shorter and every
-        tool-backed number survives; else a sentence-boundary trim. Tables are left alone."""
+    async def _enforce_length(
+        self, text: str, result: TurnResult, tool_payloads: list[str], *, reserve: int = 0, reserve_sentences: int = 0
+    ) -> str:
+        """Over the turn's word (or sentence) limit: one low-effort rewrite, kept only if it fits
+        and every tool-backed number survives; else a sentence-boundary trim. Tables are left alone."""
         limit = max(10, result.word_limit - reserve) if result.word_limit else None
-        if not limit or "\n|" in "\n" + text or length_guard.word_count(text) <= limit:
+        sentences = max(1, result.sentence_limit - reserve_sentences) if result.sentence_limit else None
+        if not limit or "\n|" in "\n" + text or not length_guard.over_limit(text, limit, sentences):
             return text
         rewrite = ""
         try:
             response = await self.client.messages.create(
                 model=self.config.model,
                 max_tokens=length_guard.REWRITE_MAX_TOKENS,
-                system=length_guard.REWRITE_INSTRUCTION.format(limit=limit),
+                system=length_guard.REWRITE_INSTRUCTION.format(
+                    limit=limit, sentences=f" and {sentences} sentences" if sentences else ""
+                ),
                 output_config={"effort": "low"},
                 messages=[{"role": "user", "content": text}],
             )
@@ -452,14 +458,17 @@ class AssistantEngine:
         backed = length_guard.tool_numbers(tool_payloads)
         if (
             rewrite
-            and length_guard.word_count(rewrite) <= limit
-            and length_guard.word_count(rewrite) < length_guard.word_count(text)
+            and not length_guard.over_limit(rewrite, limit, sentences)
+            and (
+                length_guard.word_count(rewrite) < length_guard.word_count(text)
+                or length_guard.sentence_count(rewrite) < length_guard.sentence_count(text)
+            )
             and length_guard.keeps_numbers(text, rewrite, backed)
         ):
             result.length_guard = "rewrite"
             return rewrite
         result.length_guard = "trim"
-        return length_guard.trim_to_limit(text, limit)
+        return length_guard.trim_to_limit(text, limit, sentences)
 
     async def _run_tool(self, block: Any, owner_user_id: str, writes: TurnWrites):
         arguments = block.input if isinstance(block.input, dict) else {}
@@ -645,15 +654,23 @@ class AssistantEngine:
         else:
             text = ensure_total_first(text, question, collection_totals)
             no_data = bool(empty_flags) and all(empty_flags) or bool(history_empty) and all(history_empty)
-            result.word_limit = length_guard.limit_for(
-                question, [name for name in result.tools_used if name != SHOW_CARDS],
-                no_data=no_data, art_search=art_search,
+            looked_up = [name for name in result.tools_used if name != SHOW_CARDS]
+            result.word_limit = length_guard.limit_for(question, looked_up, no_data=no_data, art_search=art_search)
+            result.sentence_limit = length_guard.sentence_limit_for(
+                question, looked_up, no_data=no_data, art_search=art_search
             )
-            # The appended choice question must survive the guard: reserve its words.
+            # Appended lines (choice question, disclaimer) must survive the guard: reserve their words.
             appended = ensure_choice_question(text, ask_which) != text
-            reserve = length_guard.word_count(ask_which or "") if appended else 0
-            text = await self._enforce_length(text, result, tool_payloads, reserve=reserve)
+            disclaim = length_guard.needs_disclaimer(text, looked_up)
+            reserve = (length_guard.word_count(ask_which or "") if appended else 0) + (
+                length_guard.word_count(length_guard.DISCLAIMER_TEXT) if disclaim else 0
+            )
+            text = await self._enforce_length(
+                text, result, tool_payloads, reserve=reserve, reserve_sentences=int(appended) + int(disclaim)
+            )
             text = ensure_choice_question(text, ask_which)
+            if length_guard.needs_disclaimer(text, looked_up):
+                text = length_guard.add_disclaimer(text)
             result.text = text + ("…" if result.stop_reason == "max_tokens" else "")
             result.suggestions = suggestions
         if result.status == "ok":
