@@ -412,8 +412,9 @@ describe('AssistantScreen', () => {
   it('a single scanned card gets card-specific starter prompts', async () => {
     renderScreen({}, { source: 'scanner', cardIds: ['xyp-111'] });
     expect(await screen.findByText('Ask about this card')).toBeTruthy();
-    expect(screen.getByText('Is this worth grading?')).toBeTruthy();
-    expect(screen.getByText("What's this card worth in PSA 10?")).toBeTruthy();
+    // From the scanner the card is named as the SCANNED card (owner, 2026-11-20).
+    expect(screen.getByText('Is this scanned card worth grading?')).toBeTruthy();
+    expect(screen.getByText("What's this scanned card worth in PSA 10?")).toBeTruthy();
     expect(screen.queryByText('What are some undervalued cards?')).not.toBeOnTheScreen();
   });
 

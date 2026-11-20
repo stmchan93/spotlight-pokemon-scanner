@@ -8,25 +8,32 @@ export const ASSISTANT_MARKET_PROMPTS = [
   'Which of my cards should I get graded?',
 ] as const;
 
-/** Starter prompts for a new chat: card-specific when opened with cards, else the three market prompts. */
-export function assistantStarterPrompts(trayCardCount: number): string[] {
+/**
+ * Starter prompts for a new chat: card-specific when opened with cards, else the
+ * three market prompts. From the scanner the cards are named as SCANNED cards —
+ * a bare "these" read as "what's 'these'?" (owner, 2026-11-20).
+ */
+export function assistantStarterPrompts(trayCardCount: number, source: 'home' | 'scanner' = 'home'): string[] {
+  const scanned = source === 'scanner';
   if (trayCardCount === 1) {
+    const card = scanned ? 'this scanned card' : 'this card';
     return [
-      "What's this card worth?",
-      'Is this worth grading?',
-      "What's this card worth in PSA 10?",
-      'Has this card gone up lately?',
-      'Watch this card and alert me if it drops',
+      `What's ${card} worth?`,
+      `Is ${card} worth grading?`,
+      `What's ${card} worth in PSA 10?`,
+      `Has ${card} gone up lately?`,
+      `Watch ${card} and alert me if it drops`,
       "What's my collection worth?",
     ];
   }
   if (trayCardCount > 1) {
+    const cards = scanned ? 'my scanned cards' : 'these cards';
     return [
-      'Which of these is worth the most?',
-      'Are any of these worth grading?',
-      'What are these worth in PSA 10?',
-      'Which of these should I keep or sell?',
-      'Add these to my collection',
+      `Which of ${cards} is worth the most?`,
+      `Are any of ${cards} worth grading?`,
+      `What are ${cards} worth in PSA 10?`,
+      `Which of ${cards} should I keep or sell?`,
+      `Add ${cards} to my collection`,
       "What's my collection worth?",
     ];
   }

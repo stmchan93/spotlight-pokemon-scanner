@@ -546,7 +546,7 @@ export function AssistantScreen({
     width: glassNavBubbleGlyphSize,
   };
   const remainingCaption = assistantRemainingCaption(chat.usage);
-  const starterPrompts = assistantStarterPrompts(cardIds.length);
+  const starterPrompts = assistantStarterPrompts(cardIds.length, source);
   const greeting = assistantGreeting(currentUser?.displayName, isGuest);
   const cardContextLine = assistantCardContextLine(cardIds.length);
   const isSending = chat.pending?.status === 'sending';
