@@ -187,7 +187,7 @@ from ebay_comps import (
 # Module imports (not `from`): the watchlist wiring touches a wide slice of both
 # and the qualified names keep the seam visible at every call site.
 import ebay_listings
-from sealed_products import is_sealed_card, search_sealed_products
+from sealed_products import is_sealed_card, sealed_set_index, search_sealed_products
 from expansion_eras import classify_expansions, parse_payload as parse_expansion_payload
 import calendar_feed
 import expo_push
@@ -2205,6 +2205,8 @@ SET_SPOTLIGHT_CACHE_MAX_ENTRIES = 256
 # Sets-list totals (cardCount/setValue) recompute at least this often even when
 # the pricing version token holds still.
 EXPANSION_TOTALS_CACHE_TTL_SECONDS = 2 * 60 * 60
+# Set -> sealed products map (sealed_products.sealed_set_index); ~7k rows to read.
+EXPANSION_SEALED_CACHE_TTL_SECONDS = 15 * 60
 # PDP "More like this" (similar_cards.py; rows written by run_similar_cards_vm.sh).
 SIMILAR_CARDS_ENABLED_ENV = "SIMILAR_CARDS_ENABLED"
 
@@ -2621,6 +2623,8 @@ class SpotlightScanService:
             str, tuple[str, float, dict[str, dict[str, Any]], dict[str, float]]
         ] = {}
         self._expansion_totals_lock = threading.Lock()
+        # Per game: (version token, computed-at monotonic, {set_id: [sealed id…]}).
+        self._expansion_sealed_cache: dict[str, tuple[str, float, dict[str, list[str]]]] = {}
         self._feed_cache_lock = threading.Lock()
         self.artifact_store = build_scan_artifact_store(
             repo_root=repo_root,
@@ -15221,6 +15225,69 @@ class SpotlightScanService:
             # Scrydex blobs would be several MB.
             card["sourcePayload"] = tcgplayer_variants_subset(card.get("sourcePayload"), guard)
         return {"results": cards}
+
+    def _expansion_sealed_index(self, game: str) -> dict[str, list[str]]:
+        try:
+            version = market_movers_version_token(self.connection, window_days=0) or "none"
+        except Exception:  # noqa: BLE001 - cache bookkeeping must never break the page
+            version = "none"
+        cached = self._expansion_sealed_cache.get(game)
+        if (
+            cached is not None
+            and cached[0] == version
+            and monotonic() - cached[1] < EXPANSION_SEALED_CACHE_TTL_SECONDS
+        ):
+            return cached[2]
+        index = sealed_set_index(self.connection, game=game)
+        self._expansion_sealed_cache[game] = (version, monotonic(), index)
+        return index
+
+    def expansion_sealed_products(
+        self,
+        expansion_id: str,
+        *,
+        game: str,
+        owner_user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """One set's sealed products (sealed_products.sealed_set_index), shaped
+        like search results: served USD price, owner-scoped ownedQuantity.
+
+        Separate from the card grid on purpose — these rows have no `set_id`
+        and never count toward the set's "X of Y" or its value."""
+        normalized_game = normalize_game(game)
+        sealed_ids = self._expansion_sealed_index(normalized_game).get(str(expansion_id or "").strip(), [])
+        if not sealed_ids:
+            return {"results": []}
+        by_id = cards_by_ids(self.connection, sealed_ids)
+        products = [by_id[card_id] for card_id in sealed_ids if card_id in by_id]
+        owned: dict[str, int] = {}
+        if owner_user_id and products:
+            placeholders = ",".join("?" for _ in products)
+            for row in self.connection.execute(
+                f"""
+                SELECT card_id, SUM(quantity) AS quantity
+                FROM deck_entries
+                WHERE owner_user_id = ? AND quantity > 0 AND card_id IN ({placeholders})
+                GROUP BY card_id
+                """,
+                (owner_user_id, *[str(product.get("id")) for product in products]),
+            ):
+                owned[str(row["card_id"])] = int(row["quantity"] or 0)
+        pricing_context = self._raw_pricing_context()
+        guard = collision_guard(self.connection)["colliding_product_ids"]
+        for product in products:
+            product_id = str(product.get("id") or "")
+            product["ownedQuantity"] = owned.get(product_id, 0)
+            pricing = self._display_pricing_summary_for_context(product_id, pricing_context=pricing_context)
+            # USD only: anything else is shown as unpriced, never as yen.
+            if pricing is not None and str(pricing.get("currencyCode") or "").upper() == "USD":
+                product["pricing"] = pricing
+                market = pricing.get("market")
+                product["marketPrice"] = float(market) if isinstance(market, (int, float)) and market > 0 else None
+            else:
+                product["marketPrice"] = None
+            product["sourcePayload"] = tcgplayer_variants_subset(product.get("sourcePayload"), guard)
+        return {"results": products}
 
     def _persist_mapped_catalog_card(
         self,
@@ -28039,6 +28106,26 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 HTTPStatus.OK,
                 self.service.search_expansion_cards(
                     expansion_id, game=game, query=query, limit=limit, owner_user_id=owner_user_id
+                ),
+            )
+            return
+
+        expansion_sealed_match = re.match(r"^/api/v1/expansions/([^/]+)/sealed$", parsed.path)
+        if expansion_sealed_match:
+            game = normalize_game(parse_qs(parsed.query).get("game", [""])[0])
+            # Public like /cards above: identity only personalizes ownedQuantity.
+            owner_user_id = None
+            if str(self.headers.get("Authorization") or "").strip() or not self.service.authenticator.auth_required:
+                try:
+                    owner_user_id = self.service.authenticator.resolve_identity(
+                        self.headers.get("Authorization")
+                    ).user_id
+                except RequestAuthError:
+                    owner_user_id = None
+            self._write_json(
+                HTTPStatus.OK,
+                self.service.expansion_sealed_products(
+                    expansion_sealed_match.group(1), game=game, owner_user_id=owner_user_id
                 ),
             )
             return

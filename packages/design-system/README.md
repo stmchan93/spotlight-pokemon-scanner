@@ -45,7 +45,7 @@ Defined in `src/tokens.ts`:
 - `radii` — always paired with `borderCurve: 'continuous'` (iOS smooth corners ≈ Figma 60% smoothing; not valid on Image styles — clip via the wrapper View)
   - `radii.sheet` (20) — **rule: every bottom/sliding sheet uses `radii.sheet` on its top corners and square (0) bottom corners** (`border-radius: 20px 20px 0 0`, Figma 5753:18889), with `overflow: 'hidden'`. `SheetSurface` applies it; hand-built sheets set `borderTopLeftRadius`/`borderTopRightRadius: radii.sheet`. Centered dialogs and popover menus are not sheets.
   - `radii.xs` (4) — Figma radius-4, the set page tile's QTY stepper bar
-- `cardGrid` — the card-view grid (gray-50 page, white tiles, 4pt gap/radius); `cardGrid.unownedOpacity` (0.4) fades a tile for a card the user doesn't own (set page completion grid)
+- `cardGrid` — the card-view grid (gray-50 page, white tiles, 4pt gap/radius); `cardGrid.ownedBadge*` size and colour the set page's owned marker (a ✓ for one copy, "×N" for more, top-right of the art); unowned cards are full colour
 - `textStyles.captionTinyMedium` — raw Medium 10 (set page stepper "QTY: 1"), flagged non-library like `captionTiny`
 - `layout` — includes `rowThumbnailWidth`/`rowThumbnailHeight` (58x80, the `CardListRow` raw art slot; radius `inventoryArtRadiusRaw`) and `swipeActionWidth` (88, the action behind a swipe-left row); `tabBarRowHeight` / `tabBarMinBottomPadding` / `tabBarIconSlotHeight` (54 / 25 / 28, the Scanner's solid JS tab bar)
 - `shadows`

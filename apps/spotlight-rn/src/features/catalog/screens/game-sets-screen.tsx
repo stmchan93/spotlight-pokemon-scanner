@@ -37,8 +37,10 @@ import {
 } from '@spotlight/design-system';
 
 import { CatalogResultsGrid } from '@/features/catalog/components/catalog-results-grid';
+import { SealedResultsSection } from '@/features/catalog/components/sealed-results-section';
 import { SetProgressCard } from '@/features/catalog/components/set-progress-card';
 import { useCatalogCardSearch } from '@/features/catalog/hooks/use-catalog-card-search';
+import { useSealedSearchPreview } from '@/features/catalog/hooks/use-sealed-search-preview';
 import { useGameExpansions } from '@/features/catalog/hooks/use-game-expansions';
 import { useSetProgress } from '@/features/catalog/hooks/use-set-progress';
 import { groupSetsByEra, setCompletion, type SetListRow } from '@/features/catalog/set-progress';
@@ -53,6 +55,9 @@ type GameSetsScreenProps = {
   /** Ask Ekalight (the sparkle). Absent hides the button rather than leaving it dead. */
   onOpenAssistant?: () => void;
 };
+
+/** Sealed matches under the card results: a section, not another paged list. */
+const SEALED_RESULTS_LIMIT = 20;
 
 // Figma 6552:1914 header wash height.
 const WASH_HEIGHT = 323;
@@ -72,7 +77,8 @@ const SETS_BANNER = require('../../../../assets/images/catalog/sets-banner.jpg')
  * THE SEARCH FOLLOWS YOU DOWN. It is the same card search the catalog has,
  * scoped to the game on screen; set names are searchable, so "obsidian flames"
  * still finds that set's cards. While a query is live the results replace the
- * set list.
+ * set list. Matching SEALED product (same game) follows at the very bottom,
+ * once every card result has loaded — cards first, sealed after.
  *
  * The header is FIXED and only the body below swaps: the search field must
  * never sit in a subtree a state change replaces, or it remounts and drops the
@@ -92,6 +98,14 @@ export function GameSetsScreen({
   const { byGame, error, games, hasLoaded, isLoading } = useGameExpansions();
   const { ownedByExpansion } = useSetProgress(game);
   const search = useCatalogCardSearch({ scope: game });
+  const sealedSearch = useSealedSearchPreview({
+    enabled: true,
+    limit: SEALED_RESULTS_LIMIT,
+    query: search.query,
+    scope: game,
+  });
+  // Bottom of the list = after the LAST card page, so it waits for paging.
+  const sealedResults = search.hasMore ? [] : sealedSearch.results;
   // Blurred when a result opens, so no focus survives to be restored when the
   // card page pops back to this screen.
   const searchFieldRef = useRef<TextInput>(null);
@@ -107,9 +121,11 @@ export function GameSetsScreen({
 
   const openResult = useCallback(
     (result: CatalogSearchResult) => {
+      const isSealed = result.productKind === 'sealed';
       capturePostHogEvent('catalog_search_result_opened', {
         has_rarity_filter: false,
-        result_count: search.results.length,
+        is_sealed: isSealed,
+        result_count: isSealed ? sealedResults.length : search.results.length,
         scope: game,
       });
       searchFieldRef.current?.blur();
@@ -117,7 +133,7 @@ export function GameSetsScreen({
       setOpeningResultId(result.id);
       onOpenCard(result);
     },
-    [game, onOpenCard, search.results.length],
+    [game, onOpenCard, sealedResults.length, search.results.length],
   );
 
   const renderSetsState = () => {
@@ -173,7 +189,22 @@ export function GameSetsScreen({
         />
       );
     }
-    if (search.hasSearched && search.results.length === 0) {
+    if (search.hasSearched && search.results.length === 0 && !search.errorMessage) {
+      if (sealedResults.length > 0) {
+        // No cards, but sealed matches: the sealed section stands in.
+        return null;
+      }
+      if (sealedSearch.isLoading) {
+        return (
+          <StateCard
+            centered
+            loading
+            message="Looking up matching sealed products."
+            style={styles.stateCard}
+            title="Searching catalog"
+          />
+        );
+      }
       return (
         <StateCard
           centered
@@ -188,11 +219,19 @@ export function GameSetsScreen({
 
   const body = () => {
     if (search.hasActiveQuery) {
-      if (search.results.length === 0 || search.errorMessage) {
+      if (search.errorMessage || (search.results.length === 0 && sealedResults.length === 0)) {
         return null;
       }
       return (
         <CatalogResultsGrid
+          footer={(
+            <SealedResultsSection
+              onOpenResult={openResult}
+              openingResultId={openingResultId}
+              results={sealedResults}
+              testID="game-sets-sealed"
+            />
+          )}
           isLoadingMore={search.isLoadingMore}
           onEndReached={search.loadMore}
           onOpenResult={openResult}

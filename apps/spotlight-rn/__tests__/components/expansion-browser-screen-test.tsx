@@ -282,6 +282,103 @@ describe('GameSetsScreen', () => {
 
     expect(screen.getByTestId('game-sets-search')).toBe(field);
   });
+
+  const MAUI = {
+    id: 'lorcana~FBL-106',
+    cardId: 'lorcana~FBL-106',
+    name: 'Maui',
+    cardNumber: '106/204',
+    setName: 'Fabled',
+    game: 'lorcana',
+  } as never;
+  const MAUI_BOX = {
+    id: 'tcgp-sealed-9',
+    cardId: 'tcgp-sealed-9',
+    name: 'Fabled Booster Box',
+    cardNumber: '',
+    setName: 'Fabled',
+    productKind: 'sealed',
+    sealedProductType: 'Booster Box',
+    marketPrice: 120,
+    currencyCode: 'USD',
+    game: 'lorcana',
+  } as never;
+
+  function mockSearch(cards: never[], sealed: never[], hasMore = false) {
+    return jest
+      .spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
+      .mockImplementation(async (_query, _limit, _offset, options) => (
+        options?.kind === 'sealed' ? { cards: sealed, hasMore: false } : { cards, hasMore }
+      ));
+  }
+
+  function renderLorcana(onOpenCard = jest.fn()) {
+    renderWithProviders(
+      <GameSetsScreen game="lorcana" onClose={jest.fn()} onOpenCard={onOpenCard} onSelectExpansion={jest.fn()} />,
+    );
+    return onOpenCard;
+  }
+
+  /** Render-order position of a testID in the tree. */
+  function positionOf(testID: string): number {
+    const order: unknown[] = [];
+    const walk = (node: unknown) => {
+      if (!node || typeof node !== 'object') {
+        return;
+      }
+      if (Array.isArray(node)) {
+        node.forEach(walk);
+        return;
+      }
+      const { props, children } = node as { props?: { testID?: unknown }; children?: unknown[] | null };
+      order.push(props?.testID);
+      (children ?? []).forEach(walk);
+    };
+    walk(screen.toJSON());
+    return order.indexOf(testID);
+  }
+
+  it('lists matching sealed for THIS game after the card results', async () => {
+    mockListExpansions();
+    const searchPage = mockSearch([MAUI], [MAUI_BOX]);
+    const onOpenCard = renderLorcana();
+
+    fireEvent.changeText(await screen.findByPlaceholderText(/search card/i), 'fabled');
+
+    expect(await screen.findByTestId('game-sets-sealed')).toBeTruthy();
+    expect(searchPage).toHaveBeenCalledWith('fabled', expect.any(Number), 0, { game: 'lorcana', kind: 'sealed' });
+    expect(screen.getByText('SEALED')).toBeTruthy();
+    expect(positionOf('catalog-result-lorcana~FBL-106')).toBeGreaterThan(-1);
+    expect(positionOf('catalog-result-lorcana~FBL-106')).toBeLessThan(positionOf('game-sets-sealed'));
+    expect(screen.getByText('$120.00')).toBeTruthy();
+
+    // Sealed opens through the same card-page route as a card result.
+    fireEvent.press(screen.getByTestId('game-sets-sealed-tile-smoke-tcgp-sealed-9'));
+    expect(onOpenCard).toHaveBeenCalledWith(expect.objectContaining({ cardId: 'tcgp-sealed-9' }));
+  });
+
+  it('holds sealed back until every card page has loaded', async () => {
+    mockListExpansions();
+    mockSearch([MAUI], [MAUI_BOX], true);
+    renderLorcana();
+
+    fireEvent.changeText(await screen.findByPlaceholderText(/search card/i), 'fabled');
+
+    expect(await screen.findByTestId('game-sets-results')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Maui')).toBeTruthy());
+    expect(screen.queryByTestId('game-sets-sealed')).toBeNull();
+  });
+
+  it('shows sealed alone, not "no matching cards", when only sealed matched', async () => {
+    mockListExpansions();
+    mockSearch([], [MAUI_BOX]);
+    renderLorcana();
+
+    fireEvent.changeText(await screen.findByPlaceholderText(/search card/i), 'booster box');
+
+    expect(await screen.findByTestId('game-sets-sealed')).toBeTruthy();
+    expect(screen.queryByText('No matching cards')).toBeNull();
+  });
 });
 
 describe('GameSetsScreen era grouping', () => {

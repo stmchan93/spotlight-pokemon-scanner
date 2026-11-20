@@ -12,8 +12,11 @@ price history, and TCGCSV already sets every card's main raw price.
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
+import unicodedata
+from collections import Counter, defaultdict
 from typing import Any, Iterable
 
 from catalog_tools import (
@@ -28,6 +31,7 @@ from catalog_tools import (
     normalize_game,
     upsert_card,
 )
+from tcgcsv_adapter import TCGPLAYER_GROUP_ID_BY_SET_ID
 
 SEALED_VARIANT = "Sealed"
 TCGCSV_SEALED_SOURCE = "tcgcsv"
@@ -128,7 +132,11 @@ def upsert_sealed_products(
     shape as a Scrydex card, which is what the TCGCSV price sync reads — so the
     next price sync prices these rows, snapshot and history included. `set_id`
     stays NULL on purpose: set browse lists cards by `set_id`, and sealed
-    product must never appear in a set's card grid."""
+    product must never appear in a set's card grid or completion. Which set a
+    product belongs to rides in the payload instead (`matchedSetIds`, voted
+    from the group's own card products — see `group_set_votes`)."""
+    rows = list(rows)
+    set_ids_by_group = group_set_votes(connection, rows)
     stats = {"seen": 0, "upserted": 0, "skipped_not_sealed": 0, "skipped_unknown_category": 0}
     for category_id, group_row, product_row in rows:
         stats["seen"] += 1
@@ -172,6 +180,7 @@ def upsert_sealed_products(
                 "provider": TCGCSV_SEALED_SOURCE,
                 "tcgplayerCategoryId": int(category_id),
                 "tcgplayerGroupId": (group_row or {}).get("groupId"),
+                "matchedSetIds": set_ids_by_group.get(_group_key(category_id, group_row), []),
                 "tcgplayerUrl": product_row.get("url"),
                 "variants": [
                     {
@@ -183,6 +192,155 @@ def upsert_sealed_products(
         )
         stats["upserted"] += 1
     return stats
+
+
+def _group_key(category_id: Any, group_row: dict[str, Any] | None) -> tuple[int, int]:
+    return int(category_id), _int_or_none((group_row or {}).get("groupId")) or 0
+
+
+def group_set_votes(
+    connection: sqlite3.Connection,
+    rows: Iterable[tuple[int, dict[str, Any], dict[str, Any]]],
+) -> dict[tuple[int, int], list[str]]:
+    """{(category, group): [set_id]} — which catalog set a TCGplayer group is.
+
+    A group holds a set's cards AND its sealed product. Every card product in
+    the group that one of our cards claims (`card_tcgplayer_products`, or the
+    `cards.tcgplayer_id` column) votes for that card's `set_id`; a set with at
+    least half the votes wins. No majority (a mixed promo group) or no claimed
+    cards (a sealed-only group) maps to nothing, and `sealed_set_index` falls
+    back to the group id / group name."""
+    product_group: dict[str, tuple[int, int]] = {}
+    for category_id, group_row, product_row in rows:
+        if is_sealed_product(product_row):
+            continue
+        product_id = str(product_row.get("productId") or "").strip()
+        if product_id:
+            product_group[product_id] = _group_key(category_id, group_row)
+    if not product_group:
+        return {}
+    product_ids = list(product_group)
+    sets_by_product: dict[str, set[str]] = defaultdict(set)
+    for start in range(0, len(product_ids), 400):
+        chunk = product_ids[start : start + 400]
+        placeholders = ",".join("?" for _ in chunk)
+        for product_id, set_id in connection.execute(
+            f"""
+            SELECT p.product_id, c.set_id FROM card_tcgplayer_products p
+            JOIN cards c ON c.id = p.card_id
+            WHERE p.product_id IN ({placeholders})
+              AND c.set_id IS NOT NULL AND c.set_id != '' AND c.supertype IS NOT ?
+            UNION
+            SELECT c.tcgplayer_id, c.set_id FROM cards c
+            WHERE c.tcgplayer_id IN ({placeholders})
+              AND c.set_id IS NOT NULL AND c.set_id != '' AND c.supertype IS NOT ?
+            """,
+            (*chunk, SEALED_SUPERTYPE, *chunk, SEALED_SUPERTYPE),
+        ):
+            sets_by_product[str(product_id)].add(str(set_id))
+    votes: dict[tuple[int, int], Counter] = defaultdict(Counter)
+    for product_id, set_ids in sets_by_product.items():
+        for set_id in set_ids:
+            votes[product_group[product_id]][set_id] += 1
+    mapping: dict[tuple[int, int], list[str]] = {}
+    for key, counter in votes.items():
+        (top, top_votes), = counter.most_common(1)
+        if top_votes * 2 >= sum(counter.values()):
+            mapping[key] = [top]
+    return mapping
+
+
+def normalize_group_name(value: Any) -> str:
+    """A TCGplayer group name and a catalog set name folded to compare equal:
+    "SV08: Surging Sparks" / "Surging Sparks", "SWSH01: Sword & Shield Base
+    Set" / "Sword & Shield", "Base Set" / "Base"."""
+    text = re.sub(r"^\s*[A-Za-z0-9+.\-]{1,8}:\s*", "", str(value or ""))
+    text = re.sub(r"^\s*(SM|XY|BW|DP|HGSS|EX|SWSH|SV|ME)\s+-\s+", "", text)
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch)).casefold()
+    text = text.replace("&", " and ")
+    text = re.sub(r"[^a-z0-9]+", " ", text).strip()
+    text = re.sub(r"^pokemon ", "", text)
+    text = re.sub(r"\bbase set$", "base", text)
+    return re.sub(r" base$", "", text) or text
+
+
+def _parse_payload(raw: Any) -> dict[str, Any]:
+    try:
+        payload = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number or None
+
+
+# Every sealed id starts with SEALED_CARD_ID_PREFIX ("tcgp-sealed-"); "." sorts
+# right after "-", so [prefix, upper) is exactly them, on the primary key.
+_SEALED_ID_UPPER = SEALED_CARD_ID_PREFIX[:-1] + chr(ord(SEALED_CARD_ID_PREFIX[-1]) + 1)
+
+
+def sealed_set_index(connection: sqlite3.Connection, *, game: str) -> dict[str, list[str]]:
+    """{expansion_id: [sealed card id…]} for one game, newest products first.
+
+    Per sealed product, the first rule that names a set wins:
+      1. `matchedSetIds` stamped at ingest (the group's own cards voted);
+      2. the product's TCGplayer group IS the set's group (a TCGplayer-only
+         set's payload `tcgplayerGroupId`, or a hand-verified alias);
+      3. the group name equals exactly one set's name, same language.
+    No match = the product belongs to no set (that set shows no SEALED)."""
+    normalized_game = normalize_game(game)
+    expansions = connection.execute(
+        "SELECT id, name, language, source_payload_json FROM expansions WHERE +game = ?",
+        (normalized_game,),
+    ).fetchall()
+    if not expansions:
+        return {}
+    known_ids = {str(row["id"]) for row in expansions}
+    by_group: dict[int, str] = {}
+    by_name: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for row in expansions:
+        expansion_id = str(row["id"])
+        group_id = _int_or_none(_parse_payload(row["source_payload_json"]).get("tcgplayerGroupId"))
+        if group_id is None:
+            group_id = TCGPLAYER_GROUP_ID_BY_SET_ID.get(expansion_id)
+        if group_id is not None:
+            by_group.setdefault(group_id, expansion_id)
+        name_key = normalize_group_name(row["name"])
+        if name_key:
+            by_name[(str(row["language"] or "").casefold(), name_key)].append(expansion_id)
+
+    index: dict[str, list[str]] = defaultdict(list)
+    rows = connection.execute(
+        "SELECT id, set_name, language, source_payload_json FROM cards "
+        "WHERE id >= ? AND id < ? AND supertype = ? AND +game = ? "
+        "ORDER BY set_release_date DESC, name ASC, id ASC",
+        (SEALED_CARD_ID_PREFIX, _SEALED_ID_UPPER, SEALED_SUPERTYPE, normalized_game),
+    ).fetchall()
+    for row in rows:
+        payload = _parse_payload(row["source_payload_json"])
+        targets = [
+            str(set_id) for set_id in (payload.get("matchedSetIds") or [])
+            if str(set_id) in known_ids
+        ]
+        if not targets:
+            group_id = _int_or_none(payload.get("tcgplayerGroupId"))
+            if group_id is not None and group_id in by_group:
+                targets = [by_group[group_id]]
+            else:
+                named = by_name.get(
+                    (str(row["language"] or "").casefold(), normalize_group_name(row["set_name"])), []
+                )
+                targets = named if len(named) == 1 else []
+        for expansion_id in targets:
+            index[expansion_id].append(str(row["id"]))
+    return dict(index)
 
 
 def search_sealed_products(

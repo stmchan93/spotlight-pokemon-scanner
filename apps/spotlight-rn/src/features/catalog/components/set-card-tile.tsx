@@ -1,3 +1,4 @@
+import { Check } from 'iconoir-react-native';
 import { memo, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 
@@ -6,6 +7,7 @@ import {
   QuantityStepper,
   Text,
   cardGrid,
+  radii,
   spacing,
   useSpotlightTheme,
 } from '@spotlight/design-system';
@@ -27,12 +29,27 @@ type SetCardTileProps = {
 // Figma card art slot: 96 wide at the trading-card ratio (96×134).
 const ART_WIDTH = 96;
 const ART_ASPECT = 0.716;
+// Sealed art (TCGplayer product shots are square) at the card slot's height.
+const SEALED_ART_SIZE = Math.round(ART_WIDTH / ART_ASPECT);
+const BADGE_CHECK_SIZE = 12;
+const BADGE_CHECK_STROKE = 2.5;
+
+/** "✓" (rendered as a glyph) for one copy, "×N" for more; null when unowned. */
+export function ownedBadgeLabel(quantity: number): string | null {
+  if (quantity <= 0) {
+    return null;
+  }
+  return quantity === 1 ? '✓' : `×${quantity}`;
+}
 
 /**
  * One card in the set page's completion grid (Figma 6425:3339): art, name,
- * "#001/120", its market price (when priced), and a − QTY + stepper. A card you don't own is FADED — art and
- * text at `cardGrid.unownedOpacity` — with no "missing" label; the stepper
- * stays at full strength so + reads as the way in.
+ * "#001/120", its market price (when priced), and a − QTY + stepper. Every
+ * card is full colour; one you own carries a small corner marker on its art
+ * (✓ for one copy, ×N for more), never over the name.
+ *
+ * A sealed product (the set's SEALED section) uses the same tile: square art,
+ * its product type where a card shows its number, same price and stepper.
  */
 export const SetCardTile = memo(function SetCardTile({
   card,
@@ -45,8 +62,10 @@ export const SetCardTile = memo(function SetCardTile({
   const theme = useSpotlightTheme();
   const [hasImageError, setHasImageError] = useState(false);
   const quantity = card.ownedQuantity ?? 0;
-  const isOwned = quantity > 0;
+  const badgeLabel = ownedBadgeLabel(quantity);
+  const isSealed = card.productKind === 'sealed';
   const imageUrl = card.smallImageUrl ?? card.imageUrl;
+  const subtitle = isSealed ? card.sealedProductType ?? null : setCardNumberLabel(card.cardNumber);
 
   return (
     <View
@@ -63,18 +82,49 @@ export const SetCardTile = memo(function SetCardTile({
         onPress={() => onPress(card)}
         style={({ pressed }) => [
           styles.identity,
-          { opacity: (isOwned ? 1 : cardGrid.unownedOpacity) * (pressed ? 0.88 : 1) },
+          { opacity: pressed ? 0.88 : 1 },
         ]}
         testID={`set-card-${card.cardId}-open`}
       >
-        <View style={[styles.artFrame, { backgroundColor: theme.colors.gray100 }]}>
+        <View
+          style={[
+            styles.artFrame,
+            isSealed ? styles.sealedArtFrame : styles.cardArtFrame,
+            { backgroundColor: isSealed ? theme.colors.gray0 : theme.colors.gray100 },
+          ]}
+        >
           {imageUrl && !hasImageError ? (
             <Image
               onError={() => setHasImageError(true)}
-              resizeMode="cover"
+              resizeMode={isSealed ? 'contain' : 'cover'}
               source={{ uri: imageUrl }}
               style={styles.art}
             />
+          ) : null}
+          {badgeLabel ? (
+            <View
+              accessibilityLabel={quantity === 1 ? 'Owned' : `Owned ${quantity}`}
+              accessible
+              style={[
+                styles.ownedBadge,
+                { backgroundColor: cardGrid.ownedBadgeFill, borderColor: theme.colors.gray200 },
+              ]}
+              testID={`set-card-${card.cardId}-owned-badge`}
+            >
+              {quantity === 1 ? (
+                <Check
+                  color={cardGrid.ownedBadgeGlyph}
+                  height={BADGE_CHECK_SIZE}
+                  strokeWidth={BADGE_CHECK_STROKE}
+                  testID={`set-card-${card.cardId}-owned-check`}
+                  width={BADGE_CHECK_SIZE}
+                />
+              ) : (
+                <Text style={[theme.typography.micro, { color: cardGrid.ownedBadgeGlyph }]}>
+                  {badgeLabel}
+                </Text>
+              )}
+            </View>
           ) : null}
         </View>
         <View style={styles.details}>
@@ -84,12 +134,14 @@ export const SetCardTile = memo(function SetCardTile({
           >
             {card.name}
           </Text>
-          <Text
-            numberOfLines={1}
-            style={[styles.centered, theme.typography.caption, { color: theme.colors.gray600 }]}
-          >
-            {setCardNumberLabel(card.cardNumber)}
-          </Text>
+          {subtitle ? (
+            <Text
+              numberOfLines={1}
+              style={[styles.centered, theme.typography.caption, { color: theme.colors.gray600 }]}
+            >
+              {subtitle}
+            </Text>
+          ) : null}
           {/* Market price under the number (USD; the endpoint serves USD only). Hidden when unpriced. */}
           {card.marketPrice != null ? (
             <Text
@@ -123,10 +175,12 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   artFrame: {
-    aspectRatio: ART_ASPECT,
     borderCurve: 'continuous',
     borderRadius: cardGrid.tileRadius,
     overflow: 'hidden',
+  },
+  cardArtFrame: {
+    aspectRatio: ART_ASPECT,
     width: ART_WIDTH,
   },
   centered: {
@@ -142,6 +196,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     width: '100%',
+  },
+  ownedBadge: {
+    alignItems: 'center',
+    borderCurve: 'continuous',
+    borderRadius: radii.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: cardGrid.ownedBadgeHeight,
+    justifyContent: 'center',
+    minWidth: cardGrid.ownedBadgeHeight,
+    paddingHorizontal: spacing.xxxs,
+    position: 'absolute',
+    right: cardGrid.ownedBadgeInset,
+    top: cardGrid.ownedBadgeInset,
+  },
+  sealedArtFrame: {
+    height: SEALED_ART_SIZE,
+    width: SEALED_ART_SIZE,
   },
   tile: {
     alignItems: 'center',

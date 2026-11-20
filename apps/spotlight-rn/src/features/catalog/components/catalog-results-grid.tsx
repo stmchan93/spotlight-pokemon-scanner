@@ -122,6 +122,8 @@ export type CatalogResultsGridProps = {
   showGameTags?: boolean;
   /** Scrolls with the rows, above the first one (the sealed row on search). */
   header?: ReactElement | null;
+  /** Scrolls with the rows, below the last one (sealed on the Search landing). */
+  footer?: ReactElement | null;
   testID?: string;
 };
 
@@ -133,6 +135,7 @@ export function CatalogResultsGrid({
   onEndReached,
   showGameTags = false,
   header = null,
+  footer = null,
   testID = 'catalog-results-list',
 }: CatalogResultsGridProps) {
   return (
@@ -143,10 +146,15 @@ export function CatalogResultsGrid({
       keyExtractor={(row) => row[0].id}
       keyboardShouldPersistTaps="handled"
       ListHeaderComponent={header}
-      ListFooterComponent={isLoadingMore ? (
-        <View style={styles.loadMoreFooter} testID="catalog-load-more-spinner">
-          <ActivityIndicator color={colors.gray400} />
-        </View>
+      ListFooterComponent={isLoadingMore || footer ? (
+        <>
+          {isLoadingMore ? (
+            <View style={styles.loadMoreFooter} testID="catalog-load-more-spinner">
+              <ActivityIndicator color={colors.gray400} />
+            </View>
+          ) : null}
+          {footer}
+        </>
       ) : null}
       onEndReached={onEndReached}
       onEndReachedThreshold={0.5}

@@ -619,6 +619,13 @@ export interface SpotlightRepository {
     game?: CardGame,
   ): Promise<CatalogSearchResult[]>;
   /**
+   * A set's sealed products (`GET /api/v1/expansions/:id/sealed`), newest
+   * first, `productKind: 'sealed'`. Never part of the set's card list or
+   * completion. Never throws: a failed read, an unmatched set and an older
+   * backend all come back empty (the set page then shows no SEALED).
+   */
+  listSealedInExpansion(expansionId: string, game?: CardGame): Promise<CatalogSearchResult[]>;
+  /**
    * The signed-in user's owned-card count per set for one game
    * (`GET /api/v1/collection/set-progress`). Never throws: a failed read, a
    * signed-out caller and an older backend all come back as no sets (0%).
@@ -5599,6 +5606,10 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return this.searchCatalogCards(query);
   }
 
+  async listSealedInExpansion(_expansionId: string, _game?: CardGame): Promise<CatalogSearchResult[]> {
+    return [];
+  }
+
   async getAccessStatus(): Promise<AccessStatus> {
     return {
       accessOpen: this.accessShowModeActive,
@@ -6482,42 +6493,72 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
     const inventoryEntries = inventoryResult.data ?? [];
     const rawResults = Array.isArray(searchResponse.data?.results) ? searchResponse.data.results : [];
-    const results: CatalogSearchResult[] = rawResults
-      .flatMap((result: CardCandidateDTO) => {
-        const card = normalizeCardCandidate(result, this.baseUrl);
-        if (!card) {
-          return [];
-        }
-
-        const isSealed = card.productKind === 'sealed';
-        return [{
-          id: card.id,
-          cardId: card.id,
-          productKind: card.productKind,
-          sealedProductType: card.sealedProductType,
-          name: card.name,
-          // Sealed product has no collector number.
-          cardNumber: isSealed ? '' : withCardNumberPrefix(card.number),
-          setName: card.setName,
-          subtitle: null,
-          imageUrl: pickImageUrl([card.imageLargeURL, card.imageSmallURL], this.baseUrl),
-          smallImageUrl: pickImageUrl([card.imageSmallURL], this.baseUrl) || null,
-          largeImageUrl: pickImageUrl([card.imageLargeURL], this.baseUrl) || null,
-          marketPrice: card.pricing.market,
-          currencyCode: card.pricing.currencyCode,
-          defaultVariantLabel: normalizeString(card.pricing.variant),
-          ownedQuantity: inventoryEntries
-            .filter((entry: InventoryCardEntry) => entry.cardId === card.id)
-            .reduce((sum: number, entry: InventoryCardEntry) => sum + entry.quantity, 0),
-          isFavorite: card.isFavorite,
-          rarityBucket: card.rarityBucket,
-          game: card.game,
-          catalogSource: card.catalogSource,
-          canonicalCardId: card.canonicalCardId,
-        }];
-      });
+    const results = this.catalogResultsFromDTOs(rawResults, inventoryEntries);
 
     return { ...buildLoadResult(results.length > 0 ? 'success' : 'empty', results), hasMore };
+  }
+
+  /** Search-result DTOs (cards or sealed) -> tiles, owned counts from the collection. */
+  private catalogResultsFromDTOs(
+    rawResults: CardCandidateDTO[],
+    inventoryEntries: InventoryCardEntry[],
+  ): CatalogSearchResult[] {
+    return rawResults.flatMap((result: CardCandidateDTO) => {
+      const card = normalizeCardCandidate(result, this.baseUrl);
+      if (!card) {
+        return [];
+      }
+
+      const isSealed = card.productKind === 'sealed';
+      return [{
+        id: card.id,
+        cardId: card.id,
+        productKind: card.productKind,
+        sealedProductType: card.sealedProductType,
+        name: card.name,
+        // Sealed product has no collector number.
+        cardNumber: isSealed ? '' : withCardNumberPrefix(card.number),
+        setName: card.setName,
+        subtitle: null,
+        imageUrl: pickImageUrl([card.imageLargeURL, card.imageSmallURL], this.baseUrl),
+        smallImageUrl: pickImageUrl([card.imageSmallURL], this.baseUrl) || null,
+        largeImageUrl: pickImageUrl([card.imageLargeURL], this.baseUrl) || null,
+        marketPrice: card.pricing.market,
+        currencyCode: card.pricing.currencyCode,
+        defaultVariantLabel: normalizeString(card.pricing.variant),
+        ownedQuantity: inventoryEntries
+          .filter((entry: InventoryCardEntry) => entry.cardId === card.id)
+          .reduce((sum: number, entry: InventoryCardEntry) => sum + entry.quantity, 0),
+        isFavorite: card.isFavorite,
+        rarityBucket: card.rarityBucket,
+        game: card.game,
+        catalogSource: card.catalogSource,
+        canonicalCardId: card.canonicalCardId,
+      }];
+    });
+  }
+
+  async listSealedInExpansion(
+    expansionId: string,
+    game: CardGame = DEFAULT_CARD_GAME,
+  ): Promise<CatalogSearchResult[]> {
+    const params = new URLSearchParams({ game });
+    const loaded = await Promise.all([
+      this.requestJsonRead<SearchResultsDTO>(
+        `${this.baseUrl}/api/v1/expansions/${encodeURIComponent(expansionId)}/sealed?${params.toString()}`,
+      ),
+      this.loadInventoryEntries(),
+    ]).catch(() => null);
+    if (!loaded) {
+      return [];
+    }
+    const [response, inventoryResult] = loaded;
+    if (response.kind !== 'success' || !Array.isArray(response.data?.results)) {
+      return [];
+    }
+    return this.catalogResultsFromDTOs(response.data.results, inventoryResult.data ?? [])
+      // Guard the section against anything that isn't sealed product.
+      .filter((result) => result.productKind === 'sealed');
   }
 
   async searchCatalogCards(query: string, limit = 20) {

@@ -238,11 +238,14 @@ export const cardGrid = {
   tileFill: colors.gray0,
   tileRadius: 4,
   /**
-   * Art/text opacity of a tile for a card the user does NOT own (set page
-   * completion grid, Figma 6425:3296). The frame draws no faded tile, so the
-   * value is ours; one home so every "missing card" reads the same.
+   * Owned marker on a set-page tile's art (top-right corner): a small white
+   * pill with a ✓ for one copy, "×N" for more. Unowned cards draw at full
+   * colour with no marker (owner decision 2026-11-20; replaced a 0.4 fade).
    */
-  unownedOpacity: 0.4,
+  ownedBadgeHeight: 18,
+  ownedBadgeInset: 4,
+  ownedBadgeFill: colors.gray0,
+  ownedBadgeGlyph: colors.gray900,
 } as const;
 
 export const layout = {

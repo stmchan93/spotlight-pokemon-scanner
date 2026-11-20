@@ -18,6 +18,7 @@ import {
   GlassNavBubble,
   PillButton,
   SearchField,
+  SectionHeader,
   StateCard,
   Toast,
   cardGrid,
@@ -65,6 +66,13 @@ const LOGO_TOP_BELOW_SAFE_AREA = 55;
 
 type CopiesSheetState = { card: CatalogSearchResult; copies: InventoryCardEntry[] } | null;
 
+/** The chip row's pick: ALL (null), SEALED, or one rarity bucket. */
+export type SetPageFilter = RarityBucket | 'sealed' | null;
+
+export type SetPageItem =
+  | { kind: 'row'; key: string; items: CatalogSearchResult[] }
+  | { kind: 'sealed-heading'; key: string };
+
 function chunkPairs<T>(items: readonly T[]): T[][] {
   const rows: T[][] = [];
   for (let index = 0; index < items.length; index += 2) {
@@ -73,15 +81,45 @@ function chunkPairs<T>(items: readonly T[]): T[][] {
   return rows;
 }
 
+function pairRows(items: readonly CatalogSearchResult[]): SetPageItem[] {
+  return chunkPairs(items).map((row) => ({ kind: 'row', key: row[0].id, items: row }));
+}
+
+/**
+ * The grid's rows. SEALED: only the set's sealed products. A rarity: only
+ * those cards. ALL: every card, then the sealed products under a SEALED
+ * heading at the very bottom.
+ */
+export function buildSetPageItems(
+  cards: readonly CatalogSearchResult[],
+  sealed: readonly CatalogSearchResult[],
+  filter: SetPageFilter,
+): SetPageItem[] {
+  if (filter === 'sealed') {
+    return pairRows(sealed);
+  }
+  if (filter !== null || sealed.length === 0) {
+    return pairRows(cards);
+  }
+  return [...pairRows(cards), { kind: 'sealed-heading', key: 'sealed-heading' }, ...pairRows(sealed)];
+}
+
+const SEALED_LABEL = 'SEALED';
+
 const NEAR_MINT = deckConditionOptions.find((option) => option.code === 'near_mint') ?? null;
 
 /**
  * A set's page with completion (Figma 6425:3296): logo, a header card with
  * name, release date, progress and the FULL set's value, a card search and
- * rarity chips, then EVERY card in the set two-up — the ones you don't own
- * faded — each with − QTY +.
+ * rarity chips, then EVERY card in the set two-up — full colour, the ones you
+ * own marked ✓ / ×N on the art — each with − QTY +.
  *
- * + adds one copy (default printing, Near Mint, raw) through the same
+ * SEALED: when the set's TCGplayer group has sealed products, a SEALED chip
+ * follows ALL (only sealed), and ALL lists them under a SEALED heading after
+ * every card. They never count toward "X of Y" or the set's value.
+ *
+ * + adds one copy (default printing, Near Mint, raw; sealed: no printing or
+ *   condition, as the sealed product page adds it) through the same
  *   `createInventoryEntry` the card page's ADD ITEM uses.
  * − removes one copy. Owned in exactly one form → that entry is decremented
  *   (deleted at 0). Owned in more than one form → a sheet asks which copy; the
@@ -136,6 +174,8 @@ export function ExpansionDetailScreen({
 
   const [expansion, setExpansion] = useState<ExpansionRecord | null>(null);
   const [cards, setCards] = useState<CatalogSearchResult[]>([]);
+  // The set's sealed products: beside the card list, never in its completion.
+  const [sealed, setSealed] = useState<CatalogSearchResult[]>([]);
   const [hasLoadedCards, setHasLoadedCards] = useState(false);
   const [entries, setEntries] = useState<InventoryCardEntry[] | null>(null);
   const entriesRef = useRef<InventoryCardEntry[] | null>(null);
@@ -144,7 +184,7 @@ export function ExpansionDetailScreen({
   inventoryCacheRef.current = inventoryEntriesCache;
 
   const [cardQuery, setCardQuery] = useState('');
-  const [rarity, setRarity] = useState<RarityBucket | null>(null);
+  const [filter, setFilter] = useState<SetPageFilter>(null);
   const [pendingCardIds, setPendingCardIds] = useState<ReadonlySet<string>>(new Set());
   const pendingRef = useRef(new Set<string>());
   const [copiesSheet, setCopiesSheet] = useState<CopiesSheetState>(null);
@@ -180,6 +220,13 @@ export function ExpansionDetailScreen({
           setHasLoadedCards(true);
         }
       });
+    void spotlightRepository.listSealedInExpansion(expansionId, game)
+      .then((results) => {
+        if (!cancelled) {
+          setSealed(results);
+        }
+      })
+      .catch(() => undefined);
     void spotlightRepository.getInventoryEntries()
       .then((loaded) => {
         if (!cancelled) {
@@ -202,11 +249,13 @@ export function ExpansionDetailScreen({
   }, []);
 
   const shiftOwned = useCallback((cardId: string, delta: number) => {
-    setCards((current) => current.map((card) => (
+    const shift = (current: CatalogSearchResult[]) => current.map((card) => (
       card.cardId === cardId
         ? { ...card, ownedQuantity: Math.max(0, (card.ownedQuantity ?? 0) + delta) }
         : card
-    )));
+    ));
+    setCards(shift);
+    setSealed(shift);
   }, []);
 
   const upsertEntry = useCallback((entry: InventoryCardEntry) => {
@@ -229,12 +278,16 @@ export function ExpansionDetailScreen({
     setPending(card.cardId, true);
     shiftOwned(card.cardId, 1);
     const addedAt = new Date().toISOString();
-    const variantName = card.defaultVariantLabel ?? null;
+    // Sealed is one unopened line, exactly as the sealed product page adds it:
+    // no printing, no condition.
+    const isSealed = card.productKind === 'sealed';
+    const variantName = isSealed ? null : card.defaultVariantLabel ?? null;
+    const conditionOption = isSealed ? null : NEAR_MINT;
     void spotlightRepository.createInventoryEntry({
       cardID: card.cardId,
       slabContext: null,
       variantName,
-      condition: 'near_mint',
+      condition: isSealed ? null : 'near_mint',
       quantity: 1,
       sourceScanID: null,
       selectionSource: 'manual_search',
@@ -263,9 +316,9 @@ export function ExpansionDetailScreen({
             addedAt: response.addedAt || addedAt,
             kind: 'raw',
             variantName: response.variantName ?? variantName,
-            conditionCode: 'near_mint',
-            conditionLabel: NEAR_MINT?.label ?? null,
-            conditionShortLabel: NEAR_MINT?.shortLabel ?? null,
+            conditionCode: conditionOption?.code ?? null,
+            conditionLabel: conditionOption?.label ?? null,
+            conditionShortLabel: conditionOption?.shortLabel ?? null,
             slabContext: null,
             rarityBucket: card.rarityBucket,
             game: card.game,
@@ -365,13 +418,21 @@ export function ExpansionDetailScreen({
   }, [handleDecrement]);
 
   const chips = useMemo(() => rarityChipsForCards(cards, game), [cards, game]);
-  // A chip that vanished (it was this set's only bucket match) drops back to ALL.
-  const activeRarity = rarity && chips.some((chip) => chip.bucket === rarity) ? rarity : null;
+  const hasSealed = sealed.length > 0;
+  // A chip that vanished (its last match is gone) drops back to ALL.
+  const activeFilter: SetPageFilter = filter === 'sealed'
+    ? (hasSealed ? 'sealed' : null)
+    : filter && chips.some((chip) => chip.bucket === filter) ? filter : null;
+  const activeRarity = activeFilter === 'sealed' ? null : activeFilter;
   const visibleCards = useMemo(
     () => filterSetCards(cards, cardQuery, activeRarity),
     [activeRarity, cardQuery, cards],
   );
-  const rows = useMemo(() => chunkPairs(visibleCards), [visibleCards]);
+  const visibleSealed = useMemo(() => filterSetCards(sealed, cardQuery, null), [cardQuery, sealed]);
+  const items = useMemo(
+    () => buildSetPageItems(visibleCards, visibleSealed, activeFilter),
+    [activeFilter, visibleCards, visibleSealed],
+  );
 
   // Y = the set's served total (secret rares included); before an older
   // backend sends one, the whole set we loaded is the same list.
@@ -390,13 +451,13 @@ export function ExpansionDetailScreen({
         <StateCard centered loading message="Loading cards from this set." style={styles.stateCard} title="Loading" />
       );
     }
-    if (visibleCards.length === 0) {
+    if (items.length === 0) {
       return (
         <StateCard
           centered
-          message={cards.length > 0 ? 'Try a different name or number.' : 'No cards found in this set yet.'}
+          message={cards.length > 0 || hasSealed ? 'Try a different name or number.' : 'No cards found in this set yet.'}
           style={styles.stateCard}
-          title="No cards"
+          title={activeFilter === 'sealed' ? 'No sealed products' : 'No cards'}
         />
       );
     }
@@ -448,7 +509,7 @@ export function ExpansionDetailScreen({
           uppercasePlaceholder
           value={cardQuery}
         />
-        {chips.length > 0 ? (
+        {chips.length > 0 || hasSealed ? (
           <ScrollView
             contentContainerStyle={styles.chips}
             horizontal
@@ -460,18 +521,28 @@ export function ExpansionDetailScreen({
             <PillButton
               label="ALL"
               labelRole="caption"
-              onPress={() => setRarity(null)}
-              selected={activeRarity === null}
+              onPress={() => setFilter(null)}
+              selected={activeFilter === null}
               testID="set-page-rarity-all"
               tone="filled"
             />
+            {hasSealed ? (
+              <PillButton
+                label={SEALED_LABEL}
+                labelRole="caption"
+                onPress={() => setFilter('sealed')}
+                selected={activeFilter === 'sealed'}
+                testID="set-page-sealed-chip"
+                tone="filled"
+              />
+            ) : null}
             {chips.map((chip) => (
               <PillButton
                 key={chip.bucket}
                 label={chip.label}
                 labelRole="caption"
-                onPress={() => setRarity(chip.bucket)}
-                selected={activeRarity === chip.bucket}
+                onPress={() => setFilter(chip.bucket)}
+                selected={activeFilter === chip.bucket}
                 testID={`set-page-rarity-${chip.bucket}`}
                 tone="filled"
               />
@@ -488,12 +559,16 @@ export function ExpansionDetailScreen({
       <FlatList
         ListHeaderComponent={header}
         contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.lg }]}
-        data={rows}
-        keyExtractor={(row) => row[0].id}
+        data={items}
+        keyExtractor={(item) => item.key}
         keyboardShouldPersistTaps="handled"
-        renderItem={({ item: row }) => (
+        renderItem={({ item }) => (item.kind === 'sealed-heading' ? (
+          <View style={styles.sealedHeading}>
+            <SectionHeader size="compact" testID="set-page-sealed-heading" title={SEALED_LABEL} uppercase />
+          </View>
+        ) : (
           <View style={styles.row}>
-            {row.map((card, index) => (
+            {item.items.map((card, index) => (
               <SetCardTile
                 card={card}
                 column={index === 0 ? 'left' : 'right'}
@@ -504,9 +579,9 @@ export function ExpansionDetailScreen({
                 onPress={onOpenCard}
               />
             ))}
-            {row.length < 2 ? <View style={styles.rowSpacer} /> : null}
+            {item.items.length < 2 ? <View style={styles.rowSpacer} /> : null}
           </View>
-        )}
+        ))}
         showsVerticalScrollIndicator={false}
         testID="set-page-grid"
       />
@@ -591,6 +666,11 @@ const styles = StyleSheet.create({
   },
   screen: {
     flex: 1,
+  },
+  // Small-caps heading over the set's sealed products, below every card.
+  sealedHeading: {
+    paddingHorizontal: layout.pageGutter,
+    paddingTop: spacing.lg,
   },
   stateCard: {
     gap: spacing.sm,

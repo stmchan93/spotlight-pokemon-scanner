@@ -32,7 +32,8 @@ Search becomes a way to see how close you are to finishing every set.
 | + adds | Default printing, Near Mint |
 | Total value | Value of the FULL set, not your copies |
 | Graded slabs | Count toward completion |
-| Missing cards | Faded, no label |
+| Missing cards | Full colour, no label (was faded; changed 2026-11-20). Owned cards carry a small ✓ / ×N corner marker |
+| Sealed | SEALED chip + a section after the cards; never counts toward completion or value (addendum below) |
 
 ## What has to be built
 
@@ -64,3 +65,11 @@ About **3–4 days** total. Zero Scrydex credits: every number comes from our ow
 - Expansions endpoint (`useGameExpansions`) gains `ownedCount`, `totalCount`, `setValue`; `listCardsInExpansion` already returns `ownedQuantity` per card.
 - Rarity chips: from the server-owned rarity buckets in `catalog_tools` (`RARITY_BUCKET_KEYS`), showing only buckets present in the set. Figma's "HR" (hyper rare) needs a label mapping onto the existing buckets.
 - Existing screens to evolve: `expansion-browser-screen.tsx` (game grid → game chips), `game-sets-screen.tsx` (set cards), `expansion-detail-screen.tsx` (set page).
+
+## Addendum: sealed on the set page + owned marker (2026-11-20, built)
+
+- Set page: a **SEALED** chip right after ALL (only when the set has sealed); ALL lists every card, then the set's sealed under a SEALED heading at the bottom. Sealed never counts toward "X of Y", the percent or TOTAL VALUE (sealed rows keep `set_id` NULL).
+- Sealed tiles: image, name, product type, USD price, − QTY + (sealed adds as one unopened line: no printing, no condition, same as the sealed product page). Tapping opens the existing card/sealed page.
+- Set ↔ TCGplayer group (`sealed_products.sealed_set_index`): at sealed ingest the group's own card products vote for their `set_id` (stamped as `matchedSetIds` in the sealed payload); else the set's `tcgplayerGroupId` (TCGplayer-only sets) or the hand-verified alias table; else an exact normalized group-name match ("SV08: Surging Sparks" = "Surging Sparks"). Served by `GET /api/v1/expansions/:id/sealed?game=`.
+- Search landing: card results first, then matching sealed (same game) in a SEALED section once every card page has loaded.
+- Unowned cards are full colour; owned ones carry a white ✓ (one copy) / ×N pill on the art's top-right corner (`cardGrid.ownedBadge*`).

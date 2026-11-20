@@ -5,6 +5,7 @@ import type { CatalogSearchResult } from '@spotlight/api-client';
 import {
   DEBOUNCE_MS,
   MIN_QUERY_LENGTH,
+  type CatalogSearchScope,
 } from '@/features/catalog/hooks/use-catalog-card-search';
 import { useAppServices } from '@/providers/app-providers';
 
@@ -26,9 +27,14 @@ export type SealedSearchPreview = {
 export function useSealedSearchPreview({
   query,
   enabled,
+  scope = 'all',
+  limit = PREVIEW_LIMIT,
 }: {
   query: string;
   enabled: boolean;
+  /** Which game's sealed to ask; the Search landing scopes it to its game. */
+  scope?: CatalogSearchScope;
+  limit?: number;
 }): SealedSearchPreview {
   const { spotlightRepository } = useAppServices();
   const [results, setResults] = useState<CatalogSearchResult[]>([]);
@@ -49,7 +55,7 @@ export function useSealedSearchPreview({
     let isCancelled = false;
     const timeout = setTimeout(() => {
       void spotlightRepository
-        .searchCatalogCardsPage(trimmed, PREVIEW_LIMIT, 0, { game: 'all', kind: 'sealed' })
+        .searchCatalogCardsPage(trimmed, limit, 0, { game: scope, kind: 'sealed' })
         .then((page) => {
           if (isCancelled) {
             return;
@@ -72,7 +78,7 @@ export function useSealedSearchPreview({
       isCancelled = true;
       clearTimeout(timeout);
     };
-  }, [isActive, spotlightRepository, trimmed]);
+  }, [isActive, limit, scope, spotlightRepository, trimmed]);
 
   return { isLoading, results };
 }
