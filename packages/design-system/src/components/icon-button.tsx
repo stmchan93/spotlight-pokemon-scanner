@@ -11,6 +11,8 @@ type IconButtonProps = {
   children: ReactNode;
   disabled?: boolean;
   onPress?: () => void;
+  /** Toggle buttons (e.g. 👍/👎): exposed to screen readers as the selected state. */
+  selected?: boolean;
   size?: number;
   /**
    * 'circle' (default) renders a fully round button. 'rounded' renders a
@@ -33,6 +35,7 @@ export function IconButton({
   children,
   disabled = false,
   onPress,
+  selected,
   size = iconButtonDefaultSize,
   shape = 'circle',
   style,
@@ -81,6 +84,7 @@ export function IconButton({
     <Pressable
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
+      accessibilityState={selected === undefined ? undefined : { selected, disabled }}
       disabled={disabled}
       hitSlop={8}
       onPress={onPress}

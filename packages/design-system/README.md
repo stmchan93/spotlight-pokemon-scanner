@@ -174,6 +174,9 @@ Current API concepts:
 - `shape`: `circle` (default) or `rounded` (rounded square at `radii.sm`)
 - `size` defaults to `iconButtonDefaultSize` (34); size a glyph in a default
   button with `iconButtonDefaultGlyphSize` (17) instead of a literal
+- `selected` (optional): for toggle buttons (the assistant's 👍/👎); sets
+  `accessibilityState.selected`. The caller still owns the selected visuals
+  (variant / glyph color).
 
 ### SearchField
 

@@ -2921,6 +2921,26 @@ export type AssistantMessage = {
    * Optional: older servers and older rows don't send it.
    */
   charts?: AssistantPriceChart[];
+  /** The user's 👍/👎 on an assistant reply; null/absent = not rated (or an older server). */
+  feedback?: AssistantFeedback | null;
+};
+
+export type AssistantFeedbackRating = 'up' | 'down';
+export type AssistantFeedbackReason = 'wrong' | 'not_helpful' | 'too_long' | 'wrong_cards' | 'other';
+
+export type AssistantFeedback = {
+  rating: AssistantFeedbackRating;
+  reason: AssistantFeedbackReason | null;
+  note: string | null;
+  updatedAt: string | null;
+};
+
+/** `rating: null` clears the feedback. */
+export type AssistantFeedbackInput = {
+  rating: AssistantFeedbackRating | null;
+  reason?: AssistantFeedbackReason | null;
+  /** ≤500 chars. */
+  note?: string | null;
 };
 
 export type AssistantChartRange = '30d' | '90d' | '1y';

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
-import type { AssistantMessage, AssistantProposedAction } from '@spotlight/api-client';
+import type { AssistantFeedbackInput, AssistantMessage, AssistantProposedAction } from '@spotlight/api-client';
 import { layout, radii, spacing, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import { AssistantRichText } from '@/features/assistant/assistant-markdown';
@@ -12,6 +12,7 @@ import {
   type AssistantActionUiState,
 } from '@/features/assistant/components/assistant-action-card';
 import { AssistantCardTile } from '@/features/assistant/components/assistant-card-tile';
+import { AssistantFeedbackControls } from '@/features/assistant/components/assistant-feedback';
 import { AssistantPriceChartCard } from '@/features/assistant/components/assistant-price-chart';
 
 const ENTER_MS = 220;
@@ -38,6 +39,8 @@ type AssistantMessageBubbleProps = {
   onConfirmAction: (action: AssistantProposedAction, message: AssistantMessage) => void;
   onDismissAction: (action: AssistantProposedAction) => void;
   onCopy?: (text: string) => void;
+  /** 👍/👎 under assistant replies; omitted = no controls. */
+  onFeedback?: (message: AssistantMessage, input: AssistantFeedbackInput) => void;
   /** Animate in: only for rows that arrive live, never for a loaded history. */
   animateEntrance?: boolean;
   /** Rendered under the reply (the latest reply's follow-up chips). */
@@ -51,6 +54,7 @@ export function AssistantMessageBubble({
   onConfirmAction,
   onDismissAction,
   onCopy,
+  onFeedback,
   animateEntrance = false,
   footer,
 }: AssistantMessageBubbleProps) {
@@ -112,6 +116,13 @@ export function AssistantMessageBubble({
           state={actionStates[action.id] ?? initialActionUiState(action)}
         />
       ))}
+      {onFeedback ? (
+        <AssistantFeedbackControls
+          feedback={message.feedback ?? null}
+          onChange={(input) => onFeedback(message, input)}
+          testID={`${testID}-feedback`}
+        />
+      ) : null}
       {footer}
     </Animated.View>
   );

@@ -16,6 +16,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import type {
   AssistantContextSource,
+  AssistantFeedbackInput,
   AssistantMessage,
   AssistantProposedAction,
   AssistantThreadSummary,
@@ -411,6 +412,15 @@ export function AssistantScreen({
       .catch(() => undefined);
   }, [chat.replaceAction, repository, setActionState]);
 
+  const setChatFeedback = chat.setFeedback;
+  const handleFeedback = useCallback((message: AssistantMessage, input: AssistantFeedbackInput) => {
+    capturePostHogEvent(AnalyticsEvent.assistantFeedbackTapped, {
+      rating: input.rating ?? 'cleared',
+      reason: input.reason ?? null,
+    });
+    void setChatFeedback(message.id, input);
+  }, [setChatFeedback]);
+
   const rows = useMemo<ChatRow[]>(() => {
     const messageRows: ChatRow[] = chat.messages.map((message) => ({ kind: 'message', key: message.id, message }));
     return chat.pending
@@ -445,6 +455,7 @@ export function AssistantScreen({
           onConfirmAction={handleConfirmAction}
           onCopy={handleCopy}
           onDismissAction={handleDismissAction}
+          onFeedback={handleFeedback}
           onOpenCard={onOpenCard}
         />
       );
