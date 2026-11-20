@@ -67,6 +67,13 @@ Errors:
 ### `POST /api/v1/assistant/actions/{action_id}` body `{"state":"confirmed"|"dismissed"}` → `{"action": ProposedAction}`
 Records the user's choice AFTER the app performed (or skipped) the real write. Owner-scoped; 404 on someone else's action.
 
+### `POST /api/v1/assistant/messages/{message_id}/feedback` (added 2026-11-19)
+Body `{"rating": "up"|"down"|null, "reason": null|"wrong"|"not_helpful"|"too_long"|"wrong_cards"|"other", "note": null|str (≤500 chars, trimmed; "" = null)}`. `rating` is required; `null` clears (reason/note ignored). → `{"message_id", "feedback": Feedback|null}`.
+- Owner-scoped: 404 for another user's or an unknown message; 400 `invalid_request` for a user message or bad values.
+- Stored in `assistant_feedback` (one row per message; clearing deletes the row). Thread delete / clear-all / account deletion remove it.
+- Server-side PostHog event `assistant_feedback` (same `TurnAnalytics` sender + `environment` tag as `assistant_turn_cost`), fired only when the stored state changes: `rating` (null = cleared), `reason`, `message_id`, `thread_id`, `tools`, `cost_usd` (of that answer), `question` (≤200 chars), `answer` (≤400 chars). This is the count of record; the app's `assistant_feedback_tapped` is UI-only.
+- Export for triage / eval cases: `backend/tools/assistant_feedback_export.py` (`--include-up`, `--as-cases [--format json]`).
+
 ### Types
 ```text
 Usage = {
@@ -88,8 +95,10 @@ AssistantMessage = {
   "suggestions": [str],           # assistant only (added 2026-11-18): 0-3 tap-to-ask follow-up prompts, each <=40 chars; [] for user messages, errors, refusals, and older rows. Tapping one = send it as the next question in the same thread.
   "charts": [PriceChart],         # assistant only (added 2026-11-18): 0-2; [] for user messages, errors, refusals, and older rows
   "created_at": ISO,
-  "status": "ok" | "error"
+  "status": "ok" | "error",
+  "feedback": Feedback | null     # added 2026-11-19: the caller's 👍/👎 on an assistant answer; always null on user messages
 }
+Feedback = {"rating": "up" | "down", "reason": str | null, "note": str | null, "updated_at": ISO}
 CardRef = {
   "card_id", "name", "set", "number", "language",
   "image_small_url", "price_usd": float | null,
@@ -174,11 +183,15 @@ CREATE TABLE IF NOT EXISTS assistant_usage (
   owner_user_id TEXT NOT NULL, day TEXT NOT NULL, questions INTEGER NOT NULL DEFAULT 0,
   cost_usd REAL NOT NULL DEFAULT 0, PRIMARY KEY (owner_user_id, day)
 );
+CREATE TABLE IF NOT EXISTS assistant_feedback (   -- added 2026-11-19
+  message_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, thread_id TEXT NOT NULL,
+  rating TEXT NOT NULL, reason TEXT, note TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS user_ai_settings (
   owner_user_id TEXT PRIMARY KEY, allow_mcp_edits INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
 );
 ```
-Raw tool payloads are not stored. History sent to the model = the last 10 messages of the thread: text, plus (2026-11-18) a model-only `[Looked up with: ...; Cards shown: ...]` note after each prior assistant answer built from `tool_calls_json` (fallback `tools_used`) and `cards_json`, so the model doesn't disown earlier tool-backed answers. Never shown to users. Account deletion must delete the user's rows in all four tables (find the existing account-deletion path and extend it).
+Raw tool payloads are not stored. History sent to the model = the last 10 messages of the thread: text, plus (2026-11-18) a model-only `[Looked up with: ...; Cards shown: ...]` note after each prior assistant answer built from `tool_calls_json` (fallback `tools_used`) and `cards_json`, so the model doesn't disown earlier tool-backed answers. Never shown to users. Account deletion must delete the user's rows in all five tables (incl. `assistant_feedback`) (find the existing account-deletion path and extend it).
 
 ## MCP write tools (Agent C)
 
@@ -205,4 +218,4 @@ App endpoints for the toggle (main backend, `server.py`):
 - **C**: a "Use with AI" screen from Settings/You: what it is, the staging/prod MCP URL with a copy button, 3 steps for Claude, the "Let AI assistants edit my collection" toggle, and a Connected-apps list with revoke if the Supabase JS client exposes OAuth grants (check `@supabase/supabase-js` version first; if not available, show "manage in Claude/ChatGPT" text and report).
 
 ## Analytics
-App-side PostHog (existing client): `assistant_opened{source}`, `assistant_question_sent{source}`, `assistant_limit_hit{is_guest}`, `assistant_action_confirmed{type}`, `assistant_action_dismissed{type}`. Server logs per message: tools used, rounds, tokens, cost_usd, latency_ms (stored on the message row).
+App-side PostHog (existing client): `assistant_opened{source}`, `assistant_question_sent{source}`, `assistant_limit_hit{is_guest}`, `assistant_action_confirmed{type}`, `assistant_action_dismissed{type}`, `assistant_feedback_tapped{rating, reason}` (UI only; the server's `assistant_feedback` event is the count of record). Server logs per message: tools used, rounds, tokens, cost_usd, latency_ms (stored on the message row).

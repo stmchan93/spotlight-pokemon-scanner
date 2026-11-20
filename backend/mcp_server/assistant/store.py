@@ -39,6 +39,19 @@ CREATE TABLE IF NOT EXISTS user_ai_settings (
 );
 """
 
+# 👍/👎 on assistant answers, one row per message (null rating = row deleted).
+FEEDBACK_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS assistant_feedback (
+    message_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, thread_id TEXT NOT NULL,
+    rating TEXT NOT NULL, reason TEXT, note TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assistant_feedback_owner ON assistant_feedback(owner_user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_assistant_feedback_rating ON assistant_feedback(rating, updated_at DESC);
+"""
+FEEDBACK_RATINGS = ("up", "down")
+FEEDBACK_REASONS = ("wrong", "not_helpful", "too_long", "wrong_cards", "other")
+FEEDBACK_NOTE_CHARS = 500
+
 # The assistant reply reuses the question's client_message_id with this suffix,
 # so a retried request finds both halves of the turn.
 REPLY_SUFFIX = ":reply"
@@ -57,6 +70,7 @@ COLUMN_PATCHES = (
 
 def ensure_schema(connection: sqlite3.Connection) -> None:
     connection.executescript(SCHEMA_SQL)
+    connection.executescript(FEEDBACK_SCHEMA_SQL)
     for table, column, sql_type in COLUMN_PATCHES:
         columns = {str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
         if column not in columns:
@@ -135,7 +149,13 @@ def _charts(raw: Any) -> list[dict[str, Any]]:
     return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
 
 
-def message_payload(row: sqlite3.Row) -> dict[str, Any]:
+def feedback_payload(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {"rating": row["rating"], "reason": row["reason"], "note": row["note"], "updated_at": row["updated_at"]}
+
+
+def message_payload(row: sqlite3.Row, feedback: dict[str, Any] | None = None) -> dict[str, Any]:
     """AssistantMessage wire shape."""
     role = str(row["role"])
     keys = row.keys()
@@ -152,6 +172,7 @@ def message_payload(row: sqlite3.Row) -> dict[str, Any]:
         "charts": _charts(raw_charts) if role == "assistant" else [],
         "created_at": row["created_at"],
         "status": row["status"],
+        "feedback": feedback if role == "assistant" else None,
     }
 
 
@@ -289,11 +310,15 @@ class AssistantStore:
             """,  # noqa: S608 - static fragments only
             (*params, limit),
         ).fetchall()
-        return [message_payload(row) for row in reversed(rows)]
+        feedback = self.feedback_by_message(owner_user_id, [str(row["id"]) for row in rows])
+        return [message_payload(row, feedback.get(str(row["id"]))) for row in reversed(rows)]
 
     def delete_thread(self, owner_user_id: str, thread_id: str) -> bool:
         if self.owned_thread(owner_user_id, thread_id) is None:
             return False
+        self.conn.execute(
+            "DELETE FROM assistant_feedback WHERE thread_id = ? AND owner_user_id = ?", (thread_id, owner_user_id)
+        )
         self.conn.execute(
             "DELETE FROM assistant_messages WHERE thread_id = ? AND owner_user_id = ?", (thread_id, owner_user_id)
         )
@@ -302,6 +327,7 @@ class AssistantStore:
         return True
 
     def delete_all_threads(self, owner_user_id: str) -> int:
+        self.conn.execute("DELETE FROM assistant_feedback WHERE owner_user_id = ?", (owner_user_id,))
         self.conn.execute("DELETE FROM assistant_messages WHERE owner_user_id = ?", (owner_user_id,))
         cursor = self.conn.execute("DELETE FROM assistant_threads WHERE owner_user_id = ?", (owner_user_id,))
         self.conn.commit()
@@ -429,3 +455,86 @@ class AssistantStore:
                 self.conn.commit()
                 return action
         return None
+
+
+    # --- feedback ------------------------------------------------------------
+
+    def feedback_by_message(self, owner_user_id: str, message_ids: list[str]) -> dict[str, dict[str, Any]]:
+        if not message_ids:
+            return {}
+        marks = ",".join("?" * len(message_ids))
+        rows = self.conn.execute(
+            f"SELECT * FROM assistant_feedback WHERE owner_user_id = ? AND message_id IN ({marks})",  # noqa: S608
+            (owner_user_id, *message_ids),
+        ).fetchall()
+        return {str(row["message_id"]): feedback_payload(row) for row in rows}  # type: ignore[misc]
+
+    def feedback_target(self, owner_user_id: str, message_id: str) -> dict[str, Any] | None:
+        """The owned message plus the question it answered (for analytics)."""
+        row = self.conn.execute(
+            "SELECT * FROM assistant_messages WHERE id = ? AND owner_user_id = ?", (message_id, owner_user_id)
+        ).fetchone()
+        if row is None:
+            return None
+        question = None
+        client_id = str(row["client_message_id"] or "")
+        if client_id.endswith(REPLY_SUFFIX):
+            question = self.conn.execute(
+                "SELECT text FROM assistant_messages WHERE owner_user_id = ? AND client_message_id = ?",
+                (owner_user_id, client_id[: -len(REPLY_SUFFIX)]),
+            ).fetchone()
+        if question is None:
+            question = self.conn.execute(
+                """
+                SELECT text FROM assistant_messages
+                WHERE thread_id = ? AND owner_user_id = ? AND role = 'user' AND created_at <= ?
+                ORDER BY created_at DESC, rowid DESC LIMIT 1
+                """,
+                (row["thread_id"], owner_user_id, row["created_at"]),
+            ).fetchone()
+        return {
+            "id": str(row["id"]),
+            "thread_id": str(row["thread_id"]),
+            "role": str(row["role"]),
+            "text": str(row["text"]),
+            "question": str(question["text"]) if question is not None else "",
+            "tools_used": [str(item) for item in _json_list(row["tools_used"]) if isinstance(item, str)],
+            "cost_usd": float(row["cost_usd"]) if row["cost_usd"] is not None else None,
+        }
+
+    def set_feedback(
+        self, owner_user_id: str, message_id: str, thread_id: str, *, rating: str | None, reason: str | None,
+        note: str | None,
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """Upsert (rating set) or delete (rating None). Returns (stored feedback, changed)."""
+        current = feedback_payload(self.conn.execute(
+            "SELECT * FROM assistant_feedback WHERE message_id = ? AND owner_user_id = ?", (message_id, owner_user_id)
+        ).fetchone())
+        if rating is None:
+            if current is None:
+                return None, False
+            self.conn.execute(
+                "DELETE FROM assistant_feedback WHERE message_id = ? AND owner_user_id = ?", (message_id, owner_user_id)
+            )
+            self.conn.commit()
+            return None, True
+        if current is not None and (current["rating"], current["reason"], current["note"]) == (rating, reason, note):
+            return current, False
+        stamp = now_iso()
+        self.conn.execute(
+            """
+            INSERT INTO assistant_feedback (message_id, owner_user_id, thread_id, rating, reason, note,
+                                            created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(message_id) DO UPDATE SET
+                rating = excluded.rating, reason = excluded.reason, note = excluded.note,
+                updated_at = excluded.updated_at
+            WHERE assistant_feedback.owner_user_id = excluded.owner_user_id
+            """,
+            (message_id, owner_user_id, thread_id, rating, reason, note, stamp, stamp),
+        )
+        self.conn.commit()
+        stored = feedback_payload(self.conn.execute(
+            "SELECT * FROM assistant_feedback WHERE message_id = ? AND owner_user_id = ?", (message_id, owner_user_id)
+        ).fetchone())
+        return stored, True

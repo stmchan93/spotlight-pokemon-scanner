@@ -1026,7 +1026,7 @@ CREATE TABLE IF NOT EXISTS art_themes (
 );
 
 -- In-app AI chat ("Ask Ekalight", mcp_server/assistant). Owner-scoped; the
--- MCP process also creates these at startup. Account deletion clears all four.
+-- MCP process also creates these at startup. Account deletion clears all of them.
 CREATE TABLE IF NOT EXISTS assistant_threads (
     id TEXT PRIMARY KEY,
     owner_user_id TEXT NOT NULL,
@@ -1064,6 +1064,19 @@ CREATE TABLE IF NOT EXISTS assistant_usage (
     cost_usd REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (owner_user_id, day)
 );
+-- 👍/👎 on assistant answers (one row per assistant message; cleared = deleted).
+CREATE TABLE IF NOT EXISTS assistant_feedback (
+    message_id TEXT PRIMARY KEY,
+    owner_user_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    rating TEXT NOT NULL,
+    reason TEXT,
+    note TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assistant_feedback_owner ON assistant_feedback(owner_user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_assistant_feedback_rating ON assistant_feedback(rating, updated_at DESC);
 
 -- Seed themes. INSERT OR IGNORE: restarts never duplicate or undo hand edits.
 INSERT OR IGNORE INTO art_themes (theme, facet, value) VALUES

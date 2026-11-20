@@ -16,6 +16,7 @@ import httpx
 logger = logging.getLogger("ekalight.assistant")
 
 EVENT_TURN = "assistant_turn_cost"
+EVENT_FEEDBACK = "assistant_feedback"
 
 
 class TurnAnalytics:
@@ -37,19 +38,19 @@ class TurnAnalytics:
     def enabled(self) -> bool:
         return bool(self.api_key)
 
-    def payload(self, distinct_id: str, properties: dict[str, Any]) -> dict[str, Any]:
+    def payload(self, distinct_id: str, properties: dict[str, Any], event: str = EVENT_TURN) -> dict[str, Any]:
         return {
             "api_key": self.api_key,
-            "event": EVENT_TURN,
+            "event": event,
             "distinct_id": distinct_id,
             "properties": {"environment": self.environment, **properties},
         }
 
-    def capture(self, distinct_id: str, properties: dict[str, Any]) -> None:
+    def capture(self, distinct_id: str, properties: dict[str, Any], event: str = EVENT_TURN) -> None:
         if not self.enabled:
             return
         try:
-            task = asyncio.get_running_loop().create_task(self._send(self.payload(distinct_id, properties)))
+            task = asyncio.get_running_loop().create_task(self._send(self.payload(distinct_id, properties, event)))
         except RuntimeError:  # no loop (sync callers/tests): skip rather than block
             return
         self._tasks.add(task)  # keep a reference so the task isn't GC'd mid-flight
