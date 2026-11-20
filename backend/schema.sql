@@ -1135,3 +1135,30 @@ CREATE TABLE IF NOT EXISTS price_lows_runs (
     stored_count INTEGER NOT NULL,
     elapsed_ms REAL NOT NULL
 );
+-- Cards hitting new highs (find_new_highs); same job and scan as price_lows.
+CREATE TABLE IF NOT EXISTS price_highs (
+    window_days INTEGER NOT NULL,
+    card_id TEXT NOT NULL,
+    game TEXT NOT NULL,
+    source TEXT NOT NULL,
+    variant TEXT,
+    sealed INTEGER NOT NULL DEFAULT 0,
+    price_usd REAL NOT NULL,
+    high_usd REAL NOT NULL,
+    high_date TEXT NOT NULL,
+    low_usd REAL NOT NULL,
+    pct_above_low REAL NOT NULL,
+    days_covered INTEGER NOT NULL,
+    rank INTEGER NOT NULL,
+    as_of_date TEXT NOT NULL,
+    PRIMARY KEY (window_days, card_id)
+);
+CREATE INDEX IF NOT EXISTS idx_price_highs_rank ON price_highs(window_days, game, rank);
+CREATE TABLE IF NOT EXISTS price_highs_runs (
+    window_days INTEGER PRIMARY KEY,
+    version TEXT NOT NULL,
+    as_of_date TEXT,
+    computed_at TEXT NOT NULL,
+    stored_count INTEGER NOT NULL,
+    elapsed_ms REAL NOT NULL
+);

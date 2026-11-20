@@ -1,9 +1,9 @@
-"""Tools the assistant model sees: the 11 CollectionTools reads (owner = the
+"""Tools the assistant model sees: the 12 CollectionTools reads (owner = the
 request user, DB-only) plus 3 propose_* tools that validate and return a
 ProposedAction without changing anything.
 
 Strict mode: the API caps strict schemas at 24 optional parameters per request,
-and the five filter tools alone carry ~100 (CardFilter x 5), so those five are
+and the six filter tools alone carry ~120 (CardFilter x 6), so those six are
 sent non-strict and validated server-side by normalize_card_filter; every other
 tool (incl. all propose_* writes) is strict.
 """
@@ -23,6 +23,7 @@ from mcp_server.tools import (
     DECK_CONDITION_CODES,
     GAME_FILTER_NOTE,
     MARKET_TRENDS_DESCRIPTION,
+    NEW_HIGHS_DESCRIPTION,
     PRICE_LOWS_DESCRIPTION,
     PRICE_RANK_NOTE,
     PRODUCT_FILTER_NOTE,
@@ -46,11 +47,14 @@ MODEL_LIMITS = {
     "search_cards": 20,
     "find_missing": 20,
     "find_price_lows": 20,
+    "find_new_highs": 20,
     "get_my_collection": 50,
     "get_my_watchlist": 50,
     "find_top_graded": 20,
 }
-FILTER_TOOLS = ("search_cards", "get_my_collection", "find_missing", "find_price_lows", "find_top_graded")
+FILTER_TOOLS = (
+    "search_cards", "get_my_collection", "find_missing", "find_price_lows", "find_new_highs", "find_top_graded",
+)
 
 _FILTER_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -222,6 +226,20 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "find_new_highs",
+        "description": NEW_HIGHS_DESCRIPTION,
+        "input_schema": _obj(
+            {
+                "filter": _FILTER_SCHEMA,
+                "game": {"type": "string", "enum": list(SUPPORTED_GAMES)},
+                "owned": {"type": "string", "enum": ["any", "owned", "not_owned"]},
+                "window": {"type": "string", "enum": ["90d", "1y"], "description": "Default 1y."},
+                "limit": {"type": "integer", "description": "1-20, default 6."},
+            },
+            [],
+        ),
+    },
+    {
         "name": "find_top_graded",
         "description": TOP_GRADED_DESCRIPTION,
         "input_schema": _obj(
@@ -314,6 +332,7 @@ READ_TOOLS = (
     "get_portfolio_summary",
     "get_price_history",
     "find_price_lows",
+    "find_new_highs",
     "get_market_trends",
     "find_top_graded",
 )
@@ -456,7 +475,9 @@ class AssistantToolbox:
         if name in FILTER_TOOLS:
             kwargs["card_filter"] = args.get("filter")
         if name in MODEL_LIMITS:
-            default = {"get_my_collection": 25, "get_my_watchlist": 25, "find_price_lows": 6}.get(name, 10)
+            default = {
+                "get_my_collection": 25, "get_my_watchlist": 25, "find_price_lows": 6, "find_new_highs": 6,
+            }.get(name, 10)
             try:
                 limit = int(args.get("limit") or default)
             except (TypeError, ValueError):

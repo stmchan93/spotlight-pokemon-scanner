@@ -484,8 +484,9 @@ class ToolLoopTests(AssistantCase):
         self.assertEqual(call["system"][-1]["cache_control"], {"type": "ephemeral"})
         self.assertEqual(call["tools"][-1]["cache_control"], {"type": "ephemeral"})
         names = [tool["name"] for tool in call["tools"]]
-        self.assertEqual(len(names), 14)
+        self.assertEqual(len(names), 15)
         self.assertIn("find_top_graded", names)
+        self.assertIn("find_new_highs", names)
         self.assertIn("get_my_watchlist", names)
         self.assertTrue({"find_price_lows", "get_market_trends"} <= set(names))
         by_name = {tool["name"]: tool for tool in call["tools"]}
@@ -493,6 +494,13 @@ class ToolLoopTests(AssistantCase):
         self.assertIn("trending", by_name["get_market_trends"]["description"])
         self.assertTrue(by_name["get_market_trends"].get("strict"))
         self.assertIn("find_price_lows", call["system"][-1]["text"])
+        self.assertIn("undervalued", by_name["find_price_lows"]["description"])
+        self.assertIn("most recent new high sales", by_name["find_new_highs"]["description"])
+        self.assertIn("likely to go up", by_name["get_market_trends"]["description"])
+        self.assertFalse(by_name["find_new_highs"].get("strict"))  # carries a CardFilter
+        system = call["system"][-1]["text"]
+        self.assertIn("find_new_highs", system)
+        self.assertIn("Likely to go up", system)
         self.assertIn("get_market_trends", call["system"][-1]["text"])
         self.assertTrue({"propose_add_to_collection", "propose_update_holding", "propose_watch_card"} <= set(names))
         strict = [tool for tool in call["tools"] if tool.get("strict")]

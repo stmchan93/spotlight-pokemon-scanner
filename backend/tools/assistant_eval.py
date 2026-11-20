@@ -47,6 +47,11 @@ CASES: dict[str, list[str]] = {
     "missing_from_set": ["What am I missing from Surging Sparks?"],
     "watchlist": ["What's on my Watchlist and is anything near my target price?"],
     "investing": ["What's a good card to invest in right now?"],
+    # Default chat chips; expected routing: find_price_lows / find_new_highs /
+    # get_market_trends + find_price_lows (no prediction).
+    "undervalued": ["Undervalued cards"],
+    "new_highs": ["Cards with the most recent new high sales"],
+    "likely_to_go_up": ["What cards are likely to go up?"],
 }
 
 

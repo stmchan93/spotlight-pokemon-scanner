@@ -43,6 +43,7 @@ from mcp_server.tools import (  # noqa: E402
     PRODUCT_FILTER_NOTE,
     TOP_GRADED_DESCRIPTION,
     PRICE_LOWS_DESCRIPTION,
+    NEW_HIGHS_DESCRIPTION,
     WATCHLIST_DESCRIPTION,
     CollectionTools,
 )
@@ -440,6 +441,26 @@ def build_server(
             window=window,
             min_price_usd=min_price_usd,
             max_price_usd=max_price_usd,
+            limit=limit,
+        )
+
+    @_register(server, policy)(
+        description=NEW_HIGHS_DESCRIPTION,
+        annotations=READ_ONLY,
+    )
+    async def find_new_highs(
+        filter: CardFilter | None = None,
+        game: Annotated[str | None, Field(description="pokemon, onepiece, lorcana, riftbound or gundam; omit for all.")] = None,
+        owned: Literal["any", "owned", "not_owned"] = "any",
+        window: Literal["90d", "1y"] = "1y",
+        limit: Annotated[int, Field(ge=1, le=20)] = 10,
+    ) -> dict[str, Any]:
+        return await runner.run(
+            "find_new_highs",
+            card_filter=_filter_dict(filter),
+            game=game,
+            owned=owned,
+            window=window,
             limit=limit,
         )
 

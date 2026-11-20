@@ -97,6 +97,7 @@ PORTFOLIO_RANGES = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
 HISTORY_RANGES = {"30d": 30, "90d": 90, "1y": 365}
 PRICE_LOW_WINDOWS = {"90d": 90, "1y": 365}
 MAX_PRICE_LOWS = 20
+MAX_NEW_HIGHS = 20
 TREND_WINDOWS = {"7d": 7, "30d": 30, "90d": 90}
 MAX_TREND_CARDS = 5
 MAX_TREND_SETS = 3
@@ -121,16 +122,27 @@ WATCHLIST_DESCRIPTION = (
 PRICE_LOWS_DESCRIPTION = (
     "Cards whose raw USD price dropped at least 25% from their high in the window and now sit at or near "
     "(within 5% of) that window's low, biggest drop first. Use for 'what's a good buy', 'what should I "
-    "invest in', 'what's cheap right now', 'what's at its low'. Each card has low_usd, high_usd, "
-    "pct_below_high, at_window_low and days_covered (history actually available; under a year means the "
+    "invest in', 'undervalued cards', 'what's cheap right now', 'what's at its low'. Each card has "
+    "low_usd, high_usd, pct_below_high, at_window_low and days_covered (history actually available; under a year means the "
     "'1y low' covers only that span). owned='owned' checks the user's own cards. Past prices only; "
     "this is not a forecast."
+)
+NEW_HIGHS_DESCRIPTION = (
+    "Cards hitting NEW HIGHS: the current USD market price is at (within 2% of) its highest in the window "
+    "(1y default, or 90d), that high was first reached in the last 7 days, and the price is at least 15% "
+    "above the window low; most recent high first. Use for 'new highs', 'record prices', 'breaking out', "
+    "'most recent new high sales', 'all-time high' (1y is the longest window; say so). Each card has "
+    "high_usd, high_date, low_usd, pct_above_low and days_covered (history actually available; under the window means the high covers "
+    "only that span). Market prices (TCGplayer, else Scrydex), not individual graded sales. Japanese cards "
+    "are left out unless filter.language is Japanese; filter.product picks singles/sealed (default both). "
+    "owned='owned' checks the user's own cards. Past prices only; this is not a forecast."
 )
 MARKET_TRENDS_DESCRIPTION = (
     "What's trending: the top rising raw cards (change_pct, change_usd over cards_window_days) and the "
     "English sets rising and falling most (basket of each set's top-10 cards, window 7d/30d/90d). Use for "
     "'what's hot', 'what's trending', 'which sets are going up', and with find_price_lows for "
-    "'what's a good buy'. USD; past moves only, not a forecast."
+    "'what's a good buy' or 'what's likely to go up' (show recent momentum and dips; never predict). "
+    "USD; past moves only, not a forecast."
 )
 
 TOP_GRADED_DESCRIPTION = (
@@ -1428,6 +1440,113 @@ class CollectionTools:
             )
         result: dict[str, Any] = {"cards": out, "window": window, "as_of": run[0]}
         if any(item["days_covered"] < window_days - 7 for item in out):
+            result["note"] = "Some cards have less history than the window; days_covered says how much."
+        return result
+
+    def find_new_highs(
+        self,
+        owner_user_id: str,
+        card_filter: dict[str, Any] | None = None,
+        *,
+        game: str | None = None,
+        owned: str = "any",
+        window: str = "1y",
+        limit: int | None = 10,
+    ) -> dict[str, Any]:
+        """Cards now at a window high first reached in the last few days, from
+        the daily price_highs tables (price_lows.py). DB-only."""
+        card_filter = normalize_card_filter(card_filter)
+        if uses_art_filters(card_filter):
+            raise ToolInputError("find_new_highs takes game/product/text/set/artist/rarity_bucket/language/price filters only.")
+        if window not in PRICE_LOW_WINDOWS:
+            raise ToolInputError(f"window must be one of {', '.join(PRICE_LOW_WINDOWS)}.")
+        if owned not in OWNED_MODES:
+            raise ToolInputError(f"owned must be one of {', '.join(OWNED_MODES)}.")
+        game = self._game_arg(game)
+        if card_filter.get("game"):
+            if game and game != card_filter["game"]:
+                raise ToolInputError("game and filter.game disagree; pass one.")
+            game = card_filter["game"]
+        limit = clamp_limit(limit, default=10, maximum=MAX_NEW_HIGHS)
+        window_days = PRICE_LOW_WINDOWS[window]
+        empty = {"cards": [], "window": window, "as_of": None}
+        run = (
+            self.conn.execute(
+                "SELECT as_of_date FROM price_highs_runs WHERE window_days = ?", (window_days,)
+            ).fetchone()
+            if self._has_table("price_highs_runs")
+            else None
+        )
+        if run is None:
+            return {**empty, "note": "New-high data has not been computed yet."}
+
+        sql = (
+            "SELECT card_id, variant, price_usd, high_usd, high_date, low_usd, pct_above_low, days_covered, "
+            "as_of_date FROM price_highs WHERE window_days = ?"
+        )
+        params: list[Any] = [window_days]
+        if game:
+            sql += " AND game = ?"
+            params.append(game)
+        product = card_filter.get("product")
+        if product in ("single", "sealed"):
+            sql += " AND sealed = ?"
+            params.append(1 if product == "sealed" else 0)
+        for bound, op in (("price_min_usd", ">="), ("price_max_usd", "<=")):
+            if card_filter.get(bound) is not None:
+                sql += f" AND price_usd {op} ?"
+                params.append(card_filter[bound])
+        sql += " ORDER BY high_date DESC, pct_above_low DESC, price_usd DESC, card_id"
+        rows = self.conn.execute(sql, params).fetchall()
+        if owned != "any":
+            owned_ids = self._owned_card_ids(owner_user_id)
+            rows = [row for row in rows if (str(row[0]) in owned_ids) == (owned == "owned")]
+
+        japanese_ok = self._price_ranked_japanese_ok(card_filter)
+        meta_filter = {
+            key: value for key, value in card_filter.items() if key not in ("price_min_usd", "price_max_usd", "product")
+        }
+        picked: list[Any] = []
+        cards: dict[str, dict[str, Any]] = {}
+        for offset in range(0, len(rows), 200):
+            chunk = rows[offset : offset + 200]
+            chunk_cards = cards_by_ids(self.conn, [str(row[0]) for row in chunk], include_source_payload=False)
+            for row in chunk:
+                card = chunk_cards.get(str(row[0]))
+                if card is None or (meta_filter and not self._matches_card_meta(card, meta_filter)):
+                    continue
+                if not japanese_ok and is_japanese_card(card["id"], card.get("language")):
+                    continue
+                cards[card["id"]] = card
+                picked.append(row)
+                if len(picked) >= limit:
+                    break
+            if len(picked) >= limit:
+                break
+        summaries = self._summaries([str(row[0]) for row in picked], cards=cards)
+        out: list[dict[str, Any]] = []
+        for row in picked:
+            summary = summaries.get(str(row[0]))
+            if summary is None:
+                continue
+            if summary.get("price_usd") is None:
+                summary["price_usd"] = _round_money(row[2])
+            out.append(
+                {
+                    **summary,
+                    "variant": printing_name(row[1]),
+                    "high_usd": _round_money(row[3]),
+                    "high_date": row[4],
+                    "low_usd": _round_money(row[5]),
+                    "pct_above_low": row[6],
+                    "days_covered": int(row[7]),
+                    "as_of": row[8],
+                }
+            )
+        result: dict[str, Any] = {"cards": out, "window": window, "as_of": run[0]}
+        if not out:
+            result["note"] = "No cards matching this hit a new high in the last week."
+        elif any(item["days_covered"] < window_days - 7 for item in out):
             result["note"] = "Some cards have less history than the window; days_covered says how much."
         return result
 
