@@ -34,6 +34,18 @@ REWRITE_INSTRUCTION = (
     "line if present. Same language. No preamble."
 )
 
+NO_INTERNAL_INSTRUCTION = "Do not mention tags, searches, tools, filters or how results were found."
+REWRITE_INTERNAL_ONLY = (
+    "Rewrite this answer with the same facts and about the same length. Keep every number, card name, set, date "
+    "and the 'not a prediction' line if present. Same language. No preamble. " + NO_INTERNAL_INSTRUCTION
+)
+# Internal mechanics the user shouldn't hear about; card names ("TAG TEAM", "Tool Scrapper") are masked first.
+_INTERNAL = re.compile(
+    r"\btag(?:s|ged|ging)?\b|\bsearch(?:es)?\b|\bmatched\b|\bmatching\b|\btools?\b|\bfilter(?:ed|s)?\s+by\b",
+    re.IGNORECASE,
+)
+_ALWAYS_MASKED = re.compile(r"\btag\s+team\b|\bpok[eé]mon\s+tools?\b", re.IGNORECASE)
+
 _WORD = re.compile(r"[^\s*_#>`-]\S*")  # same counting as the eval's word_count
 _EXPLANATION = re.compile(
     r"\b(why|explain|how (?:does|do|is|are)|what(?:'s| is| are) (?:a|an|the difference)|difference|should i|vs\.?|versus)\b",
@@ -183,6 +195,47 @@ def sentence_count(text: str) -> int:
 
 def over_limit(text: str, limit: int, max_sentences: int | None) -> bool:
     return word_count(text) > limit or (max_sentences is not None and sentence_count(text) > max_sentences)
+
+
+def _masked(text: str, names: list[str] | tuple[str, ...]) -> str:
+    out = _ALWAYS_MASKED.sub(" ", str(text or ""))
+    for name in sorted({str(n).strip() for n in names or () if n and str(n).strip()}, key=len, reverse=True):
+        out = re.sub(r"(?<!\w)" + re.escape(name) + r"(?!\w)", " ", out, flags=re.IGNORECASE)
+    return out
+
+
+def has_internal_wording(text: str, names: list[str] | tuple[str, ...] = ()) -> bool:
+    """Talk of tags / search matching / tools / filters, outside card names."""
+    return _INTERNAL.search(_masked(text, names)) is not None
+
+
+_CLAUSE_COMMA = re.compile(r",\s+(?![^()]*\))")  # commas outside parentheses
+
+
+def _scrub_sentence(sentence: str, names: list[str] | tuple[str, ...]) -> str:
+    """The clauses before the first one with internal wording ('' if the first has it)."""
+    if not has_internal_wording(sentence, names):
+        return sentence
+    kept: list[str] = []
+    for clause in _CLAUSE_COMMA.split(sentence):
+        if has_internal_wording(clause, names):
+            break
+        kept.append(clause)
+    if not kept:
+        return ""
+    end = sentence.rstrip()[-1:] if sentence.rstrip()[-1:] in ".!?" else "."
+    return ", ".join(kept).rstrip(" ,;:") + end
+
+
+def drop_internal_sentences(text: str, names: list[str] | tuple[str, ...] = ()) -> str:
+    """The text without clauses/sentences that mention internal mechanics (a sentence keeps
+    its clauses before the offending one); unchanged if that would leave nothing."""
+    kept = [
+        " ".join(part for part in (_scrub_sentence(s, names) for s in _sentences(paragraph)) if part)
+        for paragraph in _paragraphs(text)
+    ]
+    kept = [paragraph for paragraph in kept if paragraph.strip()]
+    return "\n\n".join(kept) if kept else text
 
 
 def trim_to_limit(text: str, limit: int, max_sentences: int | None = None) -> str:

@@ -174,6 +174,83 @@ class ArtTileTests(TilesCase):
         self.assertEqual(length_guard.sentence_count(turn.text), 2)
         self.assertEqual([card["card_id"] for card in turn.cards], ["ssp-7"])
 
+    def art_turn(self, answer: str, *after: Any) -> tuple[Any, FakeClient]:
+        client = FakeClient([
+            message([tool_use("search_cards", {"filter": {"weather_time": ["rain"]}}, "s1")], "tool_use"),
+            message([text(answer)]),
+            *after,
+        ])
+        engine = AssistantEngine(self.config, AssistantToolbox(self.tools), client)
+        turn = asyncio.run(engine.run_turn(owner_user_id=USER_A, history=[], question="Find cards with rainy night art"))
+        return turn, client
+
+    def test_internal_wording_gets_one_rewrite(self) -> None:
+        turn, client = self.art_turn(
+            "Poliwhirl (176) is tagged for rainy scenes.", message([text("Poliwhirl (176) shows a rainy street.")])
+        )
+        self.assertEqual((turn.text, turn.length_guard), ("Poliwhirl (176) shows a rainy street.", "rewrite"))
+        self.assertEqual(len(client.messages.calls), 3)
+        self.assertIn(length_guard.NO_INTERNAL_INSTRUCTION, client.messages.calls[-1]["system"])
+
+    def test_rewrite_that_keeps_internal_wording_falls_back_to_dropping(self) -> None:
+        turn, _ = self.art_turn(
+            "Poliwhirl (176) shows a rainy street, and it matched the rain search. Only a few cards carry both tags.",
+            message([text("Poliwhirl (176) is tagged rain.")]),
+        )
+        self.assertEqual((turn.text, turn.length_guard), ("Poliwhirl (176) shows a rainy street.", "drop"))
+
+    def test_length_and_internal_share_one_rewrite(self) -> None:
+        long = " ".join(["Poliwhirl (176) shows a rainy street with puddles and lamps."] * 5) + " It was tagged rain."
+        turn, client = self.art_turn(long, message([text("Poliwhirl (176) shows a rainy street.")]))
+        self.assertEqual(turn.length_guard, "rewrite")
+        self.assertEqual(len(client.messages.calls), 3)
+        system = client.messages.calls[-1]["system"]
+        self.assertIn("at most", system)
+        self.assertIn(length_guard.NO_INTERNAL_INSTRUCTION, system)
+
+
+class InternalWordingTests(unittest.TestCase):
+    # vibe_rainy_night, eval_7 repeats 2 and 3 (judge failed both for exposing tag/search matching).
+    RAINY_2 = (
+        "The closest rainy-night matches are **Poliwhirl** (151, 176/165) and **Drowzee** (Delta Species, 67/113), "
+        "both tagged for rainy scenes at night. Only a few cards carry both tags, so treat these as partial matches."
+    )
+    RAINY_3 = (
+        "The strongest match is **Poliwhirl (151, 176/165)**, which came up for both rain and night-theme searches. "
+        "**Drowzee (Delta Species 67/113)** and **Hoothoot (Unified Minds 165/236)** are the next best fits, though "
+        "those two matched only on the night-theme search, so the rain is less clear."
+    )
+    RAINY_1 = (
+        "Rain-themed art is easy to find, but I couldn't confirm a clear nighttime scene in these results. The closest "
+        "rainy matches are **Parasol Lady** (Paradox Rift 238/182), **Big Parasol** (Darkness Ablaze 199/189), and "
+        "**Poliwhirl** (151 176/165), which shows a rainy city street."
+    )
+
+    def test_eval7_rainy_night_texts(self) -> None:
+        self.assertTrue(length_guard.has_internal_wording(self.RAINY_2))
+        self.assertTrue(length_guard.has_internal_wording(self.RAINY_3))
+        self.assertFalse(length_guard.has_internal_wording(self.RAINY_1))
+        self.assertEqual(
+            length_guard.drop_internal_sentences(self.RAINY_2),
+            "The closest rainy-night matches are **Poliwhirl** (151, 176/165) and **Drowzee** (Delta Species, 67/113).",
+        )
+        self.assertEqual(
+            length_guard.drop_internal_sentences(self.RAINY_3),
+            "The strongest match is **Poliwhirl (151, 176/165)**. **Drowzee (Delta Species 67/113)** and "
+            "**Hoothoot (Unified Minds 165/236)** are the next best fits.",
+        )
+
+    def test_card_names_are_not_internal_wording(self) -> None:
+        self.assertFalse(length_guard.has_internal_wording("Pikachu & Zekrom-GX is a TAG TEAM card. It's a Pokémon Tool."))
+        self.assertFalse(length_guard.has_internal_wording("Tool Scrapper costs $1.", ["Tool Scrapper"]))
+        self.assertTrue(length_guard.has_internal_wording("Tool Scrapper costs $1."))
+        self.assertTrue(length_guard.has_internal_wording("I filtered by Japanese cards."))
+        self.assertTrue(length_guard.has_internal_wording("These are filtered by rarity."))
+
+    def test_never_empty(self) -> None:
+        only = "Only tagged cards showed up."
+        self.assertEqual(length_guard.drop_internal_sentences(only), only)
+
 
 class JudgeArtworkTests(unittest.TestCase):
     DATA = {"results": [
