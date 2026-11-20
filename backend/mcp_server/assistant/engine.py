@@ -20,6 +20,7 @@ from typing import Any
 from mcp_server.assistant.config import AssistantConfig, cost_usd
 from mcp_server.assistant.direct_add import ADD_NOW_TOOL, TurnWrites
 from mcp_server.assistant import length_guard
+from mcp_server.assistant.compact import model_payload
 from mcp_server.assistant.tools import (
     SPARKLINE_RANGES,
     TOOL_DEFINITIONS,
@@ -706,12 +707,12 @@ class AssistantEngine:
                 arguments = arguments_by_id[block.id]
                 result.tools_used.append(block.name)
                 result.tool_calls.append(summarize_tool_call(block.name, arguments))
-                payload = json.dumps(outcome.content, default=str, separators=(",", ":"))
-                tool_payloads.append(payload)
+                # Guard numbers come from the full result; the model reads the compact copy.
+                tool_payloads.append(json.dumps(outcome.content, default=str, separators=(",", ":")))
                 results_by_id[block.id] = {
                     "type": "tool_result",
                     "tool_use_id": block.id,
-                    "content": payload,
+                    "content": model_payload(block.name, outcome.content, arguments),
                     **({"is_error": True} if outcome.is_error else {}),
                 }
                 empty = length_guard.is_empty_result(outcome.content, is_error=outcome.is_error)
