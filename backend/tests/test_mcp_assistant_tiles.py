@@ -21,13 +21,16 @@ import tag_card_art  # noqa: E402
 from catalog_tools import upsert_card, utc_now  # noqa: E402
 
 if HAVE_DEPS:
-    from mcp_server.assistant.engine import SYSTEM_PROMPT
+    from mcp_server.assistant.engine import SYSTEM_PROMPT, strip_pseudo_calls
     from mcp_server.assistant.tools import (
+        HOLDINGS_LABEL,
         MAX_SPARKLINE_POINTS,
         MAX_WATCHLIST_TILES,
         TOOL_DEFINITIONS,
         AssistantToolbox,
+        apply_question_rules,
         choose_tiles,
+        movers_only,
         clean_label,
         collapse_same_art,
         named_refs,
@@ -458,6 +461,111 @@ class ChooseTilesTests(unittest.TestCase):
         refs = [ref("lorcana~FBL-242", "Mickey Mouse")]
         tiles, dropped = select_tiles([{"card_id": "FBL-242", "variant": None, "grader": None, "grade": None}], refs)
         self.assertEqual((self.ids(tiles), dropped), (["lorcana~FBL-242"], []))
+
+
+@unittest.skipUnless(HAVE_DEPS, "assistant deps missing")
+class QuestionRuleTests(unittest.TestCase):
+    """Question-shaped tile rules applied after choose_tiles (eval round 4)."""
+
+    @staticmethod
+    def ids(tiles: list[dict[str, Any]]) -> list[str]:
+        return [tile["card_id"] for tile in tiles]
+
+    def rules(self, tiles, question, text="", **kw):
+        kw.setdefault("pool", list(tiles))
+        kw.setdefault("holding_refs", [])
+        kw.setdefault("language_pairs", {})
+        return apply_question_rules(list(tiles), [], None, question=question, text=text, **kw)
+
+    def test_collection_value_shows_top_holdings_by_value(self) -> None:
+        holdings = [ref("a", "Alpha", price_usd=10.0, quantity_owned=1), ref("b", "Beta", price_usd=5.0, quantity_owned=6),
+                    ref("c", "Gamma", price_usd=50.0, quantity_owned=1)]
+        mover = ref("m", "Mover", price_usd=1.0, quantity_owned=1)
+        tiles, _, label = self.rules([mover, holdings[0]], "What's my collection worth?", holding_refs=holdings)
+        self.assertEqual((self.ids(tiles), label), (["c", "b", "a"], HOLDINGS_LABEL))
+        # Not a value question: untouched.
+        tiles, _, label = self.rules([mover], "What are my 5 most valuable cards?", holding_refs=holdings)
+        self.assertEqual((self.ids(tiles), label), (["m"], None))
+
+    def test_movers_and_ranking_answers_keep_three_named_in_text_order(self) -> None:
+        names = ["Kyogre-EX", "Snorlax", "Gyarados", "Vaporeon", "Mimikyu VMAX"]
+        cards = [ref(str(i), name) for i, name in enumerate(names)]
+        text = "Snorlax and Kyogre-EX gained most; Mimikyu VMAX rose 30%. Gyarados and Vaporeon also rose."
+        tiles, _, _ = self.rules(cards, "What were my biggest gainers this month?", text)
+        self.assertEqual(self.ids(tiles), ["1", "0", "4"])
+        tiles, _, _ = self.rules(cards, "Cards with new highs", text, tools_used={"find_new_highs"})
+        self.assertEqual(len(tiles), 3)
+        tiles, _, _ = self.rules(cards, "Show me Pikachu cards", text, tools_used={"search_cards"})
+        self.assertEqual(len(tiles), 5)
+
+    def test_counterpart_question_shows_the_counterpart_plus_a_scanned_source(self) -> None:
+        en = ref("sv3pt5-199", "Charizard ex", language="English")
+        jp = ref("sv2a_ja-201", "Charizard ex", language="Japanese")
+        pairs = {"sv3pt5-199": "sv2a_ja-201", "sv2a_ja-201": "sv3pt5-199"}
+        tiles, _, _ = self.rules([jp, en], "Is there a Japanese version of Charizard ex 151 #199?", language_pairs=pairs)
+        self.assertEqual(self.ids(tiles), ["sv2a_ja-201"])
+        tiles, _, _ = self.rules([en], "What's the English version of this card?", language_pairs=pairs,
+                                 pool=[en, jp], keep_ids={"sv2a_ja-201"})
+        self.assertEqual(self.ids(tiles), ["sv2a_ja-201", "sv3pt5-199"])
+
+    def test_singular_most_expensive_keeps_one_raw_and_one_graded_leader(self) -> None:
+        cards = [ref("r1", "Rocks"), ref("r2", "Nami"), ref("g1", "Mickey", grader="PSA", grade="10"),
+                 ref("g2", "Elsa", grader="PSA", grade="10")]
+        tiles, _, _ = self.rules(cards, "What's the most expensive One Piece card?", tools_used={"search_cards"})
+        self.assertEqual(self.ids(tiles), ["r1", "g1"])
+        tiles, _, _ = self.rules(cards, "What are the most expensive Lorcana cards?", tools_used={"search_cards"})
+        self.assertEqual(len(tiles), 4)
+
+    def test_proposals_are_left_alone(self) -> None:
+        cards = [ref(str(i), f"Card {i}") for i in range(5)]
+        tiles, _, _ = self.rules(cards, "Add my biggest gainers", always_ids={"0"})
+        self.assertEqual(len(tiles), 5)
+
+    def test_movers_only_drops_value_and_overall_change(self) -> None:
+        summary = {"range": "30d", "value_usd": 100.0, "change_usd": -9.0, "change_pct": -9.0, "top_holdings": [{}],
+                   "top_gainers": [{"card_id": str(i)} for i in range(5)], "top_losers": [], "movers_basis": "x"}
+        out = movers_only(summary)
+        self.assertEqual(set(out), {"range", "top_gainers", "top_losers", "movers_basis"})
+        self.assertEqual(len(out["top_gainers"]), 3)
+
+    def test_typed_tool_calls_are_stripped_from_the_answer(self) -> None:
+        typed = ('Charizard ex is worth the most at $287.93.\n\n'
+                 'show_cards(cards: [{card_id: "sv3pt5-199", variant: null}], label: "x (y)")')
+        self.assertEqual(strip_pseudo_calls(typed), "Charizard ex is worth the most at $287.93.")
+
+
+class EngineRuleTests(TilesCase):
+    def test_scanned_cards_named_in_text_become_tiles(self) -> None:
+        reply = self.reply(message([text("Your Eevee is worth the most.")]), text_value="Which of these is worth the most?",
+                           context={"source": "scanner", "card_ids": ["ssp-3", "ssp-2"]})
+        self.assertEqual(self.ids(reply["cards"]), ["ssp-3"])
+
+    def test_answer_written_beside_the_last_lookup_is_kept(self) -> None:
+        reply = self.reply(
+            message([tool_use("search_cards", {"filter": {"text": "pikachu"}}, "s1")], "tool_use"),
+            message([text("Pikachu ex is $120 now."), tool_use("search_cards", {"filter": {"text": "pikachu"}}, "s2")],
+                    "tool_use"),
+            message([]),
+            text_value="How much is Pikachu ex 238?",
+        )
+        self.assertEqual(reply["text"], "Pikachu ex is $120 now.")
+
+    def test_collection_value_tiles_are_top_holdings(self) -> None:
+        reply = self.reply(message([tool_use("get_portfolio_summary", {"range": "30d"}, "p")], "tool_use"),
+                           message([text("Your collection is worth $144.")]))
+        self.assertEqual(reply["cards_label"], HOLDINGS_LABEL)
+        values = [card["price_usd"] * (card.get("quantity_owned") or 1) for card in reply["cards"]]
+        self.assertEqual(values, sorted(values, reverse=True))
+        self.assertIn("ssp-1", self.ids(reply["cards"]))
+
+    def test_slab_and_unit_price_sorts(self) -> None:
+        box = AssistantToolbox(self.tools)
+        slabs = box.run("get_my_collection", {"holding_type": "graded"}, owner_user_id=USER_A).content
+        self.assertTrue(slabs["items"] and all(item["grader"] for item in slabs["items"]))
+        by_price = box.run("get_my_collection", {"sort": "price_desc"}, owner_user_id=USER_A).content
+        prices = [item["price_usd"] for item in by_price["items"] if item["price_usd"] is not None]
+        self.assertEqual(prices, sorted(prices, reverse=True))
+        self.assertNotIn("unpriced_count", by_price)
 
 
 if __name__ == "__main__":

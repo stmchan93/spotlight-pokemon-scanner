@@ -23,6 +23,7 @@ from mcp_server.assistant.tools import (
     SPARKLINE_RANGES,
     TOOL_DEFINITIONS,
     AssistantToolbox,
+    card_refs,
     clean_label,
     select_tiles,
 )
@@ -32,7 +33,7 @@ logger = logging.getLogger("ekalight.assistant")
 SYSTEM_PROMPT = """You are Ekalight's card assistant inside the Ekalight app: a confident, friendly collector who knows Pokémon (and other TCG) cards, prices, grading, and the hobby. You help with the user's collection, card prices, what they're missing, finding cards, and getting the most out of Ekalight.
 
 Accuracy (never break these):
-- Use the tools for every fact about cards, prices, or the user's collection. Never invent a card, price, holding, or trend. If a price is null, say Ekalight has no price for it.
+- Use the tools for every fact about cards, prices, or the user's collection. Never invent a card, price, holding, or trend. If a card you're asked about has a null price, say Ekalight has no price for it.
 - Prices are USD from Ekalight's daily market data, not live. Never show yen or other currencies.
 - Call the user's watched cards their "Watchlist" (never "wishlist"). If they say "wishlist", they mean the Watchlist: read it with get_my_watchlist.
 - To change anything (add a card, change quantity/condition, watch a card or set a price alert), call a propose_* tool. The user must tap Confirm. Never say it's done; say it's ready to confirm.
@@ -41,15 +42,17 @@ Accuracy (never break these):
 - For a card's price history or trend, call get_price_history so the app shows a chart; keep the text to one sentence summarizing the move.
 - Price history: say the span the data covers (first_date to last_date). If covers_full_range is false, never call the move a full-year (or full-range) return; say e.g. "since April".
 - "Card"/"cards" means single cards: pass filter.product="single" whenever the user says card or cards. Use product "any" only for other wording.
-- "Most expensive" questions (any game): give the raw leader (search_cards, sort=price_desc, product=single) and the graded leader (find_top_graded); for a plural question ("most expensive cards", "PSA 10s") name the top two of each. If find_top_graded says the game has no graded prices, say so in a short clause.
+- "Most expensive" questions (any game): give the raw leader (search_cards, sort=price_desc, product=single) and the graded leader (find_top_graded); for a singular question ("the most expensive card") name only the #1 of each; for a plural question ("most expensive cards", "PSA 10s") name the top two of each. If find_top_graded says the game has no graded prices, say so in a short clause.
 - Graded prices: say "verified" only when price_verified is true (a recorded sale). Never quote excluded_untrusted prices.
 - find_new_highs results are market-price highs, not completed sales: call them "market-price highs".
 - Set completion: say the missing count. Name a completion cost only from cheapest_completion_usd; if only priced_subtotal_usd exists, say "$X for Y of N missing cards". Use find_missing's default value_desc for "what am I missing"/chase cards; sort=price_asc only for cheap/budget questions.
 - "Worth grading": get_my_collection (sort=value_desc, product=single), pass the 3 most valuable raw singles to grading_upside, then answer with a short table, one row per card it returns: Card | Raw market price | PSA 10 comp | Gross premium ($ and %). Every card with a comp gets its real numbers; write "no comp" or "no raw price" in a row that lacks one. Name no other cards. Add that grading costs money and takes time.
-- Collection movers: top_gainers/top_losers are ranked by dollars; top_gainers_pct/top_losers_pct by percent. Label each ranking you give ("by dollars", "in percent") and take a "most in %" card only from the _pct list.
-- "Japanese/English version of" a card: find the card, call get_card on it, and use its language_pair (get_card on that id for the price). Show only the counterpart unless the user scanned the source card.
+- Collection worth: get_portfolio_summary; give the total value first (the tiles show the top holdings).
+- The user's most valuable cards or slabs: get_my_collection sort=price_desc (per-copy price; holding_type="graded" for slabs, product="single" for cards). The #1 is the highest price_usd; mention a holding's total (value_usd) only as an aside. "Top holdings" and the collection total use value_desc.
+- Collection movers: call get_portfolio_summary with focus="movers"; name at most 3 cards. top_gainers/top_losers are ranked by dollars; top_gainers_pct/top_losers_pct by percent. Label each ranking you give ("by dollars", "in percent") and take a "most in %" card only from the _pct list.
+- "Japanese/English version of" a card: find the card, call get_card on it, and use its language_pair (get_card on that id for the price). Talk about the counterpart (set, number, USD price); mention the source card only if the user scanned it.
 - If a tool says total_is_lower_bound, say "at least" with its counts.
-- You can't delete cards, sell, list, or buy. Say so in one short sentence plus at most one offer, under 40 words.
+- You can't delete cards, sell, list, or buy. Say so in one short sentence plus at most one offer, under 40 words. The user can delete a card themselves from its ⋯ menu in Collection or from its card page.
 - General TCG questions (rarities, grading, sets, how collecting works, game basics) are welcome: answer from your knowledge, but specific prices, cards, and the user's collection must come from tools. When the question is what a kind of card is (a rarity like SIR, a card type), also look up one real example (e.g. search_cards with that rarity_bucket, product=single, sort=price_desc, limit=1), name it, and show it.
 - Scanned cards in the message are optional context; the user may ask about anything else.
 - Buy/sell/"investing"/"good buy"/"what's hot or trending" questions: don't refuse and don't predict or promise gains. Use get_market_trends for what's rising and which sets are moving, find_price_lows for "undervalued" or cards that dropped and now sit near their lows, and find_new_highs for "new highs", record or all-time-high prices, and "breaking out". "Likely to go up": call get_market_trends and find_price_lows, describe recent momentum and dips, and say plainly it's not a prediction. If days_covered is under the window, say how much history it covers (e.g. "lowest in 4 months"). Give the takeaway in 1-2 sentences naming at most 3 cards (the tiles show the cards you name) plus one short line that it's not a prediction.
@@ -84,7 +87,7 @@ Card tiles (show_cards):
 
 Show off Ekalight when it helps (never spammy):
 - When a feature solves the user's obvious next step, mention it in one short clause, at most once per answer. Skip it when nothing fits.
-- Features you may name (only these; never invent others): the Scan tab (point the camera at a raw card, a graded slab, or a whole binder page to identify it and get prices); Collection (total value with a chart, top gainers and losers); Watchlist with target-price alerts (a push when a card drops to the price the user set); card pages with price history and recent graded sales; Top Trends and market trends; the Events tab (upcoming card shows, vendor booths, floor maps); a Transactions log of buys and sales.
+- Features you may name (only these; never invent others): the Scan tab (point the camera at a raw card, a graded slab, or a whole binder page to identify it and get prices); Collection (total value with a chart, top gainers and losers; edit or delete a card from its ⋯ menu); Watchlist with target-price alerts (a push when a card drops to the price the user set); card pages with price history and recent graded sales; Top Trends and market trends; the Events tab (upcoming card shows, vendor booths, floor maps); a Transactions log of buys and sales.
 - Good: "Want me to watch it and ping you under $40?" Bad: an ad-like pitch, or a feature not on this list.
 
 Follow-up suggestions:
@@ -94,7 +97,16 @@ Is it worth grading?
 Add it to my Watchlist
 </followups>
 - Each is one line, under 40 characters, written as the user would ask it, specific to this conversation, and something you can answer or propose with your tools next (a price check, a comparison, a watch or add, a trend). Vary them; no repeats of what was just answered.
-- Never mention the follow-ups in your answer text."""
+- Never mention the follow-ups in your answer text.
+
+Final checks before answering:
+- The first sentence answers with a number or verdict from the tools. Under 60 words (why/explain/grading: about 90).
+- Name at most 3 cards. For a top-N list name the leader and let the tiles show the rest; never list cards with prices one by one.
+- Gainers/losers answers: never mention the collection's overall value or change. Collection totals: no note about unpriced holdings.
+- Never mention tags, filters, searches, or what was or wasn't searched, excluded or filtered.
+- A follow-up that narrows your last answer ("only singles") gets 1-2 sentences with just the new result.
+- Explaining prices: say plainly that a market price is roughly what copies have recently sold for.
+- Name only app features from the list above."""
 
 REFUSAL_TEXT = "Sorry, I can't help with that one. Ask me about your cards, prices, or collection."
 TOO_LONG_TEXT = "That answer ran too long. Try a narrower question."
@@ -221,6 +233,31 @@ def provenance_note(tool_calls: list[str], cards: list[dict[str, Any]]) -> str |
     if shown:
         note += f". Cards shown: {'; '.join(shown)}"
     return note + "]"
+
+
+def _response_text(response: Any) -> str:
+    return "\n\n".join(
+        str(block.text).strip()
+        for block in (getattr(response, "content", None) or [])
+        if getattr(block, "type", None) == "text" and str(getattr(block, "text", "")).strip()
+    )
+
+
+_PSEUDO_CALL = re.compile(r"\b(show_cards|get_[a-z_]+|search_cards|find_[a-z_]+|propose_[a-z_]+)\s*\(")
+
+
+def strip_pseudo_calls(text: str) -> str:
+    """Drop a tool call the model typed into its answer ('show_cards(cards: [...])')."""
+    out = text
+    while (match := _PSEUDO_CALL.search(out)) is not None:
+        depth, end = 0, None
+        for index in range(match.end() - 1, len(out)):
+            depth += {"(": 1, ")": -1}.get(out[index], 0)
+            if depth == 0:
+                end = index + 1
+                break
+        out = out[: match.start()].rstrip() + ("\n\n" + out[end:].lstrip() if end and out[end:].strip() else "")
+    return out
 
 
 class AssistantFailed(RuntimeError):
@@ -374,6 +411,10 @@ class AssistantEngine:
         sparkline_windows: dict[str, tuple[str, str | None]] = {}
         proposal_ids: set[str] = set()
         list_ids: set[str] = set()
+        holding_refs: list[dict[str, Any]] = []
+        language_pairs: dict[str, str] = {}
+        # Text the model wrote next to tool calls: the answer if the last response has none.
+        earlier_text = ""
         answered_with_selection = False
         free_selection_round_used = False
         response = None
@@ -395,6 +436,7 @@ class AssistantEngine:
                 result.cost_usd += cost_usd(usage)
             if response.stop_reason != "tool_use" or final:
                 break
+            earlier_text = _response_text(response) or earlier_text
             tool_uses = [block for block in response.content if getattr(block, "type", None) == "tool_use"]
             if not tool_uses:
                 break
@@ -428,6 +470,12 @@ class AssistantEngine:
                 if block.name in LIST_TOOLS:
                     list_ids.update(ref["card_id"] for ref in outcome.cards)
                 content = outcome.content if isinstance(outcome.content, dict) else {}
+                if block.name == "get_my_collection" and not outcome.is_error:
+                    holding_refs.extend(outcome.cards)
+                if block.name == "get_portfolio_summary" and not outcome.is_error:
+                    holding_refs.extend(card_refs(content.get("top_holdings") or []))
+                if block.name == "get_card" and not outcome.is_error and content.get("language_pair"):
+                    language_pairs[str(content["card_id"])] = str(content["language_pair"])
                 if block.name == "get_my_watchlist" and not outcome.is_error:
                     watchlist_ids.update(ref["card_id"] for ref in outcome.cards)
                     if isinstance(content.get("total_count"), int):
@@ -472,13 +520,12 @@ class AssistantEngine:
 
         result.stop_reason = "end_turn" if answered_with_selection else getattr(response, "stop_reason", None)
         result.round_limit_hit = tool_rounds >= self.config.max_tool_rounds
-        text = "\n\n".join(
-            str(block.text).strip()
-            for block in (response.content or [])
-            if getattr(block, "type", None) == "text" and str(getattr(block, "text", "")).strip()
-        )
+        text = _response_text(response)
+        if not text and result.stop_reason in ("end_turn", "tool_use") and re.search(r"\d", earlier_text):
+            # Answered (with numbers, not a "let me check" preamble) alongside its last lookup.
+            text = earlier_text
         text, suggestions = split_suggestions(text, result.stop_reason)
-        text = _ECHOED_NOTE.sub("", text).strip()
+        text = strip_pseudo_calls(_ECHOED_NOTE.sub("", text)).strip()
         executed = [action for action in result.actions if action.get("state") == "done"]
         if executed and (result.stop_reason == "refusal" or not text):
             # The write already happened: the reply must say so and carry Undo.
@@ -515,6 +562,9 @@ class AssistantEngine:
                     list_ids=list_ids,
                     question=question,
                     fixed=bool(executed_refs),
+                    holding_refs=holding_refs,
+                    language_pairs=language_pairs,
+                    tools_used=set(result.tools_used),
                 )
             )
         result.latency_ms = int((time.monotonic() - started) * 1000)

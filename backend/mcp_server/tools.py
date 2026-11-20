@@ -108,7 +108,9 @@ OWNED_MODES = ("any", "owned", "not_owned")
 # find_missing: cheapest first (budgets, shopping lists) or highest value first (chase cards).
 MISSING_SORTS = ("price_asc", "value_desc")
 MAX_FALLBACK_PRICES = 400
-COLLECTION_SORTS = ("value_desc", "gain_desc", "added_desc")
+COLLECTION_SORTS = ("value_desc", "price_desc", "gain_desc", "added_desc")
+HOLDING_TYPES = ("any", "raw", "graded")
+TOP_HOLDINGS = 8
 PORTFOLIO_RANGES = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
 HISTORY_RANGES = {"30d": 30, "90d": 90, "1y": 365}
 # History starting within this many days of the range start counts as covering it.
@@ -1058,13 +1060,16 @@ class CollectionTools:
         sort: str = "value_desc",
         limit: int | None = 50,
         cursor: str | None = None,
+        holding_type: str = "any",
     ) -> dict[str, Any]:
         card_filter = normalize_card_filter(card_filter)
         if sort not in COLLECTION_SORTS:
             raise ToolInputError(f"sort must be one of {', '.join(COLLECTION_SORTS)}.")
+        if holding_type not in HOLDING_TYPES:
+            raise ToolInputError(f"holding_type must be one of {', '.join(HOLDING_TYPES)}.")
         limit = clamp_limit(limit, default=50, maximum=100)
         collection_id = self._require_collection(owner_user_id, collection_id)
-        query_hash = self._query_hash(card_filter, collection_id, sort)
+        query_hash = self._query_hash(card_filter, collection_id, f"{sort}|{holding_type}")
         offset = self._offset_from_cursor(cursor, kind="collection", query_hash=query_hash)
 
         pairs, tcg_ids, truncated = self._owner_holdings(owner_user_id, collection_id=collection_id)
@@ -1087,8 +1092,12 @@ class CollectionTools:
 
         items = [self._holding_summary(entry, card, tcgplayer_id=tcg_ids.get(card["id"])) for entry, card in pairs]
         items = [item for item in items if self._matches_price(item["price_usd"], card_filter)]
+        if holding_type != "any":
+            items = [item for item in items if bool(item["grader"] or item["grade"]) == (holding_type == "graded")]
         if sort == "value_desc":
             items = self._sort_by_price(items, descending=True, key="value_usd")
+        elif sort == "price_desc":
+            items = self._sort_by_price(items, descending=True)
         elif sort == "gain_desc":
             items = self._sort_by_price(items, descending=True, key="gain_usd")
         else:
@@ -1101,6 +1110,7 @@ class CollectionTools:
             "total_value_usd": round(total_value, 2),
             "total_count": len(items),
             "unpriced_count": sum(1 for item in items if item["value_usd"] is None),
+            "value_basis": "price_usd is the price of one copy; value_usd = price_usd x quantity (the holding's total).",
             "next_cursor": encode_cursor({"k": "collection", "q": query_hash, "o": next_offset})
             if next_offset < len(items)
             else None,
@@ -1291,6 +1301,16 @@ class CollectionTools:
             ),
             "holdings_count": len(holdings),
             "unpriced_count": sum(1 for holding in holdings if holding["value_usd"] is None),
+            # The holdings that make up most of value_usd (price_usd x quantity).
+            "top_holdings": [
+                {key: holding.get(key) for key in (
+                    "card_id", "name", "set", "number", "language", "holding_id", "quantity", "condition",
+                    "grader", "grade", "variant", "price_usd", "value_usd", "app_url", "image_small_url",
+                )}
+                for holding in self._sort_by_price(
+                    [holding for holding in holdings if holding["value_usd"] is not None], descending=True, key="value_usd"
+                )[:TOP_HOLDINGS]
+            ],
             "change_basis": (
                 "Market move of cards currently held (from each card's add day if added in range); excludes "
                 "buys/sells. change_usd sums the change_covers_holdings holdings with price history; change_pct = "
