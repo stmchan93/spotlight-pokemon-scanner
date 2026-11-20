@@ -5,6 +5,8 @@ import {
   isAssistantRequestError,
   type AssistantContext,
   type AssistantErrorCode,
+  type AssistantFeedback,
+  type AssistantFeedbackInput,
   type AssistantMessage,
   type AssistantUsage,
   type SpotlightRepository,
@@ -196,6 +198,44 @@ export function useAssistantChat({
     );
   }, []);
 
+  const messagesRef = useRef(messages);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+  // Per-message request counter: only the newest tap's response may land.
+  const feedbackSeqRef = useRef<Record<string, number>>({});
+
+  const patchFeedback = useCallback((messageId: string, feedback: AssistantFeedback | null) => {
+    setMessages((current) =>
+      current.map((message) => (message.id === messageId ? { ...message, feedback } : message)),
+    );
+  }, []);
+
+  /** Optimistic 👍/👎; reverts if the save fails. Resolves false on failure. */
+  const setFeedback = useCallback(async (messageId: string, input: AssistantFeedbackInput) => {
+    const previous = messagesRef.current.find((message) => message.id === messageId)?.feedback ?? null;
+    const seq = (feedbackSeqRef.current[messageId] ?? 0) + 1;
+    feedbackSeqRef.current[messageId] = seq;
+    patchFeedback(
+      messageId,
+      input.rating == null
+        ? null
+        : { rating: input.rating, reason: input.reason ?? null, note: input.note?.trim() || null, updatedAt: null },
+    );
+    try {
+      const stored = await repository.setAssistantFeedback(messageId, input);
+      if (feedbackSeqRef.current[messageId] === seq) {
+        patchFeedback(messageId, stored);
+      }
+      return true;
+    } catch {
+      if (feedbackSeqRef.current[messageId] === seq) {
+        patchFeedback(messageId, previous);
+      }
+      return false;
+    }
+  }, [patchFeedback, repository]);
+
   const isLimitReached = usage != null && usage.limit != null && (usage.remainingToday ?? 0) <= 0;
 
   return {
@@ -212,5 +252,6 @@ export function useAssistantChat({
     openThread,
     refreshUsage,
     replaceAction,
+    setFeedback,
   };
 }

@@ -9,11 +9,18 @@ import weakref
 from dataclasses import dataclass
 from typing import Any
 
-from mcp_server.assistant.analytics import TurnAnalytics
+from mcp_server.assistant.analytics import EVENT_FEEDBACK, TurnAnalytics
 from mcp_server.assistant.config import AssistantConfig
 from mcp_server.assistant.engine import AssistantEngine, AssistantFailed
 from mcp_server.assistant.flags import flag_turn
-from mcp_server.assistant.store import AssistantStore, next_utc_midnight, utc_day
+from mcp_server.assistant.store import (
+    FEEDBACK_NOTE_CHARS,
+    FEEDBACK_RATINGS,
+    FEEDBACK_REASONS,
+    AssistantStore,
+    next_utc_midnight,
+    utc_day,
+)
 from mcp_server.assistant.tools import AssistantToolbox
 
 logger = logging.getLogger("ekalight.assistant")
@@ -310,3 +317,61 @@ class AssistantService:
         if action is None:
             return NOT_FOUND
         return 200, {"action": action}
+
+    # --- feedback ------------------------------------------------------------
+
+    @staticmethod
+    def _parse_feedback(body: Any) -> tuple[dict[str, Any] | None, tuple[int, dict[str, Any]] | None]:
+        if not isinstance(body, dict) or "rating" not in body:
+            return None, _bad("body must be an object with rating")
+        rating = body.get("rating")
+        if rating is not None and rating not in FEEDBACK_RATINGS:
+            return None, _bad("rating must be up, down, or null")
+        reason = body.get("reason")
+        if reason is not None and reason not in FEEDBACK_REASONS:
+            return None, _bad(f"reason must be one of {', '.join(FEEDBACK_REASONS)}")
+        note = body.get("note")
+        if note is not None and not isinstance(note, str):
+            return None, _bad("note must be a string")
+        note = (note or "").strip() or None
+        if note is not None and len(note) > FEEDBACK_NOTE_CHARS:
+            return None, _bad(f"note must be at most {FEEDBACK_NOTE_CHARS} characters")
+        if rating is None:
+            reason, note = None, None
+        return {"rating": rating, "reason": reason, "note": note}, None
+
+    async def set_feedback(self, caller: Caller, message_id: str, body: Any) -> tuple[int, dict[str, Any]]:
+        parsed, error = self._parse_feedback(body)
+        if error is not None:
+            return error
+        assert parsed is not None
+        target = await asyncio.to_thread(self.store.feedback_target, caller.user_id, message_id)
+        if target is None:
+            return NOT_FOUND
+        if target["role"] != "assistant":
+            return _bad("only assistant messages take feedback")
+        feedback, changed = await asyncio.to_thread(
+            self.store.set_feedback, caller.user_id, message_id, target["thread_id"], **parsed
+        )
+        if changed:
+            self.analytics.capture(caller.user_id, feedback_event_properties(target, parsed), EVENT_FEEDBACK)
+        return 200, {"message_id": message_id, "feedback": feedback}
+
+
+def _truncate(text: str, limit: int) -> str:
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def feedback_event_properties(target: dict[str, Any], parsed: dict[str, Any]) -> dict[str, Any]:
+    """PostHog `assistant_feedback` properties (environment is added by TurnAnalytics)."""
+    return {
+        "rating": parsed["rating"],
+        "reason": parsed["reason"],
+        "message_id": target["id"],
+        "thread_id": target["thread_id"],
+        "tools": list(target["tools_used"]),
+        "cost_usd": target["cost_usd"],
+        "question": _truncate(target["question"], 200),
+        "answer": _truncate(target["text"], 400),
+    }

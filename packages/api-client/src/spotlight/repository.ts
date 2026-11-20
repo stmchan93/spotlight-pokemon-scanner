@@ -21,8 +21,10 @@ import {
 import {
   AssistantRequestError,
   assistantErrorFromResponse,
+  buildAssistantFeedbackBody,
   buildAssistantSendBody,
   parseAssistantAction,
+  parseAssistantFeedback,
   parseAssistantMessages,
   parseAssistantSendResult,
   parseAssistantThreadsPage,
@@ -231,6 +233,8 @@ import type {
   WhosThatPokemonResult,
   WhosThatShareCardPayload,
   WhosThatShareCardResult,
+  AssistantFeedback,
+  AssistantFeedbackInput,
   AssistantMessage,
   AssistantProposedAction,
   AssistantSendPayload,
@@ -413,6 +417,8 @@ export interface SpotlightRepository {
     actionId: string,
     state: 'confirmed' | 'dismissed',
   ): Promise<AssistantProposedAction>;
+  /** 👍/👎 on an assistant reply; resolves to the stored feedback (null once cleared). */
+  setAssistantFeedback(messageId: string, input: AssistantFeedbackInput): Promise<AssistantFeedback | null>;
   createLabelingSession(payload: LabelingSessionCreatePayload): Promise<LabelingSessionRecord>;
   uploadLabelingSessionArtifact(payload: LabelingSessionArtifactUploadPayload): Promise<LabelingSessionArtifactRecord>;
   completeLabelingSession(
@@ -4491,6 +4497,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
       ...reply,
       createdAt: now,
       status: 'ok',
+      feedback: null,
     };
     const thread = existing ?? {
       summary: { id: threadId, title: text.slice(0, 60), updatedAt: now, lastMessagePreview: '' },
@@ -4565,6 +4572,19 @@ export class MockSpotlightRepository implements SpotlightRepository {
       }
     }
     throw new AssistantRequestError('action not found', 'not_found', 404);
+  }
+
+  async setAssistantFeedback(messageId: string, input: AssistantFeedbackInput): Promise<AssistantFeedback | null> {
+    for (const thread of this.assistantThreads.values()) {
+      const index = thread.messages.findIndex((message) => message.id === messageId && message.role === 'assistant');
+      if (index >= 0) {
+        // Same normalization as the server: reason/note drop when cleared.
+        const feedback = parseAssistantFeedback({ ...buildAssistantFeedbackBody(input), updated_at: new Date().toISOString() });
+        thread.messages[index] = { ...thread.messages[index], feedback };
+        return feedback;
+      }
+    }
+    throw new AssistantRequestError('message not found', 'not_found', 404);
   }
 
   async createLabelingSession(payload: LabelingSessionCreatePayload) {
@@ -7319,6 +7339,18 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       throw new AssistantRequestError('The assistant returned an invalid action response.', 'unknown');
     }
     return action;
+  }
+
+  async setAssistantFeedback(messageId: string, input: AssistantFeedbackInput): Promise<AssistantFeedback | null> {
+    const body = await this.requestAssistant(
+      `/api/v1/assistant/messages/${encodeURIComponent(messageId)}/feedback`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildAssistantFeedbackBody(input)),
+      },
+    );
+    return parseAssistantFeedback((body as { feedback?: unknown } | null)?.feedback);
   }
 
   async createLabelingSession(payload: LabelingSessionCreatePayload) {

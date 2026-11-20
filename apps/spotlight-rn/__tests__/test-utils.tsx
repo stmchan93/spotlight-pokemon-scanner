@@ -190,6 +190,10 @@ export function createTestSpotlightRepository(
       return overrides.setAssistantActionState?.(...args)
         ?? baseRepository.setAssistantActionState(...args);
     },
+    setAssistantFeedback: (...args) => {
+      return overrides.setAssistantFeedback?.(...args)
+        ?? baseRepository.setAssistantFeedback(...args);
+    },
     loadCardDetail: (...args) => {
       return overrides.loadCardDetail?.(...args)
         ?? baseRepository.loadCardDetail(...args);

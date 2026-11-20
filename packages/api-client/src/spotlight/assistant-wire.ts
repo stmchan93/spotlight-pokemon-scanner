@@ -9,6 +9,9 @@ import type {
   AssistantConditionCode,
   AssistantContext,
   AssistantErrorCode,
+  AssistantFeedback,
+  AssistantFeedbackInput,
+  AssistantFeedbackReason,
   AssistantMessage,
   AssistantPriceChart,
   AssistantProposedAction,
@@ -214,6 +217,35 @@ export function parseAssistantPriceChart(value: unknown): AssistantPriceChart | 
   };
 }
 
+export const ASSISTANT_FEEDBACK_REASONS: readonly AssistantFeedbackReason[] = [
+  'wrong',
+  'not_helpful',
+  'too_long',
+  'wrong_cards',
+  'other',
+];
+export const ASSISTANT_FEEDBACK_NOTE_MAX_CHARS = 500;
+
+export function parseAssistantFeedback(value: unknown): AssistantFeedback | null {
+  const raw = asRecord(value);
+  if (!raw || (raw.rating !== 'up' && raw.rating !== 'down')) {
+    return null;
+  }
+  const reason = (ASSISTANT_FEEDBACK_REASONS as readonly unknown[]).includes(raw.reason)
+    ? (raw.reason as AssistantFeedbackReason)
+    : null;
+  return { rating: raw.rating, reason, note: asString(raw.note), updatedAt: asString(raw.updated_at) };
+}
+
+/** App input → wire body for POST /api/v1/assistant/messages/{id}/feedback. */
+export function buildAssistantFeedbackBody(input: AssistantFeedbackInput): Record<string, unknown> {
+  if (input.rating == null) {
+    return { rating: null };
+  }
+  const note = input.note?.trim().slice(0, ASSISTANT_FEEDBACK_NOTE_MAX_CHARS) || null;
+  return { rating: input.rating, reason: input.reason ?? null, note };
+}
+
 export function parseAssistantMessage(value: unknown): AssistantMessage | null {
   const raw = asRecord(value);
   const id = raw ? asString(raw.id) : null;
@@ -233,6 +265,7 @@ export function parseAssistantMessage(value: unknown): AssistantMessage | null {
     status: raw.status === 'error' ? 'error' : 'ok',
     suggestions: role === 'assistant' ? parseAssistantSuggestions(raw.suggestions) : [],
     charts: role === 'assistant' ? parseList(raw.charts, parseAssistantPriceChart).slice(0, ASSISTANT_MAX_CHARTS) : [],
+    feedback: role === 'assistant' ? parseAssistantFeedback(raw.feedback) : null,
   };
 }
 
