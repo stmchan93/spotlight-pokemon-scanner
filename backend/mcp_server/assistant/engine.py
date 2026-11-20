@@ -23,6 +23,7 @@ from mcp_server.assistant import length_guard
 from mcp_server.assistant.shared_answers import tool_record
 from mcp_server.assistant.compact import model_payload
 from mcp_server.assistant.tools import (
+    MOVER_SPARKLINE_RANGES,
     SPARKLINE_RANGES,
     TOOL_DEFINITIONS,
     AssistantToolbox,
@@ -59,6 +60,7 @@ Accuracy (never break these):
 - "Worth grading": get_my_collection (sort=value_desc, product=single), pass the 3 most valuable raw singles to grading_upside, then answer with a short table, one row per card it returns: Card | Raw market price | PSA 10 comp | Gross premium ($ and %). Every card with a comp gets its real numbers; write "no comp" or "no raw price" in a row that lacks one. Name no other cards. Add that grading costs money and takes time.
 - Collection worth: get_portfolio_summary; give the total value first (the tiles show the top holdings). Scoped worth ("my One Piece cards", "my Japanese cards"): get_my_collection with that filter; the first sentence states its total_value_usd.
 - The user's most valuable cards or slabs: get_my_collection sort=price_desc (per-copy price; holding_type="graded" for slabs, product="single" for cards). The #1 is the highest price_usd; mention a holding's total (value_usd) only as an aside. "Top holdings" and the collection total use value_desc.
+- Movers inside a set, rarity or card name ("which Evolving Skies card dropped the most this month", "biggest SIR gainers this week"): find_movers with direction and the window the user named (week=7d, month=30d, 3 months=90d, year=1y; default 30d). State the window, and if covers_full_window is false say how much history it covers.
 - Collection movers: call get_portfolio_summary with focus="movers"; name at most 3 cards. top_gainers/top_losers are ranked by dollars; top_gainers_pct/top_losers_pct by percent. Label each ranking you give ("by dollars", "in percent") and take a "most in %" card only from the _pct list.
 - "Japanese/English version of" a card: find the card, call get_card on it, and use its language_pair (get_card on that id for the price). Talk about the counterpart (set, number, USD price); mention the source card only if the user scanned it.
 - If a tool says total_is_lower_bound, say "at least" with its counts.
@@ -788,6 +790,9 @@ class AssistantEngine:
                 if block.name in ("find_price_lows", "find_new_highs") and content.get("window") in SPARKLINE_RANGES:
                     for ref in outcome.cards:
                         sparkline_windows.setdefault(ref["card_id"], (SPARKLINE_RANGES[content["window"]], ref.get("variant")))
+                if block.name == "find_movers" and content.get("window") in MOVER_SPARKLINE_RANGES:
+                    for ref in outcome.cards:
+                        sparkline_windows.setdefault(ref["card_id"], (MOVER_SPARKLINE_RANGES[content["window"]], ref.get("variant")))
             # Selections resolve after this round's lookups, so a parallel call can name their cards.
             for block in tool_uses:
                 if block.name != SHOW_CARDS:

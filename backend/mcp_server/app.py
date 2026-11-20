@@ -39,6 +39,7 @@ from mcp_server.rate_limit import RateLimitExceeded, UserRateLimiter  # noqa: E4
 from mcp_server.tools import (  # noqa: E402
     GAME_FILTER_NOTE,
     MARKET_TRENDS_DESCRIPTION,
+    MOVERS_DESCRIPTION,
     PRICE_RANK_NOTE,
     PRODUCT_FILTER_NOTE,
     TOP_GRADED_DESCRIPTION,
@@ -354,7 +355,8 @@ def build_server(
     @_register(server, policy)(
         description=(
             "The user's collection value in USD and how it moved over the range, with the top 5 "
-            "gaining and losing holdings."
+            "gaining and losing holdings (use this for 'my biggest gainers/losers'). Movers within a set, "
+            "rarity or card name: find_movers."
         ),
         annotations=READ_ONLY,
     )
@@ -466,6 +468,28 @@ def build_server(
             game=game,
             owned=owned,
             window=window,
+            limit=limit,
+        )
+
+    @_register(server, policy)(
+        description=MOVERS_DESCRIPTION + " " + PRODUCT_FILTER_NOTE,
+        annotations=READ_ONLY,
+    )
+    async def find_movers(
+        direction: Annotated[Literal["up", "down"], Field(description="up = gainers, down = decliners.")],
+        filter: CardFilter | None = None,
+        window: Literal["7d", "30d", "90d", "1y"] = "30d",
+        owned: Literal["any", "owned"] = "any",
+        rank_by: Literal["pct", "usd"] = "pct",
+        limit: Annotated[int, Field(ge=1, le=10)] = 5,
+    ) -> dict[str, Any]:
+        return await runner.run(
+            "find_movers",
+            card_filter=_filter_dict(filter),
+            direction=direction,
+            window=window,
+            owned=owned,
+            rank_by=rank_by,
             limit=limit,
         )
 

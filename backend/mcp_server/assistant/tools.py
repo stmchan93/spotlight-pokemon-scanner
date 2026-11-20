@@ -1,10 +1,10 @@
-"""Tools the assistant model sees: the 13 CollectionTools reads (owner = the
+"""Tools the assistant model sees: the 14 CollectionTools reads (owner = the
 request user, DB-only), 3 propose_* tools that validate and return a
 ProposedAction without changing anything, and add_to_collection_now, which
 writes a fully specified add (direct_add.py) or falls back to a proposal.
 
 Strict mode: the API caps strict schemas at 24 optional parameters per request,
-and the six filter tools alone carry ~120 (CardFilter x 6), so those six are
+and the seven filter tools alone carry ~140 (CardFilter x 7), so those seven are
 sent non-strict and validated server-side by normalize_card_filter; every other
 tool (incl. all propose_* writes) is strict.
 """
@@ -38,6 +38,7 @@ from mcp_server.tools import (
     GAME_FILTER_NOTE,
     GRADING_UPSIDE_DESCRIPTION,
     MARKET_TRENDS_DESCRIPTION,
+    MOVERS_DESCRIPTION,
     NEW_HIGHS_DESCRIPTION,
     PRICE_LOWS_DESCRIPTION,
     PRICE_RANK_NOTE,
@@ -61,6 +62,8 @@ MAX_SPARKLINE_POINTS = 30
 MAX_GRADING_CANDIDATES = 3
 # find_price_lows / find_new_highs window -> get_price_history range.
 SPARKLINE_RANGES = {"90d": "90d", "1y": "1y"}
+# find_movers window -> get_price_history range (history has no 7d range).
+MOVER_SPARKLINE_RANGES = {"7d": "30d", "30d": "30d", "90d": "90d", "1y": "1y"}
 # Fields the model never needs (tiles carry them); dropping them saves tokens.
 MODEL_HIDDEN_KEYS = frozenset({"image_small_url", "app_url", "tcgplayer_id", "buy_links"})
 # Per-call ceilings for the model (the MCP tools allow more).
@@ -69,12 +72,14 @@ MODEL_LIMITS = {
     "find_missing": 20,
     "find_price_lows": 20,
     "find_new_highs": 20,
+    "find_movers": 10,
     "get_my_collection": 50,
     "get_my_watchlist": 50,
     "find_top_graded": 20,
 }
 FILTER_TOOLS = (
     "search_cards", "get_my_collection", "find_missing", "find_price_lows", "find_new_highs", "find_top_graded",
+    "find_movers",
 )
 
 _FILTER_SCHEMA: dict[str, Any] = {
@@ -221,8 +226,9 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "name": "get_portfolio_summary",
         "description": (
             "The user's collection value in USD, how it moved over the range, top_holdings (largest by value), "
-            "and top gainers/losers. focus='movers' for gainers/losers questions (returns only the movers); "
-            "focus='value' (default) for what the collection is worth."
+            "and top gainers/losers. focus='movers' for the user's collection gainers/losers ('my biggest gainers "
+            "this month'; returns only the movers); focus='value' (default) for what the collection is worth. "
+            "Movers within a set, rarity or card name (incl. 'my <set> cards'): find_movers."
         ),
         "input_schema": _obj(
             {
@@ -283,6 +289,21 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "limit": {"type": "integer", "description": "1-20, default 6."},
             },
             [],
+        ),
+    },
+    {
+        "name": "find_movers",
+        "description": MOVERS_DESCRIPTION + " " + PRODUCT_FILTER_NOTE,
+        "input_schema": _obj(
+            {
+                "filter": _FILTER_SCHEMA,
+                "direction": {"type": "string", "enum": ["up", "down"], "description": "up = gainers, down = decliners."},
+                "window": {"type": "string", "enum": ["7d", "30d", "90d", "1y"], "description": "Default 30d."},
+                "owned": {"type": "string", "enum": ["any", "owned"]},
+                "rank_by": {"type": "string", "enum": ["pct", "usd"], "description": "Default pct."},
+                "limit": {"type": "integer", "description": "1-10, default 3."},
+            },
+            ["direction"],
         ),
     },
     {
@@ -449,6 +470,7 @@ READ_TOOLS = (
     "get_price_history",
     "find_price_lows",
     "find_new_highs",
+    "find_movers",
     "get_market_trends",
     "find_top_graded",
     "grading_upside",
@@ -832,7 +854,7 @@ def choose_tiles(
 MAX_RANKED_TILES = 3  # movers / highs / lows / trends answers name at most three cards
 MAX_HOLDING_TILES = 8
 HOLDINGS_LABEL = "Top holdings by value"
-RANKING_TOOLS = frozenset({"find_new_highs", "find_price_lows", "get_market_trends"})
+RANKING_TOOLS = frozenset({"find_new_highs", "find_price_lows", "find_movers", "get_market_trends"})
 _VALUE_WORDS = re.compile(r"\b(worth|value|valued)\b", re.IGNORECASE)
 _COLLECTION_WORDS = re.compile(r"\b(collection|portfolio|holdings|binder)\b", re.IGNORECASE)
 _SINGULAR_TOP = re.compile(
@@ -1299,6 +1321,7 @@ class AssistantToolbox:
             default = {
                 # Investing answers name at most 3 cards: the model sees about that many.
                 "get_my_collection": 25, "get_my_watchlist": 25, "find_price_lows": 3, "find_new_highs": 3,
+                "find_movers": 3,
             }.get(name, 10)
             try:
                 limit = int(args.get("limit") or default)
@@ -1306,7 +1329,8 @@ class AssistantToolbox:
                 limit = default
             kwargs["limit"] = max(1, min(limit, MODEL_LIMITS[name]))
         for key in ("owned", "sort", "cursor", "collection_id", "budget_usd", "card_id", "card_ids", "condition",
-                    "grader", "grade", "variant", "game", "window", "min_price_usd", "max_price_usd", "holding_type"):
+                    "grader", "grade", "variant", "game", "window", "min_price_usd", "max_price_usd", "holding_type",
+                    "direction", "rank_by"):
             if args.get(key) is not None:
                 kwargs[key] = args[key]
         if "range" in args and args["range"] is not None:

@@ -32,6 +32,7 @@ READ_TOOLS = (
     "identify_card",
     "find_price_lows",
     "find_new_highs",
+    "find_movers",
     "get_market_trends",
     "find_top_graded",
 )
@@ -105,6 +106,12 @@ USER_CARD_FIELDS = frozenset(
         "at_window_low",
         # find_new_highs
         "high_date",
+        # find_movers
+        "start_usd",
+        "end_usd",
+        "start_date",
+        "end_date",
+        "covers_full_window",
         "window_days",
         # find_top_graded
         "graded_price_usd",
