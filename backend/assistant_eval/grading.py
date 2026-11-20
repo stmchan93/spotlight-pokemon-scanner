@@ -15,7 +15,7 @@ A turn record is what tools/assistant_eval.py emits per turn:
   action_details [{type, params, summary, state}], scanner_context, reference, cost_usd.
 
 Checks on planned features (show_cards, add_to_collection_now, grading_upside,
-price_trusted, covers_full_range, cards_label, tile quantity) SKIP instead of
+price_trusted, cards_label, tile quantity) SKIP instead of
 failing while the tool/field is absent, so the suite runs before and after they land.
 """
 
@@ -86,7 +86,6 @@ EXPECT_KEYS = frozenset(
         "proposed_card_ids",
         # tool results
         "tool_result_where",
-        "history_range_stated",
     }
 )
 MATCHER_OPS = frozenset({"not", "in", "not_in", "exists", "contains", "gte", "lte"})
@@ -962,32 +961,68 @@ def check_tool_result_where(record: dict[str, Any], spec: dict[str, Any], known_
     return _fail(name, f"no {tool} result has {where}")
 
 
-_MONTHS = ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
-           "november", "december")
+# Owner 2026-11-20: answers never state how much history exists, and never claim a
+# window the data doesn't cover. Window-claim wording per window length (days).
+_WINDOW_CLAIMS = {
+    365: r"\b(?:past|last|over the|this past)\s+(?:year|12 months|twelve months)\b|\b(?:1|one)[- ]year\b|"
+         r"\b12[- ]month\b|\byear[- ]long\b|\b52[- ]week\b|\bfull[- ]year\b|\byearly (?:low|high)\b",
+    90: r"\b(?:past|last|over the)\s+(?:90 days|3 months|three months|quarter)\b|\b90[- ]day\b|\b(?:3|three)[- ]month\b",
+    30: r"\b(?:past|last|over the)\s+(?:30 days|month)\b|\b30[- ]day\b|\bthis month\b",
+    7: r"\b(?:past|last|over the)\s+(?:7 days|week)\b|\b7[- ]day\b|\bthis week\b",
+}
+_WINDOW_KEY_DAYS = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
+COVERAGE_SLACK_DAYS = 7
 
 
-def check_history_range_stated(record: dict[str, Any]) -> CheckResult:
-    """When history doesn't cover the asked range, the answer must say where it starts
-    (month name, 'Mon', or the date). Skips until results carry covers_full_range."""
-    flagged = [
-        item["data"] for item in _tool_results(record, "get_price_history")
-        if isinstance(item.get("data"), dict) and "covers_full_range" in item["data"]
-    ]
-    partial = [data for data in flagged if data.get("covers_full_range") is False]
-    if not flagged:
-        return _skip("history_range_stated", "price history has no covers_full_range yet")
-    if not partial:
-        return _ok("history_range_stated")
+def _nearest_window(days: int) -> int:
+    return min(_WINDOW_CLAIMS, key=lambda window: abs(window - days))
+
+
+def uncovered_windows(record: dict[str, Any]) -> set[int]:
+    """Windows (days) some result doesn't fully cover: a price history whose
+    covers_full_range is false, or a lows/highs/movers card the answer names whose
+    history starts after the window start."""
     answer = str(record.get("answer") or "").casefold()
-    for data in partial:
-        first = str(data.get("first_date") or "")[:10]
-        try:
-            month = _MONTHS[date.fromisoformat(first).month - 1]
-        except ValueError:
-            month = None
-        if first and (first in answer or (month and (month in answer or re.search(rf"\b{month[:3]}\b", answer)))):
-            return _ok("history_range_stated")
-    return _fail("history_range_stated", f"history starts {partial[0].get('first_date')} but the answer doesn't say so")
+    found: set[int] = set()
+    for item in _tool_results(record):
+        data = item.get("data")
+        if not isinstance(data, dict):
+            continue
+        name = item.get("name")
+        if name == "get_price_history" and data.get("covers_full_range") is False:
+            try:
+                span = (date.fromisoformat(str(data.get("last_date"))[:10])
+                        - date.fromisoformat(str(data.get("range_start"))[:10])).days
+            except ValueError:
+                continue
+            found.add(_nearest_window(span))
+        elif name in ("find_price_lows", "find_new_highs", "find_movers"):
+            window = _WINDOW_KEY_DAYS.get(str(data.get("window") or ""))
+            if window is None:
+                continue
+            for card in data.get("cards") or []:
+                if not isinstance(card, dict) or str(card.get("name") or "").casefold() not in answer or not card.get("name"):
+                    continue
+                days = card.get("days_covered")
+                partial = card.get("covers_full_window") is False or (
+                    isinstance(days, (int, float)) and days < window - COVERAGE_SLACK_DAYS
+                )
+                if partial:
+                    found.add(window)
+    return found
+
+
+def check_no_uncovered_window_claim(record: dict[str, Any]) -> CheckResult | None:
+    """None when every result covers its window (nothing to check)."""
+    windows = uncovered_windows(record)
+    if not windows:
+        return None
+    answer = str(record.get("answer") or "")
+    for window in sorted(windows, reverse=True):
+        hit = re.search(_WINDOW_CLAIMS[window], answer, re.IGNORECASE)
+        if hit:
+            return _fail("no_uncovered_window_claim", f"claims {hit.group(0)!r} but the history doesn't cover it")
+    return _ok("no_uncovered_window_claim")
 
 
 def check_max_cost(record: dict[str, Any], ceiling: float) -> CheckResult:
@@ -1054,8 +1089,9 @@ def grade_turn(
         results.append(check_no_chart(record))
     if expect.get("chart_card_matches_tile"):
         results.append(check_chart_card_matches_tile(record))
-    if expect.get("history_range_stated"):
-        results.append(check_history_range_stated(record))
+    window_claim = check_no_uncovered_window_claim(record)
+    if window_claim is not None:
+        results.append(window_claim)
     max_words = expect.get("max_words", defaults.get("max_words"))
     if max_words:
         results.append(check_max_words(record, int(max_words)))

@@ -15,6 +15,7 @@ import logging
 import re
 import sqlite3
 from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from catalog_tools import SUPPORTED_GAMES, card_by_id, game_display_name
@@ -60,10 +61,41 @@ MAX_LABEL_CHARS = 40
 MAX_WATCHLIST_TILES = 8
 MAX_SPARKLINE_POINTS = 30
 MAX_GRADING_CANDIDATES = 3
-# find_price_lows / find_new_highs window -> get_price_history range.
-SPARKLINE_RANGES = {"90d": "90d", "1y": "1y"}
-# find_movers window -> get_price_history range (history has no 7d range).
-MOVER_SPARKLINE_RANGES = {"7d": "30d", "30d": "30d", "90d": "90d", "1y": "1y"}
+
+
+def _swap(text: str, old: str, new: str) -> str:
+    if old not in text:
+        raise AssertionError(f"shared tool description changed: {old!r}")
+    return text.replace(old, new)
+
+
+# Owner 2026-11-20: the chat never reveals history coverage; compact.py sends window_label instead.
+WINDOW_LABEL_NOTE = (
+    "window_label is the phrase to use for the window ('past year' when the card's history covers it, "
+    "else 'recently': then never name the window)."
+)
+ASSISTANT_PRICE_LOWS_DESCRIPTION = _swap(
+    PRICE_LOWS_DESCRIPTION,
+    "days_covered (history actually available; under a year means the '1y low' covers only that span).",
+    "window_label. " + WINDOW_LABEL_NOTE,
+)
+ASSISTANT_NEW_HIGHS_DESCRIPTION = _swap(
+    NEW_HIGHS_DESCRIPTION,
+    "days_covered (history actually available; under the window means the high covers only that span).",
+    "window_label. " + WINDOW_LABEL_NOTE,
+)
+ASSISTANT_MOVERS_DESCRIPTION = _swap(
+    MOVERS_DESCRIPTION,
+    "change_pct, days_covered and covers_full_window (false = history starts after the window start: say how much it covers).",
+    "change_pct and window_label. " + WINDOW_LABEL_NOTE,
+)
+# Market/movers tool window -> get_price_history range to fetch (history has no 7d range).
+SPARKLINE_RANGES = {"7d": "30d", "30d": "30d", "90d": "90d", "1y": "1y"}
+MOVER_SPARKLINE_RANGES = SPARKLINE_RANGES
+SPARKLINE_TOOLS = frozenset({"find_price_lows", "find_new_highs", "find_movers", "get_market_trends"})
+# Tile caption ranges, longest first; a sparkline is labelled only with a range its series covers.
+SPARKLINE_LABEL_DAYS = {"1y": 365, "90d": 90, "30d": 30, "7d": 7}
+SPARKLINE_SLACK_DAYS = 7
 # Fields the model never needs (tiles carry them); dropping them saves tokens.
 MODEL_HIDDEN_KEYS = frozenset({"image_small_url", "app_url", "tcgplayer_id", "buy_links"})
 # Per-call ceilings for the model (the MCP tools allow more).
@@ -246,8 +278,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "description": (
             "Daily USD price history for one printing of a card: raw by condition, or graded when grader and "
             "grade are both given (e.g. PSA 10). days_since_as_of says how old the newest point is. "
-            "first_date/last_date (first_usd/last_usd) are the span actually covered; covers_full_range is "
-            "false when history starts after the range start. variant is a printing (Holofoil, Reverse "
+            "summary has the dated move (first_usd -> last_usd). " + WINDOW_LABEL_NOTE + " variant is a printing (Holofoil, Reverse "
             "Holofoil, 1st Edition), never a rarity; omit it for the card's main printing."
         ),
         "input_schema": _obj(
@@ -265,7 +296,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "name": "find_price_lows",
-        "description": PRICE_LOWS_DESCRIPTION,
+        "description": ASSISTANT_PRICE_LOWS_DESCRIPTION,
         "input_schema": _obj(
             {
                 "filter": _FILTER_SCHEMA,
@@ -281,7 +312,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "name": "find_new_highs",
-        "description": NEW_HIGHS_DESCRIPTION,
+        "description": ASSISTANT_NEW_HIGHS_DESCRIPTION,
         "input_schema": _obj(
             {
                 "filter": _FILTER_SCHEMA,
@@ -295,7 +326,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "name": "find_movers",
-        "description": MOVERS_DESCRIPTION + " " + PRODUCT_FILTER_NOTE,
+        "description": ASSISTANT_MOVERS_DESCRIPTION + " " + PRODUCT_FILTER_NOTE,
         "input_schema": _obj(
             {
                 "filter": _FILTER_SCHEMA,
@@ -539,6 +570,40 @@ def card_refs(value: Any) -> list[dict[str, Any]]:
 
     walk(value)
     return found
+
+
+def sparkline_fetch_range(tool: str, content: Any) -> str | None:
+    """The get_price_history range behind a market/movers tool's tile sparklines."""
+    if not isinstance(content, dict):
+        return None
+    if tool == "get_market_trends":
+        days = content.get("cards_window_days")
+        if not isinstance(days, int) or days <= 0:
+            return None
+        return "30d" if days <= 30 else "90d" if days <= 90 else "1y"
+    return SPARKLINE_RANGES.get(str(content.get("window") or ""))
+
+
+def covered_range(
+    points: list[dict[str, Any]], *, max_days: int, today: date | None = None
+) -> tuple[str | None, list[dict[str, Any]]]:
+    """(longest standard range <= max_days that the series covers, that range's points);
+    (None, []) when it covers none with at least 2 points."""
+    today = today or datetime.now(timezone.utc).date()
+    dated = [p for p in points if isinstance(p, dict) and p.get("date")]
+    if not dated:
+        return None, []
+    first = date.fromisoformat(str(dated[0]["date"])[:10])
+    for label, days in SPARKLINE_LABEL_DAYS.items():
+        if days > max_days:
+            continue
+        start = today - timedelta(days=days)
+        if first > start + timedelta(days=min(SPARKLINE_SLACK_DAYS, max(1, days // 4))):
+            continue
+        series = [p for p in dated if str(p["date"])[:10] >= start.isoformat()]
+        if len(series) >= 2:
+            return label, series
+    return None, []
 
 
 def price_chart(result: Any, *, name: str | None, range_key: str) -> dict[str, Any] | None:
@@ -1782,10 +1847,13 @@ class AssistantToolbox:
             return None
         if chart is None:
             return None
-        points = downsample([point["usd"] for point in chart["points"]], MAX_SPARKLINE_POINTS)
+        label, series = covered_range(chart["points"], max_days=SPARKLINE_LABEL_DAYS.get(range_key, 365))
+        if label is None:
+            return None
+        points = downsample([point["usd"] for point in series], MAX_SPARKLINE_POINTS)
         first, last = points[0], points[-1]
         return {
-            "range": range_key,
+            "range": label,
             "points": points,
             "change_pct": round((last - first) / first * 100, 1) if first else None,
         }

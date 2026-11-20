@@ -14,7 +14,9 @@
 #   DB setup + checks; those cases only run with --db-copy (see assistant_eval/fixtures.py).
 # Every turn also gets `defaults`: status ok, the word cap, the cost cap, the
 # banned patterns (drop one with `allow: [name]`), and NO proposed actions unless
-# the turn sets expect_action (or actions_allowed: true).
+# the turn sets expect_action (or actions_allowed: true). Any turn whose results
+# don't cover a window (history/lows/highs/movers) also gets no_uncovered_window_claim:
+# the answer must not claim that window ("past year", "1-year low") - owner 2026-11-20.
 # Tiles = the cards the answer is about (owner decision 1): tiles_exact / tiles_include /
 # tiles_within take card ids or tile predicates; a reply can pass on text and fail on tiles.
 # Card ids used below: sv3pt5-199 = Charizard ex 151 #199, sv3-223 = Charizard ex
@@ -39,6 +41,8 @@ defaults:
     self_correction: "I need to correct|I was wrong|my (earlier|previous|last) answer (was|is) (wrong|incorrect)|correction:"
     provider_names: '\b(Scrydex|TCGCSV|PokemonPriceTracker|PriceCharting)\b'
     followup_leak: '</?followups>|\[Looked up with:'
+    # Owner 2026-11-20: never reveal how much price history exists or when it starts.
+    history_coverage: '\bdays? of (price )?(history|data)\b|\b(price )?(history|data|records?) (only |just )?(goes|go|dates?|reach(es)?) back\b|\b(price )?(history|data|records?) (only |just )?(starts?|begins?|began|started)\b|\bhistory (is|was) (only |too |very )?(short|limited|thin|brief)\b|\b(limited|short|shorter|thin|brief) (price )?history\b|\bcovers? (only )?(that|this|the) (stretch|window|span|period)\b|\bshort[- ]lived spikes?\b|\b(not|isn''t) (a )?(full|whole|complete) year\b|\bclosest window\b'
 
 cases:
   # --- collection -------------------------------------------------------------
@@ -272,12 +276,13 @@ cases:
           chart_required: true
           chart_card_matches_tile: true
           tiles_exact: [sv3pt5-199]
-          history_range_stated: true
           max_words: 60
-        reference: "Summarize the move with real numbers from the history, and say what date range the data covers (run 1's 31% was April to November, not a full year)."
+        # Owner 2026-11-20 (supersedes L020's "say the date range"): never say how much history
+        # exists, and never call a partial-window move a full-year return.
+        reference: "Summarize the move with real numbers and dates from the history (e.g. \"the Near Mint price of Charizard ex (151 #199) went from $X on <date> to $Y on <date>\"). Don't remark on how much history there is; if the data doesn't reach back a year, don't call it a 1-year move."
         rubric:
           - "Does the answer give the move with real numbers (start/end price or %) consistent with the tool results?"
-          - "Does it say what date range the data actually covers?"
+          - "Does it avoid any remark on how much price history exists or when it starts (e.g. 'only N days of history', 'history starts in April', 'since April' as a coverage caveat)?"
           - "Does it avoid implying a full-year return unless the tool results include a price from a year ago?"
 
   - id: history_psa10
@@ -680,6 +685,7 @@ cases:
         rubric:
           - "Does the answer describe cards near their lows with drops that match the tool results?"
           - "Does it say this is past prices, not a prediction, and avoid promising gains?"
+          - "Does it avoid any remark on how much price history the cards have, and avoid calling a low a 1-year low when days_covered is under a year?"
 
   - id: new_highs
     review_label: L027
@@ -716,10 +722,11 @@ cases:
           tiles_max: 3
           named_cards_in_tiles: true
           tiles_none_match: [{japanese: true}, {sealed: true}]
-          must_contain_any: ["month", "30 days", "30-day"]
+          # "recently"/"lately": the owner's wording when the history doesn't cover the window.
+          must_contain_any: ["month", "30 days", "30-day", "recently", "lately"]
         rubric:
           - "Does the answer name the Evolving Skies card with the largest drop in the tool results, with its real numbers?"
-          - "Does it say the window (this month / 30 days) and, if the history doesn't cover the whole window, how much it covers?"
+          - "Does it name the window (this month / 30 days) only for cards whose history covers it (else neutral wording like 'recently'), without saying how much history exists?"
 
   - id: rarity_movers_up_week
     category: investing
@@ -735,7 +742,7 @@ cases:
           tiles_max: 3
           named_cards_in_tiles: true
           tiles_none_match: [{japanese: true}, {sealed: true}]
-          must_contain_any: ["week", "7 days", "7-day", "seven days"]
+          must_contain_any: ["week", "7 days", "7-day", "seven days", "recently", "lately"]
         rubric:
           - "Does the answer name special illustration rares that gained the most this week, with numbers from the tool results?"
           - "Does it avoid predicting further gains?"
@@ -754,10 +761,10 @@ cases:
           tiles_max: 3
           named_cards_in_tiles: true
           tiles_none_match: [{japanese: true}, {sealed: true}]
-          must_contain_any: ["90 days", "90-day", "three months", "3 months"]
+          must_contain_any: ["90 days", "90-day", "three months", "3 months", "recently", "lately"]
         rubric:
           - "Does the answer name Surging Sparks cards that rose the most, with real numbers from the tool results?"
-          - "Does it state the 90-day window and, if covers_full_window is false for a named card, how much history it covers?"
+          - "Does it state the 90-day window only where the history covers it (covers_full_window true; else neutral wording like 'recently'), without saying how much history exists?"
 
   - id: likely_to_go_up
     category: investing
@@ -975,6 +982,7 @@ cases:
         rubric:
           - "Does the first sentence give the real price move with dates from the tool results (or say plainly the history shows no rise)?"
           - "Does it avoid stating unverifiable causes as fact?"
+          - "Does it avoid any remark on how much price history exists or when it starts?"
 
   - id: why_charizard_moved_no_history
     review_label: L016 (fallback)

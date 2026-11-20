@@ -2,13 +2,19 @@
 
 Source: the owner's review of eval run 1 (labels L001–L030 from `--export-labels`). This file is the SPEC for the next round: reference answers, grading criteria, and product decisions. Where it conflicts with `docs/ai-chat-contracts-2026-11-17.md`, THIS FILE WINS.
 
+## Update 2026-11-20: never reveal history coverage (owner decision)
+
+Answers must NEVER say how much price history Ekalight has: no "only 30-61 days of history", "the low covers that stretch", "history starts in August", "since August" as a coverage caveat, "short-lived spikes", "not a full year", "the closest window I can check". This overrides every item below that asks the answer to state coverage (decision 5's L020 wording, L011, L020 "explain the available date range"). Answers must stay true: never claim an uncovered window ("1-year low", "over the past year") when the history doesn't cover it; use neutral wording ("near its recent low", "at its lowest recorded price", "recently", "lately"). Dated moves ("jumped on Oct 28") are fine.
+
+How it's enforced: the model gets `window_label` ("past year" when covered, else "recently") instead of `days_covered` / `covers_full_*` / `first_date` / `range_start`; a code backstop (`length_guard`) rewrites or drops coverage sentences; tile sparklines are labelled only with a range their series covers (1y/90d/30d/7d) and appear on tiles from every market/movers tool (`get_market_trends`, `find_movers`, `find_price_lows`, `find_new_highs`). Eval: default banned pattern `history_coverage`, automatic `no_uncovered_window_claim` check (replaces `history_range_stated`), and the L011/L020/movers rubrics were updated.
+
 ## Product decisions (cross-cutting)
 
 1. **Tiles = the cards the answer is about**, not every card a tool returned. Check the final rendered card IDs (and language, raw condition, grader, grade where relevant). A search can return 8 candidates while the answer shows only the 1 that answers the question. Every card named in the text must appear as a tile, and tiles must not show cards the answer isn't about. Multiple candidate tiles are right only when the assistant is asking the user to choose (e.g. "How much is Charizard?" → which printing?).
 2. **Direct add when fully specified** (L007): if the user gives an explicit add action, an exact printing, a quantity and a condition, add it directly and report success only after the write succeeds; offer **Undo**; retries must not double-add (idempotent). Ask for clarification on material ambiguity (multiple matching printings). **Batch adds or adds with inferred conditions** (e.g. "add the cards in my scan tray") still use the confirm flow (L028). Supersedes the 11/17 "every write needs Confirm" rule for this one case.
 3. **"Card" means a single** (L009, L015): when the user asks about "cards", filter sealed product out **before ranking and rendering**. The product default stays "any" for other wording (sealed questions, browsing).
 4. **"Most expensive" shows a raw leader and a graded leader** when both datasets have results (L015), using the same rule for every game. Graded prices need a **trusted-price flag**; obvious placeholders (e.g. a $999,999 PSA 10 Kyogre ex) must be excluded, so the model can ground the word "verified" (L010).
-5. **History windows are honest**: never imply a full-year return unless the tool supplies the year-ago price (L020). Call market-price highs "market-price highs" unless they're completed sales (L027).
+5. **History windows are honest**: never imply a full-year return unless the tool supplies the year-ago price (L020), and never remark on how much history exists (see the 2026-11-20 update). Call market-price highs "market-price highs" unless they're completed sales (L027).
 6. **Same artwork, one tile**: if multiple printings share the same artwork, show one by default so the user sees more distinct scenes (L003). Examples named in the text must come from the final displayed tiles.
 7. **Charts**: for a resolved card, show one tile plus its price-history chart, tied to the same card ID and price variant (L004, L016, L020). For "near their lows" results, the drop is why the card was surfaced, so show a small sparkline per tile or the chart on tap, with the period labelled (L011).
 
@@ -73,7 +79,7 @@ Reference: "The top verified PSA 10 is the 1st Edition Shadowless Base Set Chari
 ### L011 Undervalued cards
 Reference: "Pikachu ex, Espeon ex, and Umbreon ex from the Mega Evolution Promo set are all sitting at or near their lows after falling 67% to 95% from their highs. This is a snapshot of past prices, not a prediction."
 - Three tiles (Pikachu ex #107, Espeon ex #108, Umbreon ex #110), each passing the near-low filter; drops match the history; no prediction.
-- Sparkline per tile (or chart on tap) with the period labelled.
+- Sparkline per tile (or chart on tap) with the period labelled (only a period the series covers). No remark on how much history the cards have (2026-11-20 update).
 
 ### L012 Most valuable scanned card
 Reference (scan tray as source): "Of the three cards in your scan tray, Charizard ex (151, #199/165) is worth the most at $287.93. The Obsidian Flames Charizard ex is $84.09, and the Kyogre-EX is $19.39."
@@ -108,7 +114,7 @@ Reference: "I found a mix of cards with rain or nighttime artwork, though I coul
 - Those three tiles; art-tag matching stays internal; displayed artwork plausibly matches; text reflects match quality.
 
 ### L020 Charizard ex #199 over the past year
-- Keep the recorded summary if history supports it; only #199 tile + chart; explain the available date range; don't imply a full-year return (the 31% was April→November) unless the tool supplies the year-ago price.
+- Keep the recorded summary if history supports it; only #199 tile + chart; ~~explain the available date range~~ (superseded 2026-11-20: say nothing about coverage); don't imply a full-year return (the 31% was April→November) unless the tool supplies the year-ago price.
 
 ### L021 English Charizard counterpart — keep; two tiles (source + counterpart).
 
