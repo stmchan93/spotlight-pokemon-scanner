@@ -13,6 +13,8 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import user_ai_settings
+
 # Mirrors backend/schema.sql (the main server creates them from there).
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS assistant_threads (
@@ -74,6 +76,8 @@ COLUMN_PATCHES = (
 
 def ensure_schema(connection: sqlite3.Connection) -> None:
     connection.executescript(SCHEMA_SQL)
+    # Direct adds share the MCP write tools' idempotency ledger.
+    user_ai_settings.ensure_schema(connection)
     connection.executescript(FEEDBACK_SCHEMA_SQL)
     for table, column, sql_type in COLUMN_PATCHES:
         columns = {str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
@@ -447,9 +451,10 @@ class AssistantStore:
 
     # --- actions -------------------------------------------------------------
 
-    def set_action_state(self, owner_user_id: str, action_id: str, state: str) -> dict[str, Any] | None:
-        """Returns the updated action, None when the caller owns no such action.
-        Raises ValueError on an invalid transition."""
+    def find_action(
+        self, owner_user_id: str, action_id: str
+    ) -> tuple[str, list[dict[str, Any]], dict[str, Any]] | None:
+        """(message id, that message's actions, the action), owner-scoped."""
         rows = self.conn.execute(
             """
             SELECT id, actions_json FROM assistant_messages
@@ -460,21 +465,32 @@ class AssistantStore:
         for row in rows:
             actions = json.loads(row["actions_json"] or "[]")
             for action in actions:
-                if action.get("id") != action_id:
-                    continue
-                current = action.get("state")
-                if current == state:
-                    return action
-                if current != "proposed":
-                    raise ValueError(f"action is already {current}")
-                action["state"] = state
-                self.conn.execute(
-                    "UPDATE assistant_messages SET actions_json = ? WHERE id = ? AND owner_user_id = ?",
-                    (json.dumps(actions), row["id"], owner_user_id),
-                )
-                self.conn.commit()
-                return action
+                if action.get("id") == action_id:
+                    return str(row["id"]), actions, action
         return None
+
+    def save_actions(self, owner_user_id: str, message_id: str, actions: list[dict[str, Any]]) -> None:
+        self.conn.execute(
+            "UPDATE assistant_messages SET actions_json = ? WHERE id = ? AND owner_user_id = ?",
+            (json.dumps(actions), message_id, owner_user_id),
+        )
+        self.conn.commit()
+
+    def set_action_state(self, owner_user_id: str, action_id: str, state: str) -> dict[str, Any] | None:
+        """Returns the updated action, None when the caller owns no such action.
+        Raises ValueError on an invalid transition."""
+        found = self.find_action(owner_user_id, action_id)
+        if found is None:
+            return None
+        message_id, actions, action = found
+        current = action.get("state")
+        if current == state:
+            return action
+        if current != "proposed":
+            raise ValueError(f"action is already {current}")
+        action["state"] = state
+        self.save_actions(owner_user_id, message_id, actions)
+        return action
 
 
     # --- feedback ------------------------------------------------------------

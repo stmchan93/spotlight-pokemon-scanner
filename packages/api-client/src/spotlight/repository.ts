@@ -399,8 +399,10 @@ export interface SpotlightRepository {
   /*
     Ask Ekalight (docs/ai-chat-contracts-2026-11-17.md). Every method THROWS an
     `AssistantRequestError` on failure; its `code` is the contract's error
-    (`daily_limit` carries `usage`). The chat never writes: `setAssistantActionState`
-    only records what the user chose AFTER the app ran (or skipped) the real call.
+    (`daily_limit` carries `usage`). Proposals: `setAssistantActionState` only
+    records what the user chose AFTER the app ran (or skipped) the real call.
+    A fully specified add arrives already executed (state `done`) and
+    `undoAssistantAction` reverses exactly that add server-side.
   */
   sendAssistantMessage(payload: AssistantSendPayload): Promise<AssistantSendResult>;
   getAssistantUsage(): Promise<AssistantUsage>;
@@ -417,6 +419,8 @@ export interface SpotlightRepository {
     actionId: string,
     state: 'confirmed' | 'dismissed',
   ): Promise<AssistantProposedAction>;
+  /** Reverses a server-executed add; resolves to the action in state `undone`. */
+  undoAssistantAction(actionId: string): Promise<AssistantProposedAction>;
   /** 👍/👎 on an assistant reply; resolves to the stored feedback (null once cleared). */
   setAssistantFeedback(messageId: string, input: AssistantFeedbackInput): Promise<AssistantFeedback | null>;
   createLabelingSession(payload: LabelingSessionCreatePayload): Promise<LabelingSessionRecord>;
@@ -4574,6 +4578,24 @@ export class MockSpotlightRepository implements SpotlightRepository {
     throw new AssistantRequestError('action not found', 'not_found', 404);
   }
 
+  async undoAssistantAction(actionId: string): Promise<AssistantProposedAction> {
+    for (const thread of this.assistantThreads.values()) {
+      for (const message of thread.messages) {
+        const index = message.actions.findIndex((action) => action.id === actionId);
+        if (index >= 0) {
+          const current = message.actions[index];
+          if (current.state !== 'done' && current.state !== 'undone') {
+            throw new AssistantRequestError('Only an add the assistant made can be undone.', 'not_undoable', 409);
+          }
+          const updated = { ...current, state: 'undone' } as AssistantProposedAction;
+          message.actions[index] = updated;
+          return updated;
+        }
+      }
+    }
+    throw new AssistantRequestError('action not found', 'not_found', 404);
+  }
+
   async setAssistantFeedback(messageId: string, input: AssistantFeedbackInput): Promise<AssistantFeedback | null> {
     for (const thread of this.assistantThreads.values()) {
       const index = thread.messages.findIndex((message) => message.id === messageId && message.role === 'assistant');
@@ -7333,6 +7355,18 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ state }),
       },
+    );
+    const action = parseAssistantAction((body as { action?: unknown } | null)?.action);
+    if (!action) {
+      throw new AssistantRequestError('The assistant returned an invalid action response.', 'unknown');
+    }
+    return action;
+  }
+
+  async undoAssistantAction(actionId: string): Promise<AssistantProposedAction> {
+    const body = await this.requestAssistant(
+      `/api/v1/assistant/actions/${encodeURIComponent(actionId)}/undo`,
+      { method: 'POST' },
     );
     const action = parseAssistantAction((body as { action?: unknown } | null)?.action);
     if (!action) {

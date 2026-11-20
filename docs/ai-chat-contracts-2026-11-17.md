@@ -67,6 +67,13 @@ Errors:
 ### `POST /api/v1/assistant/actions/{action_id}` body `{"state":"confirmed"|"dismissed"}` → `{"action": ProposedAction}`
 Records the user's choice AFTER the app performed (or skipped) the real write. Owner-scoped; 404 on someone else's action.
 
+### Direct add + `POST /api/v1/assistant/actions/{action_id}/undo` (added 2026-11-20, owner review decision 2)
+- A fully specified single add (explicit add + one exact printing + quantity + stated condition, or stated grader + grade) is executed server-side by the assistant tool `add_to_collection_now` (`mcp_server/assistant/direct_add.py`): `CollectionWriteTools.add_to_collection` → `create_deck_entry` with `selectionSource "assistant"`, live pricing off. No `allow_mcp_edits` gate (that toggle is for external MCP clients).
+- Only when the send body carries `"capabilities": ["direct_add"]` (older app builds would show it as a Confirm card and add twice). Otherwise, and on any ambiguity (several printings and none named, condition/grade not stated in the question, a second add in the same turn, several adds in one round), the tool falls back to a normal proposal.
+- Idempotency: `mcp_write_requests` key `assistant:{client_message_id}:{sha256(card_id, quantity, condition, variant_name, grader, grade)[:24]}`; the action id is derived from the same key, so a retried/replayed turn returns the stored result and never adds twice.
+- The reply carries an executed action: same shape as an `add_to_collection` ProposedAction plus `state: "done"` and `undo: {deck_entry_id, quantity_added, expires_at}` (24h); the tiles are just that card with its new `quantity_owned`.
+- Undo (body none) → `{"action": ...state "undone"}`. Takes back exactly `quantity_added` from that holding (holding removed when it reaches 0, via `set_deck_entry_quantity`). Owner-scoped (404), idempotent (already undone → 200), 409 `not_undoable` (not a server-made add), `undo_expired`, `cannot_undo` (holding gone).
+
 ### `POST /api/v1/assistant/messages/{message_id}/feedback` (added 2026-11-19)
 Body `{"rating": "up"|"down"|null, "reason": null|"wrong"|"not_helpful"|"too_long"|"wrong_cards"|"other", "note": null|str (≤500 chars, trimmed; "" = null)}`. `rating` is required; `null` clears (reason/note ignored). → `{"message_id", "feedback": Feedback|null}`.
 - Owner-scoped: 404 for another user's or an unknown message; 400 `invalid_request` for a user message or bad values.

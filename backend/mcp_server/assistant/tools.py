@@ -1,6 +1,7 @@
 """Tools the assistant model sees: the 12 CollectionTools reads (owner = the
-request user, DB-only) plus 3 propose_* tools that validate and return a
-ProposedAction without changing anything.
+request user, DB-only), 3 propose_* tools that validate and return a
+ProposedAction without changing anything, and add_to_collection_now, which
+writes a fully specified add (direct_add.py) or falls back to a proposal.
 
 Strict mode: the API caps strict schemas at 24 optional parameters per request,
 and the six filter tools alone carry ~120 (CardFilter x 6), so those six are
@@ -20,6 +21,17 @@ from catalog_tools import SUPPORTED_GAMES, card_by_id
 
 from mcp_server.filters import ToolInputError, uses_art_filters
 from mcp_server.policy import USER_POLICY
+from mcp_server.assistant.direct_add import (
+    ADD_NOW_TOOL,
+    DirectAdder,
+    TurnWrites,
+    action_id_for,
+    condition_stated,
+    expires_at,
+    grade_stated,
+    request_key,
+    resolve_variant,
+)
 from mcp_server.assistant.store import new_id
 from mcp_server.tools import (
     DECK_CONDITION_CODES,
@@ -291,6 +303,34 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "collection_id": {"type": "string"},
             },
             ["card_id"],
+        ),
+        "strict": True,
+    },
+    {
+        "name": ADD_NOW_TOOL,
+        "description": (
+            "Add ONE card to the user's collection right away, no Confirm tap. Use only when the user's message "
+            "itself asks to add it and gives all of: one exact printing (a single card_id you resolved; pass "
+            "variant_name when the card has more than one printing), the quantity, and the condition (raw) or "
+            "grader + grade (slab). Never infer or default the condition. If anything is missing or ambiguous, "
+            "or the request covers several cards (e.g. 'add the cards in my tray'), use propose_add_to_collection "
+            "(or ask) instead. Ekalight falls back to a proposal when the details aren't exact: say it's added "
+            "only when the result has added=true, and say it's ready to confirm otherwise."
+        ),
+        "input_schema": _obj(
+            {
+                "card_id": {"type": "string"},
+                "quantity": {"type": "integer", "description": "Copies the user asked to add ('a'/'one' -> 1)."},
+                "condition": {
+                    "type": ["string", "null"],
+                    "enum": [*CONDITIONS, None],
+                    "description": "The condition the user named (near mint -> NM); null for slabs.",
+                },
+                "variant_name": {"type": ["string", "null"], "description": "Printing, e.g. 'Reverse Holofoil'."},
+                "grader": {"type": ["string", "null"]},
+                "grade": {"type": ["string", "null"]},
+            },
+            ["card_id", "quantity", "condition", "variant_name", "grader", "grade"],
         ),
         "strict": True,
     },
@@ -661,7 +701,9 @@ class AssistantToolbox:
     def conn(self):
         return self.tools.conn
 
-    def run(self, name: str, arguments: dict[str, Any], *, owner_user_id: str) -> ToolOutcome:
+    def run(
+        self, name: str, arguments: dict[str, Any], *, owner_user_id: str, turn: TurnWrites | None = None
+    ) -> ToolOutcome:
         identity = RequestIdentity(user_id=owner_user_id, auth_source="assistant")
         try:
             with self.tools.service.request_identity_context(identity):
@@ -669,6 +711,8 @@ class AssistantToolbox:
                     return self._read(name, dict(arguments or {}), owner_user_id)
                 if name == "propose_add_to_collection":
                     return self._propose_add(dict(arguments or {}), owner_user_id)
+                if name == ADD_NOW_TOOL:
+                    return self._add_now(dict(arguments or {}), owner_user_id, turn)
                 if name == "propose_update_holding":
                     return self._propose_update(dict(arguments or {}), owner_user_id)
                 if name == "propose_watch_card":
@@ -827,6 +871,99 @@ class AssistantToolbox:
             },
         )
         return self._proposed(action, self._card_tile(card["id"]))
+
+    def _add_now(self, args: dict[str, Any], owner_user_id: str, turn: TurnWrites | None) -> ToolOutcome:
+        card = self._card(args.get("card_id"))
+        quantity = self._quantity(args.get("quantity"), default=None)
+        grader = _optional_str(args.get("grader"), limit=12)
+        grade = _optional_str(args.get("grade"), limit=12)
+        grader = grader.upper() if grader else None
+        condition = self._condition(args.get("condition"))
+        variant_name = _optional_str(args.get("variant_name"))
+        question = turn.question if turn else ""
+        reason = turn.blocked_reason() if turn else "direct add unavailable"
+        if reason is None and quantity is None:
+            reason = "quantity not given"
+        if reason is None:
+            if grader or grade:
+                if not (grader and grade):
+                    reason = "a slab needs both grader and grade"
+                elif not grade_stated(question, grader, grade):
+                    reason = "the user didn't state this grader and grade"
+                condition = None
+            elif condition is None:
+                reason = "condition not given"
+            elif not condition_stated(question, condition):
+                reason = "the user didn't state this condition"
+        if reason is None:
+            variant_name, reason = resolve_variant(self.tools.service, card["id"], variant_name)
+        if reason is not None or turn is None or not turn.client_message_id:
+            return self._add_fallback(args, owner_user_id, reason or "direct add unavailable")
+
+        params = {
+            "card_id": card["id"], "quantity": quantity, "condition": condition, "variant_name": variant_name,
+            "grader": grader, "grade": grade, "collection_id": None,
+        }
+        key = request_key(turn.client_message_id, params)
+        adder = DirectAdder(self.tools.service)
+        try:
+            stored = adder.add(owner_user_id, key=key, params=params)
+        except (ValueError, FileNotFoundError) as error:
+            return ToolOutcome({"added": False, "error": f"Not added: {error}"}, is_error=True)
+        except Exception:  # noqa: BLE001 - the write rolled back; never leak internals
+            logger.exception("assistant direct add failed")
+            return ToolOutcome({"added": False, "error": "Ekalight couldn't save this add. Nothing was added."}, is_error=True)
+        turn.executed += 1
+        parts = [f"Added {_card_label(card)}"]
+        if variant_name:
+            parts.append(variant_name)
+        parts.append(f"{grader} {grade}" if grader else str(condition))
+        parts.append(f"×{quantity}")
+        action = {
+            "id": action_id_for(key),
+            "type": "add_to_collection",
+            "summary": " · ".join(parts),
+            "params": params,
+            "state": "done",
+            "undo": {
+                "deck_entry_id": str(stored["holding_id"]),
+                "quantity_added": int(stored["added_quantity"]),
+                "expires_at": expires_at(),
+            },
+        }
+        owned_now = adder.total_owned(owner_user_id, card["id"])
+        tiles = self._card_tile(card["id"])[:1]
+        for tile in tiles:
+            tile.update({"quantity_owned": owned_now, "variant": variant_name or tile.get("variant")})
+            if grader:
+                tile.update({"grader": grader, "grade": grade, "price_usd": None})
+        return ToolOutcome(
+            {
+                "added": True,
+                "action_id": action["id"],
+                "summary": action["summary"],
+                "quantity_added": quantity,
+                "quantity_owned_now": owned_now,
+                "note": "Saved. Tell the user it was added; the app shows an Undo button.",
+            },
+            cards=tiles,
+            action=action,
+        )
+
+    def _add_fallback(self, args: dict[str, Any], owner_user_id: str, reason: str) -> ToolOutcome:
+        outcome = self._propose_add(args, owner_user_id)
+        outcome.content = {
+            **outcome.content,
+            "added": False,
+            "reason": reason,
+            "note": f"Not added ({reason}). Shown with a Confirm button; nothing has changed yet.",
+        }
+        return outcome
+
+    def undo_add(self, owner_user_id: str, action: dict[str, Any]) -> None:
+        identity = RequestIdentity(user_id=owner_user_id, auth_source="assistant")
+        with self.tools.service.request_identity_context(identity):
+            DirectAdder(self.tools.service).undo(owner_user_id, action)
 
     def _propose_update(self, args: dict[str, Any], owner_user_id: str) -> ToolOutcome:
         holding_id = str(args.get("holding_id") or "").strip()

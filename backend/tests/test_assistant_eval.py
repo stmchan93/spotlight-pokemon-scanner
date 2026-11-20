@@ -46,7 +46,8 @@ from test_mcp_assistant import HAVE_DEPS, USER_A, AssistantCase, message, text, 
 TOOLS = frozenset(
     {"search_cards", "get_my_collection", "find_missing", "list_facets", "get_card", "get_my_watchlist",
      "get_portfolio_summary", "get_price_history", "find_price_lows", "find_new_highs", "get_market_trends",
-     "find_top_graded", "propose_add_to_collection", "propose_update_holding", "propose_watch_card", "show_cards"}
+     "find_top_graded", "propose_add_to_collection", "propose_update_holding", "propose_watch_card", "show_cards",
+     "add_to_collection_now"}
 )
 
 DEFAULTS = {

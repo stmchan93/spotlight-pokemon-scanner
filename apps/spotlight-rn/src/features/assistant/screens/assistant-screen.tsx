@@ -37,7 +37,11 @@ import {
 } from '@spotlight/design-system';
 
 import { ChromeBackButton, chromeBackButtonSize } from '@/components/chrome-back-button';
-import { runAssistantAction } from '@/features/assistant/assistant-action-runner';
+import {
+  refreshAfterExecutedAdd,
+  runAssistantAction,
+  undoExecutedAdd,
+} from '@/features/assistant/assistant-action-runner';
 import { assistantIntroCopy, assistantStarterPrompts } from '@/features/assistant/assistant-prompts';
 import type { AssistantActionUiState } from '@/features/assistant/components/assistant-action-card';
 import { AssistantComposer } from '@/features/assistant/components/assistant-composer';
@@ -407,6 +411,34 @@ export function AssistantScreen({
       .catch(() => undefined);
   }, [chat.replaceAction, isGuest, openLogin, repository, services, setActionState]);
 
+  // A direct add was written server-side before the reply arrived: refresh the
+  // same caches the Confirm path refreshes, once per action.
+  const refreshedActionIdsRef = useRef(new Set<string>());
+  const refreshData = services.refreshData;
+  useEffect(() => {
+    const reply = chat.messages.find((message) => message.id === chat.lastReplyId);
+    for (const action of reply?.actions ?? []) {
+      if (action.state === 'done' && !refreshedActionIdsRef.current.has(action.id)) {
+        refreshedActionIdsRef.current.add(action.id);
+        refreshAfterExecutedAdd(action, { refreshData });
+        capturePostHogEvent(AnalyticsEvent.assistantActionConfirmed, { type: action.type, direct: true });
+      }
+    }
+  }, [chat.lastReplyId, chat.messages, refreshData]);
+
+  const replaceChatAction = chat.replaceAction;
+  const handleUndoAction = useCallback(async (action: AssistantProposedAction) => {
+    setActionState(action.id, { status: 'undoing' });
+    const outcome = await undoExecutedAdd(action, { repository, refreshData });
+    if (outcome.status === 'failed') {
+      setActionState(action.id, { status: 'failed', message: outcome.message });
+      return;
+    }
+    setActionState(action.id, { status: 'undone' });
+    replaceChatAction(outcome.action);
+    capturePostHogEvent(AnalyticsEvent.assistantActionUndone, { type: action.type });
+  }, [refreshData, replaceChatAction, repository, setActionState]);
+
   const handleDismissAction = useCallback((action: AssistantProposedAction) => {
     setActionState(action.id, { status: 'dismissed' });
     capturePostHogEvent(AnalyticsEvent.assistantActionDismissed, { type: action.type });
@@ -458,6 +490,7 @@ export function AssistantScreen({
           onConfirmAction={handleConfirmAction}
           onCopy={handleCopy}
           onDismissAction={handleDismissAction}
+          onUndoAction={handleUndoAction}
           onFeedback={handleFeedback}
           onOpenCard={onOpenCard}
           onOpenWatchlist={onOpenWatchlist}

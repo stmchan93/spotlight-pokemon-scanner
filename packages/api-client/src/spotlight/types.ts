@@ -2878,7 +2878,16 @@ export type AssistantCardsViewAll = {
 
 export type AssistantConditionCode = 'NM' | 'LP' | 'MP' | 'HP' | 'DMG';
 export type AssistantActionType = 'add_to_collection' | 'update_holding' | 'watch_card';
-export type AssistantActionState = 'proposed' | 'confirmed' | 'dismissed';
+/** `done` / `undone`: an add the server already made (direct add); the rest are proposals. */
+export type AssistantActionState = 'proposed' | 'confirmed' | 'dismissed' | 'done' | 'undone';
+
+/** Present on a server-executed add: Undo takes back exactly `quantityAdded` copies. */
+export type AssistantActionUndo = {
+  deckEntryId: string;
+  quantityAdded: number;
+  /** ISO-8601; Undo is refused after this. */
+  expiresAt: string | null;
+};
 
 export type AssistantAddToCollectionParams = {
   cardId: string;
@@ -2909,6 +2918,7 @@ type AssistantProposedActionBase = {
   /** Server-built, shown on the confirm card. */
   summary: string;
   state: AssistantActionState;
+  undo?: AssistantActionUndo | null;
 };
 
 export type AssistantProposedAction =
@@ -3001,6 +3011,10 @@ export type AssistantErrorCode =
   | 'assistant_disabled'
   | 'assistant_busy'
   | 'assistant_failed'
+  /** Undo refusals (409): not a server-made add / past 24h / holding already gone. */
+  | 'not_undoable'
+  | 'undo_expired'
+  | 'cannot_undo'
   | 'not_found'
   | 'network'
   | 'unknown';

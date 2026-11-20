@@ -335,6 +335,64 @@ describe('AssistantScreen', () => {
     expect(screen.queryByTestId('assistant-followups')).not.toBeOnTheScreen();
   });
 
+  describe('direct add (server-executed)', () => {
+    const executed: AssistantProposedAction = {
+      id: 'act_direct',
+      type: 'add_to_collection',
+      summary: 'Added Celebi (XY Promos 111) · NM · ×2',
+      state: 'done',
+      params: { cardId: 'xyp-111', quantity: 2, condition: 'NM', variantName: null, grader: null, grade: null, collectionId: null },
+      undo: { deckEntryId: 'entry-new', quantityAdded: 2, expiresAt: '2999-01-01T00:00:00Z' },
+    };
+
+    it('renders "Added ✓" with Undo and no Confirm, and never writes from the app', async () => {
+      const createInventoryEntry = jest.fn();
+      const sendAssistantMessage = jest.fn(async (_payload: AssistantSendPayload) => reply(executed));
+      renderScreen({ sendAssistantMessage, createInventoryEntry });
+      await ask('Add two near mint Celebi XY Promos 111');
+
+      expect(await screen.findByTestId('assistant-action-act_direct-done')).toBeTruthy();
+      expect(screen.getByText('Added Celebi (XY Promos 111) · NM · ×2')).toBeTruthy();
+      expect(screen.getByTestId('assistant-action-act_direct-undo')).toBeTruthy();
+      expect(screen.queryByTestId('assistant-action-act_direct-confirm')).not.toBeOnTheScreen();
+      expect(createInventoryEntry).not.toHaveBeenCalled();
+      expect(mockCapture).toHaveBeenCalledWith('assistant_action_confirmed', { type: 'add_to_collection', direct: true });
+    });
+
+    it('Undo calls the undo endpoint once and shows the undone state', async () => {
+      const undoAssistantAction = jest.fn(async () => ({ ...executed, state: 'undone' as const }));
+      renderScreen({ sendAssistantMessage: jest.fn(async () => reply(executed)), undoAssistantAction });
+      await ask('Add two near mint Celebi XY Promos 111');
+
+      fireEvent.press(await screen.findByTestId('assistant-action-act_direct-undo'));
+      expect(await screen.findByTestId('assistant-action-act_direct-undone')).toBeTruthy();
+      expect(undoAssistantAction).toHaveBeenCalledTimes(1);
+      expect(undoAssistantAction).toHaveBeenCalledWith('act_direct');
+      expect(screen.queryByTestId('assistant-action-act_direct-undo')).not.toBeOnTheScreen();
+      expect(mockCapture).toHaveBeenCalledWith('assistant_action_undone', { type: 'add_to_collection' });
+    });
+
+    it('a refused undo keeps the add and explains why', async () => {
+      const undoAssistantAction = jest.fn(async () => {
+        throw new AssistantRequestError('undo_expired', 'undo_expired', 409);
+      });
+      renderScreen({ sendAssistantMessage: jest.fn(async () => reply(executed)), undoAssistantAction });
+      await ask('Add two near mint Celebi XY Promos 111');
+
+      fireEvent.press(await screen.findByTestId('assistant-action-act_direct-undo'));
+      expect(await screen.findByText('Undo is only available for 24 hours.')).toBeTruthy();
+      expect(screen.getByTestId('assistant-action-act_direct-done')).toBeTruthy();
+    });
+
+    it('hides Undo once the window has passed', async () => {
+      const expired = { ...executed, undo: { ...executed.undo!, expiresAt: '2020-01-01T00:00:00Z' } };
+      renderScreen({ sendAssistantMessage: jest.fn(async () => reply(expired)) });
+      await ask('Add two near mint Celebi XY Promos 111');
+      expect(await screen.findByTestId('assistant-action-act_direct-done')).toBeTruthy();
+      expect(screen.queryByTestId('assistant-action-act_direct-undo')).not.toBeOnTheScreen();
+    });
+  });
+
   it('shows the thinking row and a busy send button while waiting', async () => {
     let resolveSend: (value: AssistantSendResult) => void = () => undefined;
     const sendAssistantMessage = jest.fn(() => new Promise<AssistantSendResult>((resolve) => {

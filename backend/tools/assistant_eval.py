@@ -74,8 +74,8 @@ class ToolRecorder:
         self.calls: list[dict[str, Any]] = []
         toolbox.run = self.run
 
-    def run(self, name: str, arguments: dict[str, Any], *, owner_user_id: str):
-        outcome = self._original(name, arguments, owner_user_id=owner_user_id)
+    def run(self, name: str, arguments: dict[str, Any], *, owner_user_id: str, **kwargs: Any):
+        outcome = self._original(name, arguments, owner_user_id=owner_user_id, **kwargs)
         result = json.dumps(self._strip(outcome.content), default=str, ensure_ascii=False, separators=(",", ":"))
         self.calls.append(
             {
@@ -104,7 +104,10 @@ async def run_case(
             "repeat": repeat, "turn": number, "question": turn["ask"],
             "context_card_ids": turn.get("card_ids") or [], "rubric": turn.get("rubric"),
         }
-        body: dict[str, Any] = {"thread_id": thread_id, "client_message_id": str(uuid.uuid4()), "text": turn["ask"]}
+        body: dict[str, Any] = {
+            "thread_id": thread_id, "client_message_id": str(uuid.uuid4()), "text": turn["ask"],
+            "capabilities": ["direct_add"],
+        }
         if turn.get("card_ids"):
             body["context"] = {"source": "scanner", "card_ids": turn["card_ids"]}
         recorder.take()
@@ -140,7 +143,7 @@ async def run_case(
                 ],
                 "actions": [action.get("summary") for action in reply["actions"]],
                 "action_details": [
-                    {"type": a.get("type"), "params": a.get("params"), "summary": a.get("summary")} for a in reply["actions"]
+                    {"type": a.get("type"), "params": a.get("params"), "summary": a.get("summary"), "state": a.get("state")} for a in reply["actions"]
                 ],
                 "cost_usd": row["cost_usd"],
                 "latency_ms": latency_ms,
