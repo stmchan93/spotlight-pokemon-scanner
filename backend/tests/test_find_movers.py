@@ -293,7 +293,7 @@ class AssistantDefinitionTests(unittest.TestCase):
         self.assertIn("find_movers", RANKING_TOOLS)
         self.assertEqual(tool["input_schema"]["required"], ["direction"])
         description = tool["description"]
-        for phrase in ("dropped", "rose the most", "get_market_trends", "get_portfolio_summary", "covers_full_window"):
+        for phrase in ("dropped", "rose the most", "get_market_trends", "get_portfolio_summary", "window_label"):
             self.assertIn(phrase, description)
         self.assertIn("find_movers", by_name["get_portfolio_summary"]["description"])
 

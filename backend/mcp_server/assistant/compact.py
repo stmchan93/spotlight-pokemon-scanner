@@ -9,6 +9,7 @@ Key names stay stable: the system prompt and tool descriptions reference them.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 MAX_HISTORY_POINTS = 12
@@ -25,12 +26,20 @@ DROP_KEYS = frozenset({"set_code", "sources", "price_trust_reason", "price_basis
 # on graded prices, collection) are referenced by tool descriptions and kept.
 DEFAULT_PRICE_SOURCE = "tcgplayer"
 # Fields every item of a list shares are sent once, under all_<list>.
-HOIST_KEYS = ("language", "collection", "gain_basis")
+HOIST_KEYS = ("language", "collection", "gain_basis", "window_label")
 HOIST_MIN_ITEMS = 3
 LIST_KEYS = (
     "results", "items", "cards", "missing", "rising_cards",
     "top_holdings", "top_gainers", "top_losers", "top_gainers_pct", "top_losers_pct",
 )
+# Owner 2026-11-20: answers never reveal how much price history exists. The model gets
+# window_label (the honest phrase for the window) instead of coverage fields.
+COVERAGE_KEYS = ("days_covered", "covers_full_window", "covers_full_range", "range_start", "first_date")
+WINDOW_DAYS = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
+WINDOW_PHRASES = {7: "past week", 30: "past 30 days", 90: "past 90 days", 365: "past year"}
+COVERED_SLACK_DAYS = 7
+NEUTRAL_WINDOW = "recently"
+_COVERAGE_NOTE_HINTS = ("days_covered", "covers_full_window", "less history", "history starts")
 # holding_id feeds propose_update_holding; the prompt sends updates through get_my_collection/get_card.
 HOLDING_ID_TOOLS = frozenset({"get_my_collection", "get_card"})
 
@@ -119,11 +128,56 @@ def _history(result: dict[str, Any]) -> dict[str, Any]:
     stride = (len(points) - 1) / (MAX_HISTORY_POINTS - 3)
     picked = {round(i * stride) for i in range(MAX_HISTORY_POINTS - 2)} | {points.index(low), points.index(high)}
     out["points"] = [points[i] for i in sorted(picked)][:MAX_HISTORY_POINTS]
-    out["point_count"] = len(points)
-    out["points_note"] = "Sampled from point_count daily points; low, high and largest_steps are exact."
     out["low"] = low
     out["high"] = high
     out["largest_steps"] = steps
+    return out
+
+
+def window_label(window: Any, *, covered: bool) -> str:
+    days = WINDOW_DAYS.get(str(window or ""))
+    return WINDOW_PHRASES[days] if covered and days in WINDOW_PHRASES else NEUTRAL_WINDOW
+
+
+def _strip_coverage_note(result: dict[str, Any]) -> None:
+    note = result.get("note")
+    if not isinstance(note, str):
+        return
+    kept = [part for part in re.split(r"(?<=\.)\s+", note) if not any(h in part for h in _COVERAGE_NOTE_HINTS)]
+    if kept:
+        result["note"] = " ".join(kept)
+    else:
+        result.pop("note")
+
+
+def _window_cards(result: dict[str, Any], keys: tuple[str, ...] = ("cards",)) -> dict[str, Any]:
+    """Per-card coverage -> window_label: the window's name when covered, else "recently"."""
+    window = result.get("window")
+    days = WINDOW_DAYS.get(str(window or ""), 0)
+    for key in keys:
+        items = result.get(key)
+        if not isinstance(items, list):
+            continue
+        labelled = []
+        for item in items:
+            if isinstance(item, dict) and ("days_covered" in item or "covers_full_window" in item):
+                covered = item.get("covers_full_window")
+                if covered is None:
+                    covered = isinstance(item.get("days_covered"), (int, float)) and item["days_covered"] >= days - COVERED_SLACK_DAYS
+                item = {k: v for k, v in item.items() if k not in COVERAGE_KEYS}
+                item["window_label"] = window_label(window, covered=bool(covered))
+            labelled.append(item)
+        result[key] = labelled
+    _strip_coverage_note(result)
+    return result
+
+
+def _history_window(result: dict[str, Any], arguments: Any) -> dict[str, Any]:
+    if "covers_full_range" not in result:
+        return result
+    window = (arguments.get("range") if isinstance(arguments, dict) else None) or "90d"
+    out = {k: v for k, v in result.items() if k not in COVERAGE_KEYS}
+    out["window_label"] = window_label(window, covered=result.get("covers_full_range") is True)
     return out
 
 
@@ -148,9 +202,8 @@ MOVER_ALT_KEYS = ("card_id", "name", "change_usd", "change_pct")
 
 
 def _movers(result: dict[str, Any]) -> dict[str, Any]:
-    """The move is the answer: drop the display price (end_usd is the move's end),
-    the end date when it is as_of, and coverage fields when the window is covered.
-    Alt-ranking entries already in cards shrink to their move."""
+    """The move is the answer: drop the display price (end_usd is the move's end)
+    and the end date when it is as_of. Alt-ranking entries already in cards shrink to their move."""
     as_of = result.get("as_of")
     cards: list[Any] = []
     for item in result.get("cards") or []:
@@ -160,9 +213,6 @@ def _movers(result: dict[str, Any]) -> dict[str, Any]:
         item = {k: v for k, v in item.items() if k not in ("price_usd", "price_source")}
         if item.get("end_date") == as_of:
             item.pop("end_date")
-        if item.get("covers_full_window") is True:
-            item.pop("covers_full_window")
-            item.pop("days_covered", None)
         cards.append(item)
     result["cards"] = cards
     listed = {item.get("card_id") for item in cards if isinstance(item, dict)}
@@ -193,7 +243,7 @@ def compact_result(tool: str, content: Any, arguments: Any = None) -> Any:
         return content
     result = dict(content)
     if tool == "get_price_history":
-        result = _history(result)
+        result = _history_window(_history(result), arguments)
     elif tool == "get_card" and "artwork" in result:
         result["artwork"] = _artwork(result["artwork"])
     elif tool == "list_facets":
@@ -217,7 +267,9 @@ def compact_result(tool: str, content: Any, arguments: Any = None) -> Any:
                 for item in result["excluded_untrusted"]
             ]
     elif tool == "find_movers":
-        result = _movers(result)
+        result = _movers(_window_cards(result, ("cards", "top_by_usd", "top_by_pct")))
+    elif tool in ("find_price_lows", "find_new_highs"):
+        result = _window_cards(result)
     elif tool == "get_portfolio_summary":
         result = _portfolio_leaders(result)
     flt = arguments.get("filter") if isinstance(arguments, dict) else None

@@ -34,7 +34,10 @@ REWRITE_INSTRUCTION = (
     "line if present. Same language. No preamble."
 )
 
-NO_INTERNAL_INSTRUCTION = "Do not mention tags, searches, tools, filters or how results were found."
+NO_INTERNAL_INSTRUCTION = (
+    "Do not mention tags, searches, tools, filters or how results were found. "
+    "Do not mention how much price history exists or its date range."
+)
 REWRITE_INTERNAL_ONLY = (
     "Rewrite this answer with the same facts and about the same length. Keep every number, card name, set, date "
     "and the 'not a prediction' line if present. Same language. No preamble. " + NO_INTERNAL_INSTRUCTION
@@ -42,6 +45,21 @@ REWRITE_INTERNAL_ONLY = (
 # Internal mechanics the user shouldn't hear about; card names ("TAG TEAM", "Tool Scrapper") are masked first.
 _INTERNAL = re.compile(
     r"\btag(?:s|ged|ging)?\b|\bsearch(?:es)?\b|\bmatched\b|\bmatching\b|\btools?\b|\bfilter(?:ed|s)?\s+by\b",
+    re.IGNORECASE,
+)
+# Owner 2026-11-20: never reveal how much price history exists. Dated moves ("jumped on Oct 28") are fine.
+_COVERAGE = re.compile(
+    r"\bdays?\s+of\s+(?:price\s+)?(?:history|data)\b"
+    r"|\b(?:price\s+)?(?:history|data|records?)\s+(?:only\s+|just\s+)?(?:goes|go|dates?|reach(?:es)?)\s+back\b"
+    r"|\b(?:price\s+)?(?:history|data|records?)\s+(?:only\s+|just\s+)?(?:starts?|begins?|began|started)\b"
+    r"|\bhistory\s+(?:is|was)\s+(?:only\s+|too\s+|pretty\s+|very\s+)?(?:short|limited|thin|brief)\b"
+    r"|\b(?:limited|short|shorter|less|thin|brief)\s+(?:price\s+)?history\b"
+    r"|\b(?:only|just)\s+(?:have|has|had|covers?|spans?)\s+(?:about\s+|roughly\s+|around\s+)?\d+(?:\s*[-–]\s*\d+)?\s*(?:days?|weeks?|months?)\b"
+    r"|\bhistory\s+only\b|\bonly\s+(?:\w+\s+)?(?:\d+\s+)?(?:days?\s+|months?\s+)?of\s+history\b"
+    r"|\bcovers?\s+(?:only\s+)?(?:that|this|the)\s+(?:stretch|window|span|period)\b"
+    r"|\bshort[-\s]lived\s+spikes?\b"
+    r"|\b(?:not|isn'?t|doesn'?t\s+cover)\s+(?:a\s+)?(?:full|whole|complete)\s+year\b"
+    r"|\bclosest\s+window\b",
     re.IGNORECASE,
 )
 # Art-search answers whose question named no language: print-language commentary is unrequested.
@@ -233,9 +251,17 @@ def strip_language_mentions(text: str) -> str:
 
 def has_internal_wording(text: str, names: list[str] | tuple[str, ...] = (), *, language: bool = False) -> bool:
     """Talk of tags / search matching / tools / filters (and, with language=True, print
-    language), outside card names."""
+    language) or price-history coverage, outside card names."""
     masked = _masked(text, names)
-    return _INTERNAL.search(masked) is not None or (language and _LANGUAGE.search(masked) is not None)
+    return (
+        _INTERNAL.search(masked) is not None
+        or _COVERAGE.search(masked) is not None
+        or (language and _LANGUAGE.search(masked) is not None)
+    )
+
+
+def has_coverage_disclosure(text: str) -> bool:
+    return _COVERAGE.search(str(text or "")) is not None
 
 
 _CLAUSE_COMMA = re.compile(r",\s+(?![^()]*\))")  # commas outside parentheses
@@ -250,8 +276,8 @@ def _scrub_sentence(sentence: str, names: list[str] | tuple[str, ...], language:
         if has_internal_wording(clause, names, language=language):
             break
         kept.append(clause)
-    if not kept:
-        return ""
+    if word_count(", ".join(kept)) < 3:
+        return ""  # nothing left but a lead-in ("That said,")
     end = sentence.rstrip()[-1:] if sentence.rstrip()[-1:] in ".!?" else "."
     return ", ".join(kept).rstrip(" ,;:") + end
 

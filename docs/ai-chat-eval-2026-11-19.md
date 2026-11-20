@@ -1,5 +1,7 @@
 # Ask Ekalight: answer-quality eval (2026-11-19, updated 2026-11-20)
 
+> **Update 2026-11-20 (owner):** answers never reveal how much price history exists (no "only N days of history", "history starts in August", "not a full year"), and never claim a window the data doesn't cover. Cases that required stating coverage (L011, L020, movers) now require the opposite; see the update at the top of `docs/ai-chat-eval-owner-review-2026-11-20.md`.
+
 ## What it is, in plain English
 
 A fixed list of 57 chat questions (61 turns, some are follow-ups in the same thread). Each one is sent to the real assistant (Claude Haiku 5.5 + Ekalight's tools) against a real database and a real user's collection. Every answer is then graded automatically:
@@ -157,7 +159,7 @@ All `expect` keys:
   - `tiles_all_named: true`: the reverse: every tile is a card the text names (no un-named extras).
   - `tiles_from_tools: [tool, ...]`: every tile is a card (same slab when graded) from those tools' results. `tiles_include_top: tool` (or a list): that tool's first result is a tile. Use these instead of pinned ids for market-data questions (movers, lows, highs, top graded), whose ids go stale as prices move.
 - Charts: `chart_required`, `no_chart`, `chart_card_matches_tile` (exactly one tile, and every chart is for that card id and variant).
-- `history_range_stated`: when `get_price_history` says `covers_full_range: false`, the answer must say where the data starts (month or date). Skipped if no result carries the field.
+- `no_uncovered_window_claim` (automatic, replaces `history_range_stated` per the owner's 2026-11-20 decision): when a price history (`covers_full_range: false`) or a lows/highs/movers card the answer names (`days_covered` under the window / `covers_full_window: false`) doesn't cover its window, the answer must not claim that window ("past year", "1-year low", "90-day"...). Added only to turns with such results. The default banned pattern `history_coverage` fails any remark on how much history exists ("days of history", "history starts", "short-lived spikes", "not a full year", "closest window").
 - Writes: `expect_action: {type: add_to_collection|update_holding|watch_card, params: {...}}` (a **proposal**; without this the turn must propose **no** actions; `actions_allowed: true` skips that check). `proposed_card_ids: [...]` = the add proposals cover exactly these cards. `expect_write: {params: {...}}` = an `add_to_collection_now` call with these arguments whose result says `added: true` (the tool falls back to a proposal with `added: false` when details aren't exact; that is not a write). `undo_offered: true` = the done action (or write result) carries an `undo`. `expect_no_write: true` = no call that actually added. The runner sends `capabilities: ["direct_add"]`, like the app.
 - `max_words`, `max_cost_usd`, `must_contain_any` (plain text), `must_not_contain` (regexes), `allow: [yen_word]` (turns off one default banned pattern), `status` (defaults to `ok`).
 

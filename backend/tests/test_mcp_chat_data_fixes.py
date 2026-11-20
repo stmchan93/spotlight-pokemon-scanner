@@ -321,7 +321,7 @@ class PriceHistoryRangeTests(ChatFixCase):
         shaped = USER_POLICY.shape(self.call("get_price_history", card_id="sv3pt5-199", range_key="1y"))
         for key in ("first_date", "last_date", "covers_full_range", "range_start"):
             self.assertIn(key, shaped)
-        self.assertIn("covers_full_range is false", SYSTEM_PROMPT)
+        self.assertIn("window_label", SYSTEM_PROMPT)  # owner 2026-11-20: no coverage remarks
 
 
 class NewHighsWordingTests(unittest.TestCase):

@@ -463,15 +463,24 @@ class PlannedFeatureTests(unittest.TestCase):
         self.assertTrue(check(turn_record(), {"tool_result_where": [{"tool": "grading_upside", "where": {"x": 1}}]},
                               "tool_result:grading_upside", self.BUILD).skipped)
 
-        history = {"card_id": "sv3pt5-199", "first_date": "2026-04-02", "last_date": "2026-11-18", "covers_full_range": False}
+        # Owner 2026-11-20: a partial window must not be claimed (no "history starts" requirement).
+        history = {"card_id": "sv3pt5-199", "range_start": "2025-11-18", "first_date": "2026-04-02",
+                   "last_date": "2026-11-18", "covers_full_range": False}
         partial = turn_record(answer="Up 31% over the past year.", tool_results=[{"name": "get_price_history", "data": history}])
-        self.assertFalse(check(partial, {"history_range_stated": True}, "history_range_stated").passed)
-        partial["answer"] = "Since early April it's up 31%."
-        self.assertTrue(check(partial, {"history_range_stated": True}, "history_range_stated").passed)
-        partial["answer"] = "Since Apr 2 it's up 31%."
-        self.assertTrue(check(partial, {"history_range_stated": True}, "history_range_stated").passed)
-        no_flag = turn_record(tool_results=[{"name": "get_price_history", "data": {"card_id": "x"}}])
-        self.assertTrue(check(no_flag, {"history_range_stated": True}, "history_range_stated").skipped)
+        self.assertFalse(check(partial, {}, "no_uncovered_window_claim").passed)
+        partial["answer"] = "It went from $220 on Apr 2 to $288 on Nov 18, up 31%."
+        self.assertTrue(check(partial, {}, "no_uncovered_window_claim").passed)
+        full = turn_record(answer="Up 31% over the past year.", tool_results=[
+            {"name": "get_price_history", "data": {**history, "covers_full_range": True}}])
+        self.assertNotIn("no_uncovered_window_claim", [c.name for c in grade_turn(full, {}, {}, None)])
+        lows = {"window": "1y", "cards": [{"card_id": "a", "name": "Umbreon ex", "days_covered": 45},
+                                          {"card_id": "b", "name": "Espeon ex", "days_covered": 365}]}
+        named = turn_record(answer="Umbreon ex is at its 1-year low.", tool_results=[{"name": "find_price_lows", "data": lows}])
+        self.assertFalse(check(named, {}, "no_uncovered_window_claim").passed)
+        named["answer"] = "Espeon ex is at its 1-year low."
+        self.assertNotIn("no_uncovered_window_claim", [c.name for c in grade_turn(named, {}, {}, None)])
+        named["answer"] = "Umbreon ex is near its recent low."
+        self.assertTrue(check(named, {}, "no_uncovered_window_claim").passed)
 
     def test_skipped_checks_reach_the_report(self) -> None:
         record = turn_record(passed=True, checks=[{"name": "tiles_label", "passed": True, "skipped": True, "reason": "x"}])

@@ -18,7 +18,8 @@ if str(BACKEND_ROOT / "tests") not in sys.path:
 from test_mcp_assistant import HAVE_DEPS, USER_A, AssistantCase, bearer, message, text, tool_use  # noqa: E402
 
 import tag_card_art  # noqa: E402
-from catalog_tools import upsert_card, utc_now  # noqa: E402
+from catalog_tools import upsert_card, upsert_runtime_setting, utc_now  # noqa: E402
+from market_movers import LATEST_PAYLOAD_SETTING_KEY  # noqa: E402
 
 if HAVE_DEPS:
     from mcp_server.assistant.engine import SYSTEM_PROMPT, strip_pseudo_calls
@@ -33,6 +34,8 @@ if HAVE_DEPS:
         movers_only,
         clean_label,
         collapse_same_art,
+        covered_range,
+        sparkline_fetch_range,
         named_refs,
         select_tiles,
         watchlist_order,
@@ -291,12 +294,57 @@ class SparklineTests(TilesCase):
         )
         by_id = {card["card_id"]: card for card in reply["cards"]}
         line = by_id["ssp-1"]["sparkline"]
-        self.assertEqual(line["range"], "1y")
+        # 300 days of history asked for 1y: labelled (and drawn) as the longest range it covers.
+        self.assertEqual(line["range"], "90d")
         self.assertLessEqual(len(line["points"]), MAX_SPARKLINE_POINTS)
         self.assertGreater(len(line["points"]), 2)
-        self.assertEqual((line["points"][0], line["points"][-1]), (400.0, 100.0))
-        self.assertEqual(line["change_pct"], -75.0)
-        self.assertNotIn("sparkline", by_id["ssp-2"])  # not from a lows/highs result
+        self.assertEqual(line["points"][-1], 100.0)
+        self.assertGreaterEqual(line["points"][0], 185.0)
+        self.assertLessEqual(line["points"][0], 190.0)
+        self.assertNotIn("sparkline", by_id["ssp-2"])  # not from a market/movers result
+
+    def test_full_year_series_keeps_1y_label(self) -> None:
+        for days in range(366, -1, -1):
+            self.history_cell("ssp-1", days, 100.0 + days)
+        line = AssistantToolbox(self.tools).sparkline(USER_A, "ssp-1", range_key="1y", variant=None)
+        self.assertEqual(line["range"], "1y")
+
+    def test_61_day_series_asked_for_1y_is_labelled_30d(self) -> None:
+        for days in range(61, -1, -1):
+            self.history_cell("ssp-1", days, 100.0 + days)
+        line = AssistantToolbox(self.tools).sparkline(USER_A, "ssp-1", range_key="1y", variant=None)
+        self.assertEqual(line["range"], "30d")
+        self.assertLessEqual(line["points"][0], 130.0)  # only the past 30 days are drawn
+
+    def test_covered_range_never_labels_an_uncovered_range(self) -> None:
+        today = datetime(2026, 11, 20).date()
+        pts = [{"date": (today - timedelta(days=d)).isoformat(), "usd": float(d)} for d in range(85, -1, -1)]
+        self.assertEqual(covered_range(pts, max_days=365, today=today)[0], "90d")  # within the 7-day slack
+        self.assertEqual(covered_range(pts[-20:], max_days=365, today=today)[0], "7d")
+        self.assertEqual(covered_range(pts, max_days=30, today=today)[0], "30d")
+        self.assertEqual(covered_range(pts[-1:], max_days=365, today=today), (None, []))
+
+    def test_market_trends_tiles_get_sparklines(self) -> None:
+        for days in range(40, -1, -1):
+            self.history_cell("ssp-1", days, 10.0 + days)
+        payload = {"windowDays": 30, "asOfDate": utc_now()[:10], "games": [{"game": "pokemon", "items": [
+            {"cardId": "ssp-1", "priceNow": 10.0, "priceThen": 40.0, "changePercent": 315.0, "currencyCode": "USD"},
+        ]}]}
+        upsert_runtime_setting(self.conn, key=LATEST_PAYLOAD_SETTING_KEY, value={"version": "v", "payload": payload})
+        self.conn.commit()
+        reply = self.reply(
+            message([tool_use("get_market_trends", {}, "t")], "tool_use"),
+            message([text("Pikachu ex is up 315% over 30 days. This is past price data, not a prediction."),
+                     show("ssp-1")], "tool_use"),
+        )
+        line = {card["card_id"]: card for card in reply["cards"]}["ssp-1"]["sparkline"]
+        self.assertEqual(line["range"], "30d")
+
+    def test_fetch_range_per_tool(self) -> None:
+        self.assertEqual(sparkline_fetch_range("get_market_trends", {"cards_window_days": 10}), "30d")
+        self.assertEqual(sparkline_fetch_range("find_movers", {"window": "7d"}), "30d")
+        self.assertEqual(sparkline_fetch_range("find_price_lows", {"window": "1y"}), "1y")
+        self.assertIsNone(sparkline_fetch_range("get_market_trends", {}))
 
 
 class WatchlistTests(TilesCase):

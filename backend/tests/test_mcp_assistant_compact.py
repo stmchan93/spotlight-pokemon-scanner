@@ -73,7 +73,7 @@ class CompactPerToolTests(unittest.TestCase):
                 self.assertEqual([i["card_id"] for i in small], [i["card_id"] for i in full])
                 for before, after in zip(full, small):
                     for field in CARD_FIELDS + ("price_usd", "variant", "grader", "grade", "quantity", "value_usd",
-                                                "change_usd", "change_pct", "target_price_usd", "days_covered"):
+                                                "change_usd", "change_pct", "target_price_usd"):
                         if before.get(field) not in (None, ""):
                             self.assertIn(field, after, (tool, field))
                             if isinstance(before[field], float):
@@ -135,7 +135,6 @@ class CompactPerToolTests(unittest.TestCase):
         self.assertLessEqual(len(small["points"]), MAX_HISTORY_POINTS)
         self.assertEqual(small["points"][0], full["points"][0])
         self.assertEqual(small["points"][-1], full["points"][-1])
-        self.assertEqual(small["point_count"], len(full["points"]))
         self.assertEqual(small["low"]["usd"], min(p["usd"] for p in full["points"]))
         self.assertEqual(small["high"]["usd"], max(p["usd"] for p in full["points"]))
         self.assertIn(small["low"], small["points"])
@@ -143,7 +142,7 @@ class CompactPerToolTests(unittest.TestCase):
         self.assertLessEqual(len(small["largest_steps"]), 3)
         steps = [abs(b["usd"] - a["usd"]) for a, b in zip(full["points"], full["points"][1:])]
         self.assertAlmostEqual(abs(small["largest_steps"][0]["change_usd"]), max(steps), places=2)
-        for key in ("summary", "first_date", "last_date", "first_usd", "last_usd", "covers_full_range", "card_id"):
+        for key in ("summary", "last_date", "first_usd", "last_usd", "card_id"):
             self.assertEqual(small[key], full[key], key)
 
     def test_short_history_untouched(self) -> None:
@@ -191,8 +190,8 @@ class CompactPerToolTests(unittest.TestCase):
                     continue
                 checked.add(word)
                 self.assertTrue(word in small, (item["tool"], word))
-        for word in ("price_verified", "excluded_untrusted", "language_pair", "covers_full_range", "first_date",
-                     "total_value_usd", "top_gainers_pct", "holding_id", "rarity_bucket", "days_covered", "ask_which",
+        for word in ("price_verified", "excluded_untrusted", "language_pair",
+                     "total_value_usd", "top_gainers_pct", "holding_id", "rarity_bucket", "ask_which",
                      "graded_price_usd"):
             self.assertIn(word, checked)
 
@@ -204,6 +203,49 @@ class CompactPerToolTests(unittest.TestCase):
             item = sample(tool)
             self.assertLess(len(model_payload(tool, item["content"], item["arguments"])),
                             len(baseline(item["content"])) * ratio, tool)
+
+
+COVERAGE_FIELDS = ("days_covered", "covers_full_window", "covers_full_range", "range_start", "first_date",
+                   "point_count", "points_note")
+
+
+class CoverageHiddenTests(unittest.TestCase):
+    """Owner 2026-11-20: the model never sees how much history exists, only window_label."""
+
+    def test_no_coverage_fields_reach_the_model(self) -> None:
+        for item in SAMPLES:
+            small = keys_in(compact_result(item["tool"], item["content"], item["arguments"]))
+            for key in COVERAGE_FIELDS:
+                self.assertNotIn(key, small, (item["tool"], key))
+
+    def test_price_lows_window_label(self) -> None:
+        content = {"window": "1y", "as_of": "2026-11-19", "cards": [
+            {"card_id": "a", "low_usd": 5.0, "days_covered": 45, "at_window_low": True},
+            {"card_id": "b", "low_usd": 6.0, "days_covered": 365, "at_window_low": True},
+        ], "note": "Some cards have less history than the window; days_covered says how much."}
+        small = compact_result("find_price_lows", content, {"window": "1y"})
+        self.assertEqual([c["window_label"] for c in small["cards"]], ["recently", "past year"])
+        self.assertNotIn("note", small)
+        self.assertEqual(content["cards"][0]["days_covered"], 45)  # full result untouched
+
+    def test_movers_window_label_and_note(self) -> None:
+        content = {"window": "90d", "as_of": "2026-11-19", "cards": [
+            {"card_id": "a", "change_pct": -20.0, "days_covered": 40, "covers_full_window": False},
+            {"card_id": "b", "change_pct": -10.0, "days_covered": 90, "covers_full_window": True},
+        ], "note": "Some cards' history starts after the window start: covers_full_window is false and days_covered "
+                   "says how much it covers. The newest stored prices are from 2026-11-19."}
+        small = compact_result("find_movers", content, {"window": "90d"})
+        self.assertEqual([c["window_label"] for c in small["cards"]], ["recently", "past 90 days"])
+        self.assertEqual(small["note"], "The newest stored prices are from 2026-11-19.")
+
+    def test_history_window_label(self) -> None:
+        base = {"card_id": "a", "points": [{"date": "2026-11-01", "usd": 1.0}], "range_start": "2025-11-19",
+                "first_date": "2026-11-01", "last_date": "2026-11-01"}
+        partial = compact_result("get_price_history", {**base, "covers_full_range": False}, {"range": "1y"})
+        full = compact_result("get_price_history", {**base, "covers_full_range": True}, {"range": "1y"})
+        self.assertEqual((partial["window_label"], full["window_label"]), ("recently", "past year"))
+        self.assertNotIn("first_date", partial)
+        self.assertNotIn("range_start", partial)
 
 
 @unittest.skipUnless(HAVE_DEPS, "assistant deps missing")
@@ -229,7 +271,9 @@ class CompactBoundaryTests(AssistantCase):
         reply = self.ask("Show Pikachu ex's price history").json()["message"]
         sent = json.loads(self.client.messages.calls[1]["messages"][-1]["content"][0]["content"])
         self.assertLessEqual(len(sent["points"]), MAX_HISTORY_POINTS)
-        self.assertGreater(sent["point_count"], MAX_HISTORY_POINTS)
+        self.assertNotIn("point_count", sent)
+        self.assertEqual(sent["window_label"], "recently")  # 120 days of a 1y range
+        self.assertGreater(len(reply["charts"][0]["points"]), MAX_HISTORY_POINTS)
         self.assertGreater(len(reply["charts"][0]["points"]), MAX_HISTORY_POINTS)
         self.assertEqual(reply["charts"][0]["points"][0], sent["points"][0])
         self.assertEqual(reply["charts"][0]["points"][-1], sent["points"][-1])
