@@ -256,7 +256,10 @@ def tool_invocations(record: dict[str, Any]) -> list[tuple[str, Callable[[str], 
 
 _CARD_FIELDS = ("card_id", "name", "set", "number", "language", "price_usd", "variant", "condition", "grader",
                 "grade", "quantity", "quantity_owned", "owned", "price_trusted", "price_verified", "rarity_bucket",
-                "comp_source", "comp_sale_count", "comp_missing")
+                "comp_source", "comp_sale_count", "comp_missing",
+                # history coverage (price lows/highs rows) so the judge can check "N days of history"
+                "days_covered", "at_window_low", "pct_below_high", "pct_above_low", "high_date", "low_date",
+                "first_date", "last_date", "covers_full_range")
 
 
 def _is_card(node: Any) -> bool:

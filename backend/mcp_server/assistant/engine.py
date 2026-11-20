@@ -19,10 +19,14 @@ from typing import Any
 
 from mcp_server.assistant.config import AssistantConfig, cost_usd
 from mcp_server.assistant.direct_add import ADD_NOW_TOOL, TurnWrites
+from mcp_server.assistant import length_guard
 from mcp_server.assistant.tools import (
     SPARKLINE_RANGES,
     TOOL_DEFINITIONS,
     AssistantToolbox,
+    asks_to_choose,
+    is_collection_value_question,
+    is_movers_question,
     card_refs,
     clean_label,
     select_tiles,
@@ -39,7 +43,9 @@ Accuracy (never break these):
 - To change anything (add a card, change quantity/condition, watch a card or set a price alert), call a propose_* tool. The user must tap Confirm. Never say it's done; say it's ready to confirm.
 - Exception: when the user asks to add one card and names its exact printing, quantity, and condition (or grader + grade), call add_to_collection_now instead; it saves right away. Say it's added only if the result has added=true.
 - Copy every detail the user gave into the propose_* call: always pass quantity (e.g. "add 2" means quantity 2) and the condition, printing, or grade they named.
-- For a card's price history or trend, call get_price_history so the app shows a chart; keep the text to one sentence summarizing the move.
+- For a card's price history or trend, call get_price_history so the app shows a chart; keep the text to one sentence summarizing the move. That sentence names the printing and the price condition (e.g. "the Near Mint Holofoil price of Kyogre-EX (Dark Explorers 104/108)"); the result's summary line has them with the dated move.
+- "Why did X move/go up": open with the actual move and dates from the history (e.g. "Charizard ex fell from $374 on Aug 22 to $288 on Nov 18"), then the cause only if a tool result supports it. If the history doesn't show the move the user assumed, say what it shows.
+- A price question naming a card without set or number: if search_cards returns ambiguous=true, don't pick one printing's price; ask which one they mean (use its ask_which) and show the candidates.
 - Price history: say the span the data covers (first_date to last_date). If covers_full_range is false, never call the move a full-year (or full-range) return; say e.g. "since April".
 - "Card"/"cards" means single cards: pass filter.product="single" whenever the user says card or cards. Use product "any" only for other wording.
 - "Most expensive" questions (any game): give the raw leader (search_cards, sort=price_desc, product=single) and the graded leader (find_top_graded); for a singular question ("the most expensive card") name only the #1 of each; for a plural question ("most expensive cards", "PSA 10s") name the top two of each. If find_top_graded says the game has no graded prices, say so in a short clause.
@@ -47,7 +53,7 @@ Accuracy (never break these):
 - find_new_highs results are market-price highs, not completed sales: call them "market-price highs".
 - Set completion: say the missing count. Name a completion cost only from cheapest_completion_usd; if only priced_subtotal_usd exists, say "$X for Y of N missing cards". Use find_missing's default value_desc for "what am I missing"/chase cards; sort=price_asc only for cheap/budget questions.
 - "Worth grading": get_my_collection (sort=value_desc, product=single), pass the 3 most valuable raw singles to grading_upside, then answer with a short table, one row per card it returns: Card | Raw market price | PSA 10 comp | Gross premium ($ and %). Every card with a comp gets its real numbers; write "no comp" or "no raw price" in a row that lacks one. Name no other cards. Add that grading costs money and takes time.
-- Collection worth: get_portfolio_summary; give the total value first (the tiles show the top holdings).
+- Collection worth: get_portfolio_summary; give the total value first (the tiles show the top holdings). Scoped worth ("my One Piece cards", "my Japanese cards"): get_my_collection with that filter; the first sentence states its total_value_usd.
 - The user's most valuable cards or slabs: get_my_collection sort=price_desc (per-copy price; holding_type="graded" for slabs, product="single" for cards). The #1 is the highest price_usd; mention a holding's total (value_usd) only as an aside. "Top holdings" and the collection total use value_desc.
 - Collection movers: call get_portfolio_summary with focus="movers"; name at most 3 cards. top_gainers/top_losers are ranked by dollars; top_gainers_pct/top_losers_pct by percent. Label each ranking you give ("by dollars", "in percent") and take a "most in %" card only from the _pct list.
 - "Japanese/English version of" a card: find the card, call get_card on it, and use its language_pair (get_card on that id for the price). Talk about the counterpart (set, number, USD price); mention the source card only if the user scanned it.
@@ -69,7 +75,7 @@ How to answer:
 - Short by default: 1-3 sentences, under 50 words. "Why", "explain", "should I", and grading questions may run to about 90 words.
 - When the data is missing (no history, nothing found), answer in under 50 words: say what you couldn't verify and give the facts you have. No general speculation about causes.
 - Answer only what was asked. No overall collection change in a gainers/losers answer; no graded or slab aside on a raw-price or scanned-card question unless asked; no comments on print language, result counts or pages unless asked.
-- Art/vibe searches ("cozy", "rainy night"): 1-2 short sentences naming up to 3 of the best matches; if they only partly match (e.g. rain but not night), say so plainly. Never mention tags or filters.
+- Art/vibe searches ("cozy", "rainy night"): 1-2 short sentences naming up to 3 of the best matches; if they only partly match (e.g. rain but not night), say so plainly ("these show rain, but not clearly at night"). Describe the artwork; never say tag, tagged, matching, or filters.
 - Explain like a savvy friend at a card show, in plain English: what a price means (e.g. a market price is what copies have recently sold for), why it moved when the data shows it (e.g. "up 18% in 30 days"), and the trade-offs of condition and grading (raw vs. PSA 10 price gap, and that grading costs money and takes time). Use the real numbers from tools.
 - The app shows a card tile (image, name, set, number, price) for each card you pass to show_cards, so never list cards or repeat their prices one by one. Say e.g. "Here are 5 under $20" and let the tiles show them.
 - Use a bulleted list only for a comparison or steps; max 3 bullets, one short line each. Plain text; **bold** is fine, no headings, and no tables except the worth-grading table.
@@ -103,7 +109,10 @@ Final checks before answering:
 - The first sentence answers with a number or verdict from the tools. Under 60 words (why/explain/grading: about 90).
 - Name at most 3 cards. For a top-N list name the leader and let the tiles show the rest; never list cards with prices one by one.
 - Gainers/losers answers: never mention the collection's overall value or change. Collection totals: no note about unpriced holdings.
-- Never mention tags, filters, searches, or what was or wasn't searched, excluded or filtered.
+- Never mention tags, filters, searches, or what was or wasn't searched, excluded or filtered. Art answers never use the words tag, tagged, or matching.
+- Price history answers: the first sentence states the price condition (e.g. Near Mint) and printing, with the dated move.
+- Collection value (whole or scoped): the first sentence is the total in USD.
+- Several printings and no set/number given: ask which one.
 - A follow-up that narrows your last answer ("only singles") gets 1-2 sentences with just the new result.
 - Explaining prices: say plainly that a market price is roughly what copies have recently sold for.
 - Name only app features from the list above."""
@@ -257,7 +266,44 @@ def strip_pseudo_calls(text: str) -> str:
                 end = index + 1
                 break
         out = out[: match.start()].rstrip() + ("\n\n" + out[end:].lstrip() if end and out[end:].strip() else "")
-    return out
+    # A trailing 'show_cards: ...' / 'show_cards\n{json}' block, and stray <br> lines.
+    out = _TRAILING_SHOW_CARDS.sub("", out)
+    return _BR_LINE.sub("", out).strip()
+
+
+_TRAILING_SHOW_CARDS = re.compile(r"(?:^|\n)[ \t]*show_cards\b[\s\S]*\Z")
+_BR_LINE = re.compile(r"(?m)^[ \t]*<br\s*/?>[ \t]*\n?")
+
+
+_MONEY = re.compile(r"\$\s?([\d,]+(?:\.\d+)?)")
+
+
+def _mentions_amount(text: str, amount: float) -> bool:
+    for token in _MONEY.findall(text):
+        try:
+            if abs(float(token.replace(",", "")) - amount) <= max(1.0, amount * 0.01):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def ensure_total_first(text: str, question: str, totals: list[tuple[float, str | None]]) -> str:
+    """A collection-value question whose answer never states the total gets it as the first sentence."""
+    if not totals or not is_collection_value_question(question) or is_movers_question(question):
+        return text
+    total, scope = totals[-1]
+    if _mentions_amount(text, total):
+        return text
+    subject = f"Your {scope} cards are" if scope else "Your collection is"
+    return f"{subject} worth about ${total:,.2f} in total." + (f" {text}" if text else "")
+
+
+def ensure_choice_question(text: str, ask_which: str | None) -> str:
+    """A price lookup that matched several printings must end by asking which one."""
+    if not ask_which or asks_to_choose(text):
+        return text
+    return f"{text}\n\n{ask_which}" if text else ask_which
 
 
 class AssistantFailed(RuntimeError):
@@ -288,6 +334,8 @@ class TurnResult:
     stop_reason: str | None = None
     tool_errors: list[str] = field(default_factory=list)  # names of tools that returned is_error
     round_limit_hit: bool = False
+    word_limit: int | None = None
+    length_guard: str | None = None  # None | "rewrite" | "trim"
 
 
 def _distinct_charts(charts: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -377,6 +425,42 @@ class AssistantEngine:
             messages=messages,
         )
 
+    async def _enforce_length(self, text: str, result: TurnResult, tool_payloads: list[str], *, reserve: int = 0) -> str:
+        """Over the turn's word limit: one low-effort rewrite, kept only if shorter and every
+        tool-backed number survives; else a sentence-boundary trim. Tables are left alone."""
+        limit = max(10, result.word_limit - reserve) if result.word_limit else None
+        if not limit or "\n|" in "\n" + text or length_guard.word_count(text) <= limit:
+            return text
+        rewrite = ""
+        try:
+            response = await self.client.messages.create(
+                model=self.config.model,
+                max_tokens=length_guard.REWRITE_MAX_TOKENS,
+                system=length_guard.REWRITE_INSTRUCTION.format(limit=limit),
+                output_config={"effort": "low"},
+                messages=[{"role": "user", "content": text}],
+            )
+            usage = getattr(response, "usage", None)
+            if usage is not None:
+                result.input_tokens += int(getattr(usage, "input_tokens", 0) or 0)
+                result.output_tokens += int(getattr(usage, "output_tokens", 0) or 0)
+                result.cost_usd += cost_usd(usage)
+            if getattr(response, "stop_reason", None) == "end_turn":
+                rewrite = _response_text(response).strip()
+        except Exception as error:  # noqa: BLE001 - the trim below is the fallback
+            logger.warning("assistant length rewrite failed: %s", type(error).__name__)
+        backed = length_guard.tool_numbers(tool_payloads)
+        if (
+            rewrite
+            and length_guard.word_count(rewrite) <= limit
+            and length_guard.word_count(rewrite) < length_guard.word_count(text)
+            and length_guard.keeps_numbers(text, rewrite, backed)
+        ):
+            result.length_guard = "rewrite"
+            return rewrite
+        result.length_guard = "trim"
+        return length_guard.trim_to_limit(text, limit)
+
     async def _run_tool(self, block: Any, owner_user_id: str, writes: TurnWrites):
         arguments = block.input if isinstance(block.input, dict) else {}
         return await asyncio.to_thread(
@@ -413,6 +497,12 @@ class AssistantEngine:
         list_ids: set[str] = set()
         holding_refs: list[dict[str, Any]] = []
         language_pairs: dict[str, str] = {}
+        tool_payloads: list[str] = []
+        empty_flags: list[bool] = []
+        history_empty: list[bool] = []
+        art_search = False
+        ask_which: str | None = None
+        collection_totals: list[tuple[float, str | None]] = []
         # Text the model wrote next to tool calls: the answer if the last response has none.
         earlier_text = ""
         answered_with_selection = False
@@ -449,12 +539,21 @@ class AssistantEngine:
             for block, outcome in zip(work, outcomes):
                 result.tools_used.append(block.name)
                 result.tool_calls.append(summarize_tool_call(block.name, block.input))
+                payload = json.dumps(outcome.content, default=str, separators=(",", ":"))
+                tool_payloads.append(payload)
                 results_by_id[block.id] = {
                     "type": "tool_result",
                     "tool_use_id": block.id,
-                    "content": json.dumps(outcome.content, default=str, separators=(",", ":")),
+                    "content": payload,
                     **({"is_error": True} if outcome.is_error else {}),
                 }
+                empty = length_guard.is_empty_result(outcome.content, is_error=outcome.is_error)
+                if block.name != "list_facets":
+                    empty_flags.append(empty)
+                if block.name == "get_price_history":
+                    history_empty.append(empty)
+                if block.name == "search_cards" and length_guard.is_art_search(block.input):
+                    art_search = True
                 if outcome.is_error:
                     result.tool_errors.append(block.name)
                 if outcome.action is not None:
@@ -470,6 +569,11 @@ class AssistantEngine:
                 if block.name in LIST_TOOLS:
                     list_ids.update(ref["card_id"] for ref in outcome.cards)
                 content = outcome.content if isinstance(outcome.content, dict) else {}
+                if block.name == "search_cards" and content.get("ambiguous") and content.get("ask_which"):
+                    ask_which = str(content["ask_which"])
+                total_key = {"get_my_collection": "total_value_usd", "get_portfolio_summary": "value_usd"}.get(block.name)
+                if total_key and not outcome.is_error and isinstance(content.get(total_key), (int, float)):
+                    collection_totals.append((float(content[total_key]), content.get("scope_label")))
                 if block.name == "get_my_collection" and not outcome.is_error:
                     holding_refs.extend(outcome.cards)
                 if block.name == "get_portfolio_summary" and not outcome.is_error:
@@ -539,6 +643,17 @@ class AssistantEngine:
         elif not text:
             result.text, result.status = EMPTY_TEXT, "error"
         else:
+            text = ensure_total_first(text, question, collection_totals)
+            no_data = bool(empty_flags) and all(empty_flags) or bool(history_empty) and all(history_empty)
+            result.word_limit = length_guard.limit_for(
+                question, [name for name in result.tools_used if name != SHOW_CARDS],
+                no_data=no_data, art_search=art_search,
+            )
+            # The appended choice question must survive the guard: reserve its words.
+            appended = ensure_choice_question(text, ask_which) != text
+            reserve = length_guard.word_count(ask_which or "") if appended else 0
+            text = await self._enforce_length(text, result, tool_payloads, reserve=reserve)
+            text = ensure_choice_question(text, ask_which)
             result.text = text + ("…" if result.stop_reason == "max_tokens" else "")
             result.suggestions = suggestions
         if result.status == "ok":

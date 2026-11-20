@@ -588,6 +588,15 @@ class JudgeContextTests(unittest.TestCase):
         self.assertEqual(grading.MAX_TOOL_RESULT_CHARS, 12000)
         self.assertGreater(len(grading.compact_tool_results(record)), 9000)
 
+    def test_price_lows_coverage_reaches_the_judge(self) -> None:
+        """Round 4's undervalued judge said days_covered was absent."""
+        data = {"window": "1y", "cards": [{"card_id": "tcgplayer-713257", "name": "Pikachu ex", "price_usd": 21.66,
+                                          "high_usd": 400.0, "pct_below_high": 94.6, "days_covered": 42,
+                                          "at_window_low": True, "high_date": "2026-10-01"}]}
+        text = grading.compact_tool_results(turn_record(tool_results=[{"name": "find_price_lows", "data": data}]))
+        for fragment in ("days_covered=42", "at_window_low=True", "pct_below_high=94.6", "high_date=2026-10-01"):
+            self.assertIn(fragment, text)
+
     def test_plain_rows_are_shown_not_counted(self) -> None:
         """Run 2's trending_sets judge saw 'rising_sets: 3 items' and failed a correct answer."""
         data = {"rising_sets": [{"set": "Plasma Storm", "change_pct": 66.3, "card_count": 40},
@@ -764,6 +773,21 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(summary["dev"]["total"], 2)
         self.assertEqual(summary["flaky"], ["b"])
         self.assertAlmostEqual(summary["chat_cost_usd"], 0.05)
+
+    def test_repeat_failed_uses_the_majority(self) -> None:
+        def retry(case: str, passed: bool, repeat: int) -> dict[str, Any]:
+            return {**graded(case, passed, repeat=repeat), "majority_retry": True}
+
+        records = [
+            graded("a", False, repeat=1), retry("a", True, 2), retry("a", True, 3),
+            graded("b", False, repeat=1), retry("b", False, 2), retry("b", True, 3),
+            graded("c", False, repeat=1), retry("c", True, 2),  # tie fails
+            graded("d", True, repeat=1), graded("d", False, repeat=2),  # strict --repeat unchanged
+        ]
+        cases = case_results(records)
+        self.assertEqual({key: case["passed"] for key, case in cases.items()},
+                         {"a": True, "b": False, "c": False, "d": False})
+        self.assertTrue(all(case["flaky"] for case in cases.values()))
 
     def test_compare(self) -> None:
         before = [graded("a", True), graded("b", False), graded("c", True), {"case": "old", "turn": 1}]

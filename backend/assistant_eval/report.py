@@ -20,14 +20,18 @@ def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
 def case_results(records: list[dict[str, Any]]) -> "OrderedDict[str, dict[str, Any]]":
     """case id -> {category, holdout, passed, flaky, repeats, turns, chat_cost, judge_cost}.
     A repeat passes only if every turn in it passed; a case passes only if every
-    repeat passed; flaky = repeats disagree. Ungraded rows (old JSONL) -> passed None."""
+    repeat passed (strict --repeat), or, once --repeat-failed re-ran it (records
+    with majority_retry), if a majority of its attempts passed (ties fail);
+    flaky = attempts disagree. Ungraded rows (old JSONL) -> passed None."""
     cases: OrderedDict[str, dict[str, Any]] = OrderedDict()
     for record in records:
         case = cases.setdefault(
             str(record.get("case")),
             {"category": record.get("category") or "?", "holdout": bool(record.get("holdout")), "graded": True,
-             "repeats": OrderedDict(), "turns": [], "chat_cost": 0.0, "judge_cost": 0.0},
+             "repeats": OrderedDict(), "turns": [], "chat_cost": 0.0, "judge_cost": 0.0, "majority": False},
         )
+        if record.get("majority_retry"):
+            case["majority"] = True
         case["turns"].append(record)
         case["chat_cost"] += float(record.get("cost_usd") or 0.0)
         case["judge_cost"] += float((record.get("judge") or {}).get("cost_usd") or 0.0)
@@ -41,7 +45,7 @@ def case_results(records: list[dict[str, Any]]) -> "OrderedDict[str, dict[str, A
         if not case["graded"] or not outcomes:
             case["passed"], case["flaky"] = None, False
         else:
-            case["passed"] = all(outcomes)
+            case["passed"] = sum(outcomes) * 2 > len(outcomes) if case["majority"] else all(outcomes)
             case["flaky"] = len(set(outcomes)) > 1
     return cases
 
