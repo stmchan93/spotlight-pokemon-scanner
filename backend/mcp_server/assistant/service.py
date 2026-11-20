@@ -9,6 +9,7 @@ import weakref
 from dataclasses import dataclass
 from typing import Any
 
+from mcp_server.assistant.analytics import TurnAnalytics
 from mcp_server.assistant.config import AssistantConfig
 from mcp_server.assistant.engine import AssistantEngine, AssistantFailed
 from mcp_server.assistant.store import AssistantStore, next_utc_midnight, utc_day
@@ -42,8 +43,10 @@ class AssistantService:
         store: AssistantStore,
         toolbox: AssistantToolbox,
         engine: AssistantEngine | None,
+        analytics: TurnAnalytics | None = None,
     ) -> None:
         self.config = config
+        self.analytics = analytics or TurnAnalytics.from_env()
         self.store = store
         self.toolbox = toolbox
         self.engine = engine
@@ -167,6 +170,11 @@ class AssistantService:
             logger.info(
                 "assistant_turn_failed user=%s source=%s cost_usd=%.6f", user_id, request["source"], failure.cost_usd
             )
+            self.analytics.capture(
+                user_id,
+                {"status": "failed", "cost_usd": round(failure.cost_usd, 6), "source": request["source"],
+                 "is_guest": caller.is_guest, "model": self.config.model},
+            )
             return 502, {"error": "assistant_failed"}
 
         reply = {
@@ -205,6 +213,21 @@ class AssistantService:
             turn.output_tokens,
             turn.cost_usd,
             turn.latency_ms,
+        )
+        self.analytics.capture(
+            user_id,
+            {
+                "status": turn.status,
+                "cost_usd": round(turn.cost_usd, 6),
+                "input_tokens": turn.input_tokens,
+                "output_tokens": turn.output_tokens,
+                "rounds": turn.rounds,
+                "tools": list(turn.tools_used),
+                "latency_ms": turn.latency_ms,
+                "source": request["source"],
+                "is_guest": caller.is_guest,
+                "model": self.config.model,
+            },
         )
         return 200, {
             "thread_id": thread_id,
