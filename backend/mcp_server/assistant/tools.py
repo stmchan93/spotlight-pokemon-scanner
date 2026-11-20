@@ -1,4 +1,4 @@
-"""Tools the assistant model sees: the 12 CollectionTools reads (owner = the
+"""Tools the assistant model sees: the 13 CollectionTools reads (owner = the
 request user, DB-only) plus 3 propose_* tools that validate and return a
 ProposedAction without changing anything.
 
@@ -22,6 +22,7 @@ from mcp_server.assistant.store import new_id
 from mcp_server.tools import (
     DECK_CONDITION_CODES,
     GAME_FILTER_NOTE,
+    GRADING_UPSIDE_DESCRIPTION,
     MARKET_TRENDS_DESCRIPTION,
     NEW_HIGHS_DESCRIPTION,
     PRICE_LOWS_DESCRIPTION,
@@ -75,7 +76,7 @@ _FILTER_SCHEMA: dict[str, Any] = {
         "product": {
             "type": "string",
             "enum": ["any", "single", "sealed"],
-            "description": "Default any (cards and sealed together). single when the user wants single cards / not sealed; sealed for booster boxes, ETBs, bundles, tins.",
+            "description": "single whenever the user says card/cards (sealed is removed before ranking); sealed for booster boxes, ETBs, bundles, tins; any (default) only for other wording.",
         },
         "rarity_bucket": {
             "type": "array",
@@ -108,7 +109,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "Search Ekalight's card catalog. owned='owned'/'not_owned' limits to cards the user does or does "
             "not own. Prices are USD from Ekalight's stored daily market data. "
             + GAME_FILTER_NOTE + " " + PRODUCT_FILTER_NOTE + " " + PRICE_RANK_NOTE
-            + " For 'most expensive cards' also call find_top_graded: graded slab prices are often the better answer."
+            + " For 'most expensive cards' (any game) use product='single' with sort=price_desc for the raw "
+            "leader AND call find_top_graded for the graded leader."
         ),
         "input_schema": _obj(
             {
@@ -142,16 +144,20 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "find_missing",
         "description": (
-            "Cards matching the filter that the user does not own, cheapest first. Use for 'what am I missing', "
-            "set/theme completion, and shopping lists. If total_is_lower_bound is true, counts are minimums: "
-            "say 'at least N'. cheapest_completion_usd is null when not every missing card was priced; then "
-            "don't state a completion cost. " + GAME_FILTER_NOTE
+            "Cards matching the filter that the user does not own. sort: 'value_desc' (default here: "
+            "highest-value first, for 'what am I missing', chase cards, set completion) or 'price_asc' "
+            "(cheapest first: only for budget/cheap questions; budget_usd implies it). If total_is_lower_bound "
+            "is true, counts are minimums: say 'at least N'. cheapest_completion_usd is set only when every "
+            "missing card is priced; otherwise priced_subtotal_usd covers priced_count of missing_count cards "
+            "(say e.g. '$X for Y of N missing cards'), never call it the full cost. A set name resolves to one "
+            "set, English unless filter.language says otherwise (set_resolved). " + GAME_FILTER_NOTE
         ),
         "input_schema": _obj(
             {
                 "filter": _FILTER_SCHEMA,
                 "collection_id": {"type": "string"},
                 "budget_usd": {"type": "number"},
+                "sort": {"type": "string", "enum": ["value_desc", "price_asc"]},
                 "limit": {"type": "integer", "description": "1-20, default 10."},
             },
             ["filter"],
@@ -194,7 +200,10 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "name": "get_price_history",
         "description": (
             "Daily USD price history for one printing of a card: raw by condition, or graded when grader and "
-            "grade are both given (e.g. PSA 10). days_since_as_of says how old the newest point is."
+            "grade are both given (e.g. PSA 10). days_since_as_of says how old the newest point is. "
+            "first_date/last_date (first_usd/last_usd) are the span actually covered; covers_full_range is "
+            "false when history starts after the range start. variant is a printing (Holofoil, Reverse "
+            "Holofoil, 1st Edition), never a rarity; omit it for the card's main printing."
         ),
         "input_schema": _obj(
             {
@@ -252,6 +261,15 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             },
             [],
         ),
+    },
+    {
+        "name": "grading_upside",
+        "description": GRADING_UPSIDE_DESCRIPTION,
+        "input_schema": _obj(
+            {"card_ids": {"type": "array", "items": {"type": "string"}, "description": "1-10 card ids."}},
+            ["card_ids"],
+        ),
+        "strict": True,
     },
     {
         "name": "get_market_trends",
@@ -335,6 +353,7 @@ READ_TOOLS = (
     "find_new_highs",
     "get_market_trends",
     "find_top_graded",
+    "grading_upside",
 )
 
 
@@ -483,7 +502,7 @@ class AssistantToolbox:
             except (TypeError, ValueError):
                 limit = default
             kwargs["limit"] = max(1, min(limit, MODEL_LIMITS[name]))
-        for key in ("owned", "sort", "cursor", "collection_id", "budget_usd", "card_id", "condition",
+        for key in ("owned", "sort", "cursor", "collection_id", "budget_usd", "card_id", "card_ids", "condition",
                     "grader", "grade", "variant", "game", "window", "min_price_usd", "max_price_usd"):
             if args.get(key) is not None:
                 kwargs[key] = args[key]
@@ -491,6 +510,8 @@ class AssistantToolbox:
             kwargs["range_key"] = args["range"]
         if name == "get_card":
             kwargs["include_holdings"] = True
+        if name == "find_missing" and "sort" not in kwargs and "budget_usd" not in kwargs:
+            kwargs["sort"] = "value_desc"  # chase cards first; cheapest only for budget questions
         try:
             self.policy.check_inputs(kwargs.get("card_filter"), sort=kwargs.get("sort"), owned=kwargs.get("owned"))
         except ValueError as error:
