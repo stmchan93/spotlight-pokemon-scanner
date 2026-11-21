@@ -3,7 +3,7 @@
 import { BlurView } from 'expo-blur';
 import * as FileSystem from 'expo-file-system/legacy';
 import type { ReactNode, RefObject } from 'react';
-import { useCallback, useEffect, useImperativeHandle, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
   Image,
   Platform,
@@ -180,8 +180,10 @@ type RawScannerCaptureSurfaceProps = {
   onCameraReady: () => void;
   onCameraStopped?: () => void;
   onCapture: () => void;
-  /** A tap on the reticle while the shutter is gated — diagnostics only. */
+  /** A tap on the reticle while the shutter is gated; the screen queues or reports it. */
   onCaptureBlocked?: (info: { isSettling: boolean; cameraStarted: boolean; cameraSessionEpoch: number }) => void;
+  /** The settle gate opened/closed, so a tap queued during it can fire when it opens. */
+  onSettlingChange?: (isSettling: boolean) => void;
   /**
    * 'page' = binder-page mode: a 4K still so each of the nine pocket crops is
    * ~720px wide, above the matcher's 630px input. 'card' = the single-card
@@ -419,6 +421,7 @@ export function RawScannerCaptureSurface({
   onCameraStopped,
   onCapture,
   onCaptureBlocked,
+  onSettlingChange,
   captureResolution = 'card',
   pageGrid = null,
   previewOverride,
@@ -623,6 +626,11 @@ export function RawScannerCaptureSurface({
     const timer = setTimeout(() => setIsSettling(false), SETTLE_MS);
     return () => clearTimeout(timer);
   }, [shouldMountCamera]);
+  const onSettlingChangeRef = useRef(onSettlingChange);
+  onSettlingChangeRef.current = onSettlingChange;
+  useEffect(() => {
+    onSettlingChangeRef.current?.(isSettling);
+  }, [isSettling]);
 
   // Android throws `CameraControl$OperationCanceledException: Camera is not
   // active` if a non-neutral zoom is applied before the capture session is live

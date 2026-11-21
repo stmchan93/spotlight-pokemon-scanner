@@ -800,6 +800,99 @@ export async function triggerScannerHaptic() {
   }
 }
 
+/** Where a row ADD came from: the row's pill or the swipe rail's Collection button. */
+export type ScanAddSource = 'pill' | 'rail';
+
+/** What a row ADD tap did. Everything but `started` is a reason it didn't add. */
+export type ScanAddOutcome =
+  | 'started'
+  | 'login_required'
+  | 'row_missing'
+  | 'still_matching'
+  | 'no_match'
+  | 'already_adding';
+
+/** Short user-facing reason for an ADD that didn't start; null when nothing to say. */
+export function scanAddOutcomeNotice(outcome: ScanAddOutcome): string | null {
+  switch (outcome) {
+    case 'row_missing':
+      return 'That scan is no longer in the tray.';
+    case 'still_matching':
+      return 'Still matching this card. Try again in a moment.';
+    case 'no_match':
+      return 'No match to add yet. Tap the card to pick one.';
+    case 'already_adding':
+      return 'Already adding this card.';
+    case 'started':
+    case 'login_required':
+      return null;
+  }
+}
+
+/** Pending shutter taps kept while a capture runs or the camera settles. */
+export const shutterQueueMaxPending = 3;
+/** A queued tap older than this is dropped (the camera never became ready). */
+export const shutterQueueTtlMs = 2000;
+
+export type ShutterBlockReason =
+  | 'no_permission'
+  | 'camera_inactive'
+  | 'tray_expanded'
+  | 'no_camera_ref'
+  | 'capture_in_progress'
+  | 'camera_settling'
+  | 'camera_not_ready'
+  | 'zoom_loading'
+  | 'unknown';
+
+/** Why a shutter tap can't fire right now, most permanent cause first. */
+export function shutterBlockReason(state: {
+  hasCameraRef: boolean;
+  hasPermission: boolean;
+  isCameraReady: boolean;
+  isCapturing: boolean;
+  isSettling: boolean;
+  isTrayExpanded: boolean;
+  shouldMountCamera: boolean;
+  zoomHydrated: boolean;
+}): ShutterBlockReason {
+  if (!state.hasPermission) return 'no_permission';
+  if (!state.shouldMountCamera) return 'camera_inactive';
+  if (state.isTrayExpanded) return 'tray_expanded';
+  if (!state.hasCameraRef) return 'no_camera_ref';
+  if (state.isCapturing) return 'capture_in_progress';
+  if (!state.isCameraReady) return 'camera_not_ready';
+  if (state.isSettling) return 'camera_settling';
+  if (!state.zoomHydrated) return 'zoom_loading';
+  return 'unknown';
+}
+
+/** Transient gates clear on their own, so a tap behind them is queued, not lost. */
+export function isQueueableShutterBlock(reason: ShutterBlockReason): boolean {
+  return reason === 'capture_in_progress'
+    || reason === 'camera_settling'
+    || reason === 'camera_not_ready'
+    || reason === 'zoom_loading';
+}
+
+// A tap the shutter QUEUED (a capture is still in flight, or the camera is
+// settling): a light tick so it reads as "got it", distinct from the Heavy
+// shutter that follows when it actually fires.
+export async function triggerScannerQueuedTapHaptic() {
+  if (process.env.NODE_ENV === 'test') {
+    return;
+  }
+  if (Platform.OS === 'android') {
+    Vibration.vibrate(20);
+    return;
+  }
+  try {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  } catch {
+    // No haptics module in this binary: the reticle pulse still shows the tap.
+  }
+}
+
 // Module-level so rapid back-to-back scans (e.g. card-show bursts) collapse
 // to one rumble. 300 ms is short enough that normal-paced scans always fire
 // and long enough that a 3-tap-in-1s burst feels like a single confirmation.

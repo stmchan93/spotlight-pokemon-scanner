@@ -70,6 +70,7 @@ import {
   glassNavBubbleSizes,
   GlassSurface,
   Text,
+  Toast,
   colors,
   radii,
   shadows,
@@ -228,7 +229,15 @@ import {
   scanRequestFailureDetails,
   slabContextFromAnalysis,
   summarizeTrayPrices,
+  isQueueableShutterBlock,
+  scanAddOutcomeNotice,
+  type ScanAddOutcome,
+  type ScanAddSource,
+  shutterBlockReason,
+  shutterQueueMaxPending,
+  shutterQueueTtlMs,
   triggerScannerHaptic,
+  triggerScannerQueuedTapHaptic,
   triggerScannerProcessedHaptic,
   withOptimisticInventoryAdd,
 } from './scanner-screen-helpers';
@@ -577,7 +586,7 @@ type ScanRowGradingMenuKind = 'grader' | 'detail';
 type CaptureTrayRowProps = {
   capture: RecentCapture;
   onActionRailVisibilityChange: (key: string, visible: boolean) => void;
-  onAddToCollection: (captureId: string) => void;
+  onAddToCollection: (captureId: string, source: ScanAddSource) => void;
   onDelete: (captureId: string) => void;
   onOpenCard: (captureId: string) => void | Promise<void>;
   onOpenChangeCardPicker: (captureId: string) => void;
@@ -726,11 +735,15 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
     ? grading.grade ?? 'GRADE'
     : conditionShortLabelFor(selection?.conditionCode);
   const showDropdowns = !!candidate && !capture.isLoadingCandidates && !capture.binderPage?.empty;
+  const handleRailAddToCollection = useCallback(
+    (captureId: string) => onAddToCollection(captureId, 'rail'),
+    [onAddToCollection],
+  );
   return (
     <RecentCaptureSwipeRow
       actionRailKey={capture.id}
       onActionRailVisibilityChange={onActionRailVisibilityChange}
-      onAddToCollection={onAddToCollection}
+      onAddToCollection={handleRailAddToCollection}
       onDelete={onDelete}
       testID={`scanner-tray-swipe-${capture.id}`}
     >
@@ -909,7 +922,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
               accessibilityRole="button"
               disabled={capture.isLoadingCandidates || capture.isAddingToInventory}
               hitSlop={6}
-              onPress={() => onAddToCollection(capture.id)}
+              onPress={() => onAddToCollection(capture.id, 'pill')}
               style={({ pressed }) => [
                 styles.captureAddPill,
                 pressed ? styles.captureAddPillPressed : null,
@@ -1157,7 +1170,15 @@ export function ScannerScreen({
   const router = useRouter();
   // Guest gating: capture stays open, but tray/collection/wishlist/eBay/etc.
   // actions route guests to the login modal instead of running.
-  const { ensureGuestSession, gate, isGuest } = useGuestGate();
+  const { ensureGuestSession, gate, isGuest, openLogin } = useGuestGate();
+  const openLoginRef = useRef(openLogin);
+  openLoginRef.current = openLogin;
+  // One short line for an action that didn't happen (an ADD that failed or
+  // couldn't start), so nothing on the tray fails silently.
+  const [scanNotice, setScanNotice] = useState<string | null>(null);
+  const showScanNotice = useCallback((message: string) => {
+    setScanNotice(message);
+  }, []);
   const {
     dataVersion,
     refreshData,
@@ -3012,6 +3033,97 @@ export function ScannerScreen({
     }
   }, [isBinderPageMode, isCameraReady, isCapturing, isTrayExpanded, shouldMountCamera, zoomHydrated]);
 
+  // Shutter tap queue: a tap that lands while a capture is in flight or the
+  // camera is settling/starting is QUEUED (timestamps) and fired the moment the
+  // gate opens, so fast tapping never loses a scan. Still one capturePhoto in
+  // flight at a time: the drain only fires when `capturingRef` is clear.
+  const shutterQueueRef = useRef<number[]>([]);
+  const shutterQueuePruneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isShutterSettling, setIsShutterSettling] = useState(false);
+  const clearShutterQueue = useCallback(() => {
+    shutterQueueRef.current = [];
+    if (shutterQueuePruneTimerRef.current) {
+      clearTimeout(shutterQueuePruneTimerRef.current);
+      shutterQueuePruneTimerRef.current = null;
+    }
+  }, []);
+  useEffect(() => clearShutterQueue, [clearShutterQueue]);
+
+  const scheduleShutterQueuePrune = useCallback(() => {
+    if (shutterQueuePruneTimerRef.current) {
+      return;
+    }
+    shutterQueuePruneTimerRef.current = setTimeout(() => {
+      shutterQueuePruneTimerRef.current = null;
+      const now = Date.now();
+      const before = shutterQueueRef.current.length;
+      shutterQueueRef.current = shutterQueueRef.current.filter((at) => now - at < shutterQueueTtlMs);
+      const expired = before - shutterQueueRef.current.length;
+      if (expired > 0) {
+        reportShutterBlocked('queue', { reason: 'queued_tap_expired', expired });
+      }
+      if (shutterQueueRef.current.length > 0) {
+        scheduleShutterQueuePrune();
+      }
+    }, shutterQueueTtlMs);
+  }, [reportShutterBlocked]);
+
+  const queueOrRejectShutterTap = useCallback((source: string, extra: Record<string, unknown> = {}) => {
+    const reason = shutterBlockReason({
+      hasCameraRef: cameraRef.current != null,
+      hasPermission,
+      isCameraReady,
+      isCapturing: isCapturing || capturingRef.current,
+      isSettling: isShutterSettling || extra.isSettling === true,
+      isTrayExpanded,
+      shouldMountCamera,
+      zoomHydrated: zoomHydrated || isTestEnv,
+    });
+    if (!isQueueableShutterBlock(reason)) {
+      reportShutterBlocked(source, { ...extra, reason, hasCameraRef: cameraRef.current != null });
+      return;
+    }
+    const now = Date.now();
+    const pending = shutterQueueRef.current.filter((at) => now - at < shutterQueueTtlMs);
+    if (pending.length >= shutterQueueMaxPending) {
+      shutterQueueRef.current = pending;
+      reportShutterBlocked(source, { ...extra, reason: 'queue_full', blockedBy: reason });
+      return;
+    }
+    shutterQueueRef.current = [...pending, now];
+    scheduleShutterQueuePrune();
+    // Visible + felt "tap registered" while the capture waits its turn.
+    triggerReticleLock();
+    void triggerScannerQueuedTapHaptic();
+  }, [
+    hasPermission,
+    isCameraReady,
+    isCapturing,
+    isShutterSettling,
+    isTestEnv,
+    isTrayExpanded,
+    reportShutterBlocked,
+    scheduleShutterQueuePrune,
+    shouldMountCamera,
+    triggerReticleLock,
+    zoomHydrated,
+  ]);
+
+  // A queued tap belongs to the framing it was aimed at: drop it when the
+  // scanner leaves the screen, switches single ↔ page, or the tray covers it.
+  useEffect(() => {
+    if (!shouldMountCamera || isTrayExpanded) {
+      clearShutterQueue();
+    }
+  }, [clearShutterQueue, isTrayExpanded, shouldMountCamera]);
+  const lastShutterModeRef = useRef(isBinderPageMode);
+  useEffect(() => {
+    if (lastShutterModeRef.current !== isBinderPageMode) {
+      lastShutterModeRef.current = isBinderPageMode;
+      clearShutterQueue();
+    }
+  }, [clearShutterQueue, isBinderPageMode]);
+
   const handleCapture = useCallback(async () => {
     if (!hasPermission) {
       // vision-camera exposes only a boolean — re-request once and bail if the
@@ -3024,7 +3136,7 @@ export function ScannerScreen({
     }
 
     if (!cameraRef.current || !isCameraReady || isCapturing || capturingRef.current) {
-      reportShutterBlocked('handle_capture', { hasCameraRef: cameraRef.current != null });
+      queueOrRejectShutterTap('handle_capture');
       return;
     }
     // Claim the lock synchronously BEFORE any await/setState so a second burst
@@ -3430,7 +3542,7 @@ export function ScannerScreen({
   }, [
     ensureGuestSession,
     hasPermission,
-    reportShutterBlocked,
+    queueOrRejectShutterTap,
     isBinderPageMode,
     isCameraReady,
     isCapturing,
@@ -3445,6 +3557,25 @@ export function ScannerScreen({
     updateRecentCapture,
     zoomFactor,
   ]);
+
+  // Drain: fire ONE queued tap each time the shutter gate opens (previous
+  // photo taken, settle window over, camera started). handleCapture claims
+  // `capturingRef` synchronously, so the next queued tap waits for this one.
+  const handleCaptureRef = useRef(handleCapture);
+  handleCaptureRef.current = handleCapture;
+  useEffect(() => {
+    if (!canCapture || isShutterSettling || capturingRef.current || !cameraRef.current) {
+      return;
+    }
+    const now = Date.now();
+    const pending = shutterQueueRef.current.filter((at) => now - at < shutterQueueTtlMs);
+    if (pending.length === 0) {
+      shutterQueueRef.current = [];
+      return;
+    }
+    shutterQueueRef.current = pending.slice(1);
+    void handleCaptureRef.current();
+  }, [canCapture, isShutterSettling]);
 
   const handleTriggerSmokeFixture = useCallback(async () => {
     if (!scannerSmokeEnabled || isCapturing) {
@@ -3674,13 +3805,11 @@ export function ScannerScreen({
     setActiveBinderPageId(null);
   }, []);
 
-  const handleAddToInventory = useCallback(async (captureId: string) => {
-    const capture = recentCapturesRef.current.find((candidate) => candidate.id === captureId);
-    const activeCandidate = capture ? activeCandidateForCapture(capture) : null;
-    if (!capture || !activeCandidate || capture.isLoadingCandidates || capture.isAddingToInventory) {
-      return;
-    }
-
+  const performAddToInventory = useCallback(async (
+    capture: RecentCapture,
+    activeCandidate: CatalogSearchResult,
+  ) => {
+    const captureId = capture.id;
     updateRecentCapture(captureId, (entry) => {
       return {
         ...entry,
@@ -3688,26 +3817,26 @@ export function ScannerScreen({
       };
     });
 
-    const addedAt = new Date().toISOString();
-    const selection = priceSelectionRef.current.get(capture.id) ?? null;
-    const target = scanRowInventoryTarget(capture, selection);
-    // A grade pick's price is not the candidate's: carry what the row showed.
-    const addedMarketPrice = selection?.grading?.grader
-      ? resolveCaptureTrayPrice(capture, selection).amount
-      : undefined;
-    let previousInventoryEntries: InventoryCardEntry[] = [];
-    setInventoryEntries((current) => {
-      previousInventoryEntries = current;
-      return withOptimisticInventoryAdd(current, activeCandidate, addedAt, {
-        conditionCode: target.conditionCode,
-        marketPrice: addedMarketPrice,
-        mode: target.mode,
-        slabContext: target.slabContext,
-      });
-    });
-
+    let previousInventoryEntries: InventoryCardEntry[] | null = null;
     let didSucceed = false;
     try {
+      const addedAt = new Date().toISOString();
+      const selection = priceSelectionRef.current.get(capture.id) ?? null;
+      const target = scanRowInventoryTarget(capture, selection);
+      // A grade pick's price is not the candidate's: carry what the row showed.
+      const addedMarketPrice = selection?.grading?.grader
+        ? resolveCaptureTrayPrice(capture, selection).amount
+        : undefined;
+      setInventoryEntries((current) => {
+        previousInventoryEntries = current;
+        return withOptimisticInventoryAdd(current, activeCandidate, addedAt, {
+          conditionCode: target.conditionCode,
+          marketPrice: addedMarketPrice,
+          mode: target.mode,
+          slabContext: target.slabContext,
+        });
+      });
+
       trackRowResolved(capture, 'added');
       const createResponse = await spotlightRepository.createInventoryEntry(
         buildInventoryEntryArgs(
@@ -3757,7 +3886,12 @@ export function ScannerScreen({
         });
       refreshData();
     } catch (error) {
-      setInventoryEntries(previousInventoryEntries);
+      // Set by the optimistic updater above; null if the throw came first.
+      const restore = previousInventoryEntries as InventoryCardEntry[] | null;
+      if (restore) {
+        setInventoryEntries(restore);
+      }
+      showScanNotice(`Couldn't add ${activeCandidate.name}. Try again.`);
       capturePostHogEvent('scan_inventory_add_failed', {
         error_kind: scannerErrorKind(error),
         mode: capture.mode,
@@ -3786,19 +3920,51 @@ export function ScannerScreen({
         recentlyAddedTimersRef.current.set(captureId, timerId);
       }
     }
-  }, [activeCollectionID, rawVariantLabelFor, prependOptimisticInventoryEntry, refreshData, removeCaptureAfterAdd, spotlightRepository, trackRowResolved, updateRecentCapture]);
+  }, [activeCollectionID, rawVariantLabelFor, prependOptimisticInventoryEntry, refreshData, removeCaptureAfterAdd, showScanNotice, spotlightRepository, trackRowResolved, updateRecentCapture]);
 
-  // Stable wrapper for the swipe row's "Collection" action so React.memo doesn't
-  // re-render every row when handleAddToInventory re-creates on recentCaptures
-  // change. The rail's Collection button adds the scan to the collection — the
-  // same flow as the row's ADD pill.
+  // Synchronous half of a row ADD: starts the write ('started') or names why it
+  // can't, so a tap can never be swallowed without the user hearing about it.
+  const handleAddToInventory = useCallback((captureId: string): ScanAddOutcome => {
+    const capture = recentCapturesRef.current.find((candidate) => candidate.id === captureId);
+    if (!capture) {
+      return 'row_missing';
+    }
+    if (capture.isLoadingCandidates) {
+      return 'still_matching';
+    }
+    const activeCandidate = activeCandidateForCapture(capture);
+    if (!activeCandidate) {
+      return 'no_match';
+    }
+    if (capture.isAddingToInventory) {
+      return 'already_adding';
+    }
+    void performAddToInventory(capture, activeCandidate);
+    return 'started';
+  }, [performAddToInventory]);
+
+  // The row ADD pill and the swipe rail's Collection button. Not wrapped in
+  // `gate()`: the guest check lives here so every tap reports an outcome.
   const handleAddToInventoryRef = useRef(handleAddToInventory);
   useEffect(() => {
     handleAddToInventoryRef.current = handleAddToInventory;
   }, [handleAddToInventory]);
-  const handleRowAddToCollection = useCallback((captureId: string) => {
-    void handleAddToInventoryRef.current(captureId);
-  }, []);
+  const isGuestRef = useRef(isGuest);
+  isGuestRef.current = isGuest;
+  const handleRowAddToCollection = useCallback((captureId: string, source: ScanAddSource) => {
+    const outcome: ScanAddOutcome = isGuestRef.current
+      ? 'login_required'
+      : handleAddToInventoryRef.current(captureId);
+    capturePostHogEvent('scan_add_tapped', { outcome, source });
+    if (outcome === 'login_required') {
+      openLoginRef.current();
+      return;
+    }
+    const notice = scanAddOutcomeNotice(outcome);
+    if (notice) {
+      showScanNotice(notice);
+    }
+  }, [showScanNotice]);
 
 
   // Bulk "Add to Collection": one inventory entry PER resolved scan (two scans of
@@ -4490,7 +4656,6 @@ export function ScannerScreen({
   // props handed every CaptureTrayRow four new functions on every render and
   // silently defeated the row memo — the whole tray (100+ Swipeables) was
   // reconciled on every screen state tick. Wrap each handler exactly once.
-  const gatedRowAddToCollection = useMemo(() => gate(handleRowAddToCollection), [gate, handleRowAddToCollection]);
   const gatedRowDelete = useMemo(() => gate(deleteRecentCapture), [deleteRecentCapture, gate]);
   const gatedOpenChangeCardPicker = useMemo(() => gate(openChangeCardPicker), [gate, openChangeCardPicker]);
   const gatedShowRowPrice = useMemo(() => gate(handleShowRowPrice), [gate, handleShowRowPrice]);
@@ -4540,7 +4705,7 @@ export function ScannerScreen({
       captureId={captureId}
       exitingCapture={exitingCapture}
       onActionRailVisibilityChange={handleCaptureActionRailVisibilityChange}
-      onAddToCollection={gatedRowAddToCollection}
+      onAddToCollection={handleRowAddToCollection}
       onDelete={gatedRowDelete}
       onOpenCard={handleOpenCard}
       onOpenChangeCardPicker={gatedOpenChangeCardPicker}
@@ -4552,7 +4717,7 @@ export function ScannerScreen({
   ), [
     gatedOpenChangeCardPicker,
     gatedOpenGradingMenu,
-    gatedRowAddToCollection,
+    handleRowAddToCollection,
     gatedRowDelete,
     gatedShowRowPrice,
     handleCaptureActionRailVisibilityChange,
@@ -4693,7 +4858,8 @@ export function ScannerScreen({
         onCapture={() => {
           void handleCapture();
         }}
-        onCaptureBlocked={(info) => reportShutterBlocked('reticle', info)}
+        onCaptureBlocked={(info) => queueOrRejectShutterTap('reticle', info)}
+        onSettlingChange={setIsShutterSettling}
         prompt={promptCopy}
         shouldMountCamera={shouldMountCamera}
         // Stops the Auto-Macro lens hand-off (the preview "jump") on Pro iPhones.
@@ -5427,11 +5593,26 @@ export function ScannerScreen({
         }}
         onClose={() => setIsScanTargetSheetOpen(false)}
       />
+      <Toast
+        message={scanNotice ?? ''}
+        onDismiss={() => setScanNotice(null)}
+        showDismiss={false}
+        // Below the header row; the top inset is inline (absolute layout
+        // ignores the SafeAreaView's padding).
+        style={[styles.scanNotice, { top: insets.top + spacing.xxxl + spacing.xs }]}
+        testID="scanner-notice"
+        visible={scanNotice != null}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  scanNotice: {
+    left: spacing.sm,
+    position: 'absolute',
+    right: spacing.sm,
+  },
   cameraTopFade: {
     // Figma 4911:8741 — the mock's frame height, includes the status-bar area.
     height: 118,
