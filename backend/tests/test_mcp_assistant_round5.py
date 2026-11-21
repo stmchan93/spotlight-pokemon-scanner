@@ -31,6 +31,7 @@ if HAVE_DEPS:
         MAX_CHOICE_TILES,
         AssistantToolbox,
         ambiguity_hint,
+        default_printing_hint,
         choose_tiles,
         history_summary,
         neutral_art_coverage,
@@ -227,6 +228,26 @@ class AmbiguityTests(AssistantCase):
         self.assertEqual(ambiguity_hint(self.RESULTS, {"text": "Charizard", "set": "Base"}, "How much is Charizard?"), {})
         one = {"results": self.RESULTS["results"][:1]}
         self.assertEqual(ambiguity_hint(one, {"text": "Charizard"}, "How much is Charizard?"), {})
+
+    def test_one_set_defaults_to_the_priciest_non_gold_printing(self) -> None:
+        for card_id, number in (("me5-48", "48/084"), ("me5-116", "116/084"), ("me5-120", "120/084")):
+            self.card(card_id, "Mega Darkrai ex", number=number, set_name="Pitch Black")
+        self.conn.execute("UPDATE cards SET rarity = 'Mega Hyper Rare' WHERE id = 'me5-120'")
+        self.conn.commit()
+        results = {"results": [
+            {"card_id": "me5-120", "name": "Mega Darkrai ex", "set": "Pitch Black", "number": "120/084", "price_usd": 201.17},
+            {"card_id": "me5-116", "name": "Mega Darkrai ex", "set": "Pitch Black", "number": "116/084", "price_usd": 124.55},
+            {"card_id": "me5-48", "name": "Mega Darkrai ex", "set": "Pitch Black", "number": "48/084", "price_usd": 0.70},
+        ]}
+        flt = {"text": "Mega Darkrai ex"}
+        hint = default_printing_hint(self.conn, results, flt, "How is the mega darkrai ex doing gimme a price chart")
+        self.assertEqual(hint["default_printing_card_id"], "me5-116")
+        self.assertIn("Don't ask which one", hint["default_printing_note"])
+        gold = default_printing_hint(self.conn, results, flt, "price chart for the gold mega darkrai ex")
+        self.assertEqual(gold["default_printing_card_id"], "me5-120")
+        # Rankings and printings across several sets keep their own rules.
+        self.assertEqual(default_printing_hint(self.conn, results, flt, "most expensive mega darkrai ex"), {})
+        self.assertEqual(default_printing_hint(self.conn, self.RESULTS, {"text": "Charizard"}, "How much is Charizard?"), {})
 
     def test_answer_that_ignores_the_hint_still_asks_and_keeps_candidates(self) -> None:
         client = FakeClient([

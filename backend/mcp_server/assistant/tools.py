@@ -47,6 +47,7 @@ from mcp_server.tools import (
     PRODUCT_FILTER_NOTE,
     TOP_GRADED_DESCRIPTION,
     WATCHLIST_DESCRIPTION,
+    is_japanese_card,
     CollectionTools,
 )
 from request_auth import RequestIdentity
@@ -1348,6 +1349,52 @@ def owned_printing_hint(conn: Any, owner_user_id: str, result: dict[str, Any], c
     }
 
 
+_GOLD_RARITY = re.compile(r"\b(hyper|gold)\b", re.IGNORECASE)
+_HISTORY_QUESTION = re.compile(r"\b(chart|graph|history|trend|trending|doing|over time)\b", re.IGNORECASE)
+
+
+def default_printing_hint(conn: Any, result: dict[str, Any], card_filter: Any, question: str) -> dict[str, Any]:
+    """Several printings of one card, all in ONE set: answer for the priciest one instead of
+    asking which (owner, 2026-11-21: "it should have given the expensive one"). Gold / Hyper
+    Rare printings count only when the user asks for gold; English is preferred."""
+    q = question or ""
+    if not (_PRICE_QUESTION.search(q) or _HISTORY_QUESTION.search(q)) or _RANKING_QUESTION.search(q):
+        return {}
+    flt = card_filter if isinstance(card_filter, dict) else {}
+    text = str(flt.get("text") or "").strip().casefold()
+    items = [item for item in result.get("results") or [] if isinstance(item, dict) and item.get("card_id")]
+    named = [item for item in items if text and str(item.get("name") or "").casefold() == text]
+    english = [item for item in named if not is_japanese_card(str(item["card_id"]), item.get("language"))]
+    candidates = english or named
+    if len({str(item.get("card_id")) for item in candidates}) < 2:
+        return {}
+    if len({str(item.get("set") or "") for item in candidates}) != 1:
+        return {}  # different sets: which one is a real question (Charizard)
+    ids = [str(item["card_id"]) for item in candidates]
+    rarities = {
+        str(row[0]): str(row[1] or "")
+        for row in conn.execute(
+            f"SELECT id, rarity FROM cards WHERE id IN ({','.join('?' for _ in ids)})", ids
+        ).fetchall()
+    }
+    wants_gold = bool(_GOLD_RARITY.search(q))
+    pool = [item for item in candidates if bool(_GOLD_RARITY.search(rarities.get(str(item["card_id"]), ""))) == wants_gold]
+    priced = [item for item in (pool or candidates) if isinstance(item.get("price_usd"), (int, float))]
+    if not priced:
+        return {}
+    pick = max(priced, key=lambda item: float(item["price_usd"]))
+    others = [_printing_label(item) for item in candidates if item is not pick]
+    return {
+        "default_printing_card_id": str(pick["card_id"]),
+        "default_printing_note": (
+            f"The user didn't name a printing: use {pick.get('name')} ({_printing_label(pick)}), the most "
+            "valuable one. Don't ask which one. Answer for it (call get_price_history for it when they ask "
+            "about a chart, trend or how it's doing), show only that card, and mention the other printings "
+            f"({', '.join(others[:3])}) in one short clause at the end."
+        ),
+    }
+
+
 def ambiguity_hint(result: dict[str, Any], card_filter: Any, question: str) -> dict[str, Any]:
     """{ambiguous, ask_which} when a price question names a card (no set/number) and the
     lookup found several printings; {} when one printing clearly matches."""
@@ -1501,7 +1548,8 @@ class AssistantToolbox:
             result = collection_total_first(result, kwargs.get("card_filter"), question)
         if name == "search_cards" and isinstance(result, dict) and not uses_art_filters(kwargs.get("card_filter") or {}):
             owned_hint = owned_printing_hint(self.conn, owner_user_id, result, kwargs.get("card_filter"), question)
-            result = {**result, **(owned_hint or ambiguity_hint(result, kwargs.get("card_filter"), question))}
+            default_hint = owned_hint or default_printing_hint(self.conn, result, kwargs.get("card_filter"), question)
+            result = {**result, **(default_hint or ambiguity_hint(result, kwargs.get("card_filter"), question))}
         if name == "search_cards" and isinstance(result, dict) and isinstance(result.get("art_coverage"), dict):
             result = {**result, "art_coverage": neutral_art_coverage(result["art_coverage"])}
         if name == "get_card" and isinstance(result, dict) and "tags" in result:

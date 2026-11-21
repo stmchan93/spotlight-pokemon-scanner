@@ -969,6 +969,20 @@ cases:
           - "Does the answer acknowledge there are many Charizard printings and ask which set/number?"
           - "Does it avoid presenting one printing's price as 'the' Charizard price?"
 
+  - id: one_set_printings_chart_default
+    category: disambiguation
+    turns:
+      - ask: "How is the mega darkrai ex from pitch black doing gimme a price chart"
+        expect:
+          tools_all: [get_price_history]
+          chart_required: true
+          chart_card_matches_tile: true
+          tiles_exact: [me5-116]
+        reference: "Charts the Mega Darkrai ex 116/084 Special Illustration Rare (the priciest non-gold printing) without asking which one, and mentions the other printings briefly."
+        rubric:
+          - "Does it chart one printing right away instead of asking which one?"
+          - "Does it briefly mention the other printings exist?"
+
   - id: ambiguous_pikachu_add
     review_label: L030
     category: disambiguation
