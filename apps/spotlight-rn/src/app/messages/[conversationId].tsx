@@ -1,5 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 
+import { GuestRouteGuard } from '@/features/auth/components/guest-route-guard';
 import { DmThreadScreen } from '@/features/social/screens/dm-thread-screen';
 
 /**
@@ -40,22 +41,24 @@ export default function DmThreadRoute() {
   }
 
   return (
-    // Keyed so navigating between two threads remounts rather than leaking the
-    // previous thread's messages into the new one's state.
-    <DmThreadScreen
-      conversationId={conversationId}
-      key={conversationId}
-      // Handed over by the inbox for the same reason `name` is: the data layer
-      // has no fetch-one-conversation read, and the inbox already holds all of
-      // this. Anything missing simply degrades — no avatar, or a header that
-      // does not navigate — rather than blocking the thread from opening.
-      otherUser={{
-        avatarUrl: avatarUrl || null,
-        displayName: name || null,
-        handle: handle || null,
-        userId: userId || null,
-      }}
-      title={name || undefined}
-    />
+    <GuestRouteGuard>
+      {/* Keyed so navigating between two threads remounts rather than leaking the
+          previous thread's messages into the new one's state. */}
+      <DmThreadScreen
+        conversationId={conversationId}
+        key={conversationId}
+        // Handed over by the inbox for the same reason `name` is: the data layer
+        // has no fetch-one-conversation read, and the inbox already holds all of
+        // this. Anything missing simply degrades — no avatar, or a header that
+        // does not navigate — rather than blocking the thread from opening.
+        otherUser={{
+          avatarUrl: avatarUrl || null,
+          displayName: name || null,
+          handle: handle || null,
+          userId: userId || null,
+        }}
+        title={name || undefined}
+      />
+    </GuestRouteGuard>
   );
 }

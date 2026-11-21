@@ -40,6 +40,7 @@ import { getResolvedDisplayName } from '@/features/auth/auth-models';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { keyboardInsetSurcharge } from '@/lib/keyboard-insets';
 import { profileRouteSlug } from '@/features/social/profile-link';
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { useAuth } from '@/providers/auth-provider';
 
 type CommentsSheetProps = {
@@ -662,6 +663,16 @@ export function CommentsSheet({
   const bottomInset = systemBottomInset(insets.bottom);
 
   const { currentUser } = useAuth();
+  const { isGuest, openLogin } = useGuestGate();
+  // The card already gates opening the thread; this backs that up for any other
+  // way in. Login is a route, so the sheet (a Modal) closes first or it would sit
+  // over the login page.
+  const sendGuestToLogin = useCallback(() => {
+    Keyboard.dismiss();
+    onClose();
+    onNavigateAway?.();
+    openLogin();
+  }, [onClose, onNavigateAway, openLogin]);
   const [isRendered, setIsRendered] = useState(visible);
   const translateY = useRef(new Animated.Value(SHEET_HEIGHT_RESTING)).current;
   const sheetHeight = useRef(new Animated.Value(SHEET_HEIGHT_RESTING)).current;
@@ -1432,6 +1443,10 @@ export function CommentsSheet({
 
   const handleToggleCommentLike = useCallback(
     (comment: PostComment) => {
+      if (isGuest) {
+        sendGuestToLogin();
+        return;
+      }
       if (likePendingRef.current.has(comment.id)) {
         return;
       }
@@ -1473,7 +1488,7 @@ export function CommentsSheet({
         likePendingRef.current.delete(comment.id);
       })();
     },
-    [likeCountOverrides, likedCommentIds],
+    [isGuest, likeCountOverrides, likedCommentIds, sendGuestToLogin],
   );
 
   /**
@@ -1761,6 +1776,10 @@ export function CommentsSheet({
    * send button below.
    */
   const handleSend = useCallback((): boolean => {
+    if (isGuest) {
+      sendGuestToLogin();
+      return false;
+    }
     const text = draft.trim();
     // `sending` is STATE, so two taps inside one frame both read it as false and
     // post the comment twice. That was reachable in practice: the composer used
@@ -1978,7 +1997,7 @@ export function CommentsSheet({
       setSending(false);
     })();
     return true;
-  }, [currentUser, draft, editing, onCommentAdded, postId, replyTo, sending]);
+  }, [currentUser, draft, editing, isGuest, onCommentAdded, postId, replyTo, sendGuestToLogin, sending]);
 
   /*
     ───────────────────────────────────────────────────────────────────────────

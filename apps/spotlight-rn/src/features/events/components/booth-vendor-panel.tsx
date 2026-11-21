@@ -236,7 +236,7 @@ function ClaimedRows({ claim, eventId, vendor }: { claim: BoothClaim; eventId: s
           accessibilityRole="link"
           disabled={!slug}
           hitSlop={spacing.xxxs}
-          onPress={openProfile}
+          onPress={gate(openProfile)}
           style={styles.grow}
           testID="booth-holder"
         >
@@ -362,6 +362,7 @@ function MyBoothRows({
 /** Thumbnails of this vendor's booth posts; tap opens the post. */
 function BoothPhotoStrip({ eventId, posts, vendorId }: { eventId: string; posts: readonly BoothPost[]; vendorId: string }) {
   const router = useRouter();
+  const { gate } = useGuestGate();
   const { accessToken, currentUser } = useAuth();
   const apiBaseUrl = resolveRepositoryBaseUrl();
   const withPhotos = posts.filter((post) => post.media.length > 0).slice(0, MAX_THUMBS);
@@ -383,10 +384,10 @@ function BoothPhotoStrip({ eventId, posts, vendorId }: { eventId: string; posts:
             accessibilityLabel="Open booth post"
             accessibilityRole="button"
             key={post.id}
-            onPress={() => {
+            onPress={gate(() => {
               recordBoothEvent(eventId, vendorId, 'post_view');
               router.push(`/post/${post.id}` as never);
-            }}
+            })}
             style={styles.thumb}
             testID={`booth-strip-${post.id}`}
           >

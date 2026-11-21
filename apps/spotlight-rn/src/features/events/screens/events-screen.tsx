@@ -34,6 +34,7 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { EventListCard } from '@/features/events/components/event-list-card';
 import { profileHeaderSheetTop } from '@/features/profile/components/profile-header';
 import { eventRegion, eventRegions, formatEventDateRange } from '@/features/events/event-format';
@@ -103,6 +104,8 @@ export function EventsScreen() {
   const { openDrawer } = useAppDrawer();
   const { events, failed, refresh } = useSpotlightEvents();
   const { isSaved, savedIds, toggle } = useSavedEvents();
+  // Guests browse and open shows; saving and sharing ask for an account.
+  const { gate } = useGuestGate();
   const [tab, setTab] = useState<EventsTab>('events');
   const [region, setRegion] = useState<string>(ALL_REGIONS);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -180,7 +183,7 @@ export function EventsScreen() {
       key={event.id}
       event={event}
       onPress={onPress}
-      onToggleSaved={() => toggle(event.id)}
+      onToggleSaved={gate(() => toggle(event.id))}
       saved={isSaved(event.id)}
     />
   );
@@ -390,7 +393,7 @@ export function EventsScreen() {
                   width={glassNavBubbleGlyphSize}
                 />
               ),
-              onPress: handleShare,
+              onPress: gate(handleShare),
               testID: 'events-share',
             },
           ]}

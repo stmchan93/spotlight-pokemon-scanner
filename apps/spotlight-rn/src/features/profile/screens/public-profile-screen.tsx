@@ -51,6 +51,7 @@ import {
 import { normalizeSocialLink } from '@/features/profile/social-link';
 import { PROFILE_SHEET_OVERLAP, ProfileHeader } from '@/features/profile/components/profile-header';
 import { findOrCreateDm } from '@/features/social/dm-service';
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { PostCard } from '@/features/social/components/post-card';
 import { RepostAttribution } from '@/features/social/components/repost-attribution';
 import {
@@ -181,6 +182,8 @@ export function PublicProfileScreen({
   const router = useRouter();
   const { spotlightRepository } = useAppServices();
   const auth = useAuth();
+  // A guest (a deep link, or an author tap) can look; Follow and Message ask for an account.
+  const { gate, isGuest } = useGuestGate();
   // The signed-in viewer. Used to hide the Follow button on your own profile
   // (you can't follow yourself) and to seed the initial isFollowing read.
   const viewerId = auth.currentUser?.id ?? null;
@@ -820,10 +823,10 @@ export function PublicProfileScreen({
   const actionRow = (
     <View style={styles.actionRow}>
       <Button
-        disabled={followState === null}
+        disabled={followState === null && !isGuest}
         label={followState === 'following' ? 'FOLLOWING' : 'FOLLOW'}
         labelStyleVariant="label"
-        onPress={handleToggleFollow}
+        onPress={gate(handleToggleFollow)}
         shape="rounded"
         size="xs"
         style={styles.actionButton}
@@ -834,7 +837,7 @@ export function PublicProfileScreen({
         disabled={messagePending}
         label="MESSAGE"
         labelStyleVariant="label"
-        onPress={handleOpenMessage}
+        onPress={gate(handleOpenMessage)}
         shape="rounded"
         size="xs"
         style={styles.actionButton}

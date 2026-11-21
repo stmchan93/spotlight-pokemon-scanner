@@ -1,10 +1,11 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Plus } from 'iconoir-react-native';
 
 import { Button, PillButton, StateCard, layout, spacing, useSpotlightTheme } from '@spotlight/design-system';
 
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { useActiveShow } from '@/features/events/hooks/use-active-show';
 import { useEventFeed } from '@/features/events/hooks/use-event-feed';
 import { PostCard } from '@/features/social/components/post-card';
@@ -65,9 +66,11 @@ export const EventFeed = forwardRef<EventFeedHandle, EventFeedProps>(function Ev
     }, [reload]),
   );
 
-  const openComposer = useCallback(() => {
-    router.push({ pathname: '/new-post', params: { eventId } } as never);
-  }, [eventId, router]);
+  const { gate } = useGuestGate();
+  const openComposer = useMemo(
+    () => gate(() => router.push({ pathname: '/new-post', params: { eventId } } as never)),
+    [eventId, gate, router],
+  );
   const openCard = useCallback(
     (cardId: string) => router.push({ pathname: '/cards/[cardId]', params: { cardId } } as never),
     [router],

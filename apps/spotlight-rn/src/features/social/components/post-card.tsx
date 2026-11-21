@@ -41,6 +41,7 @@ import {
 } from '@/features/social/social-service';
 import { profileRouteSlug } from '@/features/social/profile-link';
 import { signalFeedNeedsRefresh } from '@/features/social/screens/new-post-screen';
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { useAuth } from '@/providers/auth-provider';
 
 type PostCardProps = {
@@ -354,6 +355,10 @@ export function PostCard({
   const theme = useSpotlightTheme();
   const { currentUser } = useAuth();
   const router = useRouter();
+  // Every interaction on a post (profile, like, comment, repost, share, follow,
+  // ⋯, card, photos, link) asks a guest to sign in. Filtering by type and
+  // "Find on map" stay open — they only steer the show page.
+  const { gate, isGuest } = useGuestGate();
 
   const author = post.author;
   const displayName =
@@ -483,7 +488,7 @@ export function PostCard({
   // Seeded, not driven by an effect: the sheet should be open on the FIRST
   // frame when a notification opened this post, so the thread does not appear to
   // pop up a moment after the screen settles.
-  const [commentsVisible, setCommentsVisible] = useState(autoOpenComments);
+  const [commentsVisible, setCommentsVisible] = useState(autoOpenComments && !isGuest);
 
   // Keep the optimistic counters in sync when a fresh copy of the post arrives
   // (e.g. a feed refresh). The optimistic writes above win only until then.
@@ -712,7 +717,7 @@ export function PostCard({
           accessibilityLabel={authorLink ? `View ${displayName}'s profile` : undefined}
           accessibilityRole={authorLink ? 'button' : undefined}
           disabled={!authorLink}
-          onPress={openAuthorProfile}
+          onPress={gate(openAuthorProfile)}
           testID={`${prefix}-avatar-button`}
         >
           <Avatar
@@ -729,7 +734,7 @@ export function PostCard({
               accessibilityRole={authorLink ? 'button' : undefined}
               disabled={!authorLink}
               hitSlop={6}
-              onPress={openAuthorProfile}
+              onPress={gate(openAuthorProfile)}
               testID={`${prefix}-author-name-button`}
             >
               <Text
@@ -774,7 +779,7 @@ export function PostCard({
             {showFollowButton ? (
               <FollowButton
                 following={Boolean(isFollowingAuthor)}
-                onPress={() => onFollowAuthor?.(post.authorId)}
+                onPress={gate(() => onFollowAuthor?.(post.authorId))}
                 personLabel={displayName}
                 tone={onDark ? 'onDark' : 'default'}
                 testID={`${prefix}-follow-button`}
@@ -793,7 +798,7 @@ export function PostCard({
                 accessibilityLabel="Post options"
                 accessibilityRole="button"
                 hitSlop={8}
-                onPress={handleMorePress}
+                onPress={gate(handleMorePress)}
                 style={styles.moreButton}
                 testID={`${prefix}-more-button`}
               >
@@ -845,10 +850,10 @@ export function PostCard({
       likeCount={likeCount}
       liked={liked}
       onDark={onDark}
-      onOpenComments={() => setCommentsVisible(true)}
-      onShare={() => openPrompt('share')}
-      onToggleLike={handleToggleLike}
-      onToggleRepost={handleToggleRepost}
+      onOpenComments={gate(() => setCommentsVisible(true))}
+      onShare={gate(() => openPrompt('share'))}
+      onToggleLike={gate(handleToggleLike)}
+      onToggleRepost={gate(handleToggleRepost)}
       repostCount={repostCount}
       reposted={reposted}
       style={onDark ? null : styles.metricsRowOnCard}
@@ -961,11 +966,11 @@ export function PostCard({
         {post.body && post.news ? (
           <Pressable
             accessibilityRole="link"
-            onPress={() => {
+            onPress={gate(() => {
               if (post.news) {
                 void openLinkOut(post.news.url);
               }
-            }}
+            })}
             testID={`${testID}-news-link`}
           >
             <Text
@@ -979,7 +984,7 @@ export function PostCard({
           // Tapping the text of a photo post opens the photos, same as tapping a photo.
           <Pressable
             accessibilityHint="Opens the photos full screen"
-            onPress={() => openViewer(0)}
+            onPress={gate(() => openViewer(0))}
             testID={`${testID}-body-button`}
           >
             <Text
@@ -1020,7 +1025,7 @@ export function PostCard({
         {post.cardId ? (
           <Pressable
             accessibilityRole="button"
-            onPress={() => (post.cardId ? onPressCard?.(post.cardId) : undefined)}
+            onPress={gate(() => (post.cardId ? onPressCard?.(post.cardId) : undefined))}
             style={[styles.cardChip, { backgroundColor: theme.colors.surfaceMuted, borderCurve: 'continuous', borderRadius: theme.radii.pill }]}
             testID={`${testID}-card-chip`}
           >
@@ -1038,7 +1043,7 @@ export function PostCard({
                 accessibilityLabel="View photo full screen"
                 accessibilityRole="imagebutton"
                 key={media.id}
-                onPress={() => openViewer(index)}
+                onPress={gate(() => openViewer(index))}
                 testID={`${testID}-image-button-${media.id}`}
               >
                 {renderImage(media, { borderRadius: theme.radii.md }, testID)}

@@ -1,3 +1,4 @@
+import { GuestRouteGuard } from '@/features/auth/components/guest-route-guard';
 import { DmInboxScreen } from '@/features/social/screens/dm-inbox-screen';
 
 /**
@@ -18,5 +19,9 @@ import { DmInboxScreen } from '@/features/social/screens/dm-inbox-screen';
  * of them under a group.
  */
 export default function MessagesRoute() {
-  return <DmInboxScreen />;
+  return (
+    <GuestRouteGuard>
+      <DmInboxScreen />
+    </GuestRouteGuard>
+  );
 }

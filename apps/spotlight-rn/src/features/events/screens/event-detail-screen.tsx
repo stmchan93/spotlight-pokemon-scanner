@@ -36,6 +36,7 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { buildBoothStories, orderBoothStories, storyRing } from '@/features/events/booth-stories';
 import {
   publishBoothStoriesSource,
@@ -118,6 +119,8 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const { event, failed, refresh } = useSpotlightEvent(eventId);
   const { isSaved, toggle } = useSavedEvents();
+  // Guests may browse the page, the map, filters and vendors; every other tap here asks for an account.
+  const { gate } = useGuestGate();
   const scrollRef = useRef<ScrollView>(null);
   const saved = isSaved(eventId);
   const accent = event?.accentColor ?? theme.colors.eventAccent;
@@ -166,12 +169,13 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
     [booth.posts, canShowStories, map, vendorIds],
   );
   const orderedStories = useMemo(() => orderBoothStories(stories, seenPostIds), [seenPostIds, stories]);
-  const openStory = useCallback(
-    (vendorId: string, source: 'strip' | 'row' | 'card') => {
-      capturePostHogEvent(AnalyticsEvent.boothStoryOpened, { event_id: eventId, vendor_id: vendorId, source });
-      router.push({ pathname: '/booth-stories', params: { eventId, vendorId } } as never);
-    },
-    [eventId, router],
+  const openStory = useMemo(
+    () =>
+      gate((vendorId: string, source: 'strip' | 'row' | 'card') => {
+        capturePostHogEvent(AnalyticsEvent.boothStoryOpened, { event_id: eventId, vendor_id: vendorId, source });
+        router.push({ pathname: '/booth-stories', params: { eventId, vendorId } } as never);
+      }),
+    [eventId, gate, router],
   );
   const vendorStories = useMemo<VendorStories | null>(() => {
     if (stories.length === 0) {
@@ -296,7 +300,7 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
             <Pressable
               accessibilityHint="Opens in Maps"
               accessibilityRole="link"
-              onPress={() => openEventInMaps(event)}
+              onPress={gate(() => openEventInMaps(event))}
               style={[styles.row, styles.rowTop]}
               testID="event-detail-address"
             >
@@ -449,7 +453,7 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
                   width={glassNavBubbleGlyphSize}
                 />
               ),
-              onPress: () => toggle(eventId),
+              onPress: gate(() => toggle(eventId)),
               testID: 'event-detail-save',
             },
             {
@@ -463,7 +467,7 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
                 />
               ),
               disabled: !event,
-              onPress: handleShare,
+              onPress: gate(handleShare),
               testID: 'event-detail-share',
             },
           ]}
@@ -483,7 +487,7 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
           <Button
             label="Buy Tickets"
             labelStyleVariant="label"
-            onPress={() => void openLinkOut(event.ticketUrl ?? '')}
+            onPress={gate(() => void openLinkOut(event.ticketUrl ?? ''))}
             shape="rounded"
             size="xs"
             style={styles.buy}

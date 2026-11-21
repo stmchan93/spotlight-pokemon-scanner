@@ -18,6 +18,7 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { recordBoothEvent, reportBoothClaim, type BoothClaim } from '@/features/events/booth-service';
 import { BoothVendorPanel, useClaimBooth } from '@/features/events/components/booth-vendor-panel';
 import { EventFloorMap } from '@/features/events/components/event-floor-map';
@@ -395,6 +396,7 @@ function EventVendorsBody({
       {suggestions.map((vendor) => (
         <ThisIsYouCard
           claim={booth?.claims.get(vendor.id) ?? null}
+          gate={gate}
           key={vendor.id}
           onClaim={gate(() => claim(vendor, 'suggestion'))}
           pending={pendingId === vendor.id}
@@ -422,7 +424,7 @@ function EventVendorsBody({
             <Pressable
               accessibilityRole="button"
               hitSlop={spacing.xxs}
-              onPress={() => setClaimMode(true)}
+              onPress={gate(() => setClaimMode(true))}
               testID="event-vendors-find-booth"
             >
               <Text style={[theme.typography.caption, { color: theme.colors.purple500 }]}>
@@ -451,11 +453,11 @@ function EventVendorsBody({
                   claimPending={pendingId === vendor.id}
                   hot={booth?.hotVendorIds.has(vendor.id) ?? false}
                   onClaim={gate(() => claim(vendor, 'list'))}
-                  onPost={() =>
+                  onPost={gate(() =>
                     router.push(
                       `/new-post?eventId=${encodeURIComponent(eventId)}&vendorId=${encodeURIComponent(vendor.id)}` as never,
-                    )
-                  }
+                    ),
+                  )}
                   onPress={select}
                   ref={isSelected ? selectedRowRef : null}
                   selected={isSelected}
@@ -488,6 +490,8 @@ function EventVendorsBody({
     </View>
   );
 }
+
+type GuestGate = ReturnType<typeof useGuestGate>['gate'];
 
 /** What a list row shows for its booth: nothing extra, a Claim pill, "Claimed", or the owner's actions. */
 type RowBoothState = 'mine' | 'claimable' | 'claimed' | null;
@@ -615,11 +619,13 @@ function VendorRow({
 function ThisIsYouCard({
   vendor,
   claim,
+  gate,
   pending,
   onClaim,
 }: {
   vendor: SpotlightEventMapVendor;
   claim: BoothClaim | null;
+  gate: GuestGate;
   pending: boolean;
   onClaim: () => void;
 }) {
@@ -647,7 +653,7 @@ function ThisIsYouCard({
         <Button
           label="Report"
           labelStyleVariant="label"
-          onPress={report}
+          onPress={gate(report)}
           shape="rounded"
           size="xs"
           testID={`event-vendor-you-report-${vendor.id}`}
@@ -684,6 +690,8 @@ function SelectedVendorCard({
   stories: VendorStories | null;
 }) {
   const theme = useSpotlightTheme();
+  // Seeing who a booth is stays open to guests; leaving for their Instagram is an account action.
+  const { gate } = useGuestGate();
   const instagram = vendor.instagram;
   const claim = booth?.claims.get(vendor.id) ?? null;
   const mine = claim != null && claim.userId === booth?.myUserId;
@@ -732,12 +740,12 @@ function SelectedVendorCard({
             accessibilityLabel={`@${instagram} on Instagram`}
             accessibilityRole="link"
             hitSlop={spacing.xxs}
-            onPress={() => {
+            onPress={gate(() => {
               if (booth && !mine) {
                 recordBoothEvent(eventId, vendor.id, 'instagram_tap');
               }
               void Linking.openURL(`https://instagram.com/${instagram}`).catch(() => undefined);
-            }}
+            })}
             testID="event-vendor-card-instagram"
           >
             <Instagram color={theme.colors.gray900} height={INSTAGRAM_ICON_SIZE} width={INSTAGRAM_ICON_SIZE} />
