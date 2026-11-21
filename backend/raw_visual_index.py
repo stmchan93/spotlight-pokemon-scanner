@@ -77,6 +77,12 @@ class RawVisualIndex:
             self._denylist_ids = self._read_denylist_from_disk()
         return self._denylist_ids
 
+    def reload_denylist(self) -> int:
+        """Re-read the denylist (written by the incremental appender or the
+        re-embed tool) without a restart. Returns the new id count."""
+        self._denylist_ids = self._read_denylist_from_disk()
+        return len(self._denylist_ids)
+
     def _read_denylist_from_disk(self) -> frozenset[str]:
         path = self.manifest_path.parent / PLACEHOLDER_DENYLIST_FILENAME
         try:
@@ -125,10 +131,12 @@ class RawVisualIndex:
         entry count.
         """
         matrix, entries, artifact_version = self._read_from_disk()
+        denylist = self._read_denylist_from_disk()
         with self._load_lock:
             self._matrix = matrix
             self._entries = entries
             self._artifact_version = artifact_version
+            self._denylist_ids = denylist
             self.generation += 1
         return len(entries)
 

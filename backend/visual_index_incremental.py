@@ -49,8 +49,21 @@ from raw_visual_art_version import (
     prepare_art_reference,
     reference_is_tcgplayer_image,
 )
-from raw_visual_index import RawVisualIndex, is_alt_reference_entry
-from visual_index_placeholders import is_card_back_image
+from raw_visual_index import PLACEHOLDER_DENYLIST_FILENAME, RawVisualIndex, is_alt_reference_entry
+from visual_index_placeholders import (
+    KNOWN_CARD_BACK_SHA256,
+    ReferenceImageHashes,
+    ReferenceImageVerdict,
+    add_to_denylist,
+    check_reference_image,
+    encode_reference_png,
+    is_card_back_image,
+    learned_placeholder_hashes,
+    placeholder_reason,
+    read_denylist,
+    remove_from_denylist,
+    sha256_hex,
+)
 
 try:  # reuse the canonical alias derivation when available
     from catalog_tools import derive_card_title_aliases
@@ -497,6 +510,143 @@ def prune_excluded_rows(
     return {"pruned": len(remove), "entryCount": new_count, "artCrop": art_status, "artifactVersion": new_version}
 
 
+def _default_cache_root(index: RawVisualIndex) -> Path:
+    return index.npz_path.parent / ".cache" / "reference_images"
+
+
+def _denylist_path(index: RawVisualIndex) -> Path:
+    # Same file the runtime search reads (RawVisualIndex.denylist_ids).
+    return index.manifest_path.parent / PLACEHOLDER_DENYLIST_FILENAME
+
+
+def _card_name_lookup(connection: Any) -> Callable[[list[str]], dict[str, Any]]:
+    def lookup(card_ids: list[str]) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        ids = [str(cid) for cid in dict.fromkeys(card_ids) if cid]
+        for start in range(0, len(ids), 500):
+            chunk = ids[start : start + 500]
+            placeholders = ",".join("?" * len(chunk))
+            for row in connection.execute(f"SELECT id, name FROM cards WHERE id IN ({placeholders})", chunk):
+                out[str(row[0])] = row[1]
+        return out
+
+    return lookup
+
+
+def _guard_and_cache(
+    *,
+    card_id: str,
+    image: Any,
+    ref_path: Path,
+    hashes: ReferenceImageHashes,
+    names: Callable[[list[str]], Mapping[str, Any]],
+    learned: Iterable[str],
+    logger: LogFn | None,
+    write: bool = True,
+) -> ReferenceImageVerdict | None:
+    """Hash the would-be cached PNG, run the duplicate/card-back guard, and
+    cache it only if accepted. None = the image can't be serialized (stubs),
+    so no byte-level check was possible."""
+    data = encode_reference_png(image)
+    if data is None:
+        if write:
+            try:
+                image.save(ref_path)
+            except OSError as exc:
+                _log(logger, "WARNING", f"visual_index_append reference save failed id={card_id} error={exc}")
+        return None
+    verdict = check_reference_image(
+        card_id=card_id, sha=sha256_hex(data), hashes=hashes, card_names=names, learned_hashes=learned
+    )
+    if not verdict.accepted or not write:
+        return verdict
+    try:
+        ref_path.write_bytes(data)
+    except OSError as exc:
+        _log(logger, "WARNING", f"visual_index_append reference save failed id={card_id} error={exc}")
+        ref_path = None  # type: ignore[assignment]
+    # Recorded even when the write failed so later cards in this run still dedupe against it.
+    hashes.record(card_id, verdict.sha256, ref_path)
+    return verdict
+
+
+def _log_rejection(logger: LogFn | None, prefix: str, game: str | None, verdict: ReferenceImageVerdict) -> None:
+    _log(
+        logger,
+        "WARNING",
+        f"{prefix} reference_rejected game={game or POKEMON_GAME} id={verdict.card_id} "
+        f"reason={verdict.reason} sha256={verdict.sha256} sharedWith={','.join(verdict.shared_with) or '-'}",
+    )
+
+
+def flag_placeholder_references(
+    *,
+    index: RawVisualIndex,
+    connection: Any,
+    hashes: ReferenceImageHashes,
+    rejections: Iterable[ReferenceImageVerdict] = (),
+    logger: LogFn | None = None,
+    game: str | None = None,
+) -> list[dict[str, Any]]:
+    """Denylist already-indexed cards whose cached reference image is a
+    placeholder (known/learned card back, or a duplicate only placeholders
+    produce), plus the cached partners of anything rejected this run. Their
+    hashes are learned so the same image is rejected for every future card.
+    Rows are left in place (the search skips denylisted ids); fix them with
+    tools/reembed_index_cards.py once real art exists."""
+    indexed = {str(cid) for cid in _base_indexed_ids(index.entries) if cid}
+    denylist_path = _denylist_path(index)
+    payload = read_denylist(denylist_path)
+    learned = learned_placeholder_hashes(payload)
+    already = {str(cid) for cid in payload.get("cardIds") or []}
+    known = KNOWN_CARD_BACK_SHA256 | learned
+
+    groups = {
+        sha: ids
+        for sha, ids in hashes.groups().items()
+        if any(cid in indexed for cid in ids) and (len(ids) >= 2 or sha in known)
+    }
+    names = _card_name_lookup(connection)(sorted({cid for ids in groups.values() if len(ids) >= 2 for cid in ids}))
+    flagged: dict[str, dict[str, Any]] = {}
+    learn: set[str] = set()
+    for sha, ids in groups.items():
+        reason = placeholder_reason(sha, ids, names, learned)
+        if reason is None:
+            continue
+        learn.add(sha)
+        for cid in ids:
+            if cid in indexed:
+                flagged[cid] = {"cardId": cid, "sha256": sha, "reason": reason, "sharedWith": [i for i in ids if i != cid]}
+    for verdict in rejections:
+        learn.add(verdict.sha256)
+        for cid in verdict.shared_with:
+            if cid in indexed:
+                flagged.setdefault(
+                    cid,
+                    {
+                        "cardId": cid,
+                        "sha256": verdict.sha256,
+                        "reason": verdict.reason,
+                        "sharedWith": [verdict.card_id, *(i for i in verdict.shared_with if i != cid)],
+                    },
+                )
+
+    fresh = [item for cid, item in sorted(flagged.items()) if cid not in already]
+    new_hashes = learn - learned
+    if not fresh and not new_hashes:
+        return []
+    added = add_to_denylist(denylist_path, fresh, learned_hashes=new_hashes, flagged_at=_utc_now())
+    index.reload_denylist()
+    for item in fresh:
+        _log(
+            logger,
+            "WARNING",
+            f"visual_index_placeholder_flagged game={game or POKEMON_GAME} id={item['cardId']} "
+            f"reason={item['reason']} sha256={item['sha256']} sharedWith={','.join(item['sharedWith']) or '-'}",
+        )
+    return [item for item in fresh if item["cardId"] in set(added)]
+
+
 def append_missing_cards(
     *,
     index: RawVisualIndex,
@@ -521,6 +671,9 @@ def append_missing_cards(
     everything skipped) does not touch the active artifacts.
     """
     prune = prune_excluded_rows(index=index, game=game, logger=logger)
+    cache_root = image_cache_root or _default_cache_root(index)
+    cache_root.mkdir(parents=True, exist_ok=True)
+    hashes = ReferenceImageHashes.load(cache_root)
     result = _append_missing_cards(
         index=index,
         connection=connection,
@@ -529,11 +682,30 @@ def append_missing_cards(
         artifact_version=artifact_version,
         eligible_supertypes=eligible_supertypes,
         download_image_fn=download_image_fn,
-        image_cache_root=image_cache_root,
+        cache_root=cache_root,
+        hashes=hashes,
         max_cards=max_cards,
         logger=logger,
         game=game,
     )
+    # Never let the audit step fail an append that already landed.
+    try:
+        result["flagged"] = flag_placeholder_references(
+            index=index,
+            connection=connection,
+            hashes=hashes,
+            rejections=result.pop("rejections", []),
+            logger=logger,
+            game=game,
+        )
+    except Exception as exc:  # noqa: BLE001
+        result.pop("rejections", None)
+        result["flagged"] = []
+        _log(logger, "WARNING", f"visual_index_placeholder_flag failed game={game or POKEMON_GAME} error={exc}")
+    try:
+        hashes.save()
+    except OSError as exc:
+        _log(logger, "WARNING", f"visual_index_reference_hashes save failed error={exc}")
     result["pruned"] = prune["pruned"]
     if prune["pruned"]:
         result["changed"] = True
@@ -550,7 +722,8 @@ def _append_missing_cards(
     artifact_version: str,
     eligible_supertypes: Iterable[str],
     download_image_fn: DownloadImageFn | None,
-    image_cache_root: Path | None,
+    cache_root: Path,
+    hashes: ReferenceImageHashes,
     max_cards: int | None,
     logger: LogFn | None,
     game: str | None,
@@ -569,14 +742,15 @@ def _append_missing_cards(
         missing = missing[: max(0, int(max_cards))]
 
     if not missing:
-        return {"changed": False, "added": 0, "skipped": 0, "entryCount": old_count, "skippedIds": []}
+        return {"changed": False, "added": 0, "skipped": 0, "entryCount": old_count, "skippedIds": [], "rejections": []}
 
-    cache_root = image_cache_root or (index.npz_path.parent / ".cache" / "reference_images")
-    cache_root.mkdir(parents=True, exist_ok=True)
+    learned = learned_placeholder_hashes(read_denylist(_denylist_path(index)))
+    names = _card_name_lookup(connection)
 
     images: list[Any] = []
     kept: list[tuple[dict[str, Any], Path]] = []
     skipped_ids: list[str] = []
+    rejections: list[ReferenceImageVerdict] = []
     for card in missing:
         cid = str(card.get("id") or "")
         url = _scrydex_reference_url(cid, card.get("image_url"))
@@ -590,15 +764,17 @@ def _append_missing_cards(
             skipped_ids.append(cid)
             continue
         ref_path = cache_root / f"{cid}.png"
-        try:
-            image.save(ref_path)
-        except OSError as exc:
-            # No cached PNG means the card-back guard below reads a missing file.
-            _log(logger, "WARNING", f"visual_index_append reference save failed id={cid} error={exc}")
-        # Content guard: even with a real image_url, the URL can SERVE a generic
-        # card-back placeholder (the McDonald's promo case). Hash the saved PNG and
-        # skip it so the placeholder never becomes a false attractor in the index.
-        if is_card_back_image(ref_path):
+        verdict = _guard_and_cache(
+            card_id=cid, image=image, ref_path=ref_path, hashes=hashes, names=names, learned=learned, logger=logger
+        )
+        if verdict is not None and not verdict.accepted:
+            # Not cached, not embedded: it stays "missing" and is retried every
+            # run until the URL serves real (unique) art.
+            skipped_ids.append(cid)
+            rejections.append(verdict)
+            _log_rejection(logger, "visual_index_append", game, verdict)
+            continue
+        if verdict is None and is_card_back_image(ref_path):
             skipped_ids.append(cid)
             continue
         images.append(image)
@@ -616,6 +792,7 @@ def _append_missing_cards(
             "skipped": len(skipped_ids),
             "entryCount": old_count,
             "skippedIds": skipped_ids,
+            "rejections": rejections,
         }
 
     new_embeddings = np.asarray(embed_images_fn(images), dtype=np.float32)
@@ -684,6 +861,7 @@ def _append_missing_cards(
         "entryCount": new_count,
         "skippedIds": skipped_ids,
         "artCropAppend": art_status,
+        "rejections": rejections,
     }
 
 
@@ -773,3 +951,205 @@ def run_refresh(
         return result
     finally:
         _REFRESH_LOCK.release()
+
+
+def _replace_art_crop_rows(
+    *,
+    index: RawVisualIndex,
+    game: str | None,
+    replaced: list[tuple[int, dict[str, Any], Any]],
+    embed_images_fn: EmbedImagesFn,
+    backup_suffix: str,
+) -> str:
+    """Overwrite the art-crop rows of re-embedded index rows in place (same
+    row numbers, same index version). Pokémon has no sidecar."""
+    if not replaced or (game or POKEMON_GAME) == POKEMON_GAME:
+        return "skipped"
+    art_path = art_crop_path_for_index(index.npz_path, game)
+    if not art_path.exists():
+        return "missing"
+    try:
+        with np.load(str(art_path), allow_pickle=False) as archive:
+            payload = {key: np.asarray(archive[key]) for key in archive.files}
+        file_version = str(payload["index_artifact_version"].item())
+        region = tuple(float(v) for v in payload["region"].reshape(-1))
+    except Exception:  # noqa: BLE001 - a bad sidecar must not block the re-embed
+        return "unreadable_left_alone"
+    if file_version != str(index.artifact_version or ""):
+        return "stale_left_disabled"
+    position_by_row = {int(row): pos for pos, row in enumerate(payload["rows"].reshape(-1).tolist())}
+    covered = [(position_by_row[row], entry, image) for row, entry, image in replaced if row in position_by_row]
+    if not covered:
+        return "not_covered"
+    crops = [
+        crop_art_region(prepare_art_reference(image, trim_margin=reference_is_tcgplayer_image(entry)), region)
+        for _, entry, image in covered
+    ]
+    vectors = np.asarray(embed_images_fn(crops), dtype=np.float32)
+    if vectors.shape != (len(crops), payload["embeddings"].shape[1]):
+        raise RuntimeError(f"art-crop embed returned {vectors.shape} for {len(crops)} crops")
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    for offset, (pos, _, _) in enumerate(covered):
+        payload["embeddings"][pos] = (vectors[offset] / norms[offset]).astype(payload["embeddings"].dtype)
+        if "edge_maps" in payload:
+            payload["edge_maps"][pos] = edge_structure_map(crops[offset]).astype(payload["edge_maps"].dtype)
+    _atomic_write_art_crop(art_path, payload, backup_suffix)
+    return "replaced"
+
+
+def reembed_cards(
+    *,
+    index: RawVisualIndex,
+    connection: Any,
+    card_ids: Iterable[str],
+    embed_images_fn: EmbedImagesFn,
+    model_id: str,
+    game: str | None = None,
+    download_image_fn: DownloadImageFn | None = None,
+    image_cache_root: Path | None = None,
+    dry_run: bool = False,
+    remove_from_denylist_on_success: bool = False,
+    backup_suffix: str = ".pre-reembed.bak",
+    logger: LogFn | None = None,
+) -> dict[str, Any]:
+    """Re-download, guard, and re-embed specific cards' BASE rows in place.
+
+    Fixes rows embedded from a bad reference (e.g. a card back cached before
+    Scrydex published the front), which the additions-only append never
+    revisits. Row order, row count, other rows' bytes, and the manifest
+    artifactVersion are unchanged (sidecars stay valid); the prior active
+    files are kept under `backup_suffix`. A card whose new image fails the
+    guard keeps its old row (and stays denylisted).
+    """
+    download = download_image_fn or _default_download_image
+    index.load()
+    entries = list(index.entries)
+    old_count = len(entries)
+    embedding_dim = int(index.matrix.shape[1])
+    cache_root = image_cache_root or _default_cache_root(index)
+    hashes = ReferenceImageHashes.load(cache_root)
+    denylist_path = _denylist_path(index)
+    learned = learned_placeholder_hashes(read_denylist(denylist_path))
+    names = _card_name_lookup(connection)
+
+    rows_by_id: dict[str, list[int]] = {}
+    for position, entry in enumerate(entries):
+        if not is_alt_reference_entry(entry):
+            rows_by_id.setdefault(str(entry.get("providerCardId") or ""), []).append(position)
+
+    reports: list[dict[str, Any]] = []
+    accepted: list[tuple[str, dict[str, Any], Any, list[int], Path]] = []
+    for cid in dict.fromkeys(str(c).strip() for c in card_ids if str(c).strip()):
+        ref_path = cache_root / f"{cid}.png"
+        report: dict[str, Any] = {"cardId": cid, "oldSha256": hashes.sha_for(cid), "newSha256": None}
+        reports.append(report)
+        rows = rows_by_id.get(cid)
+        if not rows:
+            report["status"] = "not_in_index"
+            continue
+        cursor = connection.execute("SELECT * FROM cards WHERE id = ?", (cid,))
+        columns = [col[0] for col in cursor.description]
+        row = cursor.fetchone()
+        card = dict(zip(columns, row)) if row is not None else None
+        url = _scrydex_reference_url(cid, (card or {}).get("image_url"))
+        if card is None or not url:
+            report["status"] = "no_catalog_image_url"
+            continue
+        try:
+            image = download(url)
+        except Exception as exc:  # noqa: BLE001
+            report["status"] = "download_failed"
+            report["error"] = str(exc)
+            continue
+        verdict = _guard_and_cache(
+            card_id=cid,
+            image=image,
+            ref_path=ref_path,
+            hashes=hashes,
+            names=names,
+            learned=learned,
+            logger=logger,
+            write=not dry_run,
+        )
+        if verdict is None:
+            report["status"] = "unhashable_image"
+            continue
+        report["newSha256"] = verdict.sha256
+        report["sharedWith"] = list(verdict.shared_with)
+        if not verdict.accepted:
+            report["status"] = "rejected"
+            report["reason"] = verdict.reason
+            _log_rejection(logger, "visual_index_reembed", game, verdict)
+            continue
+        if dry_run:
+            # Later cards in this dry run must still dedupe against this one.
+            hashes.record(cid, verdict.sha256)
+        report["status"] = "would_replace" if dry_run else "replaced"
+        report["rows"] = rows
+        accepted.append((cid, card, image, rows, ref_path))
+
+    summary: dict[str, Any] = {
+        "dryRun": dry_run,
+        "game": game or POKEMON_GAME,
+        "cards": reports,
+        "replaced": 0,
+        "entryCount": old_count,
+        "denylistRemoved": [],
+    }
+    if dry_run or not accepted:
+        if not dry_run:
+            hashes.save()
+        return summary
+
+    vectors = np.asarray(embed_images_fn([image for _, _, image, _, _ in accepted]), dtype=np.float32)
+    if vectors.ndim != 2 or vectors.shape != (len(accepted), embedding_dim):
+        raise RuntimeError(f"embed returned {vectors.shape} for {len(accepted)} images (dim {embedding_dim}); aborting")
+
+    # Raw on-disk rows (adapter-projected, unnormalized) — same space as the append.
+    matrix = np.asarray(np.load(index.npz_path)["embeddings"], dtype=np.float32).copy()
+    if matrix.shape[0] != old_count:
+        raise RuntimeError(f"active npz/manifest mismatch ({matrix.shape[0]} rows vs {old_count} entries); aborting")
+    new_entries = [dict(entry) for entry in entries]
+    stamp = _utc_now()
+    replaced_rows: list[tuple[int, dict[str, Any], Any]] = []
+    for offset, (cid, card, image, rows, ref_path) in enumerate(accepted):
+        for position in rows:
+            matrix[position] = vectors[offset]
+            entry = new_entries[position]
+            entry["imageUrl"] = _scrydex_reference_url(cid, card.get("image_url"))
+            entry["referenceImagePath"] = str(ref_path)
+            entry["embeddingModel"] = model_id
+            entry["reembeddedAt"] = stamp
+            replaced_rows.append((position, entry, image))
+
+    _atomic_publish(
+        index,
+        matrix,
+        new_entries,
+        {"lastReembedAt": stamp, "lastReembedCardIds": [cid for cid, *_ in accepted]},
+        backup_suffix=backup_suffix,
+    )
+    new_count = index.reload()
+    if new_count != old_count:
+        raise RuntimeError(f"re-embed changed the entry count {old_count} -> {new_count}; restore {backup_suffix}")
+    try:
+        summary["artCrop"] = _replace_art_crop_rows(
+            index=index, game=game, replaced=replaced_rows, embed_images_fn=embed_images_fn, backup_suffix=backup_suffix
+        )
+    except Exception as exc:  # noqa: BLE001 - the index rows already landed
+        summary["artCrop"] = "replace_failed"
+        _log(logger, "WARNING", f"visual_index_reembed art-crop failed game={game} error={exc}")
+    hashes.save()
+    if remove_from_denylist_on_success:
+        summary["denylistRemoved"] = remove_from_denylist(denylist_path, [cid for cid, *_ in accepted])
+        index.reload_denylist()
+    summary["replaced"] = len(accepted)
+    summary["entryCount"] = new_count
+    _log(
+        logger,
+        "INFO",
+        f"visual_index_reembed game={game or POKEMON_GAME} replaced={len(accepted)} "
+        f"ids={','.join(cid for cid, *_ in accepted)} entryCount={new_count}",
+    )
+    return summary
