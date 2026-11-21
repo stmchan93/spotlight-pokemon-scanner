@@ -10,13 +10,15 @@ export const ASSISTANT_MARKET_PROMPTS = [
 
 /**
  * Starter prompts for a new chat: card-specific when opened with cards, else the
- * three market prompts. From the scanner the cards are named as SCANNED cards —
- * a bare "these" read as "what's 'these'?" (owner, 2026-11-20).
+ * three market prompts. The scanner always gets the three market prompts.
  */
 export function assistantStarterPrompts(trayCardCount: number, source: 'home' | 'scanner' = 'home'): string[] {
-  const scanned = source === 'scanner';
+  // The scanner opens with the same chips as everywhere else (owner, 2026-11-20); the tray still rides along as context.
+  if (source === 'scanner') {
+    return [...ASSISTANT_MARKET_PROMPTS];
+  }
   if (trayCardCount === 1) {
-    const card = scanned ? 'this scanned card' : 'this card';
+    const card = 'this card';
     return [
       `What's ${card} worth?`,
       `Is ${card} worth grading?`,
@@ -27,7 +29,7 @@ export function assistantStarterPrompts(trayCardCount: number, source: 'home' | 
     ];
   }
   if (trayCardCount > 1) {
-    const cards = scanned ? 'my scanned cards' : 'these cards';
+    const cards = 'these cards';
     return [
       `Which of ${cards} is worth the most?`,
       `Are any of ${cards} worth grading?`,
