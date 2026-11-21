@@ -317,12 +317,14 @@
       "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts"
     },
     {
-      "figmaNodeId": "6552:1913",
-      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6552-1913",
+      "figmaNodeId": "6597:5654",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6597-5654",
       "screenName": "ExpansionBrowser",
       "componentPaths": [
         "apps/spotlight-rn/src/features/catalog/screens/game-sets-screen.tsx",
-        "apps/spotlight-rn/src/features/catalog/components/set-progress-card.tsx",
+        "apps/spotlight-rn/src/features/catalog/components/search-section-header.tsx",
+        "apps/spotlight-rn/src/features/catalog/components/search-rail-tile.tsx",
+        "apps/spotlight-rn/src/features/catalog/components/search-set-card.tsx",
         "apps/spotlight-rn/src/features/catalog/screens/expansion-browser-screen.tsx",
         "apps/spotlight-rn/src/app/(sheet)/catalog/expansion-browser.tsx"
       ],
@@ -330,11 +332,13 @@
       "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts"
     },
     {
-      "figmaNodeId": "6425:3296",
-      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6425-3296",
+      "figmaNodeId": "6597:3819",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6597-3819",
       "screenName": "ExpansionDetail",
+      "notes": "CURRENT 2026-11-21: 6597:3819 supersedes 6425:3296. Sections: wash 6597:3836, logo 6597:3837, toolbar (back + share) 6597:3908, floating progress card 6597:3931, search + chips 6597:3820, grid 6597:3838 (card 6597:3840). Wash colour is the eventAccent token gradient (no per-set colour in the data). Known deliberate deviations: SEALED chip after ALL + sealed section under the cards (29da2e12); owned check/xN marker on the art; tiles keep the market-price line under the number (Figma draws none); no bottom gradient (tab-bar chrome; this route has no tab bar).",
       "componentPaths": [
         "apps/spotlight-rn/src/features/catalog/screens/expansion-detail-screen.tsx",
+        "apps/spotlight-rn/src/features/catalog/components/set-progress-card.tsx",
         "apps/spotlight-rn/src/features/catalog/components/set-card-tile.tsx",
         "apps/spotlight-rn/src/features/catalog/components/owned-copies-sheet.tsx",
         "apps/spotlight-rn/src/app/(sheet)/catalog/expansion/[expansionId].tsx"

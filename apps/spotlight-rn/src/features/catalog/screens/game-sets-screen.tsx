@@ -13,7 +13,7 @@ import {
 import { GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { EkalightAiRing, EkalightAiSparkle } from '@/components/ekalight-ai-glyph';
+import { EkalightAiFlare, EkalightAiRing } from '@/components/ekalight-ai-glyph';
 import { PullDownToDismiss, usePullDownToDismiss } from '@/components/pull-down-to-dismiss';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
@@ -40,11 +40,15 @@ import {
 
 import { CatalogResultsGrid } from '@/features/catalog/components/catalog-results-grid';
 import { SealedResultsSection } from '@/features/catalog/components/sealed-results-section';
-import { SetProgressCard } from '@/features/catalog/components/set-progress-card';
+import { SearchRailTile } from '@/features/catalog/components/search-rail-tile';
+import { SearchSectionHeader } from '@/features/catalog/components/search-section-header';
+import { SearchSetCard } from '@/features/catalog/components/search-set-card';
 import { useCatalogCardSearch } from '@/features/catalog/hooks/use-catalog-card-search';
 import { useSealedSearchPreview } from '@/features/catalog/hooks/use-sealed-search-preview';
 import { GAME_EXPANSIONS_ERROR, useGameExpansions } from '@/features/catalog/hooks/use-game-expansions';
+import { useSealedRail, useSinglesRail } from '@/features/catalog/hooks/use-search-landing-previews';
 import { useSetProgress } from '@/features/catalog/hooks/use-set-progress';
+import { resultsCountLabel, singlesSourceSets, totalCardCount } from '@/features/catalog/search-landing';
 import { groupSetsByEra, setCompletion, type SetListRow } from '@/features/catalog/set-progress';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 
@@ -61,22 +65,42 @@ type GameSetsScreenProps = {
    * slide-up screen closes with X, a side push goes back with ‹ (owner, 2026-11-20).
    */
   dismissStyle?: 'back' | 'close';
+  /**
+   * `landing` (default): the Search landing (Figma 6597:5654) — SINGLES and
+   * SEALED rails and the newest sets, each with VIEW ALL. `sets`: every set,
+   * grouped by era. `sealed`: every sealed product of the game, paged.
+   */
+  view?: GameSetsView;
+  /** VIEW ALL on SETS / SEALED. Absent hides those two links. */
+  onViewAll?: (section: 'sets' | 'sealed', game: CardGame) => void;
 };
+
+export type GameSetsView = 'landing' | 'sets' | 'sealed';
 
 /** Sealed matches under the card results: a section, not another paged list. */
 const SEALED_RESULTS_LIMIT = 20;
 
-// Figma 6552:1914 header wash height.
-const WASH_HEIGHT = 323;
+// Figma 6597:5655 header: a 393×264 wash over the banner, which is drawn at
+// its own ratio (786×646) from the top and clipped at the wash's bottom.
+const FIGMA_FRAME_WIDTH = 393;
+const WASH_FIGMA_HEIGHT = 264;
+const BANNER_ASPECT = 786 / 646;
 const SETS_BANNER = require('../../../../assets/images/catalog/sets-banner.jpg');
+/** Figma 6597:5711 shows three sets on the landing; VIEW ALL opens the rest. */
+const LANDING_SET_COUNT = 3;
 
 /**
- * Sets list with set progress (Figma 6552:1913): the title is the game, GAME
- * CHIPS switch games in place, and every set of that game is a card — logo,
- * name, release date, a progress bar, "X of Y CARDS" and the percent —
- * newest first, 0% sets included.
+ * Search (Figma 6597:5654): the title is the game and GAME CHIPS switch games
+ * in place. The landing shows three sections, each with a "(N RESULTS)" count
+ * and VIEW ALL:
+ * - SINGLES: a rail of the game's newest set's priciest cards; the count is
+ *   every card in the game (the sum of its sets' card counts).
+ * - SEALED: a rail of the game's sealed product (no count: nothing returns a
+ *   game-level sealed total).
+ * - SETS: the first few sets as progress cards — logo, name, date, a bar with
+ *   the percent, TOTAL VALUE and "X of Y CARDS".
  *
- * GROUPED BY ERA when the backend sends one (Pokémon: "MEGA EVOLUTION",
+ * The full sets list (`view="sets"`) is GROUPED BY ERA when the backend sends one (Pokémon: "MEGA EVOLUTION",
  * "SCARLET & VIOLET", …): eras newest first, each era's promos after its main
  * sets. Games with no eras stay one flat list, promos last. Online-only sets
  * (TCG Pocket) never arrive — the backend drops them.
@@ -98,10 +122,13 @@ export function GameSetsScreen({
   onSelectExpansion,
   onOpenAssistant,
   dismissStyle = 'back',
+  view = 'landing',
+  onViewAll,
 }: GameSetsScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
+  const washHeight = Math.round((windowWidth * WASH_FIGMA_HEIGHT) / FIGMA_FRAME_WIDTH);
   const [game, setGame] = useState<CardGame>(initialGame);
   const { byGame, error, failedGames, games, hasLoaded, isLoading, reload } = useGameExpansions();
   const { ownedByExpansion } = useSetProgress(game);
@@ -112,6 +139,8 @@ export function GameSetsScreen({
     query: search.query,
     scope: game,
   });
+  // VIEW ALL on SEALED: every sealed product of the game, paged (the Sealed chip's browse).
+  const sealedBrowse = useCatalogCardSearch({ scope: game, sealed: view === 'sealed' });
   // Bottom of the list = after the LAST card page, so it waits for paging.
   const sealedResults = search.hasMore ? [] : sealedSearch.results;
   // Blurred when a result opens, so no focus survives to be restored when the
@@ -123,6 +152,18 @@ export function GameSetsScreen({
   // grouping keeps that order inside each era.
   const expansions = useMemo(() => byGame[game] ?? [], [byGame, game]);
   const rows = useMemo(() => groupSetsByEra(expansions), [expansions]);
+  // Sets in list order (era'd: newest era first, promos after its mains).
+  const orderedSets = useMemo(
+    () => rows.flatMap((row) => (row.kind === 'set' ? [row.expansion] : [])),
+    [rows],
+  );
+  const isLanding = view === 'landing';
+  const singlesSources = useMemo(
+    () => (isLanding ? singlesSourceSets(orderedSets) : []),
+    [isLanding, orderedSets],
+  );
+  const singles = useSinglesRail(game, singlesSources);
+  const sealedRail = useSealedRail(game, isLanding);
   // The route's game stays a chip even before its sets load, so the row never
   // jumps under the selected chip.
   const chipGames = games.includes(game) ? games : [game, ...games];
@@ -135,7 +176,7 @@ export function GameSetsScreen({
   // Switching lists mounts a fresh one at the top.
   useEffect(() => {
     resetScroll();
-  }, [resetScroll, showsResults]);
+  }, [resetScroll, showsResults, view]);
 
   const openResult = useCallback(
     (result: CatalogSearchResult) => {
@@ -275,8 +316,30 @@ export function GameSetsScreen({
         </GestureDetector>
       );
     }
-    return (
-      <GestureDetector gesture={pullDown.scrollGesture}>
+    if (view === 'sealed') {
+      return renderSealedBrowse();
+    }
+    if (view === 'sets') {
+      return renderAllSets();
+    }
+    return renderLanding();
+  };
+
+  const renderSetCard = (expansion: ExpansionRecord) => (
+    <SearchSetCard
+      completion={setCompletion(expansion.cardCount, ownedByExpansion[expansion.id] ?? 0)}
+      key={expansion.id}
+      logoUrl={expansion.imageUrl}
+      name={expansion.name}
+      onPress={() => onSelectExpansion(expansion, game)}
+      releaseDate={expansion.releaseDate}
+      setValue={expansion.setValue ?? null}
+      testID={`game-sets-expansion-${expansion.id}`}
+    />
+  );
+
+  const renderAllSets = () => (
+    <GestureDetector gesture={pullDown.scrollGesture}>
       <FlatList
         {...pullDown.scrollProps}
         contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.lg }]}
@@ -290,20 +353,134 @@ export function GameSetsScreen({
               <SectionHeader size="compact" testID={`game-sets-era-${row.era}`} title={row.era} uppercase />
             </View>
           ) : (
-            <SetProgressCard
-              completion={setCompletion(row.expansion.cardCount, ownedByExpansion[row.expansion.id] ?? 0)}
-              logoUrl={row.expansion.imageUrl}
-              name={row.expansion.name}
-              onPress={() => onSelectExpansion(row.expansion, game)}
-              releaseDate={row.expansion.releaseDate}
-              testID={`game-sets-expansion-${row.expansion.id}`}
-            />
+            renderSetCard(row.expansion)
           )
         }
         showsVerticalScrollIndicator={false}
         style={styles.body}
         testID="game-sets-list"
       />
+    </GestureDetector>
+  );
+
+  const renderSealedBrowse = () => {
+    if (sealedBrowse.errorMessage) {
+      return (
+        <StateCard
+          actionLabel="Retry"
+          actionTestID="game-sets-sealed-retry"
+          centered
+          message={sealedBrowse.errorMessage}
+          onActionPress={sealedBrowse.retry}
+          style={[styles.stateCard, styles.bodyState]}
+          title="Sealed unavailable"
+        />
+      );
+    }
+    if (sealedBrowse.results.length === 0) {
+      return sealedBrowse.hasSearched ? (
+        <StateCard
+          centered
+          message={`No sealed products for ${gameDisplayName(game)} yet.`}
+          style={[styles.stateCard, styles.bodyState]}
+          title="No sealed products"
+        />
+      ) : (
+        <StateCard
+          centered
+          loading
+          message="Loading sealed products."
+          style={[styles.stateCard, styles.bodyState]}
+          title="Loading sealed"
+        />
+      );
+    }
+    return (
+      <GestureDetector gesture={pullDown.scrollGesture}>
+        <CatalogResultsGrid
+          artAspect="square"
+          isLoadingMore={sealedBrowse.isLoadingMore}
+          onEndReached={sealedBrowse.loadMore}
+          onOpenResult={openResult}
+          openingResultId={openingResultId}
+          results={sealedBrowse.results}
+          scrollProps={pullDown.scrollProps}
+          testID="game-sets-sealed-list"
+        />
+      </GestureDetector>
+    );
+  };
+
+  const renderRail = (results: CatalogSearchResult[], testID: string) => (
+    <ScrollView
+      contentContainerStyle={styles.railContent}
+      horizontal
+      keyboardShouldPersistTaps="handled"
+      showsHorizontalScrollIndicator={false}
+      style={styles.rail}
+      testID={testID}
+    >
+      {results.map((result) => (
+        <SearchRailTile
+          key={result.id}
+          onPress={(item) => {
+            if (openingResultId !== item.id) {
+              openResult(item);
+            }
+          }}
+          result={result}
+          testID={`${testID}-${result.cardId}`}
+        />
+      ))}
+    </ScrollView>
+  );
+
+  const renderLanding = () => {
+    const landingSets = orderedSets.slice(0, LANDING_SET_COUNT);
+    const singlesSet = singles.set;
+    return (
+      <GestureDetector gesture={pullDown.scrollGesture}>
+        <ScrollView
+          {...pullDown.scrollProps}
+          contentContainerStyle={[styles.landingContent, { paddingBottom: insets.bottom + spacing.lg }]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          style={styles.body}
+          testID="game-sets-landing"
+        >
+          {singles.results.length > 0 ? (
+            <View style={styles.section}>
+              <SearchSectionHeader
+                countLabel={resultsCountLabel(totalCardCount(expansions))}
+                onViewAll={singlesSet ? () => onSelectExpansion(singlesSet, game) : undefined}
+                testID="game-sets-singles-header"
+                title="SINGLES"
+              />
+              {renderRail(singles.results, 'game-sets-singles')}
+            </View>
+          ) : null}
+          {sealedRail.results.length > 0 ? (
+            <View style={styles.section}>
+              <SearchSectionHeader
+                onViewAll={onViewAll ? () => onViewAll('sealed', game) : undefined}
+                testID="game-sets-sealed-header"
+                title="SEALED"
+              />
+              {renderRail(sealedRail.results, 'game-sets-sealed-rail')}
+            </View>
+          ) : null}
+          {landingSets.length > 0 ? (
+            <View style={[styles.section, styles.setsSection]}>
+              <SearchSectionHeader
+                countLabel={resultsCountLabel(orderedSets.length)}
+                onViewAll={onViewAll ? () => onViewAll('sets', game) : undefined}
+                testID="game-sets-sets-header"
+                title="SETS"
+              />
+              {landingSets.map(renderSetCard)}
+            </View>
+          ) : null}
+        </ScrollView>
       </GestureDetector>
     );
   };
@@ -311,26 +488,29 @@ export function GameSetsScreen({
   return (
     <PullDownToDismiss controller={pullDown} testID="game-sets-pull-down">
     <View style={[styles.screen, { backgroundColor: theme.colors.gray50 }]}>
-      {/* Header banner (Figma 6552:1915) under its wash (6552:1916): clear at
-          the top, purple at the middle, into the gray-50 page. */}
-      <Image
-        resizeMode="cover"
-        source={SETS_BANNER}
-        style={[styles.wash, { height: WASH_HEIGHT, width: windowWidth }]}
-        testID="game-sets-banner"
-      />
-      <Svg height={WASH_HEIGHT} pointerEvents="none" style={styles.wash} width={windowWidth}>
+      {/* Header banner (Figma 6597:5656) under its wash (6597:5657): clear at
+          the top, purple through the middle, into the gray-50 page. */}
+      <View pointerEvents="none" style={[styles.wash, { height: washHeight, width: windowWidth }]}>
+        <Image
+          resizeMode="cover"
+          source={SETS_BANNER}
+          style={{ height: windowWidth / BANNER_ASPECT, width: windowWidth }}
+          testID="game-sets-banner"
+        />
+      </View>
+      <Svg height={washHeight} pointerEvents="none" style={styles.wash} width={windowWidth}>
         <Defs>
           <LinearGradient id="gameSetsWash" x1="0" x2="0" y1="0" y2="1">
             <Stop offset="0" stopColor={theme.colors.gray500} stopOpacity="0" />
-            <Stop offset="0.5" stopColor={theme.colors.setsBannerWash} stopOpacity="0.8" />
+            <Stop offset="0.3488" stopColor={theme.colors.setsBannerWashSoft} stopOpacity="0.4" />
+            <Stop offset="0.6" stopColor={theme.colors.setsBannerWash} stopOpacity="0.8" />
             <Stop offset="1" stopColor={theme.colors.gray50} stopOpacity="1" />
           </LinearGradient>
         </Defs>
-        <Rect fill="url(#gameSetsWash)" height={WASH_HEIGHT} width={windowWidth} x="0" y="0" />
+        <Rect fill="url(#gameSetsWash)" height={washHeight} width={windowWidth} x="0" y="0" />
       </Svg>
 
-      <View style={[styles.header, { paddingTop: insets.top + spacing.xxs }]}>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
         <View style={styles.toolbar}>
           <GlassNavBubble
             accessibilityLabel={dismissStyle === 'close' ? 'Close' : 'Back'}
@@ -363,16 +543,16 @@ export function GameSetsScreen({
               size="medium"
               testID="game-sets-assistant"
             >
-              {/* Same gradient flare + ring as the Social header (Figma 6552:1913). */}
-              <EkalightAiSparkle />
+              {/* Same gradient flare + ring as the Social header (Figma 6597:5672). */}
+              <EkalightAiFlare />
               <EkalightAiRing size={glassNavBubbleSizes.medium} />
             </GlassNavBubble>
           ) : null}
         </View>
-        <Text style={[styles.title, theme.typography.titleLarge, { color: theme.colors.gray0 }]}>
-          {gameDisplayName(game)}
-        </Text>
         <View style={styles.controls}>
+          <Text style={[theme.typography.titleLarge, { color: theme.colors.gray0 }]}>
+            {gameDisplayName(game)}
+          </Text>
           <SearchField
             ref={searchFieldRef}
             autoCapitalize="none"
@@ -428,8 +608,10 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: layout.pageGutter,
   },
+  // Figma 6597:5677: 24 under the toolbar (its 10 bottom pad + 14), 10 between rows.
   controls: {
     gap: 10,
+    marginTop: spacing.lg,
   },
   // The list's own gap sits under the heading; extra air above separates eras.
   eraHeader: {
@@ -439,9 +621,33 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sm,
     paddingHorizontal: layout.pageGutter,
   },
+  bodyState: {
+    marginHorizontal: layout.pageGutter,
+  },
+  // With the header's 16 bottom pad, 40 from the chips to SINGLES (Figma 6597:5688).
+  landingContent: {
+    gap: spacing.xxxl,
+    paddingHorizontal: layout.pageGutter,
+    paddingTop: spacing.lg,
+  },
   listContent: {
     gap: spacing.sm,
     paddingHorizontal: layout.pageGutter,
+  },
+  // Full-bleed: tiles scroll under the page gutter.
+  rail: {
+    marginHorizontal: -layout.pageGutter,
+  },
+  railContent: {
+    gap: spacing.xs,
+    paddingHorizontal: layout.pageGutter,
+  },
+  section: {
+    gap: spacing.xs,
+  },
+  // Figma 6597:5712: the set list sits 8 apart, header included.
+  setsSection: {
+    gap: spacing.xxs,
   },
   screen: {
     flex: 1,
@@ -451,10 +657,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     paddingVertical: spacing.lg,
   },
-  title: {
-    marginBottom: layout.titleBodyGap,
-    marginTop: spacing.sm,
-  },
   toolbar: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -462,6 +664,7 @@ const styles = StyleSheet.create({
   },
   wash: {
     left: 0,
+    overflow: 'hidden',
     position: 'absolute',
     top: 0,
   },

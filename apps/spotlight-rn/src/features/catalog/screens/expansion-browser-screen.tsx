@@ -9,12 +9,13 @@ type ExpansionBrowserScreenProps = {
   onSelectExpansion: (expansion: ExpansionRecord, game: CardGame) => void;
   onOpenCard: (result: CatalogSearchResult) => void;
   onOpenAssistant?: () => void;
+  onViewAll?: (section: 'sets' | 'sealed', game: CardGame) => void;
 };
 
 /**
- * Browse Sets. The game grid that used to live here is gone: game chips on
- * the sets list switch games in place (Figma 6552:1913), so this is the same
- * screen as a game's set list, just entered without a game picked.
+ * Search's landing (Figma 6597:5654). The game grid that used to live here is
+ * gone: game chips switch games in place, so this is the same screen as a
+ * game's page, just entered without a game picked.
  */
 export function ExpansionBrowserScreen({
   initialGame = DEFAULT_CARD_GAME,

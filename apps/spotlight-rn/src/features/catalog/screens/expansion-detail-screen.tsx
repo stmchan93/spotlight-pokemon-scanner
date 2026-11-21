@@ -1,6 +1,6 @@
-import { NavArrowLeft } from 'iconoir-react-native';
+import { NavArrowLeft, ShareIos } from 'iconoir-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Image, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { FlatList, Image, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
@@ -32,6 +32,7 @@ import {
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { consumeCardAddedNotice } from '@/features/cards/card-added-notice';
 import { invalidateCardDetailCache } from '@/features/cards/card-detail-prefetch';
+import { useSetPageAccent } from '@/features/catalog/hooks/use-set-page-accent';
 import { OwnedCopiesSheet } from '@/features/catalog/components/owned-copies-sheet';
 import { SetCardTile } from '@/features/catalog/components/set-card-tile';
 import { SetProgressCard } from '@/features/catalog/components/set-progress-card';
@@ -59,12 +60,12 @@ type ExpansionDetailScreenProps = {
 /** The whole set in one call (the backend's ceiling); search + chips filter it locally. */
 export const SET_PAGE_CARD_LIMIT = 1000;
 
-// Figma 6425:3296 geometry: the wash behind the logo and header card, and the
-// centred set logo below the toolbar.
-const WASH_HEIGHT = 353;
+// Figma 6597:3819 geometry: the centred set logo 62 below the status bar
+// (under the 44pt toolbar); the wash fills the whole hero, ending where the
+// white search band starts.
 const LOGO_WIDTH = 167;
 const LOGO_HEIGHT = 80;
-const LOGO_TOP_BELOW_SAFE_AREA = 55;
+const LOGO_TOP_BELOW_SAFE_AREA = 62;
 
 type CopiesSheetState = { card: CatalogSearchResult; copies: InventoryCardEntry[] } | null;
 
@@ -111,8 +112,9 @@ const SEALED_LABEL = 'SEALED';
 const NEAR_MINT = deckConditionOptions.find((option) => option.code === 'near_mint') ?? null;
 
 /**
- * A set's page with completion (Figma 6425:3296): logo, a header card with
- * name, release date, progress and the FULL set's value, a card search and
+ * A set's page with completion (Figma 6597:3819): back + share, logo on a
+ * warm wash, a floating card with name, release date, a 20pt progress bar,
+ * the FULL set's value and "X of Y CARDS", a card search and
  * rarity chips, then EVERY card in the set two-up — full colour, the ones you
  * own marked ✓ / ×N on the art — each with − QTY +.
  *
@@ -142,7 +144,6 @@ export function ExpansionDetailScreen({
 }: ExpansionDetailScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
-  const { width: windowWidth } = useWindowDimensions();
   const {
     activeCollectionID,
     dataVersion,
@@ -464,9 +465,19 @@ export function ExpansionDetailScreen({
     countOwnedCards(cards),
   );
   const totalValueLabel = expansion?.setValue != null ? formatCurrency(expansion.setValue, 'USD') : null;
-  const washStops = eventGradientStops(theme.colors.eventAccent);
   const logoUrl = expansion?.imageUrl ?? null;
+  // The wash takes the set's own colour from its logo (token accent until then).
+  const washStops = eventGradientStops(useSetPageAccent(logoUrl));
   const [hasLogoError, setHasLogoError] = useState(false);
+  const setName = expansion?.name ?? expansionName;
+
+  const handleShare = useCallback(() => {
+    const lines = [`${setName} on Ekalight`];
+    if (completion) {
+      lines.push(`I have ${completion.owned} of ${completion.total} cards`);
+    }
+    void Share.share({ message: lines.join('\n') }).catch(() => undefined);
+  }, [completion, setName]);
 
   const renderCardsState = () => {
     if (!hasLoadedCards) {
@@ -504,17 +515,17 @@ export function ExpansionDetailScreen({
 
   const header = (
     <View>
-      <Svg height={WASH_HEIGHT} pointerEvents="none" style={styles.wash} width={windowWidth}>
-        <Defs>
-          <LinearGradient id="setPageWash" x1="0" x2="0" y1="0" y2="1">
-            {washStops.map((stop) => (
-              <Stop key={stop.offset} offset={stop.offset} stopColor={stop.color} stopOpacity="1" />
-            ))}
-          </LinearGradient>
-        </Defs>
-        <Rect fill="url(#setPageWash)" height={WASH_HEIGHT} width={windowWidth} x="0" y="0" />
-      </Svg>
       <View style={[styles.hero, { paddingTop: insets.top + LOGO_TOP_BELOW_SAFE_AREA }]}>
+        <Svg height="100%" pointerEvents="none" style={StyleSheet.absoluteFill} testID="set-page-wash" width="100%">
+          <Defs>
+            <LinearGradient id="setPageWash" x1="0" x2="0" y1="0" y2="1">
+              {washStops.map((stop) => (
+                <Stop key={stop.offset} offset={stop.offset} stopColor={stop.color} stopOpacity="1" />
+              ))}
+            </LinearGradient>
+          </Defs>
+          <Rect fill="url(#setPageWash)" height="100%" width="100%" x="0" y="0" />
+        </Svg>
         <View style={styles.logoSlot}>
           {logoUrl && !hasLogoError ? (
             <Image
@@ -528,7 +539,7 @@ export function ExpansionDetailScreen({
         </View>
         <SetProgressCard
           completion={completion}
-          name={expansion?.name ?? expansionName}
+          name={setName}
           releaseDate={expansion?.releaseDate ?? null}
           testID="set-page-header"
           totalValueLabel={totalValueLabel}
@@ -624,9 +635,23 @@ export function ExpansionDetailScreen({
         testID="set-page-grid"
       />
 
-      <View pointerEvents="box-none" style={[styles.toolbar, { top: insets.top + spacing.xxs }]}>
+      <View pointerEvents="box-none" style={[styles.toolbar, { top: insets.top }]}>
         <GlassNavBubble accessibilityLabel="Back" material="frost" onPress={onClose} size="medium" testID="set-page-back">
           <NavArrowLeft
+            color={theme.colors.gray900}
+            height={glassNavBubbleGlyphSize}
+            strokeWidth={glassNavBubbleGlyphStrokeWidth}
+            width={glassNavBubbleGlyphSize}
+          />
+        </GlassNavBubble>
+        <GlassNavBubble
+          accessibilityLabel="Share set"
+          material="frost"
+          onPress={handleShare}
+          size="medium"
+          testID="set-page-share"
+        >
+          <ShareIos
             color={theme.colors.gray900}
             height={glassNavBubbleGlyphSize}
             strokeWidth={glassNavBubbleGlyphStrokeWidth}
@@ -670,17 +695,18 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: layout.pageGutter,
   },
-  // Figma 6425:3297: white band, 16 in, 10 between search and chips.
+  // Figma 6597:3820: white band, 16 in, 10 between search and chips.
   controls: {
     gap: 10,
-    marginTop: spacing.xxs,
     paddingBottom: spacing.sm,
     paddingHorizontal: layout.pageGutter,
     paddingTop: spacing.sm,
   },
+  // Logo → card 32 (Figma 6597:3837 → 6597:3931); card → band 16.
   hero: {
     alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.xxl,
+    paddingBottom: spacing.sm,
     paddingHorizontal: layout.pageGutter,
   },
   listContent: {
@@ -726,10 +752,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: layout.pageGutter,
     position: 'absolute',
     right: 0,
-  },
-  wash: {
-    left: 0,
-    position: 'absolute',
-    top: 0,
   },
 });

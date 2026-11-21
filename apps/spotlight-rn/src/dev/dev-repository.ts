@@ -619,6 +619,7 @@ const devTopMovers: TopMovers = {
 // and card art go through the image rewrite like everything else.
 export const DEV_EXPANSION_ID = 'sm7';
 export const DEV_EXPANSION_NAME = 'Celestial Storm';
+const DEV_SINGLES_RAIL_SET_ID = 'sv8pt5';
 
 function expansion(
   id: string,
@@ -855,7 +856,9 @@ function withLocalImages(
       }
       if (property === 'listCardsInExpansion') {
         return async (expansionId: string, query?: string, limit = 1000) => {
-          if (expansionId !== DEV_EXPANSION_ID) {
+          // The Search landing's SINGLES rail reads the newest set (Prismatic
+          // Evolutions here); it borrows Celestial Storm's cards so the rail draws.
+          if (expansionId !== DEV_EXPANSION_ID && expansionId !== DEV_SINGLES_RAIL_SET_ID) {
             return [];
           }
           const needle = query?.trim().toLowerCase() ?? '';

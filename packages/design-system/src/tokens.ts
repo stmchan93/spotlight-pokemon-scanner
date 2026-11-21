@@ -32,6 +32,8 @@ export const colors = {
   // Color/purple/50 from Figma — the pale lavender fill behind the SELECTED row
   // in the grade/condition picker (Figma 1664:2597). Lighter than `brand`.
   purple50: '#F7EEFF',
+  // Color/purple/100 from Figma — the set page's progress-bar track (6607:8644).
+  purple100: '#EDD9FF',
   // Color/purple/200 from Figma — the pale lilac stroke of the reticle outline,
   // at both scales (5085:15171 single card, 5085:15376 binder page), and the
   // binder's thirds grid inside it. One step lighter than purple300.
@@ -165,6 +167,10 @@ export const colors = {
   mediaPlayButton: 'rgba(255, 255, 255, 0.9)',
   // Purple mid-stop of the Search sets-list banner wash (Figma 6552:1916).
   setsBannerWash: '#875FAD',
+  // Soft first purple stop of the Search banner wash (Figma 6597:5657, at 40%).
+  setsBannerWashSoft: '#907CA3',
+  // Set page's floating progress card over the header wash (Figma 6597:3931): white 60%.
+  setHeaderCardFill: 'rgba(255, 255, 255, 0.6)',
 } as const;
 
 /**
@@ -308,6 +314,18 @@ export const shadows = {
       height: 8,
     },
     elevation: 6,
+  } satisfies ViewStyle,
+  // Even halo (Figma 6597:3931: drop shadow 0/0, blur 8 @ 10%) — the set
+  // page's progress card floating on the header wash.
+  halo: {
+    shadowColor: '#000000',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: {
+      width: 0,
+      height: 0,
+    },
+    elevation: 2,
   } satisfies ViewStyle,
 } as const;
 

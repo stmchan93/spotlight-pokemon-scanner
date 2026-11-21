@@ -15,8 +15,9 @@ type SetProgressCardProps = {
   completion: SetCompletion | null;
   /**
    * 'list' — a sets-list row (Figma 6552:1953): logo, name, date, progress.
-   * 'header' — the set page's summary (6425:3325): no logo (the page shows it
-   * large above), name in caps, plus the TOTAL VALUE line.
+   * 'header' — the set page's floating summary (Figma 6597:3931): no logo (the
+   * page shows it large above), a 20pt purple bar, then TOTAL VALUE on the
+   * left and "X of Y CARDS" on the right (no percent).
    */
   variant?: 'list' | 'header';
   logoUrl?: string | null;
@@ -71,7 +72,7 @@ export function SetProgressCard({
           </Text>
         </View>
       ) : null}
-      <View style={styles.titleRow}>
+      <View style={[styles.titleRow, isHeader && styles.headerTitleRow]}>
         {nameInLogoSlot ? (
           <View style={styles.title} />
         ) : (
@@ -79,7 +80,7 @@ export function SetProgressCard({
             numberOfLines={1}
             style={[styles.title, theme.typography.feedRowTitle, { color: theme.colors.gray900 }]}
           >
-            {isHeader ? name.toUpperCase() : name}
+            {name}
           </Text>
         )}
         {date ? (
@@ -94,7 +95,37 @@ export function SetProgressCard({
           </Text>
         ) : null}
       </View>
-      {completion ? (
+      {isHeader ? (
+        <>
+          {completion ? (
+            <ProgressBar
+              accessibilityLabel={`${completion.percent}% complete`}
+              size="lg"
+              testID={testID ? `${testID}-progress` : undefined}
+              track="accent"
+              value={completion.fraction}
+            />
+          ) : null}
+          {completion || totalValueLabel ? (
+            <View style={styles.headerFooter}>
+              {totalValueLabel ? (
+                <Text
+                  numberOfLines={1}
+                  style={[styles.title, theme.typography.overline, { color: theme.colors.gray900 }]}
+                  testID={testID ? `${testID}-total-value` : undefined}
+                >
+                  {`TOTAL VALUE: ${totalValueLabel}`}
+                </Text>
+              ) : <View />}
+              {completion ? (
+                <Text numberOfLines={1} style={[theme.typography.overline, { color: theme.colors.gray600 }]}>
+                  {completionCountLabel(completion)}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+        </>
+      ) : completion ? (
         <View style={styles.progressBlock}>
           <ProgressBar
             accessibilityLabel={`${completion.percent}% complete`}
@@ -111,21 +142,14 @@ export function SetProgressCard({
           </View>
         </View>
       ) : null}
-      {isHeader && totalValueLabel ? (
-        <Text
-          style={[theme.typography.overline, { color: theme.colors.gray900 }]}
-          testID={testID ? `${testID}-total-value` : undefined}
-        >
-          {`TOTAL VALUE: ${totalValueLabel}`}
-        </Text>
-      ) : null}
     </>
   );
 
   const containerStyle = [
     styles.card,
-    isHeader ? styles.headerCard : styles.listCard,
-    { backgroundColor: theme.colors.gray0 },
+    isHeader
+      ? [styles.headerCard, { backgroundColor: theme.colors.setHeaderCardFill }]
+      : [styles.listCard, { backgroundColor: theme.colors.gray0 }],
     style,
   ];
 
@@ -152,17 +176,28 @@ export function SetProgressCard({
 
 const styles = StyleSheet.create({
   card: {
-    borderCurve: 'continuous',
-    borderRadius: radii.lg,
     padding: spacing.md,
     width: '100%',
   },
-  // Figma 6425:3325 lifts the header off the gradient with a soft shadow.
+  // Figma 6597:3931: white 60% over the wash, radius 12, an even 8pt halo.
   headerCard: {
-    ...shadows.card,
-    gap: spacing.sm,
+    ...shadows.halo,
+    borderCurve: 'continuous',
+    borderRadius: radii.md,
+    gap: spacing.xs,
+  },
+  headerFooter: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: spacing.xxs,
+    justifyContent: 'space-between',
+  },
+  headerTitleRow: {
+    alignItems: 'center',
   },
   listCard: {
+    borderCurve: 'continuous',
+    borderRadius: radii.lg,
     gap: spacing.xs,
   },
   listLogo: {

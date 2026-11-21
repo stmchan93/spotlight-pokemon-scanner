@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { State } from 'react-native-gesture-handler';
 import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
 
@@ -12,9 +12,10 @@ import { type SetListRow } from '@/features/catalog/set-progress';
 import { renderWithProviders } from '../test-utils';
 
 /**
- * Sets list with set progress (Figma 6552:1913). Game CHIPS switch games in
- * place — they replaced the old game grid — and every set is a card with a
- * progress bar, "X of Y CARDS" and the percent, 0% sets included.
+ * Search (Figma 6597:5654). Game CHIPS switch games in place — they replaced
+ * the old game grid. The landing has SINGLES and SEALED rails and the first
+ * sets; VIEW ALL opens the full era-grouped sets list (`view="sets"`), where
+ * every set is a card with a progress bar, "X of Y CARDS" and the percent.
  */
 
 function expansion(overrides: Partial<ExpansionRecord> & { id: string; name: string }): ExpansionRecord {
@@ -83,7 +84,7 @@ describe('ExpansionBrowserScreen', () => {
     expect(screen.queryByTestId('game-sets-game-lorcana')).toBeNull();
   });
 
-  it('closes on a pull down, with the sets list locked at the top', async () => {
+  it('closes on a pull down, with the landing locked at the top', async () => {
     mockListExpansions();
     const onClose = jest.fn();
     renderWithProviders(
@@ -91,7 +92,7 @@ describe('ExpansionBrowserScreen', () => {
     );
     await screen.findByTestId('game-sets-expansion-sv8');
     expect(screen.getByTestId('game-sets-pull-down')).toBeTruthy();
-    expect(screen.getByTestId('game-sets-list').props.bounces).toBe(false);
+    expect(screen.getByTestId('game-sets-landing').props.bounces).toBe(false);
 
     fireGestureHandler(getByGestureTestId('pull-down-to-dismiss'), [
       { state: State.BEGAN, translationY: 0, velocityY: 0 },
@@ -110,13 +111,13 @@ describe('GameSetsScreen', () => {
   it('a side-pushed set list keeps its normal scroll bounce', async () => {
     mockListExpansions();
     renderWithProviders(
-      <GameSetsScreen game="pokemon" onClose={jest.fn()} onOpenCard={jest.fn()} onSelectExpansion={jest.fn()} />,
+      <GameSetsScreen game="pokemon" onClose={jest.fn()} onOpenCard={jest.fn()} onSelectExpansion={jest.fn()} view="sets" />,
     );
     await screen.findByTestId('game-sets-expansion-sv8');
     expect(screen.getByTestId('game-sets-list').props.bounces).toBeUndefined();
   });
 
-  it('lists every set newest first with its progress, 0% sets included', async () => {
+  it('VIEW ALL sets lists every set newest first with its progress, 0% sets included', async () => {
     mockListExpansions();
 
     renderWithProviders(
@@ -125,6 +126,7 @@ describe('GameSetsScreen', () => {
         onClose={jest.fn()}
         onOpenCard={jest.fn()}
         onSelectExpansion={jest.fn()}
+        view="sets"
       />,
     );
 
@@ -170,7 +172,7 @@ describe('GameSetsScreen', () => {
     const { rerender } = renderWithProviders(
       <GameSetsScreen game="pokemon" onClose={jest.fn()} onOpenCard={jest.fn()} onSelectExpansion={jest.fn()} />,
     );
-    await screen.findByTestId('game-sets-list');
+    await screen.findByTestId('game-sets-landing');
     expect(screen.queryByTestId('game-sets-assistant')).toBeNull();
 
     rerender(
@@ -268,16 +270,16 @@ describe('GameSetsScreen', () => {
         onSelectExpansion={jest.fn()}
       />,
     );
-    expect(await screen.findByTestId('game-sets-list')).toBeTruthy();
+    expect(await screen.findByTestId('game-sets-landing')).toBeTruthy();
 
     fireEvent.changeText(
       screen.getByPlaceholderText(/search card/i),
       'maui',
     );
-    // One list at a time: the sets are what you browse, the results are what
-    // you asked for.
+    // One list at a time: the landing is what you browse, the results are
+    // what you asked for.
     expect(await screen.findByTestId('game-sets-results')).toBeTruthy();
-    expect(screen.queryByTestId('game-sets-list')).toBeNull();
+    expect(screen.queryByTestId('game-sets-landing')).toBeNull();
   });
 
   it('keeps the same search field mounted when the results replace the sets', async () => {
@@ -307,7 +309,7 @@ describe('GameSetsScreen', () => {
 
     const field = await screen.findByTestId('game-sets-search');
     fireEvent.changeText(field, 'lu');
-    await waitFor(() => expect(screen.queryByTestId('game-sets-list')).not.toBeOnTheScreen());
+    await waitFor(() => expect(screen.queryByTestId('game-sets-landing')).not.toBeOnTheScreen());
 
     expect(screen.getByTestId('game-sets-search')).toBe(field);
   });
@@ -426,7 +428,7 @@ describe('GameSetsScreen era grouping', () => {
     ]);
 
     renderWithProviders(
-      <GameSetsScreen game="pokemon" onClose={jest.fn()} onOpenCard={jest.fn()} onSelectExpansion={jest.fn()} />,
+      <GameSetsScreen game="pokemon" onClose={jest.fn()} onOpenCard={jest.fn()} onSelectExpansion={jest.fn()} view="sets" />,
     );
 
     const list = await screen.findByTestId('game-sets-list');
@@ -466,5 +468,151 @@ describe('GameSetsScreen era grouping', () => {
     );
     const close = await screen.findByTestId('game-sets-back');
     expect(close.props.accessibilityLabel).toBe('Close');
+  });
+});
+
+describe('GameSetsScreen Search landing (Figma 6597:5654)', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  function card(id: string, name: string, marketPrice: number | null) {
+    return {
+      id,
+      cardId: id,
+      name,
+      cardNumber: `#${id}/252`,
+      setName: 'Surging Sparks',
+      marketPrice,
+      currencyCode: 'USD',
+      game: 'pokemon',
+    } as never;
+  }
+
+  const BOX = {
+    id: 'tcgp-sealed-1',
+    cardId: 'tcgp-sealed-1',
+    name: 'Surging Sparks Booster Box',
+    cardNumber: '',
+    setName: 'Surging Sparks',
+    productKind: 'sealed',
+    sealedProductType: 'Booster Box',
+    marketPrice: 160,
+    currencyCode: 'USD',
+    game: 'pokemon',
+  } as never;
+
+  function mockRails(cardsBySet: Record<string, never[]> = { sv8: [card('001', 'Pichu', 0.5), card('238', 'Pikachu ex', 120), card('100', 'Unpriced', null)] }) {
+    mockListExpansions();
+    const listCards = jest
+      .spyOn(MockSpotlightRepository.prototype, 'listCardsInExpansion')
+      .mockImplementation(async (expansionId: string) => cardsBySet[expansionId] ?? []);
+    const searchPage = jest
+      .spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
+      .mockImplementation(async (_query, _limit, _offset, options) => (
+        options?.kind === 'sealed' ? { cards: [BOX], hasMore: false } : { cards: [], hasMore: false }
+      ));
+    return { listCards, searchPage };
+  }
+
+  function renderLanding(props: Partial<Parameters<typeof GameSetsScreen>[0]> = {}) {
+    const handlers = {
+      onOpenCard: jest.fn(),
+      onSelectExpansion: jest.fn(),
+      onViewAll: jest.fn(),
+    };
+    renderWithProviders(
+      <GameSetsScreen game="pokemon" onClose={jest.fn()} {...handlers} {...props} />,
+    );
+    return handlers;
+  }
+
+  it('shows SINGLES from the newest English set, priciest first, with the game\'s card count', async () => {
+    const { listCards } = mockRails();
+    const { onOpenCard, onSelectExpansion } = renderLanding();
+
+    expect(await screen.findByTestId('game-sets-singles')).toBeTruthy();
+    expect(listCards).toHaveBeenCalledWith('sv8', '', 1000, 'pokemon');
+    // 252 + 0 + 183 cards across the game's sets.
+    expect(screen.getByTestId('game-sets-singles-header-count')).toHaveTextContent('(435 RESULTS)');
+    const tiles = screen.getByTestId('game-sets-singles');
+    expect(within(tiles).getAllByText(/Pichu|Pikachu ex|Unpriced/).map((node) => node.props.children)).toEqual([
+      'Pikachu ex',
+      'Pichu',
+      'Unpriced',
+    ]);
+    expect(screen.getByText('238/252 · Surging Sparks')).toBeTruthy();
+    expect(screen.getByTestId('game-sets-singles-238-price')).toHaveTextContent('$120.00');
+    expect(screen.queryByTestId('game-sets-singles-100-price')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('game-sets-singles-238'));
+    expect(onOpenCard).toHaveBeenCalledWith(expect.objectContaining({ cardId: '238' }));
+
+    // VIEW ALL opens the set the rail came from.
+    fireEvent.press(screen.getByTestId('game-sets-singles-header-view-all'));
+    expect(onSelectExpansion).toHaveBeenCalledWith(expect.objectContaining({ id: 'sv8' }), 'pokemon');
+  });
+
+  it('falls through to the next set when the newest has no cards yet', async () => {
+    const { listCards } = mockRails({ sm7: [card('109', 'Rayquaza GX', 6.4)] });
+    renderLanding();
+
+    expect(await screen.findByText('Rayquaza GX')).toBeTruthy();
+    expect(listCards).toHaveBeenCalledWith('sv8', '', 1000, 'pokemon');
+    expect(listCards).toHaveBeenCalledWith('sm7', '', 1000, 'pokemon');
+  });
+
+  it('shows the game\'s SEALED product with no query; VIEW ALL opens the sealed list', async () => {
+    const { searchPage } = mockRails();
+    const { onViewAll } = renderLanding();
+
+    expect(await screen.findByTestId('game-sets-sealed-rail')).toBeTruthy();
+    expect(searchPage).toHaveBeenCalledWith('', expect.any(Number), 0, { game: 'pokemon', kind: 'sealed' });
+    expect(screen.getByText('Surging Sparks Booster Box')).toBeTruthy();
+    // No game-level sealed total exists, so no count.
+    expect(screen.queryByTestId('game-sets-sealed-header-count')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('game-sets-sealed-header-view-all'));
+    expect(onViewAll).toHaveBeenCalledWith('sealed', 'pokemon');
+  });
+
+  it('shows the first sets with TOTAL VALUE and the percent in the bar; VIEW ALL opens every set', async () => {
+    mockSetProgress();
+    jest.spyOn(MockSpotlightRepository.prototype, 'listExpansions').mockImplementation(async () => [
+      expansion({ id: 's1', name: 'Delta Reign', releaseDate: '2026-05-22', cardCount: 120, setValue: 1012.78 }),
+      expansion({ id: 's2', name: 'Two', releaseDate: '2026-03-01', cardCount: 100 }),
+      expansion({ id: 's3', name: 'Three', releaseDate: '2026-01-01', cardCount: 100 }),
+      expansion({ id: 's4', name: 'Four', releaseDate: '2025-11-01', cardCount: 100 }),
+    ]);
+    jest.spyOn(MockSpotlightRepository.prototype, 'getSetProgress').mockResolvedValue({
+      game: 'pokemon',
+      sets: [{ expansionId: 's1', ownedCount: 54 }],
+    });
+    const { onViewAll } = renderLanding();
+
+    const first = await screen.findByTestId('game-sets-expansion-s1');
+    expect(screen.getByTestId('game-sets-sets-header-count')).toHaveTextContent('(4 RESULTS)');
+    expect(within(first).getByText('5/22/2026')).toBeTruthy();
+    expect(await within(first).findByText('54 of 120 CARDS')).toBeTruthy();
+    expect(screen.getByTestId('game-sets-expansion-s1-percent')).toHaveTextContent('45%');
+    expect(screen.getByTestId('game-sets-expansion-s1-total-value')).toHaveTextContent('TOTAL VALUE: $1,012.78');
+    // An unvalued set hides the line rather than reading $0.
+    expect(screen.queryByTestId('game-sets-expansion-s2-total-value')).toBeNull();
+    // Three on the landing; the rest are behind VIEW ALL.
+    expect(screen.getByTestId('game-sets-expansion-s3')).toBeTruthy();
+    expect(screen.queryByTestId('game-sets-expansion-s4')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('game-sets-sets-header-view-all'));
+    expect(onViewAll).toHaveBeenCalledWith('sets', 'pokemon');
+  });
+
+  it('VIEW ALL sealed pages through every sealed product of the game', async () => {
+    const { searchPage } = mockRails();
+    renderLanding({ view: 'sealed' });
+
+    expect(await screen.findByTestId('game-sets-sealed-list')).toBeTruthy();
+    expect(searchPage).toHaveBeenCalledWith('', expect.any(Number), 0, { game: 'pokemon', kind: 'sealed' });
+    expect(screen.getByText('Surging Sparks Booster Box')).toBeTruthy();
+    expect(screen.queryByTestId('game-sets-landing')).toBeNull();
   });
 });

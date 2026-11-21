@@ -121,6 +121,8 @@ export type CatalogResultsGridProps = {
    * whole list rather than only the new rows.
    */
   showGameTags?: boolean;
+  /** Tile art shape: `square` for a sealed-only list. */
+  artAspect?: 'square' | 'card';
   /** Scrolls with the rows, above the first one (the sealed row on search). */
   header?: ReactElement | null;
   /** Scrolls with the rows, below the last one (sealed on the Search landing). */
@@ -140,6 +142,7 @@ export function CatalogResultsGrid({
   isLoadingMore = false,
   onEndReached,
   showGameTags = false,
+  artAspect = 'card',
   header = null,
   footer = null,
   scrollProps,
@@ -170,6 +173,7 @@ export function CatalogResultsGrid({
         <View style={styles.gridRow}>
           {row.map((result) => (
             <SearchResultTile
+              artAspect={artAspect}
               key={result.id}
               onPress={() => {
                 if (openingResultId === result.id) {

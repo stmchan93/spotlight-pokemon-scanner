@@ -210,7 +210,7 @@ const devScreens: Record<string, () => ReactElement> = {
   'catalog-search': () => (
     <CatalogSearchScreen initialQuery="Treecko" onClose={noop} onOpenCard={noop} onSelectGame={noop} />
   ),
-  // Sets list with progress (Figma 6552:1913): 100% (151), partial, and 0% sets.
+  // Search landing (Figma 6597:5654): SINGLES + SEALED rails, the first three sets with progress.
   'expansion-browser': () => (
     <ExpansionBrowserScreen onClose={noop} onOpenAssistant={noop} onOpenCard={noop} onSelectExpansion={noop} />
   ),

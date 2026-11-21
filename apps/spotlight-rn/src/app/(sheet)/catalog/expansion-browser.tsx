@@ -24,6 +24,10 @@ export default function ExpansionBrowserRoute() {
           },
         });
       }}
+      onViewAll={(section, selectedGame) => {
+        // A pushed route, so back-swipe returns to the landing.
+        router.push({ pathname: '/catalog/game/[game]', params: { game: selectedGame, view: section } });
+      }}
       onSelectExpansion={(expansion, selectedGame) => {
         router.push({
           pathname: '/catalog/expansion/[expansionId]',

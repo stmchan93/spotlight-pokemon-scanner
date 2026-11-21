@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { Share, StyleSheet } from 'react-native';
 
 import {
   MockSpotlightRepository,
@@ -9,6 +9,7 @@ import {
   type InventoryEntryCreateResponsePayload,
 } from '@spotlight/api-client';
 import { ownedBadgeLabel } from '@/features/catalog/components/set-card-tile';
+import { pickSetPageAccent } from '@/features/catalog/hooks/use-set-page-accent';
 import { ExpansionDetailScreen } from '@/features/catalog/screens/expansion-detail-screen';
 
 import { renderWithProviders } from '../test-utils';
@@ -159,10 +160,14 @@ describe('ExpansionDetailScreen (set page)', () => {
 
     expect(listCards).toHaveBeenCalledWith('dri', '', 1000, 'pokemon');
     const header = screen.getByTestId('set-page-header');
-    expect(within(header).getByText('DELTA REIGN')).toBeTruthy();
+    // Figma 6597:3931: name as written, date, a 20pt bar, value + "X of Y CARDS" (no percent text).
+    expect(within(header).getByText('Delta Reign')).toBeTruthy();
     expect(within(header).getByText('5/22/2026')).toBeTruthy();
     expect(within(header).getByText('2 of 3 CARDS')).toBeTruthy();
-    expect(within(header).getByText('67%')).toBeTruthy();
+    expect(within(header).queryByText('67%')).toBeNull();
+    const bar = screen.getByTestId('set-page-header-progress');
+    expect(bar.props.accessibilityLabel).toBe('67% complete');
+    expect(StyleSheet.flatten(bar.props.style)).toMatchObject({ height: 20, borderRadius: 8 });
     expect(screen.getByText('#121/120')).toBeTruthy();
     // Price under the number, USD; an unpriced card has no price line.
     expect(screen.getByTestId('set-card-gengar-price').props.children).toBe('$1.50');
@@ -187,8 +192,20 @@ describe('ExpansionDetailScreen (set page)', () => {
     const gengarBadge = screen.getByTestId('set-card-gengar-owned-badge');
     expect(within(gengarBadge).queryByText('Gengar')).toBeNull();
     expect(StyleSheet.flatten(gengarBadge.props.style)).toMatchObject({ position: 'absolute', borderCurve: 'continuous' });
-    // − is off at zero; + is always on.
+    // Unowned reads "QTY: 0": − is off at zero; + is always on.
+    expect(qty('mew')).toBe('QTY: 0');
     expect(screen.getByTestId('set-card-mew-stepper-decrement').props.accessibilityState).toMatchObject({ disabled: true });
+    expect(screen.getByTestId('set-card-mew-stepper-increment').props.accessibilityState).toMatchObject({ disabled: false });
+  });
+
+  it('shares the set from the toolbar beside Back', async () => {
+    mockSet();
+    const share = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
+    await renderSet();
+
+    expect(screen.getByTestId('set-page-back')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('set-page-share'));
+    expect(share).toHaveBeenCalledWith({ message: 'Delta Reign on Ekalight\nI have 2 of 3 cards' });
   });
 
   it('shows ALL plus only the rarity chips this set has, and filters by them', async () => {
@@ -222,7 +239,7 @@ describe('ExpansionDetailScreen (set page)', () => {
     // Tile and header move before the server answers.
     expect(qty('mew')).toBe('QTY: 1');
     expect(screen.getByText('3 of 3 CARDS')).toBeTruthy();
-    expect(screen.getByText('100%')).toBeTruthy();
+    expect(screen.getByTestId('set-page-header-progress').props.accessibilityLabel).toBe('100% complete');
     expect(screen.getByTestId('set-card-mew-owned-check')).toBeTruthy();
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
       cardID: 'mew',
@@ -378,5 +395,19 @@ describe('ownedBadgeLabel', () => {
     expect(ownedBadgeLabel(0)).toBeNull();
     expect(ownedBadgeLabel(1)).toBe('✓');
     expect(ownedBadgeLabel(3)).toBe('×3');
+  });
+});
+
+describe('pickSetPageAccent', () => {
+  it('takes the first vivid, mid-light logo colour', () => {
+    expect(pickSetPageAccent({ vibrant: '#ffb005', primary: '#1A4A5A' })).toBe('#FFB005');
+    // iOS: dark primary skipped, the coloured secondary wins; background is never used.
+    expect(pickSetPageAccent({ background: '#E53935', primary: '#101010', secondary: '#E53935' })).toBe('#E53935');
+  });
+
+  it('is null when no colour can carry the wash (grays, near-white, near-black, junk)', () => {
+    expect(pickSetPageAccent({ primary: '#1A4A5A', secondary: '#6D8C96', detail: '#FFFFFF' })).toBeNull();
+    expect(pickSetPageAccent({ vibrant: 'transparent' })).toBeNull();
+    expect(pickSetPageAccent(null)).toBeNull();
   });
 });
