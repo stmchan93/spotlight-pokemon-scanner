@@ -17,6 +17,7 @@ import {
   scanProximity,
   subscribeTabLanding,
   swipeDirectionFromDx,
+  guestBlockedPages,
 } from '@/lib/tab-pager';
 
 describe('tab pager order and route <-> page mapping', () => {
@@ -176,5 +177,13 @@ describe('isPageLive (camera / data-load gating)', () => {
 
   it('is not live under a pushed stack screen', () => {
     expect(isPageLive({ ...base, parentFocused: false })).toBe(false);
+  });
+});
+
+describe('guest tabs', () => {
+  it('lets guests open Scan and Events only', () => {
+    const blocked = guestBlockedPages(true);
+    expect(TAB_PAGER_ORDER.filter((_, page) => !blocked[page])).toEqual(['scan', 'events']);
+    expect(guestBlockedPages(false).every((value) => !value)).toBe(true);
   });
 });
