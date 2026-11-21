@@ -22,9 +22,9 @@ const COMPACT_CHART_HEIGHT = 120;
 const DELTA_TRIANGLE_SIZE = 7;
 const CHEVRON_SIZE = 16;
 // Card art in the header: replaces the lone tile under a one-card chart answer.
-const THUMB_WIDTH = 40;
-const THUMB_HEIGHT = 56;
-const THUMB_RADIUS = 3;
+const THUMB_WIDTH = 64;
+const THUMB_HEIGHT = 89;
+const THUMB_RADIUS = 4;
 
 const rangeMap: Record<AssistantChartRange, PriceChartRange> = { '30d': '1M', '90d': '3M', '1y': '1Y' };
 const rangeCaption: Record<AssistantChartRange, string> = {
@@ -40,7 +40,7 @@ export function assistantRangeCaption(range: AssistantChartRange): string {
 /** "NM · Past 3 months", "PSA 10 · Reverse Holofoil · Past year". */
 export function assistantChartSeriesLabel(chart: AssistantPriceChart): string {
   const lane = chart.grader ? [chart.grader, chart.grade].filter(Boolean).join(' ') : chart.condition ?? 'NM';
-  return [lane, chart.variant, rangeCaption[chart.range]].filter(Boolean).join(' · ');
+  return [lane, chart.variant, assistantChartPeriodLabel(chart)].filter(Boolean).join(' · ');
 }
 
 /**
@@ -64,7 +64,32 @@ export function buildAssistantChartModel(chart: AssistantPriceChart): PriceChart
     nowMs: latest.t,
     currencyCode: 'USD',
   });
-  return model && !model.insufficient ? model : null;
+  if (!model || model.insufficient) {
+    return null;
+  }
+  // A card younger than the range (a new promo on "Past year") fills the card from
+  // its first price instead of sitting squashed against the right edge.
+  const first = model.points[0];
+  return first && first.t > model.windowStartMs ? { ...model, windowStartMs: first.t } : model;
+}
+
+const RANGE_DAYS: Record<AssistantChartRange, number> = { '30d': 30, '90d': 90, '1y': 365 };
+const DAY_MS = 86_400_000;
+/** History shorter than the range by more than this reads "Since Oct 7", not "Past year". */
+const SHORT_HISTORY_SLACK_DAYS = 7;
+
+/** "Past 3 months", or "Since Oct 7" when the card's prices start later than that. */
+export function assistantChartPeriodLabel(chart: AssistantPriceChart): string {
+  const days = chart.points
+    .map((point) => parseCalendarDayMs(point.date))
+    .filter((t): t is number => t != null)
+    .sort((a, b) => a - b);
+  const first = days[0];
+  const last = days[days.length - 1];
+  if (first != null && last != null && last - first < (RANGE_DAYS[chart.range] - SHORT_HISTORY_SLACK_DAYS) * DAY_MS) {
+    return `Since ${formatChartDate(first, last)}`;
+  }
+  return rangeCaption[chart.range];
 }
 
 type AssistantPriceChartCardProps = {
