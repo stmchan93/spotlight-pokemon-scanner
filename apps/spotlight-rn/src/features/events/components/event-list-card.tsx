@@ -22,7 +22,8 @@ type EventListCardProps = {
   event: SpotlightEvent;
   saved: boolean;
   onPress: () => void;
-  onToggleSaved: () => void;
+  /** Absent = no save heart (guests). */
+  onToggleSaved?: () => void;
 };
 
 /** One show in the Events list (Figma 5865:9373). Copy renders uppercase, as drawn. */
@@ -68,21 +69,23 @@ export function EventListCard({ event, saved, onPress, onToggleSaved }: EventLis
           </Text>
         </View>
       </View>
-      <Pressable
-        accessibilityLabel={saved ? `Remove ${event.shortTitle} from saved events` : `Save ${event.shortTitle}`}
-        accessibilityRole="button"
-        accessibilityState={{ selected: saved }}
-        hitSlop={spacing.xs}
-        onPress={onToggleSaved}
-        style={styles.heart}
-        testID={`event-card-${event.id}-save`}
-      >
-        {saved ? (
-          <HeartSolid color={theme.colors.red500} height={HEART_SIZE} width={HEART_SIZE} />
-        ) : (
-          <Heart color={theme.colors.gray900} height={HEART_SIZE} strokeWidth={1.5} width={HEART_SIZE} />
-        )}
-      </Pressable>
+      {onToggleSaved ? (
+        <Pressable
+          accessibilityLabel={saved ? `Remove ${event.shortTitle} from saved events` : `Save ${event.shortTitle}`}
+          accessibilityRole="button"
+          accessibilityState={{ selected: saved }}
+          hitSlop={spacing.xs}
+          onPress={onToggleSaved}
+          style={styles.heart}
+          testID={`event-card-${event.id}-save`}
+        >
+          {saved ? (
+            <HeartSolid color={theme.colors.red500} height={HEART_SIZE} width={HEART_SIZE} />
+          ) : (
+            <Heart color={theme.colors.gray900} height={HEART_SIZE} strokeWidth={1.5} width={HEART_SIZE} />
+          )}
+        </Pressable>
+      ) : null}
     </Pressable>
   );
 }

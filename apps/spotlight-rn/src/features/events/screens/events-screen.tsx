@@ -104,9 +104,11 @@ export function EventsScreen() {
   const { openDrawer } = useAppDrawer();
   const { events, failed, refresh } = useSpotlightEvents();
   const { isSaved, savedIds, toggle } = useSavedEvents();
-  // Guests browse and open shows; saving and sharing ask for an account.
-  const { gate } = useGuestGate();
-  const [tab, setTab] = useState<EventsTab>('events');
+  // Guests see only the upcoming list and open shows (owner, 2026-11-21): no drawer,
+  // search, share, Saved/Past tabs or save hearts.
+  const { isGuest } = useGuestGate();
+  const [selectedTab, setTab] = useState<EventsTab>('events');
+  const tab: EventsTab = isGuest ? 'events' : selectedTab;
   const [region, setRegion] = useState<string>(ALL_REGIONS);
   const [searchOpen, setSearchOpen] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
@@ -183,7 +185,7 @@ export function EventsScreen() {
       key={event.id}
       event={event}
       onPress={onPress}
-      onToggleSaved={gate(() => toggle(event.id))}
+      onToggleSaved={isGuest ? undefined : () => toggle(event.id)}
       saved={isSaved(event.id)}
     />
   );
@@ -279,32 +281,34 @@ export function EventsScreen() {
             ]}
           />
           {/* Figma 5865:9334 — the chip row floats on the photo, just above the sheet. */}
-          <PageSwipeGuard style={[styles.chipRow, { top: chipRowTop }]}>
-          <ScrollView
-            contentContainerStyle={[styles.chips, { paddingHorizontal: gutter }]}
-            horizontal
-            keyboardShouldPersistTaps="handled"
-            showsHorizontalScrollIndicator={false}
-            testID="events-tabs"
-          >
-            {TABS.map((item) => {
-              const selected = item.value === tab;
-              return (
-                <PillButton
-                  key={item.value}
-                  label={item.label.toUpperCase()}
-                  // One chip style app-wide (Figma 5938:13960; user 2026-11-16), so the
-                  // idle chip is gray-100 here too, not the photo's former gray-50.
-                  labelRole="caption"
-                  onPress={() => setTab(item.value)}
-                  selected={selected}
-                  testID={`events-tabs-tab-${item.value}`}
-                  tone="filled"
-                />
-              );
-            })}
-          </ScrollView>
-          </PageSwipeGuard>
+          {isGuest ? null : (
+            <PageSwipeGuard style={[styles.chipRow, { top: chipRowTop }]}>
+            <ScrollView
+              contentContainerStyle={[styles.chips, { paddingHorizontal: gutter }]}
+              horizontal
+              keyboardShouldPersistTaps="handled"
+              showsHorizontalScrollIndicator={false}
+              testID="events-tabs"
+            >
+              {TABS.map((item) => {
+                const selected = item.value === tab;
+                return (
+                  <PillButton
+                    key={item.value}
+                    label={item.label.toUpperCase()}
+                    // One chip style app-wide (Figma 5938:13960; user 2026-11-16), so the
+                    // idle chip is gray-100 here too, not the photo's former gray-50.
+                    labelRole="caption"
+                    onPress={() => setTab(item.value)}
+                    selected={selected}
+                    testID={`events-tabs-tab-${item.value}`}
+                    tone="filled"
+                  />
+                );
+              })}
+            </ScrollView>
+            </PageSwipeGuard>
+          )}
         </View>
 
         <View style={[styles.sheet, { backgroundColor: theme.colors.gray0 }]}>
@@ -359,48 +363,52 @@ export function EventsScreen() {
 
       {/* Fixed chrome over the photo, so the drawer stays one tap away. */}
       <View pointerEvents="box-none" style={[styles.toolbar, { paddingHorizontal: gutter, top: insets.top }]}>
-        <GlassNavBubble accessibilityLabel="Open menu" material="frost" onPress={openDrawer} size="medium" testID="events-menu">
-          <Menu
-            color={theme.colors.gray900}
-            height={glassNavBubbleGlyphSize}
-            strokeWidth={glassNavBubbleGlyphStrokeWidth}
-            width={glassNavBubbleGlyphSize}
-          />
-        </GlassNavBubble>
-        <GlassNavBubbleGroup
-          items={[
-            // Search sits on the right with the other icons (user, 2026-11-18).
-            {
-              accessibilityLabel: searchOpen ? 'Close search' : 'Search events',
-              children: (
-                <Search
-                  color={theme.colors.gray900}
-                  height={glassNavBubbleGlyphSize}
-                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                  width={glassNavBubbleGlyphSize}
-                />
-              ),
-              onPress: toggleSearch,
-              testID: 'events-search',
-            },
-            {
-              accessibilityLabel: 'Share events',
-              children: (
-                <ShareIos
-                  color={theme.colors.gray900}
-                  height={glassNavBubbleGlyphSize}
-                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                  width={glassNavBubbleGlyphSize}
-                />
-              ),
-              onPress: gate(handleShare),
-              testID: 'events-share',
-            },
-          ]}
-          material="frost"
-          size="medium"
-          testID="events-actions"
-        />
+        {isGuest ? null : (
+          <>
+            <GlassNavBubble accessibilityLabel="Open menu" material="frost" onPress={openDrawer} size="medium" testID="events-menu">
+              <Menu
+                color={theme.colors.gray900}
+                height={glassNavBubbleGlyphSize}
+                strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                width={glassNavBubbleGlyphSize}
+              />
+            </GlassNavBubble>
+            <GlassNavBubbleGroup
+              items={[
+                // Search sits on the right with the other icons (user, 2026-11-18).
+                {
+                  accessibilityLabel: searchOpen ? 'Close search' : 'Search events',
+                  children: (
+                    <Search
+                      color={theme.colors.gray900}
+                      height={glassNavBubbleGlyphSize}
+                      strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                      width={glassNavBubbleGlyphSize}
+                    />
+                  ),
+                  onPress: toggleSearch,
+                  testID: 'events-search',
+                },
+                {
+                  accessibilityLabel: 'Share events',
+                  children: (
+                    <ShareIos
+                      color={theme.colors.gray900}
+                      height={glassNavBubbleGlyphSize}
+                      strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                      width={glassNavBubbleGlyphSize}
+                    />
+                  ),
+                  onPress: handleShare,
+                  testID: 'events-share',
+                },
+              ]}
+              material="frost"
+              size="medium"
+              testID="events-actions"
+            />
+          </>
+        )}
       </View>
     </View>
   );

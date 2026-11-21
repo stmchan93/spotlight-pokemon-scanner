@@ -119,8 +119,8 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const { event, failed, refresh } = useSpotlightEvent(eventId);
   const { isSaved, toggle } = useSavedEvents();
-  // Guests may browse the page, the map, filters and vendors; every other tap here asks for an account.
-  const { gate } = useGuestGate();
+  // Guests only look at the event and its map (owner, 2026-11-21): no Feed, save or share; the address asks for an account.
+  const { gate, isGuest } = useGuestGate();
   const scrollRef = useRef<ScrollView>(null);
   const saved = isSaved(eventId);
   const accent = event?.accentColor ?? theme.colors.eventAccent;
@@ -162,7 +162,8 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
   // Booth stories: photo posts from the last day. Images stream with a bearer token only.
   const router = useRouter();
   const { accessToken } = useAuth();
-  const canShowStories = Boolean(accessToken && resolveRepositoryBaseUrl());
+  // Not for guests: a story opens login, and they only look at the map.
+  const canShowStories = Boolean(!isGuest && accessToken && resolveRepositoryBaseUrl());
   const { seenPostIds } = useSeenBoothPosts();
   const stories = useMemo(
     () => (canShowStories && map ? buildBoothStories(booth.posts, new Set(vendorIds ?? [])) : []),
@@ -199,7 +200,7 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
     [eventId, selectOnMap],
   );
   const feedRef = useRef<EventFeedHandle>(null);
-  const feedVisible = showArea === 'feed' || !event?.floorMapUrl;
+  const feedVisible = !isGuest && (showArea === 'feed' || !event?.floorMapUrl);
   // Mounted on first visit and kept, so switching tabs neither refetches nor collapses the page.
   const [feedMounted, setFeedMounted] = useState(feedVisible);
   useEffect(() => {
@@ -325,7 +326,7 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
         {/* Map | Feed: the floor (vendors, booth photos) or every post tagged to the show. */}
         <View style={styles.showArea}>
           <BoothLiveTicker items={tickerItems} onSelectVendor={selectOnMap} />
-          {event.floorMapUrl ? (
+          {isGuest ? null : event.floorMapUrl ? (
             <SegmentedControl
               items={SHOW_AREA_ITEMS}
               onChange={setShowArea}
@@ -439,42 +440,44 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
             width={glassNavBubbleGlyphSize}
           />
         </GlassNavBubble>
-        <GlassNavBubbleGroup
-          items={[
-            {
-              accessibilityLabel: saved ? 'Remove from saved events' : 'Save event',
-              children: saved ? (
-                <HeartSolid color={theme.colors.red500} height={glassNavBubbleGlyphSize} width={glassNavBubbleGlyphSize} />
-              ) : (
-                <Heart
-                  color={theme.colors.gray900}
-                  height={glassNavBubbleGlyphSize}
-                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                  width={glassNavBubbleGlyphSize}
-                />
-              ),
-              onPress: gate(() => toggle(eventId)),
-              testID: 'event-detail-save',
-            },
-            {
-              accessibilityLabel: 'Share event',
-              children: (
-                <ShareIos
-                  color={theme.colors.gray900}
-                  height={glassNavBubbleGlyphSize}
-                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                  width={glassNavBubbleGlyphSize}
-                />
-              ),
-              disabled: !event,
-              onPress: gate(handleShare),
-              testID: 'event-detail-share',
-            },
-          ]}
-          material="frost"
-          size="medium"
-          testID="event-detail-actions"
-        />
+        {isGuest ? null : (
+          <GlassNavBubbleGroup
+            items={[
+              {
+                accessibilityLabel: saved ? 'Remove from saved events' : 'Save event',
+                children: saved ? (
+                  <HeartSolid color={theme.colors.red500} height={glassNavBubbleGlyphSize} width={glassNavBubbleGlyphSize} />
+                ) : (
+                  <Heart
+                    color={theme.colors.gray900}
+                    height={glassNavBubbleGlyphSize}
+                    strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                    width={glassNavBubbleGlyphSize}
+                  />
+                ),
+                onPress: () => toggle(eventId),
+                testID: 'event-detail-save',
+              },
+              {
+                accessibilityLabel: 'Share event',
+                children: (
+                  <ShareIos
+                    color={theme.colors.gray900}
+                    height={glassNavBubbleGlyphSize}
+                    strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                    width={glassNavBubbleGlyphSize}
+                  />
+                ),
+                disabled: !event,
+                onPress: handleShare,
+                testID: 'event-detail-share',
+              },
+            ]}
+            material="frost"
+            size="medium"
+            testID="event-detail-actions"
+          />
+        )}
       </View>
 
       {canBuy && event?.ticketUrl ? (

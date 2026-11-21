@@ -1,7 +1,10 @@
 /**
- * What a guest may do on Events (owner rule, 2026-11-21): view the floor map,
- * filter the vendors, tap a vendor on the map to see who it is, and open a
- * vendor in the list. Everything else opens the login page and writes nothing.
+ * What a guest sees on Events (owner rule, 2026-11-21): the event and its map,
+ * nothing more. Event info, the vendor list (scroll only), filter chips and
+ * search, the floor map, and a map pick shows the vendor's name. No Feed
+ * switch, claim link, save or share; vendor rows don't open; the map card has
+ * no actions. Buy Tickets opens without login; the Maps address opens login.
+ * Signed-in users keep everything.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
@@ -9,21 +12,14 @@ import { Linking, Share } from 'react-native';
 
 import { mockSpotlightEventMap, type SpotlightEventsFeed } from '@spotlight/api-client';
 import type { BoothClaim, BoothPost } from '@/features/events/booth-service';
-import {
-  claimBooth,
-  fetchBoothClaims,
-  fetchBoothPosts,
-  recordBoothEvent,
-  reportBoothClaim,
-} from '@/features/events/booth-service';
+import { fetchBoothClaims, fetchBoothPosts, recordBoothEvent } from '@/features/events/booth-service';
 import { resetBoothStoriesForTests } from '@/features/events/booth-stories-store';
 import { resetPostEventLabelReadsForTests } from '@/features/events/hooks/use-post-event-label';
 import { resetSavedEventsForTests } from '@/features/events/saved-events-store';
+import { EventFeed } from '@/features/events/components/event-feed';
 import { EventDetailScreen } from '@/features/events/screens/event-detail-screen';
 import { EventsScreen } from '@/features/events/screens/events-screen';
 import { openLinkOut } from '@/features/meta-feed/screens/components/open-link-out';
-import { followUser } from '@/features/profile/profile-service';
-import { findOrCreateDm } from '@/features/social/dm-service';
 import {
   addComment,
   fetchEventPosts,
@@ -49,15 +45,16 @@ jest.mock('expo-router', () => {
   };
 });
 
-// A minted anonymous guest: an id and a token, but `isGuest`.
+// A minted anonymous guest by default: an id and a token, but `isGuest`.
+let mockIsGuest = true;
 jest.mock('@/providers/auth-provider', () => ({
   ...jest.requireActual('@/providers/auth-provider'),
   useAuth: () => ({
-    accessToken: 'guest-token',
+    accessToken: mockIsGuest ? 'guest-token' : 'user-token',
     applyFollowingDelta: jest.fn(),
-    currentUser: { id: 'guest-anon' },
+    currentUser: { id: mockIsGuest ? 'guest-anon' : 'user-1' },
     ensureGuestSession: jest.fn(),
-    isGuest: true,
+    isGuest: mockIsGuest,
   }),
 }));
 
@@ -203,6 +200,7 @@ function expectLoginOnly() {
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  mockIsGuest = true;
   resetSavedEventsForTests();
   resetBoothStoriesForTests();
   resetPostEventLabelReadsForTests();
@@ -228,26 +226,57 @@ describe('guest on the Events list', () => {
     expect(mockPush).not.toHaveBeenCalledWith(LOGIN);
   });
 
-  it('saving (heart) and sharing open login instead', async () => {
+  it('shows only the upcoming list: no drawer, search, share, Saved/Past tabs or hearts', async () => {
+    renderList();
+    expect(await screen.findByTestId(`event-card-${upcomingFeatured.id}`)).toBeTruthy();
+    expect(screen.getByTestId('events-title').props.children).toBe('UPCOMING SPOTLIGHT EVENTS');
+    for (const id of [
+      `event-card-${upcomingFeatured.id}-save`,
+      'events-menu',
+      'events-search',
+      'events-share',
+      'events-actions',
+      'events-tabs',
+      'events-tabs-tab-saved',
+      'events-tabs-tab-past',
+    ]) {
+      expect(screen.queryByTestId(id)).toBeNull();
+    }
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('signed in: drawer, search, tabs, the heart and Share events all work', async () => {
+    mockIsGuest = false;
     const share = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
     renderList();
     fireEvent.press(await screen.findByTestId(`event-card-${upcomingFeatured.id}-save`));
-    expectLoginOnly();
-    expect(AsyncStorage.setItem).not.toHaveBeenCalled();
-
+    await waitFor(() => expect(AsyncStorage.setItem).toHaveBeenCalled());
     fireEvent.press(screen.getByTestId('events-share'));
-    expectLoginOnly();
-    expect(share).not.toHaveBeenCalled();
+    expect(share).toHaveBeenCalled();
+    expect(screen.getByTestId('events-menu')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('events-search'));
+    expect(screen.getByTestId('events-search-field')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('events-tabs-tab-past'));
+    expect(screen.getByTestId('events-title').props.children).toBe('PAST SPOTLIGHT EVENTS');
+    fireEvent.press(screen.getByTestId('events-tabs-tab-saved'));
+    expect(screen.getByTestId('events-title').props.children).toBe('SAVED EVENTS');
+    expect(mockPush).not.toHaveBeenCalledWith(LOGIN);
   });
 });
 
-describe('guest on a show page: the four allowed actions', () => {
-  it('views the map and switches Map | Feed', async () => {
+describe('guest on a show page: look only', () => {
+  it('sees the map with no Map | Feed switch, no claim link, no save or share', async () => {
     await renderShow();
     expect(screen.getByTestId('event-floor-map')).toBeTruthy();
-    fireEvent.press(within(screen.getByTestId('event-detail-show-area')).getByText('Feed'));
-    expect(await screen.findByTestId('event-feed')).toBeTruthy();
-    fireEvent.press(within(screen.getByTestId('event-detail-show-area')).getByText('Map'));
+    expect(screen.getByTestId('event-detail-title')).toBeTruthy();
+    expect(screen.getByTestId('event-detail-pricing')).toBeTruthy();
+    expect(screen.queryByTestId('event-detail-show-area')).toBeNull();
+    expect(screen.queryByText('Feed')).toBeNull();
+    expect(screen.queryByTestId('event-feed')).toBeNull();
+    expect(screen.queryByTestId('event-vendors-find-booth')).toBeNull();
+    expect(screen.queryByText('Tap here to claim your vendor booth')).toBeNull();
+    expect(screen.queryByTestId('event-detail-save')).toBeNull();
+    expect(screen.queryByTestId('event-detail-share')).toBeNull();
     expect(mockPush).not.toHaveBeenCalled();
   });
 
@@ -264,36 +293,50 @@ describe('guest on a show page: the four allowed actions', () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
-  it('a vendor picked on the map shows who it is', async () => {
-    // The map tap and a deep link / ticker pick share the select path.
-    await renderShow(VENDOR);
-    expect((await screen.findByTestId('event-vendor-card-name')).props.children).toBe('Main Street Cards');
-    expect(mockPush).not.toHaveBeenCalled();
-  });
-
-  it('opens a vendor from the list', async () => {
+  it('vendor rows are not pressable', async () => {
     await renderShow();
-    fireEvent.press(screen.getByTestId(`event-vendor-${VENDOR}`));
-    expect(screen.getByTestId('event-vendor-card-name').props.children).toBe('Main Street Cards');
-    fireEvent.press(screen.getByTestId('event-vendor-card-close'));
+    const row = screen.getByTestId(`event-vendor-${VENDOR}`);
+    expect(row.props.accessibilityRole).toBeUndefined();
+    expect(row.props.onClick ?? row.props.onPress).toBeUndefined();
+    fireEvent.press(row);
     expect(screen.queryByTestId('event-vendor-card')).toBeNull();
     expect(mockPush).not.toHaveBeenCalled();
   });
-});
 
-describe('guest on a show page: everything else opens login', () => {
-  it('save, share and the Maps address (Buy Tickets stays open)', async () => {
-    const share = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
+  it('a vendor picked on the map shows only its name and table, no actions', async () => {
+    jest.mocked(fetchBoothClaims).mockResolvedValue(claimedByOther());
+    jest.mocked(fetchBoothPosts).mockResolvedValue([boothPost('p1')]);
+    // The map tap and a deep link / ticker pick share the select path.
+    await renderShow(VENDOR);
+    expect((await screen.findByTestId('event-vendor-card-name')).props.children).toBe('Main Street Cards');
+    for (const id of [
+      'event-vendor-card-instagram',
+      'booth-claim',
+      'booth-holder',
+      'booth-message',
+      'booth-follow',
+      'booth-report',
+      'booth-strip-p1',
+    ]) {
+      expect(screen.queryByTestId(id)).toBeNull();
+    }
+    expect(screen.queryByText('This is my booth')).toBeNull();
+    expect(screen.queryByTestId(`booth-story-${VENDOR}`)).toBeNull();
+    fireEvent.press(screen.getByTestId('event-vendor-card-close'));
+    expect(screen.queryByTestId('event-vendor-card')).toBeNull();
+    expect(recordBoothEvent).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('a map-picked vendor with Instagram still shows no Instagram link', async () => {
+    await renderShow(IG_VENDOR);
+    expect(await screen.findByTestId('event-vendor-card-name')).toBeTruthy();
+    expect(screen.queryByTestId('event-vendor-card-instagram')).toBeNull();
+  });
+
+  it('Buy Tickets opens without login; the Maps address opens login', async () => {
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
     await renderShow();
-
-    fireEvent.press(screen.getByTestId('event-detail-save'));
-    expectLoginOnly();
-    expect(screen.getByLabelText('Save event')).toBeTruthy();
-
-    fireEvent.press(screen.getByTestId('event-detail-share'));
-    expectLoginOnly();
-    expect(share).not.toHaveBeenCalled();
 
     // Buying a ticket needs no Ekalight account (owner, 2026-11-21).
     fireEvent.press(screen.getByTestId('event-detail-buy'));
@@ -304,74 +347,54 @@ describe('guest on a show page: everything else opens login', () => {
     expectLoginOnly();
     expect(openURL).not.toHaveBeenCalled();
   });
+});
 
-  it('Instagram, claim mode and claiming a booth', async () => {
-    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+describe('signed in on a show page: unchanged', () => {
+  beforeEach(() => {
+    mockIsGuest = false;
+  });
+
+  it('has the Map | Feed switch, save, share and the claim link', async () => {
+    const share = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
     await renderShow();
-    fireEvent.press(screen.getByTestId(`event-vendor-${IG_VENDOR}`));
-    fireEvent.press(screen.getByTestId('event-vendor-card-instagram'));
-    expectLoginOnly();
-    expect(openURL).not.toHaveBeenCalled();
-    expect(recordBoothEvent).not.toHaveBeenCalledWith(EVENT.id, IG_VENDOR, 'instagram_tap');
+    fireEvent.press(within(screen.getByTestId('event-detail-show-area')).getByText('Feed'));
+    expect(await screen.findByTestId('event-feed')).toBeTruthy();
+    fireEvent.press(within(screen.getByTestId('event-detail-show-area')).getByText('Map'));
+
+    fireEvent.press(screen.getByTestId('event-detail-save'));
+    expect(screen.getByLabelText('Remove from saved events')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('event-detail-share'));
+    expect(share).toHaveBeenCalled();
 
     fireEvent.press(screen.getByTestId('event-vendors-find-booth'));
-    expectLoginOnly();
-    expect(screen.queryByText('Tap Claim on your booth')).toBeNull();
-
-    await act(async () => fireEvent.press(screen.getByTestId('booth-claim')));
-    expectLoginOnly();
-    expect(claimBooth).not.toHaveBeenCalled();
+    expect(screen.getByText('Tap Claim on your booth')).toBeTruthy();
+    expect(mockPush).not.toHaveBeenCalledWith(LOGIN);
   });
 
-  it('message, follow, report and the holder profile on a claimed booth', async () => {
-    jest.mocked(fetchBoothClaims).mockResolvedValue(claimedByOther());
+  it('opens a vendor from the list with its actions', async () => {
     await renderShow();
-    fireEvent.press(screen.getByTestId(`event-vendor-${VENDOR}`));
-    await screen.findByTestId('booth-holder');
-
-    fireEvent.press(screen.getByTestId('booth-holder'));
-    expectLoginOnly();
-
-    await act(async () => fireEvent.press(screen.getByTestId('booth-message')));
-    expectLoginOnly();
-    expect(findOrCreateDm).not.toHaveBeenCalled();
-
-    await waitFor(() => expect(screen.getByTestId('booth-follow')).toBeEnabled());
-    await act(async () => fireEvent.press(screen.getByTestId('booth-follow')));
-    expectLoginOnly();
-    expect(followUser).not.toHaveBeenCalled();
-
-    await act(async () => fireEvent.press(screen.getByTestId('booth-report')));
-    expectLoginOnly();
-    expect(reportBoothClaim).not.toHaveBeenCalled();
-  });
-
-  it('booth stories and booth photo posts', async () => {
-    jest.mocked(fetchBoothPosts).mockResolvedValue([boothPost('p1')]);
-    await renderShow();
-
-    fireEvent.press(await screen.findByTestId(`booth-story-${VENDOR}`));
-    expectLoginOnly();
-
-    fireEvent.press(screen.getByTestId(`event-vendor-${VENDOR}`));
-    fireEvent.press(await screen.findByTestId('booth-strip-p1'));
-    expectLoginOnly();
-    expect(recordBoothEvent).not.toHaveBeenCalledWith(EVENT.id, VENDOR, 'post_view');
+    fireEvent.press(screen.getByTestId(`event-vendor-${IG_VENDOR}`));
+    expect(screen.getByTestId('event-vendor-card')).toBeTruthy();
+    expect(screen.getByTestId('event-vendor-card-instagram')).toBeTruthy();
+    expect(screen.getByTestId('booth-claim')).toBeTruthy();
+    expect(mockPush).not.toHaveBeenCalledWith(LOGIN);
   });
 });
 
-describe('guest on a show feed', () => {
-  async function openFeed() {
+// Guests can't reach the show feed any more; its post-card gates stay as they were.
+describe('guest on a show feed (rendered directly)', () => {
+  async function renderFeed() {
     jest.mocked(fetchEventPosts).mockImplementation(async (_id, _limit, options) =>
       options?.boothOnly ? [] : [feedPost('a', { intent: 'selling', boothVendorId: VENDOR })],
     );
-    await renderShow();
-    fireEvent.press(within(screen.getByTestId('event-detail-show-area')).getByText('Feed'));
+    renderWithProviders(<EventFeed eventId={EVENT.id} testID="event-feed" />, {
+      spotlightRepository: createTestSpotlightRepository({ fetchSpotlightEvents: async () => FEED }),
+    });
     return screen.findByTestId('event-feed-post-a');
   }
 
   it('commenting opens login: no thread, no comment written', async () => {
-    const card = await openFeed();
+    const card = await renderFeed();
     fireEvent.press(within(card).getByTestId('event-feed-post-comment-button'));
     expectLoginOnly();
     expect(screen.queryByTestId('event-feed-post-comments-input')).toBeNull();
@@ -379,7 +402,7 @@ describe('guest on a show feed', () => {
   });
 
   it('like, repost, share and the author open login and write nothing', async () => {
-    const card = await openFeed();
+    const card = await renderFeed();
     await act(async () => fireEvent.press(within(card).getByTestId('event-feed-post-like-button')));
     expectLoginOnly();
     expect(likePost).not.toHaveBeenCalled();
@@ -394,14 +417,5 @@ describe('guest on a show feed', () => {
 
     fireEvent.press(within(card).getByTestId('event-feed-post-author-name-button'));
     expectLoginOnly();
-  });
-
-  it('type filters and "Find on map" stay open', async () => {
-    await openFeed();
-    fireEvent.press(screen.getByTestId('event-feed-intent-selling'));
-    await waitFor(() => expect(fetchEventPosts).toHaveBeenCalledWith(EVENT.id, 20, { intent: 'selling' }));
-    fireEvent.press(await screen.findByTestId('event-feed-post-find-on-map'));
-    expect(await screen.findByTestId('event-vendor-card-name')).toBeTruthy();
-    expect(mockPush).not.toHaveBeenCalled();
   });
 });

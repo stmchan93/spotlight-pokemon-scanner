@@ -163,6 +163,8 @@ function EventVendorsBody({
   const refreshClaims = booth?.refreshClaims;
   const onClaimsChanged = useCallback(() => refreshClaims?.(), [refreshClaims]);
   const { claim, gate, pendingId } = useClaimBooth(eventId, onClaimsChanged);
+  // Guests look only (owner, 2026-11-21): rows don't open, no claim link, the map card is just the name.
+  const { isGuest } = useGuestGate();
 
   // No tables assigned yet: no floor to draw, so the list carries everything and
   // a tapped vendor's card opens in place of its row.
@@ -199,12 +201,12 @@ function EventVendorsBody({
   }, [booth, map.vendors]);
   // Treasure-email matches the user hasn't claimed yet (theirs already reads "Your booth").
   const suggestions = useMemo(() => {
-    if (!booth || booth.hasMyBooth) {
+    if (!booth || booth.hasMyBooth || isGuest) {
       return [];
     }
     const ids = new Set(booth.suggestedVendorIds);
     return map.vendors.filter((vendor) => ids.has(vendor.id) && booth.claims.get(vendor.id)?.userId !== booth.myUserId);
-  }, [booth, map.vendors]);
+  }, [booth, isGuest, map.vendors]);
   const matchedTableIds = useMemo(
     () => (isFiltering ? new Set(matches.flatMap((vendor) => vendor.tableIds)) : new Set<string>()),
     [isFiltering, matches],
@@ -224,8 +226,9 @@ function EventVendorsBody({
   const selectedHasPhotos = Boolean(
     selected && booth?.postsByVendor.get(selected.id)?.some((post) => post.media.length > 0),
   );
+  const cardBooth = isGuest ? null : booth;
   const cardOverlayHeight =
-    CARD_OVERLAY_HEIGHT + (booth ? BOOTH_ROW_HEIGHT : 0) + (selectedHasPhotos ? BOOTH_STRIP_HEIGHT : 0);
+    CARD_OVERLAY_HEIGHT + (cardBooth ? BOOTH_ROW_HEIGHT : 0) + (cardBooth && selectedHasPhotos ? BOOTH_STRIP_HEIGHT : 0);
 
   const select = useCallback((vendor: SpotlightEventMapVendor) => {
     setScrollToSelected(false);
@@ -245,10 +248,11 @@ function EventVendorsBody({
       if (!isFiltering && matches.indexOf(vendor) >= COLLAPSED_ROWS) {
         setExpanded(true);
       }
-      setScrollToSelected(true);
+      // Guests stay on the map, where the card shows the name; their rows don't open anything.
+      setScrollToSelected(!isGuest);
       setSelectedId((current) => (current === vendor.id ? null : vendor.id));
     },
-    [isFiltering, map.vendors, matches],
+    [isFiltering, isGuest, map.vendors, matches],
   );
 
   useEffect(() => {
@@ -353,7 +357,14 @@ function EventVendorsBody({
           {/* Docked inside the map (Figma 5865:11358): below it, a tapped table's vendor landed off-screen. */}
           {selected ? (
             <View pointerEvents="box-none" style={styles.cardOverlay}>
-              <SelectedVendorCard booth={booth} eventId={eventId} onClose={deselect} stories={stories} vendor={selected} />
+              <SelectedVendorCard
+                booth={cardBooth}
+                eventId={eventId}
+                lookOnly={isGuest}
+                onClose={deselect}
+                stories={stories}
+                vendor={selected}
+              />
             </View>
           ) : null}
         </View>
@@ -417,7 +428,7 @@ function EventVendorsBody({
         />
       ))}
 
-      {booth && !booth.hasMyBooth ? (
+      {booth && !booth.hasMyBooth && !isGuest ? (
         <View style={styles.claimModeBar}>
           {claimMode ? (
             <>
@@ -458,7 +469,14 @@ function EventVendorsBody({
             <Fragment key={vendor.id}>
               {vendorsOnly && isSelected ? (
                 <View ref={selectedRowRef}>
-                  <SelectedVendorCard booth={booth} eventId={eventId} onClose={deselect} stories={stories} vendor={vendor} />
+                  <SelectedVendorCard
+                    booth={cardBooth}
+                    eventId={eventId}
+                    lookOnly={isGuest}
+                    onClose={deselect}
+                    stories={stories}
+                    vendor={vendor}
+                  />
                 </View>
               ) : (
                 <VendorRow
@@ -471,7 +489,7 @@ function EventVendorsBody({
                       `/new-post?eventId=${encodeURIComponent(eventId)}&vendorId=${encodeURIComponent(vendor.id)}` as never,
                     ),
                   )}
-                  onPress={select}
+                  onPress={isGuest ? undefined : select}
                   ref={isSelected ? selectedRowRef : null}
                   selected={isSelected}
                   storyRing={stories?.ringFor(vendor.id) ?? null}
@@ -522,7 +540,8 @@ function rowBoothState(claim: BoothClaim | undefined, myUserId: string | null, c
 type VendorRowProps = {
   vendor: SpotlightEventMapVendor;
   selected: boolean;
-  onPress: (vendor: SpotlightEventMapVendor) => void;
+  /** Absent = a plain, non-pressable row (guests). */
+  onPress?: (vendor: SpotlightEventMapVendor) => void;
   ref?: React.Ref<View>;
   hot?: boolean;
   booth?: RowBoothState;
@@ -548,15 +567,9 @@ function VendorRow({
   onOpenStory,
 }: VendorRowProps) {
   const theme = useSpotlightTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      onPress={() => onPress(vendor)}
-      ref={ref}
-      style={[styles.row, selected ? [styles.rowSelected, { backgroundColor: theme.colors.gray900 }] : null]}
-      testID={`event-vendor-${vendor.id}`}
-    >
+  const rowStyle = [styles.row, selected ? [styles.rowSelected, { backgroundColor: theme.colors.gray900 }] : null];
+  const content = (
+    <>
       <VendorLogo onPress={storyRing ? onOpenStory : undefined} ring={storyRing} size={ROW_LOGO_SIZE} vendor={vendor} />
       <View style={styles.rowText}>
         <Text
@@ -621,6 +634,25 @@ function VendorRow({
           {vendor.location}
         </Text>
       ) : null}
+    </>
+  );
+  if (!onPress) {
+    return (
+      <View ref={ref} style={rowStyle} testID={`event-vendor-${vendor.id}`}>
+        {content}
+      </View>
+    );
+  }
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      onPress={() => onPress(vendor)}
+      ref={ref}
+      style={rowStyle}
+      testID={`event-vendor-${vendor.id}`}
+    >
+      {content}
     </Pressable>
   );
 }
@@ -692,20 +724,21 @@ function ThisIsYouCard({
 function SelectedVendorCard({
   booth,
   eventId,
+  lookOnly,
   vendor,
   onClose,
   stories,
 }: {
   booth: BoothFloor | null;
   eventId: string;
+  /** Guests: name, tags and table only — no Instagram, story or booth actions. */
+  lookOnly: boolean;
   vendor: SpotlightEventMapVendor;
   onClose: () => void;
   stories: VendorStories | null;
 }) {
   const theme = useSpotlightTheme();
-  // Seeing who a booth is stays open to guests; leaving for their Instagram is an account action.
-  const { gate } = useGuestGate();
-  const instagram = vendor.instagram;
+  const instagram = lookOnly ? null : vendor.instagram;
   const claim = booth?.claims.get(vendor.id) ?? null;
   const mine = claim != null && claim.userId === booth?.myUserId;
 
@@ -728,8 +761,8 @@ function SelectedVendorCard({
     <View style={[styles.card, shadows.card, { backgroundColor: theme.colors.gray0 }]} testID="event-vendor-card">
       <View style={styles.cardHeader}>
         <VendorLogo
-          onPress={stories ? () => stories.open(vendor.id, 'card') : undefined}
-          ring={stories?.ringFor(vendor.id) ?? null}
+          onPress={stories && !lookOnly ? () => stories.open(vendor.id, 'card') : undefined}
+          ring={lookOnly ? null : (stories?.ringFor(vendor.id) ?? null)}
           size={CARD_LOGO_SIZE}
           vendor={vendor}
         />
@@ -753,12 +786,12 @@ function SelectedVendorCard({
             accessibilityLabel={`@${instagram} on Instagram`}
             accessibilityRole="link"
             hitSlop={spacing.xxs}
-            onPress={gate(() => {
+            onPress={() => {
               if (booth && !mine) {
                 recordBoothEvent(eventId, vendor.id, 'instagram_tap');
               }
               void Linking.openURL(`https://instagram.com/${instagram}`).catch(() => undefined);
-            })}
+            }}
             testID="event-vendor-card-instagram"
           >
             <Instagram color={theme.colors.gray900} height={INSTAGRAM_ICON_SIZE} width={INSTAGRAM_ICON_SIZE} />
@@ -774,7 +807,7 @@ function SelectedVendorCard({
           <Xmark color={theme.colors.gray600} height={INSTAGRAM_ICON_SIZE} width={INSTAGRAM_ICON_SIZE} />
         </Pressable>
       </View>
-      {booth ? (
+      {booth && !lookOnly ? (
         <BoothVendorPanel
           canClaim={!booth.hasMyBooth}
           claim={claim}
