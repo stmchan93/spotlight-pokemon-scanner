@@ -1,5 +1,5 @@
 import { FocusedStatusBar } from '@/components/focused-status-bar';
-import { GuestScannerRedirect } from '@/features/auth/components/guest-scanner-redirect';
+import { GuestTabSignIn } from '@/features/auth/components/guest-tab-sign-in';
 import { FeedScreen } from '@/features/social/screens/feed-screen';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -11,12 +11,12 @@ import { useAuth } from '@/providers/auth-provider';
  * back. The screen itself is unchanged by either move.
  */
 export default function SocialRoute() {
-  // Guests land on the scanner, which is the whole of the guest experience: the
+  // Guests get a sign-in page in place (no redirect: it fought the swipe pager). The
   // feed reads are scoped to `auth.uid()` by RLS, so a guest would get an empty
   // list rather than a first-launch surface worth seeing.
   const { isGuest } = useAuth();
   if (isGuest) {
-    return <GuestScannerRedirect />;
+    return <GuestTabSignIn message="Follow collectors, share your pulls, and see what the market is doing." title="Sign in to join the community" />;
   }
 
   return (
