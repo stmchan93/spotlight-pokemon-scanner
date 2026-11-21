@@ -62,6 +62,7 @@ import {
   TAB_PAGE_COUNT,
   TAB_PAGER_ORDER,
   clampWithRubberBand,
+  guestBlockedPages,
   isPageLive,
   landingEdgeForDirection,
   pageIndexForState,
@@ -72,6 +73,7 @@ import {
   type InnerPagePosition,
 } from '@/lib/tab-pager';
 import { useKeyboardVisible } from '@/lib/use-keyboard-visible';
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { useAuth } from '@/providers/auth-provider';
 
 /*
@@ -343,6 +345,10 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
   // ── UI-thread mirrors of what the hand-off rule needs ──────────────────────
   const innerPositions = useSharedValue<(InnerPagePosition | null)[]>(TAB_PAGER_ORDER.map(() => null));
   const lockedPages = useSharedValue<boolean[]>(TAB_PAGER_ORDER.map(() => false));
+  // Guests: Scan and Events only, by tapping (no swipe — gestureEnabled below).
+  const isGuestRef = useRef(isGuest);
+  isGuestRef.current = isGuest;
+  const { openLogin } = useGuestGate();
   const globalLock = useSharedValue(false);
   const guardedAt = useSharedValue(0);
   const guardedStep = useSharedValue(0);
@@ -462,6 +468,11 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
   }, [mountPage]);
 
   const handleSelectPage = useCallback((page: number) => {
+    // A guest tapping a signed-in-only tab gets sign-in, not the tab.
+    if (guestBlockedPages(isGuestRef.current)[page]) {
+      openLogin();
+      return;
+    }
     userMovedStripRef.current = true;
     const current = latest.current;
     const route = current.state.routes.find((candidate) => candidate.name === TAB_PAGER_ORDER[page]);
@@ -472,7 +483,7 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
     if (page !== current.focusedPage && !event.defaultPrevented) {
       current.navigation.dispatch({ ...TabActions.jumpTo(route.name, route.params), target: current.state.key });
     }
-  }, []);
+  }, [openLogin]);
 
   // ── The gesture ────────────────────────────────────────────────────────────
   // Imported constants are NOT captured by the worklets plugin; a worklet that
@@ -486,6 +497,7 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
   const startPosition = useSharedValue(0);
   const activationTx = useSharedValue(0);
 
+  // Guests don't swipe at all: they tap Scan or Events (owner, 2026-11-20).
   const gestureEnabled = !isGuest && focusedPage >= 0;
   const pan = useMemo(() => Gesture.Pan()
     .manualActivation(true)

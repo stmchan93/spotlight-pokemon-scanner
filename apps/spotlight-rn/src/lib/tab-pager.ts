@@ -16,6 +16,18 @@ export const TAB_PAGE_COUNT = TAB_PAGER_ORDER.length;
 
 export const SCAN_PAGE_INDEX = TAB_PAGER_ORDER.indexOf('scan');
 
+/**
+ * The tabs a GUEST can open (owner, 2026-11-20): Scan and Events. Collection,
+ * Watchlist and Social need an account — tapping one opens sign-in and stays
+ * put. Guests can't swipe the strip at all; they tap.
+ */
+export const GUEST_OPEN_TABS: ReadonlySet<PagerTab> = new Set<PagerTab>(['scan', 'events']);
+
+/** Per page, whether a guest is kept off it. Plain array so a worklet can read it. */
+export function guestBlockedPages(isGuest: boolean): boolean[] {
+  return TAB_PAGER_ORDER.map((tab) => isGuest && !GUEST_OPEN_TABS.has(tab));
+}
+
 /** `next` = the page to the RIGHT, reached by a right-to-left finger drag. */
 export type SwipeDirection = 'next' | 'previous';
 
