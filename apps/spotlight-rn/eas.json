@@ -48,7 +48,9 @@
         "SPOTLIGHT_EXPO_OWNER": "schan93",
         "SPOTLIGHT_IOS_BUNDLE_IDENTIFIER": "com.ekalight.app.staging",
         "EXPO_PUBLIC_SPOTLIGHT_RAW_COLLECTOR_NUMBER_OCR_ENABLED": "1",
-        "EXPO_PUBLIC_SPOTLIGHT_AUTH_ISOLATED_REDIRECT_URL": "spotlight-staging://login-callback"
+        "EXPO_PUBLIC_SPOTLIGHT_AUTH_ISOLATED_REDIRECT_URL": "spotlight-staging://login-callback",
+        "GOOGLE_IOS_CLIENT_ID": "47744758128-cne9spm69cpiq2kmm03ujs22i0ag3aqs.apps.googleusercontent.com",
+        "GOOGLE_WEB_CLIENT_ID": "47744758128-53o0dvs5d1g7a2gkccm84pgtdvadgc3n.apps.googleusercontent.com"
       },
       "channel": "staging",
       "autoIncrement": true
@@ -71,7 +73,9 @@
         "SPOTLIGHT_APP_SCHEME": "spotlight",
         "SPOTLIGHT_EAS_PROJECT_ID": "bd29d8aa-8a70-45ba-907e-f7136f2be4ff",
         "SPOTLIGHT_EXPO_OWNER": "schan93",
-        "SPOTLIGHT_IOS_BUNDLE_IDENTIFIER": "com.ekalight.app"
+        "SPOTLIGHT_IOS_BUNDLE_IDENTIFIER": "com.ekalight.app",
+        "GOOGLE_IOS_CLIENT_ID": "47744758128-6ccrokc2rq4pkvqrjh3e2d3sa2hmhenv.apps.googleusercontent.com",
+        "GOOGLE_WEB_CLIENT_ID": "47744758128-53o0dvs5d1g7a2gkccm84pgtdvadgc3n.apps.googleusercontent.com"
       },
       "channel": "production",
       "autoIncrement": true
