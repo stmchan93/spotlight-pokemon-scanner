@@ -104,11 +104,17 @@ AssistantMessage = {
   "actions": [ProposedAction],    # assistant only
   "suggestions": [str],           # assistant only (added 2026-11-18): 0-3 tap-to-ask follow-up prompts, each <=40 chars; [] for user messages, errors, refusals, and older rows. Tapping one = send it as the next question in the same thread.
   "charts": [PriceChart],         # assistant only (added 2026-11-18): 0-2; [] for user messages, errors, refusals, and older rows
+  "sets": [SetRef],               # assistant only (added 2026-11-20): ≤6 set tiles for set-level answers; [] otherwise and on older rows. Older apps ignore it.
   "created_at": ISO,
   "status": "ok" | "error",
   "feedback": Feedback | null     # added 2026-11-19: the caller's 👍/👎 on an assistant answer; always null on user messages
 }
 Feedback = {"rating": "up" | "down", "reason": str | null, "note": str | null, "updated_at": ISO}
+SetRef = {"set_id": str, "name": str, "game": str, "logo_url": str | null, "symbol_url": str | null,
+          "change_pct": float | null, "window": "7d" | "30d" | "90d" | null, "release_year": str | null}
+          # Set tiles (2026-11-20): when get_market_trends ran and the answer text names its rising/falling sets,
+          # those sets become set tiles (mention order) and card tiles drop to the cards the text itself names
+          # (a charted card stays). Tap opens /catalog/expansion/<set_id>?game=<game>. Not on proposals.
 CardRef = {
   "card_id", "name", "set", "number", "language",
   "image_small_url", "price_usd": float | null,
@@ -189,6 +195,7 @@ CREATE TABLE IF NOT EXISTS assistant_messages (
   tool_calls_json TEXT            -- added 2026-11-18: compact 'name(key=value)' per tool call, for history provenance (same patch path)
   charts_json TEXT                -- added 2026-11-18 (PriceChart list); same COLUMN_PATCHES path
   cards_label TEXT, cards_view_all_json TEXT  -- added 2026-11-20; same COLUMN_PATCHES path
+  sets_json TEXT                  -- added 2026-11-20 (SetRef list); same COLUMN_PATCHES path
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_messages_client ON assistant_messages(owner_user_id, client_message_id) WHERE client_message_id IS NOT NULL;

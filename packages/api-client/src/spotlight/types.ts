@@ -2950,6 +2950,26 @@ export type AssistantCardSparkline = {
   changePct: number | null;
 };
 
+/** Set-trend window a set tile's change covers. */
+export type AssistantSetWindow = '7d' | '30d' | '90d';
+
+/**
+ * A set tile under a set-level answer ("which sets are doing well?"): logo,
+ * name, the set's % move. Tap opens the set page (`setId` + `game`).
+ */
+export type AssistantSetRef = {
+  setId: string;
+  name: string;
+  /** null = an unknown game from a newer server; the set page falls back to the current lane. */
+  game: CardGame | null;
+  logoUrl: string | null;
+  symbolUrl: string | null;
+  /** Basket % change over `window`; null = not known. */
+  changePct: number | null;
+  window: AssistantSetWindow | null;
+  releaseYear: string | null;
+};
+
 /** "View all N" under a capped tile preview (only the Watchlist today). */
 export type AssistantCardsViewAll = {
   screen: 'watchlist';
@@ -3029,6 +3049,11 @@ export type AssistantMessage = {
    * Optional: older servers and older rows don't send it.
    */
   charts?: AssistantPriceChart[];
+  /**
+   * Set tiles for set-level answers (shown instead of card tiles). Optional:
+   * older servers and older rows don't send it.
+   */
+  sets?: AssistantSetRef[];
   /** The user's 👍/👎 on an assistant reply; null/absent = not rated (or an older server). */
   feedback?: AssistantFeedback | null;
 };

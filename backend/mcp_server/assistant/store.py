@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS assistant_messages (
     input_tokens INTEGER, output_tokens INTEGER, cost_usd REAL, tools_used TEXT,
     created_at TEXT NOT NULL, suggestions_json TEXT, tool_calls_json TEXT, charts_json TEXT,
     flags_json TEXT, cards_label TEXT, cards_view_all_json TEXT,
-    cache_read_tokens INTEGER, cache_write_tokens INTEGER, cached INTEGER
+    cache_read_tokens INTEGER, cache_write_tokens INTEGER, cached INTEGER, sets_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_messages_client
@@ -78,6 +78,8 @@ COLUMN_PATCHES = (
     ("assistant_messages", "cache_read_tokens", "INTEGER"),
     ("assistant_messages", "cache_write_tokens", "INTEGER"),
     ("assistant_messages", "cached", "INTEGER"),
+    # Set tiles for set-level answers (market trends); older rows have none.
+    ("assistant_messages", "sets_json", "TEXT"),
 )
 
 
@@ -177,6 +179,7 @@ def message_payload(row: sqlite3.Row, feedback: dict[str, Any] | None = None) ->
     keys = row.keys()
     raw_suggestions = row["suggestions_json"] if "suggestions_json" in keys else None
     raw_charts = row["charts_json"] if "charts_json" in keys else None
+    raw_sets = row["sets_json"] if "sets_json" in keys else None
     raw_flags = row["flags_json"] if "flags_json" in keys else None
     is_reply = role == "assistant"
     raw_view_all = row["cards_view_all_json"] if is_reply and "cards_view_all_json" in keys else None
@@ -196,6 +199,7 @@ def message_payload(row: sqlite3.Row, feedback: dict[str, Any] | None = None) ->
         "actions": (json.loads(row["actions_json"]) if row["actions_json"] else []) if role == "assistant" else [],
         "suggestions": _suggestions(raw_suggestions) if role == "assistant" else [],
         "charts": _charts(raw_charts) if role == "assistant" else [],
+        "sets": _charts(raw_sets) if role == "assistant" else [],
         # Review-only quality flags (flags.py); the app doesn't render them.
         "flags": _suggestions(raw_flags) if role == "assistant" else [],
         "created_at": row["created_at"],
@@ -417,8 +421,8 @@ class AssistantStore:
                                                 status, client_message_id, input_tokens, output_tokens, cost_usd,
                                                 tools_used, created_at, suggestions_json, tool_calls_json, charts_json,
                                                 flags_json, cards_label, cards_view_all_json, cache_read_tokens,
-                                                cache_write_tokens)
-                VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                                cache_write_tokens, sets_json)
+                VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     reply_id,
@@ -442,6 +446,7 @@ class AssistantStore:
                     json.dumps(reply["cards_view_all"]) if reply.get("cards_view_all") else None,
                     reply.get("cache_read_tokens"),
                     reply.get("cache_write_tokens"),
+                    json.dumps(reply.get("sets") or []),
                 ),
             )
             conn.execute(

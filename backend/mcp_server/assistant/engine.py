@@ -32,6 +32,7 @@ from mcp_server.assistant.tools import (
     is_movers_question,
     card_refs,
     select_tiles,
+    trend_set_refs,
 )
 
 logger = logging.getLogger("ekalight.assistant")
@@ -92,6 +93,7 @@ How to answer:
 Card tiles (show_cards):
 - When the answer is about specific cards, call show_cards in the same message as your answer with exactly those cards, in the order you mention them. Every card you name must be in it; never show cards the answer isn't about.
 - Show several candidates only when you ask the user to choose (e.g. which Charizard?).
+- Sets you name from get_market_trends show as set tiles on their own: for an answer about sets, pass cards: [] unless you also name specific cards.
 - For one card's price history: that one card (same printing or grade as the chart), nothing else.
 - Any example you name must be one of the cards you show.
 - Tiles follow your text: once you name cards, only the named cards show, unless you present a list ("Here are…", "including…") or ask the user to choose.
@@ -453,6 +455,7 @@ class TurnResult:
     cards_label: str | None = None
     cards_view_all: dict[str, Any] | None = None
     charts: list[dict[str, Any]] = field(default_factory=list)
+    sets: list[dict[str, Any]] = field(default_factory=list)  # set tiles (set-level answers)
     tools_used: list[str] = field(default_factory=list)
     tool_calls: list[str] = field(default_factory=list)  # summarize_tool_call() per call, for history provenance
     tool_inputs: list[dict[str, Any]] = field(default_factory=list)  # shared_answers.tool_record() per call
@@ -702,6 +705,7 @@ class AssistantEngine:
         primary_refs: list[dict[str, Any]] = []
         other_refs: list[dict[str, Any]] = []
         charts: list[dict[str, Any]] = []
+        set_refs: list[dict[str, Any]] = []
         # Beyond this turn's results, show_cards may use scanned cards and earlier tiles.
         extra_refs = [{"card_id": card_id} for card_id in context_card_ids or []] + _history_refs(history)
         selection: list[dict[str, Any]] | None = None
@@ -789,6 +793,8 @@ class AssistantEngine:
                     collection_totals.append((float(content[total_key]), content.get("scope_label")))
                 if block.name == "get_my_collection" and not outcome.is_error:
                     holding_refs.extend(outcome.cards)
+                if block.name == "get_market_trends" and not outcome.is_error:
+                    set_refs.extend(trend_set_refs(content))
                 if block.name == "get_portfolio_summary" and not outcome.is_error:
                     holding_refs.extend(card_refs(content.get("top_holdings") or []))
                 if block.name == "get_card" and not outcome.is_error and content.get("language_pair"):
@@ -924,5 +930,12 @@ class AssistantEngine:
                     art_search=art_search,
                 )
             )
+            if set_refs and not result.actions:
+                # A set-level answer shows the sets it names, not cards.
+                result.sets, result.cards = await asyncio.to_thread(
+                    self.toolbox.build_set_tiles, set_refs, result.text, result.cards, result.charts
+                )
+                if result.sets and not result.cards:
+                    result.cards_label, result.cards_view_all = None, None
         result.latency_ms = int((time.monotonic() - started) * 1000)
         return result

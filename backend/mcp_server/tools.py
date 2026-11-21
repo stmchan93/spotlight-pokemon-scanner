@@ -309,6 +309,14 @@ def printing_name(value: Any) -> str | None:
     return re.sub(r"^first edition\b", "1st Edition", text, flags=re.IGNORECASE)
 
 
+def _set_id_from_group_key(group_key: Any) -> str | None:
+    """'set:sv8:raw' -> 'sv8' (meta_pulse.set_group_key)."""
+    key = str(group_key or "")
+    if not key.startswith("set:") or ":" not in key[4:]:
+        return None
+    return key[4:].rsplit(":", 1)[0] or None
+
+
 def _round_money(value: float | None) -> float | None:
     return None if value is None else round(float(value), 2)
 
@@ -2328,6 +2336,8 @@ class CollectionTools:
             for group in payload.get("groups") or []:
                 entry = {
                     "set": group.get("label"),
+                    # The app's set tile opens this set (group keys are "set:<set_id>:raw").
+                    "set_id": _set_id_from_group_key(group.get("groupKey")),
                     "change_pct": group.get("medianChangePercent"),
                     "release_year": (group.get("releaseDate") or "")[:4] or None,
                     "card_count": group.get("cardCount"),
