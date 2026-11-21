@@ -469,6 +469,44 @@ describe('AuthProvider', () => {
     });
   });
 
+  it('logs the native Google error code, and nothing on a Google cancel', async () => {
+    const nativeError = Object.assign(new Error("Google sign-in didn't work on this device. Try again, or use email instead."), {
+      name: 'GoogleNativeSignInError',
+      code: 'google_native:10',
+    });
+    let cancelNext = false;
+    const { capturePostHogEvent, fireEvent, getByTestId, getByText, waitFor, authService } = renderAuthProvider({
+      nodeEnv: 'development',
+      authServiceOverrides: {
+        signInWithGoogle: jest.fn(async () => {
+          throw cancelNext ? new authService.AuthCanceledError() : nativeError;
+        }),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedOut')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('sign-in-google'));
+    await waitFor(() => {
+      expect(capturePostHogEvent).toHaveBeenCalledWith('auth_sign_in_failed', {
+        provider: 'google',
+        reason_class: 'GoogleNativeSignInError',
+        error_code: 'google_native:10',
+        error_message: nativeError.message,
+      });
+    });
+
+    capturePostHogEvent.mockClear();
+    cancelNext = true;
+    fireEvent.press(getByTestId('sign-in-google'));
+    await waitFor(() => {
+      expect(getByText('error:none')).toBeTruthy();
+    });
+    expect(capturePostHogEvent).not.toHaveBeenCalledWith('auth_sign_in_failed', expect.anything());
+  });
+
   it('logs the Apple error code and points the user at another sign-in method', async () => {
     // Apple's native sheet fails on-device with a coded error (never reaches Supabase).
     const appleError = Object.assign(new Error('The operation couldn’t be completed. (AuthorizationError error 1000.)'), {

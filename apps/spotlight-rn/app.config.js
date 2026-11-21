@@ -233,6 +233,11 @@ function loadSpotlightExpoExtra(overridesPath = LOCAL_OVERRIDES_PATH, env = proc
   };
 }
 
+// `123-abc.apps.googleusercontent.com` -> `com.googleusercontent.apps.123-abc`
+function reverseGoogleClientId(clientId) {
+  return clientId.split('.').reverse().join('.');
+}
+
 function getPluginIdentifier(pluginEntry) {
   return Array.isArray(pluginEntry) ? pluginEntry[0] : pluginEntry;
 }
@@ -369,6 +374,28 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
       ],
     };
   }
+  // Native Google sign-in. Client ids are per environment (one iOS client per
+  // bundle id; the web client is the id-token audience Supabase verifies).
+  // The iOS URL scheme (reversed iOS client id) is only registered when the id
+  // is set, so builds without it skip the plugin and JS keeps the browser flow.
+  // It is also listed in LSApplicationQueriesSchemes: the auth service checks
+  // canOpenURL on it so an OTA never drives the native SDK on a binary that
+  // lacks the scheme (GoogleSignIn crashes without it).
+  const googleIosClientId = trimEnvValue(resolvedEnv.GOOGLE_IOS_CLIENT_ID);
+  const googleWebClientId = trimEnvValue(resolvedEnv.GOOGLE_WEB_CLIENT_ID);
+  const googleIosUrlScheme = googleIosClientId ? reverseGoogleClientId(googleIosClientId) : '';
+  if (googleWebClientId) {
+    extra.googleWebClientId = googleWebClientId;
+  }
+  if (googleIosClientId) {
+    extra.googleIosClientId = googleIosClientId;
+    ios.infoPlist = {
+      ...(ios.infoPlist ?? {}),
+      LSApplicationQueriesSchemes: [
+        ...new Set([...(ios.infoPlist?.LSApplicationQueriesSchemes ?? []), googleIosUrlScheme]),
+      ],
+    };
+  }
   // No per-env iOS icon override: every environment uses the Icon Composer bundle
   // declared in app.json (`ios.icon: './assets/ekalight.icon'`). Staging and
   // production used to point at the flat `ekalight-e-icon.png` instead, which
@@ -446,6 +473,13 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
       : 'react-native-maps',
   );
 
+  if (googleIosUrlScheme) {
+    resolvedPlugins = withPlugin(resolvedPlugins, [
+      '@react-native-google-signin/google-signin',
+      { iosUrlScheme: googleIosUrlScheme },
+    ]);
+  }
+
   // Per-environment display name (home-screen / App Store label). Prod keeps the
   // clean brand name; non-prod builds are suffixed so testers can tell which app
   // they have installed when several coexist on one device.
@@ -494,3 +528,4 @@ module.exports.getPluginIdentifier = getPluginIdentifier;
 module.exports.resolveSpotlightDisplayNameForEnv = resolveSpotlightDisplayNameForEnv;
 module.exports.resolveSpotlightRuntimeVersionForEnv = resolveSpotlightRuntimeVersionForEnv;
 module.exports.withPlugin = withPlugin;
+module.exports.reverseGoogleClientId = reverseGoogleClientId;
