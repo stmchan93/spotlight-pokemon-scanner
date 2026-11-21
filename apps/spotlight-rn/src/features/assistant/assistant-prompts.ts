@@ -2,10 +2,10 @@ import type { AssistantUsage } from '@spotlight/api-client';
 
 // Owner-picked (2026-11-20): every entry point without specific cards gets exactly these.
 export const ASSISTANT_MARKET_PROMPTS = [
-  // One market question, two everyday-collector ones (owner, 2026-11-20).
-  'What are some undervalued cards?',
+  // Figma 6607:10700 / 6607:10716 / 6607:10710 (owner, 2026-11-21).
   "What's my collection worth?",
-  'Which of my cards should I get graded?',
+  'Which of my cards went up this week?',
+  "What's trending in the market right now?",
 ] as const;
 
 /**

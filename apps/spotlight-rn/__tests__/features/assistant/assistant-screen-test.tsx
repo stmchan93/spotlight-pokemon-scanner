@@ -432,9 +432,9 @@ describe('AssistantScreen', () => {
     expect(StyleSheet.flatten(chips.props.style)).toMatchObject({ alignItems: 'center' });
     expect(StyleSheet.flatten(chips.props.style).flexDirection).not.toBe('row');
     expect(ASSISTANT_MARKET_PROMPTS).toEqual([
-      'What are some undervalued cards?',
       "What's my collection worth?",
-      'Which of my cards should I get graded?',
+      'Which of my cards went up this week?',
+      "What's trending in the market right now?",
     ]);
     ASSISTANT_MARKET_PROMPTS.forEach((prompt, index) => {
       expect(screen.getByTestId(`assistant-suggestion-${index}`)).toHaveTextContent(prompt);
@@ -442,13 +442,13 @@ describe('AssistantScreen', () => {
     expect(screen.queryByTestId('assistant-suggestion-3')).not.toBeOnTheScreen();
     fireEvent.press(screen.getByTestId('assistant-suggestion-1'));
     await waitFor(() => expect(sendAssistantMessage).toHaveBeenCalledTimes(1));
-    expect(sendAssistantMessage.mock.calls[0][0].text).toBe("What's my collection worth?");
+    expect(sendAssistantMessage.mock.calls[0][0].text).toBe('Which of my cards went up this week?');
   });
 
   it('the scanner gets the same starter prompts as everywhere else, with the tray attached', async () => {
     renderScreen({}, { source: 'scanner', cardIds: ['xyp-111'] });
     expect(await screen.findByText('Ask about this card')).toBeTruthy();
-    expect(screen.getByText('What are some undervalued cards?')).toBeTruthy();
+    expect(screen.getByText("What's trending in the market right now?")).toBeTruthy();
     expect(screen.queryByText('Is this card worth grading?')).not.toBeOnTheScreen();
   });
 
@@ -559,7 +559,7 @@ describe('AssistantScreen', () => {
     const sendAssistantMessage = jest.fn(async () => reply(null));
     renderScreen({ sendAssistantMessage });
     await screen.findByTestId('assistant-intro');
-    expect(screen.getByPlaceholderText('Chat with Ekalight')).toBeTruthy();
+    expect(screen.getByPlaceholderText("What's the most expensive card in my collection?")).toBeTruthy();
     expect(sendButtonColor()).toBe('#E8E8E8');
     expect(screen.getByTestId('assistant-send')).toBeDisabled();
     fireEvent.press(screen.getByTestId('assistant-send'));

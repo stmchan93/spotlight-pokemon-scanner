@@ -64,7 +64,8 @@ export const AssistantComposer = forwardRef<TextInput, AssistantComposerProps>(f
         multiline
         onChangeText={onChangeText}
         onFocus={onFocus}
-        placeholder="Chat with Ekalight"
+        // An open-ended example question (owner, 2026-11-21).
+        placeholder="What's the most expensive card in my collection?"
         placeholderTextColor={theme.colors.gray600}
         ref={ref}
         style={[
