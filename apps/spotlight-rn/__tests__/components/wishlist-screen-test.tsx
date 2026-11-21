@@ -980,10 +980,9 @@ describe('WishlistScreen', () => {
   });
 
   /*
-    NativeTabs mounts tab screens eagerly, so this screen exists before the tab
-    is ever opened. Bouncing a guest to login from mount therefore threw the
-    login modal over the scanner on a first launch — the app looked like it
-    opened on a login wall. The bounce is allowed only while FOCUSED.
+    The screen itself never opens login: guests are routed to
+    GuestScannerRedirect (promptLogin) by the tab route, which opens login once
+    per visit and never again on Back (__tests__/auth/guest-scanner-redirect-test).
   */
   describe('guest bounce', () => {
     afterEach(() => {
@@ -992,29 +991,16 @@ describe('WishlistScreen', () => {
       mockOpenLogin.mockClear();
     });
 
-    it('does NOT open login while the tab is merely mounted, not focused', async () => {
-      mockIsGuest = true;
-      mockIsFocused = false;
-
-      renderWithProviders(<WishlistScreen />);
-
-      // The screen really did mount — the assertion below is about the bounce
-      // being withheld, not about the screen being absent.
-      await waitFor(() => {
-        expect(screen.getByTestId('wishlist-filter-row')).toBeTruthy();
-      });
-      expect(mockOpenLogin).not.toHaveBeenCalled();
-    });
-
-    it('opens login for a guest once the tab is actually focused', async () => {
+    it('never opens login from the screen, focused or not', async () => {
       mockIsGuest = true;
       mockIsFocused = true;
 
       renderWithProviders(<WishlistScreen />);
 
       await waitFor(() => {
-        expect(mockOpenLogin).toHaveBeenCalled();
+        expect(screen.getByTestId('wishlist-filter-row')).toBeTruthy();
       });
+      expect(mockOpenLogin).not.toHaveBeenCalled();
     });
   });
   /*

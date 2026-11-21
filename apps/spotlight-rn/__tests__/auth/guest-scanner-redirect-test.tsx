@@ -11,8 +11,11 @@ import { GuestScannerRedirect } from '@/features/auth/components/guest-scanner-r
 */
 
 const mockReplace = jest.fn();
+const mockPush = jest.fn();
+let mockPathname = '/social';
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: jest.fn(), replace: mockReplace }),
+  useRouter: () => ({ push: mockPush, replace: mockReplace }),
+  usePathname: () => mockPathname,
 }));
 
 const mockNavigate = jest.fn();
@@ -30,6 +33,9 @@ describe('GuestScannerRedirect', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     mockNavigate.mockClear();
+    mockPush.mockClear();
+    mockPathname = '/social';
+    mockIsFocused.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -55,5 +61,42 @@ describe('GuestScannerRedirect', () => {
     mockIsFocused.mockReturnValueOnce(false);
     render(<GuestScannerRedirect />);
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('does not open login on its own (the launch route lands guests on the scanner)', () => {
+    render(<GuestScannerRedirect />);
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('with promptLogin: switches to the scanner and opens login once', () => {
+    render(<GuestScannerRedirect promptLogin />);
+    expect(mockNavigate).toHaveBeenCalledWith('scan');
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith('/login');
+  });
+
+  it('with promptLogin: Back from login does not reopen it', () => {
+    const view = render(<GuestScannerRedirect promptLogin />);
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    // Login covers the tabs (tab unfocused, path /login) ...
+    mockIsFocused.mockReturnValue(false);
+    mockPathname = '/login';
+    view.rerender(<GuestScannerRedirect promptLogin />);
+    // ... then Back re-focuses the gated tab.
+    mockIsFocused.mockReturnValue(true);
+    mockPathname = '/social';
+    view.rerender(<GuestScannerRedirect promptLogin />);
+    expect(mockPush).toHaveBeenCalledTimes(1);
+  });
+
+  it('with promptLogin: prompts again after the user left for another tab', () => {
+    const view = render(<GuestScannerRedirect promptLogin />);
+    mockIsFocused.mockReturnValue(false);
+    mockPathname = '/scan';
+    view.rerender(<GuestScannerRedirect promptLogin />);
+    mockIsFocused.mockReturnValue(true);
+    mockPathname = '/social';
+    view.rerender(<GuestScannerRedirect promptLogin />);
+    expect(mockPush).toHaveBeenCalledTimes(2);
   });
 });

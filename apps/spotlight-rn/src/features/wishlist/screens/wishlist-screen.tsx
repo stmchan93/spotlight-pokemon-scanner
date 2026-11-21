@@ -221,19 +221,9 @@ export function WishlistScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { openDrawer } = useAppDrawer();
-  const { isGuest, openLogin } = useGuestGate();
+  const { isGuest } = useGuestGate();
   const isFocused = useIsFocused();
-  // Belt-and-suspenders: every entry point here is already guest-gated, but if a
-  // guest somehow lands on this screen, bounce them to the login modal.
-  //
-  // ONLY WHILE FOCUSED. NativeTabs mounts tab screens eagerly, so without this
-  // the bounce fired on a first launch before the tab had ever been opened and
-  // threw the login modal over the scanner — a fresh install looked like it
-  // opened on a login wall. "Landed on this screen" has to mean the user is
-  // actually looking at it, not that the navigator built it.
-  useEffect(() => {
-    if (isFocused && isGuest) openLogin();
-  }, [isFocused, isGuest, openLogin]);
+  // Guests never reach this screen: the route renders GuestScannerRedirect.
   const { spotlightRepository, dataVersion, watchlistStore } = useAppServices();
   // Your own identity, for the `spotlight://` link the share message carries.
   // A caught deal, as a message. Separate from the wishlist share above: that

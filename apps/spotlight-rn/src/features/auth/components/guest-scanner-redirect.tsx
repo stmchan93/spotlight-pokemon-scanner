@@ -1,5 +1,6 @@
 import { useIsFocused, useNavigation } from '@react-navigation/native';
-import { useCallback, useEffect, useState } from 'react';
+import { usePathname } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { Button, spacing } from '@spotlight/design-system';
@@ -16,11 +17,30 @@ import { useGuestGate } from '@/features/auth/use-guest-gate';
   fallback below is the guarantee that this route can never be a silent dead
   end again.
 */
-export function GuestScannerRedirect() {
+export function GuestScannerRedirect({
+  promptLogin = false,
+}: {
+  /**
+   * Also open the login page over the scanner. For tabs a guest TAPS (Social):
+   * they asked for something that needs an account. Not for the launch route,
+   * which must land a first-time guest on the scanner with no prompt.
+   */
+  promptLogin?: boolean;
+} = {}) {
   const isFocused = useIsFocused();
   const navigation = useNavigation();
   const { openLogin } = useGuestGate();
   const [redirectMayHaveFailed, setRedirectMayHaveFailed] = useState(false);
+  // Once per visit. Closing login must not reopen it: re-arm only after the
+  // user has gone somewhere other than login (Back from login once re-focused
+  // the gated tab and popped login again, 2026-11-21).
+  const promptedRef = useRef(false);
+  const pathname = usePathname();
+  useEffect(() => {
+    if (!isFocused && pathname !== '/login') {
+      promptedRef.current = false;
+    }
+  }, [isFocused, pathname]);
 
   const goToScanner = useCallback(() => {
     navigation.navigate('scan' as never);
@@ -34,6 +54,10 @@ export function GuestScannerRedirect() {
     // is silently dropped, so retry briefly — the switch succeeds once the
     // navigator is live (a few hundred ms after first mount).
     goToScanner();
+    if (promptLogin && !promptedRef.current) {
+      promptedRef.current = true;
+      openLogin();
+    }
     const retry = setInterval(goToScanner, 350);
     const stopRetrying = setTimeout(() => clearInterval(retry), 2200);
     // Still focused after the retries means the tab switch isn't happening —
@@ -44,7 +68,7 @@ export function GuestScannerRedirect() {
       clearTimeout(stopRetrying);
       clearTimeout(reveal);
     };
-  }, [goToScanner, isFocused]);
+  }, [goToScanner, isFocused, openLogin, promptLogin]);
 
   if (!redirectMayHaveFailed) {
     return null;
