@@ -429,4 +429,13 @@ describe('GameSetsScreen era grouping', () => {
     expect(screen.queryByTestId('game-sets-expansion-with-logo-logo-name')).toBeNull();
     expect(screen.getByText('Phantasmal Flames')).toBeTruthy();
   });
+
+  it('closes with an X: Search slides up, so it is not a back arrow', async () => {
+    mockListExpansions();
+    renderWithProviders(
+      <ExpansionBrowserScreen onClose={jest.fn()} onOpenCard={jest.fn()} onSelectExpansion={jest.fn()} />,
+    );
+    const close = await screen.findByTestId('game-sets-back');
+    expect(close.props.accessibilityLabel).toBe('Close');
+  });
 });

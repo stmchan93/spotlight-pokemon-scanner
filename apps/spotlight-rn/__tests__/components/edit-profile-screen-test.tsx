@@ -33,6 +33,21 @@ jest.mock('expo-router', () => ({
   useRouter: jest.fn(),
 }));
 
+// The unsaved-changes guard: record whether it is armed and its callback.
+const mockPreventRemove: { enabled: boolean; callback: ((event: { data: { action: object } }) => void) | null } = {
+  callback: null,
+  enabled: false,
+};
+const mockNavigationDispatch = jest.fn();
+jest.mock('@react-navigation/native', () => ({
+  ...jest.requireActual('@react-navigation/native'),
+  useNavigation: () => ({ dispatch: mockNavigationDispatch }),
+  usePreventRemove: (enabled: boolean, callback: (event: { data: { action: object } }) => void) => {
+    mockPreventRemove.enabled = enabled;
+    mockPreventRemove.callback = callback;
+  },
+}));
+
 jest.mock('@/providers/auth-provider', () => ({
   useAuth: jest.fn(),
 }));
@@ -446,5 +461,25 @@ describe('EditProfileScreen', () => {
         expect(avoiderPadding() ?? 0).toBe(0);
       });
     });
+  });
+
+  it('asks "Discard changes?" before leaving with unsaved edits, and only then', () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    renderWithProviders(<EditProfileScreen />);
+    // Untouched form: nothing to protect, back and swipe just work.
+    expect(mockPreventRemove.enabled).toBe(false);
+
+    fireEvent.changeText(screen.getByPlaceholderText('Tell us about you...'), 'Chasing vintage holos');
+    expect(mockPreventRemove.enabled).toBe(true);
+
+    const action = { type: 'GO_BACK' };
+    act(() => mockPreventRemove.callback?.({ data: { action } }));
+    expect(alert).toHaveBeenCalledWith('Discard changes?', expect.any(String), expect.any(Array));
+    const buttons = alert.mock.calls[0]![2] as { text: string; onPress?: () => void }[];
+    expect(buttons.map((button) => button.text)).toEqual(['Keep editing', 'Discard']);
+    expect(mockNavigationDispatch).not.toHaveBeenCalled();
+    act(() => buttons[1]!.onPress?.());
+    expect(mockNavigationDispatch).toHaveBeenCalledWith(action);
+    alert.mockRestore();
   });
 });

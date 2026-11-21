@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Image } from 'expo-image';
+import { usePreventRemove, useNavigation } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import {
   ActivityIndicator,
@@ -194,6 +195,32 @@ export function EditProfileScreen() {
   // column, so an untouched cover must not be part of an ordinary name/bio save.
   const [coverChanged, setCoverChanged] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  /*
+    iOS's unsaved-changes rule (Notes, Contacts): with edits pending, leaving
+    asks "Discard changes?" first, and the swipe-back is held off so nobody
+    loses edits mid-gesture. A successful save sets `leavingRef` so its own
+    router.back() goes straight through.
+  */
+  const navigation = useNavigation();
+  const leavingRef = useRef(false);
+  const isDirty =
+    displayName.trim() !== (user?.displayName ?? '').trim()
+    || socialLink.trim() !== (user?.socialLink ?? '').trim()
+    || location.trim() !== (user?.location ?? '').trim()
+    || bio.trim() !== (user?.bio ?? '').trim()
+    || avatarUrl !== (user?.avatarURL ?? null)
+    || coverChanged;
+  usePreventRemove(isDirty, ({ data }) => {
+    if (leavingRef.current) {
+      navigation.dispatch(data.action);
+      return;
+    }
+    Alert.alert('Discard changes?', "Your profile changes won't be saved.", [
+      { style: 'cancel', text: 'Keep editing' },
+      { onPress: () => navigation.dispatch(data.action), style: 'destructive', text: 'Discard' },
+    ]);
+  });
 
   const initials = useMemo(() => (user ? getUserInitials(user) : '?'), [user]);
 
@@ -451,6 +478,7 @@ export function EditProfileScreen() {
         ...(coverChanged ? { coverURL: coverUrl } : {}),
       };
       await auth.updateProfile(patch);
+      leavingRef.current = true;
       router.back();
     } catch {
       Alert.alert('Could not save', 'Something went wrong saving your profile. Please try again.');

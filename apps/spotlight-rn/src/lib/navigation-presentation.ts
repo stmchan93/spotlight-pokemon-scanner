@@ -18,12 +18,12 @@ export const SLIDE_UP_SCREEN_OPTIONS = {
 } as const;
 
 /**
- * `(stack)` routes that open bottom-up (owner, 2026-11-16): Ask Ekalight and
- * Collection's Edit profile. Entering `(stack)` from the tabs presents the
+ * `(stack)` routes that open bottom-up (owner, 2026-11-16): Ask Ekalight. Edit
+ * profile went back to a side push (2026-11-20): it's a step deeper, with back. Entering `(stack)` from the tabs presents the
  * GROUP, so the group's options decide the animation; they read which inner
  * route the push opens with.
  */
-export const SLIDE_UP_STACK_ROUTES: ReadonlySet<string> = new Set(['assistant', 'edit-profile']);
+export const SLIDE_UP_STACK_ROUTES: ReadonlySet<string> = new Set(['assistant']);
 
 /** Root-stack options for the `(stack)` group: slide up when it opens on one of those routes. */
 export function slideUpStackGroupOptions({ route }: { route: { params?: object } }) {

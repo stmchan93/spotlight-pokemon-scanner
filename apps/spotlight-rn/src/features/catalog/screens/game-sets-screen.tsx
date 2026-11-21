@@ -1,4 +1,4 @@
-import { NavArrowLeft } from 'iconoir-react-native';
+import { NavArrowLeft, Xmark } from 'iconoir-react-native';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
@@ -54,6 +54,11 @@ type GameSetsScreenProps = {
   onOpenCard: (result: CatalogSearchResult) => void;
   /** Ask Ekalight (the sparkle). Absent hides the button rather than leaving it dead. */
   onOpenAssistant?: () => void;
+  /**
+   * `close` (X) when this screen opened by sliding UP (Search's landing): a
+   * slide-up screen closes with X, a side push goes back with ‹ (owner, 2026-11-20).
+   */
+  dismissStyle?: 'back' | 'close';
 };
 
 /** Sealed matches under the card results: a section, not another paged list. */
@@ -90,6 +95,7 @@ export function GameSetsScreen({
   onOpenCard,
   onSelectExpansion,
   onOpenAssistant,
+  dismissStyle = 'back',
 }: GameSetsScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
@@ -295,18 +301,27 @@ export function GameSetsScreen({
       <View style={[styles.header, { paddingTop: insets.top + spacing.xxs }]}>
         <View style={styles.toolbar}>
           <GlassNavBubble
-            accessibilityLabel="Back"
+            accessibilityLabel={dismissStyle === 'close' ? 'Close' : 'Back'}
             material="frost"
             onPress={onClose}
             size="medium"
             testID="game-sets-back"
           >
-            <NavArrowLeft
-              color={theme.colors.gray900}
-              height={glassNavBubbleGlyphSize}
-              strokeWidth={glassNavBubbleGlyphStrokeWidth}
-              width={glassNavBubbleGlyphSize}
-            />
+            {dismissStyle === 'close' ? (
+              <Xmark
+                color={theme.colors.gray900}
+                height={glassNavBubbleGlyphSize}
+                strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                width={glassNavBubbleGlyphSize}
+              />
+            ) : (
+              <NavArrowLeft
+                color={theme.colors.gray900}
+                height={glassNavBubbleGlyphSize}
+                strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                width={glassNavBubbleGlyphSize}
+              />
+            )}
           </GlassNavBubble>
           {onOpenAssistant ? (
             <GlassNavBubble
