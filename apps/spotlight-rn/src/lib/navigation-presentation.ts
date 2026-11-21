@@ -1,7 +1,7 @@
 /**
- * Presentation options shared by full-screen routes that open bottom-up and
- * close with a swipe down taken only from the top zone (like Search), so
- * scrolling content back up never dismisses them.
+ * Presentation options shared by full-screen routes that open bottom-up (like
+ * Search). The native swipe down is taken only from this top zone; the rest of
+ * the page closes through `PullDownToDismiss` once its content is at the top.
  */
 export const SLIDE_UP_DISMISS_ZONE = 140;
 

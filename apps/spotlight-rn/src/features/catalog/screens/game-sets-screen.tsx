@@ -1,5 +1,5 @@
 import { NavArrowLeft, Xmark } from 'iconoir-react-native';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Image,
@@ -10,9 +10,11 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import { GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EkalightAiRing, EkalightAiSparkle } from '@/components/ekalight-ai-glyph';
+import { PullDownToDismiss, usePullDownToDismiss } from '@/components/pull-down-to-dismiss';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import {
@@ -124,6 +126,16 @@ export function GameSetsScreen({
   // The route's game stays a chip even before its sets load, so the row never
   // jumps under the selected chip.
   const chipGames = games.includes(game) ? games : [game, ...games];
+
+  // Slid up (Search's landing): swipe down anywhere closes it once the list is at the top.
+  const pullDown = usePullDownToDismiss({ enabled: dismissStyle === 'close', onDismiss: onClose });
+  const showsResults =
+    search.hasActiveQuery && !search.errorMessage && (search.results.length > 0 || sealedResults.length > 0);
+  const { resetScroll } = pullDown;
+  // Switching lists mounts a fresh one at the top.
+  useEffect(() => {
+    resetScroll();
+  }, [resetScroll, showsResults]);
 
   const openResult = useCallback(
     (result: CatalogSearchResult) => {
@@ -242,6 +254,7 @@ export function GameSetsScreen({
         return null;
       }
       return (
+        <GestureDetector gesture={pullDown.scrollGesture}>
         <CatalogResultsGrid
           footer={(
             <SealedResultsSection
@@ -256,12 +269,16 @@ export function GameSetsScreen({
           onOpenResult={openResult}
           openingResultId={openingResultId}
           results={search.results}
+          scrollProps={pullDown.scrollProps}
           testID="game-sets-results"
         />
+        </GestureDetector>
       );
     }
     return (
+      <GestureDetector gesture={pullDown.scrollGesture}>
       <FlatList
+        {...pullDown.scrollProps}
         contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.lg }]}
         data={rows}
         key="sets"
@@ -287,10 +304,12 @@ export function GameSetsScreen({
         style={styles.body}
         testID="game-sets-list"
       />
+      </GestureDetector>
     );
   };
 
   return (
+    <PullDownToDismiss controller={pullDown} testID="game-sets-pull-down">
     <View style={[styles.screen, { backgroundColor: theme.colors.gray50 }]}>
       {/* Header banner (Figma 6552:1915) under its wash (6552:1916): clear at
           the top, purple at the middle, into the gray-50 page. */}
@@ -393,6 +412,7 @@ export function GameSetsScreen({
       </View>
       {body()}
     </View>
+    </PullDownToDismiss>
   );
 }
 

@@ -1,4 +1,6 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { State } from 'react-native-gesture-handler';
+import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
 
 import { CARD_GAMES, MockSpotlightRepository, type CardGame, type ExpansionRecord, type SetProgress } from '@spotlight/api-client';
 
@@ -80,11 +82,38 @@ describe('ExpansionBrowserScreen', () => {
     // Games with no sets get no chip.
     expect(screen.queryByTestId('game-sets-game-lorcana')).toBeNull();
   });
+
+  it('closes on a pull down, with the sets list locked at the top', async () => {
+    mockListExpansions();
+    const onClose = jest.fn();
+    renderWithProviders(
+      <ExpansionBrowserScreen onClose={onClose} onOpenCard={jest.fn()} onSelectExpansion={jest.fn()} />,
+    );
+    await screen.findByTestId('game-sets-expansion-sv8');
+    expect(screen.getByTestId('game-sets-pull-down')).toBeTruthy();
+    expect(screen.getByTestId('game-sets-list').props.bounces).toBe(false);
+
+    fireGestureHandler(getByGestureTestId('pull-down-to-dismiss'), [
+      { state: State.BEGAN, translationY: 0, velocityY: 0 },
+      { state: State.ACTIVE, translationY: 150, velocityY: 0 },
+      { state: State.END, translationY: 150, velocityY: 0 },
+    ]);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('GameSetsScreen', () => {
   afterEach(() => {
     jest.restoreAllMocks();
+  });
+
+  it('a side-pushed set list keeps its normal scroll bounce', async () => {
+    mockListExpansions();
+    renderWithProviders(
+      <GameSetsScreen game="pokemon" onClose={jest.fn()} onOpenCard={jest.fn()} onSelectExpansion={jest.fn()} />,
+    );
+    await screen.findByTestId('game-sets-expansion-sv8');
+    expect(screen.getByTestId('game-sets-list').props.bounces).toBeUndefined();
   });
 
   it('lists every set newest first with its progress, 0% sets included', async () => {

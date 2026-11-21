@@ -1,5 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import * as Clipboard from 'expo-clipboard';
+import { State } from 'react-native-gesture-handler';
+import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
 import { Alert, StyleSheet, type AlertButton } from 'react-native';
 
 import {
@@ -144,6 +146,19 @@ describe('AssistantScreen', () => {
     expect(screen.queryByText(/left today/i)).not.toBeOnTheScreen();
     fireEvent.press(screen.getByTestId('assistant-back'));
     expect(onBack).toHaveBeenCalled();
+  });
+
+  it('closes on a pull down from the chat', async () => {
+    const onBack = jest.fn();
+    renderScreen({}, { onBack });
+    await screen.findByTestId('assistant-intro');
+    expect(screen.getByTestId('assistant-pull-down')).toBeTruthy();
+    fireGestureHandler(getByGestureTestId('pull-down-to-dismiss'), [
+      { state: State.BEGAN, translationY: 0, velocityY: 0 },
+      { state: State.ACTIVE, translationY: 150, velocityY: 0 },
+      { state: State.END, translationY: 150, velocityY: 0 },
+    ]);
+    expect(onBack).toHaveBeenCalledTimes(1);
   });
 
   it('greets the signed-in user by first name with the purple mark', async () => {

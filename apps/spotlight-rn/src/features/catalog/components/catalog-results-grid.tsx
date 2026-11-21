@@ -2,6 +2,7 @@ import type { ReactElement } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  type FlatListProps,
   StyleSheet,
   View,
   type StyleProp,
@@ -124,6 +125,11 @@ export type CatalogResultsGridProps = {
   header?: ReactElement | null;
   /** Scrolls with the rows, below the last one (sealed on the Search landing). */
   footer?: ReactElement | null;
+  /** Scroll wiring from the host screen (e.g. pull-down-to-dismiss). */
+  scrollProps?: Pick<
+    FlatListProps<CatalogSearchResult[]>,
+    'onScroll' | 'onScrollEndDrag' | 'onMomentumScrollEnd' | 'scrollEventThrottle' | 'bounces' | 'overScrollMode'
+  >;
   testID?: string;
 };
 
@@ -136,10 +142,12 @@ export function CatalogResultsGrid({
   showGameTags = false,
   header = null,
   footer = null,
+  scrollProps,
   testID = 'catalog-results-list',
 }: CatalogResultsGridProps) {
   return (
     <FlatList
+      {...scrollProps}
       contentContainerStyle={styles.listContent}
       data={chunkResultRows(results)}
       key="results"

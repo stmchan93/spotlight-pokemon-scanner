@@ -11,9 +11,11 @@ import {
   View,
   type LayoutChangeEvent,
 } from 'react-native';
+import { GestureDetector } from 'react-native-gesture-handler';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { PullDownToDismiss, usePullDownToDismiss } from '@/components/pull-down-to-dismiss';
 import type {
   AssistantContextSource,
   AssistantFeedbackInput,
@@ -164,6 +166,12 @@ export function AssistantScreen({
   const scrollIntentRef = useRef<ScrollIntent>('none');
   const viewportHeightRef = useRef(0);
   const rowOffsetsRef = useRef(new Map<string, { y: number; height: number }>());
+  // Slid up: swipe down anywhere closes it while the chat is scrolled to the top.
+  const pullDown = usePullDownToDismiss({ enabled: view === 'chat', onDismiss: onBack });
+  const { resetScroll } = pullDown;
+  useEffect(() => {
+    resetScroll();
+  }, [resetScroll, view]);
 
   useEffect(() => {
     capturePostHogEvent(AnalyticsEvent.assistantOpened, { source });
@@ -630,6 +638,7 @@ export function AssistantScreen({
   );
 
   return (
+    <PullDownToDismiss controller={pullDown} testID="assistant-pull-down">
     <SafeAreaView edges={['top', 'left', 'right']} style={[styles.flex, { backgroundColor: theme.colors.gray0 }]}>
       {view === 'history' ? (
         // Figma 6530:16826: back, centred HISTORY, CLEAR ALL.
@@ -704,7 +713,9 @@ export function AssistantScreen({
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.flex}
         >
+          <GestureDetector gesture={pullDown.scrollGesture}>
           <ScrollView
+            {...pullDown.scrollProps}
             contentContainerStyle={[styles.listContent, hasConversation ? null : styles.listContentEmpty]}
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
             keyboardShouldPersistTaps="handled"
@@ -724,6 +735,7 @@ export function AssistantScreen({
                 ))
               : emptyState}
           </ScrollView>
+          </GestureDetector>
           <Toast
             durationMs={COPIED_TOAST_MS}
             message="Copied"
@@ -767,6 +779,7 @@ export function AssistantScreen({
         </KeyboardAvoidingView>
       )}
     </SafeAreaView>
+    </PullDownToDismiss>
   );
 }
 
