@@ -1697,10 +1697,10 @@ export function PortfolioScreen({
       trailing={{
         kind: 'profile',
         onEditProfile: handleEditProfilePress,
+        onOpenSearch: handleTopSearchPress,
         onShareProfile: handleShareProfilePress,
       }}
       floating
-      onOpenSearch={handleTopSearchPress}
       /*
         `pinnedBackdrop` IS ON, and this was reversed once — read before
         removing it again.

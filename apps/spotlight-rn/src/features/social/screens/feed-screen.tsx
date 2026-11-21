@@ -683,13 +683,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     </View>
   );
 
-  const openSearch = useCallback(() => {
-    // THIS SCREEN IS THE SOCIAL TAB, so its magnifier finds PEOPLE. Card search
-    // lives on Home's bar and in the scanner; on a feed of posts the thing you
-    // are looking for is a person.
-    router.push('/search/people' as never);
-  }, [router]);
-
   const openNotifications = useCallback(() => {
     router.push('/notifications' as never);
   }, [router]);
@@ -924,17 +917,13 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       <HomeHeader
         floating
         onOpenMenu={openDrawer}
-        // Figma 6430:11305: Ask Ekalight is the right-hand bubble on Social.
+        // Figma 6597:3462: menu | lockup | Ask Ekalight + bell. No search on Social.
         onOpenAssistant={() => router.push(assistantHref('home'))}
-        onOpenSearch={openSearch}
         scrollRestOffset={listTopOffset}
         scrollY={headerScrollY}
         testID={`${testID}-header`}
-        // Home puts search + bell in one trailing glass pill (Figma 4299:94902);
-        // the `+` that once sat here moved into the list as the compose prompt
-        // row. Collection draws the same bar with the profile toolbar's
-        // edit/share pair — this is the only prop that differs between the two
-        // screens.
+        // Collection draws the same bar with its search/edit/share capsule —
+        // this is the only prop that differs between the two screens.
         trailing={{
           kind: 'home',
           onOpenNotifications: openNotifications,

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { EkalightAiRing, EkalightAiSparkle } from '@/components/ekalight-ai-glyph';
+import { EkalightAiFlare, EkalightAiRing, EkalightAiSparkle } from '@/components/ekalight-ai-glyph';
 
 import {
   EkalightWordmark,
@@ -19,11 +19,10 @@ import {
 
 /**
  * WHAT THE BAR'S TRAILING CONTROL IS — the ONE thing that differs between the
- * two variants this bar draws. Home (Figma 4299:94902) carries a single glass
- * capsule holding a search glyph and the bell — there is NO full-width search
- * field on Home any more; search is a symbol in the trailing group. The profile
- * toolbar keeps its static search pill mid-row and carries an edit pencil and a
- * share glyph in the trailing capsule. Everything else — the 44pt menu bubble
+ * two variants this bar draws. `home` is the SOCIAL tab (Figma 6597:3462):
+ * Ask Ekalight and the bell as two separate glass bubbles, and NO search. The
+ * profile (the Home tab's collection) carries Ask Ekalight plus a search / edit
+ * / share capsule. Everything else — the 44pt menu bubble
  * at the leading edge, the row's gaps — is identical, which is exactly why this
  * is a variant on ONE component rather than a second bar.
  *
@@ -57,16 +56,16 @@ export type HomeHeaderTrailing =
   | {
       kind: 'profile';
       onEditProfile: () => void;
+      /** Card search — the profile capsule's magnifier. Social has no search (Figma 6597:3462). */
+      onOpenSearch: () => void;
       onShareProfile: () => void;
     };
 
 type HomeHeaderProps = {
   /** The drawer (leading menu bubble). */
   onOpenMenu: () => void;
-  /** Ask Ekalight: the gradient flare bubble — leading on Home, just before the trailing capsule on the profile. */
+  /** Ask Ekalight: the gradient flare bubble, first in the trailing group on both variants. */
   onOpenAssistant?: () => void;
-  /** Opens the full-screen card search — the trailing magnifier on Home, the pill on the profile. */
-  onOpenSearch: () => void;
   /**
    * Profile variant only: fires when the bar's contrast flips (true = resting
    * over the dark cover, false = pinned on white). Lets the SCREEN mirror the
@@ -140,7 +139,7 @@ type HomeHeaderProps = {
    * the real inset. Defaults to the safe-area inset for that case.
    */
   topInset?: number;
-  /** The bar's rightmost control — Home's search + bell capsule or the profile's edit/share capsule. See `HomeHeaderTrailing`. */
+  /** The bar's trailing control — Social's bell or the profile's search/edit/share capsule. See `HomeHeaderTrailing`. */
   trailing: HomeHeaderTrailing;
   testID?: string;
 };
@@ -216,13 +215,10 @@ export const HOME_HEADER_ROW_HEIGHT = BAR_PADDING_TOP + CONTROL_ROW_HEIGHT;
  */
 const HEADER_BACKDROP_FADE_DISTANCE = 56;
 /**
- * The shared top bar (Figma 4299:94902): a 44pt glass menu bubble leading, and
- * ONE 44pt glass capsule trailing. On Home the capsule holds a search glyph and
- * the bell — there is no full-width search field on Home; search is a
- * destination behind the magnifier. On Collection the same bar swaps the
- * capsule's contents for the profile pair (edit + share) and keeps a static
- * 44pt "Search Cards" pill flexed between the controls; see
- * `HomeHeaderTrailing`.
+ * The shared top bar: a 44pt glass menu bubble leading and the variant's
+ * trailing group — Ask Ekalight + bell on Social (Figma 6597:3462, lockup
+ * centred), Ask Ekalight + the search/edit/share capsule on Collection (Figma
+ * 6502:7657); see `HomeHeaderTrailing`.
  *
  * THE ONE TOP BAR. Home (the feed) and Collection both draw this. The feed
  * briefly had its own `FeedHeader` — same controls, but solid `IconButton`s in a
@@ -254,7 +250,6 @@ export function HomeHeader({
   onOpenMenu,
   onOpenAssistant,
   floating = false,
-  onOpenSearch,
   onOverCoverChange,
   pinnedBackdrop = false,
   scrollRestOffset = 0,
@@ -322,79 +317,48 @@ export function HomeHeader({
   const chromeSurface = 'onLight' as const;
   const glyphColor = theme.colors.gray900;
 
-  /*
-    The bar's rightmost control — ONE capsule on both variants, with EXACTLY
-    TWO slots. On Home that is search + bell (Figma 4299:94902); on the profile
-    it is edit + share. The slot count is part of the frame's arithmetic, not a
-    free parameter: the capsule is `glassNavBubbleGroupWidth(2, 'medium')` =
-    104 wide, and on the profile bar the flexed pill's width is the row's
-    remainder against exactly that.
-  */
-  const homeUtilities =
+  // Social (Figma 6597:3462): the bell is its own 44pt frost bubble. The badge
+  // is a SIBLING of the bubble, not a child — the bubble's glass clips its
+  // children to the circle — and lands where it hung off the old capsule slot.
+  const bellBubble =
     trailing.kind === 'home' ? (
-      <GlassNavBubbleGroup
-        items={
-          [
-            {
-              accessibilityLabel:
-                trailing.unreadCount > 0
-                  ? `Notifications, ${trailing.unreadCount} unread`
-                  : 'Notifications',
-              children: (
-                <>
-                  <Bell
-                    color={glyphColor}
-                    strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                    height={BUTTON_ICON_SIZE}
-                    width={BUTTON_ICON_SIZE}
-                  />
-                  {trailing.unreadCount > 0 ? (
-                    <View
-                      // Hangs off the 36pt slot's top-right corner; survives
-                      // because the capsule and its slots never clip. Count
-                      // capped at 9+ so the badge stays a circle — a 3-digit
-                      // count would stretch it into a lozenge.
-                      style={[
-                        styles.notificationBadge,
-                        { backgroundColor: theme.colors.dangerStrong },
-                      ]}
-                      testID={`${testID}-notifications-badge`}
-                    >
-                      <Text style={[theme.typography.overline, { color: theme.colors.gray0 }]}>
-                        {trailing.unreadCount > 9 ? '9+' : String(trailing.unreadCount)}
-                      </Text>
-                    </View>
-                  ) : null}
-                </>
-              ),
-              onPress: trailing.onOpenNotifications,
-              testID: `${testID}-notifications`,
-            },
-            {
-              // No search in Figma 6430:11305; it rides with the bell (owner, 2026-11-20).
-              // `kind: 'home'` is the FEED (Social tab); its magnifier finds PEOPLE.
-              accessibilityLabel: 'Search people',
-              children: (
-                <Search
-                  color={glyphColor}
-                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                  height={BUTTON_ICON_SIZE}
-                  width={BUTTON_ICON_SIZE}
-                />
-              ),
-              onPress: onOpenSearch,
-              testID: `${testID}-search`,
-            },
-          ] satisfies GlassNavBubbleGroupItem[]
-        }
-        material="frost"
-        size="medium"
-        surface={chromeSurface}
-        testID={`${testID}-utilities`}
-      />
+      <View style={styles.bellWrap}>
+        <GlassNavBubble
+          accessibilityLabel={
+            trailing.unreadCount > 0
+              ? `Notifications, ${trailing.unreadCount} unread`
+              : 'Notifications'
+          }
+          material="frost"
+          onPress={trailing.onOpenNotifications}
+          size="medium"
+          surface={chromeSurface}
+          testID={`${testID}-notifications`}
+        >
+          <Bell
+            color={glyphColor}
+            strokeWidth={glassNavBubbleGlyphStrokeWidth}
+            height={BUTTON_ICON_SIZE}
+            width={BUTTON_ICON_SIZE}
+          />
+        </GlassNavBubble>
+        {trailing.unreadCount > 0 ? (
+          <View
+            pointerEvents="none"
+            // Capped at 9+ so the badge stays a circle.
+            style={[styles.notificationBadge, { backgroundColor: theme.colors.dangerStrong }]}
+            testID={`${testID}-notifications-badge`}
+          >
+            <Text style={[theme.typography.overline, { color: theme.colors.gray0 }]}>
+              {trailing.unreadCount > 9 ? '9+' : String(trailing.unreadCount)}
+            </Text>
+          </View>
+        ) : null}
+      </View>
     ) : null;
 
-  // Figma 6430:11311: the gradient flare inside a gradient-ringed frost bubble.
+  // The gradient glyph inside a gradient-ringed frost bubble; Social draws the
+  // two-star flare (6597:3481), the profile keeps the single sparkle (6430:11314).
   const assistantBubble = onOpenAssistant ? (
     <GlassNavBubble
       accessibilityLabel="Ask Ekalight"
@@ -404,23 +368,18 @@ export function HomeHeader({
       surface={chromeSurface}
       testID={`${testID}-assistant`}
     >
-      <EkalightAiSparkle />
+      {trailing.kind === 'home' ? <EkalightAiFlare /> : <EkalightAiSparkle />}
       <EkalightAiRing size={glassNavBubbleSizes.medium} />
     </GlassNavBubble>
   ) : null;
 
-  // Social: Ask Ekalight LEADS, bell + search trail (owner, 2026-11-20 —
-  // swapped from Figma 6430:11305's bell-left / AI-right).
-  const homeAssistant =
-    trailing.kind === 'home' ? (
-      assistantBubble ?? (
-        <View style={{ width: glassNavBubbleSizes.medium }} />
-      )
-    ) : null;
-
   const trailingControl =
     trailing.kind === 'home' ? (
-      homeUtilities
+      // Figma 6597:3462: Ask Ekalight then the bell, two separate bubbles. No search on Social.
+      <View style={[styles.trailingGroup, styles.socialTrailingGroup]} testID={`${testID}-utilities`}>
+        {assistantBubble}
+        {bellBubble}
+      </View>
     ) : (
       // Figma 6502:7657: menu alone leads; Ask Ekalight + the capsule trail.
       <View style={styles.trailingGroup}>
@@ -440,7 +399,7 @@ export function HomeHeader({
                     width={BUTTON_ICON_SIZE}
                   />
                 ),
-                onPress: onOpenSearch,
+                onPress: trailing.onOpenSearch,
                 testID: `${testID}-search`,
               },
               {
@@ -513,31 +472,27 @@ export function HomeHeader({
         ]}
         testID={`${testID}-row`}
       >
-        {trailing.kind === 'home' ? (
-          homeAssistant
-        ) : (
-          <GlassNavBubble
-            accessibilityLabel="Open menu"
-            material="frost"
-            onPress={onOpenMenu}
-            size="medium"
-            surface={chromeSurface}
-            testID={`${testID}-menu`}
-          >
-            <Menu
-              color={glyphColor}
-              strokeWidth={glassNavBubbleGlyphStrokeWidth}
-              height={BUTTON_ICON_SIZE}
-              width={BUTTON_ICON_SIZE}
-            />
-          </GlassNavBubble>
-        )}
+        <GlassNavBubble
+          accessibilityLabel="Open menu"
+          material="frost"
+          onPress={onOpenMenu}
+          size="medium"
+          surface={chromeSurface}
+          testID={`${testID}-menu`}
+        >
+          <Menu
+            color={glyphColor}
+            strokeWidth={glassNavBubbleGlyphStrokeWidth}
+            height={BUTTON_ICON_SIZE}
+            width={BUTTON_ICON_SIZE}
+          />
+        </GlassNavBubble>
 
         {trailing.kind === 'home' ? (
           /*
-            Figma 6430:11305: the black lockup CENTRED on the bar, between the
-            bell (left) and Ask Ekalight (right). Permanent chrome: no entrance
-            or scroll animation (2026-09-09).
+            Figma 6597:3462: the black lockup CENTRED on the bar, between the
+            menu (left) and Ask Ekalight + bell (right). Permanent chrome: no
+            entrance or scroll animation (2026-09-09).
           */
           <View pointerEvents="none" style={styles.centerMark}>
             <EkalightWordmark color={theme.colors.gray900} height={HOME_WORDMARK_HEIGHT} testID={`${testID}-home-mark`} />
@@ -545,13 +500,12 @@ export function HomeHeader({
         ) : null}
 
         {/*
-          NEITHER variant has a pill anymore (profile's "Search Cards" pill was
-          replaced by a magnifier slot in the trailing capsule — Figma
-          4134:50957): menu leads, the capsule trails (search+bell on Home,
-          search+edit+share on the profile), and `space-between` opens the
-          middle of the bar.
+          NEITHER variant has a pill: menu leads on both, the trailing group
+          trails (Ask Ekalight + bell on Social, Ask Ekalight + the
+          search/edit/share capsule on the profile), and `space-between` opens
+          the middle of the bar.
         */}
-                {trailingControl}
+        {trailingControl}
       </View>
     </View>
   );
@@ -591,9 +545,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
-  // Sits on the bell slot's top-right corner, hanging past it. The capsule and
-  // its slots are `overflow: 'visible'`, so nothing between here and the row
-  // shaves it.
+  socialTrailingGroup: {
+    gap: 10,
+  },
+  bellWrap: {
+    overflow: 'visible',
+  },
+  // Over the bell's top-right, inset 2pt from the 44pt bubble's box — the same
+  // spot it held at -2/-2 off the old capsule's 36pt slot.
   notificationBadge: {
     alignItems: 'center',
     borderCurve: 'continuous',
@@ -603,8 +562,8 @@ const styles = StyleSheet.create({
     minWidth: 18,
     paddingHorizontal: 4,
     position: 'absolute',
-    right: -2,
-    top: -2,
+    right: 2,
+    top: 2,
   },
 });
 

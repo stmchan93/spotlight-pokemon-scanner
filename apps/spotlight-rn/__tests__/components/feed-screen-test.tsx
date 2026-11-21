@@ -496,9 +496,8 @@ describe('FeedScreen', () => {
     fireEvent.press(screen.getByTestId('feed-compose-prompt'));
     expect(push).toHaveBeenCalledWith('/new-post');
 
-    // The Social tab's magnifier finds PEOPLE; cards are Home's bar.
-    fireEvent.press(screen.getByTestId('feed-header-search'));
-    expect(push).toHaveBeenCalledWith('/search/people');
+    // No search on Social (Figma 6597:3462).
+    expect(screen.queryByTestId('feed-header-search')).toBeNull();
 
     fireEvent.press(screen.getByTestId('feed-header-notifications'));
     expect(push).toHaveBeenCalledWith('/notifications');
@@ -520,7 +519,7 @@ describe('FeedScreen', () => {
   // a bubble in the trailing group). This has been wrong in every direction —
   // solid buttons stacked above the list, then one bar that scrolled away
   // whole — so the shape is pinned here.
-  it('keeps the bar pinned over the list with both trailing actions live', async () => {
+  it('keeps the bar pinned over the list with its trailing actions live', async () => {
     renderFeed();
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
@@ -529,9 +528,6 @@ describe('FeedScreen', () => {
     expect(StyleSheet.flatten(bar.props.style).position).toBe('absolute');
 
     push.mockClear();
-    fireEvent.press(screen.getByTestId('feed-header-search'));
-    expect(push).toHaveBeenLastCalledWith('/search/people');
-
     fireEvent.press(screen.getByTestId('feed-header-notifications'));
     expect(push).toHaveBeenLastCalledWith('/notifications');
 
@@ -559,13 +555,18 @@ describe('FeedScreen', () => {
     expect(within(screen.getByTestId('feed-list')).queryByTestId('feed-header-rule')).toBeNull();
   });
 
-  it('heads Social with bell + search left and Ask Ekalight right (Figma 6430:11305)', async () => {
+  it('heads Social with the menu left and Ask Ekalight + bell right, no search (Figma 6597:3462)', async () => {
     renderFeed();
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-    expect(screen.queryByTestId('feed-header-menu')).toBeNull();
-    expect(screen.getByTestId('feed-header-search')).toBeTruthy();
+    expect(screen.getByTestId('feed-header-menu')).toBeTruthy();
     expect(screen.getByTestId('feed-header-assistant')).toBeTruthy();
+    expect(screen.getByTestId('feed-header-notifications')).toBeTruthy();
+    expect(screen.queryByTestId('feed-header-search')).toBeNull();
+
+    // Same drawer Home's menu bubble opens.
+    fireEvent.press(screen.getByTestId('feed-header-menu'));
+    expect(mockOpenDrawer).toHaveBeenCalled();
   });
 
   // This gesture has been dropped TWICE by rewrites of this screen, so it is

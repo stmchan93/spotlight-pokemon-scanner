@@ -1,5 +1,5 @@
 import { Animated, StyleSheet } from 'react-native';
-import { fireEvent, screen } from '@testing-library/react-native';
+import { fireEvent, screen, within } from '@testing-library/react-native';
 
 import {
   glassNavBubbleGroupWidth,
@@ -26,14 +26,13 @@ import { renderWithProviders } from '../test-utils';
  * 4299:94902 bar is static), but the lesson stands: assert WIRING, not vibes.
  *
  * The `trailing` variant is the other thing asserted here: ONE component draws
- * both frames, so the rightmost control is the only difference between Home's
- * toolbar (a search + bell capsule — there is NO search pill on Home) and the
- * profile's (a static pill mid-row plus an edit/share capsule), and each
- * variant has to exclude the other's controls rather than merely include its
- * own.
+ * both frames, so the trailing control is the only difference between
+ * Social's toolbar (Ask Ekalight + a lone bell bubble, no search) and the
+ * profile's (Ask Ekalight + a search/edit/share capsule), and each variant has
+ * to exclude the other's controls rather than merely include its own.
  */
 
-/** Home's trailing control: the search + bell capsule. Nothing else. */
+/** Social's trailing control: the bell (Ask Ekalight rides beside it). Nothing else. */
 function homeTrailing(unreadCount = 0): HomeHeaderTrailing {
   return {
     kind: 'home',
@@ -49,6 +48,7 @@ function profileTrailing(
   return {
     kind: 'profile',
     onEditProfile: jest.fn(),
+    onOpenSearch: jest.fn(),
     onShareProfile: jest.fn(),
     ...overrides,
   };
@@ -58,7 +58,6 @@ function renderHeader(props: Partial<Parameters<typeof HomeHeader>[0]> = {}) {
   return renderWithProviders(
     <HomeHeader
       onOpenMenu={jest.fn()}
-      onOpenSearch={jest.fn()}
       testID="home-header"
       trailing={homeTrailing()}
       {...props}
@@ -102,38 +101,46 @@ describe('HomeHeader', () => {
   });
 
   /*
-    THE TRAILING CONTROL. Home's is ONE 44pt glass capsule holding the search
-    glyph and the bell (Figma 4299:94902) — two 36pt symbol slots on a 20pt
-    gap, `glassNavBubbleGroupWidth(2, 'medium')` = 104 wide. There is NO
-    full-width search pill on Home any more; search is a destination behind the
-    magnifier slot. The profile bar keeps its static pill mid-row and swaps the
-    capsule's contents for edit + share.
+    THE TRAILING CONTROL. Social (Figma 6597:3462) trails Ask Ekalight and the
+    bell as two separate 44pt bubbles 10pt apart, and has no search. The
+    profile bar trails Ask Ekalight plus a search/edit/share capsule.
   */
   describe('the trailing control', () => {
-    it('Social: Ask Ekalight left, centred lockup, bell + search capsule right', () => {
+    it('Social (Figma 6597:3462): menu left, centred lockup, Ask Ekalight then the bell right, no search', () => {
+      const onOpenMenu = jest.fn();
       const onOpenNotifications = jest.fn();
-      const onOpenSearch = jest.fn();
+      const onOpenAssistant = jest.fn();
       renderHeader({
         floating: true,
-        onOpenSearch,
+        onOpenAssistant,
+        onOpenMenu,
         trailing: { kind: 'home', onOpenNotifications, unreadCount: 0 },
       });
 
-      // Social: Ask Ekalight | lockup | capsule(bell, search). No menu bubble.
-      expect(screen.queryByTestId('home-header-menu')).toBeNull();
-      expect(screen.getByTestId('home-header-utilities')).toBeTruthy();
+      const row = screen.getByTestId('home-header-row');
+      const [leading, , trailingGroup] = row.children as unknown as {
+        props: { testID?: string };
+        findByProps: (p: object) => unknown;
+      }[];
+      expect(leading.props.testID).toBe('home-header-menu');
+      expect(trailingGroup.props.testID).toBe('home-header-utilities');
       expect(screen.getByTestId('home-header-home-mark')).toBeTruthy();
 
-      // NO SearchEntryPill on the home bar — search is a glyph slot, not a
-      // field, so the pill's copy must not render anywhere.
+      // Two SEPARATE bubbles in this order: Ask Ekalight, then the bell.
+      const utilities = screen.getByTestId('home-header-utilities');
+      const order = (utilities.children as unknown as { props: { testID?: string } }[]).map(
+        (child) => child.props.testID,
+      );
+      expect(order).toEqual(['home-header-assistant', undefined]);
+      expect(within(utilities).getByTestId('home-header-notifications')).toBeTruthy();
+      expect(StyleSheet.flatten(utilities.props.style).gap).toBe(10);
+
+      // No search anywhere on Social.
+      expect(screen.queryByTestId('home-header-search')).toBeNull();
       expect(screen.queryByText('Search Cards')).toBeNull();
 
-      // The `home` variant is the FEED, which is the Social tab — its
-      // magnifier finds people, not cards.
-      const search = screen.getByTestId('home-header-search');
-      expect(search.props.accessibilityLabel).toBe('Search people');
-      fireEvent.press(search);
-      expect(onOpenSearch).toHaveBeenCalledTimes(1);
+      fireEvent.press(screen.getByTestId('home-header-menu'));
+      expect(onOpenMenu).toHaveBeenCalledTimes(1);
 
       const bell = screen.getByTestId('home-header-notifications');
       expect(bell.props.accessibilityLabel).toBe('Notifications');
@@ -141,45 +148,48 @@ describe('HomeHeader', () => {
       expect(onOpenNotifications).toHaveBeenCalledTimes(1);
     });
 
-    it('puts Ask Ekalight on the right with the gradient flare and ring', () => {
+    it('draws Ask Ekalight with the two-star flare and gradient ring on Social', () => {
       const onOpenAssistant = jest.fn();
       renderHeader({ floating: true, onOpenAssistant, trailing: homeTrailing() });
       const ai = screen.getByTestId('home-header-assistant');
       expect(ai.props.accessibilityLabel).toBe('Ask Ekalight');
-      expect(screen.getByTestId('ekalight-ai-sparkle')).toBeTruthy();
+      expect(screen.getByTestId('ekalight-ai-flare')).toBeTruthy();
       expect(screen.getByTestId('ekalight-ai-ring')).toBeTruthy();
       fireEvent.press(ai);
       expect(onOpenAssistant).toHaveBeenCalledTimes(1);
     });
 
-    it('draws the Home capsule 44pt tall with 36pt search + bell slots', () => {
+    it('draws the bell as its own 44pt bubble', () => {
       renderHeader({ floating: true, trailing: homeTrailing() });
 
-      const capsule = StyleSheet.flatten(screen.getByTestId('home-header-utilities').props.style);
-      expect(capsule.width).toBe(glassNavBubbleGroupWidth(2, 'medium'));
-      expect(capsule.height).toBe(glassNavBubbleSizes.medium);
-      expect(StyleSheet.flatten(screen.getByTestId('home-header-notifications').props.style).width).toBe(36);
+      const bell = StyleSheet.flatten(screen.getByTestId('home-header-notifications').props.style);
+      expect(bell.width).toBe(glassNavBubbleSizes.medium);
+      expect(bell.height).toBe(glassNavBubbleSizes.medium);
     });
 
-    // The badge hangs off the bell SLOT at `top: -2, right: -2`. Moving the
-    // bell from a lone bubble into the capsule is exactly the change that
-    // would have clipped it, so slot and capsule must stay `overflow:
-    // 'visible'`.
-    it('lets the unread badge overhang the bell slot', () => {
+    // The bubble's glass clips its children, so the badge is a sibling over the
+    // bell's top-right rather than a child of it.
+    it('shows the unread badge over the bell and speaks the count', () => {
       renderHeader({ floating: true, trailing: homeTrailing(3) });
 
-      expect(screen.getByTestId('home-header-notifications-badge')).toBeTruthy();
+      const badge = screen.getByTestId('home-header-notifications-badge');
       expect(screen.getByText('3')).toBeTruthy();
+      const style = StyleSheet.flatten(badge.props.style);
+      expect(style.top).toBe(2);
+      expect(style.right).toBe(2);
       expect(
-        StyleSheet.flatten(screen.getByTestId('home-header-notifications').props.style).overflow,
-      ).toBe('visible');
-      expect(
-        StyleSheet.flatten(screen.getByTestId('home-header-utilities').props.style).overflow,
-      ).toBe('visible');
-      // The unread count is spoken from the bell slot itself.
+        within(screen.getByTestId('home-header-notifications')).queryByTestId(
+          'home-header-notifications-badge',
+        ),
+      ).toBeNull();
       expect(screen.getByTestId('home-header-notifications').props.accessibilityLabel).toBe(
         'Notifications, 3 unread',
       );
+    });
+
+    it('caps the badge at 9+', () => {
+      renderHeader({ floating: true, trailing: homeTrailing(12) });
+      expect(screen.getByText('9+')).toBeTruthy();
     });
 
     it('leaves the flexed profile pill 197 at a 393pt width', () => {
@@ -282,9 +292,8 @@ describe('HomeHeader', () => {
       const onOpenSearch = jest.fn();
       renderHeader({
         floating: true,
-        onOpenSearch,
         scrollY: new Animated.Value(240),
-        trailing: profileTrailing(),
+        trailing: profileTrailing({ onOpenSearch }),
       });
 
       expect(screen.queryByText('Search Cards')).toBeNull();
