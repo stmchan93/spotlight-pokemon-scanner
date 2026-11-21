@@ -37,6 +37,7 @@ from mcp_server.assistant.store import new_id
 from mcp_server.tools import (
     DECK_CONDITION_CODES,
     GAME_FILTER_NOTE,
+    INCLUDE_ENERGY_TRAINERS_NOTE,
     GRADING_UPSIDE_DESCRIPTION,
     MARKET_TRENDS_DESCRIPTION,
     MOVERS_DESCRIPTION,
@@ -306,6 +307,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "min_price_usd": {"type": "number"},
                 "max_price_usd": {"type": "number"},
                 "limit": {"type": "integer", "description": "1-20, default 6."},
+                "include_energy_trainers": {"type": "boolean", "description": INCLUDE_ENERGY_TRAINERS_NOTE},
             },
             [],
         ),
@@ -320,6 +322,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "owned": {"type": "string", "enum": ["any", "owned", "not_owned"]},
                 "window": {"type": "string", "enum": ["90d", "1y"], "description": "Default 1y."},
                 "limit": {"type": "integer", "description": "1-20, default 6."},
+                "include_energy_trainers": {"type": "boolean", "description": INCLUDE_ENERGY_TRAINERS_NOTE},
             },
             [],
         ),
@@ -335,6 +338,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "owned": {"type": "string", "enum": ["any", "owned"]},
                 "rank_by": {"type": "string", "enum": ["pct", "usd"], "description": "Default pct."},
                 "limit": {"type": "integer", "description": "1-10, default 3."},
+                "include_energy_trainers": {"type": "boolean", "description": INCLUDE_ENERGY_TRAINERS_NOTE},
             },
             ["direction"],
         ),
@@ -373,6 +377,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             {
                 "game": {"type": "string", "enum": list(SUPPORTED_GAMES)},
                 "window": {"type": "string", "enum": ["7d", "30d", "90d"], "description": "Set-trend window; default 30d."},
+                "include_energy_trainers": {"type": "boolean", "description": INCLUDE_ENERGY_TRAINERS_NOTE},
             },
             [],
         ),
@@ -468,9 +473,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "answer, with exactly the cards the answer is about, in display order: every card you name, and "
             "nothing else. Show several candidates only when you ask the user to pick one. Use card ids from "
             "this turn's tool results, the scanned cards, or your earlier answers. Pass grader+grade for a "
-            "graded price and variant for a specific printing; otherwise null. label: a short header for the "
-            "tiles (e.g. 'Top holdings by value', 'Highest-value cards you're missing') or null. cards: [] "
-            "shows no tiles."
+            "graded price and variant for a specific printing; otherwise null. label: always null (the app "
+            "titles the tiles itself). cards: [] shows no tiles."
         ),
         "input_schema": _obj(
             {
@@ -1407,7 +1411,7 @@ class AssistantToolbox:
             kwargs["limit"] = max(1, min(limit, MODEL_LIMITS[name]))
         for key in ("owned", "sort", "cursor", "collection_id", "budget_usd", "card_id", "card_ids", "condition",
                     "grader", "grade", "variant", "game", "window", "min_price_usd", "max_price_usd", "holding_type",
-                    "direction", "rank_by"):
+                    "direction", "rank_by", "include_energy_trainers"):
             if args.get(key) is not None:
                 kwargs[key] = args[key]
         if "range" in args and args["range"] is not None:
@@ -1720,9 +1724,13 @@ class AssistantToolbox:
 
     # --- tiles ---------------------------------------------------------------
 
-    def finalize_cards(self, refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def finalize_cards(
+        self, refs: list[dict[str, Any]], *, keep_imageless: set[str] | frozenset[str] = frozenset()
+    ) -> list[dict[str, Any]]:
         """Dedupe (card + slab, then same-language reprints of one artwork), cap
-        at MAX_CARDS, fill name/image/price from the DB for slim refs."""
+        at MAX_CARDS, fill name/image/price from the DB for slim refs. A card with
+        no image (small, else large) shows no tile (owner 2026-11-20), except
+        keep_imageless ids (a proposal or direct add must show its card)."""
         seen: set[tuple[str, str, str]] = set()
         unique: list[dict[str, Any]] = []
         for ref in refs:
@@ -1748,7 +1756,10 @@ class AssistantToolbox:
                 if ref.get("price_usd") is None and not (ref.get("grader") or ref.get("grade")):
                     ref["price_usd"] = summary.get("price_usd")
         # A scanned/earlier id that no longer resolves has no name: no tile.
-        return [ref for ref in out if ref.get("name")]
+        return [
+            ref for ref in out
+            if ref.get("name") and (str(ref.get("image_small_url") or "").strip() or ref["card_id"] in keep_imageless)
+        ]
 
     def build_tiles(
         self,
@@ -1801,7 +1812,8 @@ class AssistantToolbox:
         on_watchlist = bool(watchlist_ids) and bool(tiles) and all(tile["card_id"] in watchlist_ids for tile in tiles)
         if on_watchlist:
             tiles = tiles[:MAX_WATCHLIST_TILES]
-        cards = self.finalize_cards(tiles)
+        keep = {str(tile["card_id"]) for tile in tiles} if fixed else set(always_ids or ())
+        cards = self.finalize_cards(tiles, keep_imageless=keep)
         view_all = None
         if on_watchlist and watchlist_total and watchlist_total > len(cards):
             view_all = {"screen": "watchlist", "total": int(watchlist_total)}

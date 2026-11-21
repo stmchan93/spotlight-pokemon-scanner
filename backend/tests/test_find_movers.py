@@ -126,11 +126,13 @@ class FindMoversToolTests(unittest.TestCase):
         self.conn = self.service.connection
 
     def card(self, card_id: str, *, set_name: str = "Evolving Skies", set_id: str = "swsh7", language: str = "English",
-             rarity: str = "Rare", game: str = "pokemon") -> None:
+             rarity: str = "Rare", game: str = "pokemon", supertype: str | None = None, image: bool = True,
+             name: str | None = None) -> None:
         upsert_card(
-            self.conn, card_id=card_id, name=f"Card {card_id}", set_name=set_name, number="1", rarity=rarity,
+            self.conn, card_id=card_id, name=name or f"Card {card_id}", set_name=set_name, number="1", rarity=rarity,
             variant="Raw", language=language, game=game, source_provider="scrydex", source_record_id=card_id,
-            image_url=f"https://img.example/{card_id}.png", source_payload={"id": card_id}, set_id=set_id,
+            image_url=f"https://img.example/{card_id}.png" if image else None, source_payload={"id": card_id},
+            set_id=set_id, supertype=supertype,
         )
 
     def path(self, card_id: str, start: float, end: float, *, days: int = 30, step: int = 5) -> None:
@@ -187,6 +189,32 @@ class FindMoversToolTests(unittest.TestCase):
         shaped = USER_POLICY.shape(result)
         for key in ("start_usd", "end_usd", "start_date", "end_date", "covers_full_window", "change_pct", "days_covered"):
             self.assertIn(key, shaped["cards"][0])
+
+    def test_collectibility_filter(self) -> None:
+        # Owner 2026-11-20: a $5 Fairy Energy topping "rising the most" is noise.
+        self.card("es-mon")
+        self.path("es-mon", 20.0, 30.0)  # +50%
+        self.card("es-energy", supertype="Energy", rarity="Common", name="Fairy Energy")
+        self.path("es-energy", 10.0, 40.0)  # +300%
+        self.card("es-cheap")
+        self.path("es-cheap", 3.0, 8.0)  # +167%, under the $10 floor
+        self.card("es-blank", image=False)
+        self.path("es-blank", 20.0, 60.0)  # +200%, no image
+        ids = lambda *a, **kw: [  # noqa: E731
+            c["card_id"] for c in self.tools.find_movers("user-a", *a, direction="up", **kw)["cards"]
+        ]
+        self.assertEqual(ids({"set": "Evolving Skies"}), ["es-mon"])
+        self.assertEqual(ids({"set": "Evolving Skies"}, include_energy_trainers=True),
+                         ["es-energy", "es-cheap", "es-mon"])
+        self.assertEqual(ids({"set": "Evolving Skies", "price_max_usd": 10}), ["es-cheap"])
+        self.assertEqual(ids({"text": "Fairy Energy"}), ["es-energy"])
+        self.holding("user-a", "es-energy")
+        self.assertEqual(ids(owned="owned"), ["es-energy"])
+        outcome = AssistantToolbox(self.tools).run(
+            "find_movers", {"direction": "up", "filter": {"set": "Evolving Skies"}, "include_energy_trainers": True},
+            owner_user_id="user-a",
+        )
+        self.assertEqual([c["card_id"] for c in outcome.content["cards"]], ["es-energy", "es-cheap", "es-mon"])
 
     def test_japanese_only_when_asked(self) -> None:
         self.seed_set()

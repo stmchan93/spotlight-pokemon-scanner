@@ -28,11 +28,11 @@ from catalog_tools import (  # noqa: E402
 )
 import price_lows  # noqa: E402
 from market_movers import LATEST_PAYLOAD_SETTING_KEY  # noqa: E402
-from mcp_server.assistant.tools import AssistantToolbox  # noqa: E402
+from mcp_server.assistant.tools import TOOL_DEFINITIONS, AssistantToolbox  # noqa: E402
 from mcp_server.filters import ToolInputError  # noqa: E402
 from mcp_server.policy import PUBLIC_POLICY, USER_POLICY  # noqa: E402
 from mcp_server.readonly_service import ReadOnlySpotlightService  # noqa: E402
-from mcp_server.tools import CollectionTools  # noqa: E402
+from mcp_server.tools import CollectionTools, is_low_interest_card  # noqa: E402
 from server import _apply_price_history_cells_schema_patch  # noqa: E402
 
 TODAY = date(2026, 11, 17)
@@ -341,11 +341,13 @@ class FindPriceLowsToolTests(unittest.TestCase):
         self.conn = self.service.connection
 
     def card(self, card_id: str, *, set_name: str = "Evolving Skies", language: str = "English",
-             game: str = "pokemon", rarity: str = "Rare") -> None:
+             game: str = "pokemon", rarity: str = "Rare", supertype: str | None = None, image: bool = True,
+             name: str | None = None) -> None:
         upsert_card(
-            self.conn, card_id=card_id, name=f"Card {card_id}", set_name=set_name, number="1", rarity=rarity,
+            self.conn, card_id=card_id, name=name or f"Card {card_id}", set_name=set_name, number="1", rarity=rarity,
             variant="Raw", language=language, game=game, source_provider="scrydex", source_record_id=card_id,
-            image_url=f"https://img.example/{card_id}.png", source_payload={"id": card_id},
+            image_url=f"https://img.example/{card_id}.png" if image else None, source_payload={"id": card_id},
+            supertype=supertype,
         )
         self.conn.execute(
             "INSERT INTO card_price_snapshots (card_id, provider, display_currency_code, default_raw_market_price, "
@@ -589,6 +591,53 @@ class FindPriceLowsToolTests(unittest.TestCase):
         for name in ("find_price_lows", "find_new_highs", "get_market_trends"):
             self.assertTrue(USER_POLICY.allows_tool(name))
             self.assertFalse(PUBLIC_POLICY.allows_tool(name))
+
+    # --- collectibility (owner 2026-11-20, "nobody cares about the Fairy Energy"): market-wide rankings
+    # leave out bulk Energy/Trainers, sub-$10 cards and image-less cards unless asked.
+
+    def test_rule(self) -> None:
+        self.assertTrue(is_low_interest_card({"supertype": "Energy", "rarity": "Common"}))
+        self.assertTrue(is_low_interest_card({"supertype": "Energy", "rarity": None}))
+        self.assertTrue(is_low_interest_card({"supertype": "Trainer", "rarity": "Uncommon"}))
+        self.assertFalse(is_low_interest_card({"supertype": "Trainer", "rarity": "Rare Holo"}))
+        self.assertFalse(is_low_interest_card({"supertype": "Energy", "rarity": "Hyper Rare"}))  # gold energy
+        self.assertFalse(is_low_interest_card({"supertype": "Trainer", "rarity": "Special Illustration Rare"}))
+        self.assertFalse(is_low_interest_card({"supertype": "Pokémon", "rarity": "Common"}))
+
+    def test_lows_skip_energy_and_imageless_unless_asked(self) -> None:
+        self.card("mon")
+        self.card("energy", supertype="Energy", rarity="Common", name="Fairy Energy")
+        self.card("blank", image=False)
+        self.seed_lows([self.low("energy", pct=80.0), self.low("blank", pct=70.0), self.low("mon", pct=30.0)])
+        ids = lambda *a, **kw: [c["card_id"] for c in self.tools.find_price_lows("user-a", *a, **kw)["cards"]]  # noqa: E731
+        self.assertEqual(ids(), ["mon"])
+        self.assertEqual(ids(include_energy_trainers=True), ["energy", "mon"])
+        self.assertEqual(ids({"text": "fairy energy"}), ["energy"])  # a name scope is the user's pick
+        outcome = AssistantToolbox(self.tools).run(
+            "find_price_lows", {"include_energy_trainers": True}, owner_user_id="user-a"
+        )
+        self.assertEqual([c["card_id"] for c in outcome.cards], ["energy", "mon"])
+
+    def test_highs_floor_and_energy(self) -> None:
+        self.card("cheap")
+        self.card("energy", supertype="Energy", rarity="Common")
+        self.card("big")
+        self.seed_highs([self.high("cheap", price=5.0), self.high("energy", price=40.0), self.high("big", price=60.0)])
+        ids = lambda *a, **kw: [c["card_id"] for c in self.tools.find_new_highs("user-a", *a, **kw)["cards"]]  # noqa: E731
+        self.assertEqual(ids(), ["big"])
+        self.assertEqual(ids({"price_max_usd": 10}), ["cheap"])  # an explicit price bound wins
+        self.assertEqual(sorted(ids(include_energy_trainers=True)), ["big", "cheap", "energy"])
+
+    def test_trends_skip_energy_and_cheap_cards(self) -> None:
+        self._seed_trends()
+        self.conn.execute("UPDATE cards SET supertype = 'Energy', rarity = 'Common' WHERE id = 'up1'")
+        result = self.tools.get_market_trends("user-a", game="pokemon")
+        # up1 is basic Energy; up2 at $12 clears the $10 floor.
+        self.assertEqual([c["card_id"] for c in result["rising_cards"]], ["up2"])
+        both = self.tools.get_market_trends("user-a", game="pokemon", include_energy_trainers=True)
+        self.assertEqual([c["card_id"] for c in both["rising_cards"]], ["up1", "up2"])
+        schema = {t["name"]: t for t in TOOL_DEFINITIONS}["get_market_trends"]["input_schema"]
+        self.assertEqual(schema["properties"]["include_energy_trainers"]["type"], "boolean")
 
 
 if __name__ == "__main__":

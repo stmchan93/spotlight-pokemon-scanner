@@ -31,7 +31,7 @@ SENTENCE_LIMITS: dict[str, int] = {"narrowing": 2, "refusal": 2, "art_search": 2
 REWRITE_MAX_TOKENS = 1024  # room for adaptive thinking at low effort
 REWRITE_INSTRUCTION = (
     "Rewrite to at most {limit} words{sentences}. Keep every number, card name, set, date and the 'not a prediction' "
-    "line if present. Same language. No preamble."
+    "line if present. Keep '- ' bullets and **bold** as they are. Same language. No preamble."
 )
 
 NO_INTERNAL_INSTRUCTION = (
@@ -41,7 +41,8 @@ NO_INTERNAL_INSTRUCTION = (
 )
 REWRITE_INTERNAL_ONLY = (
     "Rewrite this answer with the same facts and about the same length. Keep every number, card name, set, date "
-    "and the 'not a prediction' line if present. Same language. No preamble. " + NO_INTERNAL_INSTRUCTION
+    "and the 'not a prediction' line if present. Keep '- ' bullets and **bold** as they are. Same language. "
+    "No preamble. " + NO_INTERNAL_INSTRUCTION
 )
 # Internal mechanics the user shouldn't hear about; card names ("TAG TEAM", "Tool Scrapper") are masked first.
 _INTERNAL = re.compile(
@@ -415,3 +416,50 @@ def tables_to_bullets(text: str) -> str:
             out.append("")
         index = block_end
     return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
+
+
+# Owner 2026-11-20: list answers bold each bullet's name, price and % change. Deterministic backstop
+# for bullets the model left plain; text already inside **...** is untouched.
+_MONEY = re.compile(r"(?<![\w$*])[+\-\u2212]?\$\d[\d,]*(?:\.\d+)?")
+_PERCENT = re.compile(r"(?<![\w.*])[+\-\u2212]?\d+(?:\.\d+)?%")
+_BULLET_LEAD = re.compile(r"^(\s*[-*\u2022]\s+)(.*)$")
+_NAME_END = re.compile(r"\s+\(|:\s|\s+[\u2013\u2014-]\s")
+
+
+def _bold_figures(segment: str) -> str:
+    return _PERCENT.sub(lambda m: f"**{m.group()}**", _MONEY.sub(lambda m: f"**{m.group()}**", segment))
+
+
+def _bold_outside(text: str) -> str:
+    """Bold money and % figures outside existing **bold** spans."""
+    parts = text.split("**")
+    if len(parts) % 2 == 0:  # unbalanced markup: leave the line alone
+        return text
+    return "**".join(_bold_figures(part) if index % 2 == 0 else part for index, part in enumerate(parts))
+
+
+def _is_name(text: str) -> bool:
+    """A short lead with a letter that isn't a figure ('Mega Gengar ex', not '$5' or 'Raw price is')."""
+    return (
+        bool(text) and "**" not in text and len(text.split()) <= 6
+        and re.search(r"[^\W\d_]", text) is not None and re.match(r"[$\d+\-\u2212]", text) is None
+    )
+
+
+def bold_bullet_figures(text: str) -> str:
+    """In each bullet that carries a price or % figure: bold the leading name (up to ' (', ': ' or a dash)
+    when nothing at its start is bold yet, and every $ / % figure not already bold."""
+    out: list[str] = []
+    for line in str(text or "").split("\n"):
+        match = _BULLET_LEAD.match(line)
+        if not match or not (_MONEY.search(match.group(2)) or _PERCENT.search(match.group(2))):
+            out.append(line)
+            continue
+        lead, body = match.groups()
+        if not body.startswith("**"):
+            end = _NAME_END.search(body)
+            name = body[: end.start()].strip() if end else ""
+            if _is_name(name):
+                body = f"**{name}**" + body[end.start():]
+        out.append(lead + _bold_outside(body))
+    return "\n".join(out)

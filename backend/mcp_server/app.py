@@ -38,6 +38,7 @@ from mcp_server.policy import USER_POLICY, ResponsePolicy  # noqa: E402
 from mcp_server.rate_limit import RateLimitExceeded, UserRateLimiter  # noqa: E402
 from mcp_server.tools import (  # noqa: E402
     GAME_FILTER_NOTE,
+    INCLUDE_ENERGY_TRAINERS_NOTE,
     MARKET_TRENDS_DESCRIPTION,
     MOVERS_DESCRIPTION,
     PRICE_RANK_NOTE,
@@ -439,6 +440,7 @@ def build_server(
         min_price_usd: Annotated[float, Field(ge=0)] | None = None,
         max_price_usd: Annotated[float, Field(ge=0)] | None = None,
         limit: Annotated[int, Field(ge=1, le=20)] = 10,
+        include_energy_trainers: Annotated[bool, Field(description=INCLUDE_ENERGY_TRAINERS_NOTE)] = False,
     ) -> dict[str, Any]:
         return await runner.run(
             "find_price_lows",
@@ -449,6 +451,7 @@ def build_server(
             min_price_usd=min_price_usd,
             max_price_usd=max_price_usd,
             limit=limit,
+            include_energy_trainers=include_energy_trainers,
         )
 
     @_register(server, policy)(
@@ -461,6 +464,7 @@ def build_server(
         owned: Literal["any", "owned", "not_owned"] = "any",
         window: Literal["90d", "1y"] = "1y",
         limit: Annotated[int, Field(ge=1, le=20)] = 10,
+        include_energy_trainers: Annotated[bool, Field(description=INCLUDE_ENERGY_TRAINERS_NOTE)] = False,
     ) -> dict[str, Any]:
         return await runner.run(
             "find_new_highs",
@@ -469,6 +473,7 @@ def build_server(
             owned=owned,
             window=window,
             limit=limit,
+            include_energy_trainers=include_energy_trainers,
         )
 
     @_register(server, policy)(
@@ -482,6 +487,7 @@ def build_server(
         owned: Literal["any", "owned"] = "any",
         rank_by: Literal["pct", "usd"] = "pct",
         limit: Annotated[int, Field(ge=1, le=10)] = 5,
+        include_energy_trainers: Annotated[bool, Field(description=INCLUDE_ENERGY_TRAINERS_NOTE)] = False,
     ) -> dict[str, Any]:
         return await runner.run(
             "find_movers",
@@ -491,6 +497,7 @@ def build_server(
             owned=owned,
             rank_by=rank_by,
             limit=limit,
+            include_energy_trainers=include_energy_trainers,
         )
 
     @_register(server, policy)(
@@ -500,8 +507,11 @@ def build_server(
     async def get_market_trends(
         game: Annotated[str | None, Field(description="pokemon, onepiece, lorcana, riftbound or gundam; omit for all (sets default to pokemon).")] = None,
         window: Literal["7d", "30d", "90d"] = "30d",
+        include_energy_trainers: Annotated[bool, Field(description=INCLUDE_ENERGY_TRAINERS_NOTE)] = False,
     ) -> dict[str, Any]:
-        return await runner.run("get_market_trends", game=game, window=window)
+        return await runner.run(
+            "get_market_trends", game=game, window=window, include_energy_trainers=include_energy_trainers
+        )
 
     @_register(server, policy)(
         description=TOP_GRADED_DESCRIPTION,

@@ -153,8 +153,9 @@ class LengthGuardEngineTests(AssistantCase):
         self.assertEqual(len(client.messages.calls), 2)
         self.assertNotIn("|", turn.text)
         self.assertIn(
-            "- **Kyogre-EX** (Dark Explorers 104/108): Raw $504.48 · PSA 10 $1,450 · Gross premium +$945.52 (+187%)\n"
-            "- **Lugia** (HGSS02): Raw $485.99 · PSA 10 no recent sale",
+            "- **Kyogre-EX** (Dark Explorers 104/108): Raw **$504.48** · PSA 10 **$1,450** · Gross premium "
+            "**+$945.52** (**+187%**)\n"
+            "- **Lugia** (HGSS02): Raw **$485.99** · PSA 10 no recent sale",
             turn.text,
         )
         self.assertTrue(turn.text.endswith("Grading costs money and takes time."))
@@ -170,7 +171,7 @@ class LengthGuardEngineTests(AssistantCase):
         turn = self.run_turn(client, "What are these worth in a PSA 10?")
         self.assertEqual(turn.length_guard, "drop")
         self.assertNotIn("estimate", turn.text)
-        self.assertIn("(+$945.52, +187%)\n- **Lugia**", turn.text)  # bullets stay one list
+        self.assertIn("(**+$945.52**, **+187%**)\n- **Lugia**", turn.text)  # bullets stay one list
         self.assertTrue(turn.text.endswith("Grading costs money and takes time."))
 
 

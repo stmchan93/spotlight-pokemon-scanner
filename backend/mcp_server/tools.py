@@ -255,6 +255,38 @@ def is_sealed_card(card: dict[str, Any]) -> bool:
     return card.get("supertype") == SEALED_SUPERTYPE or str(card.get("id") or "").startswith(SEALED_CARD_ID_PREFIX)
 
 
+# Collectibility (owner 2026-11-20, "nobody cares about the Fairy Energy"): market-wide rankings
+# (find_movers, find_new_highs, find_price_lows, get_market_trends) leave out cards collectors don't
+# chase unless the caller passes include_energy_trainers: basic/bulk Energy and Common/Uncommon
+# Trainers (a premium rarity, e.g. a gold secret Energy or a full-art Supporter, keeps them in),
+# cards under COLLECTIBLE_MIN_PRICE_USD when the call has no price bound, name or owned scope, and
+# cards with no image (they can't be shown as a tile).
+PREMIUM_RARITY_BUCKETS = frozenset({"sir", "illustration", "ultra", "secret", "shiny"})
+BULK_TRAINER_RARITIES = frozenset({"common", "uncommon"})
+COLLECTIBLE_MIN_PRICE_USD = 10.0
+INCLUDE_ENERGY_TRAINERS_NOTE = (
+    "true only when the user asks about Energy or Trainer cards. By default the ranking leaves out basic/bulk "
+    "Energy, Common/Uncommon Trainers, cards under $10 (unless a price bound is given) and cards without an image."
+)
+
+
+def is_low_interest_card(card: dict[str, Any]) -> bool:
+    """Basic/bulk Energy or a Common/Uncommon Trainer, without a premium rarity."""
+    supertype = str(card.get("supertype") or "").strip().casefold()
+    if supertype not in ("energy", "trainer"):
+        return False
+    bucket = card.get("rarityBucket") or rarity_bucket(card.get("rarity"), card.get("game") or GAME)
+    if bucket in PREMIUM_RARITY_BUCKETS:
+        return False
+    return supertype == "energy" or str(card.get("rarity") or "").strip().casefold() in BULK_TRAINER_RARITIES
+
+
+def has_card_image(card: dict[str, Any]) -> bool:
+    return bool(
+        str(card.get("imageSmallURL") or card.get("imageURL") or card.get("image_small_url") or "").strip()
+    )
+
+
 def is_japanese_card(card_id: Any, language: Any) -> bool:
     return _is_japanese(str(card_id or ""), str(language or ""))
 
@@ -344,6 +376,23 @@ class CollectionTools:
                 if value:
                     out[str(row[0])] = value
         return out
+
+    def _collectible_ids(self, card_ids: list[str], *, skip_types: bool) -> set[str]:
+        """The ids a market-wide ranking may show: catalog cards with an image and,
+        unless skip_types, not low-interest (is_low_interest_card)."""
+        keep: set[str] = set()
+        ids = list(dict.fromkeys(str(card_id) for card_id in card_ids if card_id))
+        for chunk in _chunked_sql_values(ids):
+            rows = self.conn.execute(
+                "SELECT id, game, supertype, rarity, image_url AS imageURL, image_small_url AS imageSmallURL "
+                f"FROM cards WHERE id IN ({','.join('?' for _ in chunk)})",
+                tuple(chunk),
+            ).fetchall()
+            for row in rows:
+                card = dict(row)
+                if has_card_image(card) and (skip_types or not is_low_interest_card(card)):
+                    keep.add(str(card["id"]))
+        return keep
 
     def _raw_pricing_by_id(self, card_ids: list[str]) -> dict[str, dict[str, Any] | None]:
         service = self.service
@@ -1543,6 +1592,7 @@ class CollectionTools:
         min_price_usd: float | None = None,
         max_price_usd: float | None = None,
         limit: int | None = 10,
+        include_energy_trainers: bool = False,
     ) -> dict[str, Any]:
         """Raw cards that dropped and now sit at/near their window low, from the
         daily price_lows tables (price_lows.py). DB-only."""
@@ -1604,6 +1654,7 @@ class CollectionTools:
             rows = [row for row in rows if (str(row[0]) in owned_ids) == (owned == "owned")]
 
         meta_filter = {key: value for key, value in card_filter.items() if key not in ("price_min_usd", "price_max_usd")}
+        skip_types = include_energy_trainers or owned == "owned" or bool(card_filter.get("text"))
         picked: list[Any] = []
         cards: dict[str, dict[str, Any]] = {}
         for offset in range(0, len(rows), 200):
@@ -1612,6 +1663,8 @@ class CollectionTools:
             for row in chunk:
                 card = chunk_cards.get(str(row[0]))
                 if card is None or (meta_filter and not self._matches_card_meta(card, meta_filter)):
+                    continue
+                if not has_card_image(card) or (not skip_types and is_low_interest_card(card)):
                     continue
                 cards[card["id"]] = card
                 picked.append(row)
@@ -1654,6 +1707,7 @@ class CollectionTools:
         owned: str = "any",
         window: str = "1y",
         limit: int | None = 10,
+        include_energy_trainers: bool = False,
     ) -> dict[str, Any]:
         """Cards now at a window high first reached in the last few days, from
         the daily price_highs tables (price_lows.py). DB-only."""
@@ -1708,6 +1762,8 @@ class CollectionTools:
         meta_filter = {
             key: value for key, value in card_filter.items() if key not in ("price_min_usd", "price_max_usd", "product")
         }
+        skip_types = include_energy_trainers or owned == "owned" or bool(card_filter.get("text"))
+        floor = not skip_types and card_filter.get("price_min_usd") is None and card_filter.get("price_max_usd") is None
         picked: list[Any] = []
         cards: dict[str, dict[str, Any]] = {}
         for offset in range(0, len(rows), 200):
@@ -1718,6 +1774,10 @@ class CollectionTools:
                 if card is None or (meta_filter and not self._matches_card_meta(card, meta_filter)):
                     continue
                 if not japanese_ok and is_japanese_card(card["id"], card.get("language")):
+                    continue
+                if not has_card_image(card) or (not skip_types and is_low_interest_card(card)):
+                    continue
+                if floor and float(row[2] or 0) < COLLECTIBLE_MIN_PRICE_USD:
                     continue
                 cards[card["id"]] = card
                 picked.append(row)
@@ -2216,7 +2276,8 @@ class CollectionTools:
         return text
 
     def get_market_trends(
-        self, owner_user_id: str, *, game: str | None = None, window: str = "30d"
+        self, owner_user_id: str, *, game: str | None = None, window: str = "30d",
+        include_energy_trainers: bool = False,
     ) -> dict[str, Any]:
         """What's rising: Top Trends card gainers (the scanner process's cached
         payload) and Market Watch set trends (meta_pulse tables). DB-only."""
@@ -2232,7 +2293,12 @@ class CollectionTools:
                 continue
             items.extend(item for item in block.get("items") or [] if item.get("currencyCode") == "USD")
         items.sort(key=lambda item: (-float(item.get("changePercent") or 0), str(item.get("cardId"))))
-        items = items[:MAX_TREND_CARDS]
+        showable = self._collectible_ids([str(item.get("cardId")) for item in items], skip_types=include_energy_trainers)
+        items = [
+            item for item in items
+            if str(item.get("cardId")) in showable
+            and (include_energy_trainers or float(item.get("priceNow") or 0) >= COLLECTIBLE_MIN_PRICE_USD)
+        ][:MAX_TREND_CARDS]
         summaries = self._summaries([str(item["cardId"]) for item in items])
         rising_cards = []
         for item in items:
@@ -2291,6 +2357,7 @@ class CollectionTools:
         owned: str = "any",
         rank_by: str = "pct",
         limit: int | None = 5,
+        include_energy_trainers: bool = False,
     ) -> dict[str, Any]:
         """Biggest movers inside a scope, computed on the fly from stored daily
         prices (scoped_movers.py). DB-only."""
@@ -2333,6 +2400,12 @@ class CollectionTools:
             move for move in moves
             if (low is None or move.end_usd >= low) and (high is None or move.end_usd <= high)
         ]
+        # Collectibility: name and owned scopes are the user's pick; others drop bulk types and sub-floor cards.
+        skip_types = include_energy_trainers or owned == "owned" or bool(card_filter.get("text"))
+        if not skip_types and low is None and high is None:
+            moves = [move for move in moves if move.end_usd >= COLLECTIBLE_MIN_PRICE_USD]
+        showable = self._collectible_ids([move.card_id for move in moves], skip_types=skip_types)
+        moves = [move for move in moves if move.card_id in showable]
         ranked = scoped_movers.rank_moves(moves, direction=direction, by=rank_by)[:limit]
         alt_by = "usd" if rank_by == "pct" else "pct"
         alt = scoped_movers.rank_moves(moves, direction=direction, by=alt_by)[:MOVERS_ALT_COUNT]

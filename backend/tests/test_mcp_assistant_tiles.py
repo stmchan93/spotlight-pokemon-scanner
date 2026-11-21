@@ -108,7 +108,7 @@ class ShowCardsTests(TilesCase):
         self.assertIn("show_cards", SYSTEM_PROMPT)
         self.assertIn("Every card you name must be in it", SYSTEM_PROMPT)
 
-    def test_selection_with_answer_is_final_and_label_persists(self) -> None:
+    def test_selection_with_answer_is_final_and_model_label_dropped(self) -> None:
         reply = self.reply(
             message(both_searches(), "tool_use"),
             message([text("Charizard ex is the cheap one at $8."), show("ssp-2", "made-up", label="  Cheapest\nex  ")],
@@ -118,18 +118,19 @@ class ShowCardsTests(TilesCase):
         self.assertEqual(len(self.client.messages.calls), 2)  # no extra round after show_cards
         self.assertEqual(self.ids(reply["cards"]), ["ssp-2"])
         self.assertEqual(reply["cards"][0]["name"], "Charizard ex")
-        self.assertEqual(reply["cards_label"], "Cheapest ex")
+        # Owner 2026-11-20: model-written tile headers are dropped; only server rules label tiles.
+        self.assertIsNone(reply["cards_label"])
         self.assertIsNone(reply["cards_view_all"])
         self.assertEqual(reply["text"], "Charizard ex is the cheap one at $8.")
         row = self.conn.execute("SELECT cards_label, tools_used FROM assistant_messages WHERE id = ?",
                                 (reply["id"],)).fetchone()
-        self.assertEqual(row["cards_label"], "Cheapest ex")
+        self.assertIsNone(row["cards_label"])
         self.assertIn("show_cards", json.loads(row["tools_used"]))
         listed = self.http.get(f"/api/v1/assistant/threads/{reply['thread_id']}/messages",
                                headers=bearer(USER_A)).json()["messages"]
-        self.assertEqual([m["cards_label"] for m in listed], [None, "Cheapest ex"])
+        self.assertEqual([m["cards_label"] for m in listed], [None, None])
         replay = self.ask(cmid="sel-1").json()["message"]
-        self.assertEqual((replay["cards_label"], self.ids(replay["cards"])), ("Cheapest ex", ["ssp-2"]))
+        self.assertEqual((replay["cards_label"], self.ids(replay["cards"])), (None, ["ssp-2"]))
 
     def test_lone_selection_round_reports_dropped_ids_and_is_free(self) -> None:
         self.build(max_tool_rounds=2)
@@ -271,6 +272,63 @@ class SameArtTests(TilesCase):
         ])
         self.assertEqual([(c["card_id"], c.get("grader")) for c in cards],
                          [("ssp-1", None), ("jp-1", None), ("ssp-1", "PSA")])
+
+
+    def test_imageless_card_shows_no_tile_unless_its_a_proposal(self) -> None:
+        # Owner 2026-11-20: a tile with no photo is not shown; the large image is the fallback.
+        self.conn.execute("UPDATE cards SET image_url = NULL, image_small_url = NULL WHERE id = 'ssp-3'")
+        self.conn.execute(
+            "UPDATE cards SET image_url = 'https://img.example/big.png', image_small_url = NULL WHERE id = 'ssp-2'"
+        )
+        toolbox = AssistantToolbox(self.tools)
+        refs = [{"card_id": "ssp-2", "name": "Charizard ex"}, {"card_id": "ssp-3", "name": "Eevee"}]
+        cards = toolbox.finalize_cards([dict(ref) for ref in refs])
+        self.assertEqual([(c["card_id"], c["image_small_url"]) for c in cards],
+                         [("ssp-2", "https://img.example/big.png")])
+        kept = toolbox.finalize_cards([dict(ref) for ref in refs], keep_imageless={"ssp-3"})
+        self.assertEqual(self.ids(kept), ["ssp-2", "ssp-3"])
+
+    def test_model_label_never_reaches_the_tiles(self) -> None:
+        reply = self.reply(
+            message(both_searches(), "tool_use"),
+            message([text("Charizard ex is up 12%."), show("ssp-2", label="Rising Pokémon sets")], "tool_use"),
+        )
+        self.assertEqual(self.ids(reply["cards"]), ["ssp-2"])
+        self.assertIsNone(reply["cards_label"])
+        show_cards = {t["name"]: t for t in TOOL_DEFINITIONS}["show_cards"]
+        self.assertIn("label: always null", show_cards["description"])
+        self.assertNotIn("Add a short label", SYSTEM_PROMPT)
+
+    def test_list_bullets_get_bold_name_price_and_percent(self) -> None:
+        reply = self.reply(
+            message(both_searches(), "tool_use"),
+            message([text("Two cards dipped lately.\n\n- Charizard ex (151): $8.00, down 12%\n"
+                          "- **Eevee** (151): **$1,234.50**, -8%"), show("ssp-2", "ssp-3")], "tool_use"),
+        )
+        self.assertIn("- **Charizard ex** (151): **$8.00**, down **12%**", reply["text"])
+        self.assertIn("- **Eevee** (151): **$1,234.50**, **-8%**", reply["text"])
+        self.assertTrue(reply["text"].startswith("Two cards dipped lately."))
+
+
+class BoldBulletBackstopTests(unittest.TestCase):
+    def test_bolds_only_bullets_with_figures(self) -> None:
+        from mcp_server.assistant.length_guard import bold_bullet_figures, word_count
+
+        cases = {
+            "- Plasma Storm: up 67%": "- **Plasma Storm**: up **67%**",
+            "- Ascended Heroes \u2014 down 24%": "- **Ascended Heroes** \u2014 down **24%**",
+            "- **Dusknoir** (DP33): $33.79, up +315%": "- **Dusknoir** (DP33): **$33.79**, up **+315%**",
+            "- Open the Scan tab: point the camera": "- Open the Scan tab: point the camera",
+            "Prices fell 12% to $5.": "Prices fell 12% to $5.",
+            "- **Lugia** (HGSS02): raw **$485.99** \u00b7 no sale": "- **Lugia** (HGSS02): raw **$485.99** \u00b7 no sale",
+            "- Up 12% at $40 for the set": "- Up **12%** at **$40** for the set",
+        }
+        for raw, want in cases.items():
+            with self.subTest(raw=raw):
+                out = bold_bullet_figures(raw)
+                self.assertEqual(out, want)
+                self.assertEqual(word_count(out), word_count(raw))  # bold never costs words
+
 
 
 class SparklineTests(TilesCase):

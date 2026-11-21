@@ -736,6 +736,8 @@ cases:
         rubric:
           - "Does the answer name the Evolving Skies card with the largest drop in the tool results, with its real numbers?"
           - "Does it name the window (this month / 30 days) only for cards whose history covers it (else neutral wording like 'recently'), without saying how much history exists?"
+          # Owner 2026-11-20: list answers are one bullet per card, name + price + % in bold.
+          - "Is each named card on its own '- ' bullet with its name, price and % change in **bold**?"
 
   - id: rarity_movers_up_week
     category: investing
@@ -805,6 +807,7 @@ cases:
           tools_all: [get_market_trends]
         rubric:
           - "Does the answer name at least one set with a real % move from the tool results?"
+          - "Is each set on its own '- ' bullet with the set name and its % move in **bold**?"
 
   # --- scanner tray -------------------------------------------------------------
   - id: scanner_most_valuable

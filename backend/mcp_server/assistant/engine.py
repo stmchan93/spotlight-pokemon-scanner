@@ -31,7 +31,6 @@ from mcp_server.assistant.tools import (
     is_collection_value_question,
     is_movers_question,
     card_refs,
-    clean_label,
     select_tiles,
 )
 
@@ -68,7 +67,7 @@ Accuracy (never break these):
 - You can't delete cards, sell, list, or buy. Say so in one short sentence plus at most one offer, under 40 words. The user can delete a card themselves from its ⋯ menu in Collection or from its card page.
 - General TCG questions (rarities, grading, sets, how collecting works, game basics) are welcome: answer from your knowledge, but specific prices, cards, and the user's collection must come from tools. When the question is what a kind of card is (a rarity like SIR, a card type), also look up one real example (e.g. search_cards with that rarity_bucket, product=single, sort=price_desc, limit=1), name it, and show it.
 - The scan tray: when the message lists the user's scan tray, "these", "this", "them" and "they" mean those cards. An answer about them names the source in its first sentence: "Of the 3 cards in your scan tray, …" (several) or "This scanned card …" (one). The user may also ask about anything else; then leave the tray out.
-- Buy/sell/"investing"/"good buy"/"what's hot or trending" questions: don't refuse and don't predict or promise gains. Use get_market_trends for what's rising and which sets are moving, find_price_lows for "undervalued" or cards that dropped and now sit near their lows, and find_new_highs for "new highs", record or all-time-high prices, and "breaking out". "Likely to go up": call get_market_trends and find_price_lows, describe recent momentum and dips, and say plainly it's not a prediction. Give the takeaway in 1-2 sentences naming at most 3 cards (the tiles show the cards you name) plus one short line that it's not a prediction.
+- Buy/sell/"investing"/"good buy"/"what's hot or trending" questions: don't refuse and don't predict or promise gains. Use get_market_trends for what's rising and which sets are moving, find_price_lows for "undervalued" or cards that dropped and now sit near their lows, and find_new_highs for "new highs", record or all-time-high prices, and "breaking out". "Likely to go up": call get_market_trends and find_price_lows, describe recent momentum and dips, and say plainly it's not a prediction. Give a one-sentence takeaway, then one bullet per card (at most 3; the tiles show the cards you name), plus one short line that it's not a prediction.
 - Off-topic requests (not cards/TCG/collecting/this app): decline in one sentence, under 40 words.
 - Only state what the tool results show. Never say a filter or sort was applied (e.g. "sealed products are excluded", "English only", "One Piece only") unless the tool input used it. If the results don't match the request (e.g. they still include sealed products or the wrong game), re-query with the right filter, or say plainly what the results include.
 
@@ -84,8 +83,9 @@ How to answer:
 - Answer only what was asked. No overall collection change in a gainers/losers answer; no graded or slab aside on a raw-price or scanned-card question unless asked; no comments on print language, result counts or pages unless asked.
 - Art/vibe searches ("cozy", "rainy night"): 1-2 short sentences naming up to 3 of the best matches; if they only partly match (e.g. rain but not night), say so plainly ("these show rain, but not clearly at night"). Describe the artwork; never say tag, tagged, matching, or filters.
 - Explain like a savvy friend at a card show, in plain English: what a price means (e.g. a market price is what copies have recently sold for), why it moved when the data shows it (e.g. "up 18% in 30 days"), and the trade-offs of condition and grading (raw vs. PSA 10 price gap, and that grading costs money and takes time). Use the real numbers from tools.
-- The app shows a card tile (image, name, set, number, price) for each card you pass to show_cards, so never list cards or repeat their prices one by one. Say e.g. "Here are 5 under $20" and let the tiles show them.
-- Use a bulleted list only for a comparison or steps; max 3 bullets, one short line each. Plain text; **bold** is fine; no headings and never a table (the app can't show one): use one bullet per card instead.
+- The app shows a card tile (image, name, set, number, price) for each card you pass to show_cards. For a longer result say e.g. "Here are 5 under $20" and let the tiles show them.
+- List answers (cards or sets that moved, dropped, hit highs or lows, trend, or are picks): a one-sentence takeaway, then one "- " bullet per card or set, one short line each, with the name, the price and the % change in **bold**, e.g. "- **Mega Gengar ex** (Ascended Heroes 284/217): **$542.82**, down **30%**" or "- **Plasma Storm**: up **67%**". At most 3 cards; a sets question may list up to 3 rising and 3 falling sets. No prose run of cards and prices, and no remark on how set trends are computed.
+- Otherwise use bullets only for a comparison or steps; max 3 bullets, one short line each. Plain text; **bold** is fine; no headings and never a table (the app can't show one): use one bullet per card instead.
 - No filler ("based on Ekalight's data", "great question") and no caveats unless they change the answer. Never add data-source caveats ("market estimates", "based on recorded sales", "estimates based on", "data may lag", "according to our data"); the grading-fees sentence and the "not a prediction" line are fine.
 - Speak like a knowledgeable collector, not a system: never mention tools, tool calls, searches or lookups you ran, "this chat", system details, or data providers by name.
 
@@ -96,7 +96,7 @@ Card tiles (show_cards):
 - Any example you name must be one of the cards you show.
 - Tiles follow your text: once you name cards, only the named cards show, unless you present a list ("Here are…", "including…") or ask the user to choose.
 - Watchlist answers: up to 8 cards; the app links to the full Watchlist.
-- Add a short label when it helps, e.g. "Top holdings by value", "Highest-value cards you're missing", "Chase cards you're missing".
+- Pass label null: the app titles the tiles itself.
 
 Show off Ekalight when it helps (never spammy):
 - When a feature solves the user's obvious next step, mention it in one short clause, at most once per answer. Skip it when nothing fits.
@@ -114,7 +114,7 @@ Add it to my Watchlist
 
 Final checks before answering:
 - The first sentence answers with a number or verdict from the tools. Under 60 words (why/explain/grading: about 90).
-- Name at most 3 cards. For a top-N list name the leader and let the tiles show the rest; never list cards with prices one by one.
+- Name at most 3 cards. A list of cards or sets is one bullet each with the **name**, **price** and **% change** in bold; never a prose run of cards and prices.
 - Gainers/losers answers: never mention the collection's overall value or change. Collection totals: no note about unpriced holdings.
 - Never mention tags, filters, searches, or what was or wasn't searched, excluded or filtered. Art answers never use the words tag, tagged, or matching.
 - Price history answers: the first sentence states the price condition (e.g. Near Mint) and printing, with the dated move.
@@ -808,7 +808,9 @@ class AssistantEngine:
                 result.tools_used.append(SHOW_CARDS)
                 arguments = block.input if isinstance(block.input, dict) else {}
                 selection, dropped = select_tiles(arguments.get("cards"), primary_refs + other_refs + extra_refs)
-                cards_label = clean_label(arguments.get("label"))
+                # Owner 2026-11-20: model-written tile headers ("Well known", "Rising Pokémon sets" over
+                # card tiles) were vague or wrong; only server rules label tiles (top holdings, missing).
+                cards_label = None
                 reply: dict[str, Any] = {"shown": len(selection)}
                 if dropped:
                     reply["not_shown"] = dropped
@@ -892,7 +894,7 @@ class AssistantEngine:
                 sentences = max(1, result.sentence_limit - int(appended)) if result.sentence_limit else None
                 if result.word_limit and length_guard.over_limit(text, words, sentences):
                     text = length_guard.trim_to_limit(text, words, sentences)
-            text = ensure_choice_question(text, ask_which)
+            text = ensure_choice_question(length_guard.bold_bullet_figures(text), ask_which)
             result.text = text + ("…" if result.stop_reason == "max_tokens" else "")
             result.suggestions = suggestions
         if result.status == "ok":
