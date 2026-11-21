@@ -155,6 +155,7 @@ export function ExpansionDetailScreen({
   } = useAppServices();
   const { gate } = useGuestGate();
 
+  const [heroSize, setHeroSize] = useState({ width: 0, height: 0 });
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const dirtyRef = useRef(false);
   // On FOCUS: this screen stays mounted under the card page, so the "Added to
@@ -515,8 +516,22 @@ export function ExpansionDetailScreen({
 
   const header = (
     <View>
-      <View style={[styles.hero, { paddingTop: insets.top + LOGO_TOP_BELOW_SAFE_AREA }]}>
-        <Svg height="100%" pointerEvents="none" style={StyleSheet.absoluteFill} testID="set-page-wash" width="100%">
+      <View
+        onLayout={(event) => {
+          const { width, height } = event.nativeEvent.layout;
+          setHeroSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
+        }}
+        style={[styles.hero, { paddingTop: insets.top + LOGO_TOP_BELOW_SAFE_AREA }]}
+      >
+        {/* Explicit size: a "100%" Svg keeps its first measurement, so the wash stopped
+            short of the right edge and the bottom once the hero settled. */}
+        <Svg
+          height={heroSize.height}
+          pointerEvents="none"
+          style={StyleSheet.absoluteFill}
+          testID="set-page-wash"
+          width={heroSize.width}
+        >
           <Defs>
             <LinearGradient id="setPageWash" x1="0" x2="0" y1="0" y2="1">
               {washStops.map((stop) => (
@@ -524,7 +539,7 @@ export function ExpansionDetailScreen({
               ))}
             </LinearGradient>
           </Defs>
-          <Rect fill="url(#setPageWash)" height="100%" width="100%" x="0" y="0" />
+          <Rect fill="url(#setPageWash)" height={heroSize.height} width={heroSize.width} x="0" y="0" />
         </Svg>
         <View style={styles.logoSlot}>
           {logoUrl && !hasLogoError ? (
