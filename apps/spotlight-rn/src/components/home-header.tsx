@@ -1,9 +1,9 @@
-import { Bell, EditPencil, Menu, Search, ShareIos } from 'iconoir-react-native';
+import { Bell, EditPencil, Menu, Search } from 'iconoir-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { EkalightAiFlare, EkalightAiRing, EkalightAiSparkle } from '@/components/ekalight-ai-glyph';
+import { EkalightAiFlare, EkalightAiRing } from '@/components/ekalight-ai-glyph';
 
 import {
   EkalightWordmark,
@@ -58,7 +58,6 @@ export type HomeHeaderTrailing =
       onEditProfile: () => void;
       /** Card search — the profile capsule's magnifier. Social has no search (Figma 6597:3462). */
       onOpenSearch: () => void;
-      onShareProfile: () => void;
     };
 
 type HomeHeaderProps = {
@@ -157,9 +156,6 @@ const BUTTON_ICON_SIZE = glassNavBubbleGlyphSize;
  * it does not stretch into a square.
  */
 const EDIT_ICON_SIZE = BUTTON_ICON_SIZE;
-// Full size, same as the Events toolbar's share glyph (user, 2026-10-18).
-const SHARE_ICON_WIDTH = BUTTON_ICON_SIZE;
-const SHARE_ICON_HEIGHT = BUTTON_ICON_SIZE;
 /**
  * The app-mark badge inside the profile bar's search pill, sized so the mark
  * stays a badge inside the field instead of filling it. The Figma logo node is
@@ -368,7 +364,7 @@ export function HomeHeader({
       surface={chromeSurface}
       testID={`${testID}-assistant`}
     >
-      {trailing.kind === 'home' ? <EkalightAiFlare /> : <EkalightAiSparkle />}
+      <EkalightAiFlare />
       <EkalightAiRing size={glassNavBubbleSizes.medium} />
     </GlassNavBubble>
   ) : null;
@@ -414,19 +410,6 @@ export function HomeHeader({
                 ),
                 onPress: trailing.onEditProfile,
                 testID: `${testID}-edit`,
-              },
-              {
-                accessibilityLabel: 'Share profile',
-                children: (
-                  <ShareIos
-                    color={glyphColor}
-                    strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                    height={SHARE_ICON_HEIGHT}
-                    width={SHARE_ICON_WIDTH}
-                  />
-                ),
-                onPress: trailing.onShareProfile,
-                testID: `${testID}-share`,
               },
             ] satisfies GlassNavBubbleGroupItem[]
           }

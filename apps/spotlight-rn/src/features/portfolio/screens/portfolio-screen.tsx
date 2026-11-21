@@ -131,9 +131,6 @@ import { AnalyticsEvent, watchlistKindForCardId } from '@/lib/observability/anal
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { normalizeSocialLink } from '@/features/profile/social-link';
 import { PROFILE_SHEET_OVERLAP, ProfileHeader } from '@/features/profile/components/profile-header';
-import { buildProfileShareMessage } from '@/features/profile/profile-share';
-import { buildProfileDeepLink } from '@/features/profile/profile-link';
-import { SharePostSheet } from '@/features/social/components/share-post-sheet';
 import { FOR_SALE_TAB_ENABLED } from '@/features/profile/for-sale-tab';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
 import { watchlistCardBasicsFromInventoryEntry } from '@/features/wishlist/watchlist-store';
@@ -564,8 +561,6 @@ export function PortfolioScreen({
   // Long-press card actions menu (Figma 1696:8708): the entry whose menu is
   // open, plus the entry pending single-delete confirmation.
   const [actionMenuEntry, setActionMenuEntry] = useState<InventoryCardEntry | null>(null);
-  // "Send profile to…" — the in-app share sheet behind the top bar's share glyph.
-  const [profileShareSheetOpen, setProfileShareSheetOpen] = useState(false);
   // An action to run only AFTER the actions menu's native modal has fully
   // dismissed — used by Share, since presenting the native share sheet while the
   // modal is still tearing down freezes the screen. Fired from <CardActionsSheet
@@ -1429,42 +1424,6 @@ export function PortfolioScreen({
     router.push('/edit-profile' as never);
   }, [router]);
 
-  /*
-    SHARE YOUR PROFILE, from the top bar's second trailing slot (Figma
-    3670:47454).
-
-    Sent IN-APP, to a DM, rather than out through the OS share sheet: the
-    message carries a `spotlight://` link to your public profile, which only
-    resolves for someone who already has the build. A DM is the one channel
-    where that is guaranteed. (`profile-link.ts` is the single place to swap the
-    scheme for an https origin once universal links exist — at which point this
-    can go back out to the OS sheet.)
-
-    Silent when there is no identity to name, the same contract
-    `buildProfileShareMessage` has always had.
-  */
-  const profileShareBody = useMemo(() => {
-    const message = buildProfileShareMessage({
-      displayName: profileName,
-      handle: currentUser?.handle,
-    });
-    if (!message) {
-      return null;
-    }
-    const link = buildProfileDeepLink({
-      handle: currentUser?.handle,
-      userId: currentUser?.id,
-    });
-    return link ? `${message}\n\n${link}` : message;
-  }, [currentUser?.handle, currentUser?.id, profileName]);
-
-  const handleShareProfilePress = useCallback(() => {
-    if (!profileShareBody) {
-      return;
-    }
-    setProfileShareSheetOpen(true);
-  }, [profileShareBody]);
-
   // Empty-collection "Scan to add" chip.
   //
   // This pushed `{ pathname: '/', params: { page: 'scanner' } }` — the retired
@@ -1698,7 +1657,6 @@ export function PortfolioScreen({
         kind: 'profile',
         onEditProfile: handleEditProfilePress,
         onOpenSearch: handleTopSearchPress,
-        onShareProfile: handleShareProfilePress,
       }}
       floating
       /*
@@ -2379,32 +2337,6 @@ export function PortfolioScreen({
       />
 
       {postDeleteSheet}
-
-      {/* Only mounted once there is an identity to share (see the memo). */}
-      {profileShareBody ? (
-        <SharePostSheet
-          onClose={() => setProfileShareSheetOpen(false)}
-          /*
-            A REFERENCE when we know who we are, so the recipient gets the
-            preview card instead of a URL in the body. Falls back to text for an
-            identity-less session, which is also the form that still works
-            against a project behind on social_24.
-          */
-          payload={
-            currentUser?.id
-              ? {
-                  fallbackBody: profileShareBody,
-                  kind: 'profile',
-                  tab: 'collection',
-                  userId: currentUser.id,
-                }
-              : { kind: 'text', body: profileShareBody }
-          }
-          testID="portfolio-share-profile-sheet"
-          title="Send profile to"
-          visible={profileShareSheetOpen}
-        />
-      ) : null}
 
       <SalePriceEditSheet
         canConfirm={model.canConfirmSalePriceEdit}

@@ -972,11 +972,12 @@ describe('PortfolioScreen', () => {
     edit affordance — the pencil that sat beside the display name is gone with
     them.
   */
-  it('puts edit and share in the top bar, and no pencil beside the name', async () => {
+  it('puts edit (no share) in the top bar, and no pencil beside the name', async () => {
     renderPortfolioScreen();
 
     const edit = await screen.findByTestId('portfolio-header-edit');
-    expect(screen.getByTestId('portfolio-header-share')).toBeTruthy();
+    // Share left Home's top bar (owner, 2026-11-21).
+    expect(screen.queryByTestId('portfolio-header-share')).toBeNull();
     expect(screen.getByTestId('portfolio-header-search')).toBeTruthy();
 
     // Home keeps these; this bar no longer has the slots for them.
@@ -1004,24 +1005,6 @@ describe('PortfolioScreen', () => {
     usually-untappable text. `profile-link.ts` is where this flips back to the OS
     sheet once universal links exist.
   */
-  it('sends the profile to a DM instead of the OS share sheet', async () => {
-    const shareSpy = jest
-      .spyOn(Share, 'share')
-      .mockResolvedValue({ action: 'sharedAction' } as never);
-
-    renderPortfolioScreen();
-
-    await act(async () => {
-      fireEvent.press(await screen.findByTestId('portfolio-header-share'));
-    });
-
-    expect(shareSpy).not.toHaveBeenCalled();
-    expect(await screen.findByTestId('portfolio-share-profile-sheet')).toBeTruthy();
-    expect(screen.getByText('Send profile to')).toBeTruthy();
-
-    shareSpy.mockRestore();
-  });
-
   /*
     LONG-PRESS → SHARE, ON ANDROID, WITH A LINK.
 

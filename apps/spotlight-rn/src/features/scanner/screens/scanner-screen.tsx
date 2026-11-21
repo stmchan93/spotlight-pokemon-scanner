@@ -80,7 +80,7 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { EkalightAiRing, EkalightAiSparkle } from '@/components/ekalight-ai-glyph';
+import { EkalightAiFlare, EkalightAiRing } from '@/components/ekalight-ai-glyph';
 import { assistantHref } from '@/features/assistant/assistant-route';
 import { useTabsPage } from '@/contexts/tabs-page-context';
 import {
@@ -4879,7 +4879,7 @@ export function ScannerScreen({
             surface="onLight"
             testID="scanner-assistant-button"
           >
-            <EkalightAiSparkle />
+            <EkalightAiFlare />
             <EkalightAiRing size={glassNavBubbleSizes.medium} />
           </GlassNavBubble>
           <View style={styles.topChromeCenter}>

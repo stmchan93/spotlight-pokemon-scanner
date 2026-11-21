@@ -49,7 +49,6 @@ function profileTrailing(
     kind: 'profile',
     onEditProfile: jest.fn(),
     onOpenSearch: jest.fn(),
-    onShareProfile: jest.fn(),
     ...overrides,
   };
 }
@@ -213,20 +212,20 @@ describe('HomeHeader', () => {
       that merely added its own controls beside the existing ones would put too
       many symbols in the capsule.
     */
-    it('draws edit and share instead of search and the bell', () => {
+    it('draws search and edit (no share) instead of the bell', () => {
       renderHeader({ floating: true, trailing: profileTrailing() });
 
       expect(screen.getByTestId('home-header-edit')).toBeTruthy();
-      expect(screen.getByTestId('home-header-share')).toBeTruthy();
+      // Share left Home (owner, 2026-11-21).
+      expect(screen.queryByTestId('home-header-share')).toBeNull();
       // The bell belongs to Home's bar, not this one.
       expect(screen.queryByTestId('home-header-notifications')).toBeNull();
 
-      // One capsule with THREE 36pt slots since 4134:50957 (search joined
-      // edit + share) — 160×44 in the medium size.
+      // One capsule with TWO 36pt slots: search + edit.
       const capsule = StyleSheet.flatten(screen.getByTestId('home-header-trailing').props.style);
-      expect(capsule.width).toBe(glassNavBubbleGroupWidth(3, 'medium'));
+      expect(capsule.width).toBe(glassNavBubbleGroupWidth(2, 'medium'));
       expect(capsule.height).toBe(glassNavBubbleSizes.medium);
-      for (const testID of ['home-header-edit', 'home-header-share']) {
+      for (const testID of ['home-header-search', 'home-header-edit']) {
         expect(StyleSheet.flatten(screen.getByTestId(testID).props.style).width).toBe(36);
       }
     });
@@ -244,7 +243,8 @@ describe('HomeHeader', () => {
       expect(leading.props.testID).toBe('home-header-menu');
       expect(trailingGroup.findByProps({ testID: 'home-header-assistant' })).toBeTruthy();
       expect(trailingGroup.findByProps({ testID: 'home-header-trailing' })).toBeTruthy();
-      expect(screen.getByTestId('ekalight-ai-sparkle')).toBeTruthy();
+      // Same two-star flare as Social (owner, 2026-11-21).
+      expect(screen.getByTestId('ekalight-ai-flare')).toBeTruthy();
       expect(screen.getByTestId('ekalight-ai-ring')).toBeTruthy();
       const ai = screen.getByTestId('home-header-assistant');
       fireEvent.press(ai);
@@ -253,21 +253,13 @@ describe('HomeHeader', () => {
 
     it('wires each profile slot to its own action', () => {
       const onEditProfile = jest.fn();
-      const onShareProfile = jest.fn();
-      renderHeader({ floating: true, trailing: profileTrailing({ onEditProfile, onShareProfile }) });
+      renderHeader({ floating: true, trailing: profileTrailing({ onEditProfile }) });
 
       const edit = screen.getByTestId('home-header-edit');
-      const share = screen.getByTestId('home-header-share');
       // Spoken labels, since the slots are glyph-only.
       expect(edit.props.accessibilityLabel).toBe('Edit profile');
-      expect(share.props.accessibilityLabel).toBe('Share profile');
-
       fireEvent.press(edit);
       expect(onEditProfile).toHaveBeenCalledTimes(1);
-      expect(onShareProfile).not.toHaveBeenCalled();
-
-      fireEvent.press(share);
-      expect(onShareProfile).toHaveBeenCalledTimes(1);
     });
 
     // The reverse guard: Home must not pick up the profile pair. Both screens

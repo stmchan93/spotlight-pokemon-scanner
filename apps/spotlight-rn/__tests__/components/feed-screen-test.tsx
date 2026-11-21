@@ -427,22 +427,17 @@ describe('FeedScreen', () => {
 
     // Figma 6597:3462: left on the 16 gutter, active tab marked by weight and
     // colour only — no underline, no rail.
-    it('left-aligns the tab row with no underline or rail', async () => {
+    it('left-aligns the tab row with an underline under the active tab and a rail (Figma 6597:3589)', async () => {
       renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-      expect(screen.queryByTestId('feed-tabs-rail')).toBeNull();
-      // With no rail, the row is the PageTabs root's only child.
-      const row = screen.getByTestId('feed-tabs').children[0];
-      const style = StyleSheet.flatten(typeof row === 'string' ? undefined : row.props.style);
-      expect(style.justifyContent).toBe('flex-start');
-      expect(style.paddingHorizontal).toBe(16);
-      expect(style.gap).toBe(16);
-
+      expect(screen.getByTestId('feed-tabs-rail')).toBeTruthy();
       const underline = StyleSheet.flatten(
         screen.getByTestId('feed-tabs-tab-social-underline').props.style,
       );
-      expect(underline.backgroundColor).toBe('transparent');
+      expect(underline.backgroundColor).not.toBe('transparent');
+      const inactive = StyleSheet.flatten(screen.getByTestId('feed-tabs-tab-news-underline').props.style);
+      expect(inactive.backgroundColor).toBe('transparent');
 
       // Active darker than inactive.
       const social = StyleSheet.flatten(screen.getByText('SOCIAL').props.style);
