@@ -651,6 +651,21 @@ def _normalize_scrydex_language(value: object) -> str:
     return str(value or "Unknown")
 
 
+# Scrydex expansion names that are wrong upstream, keyed by Scrydex expansion id.
+# ecard5_ja is the Japanese e5 set "Mysterious Mountains" (神秘なる山, released
+# 2002-10-04 per TCGplayer group 23734), but Scrydex names it 裂けた大地 (Split
+# Earth, e4 = ecard4_ja), so two sets shared one name and the TCGplayer link
+# looked wrong when it was right (owner report, 2026-11-21).
+SCRYDEX_SET_NAME_OVERRIDES: dict[str, str] = {
+    "ecard5_ja": "神秘なる山",
+}
+
+
+def _scrydex_set_name(expansion: dict[str, object]) -> str:
+    override = SCRYDEX_SET_NAME_OVERRIDES.get(str(expansion.get("id") or ""))
+    return override or str(expansion.get("name") or "")
+
+
 def map_scrydex_catalog_card(payload: dict[str, object]) -> dict[str, object]:
     data = _scrydex_card_data(payload)
 
@@ -663,7 +678,7 @@ def map_scrydex_catalog_card(payload: dict[str, object]) -> dict[str, object]:
     return {
         "id": str(data.get("id") or ""),
         "name": str(translation_en.get("name") or data.get("name") or ""),
-        "set_name": str(expansion.get("name") or ""),
+        "set_name": _scrydex_set_name(expansion),
         "number": str(data.get("printed_number") or data.get("number") or ""),
         "rarity": str(translation_en.get("rarity") or data.get("rarity") or "Unknown"),
         "variant": "Raw",
