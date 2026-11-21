@@ -252,23 +252,20 @@ describe('portfolioLineYDomain', () => {
     expect(min).toBeGreaterThan(11500);
   });
 
-  it('fits the real history and clamps the bad plateau and spike (owner ALL range)', () => {
-    const plotted = trimPortfolioWarmup(ownerSeries());
-    const { min, max } = portfolioLineYDomain(plotted.map((p) => p.value));
-    // The real $1.9K–$13K history fills the plot (with headroom)...
-    expect(min).toBeLessThanOrEqual(1900);
-    expect(max).toBeGreaterThanOrEqual(13000);
-    expect((13000 - 1900) / (max - min)).toBeGreaterThan(0.8);
-    // ...and the $422K/$427K days sit clamped above it.
-    expect(max).toBeLessThan(422000);
+  it('treats a month-long level as real: it sets the scale instead of being clamped', () => {
+    const { min, max } = portfolioLineYDomain(ownerSeries().map((p) => p.value));
+    // The 27-day $422K plateau is a real level, so the scale reaches it...
+    expect(max).toBeGreaterThanOrEqual(422000);
+    // ...and the early months are inside the scale, not pinned to an edge.
+    expect(min).toBeLessThanOrEqual(1.68);
   });
 
-  it('fits a plateau that is real (post backend fix)', () => {
+  it('shows the whole owner history from the first day (post backend fix)', () => {
     const plotted = trimPortfolioWarmup(ownerSeries({ plateauContinues: true }));
+    expect(plotted[0].isoDate).toBe('2026-04-29');
     const { min, max } = portfolioLineYDomain(plotted.map((p) => p.value));
-    expect(min).toBeLessThanOrEqual(422000);
+    expect(min).toBeLessThanOrEqual(1.68);
     expect(max).toBeGreaterThanOrEqual(427000);
-    expect(max - min).toBeLessThan(427000 * 0.1);
   });
 
   it('never clamps a real recent jump', () => {
@@ -279,44 +276,17 @@ describe('portfolioLineYDomain', () => {
 });
 
 describe('portfolio warm-up trim', () => {
-  // Staging account shape: a few cards, a partial add, then the bulk add.
-  const points = [{ value: 18 }, { value: 46 }, { value: 534 }, { value: 2900 }, { value: 2950 }, { value: 2971 }];
-
-  it('starts the line on the first day at 10% of the latest value', () => {
-    expect(trimPortfolioWarmup(points).map((p) => p.value)).toEqual([534, 2900, 2950, 2971]);
+  // The user wants the whole history from the collection's first day (2026-11-21).
+  it('always keeps the full window', () => {
+    const points = [{ value: 18 }, { value: 46 }, { value: 534 }, { value: 2900 }, { value: 2950 }, { value: 2971 }];
+    expect(trimPortfolioWarmup(points)).toEqual(points);
+    expect(trimPortfolioWarmup(ownerSeries())[0].isoDate).toBe('2026-04-29');
   });
 
-  it('skips the near-empty weeks of the owner history, ignoring the final spike', () => {
-    const plotted = trimPortfolioWarmup(ownerSeries());
-    expect(plotted[0]).toEqual({ isoDate: '2026-05-30', value: 1900 });
-  });
-
-  it('starts at the plateau when the plateau is the real value (post backend fix)', () => {
-    expect(trimPortfolioWarmup(ownerSeries({ plateauContinues: true }))[0].isoDate).toBe('2026-07-11');
-  });
-
-  it('never cuts gradual growth', () => {
-    const gradual = [1000, 1300, 1700, 2200, 2900].map((value) => ({ value }));
-    expect(trimPortfolioWarmup(gradual)).toHaveLength(5);
-  });
-
-  it('keeps at least two points', () => {
-    expect(trimPortfolioWarmup([{ value: 1 }, { value: 2 }, { value: 500 }, { value: 500 }])).toHaveLength(2);
-    expect(trimPortfolioWarmup([{ value: 10 }, { value: 500 }])).toHaveLength(2);
-  });
-
-  it('leaves a series with no warm-up untouched', () => {
-    expect(trimPortfolioWarmup([{ value: 900 }, { value: 1000 }])).toHaveLength(2);
-  });
-
-  it('re-bases the range change onto the first plotted day', () => {
+  it('keeps the range change as the server sent it, applying only the percent rule', () => {
+    const points = [{ value: 18 }, { value: 2971 }];
     const summary = { currentValue: 2971, startValue: 18, changeAmount: 2953, changePercent: 16405.56 };
-    expect(portfolioRangeSummaryAfterWarmup(points, summary)).toEqual({
-      currentValue: 2971,
-      startValue: 534,
-      changeAmount: 2437,
-      changePercent: 456.37,
-    });
+    expect(portfolioRangeSummaryAfterWarmup(points, summary)).toEqual({ ...summary, changePercent: null });
   });
 });
 
@@ -343,13 +313,10 @@ describe('portfolio change percent', () => {
     expect(portfolioRangeSummaryAfterWarmup([{ value: 40 }, { value: 1000 }], tiny)?.changePercent).toBeNull();
   });
 
-  it('hides the re-based percent of the owner history only when the start is too small', () => {
-    const series = ownerSeries();
-    const summary = { currentValue: 427000, startValue: 1.68, changeAmount: 13000 - 1.68, changePercent: null };
-    const rebased = portfolioRangeSummaryAfterWarmup(series, summary);
-    expect(rebased?.startValue).toBe(1900);
-    expect(rebased?.changeAmount).toBe(11100);
-    // $1,900 ≥ max($100, 5% × $13,000) → shown.
-    expect(rebased?.changePercent).toBe(584.21);
+  it('hides the owner history percent: a $1.68 first day is too small a baseline', () => {
+    const summary = { currentValue: 427000, startValue: 1.68, changeAmount: 13000 - 1.68, changePercent: 773749 };
+    const result = portfolioRangeSummaryAfterWarmup(ownerSeries(), summary);
+    expect(result?.startValue).toBe(1.68);
+    expect(result?.changePercent).toBeNull();
   });
 });

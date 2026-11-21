@@ -77,6 +77,10 @@ const LINE_HEADROOM_RATIO = 0.1;
 // plateau is 15% of a 7-month window, and a 7D window has no 5th percentile.
 const LINE_OUTLIER_SIGMAS = 3;
 const MAD_TO_SIGMA = 1.4826;
+// Only a SHORT run of outlier days is a glitch to clamp. A longer run is a real
+// level (e.g. months before a big card was added) and must set the scale, or
+// the real history gets pinned flat to an edge (user, 2026-11-21).
+const LINE_OUTLIER_MAX_RUN_DAYS = 3;
 
 // A percent change is shown only when the baseline is at least the larger of
 // these: $100, or 5% of the current comparable value. Under that, the ratio is
@@ -261,7 +265,18 @@ export function portfolioLineYDomain(rawValues: readonly number[]) {
   const sigma = MAD_TO_SIGMA * median(values.map((value) => Math.abs(value - center)));
   // Floor the band so a flat collection (MAD 0) doesn't call a tiny move an outlier.
   const band = Math.max(LINE_OUTLIER_SIGMAS * sigma, Math.abs(center) * LINE_MIN_SPAN_RATIO);
-  const inliers = values.filter((value) => Math.abs(value - center) <= band);
+  // Values arrive in date order; only short runs outside the band are clamped.
+  const isOutlier = values.map((value) => Math.abs(value - center) > band);
+  for (let start = 0; start < values.length; start += 1) {
+    if (!isOutlier[start]) continue;
+    let end = start;
+    while (end + 1 < values.length && isOutlier[end + 1]) end += 1;
+    if (end - start + 1 > LINE_OUTLIER_MAX_RUN_DAYS) {
+      for (let index = start; index <= end; index += 1) isOutlier[index] = false;
+    }
+    start = end;
+  }
+  const inliers = values.filter((_, index) => !isOutlier[index]);
   const latest = latestComparableValue(values) ?? center;
   const fitMin = Math.min(...inliers, latest);
   const fitMax = Math.max(...inliers, latest);
@@ -271,22 +286,11 @@ export function portfolioLineYDomain(rawValues: readonly number[]) {
   return { min: mid - span / 2, max: mid + span / 2 };
 }
 
-// A collection's first weeks are often a handful of cards before the real
-// collection lands; plotted, that is a cliff that flattens every later move.
-// The line starts on the first day the value reaches this fraction of the
-// window's latest comparable value. Gradual growth from a real base is kept.
-const WARMUP_START_RATIO = 0.1;
-
+// The line always shows the whole window from the collection's first day: the
+// early build-up is part of the history (user, 2026-11-21 — "why does it start
+// July 11, it's wrong"). Kept as a seam so callers stay unchanged.
 export function trimPortfolioWarmup<T extends { value: number }>(points: readonly T[]): T[] {
-  const latest = latestComparableValue(points.map((point) => point.value));
-  if (latest == null || latest <= 0 || points.length <= 2) {
-    return [...points];
-  }
-  const threshold = latest * WARMUP_START_RATIO;
-  const firstReached = points.findIndex((point) => point.value >= threshold);
-  // Always leave at least two points to draw a line.
-  const start = Math.min(firstReached < 0 ? 0 : firstReached, points.length - 2);
-  return start > 0 ? points.slice(start) : [...points];
+  return [...points];
 }
 
 /** The range's change re-based onto the first plotted (post-warm-up) day. */
