@@ -1626,10 +1626,10 @@
         "via": "build"
       },
       "ios": {
-        "gitCommit": "ea5c215a9d941fa91c26e81add8f790eee707024",
+        "gitCommit": "92b33d7312ee91ff89032ed92a2a7d8dc13d00ab",
         "hash": "f702bab50ff7c25d165cf8e6b320638942d6f6b1",
         "method": 2,
-        "recordedAt": "2026-11-17T08:52:32+00:00",
+        "recordedAt": "2026-11-21T19:28:18+00:00",
         "sources": {
           "contents:expoAutolinkingConfig:ios": "820115269e76930df21b312f50d5602932227111",
           "contents:expoConfig": "999734c11fee1721215329a2b047a2345c6cad43",
