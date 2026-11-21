@@ -531,4 +531,35 @@ describe('app config local overrides bridge', () => {
     expect(findMaps(withoutKey.plugins as PluginEntry[])).toBe('react-native-maps');
     expect(withoutKey.android?.config?.googleMaps).toBeUndefined();
   });
+
+  it('adds the Google sign-in plugin + reversed URL scheme only when the iOS client id is set', () => {
+    type PluginEntry = string | [string, ...unknown[]];
+    const findGoogle = (plugins: PluginEntry[]) =>
+      plugins.find((entry) => (Array.isArray(entry) ? entry[0] : entry) === '@react-native-google-signin/google-signin');
+
+    const configured = buildExpoConfigForEnv(
+      {
+        GOOGLE_IOS_CLIENT_ID: '123-ios.apps.googleusercontent.com',
+        GOOGLE_WEB_CLIENT_ID: '123-web.apps.googleusercontent.com',
+      },
+      '/virtual/LocalOverrides.xcconfig',
+    );
+    expect(findGoogle(configured.plugins as PluginEntry[])).toEqual([
+      '@react-native-google-signin/google-signin',
+      { iosUrlScheme: 'com.googleusercontent.apps.123-ios' },
+    ]);
+    expect(configured.extra).toMatchObject({
+      googleIosClientId: '123-ios.apps.googleusercontent.com',
+      googleWebClientId: '123-web.apps.googleusercontent.com',
+    });
+    // Lets the auth service ask canOpenURL whether THIS binary has the scheme.
+    expect(configured.ios?.infoPlist?.LSApplicationQueriesSchemes).toContain(
+      'com.googleusercontent.apps.123-ios',
+    );
+
+    const unconfigured = buildExpoConfigForEnv({}, '/virtual/LocalOverrides.xcconfig');
+    expect(findGoogle(unconfigured.plugins as PluginEntry[])).toBeUndefined();
+    expect(unconfigured.extra?.googleIosClientId).toBeUndefined();
+    expect(unconfigured.extra?.googleWebClientId).toBeUndefined();
+  });
 });

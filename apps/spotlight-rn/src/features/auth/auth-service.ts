@@ -1,4 +1,5 @@
 import * as Linking from 'expo-linking';
+import { Platform } from 'react-native';
 import type { Session, User } from '@supabase/supabase-js';
 import { sha256 } from 'js-sha256';
 
@@ -15,6 +16,7 @@ import {
   recordAnonymousIdentityMint,
 } from './anonymous-identity-churn';
 import { getCaptchaToken } from './captcha/turnstile';
+import { getGoogleSignInClientIds, reversedGoogleClientId } from './google-sign-in-config';
 import { isColumnWriteRejectedError, isMissingColumnError } from '@/lib/postgrest-errors';
 import {
   supabase,
@@ -23,6 +25,7 @@ import {
 
 type AppleAuthModule = typeof import('expo-apple-authentication');
 type WebBrowserModule = typeof import('expo-web-browser');
+type GoogleSigninModule = typeof import('@react-native-google-signin/google-signin');
 
 let appleAuthenticationModule: AppleAuthModule | null = null;
 let webBrowserModule: WebBrowserModule | null = null;
@@ -39,6 +42,27 @@ try {
   webBrowserModule = require('expo-web-browser') as WebBrowserModule;
 } catch {
   webBrowserModule = null;
+}
+
+// undefined = not probed yet. Probed lazily (not at import) so the require only
+// runs when someone actually signs in with Google.
+let googleSigninModule: GoogleSigninModule | null | undefined;
+let googleSigninConfiguredFor: string | null = null;
+
+function loadGoogleSigninModule(): GoogleSigninModule | null {
+  if (googleSigninModule !== undefined) {
+    return googleSigninModule;
+  }
+  try {
+    // Binaries built before the dependency landed (running this JS via OTA)
+    // lack RNGoogleSignin; the package's import throws there
+    // (TurboModuleRegistry.getEnforcing), so a throw means "use the browser".
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native module: probed lazily, null when the binary lacks it
+    googleSigninModule = require('@react-native-google-signin/google-signin') as GoogleSigninModule;
+  } catch {
+    googleSigninModule = null;
+  }
+  return googleSigninModule;
 }
 
 type UserProfileRow = {
@@ -685,10 +709,149 @@ async function resolveAuthRedirectURL(): Promise<string> {
   return registered ? isolated : supabaseAuthConfig.redirectURL;
 }
 
+/**
+ * Native Google failures carry the SDK's own code (e.g. `google_native:10`
+ * DEVELOPER_ERROR on Android) so `auth_sign_in_failed.error_code` says which.
+ */
+export class GoogleNativeSignInError extends Error {
+  readonly code: string;
+
+  constructor(message: string, nativeCode: string | null) {
+    super(message);
+    this.name = 'GoogleNativeSignInError';
+    this.code = `google_native:${nativeCode ?? 'unknown'}`;
+  }
+}
+
+/**
+ * The native Google SDK, configured, when THIS binary can run it; otherwise
+ * null and callers use the browser flow. Needs the module linked in the binary
+ * and the per-env client ids; on iOS also the reversed-client-id URL scheme,
+ * because GoogleSignIn raises an uncatchable NSException without it (an OTA can
+ * carry the ids to a binary built without the plugin). The scheme is listed in
+ * LSApplicationQueriesSchemes, so canOpenURL answers only when it's registered.
+ */
+async function resolveNativeGoogleSignin(): Promise<GoogleSigninModule | null> {
+  const { iosClientId, webClientId } = getGoogleSignInClientIds();
+  if (!webClientId) {
+    return null;
+  }
+  if (Platform.OS === 'ios') {
+    if (!iosClientId) {
+      return null;
+    }
+    const schemeRegistered = await Linking
+      .canOpenURL(`${reversedGoogleClientId(iosClientId)}:/`)
+      .catch(() => false);
+    if (!schemeRegistered) {
+      return null;
+    }
+  } else if (Platform.OS !== 'android') {
+    return null;
+  }
+
+  const google = loadGoogleSigninModule();
+  if (!google) {
+    return null;
+  }
+
+  const configKey = `${webClientId}|${iosClientId ?? ''}`;
+  if (googleSigninConfiguredFor !== configKey) {
+    try {
+      google.GoogleSignin.configure({
+        webClientId,
+        ...(Platform.OS === 'ios' && iosClientId ? { iosClientId } : {}),
+      });
+      googleSigninConfiguredFor = configKey;
+    } catch {
+      return null;
+    }
+  }
+  return google;
+}
+
+function nativeGoogleErrorCode(error: unknown): string | null {
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    const { code } = error as { code?: unknown };
+    if (typeof code === 'string' || typeof code === 'number') {
+      return String(code);
+    }
+  }
+  return null;
+}
+
+/** Shows Google's native account sheet and returns its id token. */
+async function requestNativeGoogleIdToken(google: GoogleSigninModule): Promise<string> {
+  const { GoogleSignin, statusCodes } = google;
+  try {
+    if (Platform.OS === 'android') {
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    }
+    const response = await GoogleSignin.signIn();
+    if (response.type !== 'success') {
+      throw new AuthCanceledError();
+    }
+    if (!response.data.idToken) {
+      throw new GoogleNativeSignInError('Google sign-in did not return a valid identity token.', 'missing_id_token');
+    }
+    return response.data.idToken;
+  } catch (error) {
+    if (error instanceof AuthCanceledError || error instanceof GoogleNativeSignInError) {
+      throw error;
+    }
+    const nativeCode = nativeGoogleErrorCode(error);
+    // IN_PROGRESS = a second tap while the sheet is up; not a failure either.
+    if (nativeCode === statusCodes.SIGN_IN_CANCELLED || nativeCode === statusCodes.IN_PROGRESS) {
+      throw new AuthCanceledError();
+    }
+    if (nativeCode === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+      throw new GoogleNativeSignInError(
+        'Google Play services is missing or out of date on this device. Update it, or sign in with email instead.',
+        nativeCode,
+      );
+    }
+    throw new GoogleNativeSignInError("Google sign-in didn't work on this device. Try again, or use email instead.", nativeCode);
+  }
+}
+
+async function signInWithNativeGoogle(google: GoogleSigninModule): Promise<Session> {
+  if (!supabase) {
+    throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
+  }
+  const idToken = await requestNativeGoogleIdToken(google);
+  const { data, error } = await supabase.auth.signInWithIdToken({
+    provider: 'google',
+    token: idToken,
+  });
+  if (error) {
+    throw error;
+  }
+  if (!data.session) {
+    throw new Error('Google sign-in did not create a session.');
+  }
+  return data.session;
+}
+
+async function signOutOfNativeGoogle() {
+  try {
+    const google = await resolveNativeGoogleSignin();
+    // Without this, Android's next signIn() silently reuses the last account.
+    await google?.GoogleSignin.signOut();
+  } catch {
+    // Best effort: the Supabase sign-out is what ends the session.
+  }
+}
+
 export async function signInWithGoogle() {
   if (!supabase) {
     throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
   }
+
+  const nativeGoogle = await resolveNativeGoogleSignin();
+  if (nativeGoogle) {
+    return signInWithNativeGoogle(nativeGoogle);
+  }
+
   if (!webBrowserModule) {
     throw new Error('Google sign-in is unavailable in the current app build.');
   }
@@ -1050,6 +1213,7 @@ export async function signOut() {
   // a deliberate sign-out means the anonymous identity was GIVEN UP, and the
   // next mint must not be reported as churn. Never throws.
   await markAnonymousIdentityReleased();
+  await signOutOfNativeGoogle();
 
   if (!supabase) {
     return;
@@ -1258,9 +1422,10 @@ export async function verifyAnonymousEmailConversion({
 
 /**
  * Guest → OAuth account: link an Apple/Google identity to the CURRENT anonymous
- * user via the browser redirect flow, so the uuid survives. Returns the
- * upgraded session, or null when the browser handed off to the system browser
- * and the session will arrive on the deep link instead.
+ * user, so the uuid survives. Google uses the native sheet when this binary
+ * supports it; otherwise (and for Apple here) the browser redirect flow.
+ * Returns the upgraded session, or null when the browser handed off to the
+ * system browser and the session will arrive on the deep link instead.
  */
 export async function linkOAuthIdentityToCurrentUser(
   provider: 'apple' | 'google',
@@ -1268,6 +1433,15 @@ export async function linkOAuthIdentityToCurrentUser(
   if (!supabase) {
     throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
   }
+
+  if (provider === 'google') {
+    const nativeGoogle = await resolveNativeGoogleSignin();
+    if (nativeGoogle) {
+      await requireAnonymousSession();
+      return linkNativeGoogleIdentityToCurrentUser(nativeGoogle);
+    }
+  }
+
   if (!webBrowserModule) {
     throw new Error('Account linking is unavailable in the current app build.');
   }
@@ -1308,6 +1482,26 @@ export async function linkOAuthIdentityToCurrentUser(
   }
 
   return restoreSessionFromUrl(result.url);
+}
+
+// OIDC overload of linkIdentity: attaches Google to the anonymous user (same
+// uuid), never a new user — the Google mirror of linkAppleIdentityToCurrentUser.
+async function linkNativeGoogleIdentityToCurrentUser(google: GoogleSigninModule): Promise<Session> {
+  if (!supabase) {
+    throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
+  }
+  const idToken = await requestNativeGoogleIdToken(google);
+  const { data, error } = await supabase.auth.linkIdentity({
+    provider: 'google',
+    token: idToken,
+  });
+  if (error) {
+    throw error;
+  }
+  if (!data.session) {
+    throw new Error('Google account linking did not create a session.');
+  }
+  return data.session;
 }
 
 /**

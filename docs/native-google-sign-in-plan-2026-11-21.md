@@ -25,3 +25,30 @@ Tap "Continue with Google" → Google's own account picker sheet (no browser, no
 
 ## Size
 ~1 day of app work + Google Cloud / Supabase setup + one native build per platform. Risk: low–medium (auth); staging first, prod only with approval.
+
+## Config
+
+App work is BUILT (2026-11-21); it does nothing until the ids below are set and a new native build ships.
+
+Two build-time variables per environment (both are public OAuth client ids, not secrets):
+
+| Variable | Value | Used for |
+|---|---|---|
+| `GOOGLE_IOS_CLIENT_ID` | that environment's **iOS** OAuth client id, e.g. `123-abc.apps.googleusercontent.com` (staging = client for `com.ekalight.app.staging`, prod = client for `com.ekalight.app`) | `GoogleSignin.configure({ iosClientId })`; its reversed form (`com.googleusercontent.apps.123-abc`) is registered as the iOS URL scheme by the `@react-native-google-signin/google-signin` config plugin and listed in `LSApplicationQueriesSchemes` |
+| `GOOGLE_WEB_CLIENT_ID` | the existing **Web** OAuth client id that the Supabase Google provider already uses (the id-token audience) | `GoogleSignin.configure({ webClientId })` on both platforms |
+
+Android needs no app variable: Google matches the Android OAuth client by package name + signing SHA-1 (created in Google Cloud, step 1).
+
+`app.config.js` reads them with `trimEnvValue(env.GOOGLE_*)` and puts them in `extra.googleIosClientId` / `extra.googleWebClientId` (read in JS by `src/features/auth/google-sign-in-config.ts`). The plugin is added only when `GOOGLE_IOS_CLIENT_ID` is set, so builds without it are unchanged.
+
+Where to set them:
+- **Staging** — `apps/spotlight-rn/eas.json` → `build.staging.env` (EAS builds read it, and `tools/mobile_env_resolver.py` uses the same profile env for staging OTAs). Alternatively EAS environment variables for the `preview` environment (`eas env:create --environment preview --name GOOGLE_IOS_CLIENT_ID --visibility plaintext ...`); if both exist, `eas.json` profile env wins on builds.
+- **Production** — `apps/spotlight-rn/eas.json` → `build.production.env` (builds) AND the local gitignored `apps/spotlight-rn/.env.production` (production OTAs run `app.config.js` from it). Or EAS env vars in the `production` environment.
+- **Local dev client** — `apps/spotlight-rn/.env.development` (gitignored) if you want native Google in a dev build (needs an iOS client for `com.ekalight.app.dev`).
+- Placeholders are documented in `.env.staging.example` / `.env.production.example`.
+
+Rollout notes:
+- Set the ids in the SAME change as the native build. The JS falls back to the browser flow when the binary lacks the native module, the ids are missing, or (iOS) `canOpenURL('<reversed iOS id>:/')` is false — so an OTA carrying the ids to an old binary keeps the browser flow instead of crashing GoogleSignIn on a missing URL scheme.
+- Adding the native module is a native change: bump the staging/prod `runtimeVersion` per the comment in `app.config.js` with the build.
+- Supabase: the iOS SDK puts a nonce in the id token that the library doesn't expose, so the Google provider likely needs "Skip nonce check" on (verify on device, staging first).
+- Telemetry: native failures report `auth_sign_in_failed { provider: 'google', error_code: 'google_native:<code>' }` (e.g. `google_native:10` = Android DEVELOPER_ERROR → SHA-1/package mismatch in Google Cloud). Cancels (`SIGN_IN_CANCELLED`, `IN_PROGRESS`, cancelled response) log nothing.
