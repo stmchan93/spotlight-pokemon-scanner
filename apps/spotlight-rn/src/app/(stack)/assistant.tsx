@@ -1,6 +1,8 @@
 import { useCallback } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
+import type { AssistantSetRef } from '@spotlight/api-client';
+
 import { parseAssistantRouteParams } from '@/features/assistant/assistant-route';
 import { AssistantScreen } from '@/features/assistant/screens/assistant-screen';
 
@@ -13,6 +15,15 @@ export default function AssistantRoute() {
     (cardId: string) => router.push({ pathname: '/cards/[cardId]', params: { cardId } }),
     [router],
   );
+  // A set tile opens the catalog's set page; `set_id` is unique only within a game, so the game travels too.
+  const openSet = useCallback(
+    (set: AssistantSetRef) =>
+      router.push({
+        pathname: '/catalog/expansion/[expansionId]',
+        params: { expansionId: set.setId, name: set.name, ...(set.game ? { game: set.game } : {}) },
+      }),
+    [router],
+  );
   // Same push the deal-alert notification tap uses to reach the Watchlist tab.
   const openWatchlist = useCallback(() => router.push('/wishlist'), [router]);
 
@@ -22,6 +33,7 @@ export default function AssistantRoute() {
       initialThreadId={threadId}
       onBack={() => router.back()}
       onOpenCard={openCard}
+      onOpenSet={openSet}
       onOpenWatchlist={openWatchlist}
       source={source}
     />

@@ -7,6 +7,7 @@ import type {
   AssistantMessage,
   AssistantPriceChart,
   AssistantProposedAction,
+  AssistantSetRef,
   AssistantThreadSummary,
   AssistantUsage,
 } from './types';
@@ -92,7 +93,7 @@ export function mockAssistantPriceChart(endDate = '2026-11-17'): AssistantPriceC
   };
 }
 
-type MockReply = Pick<AssistantMessage, 'text' | 'cards' | 'actions' | 'suggestions' | 'charts'>;
+type MockReply = Pick<AssistantMessage, 'text' | 'cards' | 'actions' | 'suggestions' | 'charts' | 'sets'>;
 
 /** Canned answer keyed off the question's wording, so each action type is reachable from the composer. */
 export function buildMockAssistantReply(
@@ -169,6 +170,16 @@ export function buildMockAssistantReply(
     };
   }
 
+  if (/\bsets?\b/.test(question)) {
+    return {
+      text: '**Plasma Storm** is up **66.9%** over the past 30 days, while **Ascended Heroes** fell **24%**.',
+      cards: [],
+      actions: [],
+      sets: mockAssistantSets(),
+      suggestions: ['What are the top cards in Plasma Storm?'],
+    };
+  }
+
   if (context?.source === 'scanner' && (context.cardIds?.length ?? 0) > 0) {
     return {
       text: 'Of the cards in your tray, **Celebi** is worth the most at $37.54.\n- Celebi: $37.54\n- Oshawott: $0.56',
@@ -184,6 +195,32 @@ export function buildMockAssistantReply(
     actions: [],
     suggestions: ['Which of my cards went up this week?', 'Is Celebi worth grading?', 'What am I missing from Celestial Storm?'],
   };
+}
+
+/** Set tiles for a set-trend answer (one rising, one falling). */
+export function mockAssistantSets(): AssistantSetRef[] {
+  return [
+    {
+      setId: 'bw8',
+      name: 'Plasma Storm',
+      game: 'pokemon',
+      logoUrl: 'https://images.scrydex.com/pokemon/bw8-logo/logo',
+      symbolUrl: null,
+      changePct: 66.9,
+      window: '30d',
+      releaseYear: '2013',
+    },
+    {
+      setId: 'me3',
+      name: 'Ascended Heroes',
+      game: 'pokemon',
+      logoUrl: null,
+      symbolUrl: null,
+      changePct: -24,
+      window: '30d',
+      releaseYear: '2026',
+    },
+  ];
 }
 
 export const MOCK_ASSISTANT_SEED_THREAD_ID = 'thr_mock_seed';

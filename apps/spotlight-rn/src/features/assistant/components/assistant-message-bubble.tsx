@@ -2,7 +2,12 @@ import type { ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
-import type { AssistantFeedbackInput, AssistantMessage, AssistantProposedAction } from '@spotlight/api-client';
+import type {
+  AssistantFeedbackInput,
+  AssistantMessage,
+  AssistantProposedAction,
+  AssistantSetRef,
+} from '@spotlight/api-client';
 import { layout, radii, SectionHeader, spacing, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import { AssistantRichText } from '@/features/assistant/assistant-markdown';
@@ -14,6 +19,7 @@ import {
 import { AssistantCardTile } from '@/features/assistant/components/assistant-card-tile';
 import { AssistantFeedbackControls } from '@/features/assistant/components/assistant-feedback';
 import { AssistantPriceChartCard } from '@/features/assistant/components/assistant-price-chart';
+import { AssistantSetTile } from '@/features/assistant/components/assistant-set-tile';
 
 const ENTER_MS = 220;
 const PRESSED_OPACITY = 0.7;
@@ -36,6 +42,8 @@ type AssistantMessageBubbleProps = {
   message: AssistantMessage;
   actionStates: Readonly<Record<string, AssistantActionUiState>>;
   onOpenCard: (cardId: string) => void;
+  /** Set tiles (set-level answers); omitted = set tiles don't navigate. */
+  onOpenSet?: (set: AssistantSetRef) => void;
   /** "View all N" under a capped Watchlist preview; omitted = no link. */
   onOpenWatchlist?: () => void;
   onConfirmAction: (action: AssistantProposedAction, message: AssistantMessage) => void;
@@ -55,6 +63,7 @@ export function AssistantMessageBubble({
   message,
   actionStates,
   onOpenCard,
+  onOpenSet,
   onOpenWatchlist,
   onConfirmAction,
   onDismissAction,
@@ -69,6 +78,7 @@ export function AssistantMessageBubble({
   const viewAll = message.cardsViewAll && onOpenWatchlist ? message.cardsViewAll : null;
   // The header shows for a label, or to carry "View all" (titled after its screen).
   const cardsTitle = message.cardsLabel || (viewAll ? 'Your Watchlist' : null);
+  const sets = message.sets ?? [];
 
   if (message.role === 'user') {
     return <UserBubble animateEntrance={animateEntrance} onCopy={onCopy} testID={testID} text={message.text} />;
@@ -99,6 +109,25 @@ export function AssistantMessageBubble({
           testID={`${testID}-chart-${index}`}
         />
       ))}
+      {sets.length > 0 ? (
+        // Set-level answers ("which sets are up?") show the sets, not cards.
+        <ScrollView
+          contentContainerStyle={styles.cardRail}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.cardRailScroller}
+          testID={`${testID}-sets`}
+        >
+          {sets.map((set, index) => (
+            <AssistantSetTile
+              key={`${set.setId}-${index}`}
+              onPress={(next) => onOpenSet?.(next)}
+              set={set}
+              testID={`assistant-set-${set.setId}`}
+            />
+          ))}
+        </ScrollView>
+      ) : null}
       {message.cards.length > 0 && cardsTitle ? (
         <View style={styles.cardsHeader}>
           <SectionHeader

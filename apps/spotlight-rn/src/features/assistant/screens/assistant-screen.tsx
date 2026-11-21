@@ -19,6 +19,7 @@ import type {
   AssistantFeedbackInput,
   AssistantMessage,
   AssistantProposedAction,
+  AssistantSetRef,
   AssistantThreadSummary,
 } from '@spotlight/api-client';
 import {
@@ -84,6 +85,8 @@ export type AssistantScreenProps = {
   initialThreadId?: string | null;
   onBack: () => void;
   onOpenCard: (cardId: string) => void;
+  /** A set tile under a set-level answer: that set's page. */
+  onOpenSet?: (set: AssistantSetRef) => void;
   /** "View all N" under a Watchlist preview. */
   onOpenWatchlist?: () => void;
 };
@@ -109,6 +112,7 @@ export function AssistantScreen({
   initialThreadId = null,
   onBack,
   onOpenCard,
+  onOpenSet,
   onOpenWatchlist,
 }: AssistantScreenProps) {
   const theme = useSpotlightTheme();
@@ -497,6 +501,7 @@ export function AssistantScreen({
           onUndoAction={handleUndoAction}
           onFeedback={handleFeedback}
           onOpenCard={onOpenCard}
+          onOpenSet={onOpenSet}
           onOpenWatchlist={onOpenWatchlist}
         />
       );

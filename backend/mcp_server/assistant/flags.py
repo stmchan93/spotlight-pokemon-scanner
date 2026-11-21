@@ -119,7 +119,7 @@ def flag_turn(question: str, turn: Any, request: dict[str, Any] | None = None) -
         found.add("round_limit")
     if _NO_RESULTS.search(text):
         found.add("no_results")
-    if status == "ok" and not cards and not charts and _CARD_QUESTION.search(question):
+    if status == "ok" and not cards and not charts and not _get(turn, "sets") and _CARD_QUESTION.search(question):
         found.add("no_tiles_for_card_question")
     named = games_named(question)
     if named and any(card_game(card.get("card_id")) not in named for card in cards):

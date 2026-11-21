@@ -161,7 +161,7 @@ def knowledge_cacheable(question: str, turn: Any, flags: list[str]) -> bool:
         return False
     if getattr(turn, "tools_used", None) or getattr(turn, "tool_inputs", None):
         return False
-    if getattr(turn, "cards", None) or getattr(turn, "charts", None):
+    if getattr(turn, "cards", None) or getattr(turn, "charts", None) or getattr(turn, "sets", None):
         return False
     text = str(getattr(turn, "text", "") or "").strip()
     if not text or text.endswith("?") or _DECLINE.search(text):
@@ -205,6 +205,7 @@ def shared_reply(turn: Any) -> dict[str, Any]:
         "cards_view_all": turn.cards_view_all,
         "suggestions": list(turn.suggestions or []),
         "charts": list(turn.charts or []),
+        "sets": list(getattr(turn, "sets", None) or []),
         "tools_used": list(turn.tools_used or []),
         "tool_calls": list(turn.tool_calls or []),
     }
@@ -221,6 +222,7 @@ def replay(cached: dict[str, Any]) -> dict[str, Any]:
         "actions": [],
         "suggestions": list(cached.get("suggestions") or []),
         "charts": list(cached.get("charts") or []),
+        "sets": list(cached.get("sets") or []),
         "status": "ok",
         "input_tokens": 0,
         "output_tokens": 0,

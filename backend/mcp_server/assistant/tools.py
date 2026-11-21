@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from catalog_tools import SUPPORTED_GAMES, card_by_id, game_display_name
+from catalog_tools import SUPPORTED_GAMES, _table_columns, _table_exists, card_by_id, game_display_name
 
 from mcp_server.filters import ToolInputError, uses_art_filters
 from mcp_server.policy import USER_POLICY
@@ -49,6 +49,7 @@ from mcp_server.tools import (
     CollectionTools,
 )
 from request_auth import RequestIdentity
+from set_spotlight import _fallback_logo_url as scrydex_logo_fallback
 
 logger = logging.getLogger("ekalight.assistant")
 
@@ -1079,6 +1080,67 @@ def apply_question_rules(
     return tiles, charts, label
 
 
+# --- set tiles (set-level answers show sets, not cards) ----------------------
+
+MAX_SET_TILES = 6
+SET_TREND_KEYS = ("rising_sets", "falling_sets")
+
+
+def trend_set_refs(content: Any) -> list[dict[str, Any]]:
+    """SetRefs from a get_market_trends result (rising then falling)."""
+    if not isinstance(content, dict):
+        return []
+    game = _optional_str(content.get("sets_game"), limit=40)
+    window = _optional_str(content.get("sets_window"), limit=10)
+    refs: list[dict[str, Any]] = []
+    for key in SET_TREND_KEYS:
+        for entry in content.get(key) or []:
+            if not isinstance(entry, dict) or not entry.get("set_id") or not entry.get("set"):
+                continue
+            change = entry.get("change_pct")
+            refs.append({
+                "set_id": str(entry["set_id"]),
+                "name": str(entry["set"]),
+                "game": game,
+                "change_pct": float(change) if isinstance(change, (int, float)) and not isinstance(change, bool) else None,
+                "window": window,
+                "release_year": _optional_str(entry.get("release_year"), limit=4),
+            })
+    return refs
+
+
+def _set_name_key(ref: dict[str, Any]) -> str:
+    return " ".join(str(ref.get("name") or "").split()).casefold()
+
+
+def named_sets(refs: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
+    """Set refs the answer names, in mention order, one per set ('Base' inside
+    'Base Set 2' doesn't count)."""
+    spans = {key: _phrase_spans(key, text) for key in {_set_name_key(ref) for ref in refs} - {""}}
+    names = _uncovered(spans)
+    out: list[dict[str, Any]] = []
+    for ref in refs:
+        key = _set_name_key(ref)
+        if key in names and not any(item["set_id"] == ref["set_id"] for item in out):
+            out.append(ref)
+    out.sort(key=lambda ref: min(start for start, _ in spans[_set_name_key(ref)]))
+    return out[:MAX_SET_TILES]
+
+
+def cards_beside_sets(
+    cards: list[dict[str, Any]], sets: list[dict[str, Any]], text: str, *, keep_ids: frozenset[str] | set[str] = frozenset()
+) -> list[dict[str, Any]]:
+    """With set tiles showing, only the cards the text names itself stay (a card
+    name seen only inside a set name doesn't count), plus keep_ids (charted cards)."""
+    set_keys = {_set_name_key(ref) for ref in sets} - {""}
+    card_keys = {_name_key(card) for card in cards} - {""}
+    names = _uncovered({key: _phrase_spans(key, text) for key in card_keys | set_keys})
+    return [
+        card for card in cards
+        if str(card.get("card_id")) in keep_ids or (_name_key(card) in names and _name_key(card) not in set_keys)
+    ]
+
+
 def art_groups(conn: sqlite3.Connection, card_ids: list[str]) -> dict[str, str]:
     ids = list(dict.fromkeys(str(card_id) for card_id in card_ids if card_id))
     groups: dict[str, str] = {}
@@ -1812,6 +1874,48 @@ class AssistantToolbox:
                 if line is not None:
                     card["sparkline"] = line
         return cards, label, view_all, charts
+
+    def build_set_tiles(
+        self,
+        set_refs: list[dict[str, Any]],
+        text: str,
+        cards: list[dict[str, Any]],
+        charts: list[dict[str, Any]] | None = None,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """(sets, cards): the sets the answer names become set tiles (logo, name,
+        % change) and replace the card tiles, except cards the text names too."""
+        sets = named_sets(set_refs, text)
+        if not sets:
+            return [], cards
+        charted = {str(chart.get("card_id")) for chart in charts or []}
+        return [self._set_tile(ref) for ref in sets], cards_beside_sets(cards, sets, text, keep_ids=charted)
+
+    def _set_tile(self, ref: dict[str, Any]) -> dict[str, Any]:
+        game = ref.get("game") or "pokemon"
+        row = None
+        if _table_exists(self.conn, "expansions"):
+            has_game = "game" in _table_columns(self.conn, "expansions")
+            game_sql = " AND game = ?" if has_game else ""
+            select = "SELECT id, name, logo_url, symbol_url, image_url FROM expansions"
+            row = self.conn.execute(f"{select} WHERE id = ?{game_sql}", (ref["set_id"], *((game,) if has_game else ()))).fetchone()
+            if row is None:
+                # Older group keys carry the label, not the id.
+                row = self.conn.execute(
+                    f"{select} WHERE name = ?{game_sql} ORDER BY (language = 'en') DESC, release_date DESC LIMIT 1",
+                    (ref["name"], *((game,) if has_game else ())),
+                ).fetchone()
+        set_id = str(row[0]) if row is not None else ref["set_id"]
+        logo = (row[2] or row[4]) if row is not None else None
+        return {
+            "set_id": set_id,
+            "name": ref["name"],
+            "game": game,
+            "logo_url": logo or scrydex_logo_fallback(set_id, game),
+            "symbol_url": row[3] if row is not None else None,
+            "change_pct": ref.get("change_pct"),
+            "window": ref.get("window"),
+            "release_year": ref.get("release_year"),
+        }
 
     def _named_extra_refs(self, refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Scanned-card refs arrive as bare ids: add name/set/number so the

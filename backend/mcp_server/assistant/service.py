@@ -238,6 +238,7 @@ class AssistantService:
             "actions": turn.actions,
             "suggestions": turn.suggestions,
             "charts": turn.charts,
+            "sets": turn.sets,
             "status": turn.status,
             "input_tokens": turn.input_tokens,
             "output_tokens": turn.output_tokens,

@@ -20,10 +20,13 @@ import type {
   AssistantProposedAction,
   AssistantSendPayload,
   AssistantSendResult,
+  AssistantSetRef,
+  AssistantSetWindow,
   AssistantThreadSummary,
   AssistantThreadsPage,
   AssistantUsage,
 } from './types';
+import { CARD_GAMES } from './types';
 
 type Raw = Record<string, unknown>;
 
@@ -123,6 +126,29 @@ export function parseAssistantCardSparkline(value: unknown): AssistantCardSparkl
   }
   const range = chartRanges.find((option) => option === raw.range) ?? '90d';
   return { range, points, changePct: asNumber(raw.change_pct) };
+}
+
+export const ASSISTANT_MAX_SETS = 6;
+const setWindows: readonly AssistantSetWindow[] = ['7d', '30d', '90d'];
+
+/** A set tile needs an id and a name; everything else is optional. */
+export function parseAssistantSetRef(value: unknown): AssistantSetRef | null {
+  const raw = asRecord(value);
+  const setId = raw ? asString(raw.set_id) : null;
+  const name = raw ? asString(raw.name) : null;
+  if (!raw || !setId || !name) {
+    return null;
+  }
+  return {
+    setId,
+    name,
+    game: CARD_GAMES.find((game) => game === raw.game) ?? null,
+    logoUrl: asString(raw.logo_url),
+    symbolUrl: asString(raw.symbol_url),
+    changePct: asNumber(raw.change_pct),
+    window: setWindows.find((option) => option === raw.window) ?? null,
+    releaseYear: asString(raw.release_year),
+  };
 }
 
 export function parseAssistantCardsViewAll(value: unknown): AssistantCardsViewAll | null {
@@ -315,6 +341,7 @@ export function parseAssistantMessage(value: unknown): AssistantMessage | null {
     status: raw.status === 'error' ? 'error' : 'ok',
     suggestions: role === 'assistant' ? parseAssistantSuggestions(raw.suggestions) : [],
     charts: role === 'assistant' ? parseList(raw.charts, parseAssistantPriceChart).slice(0, ASSISTANT_MAX_CHARTS) : [],
+    sets: role === 'assistant' ? parseList(raw.sets, parseAssistantSetRef).slice(0, ASSISTANT_MAX_SETS) : [],
     feedback: role === 'assistant' ? parseAssistantFeedback(raw.feedback) : null,
   };
 }
