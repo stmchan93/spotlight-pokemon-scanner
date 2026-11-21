@@ -277,7 +277,7 @@ class AnswerShapeTests(unittest.TestCase):
         card = {"name": "Charizard ex", "setName": "151", "number": "199/165"}
         self.assertEqual(
             history_summary(result, card),
-            "Charizard ex (151 #199/165), Near Mint Holofoil: $374.44 on 2026-08-22 -> $287.93 on 2026-11-18 (-23.1%).",
+            "Charizard ex (151 #199/165), Near Mint Holofoil: $374.44 on 2026-08-22 -> $287.93 on 2026-11-18 (-23.10%).",
         )
         self.assertIn("PSA 10", history_summary({**result, "grader": "PSA", "grade": "10"}, card))
 
@@ -299,7 +299,7 @@ class AnswerShapeTests(unittest.TestCase):
 
     @unittest.skipUnless(HAVE_DEPS, "anthropic / mcp not installed")
     def test_prompt_rules(self) -> None:
-        for rule in ("never say tag, tagged, matching", "states the price condition (e.g. Near Mint)",
+        for rule in ("never say tag, tagged, matching", "Never list both endpoint prices",
                      "open with the actual move and dates", "ambiguous=true", "total_value_usd",
                      "never a table", "Of the 3 cards in your scan tray", "This scanned card", "market estimates",
                      "raw $504.48 → PSA 10 $1,450 (+$945.52, +187%)", "no recent PSA 10 sale"):

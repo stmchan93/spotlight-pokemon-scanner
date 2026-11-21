@@ -57,6 +57,17 @@ describe('assistant price chart', () => {
     expect(onOpenCard).toHaveBeenCalledWith('xyp-111');
   });
 
+  it('a one-card chart answer puts the card art in the chart header instead of a lone tile', () => {
+    renderBubble(reply({ cards: [mockAssistantCards.celebi], charts: [mockAssistantPriceChart()] }));
+    expect(screen.getByTestId('assistant-message-a1-chart-0-thumb')).toBeTruthy();
+    expect(screen.queryByTestId('assistant-card-xyp-111')).toBeNull();
+  });
+
+  it('keeps tiles for cards the chart does not cover', () => {
+    renderBubble(reply({ cards: [mockAssistantCards.celebi, mockAssistantCards.oshawott], charts: [mockAssistantPriceChart()] }));
+    expect(screen.getByTestId('assistant-card-mcdonalds25-21')).toBeTruthy();
+  });
+
   it('renders nothing extra without charts (older messages)', () => {
     renderBubble(reply());
     expect(screen.queryByTestId('assistant-message-a1-chart-0')).toBeNull();

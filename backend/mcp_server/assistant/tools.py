@@ -1435,7 +1435,7 @@ def neutral_art_coverage(coverage: dict[str, Any]) -> dict[str, Any]:
 
 
 def history_summary(result: dict[str, Any], card: dict[str, Any] | None) -> str:
-    """'Charizard ex (151 #199/165), Near Mint Holofoil: $374.44 on 2026-08-22 -> $287.93 on 2026-11-18 (-23.1%).'"""
+    """'Charizard ex (151 #199/165), Near Mint Holofoil: $374.44 on 2026-08-22 -> $287.93 on 2026-11-18 (-23.10%).'"""
     if result.get("grader"):
         basis = f"{result['grader']} {result.get('grade')}"
     else:
@@ -1450,7 +1450,7 @@ def history_summary(result: dict[str, Any], card: dict[str, Any] | None) -> str:
     first, last = result.get("first_usd"), result.get("last_usd")
     if not isinstance(first, (int, float)) or not isinstance(last, (int, float)):
         return f"{who}{basis}."
-    move = f" ({(last - first) / first * 100:+.1f}%)" if first else ""
+    move = f" ({(last - first) / first * 100:+.2f}%)" if first else ""
     return f"{who}{basis}: ${first:,.2f} on {result.get('first_date')} -> ${last:,.2f} on {result.get('last_date')}{move}."
 
 

@@ -79,6 +79,13 @@ export function AssistantMessageBubble({
   // The header shows for a label, or to carry "View all" (titled after its screen).
   const cardsTitle = message.cardsLabel || (viewAll ? 'Your Watchlist' : null);
   const sets = message.sets ?? [];
+  const charts = message.charts ?? [];
+  // A chart answer about exactly the charted card(s): the chart card carries the art,
+  // so a lone tile underneath would only repeat it.
+  const chartIds = new Set(charts.map((chart) => chart.cardId));
+  const tilesRepeatCharts =
+    charts.length > 0 && message.cards.length > 0 && message.cards.every((card) => chartIds.has(card.cardId));
+  const tileCards = tilesRepeatCharts ? [] : message.cards;
 
   if (message.role === 'user') {
     return <UserBubble animateEntrance={animateEntrance} onCopy={onCopy} testID={testID} text={message.text} />;
@@ -101,8 +108,9 @@ export function AssistantMessageBubble({
           text={message.text}
         />
       </Pressable>
-      {(message.charts ?? []).map((chart, index) => (
+      {charts.map((chart, index) => (
         <AssistantPriceChartCard
+          card={message.cards.find((card) => card.cardId === chart.cardId) ?? null}
           chart={chart}
           key={`${chart.cardId}-${index}`}
           onOpenCard={onOpenCard}
@@ -128,7 +136,7 @@ export function AssistantMessageBubble({
           ))}
         </ScrollView>
       ) : null}
-      {message.cards.length > 0 && cardsTitle ? (
+      {tileCards.length > 0 && cardsTitle ? (
         <View style={styles.cardsHeader}>
           <SectionHeader
             actionLabel={viewAll ? `View all ${viewAll.total}` : undefined}
@@ -140,7 +148,7 @@ export function AssistantMessageBubble({
           />
         </View>
       ) : null}
-      {message.cards.length > 0 ? (
+      {tileCards.length > 0 ? (
         <ScrollView
           contentContainerStyle={styles.cardRail}
           horizontal
@@ -148,7 +156,7 @@ export function AssistantMessageBubble({
           style={styles.cardRailScroller}
           testID={`${testID}-cards`}
         >
-          {message.cards.map((card, index) => (
+          {tileCards.map((card, index) => (
             <AssistantCardTile
               card={card}
               key={`${card.cardId}-${index}`}

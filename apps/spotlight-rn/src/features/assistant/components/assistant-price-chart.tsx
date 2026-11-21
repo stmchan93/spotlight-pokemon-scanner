@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { NavArrowRight } from 'iconoir-react-native';
 
-import type { AssistantChartRange, AssistantPriceChart } from '@spotlight/api-client';
+import type { AssistantCardRef, AssistantChartRange, AssistantPriceChart } from '@spotlight/api-client';
 import { radii, spacing, Text, TrendTriangle, useSpotlightTheme } from '@spotlight/design-system';
 
 import {
@@ -14,12 +14,17 @@ import {
   type PriceChartModel,
   type PriceChartRange,
 } from '@/features/cards/card-price-chart-model';
+import { CachedImage } from '@/components/cached-image';
 import { PriceScrubChart } from '@/features/cards/components/price-scrub-chart';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
 const COMPACT_CHART_HEIGHT = 120;
 const DELTA_TRIANGLE_SIZE = 7;
 const CHEVRON_SIZE = 16;
+// Card art in the header: replaces the lone tile under a one-card chart answer.
+const THUMB_WIDTH = 40;
+const THUMB_HEIGHT = 56;
+const THUMB_RADIUS = 3;
 
 const rangeMap: Record<AssistantChartRange, PriceChartRange> = { '30d': '1M', '90d': '3M', '1y': '1Y' };
 const rangeCaption: Record<AssistantChartRange, string> = {
@@ -64,12 +69,14 @@ export function buildAssistantChartModel(chart: AssistantPriceChart): PriceChart
 
 type AssistantPriceChartCardProps = {
   chart: AssistantPriceChart;
+  /** The charted card's tile data: shows its art and set/number in the header. */
+  card?: AssistantCardRef | null;
   onOpenCard: (cardId: string) => void;
   testID?: string;
 };
 
 /** Compact PDP price chart inside a reply: price + delta, scrubbable line, as-of line. */
-export function AssistantPriceChartCard({ chart, onOpenCard, testID }: AssistantPriceChartCardProps) {
+export function AssistantPriceChartCard({ chart, card, onOpenCard, testID }: AssistantPriceChartCardProps) {
   const theme = useSpotlightTheme();
   const [scrubIndex, setScrubIndex] = useState<number | null>(null);
   const model = useMemo(() => buildAssistantChartModel(chart), [chart]);
@@ -86,6 +93,7 @@ export function AssistantPriceChartCard({ chart, onOpenCard, testID }: Assistant
       : theme.colors.gray600;
   const source = chart.source === 'tcgplayer' ? ' · TCGplayer market' : '';
   const asOf = `Prices as of ${formatChartDate(latestMs)}${source}`;
+  const printing = card ? [card.setName, card.number].filter(Boolean).join(' · ') : '';
 
   return (
     <View
@@ -100,10 +108,25 @@ export function AssistantPriceChartCard({ chart, onOpenCard, testID }: Assistant
         style={({ pressed }) => [styles.header, { opacity: pressed ? 0.7 : 1 }]}
         testID={testID ? `${testID}-open` : undefined}
       >
+        {card?.imageSmallUrl ? (
+          <View style={[styles.thumb, { backgroundColor: theme.colors.gray100 }]}>
+            <CachedImage
+              contentFit="contain"
+              style={styles.thumbImage}
+              testID={testID ? `${testID}-thumb` : undefined}
+              uri={card.imageSmallUrl}
+            />
+          </View>
+        ) : null}
         <View style={styles.headerCopy}>
           <Text numberOfLines={1} style={theme.typography.labelStrong}>
             {chart.name}
           </Text>
+          {printing ? (
+            <Text numberOfLines={1} style={[theme.typography.caption, { color: theme.colors.gray600 }]}>
+              {printing}
+            </Text>
+          ) : null}
           <Text numberOfLines={1} style={[theme.typography.caption, { color: theme.colors.gray600 }]}>
             {assistantChartSeriesLabel(chart)}
           </Text>
@@ -161,6 +184,17 @@ const styles = StyleSheet.create({
   },
   headerCopy: {
     flex: 1,
+  },
+  thumb: {
+    borderCurve: 'continuous',
+    borderRadius: THUMB_RADIUS,
+    height: THUMB_HEIGHT,
+    overflow: 'hidden',
+    width: THUMB_WIDTH,
+  },
+  thumbImage: {
+    height: '100%',
+    width: '100%',
   },
   readout: {
     alignItems: 'center',
