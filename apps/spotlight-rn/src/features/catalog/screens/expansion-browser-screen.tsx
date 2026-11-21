@@ -20,5 +20,6 @@ export function ExpansionBrowserScreen({
   initialGame = DEFAULT_CARD_GAME,
   ...props
 }: ExpansionBrowserScreenProps) {
-  return <GameSetsScreen game={initialGame} {...props} />;
+  // Search's landing slides UP, so it closes with X.
+  return <GameSetsScreen dismissStyle="close" game={initialGame} {...props} />;
 }

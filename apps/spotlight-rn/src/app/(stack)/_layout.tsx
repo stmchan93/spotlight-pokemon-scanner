@@ -37,7 +37,6 @@ export default function BrowseStackLayout() {
       >
         {/* Pushed from inside this stack (e.g. a card page): slide up too. */}
         <Stack.Screen name="assistant" options={SLIDE_UP_SCREEN_OPTIONS} />
-        <Stack.Screen name="edit-profile" options={SLIDE_UP_SCREEN_OPTIONS} />
       </Stack>
     </TabsPageContext.Provider>
   );
