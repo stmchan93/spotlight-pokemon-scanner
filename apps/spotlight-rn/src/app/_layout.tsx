@@ -59,6 +59,8 @@ import {
   resolveSessionOwnerKey,
   useAuth,
 } from '@/providers/auth-provider';
+// Side-effect import: stamps the app start time at launch (see app-start-time).
+import '@/lib/app-start-time';
 import { SLIDE_UP_DURATION_MS, SLIDE_UP_SCREEN_OPTIONS, slideUpStackGroupOptions } from '@/lib/navigation-presentation';
 
 void SplashScreen.preventAutoHideAsync();

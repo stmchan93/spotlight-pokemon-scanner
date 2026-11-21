@@ -1,7 +1,10 @@
 import { act, render, screen } from '@testing-library/react-native';
 import React from 'react';
 
-import { GuestScannerRedirect } from '@/features/auth/components/guest-scanner-redirect';
+import {
+  GuestScannerRedirect,
+  resetGuestLaunchRedirectForTests,
+} from '@/features/auth/components/guest-scanner-redirect';
 
 /*
   The declarative <Redirect> this component replaced rendered null forever
@@ -36,6 +39,7 @@ describe('GuestScannerRedirect', () => {
     mockPush.mockClear();
     mockPathname = '/social';
     mockIsFocused.mockReturnValue(true);
+    resetGuestLaunchRedirectForTests();
   });
 
   afterEach(() => {
@@ -51,7 +55,7 @@ describe('GuestScannerRedirect', () => {
     render(<GuestScannerRedirect />);
     expect(screen.queryByTestId('guest-scanner-redirect-fallback')).toBeNull();
     act(() => {
-      jest.advanceTimersByTime(900);
+      jest.advanceTimersByTime(2500);
     });
     expect(screen.getByTestId('guest-scanner-redirect-scan')).toBeTruthy();
     expect(screen.getByTestId('guest-scanner-redirect-sign-in')).toBeTruthy();
@@ -68,18 +72,33 @@ describe('GuestScannerRedirect', () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
-  it('with promptLogin: switches to the scanner and opens login once', () => {
-    render(<GuestScannerRedirect promptLogin />);
-    expect(mockNavigate).toHaveBeenCalledWith('scan');
-    expect(mockPush).toHaveBeenCalledTimes(1);
-    expect(mockPush).toHaveBeenCalledWith('/login');
-  });
-
-  it('with promptLogin: Back from login does not reopen it', () => {
+  it('with promptLogin: opens login only — no tab switch that would close it', () => {
     const view = render(<GuestScannerRedirect promptLogin />);
     expect(mockPush).toHaveBeenCalledTimes(1);
-    // Login covers the tabs (tab unfocused, path /login) ...
+    expect(mockPush).toHaveBeenCalledWith('/login');
     mockIsFocused.mockReturnValue(false);
+    mockPathname = '/login';
+    view.rerender(<GuestScannerRedirect promptLogin />);
+    act(() => {
+      jest.advanceTimersByTime(3000);
+    });
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('with promptLogin: if login never shows, the guest still reaches the scanner', () => {
+    render(<GuestScannerRedirect promptLogin />);
+    act(() => {
+      jest.advanceTimersByTime(1600);
+    });
+    expect(mockNavigate).toHaveBeenCalledWith('scan');
+  });
+
+  it('with promptLogin: closing login sends the guest to the scanner, no second login', () => {
+    const view = render(<GuestScannerRedirect promptLogin />);
+    // Focus drops a beat before the path flips to /login ...
+    mockIsFocused.mockReturnValue(false);
+    view.rerender(<GuestScannerRedirect promptLogin />);
+    // ... then login covers the tabs ...
     mockPathname = '/login';
     view.rerender(<GuestScannerRedirect promptLogin />);
     // ... then Back re-focuses the gated tab.
@@ -87,16 +106,84 @@ describe('GuestScannerRedirect', () => {
     mockPathname = '/social';
     view.rerender(<GuestScannerRedirect promptLogin />);
     expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('scan');
   });
 
-  it('with promptLogin: prompts again after the user left for another tab', () => {
+  it('with promptLogin: a new visit after leaving prompts again', () => {
     const view = render(<GuestScannerRedirect promptLogin />);
+    // login shows ...
+    mockIsFocused.mockReturnValue(false);
+    mockPathname = '/login';
+    view.rerender(<GuestScannerRedirect promptLogin />);
+    // ... closed → scanner ...
+    mockIsFocused.mockReturnValue(true);
+    mockPathname = '/social';
+    view.rerender(<GuestScannerRedirect promptLogin />);
     mockIsFocused.mockReturnValue(false);
     mockPathname = '/scan';
     view.rerender(<GuestScannerRedirect promptLogin />);
+    // ... tapped again later.
     mockIsFocused.mockReturnValue(true);
     mockPathname = '/social';
     view.rerender(<GuestScannerRedirect promptLogin />);
     expect(mockPush).toHaveBeenCalledTimes(2);
+  });
+
+  it('Home tap with a lagging path (/scan → / → /login) keeps login open', () => {
+    act(() => {
+      jest.advanceTimersByTime(6000);
+    });
+    mockPathname = '/scan';
+    const view = render(<GuestScannerRedirect promptLogin="after-launch" />);
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    mockPathname = '/';
+    view.rerender(<GuestScannerRedirect promptLogin="after-launch" />);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    mockIsFocused.mockReturnValue(false);
+    mockPathname = '/login';
+    view.rerender(<GuestScannerRedirect promptLogin="after-launch" />);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    // Back: login closes, guest goes to the scanner, no second login.
+    mockIsFocused.mockReturnValue(true);
+    mockPathname = '/';
+    view.rerender(<GuestScannerRedirect promptLogin="after-launch" />);
+    expect(mockNavigate).toHaveBeenCalledWith('scan');
+    expect(mockPush).toHaveBeenCalledTimes(1);
+  });
+
+  it('after-launch (Home): a first Home TAP after the launch window opens login', () => {
+    act(() => {
+      jest.advanceTimersByTime(6000);
+    });
+    render(<GuestScannerRedirect promptLogin="after-launch" />);
+    expect(mockPush).toHaveBeenCalledWith('/login');
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("after-launch (Home): silent on the launch visit, login on later visits", () => {
+    mockPathname = '/';
+    const view = render(<GuestScannerRedirect promptLogin="after-launch" />);
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('scan');
+    mockIsFocused.mockReturnValue(false);
+    mockPathname = '/scan';
+    view.rerender(<GuestScannerRedirect promptLogin="after-launch" />);
+    mockIsFocused.mockReturnValue(true);
+    mockPathname = '/';
+    view.rerender(<GuestScannerRedirect promptLogin="after-launch" />);
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith('/login');
+  });
+
+  it('the manual fallback does not stick to later visits', () => {
+    const view = render(<GuestScannerRedirect />);
+    act(() => {
+      jest.advanceTimersByTime(2500);
+    });
+    expect(screen.getByTestId('guest-scanner-redirect-fallback')).toBeTruthy();
+    mockIsFocused.mockReturnValue(false);
+    mockPathname = '/scan';
+    view.rerender(<GuestScannerRedirect />);
+    expect(screen.queryByTestId('guest-scanner-redirect-fallback')).toBeNull();
   });
 });

@@ -40,7 +40,7 @@ export default function HomeRoute() {
   // Collection is gated for guests, so there is nothing to show them here. Send
   // them to the scanner, which is the whole of the guest experience.
   if (isGuest) {
-    return <GuestScannerRedirect />;
+    return <GuestScannerRedirect promptLogin="after-launch" />;
   }
 
   return (
