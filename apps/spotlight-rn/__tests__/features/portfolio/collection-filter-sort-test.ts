@@ -78,4 +78,24 @@ describe('applyCollectionFilter', () => {
     expect(applyCollectionFilter(items, 'shiny').map((e) => e.id)).toEqual(['shinyCard']);
     expect(applyCollectionFilter(items, 'ultra')).toEqual([]);
   });
+
+  it('Date sorts newest first, and oldest first once flipped', () => {
+    const items = [
+      entry({ id: 'old', addedAt: '2026-01-01T00:00:00.000Z' }),
+      entry({ id: 'new', addedAt: '2026-03-01T00:00:00.000Z' }),
+      entry({ id: 'mid', addedAt: '2026-02-01T00:00:00.000Z' }),
+    ];
+    expect(applyCollectionFilter(items, 'date').map((e) => e.id)).toEqual(['new', 'mid', 'old']);
+    expect(applyCollectionFilter(items, 'date', 'asc').map((e) => e.id)).toEqual(['old', 'mid', 'new']);
+  });
+
+  it('Price sorts high to low, low to high once flipped, unpriced last either way', () => {
+    const items = [
+      entry({ id: 'none' }),
+      entry({ id: 'cheap', hasMarketPrice: true, marketPrice: 2 }),
+      entry({ id: 'dear', hasMarketPrice: true, marketPrice: 90 }),
+    ];
+    expect(applyCollectionFilter(items, 'price').map((e) => e.id)).toEqual(['dear', 'cheap', 'none']);
+    expect(applyCollectionFilter(items, 'price', 'asc').map((e) => e.id)).toEqual(['cheap', 'dear', 'none']);
+  });
 });

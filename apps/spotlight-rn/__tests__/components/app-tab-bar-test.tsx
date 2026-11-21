@@ -33,6 +33,9 @@ describe('AppTabBar', () => {
     const labels = screen.UNSAFE_getAllByType(Text).map((node) => node.props.children);
     expect(labels).toEqual(['HOME', 'WATCHLIST', 'SCAN', 'EVENTS', 'SOCIAL']);
     expect(Object.values(TAB_BAR_LABELS)).not.toContain('WISHLIST');
+    // Owner rule: never "Wishlist" in any casing — not in a label, not in a spoken label.
+    expect(screen.queryByText(/wishlist/i)).toBeNull();
+    expect(screen.getByTestId('app-tab-wishlist').props.accessibilityLabel).toBe('watchlist');
   });
 
   it('keeps WATCHLIST whole: labels ignore the system text size and shrink before clipping', () => {

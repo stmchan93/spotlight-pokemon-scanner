@@ -54,7 +54,7 @@ describe('ProfileHeader', () => {
       there is no negative-margin pull-up — that double-compensated and dragged
       the avatar into the toolbar.
 
-      286 is a FLOOR now, not a fixed height. It used to be fixed, with the
+      258 is a FLOOR now, not a fixed height. It used to be fixed, with the
       content absolutely filling it, which meant a profile with no bio still
       reserved the bio's lines and left a band of bare cover above the tab bar.
       The content sizes the block now; this keeps a sparse profile from
@@ -66,14 +66,14 @@ describe('ProfileHeader', () => {
     const photoBlock = StyleSheet.flatten(screen.getByTestId('profile-header').props.style);
     expect(photoBlock.marginTop).toBeUndefined();
     expect(photoBlock.height).toBeUndefined();
-    expect(photoBlock.minHeight).toBe(286 + (PROFILE_SHEET_OVERLAP - 16) + 59);
+    expect(photoBlock.minHeight).toBe(258 + (PROFILE_SHEET_OVERLAP - 16) + 59);
     withPhoto.unmount();
 
     renderHeader(<ProfileHeader displayName="Ash" initials="AK" />);
     const block = StyleSheet.flatten(screen.getByTestId('profile-header').props.style);
     expect(block.marginTop).toBeUndefined();
     expect(block.height).toBeUndefined();
-    expect(block.minHeight).toBe(286 + (PROFILE_SHEET_OVERLAP - 16) + 59);
+    expect(block.minHeight).toBe(258 + (PROFILE_SHEET_OVERLAP - 16) + 59);
   });
 
   it('holds the tab bar 24pt off the stats row when there is no bio', () => {
@@ -104,7 +104,8 @@ describe('ProfileHeader', () => {
       top (shared with Events) stays where the design puts it.
     */
     expect(PROFILE_SHEET_OVERLAP).toBeGreaterThanOrEqual(Math.ceil(20 * 1.528));
-    expect(profileHeaderSheetTop(59)).toBe(59 + 286 - 16);
+    // Figma 6502:7657: the sheet's top edge sits at y=301 on a 59pt inset.
+    expect(profileHeaderSheetTop(59)).toBe(301);
   });
 
   it('lets the action row own the bottom gap when there is one', () => {

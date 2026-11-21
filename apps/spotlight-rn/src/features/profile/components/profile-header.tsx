@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { CheckCircle, Link } from 'iconoir-react-native';
+import { Link } from 'iconoir-react-native';
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AccessibilityInfo, Pressable, StyleSheet, View } from 'react-native';
@@ -15,6 +15,7 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { Avatar, Text, useSpotlightTheme } from '@spotlight/design-system';
 
+import { VerifiedSeal } from '@/features/profile/components/verified-seal';
 import { normalizeSocialLink } from '@/features/profile/social-link';
 
 type ProfileHeaderProps = {
@@ -57,7 +58,7 @@ type ProfileHeaderProps = {
   testID?: string;
 };
 
-// Overlay header (Figma 4134:48866): all profile content renders over the
+// Overlay header (Figma 6502:7657): all profile content renders over the
 // full-bleed cover. Geometry is the frame's, measured below the status bar.
 //
 // THE BLOCK IS SIZED BY ITS CONTENT, not by this number. It was a fixed 286
@@ -68,7 +69,7 @@ type ProfileHeaderProps = {
 // tall as what is in it and every optional row (bio, social link, action row)
 // pays for itself only when present. This survives as the FLOOR, so a sparse
 // profile still gets a cover worth looking at rather than a letterbox.
-const MIN_CONTENT_HEIGHT = 286;
+const MIN_CONTENT_HEIGHT = 258;
 const DEFAULT_AVATAR_TOP = 66;
 const AVATAR_SIZE = 80;
 /**
@@ -185,11 +186,11 @@ export function ProfileHeader({
       <Svg pointerEvents="none" style={StyleSheet.absoluteFill} testID={`${testID}-scrim`}>
         <Defs>
           <LinearGradient id="profileScrim" x1="0" x2="0" y1="0" y2="1">
-            {/* Figma 5938:21730 "Header Overlay": clear at the top, black 70%
-                at the bottom; the 35% stop sits 70% up from the bottom. */}
+            {/* Figma 6502:7661 "Header Overlay": clear at the top, solid black
+                at the bottom; the 50% stop sits 70% up from the bottom. */}
             <Stop offset="0" stopColor="#666666" stopOpacity="0" />
-            <Stop offset="0.3" stopColor="#414141" stopOpacity="0.35" />
-            <Stop offset="1" stopColor="#000000" stopOpacity="0.7" />
+            <Stop offset="0.3" stopColor="#414141" stopOpacity="0.5" />
+            <Stop offset="1" stopColor="#000000" stopOpacity="1" />
           </LinearGradient>
         </Defs>
         <Rect fill="url(#profileScrim)" height="100%" width="100%" />
@@ -209,13 +210,16 @@ export function ProfileHeader({
         testID={`${testID}-content`}
       >
         <View style={styles.identityRow}>
-          {/* No ring: the white border read as a sticker over the cover photo. */}
-          <Avatar
-            initials={initials}
-            size={AVATAR_SIZE}
-            testID={`${testID}-avatar`}
-            uri={avatarUrl}
-          />
+          {/* No ring: the white border read as a sticker over the cover photo.
+              The 1pt inset keeps Figma 6502:7763's 82pt slot. */}
+          <View style={styles.avatarSlot}>
+            <Avatar
+              initials={initials}
+              size={AVATAR_SIZE}
+              testID={`${testID}-avatar`}
+              uri={avatarUrl}
+            />
+          </View>
           <View style={styles.identity}>
             <View style={styles.nameRow}>
               <Text
@@ -227,12 +231,7 @@ export function ProfileHeader({
                 {handle || displayName}
               </Text>
               {isVerified ? (
-                <CheckCircle
-                  color={theme.colors.purple500}
-                  height={20}
-                  testID={`${testID}-verified`}
-                  width={20}
-                />
+                <VerifiedSeal size={20} testID={`${testID}-verified`} />
               ) : null}
             </View>
 
@@ -406,6 +405,9 @@ const styles = StyleSheet.create({
     // margin must clear the lip first or the sheet swallows the buttons.
     marginBottom: PROFILE_SHEET_OVERLAP + 20,
     marginTop: 20,
+  },
+  avatarSlot: {
+    padding: 1,
   },
   bio: {
     marginTop: 8,

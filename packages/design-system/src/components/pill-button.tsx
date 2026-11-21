@@ -16,6 +16,8 @@ type PillButtonProps = {
    */
   leading?: ReactNode;
   minWidth?: number;
+  /** Optional icon after the label (Figma 6502:7752: the PRICE / DATE sort arrows). Caller owns its color. */
+  trailing?: ReactNode;
   onPress?: () => void;
   selected?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -63,6 +65,7 @@ export function PillButton({
   style,
   testID,
   tone = 'default',
+  trailing,
   uppercase = false,
 }: PillButtonProps) {
   const theme = useSpotlightTheme();
@@ -150,6 +153,7 @@ export function PillButton({
       >
         {uppercase ? label.toUpperCase() : label}
       </Text>
+      {trailing ? <View style={styles.leading}>{trailing}</View> : null}
     </Pressable>
   );
 }

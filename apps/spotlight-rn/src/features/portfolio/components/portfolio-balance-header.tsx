@@ -207,8 +207,9 @@ function ChangeDirectionIcon({
 }
 
 const styles = StyleSheet.create({
+  // Figma 6502:7705: the change line sits 4 under the value row.
   block: {
-    gap: 8,
+    gap: 4,
   },
   topGroup: {
     gap: 2,

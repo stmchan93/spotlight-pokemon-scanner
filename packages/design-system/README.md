@@ -1058,6 +1058,7 @@ Current label role:
   - `soft` — borderless gray-50 chip at radius 8 used inside `EmptyStatePrompt` ("Scan to add"); a suggestion, not a toggle, so it ignores `selected`
   - `option` — compact 24pt printing/variant chip at radius 8 (8/4 padding) for the scanner change-card rail: gray-50 when unselected, purple500 with a white label when selected
 - `leading?: ReactNode` — optional icon before the label (e.g. the Insights Likes heart / Price arrows); caller owns the icon color so it can follow `selected`
+- `trailing?: ReactNode` — optional icon after the label (the Collection PRICE / DATE sort-direction arrows, Figma 6502:7752); same color contract as `leading`
 
 ### SegmentedControl
 

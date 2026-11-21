@@ -8,15 +8,15 @@ import {
 } from '@/features/portfolio/components/collection-filter-chip-row';
 
 describe('CollectionFilterChipRow', () => {
-  it('renders all 11 filter chips with their testIDs', () => {
+  it('renders all 12 filter chips with their testIDs', () => {
     render(
       <SpotlightThemeProvider>
         <CollectionFilterChipRow activeFilter="all" onFilterChange={jest.fn()} />
       </SpotlightThemeProvider>,
     );
 
-    // 6 base chips + the 5 rarity chips (sir/illustration/ultra/secret/shiny).
-    expect(COLLECTION_FILTER_ORDER).toHaveLength(11);
+    // 7 base chips + the 5 rarity chips (sir/illustration/ultra/secret/shiny).
+    expect(COLLECTION_FILTER_ORDER).toHaveLength(12);
     for (const key of COLLECTION_FILTER_ORDER) {
       expect(screen.getByTestId(`collection-filter-chip-row-${key}`)).toBeTruthy();
     }
@@ -29,7 +29,7 @@ describe('CollectionFilterChipRow', () => {
       </SpotlightThemeProvider>,
     );
 
-    expect(COLLECTION_FILTER_ORDER.slice(6)).toEqual(['sir', 'illustration', 'ultra', 'secret', 'shiny']);
+    expect(COLLECTION_FILTER_ORDER.slice(7)).toEqual(['sir', 'illustration', 'ultra', 'secret', 'shiny']);
     expect(screen.getByText('SIR')).toBeTruthy();
     expect(screen.getByText('ILLUS. RARE')).toBeTruthy();
     expect(screen.getByText('FULL ART')).toBeTruthy();
@@ -139,6 +139,7 @@ describe('CollectionFilterChipRow', () => {
       'favorites',
       'az',
       'price',
+      'date',
       'ungraded',
       'graded',
       'game:pokemon',
@@ -149,5 +150,25 @@ describe('CollectionFilterChipRow', () => {
       'secret',
       'shiny',
     ]);
+  });
+
+  it('draws the PRICE / DATE sort arrows: down at rest, up once the active sort is flipped', () => {
+    const { rerender } = render(
+      <SpotlightThemeProvider>
+        <CollectionFilterChipRow activeFilter="all" onFilterChange={jest.fn()} />
+      </SpotlightThemeProvider>,
+    );
+    expect(screen.getByText('DATE')).toBeTruthy();
+    expect(screen.getByTestId('sort-arrow-price-desc')).toBeTruthy();
+    expect(screen.getByTestId('sort-arrow-date-desc')).toBeTruthy();
+
+    rerender(
+      <SpotlightThemeProvider>
+        <CollectionFilterChipRow activeFilter="price" onFilterChange={jest.fn()} sortDirection="asc" />
+      </SpotlightThemeProvider>,
+    );
+    expect(screen.getByTestId('sort-arrow-price-asc')).toBeTruthy();
+    // Only the ACTIVE sort carries the flipped direction.
+    expect(screen.getByTestId('sort-arrow-date-desc')).toBeTruthy();
   });
 });

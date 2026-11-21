@@ -485,7 +485,7 @@ function ChartSkeleton() {
                 styles.skeletonBar,
                 {
                   backgroundColor: theme.colors.outlineStrong,
-                  height: Math.round(142 * heightScale),
+                  height: `${Math.round(100 * heightScale)}%`,
                   opacity: 0.46,
                 },
               ]}
@@ -512,7 +512,8 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   const [tooltipWidth, setTooltipWidth] = useState(0);
   const [tooltipHeight, setTooltipHeight] = useState(0);
   const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
-  const chartHeight = 200;
+  // Figma 6502:7716: the plot is 134 tall, 16 under the range pills.
+  const chartHeight = 134;
   // The chart graphic runs full-bleed to the screen edges horizontally (Figma
   // 1252-1763), so no horizontal inset; keep a small vertical inset so the line
   // peak and the resting end dot don't clip at the top/bottom.
@@ -1117,7 +1118,6 @@ const styles = StyleSheet.create({
   },
   skeletonChart: {
     flex: 1,
-    minHeight: 200,
     overflow: 'hidden',
     position: 'relative',
   },

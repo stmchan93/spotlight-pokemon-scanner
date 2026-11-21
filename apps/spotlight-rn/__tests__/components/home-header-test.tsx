@@ -221,6 +221,26 @@ describe('HomeHeader', () => {
       }
     });
 
+    it('profile bar (Figma 6502:7657): menu alone leads, Ask Ekalight sits just before the capsule', () => {
+      const onOpenAssistant = jest.fn();
+      renderHeader({ floating: true, onOpenAssistant, trailing: profileTrailing() });
+
+      const row = screen.getByTestId('home-header-row');
+      // Exactly two row children: the lone menu bubble, then the trailing group.
+      const [leading, trailingGroup] = row.children as unknown as {
+        props: { testID?: string };
+        findByProps: (p: object) => unknown;
+      }[];
+      expect(leading.props.testID).toBe('home-header-menu');
+      expect(trailingGroup.findByProps({ testID: 'home-header-assistant' })).toBeTruthy();
+      expect(trailingGroup.findByProps({ testID: 'home-header-trailing' })).toBeTruthy();
+      expect(screen.getByTestId('ekalight-ai-sparkle')).toBeTruthy();
+      expect(screen.getByTestId('ekalight-ai-ring')).toBeTruthy();
+      const ai = screen.getByTestId('home-header-assistant');
+      fireEvent.press(ai);
+      expect(onOpenAssistant).toHaveBeenCalledTimes(1);
+    });
+
     it('wires each profile slot to its own action', () => {
       const onEditProfile = jest.fn();
       const onShareProfile = jest.fn();

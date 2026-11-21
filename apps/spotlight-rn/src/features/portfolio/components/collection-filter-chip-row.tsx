@@ -1,5 +1,5 @@
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Heart } from 'iconoir-react-native';
+import { ArrowDown, ArrowUp, Heart } from 'iconoir-react-native';
 
 import {
   type CardGame,
@@ -22,6 +22,7 @@ export type CollectionFilterKey =
   | 'all'
   | 'az'
   | 'price'
+  | 'date'
   | 'favorites'
   | 'ungraded'
   | 'graded'
@@ -34,10 +35,19 @@ export const COLLECTION_FILTER_ORDER: CollectionFilterKey[] = [
   'favorites',
   'az',
   'price',
+  'date',
   'ungraded',
   'graded',
   ...RARITY_FILTER_BUCKETS,
 ];
+
+/** The chips that sort rather than filter, and can be flipped by tapping them again. */
+export type CollectionSortDirection = 'desc' | 'asc';
+const DIRECTIONAL_SORT_KEYS: readonly CollectionFilterKey[] = ['price', 'date'];
+
+export function isDirectionalSortKey(key: CollectionFilterKey): boolean {
+  return DIRECTIONAL_SORT_KEYS.includes(key);
+}
 
 export function gameFilterKey(game: CardGame): GameFilterKey {
   return `game:${game}`;
@@ -60,6 +70,7 @@ const FILTER_LABELS: Record<Exclude<CollectionFilterKey, GameFilterKey>, string>
   all: 'All',
   az: 'A-Z',
   price: 'Price',
+  date: 'Date',
   favorites: 'Likes',
   ungraded: 'Ungraded',
   graded: 'Graded',
@@ -84,6 +95,12 @@ type CollectionFilterChipRowProps = {
    */
   games?: readonly CardGame[];
   onFilterChange: (next: CollectionFilterKey) => void;
+  /**
+   * Direction of the active PRICE / DATE sort. Those chips carry an arrow
+   * (down = highest / newest first); an inactive one shows the direction a
+   * tap would apply, which is always descending.
+   */
+  sortDirection?: CollectionSortDirection;
   testID?: string;
 };
 
@@ -91,6 +108,7 @@ export function CollectionFilterChipRow({
   activeFilter,
   games = [],
   onFilterChange,
+  sortDirection = 'desc',
   testID = 'collection-filter-chip-row',
 }: CollectionFilterChipRowProps) {
   const theme = useSpotlightTheme();
@@ -114,29 +132,40 @@ export function CollectionFilterChipRow({
       testID={testID}
     >
       <View style={styles.chipRow}>
-        {keys.map((key) => (
-          <PillButton
-            key={key}
-            label={chipLabel(key)}
-            labelRole="caption"
-            leading={key === 'favorites' ? (
-              <Heart
-                color={activeFilter === key ? theme.colors.gray0 : theme.colors.gray900}
-                height={16}
-                width={16}
-              />
-            ) : undefined}
-            onPress={() => onFilterChange(key)}
-            selected={activeFilter === key}
-            testID={`${testID}-${key}`}
-            tone="filled"
-            uppercase
-          />
-        ))}
+        {keys.map((key) => {
+          const isActive = activeFilter === key;
+          const glyphColor = isActive ? theme.colors.gray0 : theme.colors.gray900;
+          const SortArrow = isActive && sortDirection === 'asc' ? ArrowUp : ArrowDown;
+          return (
+            <PillButton
+              key={key}
+              label={chipLabel(key)}
+              labelRole="caption"
+              leading={key === 'favorites' ? (
+                <Heart color={glyphColor} height={16} width={16} />
+              ) : undefined}
+              onPress={() => onFilterChange(key)}
+              selected={isActive}
+              testID={`${testID}-${key}`}
+              tone="filled"
+              trailing={isDirectionalSortKey(key) ? (
+                <SortArrow
+                  color={glyphColor}
+                  height={SORT_ARROW_SIZE}
+                  testID={`sort-arrow-${key}-${isActive ? sortDirection : 'desc'}`}
+                  width={SORT_ARROW_SIZE}
+                />
+              ) : undefined}
+              uppercase
+            />
+          );
+        })}
       </View>
     </ScrollView>
   );
 }
+
+const SORT_ARROW_SIZE = 12;
 
 const styles = StyleSheet.create({
   scrollContent: {

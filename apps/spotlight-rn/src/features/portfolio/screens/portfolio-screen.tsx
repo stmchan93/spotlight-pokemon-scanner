@@ -46,6 +46,7 @@ import {
   Toast,
   useSpotlightTheme,
   radii,
+  spacing,
   cardGrid,
 } from '@spotlight/design-system';
 
@@ -72,7 +73,9 @@ import {
 import {
   CollectionFilterChipRow,
   type CollectionFilterKey,
+  type CollectionSortDirection,
   gameFromFilterKey,
+  isDirectionalSortKey,
 } from '@/features/portfolio/components/collection-filter-chip-row';
 import {
   CollectionGridRow,
@@ -324,7 +327,10 @@ export function collectionGames(items: InventoryCardEntry[]): CardGame[] {
 export function applyCollectionFilter(
   items: InventoryCardEntry[],
   filter: CollectionFilterKey,
+  direction: CollectionSortDirection = 'desc',
 ): InventoryCardEntry[] {
+  // PRICE / DATE flip on a second tap; everything else ignores direction.
+  const sign = direction === 'asc' ? -1 : 1;
   // Game chips are dynamic (one per game the user actually owns), so they can't
   // be `case` labels. Same undefined-means-Pokémon rule as collectionGames.
   const gameFilter = gameFromFilterKey(filter);
@@ -339,10 +345,14 @@ export function applyCollectionFilter(
       return [...items].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
     case 'price':
       return [...items].sort((a, b) => {
-        const ap = a.hasMarketPrice ? a.marketPrice : -Infinity;
-        const bp = b.hasMarketPrice ? b.marketPrice : -Infinity;
-        return bp - ap;
+        // Unpriced cards sink to the bottom in either direction.
+        if (a.hasMarketPrice !== b.hasMarketPrice) {
+          return a.hasMarketPrice ? -1 : 1;
+        }
+        return sign * ((b.hasMarketPrice ? b.marketPrice : 0) - (a.hasMarketPrice ? a.marketPrice : 0));
       });
+    case 'date':
+      return [...items].sort((a, b) => sign * (timestampMs(b.addedAt) - timestampMs(a.addedAt)));
     case 'favorites':
       // Recently favorited first (falls back to addedAt until favoritedAt is
       // populated by the backend).
@@ -525,6 +535,17 @@ export function PortfolioScreen({
   const [activeChartPoint, setActiveChartPoint] = useState<PortfolioChartActivePoint | null>(null);
   const [isChartScrubbing, setIsChartScrubbing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<CollectionFilterKey>('all');
+  const [sortDirection, setSortDirection] = useState<CollectionSortDirection>('desc');
+  // A second tap on the active PRICE / DATE chip flips its direction; picking
+  // any chip fresh starts descending (highest / newest first).
+  const handleFilterChange = useCallback((next: CollectionFilterKey) => {
+    if (next === activeFilter && isDirectionalSortKey(next)) {
+      setSortDirection((current) => (current === 'desc' ? 'asc' : 'desc'));
+      return;
+    }
+    setActiveFilter(next);
+    setSortDirection('desc');
+  }, [activeFilter]);
   // Bulk multi-select "edit mode" (Figma). While active the bottom tab bar +
   // horizontal page swipe are locked (via setCollectionEditing) and tapping a
   // card toggles selection instead of opening it.
@@ -924,9 +945,9 @@ export function PortfolioScreen({
     const present = removedIds.size > 0
       ? baseInventory.filter((entry) => !removedIds.has(entry.id))
       : baseInventory;
-    const filtered = applyCollectionFilter(present, effectiveFilter);
+    const filtered = applyCollectionFilter(present, effectiveFilter, sortDirection);
     return applyInventorySearch(filtered, model.searchQuery);
-  }, [baseInventory, effectiveFilter, model.searchQuery, removedIds]);
+  }, [baseInventory, effectiveFilter, model.searchQuery, removedIds, sortDirection]);
 
   // ── Cross-collection search ────────────────────────────────────────────────
   // Searching with more than one collection also surfaces matches from the
@@ -956,7 +977,7 @@ export function PortfolioScreen({
       && entry.collectionId !== activeCollectionID
       && !activeIds.has(entry.id)
       && !removedIds.has(entry.id));
-    const filtered = applyCollectionFilter(others, effectiveFilter);
+    const filtered = applyCollectionFilter(others, effectiveFilter, sortDirection);
     return applyInventorySearch(filtered, model.searchQuery);
   }, [
     activeCollectionID,
@@ -967,6 +988,7 @@ export function PortfolioScreen({
     isSearching,
     model.searchQuery,
     removedIds,
+    sortDirection,
   ]);
 
   // The section renders display COPIES (folder name in the meta line); anything
@@ -1758,10 +1780,10 @@ export function PortfolioScreen({
       style={{
         backgroundColor: theme.colors.gray0,
         borderCurve: 'continuous',
-        // Figma 5938:21765: the profile's white sheet has 20pt top corners.
-        borderTopLeftRadius: radii.xl,
-        borderTopRightRadius: radii.xl,
-        paddingTop: 16,
+        // Figma 6542:18158: 16pt top corners, labels 24 below the sheet edge.
+        borderTopLeftRadius: radii.lg,
+        borderTopRightRadius: radii.lg,
+        paddingTop: spacing.lg,
       }}
     >
       <PageTabs
@@ -1861,7 +1883,8 @@ export function PortfolioScreen({
             <CollectionFilterChipRow
               activeFilter={effectiveFilter}
               games={availableGames}
-              onFilterChange={setActiveFilter}
+              onFilterChange={handleFilterChange}
+              sortDirection={sortDirection}
             />
           </PageSwipeGuard>
         </>
@@ -2459,12 +2482,10 @@ export function PortfolioScreen({
 const styles = StyleSheet.create({
 
   chartWrap: {
-    // Gap from the % change line down to the time filter (7D/1M/…) is tuned to
-    // 32px per feedback. The chrome wrapper already adds a 16px inter-child gap,
-    // so this marginTop adds the remaining 16px (16 + 16 = 32px below the balance
-    // block).
-    marginTop: 16,
-    marginBottom: 16,
+    // Figma 6502:7715: 24 from the % change line to the time filter, 18 from
+    // the plot's bottom edge to the collection summary (chrome's gap is 16).
+    marginBottom: 2,
+    marginTop: 12,
   },
   searchRowWrap: {
     marginBottom: SEARCH_TO_CHIPS_GAP - 16,

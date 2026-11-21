@@ -71,16 +71,23 @@
       ]
     },
     {
-      "figmaNodeId": "4134:50940",
-      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=4134-50940",
+      "figmaNodeId": "6502:7657",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6502-7657",
       "screenName": "Portfolio",
       "componentPaths": [
         "apps/spotlight-rn/src/features/portfolio/screens/portfolio-screen.tsx",
-        "apps/spotlight-rn/src/app/(tabs)/index.tsx"
+        "apps/spotlight-rn/src/app/(tabs)/index.tsx",
+        "apps/spotlight-rn/src/features/profile/components/profile-header.tsx",
+        "apps/spotlight-rn/src/components/home-header.tsx",
+        "apps/spotlight-rn/src/features/portfolio/components/portfolio-balance-header.tsx",
+        "apps/spotlight-rn/src/features/portfolio/components/portfolio-chart-card.tsx",
+        "apps/spotlight-rn/src/features/portfolio/components/collection-search-row.tsx",
+        "apps/spotlight-rn/src/features/portfolio/components/collection-filter-chip-row.tsx",
+        "packages/design-system/src/components/inventory-card-tile.tsx"
       ],
       "deepLink": "spotlight://dev/portfolio",
       "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts",
-      "notes": "Dev route renders without the native tab bar \u2014 crop comparisons to content area. One of 5 'Collection-Portfolio' iterations in the 'You' section (3670:47219) \u2014 CONFIRM which is current: 4067:23632, 4134:48866, 4134:49488, 4134:50566, 4134:50940. Profile header rebuilt 2026-08-19 to the cover-overlay design (4134:48866): content over the cover, white text, plain-text stats, dark gray800 fallback when no cover, white sheet lip r16. States: 48866 list-rest (synced), 50940 mid-scrub, 49488/50566 grid, 4067:23632 stale."
+      "notes": "CURRENT frame: 6502:7657 (owner 2026-11-21: 'home screen should look like this now'); synced 2026-11-21. Sections: toolbar 6597:2480, profile 6502:7762/7662, cover 6502:7659, tabs 6542:18158, balance 6502:7697, chart 6502:7715, search/chips 6502:7732, card 6502:7780, tab bar 6502:7910. Dev route renders without the native tab bar and with the default test user (no handle/link/cover) \u2014 crop comparisons to the sheet. Known deliberate deviations: no MASTER SET tab (no feature); share glyph kept in the trailing capsule (only entry to the profile-share sheet); sort arrows read down = highest/newest first (Figma draws PRICE up); search placeholder stays 'Search your portfolio' (Figma's 'vendor or hobby' is Events copy). Superseded iterations: 4067:23632, 4134:48866, 4134:49488, 4134:50566, 4134:50940."
     },
     {
       "figmaNodeId": "TODO",

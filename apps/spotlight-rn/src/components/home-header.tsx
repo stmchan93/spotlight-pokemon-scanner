@@ -1,4 +1,4 @@
-import { Bell, EditPencil, Menu, Search, ShareIos, Sparks } from 'iconoir-react-native';
+import { Bell, EditPencil, Menu, Search, ShareIos } from 'iconoir-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -63,7 +63,7 @@ export type HomeHeaderTrailing =
 type HomeHeaderProps = {
   /** The drawer (leading menu bubble). */
   onOpenMenu: () => void;
-  /** Ask Ekalight. When set, a sparkle bubble sits beside the leading control; the trailing capsule is untouched. */
+  /** Ask Ekalight: the gradient flare bubble — leading on Home, just before the trailing capsule on the profile. */
   onOpenAssistant?: () => void;
   /** Opens the full-screen card search — the trailing magnifier on Home, the pill on the profile. */
   onOpenSearch: () => void;
@@ -394,24 +394,26 @@ export function HomeHeader({
       />
     ) : null;
 
+  // Figma 6430:11311: the gradient flare inside a gradient-ringed frost bubble.
+  const assistantBubble = onOpenAssistant ? (
+    <GlassNavBubble
+      accessibilityLabel="Ask Ekalight"
+      material="frost"
+      onPress={onOpenAssistant}
+      size="medium"
+      surface={chromeSurface}
+      testID={`${testID}-assistant`}
+    >
+      <EkalightAiSparkle />
+      <EkalightAiRing size={glassNavBubbleSizes.medium} />
+    </GlassNavBubble>
+  ) : null;
+
   // Social: Ask Ekalight LEADS, bell + search trail (owner, 2026-11-20 —
   // swapped from Figma 6430:11305's bell-left / AI-right).
   const homeAssistant =
     trailing.kind === 'home' ? (
-      onOpenAssistant ? (
-        <GlassNavBubble
-          accessibilityLabel="Ask Ekalight"
-          material="frost"
-          onPress={onOpenAssistant}
-          size="medium"
-          surface={chromeSurface}
-          testID={`${testID}-assistant`}
-        >
-          {/* Figma 6430:11311: the gradient flare inside a gradient-ringed frost bubble. */}
-          <EkalightAiSparkle />
-          <EkalightAiRing size={glassNavBubbleSizes.medium} />
-        </GlassNavBubble>
-      ) : (
+      assistantBubble ?? (
         <View style={{ width: glassNavBubbleSizes.medium }} />
       )
     ) : null;
@@ -420,57 +422,61 @@ export function HomeHeader({
     trailing.kind === 'home' ? (
       homeUtilities
     ) : (
-      <GlassNavBubbleGroup
-        items={
-          [
-            {
-              // `kind: 'profile'` is the collection screen, which is the HOME
-              // tab now — the variant name predates the swap. Cards, then.
-              accessibilityLabel: 'Search cards',
-              children: (
-                <Search
-                  color={glyphColor}
-                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                  height={BUTTON_ICON_SIZE}
-                  width={BUTTON_ICON_SIZE}
-                />
-              ),
-              onPress: onOpenSearch,
-              testID: `${testID}-search`,
-            },
-            {
-              accessibilityLabel: 'Edit profile',
-              children: (
-                <EditPencil
-                  color={glyphColor}
-                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                  height={EDIT_ICON_SIZE}
-                  width={EDIT_ICON_SIZE}
-                />
-              ),
-              onPress: trailing.onEditProfile,
-              testID: `${testID}-edit`,
-            },
-            {
-              accessibilityLabel: 'Share profile',
-              children: (
-                <ShareIos
-                  color={glyphColor}
-                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                  height={SHARE_ICON_HEIGHT}
-                  width={SHARE_ICON_WIDTH}
-                />
-              ),
-              onPress: trailing.onShareProfile,
-              testID: `${testID}-share`,
-            },
-          ] satisfies GlassNavBubbleGroupItem[]
-        }
-        material="frost"
-        size="medium"
-        surface={chromeSurface}
-        testID={`${testID}-trailing`}
-      />
+      // Figma 6502:7657: menu alone leads; Ask Ekalight + the capsule trail.
+      <View style={styles.trailingGroup}>
+        {assistantBubble}
+        <GlassNavBubbleGroup
+          items={
+            [
+              {
+                // `kind: 'profile'` is the collection screen, which is the HOME
+                // tab now — the variant name predates the swap. Cards, then.
+                accessibilityLabel: 'Search cards',
+                children: (
+                  <Search
+                    color={glyphColor}
+                    strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                    height={BUTTON_ICON_SIZE}
+                    width={BUTTON_ICON_SIZE}
+                  />
+                ),
+                onPress: onOpenSearch,
+                testID: `${testID}-search`,
+              },
+              {
+                accessibilityLabel: 'Edit profile',
+                children: (
+                  <EditPencil
+                    color={glyphColor}
+                    strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                    height={EDIT_ICON_SIZE}
+                    width={EDIT_ICON_SIZE}
+                  />
+                ),
+                onPress: trailing.onEditProfile,
+                testID: `${testID}-edit`,
+              },
+              {
+                accessibilityLabel: 'Share profile',
+                children: (
+                  <ShareIos
+                    color={glyphColor}
+                    strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                    height={SHARE_ICON_HEIGHT}
+                    width={SHARE_ICON_WIDTH}
+                  />
+                ),
+                onPress: trailing.onShareProfile,
+                testID: `${testID}-share`,
+              },
+            ] satisfies GlassNavBubbleGroupItem[]
+          }
+          material="frost"
+          size="medium"
+          surface={chromeSurface}
+          testID={`${testID}-trailing`}
+        />
+      </View>
     );
 
   return (
@@ -510,7 +516,6 @@ export function HomeHeader({
         {trailing.kind === 'home' ? (
           homeAssistant
         ) : (
-        <View style={styles.leadingGroup}>
           <GlassNavBubble
             accessibilityLabel="Open menu"
             material="frost"
@@ -526,24 +531,6 @@ export function HomeHeader({
               width={BUTTON_ICON_SIZE}
             />
           </GlassNavBubble>
-          {onOpenAssistant ? (
-            <GlassNavBubble
-              accessibilityLabel="Ask Ekalight"
-              material="frost"
-              onPress={onOpenAssistant}
-              size="medium"
-              surface={chromeSurface}
-              testID={`${testID}-assistant`}
-            >
-              <Sparks
-                color={glyphColor}
-                strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                height={BUTTON_ICON_SIZE}
-                width={BUTTON_ICON_SIZE}
-              />
-            </GlassNavBubble>
-          ) : null}
-        </View>
         )}
 
         {trailing.kind === 'home' ? (
@@ -599,7 +586,7 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
   },
-  leadingGroup: {
+  trailingGroup: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 8,
