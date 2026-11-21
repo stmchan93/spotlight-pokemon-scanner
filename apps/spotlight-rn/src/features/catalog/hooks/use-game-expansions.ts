@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { CARD_GAMES, type CardGame, type ExpansionRecord } from '@spotlight/api-client';
 
+import { withLoadDeadline } from '@/lib/load-deadline';
+import { useForegroundRefetch } from '@/lib/use-foreground-refetch';
 import { useAppServices } from '@/providers/app-providers';
+
+export const GAME_EXPANSIONS_ERROR = 'Could not load sets. Check your connection and try again.';
 
 export type GameExpansions = Partial<Record<CardGame, ExpansionRecord[]>>;
 
@@ -25,6 +29,10 @@ export function useGameExpansions(enabled = true) {
   const [isLoading, setIsLoading] = useState(enabled);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState('');
+  // Games whose own read failed while others answered: their tile is missing,
+  // and the per-game set list must say "couldn't load", not "no sets".
+  const [failedGames, setFailedGames] = useState<readonly CardGame[]>([]);
+  const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
   const reload = useCallback(() => setReloadToken((token) => token + 1), []);
@@ -37,18 +45,34 @@ export function useGameExpansions(enabled = true) {
     setIsLoading(true);
     setError('');
 
-    void Promise.all(
-      CARD_GAMES.map(async (game) => [game, await spotlightRepository.listExpansions(game)] as const),
-    )
-      .then((pairs) => {
+    // Bounded: the whole fan-out gives up after the user-load deadline.
+    void withLoadDeadline(Promise.all(
+      CARD_GAMES.map(async (game) => {
+        try {
+          return { expansions: await spotlightRepository.listExpansions(game), game, ok: true as const };
+        } catch {
+          return { expansions: [] as ExpansionRecord[], game, ok: false as const };
+        }
+      }),
+    ))
+      .then((results) => {
         if (cancelled) {
           return;
         }
         const next: GameExpansions = {};
-        pairs.forEach(([game, expansions]) => {
+        results.forEach(({ expansions, game }) => {
           next[game] = expansions;
         });
+        const failed = results.filter((result) => !result.ok).map((result) => result.game);
+        const anySets = results.some((result) => result.expansions.length > 0);
         setByGame(next);
+        setFailedGames(failed);
+        // Every game failed, or the ones that answered have nothing to show.
+        if (failed.length > 0 && !anySets) {
+          setError(GAME_EXPANSIONS_ERROR);
+        } else {
+          setLastLoadedAt(Date.now());
+        }
         setHasLoaded(true);
         setIsLoading(false);
       })
@@ -56,7 +80,7 @@ export function useGameExpansions(enabled = true) {
         if (cancelled) {
           return;
         }
-        setError('Could not load sets. Try again in a moment.');
+        setError(GAME_EXPANSIONS_ERROR);
         setHasLoaded(true);
         setIsLoading(false);
       });
@@ -66,6 +90,14 @@ export function useGameExpansions(enabled = true) {
     };
   }, [enabled, reloadToken, spotlightRepository]);
 
+  useForegroundRefetch({
+    enabled,
+    failed: Boolean(error) || failedGames.length > 0,
+    isLoading,
+    lastLoadedAt,
+    onRefetch: reload,
+  });
+
   // Games with no sets at all are dropped rather than shown as an empty tile —
   // production has not had the multi-game catalog migration yet, so four of the
   // five are legitimately absent there.
@@ -74,5 +106,5 @@ export function useGameExpansions(enabled = true) {
     [byGame],
   );
 
-  return { byGame, error, games, hasLoaded, isLoading, reload };
+  return { byGame, error, failedGames, games, hasLoaded, isLoading, reload };
 }

@@ -508,7 +508,7 @@ export function PortfolioScreen({
     return () => clearTimeout(timer);
   }, []);
 
-  const model = usePortfolioScreenModel({ isCollectionScopeResolved });
+  const model = usePortfolioScreenModel({ isCollectionScopeResolved, refetchOnForeground: true });
   const [isCollectionPickerVisible, setIsCollectionPickerVisible] = useState(false);
   const [collectionPendingDelete, setCollectionPendingDelete] = useState<Collection | null>(null);
   // An action to run only AFTER the collection picker's modal has fully gone —
@@ -1784,7 +1784,11 @@ export function PortfolioScreen({
       {shouldShowInitialError ? (
         <View style={{ paddingHorizontal: theme.layout.pageGutter, paddingTop: TABS_TO_BALANCE_GAP }}>
           <StateCard
+            actionLabel="Retry"
+            actionTestID="collection-retry"
             message={model.loadError || 'Please try again once your backend is reachable.'}
+            onActionPress={() => { void model.refresh(); }}
+            testID="collection-error"
             title="Could not load your backend data"
             variant="field"
           />

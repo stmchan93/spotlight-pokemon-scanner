@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Alert, Platform, Share, StyleSheet, Text } from 'react-native';
+import { Alert, AppState, Platform, Share, StyleSheet, Text } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { MockSpotlightRepository } from '@spotlight/api-client';
@@ -12,6 +12,7 @@ import type {
 } from '@spotlight/api-client';
 
 import { TabsPageContext } from '@/contexts/tabs-page-context';
+import * as loadDeadline from '@/lib/load-deadline';
 import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
 import {
   PORTFOLIO_SUMMARY_HIDDEN_STORAGE_KEY,
@@ -1239,6 +1240,100 @@ describe('PortfolioScreen', () => {
     // The chart/summary block is hidden when the initial error is showing.
     expect(screen.queryByTestId('portfolio-summary-value')).toBeNull();
     expect(screen.queryByTestId('collection-masonry-grid')).toBeNull();
+  });
+
+  it('offers Retry on the initial-load error, and Retry re-runs both reads', async () => {
+    const inventory = [buildInventoryEntry({ id: 'a', name: 'Card A', marketPrice: 5 })];
+    const dashboard = buildDashboardWithInventory(inventory);
+    let failing = true;
+    const loadInventoryEntries = jest.fn(async () => (failing
+      ? { state: 'error' as const, data: null, errorMessage: 'offline' }
+      : { state: 'success' as const, data: inventory, errorMessage: null }));
+    const loadPortfolioDashboard = jest.fn(async () => (failing
+      ? { state: 'error' as const, data: null, errorMessage: 'offline' }
+      : { state: 'success' as const, data: dashboard, errorMessage: null }));
+    const repository = createTestSpotlightRepository({ loadInventoryEntries, loadPortfolioDashboard });
+
+    renderPortfolioScreen({ repository });
+    expect(await screen.findByTestId('collection-retry')).toBeTruthy();
+    const inventoryCalls = loadInventoryEntries.mock.calls.length;
+    const dashboardCalls = loadPortfolioDashboard.mock.calls.length;
+
+    failing = false;
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('collection-retry'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-masonry-grid')).toBeTruthy();
+    });
+    expect(loadInventoryEntries.mock.calls.length).toBeGreaterThan(inventoryCalls);
+    expect(loadPortfolioDashboard.mock.calls.length).toBeGreaterThan(dashboardCalls);
+    expect(screen.queryByTestId('collection-retry')).toBeNull();
+  });
+
+  it('a hung load stops spinning at the deadline and offers Retry', async () => {
+    // Real timers with a shortened deadline: the screen's animations make fake timers spin.
+    const settleSpy = jest.spyOn(loadDeadline, 'settleWithin').mockImplementation(<T,>(work: Promise<T>) => Promise.race([
+      work.then((value): loadDeadline.DeadlineOutcome<T> => ({ timedOut: false, value })),
+      new Promise<loadDeadline.DeadlineOutcome<T>>((resolve) => {
+        setTimeout(() => resolve({ timedOut: true }), 50);
+      }),
+    ]));
+    const hung = () => new Promise<never>(() => undefined);
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: hung,
+      loadPortfolioDashboard: hung,
+    });
+
+    renderPortfolioScreen({ repository });
+
+    expect(await screen.findByTestId('collection-retry')).toBeTruthy();
+    expect(screen.queryByTestId('collection-loading')).toBeNull();
+    expect(settleSpy).toHaveBeenCalled();
+    settleSpy.mockRestore();
+  });
+
+  it('re-reads on return to the foreground only after a failed load', async () => {
+    const listeners: ((state: string) => void)[] = [];
+    // Reassigned, not spied: restoring a spy on RN's AppState mock leaves it returning undefined.
+    const originalAddEventListener = AppState.addEventListener;
+    AppState.addEventListener = ((_type: string, handler: (state: string) => void) => {
+      listeners.push(handler);
+      return { remove: jest.fn() };
+    }) as unknown as typeof AppState.addEventListener;
+    const foreground = () => act(async () => {
+      listeners.forEach((listener) => listener('background'));
+      listeners.forEach((listener) => listener('active'));
+    });
+    const inventory = [buildInventoryEntry({ id: 'a', name: 'Card A', marketPrice: 5 })];
+    const dashboard = buildDashboardWithInventory(inventory);
+    let failing = true;
+    const loadPortfolioDashboard = jest.fn(async () => (failing
+      ? { state: 'error' as const, data: null, errorMessage: 'offline' }
+      : { state: 'success' as const, data: dashboard, errorMessage: null }));
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => (failing
+        ? { state: 'error' as const, data: null, errorMessage: 'offline' }
+        : { state: 'success' as const, data: inventory, errorMessage: null }),
+      loadPortfolioDashboard,
+    });
+
+    renderPortfolioScreen({ repository });
+    expect(await screen.findByTestId('collection-retry')).toBeTruthy();
+
+    failing = false;
+    const afterFailure = loadPortfolioDashboard.mock.calls.length;
+    await foreground();
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-masonry-grid')).toBeTruthy();
+    });
+    expect(loadPortfolioDashboard.mock.calls.length).toBe(afterFailure + 1);
+
+    // Fresh and healthy now: coming back again does not refetch.
+    await foreground();
+    expect(loadPortfolioDashboard.mock.calls.length).toBe(afterFailure + 1);
+    AppState.addEventListener = originalAddEventListener;
   });
 
   it('keeps showing the last data with a stale hint when a refresh fails after a good load', async () => {

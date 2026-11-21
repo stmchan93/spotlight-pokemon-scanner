@@ -160,6 +160,7 @@ export function CatalogSearchScreen({
     games: browsableGames,
     hasLoaded: hasLoadedExpansions,
     isLoading: isLoadingExpansions,
+    reload: reloadExpansions,
   } = useGameExpansions(browseEnabled);
 
   useEffect(() => {
@@ -312,7 +313,16 @@ export function CatalogSearchScreen({
     if (expansionError) {
       return (
         <View style={styles.bodyStateWrap}>
-          <StateCard centered message={expansionError} style={styles.stateCard} title="Could not load sets" />
+          <StateCard
+            actionLabel="Retry"
+            actionTestID="catalog-sets-retry"
+            centered
+            message={expansionError}
+            onActionPress={reloadExpansions}
+            style={styles.stateCard}
+            testID="catalog-sets-error"
+            title="Could not load sets"
+          />
         </View>
       );
     }

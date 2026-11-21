@@ -3739,9 +3739,43 @@ export function isRetryableScanRequestError(error: SpotlightRepositoryRequestErr
   return error.status === 502 || error.status === 503 || error.status === 504;
 }
 
-async function safeResponseText(response: Response) {
+function createAbortError(message = 'The request was aborted.') {
+  const error = new Error(message);
+  error.name = 'AbortError';
+  return error;
+}
+
+/*
+  Read the body under the request's own abort signal. Not every fetch rejects a
+  pending `text()` on abort, so also race it — a body that stalls mid-download
+  must fail with the request's timeout instead of hanging forever.
+*/
+async function readResponseText(response: Response, signal?: AbortSignal | null) {
+  if (!signal) {
+    return response.text();
+  }
+  if (signal.aborted) {
+    throw createAbortError();
+  }
+  const textPromise = Promise.resolve().then(() => response.text());
+  textPromise.catch(() => undefined);
+  let onAbort: (() => void) | null = null;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(createAbortError());
+    signal.addEventListener?.('abort', onAbort);
+  });
   try {
-    return await response.text();
+    return await Promise.race([textPromise, aborted]);
+  } finally {
+    if (onAbort) {
+      signal.removeEventListener?.('abort', onAbort);
+    }
+  }
+}
+
+async function safeResponseText(response: Response, signal?: AbortSignal | null) {
+  try {
+    return await readResponseText(response, signal);
   } catch {
     return '';
   }
@@ -3763,8 +3797,9 @@ const maxRawErrorMessageLength = 200;
  */
 async function safeResponseErrorDetail(
   response: Response,
+  signal?: AbortSignal | null,
 ): Promise<{ message: string; errorType?: string }> {
-  const raw = (await safeResponseText(response)).trim();
+  const raw = (await safeResponseText(response, signal)).trim();
   if (!raw) {
     return { message: '' };
   }
@@ -7317,24 +7352,33 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
     const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
     let response: Response;
+    let text = '';
+    // Timer covers headers AND body; a stalled body must still time out.
     try {
-      response = await fetch(
-        `${this.baseUrl}${path}`,
-        controller ? { ...requestInit, signal: controller.signal } : requestInit,
-      );
-    } catch (error) {
-      throw new AssistantRequestError(
-        isAbortError(error)
-          ? 'Request timed out while contacting the Spotlight backend.'
-          : errorMessageFromUnknown(error, 'Could not reach the Spotlight backend.'),
-        'network',
-      );
+      try {
+        response = await fetch(
+          `${this.baseUrl}${path}`,
+          controller ? { ...requestInit, signal: controller.signal } : requestInit,
+        );
+        text = await readResponseText(response, controller?.signal).catch((error: unknown) => {
+          if (isAbortError(error)) {
+            throw error;
+          }
+          return '';
+        });
+      } catch (error) {
+        throw new AssistantRequestError(
+          isAbortError(error)
+            ? 'Request timed out while contacting the Spotlight backend.'
+            : errorMessageFromUnknown(error, 'Could not reach the Spotlight backend.'),
+          'network',
+        );
+      }
     } finally {
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
     }
-    const text = await safeResponseText(response);
     let body: unknown = null;
     if (text.trim()) {
       try {
@@ -8483,6 +8527,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     const response = await this.requestJson<{ expansions: ExpansionRecord[] }>(
       `${this.baseUrl}/api/v1/expansions?${params.toString()}`,
     );
+    // A failed read THROWS: an empty list looked like "No sets available".
+    if (response.kind === 'error') {
+      throw response.error;
+    }
     if (response.kind !== 'success') {
       return [];
     }
@@ -8536,6 +8584,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       ),
       this.loadInventoryEntries(),
     ]);
+    // A failed read THROWS so the set page can offer Retry instead of an empty set.
+    if (searchResponse.kind === 'error') {
+      throw searchResponse.error;
+    }
     if (searchResponse.kind !== 'success') {
       return [];
     }
@@ -9090,117 +9142,149 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         externalSignal?.addEventListener?.('abort', onExternalAbort);
       }
 
+      // The timeout spans headers AND body: it is cleared only once the attempt is done.
       try {
-        response = await fetch(
-          candidateUrl,
-          controller ? { ...requestInit, signal: controller.signal } : requestInit,
-        );
-      } catch (error) {
+        try {
+          response = await fetch(
+            candidateUrl,
+            controller ? { ...requestInit, signal: controller.signal } : requestInit,
+          );
+        } catch (error) {
+          const elapsedMs = Date.now() - attemptStartedAt;
+          lastRequestMeta = {
+            attemptCount,
+            requestUrl: candidateUrl,
+          };
+          lastNetworkError = new SpotlightRepositoryRequestError(
+            isAbortError(error)
+              ? 'Request timed out while contacting the Spotlight backend.'
+              : errorMessageFromUnknown(error, 'Could not reach the Spotlight backend.'),
+            'request_failed',
+          );
+          lastNetworkError.failure = isAbortError(error) ? 'timeout' : 'network';
+          if (externalSignal?.aborted) {
+            // Caller-initiated abort, not a timeout; the caller decides what it means.
+            break;
+          }
+          if (options?.logTransport) {
+            this.logRequestTransport(options.requestLabel ?? 'request', {
+              attempt: attemptCount,
+              elapsedMs,
+              error: lastNetworkError.message,
+              outcome: isAbortError(error) ? 'timeout' : 'network_error',
+              strategy: options.candidateStrategy ?? 'all_candidates',
+              url: candidateUrl,
+            });
+          }
+          continue;
+        }
+
+        this.promoteSuccessfulBaseUrl(candidateUrl);
         const elapsedMs = Date.now() - attemptStartedAt;
-        lastRequestMeta = {
+        const requestMeta: JsonRequestMeta = {
           attemptCount,
           requestUrl: candidateUrl,
         };
-        lastNetworkError = new SpotlightRepositoryRequestError(
-          isAbortError(error)
-            ? 'Request timed out while contacting the Spotlight backend.'
-            : errorMessageFromUnknown(error, 'Could not reach the Spotlight backend.'),
-          'request_failed',
-        );
-        lastNetworkError.failure = isAbortError(error) ? 'timeout' : 'network';
-        if (externalSignal?.aborted) {
-          // Caller-initiated abort, not a timeout; the caller decides what it means.
-          break;
-        }
+        lastRequestMeta = requestMeta;
+
         if (options?.logTransport) {
           this.logRequestTransport(options.requestLabel ?? 'request', {
             attempt: attemptCount,
             elapsedMs,
-            error: lastNetworkError.message,
-            outcome: isAbortError(error) ? 'timeout' : 'network_error',
+            outcome: response.ok ? 'success' : 'http_error',
+            status: response.status,
             strategy: options.candidateStrategy ?? 'all_candidates',
             url: candidateUrl,
           });
         }
-        continue;
+
+        if (options?.allowNotFound && response.status === 404) {
+          return {
+            kind: 'not_found',
+            error: new SpotlightRepositoryRequestError('Requested resource was not found.', 'not_found', 404),
+            meta: requestMeta,
+          };
+        }
+
+        if (!response.ok) {
+          const detail = await safeResponseErrorDetail(response, controller?.signal);
+          const httpError = new SpotlightRepositoryRequestError(
+            detail.message || `Request failed with status ${response.status}`,
+            'request_failed',
+            response.status,
+            detail.errorType,
+          );
+          httpError.failure = 'http';
+          httpError.retryAfterMs = parseRetryAfterMs(response.headers?.get?.('Retry-After'));
+          return {
+            kind: 'error',
+            error: httpError,
+            meta: requestMeta,
+          };
+        }
+
+        let text = '';
+        try {
+          text = await readResponseText(response, controller?.signal);
+        } catch (error) {
+          // Other body-read failures keep their old "empty body" meaning.
+          if (!isAbortError(error)) {
+            text = '';
+          } else {
+            // A body that stalls mid-download times out exactly like the headers would.
+            lastNetworkError = new SpotlightRepositoryRequestError(
+              'Request timed out while contacting the Spotlight backend.',
+              'request_failed',
+            );
+            lastNetworkError.failure = 'timeout';
+            if (externalSignal?.aborted) {
+              break;
+            }
+            if (options?.logTransport) {
+              this.logRequestTransport(options.requestLabel ?? 'request', {
+                attempt: attemptCount,
+                elapsedMs: Date.now() - attemptStartedAt,
+                error: lastNetworkError.message,
+                outcome: 'timeout',
+                strategy: options.candidateStrategy ?? 'all_candidates',
+                url: candidateUrl,
+              });
+            }
+            continue;
+          }
+        }
+        if (!text.trim()) {
+          return {
+            kind: 'success',
+            data: null,
+            meta: requestMeta,
+          };
+        }
+
+        try {
+          return {
+            kind: 'success',
+            data: JSON.parse(text) as T,
+            meta: requestMeta,
+          };
+        } catch {
+          const invalidError = new SpotlightRepositoryRequestError(
+            'Received invalid JSON from the Spotlight backend.',
+            'invalid_response',
+            response.status,
+          );
+          invalidError.failure = 'invalid_response';
+          return {
+            kind: 'error',
+            error: invalidError,
+            meta: requestMeta,
+          };
+        }
       } finally {
         if (timeoutId) {
           clearTimeout(timeoutId);
         }
         externalSignal?.removeEventListener?.('abort', onExternalAbort);
-      }
-
-      this.promoteSuccessfulBaseUrl(candidateUrl);
-      const elapsedMs = Date.now() - attemptStartedAt;
-      const requestMeta: JsonRequestMeta = {
-        attemptCount,
-        requestUrl: candidateUrl,
-      };
-      lastRequestMeta = requestMeta;
-
-      if (options?.logTransport) {
-        this.logRequestTransport(options.requestLabel ?? 'request', {
-          attempt: attemptCount,
-          elapsedMs,
-          outcome: response.ok ? 'success' : 'http_error',
-          status: response.status,
-          strategy: options.candidateStrategy ?? 'all_candidates',
-          url: candidateUrl,
-        });
-      }
-
-      if (options?.allowNotFound && response.status === 404) {
-        return {
-          kind: 'not_found',
-          error: new SpotlightRepositoryRequestError('Requested resource was not found.', 'not_found', 404),
-          meta: requestMeta,
-        };
-      }
-
-      if (!response.ok) {
-        const detail = await safeResponseErrorDetail(response);
-        const httpError = new SpotlightRepositoryRequestError(
-          detail.message || `Request failed with status ${response.status}`,
-          'request_failed',
-          response.status,
-          detail.errorType,
-        );
-        httpError.failure = 'http';
-        httpError.retryAfterMs = parseRetryAfterMs(response.headers?.get?.('Retry-After'));
-        return {
-          kind: 'error',
-          error: httpError,
-          meta: requestMeta,
-        };
-      }
-
-      const text = await safeResponseText(response);
-      if (!text.trim()) {
-        return {
-          kind: 'success',
-          data: null,
-          meta: requestMeta,
-        };
-      }
-
-      try {
-        return {
-          kind: 'success',
-          data: JSON.parse(text) as T,
-          meta: requestMeta,
-        };
-      } catch {
-        const invalidError = new SpotlightRepositoryRequestError(
-          'Received invalid JSON from the Spotlight backend.',
-          'invalid_response',
-          response.status,
-        );
-        invalidError.failure = 'invalid_response';
-        return {
-          kind: 'error',
-          error: invalidError,
-          meta: requestMeta,
-        };
       }
     }
 
@@ -9312,38 +9396,52 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         }, options?.timeoutMs ?? defaultHttpRequestTimeoutMs)
         : null;
 
+      // Timer stays armed through the body read; cleared once the attempt ends.
       try {
-        response = await fetch(
-          candidateUrl,
-          controller ? { ...requestInit, signal: controller.signal } : requestInit,
-        );
-      } catch (error) {
-        lastNetworkError = new SpotlightRepositoryRequestError(
-          isAbortError(error)
-            ? 'Request timed out while contacting the Spotlight backend.'
-            : errorMessageFromUnknown(error, 'Could not reach the Spotlight backend.'),
-          'request_failed',
-        );
-        continue;
+        try {
+          response = await fetch(
+            candidateUrl,
+            controller ? { ...requestInit, signal: controller.signal } : requestInit,
+          );
+        } catch (error) {
+          lastNetworkError = new SpotlightRepositoryRequestError(
+            isAbortError(error)
+              ? 'Request timed out while contacting the Spotlight backend.'
+              : errorMessageFromUnknown(error, 'Could not reach the Spotlight backend.'),
+            'request_failed',
+          );
+          continue;
+        }
+
+        this.promoteSuccessfulBaseUrl(candidateUrl);
+
+        if (!response.ok) {
+          const detail = await safeResponseErrorDetail(response, controller?.signal);
+          throw new SpotlightRepositoryRequestError(
+            detail.message || `Request failed with status ${response.status}`,
+            'request_failed',
+            response.status,
+            detail.errorType,
+          );
+        }
+
+        try {
+          return await readResponseText(response, controller?.signal);
+        } catch (error) {
+          if (!isAbortError(error)) {
+            throw error;
+          }
+          lastNetworkError = new SpotlightRepositoryRequestError(
+            'Request timed out while contacting the Spotlight backend.',
+            'request_failed',
+          );
+          continue;
+        }
       } finally {
         if (timeoutId) {
           clearTimeout(timeoutId);
         }
       }
-
-      this.promoteSuccessfulBaseUrl(candidateUrl);
-
-      if (!response.ok) {
-        const detail = await safeResponseErrorDetail(response);
-        throw new SpotlightRepositoryRequestError(
-          detail.message || `Request failed with status ${response.status}`,
-          'request_failed',
-          response.status,
-          detail.errorType,
-        );
-      }
-
-      return await response.text();
     }
 
     throw lastNetworkError ?? new SpotlightRepositoryRequestError(

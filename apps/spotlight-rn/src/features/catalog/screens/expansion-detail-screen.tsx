@@ -43,6 +43,8 @@ import {
 } from '@/features/catalog/set-progress';
 import { eventGradientStops } from '@/features/events/event-accent';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import { withLoadDeadline } from '@/lib/load-deadline';
+import { useForegroundRefetch } from '@/lib/use-foreground-refetch';
 import { useAppServices } from '@/providers/app-providers';
 
 type ExpansionDetailScreenProps = {
@@ -177,6 +179,10 @@ export function ExpansionDetailScreen({
   // The set's sealed products: beside the card list, never in its completion.
   const [sealed, setSealed] = useState<CatalogSearchResult[]>([]);
   const [hasLoadedCards, setHasLoadedCards] = useState(false);
+  const [cardsError, setCardsError] = useState<string | null>(null);
+  const [cardsLoadedAt, setCardsLoadedAt] = useState<number | null>(null);
+  const [cardsReloadToken, setCardsReloadToken] = useState(0);
+  const reloadCards = useCallback(() => setCardsReloadToken((token) => token + 1), []);
   const [entries, setEntries] = useState<InventoryCardEntry[] | null>(null);
   const entriesRef = useRef<InventoryCardEntry[] | null>(null);
   entriesRef.current = entries;
@@ -208,15 +214,19 @@ export function ExpansionDetailScreen({
   // the card page shows here on return; no loading flash once cards exist.
   useEffect(() => {
     let cancelled = false;
-    void spotlightRepository.listCardsInExpansion(expansionId, '', SET_PAGE_CARD_LIMIT, game)
+    // Bounded: a hung read ends in the error card + Retry, never an endless spinner.
+    void withLoadDeadline(spotlightRepository.listCardsInExpansion(expansionId, '', SET_PAGE_CARD_LIMIT, game))
       .then((results) => {
         if (!cancelled) {
           setCards(results);
+          setCardsError(null);
+          setCardsLoadedAt(Date.now());
           setHasLoadedCards(true);
         }
       })
       .catch(() => {
         if (!cancelled) {
+          setCardsError('Could not load this set right now. Check your connection and try again.');
           setHasLoadedCards(true);
         }
       });
@@ -237,7 +247,20 @@ export function ExpansionDetailScreen({
     return () => {
       cancelled = true;
     };
-  }, [dataVersion, expansionId, game, spotlightRepository]);
+  }, [cardsReloadToken, dataVersion, expansionId, game, spotlightRepository]);
+
+  useForegroundRefetch({
+    failed: cardsError !== null,
+    isLoading: !hasLoadedCards,
+    lastLoadedAt: cardsLoadedAt,
+    onRefetch: reloadCards,
+  });
+
+  const handleRetryCards = useCallback(() => {
+    setHasLoadedCards(false);
+    setCardsError(null);
+    reloadCards();
+  }, [reloadCards]);
 
   const setPending = useCallback((cardId: string, pending: boolean) => {
     if (pending) {
@@ -449,6 +472,21 @@ export function ExpansionDetailScreen({
     if (!hasLoadedCards) {
       return (
         <StateCard centered loading message="Loading cards from this set." style={styles.stateCard} title="Loading" />
+      );
+    }
+    // Already-loaded cards stay on screen through a failed refresh.
+    if (cardsError && cards.length === 0) {
+      return (
+        <StateCard
+          actionLabel="Retry"
+          actionTestID="expansion-detail-retry"
+          centered
+          message={cardsError}
+          onActionPress={handleRetryCards}
+          style={styles.stateCard}
+          testID="expansion-detail-error"
+          title="Could not load cards"
+        />
       );
     }
     if (items.length === 0) {

@@ -41,7 +41,7 @@ import { SealedResultsSection } from '@/features/catalog/components/sealed-resul
 import { SetProgressCard } from '@/features/catalog/components/set-progress-card';
 import { useCatalogCardSearch } from '@/features/catalog/hooks/use-catalog-card-search';
 import { useSealedSearchPreview } from '@/features/catalog/hooks/use-sealed-search-preview';
-import { useGameExpansions } from '@/features/catalog/hooks/use-game-expansions';
+import { GAME_EXPANSIONS_ERROR, useGameExpansions } from '@/features/catalog/hooks/use-game-expansions';
 import { useSetProgress } from '@/features/catalog/hooks/use-set-progress';
 import { groupSetsByEra, setCompletion, type SetListRow } from '@/features/catalog/set-progress';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
@@ -101,7 +101,7 @@ export function GameSetsScreen({
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const [game, setGame] = useState<CardGame>(initialGame);
-  const { byGame, error, games, hasLoaded, isLoading } = useGameExpansions();
+  const { byGame, error, failedGames, games, hasLoaded, isLoading, reload } = useGameExpansions();
   const { ownedByExpansion } = useSetProgress(game);
   const search = useCatalogCardSearch({ scope: game });
   const sealedSearch = useSealedSearchPreview({
@@ -154,8 +154,21 @@ export function GameSetsScreen({
         />
       );
     }
-    if (error) {
-      return <StateCard centered message={error} style={styles.stateCard} title="Could not load sets" />;
+    // This game's own read failed even if others answered: never "No sets".
+    const setsError = error || (failedGames.includes(game) && expansions.length === 0 ? GAME_EXPANSIONS_ERROR : '');
+    if (setsError) {
+      return (
+        <StateCard
+          actionLabel="Retry"
+          actionTestID="game-sets-retry"
+          centered
+          message={setsError}
+          onActionPress={reload}
+          style={styles.stateCard}
+          testID="game-sets-error"
+          title="Could not load sets"
+        />
+      );
     }
     if (hasLoaded && expansions.length === 0) {
       return (

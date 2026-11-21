@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { CardGame, CatalogSearchResult, RarityFilterBucket } from '@spotlight/api-client';
 
+import { withLoadDeadline } from '@/lib/load-deadline';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
+import { useForegroundRefetch } from '@/lib/use-foreground-refetch';
 import { useAppServices } from '@/providers/app-providers';
 
 /**
@@ -110,12 +112,13 @@ export function useCatalogCardSearch({
     let isCancelled = false;
     const timeout = setTimeout(() => {
       setIsLoading(true);
-      void spotlightRepository
+      // Bounded: a hung first page ends in the error state + Retry, not a spinner.
+      void withLoadDeadline(spotlightRepository
         .searchCatalogCardsPage(trimmed, PAGE_SIZE, 0, {
           game: scope,
           ...(rarityBucket ? { rarityBucket } : {}),
           ...(sealed ? { kind: 'sealed' as const } : {}),
-        })
+        }))
         .then((page) => {
           if (isCancelled) {
             return;
@@ -208,6 +211,15 @@ export function useCatalogCardSearch({
   ]);
 
   const retry = useCallback(() => setRevision((value) => value + 1), []);
+
+  // Results are a snapshot of a query, so only a FAILED search re-runs on return.
+  useForegroundRefetch({
+    enabled: hasActiveQuery,
+    failed: Boolean(errorMessage),
+    isLoading,
+    lastLoadedAt: null,
+    onRefetch: retry,
+  });
 
   return {
     errorMessage,

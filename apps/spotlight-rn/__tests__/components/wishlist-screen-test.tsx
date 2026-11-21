@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
-import {Animated, StyleSheet} from 'react-native';
+import {Animated, AppState, StyleSheet} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 
@@ -240,6 +240,40 @@ describe('WishlistScreen', () => {
     await waitFor(() => expect(screen.getByTestId('wishlist-row-after-retry')).toBeTruthy());
     expect(screen.queryByTestId('wishlist-error')).toBeNull();
     expect(getCardFavorites).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-reads on return to the foreground only after a failed load', async () => {
+    const listeners: ((state: string) => void)[] = [];
+    // Reassigned, not spied: restoring a spy on RN's AppState mock leaves it returning undefined.
+    const originalAddEventListener = AppState.addEventListener;
+    AppState.addEventListener = ((_type: string, handler: (state: string) => void) => {
+      listeners.push(handler);
+      return { remove: jest.fn() };
+    }) as unknown as typeof AppState.addEventListener;
+    const foreground = () => act(async () => {
+      listeners.forEach((listener) => listener('background'));
+      listeners.forEach((listener) => listener('active'));
+    });
+    const getCardFavorites = jest
+      .fn<Promise<CardFavoriteEntry[]>, []>()
+      .mockRejectedValueOnce(new Error('Request timed out while contacting the Spotlight backend.'))
+      .mockResolvedValue([buildFavoriteEntry({ cardId: 'back', name: 'Back' })]);
+    const repository = createTestSpotlightRepository({ getCardFavorites });
+
+    try {
+      renderWishlistScreen(repository);
+      expect(await screen.findByTestId('wishlist-error')).toBeTruthy();
+
+      await foreground();
+      await waitFor(() => expect(screen.getByTestId('wishlist-row-back')).toBeTruthy());
+      expect(getCardFavorites).toHaveBeenCalledTimes(2);
+
+      // Fresh and healthy: another return does not re-read.
+      await foreground();
+      expect(getCardFavorites).toHaveBeenCalledTimes(2);
+    } finally {
+      AppState.addEventListener = originalAddEventListener;
+    }
   });
 
   it('keeps the rows it has when a refresh fails, with a Retry above them', async () => {

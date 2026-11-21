@@ -20,6 +20,8 @@ import { useTabsPage } from '@/contexts/tabs-page-context';
 import { reflectInventoryCacheIntoDashboard } from '@/features/portfolio/optimistic-inventory';
 import { persistDashboard, readPersistedDashboard } from '@/features/portfolio/persisted-dashboard';
 import { prefetchCardImages } from '@/lib/card-images';
+import { settleWithin } from '@/lib/load-deadline';
+import { useForegroundRefetch } from '@/lib/use-foreground-refetch';
 import {
   formatEditableSellPrice,
   parseSellPrice,
@@ -68,6 +70,9 @@ const rangesWithData = (source: PortfolioDashboard): Set<PortfolioHistoryRange> 
  * of this, and pull-to-refresh always bypasses it.
  */
 export const portfolioRefetchStaleMs = 2 * 60 * 1000;
+
+/** Shown when a Collection read passes the user-load deadline. */
+export const PORTFOLIO_LOAD_TIMEOUT_MESSAGE = 'Your collection is taking too long to load. Check your connection and try again.';
 
 const emptyPortfolioDashboard: PortfolioDashboard = {
   summary: {
@@ -242,10 +247,13 @@ type PortfolioScreenModelOptions = {
    * (`sales-history-screen`).
    */
   isCollectionScopeResolved?: boolean;
+  /** Re-read on return to the foreground after a failure or a stale read (Collection tab only). */
+  refetchOnForeground?: boolean;
 };
 
 export function usePortfolioScreenModel({
   isCollectionScopeResolved = true,
+  refetchOnForeground = false,
 }: PortfolioScreenModelOptions = {}) {
   const {
     spotlightRepository,
@@ -370,9 +378,20 @@ export function usePortfolioScreenModel({
     allInventoryGenerationRef.current += 1;
     allInventoryRequestedRef.current = false;
     setAllInventoryEntries(null);
-    const loadResult = await spotlightRepository.loadInventoryEntries({
+    const request = spotlightRepository.loadInventoryEntries({
       collectionID: requestedCollectionID,
     });
+    // At the deadline the spinner ends in the error state; a late answer still lands.
+    const firstOutcome = await settleWithin(request);
+    let timedOut = false;
+    if (firstOutcome.timedOut) {
+      timedOut = true;
+      if (requestedCollectionID === activeCollectionIDRef.current) {
+        setLoadError((current) => current ?? PORTFOLIO_LOAD_TIMEOUT_MESSAGE);
+        setIsLoadingInventory(false);
+      }
+    }
+    const loadResult = firstOutcome.timedOut ? await request : firstOutcome.value;
 
     // A response belongs to the collection it was REQUESTED for. Switching
     // collections re-fires the load effect but cannot cancel the read already in
@@ -423,6 +442,9 @@ export function usePortfolioScreenModel({
       setInventoryEntriesCache(inventoryItems);
       displayedInventoryCollectionIDRef.current = requestedCollectionID;
       setHasLoadedInventory(true);
+      if (timedOut) {
+        setLoadError((current) => (current === PORTFOLIO_LOAD_TIMEOUT_MESSAGE ? null : current));
+      }
       setDashboard((currentDashboard) => {
         if (dashboardHasHydratedSeries(currentDashboard)) {
           return mergeDashboardInventory(currentDashboard, inventoryItems);
@@ -608,10 +630,24 @@ export function usePortfolioScreenModel({
     // ref so this callback isn't re-created on every range switch (which would
     // re-trigger the auto-refresh effect).
     const openRange = selectedRangeRef.current;
-    const loadResult = await spotlightRepository.loadPortfolioDashboard({
+    const request = spotlightRepository.loadPortfolioDashboard({
       range: openRange,
       collectionID: requestedCollectionID,
     });
+    // Its retry + fan-out fallback chain can outlast any spinner worth showing:
+    // at the deadline, fail like an error (stale / error card) but keep waiting
+    // so a late answer still replaces it.
+    const firstOutcome = await settleWithin(request);
+    if (
+      firstOutcome.timedOut
+      && requestedCollectionID === activeCollectionIDRef.current
+      && requestSeq === dashboardRequestSeqRef.current
+    ) {
+      setIsDashboardStale(true);
+      setLoadError(hasUsableDashboardRef.current ? null : PORTFOLIO_LOAD_TIMEOUT_MESSAGE);
+      setIsLoadingDashboard(false);
+    }
+    const loadResult = firstOutcome.timedOut ? await request : firstOutcome.value;
 
     // Same scope guard as `loadInventory`, and this is the one the user actually
     // saw: this read takes 5-10s, so switching collections mid-flight is normal,
@@ -812,6 +848,22 @@ export function usePortfolioScreenModel({
     loadDashboard,
     loadInventory,
   ]);
+
+  // Quiet re-read (no pull spinner) when the app returns to the foreground.
+  const reloadQuietly = useCallback(() => {
+    lastLoadedCollectionIDRef.current = activeCollectionIDRef.current;
+    lastLoadedAtRef.current = Date.now();
+    void loadInventory();
+    void loadDashboard();
+  }, [loadDashboard, loadInventory]);
+  useForegroundRefetch({
+    enabled: refetchOnForeground && isPortfolioActive && isCollectionScopeResolved,
+    failed: loadError !== null || isDashboardStale,
+    isLoading: isLoadingInventory || isLoadingDashboard,
+    lastLoadedAt: lastUpdatedAt ? Date.parse(lastUpdatedAt) : null,
+    onRefetch: reloadQuietly,
+    staleAfterMs: portfolioRefetchStaleMs,
+  });
 
   // Live-reflect external optimistic adds. When a card is added from the card
   // detail or scanner, `prependOptimisticInventoryEntry` prepends it into the

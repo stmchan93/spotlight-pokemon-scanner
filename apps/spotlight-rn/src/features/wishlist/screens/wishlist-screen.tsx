@@ -69,7 +69,9 @@ import {
   type WatchlistItemKind,
 } from '@/lib/observability/analytics-events';
 import { getCardImageUrl } from '@/lib/card-images';
+import { withLoadDeadline } from '@/lib/load-deadline';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
+import { useForegroundRefetch } from '@/lib/use-foreground-refetch';
 import { LAST_CARD_TO_TAB_BAR_GAP, useFloatingAffordanceBottom } from '@/lib/tab-bar-insets';
 import {
   SINCE_WATCHED_SUFFIX,
@@ -286,12 +288,15 @@ export function WishlistScreen() {
 
   // A failed or timed-out read keeps whatever rows are already on screen and
   // surfaces a Retry; it never blanks the list or leaves the loader spinning.
+  const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
   const loadFavorites = useCallback(async () => {
     const readToken = watchlistStore.beginRead();
     try {
-      const result = await spotlightRepository.getCardFavorites();
+      // Bounded so the loader / Retry always settles, even on a hung read.
+      const result = await withLoadDeadline(spotlightRepository.getCardFavorites());
       watchlistStore.commitRead(readToken, result);
       setErrorMessage(null);
+      setLastLoadedAt(Date.now());
     } catch {
       setErrorMessage('Could not load your watchlist right now.');
     }
@@ -348,6 +353,15 @@ export function WishlistScreen() {
       void loadFavorites();
     }
   }, [isFocused, isStale, loadFavorites, refreshDealAlerts]);
+
+  // Back from the background: re-read only after a failure or a stale read.
+  useForegroundRefetch({
+    enabled: !isGuest,
+    failed: errorMessage !== null,
+    isLoading,
+    lastLoadedAt,
+    onRefetch: () => { void loadFavorites(); },
+  });
 
   // A deal push opens this tab, often while it is already the focused one, so
   // focus never changes: re-read the band whenever the app comes back to it.
