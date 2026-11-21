@@ -268,6 +268,12 @@ class SealedCatalogTests(unittest.TestCase):
         detail = service.card_detail(sealed_card_id(593355))
         self.assertEqual(detail["card"]["productKind"], "sealed")
         self.assertEqual(detail["card"]["sealedProductType"], "Elite Trainer Box")
+        # A sealed product is in no set grid, so it carries no set id to link to.
+        self.assertIsNone(detail["card"]["setId"])
+        # A real card carries its set id so the card page can open the set.
+        card_detail = service.card_detail("sv8pt5-161")
+        self.assertIn("setId", card_detail["card"])
+        self.assertEqual(card_detail["card"]["setId"], service.card_detail("sv8pt5-161")["card"]["setId"])
         history = service.card_market_history(sealed_card_id(593355), days=30)
         self.assertIsNotNone(history)
 

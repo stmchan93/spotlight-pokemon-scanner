@@ -1753,6 +1753,16 @@ export function CardDetailScreen({
   // Sealed shows its product type where a card shows its number
   // ("Elite Trainer Box · SV: Prismatic Evolutions").
   const displaySealedType = detail?.sealedProductType?.trim() || null;
+  const displaySetId = detail?.setId ?? null;
+  // The set name opens its set page (user, 2026-11-21).
+  const handleOpenSet = useCallback(() => {
+    if (!displaySetId) return;
+    router.push({
+      pathname: '/catalog/expansion/[expansionId]',
+      params: { expansionId: displaySetId, name: displaySetName, ...(cardGame ? { game: cardGame } : {}) },
+    });
+  }, [cardGame, displaySetId, displaySetName, router]);
+  const identityLeadPart = isSealed ? displaySealedType : displayNumber(displayCardNumber);
   const identityNumberSetLine = isSealed
     ? [displaySealedType, displaySetName.trim() || null].filter(Boolean).join(' · ')
     : [
@@ -2810,7 +2820,20 @@ export function CardDetailScreen({
                 style={[theme.typography.bodyMedium, styles.identityMeta]}
                 testID="detail-identity-number-set"
               >
-                {identityNumberSetLine}
+                {displaySetId && displaySetName.trim() ? (
+                  <>
+                    {identityLeadPart ? `${identityLeadPart} · ` : ''}
+                    <Text
+                      accessibilityHint="Opens the set"
+                      accessibilityRole="link"
+                      onPress={handleOpenSet}
+                      style={[theme.typography.bodyMedium, { color: theme.colors.purple500 }]}
+                      testID="detail-identity-set-link"
+                    >
+                      {displaySetName.trim()}
+                    </Text>
+                  </>
+                ) : identityNumberSetLine}
               </Text>
             ) : null}
             {identityDetailLine ? (

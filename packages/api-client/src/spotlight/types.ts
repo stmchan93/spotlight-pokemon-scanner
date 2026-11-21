@@ -1500,6 +1500,8 @@ export type CardDetailRecord = {
   name: string;
   cardNumber: string;
   setName: string;
+  /** The set page's id (`/catalog/expansion/[expansionId]`); absent on older backends. */
+  setId?: string | null;
   imageUrl: string;
   largeImageUrl?: string | null;
   marketPrice: number | null;

@@ -16504,6 +16504,8 @@ class SpotlightScanService:
             "game": game,
             "name": str(resolved_card.get("name") or original_card.get("name") or ""),
             "setName": str(resolved_card.get("setName") or original_card.get("setName") or ""),
+            # The set page's id, so the card page's set name can open it.
+            "setId": resolved_card.get("setID") or original_card.get("setID") or None,
             "number": str(resolved_card.get("number") or original_card.get("number") or ""),
             "rarity": str(raw_rarity or "Unknown"),
             "rarityBucket": rarity_bucket(raw_rarity, game),
@@ -18522,6 +18524,8 @@ class SpotlightScanService:
                 "game": normalize_game(resolved_card.get("game")),
                 "name": resolved_card["name"],
                 "setName": resolved_card["setName"],
+                # The set page's id, so the card page's set name can open it.
+                "setId": resolved_card.get("setID") or None,
                 "number": resolved_card["number"],
                 "rarity": resolved_card["rarity"],
                 "variant": resolved_card["variant"],

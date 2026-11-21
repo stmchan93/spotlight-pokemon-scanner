@@ -198,6 +198,33 @@ describe('CardDetailScreen', () => {
     expect(screen.queryByTestId('detail-configurator-language-JP')).toBeNull();
   });
 
+  it('opens the set page from the set name', async () => {
+    const push = jest.fn();
+    (useRouter as jest.Mock).mockReturnValue({ replace: mockReplace, push, back: mockBack, dismissTo: mockDismissTo });
+    const baseRepository = createTestSpotlightRepository();
+    const getCardDetail = jest.fn(async (query: { cardId: string }) => {
+      const base = await baseRepository.getCardDetail(query);
+      return base ? ({ ...base, setId: 'sm7', game: 'pokemon' } satisfies CardDetailRecord) : null;
+    });
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
+      { spotlightRepository: createTestSpotlightRepository({ getCardDetail }) },
+    );
+
+    const link = await screen.findByTestId('detail-identity-set-link');
+    fireEvent.press(link);
+    expect(push).toHaveBeenCalledWith({
+      pathname: '/catalog/expansion/[expansionId]',
+      params: expect.objectContaining({ expansionId: 'sm7', game: 'pokemon' }),
+    });
+  });
+
+  it('keeps the set name as plain text when the backend sends no set id', async () => {
+    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />);
+    await screen.findByTestId('detail-identity-number-set');
+    expect(screen.queryByTestId('detail-identity-set-link')).toBeNull();
+  });
+
   it('swaps EN→JP in place: new art + trends, grade/grader kept, variant by name, no navigation', async () => {
     const baseRepository = createTestSpotlightRepository();
     // Two linked cards: EN sm7-1 (Treecko) ↔ JP sm7-1-jp (distinct name/art),

@@ -7609,6 +7609,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       // Sealed has no number; an unnumbered card maps to '' as well.
       cardNumber: card.productKind === 'sealed' ? '' : withCardNumberPrefix(card.number),
       setName: card.setName,
+      setId: normalizeString((detailResponse.data.card as { setId?: unknown }).setId),
       catalogSource: card.catalogSource,
       canonicalCardId: card.canonicalCardId
         ?? normalizeString((detailResponse.data as { canonicalCardId?: unknown }).canonicalCardId),
