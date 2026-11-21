@@ -180,7 +180,6 @@ import { useAppServices } from '@/providers/app-providers';
 import { AddAllMenu, type AddAllMenuAction } from '@/features/scanner/components/add-all-menu';
 import { ScanBulkConfirmSheet } from '@/features/scanner/components/scan-bulk-confirm-sheet';
 import { ScanTargetPill } from '@/features/scanner/components/scan-target-pill';
-import { ScannerLanguageTooltip } from '@/features/scanner/components/scanner-language-tooltip';
 import { ScanningForSheet } from '@/features/scanner/components/scanning-for-sheet';
 import {
   scanCardLanguageForLane,
@@ -449,49 +448,6 @@ type ScannerZoomFactor = (typeof SCANNER_ZOOM_FACTORS)[number];
 // every install starts at 1.5x once; any later pick is remembered as before.
 const DEFAULT_SCANNER_ZOOM: ScannerZoomFactor = 1.5;
 const SCANNER_ZOOM_STORAGE_KEY = '@spotlight/scanner/zoom-factor-v2';
-// One-time EN/JP tooltip seen-flag — written on any dismissal so the coach mark
-// only ever shows on the user's very first scanner visit.
-const LANGUAGE_TOOLTIP_SEEN_KEY = '@spotlight/scanner/language-tooltip-seen';
-// SecureStore twin of the seen-flag. AsyncStorage is wiped on uninstall, so the
-// coach mark used to reappear for existing users after a reinstall — while their
-// Supabase session (also in SecureStore / the iOS Keychain) survived. SecureStore
-// keys only allow [A-Za-z0-9._-], hence the dotted spelling (no '@' / '/' / ':').
-const LANGUAGE_TOOLTIP_SEEN_SECURE_KEY = 'spotlight.scanner.language-tooltip-seen';
-
-// expo-secure-store can be unavailable (web) or throw at runtime on some devices
-// (keychain entitlement issues — see src/lib/supabase.ts). Load it defensively and
-// treat every failure as "no flag": coach-mark bookkeeping must never crash or
-// block the scanner, and the AsyncStorage flag still covers the current install.
-type SecureStoreModule = typeof import('expo-secure-store');
-let languageTooltipSecureStore: SecureStoreModule | null = null;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native module: expo-secure-store can be unavailable or throw
-  languageTooltipSecureStore = require('expo-secure-store') as SecureStoreModule;
-} catch {
-  languageTooltipSecureStore = null;
-}
-
-async function readLanguageTooltipSeenFlag(secureKey: string): Promise<string | null> {
-  if (!languageTooltipSecureStore) {
-    return null;
-  }
-  try {
-    return await languageTooltipSecureStore.getItemAsync(secureKey);
-  } catch {
-    return null;
-  }
-}
-
-function writeLanguageTooltipSeenFlag(secureKey: string) {
-  if (!languageTooltipSecureStore) {
-    return;
-  }
-  try {
-    void languageTooltipSecureStore.setItemAsync(secureKey, '1').catch(() => {});
-  } catch {
-    // Best-effort — the AsyncStorage flag still covers this install.
-  }
-}
 
 function parseScannerZoomFactor(raw: string | null): ScannerZoomFactor {
   const value = Number(raw);
@@ -1273,83 +1229,6 @@ export function ScannerScreen({
       withDelay(200, withTiming(0, { duration: 260, easing: Easing.inOut(Easing.cubic) })),
     );
   }, [reticleLockProgress]);
-  // One-time EN/JP coach mark (Figma 2302:29019): shown the first time an
-  // ACCOUNT lands on the scanner, pointing at the language pill. Any dismissal —
-  // tapping the bubble, tapping the pill (which also opens the picker), or the
-  // 10s auto-timer — writes the seen-flag so it never appears again for that
-  // account. Keyed per account (not per device) so a fresh sign-up on the same
-  // phone still gets the coach mark; the provider tree remounts this screen on
-  // account changes, so the key is stable within a mount.
-  const { currentSession: tooltipSession } = useAuth();
-  const tooltipAccountId = tooltipSession?.user.id ?? 'anon';
-  const languageTooltipSeenKey = `${LANGUAGE_TOOLTIP_SEEN_KEY}:${tooltipAccountId}`;
-  // Supabase user ids are UUIDs, so the account suffix stays within SecureStore's
-  // [A-Za-z0-9._-] key alphabet.
-  const languageTooltipSecureSeenKey =
-    `${LANGUAGE_TOOLTIP_SEEN_SECURE_KEY}.${tooltipAccountId}`;
-  const [showLanguageTooltip, setShowLanguageTooltip] = useState(false);
-  const dismissLanguageTooltip = useCallback(() => {
-    setShowLanguageTooltip((current) => {
-      if (current) {
-        // Written to both stores: AsyncStorage keeps the legacy path consistent;
-        // SecureStore survives uninstall/reinstall like the auth session does.
-        void AsyncStorage.setItem(languageTooltipSeenKey, '1').catch(() => {});
-        writeLanguageTooltipSeenFlag(languageTooltipSecureSeenKey);
-      }
-      return false;
-    });
-  }, [languageTooltipSecureSeenKey, languageTooltipSeenKey]);
-  useEffect(() => {
-    // Arm only while the scanner is the ACTIVE pager page. Both pager slots
-    // mount at boot (Collection is the landing tab), so an unconditional arm
-    // used to show the tooltip invisibly on the hidden page and let the 10s
-    // timer burn it — the seen-flag was written before the user ever swiped over.
-    // Dev screenshot routes never arm it: a coach mark would vary the capture.
-    if (!isActiveTab || isDevPreview) {
-      return undefined;
-    }
-    let cancelled = false;
-    void (async () => {
-      // SecureStore first — it survives reinstall. Fall back to the legacy
-      // AsyncStorage flag and migrate it forward so users who dismissed the
-      // coach mark before this change never see it again.
-      const secureSeen = await readLanguageTooltipSeenFlag(languageTooltipSecureSeenKey);
-      if (cancelled || secureSeen != null) {
-        return;
-      }
-      let legacySeen: string | null;
-      try {
-        legacySeen = await AsyncStorage.getItem(languageTooltipSeenKey);
-      } catch {
-        // Match the pre-SecureStore behavior: an unreadable flag means "don't show".
-        return;
-      }
-      if (cancelled) {
-        return;
-      }
-      if (legacySeen === '1') {
-        // Seen on this install before the SecureStore flag existed — copy it
-        // over (best-effort) and stay hidden.
-        writeLanguageTooltipSeenFlag(languageTooltipSecureSeenKey);
-        return;
-      }
-      if (legacySeen == null) {
-        setShowLanguageTooltip(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isActiveTab, isDevPreview, languageTooltipSecureSeenKey, languageTooltipSeenKey]);
-  useEffect(() => {
-    if (!showLanguageTooltip || !isActiveTab) {
-      return undefined;
-    }
-    // Scanner convention for transient chrome: auto-dismiss after 10s — counted
-    // only while the tooltip is actually on screen.
-    const timer = setTimeout(dismissLanguageTooltip, 10000);
-    return () => clearTimeout(timer);
-  }, [dismissLanguageTooltip, isActiveTab, showLanguageTooltip]);
   // Whether the app is in the foreground. vision-camera's session is interrupted
   // by the OS on screen-lock/background; without driving `isActive` off this, the
   // session is never told to stop+restart and the preview returns frozen while the
@@ -5007,12 +4886,7 @@ export function ScannerScreen({
             <ScanTargetPill
               flag={scanTargetFlag(scanLane)}
               label={scanTargetPillLabel(scanLane)}
-              onPress={gate(() => {
-                // Tapping the pill is also a tooltip dismissal — they learn the
-                // control by using it.
-                dismissLanguageTooltip();
-                setIsScanTargetSheetOpen(true);
-              })}
+              onPress={gate(() => setIsScanTargetSheetOpen(true))}
               testID="scanner-target-pill"
             />
           </View>
@@ -5136,23 +5010,6 @@ export function ScannerScreen({
               </Text>
               <IconChevronDown color={colors.gray0} size={12} strokeWidth={2} />
             </Pressable>
-          </View>
-        )}
-
-        {isTrayExpanded ? null : (
-          <View
-            pointerEvents="box-none"
-            style={[
-              styles.languageTooltipWrap,
-              // Directly below the top-bar scan-target pill, tail pointing up.
-              { top: captureSurfaceLayout.backButtonTop + 44 + 8 },
-            ]}
-          >
-            <ScannerLanguageTooltip
-              onPress={dismissLanguageTooltip}
-              tailPosition="top"
-              visible={showLanguageTooltip && !isScanTargetSheetOpen}
-            />
           </View>
         )}
 
@@ -5653,13 +5510,6 @@ const styles = StyleSheet.create({
     // No padding: the row's 16pt gap IS the spacing on both sides, so the
     // pill's glass edge sits exactly 16 from each bubble.
     flex: 1,
-  },
-  languageTooltipWrap: {
-    alignItems: 'center',
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    zIndex: 5,
   },
   // POC chrome (dev builds only) — the UX pass owns the real treatment.
   binderPageHeader: {
