@@ -108,12 +108,12 @@ _NARROWING = re.compile(
 DISCLAIMER_TOOLS = frozenset({"get_market_trends", "find_price_lows", "find_new_highs"})
 DISCLAIMER_TEXT = "This is past price data, not a prediction."
 _DISCLAIMER = re.compile(
-    r"not (?:a |financial )?(?:prediction|forecast|advice)|isn'?t (?:a )?(?:prediction|forecast)|"
+    r"not (?:a |financial )?(?:prediction|forecast|advice)|(?:isn|aren|wasn|weren)'?t (?:a )?(?:prediction|forecast)|"
     r"no guarantee|(?:can'?t|cannot|can not) predict|doesn'?t predict|not guaranteed|no sure bet|"
     r"not a sure thing|(?:can'?t|cannot) promise",
     re.IGNORECASE,
 )
-_KEEP_LINE = re.compile(r"not (?:a )?(?:prediction|forecast)", re.IGNORECASE)
+_KEEP_LINE = re.compile(r"(?:not|n'?t) (?:a )?(?:prediction|forecast)", re.IGNORECASE)
 ART_FILTER_KEYS = frozenset({"pokemon", "scene", "weather_time", "activity", "mood", "art_style", "palette", "theme"})
 
 

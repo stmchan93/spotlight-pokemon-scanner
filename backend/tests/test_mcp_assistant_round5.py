@@ -288,3 +288,11 @@ class AnswerShapeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DisclaimerPhrasingTests(unittest.TestCase):
+    def test_model_written_disclaimer_variants_are_recognized(self) -> None:
+        # A recognized model line means no second "This is past price data..." gets appended.
+        for line in ("Past moves aren't a prediction.", "This isn't a forecast.", "This is not a prediction."):
+            self.assertTrue(length_guard.has_disclaimer(line), line)
+        self.assertFalse(length_guard.has_disclaimer("Plasma Storm rose 67%."))
