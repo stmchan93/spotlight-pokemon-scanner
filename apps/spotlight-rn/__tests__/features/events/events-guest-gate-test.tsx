@@ -282,7 +282,7 @@ describe('guest on a show page: the four allowed actions', () => {
 });
 
 describe('guest on a show page: everything else opens login', () => {
-  it('save, share, Buy Tickets and the Maps address', async () => {
+  it('save, share and the Maps address (Buy Tickets stays open)', async () => {
     const share = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
     await renderShow();
@@ -295,9 +295,10 @@ describe('guest on a show page: everything else opens login', () => {
     expectLoginOnly();
     expect(share).not.toHaveBeenCalled();
 
+    // Buying a ticket needs no Ekalight account (owner, 2026-11-21).
     fireEvent.press(screen.getByTestId('event-detail-buy'));
-    expectLoginOnly();
-    expect(openLinkOut).not.toHaveBeenCalled();
+    expect(openLinkOut).toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
 
     fireEvent.press(screen.getByTestId('event-detail-address'));
     expectLoginOnly();

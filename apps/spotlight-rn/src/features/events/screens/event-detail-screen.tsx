@@ -487,7 +487,8 @@ export function EventDetailScreen({ eventId, initialVendorId = null, onBack }: E
           <Button
             label="Buy Tickets"
             labelStyleVariant="label"
-            onPress={gate(() => void openLinkOut(event.ticketUrl ?? ''))}
+            // Open to guests (owner, 2026-11-21): buying a ticket needs no Ekalight account.
+            onPress={() => void openLinkOut(event.ticketUrl ?? '')}
             shape="rounded"
             size="xs"
             style={styles.buy}

@@ -36,6 +36,19 @@ import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 
 /** The server sends the chip set in display order (tools/build_event_floor_map.py FILTER_TAGS); this only guards a runaway list. */
+
+/*
+  The ScrollView's content view as a component ref, for measureLayout. Under the
+  New Architecture measureLayout rejects the numeric handle getInnerViewNode()
+  returns ("must be called with a ref to a native component"), so every
+  scroll-into-view here silently did nothing. RN 0.83 has getInnerViewRef(); its
+  TS types don't list it yet.
+*/
+type ScrollWithContentRef = { getInnerViewRef?: () => View | null };
+function scrollContentRef(scroll: ScrollView): View | null {
+  return (scroll as unknown as ScrollWithContentRef).getInnerViewRef?.() ?? null;
+}
+
 const MAX_TAG_CHIPS = 20;
 /** Map space the floating vendor card covers; a fitted vendor is centred above it. */
 const CARD_OVERLAY_HEIGHT = 96;
@@ -263,7 +276,7 @@ function EventVendorsBody({
     }
     setScrollToMap(false);
     const scroll = scrollRef.current;
-    const inner = scroll.getInnerViewNode?.();
+    const inner = scrollContentRef(scroll);
     if (!inner) {
       return;
     }
@@ -283,7 +296,7 @@ function EventVendorsBody({
       return;
     }
     const scroll = scrollRef.current;
-    const inner = scroll.getInnerViewNode?.();
+    const inner = scrollContentRef(scroll);
     if (!inner) {
       return;
     }
@@ -301,7 +314,7 @@ function EventVendorsBody({
   // The search sits low on the page; bring it near the top so the keyboard opens below it.
   const scrollSearchIntoView = useCallback(() => {
     const scroll = scrollRef?.current;
-    const inner = scroll?.getInnerViewNode?.();
+    const inner = (scroll ? scrollContentRef(scroll) : null);
     if (!scroll || !inner) {
       return;
     }
