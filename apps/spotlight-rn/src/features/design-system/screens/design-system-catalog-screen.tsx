@@ -225,6 +225,16 @@ export function DesignSystemCatalogScreen({
             </View>
 
             <ProgressBar testID="catalog-progress-bar" value={0.62} />
+            {[0.08, 0.45, 0.92].map((fraction) => (
+              <ProgressBar
+                key={fraction}
+                label={`${Math.round(fraction * 100)}%`}
+                size="lg"
+                testID={`catalog-progress-bar-labeled-${Math.round(fraction * 100)}`}
+                track="accent"
+                value={fraction}
+              />
+            ))}
             <QuantityStepper
               formatValue={(value) => `QTY: ${value}`}
               onChange={() => undefined}

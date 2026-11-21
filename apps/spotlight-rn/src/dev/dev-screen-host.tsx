@@ -3,7 +3,7 @@ import { Image, ScrollView, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
 import { MOCK_ASSISTANT_SEED_THREAD_ID, type SpotlightRepository } from '@spotlight/api-client';
-import { Text, colors, textStyles } from '@spotlight/design-system';
+import { ProgressBar, Text, colors, spacing, textStyles } from '@spotlight/design-system';
 
 import { StaticTabsPageProvider } from '@/contexts/tabs-page-context';
 import { AssistantScreen } from '@/features/assistant/screens/assistant-screen';
@@ -229,7 +229,28 @@ const devScreens: Record<string, () => ReactElement> = {
   'blocked-accounts': () => <BlockedAccountsScreen onBack={noop} />,
   'change-password': () => <ChangePasswordScreen />,
   'scan-review': () => <DevScanReviewScreen />,
+  // Labeled 20pt bar (Figma 6607:8860) across fill widths: label fully on the
+  // track, straddling the fill edge, fully on the fill, and both ends.
+  'progress-bar': () => <DevProgressBarScreen />,
 };
+
+const DEV_PROGRESS_VALUES = [0, 0.08, 0.45, 0.5, 0.92, 1];
+
+function DevProgressBarScreen() {
+  return (
+    <View style={{ backgroundColor: colors.gray0, flex: 1, gap: spacing.lg, padding: spacing.md, paddingTop: 120 }}>
+      {DEV_PROGRESS_VALUES.map((fraction) => (
+        <ProgressBar
+          key={fraction}
+          label={`${Math.round(fraction * 100)}%`}
+          size="lg"
+          track="accent"
+          value={fraction}
+        />
+      ))}
+    </View>
+  );
+}
 
 function noop() {
   return undefined;

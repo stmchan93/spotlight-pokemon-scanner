@@ -1028,6 +1028,7 @@ Figma "Collection Progress" 6552:1961). Prop-driven, tokens only.
 - `size`: `'md'` (6pt, default — the Figma bar) | `'sm'` (4pt) | `'lg'` (20pt at `radii.sm` — the set page header, Figma 6607:8644)
 - `tone`: `'accent'` (purple500 fill, default) | `'neutral'` (gray900 fill)
 - `track`: `'neutral'` (gray200, default) | `'accent'` (purple100 — the set page header)
+- `label` — optional text centred in the bar ("45%", Figma 6607:8860; use with `lg`). Two-tone for legibility: a gray900 copy over the track (13.2:1 on purple100) and a white copy over the fill (4.2:1 on purple500), the white one laid out at the measured track width inside the fill (`overflow: 'hidden'`) so the colour switches exactly at the fill edge at any value, 0–100%. Dark copy `testID` `${testID}-label`, white copy `${testID}-label-on-fill` (after layout)
 - track at `radii.pill` (`radii.sm` for `lg`) with `overflow: 'hidden'`; the fill is a rounded bar whose width is `value` of the track
 - `accessibilityRole="progressbar"` with `accessibilityValue.now` in percent; fill has `testID` `${testID}-fill`
 - Figma only draws the 100% state (track and fill both purple500), so the track color is ours

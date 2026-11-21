@@ -594,7 +594,7 @@ describe('GameSetsScreen Search landing (Figma 6597:5654)', () => {
     expect(screen.getByTestId('game-sets-sets-header-count')).toHaveTextContent('(4 RESULTS)');
     expect(within(first).getByText('5/22/2026')).toBeTruthy();
     expect(await within(first).findByText('54 of 120 CARDS')).toBeTruthy();
-    expect(screen.getByTestId('game-sets-expansion-s1-percent')).toHaveTextContent('45%');
+    expect(screen.getByTestId('game-sets-expansion-s1-progress-label')).toHaveTextContent('45%');
     expect(screen.getByTestId('game-sets-expansion-s1-total-value')).toHaveTextContent('TOTAL VALUE: $1,012.78');
     // An unvalued set hides the line rather than reading $0.
     expect(screen.queryByTestId('game-sets-expansion-s2-total-value')).toBeNull();

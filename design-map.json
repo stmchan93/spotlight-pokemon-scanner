@@ -332,6 +332,17 @@
       "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts"
     },
     {
+      "figmaNodeId": "6607:8860",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6607-8860",
+      "screenName": "ProgressBar-6607",
+      "notes": "Labeled 20pt set-progress bar at 0/8/45/50/92/100%. Deliberate deviation: Figma's label is purple100 plus-lighter (near-invisible over the track); code draws it two-tone (gray900 over track, white over fill, split at the fill edge) and Medium weight.",
+      "componentPaths": [
+        "packages/design-system/src/components/progress-bar.tsx",
+        "apps/spotlight-rn/src/features/catalog/components/search-set-card.tsx"
+      ],
+      "deepLink": "spotlight://dev/progress-bar"
+    },
+    {
       "figmaNodeId": "6597:3819",
       "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6597-3819",
       "screenName": "ExpansionDetail",

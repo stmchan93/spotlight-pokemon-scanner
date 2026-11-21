@@ -88,21 +88,14 @@ export function SearchSetCard({
           ) : null}
         </View>
         {completion ? (
-          <View>
-            <ProgressBar
-              accessibilityLabel={`${completion.percent}% complete`}
-              size="lg"
-              testID={`${testID}-progress`}
-              track="accent"
-              value={completion.fraction}
-            />
-            {/* Figma draws the percent centred IN the bar, light over both fill and track. */}
-            <View pointerEvents="none" style={styles.percentOverlay}>
-              <Text style={[theme.typography.overline, { color: theme.colors.gray0 }]} testID={`${testID}-percent`}>
-                {`${completion.percent}%`}
-              </Text>
-            </View>
-          </View>
+          <ProgressBar
+            accessibilityLabel={`${completion.percent}% complete`}
+            label={`${completion.percent}%`}
+            size="lg"
+            testID={`${testID}-progress`}
+            track="accent"
+            value={completion.fraction}
+          />
         ) : null}
       </View>
       {completion || setValue != null ? (
@@ -155,11 +148,6 @@ const styles = StyleSheet.create({
   logoNameSlot: {
     justifyContent: 'center',
     minHeight: LOGO_HEIGHT,
-  },
-  percentOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   title: {
     flexShrink: 1,
