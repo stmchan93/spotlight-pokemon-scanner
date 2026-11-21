@@ -2,21 +2,24 @@ import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'rea
 
 import { Text, radii, spacing, useSpotlightTheme } from '@spotlight/design-system';
 
+// Starter chips sit 10pt apart (Figma 6607:11784); no spacing token for 10.
+const STACK_GAP = 10;
+
 type AssistantPromptChipsProps = {
   prompts: readonly string[];
   onSelect: (prompt: string) => void;
   /** Each chip is `${testIDPrefix}-${index}`. */
   testIDPrefix: string;
-  /** 'stack' = one centred chip per row (starter prompts); 'wrap' = chips flow left to right (follow-ups). */
+  /** 'stack' = one left-aligned chip per row (starter prompts); 'wrap' = chips flow left to right (follow-ups). */
   layout?: 'stack' | 'wrap';
   testID?: string;
   style?: StyleProp<ViewStyle>;
 };
 
 /**
- * Tappable prompts: gray-50 rounded chips in sentence case (Figma 6530:17260 —
- * radius 8, 8pt padding, Regular 15 in gray-800, 8pt apart). Tapping sends the
- * chip's exact text.
+ * Tappable prompts: gray-50 rounded chips in sentence case, radius 8, Regular 15
+ * in gray-800. Follow-ups: 8pt padding, 8pt apart (Figma 6530:17260). Starters:
+ * 12x8 padding, 10pt apart (Figma 6607:11784). Tapping sends the chip's exact text.
  */
 export function AssistantPromptChips({
   prompts,
@@ -39,6 +42,7 @@ export function AssistantPromptChips({
           onPress={() => onSelect(prompt)}
           style={({ pressed }) => [
             styles.chip,
+            layout === 'stack' ? styles.chipStack : null,
             { backgroundColor: pressed ? theme.colors.gray100 : theme.colors.gray50 },
           ]}
           testID={`${testIDPrefix}-${index}`}
@@ -52,8 +56,8 @@ export function AssistantPromptChips({
 
 const styles = StyleSheet.create({
   stack: {
-    alignItems: 'center',
-    gap: spacing.xxs,
+    alignItems: 'flex-start',
+    gap: STACK_GAP,
   },
   wrap: {
     flexDirection: 'row',
@@ -65,5 +69,9 @@ const styles = StyleSheet.create({
     borderRadius: radii.sm,
     maxWidth: '100%',
     padding: spacing.xxs,
+  },
+  chipStack: {
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xxs,
   },
 });

@@ -499,6 +499,43 @@
       ],
       "deepLink": "spotlight://dev/feed",
       "notes": "Market Watch tab of the Social hub; tab rail is Figma 6322:8030. Open spotlight://dev/feed, then tap MARKET WATCH."
+    },
+    {
+      "figmaNodeId": "6607:11726",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6607-11726",
+      "screenName": "Assistant",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/assistant/screens/assistant-screen.tsx",
+        "apps/spotlight-rn/src/features/assistant/components/assistant-composer.tsx",
+        "apps/spotlight-rn/src/features/assistant/components/assistant-prompt-chips.tsx",
+        "apps/spotlight-rn/src/app/(stack)/assistant.tsx"
+      ],
+      "deepLink": "spotlight://dev/assistant",
+      "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts",
+      "notes": "Ask Ekalight. The dev route resumes the mock repository's seeded thread; tap NEW CHAT (testID assistant-new-chat) for the empty state. Copy is owner-picked and differs from the frames on purpose: starter chips come from ASSISTANT_MARKET_PROMPTS and the placeholder is 'What's the most expensive card in my collection?' (wraps to 2 lines, so the empty composer is ~64pt, not 56). The Figma '+' is not built: the assistant has no attach action. iOS 18 sim keyboard differs from the frames' iOS 26 keyboard; crop below the composer. Greeting is dynamic (dev user = 'Hi, UI').",
+      "states": [
+        {
+          "name": "empty",
+          "figmaNodeId": "6607:11726",
+          "how": "spotlight://dev/assistant, tap NEW CHAT"
+        },
+        {
+          "name": "typing-one-line",
+          "figmaNodeId": "6607:11817",
+          "how": "from empty, tap the composer and type one line: starter chips hide, send turns dark"
+        },
+        {
+          "name": "typing-multi-line",
+          "figmaNodeId": "6607:12006",
+          "how": "keep typing until the text wraps to 3 lines"
+        },
+        {
+          "name": "thread",
+          "figmaNodeId": "6502:16657",
+          "deepLink": "spotlight://dev/assistant-thread",
+          "how": "seeded saved thread"
+        }
+      ]
     }
   ]
 }

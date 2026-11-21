@@ -425,11 +425,11 @@ describe('AssistantScreen', () => {
     expect(await screen.findByTestId('assistant-threads-empty')).toBeTruthy();
   });
 
-  it.each(['home', 'scanner'] as const)('a %s chat without cards offers exactly the 3 market prompts, centred one per row', async (source) => {
+  it.each(['home', 'scanner'] as const)('a %s chat without cards offers exactly the 3 market prompts, left-aligned one per row', async (source) => {
     const sendAssistantMessage = jest.fn(async (_payload: AssistantSendPayload) => reply(null));
     renderScreen({ sendAssistantMessage }, { source });
     const chips = await screen.findByTestId('assistant-suggestions');
-    expect(StyleSheet.flatten(chips.props.style)).toMatchObject({ alignItems: 'center' });
+    expect(StyleSheet.flatten(chips.props.style)).toMatchObject({ alignItems: 'flex-start' });
     expect(StyleSheet.flatten(chips.props.style).flexDirection).not.toBe('row');
     expect(ASSISTANT_MARKET_PROMPTS).toEqual([
       "What's my collection worth?",
@@ -443,6 +443,16 @@ describe('AssistantScreen', () => {
     fireEvent.press(screen.getByTestId('assistant-suggestion-1'));
     await waitFor(() => expect(sendAssistantMessage).toHaveBeenCalledTimes(1));
     expect(sendAssistantMessage.mock.calls[0][0].text).toBe('Which of my cards went up this week?');
+  });
+
+  it('hides the starter prompts once the user starts typing, keeping the greeting', async () => {
+    renderScreen({});
+    await screen.findByTestId('assistant-suggestions');
+    fireEvent.changeText(screen.getByTestId('assistant-input'), 'What is');
+    expect(screen.queryByTestId('assistant-suggestions')).not.toBeOnTheScreen();
+    expect(screen.getByTestId('assistant-greeting')).toBeTruthy();
+    fireEvent.changeText(screen.getByTestId('assistant-input'), '');
+    expect(await screen.findByTestId('assistant-suggestions')).toBeTruthy();
   });
 
   it('the scanner gets the same starter prompts as everywhere else, with the tray attached', async () => {

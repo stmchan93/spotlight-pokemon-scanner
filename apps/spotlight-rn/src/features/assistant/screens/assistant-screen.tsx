@@ -78,6 +78,8 @@ const MAX_QUESTION_LENGTH = 1000;
 // The purple Ekalight mark on a new chat (Figma 6502:16508: 52x48, Color/purple/500).
 const INTRO_MARK_WIDTH = 52;
 const INTRO_MARK_HEIGHT = 48;
+// Mark + greeting sit 80pt under the toolbar (Figma 6607:11777); the list adds spacing.sm.
+const INTRO_TOP_OFFSET = 80 - spacing.sm;
 const COPIED_TOAST_MS = 1500;
 const REVEAL_FALLBACK_MS = 400;
 
@@ -568,6 +570,8 @@ export function AssistantScreen({
   const cardContextLine = assistantCardContextLine(cardIds.length);
   const isSending = chat.pending?.status === 'sending';
   const hasConversation = rows.length > 0;
+  // Starter chips step aside once the user starts typing (Figma 6607:11817).
+  const isComposing = keyboardVisible || draft.length > 0;
 
   // Opening resumes the latest chat: until we know whether there is one, draw
   // nothing rather than flashing the greeting, then a spinner, then the chat
@@ -606,7 +610,7 @@ export function AssistantScreen({
           </Text>
         ) : null}
       </View>
-      {chat.isLimitReached ? null : (
+      {chat.isLimitReached || isComposing ? null : (
         <AssistantPromptChips
           layout="stack"
           onSelect={(prompt) => void handleSend(prompt)}
@@ -823,15 +827,17 @@ const styles = StyleSheet.create({
   listContentEmpty: {
     justifyContent: 'center',
   },
-  // Mark + greeting 16pt apart; the prompts 32pt below (Figma 6530:17376).
+  // Figma 6607:11726: mark + greeting in the upper third, 16pt apart; the
+  // starter chips stack left-aligned at the bottom, just above the composer.
   intro: {
-    alignItems: 'center',
+    flexGrow: 1,
     gap: spacing.xxl,
-    paddingVertical: spacing.lg,
+    justifyContent: 'space-between',
   },
   introHead: {
     alignItems: 'center',
     gap: spacing.sm,
+    marginTop: INTRO_TOP_OFFSET,
   },
   centerText: {
     textAlign: 'center',
