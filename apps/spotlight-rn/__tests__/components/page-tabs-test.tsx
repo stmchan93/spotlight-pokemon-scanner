@@ -108,6 +108,26 @@ describe('PageTabs', () => {
     expect(rail.height).toBeGreaterThan(0);
   });
 
+  // Social (Figma 6597:3462): weight + colour mark the active tab, no line.
+  it('indicator="none" drops the rail and keeps the active underline transparent', () => {
+    renderWithProviders(
+      <PageTabs<TabValue>
+        indicator="none"
+        tabs={TABS}
+        value="portfolio"
+        onChange={jest.fn()}
+        testID="page-tabs"
+      />,
+    );
+
+    expect(screen.queryByTestId('page-tabs-rail')).toBeNull();
+    const underline = StyleSheet.flatten(
+      screen.getByTestId('page-tabs-tab-portfolio-underline').props.style,
+    );
+    expect(underline.backgroundColor).toBe('transparent');
+    expect(underline.height).toBe(2);
+  });
+
   // Events (Figma 5476:7154) left-aligns the tabs on the page gutter; every
   // other screen keeps them centered.
   it('centers tabs by default and left-aligns them with align="start"', () => {

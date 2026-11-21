@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { usePathname, useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { Alert, View } from 'react-native';
@@ -129,6 +129,7 @@ describe('AppDrawer', () => {
     expect(screen.getByTestId('app-drawer-nav-insights')).toBeTruthy();
     // The drawer is the only way into the DM inbox.
     expect(screen.getByTestId('app-drawer-nav-messages')).toBeTruthy();
+    expect(screen.getByTestId('app-drawer-nav-find-people')).toBeTruthy();
     expect(screen.getByTestId('app-drawer-nav-whos-that-pokemon')).toBeTruthy();
     // Account Settings sits directly above Log Out and routes to /account.
     expect(screen.getByTestId('app-drawer-nav-account-settings')).toBeTruthy();
@@ -207,6 +208,34 @@ describe('AppDrawer', () => {
       // to Collection — same as Wishlist/Insights/Who's That Pokémon.
       expect(push).toHaveBeenCalledWith('/messages');
       expect(replace).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('navigates to /search/people when Find people is tapped', () => {
+    jest.useFakeTimers();
+    try {
+      renderWithProviders(
+        <>
+          <DrawerController />
+          <AppDrawer />
+        </>,
+      );
+
+      act(() => {
+        drawerHandleRef.current?.open();
+      });
+
+      const row = screen.getByTestId('app-drawer-nav-find-people');
+      expect(within(row).getByText('FIND PEOPLE')).toBeTruthy();
+      fireEvent.press(row);
+
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
+
+      expect(push).toHaveBeenCalledWith('/search/people');
     } finally {
       jest.useRealTimers();
     }

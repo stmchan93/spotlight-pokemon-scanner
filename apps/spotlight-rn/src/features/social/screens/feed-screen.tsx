@@ -895,7 +895,9 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         tabBar={
           <View style={{ backgroundColor: theme.colors.gray0 }}>
             <PageTabs
-              align="gutter-center"
+              // Figma 6597:3462: left on the gutter, no underline or rail.
+              align="gutter"
+              indicator="none"
               labelSize="caption"
               onChange={selectTab}
               tabs={HUB_TABS}

@@ -9,6 +9,7 @@ import {
   MessageText,
   Settings,
   Star,
+  UserPlus,
   ViewGrid,
 } from 'iconoir-react-native';
 import { useEffect, useRef, useState } from 'react';
@@ -285,6 +286,13 @@ export function AppDrawer() {
       // Same glyph the feed and comments sheet already use for conversation.
       icon: ChatBubbleEmpty,
       onPress: tracked('messages', gate(() => goTo('/messages'))),
+    },
+    {
+      // Social's header has no search (Figma 6597:3462), so this is the way in.
+      key: 'find-people',
+      label: 'Find people',
+      icon: UserPlus,
+      onPress: tracked('find_people', gate(() => goTo('/search/people'))),
     },
     {
       key: 'whos-that-pokemon',

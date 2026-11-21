@@ -18,7 +18,7 @@ export type PageTabsProps<V extends string> = {
   /**
    * `start` = left-aligned tabs on the page gutter (Figma Events 5476:7154).
    * `gutter` = the same with 16 inset, 16 between tabs and 12 per tab (Figma Social 6322:8030).
-   * `gutter-center` = `gutter` spacing with the row centred (Social hub, user 2026-11-18).
+   * `gutter-center` = `gutter` spacing with the row centred (Events).
    */
   align?: 'center' | 'start' | 'gutter' | 'gutter-center';
   /**
@@ -38,6 +38,12 @@ export type PageTabsProps<V extends string> = {
   labelSize?: 'default' | 'caption';
   /** Renders the labels in capitals (Figma COLLECTION / FOR SALE / ACTIVITY). */
   uppercase?: boolean;
+  /**
+   * `none` = weight + colour alone mark the active tab: no underline, no rail
+   * (Figma Social 6597:3462). The underline's box stays, transparent, so the
+   * bar keeps its height.
+   */
+  indicator?: 'underline' | 'none';
   testID?: string;
 };
 
@@ -50,6 +56,7 @@ export function PageTabs<V extends string>({
   scrollable = false,
   labelSize = 'default',
   uppercase = false,
+  indicator = 'underline',
   testID,
 }: PageTabsProps<V>) {
   const theme = useSpotlightTheme();
@@ -58,6 +65,7 @@ export function PageTabs<V extends string>({
   const gutterSpacing = align === 'gutter' || align === 'gutter-center';
   const selectedRole = captionLabels ? theme.typography.captionMedium : theme.typography.bodyMedium;
   const inactiveRole = captionLabels ? theme.typography.caption : theme.typography.body;
+  const showIndicator = indicator === 'underline';
 
   const row = (
     <View
@@ -117,7 +125,7 @@ export function PageTabs<V extends string>({
                   styles.underline,
                   styles.underlineOverhang,
                   {
-                    backgroundColor: selected ? theme.colors.textPrimary : 'transparent',
+                    backgroundColor: selected && showIndicator ? theme.colors.textPrimary : 'transparent',
                   },
                 ]}
                 testID={testID ? `${testID}-tab-${tab.value}-underline` : undefined}
@@ -133,16 +141,18 @@ export function PageTabs<V extends string>({
     <View style={styles.root} testID={testID}>
       {/* Full-bleed rail behind the tabs. The selected tab's 2px underline sits
           on the same baseline and paints over it. */}
-      <View
-        style={[
-          styles.rail,
-          {
-            backgroundColor: compact ? theme.colors.gray100 : theme.colors.gray300,
-            height: theme.borderWidths.containerRule,
-          },
-        ]}
-        testID={testID ? `${testID}-rail` : undefined}
-      />
+      {showIndicator ? (
+        <View
+          style={[
+            styles.rail,
+            {
+              backgroundColor: compact ? theme.colors.gray100 : theme.colors.gray300,
+              height: theme.borderWidths.containerRule,
+            },
+          ]}
+          testID={testID ? `${testID}-rail` : undefined}
+        />
+      ) : null}
       {scrollable ? (
         <ScrollView
           // Grows to the bar's width so a centred set that fits sits centred;

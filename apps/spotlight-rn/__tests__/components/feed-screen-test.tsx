@@ -425,14 +425,30 @@ describe('FeedScreen', () => {
       expect(screen.getByTestId('feed-tabs-tab-social').props.accessibilityState.selected).toBe(true);
     });
 
-    it('centres the tab row horizontally', async () => {
+    // Figma 6597:3462: left on the 16 gutter, active tab marked by weight and
+    // colour only — no underline, no rail.
+    it('left-aligns the tab row with no underline or rail', async () => {
       renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-      // The row of tabs is the PageTabs root's second child, after the rail.
-      const row = screen.getByTestId('feed-tabs').children[1];
+      expect(screen.queryByTestId('feed-tabs-rail')).toBeNull();
+      // With no rail, the row is the PageTabs root's only child.
+      const row = screen.getByTestId('feed-tabs').children[0];
       const style = StyleSheet.flatten(typeof row === 'string' ? undefined : row.props.style);
-      expect(style.justifyContent).toBe('center');
+      expect(style.justifyContent).toBe('flex-start');
+      expect(style.paddingHorizontal).toBe(16);
+      expect(style.gap).toBe(16);
+
+      const underline = StyleSheet.flatten(
+        screen.getByTestId('feed-tabs-tab-social-underline').props.style,
+      );
+      expect(underline.backgroundColor).toBe('transparent');
+
+      // Active darker than inactive.
+      const social = StyleSheet.flatten(screen.getByText('SOCIAL').props.style);
+      const news = StyleSheet.flatten(screen.getByText('NEWS').props.style);
+      expect(social.color).not.toBe(news.color);
+      expect(social.fontSize).toBe(13);
     });
 
     it('mounts News and Market Watch on their first visit, not before', async () => {

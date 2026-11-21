@@ -1025,9 +1025,10 @@ Use for a completion bar (set progress on the sets list and the set page,
 Figma "Collection Progress" 6552:1961). Prop-driven, tokens only.
 
 - `value` — fraction complete, 0..1; clamped (NaN → 0, Infinity → 1) via the exported `clampProgress`
-- `size`: `'md'` (6pt, default — the Figma bar) | `'sm'` (4pt)
+- `size`: `'md'` (6pt, default — the Figma bar) | `'sm'` (4pt) | `'lg'` (20pt at `radii.sm` — the set page header, Figma 6607:8644)
 - `tone`: `'accent'` (purple500 fill, default) | `'neutral'` (gray900 fill)
-- gray200 track at `radii.pill` with `overflow: 'hidden'`; the fill is a rounded bar whose width is `value` of the track
+- `track`: `'neutral'` (gray200, default) | `'accent'` (purple100 — the set page header)
+- track at `radii.pill` (`radii.sm` for `lg`) with `overflow: 'hidden'`; the fill is a rounded bar whose width is `value` of the track
 - `accessibilityRole="progressbar"` with `accessibilityValue.now` in percent; fill has `testID` `${testID}-fill`
 - Figma only draws the 100% state (track and fill both purple500), so the track color is ours
 
@@ -1081,7 +1082,7 @@ Current API concepts:
 
 - centered, content-width tabs with a 40px gap (Figma 3184-17337) — not full-width `flex: 1` tabs
 - `align="gutter"`: left-aligned with a 16 inset, 16 between tabs and 12 per tab (Figma Social 6322:8030)
-- `align="gutter-center"`: `gutter` spacing with the row centred (the Social hub tabs)
+- `align="gutter-center"`: `gutter` spacing with the row centred (Events)
 - active tab: `bodyMedium` / `textPrimary` with a 2px `textPrimary` underline hugging the label
 - inactive tab: `body` / `textSecondary`, no underline
 - a full-bleed `gray200` rail runs edge to edge under all tabs; the active underline shares its
@@ -1091,6 +1092,8 @@ Current API concepts:
   labels boxed by 16pt side padding, 6pt word-to-underline, inactive `gray500`, on a `gray100`
   rail; always left-aligned on the page gutter
 - `scrollable` — wraps the row in a horizontal `ScrollView` for sets that can outgrow the screen
+- `indicator="none"` — no underline and no rail; the active tab is marked by weight and colour
+  only (Social hub, Figma 6597:3462). The underline's 2pt box stays, transparent, so height is unchanged
 
 ### FloatingBottomNav
 
