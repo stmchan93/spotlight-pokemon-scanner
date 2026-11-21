@@ -18,6 +18,7 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { recordBoothEvent, reportBoothClaim, type BoothClaim } from '@/features/events/booth-service';
 import { BoothVendorPanel, useClaimBooth } from '@/features/events/components/booth-vendor-panel';
 import { EventFloorMap } from '@/features/events/components/event-floor-map';
@@ -35,6 +36,19 @@ import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 
 /** The server sends the chip set in display order (tools/build_event_floor_map.py FILTER_TAGS); this only guards a runaway list. */
+
+/*
+  The ScrollView's content view as a component ref, for measureLayout. Under the
+  New Architecture measureLayout rejects the numeric handle getInnerViewNode()
+  returns ("must be called with a ref to a native component"), so every
+  scroll-into-view here silently did nothing. RN 0.83 has getInnerViewRef(); its
+  TS types don't list it yet.
+*/
+type ScrollWithContentRef = { getInnerViewRef?: () => View | null };
+function scrollContentRef(scroll: ScrollView): View | null {
+  return (scroll as unknown as ScrollWithContentRef).getInnerViewRef?.() ?? null;
+}
+
 const MAX_TAG_CHIPS = 20;
 /** Map space the floating vendor card covers; a fitted vendor is centred above it. */
 const CARD_OVERLAY_HEIGHT = 96;
@@ -149,6 +163,8 @@ function EventVendorsBody({
   const refreshClaims = booth?.refreshClaims;
   const onClaimsChanged = useCallback(() => refreshClaims?.(), [refreshClaims]);
   const { claim, gate, pendingId } = useClaimBooth(eventId, onClaimsChanged);
+  // Guests look only (owner, 2026-11-21): rows don't open, no claim link, the map card is just the name.
+  const { isGuest } = useGuestGate();
 
   // No tables assigned yet: no floor to draw, so the list carries everything and
   // a tapped vendor's card opens in place of its row.
@@ -185,12 +201,12 @@ function EventVendorsBody({
   }, [booth, map.vendors]);
   // Treasure-email matches the user hasn't claimed yet (theirs already reads "Your booth").
   const suggestions = useMemo(() => {
-    if (!booth || booth.hasMyBooth) {
+    if (!booth || booth.hasMyBooth || isGuest) {
       return [];
     }
     const ids = new Set(booth.suggestedVendorIds);
     return map.vendors.filter((vendor) => ids.has(vendor.id) && booth.claims.get(vendor.id)?.userId !== booth.myUserId);
-  }, [booth, map.vendors]);
+  }, [booth, isGuest, map.vendors]);
   const matchedTableIds = useMemo(
     () => (isFiltering ? new Set(matches.flatMap((vendor) => vendor.tableIds)) : new Set<string>()),
     [isFiltering, matches],
@@ -210,8 +226,9 @@ function EventVendorsBody({
   const selectedHasPhotos = Boolean(
     selected && booth?.postsByVendor.get(selected.id)?.some((post) => post.media.length > 0),
   );
+  const cardBooth = isGuest ? null : booth;
   const cardOverlayHeight =
-    CARD_OVERLAY_HEIGHT + (booth ? BOOTH_ROW_HEIGHT : 0) + (selectedHasPhotos ? BOOTH_STRIP_HEIGHT : 0);
+    CARD_OVERLAY_HEIGHT + (cardBooth ? BOOTH_ROW_HEIGHT : 0) + (cardBooth && selectedHasPhotos ? BOOTH_STRIP_HEIGHT : 0);
 
   const select = useCallback((vendor: SpotlightEventMapVendor) => {
     setScrollToSelected(false);
@@ -231,10 +248,11 @@ function EventVendorsBody({
       if (!isFiltering && matches.indexOf(vendor) >= COLLAPSED_ROWS) {
         setExpanded(true);
       }
-      setScrollToSelected(true);
+      // Guests stay on the map, where the card shows the name; their rows don't open anything.
+      setScrollToSelected(!isGuest);
       setSelectedId((current) => (current === vendor.id ? null : vendor.id));
     },
-    [isFiltering, map.vendors, matches],
+    [isFiltering, isGuest, map.vendors, matches],
   );
 
   useEffect(() => {
@@ -262,7 +280,7 @@ function EventVendorsBody({
     }
     setScrollToMap(false);
     const scroll = scrollRef.current;
-    const inner = scroll.getInnerViewNode?.();
+    const inner = scrollContentRef(scroll);
     if (!inner) {
       return;
     }
@@ -282,7 +300,7 @@ function EventVendorsBody({
       return;
     }
     const scroll = scrollRef.current;
-    const inner = scroll.getInnerViewNode?.();
+    const inner = scrollContentRef(scroll);
     if (!inner) {
       return;
     }
@@ -300,7 +318,7 @@ function EventVendorsBody({
   // The search sits low on the page; bring it near the top so the keyboard opens below it.
   const scrollSearchIntoView = useCallback(() => {
     const scroll = scrollRef?.current;
-    const inner = scroll?.getInnerViewNode?.();
+    const inner = (scroll ? scrollContentRef(scroll) : null);
     if (!scroll || !inner) {
       return;
     }
@@ -339,7 +357,14 @@ function EventVendorsBody({
           {/* Docked inside the map (Figma 5865:11358): below it, a tapped table's vendor landed off-screen. */}
           {selected ? (
             <View pointerEvents="box-none" style={styles.cardOverlay}>
-              <SelectedVendorCard booth={booth} eventId={eventId} onClose={deselect} stories={stories} vendor={selected} />
+              <SelectedVendorCard
+                booth={cardBooth}
+                eventId={eventId}
+                lookOnly={isGuest}
+                onClose={deselect}
+                stories={stories}
+                vendor={selected}
+              />
             </View>
           ) : null}
         </View>
@@ -395,6 +420,7 @@ function EventVendorsBody({
       {suggestions.map((vendor) => (
         <ThisIsYouCard
           claim={booth?.claims.get(vendor.id) ?? null}
+          gate={gate}
           key={vendor.id}
           onClaim={gate(() => claim(vendor, 'suggestion'))}
           pending={pendingId === vendor.id}
@@ -402,7 +428,7 @@ function EventVendorsBody({
         />
       ))}
 
-      {booth && !booth.hasMyBooth ? (
+      {booth && !booth.hasMyBooth && !isGuest ? (
         <View style={styles.claimModeBar}>
           {claimMode ? (
             <>
@@ -422,7 +448,7 @@ function EventVendorsBody({
             <Pressable
               accessibilityRole="button"
               hitSlop={spacing.xxs}
-              onPress={() => setClaimMode(true)}
+              onPress={gate(() => setClaimMode(true))}
               testID="event-vendors-find-booth"
             >
               <Text style={[theme.typography.caption, { color: theme.colors.purple500 }]}>
@@ -443,7 +469,14 @@ function EventVendorsBody({
             <Fragment key={vendor.id}>
               {vendorsOnly && isSelected ? (
                 <View ref={selectedRowRef}>
-                  <SelectedVendorCard booth={booth} eventId={eventId} onClose={deselect} stories={stories} vendor={vendor} />
+                  <SelectedVendorCard
+                    booth={cardBooth}
+                    eventId={eventId}
+                    lookOnly={isGuest}
+                    onClose={deselect}
+                    stories={stories}
+                    vendor={vendor}
+                  />
                 </View>
               ) : (
                 <VendorRow
@@ -451,12 +484,12 @@ function EventVendorsBody({
                   claimPending={pendingId === vendor.id}
                   hot={booth?.hotVendorIds.has(vendor.id) ?? false}
                   onClaim={gate(() => claim(vendor, 'list'))}
-                  onPost={() =>
+                  onPost={gate(() =>
                     router.push(
                       `/new-post?eventId=${encodeURIComponent(eventId)}&vendorId=${encodeURIComponent(vendor.id)}` as never,
-                    )
-                  }
-                  onPress={select}
+                    ),
+                  )}
+                  onPress={isGuest ? undefined : select}
                   ref={isSelected ? selectedRowRef : null}
                   selected={isSelected}
                   storyRing={stories?.ringFor(vendor.id) ?? null}
@@ -489,6 +522,8 @@ function EventVendorsBody({
   );
 }
 
+type GuestGate = ReturnType<typeof useGuestGate>['gate'];
+
 /** What a list row shows for its booth: nothing extra, a Claim pill, "Claimed", or the owner's actions. */
 type RowBoothState = 'mine' | 'claimable' | 'claimed' | null;
 
@@ -505,7 +540,8 @@ function rowBoothState(claim: BoothClaim | undefined, myUserId: string | null, c
 type VendorRowProps = {
   vendor: SpotlightEventMapVendor;
   selected: boolean;
-  onPress: (vendor: SpotlightEventMapVendor) => void;
+  /** Absent = a plain, non-pressable row (guests). */
+  onPress?: (vendor: SpotlightEventMapVendor) => void;
   ref?: React.Ref<View>;
   hot?: boolean;
   booth?: RowBoothState;
@@ -531,15 +567,9 @@ function VendorRow({
   onOpenStory,
 }: VendorRowProps) {
   const theme = useSpotlightTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      onPress={() => onPress(vendor)}
-      ref={ref}
-      style={[styles.row, selected ? [styles.rowSelected, { backgroundColor: theme.colors.gray900 }] : null]}
-      testID={`event-vendor-${vendor.id}`}
-    >
+  const rowStyle = [styles.row, selected ? [styles.rowSelected, { backgroundColor: theme.colors.gray900 }] : null];
+  const content = (
+    <>
       <VendorLogo onPress={storyRing ? onOpenStory : undefined} ring={storyRing} size={ROW_LOGO_SIZE} vendor={vendor} />
       <View style={styles.rowText}>
         <Text
@@ -604,6 +634,25 @@ function VendorRow({
           {vendor.location}
         </Text>
       ) : null}
+    </>
+  );
+  if (!onPress) {
+    return (
+      <View ref={ref} style={rowStyle} testID={`event-vendor-${vendor.id}`}>
+        {content}
+      </View>
+    );
+  }
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      onPress={() => onPress(vendor)}
+      ref={ref}
+      style={rowStyle}
+      testID={`event-vendor-${vendor.id}`}
+    >
+      {content}
     </Pressable>
   );
 }
@@ -615,11 +664,13 @@ function VendorRow({
 function ThisIsYouCard({
   vendor,
   claim,
+  gate,
   pending,
   onClaim,
 }: {
   vendor: SpotlightEventMapVendor;
   claim: BoothClaim | null;
+  gate: GuestGate;
   pending: boolean;
   onClaim: () => void;
 }) {
@@ -647,7 +698,7 @@ function ThisIsYouCard({
         <Button
           label="Report"
           labelStyleVariant="label"
-          onPress={report}
+          onPress={gate(report)}
           shape="rounded"
           size="xs"
           testID={`event-vendor-you-report-${vendor.id}`}
@@ -673,18 +724,21 @@ function ThisIsYouCard({
 function SelectedVendorCard({
   booth,
   eventId,
+  lookOnly,
   vendor,
   onClose,
   stories,
 }: {
   booth: BoothFloor | null;
   eventId: string;
+  /** Guests: name, tags and table only — no Instagram, story or booth actions. */
+  lookOnly: boolean;
   vendor: SpotlightEventMapVendor;
   onClose: () => void;
   stories: VendorStories | null;
 }) {
   const theme = useSpotlightTheme();
-  const instagram = vendor.instagram;
+  const instagram = lookOnly ? null : vendor.instagram;
   const claim = booth?.claims.get(vendor.id) ?? null;
   const mine = claim != null && claim.userId === booth?.myUserId;
 
@@ -707,8 +761,8 @@ function SelectedVendorCard({
     <View style={[styles.card, shadows.card, { backgroundColor: theme.colors.gray0 }]} testID="event-vendor-card">
       <View style={styles.cardHeader}>
         <VendorLogo
-          onPress={stories ? () => stories.open(vendor.id, 'card') : undefined}
-          ring={stories?.ringFor(vendor.id) ?? null}
+          onPress={stories && !lookOnly ? () => stories.open(vendor.id, 'card') : undefined}
+          ring={lookOnly ? null : (stories?.ringFor(vendor.id) ?? null)}
           size={CARD_LOGO_SIZE}
           vendor={vendor}
         />
@@ -753,7 +807,7 @@ function SelectedVendorCard({
           <Xmark color={theme.colors.gray600} height={INSTAGRAM_ICON_SIZE} width={INSTAGRAM_ICON_SIZE} />
         </Pressable>
       </View>
-      {booth ? (
+      {booth && !lookOnly ? (
         <BoothVendorPanel
           canClaim={!booth.hasMyBooth}
           claim={claim}
