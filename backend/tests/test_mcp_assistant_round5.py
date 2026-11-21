@@ -240,6 +240,10 @@ class AmbiguityTests(AssistantCase):
             {"card_id": "me5-48", "name": "Mega Darkrai ex", "set": "Pitch Black", "number": "48/084", "price_usd": 0.70},
         ]}
         flt = {"text": "Mega Darkrai ex"}
+        promo = {"card_id": "mep-99", "name": "Mega Darkrai ex", "set": "MEP Black Star Promos", "number": "99", "price_usd": 9.0}
+        named_set = default_printing_hint(self.conn, {"results": [*results["results"], promo]}, flt,
+                                          "how is mega darkrai ex from pitch black doing, chart")
+        self.assertEqual(named_set["default_printing_card_id"], "me5-116")
         hint = default_printing_hint(self.conn, results, flt, "How is the mega darkrai ex doing gimme a price chart")
         self.assertEqual(hint["default_printing_card_id"], "me5-116")
         self.assertIn("Don't ask which one", hint["default_printing_note"])

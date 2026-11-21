@@ -1366,6 +1366,9 @@ def default_printing_hint(conn: Any, result: dict[str, Any], card_filter: Any, q
     named = [item for item in items if text and str(item.get("name") or "").casefold() == text]
     english = [item for item in named if not is_japanese_card(str(item["card_id"]), item.get("language"))]
     candidates = english or named
+    lowered = q.casefold()
+    in_named_set = [item for item in candidates if item.get("set") and str(item["set"]).casefold() in lowered]
+    candidates = in_named_set or candidates
     if len({str(item.get("card_id")) for item in candidates}) < 2:
         return {}
     if len({str(item.get("set") or "") for item in candidates}) != 1:
