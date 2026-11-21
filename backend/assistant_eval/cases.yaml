@@ -955,6 +955,19 @@ cases:
         rubric:
           - "Does the answer explain first print run / scarcity correctly?"
 
+  - id: single_undervalued_pick_chart
+    category: investing
+    turns:
+      - ask: "Show me the most undervalued card that's worth picking up right now"
+        expect:
+          tools_all: [find_price_lows, get_price_history]
+          chart_required: true
+          chart_card_matches_tile: true
+          tiles_max: 1
+        rubric:
+          - "Does it name exactly one card with its recent drop, backed by the tool results?"
+          - "Does it say plainly that this is not a prediction?"
+
   # --- ambiguous card names -----------------------------------------------------
   - id: ambiguous_charizard_price
     review_label: L014
