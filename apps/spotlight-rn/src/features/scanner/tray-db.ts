@@ -218,6 +218,47 @@ export async function clearOwnerTrayRows(ownerKey: string | null): Promise<boole
   return result === true;
 }
 
+/**
+ * Moves every row of `fromOwnerKey` to `toOwnerKey` in one transaction and
+ * clears each moved row's `scanID` (the scan event belongs to the old owner on
+ * the server, so the new owner can't reference it). Resolves the scan ids that
+ * were cleared, or null without a DB.
+ */
+export function reassignOwnerTrayRows(
+  fromOwnerKey: string,
+  toOwnerKey: string,
+): Promise<string[] | null> {
+  return enqueue(async (db) => {
+    const clearedScanIds: string[] = [];
+    await db.withTransactionAsync(async () => {
+      const rows = await db.getAllAsync<{ id: string; captureJson: string }>(
+        'SELECT id, capture_json AS captureJson FROM scan_tray_rows WHERE owner_key = ?',
+        fromOwnerKey,
+      );
+      for (const row of rows) {
+        let captureJson = row.captureJson;
+        try {
+          const capture = JSON.parse(row.captureJson) as { scanID?: unknown };
+          if (typeof capture.scanID === 'string' && capture.scanID.length > 0) {
+            clearedScanIds.push(capture.scanID);
+            captureJson = JSON.stringify({ ...capture, scanID: null });
+          }
+        } catch {
+          // Undecodable rows move as-is; the next load drops them.
+        }
+        await db.runAsync(
+          'UPDATE scan_tray_rows SET owner_key = ?, capture_json = ? WHERE id = ? AND owner_key = ?',
+          toOwnerKey,
+          captureJson,
+          row.id,
+          fromOwnerKey,
+        );
+      }
+    });
+    return clearedScanIds;
+  });
+}
+
 export function listOwnerTrayRowIds(ownerKey: string | null): Promise<Set<string> | null> {
   const owner = ownerColumn(ownerKey);
   return enqueue(async (db) => {

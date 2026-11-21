@@ -18,6 +18,7 @@ import {
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
+import { clearHasSignedIn, isFirstLaunchResetAvailable } from '@/features/auth/guest-first-launch';
 import {
   PRIVACY_POLICY_URL,
   TERMS_OF_USE_URL,
@@ -219,6 +220,31 @@ export function AccountScreen() {
   const handleSignOut = useCallback(async () => {
     await revokePushToken(spotlightRepository).catch(() => false);
     await auth.signOut();
+  }, [auth, spotlightRepository]);
+
+  // Staging/dev testing aid (long-press the build stamp): sign out AND forget
+  // that this device ever had an account, so the next cold start is a
+  // first-launch guest on the scanner. Never offered on production builds.
+  const canResetToFirstLaunch = isFirstLaunchResetAvailable();
+  const handleResetToFirstLaunch = useCallback(() => {
+    Alert.alert(
+      'Reset to first launch?',
+      'Signs out and forgets this device ever signed in. Close and reopen the app to start as a guest.',
+      [
+        { style: 'cancel', text: 'Cancel' },
+        {
+          onPress: () => {
+            void (async () => {
+              await revokePushToken(spotlightRepository).catch(() => false);
+              await clearHasSignedIn();
+              await auth.signOut();
+            })();
+          },
+          style: 'destructive',
+          text: 'Reset',
+        },
+      ],
+    );
   }, [auth, spotlightRepository]);
 
   const confirmDeleteAccount = useCallback(async () => {
@@ -682,7 +708,11 @@ export function AccountScreen() {
           This line ends that. Read the short id aloud against the OTA output and
           you know in one second which of the two you are looking at.
         */}
-        <Text style={[theme.typography.caption, styles.buildStamp, { color: theme.colors.textSecondary }]} testID="account-build-stamp">
+        <Text
+          onLongPress={canResetToFirstLaunch ? handleResetToFirstLaunch : undefined}
+          style={[theme.typography.caption, styles.buildStamp, { color: theme.colors.textSecondary }]}
+          testID="account-build-stamp"
+        >
           {buildStamp}
         </Text>
       </ScrollView>

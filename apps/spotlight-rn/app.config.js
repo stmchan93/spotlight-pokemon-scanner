@@ -282,6 +282,7 @@ function withPlugin(existingPlugins, pluginEntry) {
 // Production 1.3.0 -> 1.3.1 with the same change (store version 1.3.1).
 // 2026-10-08: react-native-maps (Events map) moved staging 0.1.4 -> 0.1.5.
 // 2026-10-19: production 1.3.1 -> 1.3.2 picks up react-native-maps (store version 1.3.2).
+// 2026-11-21: @react-native-google-signin (native Google sign-in) moved staging 0.1.5 -> 0.1.6.
 const SPOTLIGHT_RUNTIME_VERSION_BY_ENV = {
   production: '1.3.3',
 };

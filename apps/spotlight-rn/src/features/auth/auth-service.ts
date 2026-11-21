@@ -1420,6 +1420,15 @@ export async function verifyAnonymousEmailConversion({
   return session;
 }
 
+export type LinkOAuthIdentityOptions = {
+  /**
+   * Called when the identity already belongs to an existing account, just
+   * before the native path signs into that account instead (the guest is
+   * abandoned).
+   */
+  onExistingAccountDetected?: () => void;
+};
+
 /**
  * Guest → OAuth account: link an Apple/Google identity to the CURRENT anonymous
  * user, so the uuid survives. Google uses the native sheet when this binary
@@ -1429,6 +1438,7 @@ export async function verifyAnonymousEmailConversion({
  */
 export async function linkOAuthIdentityToCurrentUser(
   provider: 'apple' | 'google',
+  options: LinkOAuthIdentityOptions = {},
 ): Promise<Session | null> {
   if (!supabase) {
     throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
@@ -1438,9 +1448,15 @@ export async function linkOAuthIdentityToCurrentUser(
     const nativeGoogle = await resolveNativeGoogleSignin();
     if (nativeGoogle) {
       await requireAnonymousSession();
-      return linkNativeGoogleIdentityToCurrentUser(nativeGoogle);
+      return linkNativeGoogleIdentityToCurrentUser(nativeGoogle, options);
     }
   }
+
+  // Browser path: an "already linked to another user" rejection is thrown to
+  // the caller, which then runs a SECOND browser round trip (signInWithOAuth).
+  // That one is unavoidable here: the link redirect hands back only an error,
+  // never a Google credential the app could reuse — only the native sheet gives
+  // us an id token. It now runs only on binaries without the native module.
 
   if (!webBrowserModule) {
     throw new Error('Account linking is unavailable in the current app build.');
@@ -1486,7 +1502,14 @@ export async function linkOAuthIdentityToCurrentUser(
 
 // OIDC overload of linkIdentity: attaches Google to the anonymous user (same
 // uuid), never a new user — the Google mirror of linkAppleIdentityToCurrentUser.
-async function linkNativeGoogleIdentityToCurrentUser(google: GoogleSigninModule): Promise<Session> {
+//
+// When that Google account already belongs to an existing Ekalight account,
+// the link can never succeed; the person has an account, so sign into it with
+// the SAME id token. Re-opening the sheet here was the double prompt.
+async function linkNativeGoogleIdentityToCurrentUser(
+  google: GoogleSigninModule,
+  options: LinkOAuthIdentityOptions,
+): Promise<Session> {
   if (!supabase) {
     throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
   }
@@ -1496,7 +1519,19 @@ async function linkNativeGoogleIdentityToCurrentUser(google: GoogleSigninModule)
     token: idToken,
   });
   if (error) {
-    throw error;
+    if (!isIdentityAlreadyLinkedError(error)) {
+      throw error;
+    }
+    // Before the sign-in: its SIGNED_IN event can reach the provider first.
+    options.onExistingAccountDetected?.();
+    const signIn = await supabase.auth.signInWithIdToken({ provider: 'google', token: idToken });
+    if (signIn.error) {
+      throw signIn.error;
+    }
+    if (!signIn.data.session) {
+      throw new Error('Google sign-in did not create a session.');
+    }
+    return signIn.data.session;
   }
   if (!data.session) {
     throw new Error('Google account linking did not create a session.');

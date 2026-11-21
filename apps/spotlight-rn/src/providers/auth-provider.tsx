@@ -59,6 +59,7 @@ import {
 } from '@/features/auth/auth-models';
 import { TurnstileCaptchaHost } from '@/features/auth/captcha/turnstile-captcha-host';
 import { hasEverSignedIn, markHasSignedIn } from '@/features/auth/guest-first-launch';
+import { handOffGuestTrayToAccount } from '@/features/scanner/recent-captures-persistence';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { resolveRuntimeBoolean } from '@/lib/runtime-config';
 import { supabase } from '@/lib/supabase';
@@ -408,12 +409,18 @@ function conversionProvider(providers: readonly string[]): string {
   return providers[0] ?? 'unknown';
 }
 
+// `existing_account: true` = the guest signed into an account that already
+// owned the identity (the link was rejected), so the anonymous user is
+// abandoned and `preserved_identity` is honestly false. Filter those out
+// before reading the ratio as "the conversion path minted a duplicate".
 function captureGuestConverted(options: {
+  existingAccount: boolean;
   hadMintedSession: boolean;
   preservedIdentity: boolean;
   provider: string;
 }) {
   capturePostHogEvent('guest_converted', {
+    existing_account: options.existingAccount,
     had_minted_session: options.hadMintedSession,
     preserved_identity: options.preservedIdentity,
     provider: options.provider,
@@ -498,6 +505,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
   // because the identity already belongs to an existing account, the URL
   // handler needs this to re-sign-in with the right provider.
   const pendingOAuthLinkProviderRef = useRef<'apple' | 'google' | null>(null);
+  // Set when a guest's link was rejected because the identity already belongs
+  // to an existing account, BEFORE signing into that account; read once by the
+  // guest_converted capture.
+  const existingAccountSignInRef = useRef(false);
 
   const setPendingGuest = useCallback((pending: boolean) => {
     isPendingGuestRef.current = pending;
@@ -544,6 +555,21 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [setCurrentUser]);
 
   const updateFromSession = useCallback(async (session: Session | null) => {
+    // A guest just became a DIFFERENT, real account on this device (signed
+    // into the account that already owned the identity). Their scan tray goes
+    // with them. Must run before setCurrentSession: the scanner reloads the
+    // tray for the new owner on that render and drops every other owner's rows.
+    const previousSession = currentSessionRef.current;
+    if (
+      session
+      && !isAnonymousSession(session)
+      && previousSession
+      && isAnonymousSession(previousSession)
+      && previousSession.user.id !== session.user.id
+    ) {
+      void handOffGuestTrayToAccount(previousSession.user.id, session.user.id);
+    }
+
     accessTokenRef.current = getAccessToken(session);
     setCurrentSession(session);
 
@@ -597,8 +623,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
     // Whatever guest we were holding is now spent, either way.
     guestUserIdRef.current = null;
 
+    const existingAccount = existingAccountSignInRef.current;
+    existingAccountSignInRef.current = false;
     if (wasPendingGuest || priorGuestUserId != null) {
       captureGuestConverted({
+        existingAccount,
         // False means they converted before ever costing anything — the
         // deferred mint doing exactly its job.
         hadMintedSession: priorGuestUserId != null,
@@ -728,6 +757,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       const pendingProvider = pendingOAuthLinkProviderRef.current;
       if (pendingProvider && isIdentityAlreadyLinkedError(error)) {
         pendingOAuthLinkProviderRef.current = null;
+        existingAccountSignInRef.current = true;
         // Inline busy/error handling, NOT performAuthAction: that callback's
         // identity tracks isBusy, and depending on it here would re-run the
         // init effect (which owns this handler) on every busy toggle.
@@ -745,6 +775,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
             captureAuthSignInSucceeded(pendingProvider);
           }
         } catch (fallbackError) {
+          existingAccountSignInRef.current = false;
           captureAuthSignInFailed(pendingProvider, fallbackError);
           const fallbackMessage = errorMessageFromUnknown(fallbackError);
           if (fallbackMessage) {
@@ -1015,12 +1046,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
           session = isAnonymousSession(currentSession)
             ? await linkAppleIdentityToCurrentUser().catch((error) => {
                 if (isIdentityAlreadyLinkedError(error)) {
+                  existingAccountSignInRef.current = true;
                   return signInWithApple();
                 }
                 throw error;
               })
             : await signInWithApple();
         } catch (error) {
+          existingAccountSignInRef.current = false;
           captureAuthSignInFailed('apple', error);
           if (error instanceof AuthCanceledError || isAuthCanceledError(error) || (error instanceof Error && isTransportError(error))) {
             throw error;
@@ -1035,17 +1068,27 @@ export function AuthProvider({ children }: PropsWithChildren) {
     },
     signInWithGoogle: async () => {
       await performAuthAction(async () => {
-        // Guest: LINK Google to the anonymous user (browser redirect) so the
-        // uuid survives. A null session means the system browser took over and
-        // the session arrives on the deep link instead — remember the provider
-        // so handleIncomingURL can run the fallback from there. Same
-        // already-linked fallback as Apple: an existing account wins.
+        // Guest: LINK Google to the anonymous user so the uuid survives. Same
+        // already-linked rule as Apple: an existing account wins.
+        //   - Native sheet: the service handles the conflict itself, signing
+        //     in with the SAME id token — one Google prompt.
+        //   - Browser fallback (binaries without the native module): the
+        //     rejection lands here and a second browser round trip signs in;
+        //     the link redirect carries no credential to reuse. A null session
+        //     means the system browser took over and the result arrives on
+        //     the deep link — remember the provider so handleIncomingURL can
+        //     run the same fallback from there.
         if (isAnonymousSession(currentSession)) {
           pendingOAuthLinkProviderRef.current = 'google';
         }
         const session = isAnonymousSession(currentSession)
-          ? await linkOAuthIdentityToCurrentUser('google').catch((error) => {
+          ? await linkOAuthIdentityToCurrentUser('google', {
+              onExistingAccountDetected: () => {
+                existingAccountSignInRef.current = true;
+              },
+            }).catch((error) => {
               if (isIdentityAlreadyLinkedError(error)) {
+                existingAccountSignInRef.current = true;
                 return signInWithGoogle();
               }
               throw error;
@@ -1058,6 +1101,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         }
       }, {
         onError: (error) => {
+          existingAccountSignInRef.current = false;
           captureAuthSignInFailed('google', error);
         },
       });
@@ -1068,6 +1112,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         setPendingGuest(false);
         guestMintRef.current = null;
         pendingOAuthLinkProviderRef.current = null;
+        existingAccountSignInRef.current = false;
         accessTokenRef.current = null;
         setCurrentSession(null);
         setCurrentUser(null);

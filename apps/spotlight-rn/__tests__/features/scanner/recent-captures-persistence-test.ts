@@ -11,6 +11,7 @@ import {
   findCapturesWithMissingImages,
   flushPersist,
   FS_CONCURRENCY_LIMIT,
+  handOffGuestTrayToAccount,
   loadPersistedTraySnapshot,
   PERSIST_DEBOUNCE_MS,
   PERSIST_MAX_WAIT_MS,
@@ -19,6 +20,7 @@ import {
   setRecentCapturesOwner,
   sweepOrphanScans,
 } from '@/features/scanner/recent-captures-persistence';
+import type { ScanPriceSheetSelection } from '@/features/scanner/screens/scan-price-sheet';
 import type { RecentCapture } from '@/features/scanner/screens/scanner-screen-types';
 import * as trayDb from '@/features/scanner/tray-db';
 
@@ -378,6 +380,81 @@ describe('recent-captures-persistence (tray DB)', () => {
       setRecentCapturesOwner('user-b');
       await settleDebouncedWrite();
       expect(await storedIds('user-b')).toEqual([]);
+    });
+  });
+
+  describe('guest tray hand-off', () => {
+    const selection: ScanPriceSheetSelection = {
+      variantKey: 'holofoil',
+      variantLabel: 'Holofoil',
+      conditionCode: 'near_mint',
+      conditionShortLabel: 'NM',
+      marketPrice: 12,
+    };
+
+    it('a guest who signs into an existing account keeps the tray, minus the guest-owned scan ids', async () => {
+      setRecentCapturesOwner('guest-anon');
+      await flushPersist(
+        [makeCapture({ id: 'g-2' }), makeCapture({ id: 'g-1' })],
+        new Map([['g-2', selection]]),
+      );
+      await seedTrayRows('other-user', [makeCapture({ id: 'other-row' })]);
+
+      await expect(handOffGuestTrayToAccount('guest-anon', 'existing-account')).resolves.toBe(true);
+      // Only the guest's rows moved; another account's rows are never touched.
+      const raw = await trayDb.listOwnerTrayRowIds('other-user');
+      expect([...(raw ?? [])]).toEqual(['other-row']);
+
+      setRecentCapturesOwner('existing-account');
+      const loaded = await loadPersistedTraySnapshot();
+      expect(loaded.items.map((item) => item.id)).toEqual(['g-2', 'g-1']);
+      expect(loaded.items.every((item) => item.scanID === null)).toBe(true);
+      expect(loaded.priceSelections.get('g-2')).toEqual(selection);
+    });
+
+    it('the guest scanner\'s unwritten changes and unmount flush land under the account', async () => {
+      setRecentCapturesOwner('guest-anon');
+      const first = makeCapture({ id: 'g-1' });
+      await flushPersist([first]);
+      // A scan still inside the debounce when the account lands.
+      const second = makeCapture({ id: 'g-2' });
+      schedulePersist([second, first]);
+
+      // Synchronous part runs before the new session reaches the scanner.
+      const handOff = handOffGuestTrayToAccount('guest-anon', 'existing-account');
+      // The old scanner unmounts and flushes its live tray (same order React uses).
+      const edited = { ...second, matchReviewReason: 'edited' };
+      await flushPersist([edited, first]);
+      await handOff;
+
+      setRecentCapturesOwner('existing-account');
+      const loaded = await loadPersistedTraySnapshot();
+      expect(loaded.items.map((item) => item.id)).toEqual(['g-2', 'g-1']);
+      expect(loaded.items.map((item) => item.scanID)).toEqual([null, null]);
+      expect(loaded.items[0].matchReviewReason).toBe('edited');
+      expect(await storedIds('guest-anon')).toEqual([]);
+    });
+
+    it('a uuid-preserving conversion moves nothing and keeps every row', async () => {
+      setRecentCapturesOwner('guest-anon');
+      await flushPersist([makeCapture({ id: 'g-1' })], new Map([['g-1', selection]]));
+
+      await expect(handOffGuestTrayToAccount('guest-anon', 'guest-anon')).resolves.toBe(false);
+
+      // The provider tree remounts on guest → account; the new scanner reloads.
+      setRecentCapturesOwner('guest-anon');
+      const loaded = await loadPersistedTraySnapshot();
+      expect(loaded.items.map((item) => item.id)).toEqual(['g-1']);
+      expect(loaded.items[0].scanID).toBe('scan-g-1');
+      expect(loaded.priceSelections.get('g-1')).toEqual(selection);
+    });
+
+    it('does nothing without both owners', async () => {
+      setRecentCapturesOwner(null);
+      await flushPersist([makeCapture({ id: 'signed-out-row' })]);
+      await expect(handOffGuestTrayToAccount(null, 'existing-account')).resolves.toBe(false);
+      await expect(handOffGuestTrayToAccount('guest-anon', '  ')).resolves.toBe(false);
+      expect(await storedIds(null)).toEqual(['signed-out-row']);
     });
   });
 

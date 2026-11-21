@@ -9,6 +9,7 @@ describe('AuthProvider', () => {
     jest.unmock('expo-linking');
     jest.unmock('@/features/auth/auth-service');
     jest.unmock('@/features/auth/guest-first-launch');
+    jest.unmock('@/features/scanner/recent-captures-persistence');
     jest.unmock('@/lib/observability/posthog');
     jest.unmock('@/lib/supabase');
   });
@@ -25,12 +26,17 @@ describe('AuthProvider', () => {
     // emergency rollback, so tests of the legacy eager mint must turn it off
     // explicitly (which also proves the rollback switch still works).
     deferGuestSession = true,
+    // The scan-tray persistence module the provider hands a guest's tray off
+    // through. Stubbed by default; pass the real module to test the hand-off
+    // end to end against the fake tray DB.
+    trayPersistence,
   }: {
     nodeEnv?: string;
     authServiceOverrides?: Record<string, unknown>;
     initialURL?: string | null;
     hasSignedInBefore?: boolean;
     deferGuestSession?: boolean;
+    trayPersistence?: { handOffGuestTrayToAccount: (...args: any[]) => Promise<boolean> };
   } = {}) {
     process.env = {
       ...originalEnv,
@@ -111,6 +117,8 @@ describe('AuthProvider', () => {
       getInitialURL: jest.fn(async () => initialURL),
     }));
     jest.doMock('@/features/auth/auth-service', () => authService);
+    const tray = trayPersistence ?? { handOffGuestTrayToAccount: jest.fn(async () => true) };
+    jest.doMock('@/features/scanner/recent-captures-persistence', () => tray);
     jest.doMock('@/lib/observability/posthog', () => ({
       capturePostHogEvent,
     }));
@@ -233,6 +241,7 @@ describe('AuthProvider', () => {
       getLinkURLHandler: () => linkURLHandler,
       linkRemove,
       markHasSignedIn,
+      tray,
       waitFor: testingLibrary!.waitFor,
     };
   }
@@ -1245,7 +1254,7 @@ describe('AuthProvider', () => {
     fireEvent.press(getByTestId('sign-in-google'));
 
     await waitFor(() => {
-      expect(authService.linkOAuthIdentityToCurrentUser).toHaveBeenCalledWith('google');
+      expect(authService.linkOAuthIdentityToCurrentUser).toHaveBeenCalledWith('google', expect.anything());
     });
     expect(authService.signInWithGoogle).not.toHaveBeenCalled();
     expect(getByText('user:guest-1')).toBeTruthy();
@@ -1350,7 +1359,7 @@ describe('AuthProvider', () => {
     fireEvent.press(getByTestId('sign-in-google'));
 
     await waitFor(() => {
-      expect(authService.linkOAuthIdentityToCurrentUser).toHaveBeenCalledWith('google');
+      expect(authService.linkOAuthIdentityToCurrentUser).toHaveBeenCalledWith('google', expect.anything());
     });
 
     await act(async () => {
@@ -1370,6 +1379,166 @@ describe('AuthProvider', () => {
     expect(getByText('error:none')).toBeTruthy();
     expect(capturePostHogEvent).toHaveBeenCalledWith('auth_sign_in_succeeded', {
       provider: 'google',
+    });
+  });
+
+  /*
+    GUEST → EXISTING ACCOUNT (2026-11-21 repro): a guest with scans taps ADD,
+    then "Continue with Google" with a Google account that already has an
+    Ekalight account. One Google prompt, and the tray comes along.
+  */
+  describe('GUEST → EXISTING ACCOUNT', () => {
+    const guestSession = {
+      access_token: 'anon-token',
+      user: { id: 'guest-1', is_anonymous: true },
+    } as any;
+    const accountSession = {
+      access_token: 'account-token',
+      user: { id: 'owner-1', email: 'owner@example.com' },
+    } as any;
+
+    it('native: the service signs in with the same token; no second sign-in, tray handed off', async () => {
+      const { authService, capturePostHogEvent, fireEvent, getByTestId, getByText, tray, waitFor } = renderAuthProvider({
+        authServiceOverrides: {
+          getCurrentSession: jest.fn(async () => guestSession),
+          getNeedsProfile: jest.fn(() => false),
+          // What the native path does on a link conflict: flag it, then sign in.
+          linkOAuthIdentityToCurrentUser: jest.fn(async (_provider: string, options: any) => {
+            options?.onExistingAccountDetected?.();
+            return accountSession;
+          }),
+        },
+      });
+
+      await waitFor(() => {
+        expect(getByText('guest:true')).toBeTruthy();
+      });
+      fireEvent.press(getByTestId('sign-in-google'));
+
+      await waitFor(() => {
+        expect(getByText('user:owner-1')).toBeTruthy();
+      });
+      expect(authService.linkOAuthIdentityToCurrentUser).toHaveBeenCalledTimes(1);
+      expect(authService.signInWithGoogle).not.toHaveBeenCalled();
+      expect(tray.handOffGuestTrayToAccount).toHaveBeenCalledTimes(1);
+      expect(tray.handOffGuestTrayToAccount).toHaveBeenCalledWith('guest-1', 'owner-1');
+      expect(capturePostHogEvent).toHaveBeenCalledWith('guest_converted', expect.objectContaining({
+        existing_account: true,
+        had_minted_session: true,
+        preserved_identity: false,
+      }));
+      expect(getByText('error:none')).toBeTruthy();
+    });
+
+    it('the guest\'s scan tray rows are there for the account after sign-in (real tray DB)', async () => {
+      const persistence = require('@/features/scanner/recent-captures-persistence') as typeof import('@/features/scanner/recent-captures-persistence');
+      const { seedTrayRows } = require('../../test-support/scan-tray-db') as typeof import('../../test-support/scan-tray-db');
+      persistence.__resetRecentCapturesPersistenceForTests();
+      await seedTrayRows('guest-1', [
+        { id: 'scan-row-2', mode: 'raw', candidates: [], activeCandidateIndex: 0, scanID: 'scan-2', normalizedImageUri: 'file:///scans/2.jpg', uri: '' },
+        { id: 'scan-row-1', mode: 'raw', candidates: [], activeCandidateIndex: 0, scanID: 'scan-1', normalizedImageUri: 'file:///scans/1.jpg', uri: '' },
+      ]);
+      persistence.setRecentCapturesOwner('guest-1');
+
+      const { fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+        trayPersistence: persistence,
+        authServiceOverrides: {
+          getCurrentSession: jest.fn(async () => guestSession),
+          getNeedsProfile: jest.fn(() => false),
+          linkOAuthIdentityToCurrentUser: jest.fn(async (_provider: string, options: any) => {
+            options?.onExistingAccountDetected?.();
+            return accountSession;
+          }),
+        },
+      });
+      await waitFor(() => {
+        expect(getByText('guest:true')).toBeTruthy();
+      });
+      fireEvent.press(getByTestId('sign-in-google'));
+      await waitFor(() => {
+        expect(getByText('user:owner-1')).toBeTruthy();
+      });
+
+      // What the remounted scanner does for the new owner.
+      persistence.setRecentCapturesOwner('owner-1');
+      const loaded = await persistence.loadPersistedTraySnapshot();
+      expect(loaded.items.map((item) => item.id)).toEqual(['scan-row-2', 'scan-row-1']);
+      expect(loaded.items.map((item) => item.scanID)).toEqual([null, null]);
+      persistence.__resetRecentCapturesPersistenceForTests();
+    });
+
+    it('browser fallback: a rejected link runs ONE plain sign-in and still hands the tray off', async () => {
+      const { authService, capturePostHogEvent, fireEvent, getByTestId, getByText, tray, waitFor } = renderAuthProvider({
+        authServiceOverrides: {
+          getCurrentSession: jest.fn(async () => guestSession),
+          getNeedsProfile: jest.fn(() => false),
+          linkOAuthIdentityToCurrentUser: jest.fn(async () => {
+            throw Object.assign(new Error('Identity is already linked to another user'), { code: 'identity_already_exists' });
+          }),
+          signInWithGoogle: jest.fn(async () => accountSession),
+        },
+      });
+
+      await waitFor(() => {
+        expect(getByText('guest:true')).toBeTruthy();
+      });
+      fireEvent.press(getByTestId('sign-in-google'));
+
+      await waitFor(() => {
+        expect(getByText('user:owner-1')).toBeTruthy();
+      });
+      // The browser link hands back no credential, so this second round trip
+      // is the one unavoidable extra prompt — and there is exactly one.
+      expect(authService.signInWithGoogle).toHaveBeenCalledTimes(1);
+      expect(tray.handOffGuestTrayToAccount).toHaveBeenCalledWith('guest-1', 'owner-1');
+      expect(capturePostHogEvent).toHaveBeenCalledWith('guest_converted', expect.objectContaining({
+        existing_account: true,
+        preserved_identity: false,
+      }));
+    });
+
+    it('a uuid-preserving link moves no tray rows and is not an existing-account sign-in', async () => {
+      const { capturePostHogEvent, fireEvent, getByTestId, getByText, tray, waitFor } = renderAuthProvider({
+        authServiceOverrides: {
+          getCurrentSession: jest.fn(async () => guestSession),
+          getNeedsProfile: jest.fn(() => false),
+          linkOAuthIdentityToCurrentUser: jest.fn(async () => ({
+            access_token: 'linked-token',
+            user: { id: 'guest-1', email: 'linked@example.com', is_anonymous: false },
+          })),
+        },
+      });
+
+      await waitFor(() => {
+        expect(getByText('guest:true')).toBeTruthy();
+      });
+      fireEvent.press(getByTestId('sign-in-google'));
+
+      await waitFor(() => {
+        expect(capturePostHogEvent).toHaveBeenCalledWith('guest_converted', expect.objectContaining({
+          existing_account: false,
+          preserved_identity: true,
+        }));
+      });
+      expect(tray.handOffGuestTrayToAccount).not.toHaveBeenCalled();
+    });
+
+    it('an ordinary signed-out login never hands off a tray', async () => {
+      const { fireEvent, getByTestId, getByText, tray, waitFor } = renderAuthProvider({
+        authServiceOverrides: {
+          getNeedsProfile: jest.fn(() => false),
+          signInWithGoogle: jest.fn(async () => accountSession),
+        },
+      });
+
+      await waitFor(() => {
+        expect(getByText('state:signedOut')).toBeTruthy();
+      });
+      fireEvent.press(getByTestId('sign-in-google'));
+      await waitFor(() => {
+        expect(getByText('user:owner-1')).toBeTruthy();
+      });
+      expect(tray.handOffGuestTrayToAccount).not.toHaveBeenCalled();
     });
   });
 

@@ -162,6 +162,42 @@ describe('auth-service native Google sign-in', () => {
     expect(openAuthSessionAsync).not.toHaveBeenCalled();
   });
 
+  it('signs into the existing account with the SAME id token when the link conflicts (one prompt)', async () => {
+    const supabase = makeSupabaseMock();
+    supabase.auth.getSession.mockResolvedValue({ data: { session: anonymousSession() }, error: null });
+    supabase.auth.linkIdentity.mockResolvedValue({
+      data: { session: null, user: null },
+      error: Object.assign(new Error('Identity is already linked to another user'), { code: 'identity_already_exists' }),
+    });
+    const existing = { access_token: 'existing', user: { id: 'existing-1', is_anonymous: false } };
+    supabase.auth.signInWithIdToken.mockResolvedValue({ data: { session: existing }, error: null });
+    const { googleModule, openAuthSessionAsync, service } = loadAuthService({ supabase });
+    const onExistingAccountDetected = jest.fn();
+
+    const session = await service.linkOAuthIdentityToCurrentUser('google', { onExistingAccountDetected });
+
+    expect(session).toBe(existing);
+    expect(googleModule!.GoogleSignin.signIn).toHaveBeenCalledTimes(1);
+    expect(supabase.auth.signInWithIdToken).toHaveBeenCalledTimes(1);
+    expect(supabase.auth.signInWithIdToken).toHaveBeenCalledWith({ provider: 'google', token: 'google-id-token' });
+    expect(onExistingAccountDetected).toHaveBeenCalledTimes(1);
+    expect(supabase.auth.signInWithOAuth).not.toHaveBeenCalled();
+    expect(openAuthSessionAsync).not.toHaveBeenCalled();
+  });
+
+  it('surfaces other native link errors without signing in', async () => {
+    const supabase = makeSupabaseMock();
+    supabase.auth.getSession.mockResolvedValue({ data: { session: anonymousSession() }, error: null });
+    supabase.auth.linkIdentity.mockResolvedValue({ data: { session: null }, error: new Error('network down') });
+    const { service } = loadAuthService({ supabase });
+    const onExistingAccountDetected = jest.fn();
+
+    await expect(service.linkOAuthIdentityToCurrentUser('google', { onExistingAccountDetected }))
+      .rejects.toThrow('network down');
+    expect(supabase.auth.signInWithIdToken).not.toHaveBeenCalled();
+    expect(onExistingAccountDetected).not.toHaveBeenCalled();
+  });
+
   it('refuses the native link on a real account before showing the sheet', async () => {
     const supabase = makeSupabaseMock();
     supabase.auth.getSession.mockResolvedValue({
@@ -263,6 +299,23 @@ describe('auth-service native Google sign-in', () => {
         options: { redirectTo: 'spotlight://login-callback', skipBrowserRedirect: true },
       });
       expect(openAuthSessionAsync).toHaveBeenCalled();
+    });
+
+    it('for guest linking, a browser-side conflict is thrown to the caller (no credential to reuse)', async () => {
+      const supabase = makeSupabaseMock();
+      supabase.auth.getSession.mockResolvedValue({ data: { session: anonymousSession() }, error: null });
+      supabase.auth.linkIdentity.mockResolvedValue({ data: { url: 'https://auth.example.com/link' }, error: null });
+      const { openAuthSessionAsync, service } = loadAuthService({ googleModule: null, supabase });
+      openAuthSessionAsync.mockResolvedValueOnce({
+        type: 'success',
+        url: 'spotlight://login-callback#error=server_error&error_code=identity_already_exists&error_description=Identity+is+already+linked+to+another+user',
+      });
+
+      const error = await service.linkOAuthIdentityToCurrentUser('google').catch((caught: unknown) => caught);
+
+      expect(service.isIdentityAlreadyLinkedError(error)).toBe(true);
+      expect(supabase.auth.signInWithIdToken).not.toHaveBeenCalled();
+      expect(supabase.auth.signInWithOAuth).not.toHaveBeenCalled();
     });
 
     it('and sign-out still works without the native module', async () => {

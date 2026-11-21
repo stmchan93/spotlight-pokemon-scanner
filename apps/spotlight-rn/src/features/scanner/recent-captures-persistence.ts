@@ -9,6 +9,7 @@ import {
   clearOwnerTrayRows,
   listOwnerTrayRowIds,
   loadOwnerTrayRows,
+  reassignOwnerTrayRows,
   type TrayRowWrite,
 } from './tray-db';
 import { decodeTrayRow, isPersistableItem, toPersistedCapture, trayRowWriteFor } from './tray-row-codec';
@@ -81,6 +82,9 @@ let loadGeneration = 0;
 // The old blob is still on disk with rows we could not import (no DB yet, or
 // the import failed): its images are not orphans.
 let legacyBlobPending = false;
+// Scan ids owned server-side by a guest whose tray was handed to an account
+// (see `handOffGuestTrayToAccount`). A write never stores them again.
+const handedOffScanIds = new Set<string>();
 
 function snapshotOf(
   items: RecentCapture[],
@@ -102,6 +106,58 @@ function normalizeOwnerKey(ownerKey: string | null | undefined): string | null {
  * detected and writes are scoped to the right owner. */
 export function setRecentCapturesOwner(ownerKey: string | null | undefined): void {
   currentOwnerKey = normalizeOwnerKey(ownerKey);
+}
+
+function retargetSnapshot(snapshot: OwnedSnapshot | null, from: string, to: string): OwnedSnapshot | null {
+  return snapshot && snapshot.ownerKey === from ? { ...snapshot, ownerKey: to } : snapshot;
+}
+
+/**
+ * A guest just signed into a DIFFERENT (existing) account on this device: the
+ * guest's scan tray goes with them, so they can ADD what they scanned. Only
+ * ever called for anonymous → the account that replaced it; a real account's
+ * rows are never moved (and a uuid-preserving conversion needs no move).
+ *
+ * The bookkeeping is synchronous, so it must run BEFORE the new session
+ * reaches the scanner: the reassign is queued ahead of that scanner's tray
+ * load (which deletes every other owner's rows), and any unwritten guest
+ * snapshot — including the old scanner's unmount flush — lands under the new
+ * owner instead of being dropped. The moved rows lose their `scanID`; those
+ * scan events belong to the guest's server user and the account can't cite
+ * them (`sourceScanID` is owner-checked). Resolves false without a DB.
+ */
+export function handOffGuestTrayToAccount(
+  guestOwnerKey: string | null | undefined,
+  accountOwnerKey: string | null | undefined,
+): Promise<boolean> {
+  const from = normalizeOwnerKey(guestOwnerKey);
+  const to = normalizeOwnerKey(accountOwnerKey);
+  if (!from || !to || from === to) {
+    return Promise.resolve(false);
+  }
+  if (currentOwnerKey === from) {
+    currentOwnerKey = to;
+  }
+  pendingSnapshot = retargetSnapshot(pendingSnapshot, from, to);
+  queuedSnapshot = retargetSnapshot(queuedSnapshot, from, to);
+  // The committed rows' scan ids are about to be cleared in the DB; register
+  // them now so a write planned before the reassign resolves can't restore one.
+  committed.forEach((row) => {
+    if (row.capture?.scanID) {
+      handedOffScanIds.add(row.capture.scanID);
+    }
+  });
+  pendingSnapshot?.items.forEach((item) => {
+    if (item.scanID) {
+      handedOffScanIds.add(item.scanID);
+    }
+  });
+  return reassignOwnerTrayRows(from, to)
+    .then((cleared) => {
+      cleared?.forEach((scanId) => handedOffScanIds.add(scanId));
+      return cleared !== null;
+    })
+    .catch(() => false);
 }
 
 /** `Promise.all` with a worker cap. Results stay in input order. */
@@ -254,6 +310,10 @@ type WritePlan = {
   deleteIds: string[];
 };
 
+function withoutHandedOffScanId(capture: RecentCapture): RecentCapture {
+  return capture.scanID && handedOffScanIds.has(capture.scanID) ? { ...capture, scanID: null } : capture;
+}
+
 function planTrayWrite(snapshot: OwnedSnapshot): WritePlan {
   const persistable = snapshot.items.filter(isPersistableItem);
   const sortKeys = assignSortKeys(
@@ -275,7 +335,7 @@ function planTrayWrite(snapshot: OwnedSnapshot): WritePlan {
       || previous.selection !== selection
       || previous.sortKey !== sortKey
     ) {
-      upserts.push(trayRowWriteFor(toPersistedCapture(capture), selection, sortKey));
+      upserts.push(trayRowWriteFor(toPersistedCapture(withoutHandedOffScanId(capture)), selection, sortKey));
     }
   });
   const deleteIds = [...committed.keys()].filter((id) => !next.has(id));
@@ -558,4 +618,5 @@ export function __resetRecentCapturesPersistenceForTests(): void {
   committed = new Map();
   loadGeneration = 0;
   legacyBlobPending = false;
+  handedOffScanIds.clear();
 }
