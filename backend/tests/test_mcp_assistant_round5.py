@@ -82,7 +82,8 @@ class LengthGuardUnitTests(unittest.TestCase):
     def test_data_source_caveats_count_as_internal_wording(self) -> None:
         for caveat in ("PSA 10 figures are market estimates based on recorded sales.",
                        "These are estimates based on recent sales.", "Data may lag a day.",
-                       "According to our data, it's up.", "Ekalight's data shows a rise."):
+                       "According to our data, it's up.", "Ekalight's data shows a rise.",
+                       "These are basket moves of each set's top 10 cards, so one hot card can move a whole set."):
             self.assertTrue(length_guard.has_internal_wording(caveat), caveat)
         for fine in ("Grading costs money and takes time.", "This is past price data, not a prediction.",
                      "Kyogre-EX sold for $1,450 in a PSA 10."):

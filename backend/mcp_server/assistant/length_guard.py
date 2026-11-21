@@ -70,7 +70,9 @@ _CAVEAT = re.compile(
     r"\bmarket[-\s]estimates?\b|\bestimates?\s+based\s+on\b"
     r"|\bbased\s+on\s+(?:recorded|recent|completed|past|actual|reported)\s+sales\b"
     r"|\bdata\s+(?:may|might|could)\b|\baccording\s+to\s+(?:our|the|ekalight'?s?)\s+data\b"
-    r"|\b(?:based\s+on\s+)?ekalight'?s\s+data\b",
+    r"|\b(?:based\s+on\s+)?ekalight'?s\s+data\b"
+    # How set trends are computed ("basket moves of each set's top 10 cards").
+    r"|\bbaskets?\b|\btop[-\s]10\s+cards\b",
     re.IGNORECASE,
 )
 # Art-search answers whose question named no language: print-language commentary is unrequested.
