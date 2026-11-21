@@ -57,6 +57,32 @@ describe('assistant price chart', () => {
     expect(onOpenCard).toHaveBeenCalledWith('xyp-111');
   });
 
+  it('a one-card chart answer puts the card art in the chart header instead of a lone tile', () => {
+    renderBubble(reply({ cards: [mockAssistantCards.celebi], charts: [mockAssistantPriceChart()] }));
+    expect(screen.getByTestId('assistant-message-a1-chart-0-thumb')).toBeTruthy();
+    expect(screen.queryByTestId('assistant-card-xyp-111')).toBeNull();
+  });
+
+  it('keeps tiles for cards the chart does not cover', () => {
+    renderBubble(reply({ cards: [mockAssistantCards.celebi, mockAssistantCards.oshawott], charts: [mockAssistantPriceChart()] }));
+    expect(screen.getByTestId('assistant-card-mcdonalds25-21')).toBeTruthy();
+  });
+
+  it('a card younger than the range fills the chart from its first price', () => {
+    const chart = {
+      ...mockAssistantPriceChart(),
+      range: '1y' as const,
+      points: [
+        { date: '2026-10-07', usd: 400 },
+        { date: '2026-10-20', usd: 120 },
+        { date: '2026-11-20', usd: 20.76 },
+      ],
+    };
+    const model = buildAssistantChartModel(chart);
+    expect(model?.windowStartMs).toBe(model?.points[0]?.t);
+    expect(assistantChartSeriesLabel(chart)).toBe('NM · Since Oct 7');
+  });
+
   it('renders nothing extra without charts (older messages)', () => {
     renderBubble(reply());
     expect(screen.queryByTestId('assistant-message-a1-chart-0')).toBeNull();
@@ -75,7 +101,7 @@ describe('assistant price chart', () => {
     const model = buildAssistantChartModel(chart);
     expect(model?.insufficient).toBe(false);
     expect(model?.points).toHaveLength(30);
-    expect(assistantChartSeriesLabel(chart)).toBe('PSA 10 · Past year');
+    expect(assistantChartSeriesLabel(chart)).toBe('PSA 10 · Since Mar 6');
   });
 
   it('parses wire charts: camelCase, USD points only, capped at 2, user rows get none', () => {

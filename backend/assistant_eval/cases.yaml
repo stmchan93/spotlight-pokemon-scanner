@@ -267,8 +267,8 @@ cases:
           max_words: 60
         reference: "The raw Near Mint Holofoil market price for Kyogre-EX (Dark Explorers, #104/108) held near $319 from late August through late October, then jumped to about $504 and was at $504.48 on Nov 18."
         rubric:
-          - "Does the answer identify the exact printing (set and number) and the price condition up front?"
-          - "Does it summarize the main move in about one sentence, consistent with the price-history data?"
+          - "Does the answer identify the exact printing (card number) up front?"
+          - "Is it one short sentence with the % move and today's price, consistent with the price-history data, without listing both endpoint prices?"
           - "Does it leave out a graded-history aside?"
 
   - id: history_charizard_1y
@@ -954,6 +954,19 @@ cases:
           max_words: 100
         rubric:
           - "Does the answer explain first print run / scarcity correctly?"
+
+  - id: single_undervalued_pick_chart
+    category: investing
+    turns:
+      - ask: "Show me the most undervalued card that's worth picking up right now"
+        expect:
+          tools_all: [find_price_lows, get_price_history]
+          chart_required: true
+          chart_card_matches_tile: true
+          tiles_max: 1
+        rubric:
+          - "Does it name exactly one card with its recent drop, backed by the tool results?"
+          - "Does it say plainly that this is not a prediction?"
 
   # --- ambiguous card names -----------------------------------------------------
   - id: ambiguous_charizard_price

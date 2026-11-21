@@ -43,9 +43,12 @@ export function pullDownTouchDecision({
   startY,
   nativeTopZone,
   keyboardVisible,
-  slop = PULL_DOWN_SLOP,
+  slop: slopInput,
 }: PullDownTouchInput): PullDownTouchDecision {
   'worklet';
+  // Defaults resolve in the body: the worklet closure doesn't capture
+  // constants used only in parameter defaults (UI-thread crash, 2026-11-21).
+  const slop = slopInput ?? PULL_DOWN_SLOP;
   // The native swipe owns its band; both moving the page would double it.
   if (nativeTopZone > 0 && startY < nativeTopZone) {
     return 'fail';
@@ -78,10 +81,12 @@ export function pullDownOffset(translationY: number): number {
 export function shouldDismissPullDown(
   translationY: number,
   velocityY: number,
-  distance: number = PULL_DOWN_DISMISS_DISTANCE,
-  velocity: number = PULL_DOWN_DISMISS_VELOCITY,
+  distanceInput?: number,
+  velocityInput?: number,
 ): boolean {
   'worklet';
+  const distance = distanceInput ?? PULL_DOWN_DISMISS_DISTANCE;
+  const velocity = velocityInput ?? PULL_DOWN_DISMISS_VELOCITY;
   // Flicked back up: the user changed their mind.
   if (velocityY < -velocity / 2) {
     return false;
