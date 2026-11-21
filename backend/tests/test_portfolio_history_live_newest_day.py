@@ -10,9 +10,9 @@ holding worth $409k landed in the balance at its $897 raw price while the
 Collection picker, which prices live, showed the real number.
 
 The newest day now falls back to live snapshot pricing, so the headline agrees
-with the Collection total. Older days do NOT: today's price is not evidence of
-what a card was worth last month, and their drops stay counted in
-`excludedCardCount`.
+with the Collection total. With no earlier history price, that live price
+backfills the days just before it (capped at 30), so the slab does not appear
+only on the last point; older days beyond the cap still drop it.
 """
 
 from __future__ import annotations
@@ -167,14 +167,18 @@ class PortfolioHistoryLiveNewestDayTests(unittest.TestCase):
         newest = self._history()["points"][-1]
         self.assertNotAlmostEqual(newest["totalValue"], RAW_MARKET, places=2)
 
-    def test_older_days_keep_history_only_pricing(self) -> None:
-        # Today's price is not evidence of last week's, so earlier days still
-        # drop the holding and say so.
+    def test_older_days_carry_the_live_price_within_the_cap(self) -> None:
+        # The live price stands in for the (<= 30) days before the newest point,
+        # so the slab does not appear only on the last point (the end spike).
+        # Those days are marked stale and tagged as live-priced.
         points = self._history()["points"]
         earlier = points[0]
-        self.assertEqual(earlier["totalValue"], 0.0)
-        self.assertEqual(earlier["pricedCardCount"], 0)
-        self.assertEqual(earlier["excludedCardCount"], 1)
+        self.assertAlmostEqual(earlier["totalValue"], GRADED_MARKET, places=2)
+        self.assertEqual(earlier["pricedCardCount"], 1)
+        self.assertEqual(earlier["excludedCardCount"], 0)
+        self.assertEqual(earlier["staleHoldingCount"], 1)
+        self.assertAlmostEqual(earlier["livePricedValue"], GRADED_MARKET, places=2)
+        self.assertEqual(points[-1]["staleHoldingCount"], 0)
 
     def test_the_live_fallback_does_not_read_as_a_GAIN(self) -> None:
         """The total is complete; the CHANGE compares like with like.

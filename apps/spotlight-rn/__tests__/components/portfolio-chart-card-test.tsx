@@ -7,6 +7,7 @@ import { SpotlightThemeProvider } from '@spotlight/design-system';
 
 import {
   PortfolioChartCard,
+  portfolioChangePercent,
   portfolioLineYDomain,
   portfolioRangeSummaryAfterWarmup,
   trimPortfolioWarmup,
@@ -203,6 +204,28 @@ describe('PortfolioChartCard', () => {
   });
 });
 
+// The owner's history (2026-11-21), pre backend fix: near-empty start, a real
+// climb, a bad $422K plateau 7/11–8/06, real $6.5K → $13K, then a live $427K spike.
+function ownerSeries({ plateauContinues = false } = {}) {
+  const DAY = 86400000;
+  const at = (iso: string) => Date.parse(`${iso}T12:00:00Z`);
+  const lerp = (t: number, from: string, to: string, a: number, b: number) =>
+    a + ((t - at(from)) / (at(to) - at(from))) * (b - a);
+  const points: { isoDate: string; value: number }[] = [];
+  for (let t = at('2026-04-29'); t <= at('2026-11-21'); t += DAY) {
+    let value: number;
+    if (t < at('2026-05-30')) value = 1.68 + (t - at('2026-04-29')) / DAY * 20;
+    else if (t < at('2026-06-24')) value = lerp(t, '2026-05-30', '2026-06-24', 1900, 10700);
+    else if (t < at('2026-07-11')) value = 10700;
+    else if (plateauContinues) value = lerp(t, '2026-07-11', '2026-11-21', 422000, 427000);
+    else if (t <= at('2026-08-06')) value = 422000;
+    else if (t < at('2026-11-21')) value = lerp(t, '2026-08-07', '2026-11-20', 6500, 13000);
+    else value = 427000;
+    points.push({ isoDate: new Date(t).toISOString().slice(0, 10), value: Math.round(value * 100) / 100 });
+  }
+  return points;
+}
+
 describe('portfolioLineYDomain', () => {
   it('keeps a 3% dip to about a third of the chart instead of the full height', () => {
     const { min, max } = portfolioLineYDomain([1730, 1720, 1690, 1680]);
@@ -221,14 +244,55 @@ describe('portfolioLineYDomain', () => {
     expect((min + max) / 2).toBe(100);
     expect(max - min).toBeGreaterThan(0);
   });
+
+  it('clamps a one-day spike instead of letting it set the scale', () => {
+    const week = [12700, 12750, 12800, 12850, 12900, 12950, 13000, 427000];
+    const { min, max } = portfolioLineYDomain(week);
+    expect(max).toBeLessThan(15000);
+    expect(min).toBeGreaterThan(11500);
+  });
+
+  it('fits the real history and clamps the bad plateau and spike (owner ALL range)', () => {
+    const plotted = trimPortfolioWarmup(ownerSeries());
+    const { min, max } = portfolioLineYDomain(plotted.map((p) => p.value));
+    // The real $1.9K–$13K history fills the plot (with headroom)...
+    expect(min).toBeLessThanOrEqual(1900);
+    expect(max).toBeGreaterThanOrEqual(13000);
+    expect((13000 - 1900) / (max - min)).toBeGreaterThan(0.8);
+    // ...and the $422K/$427K days sit clamped above it.
+    expect(max).toBeLessThan(422000);
+  });
+
+  it('fits a plateau that is real (post backend fix)', () => {
+    const plotted = trimPortfolioWarmup(ownerSeries({ plateauContinues: true }));
+    const { min, max } = portfolioLineYDomain(plotted.map((p) => p.value));
+    expect(min).toBeLessThanOrEqual(422000);
+    expect(max).toBeGreaterThanOrEqual(427000);
+    expect(max - min).toBeLessThan(427000 * 0.1);
+  });
+
+  it('never clamps a real recent jump', () => {
+    const values = [2000, 2000, 2000, 2000, 2000, 10000, 10000];
+    const { max } = portfolioLineYDomain(values);
+    expect(max).toBeGreaterThanOrEqual(10000);
+  });
 });
 
 describe('portfolio warm-up trim', () => {
   // Staging account shape: a few cards, a partial add, then the bulk add.
   const points = [{ value: 18 }, { value: 46 }, { value: 534 }, { value: 2900 }, { value: 2950 }, { value: 2971 }];
 
-  it('starts the line on the last day the value doubled', () => {
-    expect(trimPortfolioWarmup(points).map((p) => p.value)).toEqual([2900, 2950, 2971]);
+  it('starts the line on the first day at 10% of the latest value', () => {
+    expect(trimPortfolioWarmup(points).map((p) => p.value)).toEqual([534, 2900, 2950, 2971]);
+  });
+
+  it('skips the near-empty weeks of the owner history, ignoring the final spike', () => {
+    const plotted = trimPortfolioWarmup(ownerSeries());
+    expect(plotted[0]).toEqual({ isoDate: '2026-05-30', value: 1900 });
+  });
+
+  it('starts at the plateau when the plateau is the real value (post backend fix)', () => {
+    expect(trimPortfolioWarmup(ownerSeries({ plateauContinues: true }))[0].isoDate).toBe('2026-07-11');
   });
 
   it('never cuts gradual growth', () => {
@@ -236,8 +300,9 @@ describe('portfolio warm-up trim', () => {
     expect(trimPortfolioWarmup(gradual)).toHaveLength(5);
   });
 
-  it('keeps at least two points when the jump is the newest day', () => {
-    expect(trimPortfolioWarmup([{ value: 10 }, { value: 12 }, { value: 500 }])).toHaveLength(3);
+  it('keeps at least two points', () => {
+    expect(trimPortfolioWarmup([{ value: 1 }, { value: 2 }, { value: 500 }, { value: 500 }])).toHaveLength(2);
+    expect(trimPortfolioWarmup([{ value: 10 }, { value: 500 }])).toHaveLength(2);
   });
 
   it('leaves a series with no warm-up untouched', () => {
@@ -248,9 +313,43 @@ describe('portfolio warm-up trim', () => {
     const summary = { currentValue: 2971, startValue: 18, changeAmount: 2953, changePercent: 16405.56 };
     expect(portfolioRangeSummaryAfterWarmup(points, summary)).toEqual({
       currentValue: 2971,
-      startValue: 2900,
-      changeAmount: 71,
-      changePercent: 2.45,
+      startValue: 534,
+      changeAmount: 2437,
+      changePercent: 456.37,
     });
+  });
+});
+
+describe('portfolio change percent', () => {
+  it('hides the percent on a $1.68 baseline against $13K', () => {
+    expect(portfolioChangePercent(1.68, 13000 - 1.68, 13000)).toBeNull();
+  });
+
+  it('shows the percent on a $5K baseline against $13K', () => {
+    expect(portfolioChangePercent(5000, 8000, 13000)).toBe(160);
+  });
+
+  it('hides the percent under the $100 floor and under 5% of the current value', () => {
+    expect(portfolioChangePercent(99, 1, 100)).toBeNull();
+    expect(portfolioChangePercent(600, 12400, 13000)).toBeNull();
+    expect(portfolioChangePercent(650, 12350, 13000)).toBe(1900);
+  });
+
+  it('keeps a server-hidden percent hidden and hides one the server should have', () => {
+    const untrimmed = [{ value: 900 }, { value: 1000 }];
+    const hidden = { currentValue: 1000, startValue: 900, changeAmount: 100, changePercent: null };
+    expect(portfolioRangeSummaryAfterWarmup(untrimmed, hidden)?.changePercent).toBeNull();
+    const tiny = { currentValue: 1000, startValue: 40, changeAmount: 960, changePercent: 2400 };
+    expect(portfolioRangeSummaryAfterWarmup([{ value: 40 }, { value: 1000 }], tiny)?.changePercent).toBeNull();
+  });
+
+  it('hides the re-based percent of the owner history only when the start is too small', () => {
+    const series = ownerSeries();
+    const summary = { currentValue: 427000, startValue: 1.68, changeAmount: 13000 - 1.68, changePercent: null };
+    const rebased = portfolioRangeSummaryAfterWarmup(series, summary);
+    expect(rebased?.startValue).toBe(1900);
+    expect(rebased?.changeAmount).toBe(11100);
+    // $1,900 ≥ max($100, 5% × $13,000) → shown.
+    expect(rebased?.changePercent).toBe(584.21);
   });
 });

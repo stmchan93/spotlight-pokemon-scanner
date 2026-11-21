@@ -7715,16 +7715,30 @@ class SpotlightScanService:
             "percentChange": round(percent_change, 4) if percent_change is not None else None,
         }
 
-    # A ratio against a near-zero baseline is arithmetic, not information. An
-    # account whose first priced day held $1.68 reported +743,353% on its 1Y
-    # change, which reads as a broken screen rather than as a 5-month-old
-    # collection (user, 2026-09-11). Below this the change is reported in
-    # dollars only and the percent comes back null.
-    PORTFOLIO_DELTA_PERCENT_MIN_BASELINE = 1.0
+    # A ratio against a tiny baseline is arithmetic, not information: 5 bulk
+    # cards worth $1.68 on day one against a $13K collection today read
+    # +649,789% (user, 2026-11-21). The percent is null (dollars only) when
+    #   start_value < max(MIN_START_VALUE, MIN_START_FRACTION * comparable_current)
+    # where comparable_current is the like-for-like newest value (the delta
+    # basis: start_value + delta_value). The app mirrors this exact rule in
+    # portfolio-chart-card.tsx; change both together.
+    PORTFOLIO_DELTA_PERCENT_MIN_START_VALUE = 100.0
+    PORTFOLIO_DELTA_PERCENT_MIN_START_FRACTION = 0.05
 
     @classmethod
-    def _portfolio_delta_percent(cls, delta_value: float, start_value: float) -> float | None:
-        if start_value < cls.PORTFOLIO_DELTA_PERCENT_MIN_BASELINE:
+    def _portfolio_delta_percent(
+        cls,
+        delta_value: float,
+        start_value: float,
+        comparable_current_value: float | None = None,
+    ) -> float | None:
+        if comparable_current_value is None:
+            comparable_current_value = start_value + delta_value
+        min_start = max(
+            cls.PORTFOLIO_DELTA_PERCENT_MIN_START_VALUE,
+            cls.PORTFOLIO_DELTA_PERCENT_MIN_START_FRACTION * max(0.0, float(comparable_current_value)),
+        )
+        if start_value < min_start:
             return None
         return round((delta_value / start_value) * 100.0, 4)
 
@@ -7768,15 +7782,28 @@ class SpotlightScanService:
             # report today rather than an empty chart.
             sliced = points[-1:]
 
-        # The newest total minus the value only the live fallback could see.
-        # Recovered from the ALL summary instead of recomputed, because it is the
-        # one quantity here that does not depend on the window.
-        delta_basis = round(
-            float(summary.get("startValue") or 0.0) + float(summary.get("deltaValue") or 0.0), 2
-        )
+        # Like-for-like basis (see deck_history): current - L + S, with L the
+        # newest point's livePricedValue and S this window's first point's. The
+        # same numbers deck_history uses, so a slice equals the computation.
+        newest_point = points[-1]
+        if "livePricedValue" in newest_point:
+            delta_basis = round(
+                max(
+                    0.0,
+                    float(summary.get("currentValue") or 0.0)
+                    - float(newest_point.get("livePricedValue") or 0.0)
+                    + float(sliced[0].get("livePricedValue") or 0.0),
+                ),
+                2,
+            )
+        else:
+            # Payload built before per-point live values existed.
+            delta_basis = round(
+                float(summary.get("startValue") or 0.0) + float(summary.get("deltaValue") or 0.0), 2
+            )
         start_value = round(float(sliced[0].get("totalValue") or 0.0), 2)
         delta_value = round(delta_basis - start_value, 2)
-        delta_percent = self._portfolio_delta_percent(delta_value, start_value)
+        delta_percent = self._portfolio_delta_percent(delta_value, start_value, delta_basis)
         start_cost_basis = round(float(sliced[0].get("costBasisValue") or 0.0), 2)
         current_cost_basis = float(summary.get("currentCostBasisValue") or 0.0)
 
@@ -8920,6 +8947,143 @@ class SpotlightScanService:
             )
         return series
 
+    # How far a holding's last (or next) known daily price may stand in for a
+    # day whose cells lack it when the gap is OPEN-ENDED (nothing known after
+    # it, or nothing known before it). A gap with a known price on BOTH sides
+    # is bridged in full. Without this the day's total silently DROPPED the
+    # holding: a $409K PSA 10 vanished from staging's chart for months (the
+    # graded lane writes no cells there) and prod showed one-day -$4-5K dips
+    # whenever a slab's graded cell was missing.
+    PORTFOLIO_HISTORY_CARRY_MAX_DAYS = 30
+    # Lookback tiers (days before the window) for a window that opens unpriced:
+    # each tier is one batched read for the contexts still unresolved.
+    PORTFOLIO_HISTORY_LOOKBACK_TIERS_DAYS = (30, 120, None)
+
+    @staticmethod
+    def _portfolio_price_date_of(row: dict[str, Any] | None, fallback: date) -> date:
+        # Staleness counts from the price's OWN date, not the day it was last
+        # shown (a whole-day row gap already repeats an older row), so a
+        # windowed read and the full series agree on where the cap ends.
+        try:
+            return date.fromisoformat(str((row or {}).get("date") or "")[:10])
+        except ValueError:
+            return fallback
+
+    def _portfolio_last_known_price_date(
+        self,
+        series: list[dict[str, Any] | None],
+        *,
+        day_dates: list[date],
+        seed: tuple[dict[str, Any], date] | None = None,
+    ) -> date | None:
+        for index in range(len(series) - 1, -1, -1):
+            if self._history_primary_price_value(series[index]) is not None:
+                return self._portfolio_price_date_of(series[index], day_dates[index])
+        return seed[1] if seed is not None else None
+
+    def _portfolio_fill_price_series(
+        self,
+        series: list[dict[str, Any] | None],
+        *,
+        day_dates: list[date],
+        seed: tuple[dict[str, Any], date] | None = None,
+        live_price: float | None = None,
+    ) -> list[str | None]:
+        """Fill a context's unpriced days in place; returns per-day markers.
+
+        ``live_price`` (if given) prices the newest day ("live") and counts as a
+        known price after any gap before it. Then:
+        - a gap with a known price on BOTH sides carries the earlier price
+          across the whole gap, uncapped ("carried");
+        - a gap with nothing known after it carries the earlier price up to
+          the cap ("carried");
+        - days with nothing known before take the NEXT known price up to the
+          cap ("backfilled") — the since-added idea.
+        ``seed`` is the last known price from before the window. One pass each
+        way over the already-resolved series; no queries."""
+        cap = self.PORTFOLIO_HISTORY_CARRY_MAX_DAYS
+        count = len(series)
+        markers: list[str | None] = [None] * count
+        if count and live_price is not None:
+            series[-1] = {"market": float(live_price)}
+            markers[-1] = "live"
+        known = [self._history_primary_price_value(row) is not None for row in series]
+        if all(known):
+            return markers
+        # Backward pass: the next known price (for bridging and backfill).
+        next_known: list[tuple[dict[str, Any], date] | None] = [None] * count
+        upcoming: tuple[dict[str, Any], date] | None = None
+        for index in range(count - 1, -1, -1):
+            if known[index]:
+                upcoming = (series[index], self._portfolio_price_date_of(series[index], day_dates[index]))
+            else:
+                next_known[index] = upcoming
+        last_row, last_date = seed if seed is not None else (None, None)
+        for index, day_value in enumerate(day_dates):
+            if known[index]:
+                last_row = series[index]
+                last_date = self._portfolio_price_date_of(series[index], day_value)
+                continue
+            following = next_known[index]
+            if last_row is not None and (following is not None or (day_value - last_date).days <= cap):
+                series[index] = last_row
+                markers[index] = "carried"
+            elif following is not None and (following[1] - day_value).days <= cap:
+                series[index] = following[0]
+                markers[index] = "backfilled"
+        return markers
+
+    def _portfolio_history_lookback_seeds(
+        self,
+        needs: dict[tuple[str, str, str, str, str, str], tuple[dict[str, Any], str | None]],
+        *,
+        start_date: date,
+        earliest_date: date | None = None,
+    ) -> dict[tuple[str, str, str, str, str, str], tuple[dict[str, Any], date]]:
+        """Last known price BEFORE the window, for contexts whose window opens
+        unpriced (any age: a bridged gap is uncapped). Read in widening tiers,
+        each ONE batched daily-row read plus ONE batched cell read for the
+        still-unresolved cards — never a query per holding or day."""
+        seeds: dict[tuple[str, str, str, str, str, str], tuple[dict[str, Any], date]] = {}
+        remaining = dict(needs)
+        hi = start_date - timedelta(days=1)
+        floor = earliest_date or (start_date - timedelta(days=730))
+        for tier_days in self.PORTFOLIO_HISTORY_LOOKBACK_TIERS_DAYS:
+            if not remaining or hi < floor:
+                break
+            lo = floor if tier_days is None else max(floor, start_date - timedelta(days=tier_days))
+            rows_by_card_id = self._portfolio_history_rows_by_card_id(
+                card_ids={key[1] for key in remaining},
+                end_date=hi,
+                provider=pricing_provider(),
+                start_date=lo,
+            )
+            cells_by_card_date = (
+                self._range_scoped_cells_by_card_date(rows_by_card_id, start_date=lo, end_date=hi)
+                if rows_by_card_id
+                else None
+            )
+            lo_iso = lo.isoformat()
+            for key, (entry, condition_code) in list(remaining.items()):
+                card_id = key[1]
+                cells_by_date = cells_by_card_date.get(card_id) if cells_by_card_date is not None else None
+                for row in reversed(rows_by_card_id.get(card_id) or []):
+                    row_date = str(row["price_date"] or "")
+                    if row_date[:10] < lo_iso:
+                        break
+                    resolved = self._portfolio_history_price_row_from_history_row(
+                        entry,
+                        row=row,
+                        condition_code=condition_code,
+                        day_cells=(cells_by_date.get(row_date, []) if cells_by_date is not None else None),
+                    )
+                    if self._history_primary_price_value(resolved) is not None:
+                        seeds[key] = (resolved, date.fromisoformat(row_date[:10]))
+                        del remaining[key]
+                        break
+            hi = lo - timedelta(days=1)
+        return seeds
+
     def _yesterday_price_history_row_for_card(
         self,
         card_id: str,
@@ -9687,10 +9851,6 @@ class SpotlightScanService:
         }
         event_index = 0
         points: list[dict[str, Any]] = []
-        # Carries the NEWEST day's live-only value out of the loop below (it is
-        # the last iteration), for the delta basis. Declared here so an empty
-        # range leaves it defined.
-        live_only_value = 0.0
         last_day_value = 0.0
         last_day_priced = 0
         last_day_unpriced = 0
@@ -9734,6 +9894,7 @@ class SpotlightScanService:
             if copy_points and str(snapshot.get("itemKind") or "").strip().lower() != "slab":
                 snapshot["printingPoints"] = copy_points
         price_series_by_context: dict[tuple[str, str, str, str, str, str], list[dict[str, Any] | None]] = {}
+        context_inputs: dict[tuple[str, str, str, str, str, str], tuple[dict[str, Any], str | None]] = {}
         for deck_entry_id, snapshot in snapshot_by_id.items():
             context_conditions = condition_codes_by_entry_id.get(deck_entry_id) or {None}
             card_id = str(snapshot.get("cardID") or "").strip()
@@ -9750,6 +9911,68 @@ class SpotlightScanService:
                     day_dates=day_dates,
                     cells_by_date=cells_by_date,
                 )
+                context_inputs[context_key] = (snapshot, condition_code)
+
+        # Never drop a holding just because one day's cells lack it (see
+        # _portfolio_fill_price_series). A window that opens unpriced is seeded
+        # from before it. Nothing precedes the first priced day, so an
+        # ALL-style window skips the lookback.
+        lookback_needs = (
+            {
+                key: context_inputs[key]
+                for key, series in price_series_by_context.items()
+                if series and self._history_primary_price_value(series[0]) is None
+            }
+            if earliest_priced_date is None or start_date > earliest_priced_date
+            else {}
+        )
+        try:
+            seeds = self._portfolio_history_lookback_seeds(
+                lookback_needs, start_date=start_date, earliest_date=earliest_priced_date
+            )
+        except Exception:  # noqa: BLE001 - a lookback miss only shortens the carry
+            traceback.print_exc()
+            seeds = {}
+
+        # A held context with no history price within the cap of the newest
+        # day is priced LIVE there (the headline must be complete). That live
+        # price is the known far end of its gap, so an earlier price bridges
+        # the gap; with no earlier price it backfills up to the cap.
+        newest_index = len(day_dates) - 1
+        live_attempted: set[tuple[str, str, str, str, str, str]] = set()
+        live_by_context: dict[tuple[str, str, str, str, str, str], float] = {}
+        for snapshot in snapshot_by_id.values():
+            if newest_index < 0 or max(0, int(snapshot.get("quantity") or 0)) <= 0:
+                continue
+            context_key = self._portfolio_history_context_key(
+                snapshot,
+                condition_code=self._portfolio_condition_code(snapshot.get("condition")),
+            )
+            series = price_series_by_context.get(context_key) if context_key is not None else None
+            if series is None or context_key in live_attempted:
+                continue
+            last_known = self._portfolio_last_known_price_date(
+                series, day_dates=day_dates, seed=seeds.get(context_key)
+            )
+            if (
+                last_known is not None
+                and (day_dates[newest_index] - last_known).days <= self.PORTFOLIO_HISTORY_CARRY_MAX_DAYS
+            ):
+                continue
+            live_attempted.add(context_key)
+            live_price = self._portfolio_live_price_for_snapshot(snapshot, snapshot.get("condition"))
+            if live_price is not None:
+                live_by_context[context_key] = live_price
+
+        price_markers_by_context: dict[tuple[str, str, str, str, str, str], list[str | None]] = {
+            key: self._portfolio_fill_price_series(
+                series,
+                day_dates=day_dates,
+                seed=seeds.get(key),
+                live_price=live_by_context.get(key),
+            )
+            for key, series in price_series_by_context.items()
+        }
 
         for day_index, current_day in enumerate(day_dates):
             # Only the last plotted day may fall back to live pricing.
@@ -9824,8 +10047,10 @@ class SpotlightScanService:
             day_cost_basis_total = 0.0
             priced_count = 0
             unpriced_count = 0
-            # Value on the newest point that the earlier days could not see.
-            live_only_value = 0.0
+            # This day's value of the holdings the NEWEST day prices live (no
+            # history price within the cap) — kept per point for the delta basis.
+            live_priced_value = 0.0
+            stale_holding_count = 0
             for deck_entry_id, state in states.items():
                 quantity = max(0, int(state.get("quantity") or 0))
                 if quantity <= 0:
@@ -9842,11 +10067,14 @@ class SpotlightScanService:
                     "printingPoints": snapshot.get("printingPoints"),
                 }
                 context_key = self._portfolio_history_context_key(context_entry, condition_code=condition_code)
+                marker: str | None = None
+                priced_live_newest = False
                 if context_key is None:
                     row = None
                 else:
                     series = price_series_by_context.get(context_key)
                     if series is None:
+                        # A condition only an event carried; rare, so no lookback.
                         fallback_card_id = str(snapshot.get("cardID") or "").strip()
                         history_rows = history_rows_by_card_id.get(fallback_card_id, [])
                         series = self._portfolio_history_series_for_context(
@@ -9857,25 +10085,32 @@ class SpotlightScanService:
                             cells_by_date=(cells_by_card_date.get(fallback_card_id) if cells_by_card_date else None),
                         )
                         price_series_by_context[context_key] = series
+                        price_markers_by_context[context_key] = self._portfolio_fill_price_series(
+                            series, day_dates=day_dates
+                        )
+                    context_markers = price_markers_by_context[context_key]
                     row = series[day_index]
+                    marker = context_markers[day_index]
+                    priced_live_newest = context_markers[newest_index] == "live"
                 primary_price = self._history_primary_price_value(row) if row is not None else None
-                if primary_price is None and is_newest_day:
-                    # No cell for this holding TODAY — price it live rather than
+                if primary_price is None and is_newest_day and context_key not in live_attempted:
+                    # No price for this holding TODAY — price it live rather than
                     # dropping it out of the headline value. See the helper.
                     primary_price = self._portfolio_live_price_for_snapshot(
                         snapshot,
                         state.get("condition"),
                     )
-                    if primary_price is not None:
-                        # It reached the newest point ONLY because of that
-                        # fallback, so it is not comparable with the earlier days
-                        # that dropped it. Kept out of the delta basis below.
-                        live_only_value += primary_price * quantity
+                    marker = "live" if primary_price is not None else None
+                    priced_live_newest = marker == "live"
                 if primary_price is None:
                     unpriced_count += 1
                     continue
                 priced_count += 1
                 day_total += primary_price * quantity
+                if priced_live_newest:
+                    live_priced_value += primary_price * quantity
+                if marker in ("carried", "backfilled"):
+                    stale_holding_count += 1
 
             last_day_value = round(day_total, 2)
             last_day_cost_basis = round(day_cost_basis_total, 2)
@@ -9891,6 +10126,12 @@ class SpotlightScanService:
                     "excludedCardCount": unpriced_count,
                     "addedCount": day_added_count,
                     "addedValue": round(day_added_value, 2),
+                    # Holdings valued from a carried/backfilled price, not that
+                    # day's own cell.
+                    "staleHoldingCount": stale_holding_count,
+                    # Part of totalValue from holdings the newest day prices
+                    # live; the delta basis needs it at both ends of any window.
+                    "livePricedValue": round(live_priced_value, 2),
                 }
             )
 
@@ -9903,18 +10144,22 @@ class SpotlightScanService:
         #
         # `currentValue` wants every holding — it is "what is this worth right
         # now", and the newest day prices holdings from the live snapshot when
-        # history has no cell for them. But the earlier days DROP those same
-        # holdings, so subtracting one from the other invents a gain: a PSA 10
+        # history has no price for them. Days beyond the carry cap cannot see
+        # those holdings, so subtracting one from the other invents a gain: a PSA 10
         # Charizard held since July, invisible all week because the graded lane
         # wrote no cells, appeared only on the final point and read as +$409k
         # this week (user, 2026-09-11).
         #
-        # So the delta compares like with like: the newest total MINUS the value
-        # that only the live fallback could see. The headline stays complete; the
-        # change stops claiming a week that never happened.
-        delta_basis = round(max(0.0, current_value - live_only_value), 2)
+        # So the delta compares like with like: a holding the newest day can
+        # only price LIVE contributes no change at all. Its live price is not
+        # comparable with whatever (if anything) valued it at the window start.
+        # Basis = newest total - those holdings' newest value (L) + their value
+        # on the window's first point (S). The headline stays complete.
+        live_value_newest = points[-1]["livePricedValue"] if points else 0.0
+        live_value_start = points[0]["livePricedValue"] if points else 0.0
+        delta_basis = round(max(0.0, current_value - live_value_newest + live_value_start), 2)
         delta_value = round(delta_basis - start_value, 2)
-        delta_percent = self._portfolio_delta_percent(delta_value, start_value)
+        delta_percent = self._portfolio_delta_percent(delta_value, start_value, delta_basis)
         return {
             "range": normalized_range or "30D",
             "currencyCode": "USD",
@@ -22322,7 +22567,9 @@ class SpotlightScanService:
     # raw_main cells (alt arts) feed their printing's history.
     # 6: owned copies of a non-main printing (alt arts, stamped promos) price and
     # chart from that printing's TCGCSV raw_main cells.
-    PAYLOAD_CACHE_GENERATION = 6
+    # 7: portfolio history carries a holding's last known price across missing
+    # cells (no more drop-out dips/end spikes); points gain livePricedValue.
+    PAYLOAD_CACHE_GENERATION = 7
 
     def _payload_cache_path(self, namespace: str, cache_key: Any, version: str) -> Path | None:
         root = getattr(self, "_payload_cache_root", None)

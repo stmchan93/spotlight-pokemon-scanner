@@ -45,6 +45,8 @@ export type PriceScrubChartProps = {
   onScrub: (index: number | null) => void;
   /** 'fit' fills the height with the window's own range; default keeps an 8% floor. */
   yScale?: PriceYScale;
+  /** Explicit y-domain (overrides yScale); values outside it draw clamped to the edge. */
+  yDomain?: { min: number; max: number };
   /** Gradient + graph-paper fill under a 'line' series (the portfolio look). */
   areaFill?: boolean;
   /** Faint grid texture over the area fill (Portfolio); off = plain gradient. */
@@ -78,6 +80,7 @@ function PriceScrubChartImpl({
   height = 200,
   onScrub,
   yScale = 'padded',
+  yDomain,
   areaFill = false,
   fillGrid = true,
   testID = 'price-scrub-chart',
@@ -91,8 +94,8 @@ function PriceScrubChartImpl({
   const isEmpty = points.length < 2;
 
   const coords = useMemo(
-    () => (width > 0 && !isEmpty ? projectPoints(points, windowStartMs, windowEndMs, width, height, yScale) : []),
-    [height, isEmpty, points, width, windowEndMs, windowStartMs, yScale],
+    () => (width > 0 && !isEmpty ? projectPoints(points, windowStartMs, windowEndMs, width, height, yScale, yDomain) : []),
+    [height, isEmpty, points, width, windowEndMs, windowStartMs, yDomain, yScale],
   );
   const xs = useMemo(() => coords.map((c) => c.x), [coords]);
 

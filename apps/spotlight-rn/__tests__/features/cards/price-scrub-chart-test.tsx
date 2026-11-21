@@ -11,6 +11,7 @@ import {
   morphPath,
   nearestIndexByX,
   priceYDomain,
+  projectPoints,
   resampleSeries,
   resampleY,
   samePoints,
@@ -128,6 +129,16 @@ describe('price-scrub-chart geometry', () => {
     // A flat series still gets a nonzero span.
     const flat = priceYDomain([1700, 1700], 'fit');
     expect(flat.max - flat.min).toBeGreaterThan(0);
+  });
+
+  it('clamps values outside an explicit y-domain to the plot edge', () => {
+    const points = linePoints([100, 110, 5000]);
+    const coords = projectPoints(points, START, END, 300, 200, 'padded', { min: 90, max: 120 });
+    const top = coords[2].y;
+    // The outlier sits on the plot's top edge (CHART_PAD_TOP), not off-canvas.
+    expect(top).toBe(30);
+    expect(coords[0].y).toBeGreaterThan(coords[1].y);
+    expect(coords[1].y).toBeGreaterThan(top);
   });
 
   it('compares points by content', () => {

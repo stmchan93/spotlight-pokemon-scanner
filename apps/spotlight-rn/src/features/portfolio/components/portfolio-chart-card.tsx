@@ -69,9 +69,21 @@ const RANGE_CLAMP_TOLERANCE_DAYS = 2;
 // The line's y-window spans at least this fraction of the portfolio value, so
 // a move's height on screen tracks its real size (3% ≈ a third of the chart).
 const LINE_MIN_SPAN_RATIO = 0.08;
+// Headroom above and below the fitted values, as a fraction of their span.
+const LINE_HEADROOM_RATIO = 0.1;
+// A day further than this many robust standard deviations (1.4826 × MAD) from
+// the window's median is an outlier: it is drawn clamped to the plot edge
+// instead of setting the scale. P5–P95 can't do this job — a month-long bad
+// plateau is 15% of a 7-month window, and a 7D window has no 5th percentile.
+const LINE_OUTLIER_SIGMAS = 3;
+const MAD_TO_SIGMA = 1.4826;
 
-// Below this, the baseline is too near zero to divide by.
-const MEANINGFUL_BASELINE_VALUE = 1;
+// A percent change is shown only when the baseline is at least the larger of
+// these: $100, or 5% of the current comparable value. Under that, the ratio is
+// noise (a $1.68 first day read +649,789%). Same rule as the backend's
+// `deltaPercent`.
+const PERCENT_BASELINE_MIN_VALUE = 100;
+const PERCENT_BASELINE_MIN_RATIO = 0.05;
 
 const skeletonBarScales = [0.42, 0.62, 0.5, 0.74, 0.58, 0.82, 0.68, 0.9, 0.76, 0.56, 0.72, 0.64];
 
@@ -210,38 +222,71 @@ function formatTooltipDateLabel(isoDate: string) {
     .toUpperCase();
 }
 
-// The portfolio LINE auto-scales to the visible value range (not 0→max), with
-// a minimum span so small moves stay small (a $50 dip on $1,700 filled the full
-// height and read as a 50% crash), and headroom off the edges.
+function median(values: readonly number[]) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// "Now" for a series, robust to a one-day live-pricing spike on the last point:
+// the median of the trailing few days.
+const LATEST_REFERENCE_DAYS = 3;
+
+function latestComparableValue(values: readonly number[]) {
+  const tail = values.slice(-LATEST_REFERENCE_DAYS).filter((value) => Number.isFinite(value));
+  return tail.length > 0 ? median(tail) : null;
+}
+
+/** Null when the baseline is too small for a ratio to mean anything. */
+export function portfolioChangePercent(startValue: number, changeAmount: number, currentComparableValue: number) {
+  const minBaseline = Math.max(PERCENT_BASELINE_MIN_VALUE, PERCENT_BASELINE_MIN_RATIO * currentComparableValue);
+  if (!(startValue >= minBaseline)) {
+    return null;
+  }
+  return Number(((changeAmount / startValue) * 100).toFixed(2));
+}
+
+// The portfolio LINE scales to the window's typical values, not its min/max:
+// one bad day ($427K amid $5K–$13K) used to squeeze months of real history
+// into the bottom 3% of the plot. Days outside the median ± 3σ (MAD) band are
+// clamped to the edge by the renderer; the header still reads their true value.
+// The recent level is always in range, so a real recent jump is never clamped.
+// A minimum span keeps small moves small, plus headroom off the edges.
 export function portfolioLineYDomain(rawValues: readonly number[]) {
   const values = rawValues.filter((value) => Number.isFinite(value));
   if (values.length === 0) {
     return { min: 0, max: 1 };
   }
-  const dataMin = Math.min(...values);
-  const dataMax = Math.max(...values);
-  const minSpan = Math.abs(dataMax) * LINE_MIN_SPAN_RATIO || 2;
-  const paddedSpan = Math.max((dataMax - dataMin) * 1.2, minSpan);
-  const mid = (dataMax + dataMin) / 2;
-  return { min: mid - paddedSpan / 2, max: mid + paddedSpan / 2 };
+  const center = median(values);
+  const sigma = MAD_TO_SIGMA * median(values.map((value) => Math.abs(value - center)));
+  // Floor the band so a flat collection (MAD 0) doesn't call a tiny move an outlier.
+  const band = Math.max(LINE_OUTLIER_SIGMAS * sigma, Math.abs(center) * LINE_MIN_SPAN_RATIO);
+  const inliers = values.filter((value) => Math.abs(value - center) <= band);
+  const latest = latestComparableValue(values) ?? center;
+  const fitMin = Math.min(...inliers, latest);
+  const fitMax = Math.max(...inliers, latest);
+  const minSpan = Math.abs(fitMax) * LINE_MIN_SPAN_RATIO || 2;
+  const span = Math.max((fitMax - fitMin) * (1 + LINE_HEADROOM_RATIO * 2), minSpan);
+  const mid = (fitMax + fitMin) / 2;
+  return { min: mid - span / 2, max: mid + span / 2 };
 }
 
-// A collection's first days are often a handful of cards, then a bulk add
-// spread over a day or two; plotted, that is a cliff that flattens every later
-// move. The line starts on the LAST day the value at least doubled overnight —
-// a partial first day ($534 before the full $2,949) is skipped with the rest,
-// while gradual growth is never cut.
-const WARMUP_JUMP_RATIO = 2;
+// A collection's first weeks are often a handful of cards before the real
+// collection lands; plotted, that is a cliff that flattens every later move.
+// The line starts on the first day the value reaches this fraction of the
+// window's latest comparable value. Gradual growth from a real base is kept.
+const WARMUP_START_RATIO = 0.1;
 
 export function trimPortfolioWarmup<T extends { value: number }>(points: readonly T[]): T[] {
-  let start = 0;
-  for (let index = 1; index < points.length; index += 1) {
-    const previous = points[index - 1].value;
-    if (points[index].value > 0 && points[index].value >= Math.max(previous, 0) * WARMUP_JUMP_RATIO) {
-      start = index;
-    }
+  const latest = latestComparableValue(points.map((point) => point.value));
+  if (latest == null || latest <= 0 || points.length <= 2) {
+    return [...points];
   }
-  return start > 0 && start < points.length - 1 ? points.slice(start) : [...points];
+  const threshold = latest * WARMUP_START_RATIO;
+  const firstReached = points.findIndex((point) => point.value >= threshold);
+  // Always leave at least two points to draw a line.
+  const start = Math.min(firstReached < 0 ? 0 : firstReached, points.length - 2);
+  return start > 0 ? points.slice(start) : [...points];
 }
 
 /** The range's change re-based onto the first plotted (post-warm-up) day. */
@@ -249,21 +294,28 @@ export function portfolioRangeSummaryAfterWarmup(
   points: readonly { value: number }[],
   summary: PortfolioRangeSummary | null,
 ): PortfolioRangeSummary | null {
-  const trimmed = trimPortfolioWarmup(points);
-  const newStart = trimmed[0]?.value;
-  if (!summary || newStart == null || trimmed.length === points.length) {
+  if (!summary) {
     return summary;
   }
-  // Shift the backend's baseline rather than recompute from the last point:
-  // its change deliberately excludes value only today's live pricing sees.
+  // The backend's change deliberately excludes value only today's live pricing
+  // sees, so "now" for the ratio is its baseline + change, not currentValue.
+  const comparableNow = summary.startValue + summary.changeAmount;
+  const trimmed = trimPortfolioWarmup(points);
+  const newStart = trimmed[0]?.value;
+  if (newStart == null || trimmed.length === points.length) {
+    // A server that already hid the percent stays hidden; one that didn't gets the same rule.
+    return summary.changePercent == null
+      || portfolioChangePercent(summary.startValue, summary.changeAmount, comparableNow) != null
+      ? summary
+      : { ...summary, changePercent: null };
+  }
+  // Shift the backend's baseline rather than recompute from the last point.
   const changeAmount = Number((summary.changeAmount + summary.startValue - newStart).toFixed(2));
   return {
     ...summary,
     startValue: newStart,
     changeAmount,
-    changePercent: newStart >= MEANINGFUL_BASELINE_VALUE
-      ? Number(((changeAmount / newStart) * 100).toFixed(2))
-      : null,
+    changePercent: portfolioChangePercent(newStart, changeAmount, comparableNow),
   };
 }
 
@@ -402,11 +454,7 @@ function portfolioChangeForPoint(
   }
 
   const amount = Number((point.value - baselinePoint.value).toFixed(2));
-  // A ratio against a sub-dollar baseline is meaningless (a $1.68 first day
-  // turned a normal gain into +743,353%). Same rule the backend applies.
-  const percent = baselinePoint.value >= MEANINGFUL_BASELINE_VALUE
-    ? Number(((amount / baselinePoint.value) * 100).toFixed(2))
-    : null;
+  const percent = portfolioChangePercent(baselinePoint.value, amount, point.value);
 
   return {
     amount,
@@ -554,7 +602,8 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
     const domainSpan = Math.max(lineYDomain.max - lineYDomain.min, 1e-6);
 
     return series.map((point, index) => {
-      const normalizedY = (point.value - lineYDomain.min) / domainSpan;
+      // Outliers clamp to the plot edge; the header still reads their true value.
+      const normalizedY = clamp((point.value - lineYDomain.min) / domainSpan, 0, 1);
       return {
         // A lone point sits on the RIGHT edge so the synthesized rise below
         // (baseline → value) ends on it, instead of a dot floating mid-chart.
@@ -918,7 +967,7 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
             areaFill
             testID="portfolio-price-chart"
             variant="line"
-            yScale="fit"
+            yDomain={lineYDomain}
             windowEndMs={priceChartPoints[priceChartPoints.length - 1].t}
             windowStartMs={priceChartPoints[0].t}
           />

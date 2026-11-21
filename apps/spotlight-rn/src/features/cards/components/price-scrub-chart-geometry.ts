@@ -52,14 +52,16 @@ export function projectPoints(
   width: number,
   height: number,
   scale: PriceYScale = 'padded',
+  domainOverride?: { min: number; max: number },
 ): ChartXY[] {
-  const domain = priceYDomain(points.map((point) => point.v), scale);
+  // A caller-supplied domain may exclude outliers; those clamp to the plot edge.
+  const domain = domainOverride ?? priceYDomain(points.map((point) => point.v), scale);
   const ySpan = Math.max(domain.max - domain.min, 1e-6);
   const tSpan = Math.max(windowEndMs - windowStartMs, 1);
   const plotHeight = Math.max(height - CHART_PAD_TOP - CHART_PAD_BOTTOM, 1);
   return points.map((point) => ({
     x: Math.min(Math.max(((point.t - windowStartMs) / tSpan) * width, 0), width),
-    y: CHART_PAD_TOP + (1 - (point.v - domain.min) / ySpan) * plotHeight,
+    y: CHART_PAD_TOP + (1 - Math.min(Math.max((point.v - domain.min) / ySpan, 0), 1)) * plotHeight,
   }));
 }
 
