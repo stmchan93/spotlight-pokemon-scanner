@@ -202,7 +202,8 @@ async def run_case(
         base = {
             "case": case["id"], "category": case["category"], "holdout": bool(case.get("holdout")),
             "review_label": case.get("review_label"), "repeat": repeat, "turn": number, "question": turn["ask"],
-            "context_card_ids": turn.get("card_ids") or [], "rubric": turn.get("rubric"),
+            "context_card_ids": turn.get("card_ids") or [], "context_game": turn.get("game"),
+            "rubric": turn.get("rubric"),
             "reference": turn.get("reference"), "retry": bool(turn.get("retry")),
         }
         if not (turn.get("retry") and body is not None):
@@ -212,6 +213,9 @@ async def run_case(
             }
             if turn.get("card_ids"):
                 body["context"] = {"source": "scanner", "card_ids": turn["card_ids"]}
+            if turn.get("game"):
+                # The screen's game (Home market picker / scanner lane), as the app sends it.
+                body["context"] = {"source": "home", **(body.get("context") or {}), "game": turn["game"]}
         context, context_cards = await asyncio.to_thread(scanner_info, assistant.toolbox, turn.get("card_ids") or [])
         recorder.take()
         started = time.monotonic()

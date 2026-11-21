@@ -10,6 +10,7 @@ import {
   parseAssistantMessage,
   parseAssistantSuggestions,
 } from '../../../../packages/api-client/src/spotlight/assistant-wire';
+import type { CardGame } from '../../../../packages/api-client/src/spotlight/types';
 import { parseAssistantMarkdown } from '@/features/assistant/assistant-markdown';
 
 function jsonResponse(status: number, body?: unknown) {
@@ -106,6 +107,18 @@ describe('assistant wire normalization', () => {
       capabilities: ['direct_add'],
       context: { source: 'scanner', card_ids: Array.from({ length: 20 }, (_, index) => `card-${index}`) },
     });
+  });
+
+  it('sends context.game only for a known game', () => {
+    const home = buildAssistantSendBody({
+      threadId: 'thr_1', clientMessageId: 'cid', text: 'rising?', context: { source: 'home', game: 'lorcana' },
+    });
+    expect(home.context).toEqual({ source: 'home', game: 'lorcana' });
+    const unknown = buildAssistantSendBody({
+      threadId: null, clientMessageId: 'cid', text: 'rising?',
+      context: { source: 'home', game: 'chess' as unknown as CardGame },
+    });
+    expect(unknown.context).toEqual({ source: 'home' });
   });
 
   it('parses **bold**, headings, bullets and numbered lines; a stray # stays literal', () => {

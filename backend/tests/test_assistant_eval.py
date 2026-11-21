@@ -714,6 +714,12 @@ class CaseFileTests(unittest.TestCase):
                                                   "ambiguous_pikachu_add", "en_twin_of_jp", "wishlist_wording", "scanner_add_all"},
                                 case["id"])
 
+    def test_turn_game_values_match_the_catalog(self) -> None:
+        from assistant_eval.cases import CONTEXT_GAMES
+        from catalog_tools import SUPPORTED_GAMES
+
+        self.assertEqual(tuple(CONTEXT_GAMES), tuple(SUPPORTED_GAMES))
+
     def test_new_keys_are_validated(self) -> None:
         bad = copy.deepcopy(self.data)
         bad["cases"][0]["turns"][0]["expect"] = {
@@ -728,10 +734,12 @@ class CaseFileTests(unittest.TestCase):
         bad["cases"][1]["turns"].append({"ask": "different", "retry": True, "rubric": ["ok?"]})
         bad["cases"][2]["state_checks"] = {"holding_delta": [{"card_id": "x", "delta": 1}]}
         bad["cases"][3]["fixtures"] = {"delete": [{"table": "deck entries; drop", "where": {"a": 1}}], "upsert": []}
+        bad["cases"][4]["turns"][0]["game"] = "mtg"
         errors = "\n".join(validate_cases(bad, TOOLS))
         for needle in ("unknown tile predicate 'colour'", "tiles_include: needs at least one", "tile_quantity: needs",
                        "tiles_sorted: must be", "tiles_max: must be", "tiles_label: bad regex", "tool_result_where[0]: needs tool",
-                       "retry turn repeats", "state_checks need writes", "needs table", "unknown key 'upsert'"):
+                       "retry turn repeats", "state_checks need writes", "needs table", "unknown key 'upsert'",
+                       "game must be one of"):
             self.assertIn(needle, errors)
         # Planned tools validate before they exist (their checks skip at run time).
         ok = copy.deepcopy(self.data)

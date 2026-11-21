@@ -6,11 +6,11 @@ import type { AssistantSetRef } from '@spotlight/api-client';
 import { parseAssistantRouteParams } from '@/features/assistant/assistant-route';
 import { AssistantScreen } from '@/features/assistant/screens/assistant-screen';
 
-/** `/assistant?source=home|scanner&cardIds=a,b&threadId=…` — Ask Ekalight, pushed from Home and the Scanner. */
+/** `/assistant?source=home|scanner&cardIds=a,b&threadId=…&game=…` — Ask Ekalight, pushed from Home and the Scanner. */
 export default function AssistantRoute() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ source?: string; cardIds?: string; threadId?: string }>();
-  const { source, cardIds, threadId } = parseAssistantRouteParams(params);
+  const params = useLocalSearchParams<{ source?: string; cardIds?: string; threadId?: string; game?: string }>();
+  const { source, cardIds, threadId, game } = parseAssistantRouteParams(params);
   const openCard = useCallback(
     (cardId: string) => router.push({ pathname: '/cards/[cardId]', params: { cardId } }),
     [router],
@@ -30,6 +30,7 @@ export default function AssistantRoute() {
   return (
     <AssistantScreen
       cardIds={cardIds}
+      game={game}
       initialThreadId={threadId}
       onBack={() => router.back()}
       onOpenCard={openCard}

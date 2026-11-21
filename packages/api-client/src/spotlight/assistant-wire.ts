@@ -403,6 +403,7 @@ export function buildAssistantSendBody(payload: AssistantSendPayload): Record<st
       source: context.source,
       // Contract cap: ≤20 tray card ids, deduped.
       ...(cardIds.length > 0 ? { card_ids: Array.from(new Set(cardIds)).slice(0, 20) } : {}),
+      ...(context.game && CARD_GAMES.includes(context.game) ? { game: context.game } : {}),
     };
   }
   return body;

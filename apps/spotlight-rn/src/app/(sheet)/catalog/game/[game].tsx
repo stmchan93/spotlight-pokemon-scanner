@@ -19,7 +19,7 @@ export default function GameSetsRoute() {
     <GameSetsScreen
       game={game}
       onClose={() => router.back()}
-      onOpenAssistant={() => router.push(assistantHref('home'))}
+      onOpenAssistant={() => router.push(assistantHref('home', [], game))}
       onOpenCard={(result) => {
         // Same push the catalog search does — catalog results have no owned
         // context, so warm the default raw lane.

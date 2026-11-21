@@ -1032,7 +1032,8 @@ CREATE TABLE IF NOT EXISTS assistant_threads (
     owner_user_id TEXT NOT NULL,
     title TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    game TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_threads_owner ON assistant_threads(owner_user_id, updated_at DESC);
 CREATE TABLE IF NOT EXISTS assistant_messages (

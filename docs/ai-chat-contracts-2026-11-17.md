@@ -41,9 +41,13 @@ Request:
   "thread_id": "thr_... or null (new thread)",
   "client_message_id": "uuid (idempotency: same id → same response, no double charge)",
   "text": "1..1000 chars",
-  "context": {"source": "home" | "scanner", "card_ids": ["≤20 card ids, scanner tray"]}
+  "context": {"source": "home" | "scanner", "card_ids": ["≤20 card ids, scanner tray"], "game": "pokemon|onepiece|lorcana|riftbound|gundam (optional)"}
 }
 ```
+`context.game` (added 2026-11-20, additive): the opening screen's game (Home's market game picker / the scanner's "Scanning for" lane / a catalog game page); sent on every message. Unknown strings are ignored; a non-string is 400.
+
+### Game scope (added 2026-11-20, owner decision)
+Market-wide rankings (rising, falling, new highs, lows, undervalued, trending, sets, most expensive, top graded) cover ONE game, resolved in code (`mcp_server/assistant/game_scope.py`): (1) the question names a game (an explicit "all games" = unscoped; a game Ekalight doesn't carry, e.g. MTG = unscoped with a "we don't cover it" note); (2) the thread's remembered game (`assistant_threads.game`, set when a question names a game or a market call is pinned); (3) `context.game`; (4) the game with the most collection entries (same rule as the Insights picker default; guests skip); (5) Pokémon. The model gets a "Game scope: X" note per turn, and `enforce_game` pins X on `get_market_trends`/`find_price_lows`/`find_new_highs` (top-level `game`), `find_top_graded`, rarity-scoped `find_movers`, and price-sorted `search_cards` (`filter.game`) unless the question named the model's game; calls with text/set/artist filters or owned/collection args are untouched. A scoped answer gets one deterministic "What about <game>?" chip (next collection game, else the screen's game); model chips switching games are dropped.
 200:
 ```json
 {
@@ -217,7 +221,7 @@ Raw tool payloads are not stored. History sent to the model = the last 10 messag
 Market-wide questions ("Undervalued cards", "What's trending…") have one answer for everyone until prices change, so it is computed once (`mcp_server/assistant/shared_answers.py`, table `assistant_shared_answers(key PK, question_norm, version, reply_json, hits, created_at, expires_at)`, not owner-scoped).
 - Eligible request: first message of a new thread (`thread_id` null), no `context.card_ids`.
 - Stored only when the turn is `ok`, has no actions/tool errors/round-limit, carries no quality flag (`slow`/`expensive` are ignored), and every tool call was a market-wide read (`get_market_trends`, `find_price_lows`, `find_new_highs`, `list_facets`, `search_cards`, `find_top_graded`) with `owned` unset/`any`, no collection/holding args, and no user data in the result (`my_holdings`, `resolved_owned_*`, `quantity_owned`); `show_cards` is allowed; at least one non-`list_facets` lookup.
-- Key = sha256(normalized question, scope (reserved, ""), data version, model + system-prompt hash). Normalization: lowercase, trim, collapse whitespace, curly→straight quotes, strip trailing punctuation, then exact match or `QUESTION_ALIASES`. Data version = `price_lows_version_token` (newest price date + `pricing_sync_generation`); rows also expire after 24h.
+- Key = sha256(normalized question, scope = resolved game (`game:<id>`, `game:all_games`, `game:unsupported`; knowledge answers `knowledge|game:<id>`), data version, model + system-prompt hash). The game-switch chip is recomputed for each replaying asker. Normalization: lowercase, trim, collapse whitespace, curly→straight quotes, strip trailing punctuation, then exact match or `QUESTION_ALIASES`. Data version = `price_lows_version_token` (newest price date + `pricing_sync_generation`); rows also expire after 24h.
 - Hit: no LLM call; the reply (text, cards without `quantity_owned`, cards_label, charts/sparklines, suggestions, tool_calls for history) is saved in the user's own new thread with its own ids, `cost_usd`/tokens 0, `assistant_messages.cached = 1`; it still counts as a question (daily limit) and is served even past the spend cap. Log line and PostHog `assistant_turn_cost` carry `cached: true` (misses `cached: false`).
 - Eval: `backend/tools/assistant_eval.py` bypasses the cache by default (`--no-shared-cache`); `--shared-cache` turns it on.
 

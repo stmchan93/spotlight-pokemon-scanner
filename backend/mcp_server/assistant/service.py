@@ -15,6 +15,7 @@ from mcp_server.assistant.direct_add import UndoUnavailable, undo_expired
 from mcp_server.assistant import shared_answers
 from mcp_server.assistant.engine import SYSTEM_PROMPT, AssistantEngine, AssistantFailed, cache_hit_ratio
 from mcp_server.assistant.flags import flag_turn
+from mcp_server.assistant import game_scope
 from mcp_server.assistant.store import (
     FEEDBACK_NOTE_CHARS,
     FEEDBACK_RATINGS,
@@ -128,12 +129,18 @@ class AssistantService:
         if len(card_ids) > MAX_CONTEXT_CARDS:
             return None, _bad(f"context.card_ids holds at most {MAX_CONTEXT_CARDS} ids")
         card_ids = list(dict.fromkeys(item.strip() for item in card_ids if item.strip()))
+        game = context.get("game")
+        if game is not None and not isinstance(game, str):
+            return None, _bad("context.game must be a string")
         return {
             "thread_id": thread_id.strip() if thread_id else None,
             "client_message_id": client_message_id.strip(),
             "text": text,
             "source": source or "home",
             "card_ids": card_ids,
+            # The screen's game (Home market picker / scanner lane). A game this server doesn't
+            # know (newer app) is ignored, not rejected: resolution falls through to the collection.
+            "game": game_scope.supported_game(game),
             # Older app builds render any action as a Confirm card; a direct add
             # there would be added twice on Confirm, so they only get proposals.
             "direct_add": isinstance(capabilities := body.get("capabilities"), list)
@@ -149,6 +156,15 @@ class AssistantService:
         assert request is not None
         async with self._lock(caller.user_id):
             return await self._send_locked(caller, request)
+
+    def _resolve_game_sync(self, caller: Caller, request: dict[str, Any]) -> game_scope.GameScope:
+        thread_id = request["thread_id"]
+        thread_game = self.store.thread_game(caller.user_id, thread_id) if thread_id else None
+        # Guests skip the collection step (owner decision); signed-in users rank their games.
+        collection = () if caller.is_guest else game_scope.collection_games(self.store.conn, caller.user_id)
+        return game_scope.resolve_game(
+            request["text"], thread_game=thread_game, context_game=request.get("game"), collection=collection
+        )
 
     async def _send_locked(self, caller: Caller, request: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         user_id = caller.user_id
@@ -167,6 +183,7 @@ class AssistantService:
             return NOT_FOUND
 
         day = utc_day()
+        scope = await asyncio.to_thread(self._resolve_game_sync, caller, request)
         usage = await asyncio.to_thread(self._usage_sync, caller)
         if usage["limit"] is not None and usage["used_today"] >= usage["limit"]:
             return 429, {"error": "daily_limit", "usage": usage}
@@ -178,11 +195,12 @@ class AssistantService:
             # Knowledge answers don't depend on prices, so they are looked up without a version read.
             knowledge_key = shared_answers.cache_key(
                 question_norm, version=shared_answers.KNOWLEDGE_VERSION, fingerprint=fingerprint,
-                scope=shared_answers.KNOWLEDGE_SCOPE,
+                # The turn note names the game, so even a knowledge answer is kept per game.
+                scope=f"{shared_answers.KNOWLEDGE_SCOPE}|{scope.cache_scope}",
             )
             cached = await asyncio.to_thread(self.shared.get, knowledge_key, shared_answers.KNOWLEDGE_VERSION)
             if cached is not None:
-                return await self._send_cached(caller, request, cached, day)
+                return await self._send_cached(caller, request, cached, day, scope)
             try:
                 # Resolve the connection inside the worker: connections are per-thread
                 # (check_same_thread), so one fetched on the loop thread fails there.
@@ -190,25 +208,29 @@ class AssistantService:
             except Exception:  # noqa: BLE001 - the cache must never fail a question
                 logger.exception("assistant shared answer version failed")
             if shared_version:
-                shared_key = shared_answers.cache_key(question_norm, version=shared_version, fingerprint=fingerprint)
+                shared_key = shared_answers.cache_key(
+                    question_norm, version=shared_version, fingerprint=fingerprint, scope=scope.cache_scope
+                )
                 cached = await asyncio.to_thread(self.shared.get, shared_key, shared_version)
                 if cached is not None:
-                    return await self._send_cached(caller, request, cached, day)
+                    return await self._send_cached(caller, request, cached, day, scope)
         spent = await asyncio.to_thread(self.store.spend_today, day)
         if spent >= self.config.daily_spend_cap_usd:
             logger.warning("assistant daily spend cap reached: %.4f >= %.2f", spent, self.config.daily_spend_cap_usd)
             return 503, {"error": "assistant_busy"}
 
         history = await asyncio.to_thread(self.store.history, user_id, thread_id) if thread_id else []
-        context = (
+        tray = (
             await asyncio.to_thread(self.toolbox.scanner_context, request["card_ids"]) if request["card_ids"] else None
         )
+        context = "\n\n".join(part for part in (game_scope.scope_note(scope), tray) if part)
         assert self.engine is not None
         try:
             turn = await self.engine.run_turn(
                 owner_user_id=user_id, history=history, question=request["text"], context=context,
                 context_card_ids=request["card_ids"],
                 client_message_id=request["client_message_id"] if request["direct_add"] else None,
+                game_scope=scope,
             )
         except AssistantFailed as failure:
             await asyncio.to_thread(self.store.record_failed_cost, user_id, day, failure.cost_usd)
@@ -236,7 +258,9 @@ class AssistantService:
             "cards_label": turn.cards_label,
             "cards_view_all": turn.cards_view_all,
             "actions": turn.actions,
-            "suggestions": turn.suggestions,
+            "suggestions": game_scope.with_switch_suggestion(
+                turn.suggestions, game_scope.switch_suggestion(scope, turn.scoped_game), turn.scoped_game
+            ),
             "charts": turn.charts,
             "sets": turn.sets,
             "status": turn.status,
@@ -271,12 +295,15 @@ class AssistantService:
             reply=reply,
             counted=turn.status == "ok",
             day=day,
+            game=scope.remembered or turn.scoped_game,
         )
         logger.info(
-            "assistant_turn user=%s source=%s status=%s stop=%s rounds=%d tools=%s in=%d out=%d cache_read=%d "
-            "cache_write=%d cache_hit=%.2f cost_usd=%.6f latency_ms=%d flags=%s",
+            "assistant_turn user=%s source=%s game=%s game_from=%s status=%s stop=%s rounds=%d tools=%s in=%d "
+            "out=%d cache_read=%d cache_write=%d cache_hit=%.2f cost_usd=%.6f latency_ms=%d flags=%s",
             user_id,
             request["source"],
+            turn.scoped_game or "-",
+            scope.source,
             turn.status,
             turn.stop_reason,
             turn.rounds,
@@ -304,6 +331,8 @@ class AssistantService:
                 "tools": list(turn.tools_used),
                 "latency_ms": turn.latency_ms,
                 "source": request["source"],
+                "game": turn.scoped_game,
+                "game_source": scope.source,
                 "is_guest": caller.is_guest,
                 "model": self.config.model,
                 "flags": flags,
@@ -323,11 +352,17 @@ class AssistantService:
         }
 
     async def _send_cached(
-        self, caller: Caller, request: dict[str, Any], cached: dict[str, Any], day: str
+        self, caller: Caller, request: dict[str, Any], cached: dict[str, Any], day: str,
+        scope: game_scope.GameScope,
     ) -> tuple[int, dict[str, Any]]:
         """Replay a shared market answer: no LLM call, still a counted question."""
         user_id = caller.user_id
         reply = shared_answers.replay(cached)
+        scoped_game = game_scope.supported_game(cached.get("scoped_game"))
+        # The game-switch chip is this asker's (their collection), never the first asker's.
+        reply["suggestions"] = game_scope.with_switch_suggestion(
+            reply["suggestions"], game_scope.switch_suggestion(scope, scoped_game), scoped_game
+        )
         thread_id, question, message = await asyncio.to_thread(
             self.store.save_turn,
             user_id,
@@ -337,6 +372,7 @@ class AssistantService:
             reply=reply,
             counted=True,
             day=day,
+            game=scope.remembered or scoped_game,
         )
         await asyncio.to_thread(self.store.mark_cached, user_id, message["id"])
         logger.info(

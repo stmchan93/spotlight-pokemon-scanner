@@ -183,6 +183,27 @@ describe('AssistantScreen', () => {
     expect(sendAssistantMessage.mock.calls[1][0].context?.cardIds).toBeUndefined();
   });
 
+  it('sends the opening screen game as context.game on every question', async () => {
+    const sendAssistantMessage = jest.fn(async (_payload: AssistantSendPayload) => reply(null));
+    renderScreen({ sendAssistantMessage }, { source: 'scanner', cardIds: ['xyp-111'], game: 'onepiece' });
+    await ask('Which cards are rising the most?');
+    await screen.findByTestId('assistant-card-xyp-111');
+    await ask('and dropping?');
+    await waitFor(() => expect(sendAssistantMessage).toHaveBeenCalledTimes(2));
+    expect(sendAssistantMessage.mock.calls[0][0].context).toEqual({
+      source: 'scanner', cardIds: ['xyp-111'], game: 'onepiece',
+    });
+    expect(sendAssistantMessage.mock.calls[1][0].context).toEqual({ source: 'scanner', game: 'onepiece' });
+  });
+
+  it('omits context.game when the screen has none', async () => {
+    const sendAssistantMessage = jest.fn(async (_payload: AssistantSendPayload) => reply(null));
+    renderScreen({ sendAssistantMessage });
+    await ask('Which cards are rising the most?');
+    await waitFor(() => expect(sendAssistantMessage).toHaveBeenCalledTimes(1));
+    expect(sendAssistantMessage.mock.calls[0][0].context).toEqual({ source: 'home' });
+  });
+
   it('reopening resumes the latest saved chat; NEW CHAT starts a blank one', async () => {
     const threads = [
       { id: 'thr_latest', title: 'Most expensive card?', updatedAt: '2026-11-17T17:36:00Z', lastMessagePreview: 'Charizard' },

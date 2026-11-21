@@ -68,8 +68,9 @@ export function useAssistantChat({
   // The reply that just arrived live (animates in, gets scrolled to). Never set
   // for a loaded history.
   const [lastReplyId, setLastReplyId] = useState<string | null>(null);
-  // Context goes with the FIRST question of a thread only; follow-ups ride the
-  // thread's own history.
+  // Tray context goes with the FIRST question of a thread only; follow-ups ride
+  // the thread's own history. Source and game go every time (the server keeps
+  // the thread's own game first, so the screen's game only fills a gap).
   const contextSentRef = useRef(Boolean(initialThreadId));
   const loadGenerationRef = useRef(0);
 
@@ -136,7 +137,9 @@ export function useAssistantChat({
         threadId,
         clientMessageId: question.clientMessageId,
         text: question.text,
-        context: contextSentRef.current ? { source: context.source } : context,
+        context: contextSentRef.current
+          ? { source: context.source, ...(context.game ? { game: context.game } : {}) }
+          : context,
       });
       if (generation !== loadGenerationRef.current) {
         return 'ignored';

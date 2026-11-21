@@ -4354,8 +4354,9 @@ export function ScannerScreen({
       const candidate = capture.isLoadingCandidates ? null : activeCandidateForCapture(capture);
       return candidate ? [candidate.cardId] : [];
     });
-    router.push(assistantHref('scanner', cardIds));
-  }, [router]);
+    // The "Scanning for" lane is the game market-wide answers cover.
+    router.push(assistantHref('scanner', cardIds, scanLane.game));
+  }, [router, scanLane.game]);
 
   // The inner scroll list participates in the gesture arena so the tray pan and
   // the list scroll resolve together (swipe down at the top collapses; once

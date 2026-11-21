@@ -26,7 +26,9 @@ CASE_KEYS = frozenset(
 )
 # reference: the owner's reference answer (judge guidance). retry: resend the previous
 # turn's exact request (same client_message_id), e.g. to prove a write is idempotent.
-TURN_KEYS = frozenset({"ask", "card_ids", "expect", "rubric", "reference", "retry"})
+TURN_KEYS = frozenset({"ask", "card_ids", "game", "expect", "rubric", "reference", "retry"})
+# context.game values a turn may send (the app's CARD_GAMES).
+CONTEXT_GAMES = ("pokemon", "onepiece", "lorcana", "riftbound", "gundam")
 _ID = re.compile(r"^[a-z0-9_]+$")
 
 
@@ -282,6 +284,8 @@ def validate_cases(data: Any, known_tools: frozenset[str] | None = None) -> list
                 or not all(isinstance(item, str) and item for item in card_ids)
             ):
                 errors.append(f"{spot}: card_ids must be 1..20 card id strings")
+            if "game" in turn and turn["game"] not in CONTEXT_GAMES:
+                errors.append(f"{spot}: game must be one of {', '.join(CONTEXT_GAMES)}")
             if "reference" in turn and (not isinstance(turn["reference"], str) or not turn["reference"].strip()):
                 errors.append(f"{spot}: reference must be a non-empty string")
             if turn.get("retry") is not None:

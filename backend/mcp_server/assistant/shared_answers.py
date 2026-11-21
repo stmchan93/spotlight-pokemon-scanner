@@ -3,7 +3,9 @@ trending?"): the answer is the same for every user until prices change, so a
 clean first-message answer built only from market-wide reads is stored once
 and replayed to later askers without an LLM call.
 
-Key = (normalized question, scope, data version, engine fingerprint). The data
+Key = (normalized question, scope, data version, engine fingerprint). Scope is
+the resolved game (game_scope.GameScope.cache_scope), so a Pokémon ranking is
+never replayed to a One Piece asker. The data
 version is the price_lows / market movers token (newest price date + pricing
 sync generation), so a price sync invalidates; rows also expire after 24h.
 
@@ -208,6 +210,8 @@ def shared_reply(turn: Any) -> dict[str, Any]:
         "sets": list(getattr(turn, "sets", None) or []),
         "tools_used": list(turn.tools_used or []),
         "tool_calls": list(turn.tool_calls or []),
+        # Not replayed as-is: the replaying asker gets their own game-switch chip from it.
+        "scoped_game": getattr(turn, "scoped_game", None),
     }
 
 

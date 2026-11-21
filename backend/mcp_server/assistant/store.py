@@ -21,7 +21,7 @@ from mcp_server.assistant.shared_answers import SCHEMA_SQL as SHARED_ANSWERS_SCH
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS assistant_threads (
     id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, title TEXT NOT NULL,
-    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, game TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_threads_owner ON assistant_threads(owner_user_id, updated_at DESC);
 CREATE TABLE IF NOT EXISTS assistant_messages (
@@ -80,6 +80,8 @@ COLUMN_PATCHES = (
     ("assistant_messages", "cached", "INTEGER"),
     # Set tiles for set-level answers (market trends); older rows have none.
     ("assistant_messages", "sets_json", "TEXT"),
+    # The game this thread last named or ranked (game_scope.py); older threads have none.
+    ("assistant_threads", "game", "TEXT"),
 )
 
 
@@ -255,6 +257,10 @@ class AssistantStore:
             (thread_id, owner_user_id),
         ).fetchone()
 
+    def thread_game(self, owner_user_id: str, thread_id: str) -> str | None:
+        row = self.owned_thread(owner_user_id, thread_id)
+        return str(row["game"]) if row is not None and "game" in row.keys() and row["game"] else None
+
     def history(self, owner_user_id: str, thread_id: str) -> list[dict[str, Any]]:
         """Last HISTORY_MESSAGES messages of the thread, oldest first: text plus,
         for assistant rows, the tool calls and tiles behind the answer."""
@@ -392,8 +398,10 @@ class AssistantStore:
         reply: dict[str, Any],
         counted: bool,
         day: str,
+        game: str | None = None,
     ) -> tuple[str, dict[str, Any], dict[str, Any]]:
-        """Thread (created if new) + both messages + usage, one transaction."""
+        """Thread (created if new) + both messages + usage, one transaction. `game` (when
+        given) becomes the thread's remembered game."""
         conn = self.conn
         created = now_iso()
         try:
@@ -450,8 +458,8 @@ class AssistantStore:
                 ),
             )
             conn.execute(
-                "UPDATE assistant_threads SET updated_at = ? WHERE id = ? AND owner_user_id = ?",
-                (reply_created, thread_id, owner_user_id),
+                "UPDATE assistant_threads SET updated_at = ?, game = COALESCE(?, game) WHERE id = ? AND owner_user_id = ?",
+                (reply_created, game, thread_id, owner_user_id),
             )
             self._add_usage(owner_user_id, day, questions=1 if counted else 0, cost=float(reply.get("cost_usd") or 0.0))
             conn.commit()

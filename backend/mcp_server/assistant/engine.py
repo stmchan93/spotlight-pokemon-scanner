@@ -22,6 +22,7 @@ from mcp_server.assistant.direct_add import ADD_NOW_TOOL, TurnWrites
 from mcp_server.assistant import length_guard
 from mcp_server.assistant.shared_answers import tool_record
 from mcp_server.assistant.compact import model_payload
+from mcp_server.assistant.game_scope import GameScope, enforce_game
 from mcp_server.assistant.tools import (
     SPARKLINE_TOOLS,
     sparkline_fetch_range,
@@ -70,6 +71,7 @@ Accuracy (never break these):
 - The scan tray: when the message lists the user's scan tray, "these", "this", "them" and "they" mean those cards. An answer about them names the source in its first sentence: "Of the 3 cards in your scan tray, …" (several) or "This scanned card …" (one). The user may also ask about anything else; then leave the tray out.
 - Buy/sell/"investing"/"good buy"/"what's hot or trending" questions: don't refuse and don't predict or promise gains. Use get_market_trends for what's rising and which sets are moving, find_price_lows for "undervalued" or cards that dropped and now sit near their lows, and find_new_highs for "new highs", record or all-time-high prices, and "breaking out". "Likely to go up": call get_market_trends and find_price_lows, describe recent momentum and dips, and say plainly it's not a prediction. Give a one-sentence takeaway, then one bullet per card (at most 3; the tiles show the cards you name), plus one short line that it's not a prediction.
 - Off-topic requests (not cards/TCG/collecting/this app): decline in one sentence, under 40 words.
+- Market-wide rankings (rising, falling, new highs, lows, undervalued, trending, sets, most expensive, top graded) cover the one game in the message's "Game scope" note; name that game in the answer and never mix games unless the note says all games.
 - Only state what the tool results show. Never say a filter or sort was applied (e.g. "sealed products are excluded", "English only", "One Piece only") unless the tool input used it. If the results don't match the request (e.g. they still include sealed products or the wrong game), re-query with the right filter, or say plainly what the results include.
 
 Earlier turns:
@@ -472,6 +474,7 @@ class TurnResult:
     word_limit: int | None = None
     sentence_limit: int | None = None
     length_guard: str | None = None  # None | "rewrite" | "trim" | "drop" (internal-wording sentences dropped)
+    scoped_game: str | None = None  # the game market-wide calls were pinned to (game_scope.enforce_game)
 
 
 def _usage_tokens(usage: Any, name: str) -> int:
@@ -695,6 +698,7 @@ class AssistantEngine:
         context: str | None = None,
         context_card_ids: list[str] | None = None,
         client_message_id: str | None = None,
+        game_scope: GameScope | None = None,
     ) -> TurnResult:
         started = time.monotonic()
         messages = with_history_breakpoint(build_messages(history, question, context))
@@ -745,7 +749,14 @@ class AssistantEngine:
             # Full content back unchanged (thinking blocks stay valid in-turn).
             messages.append({"role": "assistant", "content": response.content})
             work = [block for block in tool_uses if block.name != SHOW_CARDS]
-            arguments_by_id = {block.id: correct_tool_arguments(block.name, block.input, question) for block in work}
+            arguments_by_id = {}
+            for block in work:
+                arguments = correct_tool_arguments(block.name, block.input, question)
+                if game_scope is not None:
+                    # Market-wide rankings cover the server-resolved game, not the model's guess.
+                    arguments, scoped = enforce_game(block.name, arguments, game_scope)
+                    result.scoped_game = result.scoped_game or scoped
+                arguments_by_id[block.id] = arguments
             writes.plan_round([block.name for block in work])
             outcomes = await asyncio.gather(
                 *(self._run_tool(block.name, arguments_by_id[block.id], owner_user_id, writes) for block in work)

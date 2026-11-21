@@ -2899,6 +2899,13 @@ export type AssistantContext = {
   source: AssistantContextSource;
   /** Scanner tray card ids (≤20); omitted from Home. */
   cardIds?: string[];
+  /**
+   * The game of the screen the chat was opened from (Home's market picker, the
+   * scanner's "Scanning for" lane). The server scopes market-wide rankings to it
+   * unless the question or the thread names another; omitted = server falls back
+   * to the collection's main game.
+   */
+  game?: CardGame;
 };
 
 export type AssistantUsage = {

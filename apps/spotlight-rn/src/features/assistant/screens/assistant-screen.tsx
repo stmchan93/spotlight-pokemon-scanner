@@ -21,6 +21,7 @@ import type {
   AssistantProposedAction,
   AssistantSetRef,
   AssistantThreadSummary,
+  CardGame,
 } from '@spotlight/api-client';
 import {
   Button,
@@ -82,6 +83,8 @@ export type AssistantScreenProps = {
   source: AssistantContextSource;
   /** Scanner tray card ids, sent as context with the first question. */
   cardIds?: string[];
+  /** The opening screen's game; the server scopes market-wide rankings to it. */
+  game?: CardGame | null;
   initialThreadId?: string | null;
   onBack: () => void;
   onOpenCard: (cardId: string) => void;
@@ -109,6 +112,7 @@ function resetTimeLabel(resetsAt: string | null): string {
 export function AssistantScreen({
   source,
   cardIds = [],
+  game = null,
   initialThreadId = null,
   onBack,
   onOpenCard,
@@ -124,10 +128,10 @@ export function AssistantScreen({
   const { currentUser, getAccessToken } = useAuth();
 
   const context = useMemo(
-    () => ({ source, ...(cardIds.length > 0 ? { cardIds } : {}) }),
+    () => ({ source, ...(cardIds.length > 0 ? { cardIds } : {}), ...(game ? { game } : {}) }),
     // cardIds is a fresh array per render from the route; key on its contents.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- content-keyed
-    [source, cardIds.join(',')],
+    [source, cardIds.join(','), game],
   );
   const ensureIdentity = useCallback(async () => {
     // A guest has no user until the first authed action; asking IS that action.

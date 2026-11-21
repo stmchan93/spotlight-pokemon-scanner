@@ -470,6 +470,7 @@ export function PortfolioScreen({
     setActiveCollectionID,
     isActiveCollectionRestored,
     watchlistStore,
+    insightsGame,
   } = useAppServices();
   const [collectionsSnapshot, setCollectionsSnapshot] = useState<CollectionsSnapshot | null>(null);
   const [isLoadingCollections, setIsLoadingCollections] = useState(false);
@@ -1388,8 +1389,9 @@ export function PortfolioScreen({
   }, [router]);
 
   const handleOpenAssistant = useCallback(() => {
-    router.push(assistantHref('home'));
-  }, [router]);
+    // Home's market game picker (shared with Insights) is the game market-wide answers cover.
+    router.push(assistantHref('home', [], insightsGame));
+  }, [insightsGame, router]);
 
   /*
     NO `+` IN THIS BAR ANY MORE. The profile toolbar (3670:47454) spends both

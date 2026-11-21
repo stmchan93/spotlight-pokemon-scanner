@@ -4,6 +4,7 @@
 # Each case is one chat thread; turns run in order. Per turn:
 #   ask:       the question (sent exactly as typed)
 #   card_ids:  optional scanner-tray context (sent as context.card_ids, source=scanner)
+#   game:      optional screen game (sent as context.game, as Home's market picker / the scanner lane do)
 #   retry:     true = resend the previous turn's exact request (same client_message_id)
 #   expect:    deterministic code checks (grading.py EXPECT_KEYS) - the primary gate
 #   reference: the owner's reference answer, shown to the judge as guidance
@@ -808,6 +809,65 @@ cases:
         rubric:
           - "Does the answer name at least one set with a real % move from the tool results?"
           - "Is each set on its own '- ' bullet with the set name and its % move in **bold**?"
+
+  # --- game scope (owner 2026-11-20): market-wide rankings cover ONE game ----------
+  # Resolved server-side: the question's game > the thread's > the screen's (game:) >
+  # the collection's majority game > Pokémon. Specific cards and the collection are not scoped.
+  - id: rising_scoped_to_screen_game
+    category: game_scope
+    turns:
+      - ask: "Which cards are rising the most?"
+        game: pokemon
+        expect:
+          tools_any: [get_market_trends, find_movers, find_new_highs]
+          tool_args:
+            - tool: get_market_trends
+              where: {game: pokemon}
+          tiles_none_match: [{game_not: pokemon}]
+          must_contain_any: ['Pok[eé]mon']
+        rubric:
+          - "Does the answer cover only Pokémon cards and say so (e.g. 'Top Pokémon risers')?"
+
+  - id: rising_named_game_beats_screen
+    category: game_scope
+    turns:
+      - ask: "What One Piece cards are rising?"
+        game: pokemon
+        expect:
+          tools_any: [get_market_trends, find_movers, find_new_highs]
+          tool_args:
+            - tool: get_market_trends
+              where: {game: onepiece}
+          tiles_none_match: [{game_not: onepiece}]
+          must_contain_any: ['One Piece']
+        rubric:
+          - "Does the answer cover only One Piece cards, not Pokémon?"
+      # The thread remembers One Piece even though the screen says Pokémon.
+      - ask: "Which ones are undervalued?"
+        game: pokemon
+        expect:
+          tools_any: [find_price_lows]
+          tool_args:
+            - tool: find_price_lows
+              where: {game: onepiece}
+          tiles_none_match: [{game_not: onepiece}]
+        rubric:
+          - "Does the answer stay on One Piece cards?"
+
+  - id: new_highs_scoped_to_lorcana_screen
+    category: game_scope
+    turns:
+      - ask: "Which cards hit new highs?"
+        game: lorcana
+        expect:
+          tools_any: [find_new_highs]
+          tool_args:
+            - tool: find_new_highs
+              where: {game: lorcana}
+          tiles_none_match: [{game_not: lorcana}]
+          must_contain_any: ['Lorcana']
+        rubric:
+          - "Does the answer name Disney Lorcana as the game it covered?"
 
   # --- scanner tray -------------------------------------------------------------
   - id: scanner_most_valuable
