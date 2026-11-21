@@ -1,5 +1,5 @@
 import { FocusedStatusBar } from '@/components/focused-status-bar';
-import { GuestTabSignIn } from '@/features/auth/components/guest-tab-sign-in';
+import { GuestScannerRedirect } from '@/features/auth/components/guest-scanner-redirect';
 import { FeedScreen } from '@/features/social/screens/feed-screen';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -16,7 +16,7 @@ export default function SocialRoute() {
   // list rather than a first-launch surface worth seeing.
   const { isGuest } = useAuth();
   if (isGuest) {
-    return <GuestTabSignIn message="Follow collectors, share your pulls, and see what the market is doing." title="Sign in to join the community" />;
+    return <GuestScannerRedirect />;
   }
 
   return (

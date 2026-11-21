@@ -1,5 +1,5 @@
 import { FocusedStatusBar } from '@/components/focused-status-bar';
-import { GuestTabSignIn } from '@/features/auth/components/guest-tab-sign-in';
+import { GuestScannerRedirect } from '@/features/auth/components/guest-scanner-redirect';
 import { WishlistScreen } from '@/features/wishlist/screens/wishlist-screen';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -13,7 +13,7 @@ export default function WishlistRoute() {
   // Guests can't reach this tab (the tab bar sends them to sign-in); this only
   // catches a deep link, without bouncing them around the pager.
   if (isGuest) {
-    return <GuestTabSignIn message="Watch cards and get an alert when they hit your price." title="Sign in to use your Watchlist" />;
+    return <GuestScannerRedirect />;
   }
   return (
     <>

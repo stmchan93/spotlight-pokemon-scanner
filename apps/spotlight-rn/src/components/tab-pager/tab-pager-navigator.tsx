@@ -388,6 +388,49 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
     [guardedAt, guardedStep, innerPositions, lockedPages, setPageBackdropHidden, setPageBarHidden],
   );
 
+  // ── Guests on a signed-in-only tab ─────────────────────────────────────────
+  // However a guest got there (launch on `/`, a link, a notification), move
+  // them to Scan; anything after launch also opens sign-in. Scan first, so
+  // closing sign-in lands on the scanner instead of re-opening it in a loop.
+  const guestLaunchHandledRef = useRef(false);
+  useEffect(() => {
+    if (focusedPage < 0) {
+      return;
+    }
+    const isLaunch = !guestLaunchHandledRef.current;
+    guestLaunchHandledRef.current = true;
+    if (!isGuest || !guestBlockedPages(true)[focusedPage]) {
+      return;
+    }
+    // At launch the navigator can drop a jump dispatched before it is ready,
+    // so retry briefly until the strip is actually on Scan.
+    const jumpToScan = () => {
+      const current = latest.current;
+      if (!guestBlockedPages(true)[current.focusedPage]) {
+        return true;
+      }
+      const scanRoute = current.state.routes.find((candidate) => candidate.name === 'scan');
+      if (scanRoute) {
+        current.navigation.dispatch({ ...TabActions.jumpTo(scanRoute.name, scanRoute.params), target: current.state.key });
+      }
+      return false;
+    };
+    jumpToScan();
+    const retry = setInterval(() => {
+      if (jumpToScan()) {
+        clearInterval(retry);
+      }
+    }, 250);
+    const stop = setTimeout(() => clearInterval(retry), 3000);
+    if (!isLaunch) {
+      openLogin();
+    }
+    return () => {
+      clearInterval(retry);
+      clearTimeout(stop);
+    };
+  }, [focusedPage, isGuest, openLogin]);
+
   // ── Route -> strip ─────────────────────────────────────────────────────────
   /** The page a finished swipe just put the strip on, so the route echo doesn't re-animate. */
   const settledBySwipeRef = useRef<number | null>(null);
