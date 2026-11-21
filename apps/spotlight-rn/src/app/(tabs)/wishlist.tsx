@@ -9,11 +9,11 @@ import { useAuth } from '@/providers/auth-provider';
  * two routes.
  */
 export default function WishlistRoute() {
-  // The Watchlist needs an account: a guest gets the login page over the
-  // scanner, once per visit (same as Social).
   const { isGuest } = useAuth();
+  // Guests can't reach this tab (the tab bar sends them to sign-in); this only
+  // catches a deep link, without bouncing them around the pager.
   if (isGuest) {
-    return <GuestScannerRedirect promptLogin />;
+    return <GuestScannerRedirect />;
   }
   return (
     <>

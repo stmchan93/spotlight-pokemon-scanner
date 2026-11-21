@@ -38,9 +38,9 @@ export default function HomeRoute() {
   // Signed in, the app opens on the Scanner; Home is only the route it starts on.
 
   // Collection is gated for guests, so there is nothing to show them here. Send
-  // them to the scanner, which is the whole of the guest experience.
+  // them a sign-in page in place (no redirect: it fought the swipe pager).
   if (isGuest) {
-    return <GuestScannerRedirect promptLogin="after-launch" />;
+    return <GuestScannerRedirect />;
   }
 
   return (

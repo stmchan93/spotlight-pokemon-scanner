@@ -11,11 +11,12 @@ import { useAuth } from '@/providers/auth-provider';
  * back. The screen itself is unchanged by either move.
  */
 export default function SocialRoute() {
-  // Social needs an account (feed reads are scoped to `auth.uid()` by RLS), so a
-  // guest who taps it gets the login page, over the scanner they came from.
+  // Guests get a sign-in page in place (no redirect: it fought the swipe pager). The
+  // feed reads are scoped to `auth.uid()` by RLS, so a guest would get an empty
+  // list rather than a first-launch surface worth seeing.
   const { isGuest } = useAuth();
   if (isGuest) {
-    return <GuestScannerRedirect promptLogin />;
+    return <GuestScannerRedirect />;
   }
 
   return (

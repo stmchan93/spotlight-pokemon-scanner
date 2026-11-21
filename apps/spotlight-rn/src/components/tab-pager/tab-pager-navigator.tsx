@@ -62,6 +62,7 @@ import {
   TAB_PAGE_COUNT,
   TAB_PAGER_ORDER,
   clampWithRubberBand,
+  guestBlockedPages,
   isPageLive,
   landingEdgeForDirection,
   pageIndexForState,
@@ -72,6 +73,7 @@ import {
   type InnerPagePosition,
 } from '@/lib/tab-pager';
 import { useKeyboardVisible } from '@/lib/use-keyboard-visible';
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { useAuth } from '@/providers/auth-provider';
 
 /*
@@ -343,6 +345,10 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
   // ── UI-thread mirrors of what the hand-off rule needs ──────────────────────
   const innerPositions = useSharedValue<(InnerPagePosition | null)[]>(TAB_PAGER_ORDER.map(() => null));
   const lockedPages = useSharedValue<boolean[]>(TAB_PAGER_ORDER.map(() => false));
+  // Guests: Scan and Events only, by tapping (no swipe — gestureEnabled below).
+  const isGuestRef = useRef(isGuest);
+  isGuestRef.current = isGuest;
+  const { openLogin } = useGuestGate();
   const globalLock = useSharedValue(false);
   const guardedAt = useSharedValue(0);
   const guardedStep = useSharedValue(0);
@@ -381,6 +387,49 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
     })),
     [guardedAt, guardedStep, innerPositions, lockedPages, setPageBackdropHidden, setPageBarHidden],
   );
+
+  // ── Guests on a signed-in-only tab ─────────────────────────────────────────
+  // However a guest got there (launch on `/`, a link, a notification), move
+  // them to Scan; anything after launch also opens sign-in. Scan first, so
+  // closing sign-in lands on the scanner instead of re-opening it in a loop.
+  const guestLaunchHandledRef = useRef(false);
+  useEffect(() => {
+    if (focusedPage < 0) {
+      return;
+    }
+    const isLaunch = !guestLaunchHandledRef.current;
+    guestLaunchHandledRef.current = true;
+    if (!isGuest || !guestBlockedPages(true)[focusedPage]) {
+      return;
+    }
+    // At launch the navigator can drop a jump dispatched before it is ready,
+    // so retry briefly until the strip is actually on Scan.
+    const jumpToScan = () => {
+      const current = latest.current;
+      if (!guestBlockedPages(true)[current.focusedPage]) {
+        return true;
+      }
+      const scanRoute = current.state.routes.find((candidate) => candidate.name === 'scan');
+      if (scanRoute) {
+        current.navigation.dispatch({ ...TabActions.jumpTo(scanRoute.name, scanRoute.params), target: current.state.key });
+      }
+      return false;
+    };
+    jumpToScan();
+    const retry = setInterval(() => {
+      if (jumpToScan()) {
+        clearInterval(retry);
+      }
+    }, 250);
+    const stop = setTimeout(() => clearInterval(retry), 3000);
+    if (!isLaunch) {
+      openLogin();
+    }
+    return () => {
+      clearInterval(retry);
+      clearTimeout(stop);
+    };
+  }, [focusedPage, isGuest, openLogin]);
 
   // ── Route -> strip ─────────────────────────────────────────────────────────
   /** The page a finished swipe just put the strip on, so the route echo doesn't re-animate. */
@@ -462,6 +511,11 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
   }, [mountPage]);
 
   const handleSelectPage = useCallback((page: number) => {
+    // A guest tapping a signed-in-only tab gets sign-in, not the tab.
+    if (guestBlockedPages(isGuestRef.current)[page]) {
+      openLogin();
+      return;
+    }
     userMovedStripRef.current = true;
     const current = latest.current;
     const route = current.state.routes.find((candidate) => candidate.name === TAB_PAGER_ORDER[page]);
@@ -472,7 +526,7 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
     if (page !== current.focusedPage && !event.defaultPrevented) {
       current.navigation.dispatch({ ...TabActions.jumpTo(route.name, route.params), target: current.state.key });
     }
-  }, []);
+  }, [openLogin]);
 
   // ── The gesture ────────────────────────────────────────────────────────────
   // Imported constants are NOT captured by the worklets plugin; a worklet that
@@ -486,6 +540,7 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
   const startPosition = useSharedValue(0);
   const activationTx = useSharedValue(0);
 
+  // Guests don't swipe at all: they tap Scan or Events (owner, 2026-11-20).
   const gestureEnabled = !isGuest && focusedPage >= 0;
   const pan = useMemo(() => Gesture.Pan()
     .manualActivation(true)
