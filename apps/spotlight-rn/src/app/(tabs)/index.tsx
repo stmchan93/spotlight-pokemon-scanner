@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 
-import { GuestTabSignIn } from '@/features/auth/components/guest-tab-sign-in';
+import { GuestScannerRedirect } from '@/features/auth/components/guest-scanner-redirect';
 import {
   cardDetailPreviewFromInventoryEntry,
   saveCardDetailPreviewFromInventoryEntry,
@@ -40,7 +40,7 @@ export default function HomeRoute() {
   // Collection is gated for guests, so there is nothing to show them here. Send
   // them a sign-in page in place (no redirect: it fought the swipe pager).
   if (isGuest) {
-    return <GuestTabSignIn message="Save the cards you scan, see what they're worth, and watch your collection grow." title="Sign in to track your collection" />;
+    return <GuestScannerRedirect />;
   }
 
   return (
