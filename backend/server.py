@@ -142,6 +142,8 @@ from catalog_tools import (
     search_cards_local_title_set,
     expansion_count,
     expansion_card_counts,
+    EXPANSION_CARDS_MAX_LIMIT,
+    collector_number_sort_key,
     get_cards_by_expansion,
     list_local_expansions,
     list_persisted_expansions,
@@ -189,6 +191,7 @@ from ebay_comps import (
 import ebay_listings
 from sealed_products import is_sealed_card, sealed_set_index, search_sealed_products
 from expansion_eras import classify_expansions, parse_payload as parse_expansion_payload
+from expansion_dedupe import EMPTY_PAIRING, ExpansionPairing, build_expansion_pairing
 import calendar_feed
 import expo_push
 import hot_cards
@@ -2625,6 +2628,9 @@ class SpotlightScanService:
         self._expansion_totals_lock = threading.Lock()
         # Per game: (version token, computed-at monotonic, {set_id: [sealed id…]}).
         self._expansion_sealed_cache: dict[str, tuple[str, float, dict[str, list[str]]]] = {}
+        # Per game: (version token, computed-at monotonic, TCGplayer-group -> Scrydex
+        # set pairing; expansion_dedupe.py). Same token + TTL as the set totals.
+        self._expansion_pairing_cache: dict[str, tuple[str, float, ExpansionPairing]] = {}
         self._feed_cache_lock = threading.Lock()
         self.artifact_store = build_scan_artifact_store(
             repo_root=repo_root,
@@ -14495,8 +14501,17 @@ class SpotlightScanService:
         # Attach holo-finish options (Normal / Reverse / Poké Ball / Master Ball …)
         # so the review tool can offer a finish picker on a searched card. Additive
         # field — existing consumers ignore it.
+        pairings: dict[str, ExpansionPairing] = {}
         for card in results:
             if isinstance(card, dict):
+                # Card ids never change; a paired group card browses to the
+                # Scrydex set it is served in (expansion_dedupe.py).
+                set_id = card.get("setID")
+                if set_id and kind != "sealed":
+                    card_game = normalize_game(card.get("game") or game)
+                    if card_game not in pairings:
+                        pairings[card_game] = self._expansion_pairing(card_game)
+                    card["setID"] = pairings[card_game].canonical(set_id)
                 finishes = self._review_finishes_from_card(card)
                 if finishes:
                     card["finishes"] = finishes
@@ -15017,9 +15032,15 @@ class SpotlightScanService:
                 sync_scrydex_expansions(self.connection, game=normalized_game)
             except Exception:
                 traceback.print_exc()
+            self._expansion_pairing_cache.pop(normalized_game, None)
         expansions = list_persisted_expansions(self.connection, game=normalized_game)
         if not expansions:
             expansions = list_local_expansions(self.connection, game=normalized_game)
+        # A TCGplayer-only group set that duplicates a Scrydex set is served
+        # inside that set (expansion_dedupe.py), so it is not listed on its own.
+        pairing = self._expansion_pairing(normalized_game)
+        if pairing.alias:
+            expansions = [row for row in expansions if str(row.get("id") or "") not in pairing.alias]
         # Online-only (TCG Pocket) sets are dropped here, and every set gains
         # `era` + `isPromo` for the grouped sets list (expansion_eras.py).
         expansions = classify_expansions(expansions, self._expansion_classification_meta(normalized_game))
@@ -15043,6 +15064,29 @@ class SpotlightScanService:
             }
             for row in rows
         }
+
+    def _expansion_pairing(self, game: str) -> ExpansionPairing:
+        """TCGplayer-only group set -> its Scrydex twin, for one game. Cached on
+        the set totals' version token + TTL; a failure pairs nothing."""
+        normalized_game = normalize_game(game)
+        try:
+            version = market_movers_version_token(self.connection, window_days=0) or "none"
+        except Exception:  # noqa: BLE001 - cache bookkeeping must never break a read
+            version = "none"
+        cached = self._expansion_pairing_cache.get(normalized_game)
+        if (
+            cached is not None
+            and cached[0] == version
+            and monotonic() - cached[1] < EXPANSION_TOTALS_CACHE_TTL_SECONDS
+        ):
+            return cached[2]
+        try:
+            pairing = build_expansion_pairing(self.connection, game=normalized_game)
+        except Exception:  # noqa: BLE001 - unpaired sets are the pre-dedupe behaviour
+            traceback.print_exc()
+            pairing = EMPTY_PAIRING
+        self._expansion_pairing_cache[normalized_game] = (version, monotonic(), pairing)
+        return pairing
 
     def _expansion_set_totals(self, game: str) -> dict[str, dict[str, Any]]:
         return self._expansion_pricing_bundle(game)[0]
@@ -15121,9 +15165,24 @@ class SpotlightScanService:
     def _compute_expansion_set_totals(
         self, game: str
     ) -> tuple[dict[str, dict[str, Any]], dict[str, float]]:
+        # Paired group sets fold into their Scrydex set; a group card that
+        # duplicates a Scrydex card counts once (expansion_dedupe.py).
+        pairing = self._expansion_pairing(game)
+        counts = expansion_card_counts(self.connection, game=game)
+        if pairing.alias:
+            dropped_per_set: dict[str, int] = {}
+            if pairing.duplicate_of:
+                placeholders = ",".join("?" for _ in pairing.duplicate_of)
+                for row in self.connection.execute(
+                    f"SELECT set_id, COUNT(*) FROM cards WHERE id IN ({placeholders}) GROUP BY set_id",
+                    tuple(pairing.duplicate_of),
+                ):
+                    dropped_per_set[str(row[0])] = int(row[1])
+            for group_id, canonical_id in pairing.alias.items():
+                group_count = counts.pop(group_id, 0) - dropped_per_set.get(group_id, 0)
+                counts[canonical_id] = counts.get(canonical_id, 0) + max(0, group_count)
         totals: dict[str, dict[str, Any]] = {
-            set_id: {"cardCount": count, "setValue": None}
-            for set_id, count in expansion_card_counts(self.connection, game=game).items()
+            set_id: {"cardCount": count, "setValue": None} for set_id, count in counts.items()
         }
         sums: dict[str, float] = {}
         card_prices: dict[str, float] = {}
@@ -15157,8 +15216,10 @@ class SpotlightScanService:
             market = pricing.get("market")
             if not isinstance(market, (int, float)) or isinstance(market, bool) or market <= 0:
                 continue
-            set_id = str(row["expansion_set_id"])
+            set_id = pairing.canonical(row["expansion_set_id"])
             card_prices[str(row["card_id"])] = float(market)
+            if str(row["card_id"]) in pairing.duplicate_of:
+                continue
             sums[set_id] = sums.get(set_id, 0.0) + float(market)
         for set_id, total in sums.items():
             totals.setdefault(set_id, {"cardCount": 0, "setValue": None})["setValue"] = round(total, 2)
@@ -15171,23 +15232,31 @@ class SpotlightScanService:
         owner_user_id = self._current_owner_user_id()
         rows = self.connection.execute(
             """
-            SELECT c.set_id AS set_id, COUNT(DISTINCT d.card_id) AS owned_count
+            SELECT DISTINCT c.set_id AS set_id, d.card_id AS card_id
             FROM deck_entries d
             JOIN cards c ON c.id = d.card_id
             WHERE d.owner_user_id = ?
               AND d.quantity > 0
               AND c.game = ?
               AND c.set_id IS NOT NULL AND c.set_id != ''
-            GROUP BY c.set_id
             """,
             (owner_user_id, normalized_game),
         ).fetchall()
+        # Paired group sets count under their Scrydex set, and a duplicate group
+        # card counts as its canonical twin, so progress never exceeds cardCount.
+        pairing = self._expansion_pairing(normalized_game)
+        owned_by_set: dict[str, set[str]] = {}
+        for row in rows:
+            card_id = str(row["card_id"])
+            owned_by_set.setdefault(pairing.canonical(row["set_id"]), set()).add(
+                pairing.duplicate_of.get(card_id, card_id)
+            )
         return {
             "game": normalized_game,
             "sets": [
-                {"expansionId": str(row["set_id"]), "ownedCount": int(row["owned_count"])}
-                for row in rows
-                if int(row["owned_count"] or 0) > 0
+                {"expansionId": set_id, "ownedCount": len(card_ids)}
+                for set_id, card_ids in sorted(owned_by_set.items())
+                if card_ids
             ],
         }
 
@@ -15200,9 +15269,38 @@ class SpotlightScanService:
         limit: int = 50,
         owner_user_id: str | None = None,
     ) -> dict[str, Any]:
-        cards = get_cards_by_expansion(self.connection, expansion_id, game=game, query=query, limit=limit)
+        # A paired TCGplayer-only group set is served inside its Scrydex set:
+        # the Scrydex id returns both sets' cards minus group duplicates, and
+        # the group id (old links) resolves to that same merged view.
+        pairing = self._expansion_pairing(game)
+        member_set_ids = pairing.member_set_ids(expansion_id)
+        cards = get_cards_by_expansion(self.connection, member_set_ids[0], game=game, query=query, limit=limit)
+        duplicate_ids_by_twin: dict[str, list[str]] = {}
+        for card in cards:
+            duplicate_ids_by_twin[str(card.get("id") or "")] = []
+        if len(member_set_ids) > 1:
+            for group_id in member_set_ids[1:]:
+                for card in get_cards_by_expansion(self.connection, group_id, game=game, query=query, limit=limit):
+                    card_id = str(card.get("id") or "")
+                    if card_id in pairing.duplicate_of:
+                        continue
+                    cards.append(card)
+            normalized_query = str(query or "").strip().lstrip("#").strip().lower()
+            if normalized_query:
+                sort_key = lambda card: (  # noqa: E731 - mirrors get_cards_by_expansion
+                    0 if str(card.get("name") or "").lower().startswith(normalized_query) else 1,
+                    collector_number_sort_key(card.get("number")),
+                )
+            else:
+                sort_key = lambda card: collector_number_sort_key(card.get("number"))  # noqa: E731
+            cards = sorted(cards, key=sort_key)[: max(1, min(limit, EXPANSION_CARDS_MAX_LIMIT))]
+            # A hidden duplicate's copies count as owning its canonical twin.
+            for duplicate_id, twin in pairing.duplicate_of.items():
+                if twin in duplicate_ids_by_twin:
+                    duplicate_ids_by_twin[twin].append(duplicate_id)
         owned: dict[str, int] = {}
         card_ids = [str(card.get("id") or "") for card in cards if card.get("id")]
+        card_ids += [card_id for ids in duplicate_ids_by_twin.values() for card_id in ids]
         if owner_user_id and card_ids:
             placeholders = ",".join("?" for _ in card_ids)
             for row in self.connection.execute(
@@ -15215,6 +15313,9 @@ class SpotlightScanService:
                 (owner_user_id, *card_ids),
             ):
                 owned[str(row["card_id"])] = int(row["quantity"] or 0)
+            for twin, duplicate_ids in duplicate_ids_by_twin.items():
+                if duplicate_ids:
+                    owned[twin] = owned.get(twin, 0) + sum(owned.get(card_id, 0) for card_id in duplicate_ids)
         guard = collision_guard(self.connection)["colliding_product_ids"]
         # From the cached per-game map (the setValue inputs), not a per-card lookup.
         card_prices = self._expansion_card_prices(normalize_game(game)) if cards else {}
@@ -15238,7 +15339,7 @@ class SpotlightScanService:
             and monotonic() - cached[1] < EXPANSION_SEALED_CACHE_TTL_SECONDS
         ):
             return cached[2]
-        index = sealed_set_index(self.connection, game=game)
+        index = sealed_set_index(self.connection, game=game, set_aliases=self._expansion_pairing(game).alias)
         self._expansion_sealed_cache[game] = (version, monotonic(), index)
         return index
 
@@ -15255,7 +15356,9 @@ class SpotlightScanService:
         Separate from the card grid on purpose — these rows have no `set_id`
         and never count toward the set's "X of Y" or its value."""
         normalized_game = normalize_game(game)
-        sealed_ids = self._expansion_sealed_index(normalized_game).get(str(expansion_id or "").strip(), [])
+        # A paired group id (old link) serves its Scrydex set's sealed.
+        canonical_id = self._expansion_pairing(normalized_game).canonical(expansion_id)
+        sealed_ids = self._expansion_sealed_index(normalized_game).get(canonical_id, [])
         if not sealed_ids:
             return {"results": []}
         by_id = cards_by_ids(self.connection, sealed_ids)

@@ -17,7 +17,7 @@ import re
 import sqlite3
 import unicodedata
 from collections import Counter, defaultdict
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from catalog_tools import (
     GAME_GUNDAM,
@@ -286,7 +286,12 @@ def _int_or_none(value: Any) -> int | None:
 _SEALED_ID_UPPER = SEALED_CARD_ID_PREFIX[:-1] + chr(ord(SEALED_CARD_ID_PREFIX[-1]) + 1)
 
 
-def sealed_set_index(connection: sqlite3.Connection, *, game: str) -> dict[str, list[str]]:
+def sealed_set_index(
+    connection: sqlite3.Connection,
+    *,
+    game: str,
+    set_aliases: Mapping[str, str] | None = None,
+) -> dict[str, list[str]]:
     """{expansion_id: [sealed card id…]} for one game, newest products first.
 
     Per sealed product, the first rule that names a set wins:
@@ -294,8 +299,13 @@ def sealed_set_index(connection: sqlite3.Connection, *, game: str) -> dict[str, 
       2. the product's TCGplayer group IS the set's group (a TCGplayer-only
          set's payload `tcgplayerGroupId`, or a hand-verified alias);
       3. the group name equals exactly one set's name, same language.
-    No match = the product belongs to no set (that set shows no SEALED)."""
+    No match = the product belongs to no set (that set shows no SEALED).
+
+    `set_aliases` ({TCGplayer-only group set id: Scrydex set id},
+    expansion_dedupe.py) folds a paired group set into its Scrydex twin: its
+    sealed lands there, and the twins count as one name match."""
     normalized_game = normalize_game(game)
+    aliases = dict(set_aliases or {})
     expansions = connection.execute(
         "SELECT id, name, language, source_payload_json FROM expansions WHERE +game = ?",
         (normalized_game,),
@@ -337,8 +347,9 @@ def sealed_set_index(connection: sqlite3.Connection, *, game: str) -> dict[str, 
                 named = by_name.get(
                     (str(row["language"] or "").casefold(), normalize_group_name(row["set_name"])), []
                 )
+                named = list(dict.fromkeys(aliases.get(set_id, set_id) for set_id in named))
                 targets = named if len(named) == 1 else []
-        for expansion_id in targets:
+        for expansion_id in dict.fromkeys(aliases.get(set_id, set_id) for set_id in targets):
             index[expansion_id].append(str(row["id"]))
     return dict(index)
 
