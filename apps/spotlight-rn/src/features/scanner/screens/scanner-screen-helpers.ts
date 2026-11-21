@@ -829,9 +829,11 @@ export function scanAddOutcomeNotice(outcome: ScanAddOutcome): string | null {
   }
 }
 
-/** Pending shutter taps kept while a capture runs or the camera settles. */
-export const shutterQueueMaxPending = 3;
-/** A queued tap older than this is dropped (the camera never became ready). */
+/**
+ * A queued tap older than this is dropped (the camera never became ready), so a
+ * stale tap never photographs whatever is under the lens seconds later. There
+ * is no count cap: every tap inside this window fires, in order.
+ */
 export const shutterQueueTtlMs = 2000;
 
 export type ShutterBlockReason =

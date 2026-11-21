@@ -234,7 +234,6 @@ import {
   type ScanAddOutcome,
   type ScanAddSource,
   shutterBlockReason,
-  shutterQueueMaxPending,
   shutterQueueTtlMs,
   triggerScannerHaptic,
   triggerScannerQueuedTapHaptic,
@@ -3085,11 +3084,6 @@ export function ScannerScreen({
     }
     const now = Date.now();
     const pending = shutterQueueRef.current.filter((at) => now - at < shutterQueueTtlMs);
-    if (pending.length >= shutterQueueMaxPending) {
-      shutterQueueRef.current = pending;
-      reportShutterBlocked(source, { ...extra, reason: 'queue_full', blockedBy: reason });
-      return;
-    }
     shutterQueueRef.current = [...pending, now];
     scheduleShutterQueuePrune();
     // Visible + felt "tap registered" while the capture waits its turn.

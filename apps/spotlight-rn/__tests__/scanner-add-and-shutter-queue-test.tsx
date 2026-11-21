@@ -304,6 +304,55 @@ describe('scanner shutter tap queue', () => {
     }));
   });
 
+  it('queues every tap in a burst (no count cap), firing one capture at a time', async () => {
+    mockCurrentSession = { access_token: 'real', user: { id: 'user-1', is_anonymous: false } };
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const gates: ReturnType<typeof deferredPhoto>[] = [];
+    mockCapturePhoto.mockImplementation(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      const gate = deferredPhoto();
+      gates.push(gate);
+      await gate.promise;
+      inFlight -= 1;
+      return {
+        width: 1080,
+        height: 1620,
+        saveToTemporaryFileAsync: jest.fn(async () => '/mock-scan.jpg'),
+        dispose: jest.fn(),
+      };
+    });
+
+    renderScanner({ spotlightRepository: countingRepository(jest.fn()) });
+    await waitForScannerReady();
+
+    for (let tap = 0; tap < 6; tap += 1) {
+      fireEvent.press(screen.getByTestId('scanner-preview'));
+    }
+    for (let shot = 1; shot <= 6; shot += 1) {
+      await waitFor(() => {
+        expect(mockCapturePhoto).toHaveBeenCalledTimes(shot);
+      });
+      await act(async () => {
+        gates[shot - 1]?.resolve();
+      });
+    }
+
+    // Let the six scans finish matching so nothing leaks into the next test.
+    expect(await screen.findByText('Card 6')).toBeTruthy();
+    expect(mockCapturePhoto).toHaveBeenCalledTimes(6);
+    expect(maxInFlight).toBe(1);
+    expect(mockCapture).not.toHaveBeenCalledWith('scan_shutter_blocked', expect.anything());
+    mockCapturePhoto.mockReset();
+    mockCapturePhoto.mockImplementation(async () => ({
+      width: 1080,
+      height: 1620,
+      saveToTemporaryFileAsync: jest.fn(async () => '/mock-scan.jpg'),
+      dispose: jest.fn(),
+    }));
+  });
+
   it('fires a tap made during the camera settle window once the window closes', async () => {
     jest.useFakeTimers();
     try {
