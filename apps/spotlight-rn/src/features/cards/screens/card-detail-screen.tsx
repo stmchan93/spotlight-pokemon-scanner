@@ -118,7 +118,7 @@ import {
 import {
   getScanCandidateReviewSession,
 } from '@/features/scanner/scan-candidate-review-session';
-import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import { PRICE_UNAVAILABLE_CAPTION, formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { keyboardClearance } from '@/lib/keyboard-insets';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
@@ -2929,6 +2929,21 @@ export function CardDetailScreen({
         ) : null}
         </View>
 
+        {/* The server withheld this card's current price (stale / untrusted):
+            the chart keeps its history, the caption says there is no price now. */}
+        {detail?.priceStatus && isRawLane ? (
+          <Text
+            style={[
+              theme.typography.caption,
+              styles.priceUnavailableCaption,
+              { color: theme.colors.gray600 },
+            ]}
+            testID="detail-price-unavailable"
+          >
+            {PRICE_UNAVAILABLE_CAPTION}
+          </Text>
+        ) : null}
+
         {/* Sealed: no chart yet. Graded on a TCGplayer-only card has no data. */}
         {isSealed || (isTcgplayerOnly && !isRawLane) ? null : (
           <CardPriceChartSection
@@ -3338,6 +3353,10 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   // Inset white chart card, 8 off the page edges and 8 from its neighbors.
+  priceUnavailableCaption: {
+    marginHorizontal: spacing.md,
+    marginTop: spacing.xs,
+  },
   chartCard: {
     backgroundColor: colors.gray0,
     borderCurve: 'continuous',

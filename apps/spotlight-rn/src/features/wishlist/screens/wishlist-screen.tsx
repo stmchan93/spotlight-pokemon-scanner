@@ -49,7 +49,10 @@ import { GridViewIcon, ListViewIcon } from '@/components/view-toggle-icons';
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
 import { saveCardDetailPreviewFromFavorite } from '@/features/cards/card-detail-preview-session';
 import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
-import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import {
+  PRICE_UNAVAILABLE_CAPTION,
+  formatOptionalCurrency,
+} from '@/features/portfolio/components/portfolio-formatting';
 import {
   WISHLIST_HEADER_BAR_HEIGHT,
   WISHLIST_TITLE_HIDE_DISTANCE,
@@ -1114,6 +1117,10 @@ function WishlistListRow({
   const targetLabel = targetCents != null && targetCents > 0
     ? `Target ${centsToCurrency(targetCents, entry.currencyCode ?? 'USD')}`
     : null;
+  // A withheld (stale / untrusted) price shows "—"; the footnote says why.
+  const footnote = [targetLabel, entry.priceStatus ? PRICE_UNAVAILABLE_CAPTION : null]
+    .filter(Boolean)
+    .join(' · ') || null;
   const priceLaneLabel = entry.slabContext?.grader
     ? [entry.slabContext.grader, entry.slabContext.grade].filter(Boolean).join(' ')
     : entry.conditionLabel ?? (entry.marketPrice != null ? 'Near Mint' : null);
@@ -1127,7 +1134,7 @@ function WishlistListRow({
       currencyCode={entry.currencyCode ?? 'USD'}
       delayLongPress={350}
       firstInSection={firstInSection}
-      footnote={targetLabel}
+      footnote={footnote}
       textPreset="collection"
       // Condition/grade line per Figma 4173:82045 ("PSA 10" / "Near Mint").
       // The line labels the lane the row's PRICE resolved on: graded copies
@@ -1337,11 +1344,15 @@ function WishlistGridTile({
   const targetLabel = targetCents != null && targetCents > 0
     ? `Target ${centsToCurrency(targetCents, entry.currencyCode ?? 'USD')}`
     : null;
+  // A withheld (stale / untrusted) price shows "—"; the footnote says why.
+  const footnote = [targetLabel, entry.priceStatus ? PRICE_UNAVAILABLE_CAPTION : null]
+    .filter(Boolean)
+    .join(' · ') || null;
   const showTrend = hasWatchTrend(entry);
   return (
     <InventoryCardTile
       bordered={false}
-      footnote={targetLabel}
+      footnote={footnote}
       textPreset="collection"
       imageUrl={getCardImageUrl(entry, 'small')}
       name={entry.name}

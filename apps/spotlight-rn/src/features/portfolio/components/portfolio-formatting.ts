@@ -84,3 +84,24 @@ export function formatAbbreviatedCurrency(value: number, currencyCode = 'USD') {
  * "$0" while a total is still loading reads as the money having disappeared.
  */
 export const UNKNOWN_VALUE_MASK = '—';
+
+/** Caption on a holding whose price the server withheld (stale / untrusted). */
+export const PRICE_UNAVAILABLE_CAPTION = 'Price unavailable';
+
+/**
+ * One line under the total when holdings are left out of it because their
+ * price was withheld ("2 cards not counted — no recent price"); null when none.
+ * Counts copies, not rows: a quantity-3 holding is three cards.
+ */
+export function withheldPriceNote(
+  entries: readonly { priceStatus?: string | null; quantity: number }[],
+): string | null {
+  const count = entries.reduce(
+    (sum, entry) => sum + (entry.priceStatus ? Math.max(entry.quantity, 1) : 0),
+    0,
+  );
+  if (count === 0) {
+    return null;
+  }
+  return `${count} ${count === 1 ? 'card' : 'cards'} not counted — no recent price`;
+}

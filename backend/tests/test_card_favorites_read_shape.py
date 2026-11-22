@@ -34,6 +34,7 @@ from catalog_tools import (  # noqa: E402
     upsert_price_history_daily,
     upsert_price_snapshot,
 )
+import price_quality  # noqa: E402
 import server  # noqa: E402
 import watch_printings  # noqa: E402
 from request_auth import RequestIdentity  # noqa: E402
@@ -198,7 +199,11 @@ class CardFavoritesReadShapeTests(_Base):
         self._seed_card("card-old", base=10.0)
         self._favorite("card-old", age_days=35)
         _, history = self._history_statements()
-        cell_reads = [sql for sql in history if "card_price_history_cell" in sql]
+        # The batched price-quality facts read is a newest-day lookup, not a series.
+        cell_reads = [
+            sql for sql in history
+            if "card_price_history_cell" in sql and price_quality.QUERY_MARKER not in sql
+        ]
         lane_reads = [sql for sql in cell_reads if "lane = 'raw'" in sql]
         # One each for the 30-day sparkline and the since-watched series, both
         # limited to the days the main lane did not price.

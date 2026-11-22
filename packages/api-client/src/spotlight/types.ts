@@ -500,6 +500,13 @@ export type RangeChartData = {
   summary?: PortfolioRangeSummary | null;
 };
 
+/**
+ * Why the server withheld a holding's price (backend price_quality): 'stale' =
+ * no price observation in 14 days, 'untrusted' = a raw price above the card's
+ * own PSA 10. The holding shows no price and is left out of totals.
+ */
+export type PriceWithheldStatus = 'stale' | 'untrusted';
+
 export type InventoryCardEntry = {
   id: string;
   cardId: string;
@@ -511,6 +518,8 @@ export type InventoryCardEntry = {
   largeImageUrl?: string | null;
   marketPrice: number;
   hasMarketPrice: boolean;
+  /** Set when the server withheld the price (`hasMarketPrice` is false). */
+  priceStatus?: PriceWithheldStatus | null;
   currencyCode: string;
   quantity: number;
   addedAt: string;
@@ -585,6 +594,8 @@ export type PortfolioPerformanceRow = {
   variantName: string | null; // printing/variant (e.g. "Reverse Holofoil"); null when raw/Normal
   condition: string | null; // condition label (e.g. "Near Mint") for raw; null for graded
   currentPrice: number | null;
+  /** Set when `currentPrice` was withheld (stale / untrusted). */
+  priceStatus?: PriceWithheldStatus | null;
   currentValue: number | null;
   costBasisTotal: number | null; // null when the user hasn't entered cost basis
   jan1Price: number | null;
@@ -1510,6 +1521,8 @@ export type CardDetailRecord = {
   imageUrl: string;
   largeImageUrl?: string | null;
   marketPrice: number | null;
+  /** Set when the server withheld the headline price (stale / untrusted). */
+  priceStatus?: PriceWithheldStatus | null;
   currencyCode: string;
   marketplaceLabel: string;
   marketplaceUrl?: string | null;
@@ -2161,6 +2174,8 @@ export type CardFavoriteEntry = {
   smallImageUrl?: string | null;
   largeImageUrl?: string | null;
   marketPrice: number | null;
+  /** Set when the server withheld the price (stale / untrusted). */
+  priceStatus?: PriceWithheldStatus | null;
   currencyCode: string;
   favoritedAt: string | null;
   isOwned: boolean;

@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from http import HTTPStatus
 from pathlib import Path
 from unittest.mock import Mock
@@ -29,6 +30,8 @@ REPO_ROOT = BACKEND_ROOT.parent
 
 
 _NOW = "2026-06-06T00:00:00Z"
+# A snapshot refreshed today: an older refresh is a stale (withheld) price.
+_FRESH_REFRESH = datetime.now(timezone.utc).isoformat()
 
 
 def _graded_contexts(psa10: float, psa9: float) -> str:
@@ -368,7 +371,7 @@ class JpyTrendFxConversionTests(unittest.TestCase):
                 display_currency_code, updated_at
             ) VALUES (?,?,?,?,?,?)
             """,
-            ("jp1", "scrydex", _graded_contexts_jpy(13000.0), "{}", "JPY", _NOW),
+            ("jp1", "scrydex", _graded_contexts_jpy(13000.0), "{}", "JPY", _FRESH_REFRESH),
         )
         connection.commit()
         connection.close()

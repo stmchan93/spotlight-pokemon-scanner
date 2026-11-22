@@ -43,6 +43,11 @@ def _today_iso() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 
+def _days_ago_iso(days: int) -> str:
+    # Recent dates: a price last observed >14 days ago is withheld as stale.
+    return (datetime.now(timezone.utc).date() - timedelta(days=days)).isoformat()
+
+
 class SinceAddedBaselineTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -223,9 +228,9 @@ class SinceAddedBaselineTests(unittest.TestCase):
             )
         # Price rises after the add; the row must report +5.0 / +50% since added.
         self._seed_snapshot("serve-1", market=15.0)
-        self._seed_history("serve-1", "2026-06-01", market=10.0)
-        self._seed_history("serve-1", "2026-06-02", market=20.0)
-        self._seed_history("serve-1", "2026-06-03", market=15.0)
+        self._seed_history("serve-1", _days_ago_iso(3), market=10.0)
+        self._seed_history("serve-1", _days_ago_iso(2), market=20.0)
+        self._seed_history("serve-1", _days_ago_iso(1), market=15.0)
 
         with self.service.request_identity_context(self._identity("user-a")):
             payload = self.service.deck_entries(limit=10, include_inactive=True)
@@ -314,8 +319,8 @@ class SinceAddedBaselineTests(unittest.TestCase):
             self.service.set_card_favorite("favserve-1", is_favorite=True)
             self.service.set_card_favorite("favnull-1", is_favorite=True)
         self._seed_snapshot("favserve-1", market=15.0)
-        self._seed_history("favserve-1", "2026-06-01", market=10.0)
-        self._seed_history("favserve-1", "2026-06-02", market=15.0)
+        self._seed_history("favserve-1", _days_ago_iso(2), market=10.0)
+        self._seed_history("favserve-1", _days_ago_iso(1), market=15.0)
 
         with self.service.request_identity_context(self._identity("user-a")):
             payload = self.service.card_favorites()

@@ -69,6 +69,7 @@ import {
   RARITY_BUCKET_VALUES,
 } from './types';
 import type {
+  PriceWithheldStatus,
   AccessRedeemResult,
   AccessStatus,
   AccessWaitlistResult,
@@ -819,6 +820,10 @@ type CardPricingSummaryDTO = {
   pricingMode?: string | null;
   grader?: string | null;
   grade?: string | null;
+  // Set when the server withheld the price (market null): 'stale' = no
+  // observation in 14 days, 'untrusted' = raw above the card's own PSA 10.
+  priceStatus?: string | null;
+  priceAsOf?: string | null;
 };
 
 type CardCandidateDTO = {
@@ -1326,6 +1331,8 @@ type NormalizedCardCandidate = {
     pricingMode?: string | null;
     grader?: string | null;
     grade?: string | null;
+    priceStatus?: PriceWithheldStatus | null;
+    priceAsOf?: string | null;
   };
   tcgPlayerVariants: TcgPlayerVariantMarketplace[];
   tcgPlayerProductId: string | null;
@@ -2273,6 +2280,10 @@ function normalizeProductKind(candidate: CardCandidateDTO | null | undefined): {
   };
 }
 
+export function normalizePriceWithheldStatus(value: unknown): PriceWithheldStatus | null {
+  return value === 'stale' || value === 'untrusted' ? value : null;
+}
+
 function normalizeCardCandidate(candidate: CardCandidateDTO | null | undefined, baseUrl?: string) {
   const id = normalizeString(candidate?.id);
   const name = normalizeString(candidate?.name);
@@ -2313,6 +2324,8 @@ function normalizeCardCandidate(candidate: CardCandidateDTO | null | undefined, 
       pricingMode: normalizeString(candidate?.pricing?.pricingMode),
       grader: normalizeString(candidate?.pricing?.grader),
       grade: normalizeString(candidate?.pricing?.grade),
+      priceStatus: normalizePriceWithheldStatus(candidate?.pricing?.priceStatus),
+      priceAsOf: normalizeString(candidate?.pricing?.priceAsOf),
     },
     tcgPlayerVariants: normalizeTcgPlayerVariants(candidate?.sourcePayload?.variants),
     tcgPlayerProductId: normalizeTcgPlayerProductId(candidate?.tcgplayerProductId),
@@ -2768,6 +2781,7 @@ function mapDeckEntry(entry: DeckEntryDTO, baseUrl?: string): InventoryCardEntry
     largeImageUrl: pickImageUrl([card.imageLargeURL], baseUrl) || null,
     marketPrice: isUnpricedGradedHolding ? 0 : card.pricing.market ?? 0,
     hasMarketPrice,
+    priceStatus: card.pricing.priceStatus ?? null,
     currencyCode: card.pricing.currencyCode,
     quantity,
     addedAt: normalizeString(entry.addedAt) ?? new Date().toISOString(),
@@ -7643,7 +7657,11 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           detailResponse.data.imageLargeURL,
           detailResponse.data.card.imageLargeURL,
         ], this.baseUrl) || null,
-      marketPrice: card.pricing.market ?? marketHistory.currentPrice ?? null,
+      // A withheld price (stale / untrusted) must not come back via the chart.
+      marketPrice: card.pricing.priceStatus
+        ? null
+        : card.pricing.market ?? marketHistory.currentPrice ?? null,
+      priceStatus: card.pricing.priceStatus ?? null,
       currencyCode: card.pricing.currencyCode,
       marketplaceLabel: 'TCGPLAYER BUYING OPTIONS',
       marketplaceUrl: buildTcgPlayerSearchUrl({
@@ -7951,6 +7969,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           smallImageUrl: normalizeString(card.imageSmallURL),
           largeImageUrl: normalizeString(card.imageLargeURL),
           marketPrice,
+          priceStatus: normalizePriceWithheldStatus(pricing?.priceStatus),
           currencyCode,
           favoritedAt: normalizeString(entry.favoritedAt),
           isOwned: normalizeBoolean(entry.isOwned) ?? false,
@@ -8856,6 +8875,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       variantName: r.variantName != null ? String(r.variantName) : null,
       condition: r.condition != null ? String(r.condition) : null,
       currentPrice: num(r.currentPrice),
+      priceStatus: normalizePriceWithheldStatus(r.priceStatus),
       currentValue: num(r.currentValue),
       costBasisTotal: num(r.costBasisTotal),
       jan1Price: num(r.jan1Price),

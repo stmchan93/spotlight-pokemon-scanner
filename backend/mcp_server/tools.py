@@ -44,6 +44,8 @@ from catalog_tools import (
     tokenize,
 )
 import meta_pulse
+import price_quality
+from price_quality import PRICE_STALE_DAYS
 from market_movers import NOW_TOLERANCE_DAYS, _is_japanese, latest_persisted_payload as latest_movers_payload
 import scoped_movers
 from sealed_products import search_sealed_products
@@ -101,12 +103,9 @@ MAX_TOP_GRADED = 20
 GRADED_OUTLIER_VS_LOWER_GRADE = 25.0
 GRADED_OUTLIER_VS_RAW = 10_000.0
 MAX_GRADING_UPSIDE = 10
-# Price quality (chat/MCP only; app endpoints keep their own rules). A price whose
-# latest observation is older than this is not a current price: price_usd null +
-# price_stale. A raw price above the same card's own PSA 10 (same printing) is
-# untrusted (Scrydex raw-JP anchors): price_usd null + price_untrusted.
-PRICE_STALE_DAYS = 14
-RAW_OVER_PSA10_MARGIN = 1.0
+# Price quality rules live in price_quality (shared with the app's collection
+# endpoints): a stale price -> price_usd null + price_stale; a raw price above the
+# card's own PSA 10 (same printing) -> price_usd null + price_untrusted.
 PRICE_QUALITY_KEYS = frozenset({"price_stale", "price_untrusted", "price_untrusted_reason", "price_as_of"})
 GRADING_UPSIDE_DESCRIPTION = (
     "Is it worth grading: for up to 10 card_ids (usually the user's priciest raw cards from "
@@ -449,7 +448,11 @@ class CollectionTools:
         # Full internal shape; policy.ResponsePolicy decides what leaves the server.
         price, source = usd_price(pricing)
         flags: dict[str, Any] = {}
-        if price is not None:
+        withheld = price_quality.verdict_from_pricing(pricing)
+        if withheld is not None:
+            # The app's collection read already withheld this price (same rules).
+            flags = self._verdict_flags(withheld)
+        elif price is not None:
             if quality is None:
                 quality = self._price_quality([card["id"]]).get(card["id"], {})
             flags = self._price_quality_flags(pricing or {}, price, source, quality, graded=graded)
@@ -475,54 +478,11 @@ class CollectionTools:
 
     @staticmethod
     def _price_stale_cutoff() -> str:
-        return (datetime.now(timezone.utc).date() - timedelta(days=PRICE_STALE_DAYS)).isoformat()
+        return price_quality.stale_cutoff()
 
     def _price_quality(self, card_ids: list[str]) -> dict[str, dict[str, Any]]:
-        """card_id -> {raw_date, graded_date, psa10}: the newest Scrydex raw/graded
-        cell day (the provider's last observation of that lane) and the USD PSA 10
-        market per printing (variant match key) on the newest graded day. TCGCSV
-        raw_main cells don't count: that lane carries its own clock."""
-        ids = list(dict.fromkeys(str(card_id) for card_id in card_ids if card_id))
-        out: dict[str, dict[str, Any]] = {card_id: {} for card_id in ids}
-        if not ids or not self._has_table("card_price_history_cell"):
-            return out
-        provider = pricing_provider()
-        # +lane keeps each lookup on the (card_id, provider, price_date) prefix, newest first.
-        latest = (
-            "(SELECT cell.price_date FROM card_price_history_cell cell WHERE cell.card_id = cards.id "
-            "AND cell.provider = ? AND +cell.lane = ? ORDER BY cell.price_date DESC LIMIT 1)"
-        )
-        for chunk in _chunked_sql_values(ids):
-            rows = self.conn.execute(
-                f"SELECT cards.id, {latest}, {latest} FROM cards WHERE cards.id IN ({','.join('?' for _ in chunk)})",
-                (provider, "raw", provider, "graded", *chunk),
-            ).fetchall()
-            for card_id, raw_date, graded_date in rows:
-                out[str(card_id)] = {"raw_date": raw_date, "graded_date": graded_date}
-        graded = {card_id: q["graded_date"] for card_id, q in out.items() if q.get("graded_date")}
-        if not graded:
-            return out
-        dates = sorted(set(graded.values()))
-        for chunk in _chunked_sql_values(list(graded)):
-            rows = self.conn.execute(
-                "SELECT card_id, price_date, variant_key, market, currency_code FROM card_price_history_cell "
-                f"WHERE card_id IN ({','.join('?' for _ in chunk)}) AND price_date IN ({','.join('?' for _ in dates)}) "
-                "AND provider = ? AND +lane = 'graded' AND UPPER(grader) = 'PSA' AND CAST(grade AS REAL) = 10 "
-                "AND COALESCE(is_perfect, 0) = 0 AND COALESCE(is_signed, 0) = 0 AND COALESCE(is_error, 0) = 0 "
-                "AND market > 0",
-                (*chunk, *dates, provider),
-            ).fetchall()
-            for card_id, price_date, variant_key, market, currency in rows:
-                card_id = str(card_id)
-                if price_date != graded.get(card_id):
-                    continue
-                usd = _amount_to_usd(self.conn, market, currency or "USD")
-                if usd is None or usd <= 0:
-                    continue
-                key = _variant_match_key(_normalized_variant_label(variant_key))
-                psa10 = out[card_id].setdefault("psa10", {})
-                psa10[key] = min(usd, psa10.get(key, usd))
-        return out
+        """card_id -> {raw_date, graded_date, psa10}; see price_quality.load_price_quality."""
+        return price_quality.load_price_quality(self.conn, card_ids)
 
     def _price_quality_flags(
         self,
@@ -533,30 +493,21 @@ class CollectionTools:
         *,
         graded: bool,
     ) -> dict[str, Any]:
-        """{} for a usable current price, else price_stale / price_untrusted flags.
-        Clocks: a TCGplayer main price uses its own refresh stamp (that lane is only
-        served while fresh); Scrydex raw uses the newest raw cell day (the snapshot
-        clock is also bumped by graded-only writes); graded takes the newer of the
-        graded cell day and the snapshot refresh (staging writes no graded cells)."""
-        refreshed = str(pricing.get("refreshedAt") or "")[:10] or None
-        if source == "tcgplayer":
-            observed = refreshed
-        elif graded:
-            observed = max((d for d in (quality.get("graded_date"), refreshed) if d), default=None)
-        else:
-            observed = quality.get("raw_date") or refreshed
-        if observed and observed < self._price_stale_cutoff():
-            return {"price_stale": True, "price_as_of": observed}
-        if not graded:
-            psa10 = (quality.get("psa10") or {}).get(
-                _variant_match_key(_normalized_variant_label(pricing.get("variant")))
-            )
-            if psa10 is not None and price > psa10 * RAW_OVER_PSA10_MARGIN:
-                return {
-                    "price_untrusted": True,
-                    "price_untrusted_reason": f"raw price above the card's own PSA 10 (${psa10:,.2f})",
-                }
-        return {}
+        """{} for a usable current price, else price_stale / price_untrusted flags
+        (rules and per-lane clocks: price_quality.assess_price)."""
+        del source  # the lane is read off the pricing summary itself
+        return self._verdict_flags(price_quality.assess_price(pricing, price, quality, graded=graded))
+
+    @staticmethod
+    def _verdict_flags(verdict: dict[str, Any] | None) -> dict[str, Any]:
+        if verdict is None:
+            return {}
+        if verdict["status"] == price_quality.STATUS_STALE:
+            return {"price_stale": True, "price_as_of": verdict["as_of"]}
+        return {
+            "price_untrusted": True,
+            "price_untrusted_reason": f"raw price above the card's own PSA 10 (${verdict['psa10_usd']:,.2f})",
+        }
 
     def _tcgplayer_ids(self, card_ids: list[str]) -> dict[str, str]:
         out: dict[str, str] = {}

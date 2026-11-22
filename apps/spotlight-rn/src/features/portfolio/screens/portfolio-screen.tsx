@@ -62,6 +62,7 @@ import {
   HIDDEN_VALUE_MASK,
   UNKNOWN_VALUE_MASK,
   formatAbbreviatedCurrency,
+  withheldPriceNote,
 } from '@/features/portfolio/components/portfolio-formatting';
 import { SalePriceEditSheet } from '@/features/portfolio/components/sale-price-edit-sheet';
 import { CollectionPickerSheet } from '@/features/portfolio/components/collection-picker-sheet';
@@ -624,6 +625,8 @@ export function PortfolioScreen({
 
   const summary = model.dashboard.summary;
   const baseInventory = model.dashboard.inventoryItems;
+  // Holdings the server left out of the total (stale / untrusted price).
+  const excludedNote = useMemo(() => withheldPriceNote(baseInventory), [baseInventory]);
 
   // Price history is young, so 3M / 1Y clamp to its first day and read as
   // broken. Say what the window really is, in the header's scrub-date slot.
@@ -1813,6 +1816,7 @@ export function PortfolioScreen({
               activeChartPoint={isChartScrubbing ? activeChartPoint : null}
               isSummaryHidden={isSummaryHidden}
               isValueKnown={isTotalKnown}
+              excludedNote={excludedNote}
               onToggleHidden={toggleSummaryHidden}
             />
           </View>
