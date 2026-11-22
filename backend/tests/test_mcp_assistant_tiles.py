@@ -30,6 +30,7 @@ if HAVE_DEPS:
         TOOL_DEFINITIONS,
         AssistantToolbox,
         apply_question_rules,
+        card_refs,
         choose_tiles,
         movers_only,
         clean_label,
@@ -183,6 +184,26 @@ class ShowCardsTests(TilesCase):
         )
         self.assertEqual([(t["grader"], t.get("variant")) for t in tiles], [("PSA", None), (None, "Reverse Holofoil")])
         self.assertEqual(dropped, ["nope"])
+
+    def test_get_card_slab_holdings_tile_apart_from_the_raw_copies(self) -> None:
+        # 2 raw Torchics + a CGC 9: the slab gets its own tile (grader/grade, its own qty, no raw price).
+        refs = card_refs({
+            "card_id": "tor", "name": "Torchic", "set": "Set", "number": "1", "price_usd": 2.0,
+            "my_holdings": [
+                {"holding_id": "h1", "grader": None, "grade": None, "variant": "Normal", "quantity": 2},
+                {"holding_id": "h2", "grader": "cgc", "grade": "9", "variant": "Normal", "quantity": 1},
+            ],
+        })
+        self.assertEqual(
+            [(r["grader"], r["grade"], r["quantity_owned"], r["price_usd"]) for r in refs],
+            [(None, None, 2, 2.0), ("CGC", "9", 1, None)],
+        )
+        tiles, _ = select_tiles(
+            [{"card_id": "tor", "variant": None, "grader": None, "grade": None},
+             {"card_id": "tor", "variant": None, "grader": "CGC", "grade": "9"}],
+            refs,
+        )
+        self.assertEqual([t["grader"] for t in tiles], [None, "CGC"])
 
     def test_clean_label(self) -> None:
         self.assertEqual(clean_label("  Top holdings\n by value "), "Top holdings by value")

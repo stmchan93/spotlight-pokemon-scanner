@@ -2,7 +2,11 @@ import { type ReactElement, useEffect, useState } from 'react';
 import { Image, ScrollView, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
-import { MOCK_ASSISTANT_SEED_THREAD_ID, type SpotlightRepository } from '@spotlight/api-client';
+import {
+  MOCK_ASSISTANT_SEED_THREAD_ID,
+  MOCK_ASSISTANT_SLAB_THREAD_ID,
+  type SpotlightRepository,
+} from '@spotlight/api-client';
 import { ProgressBar, Text, colors, spacing, textStyles } from '@spotlight/design-system';
 
 import { StaticTabsPageProvider } from '@/contexts/tabs-page-context';
@@ -132,6 +136,15 @@ const devScreens: Record<string, () => ReactElement> = {
   'assistant-thread': () => (
     <AssistantScreen
       initialThreadId={MOCK_ASSISTANT_SEED_THREAD_ID}
+      onBack={() => undefined}
+      onOpenCard={() => undefined}
+      source="home"
+    />
+  ),
+  // A raw copy beside its slabs (CGC/PSA/BGS templates + a vector-fallback grader).
+  'assistant-slabs': () => (
+    <AssistantScreen
+      initialThreadId={MOCK_ASSISTANT_SLAB_THREAD_ID}
       onBack={() => undefined}
       onOpenCard={() => undefined}
       source="home"

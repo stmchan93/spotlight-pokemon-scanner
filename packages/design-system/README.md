@@ -466,6 +466,10 @@ hold that data).
 Unknown graders keep the vector frame: a light plastic-look case border with
 the grader's label band on top (grader name/wordmark left, grade right).
 
+Size the host View to `SLAB_FRAME_ASPECT` (84:136, width ÷ height) — the
+inventory grid tile, and the Ask Ekalight chat tiles/rows/chart header
+(`assistant-card-art.tsx`) all do.
+
 Current API concepts:
 
 - `grader` — the entry's own grader; PSA/CGC/BGS ("Beckett")/TAG → their

@@ -3,6 +3,7 @@ import { fireEvent, screen } from '@testing-library/react-native';
 import {
   mockAssistantCards,
   mockAssistantPriceChart,
+  mockAssistantSlabCards,
   parseAssistantMessage,
   type AssistantMessage,
   type AssistantPriceChart,
@@ -59,7 +60,7 @@ describe('assistant price chart', () => {
 
   it('a one-card chart answer puts the card art in the chart header instead of a lone tile', () => {
     renderBubble(reply({ cards: [mockAssistantCards.celebi], charts: [mockAssistantPriceChart()] }));
-    expect(screen.getByTestId('assistant-message-a1-chart-0-thumb')).toBeTruthy();
+    expect(screen.getByTestId('assistant-message-a1-chart-0-thumb-image')).toBeTruthy();
     expect(screen.queryByTestId('assistant-card-xyp-111')).toBeNull();
   });
 
@@ -262,5 +263,49 @@ describe('assistant tile section: label, sparkline, View all', () => {
     const old = parseAssistantMessage({ id: 'o', role: 'assistant', text: 'x', cards_view_all: { screen: 'feed', total: 3 } });
     expect(old?.cardsLabel).toBeNull();
     expect(old?.cardsViewAll).toBeNull();
+  });
+});
+
+describe('assistant slab tiles', () => {
+  it('a raw copy and its CGC slab are separate tiles; only the slab sits in the slab frame', () => {
+    renderBubble(reply({ cards: [mockAssistantCards.celebi, mockAssistantSlabCards.cgc] }));
+    const tiles = screen.getAllByTestId('assistant-card-xyp-111');
+    expect(tiles).toHaveLength(2);
+    // One slab frame (the CGC photo template), and both card images still render.
+    expect(screen.getAllByTestId('assistant-card-xyp-111-slab-frame')).toHaveLength(1);
+    expect(screen.getByTestId('assistant-card-xyp-111-slab-frame-template')).toBeTruthy();
+    expect(screen.getByTestId('assistant-card-xyp-111-slab-frame-grade')).toHaveTextContent('9.5');
+    expect(screen.getAllByTestId('assistant-card-xyp-111-image')).toHaveLength(2);
+    expect(screen.getByText(/CGC 9\.5/)).toBeTruthy();
+  });
+
+  it('a grader without a photo template falls back to the vector slab frame', () => {
+    renderBubble(reply({ cards: [mockAssistantSlabCards.sgc] }));
+    expect(screen.getByTestId('assistant-card-xyp-111-slab-frame-label')).toBeTruthy();
+    expect(screen.queryByTestId('assistant-card-xyp-111-slab-frame-template')).toBeNull();
+    expect(screen.getByTestId('assistant-card-xyp-111-slab-frame-grade')).toHaveTextContent('10');
+  });
+
+  it('compact price rows frame slab thumbnails too', () => {
+    const spark = { range: '30d' as const, changePct: 4, points: [1, 2] };
+    renderBubble(reply({
+      cards: [
+        { ...mockAssistantCards.celebi, sparkline: spark },
+        { ...mockAssistantSlabCards.psa, sparkline: spark },
+      ],
+    }));
+    expect(screen.getAllByTestId('assistant-card-xyp-111-slab-frame')).toHaveLength(1);
+  });
+
+  it('a graded chart frames the header art, and a raw chart does not hide the slab tile', () => {
+    const graded: AssistantPriceChart = { ...mockAssistantPriceChart(), condition: null, grader: 'CGC', grade: '9.5' };
+    renderBubble(reply({ cards: [mockAssistantSlabCards.cgc], charts: [graded] }));
+    expect(screen.getByTestId('assistant-message-a1-chart-0-thumb-slab-frame')).toBeTruthy();
+    expect(screen.queryByTestId('assistant-card-xyp-111')).toBeNull();
+    screen.unmount();
+
+    renderBubble(reply({ cards: [mockAssistantCards.celebi, mockAssistantSlabCards.cgc], charts: [mockAssistantPriceChart()] }));
+    expect(screen.queryByTestId('assistant-message-a1-chart-0-thumb-slab-frame')).toBeNull();
+    expect(screen.getAllByTestId('assistant-card-xyp-111')).toHaveLength(2);
   });
 });
