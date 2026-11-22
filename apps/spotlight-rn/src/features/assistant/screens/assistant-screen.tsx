@@ -871,7 +871,10 @@ export function AssistantScreen({
           <ScrollView
             {...pullDown.scrollProps}
             contentContainerStyle={[styles.listContent, hasConversation ? null : styles.listContentEmpty]}
-            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            // Not `interactive`: KeyboardAvoidingView only hears the keyboard's
+            // frame on release, so the composer stayed put while the keyboard
+            // followed the finger (a gap opened, then snapped shut).
+            keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
             onContentSizeChange={applyScrollIntent}
             onLayout={(event) => {

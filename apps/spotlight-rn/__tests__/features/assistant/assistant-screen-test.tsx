@@ -161,6 +161,12 @@ describe('AssistantScreen', () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
+  it('a scroll drops the keyboard outright (never interactive, which split the composer from it)', async () => {
+    renderScreen({});
+    await screen.findByTestId('assistant-intro');
+    expect(screen.getByTestId('assistant-messages').props.keyboardDismissMode).toBe('on-drag');
+  });
+
   it('greets the signed-in user by first name with the purple mark', async () => {
     renderScreen({});
     expect(await screen.findByTestId('assistant-greeting')).toHaveTextContent('Hi, UI');
