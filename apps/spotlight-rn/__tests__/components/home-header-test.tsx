@@ -1,5 +1,5 @@
 import { Animated, StyleSheet } from 'react-native';
-import { fireEvent, screen, within } from '@testing-library/react-native';
+import { act, fireEvent, screen, within } from '@testing-library/react-native';
 
 import {
   glassNavBubbleGroupWidth,
@@ -345,6 +345,58 @@ describe('HomeHeader', () => {
 
       const style = StyleSheet.flatten(screen.getByTestId('home-header-backdrop').props.style);
       expect(style.opacity).toBe(1);
+    });
+
+    /*
+      Collection floats this bar over a tall cover. Fading from the rest offset
+      washed a white strip over the cover after a few points of scroll, so the
+      fade waits `backdropFadeStart` points and then runs the usual distance.
+    */
+    describe('with a backdropFadeStart', () => {
+      const REST = -62;
+      const START = 300;
+      const opacityAt = (y: number) => {
+        renderHeader({
+          backdropFadeStart: START,
+          floating: true,
+          pinnedBackdrop: true,
+          scrollRestOffset: REST,
+          scrollY: new Animated.Value(y),
+          trailing: profileTrailing(),
+        });
+        return StyleSheet.flatten(screen.getByTestId('home-header-backdrop').props.style)
+          .opacity;
+      };
+
+      it('stays clear until the fade start', () => {
+        expect(opacityAt(REST)).toBe(0);
+        expect(opacityAt(REST + START)).toBe(0);
+      });
+
+      it('is half faded mid-range and solid at the end of it', () => {
+        expect(opacityAt(REST + START + BACKDROP_FADE_DISTANCE / 2)).toBeCloseTo(0.5);
+        expect(opacityAt(REST + START + BACKDROP_FADE_DISTANCE)).toBe(1);
+      });
+
+      it('moves the contrast flip with the fade', () => {
+        const scrollY = new Animated.Value(REST);
+        const onOverCoverChange = jest.fn();
+        renderHeader({
+          backdropFadeStart: START,
+          floating: true,
+          onOverCoverChange,
+          pinnedBackdrop: true,
+          scrollRestOffset: REST,
+          scrollY,
+          trailing: profileTrailing(),
+        });
+
+        act(() => scrollY.setValue(REST + BACKDROP_FADE_DISTANCE));
+        expect(onOverCoverChange).toHaveBeenLastCalledWith(true);
+
+        act(() => scrollY.setValue(REST + START + BACKDROP_FADE_DISTANCE));
+        expect(onOverCoverChange).toHaveBeenLastCalledWith(false);
+      });
     });
 
     it('needs a scroll offset to fade against', () => {

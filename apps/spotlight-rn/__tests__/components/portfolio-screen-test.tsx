@@ -1773,7 +1773,7 @@ describe('PortfolioScreen', () => {
       clearance. Both are dropped for an empty list. Asserted as numbers because
       this spacing has been wrong in three different ways.
     */
-    it('ends the page just below the prompt instead of reserving list-sized space', async () => {
+    it('drops the screenful floor but keeps tab-bar clearance under the empty prompt', async () => {
       renderEmptyCollection();
       await screen.findByTestId('collection-empty-prompt');
 
@@ -1781,7 +1781,9 @@ describe('PortfolioScreen', () => {
         screen.getByTestId('portfolio-scroll-view').props.contentContainerStyle,
       );
       expect(style.minHeight).toBe(0);
-      expect(style.paddingBottom).toBe(16);
+      // A tall header can push the prompt down to the floating tab bar, so the
+      // nav clearance stays (user, 2026-11-21: the bar covered the empty card).
+      expect(style.paddingBottom).toBeGreaterThan(16);
     });
 
     it('shows the Figma onboarding prompt (mark + copy + Scan to add) when there are no cards at all', async () => {

@@ -67,6 +67,8 @@ import { SalePriceEditSheet } from '@/features/portfolio/components/sale-price-e
 import { CollectionPickerSheet } from '@/features/portfolio/components/collection-picker-sheet';
 import { CollectionSearchRow } from '@/features/portfolio/components/collection-search-row';
 import {
+  HEADER_BACKDROP_FADE_DISTANCE,
+  HOME_HEADER_BAR_HEIGHT,
   HOME_HEADER_ROW_HEIGHT,
   HomeHeader,
 } from '@/components/home-header';
@@ -643,7 +645,11 @@ export function PortfolioScreen({
   // The pager writes its scroll offset here; this screen only READS it, and
   // hands it to `HomeHeader` raw. It still drives the header collapse and the
   // backdrop fade — the bar's own controls (pill included) are static.
-  const pagerScrollY = useRef(new Animated.Value(0)).current;
+  // Seeded at the iOS rest offset (`-insets.top`, see `pageTopOffset`) so the
+  // first frame, before the pager seeds it, doesn't read as "already scrolled".
+  const pagerScrollY = useRef(
+    new Animated.Value(Platform.OS === 'ios' ? -insets.top : 0),
+  ).current;
 
   /*
     IS THIS TOTAL A REAL NUMBER YET?
@@ -1653,6 +1659,20 @@ export function PortfolioScreen({
   // cover. Owned here because the header computes the flip but the screen owns
   // the <StatusBar>.
   const [isBarOverCover, setIsBarOverCover] = useState(true);
+  // Height of the profile block (cover included). The backdrop stays clear while
+  // the cover is under the bar and finishes fading exactly as the sheet's top
+  // edge (cover bottom minus the overlap) reaches the bar's bottom edge.
+  const [profileBlockHeight, setProfileBlockHeight] = useState(0);
+  const handleProfileBlockLayout = useCallback((event: LayoutChangeEvent) => {
+    setProfileBlockHeight(event.nativeEvent.layout.height);
+  }, []);
+  const backdropFadeStart = Math.max(
+    profileBlockHeight -
+      PROFILE_SHEET_OVERLAP -
+      (insets.top + HOME_HEADER_BAR_HEIGHT) -
+      HEADER_BACKDROP_FADE_DISTANCE,
+    0,
+  );
   const homeHeader = (
     <HomeHeader
       onOverCoverChange={setIsBarOverCover}
@@ -1687,6 +1707,7 @@ export function PortfolioScreen({
         from it paints over the profile block at rest.
       */
       pinnedBackdrop
+      backdropFadeStart={backdropFadeStart}
       // Every page runs `contentInsetAdjustmentBehavior="automatic"` and so
       // rests at `-insets.top` on iOS; `pagerScrollY` carries that ABSOLUTE
       // offset. Without this anchor the pill sat fully open for the first
@@ -1704,7 +1725,10 @@ export function PortfolioScreen({
   // page's offset); the tab bar stops at the top and pins. Both need an opaque
   // background — page content scrolls UNDER them.
   const pagerHeader = (
-    <View style={[styles.pinnedBlock, { backgroundColor: theme.colors.gray0 }]}>
+    <View
+      onLayout={handleProfileBlockLayout}
+      style={[styles.pinnedBlock, { backgroundColor: theme.colors.gray0 }]}
+    >
       <ProfileHeader
         avatarUrl={currentUser?.avatarURL}
         bio={currentUser?.bio}
@@ -2114,13 +2138,9 @@ export function PortfolioScreen({
           contentContainerStyle={[
             page.contentContainerStyle,
             { paddingBottom: bottomNavClearance },
-            // AN EMPTY PAGE ENDS WHERE ITS CONTENT ENDS. Two reservations that
-            // earn their place under a list of cards are pure dead white
-            // without one, and they were the "ton of whitespace" below "Scan to
-            // add": the pager's `screenHeight + collapseDistance` floor (there
-            // is no collapse to preserve when there is nothing to scroll), and
-            // the bottom-nav clearance (nothing to clear — the prompt stops
-            // well short of the floating nav).
+            // An empty page drops the pager's screenful floor (the old "ton of
+            // whitespace" below "Scan to add") but keeps the bottom-nav
+            // clearance: a tall header can push the prompt down to the nav.
             listData.length === 0 ? styles.emptyListContent : null,
           ]}
           data={listData}
@@ -2461,12 +2481,11 @@ const styles = StyleSheet.create({
   // child of the list's content container alongside the header, so it must be
   // allowed to GROW into the slack without also being told it may shrink to
   // nothing when the header is tall.
+  // Drops only the screenful floor. The bottom-nav clearance stays: under a
+  // tall profile header + chart + filters the empty card reaches the floating
+  // tab bar and must scroll clear of it (user, 2026-11-21).
   emptyListContent: {
     minHeight: 0,
-    // Closes the page 16pt under "Scan to add" rather than running on for a
-    // screenful. Overrides `bottomNavClearance` above — it comes later in the
-    // style array on purpose.
-    paddingBottom: 16,
   },
   emptyStateCard: {
     marginTop: 12,

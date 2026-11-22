@@ -128,6 +128,14 @@ type HomeHeaderProps = {
    */
   scrollRestOffset?: number;
   /**
+   * Scroll distance from `scrollRestOffset` before the backdrop starts fading
+   * in (and the contrast flip with it). Defaults to 0. Collection passes the
+   * point where its cover's visible bottom is one fade-distance from the bar's
+   * bottom edge, so the cover shows through clear until the sheet arrives —
+   * fading from 0 washed a white strip over the cover after a few points.
+   */
+  backdropFadeStart?: number;
+  /**
    * Space above the control row, for the status bar.
    *
    * Explicit because it depends on what the bar is mounted INSIDE, and getting
@@ -209,7 +217,7 @@ export const HOME_HEADER_ROW_HEIGHT = BAR_PADDING_TOP + CONTROL_ROW_HEIGHT;
  * against — the timing survives the pill because it still reads right: by the
  * time anything parks behind the bar the backdrop is already solid.
  */
-const HEADER_BACKDROP_FADE_DISTANCE = 56;
+export const HEADER_BACKDROP_FADE_DISTANCE = 56;
 /**
  * The shared top bar: a 44pt glass menu bubble leading and the variant's
  * trailing group — Ask Ekalight + bell on Social (Figma 6597:3462, lockup
@@ -249,6 +257,7 @@ export function HomeHeader({
   onOverCoverChange,
   pinnedBackdrop = false,
   scrollRestOffset = 0,
+  backdropFadeStart = 0,
   scrollY,
   topInset,
   trailing,
@@ -263,16 +272,17 @@ export function HomeHeader({
   // ABSOLUTE `contentOffset.y`, which on an inset iOS list starts NEGATIVE, so
   // a range beginning at 0 would spend the first safe-area inset of every
   // scroll doing nothing.
+  const fadeOrigin = scrollRestOffset + Math.max(backdropFadeStart, 0);
   const backdropOpacity = useMemo(() => {
     if (!pinnedBackdrop || !scrollY) {
       return null;
     }
     return scrollY.interpolate({
-      inputRange: [scrollRestOffset, scrollRestOffset + HEADER_BACKDROP_FADE_DISTANCE],
+      inputRange: [fadeOrigin, fadeOrigin + HEADER_BACKDROP_FADE_DISTANCE],
       outputRange: [0, 1],
       extrapolate: 'clamp',
     });
-  }, [pinnedBackdrop, scrollRestOffset, scrollY]);
+  }, [fadeOrigin, pinnedBackdrop, scrollY]);
 
   /*
     CONTENT CONTRAST FLIP, profile variant only. At rest the profile bar floats
@@ -294,7 +304,7 @@ export function HomeHeader({
     if (!scrollY) {
       return undefined;
     }
-    const threshold = scrollRestOffset + HEADER_BACKDROP_FADE_DISTANCE / 2;
+    const threshold = fadeOrigin + HEADER_BACKDROP_FADE_DISTANCE / 2;
     const listenerId = scrollY.addListener(({ value }) => {
       setIsOverCover((current) => {
         const next = value < threshold;
@@ -302,7 +312,7 @@ export function HomeHeader({
       });
     });
     return () => scrollY.removeListener(listenerId);
-  }, [scrollRestOffset, scrollY, trailing.kind]);
+  }, [fadeOrigin, scrollY, trailing.kind]);
   const overCover = trailing.kind === 'profile' && isOverCover;
   useEffect(() => {
     onOverCoverChange?.(overCover);
