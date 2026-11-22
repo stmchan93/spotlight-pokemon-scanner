@@ -4498,9 +4498,10 @@ export function ScannerScreen({
     || gradingMenu != null
     || isScanTargetSheetOpen,
   );
-  // Binder review is a full-screen surface with its own ADD ALL footer, which
-  // the pager's tab bar would cover; hide the bar while it is open.
-  useTabPagerHideBar(activeBinderPageId != null);
+  // Binder review and the change-card picker are full-screen surfaces whose
+  // bottoms (ADD ALL, the candidates' LOAD MORE) the pager's tab bar would cover;
+  // hide the bar while either is open.
+  useTabPagerHideBar(activeBinderPageId != null || activeChangeCaptureId != null);
   // The tab pager's touch guard rides along with the tray pan (see the tray shell).
   const pagerTouchGuard = usePagerTouchGuardGesture();
   const trayGesture = useMemo(
