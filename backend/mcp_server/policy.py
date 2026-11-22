@@ -90,6 +90,8 @@ USER_CARD_FIELDS = frozenset(
         # portfolio movers
         "baseline_date",
         "baseline_price_usd",
+        "from_usd",
+        "to_usd",
         # identify_card (0-1 visual match score)
         "confidence",
         # get_my_watchlist

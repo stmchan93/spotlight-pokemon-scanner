@@ -988,6 +988,34 @@ class RunnerOfflineTests(unittest.TestCase):
             self.assertIn("pass → FAIL (1): b", report.read_text())
         self.assertTrue(runner.build_parser().parse_args(["--no-judge"]).judge is False)
 
+    def test_shallow_history_db_warns_and_help_says_where_to_run(self) -> None:
+        import io
+        import sqlite3
+        from datetime import date, timedelta
+
+        runner = load_runner()
+        self.assertIn("spotlight-backend-staging", runner.build_parser().format_help())
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / "h.sqlite")
+            conn = sqlite3.connect(path)
+            conn.execute("CREATE TABLE card_price_history_cell (card_id TEXT, price_date TEXT)")
+            conn.execute("INSERT INTO card_price_history_cell VALUES ('sv3pt5-199', ?)", (date.today().isoformat(),))
+            conn.commit()
+            err = io.StringIO()
+            with mock.patch("sys.stderr", err):
+                runner.warn_if_shallow_history(path)
+            self.assertIn("WARNING", err.getvalue())
+            conn.executemany("INSERT INTO card_price_history_cell VALUES ('bw5-104', ?)",
+                             [((date.today() - timedelta(days=i)).isoformat(),) for i in range(40)])
+            conn.commit()
+            conn.close()
+            self.assertEqual(runner.history_days(path), 40)
+            err = io.StringIO()
+            with mock.patch("sys.stderr", err):
+                runner.warn_if_shallow_history(path)
+            self.assertEqual(err.getvalue(), "")
+        self.assertEqual(runner.history_days(str(Path(tmp) / "missing.sqlite")), 0)
+
     def test_grade_case_with_judge(self) -> None:
         runner = load_runner()
         case = {"id": "c", "category": "x", "turns": [{"ask": "q1", "expect": {}, "rubric": ["ok?"]}, {"ask": "q2"}]}

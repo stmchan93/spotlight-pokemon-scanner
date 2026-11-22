@@ -108,7 +108,7 @@ MODEL_HIDDEN_KEYS = frozenset({"image_small_url", "app_url", "tcgplayer_id", "bu
 # Per-call ceilings for the model (the MCP tools allow more).
 MODEL_LIMITS = {
     "search_cards": 20,
-    "find_missing": 20,
+    "find_missing": MAX_CARDS,  # the app shows at most MAX_CARDS tiles; the model sees no more (L026)
     "find_price_lows": 20,
     "find_new_highs": 20,
     "find_movers": 10,
@@ -196,7 +196,9 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "sort: 'price_desc' (per-copy price) for 'most valuable cards'/'priciest card I own'/'most valuable "
             "slab'; 'value_desc' (holding total) for 'top holdings' and what the collection is worth. "
             "holding_type='graded' = slabs only, 'raw' = ungraded only. total_value_usd covers all matching "
-            "holdings, not just this page. Hidden collections are excluded unless collection_id names one."
+            "holdings, not just this page. top_by_unit_price is the single most valuable copy (answer 'my most "
+            "valuable card/slab' from it, with grader/grade and price_usd); top_by_total_value is the largest "
+            "holding (value_usd). Hidden collections are excluded unless collection_id names one."
         ),
         "input_schema": _obj(
             {
@@ -218,16 +220,20 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "(cheapest first: only for budget/cheap questions; budget_usd implies it). If total_is_lower_bound "
             "is true, counts are minimums: say 'at least N'. cheapest_completion_usd is set only when every "
             "missing card is priced; otherwise priced_subtotal_usd covers priced_count of missing_count cards "
-            "(say e.g. '$X for Y of N missing cards'), never call it the full cost. A set name resolves to one "
-            "set, English unless filter.language says otherwise (set_resolved). " + GAME_FILTER_NOTE
+            "(say e.g. '$X for Y of N missing cards'), never call it the full cost. 'Cards under $X' is "
+            "filter.price_max_usd (then missing_count counts only those); budget_usd is a total amount to spend "
+            "(cheapest-first fill): missing_count stays every missing card and matching_count is how many fit "
+            "the budget. missing lists the first `shown` cards, the ones the app shows: say 'here are <shown>', "
+            "never a bigger number. A set name resolves to one set, English unless filter.language says "
+            "otherwise (set_resolved). " + GAME_FILTER_NOTE
         ),
         "input_schema": _obj(
             {
                 "filter": _FILTER_SCHEMA,
                 "collection_id": {"type": "string"},
-                "budget_usd": {"type": "number"},
+                "budget_usd": {"type": "number", "description": "Total to spend, not a per-card cap."},
                 "sort": {"type": "string", "enum": ["value_desc", "price_asc"]},
-                "limit": {"type": "integer", "description": "1-20, default 10."},
+                "limit": {"type": "integer", "description": f"1-{MAX_CARDS}, default 10."},
             },
             ["filter"],
         ),
@@ -269,6 +275,9 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "this month'; returns only the movers; name the dollar and percent leaders only from "
             "top_gainer_by_usd/top_gainer_by_pct/top_loser_by_usd/top_loser_by_pct); focus='value' (default) for "
             "what the collection is worth. "
+            "range = the window the user names (week=7d, month=30d, 3 months/90 days=90d, year=1y; default 30d): "
+            "one call per window, never repeat it. Each mover has from_usd -> to_usd (one copy, start and now), "
+            "change_usd, change_pct and window_label (the phrase for the window; 'recently' = never name it). "
             "Movers within a set, rarity or card name (incl. 'my <set> cards'): find_movers."
         ),
         "input_schema": _obj(
@@ -286,7 +295,9 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "Daily USD price history for one printing of a card: raw by condition, or graded when grader and "
             "grade are both given (e.g. PSA 10). days_since_as_of says how old the newest point is. "
             "summary has the dated move (first_usd -> last_usd). " + WINDOW_LABEL_NOTE + " variant is a printing (Holofoil, Reverse "
-            "Holofoil, 1st Edition), never a rarity; omit it for the card's main printing."
+            "Holofoil, 1st Edition), never a rarity; omit it for the card's main printing. An unknown printing "
+            "falls back to the main one with variant_note. Graded calls carry has_psa10_sales (whether Ekalight "
+            "has any PSA 10 sales for the card): false means say plainly there are no PSA 10 sales."
         ),
         "input_schema": _obj(
             {
@@ -584,6 +595,22 @@ def card_refs(value: Any) -> list[dict[str, Any]]:
     return found
 
 
+# Leader copies of list items (get_my_collection): a tile only if the page doesn't list them.
+LEADER_COPY_KEYS = ("top_by_unit_price", "top_by_total_value")
+
+
+def result_refs(result: Any) -> list[dict[str, Any]]:
+    """card_refs, with leader copies added only when the listed items don't already hold them."""
+    if not isinstance(result, dict) or not any(key in result for key in LEADER_COPY_KEYS):
+        return card_refs(result)
+    refs = card_refs({key: value for key, value in result.items() if key not in LEADER_COPY_KEYS})
+    for key in LEADER_COPY_KEYS:
+        for ref in card_refs(result.get(key)):
+            if not any(_same_tile(ref, other) for other in refs):
+                refs.append(ref)
+    return refs
+
+
 def sparkline_fetch_range(tool: str, content: Any) -> str | None:
     """The get_price_history range behind a market/movers tool's tile sparklines."""
     if not isinstance(content, dict):
@@ -768,12 +795,27 @@ def _uncovered(matched: dict[str, list[tuple[int, int]]]) -> set[str]:
 def named_refs(refs: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
     """Refs whose card name is in the answer text (a name seen only inside a
     longer matched name doesn't count); a number in the text narrows a name to
-    that printing."""
+    that printing, plus any other printing of it whose set the text names
+    ('151 (#199/165) ... the Obsidian Flames Charizard ex')."""
     keys = {_name_key(ref) for ref in refs} - {""}
     names = _uncovered({key: _phrase_spans(key, text) for key in keys})
     named = [ref for ref in refs if _name_key(ref) in names]
-    numbered = {_name_key(ref) for ref in named if _number_in_text(ref.get("number"), text)}
-    return [ref for ref in named if _name_key(ref) not in numbered or _number_in_text(ref.get("number"), text)]
+    numbered_sets: dict[str, set[str]] = {}
+    for ref in named:
+        if _number_in_text(ref.get("number"), text):
+            numbered_sets.setdefault(_name_key(ref), set()).add(_set_key(ref))
+    if not numbered_sets:
+        return named
+    set_keys = {_set_key(ref) for ref in named} - {""}
+    sets_in_text = _uncovered({key: _phrase_spans(key, text) for key in set_keys})
+
+    def keep(ref: dict[str, Any]) -> bool:
+        pinned = numbered_sets.get(_name_key(ref))
+        if pinned is None or _number_in_text(ref.get("number"), text):
+            return True
+        return _set_key(ref) in sets_in_text and _set_key(ref) not in pinned
+
+    return [ref for ref in named if keep(ref)]
 
 
 def _set_key(ref: dict[str, Any]) -> str:
@@ -1581,6 +1623,10 @@ class AssistantToolbox:
             result = {**result, "art_coverage": neutral_art_coverage(result["art_coverage"])}
         if name == "get_card" and isinstance(result, dict) and "tags" in result:
             result = {("artwork" if key == "tags" else key): value for key, value in result.items()}
+        if name == "get_price_history" and isinstance(result, dict) and result.get("grader"):
+            result = {**result, "has_psa10_sales": self.has_psa10_sales(str(result.get("card_id") or ""))}
+        if name == "find_missing" and isinstance(result, dict) and isinstance(result.get("missing"), list):
+            result = {**result, "shown": len(result["missing"])}
         if name == "get_price_history" and isinstance(result, dict) and result.get("points"):
             summary_card = card_by_id(self.conn, str(result.get("card_id") or ""))
             result = {**result, "summary": history_summary(result, summary_card)}
@@ -1593,7 +1639,15 @@ class AssistantToolbox:
             chart = price_chart(
                 result, name=card.get("name") if card else None, range_key=kwargs.get("range_key") or "90d"
             )
-        return ToolOutcome(strip_for_model(result), cards=card_refs(result), chart=chart)
+        return ToolOutcome(strip_for_model(result), cards=result_refs(result), chart=chart)
+
+    def has_psa10_sales(self, card_id: str) -> bool:
+        """Any plain PSA 10 graded price on record for the card (any date)."""
+        try:
+            cells = self.tools._graded_history_cells(card_id, "PSA", "10", "0000-01-01")
+        except sqlite3.OperationalError:
+            return False
+        return any(cells.values())
 
     def _collapse_art_results(
         self, result: dict[str, Any], card_filter: dict[str, Any], question: str = ""
