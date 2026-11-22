@@ -20,6 +20,9 @@ window series instead of two endpoints:
 - current price >= ``min_price_usd`` (penny cards make absurd %).
 - >= ``MIN_DISTINCT_PRICES`` distinct values in the window, and no day-to-day
   step above ``MAX_STEP_MULTIPLE`` (a glitch spike would fake the high).
+- lows measure the drop from a SUSTAINED high (held >= ``MIN_HIGH_DAYS``
+  calendar days), skipping a new card's first ``LAUNCH_SKIP_DAYS`` of prices:
+  a launch/pre-order spike is not the high a card "fell from".
 Sealed product is skipped for lows and kept for highs (the tool filters it).
 """
 
@@ -29,7 +32,7 @@ import argparse
 import sqlite3
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -66,6 +69,12 @@ MAX_HIGH_CANDIDATES_PER_GAME = 2000
 # Stored per (game, window): the tool's filters (set, owned, price) need a pool.
 MAX_STORED_PER_GAME = 1000
 STEP_CHECK_BATCH = 400
+# Lows: the high must hold for MIN_HIGH_DAYS calendar days, and a card whose
+# prices start after the store's history (+ slack) is new: its first
+# LAUNCH_SKIP_DAYS (launch/pre-order premium) never set the high.
+MIN_HIGH_DAYS = 3
+LAUNCH_SKIP_DAYS = 14
+LAUNCH_START_SLACK_DAYS = 7
 SQL_CHUNK = 900
 
 
@@ -447,6 +456,40 @@ def _series_bad(values: list[float]) -> bool:
     )
 
 
+def sustained_high(
+    points: list[tuple[str, float]],
+    *,
+    history_start: str | None = None,
+    min_high_days: int = MIN_HIGH_DAYS,
+    launch_skip_days: int = LAUNCH_SKIP_DAYS,
+) -> float | None:
+    """Highest price the card held for ``min_high_days`` calendar days (each
+    point holds until the next one), or None when no span is that long.
+    ``history_start`` = where stored history begins for this window: a card
+    whose first point is later than that (+ slack) is new, and its first
+    ``launch_skip_days`` of points are ignored."""
+    if not points:
+        return None
+    first = date.fromisoformat(points[0][0][:10])
+    if history_start and first > date.fromisoformat(history_start[:10]) + timedelta(days=LAUNCH_START_SLACK_DAYS):
+        cutoff = (first + timedelta(days=launch_skip_days)).isoformat()
+        points = [point for point in points if point[0] >= cutoff]
+    if not points:
+        return None
+    days = [date.fromisoformat(day[:10]) for day, _ in points]
+    # The newest point holds through its own day.
+    ends = days[1:] + [days[-1] + timedelta(days=1)]
+    best: float | None = None
+    for i in range(len(points)):
+        floor = points[i][1]
+        for j in range(i, len(points)):
+            floor = min(floor, points[j][1])
+            if (ends[j] - days[i]).days >= min_high_days:
+                best = floor if best is None else max(best, floor)
+                break
+    return best
+
+
 def series_guard_failures(
     connection: sqlite3.Connection,
     specs: dict[str, tuple[str, str | None]],
@@ -500,9 +543,12 @@ def _guarded_lows(
     start: str,
     end: str,
     max_per_game: int,
+    history_start: str | None = None,
+    min_drop_pct: float = MIN_DROP_PCT,
 ) -> list[PriceLow]:
     """Series guards walk down the ranking per game until max_per_game survive
-    (only the stored pool is ever read back)."""
+    (only the stored pool is ever read back). Survivors measure the drop from
+    their sustained high (``sustained_high``) and must still clear min_drop_pct."""
     by_game: dict[str, list[PriceLow]] = {}
     for item in rank_lows(qualifying):
         by_game.setdefault(item.game, []).append(item)
@@ -511,13 +557,24 @@ def _guarded_lows(
         survivors: list[PriceLow] = []
         for offset in range(0, len(game_rows), STEP_CHECK_BATCH):
             batch = game_rows[offset : offset + STEP_CHECK_BATCH]
-            bad = series_guard_failures(
+            series = _load_series(
                 connection, {item.card_id: (item.source, item.variant) for item in batch}, start=start, end=end
             )
-            survivors.extend(item for item in batch if item.card_id not in bad)
+            for item in batch:
+                points = series.get(item.card_id) or []
+                if _series_bad([value for _, value in points]):
+                    continue
+                high = sustained_high(points, history_start=history_start)
+                if high is None or high <= 0:
+                    continue
+                high = max(high, item.price_usd)
+                pct_below_high = (high - item.price_usd) / high * 100.0
+                if pct_below_high < min_drop_pct:
+                    continue
+                survivors.append(replace(item, high_usd=high, pct_below_high=pct_below_high))
             if len(survivors) >= max_per_game:
                 break
-        kept.extend(survivors[:max_per_game])
+        kept.extend(rank_lows(survivors)[:max_per_game])
     return rank_lows(kept)
 
 
@@ -549,6 +606,8 @@ def compute_price_signals(
         return None, empty_lows, empty_highs
     if (today - ref_date).days > NOW_TOLERANCE_DAYS or not windows:
         return ref_date.isoformat(), empty_lows, empty_highs
+    # Where stored history begins: a card starting later than this is a new release.
+    history_start = str(connection.execute("SELECT MIN(price_date) FROM card_price_history_daily").fetchone()[0])[:10]
 
     columns = _table_columns(connection, "card_price_history_daily")
     has_main = "main_raw_market_price" in columns
@@ -604,7 +663,8 @@ def compute_price_signals(
                 )
             )
         lows_out[window] = _guarded_lows(
-            connection, qualifying, start=starts[window], end=end, max_per_game=max_per_game
+            connection, qualifying, start=starts[window], end=end, max_per_game=max_per_game,
+            history_start=max(history_start, starts[window]), min_drop_pct=min_drop_pct,
         )
         by_game: dict[str, list[tuple[_Current, _WindowStats, dict[str, Any]]]] = {}
         for item in sorted(highs, key=lambda h: (-h[2]["pct_above_low"], h[0].card_id)):

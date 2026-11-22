@@ -161,6 +161,36 @@ class PriceLowsComputeTests(unittest.TestCase):
         self._path("clean", [(200, 60.0), (0, 40.0)])
         self.assertEqual(self._ids(), ["clean"])
 
+    def test_launch_spike_is_not_the_high(self) -> None:
+        # Store history starts 200 days ago; the promo appears 45 days ago at a
+        # $400 pre-order price and settles to ~$30 before sliding to $20.
+        self._card("veteran")
+        self._path("veteran", [(200, 100.0), (0, 60.0)])
+        self._card("promo")
+        for day, price in ((45, 400.0), (44, 300.0), (43, 200.0), (42, 150.0), (41, 110.0), (40, 90.0),
+                           (38, 70.0), (35, 50.0), (31, 30.0), (20, 25.0), (10, 22.0), (0, 20.76)):
+            self._daily("promo", day, main=price)
+        rows = {r.card_id: r for r in self._compute()[1]}
+        # High from day 31 on ($30), not the $400 launch print: -30.8%, not -94.8%.
+        self.assertAlmostEqual(rows["promo"].high_usd, 30.0)
+        self.assertAlmostEqual(rows["promo"].pct_below_high, 30.8, places=1)
+        # A card already in the store's history keeps its own first prices.
+        self.assertEqual(rows["veteran"].high_usd, 100.0)
+
+    def test_one_day_high_is_not_sustained(self) -> None:
+        self._card("blip")
+        for days_ago in range(200, -1, -1):
+            self._daily("blip", days_ago, main=round(60.0 - 20.0 * (200 - days_ago) / 200, 2))
+        self._daily("blip", 100, main=120.0)  # 2x for one day: under the glitch-step guard
+        rows = self._compute()[1]
+        self.assertEqual([r.card_id for r in rows], ["blip"])
+        self.assertAlmostEqual(rows[0].high_usd, 59.8, places=1)  # held 3 days from day 200
+        self.assertEqual(
+            price_lows.sustained_high([("2026-01-01", 10.0), ("2026-01-02", 50.0), ("2026-01-03", 11.0),
+                                       ("2026-01-04", 12.0), ("2026-01-05", 9.0)]),
+            11.0,
+        )
+
     def test_flat_series_excluded_by_distinct_prices(self) -> None:
         self._card("flat")
         for day in (200, 100):
@@ -400,6 +430,42 @@ class FindPriceLowsToolTests(unittest.TestCase):
         shaped = USER_POLICY.shape(result)
         self.assertEqual(shaped["cards"][0]["days_covered"], 120)
         self.assertEqual(shaped["cards"][0]["high_usd"], 125.0)
+
+    def test_same_card_printings_collapse_to_the_deepest_drop(self) -> None:
+        # Owner 2026-11-21: "3 undervalued cards" listed Pikachu ex promo 107 AND 109.
+        promos = "ME: Mega Evolution Promo"
+        self.card("mep-107", set_name=promos, name="Pikachu ex")
+        self.card("mep-109", set_name=promos, name="Pikachu ex")
+        self.card("mep-108", set_name=promos, name="Espeon ex")
+        self.card("sv-1", set_name="Surging Sparks", name="Charizard ex")
+        self.seed_lows([
+            self.low("mep-107", pct=94.8), self.low("mep-109", pct=92.4),
+            self.low("mep-108", pct=83.6), self.low("sv-1", pct=50.0),
+        ])
+        result = self.tools.find_price_lows("user-a", limit=3)
+        self.assertEqual([c["card_id"] for c in result["cards"]], ["mep-107", "mep-108", "sv-1"])
+        # The user's own holdings are never collapsed.
+        self.holding("user-a", "mep-107")
+        self.holding("user-a", "mep-109")
+        owned = self.tools.find_price_lows("user-a", owned="owned", limit=3)
+        self.assertEqual([c["card_id"] for c in owned["cards"]], ["mep-107", "mep-109"])
+
+    def test_same_artwork_across_sets_collapses_via_art_groups(self) -> None:
+        self.card("base-4", set_name="Base Set", name="Charizard")
+        self.card("b2-4", set_name="Base Set 2", name="Charizard")
+        self.card("base-2", set_name="Base Set", name="Blastoise")
+        self.conn.execute(
+            "INSERT INTO card_art_groups (art_group_id, representative_card_id, tags_json, tagger_model, "
+            "prompt_version, vocab_version, tagged_at) VALUES ('base-4', 'base-4', '{}', 't', 'p', 'v', ?)",
+            (utc_now(),),
+        )
+        self.conn.executemany(
+            "INSERT INTO card_art_group_members (card_id, art_group_id, link_source) VALUES (?, 'base-4', ?)",
+            [("base-4", "self"), ("b2-4", "reprint_similar")],
+        )
+        self.seed_lows([self.low("b2-4", pct=60.0), self.low("base-4", pct=50.0), self.low("base-2", pct=40.0)])
+        ids = [c["card_id"] for c in self.tools.find_price_lows("user-a", limit=3)["cards"]]
+        self.assertEqual(ids, ["b2-4", "base-2"])
 
     def test_owned_filter_is_owner_scoped(self) -> None:
         for card_id in ("a", "b"):

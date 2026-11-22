@@ -190,6 +190,20 @@ class FindMoversToolTests(unittest.TestCase):
         for key in ("start_usd", "end_usd", "start_date", "end_date", "covers_full_window", "change_pct", "days_covered"):
             self.assertIn(key, shaped["cards"][0])
 
+    def test_same_card_printings_collapse_outside_owned_scope(self) -> None:
+        self.card("mep-107", name="Pikachu ex")
+        self.path("mep-107", 100.0, 40.0)  # -60%
+        self.card("mep-109", name="Pikachu ex")
+        self.path("mep-109", 100.0, 50.0)  # -50%
+        self.card("mep-108", name="Espeon ex")
+        self.path("mep-108", 100.0, 70.0)  # -30%
+        result = self.tools.find_movers("user-a", {"set": "Evolving Skies"}, direction="down")
+        self.assertEqual([c["card_id"] for c in result["cards"]], ["mep-107", "mep-108"])
+        for card_id in ("mep-107", "mep-109"):
+            self.holding("user-a", card_id)
+        owned = self.tools.find_movers("user-a", owned="owned", direction="down")
+        self.assertEqual([c["card_id"] for c in owned["cards"]], ["mep-107", "mep-109"])
+
     def test_collectibility_filter(self) -> None:
         # Owner 2026-11-20: a $5 Fairy Energy topping "rising the most" is noise.
         self.card("es-mon")

@@ -16,6 +16,7 @@ import {
   initialActionUiState,
   type AssistantActionUiState,
 } from '@/features/assistant/components/assistant-action-card';
+import { AssistantCardRows } from '@/features/assistant/components/assistant-card-row';
 import { AssistantCardTile } from '@/features/assistant/components/assistant-card-tile';
 import { AssistantFeedbackControls } from '@/features/assistant/components/assistant-feedback';
 import { AssistantPriceChartCard } from '@/features/assistant/components/assistant-price-chart';
@@ -29,6 +30,17 @@ const PRESSED_OPACITY = 0.7;
  * Layout animations default to `ReduceMotion.System`, so Reduce Motion skips it.
  */
 export const assistantRowEntering = FadeInDown.duration(ENTER_MS);
+
+/**
+ * 2+ cards in a price answer (a chart, or any card with a sparkline): render them
+ * all as compact rows. Other multi-card answers (art, collection) keep the tile rail.
+ */
+export function isAssistantPriceList(message: Pick<AssistantMessage, 'cards' | 'charts'>): boolean {
+  if (message.cards.length < 2) {
+    return false;
+  }
+  return (message.charts?.length ?? 0) > 0 || message.cards.some((card) => card.sparkline != null);
+}
 
 /** The text a long-press copies: the reply without its markdown markers. */
 export function assistantCopyText(text: string): string {
@@ -79,7 +91,12 @@ export function AssistantMessageBubble({
   // The header shows for a label, or to carry "View all" (titled after its screen).
   const cardsTitle = message.cardsLabel || (viewAll ? 'Your Watchlist' : null);
   const sets = message.sets ?? [];
-  const charts = message.charts ?? [];
+  const allCharts = message.charts ?? [];
+  // A price answer about 2+ cards: every card is a compact row with its own sparkline,
+  // never one big chart beside plain tiles. Single-card answers keep the big chart.
+  const asRows = isAssistantPriceList(message);
+  const rowIds = new Set(asRows ? message.cards.map((card) => card.cardId) : []);
+  const charts = allCharts.filter((chart) => !rowIds.has(chart.cardId));
   // A chart answer about exactly the charted card(s): the chart card carries the art,
   // so a lone tile underneath would only repeat it.
   const chartIds = new Set(charts.map((chart) => chart.cardId));
@@ -148,7 +165,10 @@ export function AssistantMessageBubble({
           />
         </View>
       ) : null}
-      {tileCards.length > 0 ? (
+      {tileCards.length > 0 && asRows ? (
+        <AssistantCardRows cards={tileCards} onOpenCard={onOpenCard} testID={`${testID}-rows`} />
+      ) : null}
+      {tileCards.length > 0 && !asRows ? (
         <ScrollView
           contentContainerStyle={styles.cardRail}
           horizontal

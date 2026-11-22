@@ -359,7 +359,43 @@ class SparklineTests(TilesCase):
         self.assertEqual(line["points"][-1], 100.0)
         self.assertGreaterEqual(line["points"][0], 185.0)
         self.assertLessEqual(line["points"][0], 190.0)
-        self.assertNotIn("sparkline", by_id["ssp-2"])  # not from a market/movers result
+        self.assertNotIn("sparkline", by_id["ssp-2"])  # listed, but no stored history to draw
+
+    def test_every_card_in_a_list_answer_gets_a_sparkline(self) -> None:
+        # Owner 2026-11-21: one big chart + plain tiles for a 3-card answer. A list answer's
+        # cards all get a compact series, also the charted one and the one from a plain search.
+        for card_id, base in (("ssp-1", 100.0), ("ssp-2", 50.0), ("ssp-3", 20.0)):
+            for days in range(100, -1, -1):
+                self.history_cell(card_id, days, base + days / 10)
+        self.conn.commit()
+        reply = self.reply(
+            message([tool_use("get_price_history", {"card_id": "ssp-1", "range": "90d"}, "h"),
+                     tool_use("search_cards", {"filter": {"text": "charizard"}}, "s1"),
+                     tool_use("search_cards", {"filter": {"text": "eevee"}}, "s2")], "tool_use"),
+            message([text("- **Pikachu ex** fell.\n- **Charizard ex** fell.\n- **Eevee** fell."),
+                     show("ssp-1", "ssp-2", "ssp-3")], "tool_use"),
+        )
+        self.assertEqual(self.ids(reply["cards"]), ["ssp-1", "ssp-2", "ssp-3"])
+        for card in reply["cards"]:
+            with self.subTest(card=card["card_id"]):
+                line = card["sparkline"]
+                self.assertEqual(line["range"], "90d")
+                self.assertLessEqual(len(line["points"]), MAX_SPARKLINE_POINTS)
+                self.assertLess(line["change_pct"], 0)
+        # The big chart stays in the payload (older apps); the app draws rows for a list.
+        self.assertEqual([chart["card_id"] for chart in reply["charts"]], ["ssp-1"])
+
+    def test_single_card_chart_answer_gets_no_extra_series(self) -> None:
+        for days in range(100, -1, -1):
+            self.history_cell("ssp-1", days, 100.0 + days / 10)
+        self.conn.commit()
+        reply = self.reply(
+            message([tool_use("get_price_history", {"card_id": "ssp-1", "range": "90d"}, "h")], "tool_use"),
+            message([text("**Pikachu ex** is down 9% over 3 months, now $100."), show("ssp-1")], "tool_use"),
+        )
+        self.assertEqual(self.ids(reply["cards"]), ["ssp-1"])
+        self.assertNotIn("sparkline", reply["cards"][0])
+        self.assertEqual(len(reply["charts"]), 1)
 
     def test_full_year_series_keeps_1y_label(self) -> None:
         for days in range(366, -1, -1):

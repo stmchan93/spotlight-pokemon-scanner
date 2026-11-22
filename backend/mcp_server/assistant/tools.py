@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -63,6 +64,9 @@ MAX_QUANTITY = 999
 MAX_LABEL_CHARS = 40
 MAX_WATCHLIST_TILES = 8
 MAX_SPARKLINE_POINTS = 30
+# A multi-card price answer: every listed card (up to this many) gets a row sparkline.
+MAX_LIST_SPARKLINES = 5
+LIST_SPARKLINE_DEFAULT_RANGE = "90d"
 MAX_GRADING_CANDIDATES = 3
 
 
@@ -1258,6 +1262,26 @@ def watchlist_order(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(items, key=key)
 
 
+def is_price_list_answer(
+    cards: list[dict[str, Any]], charts: list[dict[str, Any]], sparkline_windows: dict[str, tuple[str, str | None]]
+) -> bool:
+    """2+ cards in a price answer (a chart, or a ranking tool's sparklines): the app
+    draws every card as a compact row with its own sparkline, so each card needs one."""
+    return len(cards) >= 2 and (bool(charts) or any(card["card_id"] in sparkline_windows for card in cards))
+
+
+def list_sparkline_window(
+    card_id: str, charts: list[dict[str, Any]], sparkline_windows: dict[str, tuple[str, str | None]]
+) -> tuple[str, str | None]:
+    """(range, variant) for a listed card without a ranking-tool window: its own
+    chart's series, else the range the other rows use, else 90 days."""
+    for chart in charts:
+        if str(chart.get("card_id")) == card_id and not chart.get("grader"):
+            return str(chart.get("range") or LIST_SPARKLINE_DEFAULT_RANGE), chart.get("variant")
+    ranges = Counter(window[0] for window in sparkline_windows.values())
+    return (ranges.most_common(1)[0][0] if ranges else LIST_SPARKLINE_DEFAULT_RANGE), None
+
+
 def downsample(values: list[Any], size: int) -> list[Any]:
     if len(values) <= size:
         return values
@@ -1930,8 +1954,11 @@ class AssistantToolbox:
         view_all = None
         if on_watchlist and watchlist_total and watchlist_total > len(cards):
             view_all = {"screen": "watchlist", "total": int(watchlist_total)}
-        for card in cards[:MAX_WATCHLIST_TILES]:
+        list_answer = is_price_list_answer(cards, charts, sparkline_windows)
+        for index, card in enumerate(cards[:MAX_WATCHLIST_TILES]):
             window = sparkline_windows.get(card["card_id"])
+            if window is None and list_answer and index < MAX_LIST_SPARKLINES:
+                window = list_sparkline_window(card["card_id"], charts, sparkline_windows)
             if window and not card.get("grader"):
                 line = self.sparkline(owner_user_id, card["card_id"], range_key=window[0], variant=window[1])
                 if line is not None:

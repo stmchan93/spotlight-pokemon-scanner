@@ -321,6 +321,20 @@ def _round_money(value: float | None) -> float | None:
     return None if value is None else round(float(value), 2)
 
 
+def same_card_keys(card: dict[str, Any], art_group: str | None = None) -> set[tuple[str, str]]:
+    """Keys under which two ranked picks read as the same card to a collector: one
+    artwork (art group), or the same name in the same set (Pikachu ex promo 107
+    vs 109). Different names in one set stay distinct."""
+    keys: set[tuple[str, str]] = set()
+    if art_group:
+        keys.add(("art", art_group))
+    name = " ".join(str(card.get("name") or "").split()).casefold()
+    set_key = str(card.get("setID") or card.get("set_id") or card.get("setName") or "").strip().casefold()
+    if name and set_key:
+        keys.add(("name_set", f"{name}|{set_key}"))
+    return keys
+
+
 class CollectionTools:
     def __init__(self, service: Any, *, app_url_scheme: str = "spotlight") -> None:
         self.service = service
@@ -852,6 +866,20 @@ class CollectionTools:
             "catalog_cards": int(total),
             "note": f"Art tags cover {tagged:,} of {total:,} cards so far; untagged cards never match art filters.",
         }
+
+    def _art_group_ids(self, card_ids: list[str]) -> dict[str, str]:
+        """{card_id: art_group_id} for tagged cards; {} before art tagging ran."""
+        if not card_ids or not self._has_table("card_art_group_members"):
+            return {}
+        out: dict[str, str] = {}
+        for chunk in _chunked_sql_values(card_ids):
+            rows = self.conn.execute(
+                "SELECT card_id, art_group_id FROM card_art_group_members "
+                f"WHERE card_id IN ({','.join('?' for _ in chunk)})",
+                tuple(chunk),
+            ).fetchall()
+            out.update({str(row[0]): str(row[1]) for row in rows})
+        return out
 
     def _has_table(self, name: str) -> bool:
         return self.conn.execute(
@@ -1665,15 +1693,23 @@ class CollectionTools:
         skip_types = include_energy_trainers or owned == "owned" or bool(card_filter.get("text"))
         picked: list[Any] = []
         cards: dict[str, dict[str, Any]] = {}
+        # One entry per card a collector would see as one (deepest drop kept: rows are ranked).
+        seen_keys: set[tuple[str, str]] = set()
         for offset in range(0, len(rows), 200):
             chunk = rows[offset : offset + 200]
             chunk_cards = cards_by_ids(self.conn, [str(row[0]) for row in chunk], include_source_payload=False)
+            groups = self._art_group_ids([str(row[0]) for row in chunk])
             for row in chunk:
                 card = chunk_cards.get(str(row[0]))
                 if card is None or (meta_filter and not self._matches_card_meta(card, meta_filter)):
                     continue
                 if not has_card_image(card) or (not skip_types and is_low_interest_card(card)):
                     continue
+                # The user's own holdings are all listed; market picks show distinct cards.
+                keys = set() if owned == "owned" else same_card_keys(card, groups.get(card["id"]))
+                if keys & seen_keys:
+                    continue
+                seen_keys |= keys
                 cards[card["id"]] = card
                 picked.append(row)
                 if len(picked) >= limit:
@@ -1774,9 +1810,11 @@ class CollectionTools:
         floor = not skip_types and card_filter.get("price_min_usd") is None and card_filter.get("price_max_usd") is None
         picked: list[Any] = []
         cards: dict[str, dict[str, Any]] = {}
+        seen_keys: set[tuple[str, str]] = set()
         for offset in range(0, len(rows), 200):
             chunk = rows[offset : offset + 200]
             chunk_cards = cards_by_ids(self.conn, [str(row[0]) for row in chunk], include_source_payload=False)
+            groups = self._art_group_ids([str(row[0]) for row in chunk])
             for row in chunk:
                 card = chunk_cards.get(str(row[0]))
                 if card is None or (meta_filter and not self._matches_card_meta(card, meta_filter)):
@@ -1787,6 +1825,11 @@ class CollectionTools:
                     continue
                 if floor and float(row[2] or 0) < COLLECTIBLE_MIN_PRICE_USD:
                     continue
+                # The user's own holdings are all listed; market picks show distinct cards.
+                keys = set() if owned == "owned" else same_card_keys(card, groups.get(card["id"]))
+                if keys & seen_keys:
+                    continue
+                seen_keys |= keys
                 cards[card["id"]] = card
                 picked.append(row)
                 if len(picked) >= limit:
@@ -2416,9 +2459,14 @@ class CollectionTools:
             moves = [move for move in moves if move.end_usd >= COLLECTIBLE_MIN_PRICE_USD]
         showable = self._collectible_ids([move.card_id for move in moves], skip_types=skip_types)
         moves = [move for move in moves if move.card_id in showable]
-        ranked = scoped_movers.rank_moves(moves, direction=direction, by=rank_by)[:limit]
         alt_by = "usd" if rank_by == "pct" else "pct"
-        alt = scoped_movers.rank_moves(moves, direction=direction, by=alt_by)[:MOVERS_ALT_COUNT]
+        distinct = owned != "owned"  # the user's own holdings are all listed
+        ranked = self._distinct_moves(
+            scoped_movers.rank_moves(moves, direction=direction, by=rank_by), limit, distinct=distinct
+        )
+        alt = self._distinct_moves(
+            scoped_movers.rank_moves(moves, direction=direction, by=alt_by), MOVERS_ALT_COUNT, distinct=distinct
+        )
         summaries = self._summaries([move.card_id for move in ranked + alt])
 
         def entry(move: scoped_movers.Move) -> dict[str, Any] | None:
@@ -2472,6 +2520,28 @@ class CollectionTools:
         if notes:
             result["note"] = " ".join(notes)
         return result
+
+    def _distinct_moves(self, ranked: list[Any], limit: int, *, distinct: bool = True) -> list[Any]:
+        """The first ``limit`` moves, one per card a collector would see as one
+        (same_card_keys); the better-ranked printing wins."""
+        if not distinct:
+            return ranked[:limit]
+        out: list[Any] = []
+        seen: set[tuple[str, str]] = set()
+        for offset in range(0, len(ranked), 200):
+            chunk = ranked[offset : offset + 200]
+            ids = [move.card_id for move in chunk]
+            rows = {str(row["id"]): row for row in self._mover_card_rows(ids)}
+            groups = self._art_group_ids(ids)
+            for move in chunk:
+                keys = same_card_keys(rows.get(move.card_id) or {}, groups.get(move.card_id))
+                if keys & seen:
+                    continue
+                seen |= keys
+                out.append(move)
+                if len(out) >= limit:
+                    return out
+        return out
 
     def _mover_scope(
         self, owner_user_id: str, card_filter: dict[str, Any], *, owned: str

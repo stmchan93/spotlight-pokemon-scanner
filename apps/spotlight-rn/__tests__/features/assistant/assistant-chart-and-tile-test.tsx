@@ -63,9 +63,48 @@ describe('assistant price chart', () => {
     expect(screen.queryByTestId('assistant-card-xyp-111')).toBeNull();
   });
 
-  it('keeps tiles for cards the chart does not cover', () => {
-    renderBubble(reply({ cards: [mockAssistantCards.celebi, mockAssistantCards.oshawott], charts: [mockAssistantPriceChart()] }));
-    expect(screen.getByTestId('assistant-card-mcdonalds25-21')).toBeTruthy();
+  it('a multi-card answer with a chart draws every card as a compact row, no big chart', () => {
+    // Owner 2026-11-21: one big Pikachu chart + plain Pikachu/Espeon tiles for "3 undervalued cards".
+    const spark = (changePct: number) => ({ range: '30d' as const, points: [40, 30, 20], changePct });
+    const cards = [
+      { ...mockAssistantCards.celebi, sparkline: spark(-48.1) },
+      { ...mockAssistantCards.oshawott, sparkline: spark(12.5) },
+      { ...mockAssistantCards.treecko, sparkline: null },
+    ];
+    const { onOpenCard } = renderBubble(reply({ cards, charts: [mockAssistantPriceChart()] }));
+    expect(screen.queryByTestId('assistant-message-a1-chart-0')).toBeNull();
+    expect(screen.queryByTestId('assistant-message-a1-cards')).toBeNull();
+    expect(screen.getByTestId('assistant-message-a1-rows')).toBeTruthy();
+    for (const card of cards) {
+      expect(screen.getByTestId(`assistant-card-${card.cardId}`)).toBeTruthy();
+    }
+    expect(screen.getByTestId('assistant-card-xyp-111-sparkline')).toBeTruthy();
+    expect(screen.getByTestId('assistant-card-xyp-111-change')).toHaveTextContent('-48.10%');
+    expect(screen.getByTestId('assistant-card-mcdonalds25-21-change')).toHaveTextContent('+12.50%');
+    expect(screen.getByTestId('assistant-card-xyp-111-period')).toHaveTextContent('Past month');
+    expect(screen.queryByTestId('assistant-card-sm7-1-sparkline')).toBeNull();
+    fireEvent.press(screen.getByTestId('assistant-card-mcdonalds25-21'));
+    expect(onOpenCard).toHaveBeenCalledWith('mcdonalds25-21');
+  });
+
+  it('a multi-card near-lows answer without a chart also uses rows', () => {
+    const sparkline = { range: '1y' as const, points: [40, 30, 12], changePct: -70 };
+    renderBubble(reply({ cards: [{ ...mockAssistantCards.celebi, sparkline }, { ...mockAssistantCards.oshawott, sparkline }] }));
+    expect(screen.getByTestId('assistant-message-a1-rows')).toBeTruthy();
+    expect(screen.getByTestId('assistant-card-xyp-111-price')).toHaveTextContent('$37.54');
+  });
+
+  it('a single-card chart answer keeps the big chart, not a row', () => {
+    const sparkline = { range: '90d' as const, points: [30, 37.54], changePct: 21.1 };
+    renderBubble(reply({ cards: [{ ...mockAssistantCards.celebi, sparkline }], charts: [mockAssistantPriceChart()] }));
+    expect(screen.getByTestId('assistant-message-a1-chart-0-chart')).toBeTruthy();
+    expect(screen.queryByTestId('assistant-message-a1-rows')).toBeNull();
+  });
+
+  it('multi-card answers without prices keep the tile rail', () => {
+    renderBubble(reply({ cards: [mockAssistantCards.celebi, mockAssistantCards.oshawott] }));
+    expect(screen.getByTestId('assistant-message-a1-cards')).toBeTruthy();
+    expect(screen.queryByTestId('assistant-message-a1-rows')).toBeNull();
   });
 
   it('a card younger than the range fills the chart from its first price', () => {
