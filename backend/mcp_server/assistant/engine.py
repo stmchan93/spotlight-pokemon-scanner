@@ -23,6 +23,7 @@ from mcp_server.assistant import length_guard
 from mcp_server.assistant.shared_answers import tool_record
 from mcp_server.assistant.compact import model_payload
 from mcp_server.assistant.game_scope import GameScope, enforce_game
+from mcp_server.tools import NULL_WORDS
 from mcp_server.assistant.tools import (
     SPARKLINE_TOOLS,
     sparkline_fetch_range,
@@ -423,11 +424,53 @@ def question_target_usd(question: str) -> float | None:
     return value if value and value > 0 else None
 
 
+_WEEK_RANGE = re.compile(r"\b7[\s-]*days?\b|\b(?:past|last|this|a|one|1)\s+week\b|\bweekly\b", re.IGNORECASE)
+# "cards under $10" is a per-card price cap; budget_usd is money to spend (cheapest-first fill).
+_PER_CARD_CAP = re.compile(r"\b(?:under|below|less than|cheaper than)\s*\$\s?(\d[\d,]*(?:\.\d+)?)", re.IGNORECASE)
+_SPEND_WORDS = re.compile(r"\b(spend|budget|afford|total|complete|finish)\b|\b(?:have|with)\s+\$", re.IGNORECASE)
+
+
+def portfolio_range_for(question: str) -> str | None:
+    """'past week' -> 7d, else history_range_for (get_portfolio_summary has a 7d range)."""
+    return "7d" if _WEEK_RANGE.search(question or "") else history_range_for(question)
+
+
+def _drop_null_words(value: Any) -> Any:
+    """Recursively drop "null"/"none"/"" strings (and list items): the model sometimes sends
+    the word instead of omitting the argument (L015)."""
+    if isinstance(value, dict):
+        out = {}
+        for key, item in value.items():
+            cleaned = _drop_null_words(item)
+            if cleaned is not None:
+                out[key] = cleaned
+        return out
+    if isinstance(value, list):
+        return [cleaned for cleaned in (_drop_null_words(item) for item in value) if cleaned is not None]
+    if isinstance(value, str) and value.strip().casefold() in NULL_WORDS:
+        return None
+    return value
+
+
 def correct_tool_arguments(name: str, arguments: Any, question: str) -> dict[str, Any]:
     """Fill what the question states but the model dropped: a history range at least as
-    long as asked for, and the watch target price the user named."""
-    args = dict(arguments) if isinstance(arguments, dict) else {}
-    if name == "get_price_history":
+    long as asked for, the portfolio window the user named, the watch target price,
+    and "under $X" as a per-card price cap. "null"/"none"/"" strings count as omitted."""
+    args = _drop_null_words(dict(arguments)) if isinstance(arguments, dict) else {}
+    if name == "get_portfolio_summary":
+        wanted = portfolio_range_for(question)
+        if wanted:
+            args["range"] = wanted  # the summary's range IS the window asked about (L024)
+    elif name == "find_missing" and args.get("budget_usd") is not None:
+        cap = _PER_CARD_CAP.search(question or "")
+        if cap and not _SPEND_WORDS.search(question or ""):
+            flt = dict(args.get("filter") or {})
+            if flt.get("price_max_usd") is None:
+                flt["price_max_usd"] = float(cap.group(1).replace(",", ""))
+            args["filter"] = flt
+            args.pop("budget_usd")
+            args.setdefault("sort", "price_asc")  # as the budget would have sorted it
+    elif name == "get_price_history":
         wanted = history_range_for(question)
         current = args.get("range")
         if wanted and RANGE_ORDER.get(str(current), -1) < RANGE_ORDER[wanted]:

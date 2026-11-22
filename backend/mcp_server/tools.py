@@ -116,6 +116,7 @@ PORTFOLIO_RANGES = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
 HISTORY_RANGES = {"30d": 30, "90d": 90, "1y": 365}
 # History starting within this many days of the range start counts as covering it.
 HISTORY_FULL_RANGE_SLACK_DAYS = 7
+NULL_WORDS = frozenset({"", "null", "none", "nil", "undefined", "n/a"})
 PRICE_LOW_WINDOWS = {"90d": 90, "1y": 365}
 MAX_PRICE_LOWS = 20
 MAX_NEW_HIGHS = 20
@@ -1212,12 +1213,27 @@ class CollectionTools:
 
         total_value = sum(item["value_usd"] for item in items if item["value_usd"] is not None)
         next_offset = offset + limit
+        priced = [item for item in items if item["price_usd"] is not None]
+        top_keys = ("card_id", "name", "set", "number", "language", "holding_id", "quantity", "condition", "grader",
+                    "grade", "variant", "price_usd", "value_usd")
+
+        def top(key: str) -> dict[str, Any] | None:
+            best = self._sort_by_price(priced, descending=True, key=key)[:1]
+            return {k: best[0].get(k) for k in top_keys} if best else None
+
         return {
             "items": items[offset : offset + limit],
+            # Leaders over every matching holding (not just this page), so "my most valuable
+            # slab" is read, not inferred (L001): per copy vs the whole holding.
+            "top_by_unit_price": top("price_usd"),
+            "top_by_total_value": top("value_usd"),
             "total_value_usd": round(total_value, 2),
             "total_count": len(items),
             "unpriced_count": sum(1 for item in items if item["value_usd"] is None),
-            "value_basis": "price_usd is the price of one copy; value_usd = price_usd x quantity (the holding's total).",
+            "value_basis": (
+                "price_usd is the price of one copy; value_usd = price_usd x quantity (the holding's total). "
+                "top_by_unit_price is the single most valuable copy; top_by_total_value the largest holding."
+            ),
             "next_cursor": encode_cursor({"k": "collection", "q": query_hash, "o": next_offset})
             if next_offset < len(items)
             else None,
@@ -1363,6 +1379,9 @@ class CollectionTools:
                     "value_usd": holding["value_usd"],
                     "baseline_date": points[0]["date"],
                     "baseline_price_usd": round(start_unit, 2),
+                    # One copy's move, so answers can say "$486 -> $504" (L002).
+                    "from_usd": round(start_unit, 2),
+                    "to_usd": round(holding["price_usd"], 2),
                     "change_usd": round(change, 2),
                     "change_pct": round(change / (start_unit * holding["quantity"]) * 100, 2)
                     if start_unit > 0 and holding["quantity"] > 0
@@ -1417,7 +1436,8 @@ class CollectionTools:
                 "top_gainers/top_losers rank all holdings (sealed included) by change_usd (dollars); "
                 f"top_gainers_pct/top_losers_pct rank single cards priced at least ${floor:.0f} (start and now) "
                 "by change_pct. top_gainer_by_usd/top_gainer_by_pct/top_loser_by_usd/top_loser_by_pct are the "
-                "leaders of those rankings: name a leader only from these fields."
+                "leaders of those rankings: name a leader only from these fields. from_usd -> to_usd is one "
+                "copy's price at the start and now; change_usd is the holding's total (x quantity)."
             ),
             "holdings_count": len(holdings),
             "unpriced_count": sum(1 for holding in holdings if holding["value_usd"] is None),
@@ -1443,7 +1463,8 @@ class CollectionTools:
 
     @staticmethod
     def _pct_mover(mover: dict[str, Any]) -> dict[str, Any]:
-        keys = ("card_id", "name", "set", "number", "language", "grader", "grade", "variant", "change_usd", "change_pct")
+        keys = ("card_id", "name", "set", "number", "language", "grader", "grade", "variant", "baseline_date",
+                "from_usd", "to_usd", "change_usd", "change_pct")
         return {key: mover.get(key) for key in keys}
 
     # A start price more than this many times off today's is a bad history point
@@ -1549,6 +1570,7 @@ class CollectionTools:
         priced_subtotal = round(sum(item["price_usd"] for item in priced), 2)
         complete = bool(missing) and not capped and len(priced) == len(missing)
 
+        missing_count = max(missing_total, len(missing))
         if budget_usd is not None:
             # Cheapest-first greedy fill; unpriced cards can't be budgeted.
             picked, spent = [], 0.0
@@ -1571,11 +1593,24 @@ class CollectionTools:
             }
             page.append({**item, "buy_links": buy_links(card, tcgplayer_product_id=item.get("tcgplayer_id"))})
         counts_exact = exact_total is not None
-        missing_count = len(missing) if budget_usd is not None else max(missing_total, len(missing))
         return {
             "missing": page,
             "sort": sort,
+            # Every missing card matching the filter; with a budget, matching_count is how
+            # many of them fit it together (L026 said "missing 84" for the budget picks).
             "missing_count": missing_count,
+            **(
+                {
+                    "matching_count": len(missing),
+                    "count_note": (
+                        f"missing_count ({missing_count}) is every missing card matching the filter; "
+                        f"matching_count ({len(missing)}) is how many of them fit a ${budget_usd:,.2f} total "
+                        "budget together, cheapest first (budget_spent_usd)."
+                    ),
+                }
+                if budget_usd is not None
+                else {}
+            ),
             "owned_count": owned_count,
             "total_matching": total_matching,
             # Only when every missing card is priced (and the list is not capped);
@@ -2622,6 +2657,8 @@ class CollectionTools:
         'quoted' (the printing the app prices), 'most_data', or None (no line)."""
         if range_key not in HISTORY_RANGES:
             raise ToolInputError(f"range must be one of {', '.join(HISTORY_RANGES)}.")
+        # MCP clients sometimes send the word instead of omitting the argument (L015).
+        grader, grade, variant = (None if str(v or "").strip().casefold() in NULL_WORDS else v for v in (grader, grade, variant))
         grader_code = str(grader or "").strip().upper() or None
         grade_code = self._history_grade_key(grade)
         if bool(grader_code) != bool(grade_code):
@@ -2703,16 +2740,10 @@ class CollectionTools:
             wanted = printing_key(requested)
             chosen = next((key for key in (wanted, f"{wanted}holofoil") if key in available), None)
             basis = "requested" if chosen else None
-            if chosen is None and len(available) == 1:
-                # One printing has history (sv3pt5-199 'Holofoil'): a misnamed one means it.
-                chosen, basis = available[0], "quoted"
-                variant_note = f"No '{requested}' printing; this card's only priced printing is {labels[chosen]}."
-            elif chosen is None and available:
-                variant_note = (
-                    f"No '{requested}' printing has history; pick one of available_variants and call again."
-                )
-        else:
-            # The printing the app quotes, then the stored default, then the most data.
+        if chosen is None:
+            # The printing the app quotes, then the stored default, then the most data. An
+            # unknown printing name (often a rarity, L013/L022) falls back here instead of
+            # returning an empty line.
             quoted = next(
                 (printing_key(v) for v in (main_variant, default_variant) if v and printing_key(v) in available), None
             )
@@ -2720,6 +2751,11 @@ class CollectionTools:
                 chosen, basis = quoted, "quoted"
             elif available:
                 chosen, basis = available[0], "most_data"
+            if requested and chosen is not None:
+                variant_note = (
+                    f"No '{requested}' printing has price history; showing the card's main printing, "
+                    f"{labels[chosen]}. Say which printing the line is."
+                )
 
         result: dict[str, Any] = {
             "card_id": card_id,

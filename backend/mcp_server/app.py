@@ -371,7 +371,9 @@ def build_server(
             "I missing'). Prices are USD from Ekalight's stored market data (Japanese cards are priced only "
             "from TCGplayer, else null). When total_is_lower_bound is true the counts are minimums: say "
             "'at least N'. cheapest_completion_usd is null unless every missing card is priced; then "
-            "priced_subtotal_usd covers priced_count of missing_count cards. A set name resolves to one "
+            "priced_subtotal_usd covers priced_count of missing_count cards. budget_usd is a total to spend "
+            "(cheapest first): missing_count stays every missing card, matching_count is how many fit. "
+            "A set name resolves to one "
             "set (English unless filter.language says otherwise); set_resolved says which. "
             + GAME_FILTER_NOTE + " " + PRODUCT_FILTER_NOTE
         ),

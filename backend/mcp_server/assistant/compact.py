@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 MAX_HISTORY_POINTS = 12
@@ -231,14 +232,46 @@ def _movers(result: dict[str, Any]) -> dict[str, Any]:
 
 
 PORTFOLIO_LEADER_KEYS = ("top_gainer_by_usd", "top_gainer_by_pct", "top_loser_by_usd", "top_loser_by_pct")
-PORTFOLIO_LEADER_FIELDS = ("card_id", "name", "grader", "grade", "change_usd", "change_pct")
+PORTFOLIO_LEADER_FIELDS = ("card_id", "name", "grader", "grade", "from_usd", "to_usd", "change_usd", "change_pct",
+                           "window_label")
+PORTFOLIO_LIST_KEYS = ("top_gainers", "top_losers", "top_gainers_pct", "top_losers_pct")
 
 
 def _portfolio_leaders(result: dict[str, Any]) -> dict[str, Any]:
     """Leader entries repeat a ranked list's first card: keep just who and the move."""
     for key in PORTFOLIO_LEADER_KEYS:
         if isinstance(result.get(key), dict):
-            result[key] = {k: result[key].get(k) for k in PORTFOLIO_LEADER_FIELDS}
+            result[key] = {k: result[key].get(k) for k in PORTFOLIO_LEADER_FIELDS if k in result[key]}
+    return result
+
+
+def _portfolio_window(result: dict[str, Any], today: date | None = None) -> dict[str, Any]:
+    """Each mover's baseline_date -> window_label (a card added mid-window is "recently");
+    baseline_price_usd is from_usd. The summary's own window_label follows its earliest mover."""
+    window = result.get("range")
+    days = WINDOW_DAYS.get(str(window or ""))
+    if days is None:
+        return result
+    start = ((today or datetime.now(timezone.utc).date()) - timedelta(days=days - COVERED_SLACK_DAYS)).isoformat()
+    baselines: list[str] = []
+
+    def relabel(item: Any) -> Any:
+        if not isinstance(item, dict) or "baseline_date" not in item:
+            return item
+        baseline = str(item.get("baseline_date") or "")
+        if baseline:
+            baselines.append(baseline)
+        out = {k: v for k, v in item.items() if k not in ("baseline_date", "baseline_price_usd")}
+        out["window_label"] = window_label(window, covered=bool(baseline) and baseline[:10] <= start)
+        return out
+
+    for key in PORTFOLIO_LIST_KEYS:
+        if isinstance(result.get(key), list):
+            result[key] = [relabel(item) for item in result[key]]
+    for key in PORTFOLIO_LEADER_KEYS:
+        result[key] = relabel(result.get(key))
+    if baselines:
+        result["window_label"] = window_label(window, covered=min(baselines)[:10] <= start)
     return result
 
 
@@ -275,7 +308,7 @@ def compact_result(tool: str, content: Any, arguments: Any = None) -> Any:
     elif tool in ("find_price_lows", "find_new_highs"):
         result = _window_cards(result)
     elif tool == "get_portfolio_summary":
-        result = _portfolio_leaders(result)
+        result = _portfolio_leaders(_portfolio_window(result))
     elif tool == "grading_upside" and "basis" in result:
         # The shared basis prose ("graded market estimate") invited data-source caveats in answers.
         result["basis"] = GRADING_BASIS

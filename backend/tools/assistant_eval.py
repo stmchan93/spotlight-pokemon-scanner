@@ -24,6 +24,22 @@ toward the daily cap). Guide: docs/ai-chat-eval-2026-11-19.md.
 passes a case when most of its N runs pass (use an odd N; ties fail); the report shows
 the majority pass rate and each case's pass count (e.g. 2/3).
 
+Price history: the history/movers/lows/grading cases need months of stored price
+history. A laptop DB (backend/data/spotlight_scanner.sqlite) usually has a day or
+two, so those cases return empty lines and fail for data reasons; the run prints a
+WARNING when that is the case. Run the eval on the staging VM against a copy of the
+staging DB instead (same box and env as tools/assistant_smoke.py; --db-copy needs
+free disk about the size of the DB, ~20 GB, else set TMPDIR to a disk with room):
+
+  gcloud compute ssh spotlight-backend-staging --zone us-central1-a
+  cd ~/spotlight && set -a && . ./.vm-runtime.conf; . ./.env.staging; . ./.env.staging.secrets; set +a
+  df -h /tmp   # room for the copy?
+  .venv/bin/python tools/assistant_eval.py --database-path data/spotlight_scanner.sqlite \\
+      --user-id <supabase user id> --db-copy --out /tmp/eval-$(date +%F).jsonl --report /tmp/r.md --quiet
+
+Then copy the JSONL back (gcloud compute scp ...:/tmp/eval-<date>.jsonl .) for
+--from-results / --export-labels on the laptop. Never point it at production.
+
 Offline (no API calls): --list, --validate, --from-results old.jsonl (re-render
 report/compare/export-labels from a saved run).
 Calibration: --export-labels labels.csv after a run; owner fills human_pass;
@@ -331,6 +347,43 @@ def prepare_database(args: argparse.Namespace) -> str | None:
     return temp_dir
 
 
+# Cards the history cases chart; their stored history depth says whether this DB can grade them.
+HISTORY_PROBE_CARD_IDS = ("sv3pt5-199", "bw5-104")
+MIN_HISTORY_DAYS = 30
+
+
+def history_days(database_path: str) -> int:
+    """Most distinct price days in the past year among HISTORY_PROBE_CARD_IDS (0 if none/no table)."""
+    import sqlite3
+
+    since = time.strftime("%Y-%m-%d", time.gmtime(time.time() - 365 * 86400))
+    try:
+        conn = sqlite3.connect(f"file:{database_path}?mode=ro", uri=True)
+        try:
+            return max(
+                conn.execute(
+                    "SELECT COUNT(DISTINCT price_date) FROM card_price_history_cell WHERE card_id = ? AND price_date >= ?",
+                    (card_id, since),
+                ).fetchone()[0]
+                for card_id in HISTORY_PROBE_CARD_IDS
+            )
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return 0
+
+
+def warn_if_shallow_history(database_path: str) -> None:
+    days = history_days(database_path)
+    if days < MIN_HISTORY_DAYS:
+        print(
+            f"# WARNING: this DB has {days} day(s) of price history for the history cases' cards; "
+            "history, movers, lows and grading cases will see empty or flat lines and fail for data reasons. "
+            "Run on the staging VM against a copy of its DB (see --help: 'Price history').",
+            file=sys.stderr,
+        )
+
+
 async def run(args: argparse.Namespace, data: dict[str, Any], cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
     from assistant_eval.cases import assistant_tool_names
     from mcp_server.assistant import build_assistant_service
@@ -352,6 +405,7 @@ async def run(args: argparse.Namespace, data: dict[str, Any], cases: list[dict[s
         # Off by default: a replayed answer would grade the cache, not the model.
         shared_answers=args.shared_cache,
     )
+    warn_if_shallow_history(args.database_path)
     service = ReadOnlySpotlightService(Path(args.database_path), BACKEND_ROOT.parent)
     assistant = build_assistant_service(CollectionTools(service), config)
     recorder = ToolRecorder(assistant.toolbox)

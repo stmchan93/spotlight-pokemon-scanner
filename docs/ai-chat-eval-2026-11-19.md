@@ -39,6 +39,8 @@ The spec is `docs/ai-chat-eval-owner-review-2026-11-20.md`. Every reviewed answe
 
 ## How to run it on staging
 
+**Run it on the staging VM, not the laptop.** The history, movers, lows and grading cases need months of stored price history. A laptop DB (`backend/data/spotlight_scanner.sqlite`) has a day or two, so those cases get empty lines and fail for data reasons (2026-11-21 labels: L013, L015, L022). The runner prints a `WARNING` when the DB's history for the history cases' cards is under 30 days. The staging box is `spotlight-backend-staging` (us-central1-a); `tools/assistant_smoke.py` runs there the same way.
+
 The eval makes real Anthropic calls with the staging key. It creates chat threads for the user and deletes them at the end. The usage/spend rows stay, and they count toward that day's assistant spend cap.
 
 ```bash

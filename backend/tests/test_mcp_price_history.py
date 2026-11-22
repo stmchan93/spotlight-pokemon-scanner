@@ -157,9 +157,12 @@ class RawHistoryTests(PriceHistoryCase):
         self.assertEqual(first["source"], "scrydex")
         self.assertEqual(self.call(card_id="base1-4", range_key="1y", variant="unlimited")["variant"],
                          "Unlimited Holofoil")
+        # An unknown printing falls back to the main one and says so (L013/L022).
         missing = self.call(card_id="base1-4", range_key="1y", variant="Reverse Holofoil")
-        self.assertEqual(missing["points"], [])
-        self.assertIsNone(missing["source"])
+        main = self.call(card_id="base1-4", range_key="1y")
+        self.assertEqual((missing["variant"], missing["points"]), (main["variant"], main["points"]))
+        self.assertIn("No 'Reverse Holofoil' printing", missing["variant_note"])
+        self.assertNotIn("variant_note", main)
 
     def test_non_nm_is_scrydex_only(self) -> None:
         history = self.call(card_id="base1-4", range_key="1y", condition="LP")

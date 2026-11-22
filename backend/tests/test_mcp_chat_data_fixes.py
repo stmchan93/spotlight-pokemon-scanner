@@ -287,12 +287,14 @@ class PriceHistoryRangeTests(ChatFixCase):
             self.assertEqual(history["variant"], "Holofoil", variant)
             self.assertEqual([p["usd"] for p in history["points"]], [287.93], variant)
         noted = self.call("get_price_history", card_id="sv3pt5-199", variant="Reverse Holofoil")
-        self.assertIn("only priced printing", noted["variant_note"])
+        self.assertIn("main printing, Holofoil", noted["variant_note"])
 
-    def test_unknown_printing_on_multi_printing_card_is_empty_with_note(self) -> None:
+    def test_unknown_printing_on_multi_printing_card_falls_back_to_main_with_note(self) -> None:
         history = self.call("get_price_history", card_id="two-print", variant="1st Edition")
-        self.assertEqual(history["points"], [])
-        self.assertIn("available_variants", history["variant_note"])
+        self.assertEqual(history["variant"], "Normal")
+        self.assertEqual([p["usd"] for p in history["points"]], [5.0])
+        self.assertIn("No '1st Edition' printing", history["variant_note"])
+        self.assertIn("main printing, Normal", history["variant_note"])
         self.assertEqual(set(history["available_variants"]), {"Normal", "Reverse Holofoil"})
 
     def test_fallback_when_no_history(self) -> None:

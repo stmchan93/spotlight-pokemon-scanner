@@ -78,8 +78,12 @@ class PortfolioLeaderTests(McpToolsCase):
     def test_movers_payload_keeps_compact_leaders(self) -> None:
         summary = self.call("get_portfolio_summary", range_key="30d")
         payload = compact_result("get_portfolio_summary", movers_only(summary), {"focus": "movers"})
-        self.assertEqual(payload["top_gainer_by_pct"], {"card_id": "base1-6", "name": "Gyarados",
-                                                        "change_usd": 7.44, "change_pct": 13.63})
+        leader = payload["top_gainer_by_pct"]
+        self.assertEqual({k: leader[k] for k in ("card_id", "name", "from_usd", "to_usd", "change_usd", "change_pct")},
+                         {"card_id": "base1-6", "name": "Gyarados", "from_usd": 54.6, "to_usd": 62.04,
+                          "change_usd": 7.44, "change_pct": 13.63})
+        self.assertIn("window_label", leader)
+        self.assertNotIn("baseline_date", leader)
         self.assertEqual(payload["top_gainer_by_usd"]["card_id"], "bw5-104")
         self.assertNotIn("value_usd", payload)
 
