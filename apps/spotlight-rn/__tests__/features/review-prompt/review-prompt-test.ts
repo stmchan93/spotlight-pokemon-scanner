@@ -7,6 +7,7 @@ import {
   REPEAT_PROMPT_GOOD_SCANS,
   isReviewPromptEligible,
   maybeRequestReview,
+  maybeRequestReviewForScan,
   noteScanTrouble,
   recordGoodScan,
   resetReviewPromptForTests,
@@ -101,13 +102,13 @@ describe('maybeRequestReview', () => {
 
   it('asks after enough good scans, once', async () => {
     await scan(FIRST_PROMPT_GOOD_SCANS);
-    maybeRequestReview('scanner_blur');
+    maybeRequestReview('high_value_scan', 45);
     await flush();
     jest.advanceTimersByTime(2000);
     await flush();
     expect(StoreReview.requestReview).toHaveBeenCalledTimes(1);
 
-    maybeRequestReview('scanner_blur');
+    maybeRequestReview('high_value_scan', 45);
     await flush();
     jest.advanceTimersByTime(2000);
     await flush();
@@ -117,10 +118,26 @@ describe('maybeRequestReview', () => {
   it('holds the prompt after scan trouble this session', async () => {
     await scan(FIRST_PROMPT_GOOD_SCANS);
     noteScanTrouble();
-    maybeRequestReview('collection_add');
+    maybeRequestReview('high_value_scan', 45);
     await flush();
     jest.advanceTimersByTime(2000);
     await flush();
     expect(StoreReview.requestReview).not.toHaveBeenCalled();
+  });
+
+  it('asks only for a USD scan worth $20 or more', async () => {
+    await scan(FIRST_PROMPT_GOOD_SCANS);
+    for (const [price, currency] of [[19.99, 'USD'], [null, 'USD'], [5000, 'JPY']] as const) {
+      maybeRequestReviewForScan(price, currency);
+      await flush();
+      jest.advanceTimersByTime(2000);
+      await flush();
+    }
+    expect(StoreReview.requestReview).not.toHaveBeenCalled();
+    maybeRequestReviewForScan(20, 'USD');
+    await flush();
+    jest.advanceTimersByTime(2000);
+    await flush();
+    expect(StoreReview.requestReview).toHaveBeenCalledTimes(1);
   });
 });
