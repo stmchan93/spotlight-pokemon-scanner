@@ -141,6 +141,28 @@ class FlagTurnTests(unittest.TestCase):
         self.assertIn("claims_unapplied_filter", flags_for(text="English only results:", cards=japanese))
         self.assertNotIn("claims_unapplied_filter", flags_for(text="Here are results:", cards=japanese + sealed))
 
+    def test_plumbing_counts_as_internals(self) -> None:
+        self.assertIn("mentions_internals", flags_for(text="Ekalight returned no price history for it."))
+        self.assertNotIn("mentions_internals", flags_for(text="Ekalight prices are USD only."))
+
+    def test_shown_count_mismatch(self) -> None:
+        two = [{"card_id": "a", "name": "Nuzleaf"}, {"card_id": "b", "name": "Carvanha"}]
+        self.assertFlag(
+            "shown_count_mismatch",
+            flags_for(text="Here are the first 20 by price.", cards=two),
+            flags_for(text="Here are the first 2 by price.", cards=two),
+        )
+
+    def test_unnamed_tiles(self) -> None:
+        three = [{"card_id": "n", "name": "Nami"}, {"card_id": "k", "name": "Karoo"}, {"card_id": "i", "name": "Izo"}]
+        self.assertFlag(
+            "unnamed_tiles",
+            flags_for("How much is my One Piece collection worth?", text="It's $224.08; Nami is $215.64.", cards=three),
+            flags_for("How much is my One Piece collection worth?", text="Nami, Karoo and Izo: $224.08.", cards=three),
+        )
+        # A framed list ("Here are ...") may name only some of its cards.
+        self.assertNotIn("unnamed_tiles", flags_for(text="Here are three, including Nami.", cards=three))
+
     def test_turn_object_and_order(self) -> None:
         class Obj:
             pass

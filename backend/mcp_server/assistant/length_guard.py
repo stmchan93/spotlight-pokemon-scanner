@@ -60,7 +60,10 @@ _COVERAGE = re.compile(
     r"|\bhistory\s+only\b|\bonly\s+(?:\w+\s+)?(?:\d+\s+)?(?:days?\s+|months?\s+)?of\s+history\b"
     r"|\bcovers?\s+(?:only\s+)?(?:that|this|the)\s+(?:stretch|window|span|period)\b"
     r"|\bshort[-\s]lived\s+spikes?\b"
-    r"|\b(?:not|isn'?t|doesn'?t\s+cover)\s+(?:a\s+)?(?:full|whole|complete)\s+year\b"
+    r"|\b(?:not|isn'?t|doesn'?t\s+cover)\s+(?:a\s+|the\s+)?(?:full|whole|complete|entire)\s+year\b"
+    # "so this covers about 7 months" (owner 2026-11-21, hand labels)
+    r"|\b(?:covers?|covering|spans?|spanning)\s+(?:only\s+|just\s+)?(?:about\s+|roughly\s+|around\s+|nearly\s+|almost\s+)?"
+    r"(?:\d+|a\s+few|two|three|four|five|six|seven|eight|nine|ten|eleven)\s*(?:[-–]\s*\d+\s*)?(?:days?|weeks?|months?)\b"
     r"|\bclosest\s+window\b",
     re.IGNORECASE,
 )
@@ -465,3 +468,257 @@ def bold_bullet_figures(text: str) -> str:
                 body = f"**{name}**" + body[end.start():]
         out.append(lead + _bold_outside(body))
     return "\n".join(out)
+
+
+# --- Owner hand labels 2026-11-21: deterministic text backstops (no extra call) -------------
+
+# "Ekalight returned no price history", "the search found no ...": the answer speaks for itself.
+_PLUMBING_NONE = re.compile(
+    r"\b(?:Ekalight|the\s+(?:tools?|search(?:es)?|lookups?|database|catalog))\s+"
+    r"(?:(?:returned|has|had|shows?|showed|found|gave|lists?|listed)\s+no"
+    r"|(?:doesn'?t|does\s+not|didn'?t|did\s+not)\s+(?:have|return|show|list|find))\b",
+    re.IGNORECASE,
+)
+_PLUMBING_FOUND = re.compile(
+    r"\b(?:Ekalight|the\s+(?:tools?|search(?:es)?|lookups?))\s+(?:returned|found|turned\s+up|pulled\s+up)\b",
+    re.IGNORECASE,
+)
+_PLUMBING_COULDNT = re.compile(
+    r"\b(?:Ekalight|the\s+(?:tools?|search(?:es)?|lookups?))\s+(?:couldn'?t|could\s+not|can'?t|cannot)\b",
+    re.IGNORECASE,
+)
+
+
+def _no_form(match: re.Match[str]) -> str:
+    verb = match.group().split()[-1].casefold()
+    return "I don't have" if verb in ("have", "return", "show", "list", "find") else "I have no"
+
+
+def rewrite_plumbing(text: str) -> str:
+    """'Ekalight returned no price history for X' -> 'I have no price history for X';
+    'the search found three printings' -> 'I found three printings'; 'Ekalight couldn't' -> 'I couldn't'."""
+    out = _PLUMBING_NONE.sub(_no_form, str(text or ""))
+    out = _PLUMBING_FOUND.sub("I found", out)
+    return _PLUMBING_COULDNT.sub(lambda m: "I " + m.group().split()[-1], out)
+
+
+# "Market prices are roughly what copies have recently sold for": filler unless the user asked what a price means.
+_PRICE_MEANING_ASK = re.compile(
+    r"\bpric(?:e|es|ed|ing)\b[^?.]*\b(?:mean|means|work|works|calculated|determined|come\s+from|based|defined)\b"
+    r"|\b(?:explain|how)\b[^?.]*\b(?:pric(?:e|es|ed|ing)|valu(?:e|es|ed|ing))\b(?!\s+(?:history|chart|trend))"
+    r"|\bwhat(?:'s|\s+is|\s+are)\s+(?:a\s+|the\s+)?market\s+prices?\b",
+    re.IGNORECASE,
+)
+_FILLER_CORE = (
+    r"(?:what\s+(?:copies|cards|it|they|one)\s+(?:have\s+|has\s+)?(?:recently\s+|typically\s+|actually\s+)?"
+    r"(?:sold|sell|sells|go(?:es)?|gone|traded?)\s+for(?:\s+recently|\s+lately)?"
+    r"|recent\s+sale\s+(?:values?|prices?)|(?:reflects?|based\s+on)\s+recent\s+sales)"
+)
+_FILLER_CLAUSE = re.compile(
+    r",?\s*(?:(?:which|that)\s+(?:is|are|'s)\s+|so\s+(?:it|they)\s+(?:reflects?|show)\s+|i\.e\.,?\s+)?"
+    r"(?:(?:roughly|about|approximately|basically|essentially|or)\s+)?" + _FILLER_CORE,
+    re.IGNORECASE,
+)
+_FILLER_SENTENCE = re.compile(r"\bmarket\s+prices?\b[^.!?]*" + _FILLER_CORE, re.IGNORECASE)
+# Leftovers that say nothing once the explainer is gone ("Prices are market prices.", "A market price is").
+_BARE_WORDS = frozenset("a an the these those this that all its their it they prices price are is were was raw "
+                        "current near mint market usd".split())
+
+
+def asks_price_meaning(question: str) -> bool:
+    return _PRICE_MEANING_ASK.search(question or "") is not None
+
+
+def _without_filler(sentence: str) -> str:
+    if _DISCLAIMER.search(sentence):
+        return sentence  # "These are market prices, not a forecast" carries the not-a-prediction line
+    stripped = _FILLER_CLAUSE.sub("", sentence)
+    if stripped == sentence:
+        return sentence
+    stripped = re.sub(r"\s+([.!?])", r"\1", stripped).strip()
+    stripped = re.sub(r"[,;:\s]+([.!?])$", r"\1", stripped)
+    body = stripped.rstrip(".!? ")
+    # What's left must still say something: a figure or real words, not "Prices are market prices."
+    words = re.findall(r"[\w']+", body.casefold())
+    if not words or (not re.search(r"\d", body) and (set(words) <= _BARE_WORDS or len(words) < 3)):
+        return ""
+    return stripped if stripped[-1:] in ".!?" else stripped + "."
+
+
+def strip_market_price_filler(text: str) -> str:
+    """Drop the 'roughly what copies have recently sold for' explainer (clause or whole sentence)."""
+    if _FILLER_SENTENCE.search(str(text or "")) is None and _FILLER_CLAUSE.search(str(text or "")) is None:
+        return text
+    paragraphs = [
+        " ".join(part for part in (_without_filler(s) for s in _sentences(p)) if part) for p in _paragraphs(text)
+    ]
+    paragraphs = [p for p in paragraphs if p.strip()]
+    return _join(paragraphs) if paragraphs else text
+
+
+# Unrequested history narration (L010: "... has held at $6,100 from Oct 1 to Nov 19, with no movement").
+_HISTORY_ASK = re.compile(
+    r"\b(?:history|trend\w*|chart|graph|moved?|moving|movement|change[ds]?|up|down|rise|rising|rose|risen|fell|fall"
+    r"|falling|drop\w*|dip\w*|spike\w*|jump\w*|climb\w*|gain\w*|los(?:e|s|ing|ers?)|over\s+(?:the\s+)?(?:past|last)"
+    r"|since|lately|recently|this\s+(?:week|month|year)|why)\b",
+    re.IGNORECASE,
+)
+_FLAT_NARRATION = re.compile(
+    r"\b(?:has\s+|have\s+|had\s+)?(?:held|stayed|remained|sat|hovered|been\s+(?:flat|steady|stable|unchanged))\b"
+    r"[^.!?]*\b(?:from|since|through|between)\b"
+    r"|\bno\s+(?:price\s+)?(?:movement|change|moves?)\b"
+    r"|\b(?:flat|unchanged|steady)\s+(?:since|from|over|through)\b",
+    re.IGNORECASE,
+)
+
+
+def drop_unasked_history(text: str, question: str) -> str:
+    """When the question isn't about movement or history, drop sentences (never the first) that
+    narrate a flat price history."""
+    if _HISTORY_ASK.search(question or "") or _FLAT_NARRATION.search(str(text or "")) is None:
+        return text
+    kept: list[str] = []
+    first = True
+    for paragraph in _paragraphs(text):
+        sentences = []
+        for sentence in _sentences(paragraph):
+            if not first and _FLAT_NARRATION.search(sentence) and not _DISCLAIMER.search(sentence):
+                continue
+            sentences.append(sentence)
+            first = False
+        if sentences:
+            kept.append(" ".join(sentences))
+    return _join(kept) if kept else text
+
+
+# Set completion (L020): "the full set would cost $X" when the user owns some of it.
+_FULL_SET_COST = re.compile(
+    r"\bthe\s+(?:full|whole|complete|entire)\s+set\s+would\s+(?:cost|run(?:\s+you)?)\b", re.IGNORECASE
+)
+
+
+_MISSING_COUNT = re.compile(r"\bmissing\s+(?:at\s+least\s+)?(\d[\d,]*)\b", re.IGNORECASE)
+
+
+def fix_set_cost_wording(text: str) -> str:
+    """'You're missing 251 of 252 ..., and the full set would cost about $993.80' -> '..., and the 251
+    missing cards would cost about $993.80' (no count stated: 'finishing the set would cost')."""
+    text = str(text or "")
+    count = _MISSING_COUNT.search(text)
+
+    def repl(match: re.Match[str]) -> str:
+        phrase = f"the {count.group(1)} missing cards would cost" if count else "finishing the set would cost"
+        return phrase[0].upper() + phrase[1:] if match.group()[0].isupper() else phrase
+
+    return _FULL_SET_COST.sub(repl, text)
+
+
+# Outside art searches only the clear remarks go: "(Japanese)" and "the priciest English option".
+# A bare "Japanese print" can carry meaning ("the selection includes a Japanese print") and stays.
+_LANGUAGE_RANKED = re.compile(
+    r"\b((?:priciest|cheapest|most\s+expensive|least\s+expensive|highest[-\s]priced|top|best|only)\s+)"
+    r"(?:english|japanese|jpn?|en)\s+(?=(?:options?|prints?|printings?|versions?|cop(?:y|ies)|cards?|ones?|"
+    r"picks?)\b)",
+    re.IGNORECASE,
+)
+
+
+def strip_ranked_language(text: str) -> str:
+    """'the priciest English option' -> 'the priciest option'; 'Mareep (Japanese)' -> 'Mareep'."""
+    return _LANGUAGE_RANKED.sub(r"\1", _LANGUAGE_PAREN.sub("", str(text or "")))
+
+
+# --- shown-count consistency (L026: "Here are the first 20 by price" over 12 tiles) ---------
+_NUMBER_WORDS = ("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
+                 "sixteen seventeen eighteen nineteen twenty").split()
+_NUM = r"(?P<n>\d{1,3}|" + "|".join(_NUMBER_WORDS[2:]) + r")"
+_SHOWN_COUNT = re.compile(
+    r"\b(?:here(?:'s|\s+is|\s+are)|showing|i'?m\s+showing|below\s+are|these\s+are)\s+"
+    r"(?:(?:the|my|your|some|all)\s+)?"
+    r"(?:(?:first|top|next|last|cheapest|priciest|most\s+valuable|highest[-\s]value|lowest[-\s]priced)\s+)?"
+    + _NUM + r"\b(?!\s*(?:%|percent|days?|weeks?|months?|years?|/|\.\d))",
+    re.IGNORECASE,
+)
+
+
+def _count_value(token: str) -> int:
+    return int(token) if token.isdigit() else _NUMBER_WORDS.index(token.casefold())
+
+
+def stated_shown_counts(text: str) -> list[int]:
+    return [_count_value(m.group("n")) for m in _SHOWN_COUNT.finditer(str(text or ""))]
+
+
+def fix_shown_count(text: str, shown: int) -> str:
+    """A stated count of shown cards ('Here are the first 20') that disagrees with the tiles is set to
+    the tile count, in the same style (digits or words)."""
+    if shown < 2:
+        return text
+
+    def repl(match: re.Match[str]) -> str:
+        token = match.group("n")
+        if _count_value(token) < 2 or _count_value(token) == shown:
+            return match.group()
+        if token.isdigit() or shown >= len(_NUMBER_WORDS):
+            new = str(shown)
+        else:
+            new = _NUMBER_WORDS[shown].capitalize() if token[0].isupper() else _NUMBER_WORDS[shown]
+        start, end = match.start("n") - match.start(), match.end("n") - match.start()
+        return match.group()[:start] + new + match.group()[end:]
+
+    return _SHOWN_COUNT.sub(repl, str(text or ""))
+
+
+# --- every tile named (L004: three tiles, the text named one) ------------------------------
+MAX_NAMED_TILES = 3  # answers name at most 3 cards; longer lists are framed ("Here are 8 ...")
+_PARTIAL_LIST = re.compile(r"\b(?:here are|here's|including|such as|led by|among them)\b", re.IGNORECASE)
+
+
+def _tile_name_variants(name: Any) -> list[str]:
+    base = " ".join(str(name or "").split())
+    plain = " ".join(re.sub(r"[^\w\s.&'’-]", " ", base).split())
+    return [variant for variant in dict.fromkeys((base, plain)) if variant]
+
+
+def tile_named(tile: dict[str, Any], text: str) -> bool:
+    return any(
+        re.search(r"(?<!\w)" + r"\s+".join(re.escape(part) for part in variant.split()) + r"(?!\w)", text or "", re.I)
+        for variant in _tile_name_variants(tile.get("name"))
+    )
+
+
+def unnamed_tiles(tiles: list[dict[str, Any]], text: str, question: str = "") -> list[dict[str, Any]]:
+    """Tiles whose card name neither the text nor the question mentions ('Pikachu ex price?' -> '$120.'
+    is fine), for short replies (at most MAX_NAMED_TILES tiles) that don't frame a partial list
+    ('Here are...', 'including X')."""
+    if not tiles or len(tiles) > MAX_NAMED_TILES or _PARTIAL_LIST.search(text or ""):
+        return []
+    return [tile for tile in tiles if tile.get("name") and not tile_named(tile, f"{text}\n{question}")]
+
+
+def _tile_phrase(tile: dict[str, Any]) -> str:
+    label = str(tile["name"])
+    if tile.get("grader") and tile.get("grade"):
+        label += f" {tile['grader']} {tile['grade']}"
+    price = tile.get("price_usd")
+    return f"{label} (${price:,.2f})" if isinstance(price, (int, float)) and not isinstance(price, bool) else label
+
+
+def name_tiles_instruction(tiles: list[dict[str, Any]], limit: int | None) -> str:
+    cap = f" Stay under {limit} words." if limit else ""
+    return (
+        "The app shows these cards under the answer, but the text never names them: "
+        + "; ".join(_tile_phrase(tile) for tile in tiles) + ". Rewrite the answer so it also names each of them "
+        "briefly, with its price if given, in the same voice. Keep every number, card name, set and date already "
+        "there, '- ' bullets and **bold** as they are, and the 'not a prediction' line if present. Same language. "
+        "No preamble." + cap + " " + NO_INTERNAL_INSTRUCTION
+    )
+
+
+def append_tile_names(text: str, tiles: list[dict[str, Any]]) -> str:
+    """Deterministic fallback: '... Also shown: Karoo ($4.19) and Izo ($0.06).'"""
+    phrases = [_tile_phrase(tile) for tile in tiles]
+    if not phrases:
+        return text
+    joined = phrases[0] if len(phrases) == 1 else ", ".join(phrases[:-1]) + " and " + phrases[-1]
+    return f"{text.rstrip()} Also shown: {joined}."

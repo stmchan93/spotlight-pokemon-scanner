@@ -20,6 +20,9 @@
 # the answer must not claim that window ("past year", "1-year low") - owner 2026-11-20.
 # A turn with card_ids whose question says these/this/them also gets scan_tray_named: the answer
 # must say "scan tray" / "scanned card(s)" (skipped for action turns; opt out with scan_tray_named: false).
+# Any answer that states a shown count ("Here are the first 20", "Here are the top eight") also gets
+# shown_count_matches_tiles: the count must equal the tiles (owner hand labels 2026-11-21, L026; opt out
+# with shown_count_matches_tiles: false).
 # Tiles = the cards the answer is about (owner decision 1): tiles_exact / tiles_include /
 # tiles_within take card ids or tile predicates; a reply can pass on text and fail on tiles.
 # Card ids used below: sv3pt5-199 = Charizard ex 151 #199, sv3-223 = Charizard ex
@@ -49,6 +52,10 @@ defaults:
     # Owner 2026-11-20: no data-source caveats ("PSA 10 figures are market estimates based on recorded sales").
     data_source_caveat: '\bmarket[- ]estimates?\b|\bestimates? based on\b|\bbased on (recorded|recent|completed|past|actual|reported) sales\b|\bdata (may|might|could)\b|\baccording to (our|the|ekalight''?s?) data\b|\bekalight''?s data\b'
     # Owner 2026-11-20: never reveal how much price history exists or when it starts.
+    # Owner hand labels 2026-11-21: no plumbing ("Ekalight returned no price history") and no
+    # unasked "market price = what copies recently sold for" explainer (explain_pricing allows it).
+    plumbing: '\bEkalight (returned|found|gave)\b|\bEkalight (has|had) no\b|\bEkalight (doesn''t|does not) have\b'
+    market_price_filler: '\bwhat copies (have )?(recently )?sold for\b|\brecent sale values?\b'
     history_coverage: '\bdays? of (price )?(history|data)\b|\b(price )?(history|data|records?) (only |just )?(goes|go|dates?|reach(es)?) back\b|\b(price )?(history|data|records?) (only |just )?(starts?|begins?|began|started)\b|\bhistory (is|was) (only |too |very )?(short|limited|thin|brief)\b|\b(limited|short|shorter|thin|brief) (price )?history\b|\bcovers? (only )?(that|this|the) (stretch|window|span|period)\b|\bshort[- ]lived spikes?\b|\b(not|isn''t) (a )?(full|whole|complete) year\b|\bclosest window\b'
 
 cases:
@@ -87,7 +94,8 @@ cases:
         reference: "Your biggest gainers over the past 30 days were Kyogre-EX (+$18.49, +3.8%) and Snorlax (+$11.79, +7.2%) by dollar gain. Gyarados gained 14%."
         rubric:
           - "Does the answer lead with the top gainers (not the overall collection change)?"
-          - "Do the stated gains match the tool results?"
+          # Owner passed run 2's "Gyarados led in percent" (the judge ranked a sub-floor penny card first).
+          - "Do the stated gains match the tool results (the percent leader is top_gainer_by_pct when the results give it)?"
           - "Is it clear which ranking is by dollars and which by percent?"
           - "Does it leave out the overall collection decline?"
 
@@ -99,7 +107,8 @@ cases:
         expect:
           tools_any: [get_portfolio_summary, get_my_collection]
         rubric:
-          - "Does the answer name the card(s) that dropped the most, or say plainly that none dropped?"
+          # "Cards" = singles (decision 3): the owner passed an answer that left the sealed case out.
+          - "Does the answer name the single card(s) that dropped the most (sealed products don't count as cards), or say plainly that none dropped?"
           - "Are the stated drops consistent with the tool results?"
 
   - id: collection_top_cards
@@ -124,6 +133,8 @@ cases:
             - tool: get_my_collection
               where: {filter.game: onepiece}
           tiles_none_match: [{game_not: onepiece}]
+          # Owner hand labels 2026-11-21 (L004): three holding tiles, the text named one. Name every tile.
+          tiles_all_named: true
         rubric:
           - "Does the answer give a One Piece-only value, or say plainly the user owns no One Piece cards?"
           - "Does it avoid presenting the all-games total as the One Piece value?"
@@ -149,6 +160,8 @@ cases:
           - "Does it leave out cheapest-card commentary?"
           # Reworded (same meaning): run 2's judge read the double negative backwards ("that's fine" -> fail).
           - "Is any completion cost it gives either a full cost backed by every missing card being priced in the tool results (priced count = missing count, or a cheapest_completion_usd), or a subtotal labelled with its coverage (\"$X for Y of N cards\")? Giving no cost also passes."
+          # Owner hand labels 2026-11-21 (L020).
+          - "Is any cost worded as what the missing cards cost (e.g. 'the 251 missing cards cost $X'), not as 'the full set would cost'? Giving no cost also passes."
 
   - id: complete_151_cost
     review_label: L018
@@ -203,7 +216,9 @@ cases:
         rubric:
           - "Do the tiles plausibly show sleeping or cozy artwork (not just names)?"
           - "Is the text one or two short sentences?"
-          - "Does it leave out print-language and pagination commentary?"
+          - "Does it leave out print-language and pagination commentary (e.g. 'the priciest English option')?"
+          # Owner hand labels 2026-11-21 (L029).
+          - "Does it describe the matches by their artwork rather than leading with a price superlative ('the priciest')?"
 
   - id: vibe_rainy_night
     review_label: L019
@@ -221,7 +236,8 @@ cases:
           named_cards_in_tiles: true
         reference: "I found a mix of cards with rain or nighttime artwork, though I couldn't confirm that every scene shows both. Rain Castform, Umbreon (Dark Explorers), and Night Pokémon Center are the closest matches, and the selection includes a Japanese print."
         rubric:
-          - "Does the displayed artwork plausibly match rain and/or night scenes?"
+          # Owner passed run 2's "closest are rain scenes, not clearly night" answer the judge failed.
+          - "Does the displayed artwork plausibly match rain and/or night scenes (a partial match is fine when the text says so)?"
           - "Does the text reflect the match quality (not claiming every card shows both rain and night unless the results say so)?"
           - "Does it keep art-tag matching internal (no talk of tags or filters)?"
 
@@ -251,6 +267,8 @@ cases:
           # The search's price filter is under test, not other lookups (run 3's judge read collection results).
           - "Are all cards in the search_cards results priced under $50?"
           - "Does the text avoid a card-by-card price list?"
+          # Owner hand labels 2026-11-21 (L005).
+          - "Does it frame the list as a whole and say how it's sorted (e.g. 'Here are 8 ... sorted by price'), rather than leading with 'the highest is'?"
 
   # --- price history -----------------------------------------------------------
   - id: history_kyogre
@@ -303,7 +321,8 @@ cases:
               where: {grader: PSA, grade: "10"}
           max_words: 60
         rubric:
-          - "Does the answer describe the PSA 10 trend, or say plainly there is no graded history?"
+          # Run 2's judge read range_start as data; an empty points list means no PSA 10 history.
+          - "Does the answer describe the PSA 10 trend, or say plainly there is no graded history (an empty points list in the PSA 10 get_price_history result means there is none)?"
           - "Does it avoid presenting the raw price as the PSA 10 price?"
 
   # --- JP <-> EN twin ----------------------------------------------------------
@@ -559,7 +578,8 @@ cases:
           tools_any: [search_cards, find_top_graded]
           tiles_none_match: [{game_not: pokemon}, {japanese: true}]
         rubric:
-          - "Does the answer name the top card and its USD price in the first sentence?"
+          # Owner passed answers the judge failed on "first sentence" strictness.
+          - "Does the answer state the top card and its USD price near the start?"
       - ask: "Show only single cards, not sealed"
         expect:
           tool_args:
@@ -568,7 +588,7 @@ cases:
           tiles_none_match: [{sealed: true}, {game_not: pokemon}, {japanese: true}]
         rubric:
           - "Are the results presented as single cards only?"
-          - "Is the answer two sentences or fewer, without an apology?"
+          - "Is the answer short (a few sentences at most), without an apology?"
 
   - id: priciest_sealed
     category: pricing_rank
@@ -885,7 +905,7 @@ cases:
         reference: "Of the three cards in your scan tray, Charizard ex (151, #199/165) is worth the most at $287.93. The Obsidian Flames Charizard ex is $84.09, and the Kyogre-EX is $19.39."
         rubric:
           - "Does the answer refer to the scan tray cards (not other printings)?"
-          - "Does it pick the highest-priced of the three per the scanner context / tool results, with its USD price?"
+          - "Does it pick the highest-priced of the three per the scanner context / tool results, and give that card's USD price anywhere in the answer?"
           - "Does it leave out a graded aside?"
 
   - id: scanner_add_all
@@ -954,6 +974,8 @@ cases:
           max_words: 100
         rubric:
           - "Does the answer explain first print run / scarcity correctly?"
+          # Owner hand labels 2026-11-21 (L030): no hallucinated set lists.
+          - "If it names which sets had 1st Edition printings, is that correct (WOTC stamped Base Set, Jungle, Fossil, Team Rocket, Gym Heroes, Gym Challenge and the four Neo sets) and does it avoid implying the stamp stopped after Team Rocket? Naming no sets also passes."
 
   - id: single_undervalued_pick_chart
     category: investing
@@ -1008,6 +1030,8 @@ cases:
         rubric:
           - "Does the answer ask which Pikachu (set or number) before proposing or adding anything?"
           - "Does it avoid saying anything was added?"
+          # Owner hand labels 2026-11-21 (L023): the candidate tiles are the choice ("Tap a card below to pick the right one.").
+          - "Does it ask only for what's missing (which printing), rather than for set, number, quantity and condition all at once?"
 
   # --- other games ----------------------------------------------------------------
   - id: lorcana_priciest
@@ -1109,6 +1133,7 @@ cases:
       - ask: "Explain how Ekalight prices my cards"
         expect:
           max_words: 95
+          allow: [market_price_filler]
         rubric:
           - "Does the answer say prices are USD market prices from daily data, not live?"
           - "Does it explain what a market price means in plain English?"

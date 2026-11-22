@@ -200,6 +200,31 @@ class CheckTests(unittest.TestCase):
         ))
         self.assertNotIn("banned", failed_names(grade_turn(good, {}, defaults)))
 
+    def test_shipped_defaults_ban_plumbing_and_market_price_filler(self) -> None:
+        # Owner hand labels 2026-11-21 (L013, L029); "TCGplayer market price" is an approved tag.
+        defaults = load_case_file(DEFAULT_CASES_PATH)["defaults"]
+        bad = turn_record(answer=(
+            "Ekalight returned no price history for Charizard ex. Prices are market prices, "
+            "roughly what copies have recently sold for."
+        ))
+        failed = {c.name: c.reason for c in grade_turn(bad, {}, defaults) if not c.passed}
+        self.assertIn("plumbing", failed["banned"])
+        self.assertIn("market_price_filler", failed["banned"])
+        good = turn_record(answer="I have no price history for it. It's $6,100 (TCGplayer market price).")
+        self.assertNotIn("banned", failed_names(grade_turn(good, {}, defaults)))
+        self.assertNotIn("banned", failed_names(grade_turn(bad, {"allow": ["plumbing", "market_price_filler"]}, defaults)))
+
+    def test_stated_shown_count_must_match_the_tiles(self) -> None:
+        tiles = [{"card_id": f"swsh7-{i}", "name": f"Card {i}"} for i in range(12)]
+        wrong = turn_record(answer="You're missing 84 of 237. Here are the first 20 by price.", cards=tiles)
+        failed = {c.name: c.reason for c in grade_turn(wrong, {}, DEFAULTS) if not c.passed}
+        self.assertEqual(failed["shown_count_matches_tiles"], "text says 20 shown, 12 tiles")
+        right = turn_record(answer="Here are the top twelve by price.", cards=tiles)
+        self.assertIn("shown_count_matches_tiles", [c.name for c in grade_turn(right, {}, DEFAULTS) if c.passed])
+        names = lambda record, expect: [c.name for c in grade_turn(record, expect, DEFAULTS)]  # noqa: E731
+        self.assertNotIn("shown_count_matches_tiles", names(turn_record(answer="Here are the past 30 days."), {}))
+        self.assertNotIn("shown_count_matches_tiles", names(wrong, {"shown_count_matches_tiles": False}))
+
     def test_expected_action_params(self) -> None:
         record = turn_record(action_details=[{"type": "add_to_collection", "params": {"card_id": "sv3pt5-199", "quantity": 2, "condition": "NM"}}])
         ok = grade_turn(record, {"expect_action": {"type": "add_to_collection", "params": {"quantity": 2, "condition": "NM"}}}, DEFAULTS)

@@ -152,7 +152,8 @@ class LengthGuardEngineTests(AssistantCase):
         )
         client = self.script(answer)
         turn = self.run_turn(client, "What are these worth in a PSA 10?")
-        self.assertEqual(len(client.messages.calls), 2)
+        # No length rewrite (the fixture's Pikachu ex search tile may still get a tile-naming call).
+        self.assertFalse(any("Rewrite to at most" in str(call.get("system")) for call in client.messages.calls))
         self.assertNotIn("|", turn.text)
         self.assertIn(
             "- **Kyogre-EX** (Dark Explorers 104/108): Raw **$504.48** · PSA 10 **$1,450** · Gross premium "
@@ -160,7 +161,7 @@ class LengthGuardEngineTests(AssistantCase):
             "- **Lugia** (HGSS02): Raw **$485.99** · PSA 10 no recent sale",
             turn.text,
         )
-        self.assertTrue(turn.text.endswith("Grading costs money and takes time."))
+        self.assertIn("Grading costs money and takes time.", turn.text)
 
     def test_data_source_caveat_is_dropped_and_fees_line_kept(self) -> None:
         answer = (
@@ -174,7 +175,7 @@ class LengthGuardEngineTests(AssistantCase):
         self.assertEqual(turn.length_guard, "drop")
         self.assertNotIn("estimate", turn.text)
         self.assertIn("(**+$945.52**, **+187%**)\n- **Lugia**", turn.text)  # bullets stay one list
-        self.assertTrue(turn.text.endswith("Grading costs money and takes time."))
+        self.assertIn("Grading costs money and takes time.", turn.text)
 
 
 @unittest.skipUnless(HAVE_DEPS, "anthropic / mcp not installed")
