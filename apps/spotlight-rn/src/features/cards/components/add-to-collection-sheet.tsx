@@ -11,12 +11,13 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Minus, NavArrowDown, Plus } from 'iconoir-react-native';
+import { Minus, Plus } from 'iconoir-react-native';
 
 import { Button, radii, Text, useSpotlightTheme } from '@spotlight/design-system';
 import type { MarketHistoryOption } from '@spotlight/api-client';
 
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
+import { GradeDropdownTrigger } from '@/features/cards/components/grade-dropdown-trigger';
 import {
   GradeConditionSheet,
   type GradeConditionOption,
@@ -255,21 +256,13 @@ export function AddToCollectionSheet({
                   <Text style={[theme.typography.label, { color: theme.colors.gray900 }]}>
                     {gradeTitle.toUpperCase()}
                   </Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`${gradeTitle}: ${gradeLabel ?? 'Select'}`}
+                  <GradeDropdownTrigger
+                    color={theme.colors.gray700}
+                    label={gradeLabel}
                     onPress={() => setPickerOpen(true)}
-                    style={({ pressed }) => [
-                      styles.selector,
-                      { backgroundColor: theme.colors.gray50, opacity: pressed ? 0.9 : 1 },
-                    ]}
                     testID={`${testID}-grade-trigger`}
-                  >
-                    <Text style={[theme.typography.caption, { color: theme.colors.gray700 }]}>
-                      {(gradeLabel ?? 'Select').toUpperCase()}
-                    </Text>
-                    <NavArrowDown color={theme.colors.gray700} height={24} width={24} />
-                  </Pressable>
+                    title={gradeTitle}
+                  />
                 </View>
               </>
             )}
@@ -391,16 +384,6 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flexGrow: 0,
-  },
-  selector: {
-    alignItems: 'center',
-    borderCurve: 'continuous',
-    borderRadius: 8,
-    flexDirection: 'row',
-    height: 32,
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    width: 160,
   },
   sheet: {
     borderCurve: 'continuous',

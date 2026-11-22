@@ -1,7 +1,9 @@
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
-import { ArrowDown, ArrowUp, Minus, NavArrowDown, Plus } from 'iconoir-react-native';
+import { ArrowDown, ArrowUp, Minus, Plus } from 'iconoir-react-native';
 
 import { Text, usePlaceholderTypography, useSpotlightTheme } from '@spotlight/design-system';
+
+import { GradeDropdownTrigger } from '@/features/cards/components/grade-dropdown-trigger';
 
 type OwnedEntryEditFieldsProps = {
   /** Section title for the grade/condition selector ("Condition"). */
@@ -68,21 +70,13 @@ export function OwnedEntryEditFields({
         <Text style={[theme.typography.label, { color: theme.colors.gray900 }]}>
           {gradeTitle.toUpperCase()}
         </Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${gradeTitle}: ${gradeLabel ?? 'Select'}`}
+        <GradeDropdownTrigger
+          color={theme.colors.gray900}
+          label={gradeLabel}
           onPress={onOpenGradePicker}
-          style={({ pressed }) => [
-            styles.selector,
-            { backgroundColor: theme.colors.gray50, opacity: pressed ? 0.9 : 1 },
-          ]}
           testID={`${testID}-grade-trigger`}
-        >
-          <Text style={[theme.typography.caption, { color: theme.colors.gray900 }]}>
-            {(gradeLabel ?? 'Select').toUpperCase()}
-          </Text>
-          <NavArrowDown color={theme.colors.gray400} height={24} width={24} />
-        </Pressable>
+          title={gradeTitle}
+        />
       </View>
       ) : null}
 
@@ -257,16 +251,6 @@ const styles = StyleSheet.create({
   root: {
     gap: 16,
     width: '100%',
-  },
-  selector: {
-    alignItems: 'center',
-    borderCurve: 'continuous',
-    borderRadius: 8,
-    flexDirection: 'row',
-    height: 32,
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    width: 160,
   },
   stepper: {
     alignItems: 'center',

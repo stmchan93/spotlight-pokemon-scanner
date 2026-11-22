@@ -439,6 +439,8 @@ const styles = StyleSheet.create({
   },
   chipRow: {
     flexDirection: 'row',
+    // Grader + long condition chips wrap on narrow phones instead of overflowing.
+    flexWrap: 'wrap',
     gap: spacing.xxxs,
   },
   // App-wide chip (Figma 5938:13960): Caption 13 caps, gray-900 on gray-100,
