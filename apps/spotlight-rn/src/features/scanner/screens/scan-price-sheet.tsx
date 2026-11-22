@@ -31,7 +31,7 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { buildTcgPlayerSearchUrl } from '@/features/cards/marketplace-urls';
+import { buildTcgPlayerCardUrl, tcgPlayerProductIdFromCardId } from '@/features/cards/marketplace-urls';
 import { useAppServices } from '@/providers/app-providers';
 
 import type { ScanRowGrading } from '../scan-row-grading';
@@ -218,7 +218,9 @@ export function ScanPriceSheet({
     if (mode !== 'raw' || !candidate) {
       return null;
     }
-    return buildTcgPlayerSearchUrl({
+    // The card's TCGplayer product page when its id is known; search otherwise.
+    return buildTcgPlayerCardUrl({
+      productId: candidate.tcgPlayerProductId ?? tcgPlayerProductIdFromCardId(candidate.cardId),
       cardNumber: candidate.cardNumber ?? '',
       name: candidate.name ?? '',
       setName: candidate.setName ?? '',

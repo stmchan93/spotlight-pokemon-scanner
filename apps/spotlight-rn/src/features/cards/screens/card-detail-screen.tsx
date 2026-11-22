@@ -81,10 +81,9 @@ import { CardRecentSalesPanel } from '@/features/cards/components/card-recent-sa
 import { CardLowestListedPanel } from '@/features/cards/components/card-lowest-listed-panel';
 import {
   buildEbaySearchUrl,
-  buildTcgPlayerProductUrl,
+  buildTcgPlayerCardUrl,
   buildTcgPlayerSearchUrl,
-  resolveTcgPlayerProductId,
-  tcgPlayerProductIdFromCardId,
+  resolveCardTcgPlayerProductId,
 } from '@/features/cards/marketplace-urls';
 import {
   cardDetailPreviewFromCatalogResult,
@@ -464,10 +463,14 @@ export function CardDetailScreen({
     if (!isSealed) {
       return null;
     }
-    const productId = resolveTcgPlayerProductId(detail?.tcgPlayerVariants, null);
+    const productId = resolveCardTcgPlayerProductId({
+      variants: detail?.tcgPlayerVariants,
+      mainProductId: detail?.tcgPlayerProductId,
+      cardId: detail?.cardId,
+    });
     return (
-      (productId ? buildTcgPlayerProductUrl({ productId }) : null) ??
-      buildTcgPlayerSearchUrl({
+      buildTcgPlayerCardUrl({
+        productId,
         cardNumber: '',
         name: detail?.name ?? detailPreview?.name ?? '',
         setName: detail?.setName ?? detailPreview?.setName ?? '',
@@ -852,6 +855,18 @@ export function CardDetailScreen({
     return variantOptions.find((option) => option.id === selectedVariant)?.label ?? null;
   }, [selectedVariant, variantOptions]);
 
+  // The TCGplayer product every raw "open on TCGplayer" tap lands on: the
+  // selected printing's own product, else the card's main product.
+  const tcgPlayerProductId = useMemo(
+    () => resolveCardTcgPlayerProductId({
+      variants: detail?.tcgPlayerVariants,
+      selectedVariantLabel,
+      mainProductId: detail?.tcgPlayerProductId,
+      cardId: detail?.cardId,
+    }),
+    [detail?.cardId, detail?.tcgPlayerProductId, detail?.tcgPlayerVariants, selectedVariantLabel],
+  );
+
   // The printing a watch acts on: the picker's, or none for sealed/no printings.
   const watchPrintingLabel = isSealed ? null : selectedVariantLabel;
   const mainPrintingLabel = useMemo(
@@ -1142,17 +1157,14 @@ export function CardDetailScreen({
     const condition = row.key.split('|').filter(Boolean).pop() ?? null;
     // Prefer an exact product-page deep link for the selected printing; fall back
     // to the keyword search when no product_id resolves.
-    const productId = resolveTcgPlayerProductId(detail.tcgPlayerVariants, selectedVariantLabel)
-      ?? tcgPlayerProductIdFromCardId(detail.cardId);
-    const url =
-      (productId ? buildTcgPlayerProductUrl({ productId, condition }) : null) ??
-      buildTcgPlayerSearchUrl({
-        name: detail.name,
-        cardNumber: detail.cardNumber,
-        setName: detail.setName,
-        condition,
-        game: cardGame,
-      });
+    const url = buildTcgPlayerCardUrl({
+      productId: tcgPlayerProductId,
+      name: detail.name,
+      cardNumber: detail.cardNumber,
+      setName: detail.setName,
+      condition,
+      game: cardGame,
+    });
     if (url) {
       capturePostHogEvent('pricing_link_opened', { marketplace: 'tcgplayer', lane: 'raw' });
       void Linking.openURL(url);
@@ -1168,6 +1180,7 @@ export function CardDetailScreen({
     recentSalesByRowKey,
     sealedMarketplaceUrl,
     selectedVariantLabel,
+    tcgPlayerProductId,
     spotlightRepository,
   ]);
 
@@ -1390,17 +1403,14 @@ export function CardDetailScreen({
     // Mint when we can resolve a product_id; otherwise fall back to the keyword
     // search (printing intentionally omitted there; see handleTrendRowPress for
     // why the Printing facet zeroes out promos).
-    const productId = resolveTcgPlayerProductId(detail.tcgPlayerVariants, selectedVariantLabel)
-      ?? tcgPlayerProductIdFromCardId(detail.cardId);
-    const url =
-      (productId ? buildTcgPlayerProductUrl({ productId, condition: 'Near Mint' }) : null) ??
-      buildTcgPlayerSearchUrl({
-        name: detail.name,
-        cardNumber: detail.cardNumber,
-        setName: detail.setName,
-        condition: 'Near Mint',
-        game: cardGame,
-      });
+    const url = buildTcgPlayerCardUrl({
+      productId: tcgPlayerProductId,
+      name: detail.name,
+      cardNumber: detail.cardNumber,
+      setName: detail.setName,
+      condition: 'Near Mint',
+      game: cardGame,
+    });
     if (url) {
       capturePostHogEvent('pricing_link_opened', { marketplace: 'tcgplayer', lane: 'raw' });
       void Linking.openURL(url);
@@ -1414,6 +1424,7 @@ export function CardDetailScreen({
     selectedGrade,
     selectedGrader,
     selectedVariantLabel,
+    tcgPlayerProductId,
   ]);
 
   const handleToggleFavorite = useCallback(() => {
@@ -1855,11 +1866,9 @@ export function CardDetailScreen({
     // Exact product page for the selected printing when the detail payload
     // carries product ids; otherwise the keyword search (also the path before
     // `detail` resolves, where only preview fields are available).
-    const productId = resolveTcgPlayerProductId(detail?.tcgPlayerVariants, selectedVariantLabel)
-      ?? tcgPlayerProductIdFromCardId(detail?.cardId);
     return (
-      (productId ? buildTcgPlayerProductUrl({ productId, condition }) : null) ??
-      buildTcgPlayerSearchUrl({
+      buildTcgPlayerCardUrl({
+        productId: tcgPlayerProductId,
         cardNumber: displayCardNumber,
         name: displayName,
         setName: displaySetName,
@@ -1877,6 +1886,7 @@ export function CardDetailScreen({
     sealedMarketplaceUrl,
     selectedCondition,
     selectedVariantLabel,
+    tcgPlayerProductId,
   ]);
 
   const handleShare = useCallback(() => {

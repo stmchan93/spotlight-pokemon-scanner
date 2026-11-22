@@ -14747,8 +14747,14 @@ class SpotlightScanService:
         # so the review tool can offer a finish picker on a searched card. Additive
         # field — existing consumers ignore it.
         pairings: dict[str, ExpansionPairing] = {}
+        main_product_ids = self._main_tcgplayer_product_ids(
+            [str(card.get("id") or "") for card in results if isinstance(card, dict)]
+        )
         for card in results:
             if isinstance(card, dict):
+                main_product_id = main_product_ids.get(str(card.get("id") or ""))
+                if main_product_id:
+                    card["tcgplayerProductId"] = main_product_id
                 # Card ids never change; a paired group card browses to the
                 # Scrydex set it is served in (expansion_dedupe.py).
                 set_id = card.get("setID")
@@ -16491,6 +16497,28 @@ class SpotlightScanService:
             persist_scrydex_raw_snapshot(self.connection, card_id, source_payload, game=card_game)
         return card_by_id(self.connection, card_id) or card
 
+    def _main_tcgplayer_product_ids(self, card_ids: list[str]) -> dict[str, str]:
+        """``cards.tcgplayer_id`` per card (the product its raw price comes from),
+        minus collision-guarded ids — the client's TCGplayer link opens this
+        product when the selected printing has no id of its own. One query."""
+        ids = sorted({str(card_id) for card_id in card_ids if card_id})
+        if not ids:
+            return {}
+        try:
+            rows = self.connection.execute(
+                f"SELECT id, tcgplayer_id FROM cards WHERE id IN ({','.join('?' * len(ids))})",
+                ids,
+            ).fetchall()
+        except sqlite3.Error:  # pre-migration DB without the column
+            return {}
+        colliding = collision_guard(self.connection)["colliding_product_ids"]
+        out: dict[str, str] = {}
+        for row in rows:
+            product_id = str(row[1] or "").strip()
+            if product_id and product_id not in colliding:
+                out[str(row[0])] = product_id
+        return out
+
     @staticmethod
     def _candidate_base_payload(resolved_card: dict[str, Any], original_card: dict[str, Any]) -> dict[str, Any]:
         card_id = str(resolved_card.get("id") or original_card.get("id") or "")
@@ -16601,6 +16629,9 @@ class SpotlightScanService:
         candidate = self._candidate_base_payload(resolved_card, card)
         if pricing is not None:
             candidate["pricing"] = pricing
+        main_product_id = self._main_tcgplayer_product_ids([card_id]).get(card_id)
+        if main_product_id:
+            candidate["tcgplayerProductId"] = main_product_id
         if timing_output is not None:
             timing_output.update(
                 {
@@ -18554,6 +18585,12 @@ class SpotlightScanService:
                         self.connection, str(resolved_card.get("id") or "")
                     ),
                 ),
+                # The card's main TCGplayer product: the link target when the
+                # selected printing has no id of its own (e.g. the TCGplayer-
+                # named "Holofoil" printing on Base Charizard).
+                "tcgplayerProductId": self._main_tcgplayer_product_ids(
+                    [str(resolved_card.get("id") or "")]
+                ).get(str(resolved_card.get("id") or "")),
             },
             "slabContext": self._slab_context_payload_for_pricing_context(
                 pricing_context,

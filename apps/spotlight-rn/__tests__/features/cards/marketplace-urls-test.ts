@@ -1,7 +1,9 @@
 import {
   buildEbaySearchUrl,
+  buildTcgPlayerCardUrl,
   buildTcgPlayerProductUrl,
   buildTcgPlayerSearchUrl,
+  resolveCardTcgPlayerProductId,
   resolveTcgPlayerProductId,
 } from '@/features/cards/marketplace-urls';
 
@@ -332,6 +334,74 @@ describe('resolveTcgPlayerProductId', () => {
         'Holofoil',
       ),
     ).toBeNull();
+  });
+});
+
+describe('resolveCardTcgPlayerProductId', () => {
+  // Live prod payload for base1-4 (2026-11-21).
+  const baseCharizard = [
+    { name: 'firstEditionShadowlessHolofoil', marketplaces: [{ name: 'tcgplayer', product_id: '106999' }] },
+    { name: 'jumbo', marketplaces: [{ name: 'tcgplayer', product_id: '179079' }] },
+    { name: 'metal', marketplaces: [{ name: 'tcgplayer', product_id: '252517' }] },
+    { name: 'unlimitedHolofoil', marketplaces: [{ name: 'tcgplayer', product_id: '42382' }] },
+    { name: 'unlimitedShadowlessHolofoil', marketplaces: [{ name: 'tcgplayer', product_id: '106999' }] },
+  ];
+
+  it('prefers the selected printing’s own id', () => {
+    expect(resolveCardTcgPlayerProductId({
+      variants: baseCharizard,
+      selectedVariantLabel: 'Jumbo',
+      mainProductId: '42382',
+    })).toBe('179079');
+  });
+
+  it('falls back to the card’s main product id when the printing has no id', () => {
+    expect(resolveCardTcgPlayerProductId({
+      variants: baseCharizard,
+      selectedVariantLabel: 'Holofoil',
+      mainProductId: '42382',
+    })).toBe('42382');
+    expect(resolveCardTcgPlayerProductId({ variants: [], selectedVariantLabel: null, mainProductId: '42382' }))
+      .toBe('42382');
+  });
+
+  it('uses the id a TCGplayer-only card id encodes', () => {
+    expect(resolveCardTcgPlayerProductId({ cardId: 'onepiece~tcgplayer-552137' })).toBe('552137');
+  });
+
+  it('without a main id, maps a TCGplayer "Holofoil" label to the Unlimited printing', () => {
+    expect(resolveCardTcgPlayerProductId({ variants: baseCharizard, selectedVariantLabel: 'Holofoil' }))
+      .toBe('42382');
+  });
+
+  it('without any match, prefers a plain printing over jumbo/metal/1st edition', () => {
+    expect(resolveCardTcgPlayerProductId({ variants: baseCharizard, selectedVariantLabel: 'Cosmos Holo' }))
+      .toBe('42382');
+    expect(resolveCardTcgPlayerProductId({
+      variants: [{ name: 'jumbo', marketplaces: [{ name: 'tcgplayer', product_id: '1' }] },
+        { name: 'metal', marketplaces: [{ name: 'tcgplayer', product_id: '2' }] }],
+      selectedVariantLabel: null,
+    })).toBe('1');
+  });
+
+  it('returns null only when no product id is known at all', () => {
+    expect(resolveCardTcgPlayerProductId({ variants: [], selectedVariantLabel: 'Holofoil', cardId: 'base1-4' }))
+      .toBeNull();
+    expect(resolveCardTcgPlayerProductId({})).toBeNull();
+  });
+});
+
+describe('buildTcgPlayerCardUrl', () => {
+  const card = { name: 'Charizard', setName: 'Base', cardNumber: '4/102' };
+
+  it('opens the product page when a product id is known', () => {
+    expect(buildTcgPlayerCardUrl({ ...card, productId: '42382', condition: 'NM' }))
+      .toBe('https://www.tcgplayer.com/product/42382?Condition=Near+Mint');
+  });
+
+  it('falls back to the keyword search without a product id', () => {
+    const url = buildTcgPlayerCardUrl({ ...card, productId: null });
+    expect(url).toContain('https://www.tcgplayer.com/search/all/product?q=pokemon+base+charizard+4/102');
   });
 });
 

@@ -85,7 +85,11 @@ import {
 import { CollectionListRow } from '@/features/portfolio/components/collection-list-view';
 import { CardActionsSheet } from '@/features/cards/components/card-actions-sheet';
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
-import { buildEbaySearchUrl, buildTcgPlayerSearchUrl } from '@/features/cards/marketplace-urls';
+import {
+  buildEbaySearchUrl,
+  buildTcgPlayerCardUrl,
+  tcgPlayerProductIdFromCardId,
+} from '@/features/cards/marketplace-urls';
 import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
 import {
   useTabLanding,
@@ -171,9 +175,9 @@ const CARD_LONG_PRESS_MS = 500;
  * Marketplace link for a Collection card, used by the long-press Share action.
  *
  * Same rule as the PDP's "View on" link: raw goes to TCGplayer, graded to eBay
- * SOLD comps. Uses the search builders rather than the exact-product one — the
- * inventory row carries no TCGplayer product id (only `CardDetail` does), and
- * search is what the app already falls back to there.
+ * SOLD comps. The inventory row carries no TCGplayer product id, so only a
+ * TCGplayer-only card (whose id encodes its product) gets the product page;
+ * every other raw card falls back to the search.
  *
  * Returns null when the entry has too little to identify it; the caller then
  * shares the plain text it always did.
@@ -190,7 +194,8 @@ function buildMarketplaceUrlForEntry(entry: InventoryCardEntry): string | null {
       game: entry.game,
     });
   }
-  return buildTcgPlayerSearchUrl({
+  return buildTcgPlayerCardUrl({
+    productId: tcgPlayerProductIdFromCardId(entry.cardId),
     cardNumber: entry.cardNumber,
     condition: entry.conditionLabel ?? entry.conditionCode ?? null,
     name: entry.name,

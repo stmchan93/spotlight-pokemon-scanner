@@ -324,6 +324,8 @@ export function isFinitePrice(value: number | null | undefined): value is number
  */
 export type ScanTrayPriceSelection = {
   marketPrice: number | null;
+  /** The row's condition pick (deck code); absent = near mint. */
+  conditionCode?: string | null;
   /** The row's grader pick (see ScanRowGrading); absent = the scan's default. */
   grading?: { grader: string | null; marketPrice?: number | null } | null;
 };
@@ -393,6 +395,11 @@ export function resolveCaptureTrayPrice(
 
   if (isFinitePrice(selection?.marketPrice)) {
     return { amount: selection.marketPrice, currencyCode };
+  }
+  // A non-NM pick with no price for it shows "—": the candidate's price is
+  // the NM one and must never stand under an LP/MP label.
+  if (selection?.conditionCode && selection.conditionCode !== 'near_mint') {
+    return { amount: null, currencyCode };
   }
 
   const candidateMarketPrice = candidate?.marketPrice;

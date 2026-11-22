@@ -4,7 +4,7 @@ import { colors } from '@spotlight/design-system';
 
 // react-native-image-colors is a NATIVE module that may be missing from older
 // shipped binaries, and OTA'd JS must not crash on them: lazy-require, and any
-// failure keeps the token accent (same pattern as whos-that-pokemon/palette.ts).
+// failure keeps the neutral wash (same pattern as whos-that-pokemon/palette.ts).
 type ImageColorsModule = {
   getColors: (
     uri: string,
@@ -26,30 +26,33 @@ function loadImageColorsModule(): ImageColorsModule | null {
   }
 }
 
-/** The wash's accent before the logo is read, and whenever it can't be. */
-export const SET_PAGE_FALLBACK_ACCENT = colors.eventAccent;
+/**
+ * The wash with no set colour: while the logo is read, with no logo, or when
+ * extraction fails. Neutral on purpose: a brand accent here made every set
+ * look like the one whose colour it happened to be.
+ */
+export const SET_PAGE_FALLBACK_ACCENT = colors.gray200;
 
-// Most vivid first. iOS returns primary/secondary/detail/background, Android
-// vibrant/dominant/&c. `background` is skipped: on a transparent logo it is
-// the empty canvas, not the art.
-const ACCENT_KEYS = [
-  'vibrant',
-  'primary',
-  'lightVibrant',
-  'dominant',
-  'secondary',
-  'detail',
-  'darkVibrant',
-  'average',
-  'muted',
-] as const;
+// What the native side fills in when it can't read the image. Pure black, so
+// the near-black check drops it like any other unusable colour.
+const EXTRACTION_FALLBACK = '#000000';
+
+// Most representative first, per platform.
+// iOS (UIImageColors): `background` is the most frequent OPAQUE colour (it
+// skips transparent pixels and prefers a colour over a black/white majority),
+// i.e. the logo's own colour, not the canvas. primary/secondary/detail are
+// colours picked to CONTRAST with it, the fallbacks when it is an outline black.
+// Android (Palette): `dominant` is the most populous swatch, `vibrant` the
+// brand-y one. `average` is skipped: it averages transparent pixels in.
+const IOS_KEYS = ['background', 'primary', 'secondary', 'detail'] as const;
+const ANDROID_KEYS = ['dominant', 'vibrant', 'lightVibrant', 'darkVibrant', 'muted', 'lightMuted'] as const;
 
 const HEX6 = /^#[0-9a-fA-F]{6}$/;
 // The wash runs from the accent to white behind a dark back button and dark
 // text: grays carry no colour, near-white vanishes, near-black swallows it.
-const MIN_SATURATION = 0.35;
-const MIN_LIGHTNESS = 0.3;
-const MAX_LIGHTNESS = 0.85;
+const MIN_SATURATION = 0.25;
+const MIN_LIGHTNESS = 0.25;
+const MAX_LIGHTNESS = 0.9;
 
 function hsl(hex: string): { saturation: number; lightness: number } {
   const value = Number.parseInt(hex.slice(1), 16);
@@ -64,15 +67,25 @@ function hsl(hex: string): { saturation: number; lightness: number } {
   return { saturation, lightness };
 }
 
+function candidateKeys(platform: unknown): readonly string[] {
+  if (platform === 'ios') {
+    return IOS_KEYS;
+  }
+  if (platform === 'android') {
+    return ANDROID_KEYS;
+  }
+  return [...ANDROID_KEYS.slice(0, 1), ...IOS_KEYS, ...ANDROID_KEYS.slice(1)];
+}
+
 /**
- * The first logo colour that can carry the header wash, or null when none can
- * (the caller keeps the token accent).
+ * The set's own colour: the logo's most representative colour that can carry
+ * the header wash, or null when none can (the caller keeps the neutral wash).
  */
 export function pickSetPageAccent(result: Record<string, unknown> | null | undefined): string | null {
   if (!result) {
     return null;
   }
-  for (const key of ACCENT_KEYS) {
+  for (const key of candidateKeys(result.platform)) {
     const value = result[key];
     if (typeof value !== 'string' || !HEX6.test(value)) {
       continue;
@@ -86,8 +99,8 @@ export function pickSetPageAccent(result: Record<string, unknown> | null | undef
 }
 
 /**
- * The set page header's accent, read from the set's own logo. The token accent
- * while loading, with no logo, or when extraction is unavailable or fails.
+ * The set page header's accent, read from the set's own logo. Neutral while
+ * loading, with no logo, or when extraction is unavailable or fails.
  */
 export function useSetPageAccent(logoUrl: string | null): string {
   const [accent, setAccent] = useState<{ url: string; color: string } | null>(null);
@@ -101,7 +114,7 @@ export function useSetPageAccent(logoUrl: string | null): string {
       return undefined;
     }
     let cancelled = false;
-    void mod.getColors(logoUrl, { cache: true, fallback: SET_PAGE_FALLBACK_ACCENT, key: logoUrl })
+    void mod.getColors(logoUrl, { cache: true, fallback: EXTRACTION_FALLBACK, key: logoUrl })
       .then((result) => {
         const color = pickSetPageAccent(result);
         if (!cancelled && color) {

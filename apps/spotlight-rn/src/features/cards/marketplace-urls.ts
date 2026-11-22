@@ -323,6 +323,89 @@ export function resolveTcgPlayerProductId(
   return distinctIds.size === 1 ? [...distinctIds][0] : null;
 }
 
+// Printings that are their own TCGplayer product but never the card a person
+// means by default (oversized, metal, 1st Edition/Shadowless runs, stamps).
+const NON_DEFAULT_PRINTING_PATTERN = /\b(jumbo|oversized?|metal|first edition|1st edition|shadowless|staff|prerelease|stamped)\b/;
+
+/**
+ * The TCGplayer product id to open for a card, given everything the client may
+ * know. A product page lists every condition and printing of that product, so
+ * ANY id beats a keyword search; search is only for cards with no id at all.
+ *
+ * Order: the selected printing's own id → the card's main (priced) id from the
+ * backend → the id a TCGplayer-only card id encodes → the variant map alone.
+ * The last step matters for backends that predate `tcgplayerProductId`: the
+ * main printing is often labelled by TCGplayer ("Holofoil") while the payload
+ * uses Scrydex names ("unlimitedHolofoil"), so on Base Charizard nothing matched
+ * and the link fell back to a search. There "Unlimited <label>" is tried, then a
+ * plain printing, then the first id. Colliding (mis-mapped) ids never reach the
+ * client — the backend's collision guard strips them.
+ */
+export function resolveCardTcgPlayerProductId(params: {
+  variants?: TcgPlayerSourceVariant[] | null;
+  selectedVariantLabel?: string | null;
+  mainProductId?: string | null;
+  cardId?: string | null;
+}): string | null {
+  const variants = Array.isArray(params.variants) ? params.variants : [];
+  const selectedKey = normalizeVariantMatchKey(params.selectedVariantLabel);
+  const idForKey = (key: string) => {
+    if (!key) return null;
+    for (const variant of variants) {
+      if (variant && normalizeVariantMatchKey(variant.name) === key) {
+        const productId = tcgPlayerProductIdFromVariant(variant);
+        if (productId) return productId;
+      }
+    }
+    return null;
+  };
+
+  const exact = idForKey(selectedKey);
+  if (exact) return exact;
+  const main = params.mainProductId?.trim();
+  if (main) return main;
+  const fromCardId = tcgPlayerProductIdFromCardId(params.cardId);
+  if (fromCardId) return fromCardId;
+
+  const unlimited = selectedKey && !selectedKey.startsWith('unlimited ')
+    ? idForKey(`unlimited ${selectedKey}`)
+    : null;
+  if (unlimited) return unlimited;
+  const single = resolveTcgPlayerProductId(variants, null);
+  if (single) return single;
+
+  let firstId: string | null = null;
+  for (const variant of variants) {
+    const productId = tcgPlayerProductIdFromVariant(variant);
+    if (!productId) continue;
+    firstId ??= productId;
+    if (!NON_DEFAULT_PRINTING_PATTERN.test(normalizeVariantMatchKey(variant?.name))) {
+      return productId;
+    }
+  }
+  return firstId;
+}
+
+/**
+ * TCGplayer link for a raw card: the product page when any product id is
+ * known (see {@link resolveCardTcgPlayerProductId}), else the keyword search.
+ */
+export function buildTcgPlayerCardUrl(params: {
+  productId?: string | null;
+  cardNumber: string;
+  name: string;
+  setName: string;
+  condition?: string | null;
+  printing?: string | null;
+  game?: CardGame;
+}): string | null {
+  const productId = params.productId?.trim();
+  if (productId) {
+    return buildTcgPlayerProductUrl({ productId, condition: params.condition });
+  }
+  return buildTcgPlayerSearchUrl(params);
+}
+
 /**
  * Build a deep link to the EXACT TCGplayer product page for a known product_id,
  * optionally filtered to a condition. Returns null when no product_id is given

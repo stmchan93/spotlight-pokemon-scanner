@@ -1258,6 +1258,11 @@ export type CatalogSearchResult = {
    * has none; base/finish printings keep the card image.
    */
   printingImages?: CardPrintingImage[];
+  /**
+   * The card's main TCGplayer product id, for the "View on TCGplayer" link.
+   * Absent on older payloads and when the card has no TCGplayer product.
+   */
+  tcgPlayerProductId?: string | null;
 };
 
 /** One art-changing printing's art (a TCGplayer product image). */
@@ -1597,6 +1602,12 @@ export type CardDetailRecord = {
    * Empty/absent when the upstream payload carries no variant marketplace ids.
    */
   tcgPlayerVariants?: TcgPlayerVariantMarketplace[] | null;
+  /**
+   * The card's main TCGplayer product id (the product its price comes from).
+   * The link fallback when the selected printing has no id of its own. Null
+   * when unknown or on older payloads.
+   */
+  tcgPlayerProductId?: string | null;
   /**
    * Set ONLY for graded-only cards (no raw/ungraded price but graded pricing):
    * the headline graded lane the PDP should default to so a chart shows instead

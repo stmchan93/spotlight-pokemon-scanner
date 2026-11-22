@@ -113,7 +113,7 @@ const NEAR_MINT = deckConditionOptions.find((option) => option.code === 'near_mi
 
 /**
  * A set's page with completion (Figma 6597:3819): back + share, logo on a
- * warm wash, a floating card with name, release date, a 20pt progress bar,
+ * wash of the set's own colour, a floating card with name, release date, a 20pt progress bar,
  * the FULL set's value and "X of Y CARDS", a card search and
  * rarity chips, then EVERY card in the set two-up — full colour, the ones you
  * own marked ✓ / ×N on the art — each with − QTY +.
@@ -467,7 +467,7 @@ export function ExpansionDetailScreen({
   );
   const totalValueLabel = expansion?.setValue != null ? formatCurrency(expansion.setValue, 'USD') : null;
   const logoUrl = expansion?.imageUrl ?? null;
-  // The wash takes the set's own colour from its logo (token accent until then).
+  // The wash takes the set's own colour from its logo (neutral until then).
   const washStops = eventGradientStops(useSetPageAccent(logoUrl));
   const [hasLogoError, setHasLogoError] = useState(false);
   const setName = expansion?.name ?? expansionName;

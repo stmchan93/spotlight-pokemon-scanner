@@ -116,6 +116,7 @@ import {
   scanRowInventoryTarget,
   type ScanRowInventoryTarget,
 } from '@/features/scanner/scan-row-grading';
+import { loadTrayVariantMatrices } from '@/features/scanner/tray-variant-loader';
 import {
   saveScanCandidateReviewSession,
   type ScanSourceImageCrop,
@@ -4262,29 +4263,12 @@ export function ScannerScreen({
 
   useEffect(() => {
     const cardIds = trayVariantCardIds ? trayVariantCardIds.split(',') : [];
-    let cancelled = false;
-    cardIds.forEach((cardId) => {
-      if (variantsRef.current.has(cardId)) {
-        return;
-      }
-      // Marked before the await so a re-render mid-flight cannot double-fetch.
-      variantsRef.current.set(cardId, []);
-      void getRawPricingMatrixCached(spotlightRepository, cardId)
-        .then((matrix) => {
-          if (cancelled || matrix.variants.length === 0) {
-            return;
-          }
-          variantsRef.current.set(cardId, matrix.variants);
-          setVariantsByCardId((current) => new Map(current).set(cardId, matrix.variants));
-        })
-        .catch(() => {
-          // Best-effort: the row keeps its RAW tag and the price sheet still works.
-          variantsRef.current.delete(cardId);
-        });
-    });
-    return () => {
-      cancelled = true;
-    };
+    return loadTrayVariantMatrices(
+      cardIds,
+      variantsRef.current,
+      (cardId) => getRawPricingMatrixCached(spotlightRepository, cardId),
+      (cardId, variants) => setVariantsByCardId((current) => new Map(current).set(cardId, variants)),
+    );
   }, [spotlightRepository, trayVariantCardIds]);
 
   // A pick from a row's grading / condition-or-grade dropdown. The printing

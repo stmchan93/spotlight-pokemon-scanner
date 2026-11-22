@@ -399,14 +399,35 @@ describe('ownedBadgeLabel', () => {
 });
 
 describe('pickSetPageAccent', () => {
-  it('takes the first vivid, mid-light logo colour', () => {
-    expect(pickSetPageAccent({ vibrant: '#ffb005', primary: '#1A4A5A' })).toBe('#FFB005');
-    // iOS: dark primary skipped, the coloured secondary wins; background is never used.
-    expect(pickSetPageAccent({ background: '#E53935', primary: '#101010', secondary: '#E53935' })).toBe('#E53935');
+  it("takes the logo's dominant colour first", () => {
+    // iOS: `background` is the most frequent opaque logo colour.
+    expect(
+      pickSetPageAccent({ platform: 'ios', background: '#f5ef31', primary: '#710101', secondary: '#E53935' }),
+    ).toBe('#F5EF31');
+    // Android: `dominant` beats `vibrant`.
+    expect(pickSetPageAccent({ platform: 'android', dominant: '#3A7BD5', vibrant: '#FFB005' })).toBe('#3A7BD5');
   });
 
-  it('is null when no colour can carry the wash (grays, near-white, near-black, junk)', () => {
-    expect(pickSetPageAccent({ primary: '#1A4A5A', secondary: '#6D8C96', detail: '#FFFFFF' })).toBeNull();
+  it('skips near-black, near-white and gray candidates for the next one', () => {
+    // Black outline majority → the contrasting colour.
+    expect(pickSetPageAccent({ platform: 'ios', background: '#000000', primary: '#6FC2EA' })).toBe('#6FC2EA');
+    expect(pickSetPageAccent({ platform: 'ios', background: '#2E113B', primary: '#E18732' })).toBe('#E18732');
+    expect(pickSetPageAccent({ platform: 'ios', background: '#FAFAFA', primary: '#101010', secondary: '#E53935' })).toBe(
+      '#E53935',
+    );
+    expect(pickSetPageAccent({ platform: 'android', dominant: '#B3B3B2', vibrant: '#D81B60' })).toBe('#D81B60');
+  });
+
+  it('never reads Android `average` (it blends in the transparent canvas)', () => {
+    expect(pickSetPageAccent({ platform: 'android', dominant: '#000000', average: '#7A5C2E' })).toBeNull();
+  });
+
+  it('is null when no colour can carry the wash', () => {
+    // The native "couldn't read it" fallback is pure black.
+    expect(
+      pickSetPageAccent({ platform: 'ios', background: '#000000', primary: '#000000', secondary: '#000000', detail: '#000000' }),
+    ).toBeNull();
+    expect(pickSetPageAccent({ platform: 'ios', background: '#B3B3B2', primary: '#FFFFFF' })).toBeNull();
     expect(pickSetPageAccent({ vibrant: 'transparent' })).toBeNull();
     expect(pickSetPageAccent(null)).toBeNull();
   });

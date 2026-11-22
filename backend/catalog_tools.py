@@ -22,7 +22,7 @@ import unicodedata
 from tcgcsv_adapter import TCGCSV_PROVIDER, scrydex_variant_label_for_subtype, subtype_for_variant_label
 # The canonical printing-identity normalizer (1st == First, subtype -> Scrydex
 # label, label-keyed cells). Imports only tcgcsv_adapter, so no cycle.
-from watch_printings import canonical_printing, printing_label, printing_labels_by_cell_key
+from watch_printings import canonical_printing, normalize_variant_key, printing_label, printing_labels_by_cell_key
 
 
 MATCHER_VERSION = "raw-backend-reset-v1"
@@ -8855,6 +8855,32 @@ def _slab_recent_sale_from_row(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def _shared_subtype_printing_by_market(printings: Any, main_key: str, main_market: float) -> str | None:
+    """The one printing among several that share TCGplayer subtype ``main_key``
+    whose market IS the main price, else None. Base Set Charizard base1-4:
+    Scrydex's Metal ($290.27) and Unlimited Holofoil ($1,001.05) both carry
+    subtype "Holofoil", so the cell map keys them by label and the bare
+    "Holofoil" main ($1,001.05) matched neither, surfacing as an NM-only
+    duplicate chip that broke the condition picker (2026-11-21). The price
+    picks the printing; zero or several matches stay unmerged."""
+    try:
+        entries = json.loads(printings) if isinstance(printings, str) else printings
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(entries, dict):
+        return None
+    wanted = normalize_variant_key(main_key)
+    matches = [
+        str(label)
+        for label, entry in entries.items()
+        if isinstance(entry, dict)
+        and normalize_variant_key(entry.get("subTypeName")) == wanted
+        and (market := _coerce_price_float(entry.get("market"))) is not None
+        and abs(market - main_market) <= 0.005
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
 def served_main_printing_alias(row: Any) -> tuple[str | None, str | None]:
     """``(main_raw_variant, Scrydex label)`` when the TCGCSV main printing is a
     Scrydex printing that TCGplayer spells differently, else ``(None, None)``.
@@ -8866,9 +8892,11 @@ def served_main_printing_alias(row: Any) -> tuple[str | None, str | None]:
     claimed by no other printing of the card, whose only priced subtype is
     Normal). Two checks make the main that same row: its subtype is the cell key
     the sync wrote for exactly one printing, and its market is that printing's
-    market (same product + subtype in one sync write). Anything short of that
-    (no map entry, shared subtype, a different number) keeps the printings
-    apart: a wrong merge is worse than a duplicate chip. Not freshness-gated;
+    market (same product + subtype in one sync write). A subtype several
+    printings share merges only into the single one whose market equals the
+    main's. Anything short of that (no map entry, no or several price matches,
+    a different number) keeps the printings apart: a wrong merge is worse than
+    a duplicate chip. Not freshness-gated;
     it states identity, not price."""
     if row is None:
         return None, None
@@ -8877,7 +8905,9 @@ def served_main_printing_alias(row: Any) -> tuple[str | None, str | None]:
     if not main_key or main_market is None:
         return None, None
     printings = _cell_field(row, "main_raw_printings_json")
-    label = printing_labels_by_cell_key(printings).get(main_key)
+    label = printing_labels_by_cell_key(printings).get(main_key) or _shared_subtype_printing_by_market(
+        printings, main_key, main_market
+    )
     if not label:
         return None, None
     if _variant_match_key(label) == _variant_match_key(printing_label(main_key)):

@@ -848,6 +848,8 @@ type CardCandidateDTO = {
   catalogSource?: string | null;
   // The Scrydex card that superseded a TCGplayer-only card; null otherwise.
   canonicalCardId?: string | null;
+  // The card's main (priced) TCGplayer product id. Absent on older servers.
+  tcgplayerProductId?: string | number | null;
   // Raw Scrydex catalog payload; we only read `variants[].marketplaces` to
   // surface per-printing TCGplayer product ids for deep links.
   sourcePayload?: {
@@ -1326,6 +1328,7 @@ type NormalizedCardCandidate = {
     grade?: string | null;
   };
   tcgPlayerVariants: TcgPlayerVariantMarketplace[];
+  tcgPlayerProductId: string | null;
 };
 
 function normalizePricingTrendsPct(
@@ -2312,7 +2315,16 @@ function normalizeCardCandidate(candidate: CardCandidateDTO | null | undefined, 
       grade: normalizeString(candidate?.pricing?.grade),
     },
     tcgPlayerVariants: normalizeTcgPlayerVariants(candidate?.sourcePayload?.variants),
+    tcgPlayerProductId: normalizeTcgPlayerProductId(candidate?.tcgplayerProductId),
   } satisfies NormalizedCardCandidate;
+}
+
+// A TCGplayer product id is all digits; anything else is treated as absent.
+function normalizeTcgPlayerProductId(value: unknown): string | null {
+  const text = typeof value === 'number' && Number.isFinite(value)
+    ? String(Math.trunc(value))
+    : normalizeString(value);
+  return text && /^\d+$/.test(text) ? text : null;
 }
 
 // Carry only the printing name + marketplace ids from the Scrydex sourcePayload
@@ -2611,6 +2623,7 @@ function mapScannerMatchCandidates(
       priceIsGradedReference,
       gradedReferenceLabel,
       // Only set when served, so candidates without one keep their old shape.
+      ...(card.tcgPlayerProductId ? { tcgPlayerProductId: card.tcgPlayerProductId } : {}),
       ...(matchedVariant ? { matchedVariant } : {}),
       ...(printingImages.length > 0 ? { printingImages } : {}),
     }];
@@ -5845,6 +5858,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           game: card.game,
           catalogSource: card.catalogSource,
           canonicalCardId: card.canonicalCardId,
+          ...(card.tcgPlayerProductId ? { tcgPlayerProductId: card.tcgPlayerProductId } : {}),
         }];
       });
   }
@@ -6571,6 +6585,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         game: card.game,
         catalogSource: card.catalogSource,
         canonicalCardId: card.canonicalCardId,
+        ...(card.tcgPlayerProductId ? { tcgPlayerProductId: card.tcgPlayerProductId } : {}),
       }];
     });
   }
@@ -7662,6 +7677,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       trendsPct: card.pricing.trendsPct ?? null,
       cardText: buildCardText(detailResponse.data.cardText),
       tcgPlayerVariants: card.tcgPlayerVariants,
+      tcgPlayerProductId: card.tcgPlayerProductId,
       gradedReference: normalizeGradedReference(detailResponse.data.gradedReference),
       artist: normalizeString(detailResponse.data.artist),
       releaseDate: normalizeString(detailResponse.data.setReleaseDate),

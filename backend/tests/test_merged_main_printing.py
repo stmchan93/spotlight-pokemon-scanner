@@ -287,6 +287,43 @@ class MergedMainPrintingTests(unittest.TestCase):
         assert detail is not None
         self.assertEqual(detail["watchPrintingLabels"], {"Normal": "Unlimited"})
 
+    # --- Base Set Charizard: shared subtype, the price decides -----------
+
+    def _seed_charizard(self) -> str:
+        card_id = "base1-4"
+        self._card(card_id)
+        for condition, market in (("NM", 1001.05), ("LP", 523.87), ("MP", 358.99), ("HP", 266.83), ("DM", 203.34)):
+            self._scrydex(card_id, "Unlimited Holofoil", condition, market)
+        for condition, market in (("NM", 290.27), ("LP", 218.75)):
+            self._scrydex(card_id, "Metal", condition, market)
+        self._scrydex(card_id, "Unlimited Shadowless Holofoil", "NM", 2146.38)
+        self._tcgcsv(
+            card_id,
+            main_sub_type="Holofoil",
+            main_market=1001.05,
+            printings={
+                "Unlimited Holofoil": {"subTypeName": "Holofoil", "market": 1001.05},
+                "Metal": {"subTypeName": "Holofoil", "market": 290.27},
+            },
+            cells={"Unlimited Holofoil": [1001.05] * DAYS, "Metal": [290.27] * DAYS},
+        )
+        return card_id
+
+    def test_shared_subtype_merges_into_the_printing_priced_at_the_main(self):
+        card_id = self._seed_charizard()
+        self.assertEqual(
+            served_main_printing_alias(price_snapshot_row(self.connection, card_id)),
+            ("Holofoil", "Unlimited Holofoil"),
+        )
+        matrix = self._matrix(card_id)
+        # No NM-only "Holofoil" duplicate ahead of the full ladder.
+        self.assertNotIn("Holofoil", matrix)
+        self.assertAlmostEqual(matrix["Unlimited Holofoil"]["NM"], 1001.05)
+        self.assertAlmostEqual(matrix["Unlimited Holofoil"]["LP"], 523.87)
+        self.assertAlmostEqual(matrix["Metal"]["NM"], 290.27)
+        self.assertEqual(next(iter(matrix)), "Unlimited Holofoil")
+        self.assertNotIn("Holofoil", self._chips(card_id))
+
     # --- nothing proven, nothing merged ----------------------------------
 
     def test_unproven_matches_stay_separate(self):
@@ -295,9 +332,16 @@ class MergedMainPrintingTests(unittest.TestCase):
             "legacy-map": ({"Normal": {"subTypeName": "Normal", "market": 4.38}}, 4.38),
             # The map's Unlimited row is a different number from the main.
             "different-market": ({"Unlimited": {"subTypeName": "Normal", "market": 9.0}}, 4.38),
-            # Two printings share the subtype: cells key by label, no alias.
-            "shared-subtype": (
+            # Two printings share the subtype and BOTH price at the main:
+            # the price cannot pick one, so no alias.
+            "shared-subtype-ambiguous": (
                 {"Unlimited": {"subTypeName": "Normal", "market": 4.38},
+                 "Unlimited Shadowless": {"subTypeName": "Normal", "market": 4.38}},
+                4.38,
+            ),
+            # Shared subtype, neither printing at the main's price.
+            "shared-subtype-no-match": (
+                {"Unlimited": {"subTypeName": "Normal", "market": 4.0},
                  "Unlimited Shadowless": {"subTypeName": "Normal", "market": 9.29}},
                 4.38,
             ),

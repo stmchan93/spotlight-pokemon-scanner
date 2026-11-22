@@ -198,7 +198,8 @@ function withGrading(
  * otherwise). Returns the row's next selection, `previous` itself when the
  * pick changes nothing, or null when the row is back on its untouched default.
  * The printing stays the row's own (`previous.variantKey`, else the matrix's
- * first) — the tray no longer offers a printing picker.
+ * first) unless it has no price for a picked condition (see printingPricing)
+ * — the tray no longer offers a printing picker.
  */
 export function applyScanRowGradingPick(
   capture: GradingCapture,
@@ -246,7 +247,31 @@ export function applyScanRowGradingPick(
   if (previous && conditionMatrixCode(previous.conditionCode) === key) {
     return previous;
   }
-  return finish(previous?.grading, selectionForCondition(variant, key, previous));
+  return finish(previous?.grading, selectionForCondition(printingPricing(variants, variant, key), key, previous));
+}
+
+function conditionMarket(variant: RawPricingMatrixVariant, matrixCode: string): number | null {
+  const market = variant.conditions.find((entry) => entry.code === matrixCode)?.market;
+  return typeof market === 'number' && Number.isFinite(market) && market > 0 ? market : null;
+}
+
+/**
+ * The printing a condition pick prices from: the row's own when it has that
+ * condition, else the highest-priority printing that does (the matrix comes
+ * ordered best-first). Base Set Charizard listed an NM-only "Holofoil" ahead
+ * of "Unlimited Holofoil"'s full ladder, so LP on the first found nothing and
+ * the row kept the NM price under an LP label. No printing has it: the row's
+ * own, and the price shows "—".
+ */
+function printingPricing(
+  variants: readonly RawPricingMatrixVariant[],
+  current: RawPricingMatrixVariant | null,
+  matrixCode: string,
+): RawPricingMatrixVariant | null {
+  if (!current || conditionMarket(current, matrixCode) != null) {
+    return current;
+  }
+  return variants.find((entry) => conditionMarket(entry, matrixCode) != null) ?? current;
 }
 
 export type ScanRowInventoryTarget = {

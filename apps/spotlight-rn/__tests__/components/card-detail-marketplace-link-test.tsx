@@ -104,6 +104,74 @@ describe('card detail marketplace link', () => {
     expect(url).toContain('Condition=Near+Mint');
   });
 
+  // Base Charizard on prod: the default printing is TCGplayer-named "Holofoil",
+  // the variant map is Scrydex-named, so nothing matched and the logo opened a
+  // search listing every Charizard. The card's main product id now wins.
+  const baseCharizardVariants = [
+    { name: 'firstEditionShadowlessHolofoil', marketplaces: [{ name: 'tcgplayer', product_id: '106999' }] },
+    { name: 'jumbo', marketplaces: [{ name: 'tcgplayer', product_id: '179079' }] },
+    { name: 'unlimitedHolofoil', marketplaces: [{ name: 'tcgplayer', product_id: '42382' }] },
+  ];
+
+  function baseCharizardDetail(over: Partial<CardDetailRecord>) {
+    const baseRepository = createTestSpotlightRepository();
+    return jest.fn(async (query: { cardId: string }) => {
+      const base = await baseRepository.getCardDetail({ ...query, cardId: 'sm7-1' });
+      return base
+        ? ({
+            ...base,
+            game: 'pokemon',
+            name: 'Charizard',
+            cardNumber: '4/102',
+            setName: 'Base',
+            variantOptions: [
+              { id: 'Holofoil', label: 'Holofoil' },
+              { id: 'Unlimited Holofoil', label: 'Unlimited Holofoil' },
+              { id: 'Jumbo', label: 'Jumbo' },
+            ],
+            tcgPlayerVariants: baseCharizardVariants,
+            ...over,
+          } as CardDetailRecord)
+        : null;
+    });
+  }
+
+  async function pressChartLogo(getCardDetail: ReturnType<typeof baseCharizardDetail>) {
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail,
+          getCardPriceTrends: rawTrends,
+        }),
+      },
+    );
+    fireEvent.press(await screen.findByTestId('detail-price-chart-tcgplayer'));
+    await waitFor(() => {
+      expect(openURL).toHaveBeenCalledTimes(1);
+    });
+    return String(openURL.mock.calls[0][0]);
+  }
+
+  it('the price-header logo opens the card’s main product when the printing has no id of its own', async () => {
+    // Map without an Unlimited entry, so only the main id can produce 42382.
+    const url = await pressChartLogo(baseCharizardDetail({
+      tcgPlayerProductId: '42382',
+      tcgPlayerVariants: baseCharizardVariants.slice(0, 2),
+    }));
+
+    expect(url).toContain('tcgplayer.com/product/42382');
+    expect(url).not.toContain('/search');
+  });
+
+  it('the price-header logo still opens a product page on a backend without the main id', async () => {
+    const url = await pressChartLogo(baseCharizardDetail({ tcgPlayerProductId: null }));
+
+    // "Holofoil" → "unlimitedHolofoil", never the search.
+    expect(url).toContain('tcgplayer.com/product/42382');
+  });
+
   it('falls back to a search in the card’s own game when there is no product id', async () => {
     const url = await openRawRow(onePieceDetail({ tcgPlayerVariants: [] }));
 
