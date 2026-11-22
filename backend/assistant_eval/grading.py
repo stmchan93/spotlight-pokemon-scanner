@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import unicodedata
 from dataclasses import asdict, dataclass
 from datetime import date
 from typing import Any, Callable
@@ -855,9 +856,15 @@ def _plain_quotes(text: str) -> str:
     return text.replace("\u2019", "'").replace("\u2018", "'")
 
 
+def _literal_fold(text: str) -> str:
+    # NFC so a decomposed "é" (e + U+0301) matches a precomposed one; casefold for case.
+    return unicodedata.normalize("NFC", _plain_quotes(str(text))).casefold()
+
+
 def check_must_contain_any(record: dict[str, Any], needles: list[str]) -> CheckResult:
-    answer = _plain_quotes(str(record.get("answer") or "")).casefold()
-    if any(_plain_quotes(str(needle)).casefold() in answer for needle in needles):
+    """Needles are literal substrings (not regex), matched NFC + case-insensitively."""
+    answer = _literal_fold(record.get("answer") or "")
+    if any(_literal_fold(needle) in answer for needle in needles):
         return _ok("must_contain_any")
     return _fail("must_contain_any", f"answer has none of {needles}")
 

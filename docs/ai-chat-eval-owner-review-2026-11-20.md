@@ -46,6 +46,14 @@ Owner decisions and how they're enforced:
 
 Judge rubrics loosened where the owner passed what the judge failed: "price in the FIRST sentence" → "states the top card and its USD price near the start" (L008); "two sentences or fewer" → "short (a few sentences at most)" (L003); rain/night art passes a partial match the text admits (L014); the scanner pick's price may be anywhere in the answer (L018); an empty PSA 10 `points` list means no graded history (L022); "cards" that dropped means singles, sealed doesn't count (L024); the % leader is `top_gainer_by_pct` (L002).
 
+## Update 2026-11-22 (staging eval, owner-approved fixes)
+
+- **Collection total leaves out withheld prices, and says so.** When holdings have a stale/untrusted price, the assistant's portfolio/collection payload carries `not_counted_line` ("8 cards aren't counted — no recent price.", the app's line, counting copies) and a holdings count that excludes them. Prompt: say it word for word right after the total. Backstop `engine.ensure_not_counted_line`: an answer that states the total but not the line gets it after the total sentence, and "across 83 holdings" (all) becomes the counted number. This is approved app copy, not a data-source caveat.
+- **No dangling clause after a cut.** Removing the market-price explainer from "…, so it's what copies have recently sold for." left "…, so it's." Now a cut that ends mid-thought (`length_guard.ends_mid_thought`) drops the whole sentence (also in the internal-wording clause scrub).
+- **Movers with 2+ cards are bullets.** Prompt line on `find_movers`/collection movers; backstop `length_guard.bullet_prose_cards` on mover/trend turns turns 2+ sentences that each name one different card with a $ or % into "- " bullets (name bolded; figures bolded by `bold_bullet_figures`).
+- **Pick-a-printing asks only for the tap.** On an add choice reply, `choice.strip_detail_asks` removes asks for quantity/condition (defaults 1 NM are editable on Confirm); a statement of the defaults stays.
+- Eval: `collection_top_cards` rubric now expects one bullet per card; `why_charizard_moved_no_history` no longer deletes history or matches a phrase list (rubric: describe what the history shows, invent no cause); `must_contain_any` is literal, NFC-normalized and case-insensitive, and `--validate` flags regex-looking needles.
+
 ## Product decisions (cross-cutting)
 
 1. **Tiles = the cards the answer is about**, not every card a tool returned. Check the final rendered card IDs (and language, raw condition, grader, grade where relevant). A search can return 8 candidates while the answer shows only the 1 that answers the question. Every card named in the text must appear as a tile, and tiles must not show cards the answer isn't about. Multiple candidate tiles are right only when the assistant is asking the user to choose (e.g. "How much is Charizard?" → which printing?).

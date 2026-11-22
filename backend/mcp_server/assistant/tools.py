@@ -1632,6 +1632,38 @@ def collection_total_first(result: dict[str, Any], card_filter: Any, question: s
     return {**head, **{key: value for key, value in result.items() if key not in head}}
 
 
+def not_counted_line(count: int) -> str:
+    """The app's line under a collection total ("2 cards not counted — no recent price"), as a sentence."""
+    return "1 card isn't counted — no recent price." if count == 1 else f"{count:,} cards aren't counted — no recent price."
+
+
+def with_not_counted(result: dict[str, Any]) -> dict[str, Any]:
+    """Holdings whose price is withheld (stale/untrusted) are left out of the total: the model gets a
+    ready line to say (owner-approved app copy, not a data caveat) and counts that exclude them."""
+    cards = result.get("excluded_card_count")
+    if not isinstance(cards, int) or cards <= 0:
+        return result
+    rows = int(result.get("excluded_holding_count") or 0)
+    out = {
+        key: value for key, value in result.items()
+        if key not in ("stale_price_count", "untrusted_price_count", "excluded_price_note",
+                       "excluded_holding_count", "excluded_card_count")
+    }
+    out["not_counted_cards"] = cards
+    out["not_counted_holdings"] = rows
+    out["not_counted_line"] = not_counted_line(cards)
+    out["not_counted_note"] = (
+        "The total leaves these cards out (no recent price). Right after the total, say not_counted_line "
+        "word for word. Don't quote a price for them."
+    )
+    if isinstance(out.get("holdings_count"), int):
+        out["holdings_count"] = max(out["holdings_count"] - rows, 0)  # holdings the total counts
+    if isinstance(out.get("total_count"), int):
+        out["counted_count"] = max(out["total_count"] - rows, 0)
+        out["not_counted_note"] += " A holdings count stated with the total is counted_count."
+    return out
+
+
 def neutral_art_coverage(coverage: dict[str, Any]) -> dict[str, Any]:
     """Coverage stats without tag wording, so the answer never talks about 'tags'."""
     covered, total = coverage.get("tagged_cards"), coverage.get("catalog_cards")
@@ -1761,6 +1793,7 @@ class AssistantToolbox:
             result = movers_only(result) if movers else result
         if name in ("get_portfolio_summary", "get_my_collection") and isinstance(result, dict):
             result.pop("unpriced_count", None)  # owner (L001): no unpriced-holdings note
+            result = with_not_counted(result)
         if name == "get_my_collection" and isinstance(result, dict):
             result = collection_total_first(result, kwargs.get("card_filter"), question)
         if name == "search_cards" and isinstance(result, dict) and not uses_art_filters(kwargs.get("card_filter") or {}):

@@ -205,6 +205,11 @@ def _validate_expect(where: str, expect: Any, known: frozenset[str], banned: Ite
                         re.compile(pattern)
                     except re.error as error:
                         errors.append(f"{where}.must_not_contain: bad regex {pattern!r}: {error}")
+            else:
+                # must_contain_any is a literal substring match; a regex class here never matches.
+                for needle in value:
+                    if re.search(r"\[[^\]]+\]|\\[bdsw]|\(\?", needle):
+                        errors.append(f"{where}.must_contain_any: {needle!r} looks like a regex; needles are literal")
     for name in expect.get("allow") or []:
         if name not in banned:
             errors.append(f"{where}.allow: {name!r} is not a defaults.banned name")

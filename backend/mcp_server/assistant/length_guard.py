@@ -304,8 +304,8 @@ def _scrub_sentence(sentence: str, names: list[str] | tuple[str, ...], language:
         if has_internal_wording(clause, names, language=language):
             break
         kept.append(clause)
-    if word_count(", ".join(kept)) < 3:
-        return ""  # nothing left but a lead-in ("That said,")
+    if word_count(", ".join(kept)) < 3 or ends_mid_thought(", ".join(kept)):
+        return ""  # nothing left but a lead-in ("That said,") or a clause cut mid-thought
     end = sentence.rstrip()[-1:] if sentence.rstrip()[-1:] in ".!?" else "."
     return ", ".join(kept).rstrip(" ,;:") + end
 
@@ -470,6 +470,54 @@ def bold_bullet_figures(text: str) -> str:
     return "\n".join(out)
 
 
+def _names_in(sentence: str, names: list[str] | tuple[str, ...]) -> set[str]:
+    plain = sentence.replace("**", "")
+    found = set()
+    for name in names:
+        name = " ".join(str(name or "").split())
+        if name and re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", plain, re.IGNORECASE):
+            found.add(name.casefold())
+    # "Charizard" inside "Charizard ex" is the same mention, not a second card.
+    return {name for name in found if not any(name != other and name in other for other in found)}
+
+
+def _bold_name(sentence: str, names: list[str] | tuple[str, ...]) -> str:
+    for name in sorted((" ".join(str(n or "").split()) for n in names), key=len, reverse=True):
+        if not name:
+            continue
+        if re.search(r"\*\*" + re.escape(name) + r"\*\*", sentence, re.IGNORECASE):
+            return sentence
+        match = re.search(r"(?<![\w*])" + re.escape(name) + r"(?![\w*])", sentence, re.IGNORECASE)
+        if match:
+            return sentence[: match.start()] + f"**{match.group()}**" + sentence[match.end():]
+    return sentence
+
+
+def bullet_prose_cards(text: str, names: list[str] | tuple[str, ...]) -> str:
+    """Owner 2026-11-20: a list answer with 2+ cards is one "- " bullet per card. When the answer has
+    no bullets and 2+ of its sentences each name exactly one (different) card with a $ or % figure,
+    those sentences become bullets (card name in bold); other sentences stay before/after them."""
+    if not text or any(_BULLET.match(line) for line in str(text).split("\n")):
+        return text
+    sentences = split_sentences(text)
+    picked: list[int] = []
+    seen: set[str] = set()
+    for index, sentence in enumerate(sentences):
+        found = _names_in(sentence, names)
+        if len(found) == 1 and (_MONEY.search(sentence.replace("**", "")) or _PERCENT.search(sentence.replace("**", ""))):
+            name = next(iter(found))
+            if name in seen:
+                return text  # one card over two sentences: not a per-card list
+            seen.add(name)
+            picked.append(index)
+    if len(picked) < 2:
+        return text
+    lead = [s for i, s in enumerate(sentences) if i not in picked and i < picked[0]]
+    tail = [s for i, s in enumerate(sentences) if i not in picked and i > picked[0]]
+    bullets = "\n".join("- " + _bold_name(sentences[i], names) for i in picked)
+    return _join([part for part in (" ".join(lead), bullets, " ".join(tail)) if part])
+
+
 # --- Owner hand labels 2026-11-21: deterministic text backstops (no extra call) -------------
 
 # "Ekalight returned no price history", "the search found no ...": the answer speaks for itself.
@@ -525,6 +573,23 @@ _BARE_WORDS = frozenset("a an the these those this that all its their it they pr
                         "current near mint market usd".split())
 
 
+# A sentence can't end on these: what's left after a clause was cut out mid-thought
+# ("..., so it's." once "what copies have recently sold for" is gone). Drop the sentence instead.
+_DANGLING_TAIL = re.compile(
+    r"(?:^|[\s,;:(])(?:so|and|but|or|nor|yet|which|that|who|because|as|since|while|whereas|meaning|i\.e|e\.g"
+    r"|it['\u2019]s|they['\u2019]re|that['\u2019]s|there['\u2019]s|is|are|was|were|be|been"
+    r"|has|have|had|its|their|of|to|for|with|from|at|by|in|on|than|into|a|an|the|roughly|about|approximately"
+    r"|basically|essentially|reflects?|shows?|means?|tracks?|represents?)$",
+    re.IGNORECASE,
+)
+
+
+def ends_mid_thought(sentence: str) -> bool:
+    """True when a sentence ends on a connective, pronoun+verb or article ('so it's.', 'and the.')."""
+    body = re.sub(r"[*_`\s]+$", "", str(sentence or "").rstrip(".!?\u2026 ")).rstrip(" ,;:")
+    return bool(body) and _DANGLING_TAIL.search(body) is not None
+
+
 def asks_price_meaning(question: str) -> bool:
     return _PRICE_MEANING_ASK.search(question or "") is not None
 
@@ -535,8 +600,11 @@ def _without_filler(sentence: str) -> str:
     stripped = _FILLER_CLAUSE.sub("", sentence)
     if stripped == sentence:
         return sentence
+    stripped = re.sub(r"\s*\(\s*\)", "", stripped)  # "(roughly what copies sold for)" leaves "()"
     stripped = re.sub(r"\s+([.!?])", r"\1", stripped).strip()
     stripped = re.sub(r"[,;:\s]+([.!?])$", r"\1", stripped)
+    if ends_mid_thought(stripped):
+        return ""  # the cut left a dangling clause: drop the whole sentence
     body = stripped.rstrip(".!? ")
     # What's left must still say something: a figure or real words, not "Prices are market prices."
     words = re.findall(r"[\w']+", body.casefold())

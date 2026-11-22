@@ -170,6 +170,16 @@ class CheckTests(unittest.TestCase):
         self.assertIn("Charizard", failed["tiles_none_match"])
         self.assertIn("Box", failed["tiles_none_match"])
 
+    def test_must_contain_any_is_literal_nfc_and_case_insensitive(self) -> None:
+        # Eval 2026-11-22: "**Pokémon**" failed a needle written as the regex 'Pok[eé]mon'.
+        precomposed = turn_record(answer="Top **Pok\u00e9mon** risers")
+        decomposed = turn_record(answer="Top **Poke\u0301mon** risers")
+        for record in (precomposed, decomposed):
+            self.assertTrue(grading.check_must_contain_any(record, ["Pok\u00e9mon"]).passed)
+            self.assertTrue(grading.check_must_contain_any(record, ["poke\u0301MON"]).passed)
+        self.assertFalse(grading.check_must_contain_any(precomposed, ["One Piece"]).passed)
+        self.assertTrue(grading.check_must_contain_any(turn_record(answer="I can\u2019t verify it"), ["can't verify"]).passed)
+
     def test_allow_drops_a_default_ban(self) -> None:
         record = turn_record(answer="I only show USD, not yen: it's $450.")
         self.assertIn("banned", failed_names(grade_turn(record, {}, DEFAULTS)))
@@ -761,11 +771,12 @@ class CaseFileTests(unittest.TestCase):
         bad["cases"][2]["state_checks"] = {"holding_delta": [{"card_id": "x", "delta": 1}]}
         bad["cases"][3]["fixtures"] = {"delete": [{"table": "deck entries; drop", "where": {"a": 1}}], "upsert": []}
         bad["cases"][4]["turns"][0]["game"] = "mtg"
+        bad["cases"][5]["turns"][0]["expect"] = {"must_contain_any": ["Pok[e\u00e9]mon"]}
         errors = "\n".join(validate_cases(bad, TOOLS))
         for needle in ("unknown tile predicate 'colour'", "tiles_include: needs at least one", "tile_quantity: needs",
                        "tiles_sorted: must be", "tiles_max: must be", "tiles_label: bad regex", "tool_result_where[0]: needs tool",
                        "retry turn repeats", "state_checks need writes", "needs table", "unknown key 'upsert'",
-                       "game must be one of"):
+                       "game must be one of", "looks like a regex"):
             self.assertIn(needle, errors)
         # Planned tools validate before they exist (their checks skip at run time).
         ok = copy.deepcopy(self.data)
@@ -900,9 +911,10 @@ class ReportTests(unittest.TestCase):
             for phrase in ("not a forecast", "no sure bet", "not a sure thing", "past moves", "doesn't predict",
                            "can't promise", "not a prediction"):
                 self.assertIn(phrase, needles, case_id)
-        needles = cases["why_charizard_moved_no_history"]["turns"][0]["expect"]["must_contain_any"]
-        for phrase in ("couldn't verify", "don't have enough history", "no price history yet"):
-            self.assertIn(phrase, needles)
+        # The L016 fallback no longer depends on deleted history or a phrase list (eval 2026-11-22).
+        fallback = cases["why_charizard_moved_no_history"]
+        self.assertNotIn("fixtures", fallback)
+        self.assertNotIn("must_contain_any", fallback["turns"][0]["expect"])
 
     def test_majority_flag_needs_repeats(self) -> None:
         runner = load_runner()
@@ -1145,7 +1157,7 @@ class FixtureTests(unittest.TestCase):
         data = load_case_file(DEFAULT_CASES_PATH)
         needing = [case["id"] for case in data["cases"] if case_needs_db_copy(case)]
         self.assertEqual(set(needing), {
-            "complete_151_cost", "worth_grading", "why_charizard_moved_no_history", "add_quantity_2",
+            "complete_151_cost", "worth_grading", "add_quantity_2",
             "grade_this_scenarios", "deal_no_price", "collection_move_holding", "collection_remove_one",
             "collection_worth_vs_paid",
         })

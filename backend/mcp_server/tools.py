@@ -380,9 +380,13 @@ def _quality_exclusion_counts(items: list[dict[str, Any]]) -> dict[str, Any]:
     untrusted = sum(1 for item in items if item.get("price_untrusted"))
     if not stale and not untrusted:
         return {}
+    excluded = [item for item in items if _quality_excluded(item)]
     return {
         "stale_price_count": stale,
         "untrusted_price_count": untrusted,
+        # Holdings (rows) and cards (copies, as the app's "N cards not counted" line counts them).
+        "excluded_holding_count": len(excluded),
+        "excluded_card_count": sum(max(int(item.get("quantity") or 1), 1) for item in excluded),
         "excluded_price_note": (
             f"{stale + untrusted} holding(s) left out of the value: price_stale = no price observation in "
             f"{PRICE_STALE_DAYS} days; price_untrusted = raw price above the card's own PSA 10. Don't quote a "

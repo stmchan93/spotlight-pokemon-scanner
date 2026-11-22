@@ -76,7 +76,9 @@ cases:
         rubric:
           - "Does the first sentence state a total collection value in USD that matches the collection tool's total?"
           - "Does any 30-day change or explanation it gives match the tool data (or does it give none)?"
-          - "Does it leave out any note about unpriced holdings?"
+          # Owner 2026-11-22: holdings with a withheld (stale/untrusted) price are left out of the total;
+          # the answer says so in the app's words ("N cards aren't counted — no recent price").
+          - "If the tool result has not_counted_line (or stale/untrusted exclusions), does the answer say briefly that that many cards aren't counted because they have no recent price, with any holdings count leaving them out? If there are no exclusions, does it leave out any note about unpriced holdings?"
 
   - id: collection_movers
     review_label: L017
@@ -121,7 +123,8 @@ cases:
         rubric:
           # "Most valuable card" = highest per-copy price (run 3 ranked by holding total).
           - "Does the answer name the user's single most valuable card (highest per-copy price) with its value?"
-          - "Does it avoid listing all five cards with prices one by one?"
+          # Owner rule (2026-11-21): 2+ cards = one "- " bullet per card, bold name and bold price.
+          - "Are the cards it lists each on their own '- ' bullet with the card name and price in bold (not run together in prose)?"
 
   - id: collection_one_piece_value
     category: collection
@@ -845,7 +848,7 @@ cases:
             - tool: get_market_trends
               where: {game: pokemon}
           tiles_none_match: [{game_not: pokemon}]
-          must_contain_any: ['Pok[eé]mon']
+          must_contain_any: ["Pokémon", "Pokemon"]
         rubric:
           - "Does the answer cover only Pokémon cards and say so (e.g. 'Top Pokémon risers')?"
 
@@ -1108,24 +1111,22 @@ cases:
           - "Does it avoid stating unverifiable causes as fact?"
           - "Does it avoid any remark on how much price history exists or when it starts?"
 
+  # Was the no-history fallback (fixture deleted sv3pt5-199's history). Staging has months
+  # of history for it, so the case no longer depends on missing data: whatever the history
+  # shows, the answer reports it and must not invent a cause for the move.
   - id: why_charizard_moved_no_history
     review_label: L016 (fallback)
     category: explanation
-    fixtures:
-      delete:
-        - {table: card_price_history_daily, where: {card_id: sv3pt5-199}}
-        - {table: card_price_history_cell, where: {card_id: sv3pt5-199}}
     turns:
       - ask: "Why did Charizard ex 151 #199 go up recently?"
         expect:
           tools_any: [get_price_history, get_card]
-          no_chart: true
           tiles_exact: [sv3pt5-199]
-          must_contain_any: ["couldn't verify", "could not verify", "can't verify", "cannot verify", "unable to verify", "couldn't confirm", "can't confirm", "could not confirm", "no price history", "don't have price history", "don't have enough history", "don't have enough price history", "not enough history", "no recent price history", "no price history yet", "no history", "couldn't find any price history", "couldn't find price history"]
-          max_words: 60
-        reference: "I couldn't verify a recent price increase for Charizard ex (151, #199/165). Its current market price is $287.93."
+          max_words: 95
+        reference: "Say what the price history shows (the move and its dates, or plainly that it shows no recent rise / has no data), give the current USD price, and say it can't tell why the price moved unless the tools show a reason."
         rubric:
-          - "Does the answer say it couldn't verify a recent increase, rather than claiming or explaining one?"
+          - "Does it describe the move the tool results actually show (or say plainly they show no rise / no history), without claiming a rise the data doesn't show?"
+          - "Does it avoid stating a cause for the move as fact (no invented news, reprints, demand or tournament explanations)?"
           - "Does it give the card's current USD price consistent with the tool results (or say there is none)?"
 
   - id: explain_pricing

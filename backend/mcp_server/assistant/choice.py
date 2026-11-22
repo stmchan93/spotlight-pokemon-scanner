@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from mcp_server.assistant import length_guard
 from mcp_server.assistant.direct_add import condition_stated
 
 TAP_HINT = "Tap a card below to pick the right one."
@@ -120,3 +121,40 @@ def with_tap_hint(text: str) -> str:
     if "tap a card" in (text or "").casefold():
         return text
     return f"{text.rstrip()}\n\n{TAP_HINT}" if text and text.strip() else TAP_HINT
+
+
+# "tell me the quantity and condition if they're not 1 copy in Near Mint": an add defaults to
+# 1 copy in Near Mint, editable on the Confirm card, so a pick-a-printing reply asks for nothing else.
+_DETAIL_ASK = re.compile(
+    r"(?:,?\s*(?:and|then|also|plus)\s+|,\s*|;\s*)?"
+    r"\b(?:(?:please\s+)?(?:tell|let)\s+me(?:\s+know)?|what(?:'s|\s+is|\s+are)?|how\s+many|which|confirm|share|give\s+me"
+    r"|(?:i'?ll|i\s+will|i)\s+(?:also\s+)?need|do\s+you\s+(?:want|have))\b"
+    r"[^.!?]*\b(?:quantity|quantities|condition|conditions|cop(?:y|ies)|how\s+many|near\s+mint|grades?)\b[^.!?]*",
+    re.IGNORECASE,
+)
+_TAP = re.compile(r"\btap a card\b", re.IGNORECASE)
+
+
+def _without_detail_ask(sentence: str) -> str:
+    match = _DETAIL_ASK.search(sentence)
+    if match is None:
+        return sentence
+    if not _TAP.search(sentence[: match.start()]):
+        return ""  # the whole sentence is the extra ask
+    kept = sentence[: match.start()].rstrip(" ,;:")
+    if length_guard.ends_mid_thought(kept):
+        return TAP_HINT
+    return kept + (sentence.rstrip()[-1:] if sentence.rstrip()[-1:] in ".!?" else ".")
+
+
+def strip_detail_asks(text: str, choice: dict[str, Any] | None) -> str:
+    """Owner 2026-11-22: a pick-a-printing reply for an add asks only which printing (the tap hint):
+    no ask for quantity or condition, which default to 1 copy in Near Mint on the Confirm card."""
+    if not text or not choice or choice.get("intent") != "add":
+        return text
+    paragraphs = [
+        " ".join(part for part in (_without_detail_ask(s) for s in length_guard._sentences(p)) if part)
+        for p in length_guard._paragraphs(text)
+    ]
+    out = length_guard._join([p for p in paragraphs if p.strip()])
+    return out or text

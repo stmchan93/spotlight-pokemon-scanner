@@ -110,6 +110,8 @@ class StaleAndUntrustedTests(PriceQualityCase):
         self.assertEqual(portfolio["value_usd"], 100.0)
         self.assertEqual((portfolio["stale_price_count"], portfolio["untrusted_price_count"]), (1, 1))
         self.assertEqual([h["card_id"] for h in portfolio["top_holdings"]], ["fresh"])
+        self.assertEqual((portfolio["excluded_holding_count"], portfolio["excluded_card_count"]), (2, 2))
+        self.assertEqual(portfolio["holdings_count"], 3)
 
     def test_no_flags_when_everything_is_current(self) -> None:
         self.conn.execute("DELETE FROM deck_entries WHERE id IN ('h-stale', 'h-phantom')")

@@ -66,10 +66,10 @@ Accuracy (never break these):
 - "Should I grade this?"/"is it worth grading this card": grading_upside on that card (the scanned card, or the one named; pass graders only when the user names BGS or CGC). Lead with the recommendation in plain words (worth_grading: "Worth grading"; grade_if_confident_10: "Only if you expect a 10"; not_worth_it: "Not worth grading"), then the net per grade from scenarios (net_usd, after the grading fee and return shipping), e.g. "A PSA 10 nets about **+$880**, a PSA 9 **+$40**, a PSA 8 loses money." Name the fee once ("after the ~$59.99 PSA fee and $19.99 shipping"). A grade with comp_missing: "no recent PSA 8 sale". The app shows the grade table: never write one. A follow-up "what if it gets a 9?": reuse the card and quote that grade's net_usd.
 - A price for specific cards ("they want $250 for this", "is $40 fair for these", "good deal at $300?", "a vendor offered $500 for my Charizard"): call check_deal with the cards (scanned ids, or names) and the price; side=selling when the user is the one being paid. Lead with verdict_label in bold, then "$250 is **87% of market** ($287.93)". Buying: add one haggle line from good_buy_up_to_usd ("under $259 would be a good buy"). Selling: say what a strong offer is (strong_offer_from_usd). verdict unknown: say there's no price for that card and give no verdict; ambiguous: ask which printing (ask_which). The app shows the verdict card. Never compute a % or total yourself; never call it a prediction or advice. "Is this a good deal?" with no price: ask what price they're being asked (one short question, no tool).
 - Trade checks ("trade check", "is this trade fair", "my X for their Y"): ONE compare_trade call with side_a = what the user gives and side_b = what they get (scanned cards are the user's side unless they say otherwise). Lead with verdict_label and the gap ("Fair trade: within 3%." / "Uneven: you give up **$38** more (12%)."), then both totals. When balance is set, one line: who_adds and cash_usd ("ask for ~$38 cash"), and name a balance card only from balance.cards. Neutral tone: never "bad trade" or "rip-off". unknown: say which card is unpriced or ask which printing; give no totals. "Trade check this" with only one side: ask what the other side is (one short question).
-- Collection worth: get_portfolio_summary; give the total value first (the tiles show the top holdings). Scoped worth ("my One Piece cards", "my Japanese cards"): get_my_collection with that filter; the first sentence states its total_value_usd.
+- Collection worth: get_portfolio_summary; give the total value first (the tiles show the top holdings). If the result has not_counted_line, say it word for word right after the total (e.g. "Your collection is worth **$3,235.80**. 8 cards aren't counted — no recent price."), and any holdings count you give is the result's count (it already leaves those out). Scoped worth ("my One Piece cards", "my Japanese cards"): get_my_collection with that filter; the first sentence states its total_value_usd.
 - The user's most valuable cards or slabs: get_my_collection sort=price_desc (per-copy price; holding_type="graded" for slabs, product="single" for cards). The #1 is the highest price_usd; mention a holding's total (value_usd) only as an aside. "Top holdings" and the collection total use value_desc.
-- Movers inside a set, rarity or card name ("which Evolving Skies card dropped the most this month", "biggest SIR gainers this week"): find_movers with direction and the window the user named (week=7d, month=30d, 3 months=90d, year=1y; default 30d). State the window as window_label gives it.
-- Collection movers: call get_portfolio_summary with focus="movers"; name at most 3 cards. top_gainers/top_losers are ranked by dollars; top_gainers_pct/top_losers_pct by percent. Label each ranking you give ("by dollars", "in percent"); a leader ("biggest", "led", "most in %") comes only from top_gainer_by_usd/top_gainer_by_pct (losers: top_loser_by_usd/top_loser_by_pct), never inferred from the other list.
+- Movers inside a set, rarity or card name ("which Evolving Skies card dropped the most this month", "biggest SIR gainers this week"): find_movers with direction and the window the user named (week=7d, month=30d, 3 months=90d, year=1y; default 30d). State the window as window_label gives it. Naming 2 or more cards (e.g. the leader by dollars and the leader by percent): a one-sentence takeaway, then one "- " bullet per card with the **name**, **price** and **% change** in bold, never a prose run.
+- Collection movers: call get_portfolio_summary with focus="movers"; name at most 3 cards. top_gainers/top_losers are ranked by dollars; top_gainers_pct/top_losers_pct by percent. Two or more cards: one "- " bullet each (name, price, % in bold). Label each ranking you give ("by dollars", "in percent"); a leader ("biggest", "led", "most in %") comes only from top_gainer_by_usd/top_gainer_by_pct (losers: top_loser_by_usd/top_loser_by_pct), never inferred from the other list.
 - "Japanese/English version of" a card: find the card, call get_card on it, and use its language_pair (get_card on that id for the price). Talk about the counterpart (set, number, USD price); mention the source card only if the user scanned it.
 - If a tool says total_is_lower_bound, say "at least" with its counts.
 - Collection actions: remove copies with propose_remove_holding, move a holding with propose_move_holding (collection_id from list_my_collections), create a collection with propose_create_collection (pass holding_ids to move into it). Find the holding first (get_card my_holdings or get_my_collection). Each one is a Confirm card: say it's ready to confirm, never that it's done. A named collection the user doesn't have: offer to create it.
@@ -128,7 +128,7 @@ Add it to my Watchlist
 Final checks before answering:
 - The first sentence answers with a number or verdict from the tools. Under 60 words (why/explain/grading: about 90).
 - Name at most 3 cards. A list of cards or sets is one bullet each with the **name**, **price** and **% change** in bold; never a prose run of cards and prices.
-- Gainers/losers answers: never mention the collection's overall value or change. Collection totals: no note about unpriced holdings.
+- Gainers/losers answers: never mention the collection's overall value or change. Collection totals: no other note about unpriced holdings than not_counted_line.
 - Never mention tags, filters, searches, or what was or wasn't searched, excluded or filtered. Art answers never use the words tag, tagged, or matching.
 - Price history answers: one short sentence (card + number, % move since the start date, today's price); the chart carries the rest.
 - No remarks on how much price history exists or when it starts; name a window only as window_label gives it.
@@ -137,7 +137,7 @@ Final checks before answering:
 - Raw + graded leaders: the first sentence names the single priciest card overall (usually the graded one) and its price; the other side follows.
 - Art answers: no print-language remarks (English/Japanese) unless the user asked.
 - Several printings and no set/number given: ask which one, unless search_cards gives default_printing_card_id.
-- An add or update request that's ambiguous about the printing ("Add Pikachu to my collection"): don't propose or write; pass the candidate printings to show_cards and say "Tap a card below to pick the right one." Ask only for what's truly missing (not set, number, quantity and condition all at once): a proposal defaults to 1 copy in Near Mint, which the user can change when confirming.
+- An add or update request that's ambiguous about the printing ("Add Pikachu to my collection"): don't propose or write; pass the candidate printings to show_cards and say "Tap a card below to pick the right one." Ask only for what's truly missing: when the printing is the only open question, the tap hint is the whole ask; never ask for quantity or condition there (a proposal defaults to 1 copy in Near Mint, which the user can change when confirming).
 - A follow-up that narrows your last answer ("only singles") gets 1-2 short sentences (under 40 words) with just the new result.
 - Only when the user asks what a price means: say plainly that a market price is roughly what copies have recently sold for. Never add it to other answers.
 - Name only app features from the list above.
@@ -324,6 +324,65 @@ def ensure_total_first(text: str, question: str, totals: list[tuple[float, str |
         return text
     subject = f"Your {scope} cards are" if scope else "Your collection is"
     return f"{subject} worth about ${total:,.2f} in total." + (f" {text}" if text else "")
+
+
+@dataclass(frozen=True)
+class NotCounted:
+    """A collection total that leaves out cards with no recent price (stale/untrusted)."""
+
+    total: float
+    line: str
+    holdings: int | None = None  # holdings the total counts
+    all_holdings: int | None = None  # every holding, the left-out ones included
+
+    @classmethod
+    def from_content(cls, total: float, content: dict[str, Any]) -> NotCounted | None:
+        line = content.get("not_counted_line")
+        if not isinstance(line, str) or not line:
+            return None
+        counted = content.get("counted_count", content.get("holdings_count"))
+        left_out = content.get("not_counted_holdings")
+        if isinstance(counted, int) and isinstance(left_out, int):
+            return cls(total, line, counted, counted + left_out)
+        return cls(total, line)
+
+
+_NOT_COUNTED_SAID = re.compile(
+    r"(?:\bnot|n't|\bnever) (?:been )?(?:counted|included)\b|\bno recent price\b|\bleft out\b|\bexclud",
+    re.IGNORECASE,
+)
+
+
+def ensure_not_counted_line(text: str, not_counted: list[NotCounted | None]) -> str:
+    """Owner 2026-11-22: an answer that states a collection total which leaves out cards with no recent
+    price says so (the app's "N cards not counted — no recent price"), right after the total, and a
+    holdings count next to the total never includes the left-out holdings."""
+    info = not_counted[-1] if not_counted else None
+    if info is None or not text or not _mentions_amount(text, info.total):
+        return text
+    if info.holdings is not None and info.all_holdings is not None and info.all_holdings != info.holdings:
+        counted = info.holdings
+        text = re.sub(
+            rf"(?<![\d,.$])(?:{info.all_holdings:,}|{info.all_holdings})(\s+)(holding|card)s?\b",
+            lambda m: f"{counted:,}{m.group(1)}{m.group(2)}{'' if counted == 1 else 's'}",
+            text,
+        )
+    if _NOT_COUNTED_SAID.search(text):
+        return text
+    lines = text.split("\n")
+    for index, line in enumerate(lines):
+        if not _mentions_amount(line, info.total):
+            continue
+        sentences = length_guard.split_sentences(line)
+        for position, sentence in enumerate(sentences):
+            if _mentions_amount(sentence, info.total):
+                sentences.insert(position + 1, info.line)
+                break
+        else:
+            sentences.append(info.line)
+        lines[index] = " ".join(sentences)
+        return "\n".join(lines)
+    return f"{text} {info.line}"
 
 
 def clean_answer_text(text: str, question: str, tools_used: list[str], *, keep_language: bool = False) -> str:
@@ -623,6 +682,8 @@ def _distinct_charts(charts: list[dict[str, Any]]) -> list[dict[str, Any]]:
 SHOW_CARDS = "show_cards"
 # Their results are lists the answer may present, naming only a few of them.
 LIST_TOOLS = frozenset({"search_cards", "find_missing", "get_my_collection", "get_my_watchlist"})
+# Movers/trends answers: 2+ cards are one bullet each (owner 2026-11-20).
+MOVER_LIST_TOOLS = frozenset({"find_movers", "get_market_trends", "find_price_lows", "find_new_highs"})
 
 
 def _history_refs(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -898,6 +959,7 @@ class AssistantEngine:
         art_search = False
         ask_which: str | None = None
         collection_totals: list[tuple[float, str | None]] = []
+        not_counted: list[NotCounted | None] = []
         # Substantive text the model wrote next to tool calls (raw, with any follow-ups block).
         earlier_texts: list[str] = []
         answered_with_selection = False
@@ -979,6 +1041,7 @@ class AssistantEngine:
                 total_key = {"get_my_collection": "total_value_usd", "get_portfolio_summary": "value_usd"}.get(block.name)
                 if total_key and not outcome.is_error and isinstance(content.get(total_key), (int, float)):
                     collection_totals.append((float(content[total_key]), content.get("scope_label")))
+                    not_counted.append(NotCounted.from_content(float(content[total_key]), content))
                 if block.name == "get_my_collection" and not outcome.is_error:
                     holding_refs.extend(outcome.cards)
                 if block.name == "get_market_trends" and not outcome.is_error:
@@ -1094,6 +1157,11 @@ class AssistantEngine:
                 sentences = max(1, result.sentence_limit - int(appended)) if result.sentence_limit else None
                 if result.word_limit and length_guard.over_limit(text, words, sentences):
                     text = length_guard.trim_to_limit(text, words, sentences)
+            text = ensure_not_counted_line(text, not_counted)
+            if MOVER_LIST_TOOLS & set(looked_up) or is_movers_question(question):
+                text = length_guard.bullet_prose_cards(
+                    text, [str(ref["name"]) for ref in primary_refs + other_refs if ref.get("name")]
+                )
             text = ensure_choice_question(length_guard.bold_bullet_figures(text), ask_which)
             result.text = text + ("…" if result.stop_reason == "max_tokens" else "")
             result.suggestions = suggestions
@@ -1137,7 +1205,7 @@ class AssistantEngine:
                 turn_card_ids={str(ref["card_id"]) for ref in primary_refs + other_refs},
             )
             if result.choice is not None:
-                result.text = pick_choice.with_tap_hint(result.text)
+                result.text = pick_choice.with_tap_hint(pick_choice.strip_detail_asks(result.text, result.choice))
             elif result.cards and not result.sets and not result.actions:
                 # Owner hand labels 2026-11-21: the text names every card it shows (short replies)
                 # and any "Here are N" matches the tiles.
