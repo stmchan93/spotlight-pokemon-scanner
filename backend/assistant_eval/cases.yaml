@@ -626,7 +626,8 @@ cases:
     review_label: L026
     category: graded
     fixtures:
-      # PSA 10 comp inputs (synthetic eBay sales). Lugia is left without a comp on purpose.
+      # PSA 10 comp inputs (synthetic eBay sales). Lugia is left without a comp on purpose; the Teammates
+      # sale names no set, so grading_upside ignores it (could be an English Teammates print).
       delete:
         - {table: slab_recent_sales, where: {card_id: bw5-104, grader: PSA, grade: "10"}}
         - {table: slab_recent_sales_cache, where: {card_id: bw5-104, grader: PSA, grade: "10"}}
@@ -658,7 +659,7 @@ cases:
           must_not_contain: ['\|']
           must_contain_any: ["- **"]
           max_words: 160
-        reference: "Your strongest grading candidates are Kyogre-EX, Lugia and Teammates.\n- **Kyogre-EX** (Dark Explorers 104/108): raw $504.48 → PSA 10 $1,450 (+$945.52, +187%)\n- **Teammates** (Gaia Volcano 077/070): raw $[raw] → PSA 10 $45 (+$[diff], +[pct]%)\n- **Lugia** ([set number]): raw $[raw] · no recent PSA 10 sale\nGrading costs money and takes time, so fees eat into the smaller gaps."
+        reference: "Your strongest grading candidates are Kyogre-EX, Lugia and Teammates.\n- **Kyogre-EX** (Dark Explorers 104/108): raw $504.48 → PSA 10 $1,450 (+$945.52, +187%)\n- **Teammates** (Gaia Volcano 077/070): raw $[raw] · no current PSA 10 comp\n- **Lugia** ([set number]): raw $[raw] · no recent PSA 10 sale\nGrading costs money and takes time, so fees eat into the smaller gaps."
         rubric:
           - "Does the answer name specific cards the user owns as grading candidates?"
           - "For each card with a PSA 10 comp in the tool results, does it compare the raw price with that comp using real numbers?"

@@ -338,14 +338,14 @@ class GradingUpsideTests(ChatFixCase):
     """L026: raw price vs PSA 10 comp from stored data."""
 
     def _seed(self) -> None:
-        self.any_card("xy5-54", "Kyogre-EX", set_name="Primal Clash", set_code="xy5")
+        self.any_card("xy5-54", "Kyogre-EX", set_name="Primal Clash", set_code="xy5", number="54/160")
         self.main_price("xy5-54", 100.0, variant="Holofoil")
         replace_slab_recent_sales_cache(
             self.conn, card_id="xy5-54", grader="PSA", grade="10", source="ebay",
-            sales=[{"sourceSaleID": "k1", "title": "Kyogre EX 54 PSA 10", "price": 400.0, "currencyCode": "USD",
-                    "soldAt": _days_ago(4)},
-                   {"sourceSaleID": "k2", "title": "Kyogre EX 54 PSA 10", "price": 380.0, "currencyCode": "USD",
-                    "soldAt": _days_ago(20)}],
+            sales=[{"sourceSaleID": "k1", "title": "Kyogre EX Primal Clash 54/160 PSA 10", "price": 400.0,
+                    "currencyCode": "USD", "soldAt": _days_ago(4)},
+                   {"sourceSaleID": "k2", "title": "2015 Pokemon Primal Clash #54 Kyogre EX PSA 10", "price": 380.0,
+                    "currencyCode": "USD", "soldAt": _days_ago(20)}],
         )
         self.any_card("lugia", "Lugia")
         self.main_price("lugia", 50.0, variant="Holofoil")
