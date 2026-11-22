@@ -79,6 +79,12 @@ type AssistantMessageBubbleProps = {
   footer?: ReactNode;
 };
 
+/** One copy kind of a card: raw, or a grader + grade slab. */
+function assistantSlabKey(ref: { cardId: string; grader: string | null; grade: string | null }): string {
+  const grader = (ref.grader ?? '').trim().toUpperCase();
+  return grader ? `${ref.cardId}|${grader}|${(ref.grade ?? '').trim()}` : ref.cardId;
+}
+
 export function AssistantMessageBubble({
   message,
   actionStates,
@@ -110,10 +116,11 @@ export function AssistantMessageBubble({
   const charts = allCharts.filter((chart) => !rowIds.has(chart.cardId));
   // A chart answer about exactly the charted card(s): the chart card carries the art,
   // so a lone tile underneath would only repeat it.
-  const chartIds = new Set(charts.map((chart) => chart.cardId));
+  // Keyed by slab too: a raw chart doesn't stand in for the CGC copy's tile.
+  const chartKeys = new Set(charts.map(assistantSlabKey));
   const tilesRepeatCharts =
     !picking &&
-    charts.length > 0 && message.cards.length > 0 && message.cards.every((card) => chartIds.has(card.cardId));
+    charts.length > 0 && message.cards.length > 0 && message.cards.every((card) => chartKeys.has(assistantSlabKey(card)));
   const verdicts = message.verdicts ?? [];
   // A single-card deal / grading card carries the art: a lone tile underneath would repeat it.
   const verdictIds = new Set(
@@ -159,7 +166,11 @@ export function AssistantMessageBubble({
       ))}
       {charts.map((chart, index) => (
         <AssistantPriceChartCard
-          card={message.cards.find((card) => card.cardId === chart.cardId) ?? null}
+          card={
+            message.cards.find((card) => assistantSlabKey(card) === assistantSlabKey(chart))
+            ?? message.cards.find((card) => card.cardId === chart.cardId)
+            ?? null
+          }
           chart={chart}
           key={`${chart.cardId}-${index}`}
           onOpenCard={onOpenCard}

@@ -61,6 +61,14 @@ export const mockAssistantCards: Record<'celebi' | 'oshawott' | 'treecko', Assis
   },
 };
 
+/** Graded copies of the mock Celebi: one per slab template (CGC, PSA, BGS) plus a grader without one. */
+export const mockAssistantSlabCards: Record<'cgc' | 'psa' | 'bgs' | 'sgc', AssistantCardRef> = {
+  cgc: { ...mockAssistantCards.celebi, priceUsd: null, grader: 'CGC', grade: '9.5', quantityOwned: 1 },
+  psa: { ...mockAssistantCards.celebi, priceUsd: 142.0, grader: 'PSA', grade: '10', quantityOwned: 1 },
+  bgs: { ...mockAssistantCards.celebi, priceUsd: null, grader: 'BGS', grade: '9.5', quantityOwned: 1 },
+  sgc: { ...mockAssistantCards.celebi, priceUsd: null, grader: 'SGC', grade: '10', quantityOwned: 1 },
+};
+
 export function mockAssistantUsage(usedToday: number, limit: number | null = MOCK_ASSISTANT_DAILY_LIMIT): AssistantUsage {
   return {
     limit,
@@ -170,6 +178,16 @@ export function buildMockAssistantReply(
     };
   }
 
+  if (/\b(slabs?|graded|cgc|psa|bgs|copies)\b/.test(question)) {
+    const { cgc, psa, bgs, sgc } = mockAssistantSlabCards;
+    return {
+      text: 'You own **5 Celebis**: one raw Near Mint copy and four slabs (CGC 9.5, PSA 10, BGS 9.5, SGC 10).',
+      cards: [celebi, cgc, psa, bgs, sgc],
+      actions: [],
+      suggestions: ['Is the raw Celebi worth grading?'],
+    };
+  }
+
   if (/\bsets?\b/.test(question)) {
     return {
       text: '**Plasma Storm** is up **66.9%** over the past 30 days, while **Ascended Heroes** fell **24%**.',
@@ -255,6 +273,45 @@ export function seedMockAssistantThread(): { summary: AssistantThreadSummary; me
         cards: [mockAssistantCards.treecko],
         actions: [],
         createdAt: '2026-11-16T21:04:09Z',
+        status: 'ok',
+      },
+    ],
+  };
+}
+
+export const MOCK_ASSISTANT_SLAB_THREAD_ID = 'thr_mock_slabs';
+
+/** A saved chat whose answer mixes a raw copy and slabs of the same card (dev route assistant-slabs). */
+export function seedMockAssistantSlabThread(): { summary: AssistantThreadSummary; messages: AssistantMessage[] } {
+  const threadId = MOCK_ASSISTANT_SLAB_THREAD_ID;
+  const question = 'Show my Celebi copies';
+  const reply = buildMockAssistantReply(question, null, () => 'act_mock_slabs');
+  return {
+    summary: {
+      id: threadId,
+      title: question,
+      updatedAt: '2026-11-15T18:00:09Z',
+      lastMessagePreview: reply.text,
+    },
+    messages: [
+      {
+        id: 'msg_mock_slabs_1',
+        threadId,
+        role: 'user',
+        text: question,
+        cards: [],
+        actions: [],
+        createdAt: '2026-11-15T18:00:00Z',
+        status: 'ok',
+      },
+      {
+        id: 'msg_mock_slabs_2',
+        threadId,
+        role: 'assistant',
+        text: reply.text,
+        cards: reply.cards,
+        actions: [],
+        createdAt: '2026-11-15T18:00:09Z',
         status: 'ok',
       },
     ],

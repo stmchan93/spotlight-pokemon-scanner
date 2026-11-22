@@ -174,6 +174,9 @@ const SLAB_LABEL_STYLES: Record<string, SlabLabelStyle> = {
 
 const NEUTRAL_LABEL: SlabLabelStyle = { border: '#BEBEBE', accent: '#1A1A1A' };
 
+/** Width ÷ height of a slab slot (Figma 2609:6977's 84×136): size SlabFrame's host to this. */
+export const SLAB_FRAME_ASPECT = 84 / 136;
+
 export type SlabFrameSize = 'sm' | 'md';
 
 type SlabFrameProps = {

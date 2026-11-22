@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import type { AssistantCardRef } from '@spotlight/api-client';
-import { AppText, PriceSparkline, radii, spacing, Text, TrendTriangle, useSpotlightTheme } from '@spotlight/design-system';
+import { PriceSparkline, radii, spacing, Text, TrendTriangle, useSpotlightTheme } from '@spotlight/design-system';
 
-import { CachedImage } from '@/components/cached-image';
+import { AssistantCardArt } from '@/features/assistant/components/assistant-card-art';
 import { assistantCardMeta } from '@/features/assistant/components/assistant-card-tile';
 import { assistantRangeCaption } from '@/features/assistant/components/assistant-price-chart';
 import { formatCurrency, formatPercent } from '@/features/portfolio/components/portfolio-formatting';
@@ -53,9 +52,6 @@ type AssistantCardRowProps = {
 
 export function AssistantCardRow({ card, onPress, testID }: AssistantCardRowProps) {
   const theme = useSpotlightTheme();
-  const [imageFailed, setImageFailed] = useState(false);
-  useEffect(() => setImageFailed(false), [card.imageSmallUrl]);
-  const showImage = Boolean(card.imageSmallUrl) && !imageFailed;
   const meta = assistantCardMeta(card);
   const sparkline = card.sparkline ?? null;
   const change = sparkline?.changePct ?? null;
@@ -75,21 +71,19 @@ export function AssistantCardRow({ card, onPress, testID }: AssistantCardRowProp
       style={({ pressed }) => [styles.row, { opacity: pressed ? 0.7 : 1 }]}
       testID={testID}
     >
-      <View style={[styles.thumb, { backgroundColor: showImage ? theme.colors.gray100 : theme.colors.field }]}>
-        {showImage ? (
-          <CachedImage
-            contentFit="contain"
-            onError={() => setImageFailed(true)}
-            style={styles.fill}
-            testID={testID ? `${testID}-image` : undefined}
-            uri={card.imageSmallUrl}
-          />
-        ) : (
-          <AppText color="textSecondary" testID={testID ? `${testID}-placeholder` : undefined} variant="micro">
-            CARD
-          </AppText>
-        )}
-      </View>
+      <AssistantCardArt
+        grade={card.grade}
+        grader={card.grader}
+        height={THUMB_HEIGHT}
+        imageUrl={card.imageSmallUrl}
+        name={card.name}
+        number={card.number}
+        radius={THUMB_RADIUS}
+        setName={card.setName}
+        slabSize="sm"
+        testID={testID}
+        width={THUMB_WIDTH}
+      />
       <View style={styles.copy}>
         <Text numberOfLines={1} style={[theme.typography.labelStrong, { color: theme.colors.gray900 }]}>
           {card.name}
@@ -151,19 +145,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.xxs,
     paddingVertical: spacing.xxs,
-  },
-  thumb: {
-    alignItems: 'center',
-    borderCurve: 'continuous',
-    borderRadius: THUMB_RADIUS,
-    height: THUMB_HEIGHT,
-    justifyContent: 'center',
-    overflow: 'hidden',
-    width: THUMB_WIDTH,
-  },
-  fill: {
-    height: '100%',
-    width: '100%',
   },
   copy: {
     flex: 1,

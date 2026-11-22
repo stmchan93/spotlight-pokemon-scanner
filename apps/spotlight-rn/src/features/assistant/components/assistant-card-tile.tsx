@@ -1,14 +1,14 @@
-import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import type { AssistantCardRef } from '@spotlight/api-client';
-import { AppText, PriceSparkline, Text, spacing, useSpotlightTheme } from '@spotlight/design-system';
+import { PriceSparkline, Text, spacing, useSpotlightTheme } from '@spotlight/design-system';
 
-import { CachedImage } from '@/components/cached-image';
+import { AssistantCardArt } from '@/features/assistant/components/assistant-card-art';
 import { assistantRangeCaption } from '@/features/assistant/components/assistant-price-chart';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
 // The card image is 86x120 at a 4pt radius (Figma 6528:16786); the tile is the image's width.
+// A slab fits the same 120pt height in its case, centered.
 const TILE_WIDTH = 86;
 const ART_HEIGHT = 120;
 const ART_RADIUS = 4;
@@ -34,9 +34,6 @@ type AssistantCardTileProps = {
 export function AssistantCardTile({ card, onPress, onLongPress, pickHint, testID }: AssistantCardTileProps) {
   const theme = useSpotlightTheme();
   const owned = card.quantityOwned ?? 0;
-  const [imageFailed, setImageFailed] = useState(false);
-  useEffect(() => setImageFailed(false), [card.imageSmallUrl]);
-  const showImage = Boolean(card.imageSmallUrl) && !imageFailed;
   return (
     <Pressable
       accessibilityLabel={`${card.name}, ${assistantCardMeta(card)}`}
@@ -48,21 +45,20 @@ export function AssistantCardTile({ card, onPress, onLongPress, pickHint, testID
       style={({ pressed }) => [styles.tile, { opacity: pressed ? 0.86 : 1 }]}
       testID={testID}
     >
-      <View style={[styles.art, { backgroundColor: showImage ? theme.colors.gray100 : theme.colors.field }]}>
-        {showImage ? (
-          <CachedImage
-            contentFit="contain"
-            onError={() => setImageFailed(true)}
-            style={styles.fill}
-            testID={testID ? `${testID}-image` : undefined}
-            uri={card.imageSmallUrl}
-          />
-        ) : (
-          // Same "CARD" placeholder as the inventory tile and list rows.
-          <AppText color="textSecondary" testID={testID ? `${testID}-placeholder` : undefined} variant="micro">
-            CARD
-          </AppText>
-        )}
+      <View style={styles.art}>
+        <AssistantCardArt
+          grade={card.grade}
+          grader={card.grader}
+          height={ART_HEIGHT}
+          imageUrl={card.imageSmallUrl}
+          name={card.name}
+          number={card.number}
+          radius={ART_RADIUS}
+          setName={card.setName}
+          slabSize="md"
+          testID={testID}
+          width={TILE_WIDTH}
+        />
       </View>
       {/* Name + price stay under the art: replies don't list prices in text, the tiles carry them. */}
       <Text numberOfLines={2} style={[theme.typography.captionMedium, { color: theme.colors.gray900 }]}>
@@ -118,18 +114,7 @@ const styles = StyleSheet.create({
     width: TILE_WIDTH,
   },
   art: {
-    alignItems: 'center',
-    borderCurve: 'continuous',
-    borderRadius: ART_RADIUS,
-    height: ART_HEIGHT,
-    justifyContent: 'center',
     marginBottom: spacing.xxxs,
-    overflow: 'hidden',
-    width: '100%',
-  },
-  fill: {
-    height: '100%',
-    width: '100%',
   },
   sparkline: {
     gap: spacing.xxxs,

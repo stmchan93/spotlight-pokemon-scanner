@@ -16,6 +16,8 @@ import {
   MOCK_ASSISTANT_DAILY_LIMIT,
   buildMockAssistantReply,
   mockAssistantUsage,
+  MOCK_ASSISTANT_SLAB_THREAD_ID,
+  seedMockAssistantSlabThread,
   seedMockAssistantThread,
 } from './assistant-mock-data';
 import {
@@ -4641,7 +4643,9 @@ export class MockSpotlightRepository implements SpotlightRepository {
     threadId: string,
     _options?: { limit?: number; before?: string | null },
   ): Promise<AssistantMessage[]> {
-    const thread = this.assistantThreads.get(threadId);
+    // The slab demo thread (dev route assistant-slabs) opens by id without joining the history list.
+    const thread = this.assistantThreads.get(threadId)
+      ?? (threadId === MOCK_ASSISTANT_SLAB_THREAD_ID ? seedMockAssistantSlabThread() : undefined);
     if (!thread) {
       throw new AssistantRequestError('thread not found', 'not_found', 404);
     }

@@ -693,8 +693,40 @@ def _quantity_owned(value: dict[str, Any]) -> int | None:
         return value["quantity"]
     holdings = value.get("my_holdings")
     if isinstance(holdings, list):
-        return sum(int(item.get("quantity") or 0) for item in holdings if isinstance(item, dict))
+        # The card-level ref is the raw copy; slab holdings get their own refs (_slab_holding_refs).
+        return sum(
+            int(item.get("quantity") or 0)
+            for item in holdings
+            if isinstance(item, dict) and _slab(item)[0] is None
+        )
     return None
+
+
+def _slab_holding_refs(base: dict[str, Any], holdings: Any) -> list[dict[str, Any]]:
+    """One ref per owned grader+grade in get_card's my_holdings, so a CGC 9 copy tiles
+    as a slab, apart from the raw copies. No price: the card's price_usd is the raw one."""
+    refs: list[dict[str, Any]] = []
+    for holding in holdings if isinstance(holdings, list) else []:
+        if not isinstance(holding, dict):
+            continue
+        grader, grade = _slab(holding)
+        if grader is None or int(holding.get("quantity") or 0) <= 0:
+            continue
+        existing = next((ref for ref in refs if _slab(ref) == (grader, grade)), None)
+        if existing is not None:
+            existing["quantity_owned"] += int(holding.get("quantity") or 0)
+            continue
+        refs.append(
+            {
+                **base,
+                "price_usd": None,
+                "variant": holding.get("variant") or base.get("variant"),
+                "grader": grader,
+                "grade": grade,
+                "quantity_owned": int(holding.get("quantity") or 0),
+            }
+        )
+    return refs
 
 
 def card_refs(value: Any) -> list[dict[str, Any]]:
@@ -709,22 +741,22 @@ def card_refs(value: Any) -> list[dict[str, Any]]:
         if not isinstance(node, dict):
             return
         if node.get("card_id") and node.get("name"):
-            found.append(
-                {
-                    "card_id": str(node["card_id"]),
-                    "name": node.get("name"),
-                    "set": node.get("set"),
-                    "number": node.get("number"),
-                    "language": node.get("language"),
-                    "image_small_url": node.get("image_small_url"),
-                    "price_usd": node.get("price_usd"),
-                    "variant": node.get("variant") or node.get("watch_variant"),
-                    "grader": node.get("grader"),
-                    "grade": node.get("grade"),
-                    "quantity_owned": _quantity_owned(node),
-                    "app_url": node.get("app_url"),
-                }
-            )
+            ref = {
+                "card_id": str(node["card_id"]),
+                "name": node.get("name"),
+                "set": node.get("set"),
+                "number": node.get("number"),
+                "language": node.get("language"),
+                "image_small_url": node.get("image_small_url"),
+                "price_usd": node.get("price_usd"),
+                "variant": node.get("variant") or node.get("watch_variant"),
+                "grader": node.get("grader"),
+                "grade": node.get("grade"),
+                "quantity_owned": _quantity_owned(node),
+                "app_url": node.get("app_url"),
+            }
+            found.append(ref)
+            found.extend(_slab_holding_refs(ref, node.get("my_holdings")))
         for key, item in node.items():
             if key != "my_holdings":
                 walk(item)

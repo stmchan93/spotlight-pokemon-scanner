@@ -14,7 +14,7 @@ import {
   type PriceChartModel,
   type PriceChartRange,
 } from '@/features/cards/card-price-chart-model';
-import { CachedImage } from '@/components/cached-image';
+import { AssistantCardArt } from '@/features/assistant/components/assistant-card-art';
 import { PriceScrubChart } from '@/features/cards/components/price-scrub-chart';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
@@ -134,14 +134,20 @@ export function AssistantPriceChartCard({ chart, card, onOpenCard, testID }: Ass
         testID={testID ? `${testID}-open` : undefined}
       >
         {card?.imageSmallUrl ? (
-          <View style={[styles.thumb, { backgroundColor: theme.colors.gray100 }]}>
-            <CachedImage
-              contentFit="contain"
-              style={styles.thumbImage}
-              testID={testID ? `${testID}-thumb` : undefined}
-              uri={card.imageSmallUrl}
-            />
-          </View>
+          // A graded series shows the card in its slab case, so a CGC chart never reads as the raw copy.
+          <AssistantCardArt
+            grade={chart.grade}
+            grader={chart.grader}
+            height={THUMB_HEIGHT}
+            imageUrl={card.imageSmallUrl}
+            name={card.name}
+            number={card.number}
+            radius={THUMB_RADIUS}
+            setName={card.setName}
+            slabSize="sm"
+            testID={testID ? `${testID}-thumb` : undefined}
+            width={THUMB_WIDTH}
+          />
         ) : null}
         <View style={styles.headerCopy}>
           <Text numberOfLines={1} style={theme.typography.labelStrong}>
@@ -209,17 +215,6 @@ const styles = StyleSheet.create({
   },
   headerCopy: {
     flex: 1,
-  },
-  thumb: {
-    borderCurve: 'continuous',
-    borderRadius: THUMB_RADIUS,
-    height: THUMB_HEIGHT,
-    overflow: 'hidden',
-    width: THUMB_WIDTH,
-  },
-  thumbImage: {
-    height: '100%',
-    width: '100%',
   },
   readout: {
     alignItems: 'center',
