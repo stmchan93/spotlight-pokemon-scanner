@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -94,10 +95,14 @@ SEALED_TEXT_POOL_SIZE = 50
 # blobs are read (staging writes no graded cells by design).
 GRADED_CELL_MAX_AGE_DAYS = 7
 GRADED_CANDIDATE_ROWS = 4000
+GRADED_CELL_DAY_TTL_SECONDS = 600
 # Top candidates re-priced from cached verified sales, like the PDP headline.
 GRADED_SALE_OVERLAY = 40
 GRADED_SLABS_PER_CARD = 4
 MAX_TOP_GRADED = 20
+# A card filter (name/set/artist/rarity) matching at most this many cards is resolved
+# to ids first and graded prices are read for those ids only; a broader one ranks the game.
+GRADED_SCOPE_MAX_CARDS = 3000
 # Graded price outlier checks (Scrydex market only; sales-backed prices skip them).
 # Vintage PSA 10 vs PSA 9 runs ~5-10x and a rare reverse holo slab can be ~4000x
 # the card's main raw price, so the bars are wide.
@@ -437,6 +442,14 @@ def _round_money(value: float | None) -> float | None:
     return None if value is None else round(float(value), 2)
 
 
+_UNSET: Any = object()
+
+
+def _like_escape(value: str) -> str:
+    """A literal for LIKE ... ESCAPE '\\'."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def same_card_keys(card: dict[str, Any], art_group: str | None = None) -> set[tuple[str, str]]:
     """Keys under which two ranked picks read as the same card to a collector: one
     artwork (art group), or the same name in the same set (Pikachu ex promo 107
@@ -455,6 +468,7 @@ class CollectionTools:
     def __init__(self, service: Any, *, app_url_scheme: str = "spotlight") -> None:
         self.service = service
         self.app_url_scheme = app_url_scheme.strip().rstrip(":/") or "spotlight"
+        self._graded_day_memo: tuple[float, str | None] | None = None
 
     @property
     def conn(self):
@@ -2117,19 +2131,39 @@ class CollectionTools:
         if not GAMES[game].has_graded_pricing:
             return {**result, "note": f"Ekalight has no graded prices for {GAMES[game].display_name}."}
         japanese_ok = self._price_ranked_japanese_ok(card_filter)
-
-        entries = self._graded_cell_entries(game, grader_code, grade_code, japanese_ok=japanese_ok)
-        from_cells = entries is not None
-        stale_cards: set[str] = set()
-        if entries is None:
-            entries = self._graded_snapshot_entries(game, grader_code, grade_code, japanese_ok=japanese_ok)
-            # Snapshot graded prices carry their refresh day; old ones aren't current prices.
-            cutoff = self._price_stale_cutoff()
-            stale_cards = {entry["card_id"] for entry in entries if (entry.get("as_of") or cutoff) < cutoff}
-            entries = [entry for entry in entries if (entry.get("as_of") or cutoff) >= cutoff]
-            stale_cards -= {entry["card_id"] for entry in entries}
-        owned_ids = self._owned_card_ids(owner_user_id) if owned != "any" else None
         meta_filter = {k: v for k, v in card_filter.items() if k not in ("price_min_usd", "price_max_usd")}
+        # The card filter first (SQL), so only matching cards' graded prices are read and judged.
+        scope = self._filter_scope_ids(meta_filter, game=game)
+        if scope is not None and not scope:
+            return {**result, "note": "Ekalight has no stored graded prices matching this."}
+
+        cutoff = self._price_stale_cutoff()
+        stale_cards: set[str] = set()
+        stale_elsewhere = False
+        if scope is not None:
+            entries = self._graded_entries_for_ids(
+                game, grader_code, grade_code, japanese_ok=japanese_ok, card_ids=scope, from_cells=True
+            )
+            from_cells = entries is not None
+            if entries is None:
+                entries = self._graded_entries_for_ids(
+                    game, grader_code, grade_code, japanese_ok=japanese_ok, card_ids=scope, from_cells=False
+                ) or []
+                # Snapshot graded prices carry their refresh day; old ones aren't current prices.
+                stale_cards = {entry["card_id"] for entry in entries if (entry.get("as_of") or cutoff) < cutoff}
+                entries = [entry for entry in entries if (entry.get("as_of") or cutoff) >= cutoff]
+                stale_cards -= {entry["card_id"] for entry in entries}
+        else:
+            entries = self._graded_cell_entries(game, grader_code, grade_code, japanese_ok=japanese_ok)
+            from_cells = entries is not None
+            if entries is None:
+                # Whole game: only fresh snapshots are read (staging's are all stale; parsing every
+                # blob to count them cost seconds), so the stale side is a yes/no, not a count.
+                entries = self._graded_snapshot_entries(
+                    game, grader_code, grade_code, japanese_ok=japanese_ok, fresh_since=cutoff
+                )
+                stale_elsewhere = self._has_stale_graded_snapshots(game, cutoff)
+        owned_ids = self._owned_card_ids(owner_user_id) if owned != "any" else None
 
         # Each card's priciest few slabs; cards ranked by their best one.
         by_card: dict[str, list[dict[str, Any]]] = {}
@@ -2231,9 +2265,131 @@ class CollectionTools:
         result["cards"] = out
         if stale_cards:
             result["excluded_stale_count"] = len(stale_cards)
-        if not out:
+        if not out and (stale_cards or (stale_elsewhere and not entries)):
+            result["note"] = (
+                f"Ekalight's stored graded prices for this are older than {PRICE_STALE_DAYS} days, so there is "
+                "no current graded price to quote."
+            )
+        elif not out:
             result["note"] = "Ekalight has no stored graded prices matching this."
         return result
+
+    def _filter_scope_ids(self, card_filter: dict[str, Any], *, game: str) -> list[str] | None:
+        """Ids of the game's cards matching the filter's name/set/artist/rarity fields
+        (exactly as _matches_card_meta), found through an indexed SQL prefilter. None
+        when the filter has none of them or matches over GRADED_SCOPE_MAX_CARDS cards
+        (the caller ranks the whole game and filters as it goes)."""
+        text = card_filter.get("text")
+        set_query = card_filter.get("set")
+        artist = card_filter.get("artist")
+        buckets = card_filter.get("rarity_bucket")
+        if text:
+            rowids = self._text_rowids(text)
+        elif set_query:
+            needle = set_query.casefold()
+            names = [
+                str(row[0])
+                for row in self.conn.execute("SELECT DISTINCT set_name FROM cards").fetchall()
+                if row[0] and needle in str(row[0]).casefold()
+            ]
+            codes = list(dict.fromkeys([set_query, set_query.lower(), set_query.upper()]))
+            marks = ",".join("?" for _ in codes)
+            clauses = [f"set_id IN ({marks})", f"set_ptcgo_code IN ({marks})"]
+            if names:
+                clauses.append(f"set_name IN ({','.join('?' for _ in names)})")
+            rowids = [
+                row[0]
+                for row in self.conn.execute(
+                    f"SELECT rowid FROM cards WHERE {' OR '.join(clauses)}", (*codes, *codes, *names)
+                ).fetchall()
+            ]
+        elif artist:
+            rowids = [
+                row[0]
+                for row in self.conn.execute(
+                    "SELECT rowid FROM cards WHERE artist LIKE ? ESCAPE '\\'", (f"%{_like_escape(artist)}%",)
+                ).fetchall()
+            ]
+        elif buckets:
+            rarities = self._rarities_for_buckets(game, buckets)
+            if not rarities:
+                return []
+            rowids = [
+                row[0]
+                for row in self.conn.execute(
+                    f"SELECT rowid FROM cards WHERE rarity IN ({','.join('?' for _ in rarities)})", rarities
+                ).fetchall()
+            ]
+        else:
+            return None
+        if len(rowids) > GRADED_SCOPE_MAX_CARDS:
+            return None
+        meta_filter = {**card_filter, "game": game}
+        out: list[str] = []
+        for chunk in _chunked_sql_values(rowids):
+            rows = self.conn.execute(
+                "SELECT id, game, name, number, artist, rarity, set_name AS setName, set_id AS setID, "
+                "set_ptcgo_code AS setPtcgoCode, language, supertype FROM cards "
+                f"WHERE rowid IN ({','.join('?' for _ in chunk)})",
+                tuple(chunk),
+            ).fetchall()
+            out.extend(
+                str(row["id"]) for row in rows
+                if not is_sealed_card(dict(row)) and self._matches_card_meta(dict(row), meta_filter)
+            )
+        return out
+
+    def _text_rowids(self, text: str) -> list[int]:
+        """Rowids of cards whose name/set/number (else, when none, name/set/number/artist)
+        hold every token of `text`: a superset of _matches_card_meta's text rule. The
+        first pass reads only idx_cards_name_set_number; LIKE folds ASCII case only, so
+        non-ASCII tokens also try their upper/capitalized forms."""
+        tokens = text.casefold().split()
+
+        def query(haystack: str) -> list[int]:
+            where: list[str] = []
+            params: list[str] = []
+            for token in tokens:
+                forms = [token] if token.isascii() else list(dict.fromkeys([token, token.upper(), token.capitalize()]))
+                where.append("(" + " OR ".join(f"{haystack} LIKE ? ESCAPE '\\'" for _ in forms) + ")")
+                params.extend(f"%{_like_escape(form)}%" for form in forms)
+            sql = f"SELECT rowid FROM cards WHERE {' AND '.join(where) or '1'} LIMIT ?"
+            return [row[0] for row in self.conn.execute(sql, (*params, GRADED_SCOPE_MAX_CARDS + 1)).fetchall()]
+
+        rowids = query("(name || ' ' || set_name || ' ' || number)")
+        if not rowids:
+            rowids = query("(name || ' ' || set_name || ' ' || number || ' ' || COALESCE(artist, ''))")
+        return rowids
+
+    def _graded_entries_for_ids(
+        self, game: str, grader: str | None, grade: str | None, *, japanese_ok: bool, card_ids: list[str],
+        from_cells: bool,
+    ) -> list[dict[str, Any]] | None:
+        """_graded_cell_entries / _graded_snapshot_entries for a list of ids, chunked
+        under SQLite's bound-variable cap. Cells: None when they aren't current."""
+        out: list[dict[str, Any]] = []
+        cell_day = self._current_graded_cell_day() if from_cells else None
+        if from_cells and cell_day is None:
+            return None
+        for chunk in _chunked_sql_values(card_ids):
+            if from_cells:
+                part = self._graded_cell_entries(
+                    game, grader, grade, japanese_ok=japanese_ok, card_ids=chunk, cell_day=cell_day
+                )
+                if part is None:
+                    return None
+            else:
+                part = self._graded_snapshot_entries(game, grader, grade, japanese_ok=japanese_ok, card_ids=chunk)
+            out.extend(part)
+        return out
+
+    def _has_stale_graded_snapshots(self, game: str, cutoff: str) -> bool:
+        row = self.conn.execute(
+            "SELECT 1 FROM card_price_snapshots s JOIN cards c ON c.id = s.card_id "
+            "WHERE s.updated_at < ? AND +c.game = ? AND LENGTH(COALESCE(s.graded_contexts_json, '')) > 20 LIMIT 1",
+            (cutoff, game),
+        ).fetchone()
+        return row is not None
 
     def grading_upside(
         self, owner_user_id: str, card_ids: list[str] | None, *, grader: str = "PSA", grade: str = "10",
@@ -2263,6 +2419,7 @@ class CollectionTools:
         held_prices = self._raw_holding_prices(owner_user_id, set(present) & owned)
         scenario_graders = normalize_graders(graders)
         fees = load_fee_table()
+        comp_memo: dict[str, Any] = {}
         out = []
         for card_id in present:
             card = cards[card_id]
@@ -2276,7 +2433,7 @@ class CollectionTools:
             raw = summary.get("price_usd")
             comp = None
             if GAMES[str(card.get("game") or GAME)].has_graded_pricing:
-                comp = self._graded_comp(card, grader_code, grade_code, peers.get(card_id, []), raw)
+                comp = self._graded_comp(card, grader_code, grade_code, peers.get(card_id, []), raw, comp_memo)
             item = {
                 **summary,
                 "owned": card_id in owned,
@@ -2296,7 +2453,9 @@ class CollectionTools:
                 item["gross_premium_usd"] = round(comp["price"] - raw, 2)
                 item["gross_premium_pct"] = round((comp["price"] - raw) / raw * 100, 1)
             if GAMES[str(card.get("game") or GAME)].has_graded_pricing:
-                item.update(self._grading_scenarios(card, scenario_graders, peers.get(card_id, []), raw, fees))
+                item.update(
+                    self._grading_scenarios(card, scenario_graders, peers.get(card_id, []), raw, fees, memo=comp_memo)
+                )
             else:
                 item.update({"scenarios": [], "break_even": {}, "recommendation": "no_comps"})
             out.append(item)
@@ -2321,7 +2480,7 @@ class CollectionTools:
 
     def _grading_scenarios(
         self, card: dict[str, Any], graders: tuple[str, ...], peers: list[dict[str, Any]], raw: float | None,
-        fees: Any,
+        fees: Any, *, memo: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Per grader + grade: comp, fee (tier by the comp's value), shipping and net =
         comp - raw - fee - shipping. BGS/CGC rows only where a comp exists."""
@@ -2330,7 +2489,7 @@ class CollectionTools:
         for grader_code in graders:
             positive: list[str] = []
             for grade_code in GRADING_SCENARIO_GRADES[grader_code]:
-                comp = self._graded_comp(card, grader_code, grade_code, peers, raw)
+                comp = self._graded_comp(card, grader_code, grade_code, peers, raw, memo)
                 if comp is None and grader_code != "PSA":
                     continue
                 value = comp["price"] if comp else raw
@@ -2409,8 +2568,28 @@ class CollectionTools:
             out[card["id"]] = max(price, out.get(card["id"], price))
         return out
 
+    def _comp_facts(self, card: dict[str, Any], memo: dict[str, Any] | None) -> dict[str, Any]:
+        """Per-card reads every (grader, grade) comp shares: the quoted printing and the
+        card's own graded cells (set names are added lazily). `memo` keeps them across
+        one tool call's grades: grading_upside asks ~10 grades per card."""
+        if memo is not None and card["id"] in memo:
+            return memo[card["id"]]
+        snapshot = price_snapshot_row(self.conn, card["id"])
+        keys = snapshot.keys() if snapshot is not None else ()
+        facts = {
+            "quoted": next(
+                (snapshot[key] for key in ("main_raw_variant", "default_raw_variant") if key in keys and snapshot[key]),
+                None,
+            ),
+            "own": self._own_graded_entries(card["id"]),
+        }
+        if memo is not None:
+            memo[card["id"]] = facts
+        return facts
+
     def _graded_comp(
-        self, card: dict[str, Any], grader: str, grade: str, peers: list[dict[str, Any]], raw: float | None
+        self, card: dict[str, Any], grader: str, grade: str, peers: list[dict[str, Any]], raw: float | None,
+        memo: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         """The card's OWN current graded market first (its newest Scrydex graded cells,
         else the stored peers), then a verified eBay sale whose listing title names
@@ -2418,14 +2597,10 @@ class CollectionTools:
         not current and are not used."""
         from server import RECENT_SALES_MAX_LIMIT, _filter_recent_sales_rows, _recent_sales_average
 
-        snapshot = price_snapshot_row(self.conn, card["id"])
-        keys = snapshot.keys() if snapshot is not None else ()
-        quoted = next(
-            (snapshot[key] for key in ("main_raw_variant", "default_raw_variant") if key in keys and snapshot[key]),
-            None,
-        )
+        facts = self._comp_facts(card, memo)
+        quoted = facts["quoted"]
         cutoff = self._price_stale_cutoff()
-        own = self._own_graded_entries(card["id"])
+        own = facts["own"]
         pool = own if own else peers
         pool = [peer for peer in pool if (peer.get("as_of") or cutoff) >= cutoff]
         same = [peer for peer in pool if peer["grader"] == grader and peer["grade"] == grade]
@@ -2451,10 +2626,12 @@ class CollectionTools:
             self.conn, card_id=card["id"], grader=grader, grade=grade, source="ebay", limit=RECENT_SALES_MAX_LIMIT,
         )
         filtered = _filter_recent_sales_rows(cached, variant_key=quoted, limit=RECENT_SALES_MAX_LIMIT, card=card)
-        set_names = self._listing_set_names(card)
+        sales = (filtered or {}).get("sales") or []
+        if sales and "set_names" not in facts:
+            facts["set_names"] = self._listing_set_names(card)
         matched = [
-            sale for sale in (filtered or {}).get("sales") or []
-            if listing_matches_card(sale.get("title"), card, set_names=set_names)
+            sale for sale in sales
+            if listing_matches_card(sale.get("title"), card, set_names=facts["set_names"])
         ]
         last = _recent_sales_average(matched)
         if not last or not isinstance(last.get("amount"), (int, float)) or self._is_placeholder_price(float(last["amount"])):
@@ -2532,20 +2709,35 @@ class CollectionTools:
         except ValueError:
             return " AND UPPER(cell.grade) = ?", [grade_code]
 
+    def _current_graded_cell_day(self) -> str | None:
+        """The newest graded cell day if it is within GRADED_CELL_MAX_AGE_DAYS, else None.
+        The walk down idx_cell_date stops at the age cutoff: unbounded, it looked up every
+        raw cell written since the last graded day (staging stopped writing graded cells,
+        so months of rows per call). Kept GRADED_CELL_DAY_TTL_SECONDS: cells change daily."""
+        cached = self._graded_day_memo
+        if cached is not None and cached[0] > time.monotonic():
+            return cached[1]
+        cutoff = (datetime.now(timezone.utc).date() - timedelta(days=GRADED_CELL_MAX_AGE_DAYS)).isoformat()
+        # +lane keeps the planner on idx_cell_date (not the graded partial index).
+        row = self.conn.execute(
+            "SELECT price_date FROM card_price_history_cell WHERE price_date >= ? AND +lane = 'graded' "
+            "ORDER BY price_date DESC LIMIT 1",
+            (cutoff,),
+        ).fetchone()
+        day = str(row[0]) if row is not None else None
+        self._graded_day_memo = (time.monotonic() + GRADED_CELL_DAY_TTL_SECONDS, day)
+        return day
+
     def _graded_cell_entries(
         self, game: str, grader: str | None, grade: str | None, *, japanese_ok: bool,
-        card_ids: list[str] | None = None,
+        card_ids: list[str] | None = None, cell_day: Any = _UNSET,
     ) -> list[dict[str, Any]] | None:
         """Plain USD graded cells from the newest graded day; None when that day is
-        older than GRADED_CELL_MAX_AGE_DAYS or there are no graded cells."""
-        # ORDER BY rides idx_cell_date backwards; +lane keeps it off the graded index.
-        row = self.conn.execute(
-            "SELECT price_date FROM card_price_history_cell WHERE +lane = 'graded' ORDER BY price_date DESC LIMIT 1"
-        ).fetchone()
-        cutoff = (datetime.now(timezone.utc).date() - timedelta(days=GRADED_CELL_MAX_AGE_DAYS)).isoformat()
-        if row is None or str(row[0]) < cutoff:
+        older than GRADED_CELL_MAX_AGE_DAYS or there are no graded cells. Callers that
+        read several chunks pass `cell_day` (_current_graded_cell_day) once."""
+        price_date = self._current_graded_cell_day() if cell_day is _UNSET else cell_day
+        if price_date is None:
             return None
-        price_date = str(row[0])
         sql = (
             "SELECT cell.card_id, cell.grader, cell.grade, cell.variant_key, cell.market "
             "FROM card_price_history_cell cell JOIN cards c ON c.id = cell.card_id "
@@ -2564,8 +2756,9 @@ class CollectionTools:
         if not japanese_ok:
             sql += " AND COALESCE(c.language, '') != 'Japanese' COLLATE NOCASE"
         if card_ids is not None:
-            sql += f" AND cell.card_id IN ({','.join('?' for _ in card_ids)})"
-            params.extend(card_ids)
+            # provider pins idx_cell_trend_market's (card_id, provider, price_date) prefix: one seek per card.
+            sql += f" AND cell.provider = ? AND cell.card_id IN ({','.join('?' for _ in card_ids)})"
+            params.extend([pricing_provider(), *card_ids])
         sql += " ORDER BY cell.market DESC LIMIT ?"
         params.append(GRADED_CANDIDATE_ROWS)
         return [
@@ -2583,15 +2776,20 @@ class CollectionTools:
 
     def _graded_snapshot_entries(
         self, game: str, grader: str | None, grade: str | None, *, japanese_ok: bool,
-        card_ids: list[str] | None = None,
+        card_ids: list[str] | None = None, fresh_since: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Fallback: the graded contexts stored on each card's price snapshot."""
+        """Fallback: the graded contexts stored on each card's price snapshot.
+        `fresh_since` (ISO day) reads only snapshots refreshed since then: the
+        (card_id, updated_at) index picks them, so stale blobs are never loaded."""
         sql = (
             "SELECT s.card_id, s.display_currency_code, s.graded_contexts_json, s.updated_at "
             "FROM card_price_snapshots s JOIN cards c ON c.id = s.card_id "
             "WHERE +c.game = ? AND LENGTH(COALESCE(s.graded_contexts_json, '')) > 20"
         )
         params: list[Any] = [game]
+        if fresh_since is not None:
+            sql += " AND s.card_id IN (SELECT card_id FROM card_price_snapshots WHERE updated_at >= ?)"
+            params.append(fresh_since)
         if not japanese_ok:
             sql += " AND COALESCE(c.language, '') != 'Japanese' COLLATE NOCASE"
         if card_ids is not None:

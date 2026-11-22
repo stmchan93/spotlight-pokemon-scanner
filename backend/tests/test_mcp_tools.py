@@ -632,6 +632,50 @@ class RankingCorrectnessTests(McpToolsCase):
                          [("ssp-1", 250.0, "scrydex")])
         self.assertEqual(cards[0]["variant"], "Holofoil")
 
+    def test_top_graded_applies_the_card_filter_before_ranking(self) -> None:
+        self.seed_graded()
+        charizard = self.call("find_top_graded", card_filter={"text": "charizard"}, grader="PSA", grade="10")
+        self.assertEqual(self.ids(charizard["cards"]), ["ssp-2"])
+        # A name scope reaches cards past the whole-game candidate cap (it used to filter after it).
+        with mock.patch.object(tools_module, "GRADED_CANDIDATE_ROWS", 1):
+            eevee = self.call("find_top_graded", card_filter={"text": "eevee"})
+            self.assertEqual(self.ids(eevee["cards"]), ["ssp-3"])
+            by_set_number = self.call("find_top_graded", card_filter={"text": "surging 238"}, grader="PSA", grade="10")
+            self.assertEqual(self.ids(by_set_number["cards"]), ["ssp-1"])
+        nothing = self.call("find_top_graded", card_filter={"text": "zzznomatch"})
+        self.assertEqual(nothing["cards"], [])
+        self.assertNotIn("excluded_stale_count", nothing)
+
+    def test_top_graded_stale_count_is_scoped_to_the_filter(self) -> None:
+        import json
+
+        contexts = json.dumps({"graders": {"PSA": {"10": [{"market": 250.0, "currencyCode": "USD"}]}}})
+        old = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        self.conn.execute(
+            "UPDATE card_price_snapshots SET graded_contexts_json = ?, updated_at = ? "
+            "WHERE card_id IN ('ssp-1', 'ssp-2')",
+            (contexts, old),
+        )
+        self.conn.execute(
+            "UPDATE card_price_snapshots SET graded_contexts_json = ? WHERE card_id = 'ssp-3'", (contexts,)
+        )
+        self.conn.commit()
+        charizard = self.call("find_top_graded", card_filter={"text": "charizard"}, grader="PSA", grade="10")
+        self.assertEqual(charizard["cards"], [])
+        self.assertEqual(charizard["excluded_stale_count"], 1)  # ssp-2 only, not every stale card
+        self.assertIn("older than 14 days", charizard["note"])
+        eevee = self.call("find_top_graded", card_filter={"text": "eevee"}, grader="PSA", grade="10")
+        self.assertEqual(self.ids(eevee["cards"]), ["ssp-3"])
+        self.assertNotIn("excluded_stale_count", eevee)
+        # Whole game: only fresh snapshots are read; the fresh card ranks, stale ones never do.
+        whole = self.call("find_top_graded", grader="PSA", grade="10")
+        self.assertEqual(self.ids(whole["cards"]), ["ssp-3"])
+        self.conn.execute("UPDATE card_price_snapshots SET updated_at = ? WHERE card_id = 'ssp-3'", (old,))
+        self.conn.commit()
+        stale_game = self.call("find_top_graded", grader="PSA", grade="10")
+        self.assertEqual(stale_game["cards"], [])
+        self.assertIn("older than 14 days", stale_game["note"])
+
     def test_tier_exposure_and_strict_budget(self) -> None:
         from mcp_server.assistant.tools import TOOL_DEFINITIONS
         from mcp_server.policy import PUBLIC_POLICY, USER_POLICY

@@ -13,6 +13,11 @@ OUTPUT_USD_PER_MTOK = 0.50
 CACHE_READ_MULTIPLIER = 0.10
 CACHE_WRITE_MULTIPLIER = 1.25
 
+# The app gives up on a chat request after 60s (packages/api-client repository.ts); the
+# turn deadline plus the service's grace (service.TURN_HARD_GRACE_SECONDS) stays under it.
+MIN_TURN_DEADLINE_SECONDS = 15.0
+MAX_TURN_DEADLINE_SECONDS = 50.0
+
 
 def _env_flag(name: str, default: bool = False) -> bool:
     value = str(os.environ.get(name) or "").strip().lower()
@@ -59,6 +64,9 @@ class AssistantConfig:
     # Haiku 5.5 effort: low|medium|high. Trades instruction-following for latency/cost.
     effort: str = "low"
     request_timeout_seconds: float = 60.0
+    # Whole-turn budget (engine.py): past it no more tools run and the model answers with what it
+    # has, or the turn ends with a "took too long" reply. Kept well under the app's 60s request timeout.
+    turn_deadline_seconds: float = 45.0
     api_key: str | None = None
     # Replay market-wide answers across users (shared_answers.py); ASSISTANT_SHARED_ANSWERS=0 kills it.
     shared_answers: bool = True
@@ -76,6 +84,9 @@ class AssistantConfig:
             max_tool_rounds=max(1, _env_int("ASSISTANT_MAX_TOOL_ROUNDS", 4)),
             max_output_tokens=max(256, _env_int("ASSISTANT_MAX_OUTPUT_TOKENS", 4000)),
             effort=_env_effort(),
+            turn_deadline_seconds=min(MAX_TURN_DEADLINE_SECONDS, max(
+                MIN_TURN_DEADLINE_SECONDS, _env_float("ASSISTANT_TURN_DEADLINE_SECONDS", 45.0)
+            )),
             api_key=(os.environ.get("ANTHROPIC_API_KEY") or "").strip() or None,
             shared_answers=_env_flag("ASSISTANT_SHARED_ANSWERS", True),
         )

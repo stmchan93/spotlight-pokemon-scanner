@@ -26,7 +26,9 @@ from mcp_server.assistant.compact import model_payload
 from mcp_server.assistant.game_scope import GameScope, enforce_game
 from mcp_server.tools import NULL_WORDS
 from mcp_server.assistant.tools import (
+    READ_TOOLS,
     SPARKLINE_TOOLS,
+    ToolOutcome,
     sparkline_fetch_range,
     TOOL_DEFINITIONS,
     AssistantToolbox,
@@ -148,6 +150,19 @@ REFUSAL_TEXT = "Sorry, I can't help with that one. Ask me about your cards, pric
 TOO_LONG_TEXT = "That answer ran too long. Try a narrower question."
 EMPTY_TEXT = "Sorry, I couldn't put an answer together. Try asking again."
 ROUND_LIMIT_NOTE = "Tool budget for this question is used up. Answer now with what you have."
+# Turn deadline (AssistantConfig.turn_deadline_seconds): the app abandons a chat request at 60s
+# and shows "couldn't reach Ekalight", so a slow turn must end server-side first, as an answer.
+TIMEOUT_TEXT = "That one took too long to look up. Try asking again."
+TIME_LIMIT_NOTE = "Time for this question is up. Answer now with what you have."
+TOOL_TIMEOUT_ERROR = (
+    "This lookup took too long and was stopped. Answer from the other results, or say it couldn't be checked."
+)
+# Kept for the tools-off answer call: tools stop this long before the deadline.
+FINAL_ANSWER_RESERVE_SECONDS = 12.0
+# A polish call (answer-now retry, length / tile-naming rewrite) starts only with this much left.
+POLISH_MIN_SECONDS = 5.0
+# Tile building may run this far past the deadline (the service's hard cap is further out).
+TILES_GRACE_SECONDS = 3.0
 
 # Follow-up chips ride in the same response as a trailing <followups> block
 # (no extra call, no change to the cached prefix); parsed out, never shown.
@@ -789,6 +804,22 @@ class AssistantEngine:
         self.toolbox = toolbox
         self.client = client  # anthropic.AsyncAnthropic (or a test double)
 
+    @staticmethod
+    async def _within(awaitable: Any, deadline: float | None, *, reserve: float = 0.0) -> Any:
+        """Await with what is left of the turn (minus `reserve`); TimeoutError past it."""
+        if deadline is None:
+            return await awaitable
+        budget = deadline - time.monotonic() - reserve
+        if budget <= 0:
+            if asyncio.iscoroutine(awaitable):
+                awaitable.close()
+            raise TimeoutError("assistant turn deadline")
+        return await asyncio.wait_for(awaitable, budget)
+
+    @staticmethod
+    def _has_time(deadline: float | None, seconds: float) -> bool:
+        return deadline is None or deadline - time.monotonic() >= seconds
+
     async def _create(self, messages: list[dict[str, Any]], *, final: bool) -> Any:
         return await self.client.messages.create(
             model=self.config.model,
@@ -805,7 +836,7 @@ class AssistantEngine:
 
     async def _enforce_length(
         self, text: str, result: TurnResult, tool_payloads: list[str], *, reserve: int = 0, reserve_sentences: int = 0,
-        names: list[str] | tuple[str, ...] = (), no_language: bool = False,
+        names: list[str] | tuple[str, ...] = (), no_language: bool = False, deadline: float | None = None,
     ) -> str:
         """Over the turn's word (or sentence) limit, or talking about tags/searches/tools/filters:
         one low-effort rewrite covering both, kept only if it fixes them and every tool-backed
@@ -830,13 +861,15 @@ class AssistantEngine:
             system += " " + length_guard.NO_LANGUAGE_INSTRUCTION
         rewrite = ""
         try:
-            response = await self.client.messages.create(
+            if not self._has_time(deadline, POLISH_MIN_SECONDS):
+                raise TimeoutError("no time left for a rewrite")
+            response = await self._within(self.client.messages.create(
                 model=self.config.model,
                 max_tokens=length_guard.REWRITE_MAX_TOKENS,
                 system=system,
                 output_config={"effort": "low"},
                 messages=[{"role": "user", "content": text}],
-            )
+            ), deadline)
             add_usage(result, getattr(response, "usage", None))
             if getattr(response, "stop_reason", None) == "end_turn":
                 rewrite = _response_text(response).strip()
@@ -867,7 +900,9 @@ class AssistantEngine:
         result.length_guard = "drop"
         return text
 
-    async def _name_shown_tiles(self, text: str, question: str, result: TurnResult, tool_payloads: list[str]) -> str:
+    async def _name_shown_tiles(
+        self, text: str, question: str, result: TurnResult, tool_payloads: list[str], *, deadline: float | None = None,
+    ) -> str:
         """A short reply (at most 3 tiles, no 'Here are...' framing) whose text skips a tile's card:
         one low-effort rewrite that names it, kept only if every tile is then named, every tool-backed
         number survives and no internal wording appears; else a deterministic 'Also shown: ...' line."""
@@ -876,13 +911,15 @@ class AssistantEngine:
             return text
         rewrite = ""
         try:
-            response = await self.client.messages.create(
+            if not self._has_time(deadline, POLISH_MIN_SECONDS):
+                raise TimeoutError("no time left for a rewrite")
+            response = await self._within(self.client.messages.create(
                 model=self.config.model,
                 max_tokens=length_guard.REWRITE_MAX_TOKENS,
                 system=length_guard.name_tiles_instruction(missing, result.word_limit),
                 output_config={"effort": "low"},
                 messages=[{"role": "user", "content": text}],
-            )
+            ), deadline)
             add_usage(result, getattr(response, "usage", None))
             if getattr(response, "stop_reason", None) == "end_turn":
                 rewrite = _response_text(response).strip()
@@ -910,13 +947,17 @@ class AssistantEngine:
         result.rounds += 1
         add_usage(result, getattr(response, "usage", None))
 
-    async def _answer_now(self, messages: list[dict[str, Any]], result: TurnResult) -> Any | None:
+    async def _answer_now(
+        self, messages: list[dict[str, Any]], result: TurnResult, deadline: float | None = None
+    ) -> Any | None:
         """One tools-off call after an empty final message; None if it fails."""
+        if not self._has_time(deadline, POLISH_MIN_SECONDS):
+            return None
         last = messages[-1]
         content = last["content"] if isinstance(last["content"], list) else [{"type": "text", "text": last["content"]}]
         retry = [*messages[:-1], {**last, "content": [*content, {"type": "text", "text": ANSWER_NOW_NOTE}]}]
         try:
-            response = await self._create(retry, final=True)
+            response = await self._within(self._create(retry, final=True), deadline)
         except Exception as error:  # noqa: BLE001 - the generic error text is the fallback
             logger.warning("assistant answer-now call failed: %s", type(error).__name__)
             return None
@@ -928,6 +969,59 @@ class AssistantEngine:
             self.toolbox.run, name, arguments, owner_user_id=owner_user_id, turn=writes
         )
 
+    async def _run_tools(
+        self, blocks: list[Any], arguments_by_id: dict[str, dict[str, Any]], owner_user_id: str,
+        writes: TurnWrites, deadline: float | None,
+    ) -> tuple[list[ToolOutcome], bool]:
+        """One round's tools in parallel, bounded by the turn deadline minus the final-answer
+        reserve. A read still running then is abandoned (its worker thread finishes on its own)
+        and answers with an error; a write is always awaited so its result and Undo reach the
+        reply. Second value: some read was abandoned."""
+        tasks = [
+            asyncio.ensure_future(self._run_tool(block.name, arguments_by_id[block.id], owner_user_id, writes))
+            for block in blocks
+        ]
+        if deadline is None or not tasks:
+            return list(await asyncio.gather(*tasks)), False
+        budget = max(1.0, deadline - time.monotonic() - FINAL_ANSWER_RESERVE_SECONDS)
+        _, pending = await asyncio.wait(tasks, timeout=budget)
+        outcomes: list[ToolOutcome] = []
+        timed_out = False
+        for block, task in zip(blocks, tasks):
+            if task in pending and block.name not in READ_TOOLS:
+                await task
+            if task.done():
+                outcomes.append(task.result())
+                continue
+            task.cancel()
+            timed_out = True
+            logger.warning("assistant tool %s passed the turn deadline (%.1fs); answering without it", block.name, budget)
+            outcomes.append(ToolOutcome({"error": TOOL_TIMEOUT_ERROR}, is_error=True))
+        return outcomes, timed_out
+
+    async def _tiles(self, deadline: float | None, build: Any, *, fallback: Any) -> Any:
+        """Tile building in a worker, bounded a little past the deadline: the answer
+        ships without tiles rather than miss the app's request timeout."""
+        try:
+            return await self._within(asyncio.to_thread(build), deadline, reserve=-TILES_GRACE_SECONDS)
+        except TimeoutError:
+            logger.warning("assistant tiles passed the turn deadline; answering without them")
+            return fallback
+
+    @staticmethod
+    def _timed_out(result: TurnResult, started: float) -> TurnResult:
+        """Out of time before an answer: a reply the app shows (not counted against the
+        daily limit), or the summary of a write that already happened (it carries Undo)."""
+        executed = [action for action in result.actions if action.get("state") == "done"]
+        if executed:
+            result.text = "\n".join(f"{action['summary']}." for action in executed)
+            result.actions = executed
+        else:
+            result.text, result.status, result.actions = TIMEOUT_TEXT, "error", []
+        result.stop_reason = "deadline"
+        result.latency_ms = int((time.monotonic() - started) * 1000)
+        return result
+
     async def run_turn(
         self,
         *,
@@ -938,8 +1032,12 @@ class AssistantEngine:
         context_card_ids: list[str] | None = None,
         client_message_id: str | None = None,
         game_scope: GameScope | None = None,
+        deadline: float | None = None,
     ) -> TurnResult:
+        """`deadline` (time.monotonic) bounds the turn; default turn_deadline_seconds from now."""
         started = time.monotonic()
+        if deadline is None:
+            deadline = started + self.config.turn_deadline_seconds
         messages = with_history_breakpoint(build_messages(history, question, context))
         result = TurnResult(text="", status="ok")
         writes = TurnWrites(
@@ -976,10 +1074,16 @@ class AssistantEngine:
         free_selection_round_used = False
         response = None
         tool_rounds = 0
+        out_of_time = False
         while True:
-            final = tool_rounds >= self.config.max_tool_rounds
+            # Out of rounds or near the deadline: tools off, answer with what the turn has.
+            out_of_time = out_of_time or not self._has_time(deadline, FINAL_ANSWER_RESERVE_SECONDS)
+            final = tool_rounds >= self.config.max_tool_rounds or out_of_time
             try:
-                response = await self._create(messages, final=final)
+                response = await self._within(self._create(messages, final=final), deadline)
+            except TimeoutError:
+                logger.warning("assistant turn deadline hit waiting for the model (round %d)", result.rounds + 1)
+                return self._timed_out(result, started)
             except Exception as error:  # noqa: BLE001 - SDK/network errors all mean "failed turn"
                 logger.warning("assistant LLM call failed: %s", type(error).__name__)
                 raise AssistantFailed("llm_call_failed", cost=result.cost_usd) from error
@@ -1001,9 +1105,8 @@ class AssistantEngine:
                     result.scoped_game = result.scoped_game or scoped
                 arguments_by_id[block.id] = arguments
             writes.plan_round([block.name for block in work])
-            outcomes = await asyncio.gather(
-                *(self._run_tool(block.name, arguments_by_id[block.id], owner_user_id, writes) for block in work)
-            )
+            outcomes, tools_timed_out = await self._run_tools(work, arguments_by_id, owner_user_id, writes, deadline)
+            out_of_time = out_of_time or tools_timed_out
             results_by_id: dict[str, dict[str, Any]] = {}
             for block, outcome in zip(work, outcomes):
                 arguments = arguments_by_id[block.id]
@@ -1104,6 +1207,8 @@ class AssistantEngine:
             tool_rounds += 1
             if tool_rounds >= self.config.max_tool_rounds:
                 tool_results.append({"type": "text", "text": ROUND_LIMIT_NOTE})
+            elif out_of_time or not self._has_time(deadline, FINAL_ANSWER_RESERVE_SECONDS):
+                tool_results.append({"type": "text", "text": TIME_LIMIT_NOTE})
             messages.append({"role": "user", "content": tool_results})
 
         result.stop_reason = "end_turn" if answered_with_selection else getattr(response, "stop_reason", None)
@@ -1117,7 +1222,7 @@ class AssistantEngine:
                 suggestions = next((s for raw in reversed(earlier_texts) if (s := split_suggestions(raw)[1])), [])
             text = merge_answer_parts([*earlier, text])
             if not text and not executed and result.stop_reason in ("end_turn", "tool_use"):
-                retry = await self._answer_now(messages, result)
+                retry = await self._answer_now(messages, result, deadline)
                 if retry is not None and getattr(retry, "stop_reason", None) != "refusal":
                     result.stop_reason = getattr(retry, "stop_reason", None)
                     text, retry_suggestions = split_suggestions(_response_text(retry), result.stop_reason)
@@ -1159,6 +1264,7 @@ class AssistantEngine:
                 text, result, tool_payloads, reserve=reserve, reserve_sentences=int(appended),
                 names=[str(ref["name"]) for ref in primary_refs + other_refs + extra_refs if ref.get("name")],
                 no_language=(art_search or "list_facets" in looked_up) and not length_guard.asks_language(question),
+                deadline=deadline,
             )
             if length_guard.needs_disclaimer(text, looked_up):
                 # The guard dropped a model-worded disclaimer: re-add ours and re-trim around it.
@@ -1179,8 +1285,8 @@ class AssistantEngine:
             if executed_refs:
                 # A direct add shows just the card it added, with the new quantity.
                 selection, cards_label = executed_refs, None
-            result.cards, result.cards_label, result.cards_view_all, result.charts = await asyncio.to_thread(
-                lambda: self.toolbox.build_tiles(
+            result.cards, result.cards_label, result.cards_view_all, result.charts = await self._tiles(
+                deadline, lambda: self.toolbox.build_tiles(
                     owner_user_id=owner_user_id,
                     turn_refs=primary_refs + other_refs,
                     selection=selection,
@@ -1200,12 +1306,15 @@ class AssistantEngine:
                     language_pairs=language_pairs,
                     tools_used=set(result.tools_used),
                     art_search=art_search,
-                )
+                ),
+                fallback=([], None, None, []),
             )
             if set_refs and not result.actions:
                 # A set-level answer shows the sets it names, not cards.
-                result.sets, result.cards = await asyncio.to_thread(
-                    self.toolbox.build_set_tiles, set_refs, result.text, result.cards, result.charts
+                result.sets, result.cards = await self._tiles(
+                    deadline,
+                    lambda: self.toolbox.build_set_tiles(set_refs, result.text, result.cards, result.charts),
+                    fallback=([], result.cards),
                 )
                 if result.sets and not result.cards:
                     result.cards_label, result.cards_view_all = None, None
@@ -1220,7 +1329,9 @@ class AssistantEngine:
                 # Owner hand labels 2026-11-21: the text names every card it shows (short replies)
                 # and any "Here are N" matches the tiles.
                 if not (ask_which or asks_to_choose(result.text) or _TAP_TO_PICK.search(result.text)):
-                    result.text = await self._name_shown_tiles(result.text, question, result, tool_payloads)
+                    result.text = await self._name_shown_tiles(
+                        result.text, question, result, tool_payloads, deadline=deadline
+                    )
                 result.text = length_guard.fix_shown_count(result.text, len(result.cards))
             result.verdicts = _distinct_verdicts(verdicts)
         result.latency_ms = int((time.monotonic() - started) * 1000)

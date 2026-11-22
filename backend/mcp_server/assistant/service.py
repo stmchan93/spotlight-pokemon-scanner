@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import weakref
 from dataclasses import dataclass
 from typing import Any
@@ -15,8 +16,10 @@ from mcp_server.assistant.direct_add import UndoUnavailable, undo_expired
 from mcp_server.assistant import shared_answers
 from mcp_server.assistant.engine import (
     SYSTEM_PROMPT,
+    TIMEOUT_TEXT,
     AssistantEngine,
     AssistantFailed,
+    TurnResult,
     attached_cards_context,
     cache_hit_ratio,
 )
@@ -43,6 +46,12 @@ DIRECT_ADD_CAPABILITY = "direct_add"
 # PostHog review table: enough text to judge an answer without opening the DB.
 ANALYTICS_QUESTION_CHARS = 200
 ANALYTICS_ANSWER_CHARS = 300
+# The engine ends a turn at its deadline; this backstop cancels one still running past
+# deadline + grace (a stuck call) so the reply always beats the app's 60s request timeout.
+TURN_HARD_GRACE_SECONDS = 6.0
+# A second question from the same user waits this long for the first to finish, then gets
+# assistant_busy (a real answer in the app) instead of queueing into the app's timeout.
+USER_LOCK_WAIT_SECONDS = 15.0
 
 
 @dataclass(frozen=True)
@@ -170,8 +179,18 @@ class AssistantService:
         if error is not None:
             return error
         assert request is not None
-        async with self._lock(caller.user_id):
-            return await self._send_locked(caller, request)
+        # The turn's clock starts at receipt: lock waits and prep count against it.
+        deadline = time.monotonic() + self.config.turn_deadline_seconds
+        lock = self._lock(caller.user_id)
+        try:
+            await asyncio.wait_for(lock.acquire(), timeout=USER_LOCK_WAIT_SECONDS)
+        except TimeoutError:
+            logger.warning("assistant user lock wait timed out user=%s", caller.user_id)
+            return 503, {"error": "assistant_busy"}
+        try:
+            return await self._send_locked(caller, request, deadline)
+        finally:
+            lock.release()
 
     def _resolve_game_sync(self, caller: Caller, request: dict[str, Any]) -> game_scope.GameScope:
         thread_id = request["thread_id"]
@@ -182,7 +201,9 @@ class AssistantService:
             request["text"], thread_game=thread_game, context_game=request.get("game"), collection=collection
         )
 
-    async def _send_locked(self, caller: Caller, request: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    async def _send_locked(
+        self, caller: Caller, request: dict[str, Any], deadline: float | None = None
+    ) -> tuple[int, dict[str, Any]]:
         user_id = caller.user_id
         replay = await asyncio.to_thread(self.store.find_turn, user_id, request["client_message_id"])
         if replay is not None:
@@ -247,13 +268,23 @@ class AssistantService:
         context = "\n\n".join(part for part in (game_scope.scope_note(scope), tray, attached) if part)
         context_card_ids = list(dict.fromkeys([*request["card_ids"], *attached_ids]))
         assert self.engine is not None
+        if deadline is None:
+            deadline = time.monotonic() + self.config.turn_deadline_seconds
         try:
-            turn = await self.engine.run_turn(
-                owner_user_id=user_id, history=history, question=request["text"], context=context,
-                context_card_ids=context_card_ids,
-                client_message_id=request["client_message_id"] if request["direct_add"] else None,
-                game_scope=scope,
+            turn = await asyncio.wait_for(
+                self.engine.run_turn(
+                    owner_user_id=user_id, history=history, question=request["text"], context=context,
+                    context_card_ids=context_card_ids,
+                    client_message_id=request["client_message_id"] if request["direct_add"] else None,
+                    game_scope=scope,
+                    deadline=deadline,
+                ),
+                timeout=max(1.0, deadline + TURN_HARD_GRACE_SECONDS - time.monotonic()),
             )
+        except TimeoutError:
+            logger.warning("assistant turn passed the hard deadline user=%s; replying with the timeout text", user_id)
+            turn = TurnResult(text=TIMEOUT_TEXT, status="error", stop_reason="deadline")
+            turn.latency_ms = int((time.monotonic() - deadline + self.config.turn_deadline_seconds) * 1000)
         except AssistantFailed as failure:
             await asyncio.to_thread(self.store.record_failed_cost, user_id, day, failure.cost_usd)
             logger.info(
