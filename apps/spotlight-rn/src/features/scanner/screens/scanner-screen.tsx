@@ -2241,8 +2241,8 @@ export function ScannerScreen({
       persistLiveTray();
     })();
     recordGoodScan();
-    // Counted first, so a 5th good scan worth $20+ can itself be the ask.
-    maybeRequestReviewForScan(matchResult.candidates[0]?.marketPrice, matchResult.candidates[0]?.currencyCode);
+    // Counted first, so the 5th good scan can itself be the ask.
+    maybeRequestReviewForScan();
     capturePostHogEvent('scan_match_succeeded', buildScanMatchSuccessProperties({
       game,
       candidateCount: matchResult.candidates.length,
