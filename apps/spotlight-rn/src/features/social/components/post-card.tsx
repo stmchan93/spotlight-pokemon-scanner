@@ -544,6 +544,10 @@ export function PostCard({
     })();
   }, [liked, likePending, post.id]);
 
+  const openLikes = useCallback(() => {
+    router.push({ pathname: '/post/[postId]/likes', params: { postId: post.id } });
+  }, [post.id, router]);
+
   // Self-resolve the viewer's reposted state, same contract as the liked one:
   // without it a scrolled-back feed shows every card un-reposted, so something
   // you already passed on invites you to do it again.
@@ -851,6 +855,7 @@ export function PostCard({
       liked={liked}
       onDark={onDark}
       onOpenComments={gate(() => setCommentsVisible(true))}
+      onOpenLikes={likeCount > 0 ? gate(openLikes) : undefined}
       onShare={gate(() => openPrompt('share'))}
       onToggleLike={gate(handleToggleLike)}
       onToggleRepost={gate(handleToggleRepost)}
