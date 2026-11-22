@@ -26,8 +26,8 @@ export type AssistantPhotoSource = 'camera' | 'library';
 /** The scanner's normalized raw-card crop (630x880, 5:7). */
 export const ASSISTANT_PHOTO_WIDTH = 630;
 export const ASSISTANT_PHOTO_HEIGHT = 880;
-/** Alternates offered under the top match. */
-export const ASSISTANT_PHOTO_MAX_CANDIDATES = 5;
+/** Matches offered in the picker: the top 10, best first (owner, 2026-11-22). */
+export const ASSISTANT_PHOTO_MAX_CANDIDATES = 10;
 const CROP_COMPRESS = 0.82;
 /** Recorded as the scan's capture_source so chat photos never pass for camera scans. */
 export const ASSISTANT_PHOTO_CAPTURE_SOURCE = 'assistant_photo';

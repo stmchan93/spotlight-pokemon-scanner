@@ -77,7 +77,7 @@ export function AssistantPhotoMatchSheet({
                     {[card.setName, number].filter(Boolean).join(' · ')}
                   </Text>
                 </View>
-                <RadioDot selected={selected} size={20} />
+                <RadioDot selected={selected} selectedColor={theme.colors.purple500} size={20} />
               </Pressable>
             );
           })}
