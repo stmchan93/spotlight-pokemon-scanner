@@ -333,8 +333,10 @@ class HttpAppTests(_SeededDb):
                       "get_my_watchlist", "get_portfolio_summary", "find_missing", "get_price_history",
                       "identify_card", "find_price_lows", "find_new_highs", "find_movers", "get_market_trends",
                       "find_top_graded"}
-        write_tools = {"add_to_collection", "update_holding", "watch_card"}
-        self.assertEqual(set(tools), read_tools | write_tools)
+        write_tools = {"add_to_collection", "update_holding", "watch_card", "move_holding", "create_collection"}
+        # Gated with the writes (needed for their ids), but itself a read.
+        self.assertEqual(set(tools), read_tools | write_tools | {"list_collections"})
+        self.assertNotIn("remove_holding", tools)  # owner 2026-11-21: never over external MCP
         self.assertTrue(all(tools[name]["annotations"]["readOnlyHint"] for name in read_tools))
         for name in write_tools:
             self.assertFalse(tools[name]["annotations"]["readOnlyHint"])

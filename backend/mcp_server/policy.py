@@ -38,7 +38,9 @@ READ_TOOLS = (
 )
 # Change the account; user tier only, and only while the owner's
 # "Let AI assistants edit my collection" toggle is on (mcp_server/write_tools.py).
-WRITE_TOOLS = ("add_to_collection", "update_holding", "watch_card")
+# No remove tool by design (owner 2026-11-21): MCP clients have no Confirm step.
+WRITE_TOOLS = ("add_to_collection", "update_holding", "watch_card", "list_collections", "move_holding",
+               "create_collection")
 ALL_TOOLS = READ_TOOLS + WRITE_TOOLS
 
 # Keys of a card-shaped dict (CardSummary / HoldingSummary / get_card / movers).
@@ -148,6 +150,10 @@ USER_CARD_FIELDS = frozenset(
         "comp_missing",
         "gross_premium_usd",
         "gross_premium_pct",
+        # grading_upside scenarios (net of grading fee + shipping)
+        "scenarios",
+        "break_even",
+        "recommendation",
     }
 )
 PUBLIC_CARD_FIELDS = frozenset(

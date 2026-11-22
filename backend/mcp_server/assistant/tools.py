@@ -35,6 +35,7 @@ from mcp_server.assistant.direct_add import (
     resolve_variant,
 )
 from mcp_server.assistant.store import new_id
+from mcp_server.assistant.verdicts import VerdictTools, deal_card, grading_card, trade_card
 from mcp_server.tools import (
     DECK_CONDITION_CODES,
     GAME_FILTER_NOTE,
@@ -164,6 +165,31 @@ _FILTER_SCHEMA: dict[str, Any] = {
 
 def _obj(properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
     return {"type": "object", "properties": properties, "required": required, "additionalProperties": False}
+
+
+# Deal/trade card items. These tools are non-strict (the strict budget is spent); verdicts.py validates.
+TRADE_ITEM_SCHEMA = _obj(
+    {
+        "card_id": {"type": ["string", "null"], "description": "Scanned or searched card id."},
+        "name": {"type": ["string", "null"], "description": "Card name (+ set/number) when there is no id."},
+        "quantity": {"type": ["integer", "null"]},
+        "condition": {"type": ["string", "null"], "description": "NM, LP, MP, HP or DMG; null = NM assumed."},
+        "grader": {"type": ["string", "null"]},
+        "grade": {"type": ["string", "null"]},
+        "variant": {"type": ["string", "null"], "description": "Printing, e.g. 'Reverse Holofoil'."},
+    },
+    ["card_id", "name", "quantity", "condition", "grader", "grade", "variant"],
+)
+DEAL_ITEM_SCHEMA = _obj(
+    {
+        **TRADE_ITEM_SCHEMA["properties"],
+        "asking_price_usd": {"type": ["number", "null"], "description": "This card's own price (each), if given."},
+    },
+    [*TRADE_ITEM_SCHEMA["required"], "asking_price_usd"],
+)
+VERDICT_TOOLS = ("check_deal", "compare_trade")
+COLLECTION_ACTION_TOOLS = ("propose_remove_holding", "propose_move_holding", "propose_create_collection")
+MAX_CREATE_MOVES = 20
 
 
 TOOL_DEFINITIONS: list[dict[str, Any]] = [
@@ -380,9 +406,18 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         .replace("graded market estimate", "graded market price")
         + " Pass the user's 3 most valuable raw singles (get_my_collection sort=value_desc, product=single; skip "
         "slabs); they are the candidates to compare. For a scan tray question, pass the tray's card ids. Answer with one "
-        "bullet per card (never a table) and don't call a comp an estimate or say what it's based on.",
+        "bullet per card (never a table) and don't call a comp an estimate or say what it's based on. Each card also has "
+        "scenarios (PSA 10/9/8; BGS/CGC rows only where a sale or market exists): net_usd = comp - raw - grading fee "
+        "- return shipping, break_even (lowest grade that still profits) and recommendation. 'Should I grade this?' "
+        "answers from these nets, not the gross premium.",
         "input_schema": _obj(
-            {"card_ids": {"type": "array", "items": {"type": "string"}, "description": "1-3 card ids, most valuable first."}},
+            {
+                "card_ids": {"type": "array", "items": {"type": "string"}, "description": "1-3 card ids, most valuable first."},
+                "graders": {
+                    "type": "array", "items": {"type": "string", "enum": ["PSA", "BGS", "CGC"]},
+                    "description": "Graders to compare; default [PSA]. Add BGS/CGC only when the user names them.",
+                },
+            },
             ["card_ids"],
         ),
         "strict": True,
@@ -455,7 +490,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "description": (
             "Propose changing the quantity (at least 1) and/or condition of one holding (holding_id from "
             "get_my_collection or get_card my_holdings). quantity is the NEW TOTAL copies: 'I have 3 now' -> 3; "
-            "'add 2 more' to a holding of 1 -> 3. Cannot delete. Nothing changes until the user confirms."
+            "'add 2 more' to a holding of 1 -> 3. To remove copies use propose_remove_holding. Nothing changes "
+            "until the user confirms."
         ),
         "input_schema": _obj(
             {
@@ -480,6 +516,107 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "target_price_usd": {"type": "number"},
             },
             ["card_id"],
+        ),
+        "strict": True,
+    },
+    {
+        "name": "check_deal",
+        "description": (
+            "Is a price a good deal: the asking (or offered) price vs each card's market price, with a finished "
+            "verdict. Use it whenever the user gives a price for specific cards ('they want $250 for this', 'is $40 "
+            "fair for these 3', 'a vendor offered me $300 for my Charizard'). cards: the scanned card ids (or ids "
+            "from search), or a name when there is no id; each with quantity, condition (default NM, not stated = "
+            "condition_assumed), grader + grade for a slab, variant (printing), and asking_price_usd only when the user "
+            "priced that card on its own. asking_total_usd = one price for the whole lot. side: 'selling' when the "
+            "user is being offered money for their cards, else 'buying'. Returns verdict (buying: good_buy / fair / "
+            "above_market; selling: strong_offer / typical_offer / low_offer; unknown when a card has no USD price), "
+            "verdict_label, asking_usd, market_usd, pct_of_market, diff_usd, good_buy_up_to_usd / fair_up_to_usd "
+            "(buying) or strong_offer_from_usd (selling), and per-card items with change_30d_pct and slab solds. "
+            "ambiguous + ask_which = several printings match a name: ask which, give no verdict. Never compute "
+            "percentages or totals yourself."
+        ),
+        "input_schema": _obj(
+            {
+                "cards": {"type": "array", "items": DEAL_ITEM_SCHEMA, "description": "1-20 cards; [] = the scanned cards."},
+                "asking_total_usd": {"type": ["number", "null"], "description": "One price for all the cards together."},
+                "side": {"type": ["string", "null"], "description": "'buying' (default) or 'selling'."},
+            },
+            ["cards", "asking_total_usd", "side"],
+        ),
+    },
+    {
+        "name": "compare_trade",
+        "description": (
+            "Trade check in ONE call: side_a = the cards the user gives, side_b = the cards they get (ids from the "
+            "scan tray or search, or names; quantity, condition, grader + grade, variant per card). Returns each "
+            "side's total_usd, gap_usd and gap_pct (of the bigger side), favors ('you' = the user gets more, 'them' "
+            "= the user gives more), verdict fair / slightly_uneven / uneven (unknown when a side has an unpriced or "
+            "ambiguous card: then say which and ask, never total it), and balance: who_adds and cash_usd to even it "
+            "out, plus up to 2 of the user's own cards near that value when the user should add. Never add up "
+            "prices yourself. Scanned cards are 'mine' unless the user says they're theirs."
+        ),
+        "input_schema": _obj(
+            {
+                "side_a": {"type": "array", "items": TRADE_ITEM_SCHEMA, "description": "What the user gives (mine)."},
+                "side_b": {"type": "array", "items": TRADE_ITEM_SCHEMA, "description": "What the user gets (theirs)."},
+            },
+            ["side_a", "side_b"],
+        ),
+    },
+    {
+        "name": "list_my_collections",
+        "description": (
+            "The user's named collections: collection_id, name, card_count, hidden (hidden = left out of collection "
+            "totals) and is_default. Use it to resolve a collection the user names ('my Binder', 'Grading pile')."
+        ),
+        "input_schema": _obj({}, []),
+        "strict": True,
+    },
+    {
+        "name": "propose_remove_holding",
+        "description": (
+            "Propose removing copies of one holding (holding_id from get_my_collection or get_card my_holdings). "
+            "quantity = how many copies to REMOVE ('remove one' -> 1); null = all copies. Shown as a red Confirm card "
+            "with the exact printing, condition or grade and collection; nothing changes until the user confirms."
+        ),
+        "input_schema": _obj(
+            {
+                "holding_id": {"type": "string"},
+                "quantity": {"type": ["integer", "null"], "description": "Copies to remove; null = all."},
+            },
+            ["holding_id", "quantity"],
+        ),
+        "strict": True,
+    },
+    {
+        "name": "propose_move_holding",
+        "description": (
+            "Propose moving one holding (holding_id) into another of the user's collections (collection_id from "
+            "list_my_collections). quantity = copies to move; null = all. Nothing changes until the user confirms. "
+            "For a collection that doesn't exist yet, use propose_create_collection with the holding ids."
+        ),
+        "input_schema": _obj(
+            {
+                "holding_id": {"type": "string"},
+                "collection_id": {"type": "string"},
+                "quantity": {"type": ["integer", "null"], "description": "Copies to move; null = all."},
+            },
+            ["holding_id", "collection_id", "quantity"],
+        ),
+        "strict": True,
+    },
+    {
+        "name": "propose_create_collection",
+        "description": (
+            "Propose creating a new named collection, optionally moving whole holdings (holding_ids) into it once "
+            "created. Nothing changes until the user confirms."
+        ),
+        "input_schema": _obj(
+            {
+                "name": {"type": "string", "description": "The collection name the user gave."},
+                "holding_ids": {"type": "array", "items": {"type": "string"}, "description": "[] = just create it."},
+            },
+            ["name", "holding_ids"],
         ),
         "strict": True,
     },
@@ -540,6 +677,7 @@ class ToolOutcome:
     cards: list[dict[str, Any]] = field(default_factory=list)
     action: dict[str, Any] | None = None
     chart: dict[str, Any] | None = None
+    verdict: dict[str, Any] | None = None  # deal / trade / grading card payload (verdicts.py)
 
 
 def strip_for_model(value: Any) -> Any:
@@ -1563,6 +1701,16 @@ class AssistantToolbox:
                     return self._propose_update(dict(arguments or {}), owner_user_id)
                 if name == "propose_watch_card":
                     return self._propose_watch(dict(arguments or {}), owner_user_id)
+                if name in VERDICT_TOOLS:
+                    return self._verdict(name, dict(arguments or {}), owner_user_id, turn)
+                if name == "list_my_collections":
+                    return ToolOutcome(self.list_my_collections(owner_user_id))
+                if name == "propose_remove_holding":
+                    return self._propose_remove(dict(arguments or {}), owner_user_id)
+                if name == "propose_move_holding":
+                    return self._propose_move(dict(arguments or {}), owner_user_id)
+                if name == "propose_create_collection":
+                    return self._propose_create_collection(dict(arguments or {}), owner_user_id)
             return ToolOutcome({"error": f"Unknown tool {name}."}, is_error=True)
         except ToolInputError as error:
             return ToolOutcome({"error": str(error)}, is_error=True)
@@ -1589,7 +1737,7 @@ class AssistantToolbox:
             kwargs["limit"] = max(1, min(limit, MODEL_LIMITS[name]))
         for key in ("owned", "sort", "cursor", "collection_id", "budget_usd", "card_id", "card_ids", "condition",
                     "grader", "grade", "variant", "game", "window", "min_price_usd", "max_price_usd", "holding_type",
-                    "direction", "rank_by", "include_energy_trainers"):
+                    "direction", "rank_by", "include_energy_trainers", "graders"):
             if args.get(key) is not None:
                 kwargs[key] = args[key]
         if "range" in args and args["range"] is not None:
@@ -1639,7 +1787,51 @@ class AssistantToolbox:
             chart = price_chart(
                 result, name=card.get("name") if card else None, range_key=kwargs.get("range_key") or "90d"
             )
-        return ToolOutcome(strip_for_model(result), cards=result_refs(result), chart=chart)
+        verdict = grading_card(result) if name == "grading_upside" and isinstance(result, dict) else None
+        return ToolOutcome(strip_for_model(result), cards=result_refs(result), chart=chart, verdict=verdict)
+
+    # --- verdict tools (deal / trade) ------------------------------------------
+
+    def _verdict(self, name: str, args: dict[str, Any], owner_user_id: str, turn: TurnWrites | None) -> ToolOutcome:
+        verdicts = VerdictTools(self.tools)
+        if name == "check_deal":
+            result, refs = verdicts.check_deal(
+                owner_user_id, cards=args.get("cards"), asking_total_usd=args.get("asking_total_usd"),
+                side=args.get("side"), context_card_ids=tuple(getattr(turn, "context_card_ids", ()) or ()),
+            )
+            card = deal_card(result)
+        else:
+            result, refs = verdicts.compare_trade(owner_user_id, side_a=args.get("side_a"), side_b=args.get("side_b"))
+            card = trade_card(result)
+        candidates = [c for problem in result.get("ambiguous") or [] for c in problem.get("candidates") or []]
+        if candidates:
+            # Ambiguous names: the candidates are the tiles to pick from; no card verdict.
+            return ToolOutcome(strip_for_model(result), cards=card_refs(candidates) + refs)
+        return ToolOutcome(strip_for_model(result), cards=refs, verdict=card)
+
+    # --- collections -----------------------------------------------------------
+
+    def list_my_collections(self, owner_user_id: str) -> dict[str, Any]:
+        rows = self.conn.execute(
+            """
+            SELECT c.id, c.name, c.hidden, c.sort_order,
+                   (SELECT COALESCE(SUM(d.quantity), 0) FROM deck_entries d
+                    WHERE d.owner_user_id = c.owner_user_id AND d.collection_id = c.id AND d.quantity > 0) AS cards
+            FROM collections c WHERE c.owner_user_id = ? ORDER BY c.sort_order, c.created_at, c.id
+            """,
+            (owner_user_id,),
+        ).fetchall()
+        collections = [
+            {
+                "collection_id": str(row["id"]),
+                "name": str(row["name"] or "").strip() or "Main Collection",
+                "card_count": int(row["cards"] or 0),
+                "hidden": bool(row["hidden"]),
+                "is_default": index == 0,
+            }
+            for index, row in enumerate(rows)
+        ]
+        return {"collections": collections, "count": len(collections)}
 
     def has_psa10_sales(self, card_id: str) -> bool:
         """Any plain PSA 10 graded price on record for the card (any date)."""
@@ -1912,6 +2104,119 @@ class AssistantToolbox:
             {"card_id": card["id"], "variant": variant, "target_price_usd": target},
         )
         return self._proposed(action, self._card_tile(card["id"]))
+
+    def _holding_row(self, holding_id: Any, owner_user_id: str) -> sqlite3.Row:
+        holding_id = str(holding_id or "").strip()
+        row = (
+            self.conn.execute(
+                """
+                SELECT d.id, d.card_id, d.quantity, d.condition, d.grader, d.grade, d.variant_name, d.collection_id,
+                       c.name AS collection_name
+                FROM deck_entries d LEFT JOIN collections c ON c.id = d.collection_id AND c.owner_user_id = d.owner_user_id
+                WHERE d.id = ? AND d.owner_user_id = ? AND d.quantity > 0
+                """,
+                (holding_id, owner_user_id),
+            ).fetchone()
+            if holding_id
+            else None
+        )
+        if row is None:
+            raise ToolInputError("Holding not found in the user's collection. Use holding_id from get_my_collection.")
+        return row
+
+    def _holding_label(self, row: sqlite3.Row, card: dict[str, Any]) -> list[str]:
+        """Card, printing, condition or grade: exactly which copies the action touches."""
+        parts = [_card_label(card)]
+        if row["variant_name"]:
+            parts.append(str(row["variant_name"]))
+        if str(row["grader"] or "").strip():
+            parts.append(f"{str(row['grader']).strip()} {str(row['grade'] or '').strip()}".strip())
+        else:
+            parts.append(DECK_CONDITION_CODES.get(str(row["condition"] or "").strip().lower()) or "NM")
+        return parts
+
+    def _propose_remove(self, args: dict[str, Any], owner_user_id: str) -> ToolOutcome:
+        row = self._holding_row(args.get("holding_id"), owner_user_id)
+        held = int(row["quantity"])
+        quantity = self._quantity(args.get("quantity"), default=held)
+        assert quantity is not None
+        quantity = min(quantity, held)
+        card = self._card(row["card_id"])
+        parts = [f"Remove {quantity} of {held}" if held > 1 else "Remove", *self._holding_label(row, card)]
+        if row["collection_name"]:
+            parts.append(f"from {row['collection_name']}")
+        action = self._action(
+            "remove_holding",
+            " · ".join(parts),
+            {
+                "holding_id": str(row["id"]),
+                "card_id": card["id"],
+                "quantity": quantity,
+                "remove_all": quantity >= held,
+                "remaining_quantity": held - quantity,
+            },
+        )
+        return self._proposed(action, self._card_tile(card["id"]))
+
+    def _target_collection(self, collection_id: Any, owner_user_id: str) -> sqlite3.Row:
+        row = self.conn.execute(
+            "SELECT id, name, hidden FROM collections WHERE id = ? AND owner_user_id = ?",
+            (str(collection_id or "").strip(), owner_user_id),
+        ).fetchone()
+        if row is None:
+            raise ToolInputError("Collection not found. Use collection_id from list_my_collections.")
+        return row
+
+    def _propose_move(self, args: dict[str, Any], owner_user_id: str) -> ToolOutcome:
+        row = self._holding_row(args.get("holding_id"), owner_user_id)
+        target = self._target_collection(args.get("collection_id"), owner_user_id)
+        if str(target["id"]) == str(row["collection_id"] or ""):
+            raise ToolInputError(f"That holding is already in {target['name']}.")
+        held = int(row["quantity"])
+        quantity = min(self._quantity(args.get("quantity"), default=held) or held, held)
+        card = self._card(row["card_id"])
+        parts = [f"Move {quantity}×" if quantity > 1 or held > 1 else "Move", *self._holding_label(row, card)]
+        parts.append(f"to {target['name']}")
+        if target["hidden"]:
+            parts.append("(hidden: not in totals)")
+        action = self._action(
+            "move_holding",
+            " · ".join(parts),
+            {
+                "holding_id": str(row["id"]),
+                "card_id": card["id"],
+                "collection_id": str(target["id"]),
+                "collection_name": str(target["name"]),
+                "quantity": quantity,
+                "move_all": quantity >= held,
+            },
+        )
+        outcome = self._proposed(action, self._card_tile(card["id"]))
+        if target["hidden"]:
+            outcome.content["hidden_note"] = f"{target['name']} is hidden: its cards don't count in collection totals."
+        return outcome
+
+    def _propose_create_collection(self, args: dict[str, Any], owner_user_id: str) -> ToolOutcome:
+        name = " ".join(str(args.get("name") or "").split())[:60]
+        if not name:
+            raise ToolInputError("Give the new collection's name.")
+        exists = self.conn.execute(
+            "SELECT 1 FROM collections WHERE owner_user_id = ? AND LOWER(TRIM(name)) = LOWER(?)", (owner_user_id, name)
+        ).fetchone()
+        if exists:
+            raise ToolInputError(f"A collection named {name} already exists: use propose_move_holding with its id.")
+        holding_ids = [str(value).strip() for value in args.get("holding_ids") or [] if str(value or "").strip()]
+        holding_ids = list(dict.fromkeys(holding_ids))[:MAX_CREATE_MOVES]
+        rows = [self._holding_row(holding_id, owner_user_id) for holding_id in holding_ids]
+        copies = sum(int(row["quantity"]) for row in rows)
+        summary = f"Create collection “{name}”"
+        if rows:
+            summary += f" · move {copies} card{'s' if copies != 1 else ''} into it"
+        action = self._action(
+            "create_collection", summary, {"name": name, "holding_ids": [str(row["id"]) for row in rows]}
+        )
+        tiles = [tile for row in rows for tile in self._card_tile(str(row["card_id"]))]
+        return self._proposed(action, tiles)
 
     # --- tiles ---------------------------------------------------------------
 

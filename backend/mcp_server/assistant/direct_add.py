@@ -45,6 +45,8 @@ class TurnWrites:
     question: str
     executed: int = 0
     batch: bool = False
+    # Cards attached to this message (scan tray / photo): check_deal's default cards.
+    context_card_ids: tuple[str, ...] = ()
 
     def plan_round(self, tool_names: list[str]) -> None:
         # Several adds in one round = a batch ("add the cards in my tray").

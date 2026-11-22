@@ -1,10 +1,11 @@
-"""MCP write tools: add_to_collection, update_holding, watch_card.
+"""MCP write tools: add_to_collection, update_holding, watch_card, move_holding,
+create_collection (+ list_collections, which those need for ids).
 
 Claude/ChatGPT have no Confirm button in Ekalight, so these execute server-side,
 but only when the owner turned on "Let AI assistants edit my collection"
 (user_ai_settings.allow_mcp_edits, absent row = off). Every write goes through
 the same SpotlightScanService methods the app endpoints call, under the token's
-identity. No delete tool; quantity floor is 1.
+identity. No delete/remove tool (owner 2026-11-21); quantity floor is 1.
 
 Registered on the `user` tier only (policy.WRITE_TOOLS are never in the public
 tier's tool list).
@@ -283,6 +284,54 @@ class CollectionWriteTools:
             self.service.update_deck_entry_cost_basis({"deckEntryID": next_id, "costBasisPerUnitCents": int(cents)})
         return {"previous_holding_id": holding_id, **self._holding_payload(owner_user_id, next_id)}
 
+    def list_collections(self, owner_user_id: str) -> dict[str, Any]:
+        rows = self.conn.execute(
+            """
+            SELECT c.id, c.name, c.hidden,
+                   (SELECT COALESCE(SUM(d.quantity), 0) FROM deck_entries d
+                    WHERE d.owner_user_id = c.owner_user_id AND d.collection_id = c.id AND d.quantity > 0) AS cards
+            FROM collections c WHERE c.owner_user_id = ? ORDER BY c.sort_order, c.created_at, c.id
+            """,
+            (owner_user_id,),
+        ).fetchall()
+        return {
+            "collections": [
+                {"collection_id": str(row["id"]), "name": row["name"], "card_count": int(row["cards"] or 0),
+                 "hidden": bool(row["hidden"])}
+                for row in rows
+            ]
+        }
+
+    def move_holding(
+        self, owner_user_id: str, *, holding_id: str, collection_id: str, quantity: int | None = None
+    ) -> dict[str, Any]:
+        holding_id = str(holding_id or "").strip()
+        if self._holding(owner_user_id, holding_id) is None:
+            raise WriteToolInputError("Holding not found. Use get_my_collection to find the holding_id.")
+        result = self.service.move_deck_entry(
+            {"deckEntryID": holding_id, "collectionID": str(collection_id or "").strip(), "quantity": quantity}
+        )
+        return {"moved_quantity": result["movedQuantity"], **self._holding_payload(owner_user_id, result["deckEntryID"])}
+
+    def create_collection(self, owner_user_id: str, *, name: str, request_id: str) -> dict[str, Any]:
+        name = " ".join(str(name or "").split())
+        request_id = str(request_id or "").strip()
+        if not name:
+            raise WriteToolInputError("name is required.")
+        if not request_id:
+            raise WriteToolInputError("request_id is required.")
+        stored = self._claim_request(owner_user_id, request_id, "create_collection")
+        if stored is not None:
+            return stored
+        try:
+            created = self.service.create_collection({"name": name})["collection"]
+        except BaseException:
+            self._finish_request(owner_user_id, request_id, None)
+            raise
+        result = {"collection_id": created["id"], "name": created["name"]}
+        self._finish_request(owner_user_id, request_id, result)
+        return result
+
     def watch_card(
         self,
         owner_user_id: str,
@@ -452,5 +501,45 @@ def register_write_tools(
         target_price_usd: Annotated[float, Field(gt=0, le=1_000_000)] | None = None,
     ) -> dict[str, Any]:
         return await runner.run("watch_card", card_id=card_id, variant=variant, target_price_usd=target_price_usd)
+
+    @server.tool(
+        description=(
+            "List the user's named collections (collection_id, name, card_count, hidden = left out of totals). "
+            "Use it to find the collection_id for move_holding or add_to_collection. Works only if the user turned "
+            "on 'Let AI assistants edit my collection' in the Ekalight app."
+        ),
+        annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
+    )
+    async def list_collections() -> dict[str, Any]:
+        return await runner.run("list_collections")
+
+    @server.tool(
+        description=(
+            "Move one of the user's holdings (holding_id) into another of their collections (collection_id from "
+            "list_collections). quantity = copies to move; omit to move all. Ask the user before calling. Cards "
+            "can't be removed with these tools. Works only if the user turned on 'Let AI assistants edit my "
+            "collection' in the Ekalight app."
+        ),
+        annotations=WRITE,
+    )
+    async def move_holding(
+        holding_id: str,
+        collection_id: str,
+        quantity: Annotated[int, Field(ge=1, le=999)] | None = None,
+    ) -> dict[str, Any]:
+        return await runner.run("move_holding", holding_id=holding_id, collection_id=collection_id, quantity=quantity)
+
+    @server.tool(
+        description=(
+            "Create a new, empty named collection for the user; returns its collection_id. Ask the user before "
+            "calling. Works only if the user turned on 'Let AI assistants edit my collection' in the Ekalight app."
+        ),
+        annotations=WRITE,
+    )
+    async def create_collection(
+        name: Annotated[str, Field(min_length=1, max_length=60)],
+        request_id: RequestId,
+    ) -> dict[str, Any]:
+        return await runner.run("create_collection", name=name, request_id=request_id)
 
     return runner

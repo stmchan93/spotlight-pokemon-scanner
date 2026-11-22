@@ -339,6 +339,18 @@ export function createTestSpotlightRepository(
     setAiSettings: (...args) => {
       return overrides.setAiSettings?.(...args) ?? baseRepository.setAiSettings(...args);
     },
+    getVendorSettings: (...args) => {
+      return overrides.getVendorSettings?.(...args) ?? baseRepository.getVendorSettings(...args);
+    },
+    setVendorSettings: (...args) => {
+      return overrides.setVendorSettings?.(...args) ?? baseRepository.setVendorSettings(...args);
+    },
+    recordVendorPurchase: (...args) => {
+      return overrides.recordVendorPurchase?.(...args) ?? baseRepository.recordVendorPurchase(...args);
+    },
+    fetchVendorBoughtLog: (...args) => {
+      return overrides.fetchVendorBoughtLog?.(...args) ?? baseRepository.fetchVendorBoughtLog(...args);
+    },
     fetchAlertPreferences: (...args) => {
       return overrides.fetchAlertPreferences?.(...args)
         ?? baseRepository.fetchAlertPreferences(...args);
@@ -370,6 +382,9 @@ export function createTestSpotlightRepository(
     replacePortfolioEntry: (...args) => {
       return overrides.replacePortfolioEntry?.(...args)
         ?? baseRepository.replacePortfolioEntry(...args);
+    },
+    movePortfolioEntry: (...args) => {
+      return overrides.movePortfolioEntry?.(...args) ?? baseRepository.movePortfolioEntry(...args);
     },
     deletePortfolioEntry: (...args) => {
       return overrides.deletePortfolioEntry?.(...args)

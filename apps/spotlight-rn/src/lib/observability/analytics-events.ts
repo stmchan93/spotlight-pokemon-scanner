@@ -69,6 +69,8 @@ export const AnalyticsEvent = {
   assistantActionUndone: 'assistant_action_undone',
   // UI tap only (`rating`, `reason`); the server's `assistant_feedback` is the count of record.
   assistantFeedbackTapped: 'assistant_feedback_tapped',
+  // Composer "+" photo cropped and sent to the scanner (`photo_source`: camera | library).
+  assistantPhotoAttached: 'assistant_photo_attached',
 } as const;
 
 export type AnalyticsEventName = (typeof AnalyticsEvent)[keyof typeof AnalyticsEvent];

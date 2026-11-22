@@ -40,9 +40,13 @@ JUDGE_PRICES = {
 
 KNOWN_GAMES = ("pokemon", "onepiece", "lorcana", "riftbound", "gundam")
 SEALED_ID_PREFIX = "tcgp-sealed-"
-ACTION_TYPES = ("add_to_collection", "update_holding", "watch_card")
+ACTION_TYPES = ("add_to_collection", "update_holding", "watch_card", "remove_holding", "move_holding",
+                "create_collection")
 # Tools other agents are adding; case files may name them before they exist.
-PLANNED_TOOLS = frozenset({"show_cards", "add_to_collection_now", "grading_upside"})
+PLANNED_TOOLS = frozenset({
+    "show_cards", "add_to_collection_now", "grading_upside", "check_deal", "compare_trade", "list_my_collections",
+    "propose_remove_holding", "propose_move_holding", "propose_create_collection",
+})
 WRITE_TOOLS = ("add_to_collection_now",)
 
 # Every key a turn's `expect` block may use (validated by cases.validate_cases).
@@ -86,6 +90,8 @@ EXPECT_KEYS = frozenset(
         "proposed_card_ids",
         # tool results
         "tool_result_where",
+        # every $ amount and % in the answer is within tolerance of a number in this tool's result
+        "amounts_match_tool",
         # false = skip the automatic scan-tray naming check
         "scan_tray_named",
         # false = skip the automatic "Here are N" vs tile-count check
@@ -965,6 +971,62 @@ def check_tool_result_where(record: dict[str, Any], spec: dict[str, Any], known_
     return _fail(name, f"no {tool} result has {where}")
 
 
+_AMOUNT = re.compile(r"\$\s?(\d[\d,]*(?:\.\d+)?)\s*([kK])?|(\d[\d,]*(?:\.\d+)?)\s?%")
+DEFAULT_AMOUNT_TOLERANCE_PCT = 1.0
+
+
+def answer_amounts(text: str) -> list[tuple[str, float]]:
+    """('$', 250.0) / ('%', 87.0) for every dollar amount and percentage in the text."""
+    found = []
+    for match in _AMOUNT.finditer(text or ""):
+        if match.group(1) is not None:
+            value = float(match.group(1).replace(",", "")) * (1000 if match.group(2) else 1)
+            found.append(("$", value))
+        else:
+            found.append(("%", float(match.group(3).replace(",", ""))))
+    return found
+
+
+def result_numbers(node: Any) -> list[float]:
+    out: list[float] = []
+    if isinstance(node, bool) or node is None:
+        return out
+    if isinstance(node, (int, float)):
+        return [abs(float(node))]
+    if isinstance(node, dict):
+        for value in node.values():
+            out.extend(result_numbers(value))
+    elif isinstance(node, list):
+        for value in node:
+            out.extend(result_numbers(value))
+    return out
+
+
+def _close(value: float, candidates: list[float], tolerance_pct: float) -> bool:
+    return any(abs(value - other) <= max(0.01, abs(other) * tolerance_pct / 100) for other in candidates)
+
+
+def check_amounts_match_tool(record: dict[str, Any], spec: Any, known_tools: frozenset[str] | None = None) -> CheckResult:
+    """Every $ and % in the answer is within tolerance_pct of a number in the tool's results
+    (or the question's own numbers, e.g. the asking price): no invented prices, math checked by code."""
+    spec = spec if isinstance(spec, dict) else {"tool": spec}
+    tool = str(spec.get("tool") or "")
+    tolerance = float(spec.get("tolerance_pct", DEFAULT_AMOUNT_TOLERANCE_PCT))
+    name = f"amounts_match:{tool}"
+    if _planned_absent(tool, known_tools):
+        return _skip(name, f"planned tool {tool} not in this build")
+    results = [item.get("data") for item in _tool_results(record, tool) if item.get("data") is not None]
+    if not results:
+        return _fail(name, f"no {tool} result")
+    numbers = result_numbers(results) + [value for _, value in answer_amounts(str(record.get("question") or ""))]
+    numbers += [float(n.replace(",", "")) for n in re.findall(r"\d[\d,]*(?:\.\d+)?", str(record.get("question") or ""))]
+    bad = [f"{kind}{value:g}" for kind, value in answer_amounts(str(record.get("answer") or ""))
+           if not _close(value, numbers, tolerance)]
+    if bad:
+        return _fail(name, f"amounts not in {tool} results (±{tolerance:g}%): {bad}")
+    return _ok(name)
+
+
 # Owner 2026-11-20: answers never state how much history exists, and never claim a
 # window the data doesn't cover. Window-claim wording per window length (days).
 _WINDOW_CLAIMS = {
@@ -1107,6 +1169,8 @@ def grade_turn(
         results.append(check_tool_args(record, spec, known_tools))
     for spec in expect.get("tool_result_where") or []:
         results.append(check_tool_result_where(record, spec, known_tools))
+    if expect.get("amounts_match_tool"):
+        results.append(check_amounts_match_tool(record, expect["amounts_match_tool"], known_tools))
     if expect.get("tiles_none_match"):
         results.append(check_tiles_none_match(record, expect["tiles_none_match"]))
     if expect.get("tiles_min"):

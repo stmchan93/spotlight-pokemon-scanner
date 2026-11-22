@@ -25,6 +25,7 @@ import type {
   AssistantSetRef,
   AssistantThreadSummary,
   CardGame,
+  CatalogSearchResult,
 } from '@spotlight/api-client';
 import {
   Button,
@@ -53,9 +54,23 @@ import {
   assistantRemainingCaption,
   assistantStarterPrompts,
 } from '@/features/assistant/assistant-prompts';
+import {
+  assistantPhotoCardLabel,
+  cropAssistantPhoto,
+  deleteAssistantPhoto,
+  identifyAssistantPhoto,
+  pickAssistantPhoto,
+  type AssistantPhotoAttachment,
+  type AssistantPhotoSource,
+} from '@/features/assistant/assistant-photo-scan';
 import { assistantPrintingChoiceMessage } from '@/features/assistant/assistant-printing-choice';
 import type { AssistantActionUiState } from '@/features/assistant/components/assistant-action-card';
 import { AssistantComposer } from '@/features/assistant/components/assistant-composer';
+import {
+  AssistantPhotoBubbleThumb,
+  AssistantPhotoChip,
+} from '@/features/assistant/components/assistant-photo-attachment';
+import { AssistantPhotoMatchSheet } from '@/features/assistant/components/assistant-photo-match-sheet';
 import {
   AssistantMessageBubble,
   UserBubble,
@@ -103,6 +118,12 @@ export type AssistantScreenProps = {
 type ChatRow =
   | { kind: 'message'; key: string; message: AssistantMessage }
   | { kind: 'pending'; key: string; pending: AssistantPendingQuestion };
+
+/** A photo in the composer: being identified, failed, or matched (top 5, one picked). */
+type ComposerPhoto =
+  | { status: 'identifying'; photoUri: string }
+  | { status: 'failed'; photoUri: string }
+  | { status: 'ready'; photoUri: string; candidates: CatalogSearchResult[]; selectedCardId: string };
 
 /** What the next content-size change should do with the scroll position. */
 type ScrollIntent = 'none' | 'end' | 'jump' | 'reply';
@@ -157,6 +178,22 @@ export function AssistantScreen({
   });
 
   const [draft, setDraft] = useState('');
+  const [photo, setPhoto] = useState<ComposerPhoto | null>(null);
+  const photoRef = useRef(photo);
+  photoRef.current = photo;
+  const [matchSheetVisible, setMatchSheetVisible] = useState(false);
+  // Every chat-photo crop this screen wrote; all deleted when it closes.
+  const photoFilesRef = useRef(new Set<string>());
+  // Only the newest pick's identification may land.
+  const photoRunRef = useRef(0);
+  useEffect(() => {
+    const files = photoFilesRef.current;
+    return () => {
+      photoRunRef.current += 1;
+      files.forEach((uri) => deleteAssistantPhoto(uri));
+      files.clear();
+    };
+  }, []);
   const [view, setView] = useState<'chat' | 'history'>('chat');
   const [threads, setThreads] = useState<AssistantThreadSummary[]>([]);
   const [threadsStatus, setThreadsStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -276,19 +313,99 @@ export function AssistantScreen({
     }
   }, [applyScrollIntent, chat.lastReplyId]);
 
+  const identifyPhoto = useCallback(async (photoUri: string) => {
+    const run = ++photoRunRef.current;
+    setPhoto({ status: 'identifying', photoUri });
+    try {
+      const candidates = await identifyAssistantPhoto(repository, photoUri, game);
+      if (run !== photoRunRef.current) {
+        return;
+      }
+      setPhoto(candidates.length > 0
+        ? { status: 'ready', photoUri, candidates, selectedCardId: candidates[0].cardId }
+        : { status: 'failed', photoUri });
+    } catch {
+      if (run === photoRunRef.current) {
+        setPhoto({ status: 'failed', photoUri });
+      }
+    }
+  }, [game, repository]);
+
+  const discardComposerPhoto = useCallback((current: ComposerPhoto | null) => {
+    photoRunRef.current += 1;
+    if (current) {
+      photoFilesRef.current.delete(current.photoUri);
+      deleteAssistantPhoto(current.photoUri);
+    }
+  }, []);
+
+  const handleAttachPhoto = useCallback(async (photoSource: AssistantPhotoSource) => {
+    try {
+      const picked = await pickAssistantPhoto(photoSource);
+      if (picked.kind === 'unavailable') {
+        Alert.alert('Update needed', 'Adding a photo needs the latest app version.');
+        return;
+      }
+      if (picked.kind === 'denied') {
+        Alert.alert(
+          photoSource === 'camera' ? 'Camera access needed' : 'Photos access needed',
+          photoSource === 'camera' ? 'Allow camera access to take a photo.' : 'Allow photo access to choose a picture.',
+        );
+        return;
+      }
+      if (picked.kind !== 'picked') {
+        return;
+      }
+      const cropped = await cropAssistantPhoto(picked);
+      // The picker's own copy is a cache file; only the crop is kept.
+      deleteAssistantPhoto(picked.uri);
+      if (!cropped) {
+        Alert.alert('Photo failed', 'Could not read that photo. Please try another.');
+        return;
+      }
+      photoFilesRef.current.add(cropped);
+      // A new photo replaces the one in the composer.
+      discardComposerPhoto(photoRef.current);
+      capturePostHogEvent(AnalyticsEvent.assistantPhotoAttached, { source, photo_source: photoSource });
+      await identifyPhoto(cropped);
+    } catch {
+      Alert.alert('Photo failed', 'Could not open the camera or your photos. Please try again.');
+    }
+  }, [discardComposerPhoto, identifyPhoto, source]);
+
+  const handleRemovePhoto = useCallback(() => {
+    discardComposerPhoto(photo);
+    setPhoto(null);
+    setMatchSheetVisible(false);
+  }, [discardComposerPhoto, photo]);
+
   const handleSend = useCallback(async (text: string) => {
     const question = text.trim();
-    if (!question || chat.pending?.status === 'sending' || chat.isLimitReached) {
+    if (!question || chat.pending?.status === 'sending' || chat.isLimitReached || photo?.status === 'identifying') {
       return;
     }
+    const sentPhoto = photo?.status === 'ready' ? photo : null;
+    const selected = sentPhoto?.candidates.find((card) => card.cardId === sentPhoto.selectedCardId);
+    const attachment: AssistantPhotoAttachment | undefined = sentPhoto && selected
+      ? { photoUri: sentPhoto.photoUri, cardId: selected.cardId, label: assistantPhotoCardLabel(selected) }
+      : undefined;
     setDraft('');
-    capturePostHogEvent(AnalyticsEvent.assistantQuestionSent, { source });
-    const outcome = await chat.send(question.slice(0, MAX_QUESTION_LENGTH));
-    if (outcome === 'limit') {
-      // Not answered and not charged: give the words back.
-      setDraft(question);
+    if (attachment) {
+      // The file now belongs to the sent bubble; a failed identification is just dropped.
+      setPhoto(null);
+    } else if (photo) {
+      handleRemovePhoto();
     }
-  }, [chat, source]);
+    capturePostHogEvent(AnalyticsEvent.assistantQuestionSent, { source, ...(attachment ? { photo: true } : {}) });
+    const outcome = await chat.send(question.slice(0, MAX_QUESTION_LENGTH), attachment ? { attachment } : undefined);
+    if (outcome === 'limit') {
+      // Not answered and not charged: give the words (and the photo) back.
+      setDraft(question);
+      if (sentPhoto) {
+        setPhoto(sentPhoto);
+      }
+    }
+  }, [chat, handleRemovePhoto, photo, source]);
 
   // A tapped candidate printing: ask for the add/update of exactly that card.
   const handlePickCard = useCallback(async (card: AssistantCardRef, message: AssistantMessage) => {
@@ -509,7 +626,8 @@ export function AssistantScreen({
   const renderRow = (item: ChatRow) => {
     if (item.kind === 'message') {
       const isLatestReply = item.message.id === latestMessage?.id && followUps.length > 0;
-      return (
+      const sentPhoto = item.message.role === 'user' ? chat.attachments[item.message.id] : undefined;
+      const bubble = (
         <AssistantMessageBubble
           actionStates={actionStates}
           animateEntrance={item.message.id === chat.lastReplyId}
@@ -534,15 +652,29 @@ export function AssistantScreen({
           onOpenWatchlist={onOpenWatchlist}
         />
       );
+      return sentPhoto ? (
+        <View style={styles.photoGroup}>
+          <AssistantPhotoBubbleThumb label={sentPhoto.label} photoUri={sentPhoto.photoUri} />
+          {bubble}
+        </View>
+      ) : bubble;
     }
     const { pending } = item;
+    const pendingPhoto = pending.attachment ? (
+      <AssistantPhotoBubbleThumb label={pending.attachment.label} photoUri={pending.attachment.photoUri} />
+    ) : null;
     if (pending.status === 'sending') {
       return (
         <View style={styles.pendingGroup}>
+          {pendingPhoto}
           <UserBubble animateEntrance testID="assistant-pending-question" text={pending.text} />
           <Animated.View entering={assistantRowEntering}>
             <AssistantThinkingIndicator
-              label={source === 'scanner' && cardIds.length > 0 ? 'Looking at your cards…' : 'Thinking…'}
+              label={
+                pending.attachment
+                  ? 'Looking at your card…'
+                  : source === 'scanner' && cardIds.length > 0 ? 'Looking at your cards…' : 'Thinking…'
+              }
               testID="assistant-sending"
             />
           </Animated.View>
@@ -550,6 +682,8 @@ export function AssistantScreen({
       );
     }
     return (
+      <View style={styles.photoGroup}>
+      {pendingPhoto}
       <UserBubble
         dimmed
         footer={
@@ -570,6 +704,7 @@ export function AssistantScreen({
         testID="assistant-pending-question"
         text={pending.text}
       />
+      </View>
     );
   };
 
@@ -755,6 +890,17 @@ export function AssistantScreen({
               : emptyState}
           </ScrollView>
           </GestureDetector>
+          <AssistantPhotoMatchSheet
+            candidates={photo?.status === 'ready' ? photo.candidates : []}
+            onClose={() => setMatchSheetVisible(false)}
+            onSelect={(cardId) => {
+              void Haptics.selectionAsync().catch(() => undefined);
+              setPhoto((current) => (current?.status === 'ready' ? { ...current, selectedCardId: cardId } : current));
+              setMatchSheetVisible(false);
+            }}
+            selectedCardId={photo?.status === 'ready' ? photo.selectedCardId : null}
+            visible={matchSheetVisible && photo?.status === 'ready'}
+          />
           <Toast
             durationMs={COPIED_TOAST_MS}
             message="Copied"
@@ -786,10 +932,30 @@ export function AssistantScreen({
                   </Text>
                 ) : null}
                 <AssistantComposer
+                  attachment={photo ? (
+                    <AssistantPhotoChip
+                      onChangeMatch={() => setMatchSheetVisible(true)}
+                      onRemove={handleRemovePhoto}
+                      onRetry={() => void identifyPhoto(photo.photoUri)}
+                      state={photo.status === 'ready'
+                        ? {
+                            status: 'ready',
+                            photoUri: photo.photoUri,
+                            label: assistantPhotoCardLabel(
+                              photo.candidates.find((card) => card.cardId === photo.selectedCardId) ?? photo.candidates[0],
+                            ),
+                            alternateCount: photo.candidates.length - 1,
+                          }
+                        : photo}
+                    />
+                  ) : null}
                   isSending={isSending}
                   maxLength={MAX_QUESTION_LENGTH}
+                  onAttachPhoto={(photoSource) => void handleAttachPhoto(photoSource)}
                   onChangeText={setDraft}
                   onSend={() => void handleSend(draft)}
+                  placeholder={photo ? 'Ask about this card' : undefined}
+                  sendBlocked={photo?.status === 'identifying'}
                   value={draft}
                 />
               </>
@@ -862,6 +1028,9 @@ const styles = StyleSheet.create({
   },
   pendingGroup: {
     gap: spacing.sm,
+  },
+  photoGroup: {
+    gap: spacing.xxs,
   },
   failedRow: {
     alignItems: 'center',

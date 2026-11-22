@@ -62,6 +62,9 @@ import {
   type ScannerCapturePayload,
   type ScannerMatchResult,
   type SlabContext,
+  type VendorPriceMode,
+  type VendorPurchaseLineInput,
+  type VendorSettings,
 } from '@spotlight/api-client';
 import {
   Button,
@@ -193,6 +196,14 @@ import { BinderPageReview } from './binder-page-review';
 import { BinderLayoutMenu, type BinderLayoutMenuSelection } from '@/features/scanner/components/binder-layout-menu';
 import { AnchoredOptionMenu } from '@/features/scanner/components/printing-menu';
 import { CustomDiscountSheet } from '@/features/scanner/components/custom-discount-sheet';
+import {
+  buildVendorPurchaseLine,
+  captureVendorQuote,
+  newVendorBatchId,
+  useTrayVendorTotals,
+} from '@/features/scanner/scan-vendor-offer';
+import { useVendorSettings } from '@/features/vendor/use-vendor-settings';
+import { vendorModeSummary } from '@/features/vendor/vendor-pricing';
 import { ChangeCardPicker } from './change-card-picker';
 import { RecentCaptureSwipeRow } from './recent-capture-swipe-row';
 import { ScanTrayList, type ScanTrayListItem } from './scan-tray-list';
@@ -549,9 +560,14 @@ type CaptureTrayRowProps = {
   /** Row dropdowns: 'grader' (RAW/PSA/…) or 'detail' (condition, or grade). */
   onOpenGradingMenu: (captureId: string, kind: ScanRowGradingMenuKind, anchor: CaptureRowMenuAnchor) => void;
   onShowPrice: (captureId: string) => void;
+  /** Vendor buy mode: the row's action is BOUGHT (records the buy at the offer). */
+  onBought: (captureId: string) => void;
   selection: ScanPriceSheetSelection | null;
   /** The active candidate's printings; empty until the matrix lands (or none exist). */
   variants: readonly RawPricingMatrixVariant[];
+  /** Vendor price tag on: the row shows market → offer at these rates. */
+  vendorMode: VendorPriceMode | null;
+  vendorSettings: VendorSettings;
 };
 
 // Stable empty list: a fresh [] per render would break CaptureTrayRow's memo
@@ -662,7 +678,10 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
   onOpenChangeCardPicker,
   onOpenGradingMenu,
   onShowPrice,
+  onBought,
   selection,
+  vendorMode,
+  vendorSettings,
 }: CaptureTrayRowProps) {
   const theme = useSpotlightTheme();
   const candidate = activeCandidateForCapture(capture);
@@ -670,6 +689,11 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
   // Shared with the tray header TOTAL (`trayPriceSummary`) so the rows and the
   // number a dealer prices a stack off can never drift apart.
   const { amount: displayMarketPrice, currencyCode } = resolveCaptureTrayPrice(capture, selection);
+  // Same market as the cell above it, times the vendor's rate (USD only).
+  const vendorOffer = vendorMode
+    ? captureVendorQuote(capture, selection, vendorSettings, vendorMode).offer
+    : null;
+  const isBuyMode = vendorMode === 'buy';
   const grading = effectiveScanRowGrading(capture, selection);
   // The printing the price assumes (picked on the PDP / binder, or the matched
   // art version); empty = none chosen.
@@ -872,21 +896,54 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                   </Text>
                 ) : null}
               </View>
+              {vendorMode ? (
+                <Text
+                  numberOfLines={1}
+                  style={styles.captureOfferValue}
+                  testID={`scanner-tray-offer-${capture.id}`}
+                >
+                  {vendorOffer
+                    ? `→ ${vendorMode === 'sell' ? 'SELL' : 'OFFER'} ${formatCurrency(vendorOffer.offerUsd, 'USD')}`
+                    : `→ ${vendorMode === 'sell' ? 'SELL' : 'OFFER'} —`}
+                </Text>
+              ) : null}
             </ArenaPressable>
-            <ArenaPressable
-              accessibilityLabel={`Add ${candidate.name} to collection`}
-              accessibilityRole="button"
-              disabled={capture.isLoadingCandidates || capture.isAddingToInventory}
-              hitSlop={6}
-              onPress={() => onAddToCollection(capture.id, 'pill')}
-              style={({ pressed }) => [
-                styles.captureAddPill,
-                pressed ? styles.captureAddPillPressed : null,
-              ]}
-              testID={`scanner-tray-add-${capture.id}`}
-            >
-              <Text style={styles.captureAddPillLabel}>ADD</Text>
-            </ArenaPressable>
+            {isBuyMode ? (
+              // Buy mode: the seller took the offer. Records the buy at the
+              // offer price (into the collection + the Bought log).
+              <ArenaPressable
+                accessibilityLabel={vendorOffer
+                  ? `Bought ${candidate.name} for ${formatCurrency(vendorOffer.offerUsd, 'USD')}`
+                  : `Bought ${candidate.name}`}
+                accessibilityRole="button"
+                disabled={capture.isLoadingCandidates || capture.isAddingToInventory || !vendorOffer}
+                hitSlop={6}
+                onPress={() => onBought(capture.id)}
+                style={({ pressed }) => [
+                  styles.captureAddPill,
+                  !vendorOffer ? styles.captureAddPillDisabled : null,
+                  pressed ? styles.captureAddPillPressed : null,
+                ]}
+                testID={`scanner-tray-bought-${capture.id}`}
+              >
+                <Text style={styles.captureAddPillLabel}>BOUGHT</Text>
+              </ArenaPressable>
+            ) : (
+              <ArenaPressable
+                accessibilityLabel={`Add ${candidate.name} to collection`}
+                accessibilityRole="button"
+                disabled={capture.isLoadingCandidates || capture.isAddingToInventory}
+                hitSlop={6}
+                onPress={() => onAddToCollection(capture.id, 'pill')}
+                style={({ pressed }) => [
+                  styles.captureAddPill,
+                  pressed ? styles.captureAddPillPressed : null,
+                ]}
+                testID={`scanner-tray-add-${capture.id}`}
+              >
+                <Text style={styles.captureAddPillLabel}>ADD</Text>
+              </ArenaPressable>
+            )}
           </View>
         ) : null}
       </View>
@@ -1269,6 +1326,14 @@ export function ScannerScreen({
   const [discountMenuOpen, setDiscountMenuOpen] = useState(false);
   const [customDiscountOpen, setCustomDiscountOpen] = useState(false);
   const [discountMenuAnchor, setDiscountMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  // Vendor price tag: each row shows market → the vendor's buy (or sell) price
+  // from their saved rates, and the TOTAL becomes the offer. Display + Bought
+  // only. Unlike the discount it survives CLEAR ALL: it is how this vendor
+  // works, not one customer's deal.
+  const [vendorMode, setVendorMode] = useState<VendorPriceMode | null>(null);
+  const { settings: vendorSettings } = useVendorSettings();
+  const [vendorBoughtAllOpen, setVendorBoughtAllOpen] = useState(false);
+  const [vendorBoughtBusy, setVendorBoughtBusy] = useState(false);
   const totalPillRef = useRef<View>(null);
   // The tray row dropdown that is open: which row, which of its two menus.
   const [gradingMenu, setGradingMenu] = useState<{
@@ -1292,6 +1357,9 @@ export function ScannerScreen({
       // that covers every deal the presets do not, so it earns the spot next
       // to the one everyone starts from.
       { key: 'custom', label: 'CUSTOM…' },
+      // The vendor's saved rates (Account → Vendor pricing).
+      { key: 'vendor-buy', label: 'MY BUY PRICE' },
+      { key: 'vendor-sell', label: 'MY SELL PRICE' },
       ...[10, 15, 20, 25, 30, 35].map((percent) => ({
         key: String(percent),
         label: `${100 - percent}% OF MARKET`,
@@ -1880,6 +1948,7 @@ export function ScannerScreen({
   // change re-resolves only the rows it touched; the screen re-renders only
   // when the summary itself changes.
   const trayPriceSummary = useTrayPriceSummary(trayStore);
+  const vendorTotals = useTrayVendorTotals(trayStore, vendorSettings, vendorMode);
 
   // The two removal paths above run BEFORE trackRowResolved is defined, and both
   // must keep stable dep lists (the memoized swipe rows depend on it). A ref lets
@@ -3840,6 +3909,100 @@ export function ScannerScreen({
     }
   }, [showScanNotice]);
 
+  // Vendor Bought: the seller took the offer. One request records the rows
+  // through the backend's buy path at the offer price (collection + Bought
+  // log); the bought rows then leave the tray like an ADD. `batchId` makes a
+  // retried request a no-op for rows already recorded.
+  const vendorSettingsRef = useRef(vendorSettings);
+  vendorSettingsRef.current = vendorSettings;
+  const recordVendorBought = useCallback(async (
+    targets: readonly RecentCapture[],
+  ): Promise<number> => {
+    const selections = priceSelectionRef.current;
+    const rows: { capture: RecentCapture; line: VendorPurchaseLineInput }[] = [];
+    targets.forEach((capture) => {
+      const line = buildVendorPurchaseLine(
+        capture,
+        selections.get(capture.id),
+        vendorSettingsRef.current,
+        rawVariantLabelFor(capture, activeCandidateForCapture(capture)),
+      );
+      if (line) {
+        rows.push({ capture, line });
+      }
+    });
+    if (rows.length === 0) {
+      return 0;
+    }
+    rows.forEach(({ capture }) => {
+      updateRecentCapture(capture.id, (entry) => ({ ...entry, isAddingToInventory: true }));
+    });
+    try {
+      const result = await spotlightRepository.recordVendorPurchase({
+        batchId: newVendorBatchId(),
+        lines: rows.map(({ line }) => line),
+      });
+      const done = new Set([...result.recordedLineIndexes, ...result.alreadyRecordedLineIndexes]);
+      // Counts only: analytics never carries prices.
+      capturePostHogEvent('scan_vendor_bought', { cards: done.size, source: rows.length > 1 ? 'all' : 'row' });
+      rows.forEach(({ capture }, index) => {
+        if (done.has(index)) {
+          trackRowResolvedRef.current(capture, 'added');
+          removeCaptureAfterAdd(capture.id);
+        } else {
+          updateRecentCapture(capture.id, (entry) => ({ ...entry, isAddingToInventory: false }));
+        }
+      });
+      refreshData();
+      return done.size;
+    } catch (error) {
+      rows.forEach(({ capture }) => {
+        updateRecentCapture(capture.id, (entry) => ({ ...entry, isAddingToInventory: false }));
+      });
+      logScannerDiagnostic(`[SCANNER] vendor bought failed: ${scannerErrorMessage(error)}`, error);
+      throw error;
+    }
+  }, [rawVariantLabelFor, refreshData, removeCaptureAfterAdd, spotlightRepository, updateRecentCapture]);
+
+  const handleRowBought = useCallback((captureId: string) => {
+    if (isGuestRef.current) {
+      openLoginRef.current();
+      return;
+    }
+    const capture = recentCapturesRef.current.find((entry) => entry.id === captureId);
+    if (!capture || capture.isAddingToInventory) {
+      return;
+    }
+    const name = activeCandidateForCapture(capture)?.name ?? 'card';
+    void recordVendorBought([capture])
+      .then((count) => {
+        if (count === 0) {
+          showScanNotice(`No price for ${name} — can't record it.`);
+        }
+      })
+      .catch(() => showScanNotice(`Couldn't record ${name} as bought. Try again.`));
+  }, [recordVendorBought, showScanNotice]);
+
+  const handleOpenVendorBoughtAll = useCallback(() => {
+    setVendorBoughtAllOpen(true);
+  }, []);
+
+  const handleVendorBoughtAllConfirm = useCallback(() => {
+    const targets = recentCapturesRef.current.filter(
+      (capture) => !capture.isLoadingCandidates && !capture.recentlyAdded && !capture.isAddingToInventory,
+    );
+    setVendorBoughtBusy(true);
+    void recordVendorBought(targets)
+      .then((count) => {
+        setVendorBoughtAllOpen(false);
+        if (count > 0) {
+          showScanNotice(`Recorded ${count} card${count === 1 ? '' : 's'} as bought.`);
+        }
+      })
+      .catch(() => showScanNotice("Couldn't record the purchase. Try again."))
+      .finally(() => setVendorBoughtBusy(false));
+  }, [recordVendorBought, showScanNotice]);
+
 
   // Bulk "Add to Collection": one inventory entry PER resolved scan (two scans of
   // the same card = two owned copies, mirroring the single-row Collection add),
@@ -4569,10 +4732,16 @@ export function ScannerScreen({
       onOpenChangeCardPicker={gatedOpenChangeCardPicker}
       onOpenGradingMenu={gatedOpenGradingMenu}
       onShowPrice={gatedShowRowPrice}
+      onBought={handleRowBought}
       trayStore={trayStore}
       variantsByCardId={variantsByCardId}
+      vendorMode={vendorMode}
+      vendorSettings={vendorSettings}
     />
   ), [
+    handleRowBought,
+    vendorMode,
+    vendorSettings,
     gatedOpenChangeCardPicker,
     gatedOpenGradingMenu,
     handleRowAddToCollection,
@@ -5108,22 +5277,43 @@ export function ScannerScreen({
                 {trayCount > 0 ? (
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="Add all scans"
+                    accessibilityLabel={vendorMode === 'buy' ? 'Record all scans as bought' : 'Add all scans'}
                     hitSlop={8}
-                    onPress={gate(handleOpenAddAllMenu)}
+                    onPress={vendorMode === 'buy' ? gate(handleOpenVendorBoughtAll) : gate(handleOpenAddAllMenu)}
                     ref={addAllTriggerRef}
                     testID="scanner-tray-add-all"
                   >
                     {/* Plain white text, no chip (Figma 6161:7001). */}
-                    <Text style={styles.trayAddAllLabel}>ADD ALL</Text>
+                    <Text style={styles.trayAddAllLabel}>{vendorMode === 'buy' ? 'BOUGHT ALL' : 'ADD ALL'}</Text>
                   </Pressable>
                 ) : null}
               </View>
               {/* Same solid chip as SCAN (Figma 6150:6732). */}
               <View style={styles.trayInfoPill} testID="scanner-value-pill-surface">
+                {vendorMode ? (
+                  // The Buy/Sell toggle: one tap flips every row and the total.
+                  <Pressable
+                    accessibilityLabel={vendorMode === 'buy'
+                      ? 'Showing your buy price. Switch to sell price'
+                      : 'Showing your sell price. Switch to buy price'}
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={() => {
+                      const next: VendorPriceMode = vendorMode === 'buy' ? 'sell' : 'buy';
+                      capturePostHogEvent('scan_vendor_mode_set', { mode: next, source: 'toggle' });
+                      setVendorMode(next);
+                    }}
+                    style={styles.trayVendorToggle}
+                    testID="scanner-tray-vendor-toggle"
+                  >
+                    <Text style={styles.trayDiscountTag}>{vendorMode === 'buy' ? 'BUY' : 'SELL'}</Text>
+                  </Pressable>
+                ) : null}
                 <Pressable
                   accessibilityHint="Prices this deal at a share of market"
-                  accessibilityLabel={discountPercent > 0
+                  accessibilityLabel={vendorMode
+                    ? `${vendorMode === 'buy' ? 'Offer' : 'Sell price'} ${formatCurrency(vendorTotals.offerTotal, 'USD')} of market ${formatCurrency(vendorTotals.marketTotal, 'USD')}. Change pricing`
+                    : discountPercent > 0
                     ? `Total ${formatTrayTotal(discountedTraySummary)}, ${100 - discountPercent} percent of market. Change discount`
                     : `Total ${formatTrayTotal(trayPriceSummary)}. Apply a discount`}
                   accessibilityRole="button"
@@ -5134,9 +5324,11 @@ export function ScannerScreen({
                   testID="scanner-tray-discount-trigger"
                 >
                   <Text style={styles.trayInfoPillLabel} testID="scanner-value-pill-text">
-                    {`TOTAL: ${formatTrayTotal(discountedTraySummary)}`}
+                    {vendorMode
+                      ? `${vendorMode === 'buy' ? 'OFFER' : 'SELL'}: ${formatCurrency(vendorTotals.offerTotal, 'USD')}`
+                      : `TOTAL: ${formatTrayTotal(discountedTraySummary)}`}
                   </Text>
-                  {discountPercent > 0 ? (
+                  {!vendorMode && discountPercent > 0 ? (
                     <Text style={styles.trayDiscountTag} testID="scanner-tray-discount-tag">
                       {`${100 - discountPercent}%`}
                     </Text>
@@ -5284,9 +5476,18 @@ export function ScannerScreen({
         onSelect={(option) => {
           setDiscountMenuOpen(false);
           if (option.key === 'custom') {
+            setVendorMode(null);
             setCustomDiscountOpen(true);
             return;
           }
+          if (option.key === 'vendor-buy' || option.key === 'vendor-sell') {
+            const mode: VendorPriceMode = option.key === 'vendor-buy' ? 'buy' : 'sell';
+            capturePostHogEvent('scan_vendor_mode_set', { mode, source: 'menu' });
+            setDiscountPercent(0);
+            setVendorMode(mode);
+            return;
+          }
+          setVendorMode(null);
           // `percentOfMarket`, not the stored discount, so the property reads the
           // way the control is labelled ("80% of market").
           capturePostHogEvent('scan_deal_discount_set', {
@@ -5296,9 +5497,11 @@ export function ScannerScreen({
           setDiscountPercent(Number(option.key));
         }}
         options={discountOptions}
-        selectedKey={discountOptions.some((option) => option.key === String(discountPercent))
-          ? String(discountPercent)
-          : 'custom'}
+        selectedKey={vendorMode
+          ? `vendor-${vendorMode}`
+          : discountOptions.some((option) => option.key === String(discountPercent))
+            ? String(discountPercent)
+            : 'custom'}
         testID="discount-menu"
         visible={discountMenuOpen}
       />
@@ -5337,6 +5540,20 @@ export function ScannerScreen({
         onClose={() => setAddAllMenuOpen(false)}
         onSelect={handleAddAllSelect}
         visible={addAllMenuOpen}
+      />
+
+      <ScanBulkConfirmSheet
+        busy={vendorBoughtBusy}
+        confirmLabel="Bought"
+        confirmVariant="dark"
+        description={vendorTotals.pricedCount > 0
+          ? `Pay ${formatCurrency(vendorTotals.offerTotal, 'USD')} for ${vendorTotals.pricedCount} card${vendorTotals.pricedCount === 1 ? '' : 's'} (market ${formatCurrency(vendorTotals.marketTotal, 'USD')}, ${vendorModeSummary(vendorSettings, 'buy')}). They go into your collection at that cost.`
+          : 'No priced cards to record.'}
+        onCancel={() => setVendorBoughtAllOpen(false)}
+        onConfirm={handleVendorBoughtAllConfirm}
+        testID="scanner-vendor-bought-all-sheet"
+        title={`Record ${vendorTotals.pricedCount} as bought?`}
+        visible={vendorBoughtAllOpen}
       />
 
       <ScanBulkConfirmSheet
@@ -5831,6 +6048,15 @@ const styles = StyleSheet.create({
     opacity: 0.78,
     transform: [{ scale: 0.94 }],
   },
+  captureAddPillDisabled: {
+    opacity: 0.4,
+  },
+  captureOfferValue: {
+    // The vendor's price under the market price: same purple as the deal tag.
+    ...textStyles.captionStrong,
+    color: colors.purple300,
+    textAlign: 'right',
+  },
   captureAddPillLabel: {
     // SemiBold 13 at line-height 1.4.
     ...textStyles.labelStrong,
@@ -5870,6 +6096,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 4,
+  },
+  trayVendorToggle: {
+    marginRight: 4,
   },
   trayDiscountTag: {
     ...textStyles.captionStrong,

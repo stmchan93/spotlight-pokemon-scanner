@@ -13,7 +13,13 @@ from mcp_server.assistant.analytics import EVENT_FEEDBACK, TurnAnalytics
 from mcp_server.assistant.config import AssistantConfig
 from mcp_server.assistant.direct_add import UndoUnavailable, undo_expired
 from mcp_server.assistant import shared_answers
-from mcp_server.assistant.engine import SYSTEM_PROMPT, AssistantEngine, AssistantFailed, cache_hit_ratio
+from mcp_server.assistant.engine import (
+    SYSTEM_PROMPT,
+    AssistantEngine,
+    AssistantFailed,
+    attached_cards_context,
+    cache_hit_ratio,
+)
 from mcp_server.assistant.flags import flag_turn
 from mcp_server.assistant import game_scope
 from mcp_server.assistant.store import (
@@ -30,6 +36,7 @@ logger = logging.getLogger("ekalight.assistant")
 
 MAX_TEXT_CHARS = 1000
 MAX_CONTEXT_CARDS = 20
+MAX_ATTACHED_CARDS = 5
 MAX_CLIENT_ID_CHARS = 100
 SOURCES = ("home", "scanner")
 DIRECT_ADD_CAPABILITY = "direct_add"
@@ -129,6 +136,14 @@ class AssistantService:
         if len(card_ids) > MAX_CONTEXT_CARDS:
             return None, _bad(f"context.card_ids holds at most {MAX_CONTEXT_CARDS} ids")
         card_ids = list(dict.fromkeys(item.strip() for item in card_ids if item.strip()))
+        # Cards the user attached to THIS message (a chat photo the scanner identified).
+        # Any turn may carry them; card_ids stays the scan tray's.
+        attached_card_ids = context.get("attached_card_ids") or []
+        if not isinstance(attached_card_ids, list) or not all(isinstance(item, str) for item in attached_card_ids):
+            return None, _bad("context.attached_card_ids must be a list of card ids")
+        if len(attached_card_ids) > MAX_ATTACHED_CARDS:
+            return None, _bad(f"context.attached_card_ids holds at most {MAX_ATTACHED_CARDS} ids")
+        attached_card_ids = list(dict.fromkeys(item.strip() for item in attached_card_ids if item.strip()))
         game = context.get("game")
         if game is not None and not isinstance(game, str):
             return None, _bad("context.game must be a string")
@@ -138,6 +153,7 @@ class AssistantService:
             "text": text,
             "source": source or "home",
             "card_ids": card_ids,
+            "attached_card_ids": attached_card_ids,
             # The screen's game (Home market picker / scanner lane). A game this server doesn't
             # know (newer app) is ignored, not rejected: resolution falls through to the collection.
             "game": game_scope.supported_game(game),
@@ -223,12 +239,18 @@ class AssistantService:
         tray = (
             await asyncio.to_thread(self.toolbox.scanner_context, request["card_ids"]) if request["card_ids"] else None
         )
-        context = "\n\n".join(part for part in (game_scope.scope_note(scope), tray) if part)
+        attached_ids = request.get("attached_card_ids") or []
+        attached = (
+            attached_cards_context(await asyncio.to_thread(self.toolbox.scanner_context, attached_ids))
+            if attached_ids else None
+        )
+        context = "\n\n".join(part for part in (game_scope.scope_note(scope), tray, attached) if part)
+        context_card_ids = list(dict.fromkeys([*request["card_ids"], *attached_ids]))
         assert self.engine is not None
         try:
             turn = await self.engine.run_turn(
                 owner_user_id=user_id, history=history, question=request["text"], context=context,
-                context_card_ids=request["card_ids"],
+                context_card_ids=context_card_ids,
                 client_message_id=request["client_message_id"] if request["direct_add"] else None,
                 game_scope=scope,
             )
@@ -264,6 +286,7 @@ class AssistantService:
             "charts": turn.charts,
             "sets": turn.sets,
             "choice": turn.choice,
+            "verdicts": getattr(turn, "verdicts", None) or [],
             "status": turn.status,
             "input_tokens": turn.input_tokens,
             "output_tokens": turn.output_tokens,

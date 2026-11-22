@@ -22,6 +22,7 @@ import { AssistantCardTile } from '@/features/assistant/components/assistant-car
 import { AssistantFeedbackControls } from '@/features/assistant/components/assistant-feedback';
 import { AssistantPriceChartCard } from '@/features/assistant/components/assistant-price-chart';
 import { AssistantSetTile } from '@/features/assistant/components/assistant-set-tile';
+import { AssistantVerdictCard } from '@/features/assistant/components/assistant-verdict-card';
 
 const ENTER_MS = 220;
 export const ASSISTANT_PICK_HINT = 'Tap to pick';
@@ -113,7 +114,19 @@ export function AssistantMessageBubble({
   const tilesRepeatCharts =
     !picking &&
     charts.length > 0 && message.cards.length > 0 && message.cards.every((card) => chartIds.has(card.cardId));
-  const tileCards = tilesRepeatCharts ? [] : message.cards;
+  const verdicts = message.verdicts ?? [];
+  // A single-card deal / grading card carries the art: a lone tile underneath would repeat it.
+  const verdictIds = new Set(
+    verdicts.flatMap((verdict): string[] => {
+      if (verdict.kind === 'grading') {
+        return verdict.cards.map((card) => card.cardId);
+      }
+      return verdict.kind === 'deal' ? verdict.items.map((item) => item.cardId) : [];
+    }),
+  );
+  const tilesRepeatVerdict =
+    !picking && verdicts.length > 0 && message.cards.length > 0 && message.cards.every((card) => verdictIds.has(card.cardId));
+  const tileCards = tilesRepeatCharts || tilesRepeatVerdict ? [] : message.cards;
 
   if (message.role === 'user') {
     return <UserBubble animateEntrance={animateEntrance} onCopy={onCopy} testID={testID} text={message.text} />;
@@ -136,6 +149,14 @@ export function AssistantMessageBubble({
           text={message.text}
         />
       </Pressable>
+      {verdicts.map((verdict, index) => (
+        <AssistantVerdictCard
+          key={`${verdict.kind}-${index}`}
+          onOpenCard={onOpenCard}
+          testID={`${testID}-verdict-${index}`}
+          verdict={verdict}
+        />
+      ))}
       {charts.map((chart, index) => (
         <AssistantPriceChartCard
           card={message.cards.find((card) => card.cardId === chart.cardId) ?? null}

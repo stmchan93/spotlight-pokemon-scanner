@@ -9,6 +9,7 @@ export * from '../../../packages/api-client/src/spotlight/meta-feed-wire';
 export * from '../../../packages/api-client/src/spotlight/spotlight-events';
 export * from '../../../packages/api-client/src/spotlight/assistant-wire';
 export * from '../../../packages/api-client/src/spotlight/assistant-mock-data';
+export * from '../../../packages/api-client/src/spotlight/vendor-wire';
 export {
   MockSpotlightRepository,
   SpotlightRepositoryRequestError,

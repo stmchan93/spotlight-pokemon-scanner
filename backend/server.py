@@ -197,6 +197,7 @@ import expo_push
 import hot_cards
 import market_alerts
 import user_ai_settings
+import vendor_offers
 import watch_printings
 import meta_pulse
 import news_feed
@@ -2547,6 +2548,8 @@ class SpotlightScanService:
             market_alerts.ensure_schema(bootstrap_connection)
             # "Let AI assistants edit my collection" + MCP write idempotency.
             user_ai_settings.ensure_schema(bootstrap_connection)
+            # Vendor price tags: buy/sell settings + the Bought log.
+            vendor_offers.ensure_schema(bootstrap_connection)
             bootstrap_connection.commit()
             self.index = load_index(bootstrap_connection)
         finally:
@@ -11000,6 +11003,113 @@ class SpotlightScanService:
             "cardID": resolved_card_id,
         }
 
+    def move_deck_entry(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Move some or all copies of a holding into another of the caller's
+        collections. Same identity already there = quantities merge; a partial
+        move splits the row (per-unit cost basis copied, total split pro rata)."""
+        owner_user_id = self._current_owner_user_id()
+        self._ensure_owner_collections(owner_user_id)
+        deck_entry_id = str(payload.get("deckEntryID") or "").strip()
+        target_id = str(payload.get("collectionID") or "").strip()
+        if not deck_entry_id or not target_id:
+            raise ValueError("deckEntryID and collectionID are required")
+        row = self._owned_deck_entry_row_by_reference(deck_entry_id)
+        if row is None or int(row["quantity"] or 0) <= 0:
+            raise FileNotFoundError("deck entry not found")
+        self._owned_collection_row(owner_user_id, target_id)
+        if str(row["collection_id"] or "") == target_id:
+            raise ValueError("the card is already in that collection")
+        held = int(row["quantity"])
+        raw_quantity = payload.get("quantity")
+        try:
+            quantity = held if raw_quantity is None else int(raw_quantity)
+        except (TypeError, ValueError):
+            raise ValueError("quantity must be an integer") from None
+        if not 1 <= quantity <= held:
+            raise ValueError(f"quantity must be 1-{held}")
+
+        source_id = str(row["id"])
+        card_id = str(row["card_id"])
+        now = utc_now()
+        unit_total = float(row["cost_basis_total"] or 0.0) / held if held else 0.0
+        moved_total = round(unit_total * quantity, 2)
+        merge = self.connection.execute(
+            "SELECT id, quantity FROM deck_entries WHERE owner_user_id = ? AND identity_key = ? AND collection_id = ? "
+            "AND id != ? LIMIT 1",
+            (owner_user_id, row["identity_key"], target_id, source_id),
+        ).fetchone()
+        event_fields = {
+            "owner_user_id": owner_user_id, "card_id": card_id, "event_kind": "replace", "created_at": now,
+            "condition": str(row["condition"] or "").strip() or None,
+            "grader": str(row["grader"] or "").strip() or None, "grade": str(row["grade"] or "").strip() or None,
+            "cert_number": str(row["cert_number"] or "").strip() or None,
+            "variant_name": str(row["variant_name"] or "").strip() or None,
+        }
+        try:
+            if merge is None and quantity == held:
+                target_entry_id = source_id
+                self.connection.execute(
+                    "UPDATE deck_entries SET collection_id = ?, updated_at = ? WHERE id = ? AND owner_user_id = ?",
+                    (target_id, now, source_id, owner_user_id),
+                )
+            else:
+                if merge is not None:
+                    target_entry_id = str(merge["id"])
+                    self.connection.execute(
+                        "UPDATE deck_entries SET quantity = quantity + ?, cost_basis_total = cost_basis_total + ?, "
+                        "updated_at = ? WHERE id = ? AND owner_user_id = ?",
+                        (quantity, moved_total, now, target_entry_id, owner_user_id),
+                    )
+                else:
+                    target_entry_id = f"deckentry:{uuid.uuid4().hex}"
+                    columns = [
+                        str(info[1]) for info in self.connection.execute("PRAGMA table_info(deck_entries)").fetchall()
+                    ]
+                    overrides = {
+                        "id": target_entry_id, "quantity": quantity, "cost_basis_total": moved_total,
+                        "collection_id": target_id, "updated_at": now,
+                    }
+                    values = [overrides.get(column, row[column] if column in row.keys() else None) for column in columns]
+                    self.connection.execute(
+                        f"INSERT INTO deck_entries ({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})",
+                        values,
+                    )
+                if quantity == held:
+                    # Fully merged: the source's ledger moves with its copies, then the row goes.
+                    self.connection.execute(
+                        "UPDATE deck_entry_events SET deck_entry_id = ? WHERE deck_entry_id = ?",
+                        (target_entry_id, source_id),
+                    )
+                    self.connection.execute(
+                        "DELETE FROM deck_entries WHERE id = ? AND owner_user_id = ?", (source_id, owner_user_id)
+                    )
+                else:
+                    self.connection.execute(
+                        "UPDATE deck_entries SET quantity = ?, cost_basis_total = ?, updated_at = ? "
+                        "WHERE id = ? AND owner_user_id = ?",
+                        (held - quantity, round(float(row["cost_basis_total"] or 0.0) - moved_total, 2), now,
+                         source_id, owner_user_id),
+                    )
+                # The ledger replays per entry: the copies leave one row and join the other.
+                if quantity < held:
+                    append_deck_entry_event(
+                        self.connection, deck_entry_id=source_id, quantity_delta=-quantity, **event_fields
+                    )
+                    append_deck_entry_event(
+                        self.connection, deck_entry_id=target_entry_id, quantity_delta=quantity, **event_fields
+                    )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return {
+            "deckEntryID": target_entry_id,
+            "sourceDeckEntryID": source_id,
+            "cardID": card_id,
+            "collectionID": target_id,
+            "movedQuantity": quantity,
+        }
+
     def delete_deck_entries(self, payload: dict[str, Any]) -> dict[str, Any]:
         owner_user_id = self._current_owner_user_id()
         raw_ids = payload.get("deckEntryIDs")
@@ -11100,6 +11210,7 @@ class SpotlightScanService:
         ("card_likes", "owner_user_id = :owner"),
         ("user_ai_settings", "owner_user_id = :owner"),
         ("mcp_write_requests", "owner_user_id = :owner"),
+        *vendor_offers.OWNER_SCOPED_TABLES,
         ("card_views", "owner_user_id = :owner"),
         ("card_transactions", "owner_user_id = :owner"),
         ("collections", "owner_user_id = :owner"),
@@ -27076,6 +27187,10 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
 
+        # Vendor price tags: buy/sell settings + the Bought log (vendor_offers.py).
+        if vendor_offers.handle_http(self, "GET", parsed):
+            return
+
         # --- Public App Store ACCESS GATE: status (auth, never access-gated) ---
         if parsed.path == "/api/v1/access/status":
             identity = self._require_request_identity()
@@ -28881,6 +28996,9 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
 
+        if vendor_offers.handle_http(self, "POST", parsed):
+            return
+
         if parsed.path.startswith("/api/v1/admin/events"):
             self._handle_events_admin_post(parsed.path)
             return
@@ -30446,6 +30564,26 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Deck entry delete failed: {error}"})
                 return
             self._write_json(HTTPStatus.OK, delete_payload)
+            return
+
+        if parsed.path == "/api/v1/deck/entries/move":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    move_payload = self.service.move_deck_entry(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Deck entry move failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, move_payload)
             return
 
         if parsed.path == "/api/v1/deck/entries/create-bulk":

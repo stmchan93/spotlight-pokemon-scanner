@@ -41,7 +41,7 @@ Request:
   "thread_id": "thr_... or null (new thread)",
   "client_message_id": "uuid (idempotency: same id → same response, no double charge)",
   "text": "1..1000 chars",
-  "context": {"source": "home" | "scanner", "card_ids": ["≤20 card ids, scanner tray"], "game": "pokemon|onepiece|lorcana|riftbound|gundam (optional)"}
+  "context": {"source": "home" | "scanner", "card_ids": ["≤20 card ids, scanner tray"], "attached_card_ids": ["≤5 card ids the user attached to THIS message (chat photo, optional, any turn)"], "game": "pokemon|onepiece|lorcana|riftbound|gundam (optional)"}
 }
 ```
 `context.game` (added 2026-11-20, additive): the opening screen's game (Home's market game picker / the scanner's "Scanning for" lane / a catalog game page); sent on every message. Unknown strings are ignored; a non-string is 400.
@@ -174,6 +174,8 @@ Tile selection (added 2026-11-20, owner review decisions 1/6/7): strict tool `sh
 
 Scanner context: when `context.card_ids` is present, tell the model "The user is looking at these scanned cards: …" with name/set/number/price per card (resolved server-side, ≤20).
 
+Photo attachment (added 2026-11-21): `context.attached_card_ids` (≤5) may ride ANY turn. The app's composer "+" takes or picks a photo, matches it on `/api/v1/scan/visual-match` (raw lane), and the user confirms the top match or an alternate; only the card ids are sent (never the image). The server adds a separate note after the tray block ("The user attached a photo of a card to this message; the scanner identified it … as:" + the same per-card lines), and the ids join the turn's resolvable refs like tray ids. Such turns never use shared answers. Older servers ignore the field.
+
 ## System prompt (draft; Agent A owns final wording)
 Final wording lives in `backend/mcp_server/assistant/engine.py` `SYSTEM_PROMPT` (rewritten 2026-11-18: takeaway-first explanations, feature mentions limited to a fixed list of real features, and a trailing `<followups>` block that `split_suggestions` strips into `AssistantMessage.suggestions`). The draft below is historical.
 ```
@@ -224,7 +226,7 @@ Raw tool payloads are not stored. History sent to the model = the last 10 messag
 
 ### Shared market answers (added 2026-11-20, cost lever)
 Market-wide questions ("Undervalued cards", "What's trending…") have one answer for everyone until prices change, so it is computed once (`mcp_server/assistant/shared_answers.py`, table `assistant_shared_answers(key PK, question_norm, version, reply_json, hits, created_at, expires_at)`, not owner-scoped).
-- Eligible request: first message of a new thread (`thread_id` null), no `context.card_ids`.
+- Eligible request: first message of a new thread (`thread_id` null), no `context.card_ids` or `context.attached_card_ids`.
 - Stored only when the turn is `ok`, has no actions/tool errors/round-limit, carries no quality flag (`slow`/`expensive` are ignored), and every tool call was a market-wide read (`get_market_trends`, `find_price_lows`, `find_new_highs`, `list_facets`, `search_cards`, `find_top_graded`) with `owned` unset/`any`, no collection/holding args, and no user data in the result (`my_holdings`, `resolved_owned_*`, `quantity_owned`); `show_cards` is allowed; at least one non-`list_facets` lookup.
 - Key = sha256(normalized question, scope = resolved game (`game:<id>`, `game:all_games`, `game:unsupported`; knowledge answers `knowledge|game:<id>`), data version, model + system-prompt hash). The game-switch chip is recomputed for each replaying asker. Normalization: lowercase, trim, collapse whitespace, curly→straight quotes, strip trailing punctuation, then exact match or `QUESTION_ALIASES`. Data version = `price_lows_version_token` (newest price date + `pricing_sync_generation`); rows also expire after 24h.
 - Hit: no LLM call; the reply (text, cards without `quantity_owned`, cards_label, charts/sparklines, suggestions, tool_calls for history) is saved in the user's own new thread with its own ids, `cost_usd`/tokens 0, `assistant_messages.cached = 1`; it still counts as a question (daily limit) and is served even past the spend cap. Log line and PostHog `assistant_turn_cost` carry `cached: true` (misses `cached: false`).

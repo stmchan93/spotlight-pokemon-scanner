@@ -63,16 +63,21 @@ Accuracy (never break these):
 - Set completion: say the missing count. Name a completion cost only from cheapest_completion_usd; if only priced_subtotal_usd exists, say "$X for Y of N missing cards". Word the cost as what the missing cards cost ("the 251 missing cards cost about $993.80"), never "the full set would cost" when the user owns some of it. Use find_missing's default value_desc for "what am I missing"/chase cards; sort=price_asc only for cheap/budget questions.
 - "Worth grading": get_my_collection (sort=value_desc, product=single), pass the 3 most valuable raw singles to grading_upside, then answer with one bullet per card it returns, e.g. "- **Kyogre-EX** (Dark Explorers 104/108): raw $504.48 → PSA 10 $1,450 (+$945.52, +187%)". A card without a comp: "- **Lugia** (HGSS02): raw $485.99 · no recent PSA 10 sale" (no raw price: say "no raw price"). Every card with a comp gets its real numbers. Name no other cards. Add one short sentence that grading costs money and takes time. Never call the PSA 10 numbers estimates or say what they're based on.
 - "What are these worth in a PSA 10?" about the scan tray: grading_upside on the scan tray's card ids, same bullets.
+- "Should I grade this?"/"is it worth grading this card": grading_upside on that card (the scanned card, or the one named; pass graders only when the user names BGS or CGC). Lead with the recommendation in plain words (worth_grading: "Worth grading"; grade_if_confident_10: "Only if you expect a 10"; not_worth_it: "Not worth grading"), then the net per grade from scenarios (net_usd, after the grading fee and return shipping), e.g. "A PSA 10 nets about **+$880**, a PSA 9 **+$40**, a PSA 8 loses money." Name the fee once ("after the ~$59.99 PSA fee and $19.99 shipping"). A grade with comp_missing: "no recent PSA 8 sale". The app shows the grade table: never write one. A follow-up "what if it gets a 9?": reuse the card and quote that grade's net_usd.
+- A price for specific cards ("they want $250 for this", "is $40 fair for these", "good deal at $300?", "a vendor offered $500 for my Charizard"): call check_deal with the cards (scanned ids, or names) and the price; side=selling when the user is the one being paid. Lead with verdict_label in bold, then "$250 is **87% of market** ($287.93)". Buying: add one haggle line from good_buy_up_to_usd ("under $259 would be a good buy"). Selling: say what a strong offer is (strong_offer_from_usd). verdict unknown: say there's no price for that card and give no verdict; ambiguous: ask which printing (ask_which). The app shows the verdict card. Never compute a % or total yourself; never call it a prediction or advice. "Is this a good deal?" with no price: ask what price they're being asked (one short question, no tool).
+- Trade checks ("trade check", "is this trade fair", "my X for their Y"): ONE compare_trade call with side_a = what the user gives and side_b = what they get (scanned cards are the user's side unless they say otherwise). Lead with verdict_label and the gap ("Fair trade: within 3%." / "Uneven: you give up **$38** more (12%)."), then both totals. When balance is set, one line: who_adds and cash_usd ("ask for ~$38 cash"), and name a balance card only from balance.cards. Neutral tone: never "bad trade" or "rip-off". unknown: say which card is unpriced or ask which printing; give no totals. "Trade check this" with only one side: ask what the other side is (one short question).
 - Collection worth: get_portfolio_summary; give the total value first (the tiles show the top holdings). Scoped worth ("my One Piece cards", "my Japanese cards"): get_my_collection with that filter; the first sentence states its total_value_usd.
 - The user's most valuable cards or slabs: get_my_collection sort=price_desc (per-copy price; holding_type="graded" for slabs, product="single" for cards). The #1 is the highest price_usd; mention a holding's total (value_usd) only as an aside. "Top holdings" and the collection total use value_desc.
 - Movers inside a set, rarity or card name ("which Evolving Skies card dropped the most this month", "biggest SIR gainers this week"): find_movers with direction and the window the user named (week=7d, month=30d, 3 months=90d, year=1y; default 30d). State the window as window_label gives it.
 - Collection movers: call get_portfolio_summary with focus="movers"; name at most 3 cards. top_gainers/top_losers are ranked by dollars; top_gainers_pct/top_losers_pct by percent. Label each ranking you give ("by dollars", "in percent"); a leader ("biggest", "led", "most in %") comes only from top_gainer_by_usd/top_gainer_by_pct (losers: top_loser_by_usd/top_loser_by_pct), never inferred from the other list.
 - "Japanese/English version of" a card: find the card, call get_card on it, and use its language_pair (get_card on that id for the price). Talk about the counterpart (set, number, USD price); mention the source card only if the user scanned it.
 - If a tool says total_is_lower_bound, say "at least" with its counts.
-- You can't delete cards, sell, list, or buy. Say so in one short sentence plus at most one offer, under 40 words. The user can delete a card themselves from its ⋯ menu in Collection or from its card page.
+- Collection actions: remove copies with propose_remove_holding, move a holding with propose_move_holding (collection_id from list_my_collections), create a collection with propose_create_collection (pass holding_ids to move into it). Find the holding first (get_card my_holdings or get_my_collection). Each one is a Confirm card: say it's ready to confirm, never that it's done. A named collection the user doesn't have: offer to create it.
+- "What's X worth now vs what I paid": get_card (my_holdings) or get_my_collection, then gain_usd: say "paid" only when gain_basis is cost_basis; with since_added say "since you added it".
+- You can't sell, list, or buy for the user. Say so in one short sentence plus at most one offer, under 40 words.
 - General TCG questions (rarities, grading, sets, how collecting works, game basics) are welcome: answer from your knowledge, but specific prices, cards, and the user's collection must come from tools. Only list sets, years or print runs you are sure of. Fact: in English, Wizards of the Coast printed 1st Edition (stamped) runs of Base Set, Jungle, Fossil, Team Rocket, Gym Heroes, Gym Challenge, and all four Neo sets (Genesis, Discovery, Revelation, Destiny). When the question is what a kind of card is (a rarity like SIR, a card type), also look up one real example (e.g. search_cards with that rarity_bucket, product=single, sort=price_desc, limit=1), name it, and show it.
 - The scan tray: when the message lists the user's scan tray, "these", "this", "them" and "they" mean those cards. An answer about them names the source in its first sentence: "Of the 3 cards in your scan tray, …" (several) or "This scanned card …" (one). The user may also ask about anything else; then leave the tray out.
-- Buy/sell/"investing"/"good buy"/"what's hot or trending" questions: don't refuse and don't predict or promise gains. Use get_market_trends for what's rising and which sets are moving, find_price_lows for "undervalued" or cards that dropped and now sit near their lows, and find_new_highs for "new highs", record or all-time-high prices, and "breaking out". "Likely to go up": call get_market_trends and find_price_lows, describe recent momentum and dips, and say plainly it's not a prediction. Give a one-sentence takeaway, then one bullet per card (at most 3; the tiles show the cards you name), plus one short line that it's not a prediction. Asked for ONE pick ("the most undervalued card", "one card worth picking up", "your top pick"): name just that card from find_price_lows (the deepest dip with a solid price), call get_price_history for it so the app shows its chart, and show only that card; one or two short sentences plus the not-a-prediction line.
+- Buy/sell/"investing"/"good buy"/"what's hot or trending" questions without a price for specific cards (a price for specific cards is check_deal): don't refuse and don't predict or promise gains. Use get_market_trends for what's rising and which sets are moving, find_price_lows for "undervalued" or cards that dropped and now sit near their lows, and find_new_highs for "new highs", record or all-time-high prices, and "breaking out". "Likely to go up": call get_market_trends and find_price_lows, describe recent momentum and dips, and say plainly it's not a prediction. Give a one-sentence takeaway, then one bullet per card (at most 3; the tiles show the cards you name), plus one short line that it's not a prediction. Asked for ONE pick ("the most undervalued card", "one card worth picking up", "your top pick"): name just that card from find_price_lows (the deepest dip with a solid price), call get_price_history for it so the app shows its chart, and show only that card; one or two short sentences plus the not-a-prediction line.
 - Off-topic requests (not cards/TCG/collecting/this app): decline in one sentence, under 40 words.
 - Market-wide rankings (rising, falling, new highs, lows, undervalued, trending, sets, most expensive, top graded) cover the one game in the message's "Game scope" note; name that game in the answer and never mix games unless the note says all games.
 - Only state what the tool results show. Never say a filter or sort was applied (e.g. "sealed products are excluded", "English only", "One Piece only") unless the tool input used it. If the results don't match the request (e.g. they still include sealed products or the wrong game), re-query with the right filter, or say plainly what the results include.
@@ -504,7 +509,28 @@ def correct_tool_arguments(name: str, arguments: Any, question: str) -> dict[str
         target = question_target_usd(question)
         if target is not None:
             args["target_price_usd"] = target
+    elif name == "check_deal" and args.get("asking_total_usd") is None:
+        cards = args.get("cards") if isinstance(args.get("cards"), list) else []
+        if not any(isinstance(card, dict) and card.get("asking_price_usd") is not None for card in cards):
+            asking = question_asking_usd(question)
+            if asking is not None:
+                args["asking_total_usd"] = asking
     return args
+
+
+_EACH = re.compile(r"\beach\b|\bapiece\b|\bper card\b|/\s*ea\b", re.IGNORECASE)
+
+
+def question_asking_usd(question: str) -> float | None:
+    """'they want $250 for this' -> 250.0: the one $ amount in a deal question (not 'each')."""
+    amounts = _MONEY.findall(question or "")
+    if len(amounts) != 1 or _EACH.search(question or ""):
+        return None
+    try:
+        value = float(amounts[0].replace(",", ""))
+    except ValueError:
+        return None
+    return value if value > 0 else None
 
 
 class AssistantFailed(RuntimeError):
@@ -545,6 +571,19 @@ class TurnResult:
     tile_naming: str | None = None  # None | "rewrite" | "append": the text was made to name every tile
     scoped_game: str | None = None  # the game market-wide calls were pinned to (game_scope.enforce_game)
     choice: dict[str, Any] | None = None  # tiles are tap-to-pick printings for a write (choice.py)
+    verdicts: list[dict[str, Any]] = field(default_factory=list)  # deal / trade / grading cards (verdicts.py)
+
+
+MAX_VERDICTS = 2
+
+
+def _distinct_verdicts(verdicts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The latest card of each kind (a re-run replaces the earlier one)."""
+    latest: dict[str, dict[str, Any]] = {}
+    for verdict in verdicts:
+        latest.pop(str(verdict.get("kind")), None)
+        latest[str(verdict.get("kind"))] = verdict
+    return list(latest.values())[-MAX_VERDICTS:]
 
 
 def _usage_tokens(usage: Any, name: str) -> int:
@@ -604,6 +643,27 @@ def _tools_payload() -> list[dict[str, Any]]:
 
 TOOLS_PAYLOAD = _tools_payload()
 SYSTEM_PAYLOAD = [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}]
+
+
+ATTACHED_CARDS_HEADER = (
+    "The user attached a photo of a card to this message; the scanner identified it (they confirmed the match) as:"
+)
+ATTACHED_CARDS_RULE = (
+    '"This", "it" and "this card" mean the attached card. An answer about it names it in the first sentence as '
+    '"the card in your photo".'
+)
+
+
+def attached_cards_context(card_lines: str | None) -> str | None:
+    """Per-turn photo attachment note. `card_lines` is the toolbox's card-summary block
+    (its first line is a header, replaced here); only card ids reach the model, never the photo."""
+    if not card_lines:
+        return None
+    _, _, lines = card_lines.partition("\n")
+    lines = lines.strip()
+    if not lines:
+        return None
+    return f"{ATTACHED_CARDS_HEADER}\n{lines}\n{ATTACHED_CARDS_RULE}"
 
 
 def build_messages(history: list[dict[str, Any]], question: str, context: str | None) -> list[dict[str, Any]]:
@@ -811,12 +871,15 @@ class AssistantEngine:
         started = time.monotonic()
         messages = with_history_breakpoint(build_messages(history, question, context))
         result = TurnResult(text="", status="ok")
-        writes = TurnWrites(client_message_id=client_message_id, question=question)
+        writes = TurnWrites(
+            client_message_id=client_message_id, question=question, context_card_ids=tuple(context_card_ids or ())
+        )
         executed_refs: list[dict[str, Any]] = []
         # Cards from proposals and get_card first (the specific answer), then the rest.
         primary_refs: list[dict[str, Any]] = []
         other_refs: list[dict[str, Any]] = []
         charts: list[dict[str, Any]] = []
+        verdicts: list[dict[str, Any]] = []
         set_refs: list[dict[str, Any]] = []
         # Beyond this turn's results, show_cards may use scanned cards and earlier tiles.
         extra_refs = [{"card_id": card_id} for card_id in context_card_ids or []] + _history_refs(history)
@@ -898,14 +961,20 @@ class AssistantEngine:
                         executed_refs.extend(outcome.cards)
                 if outcome.chart is not None:
                     charts.append(outcome.chart)
-                primary = block.name.startswith("propose_") or block.name in ("get_card", ADD_NOW_TOOL)
+                if outcome.verdict is not None and not outcome.is_error:
+                    verdicts.append(outcome.verdict)
+                primary = block.name.startswith("propose_") or block.name in (
+                    "get_card", ADD_NOW_TOOL, "check_deal", "compare_trade"
+                )
                 (primary_refs if primary else other_refs).extend(outcome.cards)
                 if outcome.action is not None:
                     proposal_ids.update(ref["card_id"] for ref in outcome.cards)
                 if block.name in LIST_TOOLS:
                     list_ids.update(ref["card_id"] for ref in outcome.cards)
                 content = outcome.content if isinstance(outcome.content, dict) else {}
-                if block.name == "search_cards" and content.get("ambiguous") and content.get("ask_which"):
+                if block.name in ("search_cards", "check_deal", "compare_trade") and content.get("ask_which") and (
+                    content.get("ambiguous")
+                ):
                     ask_which = str(content["ask_which"])
                 total_key = {"get_my_collection": "total_value_usd", "get_portfolio_summary": "value_usd"}.get(block.name)
                 if total_key and not outcome.is_error and isinstance(content.get(total_key), (int, float)):
@@ -1075,5 +1144,6 @@ class AssistantEngine:
                 if not (ask_which or asks_to_choose(result.text) or _TAP_TO_PICK.search(result.text)):
                     result.text = await self._name_shown_tiles(result.text, question, result, tool_payloads)
                 result.text = length_guard.fix_shown_count(result.text, len(result.cards))
+            result.verdicts = _distinct_verdicts(verdicts)
         result.latency_ms = int((time.monotonic() - started) * 1000)
         return result

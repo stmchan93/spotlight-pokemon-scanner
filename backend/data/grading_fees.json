@@ -1,0 +1,362 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-11-21",
+  "currency": "USD",
+  "notes": [
+    "Prices change often (PSA, SGC, TAG and Beckett all repriced or paused tiers during 2026). Every figure below is copied from what the cited page said on the date given, not computed or estimated, unless the field says otherwise.",
+    "source_kind 'official' = the grader's own page; 'official_archived' = the grader's own page read through a Wayback Machine snapshot because the live page blocks automated reads (HTTP 403); 'secondary' = a third-party guide or news report, used only where no official page could be read.",
+    "max_declared_value_usd is the per-card value cap of the tier (PSA calls it Max Insured Value; TAG calls it built-in insurance coverage). null means the source page does not state one.",
+    "Turnaround is the grader's own estimate in business days (CGC says working days); none of them guarantee it.",
+    "Tier selection rule for the backend: pick the cheapest tier with available=true whose max_declared_value_usd is >= the card's value (treat null as unlimited) and whose min_cards is <= the number of cards. default_tier is that pick for one card under the grader's lowest open cap.",
+    "'tiers' lists only tiers a single card can use today (open, no card minimum), so a loader that just takes the cheapest tier whose cap covers the value gets the right answer. Paused, sold-out and minimum-count tiers are kept in 'other_tiers' for reference.",
+    "return_shipping is the grader's own return fee where published. Inbound shipping to the grader is paid by the submitter and is not in this table. Where no return fee is published, shipping_usd (a product default, not a researched number) is used.",
+    "Owner: update this file by hand when a grader reprices; bump as_of and retrieved_at. No OTA needed (backend data)."
+  ],
+  "shipping_usd": 20.0,
+  "graders": {
+    "PSA": {
+      "source_url": "https://www.psacard.com/pricing",
+      "source_kind": "official_archived",
+      "source_snapshot": "https://web.archive.org/web/20260915155828/https://www.psacard.com/pricing",
+      "retrieved_at": "2026-11-21",
+      "page_as_of": "2026-09-15",
+      "default_tier": "standard",
+      "membership_required": "No paid membership for Standard and above (a free PSA account is needed to submit). The Value tiers were Collectors Club-only and are paused: the official page says 'Value Services Are Temporarily Paused'.",
+      "tiers": [
+        {
+          "id": "standard",
+          "name": "Standard",
+          "price_usd": 59.99,
+          "max_declared_value_usd": 1000,
+          "turnaround_business_days": "90-100",
+          "available": true
+        },
+        {
+          "id": "priority",
+          "name": "Priority",
+          "price_usd": 79.99,
+          "max_declared_value_usd": 1500,
+          "turnaround_business_days": "70-80",
+          "available": true
+        },
+        {
+          "id": "express",
+          "name": "Express",
+          "price_usd": 199.0,
+          "max_declared_value_usd": 2500,
+          "turnaround_business_days": "20-30",
+          "available": true
+        },
+        {
+          "id": "super_express",
+          "name": "Super Express",
+          "price_usd": 349.0,
+          "max_declared_value_usd": 5000,
+          "turnaround_business_days": "10-15",
+          "available": true
+        },
+        {
+          "id": "premier",
+          "name": "Premier",
+          "price_usd": 599.0,
+          "max_declared_value_usd": 10000,
+          "turnaround_business_days": "7-10",
+          "available": true
+        },
+        {
+          "id": "premium_1",
+          "name": "Premium 1",
+          "price_usd": 999.0,
+          "max_declared_value_usd": 25000,
+          "turnaround_business_days": "5-7",
+          "available": true
+        },
+        {
+          "id": "premium_2",
+          "name": "Premium 2",
+          "price_usd": 1999.0,
+          "max_declared_value_usd": 50000,
+          "turnaround_business_days": "5-7",
+          "available": true
+        },
+        {
+          "id": "premium_3",
+          "name": "Premium 3",
+          "price_usd": 2999.0,
+          "max_declared_value_usd": 100000,
+          "turnaround_business_days": "5-7",
+          "available": true
+        },
+        {
+          "id": "premium_5",
+          "name": "Premium 5",
+          "price_usd": 4999.0,
+          "max_declared_value_usd": 250000,
+          "turnaround_business_days": "5-7",
+          "available": true
+        }
+      ],
+      "return_shipping": {
+        "source_url": "https://www.psacard.com/info/postage",
+        "source_kind": "official_archived",
+        "source_snapshot": "https://web.archive.org/web/20261110192717/https://www.psacard.com/info/postage",
+        "page_as_of": "2026-11-10",
+        "includes_insurance": true,
+        "domestic_cards_up_to_2000_insured_usd": {
+          "1-4": 19.99,
+          "5-9": 24.99,
+          "10-19": 29.99,
+          "20_plus_per_extra_item": 0.39
+        },
+        "domestic_cards_up_to_12500_insured_usd": {
+          "1-4": 34.99,
+          "5-9": 39.99,
+          "10-19": 44.99,
+          "20_plus_per_extra_item": 0.39
+        },
+        "note": "Return fee covers insurance and the return package. PSA does not insure inbound packages."
+      },
+      "other_tiers": [
+        {
+          "id": "value_bulk",
+          "name": "Value Bulk",
+          "price_usd": null,
+          "max_declared_value_usd": 500,
+          "turnaround_business_days": null,
+          "available": false,
+          "note": "Paused on the official page. Secondary reports: $24.99, 50-card minimum, Collectors Club only, paused since 2026-06-02."
+        },
+        {
+          "id": "value_max",
+          "name": "Value Max",
+          "price_usd": null,
+          "max_declared_value_usd": 500,
+          "turnaround_business_days": null,
+          "available": false,
+          "note": "Paused on the official page."
+        }
+      ]
+    },
+    "BGS": {
+      "source_url": "https://www.beckett.com/grading",
+      "source_kind": "official_archived",
+      "source_snapshot": "https://web.archive.org/web/20261029043743/https://beckett.com/grading",
+      "retrieved_at": "2026-11-21",
+      "page_as_of": "2026-10-29",
+      "default_tier": "express",
+      "membership_required": "Not stated on the pricing page.",
+      "tiers": [
+        {
+          "id": "express",
+          "name": "Express",
+          "price_usd": 79.95,
+          "max_declared_value_usd": null,
+          "turnaround_business_days": "15",
+          "available": true
+        }
+      ],
+      "return_shipping": null,
+      "note": "The pricing page shows no per-tier value caps and no return-shipping fee; shipping_usd applies. Extras listed: autograph +$5, oversized +$8. Secondary sources mention a $3 upcharge for a 10 with subgrades (not on this page).",
+      "other_tiers": [
+        {
+          "id": "base_no_subgrades",
+          "name": "Base (without subgrades)",
+          "price_usd": 14.95,
+          "max_declared_value_usd": null,
+          "turnaround_business_days": "75+",
+          "available": false,
+          "note": "Sold Out on the page."
+        },
+        {
+          "id": "base",
+          "name": "Base (subgrades)",
+          "price_usd": 17.95,
+          "max_declared_value_usd": null,
+          "turnaround_business_days": "75+",
+          "available": false,
+          "note": "Sold Out on the page."
+        },
+        {
+          "id": "standard",
+          "name": "Standard",
+          "price_usd": 34.95,
+          "max_declared_value_usd": null,
+          "turnaround_business_days": "45",
+          "available": false,
+          "note": "Sold Out on the page."
+        },
+        {
+          "id": "priority",
+          "name": "Priority",
+          "price_usd": 124.95,
+          "max_declared_value_usd": null,
+          "turnaround_business_days": "5",
+          "available": false,
+          "note": "Sold Out on the page."
+        }
+      ]
+    },
+    "CGC": {
+      "source_url": "https://www.cgccards.com/submit/services-fees/cgc-grading/",
+      "source_kind": "official",
+      "retrieved_at": "2026-11-21",
+      "page_as_of": "2026-11-21",
+      "default_tier": "economy",
+      "membership_required": "Not required per the page; members get discounts (Associate and Premium 10% off grading, Elite 20% off).",
+      "tiers": [
+        {
+          "id": "economy",
+          "name": "Economy",
+          "price_usd": 20.0,
+          "max_declared_value_usd": 1000,
+          "turnaround_business_days": "90",
+          "available": true
+        },
+        {
+          "id": "standard",
+          "name": "Standard",
+          "price_usd": 55.0,
+          "max_declared_value_usd": 3000,
+          "turnaround_business_days": "10",
+          "available": true
+        },
+        {
+          "id": "express",
+          "name": "Express",
+          "price_usd": 100.0,
+          "max_declared_value_usd": 10000,
+          "turnaround_business_days": "5",
+          "available": true
+        },
+        {
+          "id": "walkthrough",
+          "name": "WalkThrough",
+          "price_usd": 300.0,
+          "max_declared_value_usd": 100000,
+          "turnaround_business_days": "2",
+          "available": true
+        },
+        {
+          "id": "unlimited_value",
+          "name": "Unlimited Value",
+          "price_usd": 300.0,
+          "price_plus_pct_of_value": 1.0,
+          "max_declared_value_usd": null,
+          "turnaround_business_days": "2",
+          "available": true,
+          "note": "$300 + 1% of fair market value."
+        }
+      ],
+      "return_shipping": null,
+      "note": "The fee page lists no return-shipping fee; shipping_usd applies.",
+      "other_tiers": [
+        {
+          "id": "bulk",
+          "name": "Bulk",
+          "price_usd": 17.0,
+          "max_declared_value_usd": 500,
+          "turnaround_business_days": "150",
+          "min_cards": 25,
+          "available": true
+        }
+      ]
+    },
+    "SGC": {
+      "source_url": "https://cardgrade.io/blog/sgc-standard-price-increase-50-september-2026",
+      "source_kind": "secondary",
+      "official_url_unreadable": "https://gosgc.com/pricing (HTTP 403 live; the archived copy is a script-only page with no prices)",
+      "retrieved_at": "2026-11-21",
+      "page_as_of": "2026-09-02",
+      "default_tier": "standard_1500",
+      "membership_required": "Not stated in the sources read. Older guides said no membership was needed.",
+      "tiers": [
+        {
+          "id": "standard_1500",
+          "name": "Standard (declared value up to $1,500)",
+          "price_usd": 50.0,
+          "max_declared_value_usd": 1500,
+          "turnaround_business_days": "40+",
+          "available": true,
+          "note": "SGC raised its lowest tier from $15 to $50 on 2026-09-02; SGC's X post said further changes are expected late 2026 to early 2027."
+        },
+        {
+          "id": "standard_3500",
+          "name": "Standard (declared value up to $3,500)",
+          "price_usd": 85.0,
+          "max_declared_value_usd": 3500,
+          "turnaround_business_days": "40+",
+          "available": true,
+          "note": "Seen in one secondary source only; unverified."
+        }
+      ],
+      "return_shipping": null,
+      "other_tiers": []
+    },
+    "TAG": {
+      "source_url": "https://help.taggrading.com/en/articles/10692075-what-are-tag-s-available-grading-services",
+      "source_kind": "official",
+      "retrieved_at": "2026-11-21",
+      "page_as_of": "2026-10-21",
+      "default_tier": "standard",
+      "membership_required": "Not mentioned on the help page.",
+      "tiers": [
+        {
+          "id": "standard",
+          "name": "Standard",
+          "price_usd": 59.95,
+          "max_declared_value_usd": 1000,
+          "turnaround_business_days": "45",
+          "available": true
+        },
+        {
+          "id": "priority",
+          "name": "Priority",
+          "price_usd": 79.95,
+          "max_declared_value_usd": 1500,
+          "turnaround_business_days": "30",
+          "available": true
+        },
+        {
+          "id": "express",
+          "name": "Express",
+          "price_usd": 149.95,
+          "max_declared_value_usd": 2500,
+          "turnaround_business_days": "10",
+          "available": true
+        },
+        {
+          "id": "premier",
+          "name": "Premier",
+          "price_usd": 299.95,
+          "max_declared_value_usd": 5000,
+          "turnaround_business_days": "3-5",
+          "available": true
+        }
+      ],
+      "return_shipping": null,
+      "note": "The help page lists no return-shipping fee (taggrading.com/pages/pricing renders prices with JavaScript and could not be read); shipping_usd applies.",
+      "other_tiers": [
+        {
+          "id": "value",
+          "name": "Value",
+          "price_usd": 29.95,
+          "price_source": "secondary: https://pregradecards.com/blog/tag-grading-new-tiers-2026 (official help page omits the price)",
+          "max_declared_value_usd": 250,
+          "turnaround_business_days": "90",
+          "min_cards": 10,
+          "available": true
+        },
+        {
+          "id": "base",
+          "name": "Base",
+          "price_usd": 39.95,
+          "price_source": "secondary: https://pregradecards.com/blog/tag-grading-new-tiers-2026 (official help page omits the price)",
+          "max_declared_value_usd": 500,
+          "turnaround_business_days": "60",
+          "min_cards": 5,
+          "available": true
+        }
+      ]
+    }
+  }
+}

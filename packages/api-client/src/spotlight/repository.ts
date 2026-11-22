@@ -60,6 +60,16 @@ import {
 import { parseSimilarCardsPayload } from './similar-cards-wire';
 import { parseWatchlistSuggestionsPayload } from './watchlist-suggestions-wire';
 import {
+  DEFAULT_VENDOR_SETTINGS,
+  parseVendorBoughtLog,
+  parseVendorPurchaseResult,
+  parseVendorSettings,
+  type VendorBoughtLog,
+  type VendorPurchaseInput,
+  type VendorPurchaseResult,
+  type VendorSettings,
+} from './vendor-wire';
+import {
   ALL_COLLECTIONS_ID,
   CARD_GAMES,
   DEFAULT_CARD_GAME,
@@ -149,6 +159,8 @@ import type {
   PortfolioEntryBulkDeleteRequestPayload,
   PortfolioEntryBulkDeleteResponsePayload,
   PortfolioEntryDeleteRequestPayload,
+  MovePortfolioEntryRequestPayload,
+  MovePortfolioEntryResponsePayload,
   PortfolioEntryDeleteResponsePayload,
   PortfolioEntryReplaceRequestPayload,
   PortfolioEntryReplaceResponsePayload,
@@ -567,6 +579,14 @@ export interface SpotlightRepository {
   getAiSettings(): Promise<AiSettings | null>;
   /** Non-throwing; `status` is what an optimistic toggle reverts on. */
   setAiSettings(next: AiSettings): Promise<AiSettingsResult>;
+  /** Vendor buy/sell %. Never throws; null = couldn't load (the tray falls back to defaults). */
+  getVendorSettings(): Promise<VendorSettings | null>;
+  /** Partial write; null = failed (the screen reverts). */
+  setVendorSettings(patch: Partial<VendorSettings>): Promise<VendorSettings | null>;
+  /** Record accepted tray rows at the offer price. Throws on failure. */
+  recordVendorPurchase(input: VendorPurchaseInput): Promise<VendorPurchaseResult>;
+  /** The Bought log, newest first. Never throws; null = couldn't load. */
+  fetchVendorBoughtLog(): Promise<VendorBoughtLog | null>;
   /**
    * The Alerts screen's three switches. Never throws: a failed read is the
    * server defaults (all on), never "off".
@@ -594,6 +614,8 @@ export interface SpotlightRepository {
   replacePortfolioEntry(payload: PortfolioEntryReplaceRequestPayload): Promise<PortfolioEntryReplaceResponsePayload>;
   deletePortfolioEntry(payload: PortfolioEntryDeleteRequestPayload): Promise<PortfolioEntryDeleteResponsePayload>;
   deletePortfolioEntriesBulk(payload: PortfolioEntryBulkDeleteRequestPayload): Promise<PortfolioEntryBulkDeleteResponsePayload>;
+  /** Move some or all copies of a holding into another of the owner's collections. */
+  movePortfolioEntry(payload: MovePortfolioEntryRequestPayload): Promise<MovePortfolioEntryResponsePayload>;
   deleteAccount(): Promise<AccountDeleteResponsePayload>;
   /**
    * Export the requesting user's holdings (deck entries) as CSV text. Owner-scoped
@@ -5165,6 +5187,74 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return { status: 'ok', settings: { ...this.aiSettings } };
   }
 
+  private vendorSettings: VendorSettings = {
+    ...DEFAULT_VENDOR_SETTINGS,
+    tiers: { ...DEFAULT_VENDOR_SETTINGS.tiers },
+  };
+
+  private vendorBought: VendorBoughtLog['entries'] = [];
+
+  async getVendorSettings(): Promise<VendorSettings | null> {
+    return { ...this.vendorSettings, tiers: { ...this.vendorSettings.tiers } };
+  }
+
+  async setVendorSettings(patch: Partial<VendorSettings>): Promise<VendorSettings | null> {
+    this.vendorSettings = {
+      ...this.vendorSettings,
+      ...patch,
+      tiers: { ...this.vendorSettings.tiers, ...(patch.tiers ?? {}) },
+    };
+    return this.getVendorSettings();
+  }
+
+  async recordVendorPurchase(input: VendorPurchaseInput): Promise<VendorPurchaseResult> {
+    const boughtAt = new Date().toISOString();
+    const recorded: number[] = [];
+    const already: number[] = [];
+    input.lines.forEach((line, lineIndex) => {
+      if (this.vendorBought.some((entry) => entry.batchId === input.batchId && entry.lineIndex === lineIndex)) {
+        already.push(lineIndex);
+        return;
+      }
+      recorded.push(lineIndex);
+      this.vendorBought.unshift({
+        batchId: input.batchId,
+        lineIndex,
+        cardId: line.cardId,
+        name: line.cardId,
+        setName: '',
+        number: '',
+        imageUrl: null,
+        variantName: line.variantName ?? null,
+        condition: line.condition ?? null,
+        grader: line.grader ?? null,
+        grade: line.grade ?? null,
+        quantity: line.quantity,
+        paidUsd: line.offerUsd * line.quantity,
+        marketAtBuyUsd: line.marketUsd == null ? null : line.marketUsd * line.quantity,
+        currentValueUsd: line.marketUsd == null ? null : line.marketUsd * line.quantity,
+        profitUsd: line.marketUsd == null ? null : (line.marketUsd - line.offerUsd) * line.quantity,
+        boughtAt,
+      });
+    });
+    return { recordedLineIndexes: recorded, alreadyRecordedLineIndexes: already };
+  }
+
+  async fetchVendorBoughtLog(): Promise<VendorBoughtLog | null> {
+    const entries = this.vendorBought.map((entry) => ({ ...entry }));
+    const sum = (pick: (entry: VendorBoughtLog['entries'][number]) => number | null) =>
+      entries.reduce((total, entry) => total + (pick(entry) ?? 0), 0);
+    return {
+      entries,
+      summary: {
+        count: entries.length,
+        paidUsd: sum((entry) => entry.paidUsd),
+        marketAtBuyUsd: sum((entry) => entry.marketAtBuyUsd),
+        currentValueUsd: sum((entry) => entry.currentValueUsd),
+      },
+    };
+  }
+
   async setNotificationPrefs(patch: Partial<NotificationPrefs>): Promise<NotificationPrefsResult> {
     // Partial, like the server: an absent key leaves that flag alone.
     if (typeof patch.dealAlertsEnabled === 'boolean') {
@@ -5407,6 +5497,21 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return {
       deletedDeckEntryIDs,
       deletedCount: deletedDeckEntryIDs.length,
+    };
+  }
+
+  async movePortfolioEntry(payload: MovePortfolioEntryRequestPayload): Promise<MovePortfolioEntryResponsePayload> {
+    const existing = this.inventoryEntries.find((entry) => entry.id === payload.deckEntryID);
+    if (!existing) {
+      throw new SpotlightRepositoryRequestError('Deck entry not found.', 'not_found', 404);
+    }
+    const movedQuantity = Math.min(existing.quantity, Math.max(1, payload.quantity ?? existing.quantity));
+    return {
+      deckEntryID: existing.id,
+      sourceDeckEntryID: existing.id,
+      cardID: existing.cardId,
+      collectionID: payload.collectionID,
+      movedQuantity,
     };
   }
 
@@ -8173,6 +8278,38 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return settings ? { status: 'ok', settings } : { status: 'failed', settings: null };
   }
 
+  async getVendorSettings(): Promise<VendorSettings | null> {
+    const response = await this.requestJson<unknown>(`${this.baseUrl}/api/v1/me/vendor-settings`);
+    return response.kind === 'success' ? parseVendorSettings(response.data) : null;
+  }
+
+  async setVendorSettings(patch: Partial<VendorSettings>): Promise<VendorSettings | null> {
+    const response = await this.requestJson<unknown>(`${this.baseUrl}/api/v1/me/vendor-settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    return response.kind === 'success' ? parseVendorSettings(response.data) : null;
+  }
+
+  async recordVendorPurchase(input: VendorPurchaseInput): Promise<VendorPurchaseResult> {
+    const data = await this.requestJsonOrThrow<unknown>(`${this.baseUrl}/api/v1/vendor/bought`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...input, currencyCode: 'USD' }),
+    });
+    const result = parseVendorPurchaseResult(data);
+    if (!result) {
+      throw new SpotlightRepositoryRequestError('Unexpected Bought response.', 'invalid_response');
+    }
+    return result;
+  }
+
+  async fetchVendorBoughtLog(): Promise<VendorBoughtLog | null> {
+    const response = await this.requestJson<unknown>(`${this.baseUrl}/api/v1/vendor/bought`);
+    return response.kind === 'success' ? parseVendorBoughtLog(response.data) : null;
+  }
+
   async fetchAlertPreferences(): Promise<AlertPreferences> {
     const response = await this.requestJson<unknown>(
       `${this.baseUrl}/api/v1/notifications/alert-prefs`,
@@ -8349,6 +8486,16 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
   async deletePortfolioEntriesBulk(payload: PortfolioEntryBulkDeleteRequestPayload) {
     return this.requestJsonOrThrow<PortfolioEntryBulkDeleteResponsePayload>(`${this.baseUrl}/api/v1/deck/entries/delete-bulk`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async movePortfolioEntry(payload: MovePortfolioEntryRequestPayload) {
+    return this.requestJsonOrThrow<MovePortfolioEntryResponsePayload>(`${this.baseUrl}/api/v1/deck/entries/move`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

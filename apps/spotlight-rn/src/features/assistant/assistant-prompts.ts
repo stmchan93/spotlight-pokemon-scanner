@@ -19,24 +19,25 @@ export function assistantStarterPrompts(trayCardCount: number, source: 'home' | 
   }
   if (trayCardCount === 1) {
     const card = 'this card';
+    // Plan doc §5 decision 10: the marketed checks lead when cards are attached.
     return [
+      `Should I grade ${card}?`,
+      `Is ${card} a good deal?`,
+      `Trade check ${card}`,
       `What's ${card} worth?`,
-      `Is ${card} worth grading?`,
-      `What's ${card} worth in PSA 10?`,
       `Has ${card} gone up lately?`,
       `Watch ${card} and alert me if it drops`,
-      "What's my collection worth?",
     ];
   }
   if (trayCardCount > 1) {
     const cards = 'these cards';
     return [
+      `Which of ${cards} should I grade?`,
+      `Are ${cards} a good deal?`,
+      `Trade check ${cards}`,
       `Which of ${cards} is worth the most?`,
-      `Are any of ${cards} worth grading?`,
       `What are ${cards} worth in PSA 10?`,
-      `Which of ${cards} should I keep or sell?`,
       `Add ${cards} to my collection`,
-      "What's my collection worth?",
     ];
   }
   return [...ASSISTANT_MARKET_PROMPTS];

@@ -147,6 +147,7 @@ def request_eligible(request: dict[str, Any]) -> bool:
     return (
         request.get("thread_id") is None
         and not request.get("card_ids")
+        and not request.get("attached_card_ids")
         and not personal_question(request.get("text") or "")
     )
 

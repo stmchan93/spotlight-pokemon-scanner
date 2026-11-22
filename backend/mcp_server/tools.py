@@ -59,6 +59,7 @@ from .filters import (
     normalize_card_filter,
     uses_art_filters,
 )
+from .grading_fees import load_fee_table
 from .marketplace_links import buy_links
 
 GAME = "pokemon"
@@ -117,6 +118,45 @@ GRADING_UPSIDE_DESCRIPTION = (
     "comp_missing = no current, matching PSA 10 comp for that card. raw_price_usd null with price_stale / "
     "price_untrusted = no current trustworthy raw price: say so, don't estimate one."
 )
+# "Should I grade this?" scenarios: grades per grader, best first. BGS/CGC rows show only with a comp.
+GRADING_SCENARIO_GRADES = {"PSA": ("10", "9", "8"), "BGS": ("10", "9.5", "9"), "CGC": ("10", "9.5", "9")}
+GRADING_SCENARIO_BASIS = (
+    "scenarios: per grader + grade, net_usd = comp_price_usd - raw_price_usd - fee_usd - shipping_usd "
+    "(fee tier picked by the graded value). break_even[grader] = the lowest grade with net_usd > 0 (null = none). "
+    "recommendation: worth_grading (a 9 still profits), grade_if_confident_10 (only a 10 profits), "
+    "not_worth_it (no grade profits), no_comps, no_raw_price. fees.placeholder=true = typical fees, "
+    "not a current price list: say 'about'."
+)
+
+
+def normalize_graders(graders: Any) -> tuple[str, ...]:
+    picked = [str(value or "").strip().upper() for value in graders or [] if str(value or "").strip()]
+    picked = [code for code in dict.fromkeys(picked) if code in GRADING_SCENARIO_GRADES]
+    return tuple(picked) or ("PSA",)
+
+
+def grading_recommendation(scenarios: list[dict[str, Any]], raw: float | None) -> str:
+    if raw is None:
+        return "no_raw_price"
+    priced = [row for row in scenarios if row.get("net_usd") is not None]
+    if not priced:
+        return "no_comps"
+    profitable = [row for row in priced if row["net_usd"] > 0]
+    if not profitable:
+        return "not_worth_it"
+    if any(float(row["grade"]) < 10 for row in profitable if _is_number_text(row["grade"])):
+        return "worth_grading"
+    return "grade_if_confident_10"
+
+
+def _is_number_text(value: Any) -> bool:
+    try:
+        float(str(value))
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 OWNED_MODES = ("any", "owned", "not_owned")
 # find_missing: cheapest first (budgets, shopping lists) or highest value first (chase cards).
 MISSING_SORTS = ("price_asc", "value_desc")
@@ -2241,10 +2281,12 @@ class CollectionTools:
         return result
 
     def grading_upside(
-        self, owner_user_id: str, card_ids: list[str] | None, *, grader: str = "PSA", grade: str = "10"
+        self, owner_user_id: str, card_ids: list[str] | None, *, grader: str = "PSA", grade: str = "10",
+        graders: list[str] | None = None,
     ) -> dict[str, Any]:
         """Raw price vs a graded comp (default PSA 10) per card, from stored data only:
-        the last verified sale in the cached comps, else Scrydex's graded market."""
+        the last verified sale in the cached comps, else Scrydex's graded market. Each card
+        also gets per-grade scenarios (net of grading fee + shipping) for `graders`."""
         if not isinstance(card_ids, list) or not card_ids:
             raise ToolInputError("card_ids needs at least one card id.")
         ids = list(dict.fromkeys(str(card_id or "").strip() for card_id in card_ids if str(card_id or "").strip()))
@@ -2264,6 +2306,8 @@ class CollectionTools:
                 peers.update(self._graded_peer_entries(game, game_ids, from_cells=True))
 
         held_prices = self._raw_holding_prices(owner_user_id, set(present) & owned)
+        scenario_graders = normalize_graders(graders)
+        fees = load_fee_table()
         out = []
         for card_id in present:
             card = cards[card_id]
@@ -2296,12 +2340,18 @@ class CollectionTools:
             if comp and raw:
                 item["gross_premium_usd"] = round(comp["price"] - raw, 2)
                 item["gross_premium_pct"] = round((comp["price"] - raw) / raw * 100, 1)
+            if GAMES[str(card.get("game") or GAME)].has_graded_pricing:
+                item.update(self._grading_scenarios(card, scenario_graders, peers.get(card_id, []), raw, fees))
+            else:
+                item.update({"scenarios": [], "break_even": {}, "recommendation": "no_comps"})
             out.append(item)
         out.sort(key=lambda item: (item["gross_premium_usd"] is None, -(item["gross_premium_usd"] or 0)))
         result: dict[str, Any] = {
             "cards": out,
             "grader": grader_code,
             "grade": grade_code,
+            "fees": {**fees.summary(), "graders": list(scenario_graders)},
+            "scenario_basis": GRADING_SCENARIO_BASIS,
             "basis": (
                 "gross_premium = comp price - raw market price (no grading fees or shipping). comp_source "
                 "'scrydex_market' = the card's own graded market estimate, not a sale; 'ebay_sold' = last verified "
@@ -2313,6 +2363,77 @@ class CollectionTools:
         if not_found:
             result["not_found"] = not_found
         return result
+
+    def _grading_scenarios(
+        self, card: dict[str, Any], graders: tuple[str, ...], peers: list[dict[str, Any]], raw: float | None,
+        fees: Any,
+    ) -> dict[str, Any]:
+        """Per grader + grade: comp, fee (tier by the comp's value), shipping and net =
+        comp - raw - fee - shipping. BGS/CGC rows only where a comp exists."""
+        scenarios: list[dict[str, Any]] = []
+        break_even: dict[str, str | None] = {}
+        for grader_code in graders:
+            positive: list[str] = []
+            for grade_code in GRADING_SCENARIO_GRADES[grader_code]:
+                comp = self._graded_comp(card, grader_code, grade_code, peers, raw)
+                if comp is None and grader_code != "PSA":
+                    continue
+                value = comp["price"] if comp else raw
+                tier = fees.fee_for(grader_code, value)
+                fee = tier.fee_usd if tier else None
+                shipping = fees.shipping_for(grader_code, value)
+                net = None
+                if comp and raw is not None and fee is not None:
+                    net = round(comp["price"] - raw - fee - shipping, 2)
+                    if net > 0:
+                        positive.append(grade_code)
+                scenarios.append({
+                    "grader": grader_code,
+                    "grade": grade_code,
+                    "comp_price_usd": comp["price"] if comp else None,
+                    "comp_source": comp["source"] if comp else None,
+                    "comp_sale_count": comp["sale_count"] if comp else None,
+                    "comp_as_of": comp["as_of"] if comp else None,
+                    "comp_missing": comp is None,
+                    "fee_usd": fee,
+                    "fee_tier": tier.name if tier else None,
+                    "shipping_usd": shipping,
+                    "net_usd": net,
+                })
+            if any(row["grader"] == grader_code for row in scenarios):
+                # Lowest grade that still nets a profit (grades listed best first).
+                break_even[grader_code] = positive[-1] if positive else None
+        return {"scenarios": scenarios, "break_even": break_even,
+                "recommendation": grading_recommendation(scenarios, raw)}
+
+    def cached_sold_summary(self, card: dict[str, Any], grader: str, grade: str) -> dict[str, Any] | None:
+        """Cached eBay sold comps for one slab (never fetched here): {count, average_usd,
+        latest_sold_at}, only sales whose listing names the card's set and number."""
+        from server import RECENT_SALES_MAX_LIMIT, _filter_recent_sales_rows, _recent_sales_average
+
+        snapshot = price_snapshot_row(self.conn, card["id"])
+        keys = snapshot.keys() if snapshot is not None else ()
+        quoted = next(
+            (snapshot[key] for key in ("main_raw_variant", "default_raw_variant") if key in keys and snapshot[key]),
+            None,
+        )
+        cached = slab_recent_sales_cache(
+            self.conn, card_id=card["id"], grader=grader, grade=grade, source="ebay", limit=RECENT_SALES_MAX_LIMIT,
+        )
+        filtered = _filter_recent_sales_rows(cached, variant_key=quoted, limit=RECENT_SALES_MAX_LIMIT, card=card)
+        set_names = self._listing_set_names(card)
+        matched = [
+            sale for sale in (filtered or {}).get("sales") or []
+            if listing_matches_card(sale.get("title"), card, set_names=set_names)
+        ]
+        average = _recent_sales_average(matched)
+        if not matched or not average or not isinstance(average.get("amount"), (int, float)):
+            return None
+        return {
+            "count": len(matched),
+            "average_usd": round(float(average["amount"]), 2),
+            "latest_sold_at": str(average.get("latestSoldAt") or "").replace("/", "-")[:10] or None,
+        }
 
     def _raw_holding_prices(self, owner_user_id: str, card_ids: set[str]) -> dict[str, float]:
         """card_id -> per-copy price of the user's priciest raw holding of it, as get_my_collection prices it."""

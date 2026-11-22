@@ -26,6 +26,12 @@ import type {
   AssistantThreadSummary,
   AssistantThreadsPage,
   AssistantUsage,
+  AssistantVerdict,
+  AssistantVerdictItem,
+  AssistantDealVerdictCode,
+  AssistantGradingRecommendation,
+  AssistantGradingVerdict,
+  AssistantTradeSide,
 } from './types';
 import { CARD_GAMES } from './types';
 
@@ -245,6 +251,59 @@ export function parseAssistantAction(value: unknown): AssistantProposedAction | 
         },
       };
     }
+    case 'remove_holding': {
+      const holdingId = asString(params.holding_id);
+      const quantity = asInt(params.quantity);
+      if (!holdingId || quantity == null || quantity < 1) {
+        return null;
+      }
+      return {
+        ...base,
+        type: 'remove_holding',
+        params: {
+          holdingId,
+          cardId: asString(params.card_id),
+          quantity,
+          removeAll: params.remove_all === true,
+          remainingQuantity: Math.max(0, asInt(params.remaining_quantity) ?? 0),
+        },
+      };
+    }
+    case 'move_holding': {
+      const holdingId = asString(params.holding_id);
+      const collectionId = asString(params.collection_id);
+      if (!holdingId || !collectionId) {
+        return null;
+      }
+      const quantity = asInt(params.quantity);
+      return {
+        ...base,
+        type: 'move_holding',
+        params: {
+          holdingId,
+          cardId: asString(params.card_id),
+          collectionId,
+          collectionName: asString(params.collection_name),
+          quantity: quantity != null && quantity >= 1 ? quantity : null,
+        },
+      };
+    }
+    case 'create_collection': {
+      const name = asString(typeof params.name === 'string' ? params.name.trim() : null);
+      if (!name) {
+        return null;
+      }
+      return {
+        ...base,
+        type: 'create_collection',
+        params: {
+          name,
+          holdingIds: Array.isArray(params.holding_ids)
+            ? params.holding_ids.map(asString).filter((id): id is string => id != null)
+            : [],
+        },
+      };
+    }
     default:
       return null;
   }
@@ -365,7 +424,165 @@ export function parseAssistantMessage(value: unknown): AssistantMessage | null {
     sets: role === 'assistant' ? parseList(raw.sets, parseAssistantSetRef).slice(0, ASSISTANT_MAX_SETS) : [],
     choice: role === 'assistant' ? parseAssistantPrintingChoice(raw.choice) : null,
     feedback: role === 'assistant' ? parseAssistantFeedback(raw.feedback) : null,
+    verdicts: role === 'assistant' ? parseList(raw.verdicts, parseAssistantVerdict).slice(0, ASSISTANT_MAX_VERDICTS) : [],
   };
+}
+
+export const ASSISTANT_MAX_VERDICTS = 2;
+
+function parseVerdictItem(value: unknown): AssistantVerdictItem | null {
+  const raw = asRecord(value);
+  const cardId = raw ? asString(raw.card_id) : null;
+  if (!raw || !cardId) {
+    return null;
+  }
+  const solds = asRecord(raw.solds);
+  const soldCount = solds ? asInt(solds.count) : null;
+  const grader = asString(raw.grader);
+  return {
+    cardId,
+    name: asString(raw.name) ?? '',
+    setName: asString(raw.set) ?? '',
+    number: asString(raw.number) ?? '',
+    imageSmallUrl: asString(raw.image_small_url),
+    variant: asString(raw.variant),
+    condition: grader ? null : asCondition(raw.condition),
+    conditionAssumed: raw.condition_assumed === true,
+    grader,
+    grade: grader ? asString(raw.grade) : null,
+    quantity: Math.max(1, asInt(raw.quantity) ?? 1),
+    priceUsd: asNumber(raw.price_usd),
+    marketTotalUsd: asNumber(raw.market_total_usd),
+    askingUsd: asNumber(raw.asking_usd),
+    pctOfMarket: asNumber(raw.pct_of_market),
+    change30dPct: asNumber(raw.change_30d_pct),
+    priceAsOf: asString(raw.price_as_of),
+    solds: solds && soldCount != null && soldCount > 0
+      ? { count: soldCount, averageUsd: asNumber(solds.average_usd), latestSoldAt: asString(solds.latest_sold_at) }
+      : null,
+  };
+}
+
+const dealVerdicts: readonly AssistantDealVerdictCode[] = [
+  'good_buy', 'fair', 'above_market', 'strong_offer', 'typical_offer', 'low_offer', 'unknown',
+];
+const tradeVerdicts = ['fair', 'slightly_uneven', 'uneven', 'unknown'] as const;
+const gradingRecommendations: readonly AssistantGradingRecommendation[] = [
+  'worth_grading', 'grade_if_confident_10', 'not_worth_it', 'no_comps', 'no_raw_price',
+];
+
+function parseTradeSide(value: unknown, fallbackLabel: string): AssistantTradeSide {
+  const raw = asRecord(value) ?? {};
+  return {
+    label: asString(raw.label) ?? fallbackLabel,
+    totalUsd: asNumber(raw.total_usd),
+    unpricedCount: Math.max(0, asInt(raw.unpriced_count) ?? 0),
+    items: parseList(raw.items, parseVerdictItem),
+  };
+}
+
+function parseGradingCards(value: unknown): AssistantGradingVerdict['cards'] {
+  return parseList(value, (item) => {
+    const raw = asRecord(item);
+    const cardId = raw ? asString(raw.card_id) : null;
+    if (!raw || !cardId) {
+      return null;
+    }
+    const breakEven: Record<string, string | null> = {};
+    for (const [grader, grade] of Object.entries(asRecord(raw.break_even) ?? {})) {
+      breakEven[grader] = asString(grade);
+    }
+    return {
+      cardId,
+      name: asString(raw.name) ?? '',
+      setName: asString(raw.set) ?? '',
+      number: asString(raw.number) ?? '',
+      imageSmallUrl: asString(raw.image_small_url),
+      rawPriceUsd: asNumber(raw.raw_price_usd),
+      recommendation: gradingRecommendations.find((code) => code === raw.recommendation) ?? null,
+      breakEven,
+      scenarios: parseList(raw.scenarios, (row) => {
+        const scenario = asRecord(row);
+        const grader = scenario ? asString(scenario.grader) : null;
+        const grade = scenario ? asString(scenario.grade) : null;
+        if (!scenario || !grader || !grade) {
+          return null;
+        }
+        return {
+          grader,
+          grade,
+          compPriceUsd: asNumber(scenario.comp_price_usd),
+          feeUsd: asNumber(scenario.fee_usd),
+          shippingUsd: asNumber(scenario.shipping_usd),
+          netUsd: asNumber(scenario.net_usd),
+        };
+      }),
+    };
+  });
+}
+
+/** Deal / trade / grading card; an unknown kind (newer server) is dropped. */
+export function parseAssistantVerdict(value: unknown): AssistantVerdict | null {
+  const raw = asRecord(value);
+  if (!raw) {
+    return null;
+  }
+  const label = asString(raw.label) ?? '';
+  switch (raw.kind) {
+    case 'deal': {
+      const verdict = dealVerdicts.find((code) => code === raw.verdict);
+      if (!verdict) {
+        return null;
+      }
+      return {
+        kind: 'deal',
+        verdict,
+        label,
+        side: raw.side === 'selling' ? 'selling' : 'buying',
+        askingUsd: asNumber(raw.asking_usd),
+        marketUsd: asNumber(raw.market_usd),
+        pctOfMarket: asNumber(raw.pct_of_market),
+        diffUsd: asNumber(raw.diff_usd),
+        items: parseList(raw.items, parseVerdictItem),
+        unpricedCount: Math.max(0, asInt(raw.unpriced_count) ?? 0),
+      };
+    }
+    case 'trade': {
+      const verdict = tradeVerdicts.find((code) => code === raw.verdict);
+      if (!verdict) {
+        return null;
+      }
+      const balance = asRecord(raw.balance);
+      const cash = balance ? asNumber(balance.cash_usd) : null;
+      return {
+        kind: 'trade',
+        verdict,
+        label,
+        sideA: parseTradeSide(raw.side_a, 'You give'),
+        sideB: parseTradeSide(raw.side_b, 'You get'),
+        gapUsd: asNumber(raw.gap_usd),
+        gapPct: asNumber(raw.gap_pct),
+        favors: raw.favors === 'you' || raw.favors === 'them' ? raw.favors : null,
+        balance: balance && cash != null && (balance.who_adds === 'you' || balance.who_adds === 'them')
+          ? { whoAdds: balance.who_adds, cashUsd: cash }
+          : null,
+      };
+    }
+    case 'grading': {
+      const cards = parseGradingCards(raw.cards);
+      if (cards.length === 0) {
+        return null;
+      }
+      const fees = asRecord(raw.fees) ?? {};
+      return {
+        kind: 'grading',
+        cards,
+        fees: { asOf: asString(fees.as_of), placeholder: fees.placeholder === true, shippingUsd: asNumber(fees.shipping_usd) },
+      };
+    }
+    default:
+      return null;
+  }
 }
 
 export function parseAssistantMessages(value: unknown): AssistantMessage[] {
@@ -421,10 +638,13 @@ export function buildAssistantSendBody(payload: AssistantSendPayload): Record<st
   const context: AssistantContext | null | undefined = payload.context;
   if (context) {
     const cardIds = (context.cardIds ?? []).filter((id) => typeof id === 'string' && id.length > 0);
+    const attachedCardIds = (context.attachedCardIds ?? []).filter((id) => typeof id === 'string' && id.length > 0);
     body.context = {
       source: context.source,
       // Contract cap: ≤20 tray card ids, deduped.
       ...(cardIds.length > 0 ? { card_ids: Array.from(new Set(cardIds)).slice(0, 20) } : {}),
+      // Contract cap: ≤5 attached card ids per message, deduped.
+      ...(attachedCardIds.length > 0 ? { attached_card_ids: Array.from(new Set(attachedCardIds)).slice(0, 5) } : {}),
       ...(context.game && CARD_GAMES.includes(context.game) ? { game: context.game } : {}),
     };
   }

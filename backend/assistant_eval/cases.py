@@ -179,6 +179,11 @@ def _validate_expect(where: str, expect: Any, known: frozenset[str], banned: Ite
             continue
         for path, matcher in spec["where"].items():
             _check_matcher(f"{spot}.where.{path}", matcher, errors)
+    amounts = expect.get("amounts_match_tool")
+    if amounts is not None and (not isinstance(amounts, dict) or amounts.get("tool") not in known or not isinstance(
+        amounts.get("tolerance_pct", 1), (int, float)
+    )):
+        errors.append(f"{where}.amounts_match_tool: needs tool = a known tool name (and a numeric tolerance_pct)")
     write = expect.get("expect_write")
     if write is not None:
         if not isinstance(write, dict):

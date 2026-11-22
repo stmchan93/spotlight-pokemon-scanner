@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS assistant_messages (
     input_tokens INTEGER, output_tokens INTEGER, cost_usd REAL, tools_used TEXT,
     created_at TEXT NOT NULL, suggestions_json TEXT, tool_calls_json TEXT, charts_json TEXT,
     flags_json TEXT, cards_label TEXT, cards_view_all_json TEXT,
-    cache_read_tokens INTEGER, cache_write_tokens INTEGER, cached INTEGER, sets_json TEXT, choice_json TEXT
+    cache_read_tokens INTEGER, cache_write_tokens INTEGER, cached INTEGER, sets_json TEXT, choice_json TEXT,
+    verdicts_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_messages_client
@@ -82,6 +83,8 @@ COLUMN_PATCHES = (
     ("assistant_messages", "sets_json", "TEXT"),
     # Tap-to-pick printing choice (choice.py); null on ordinary replies.
     ("assistant_messages", "choice_json", "TEXT"),
+    # Deal / trade / grading verdict cards (verdicts.py); older rows have none.
+    ("assistant_messages", "verdicts_json", "TEXT"),
     # The game this thread last named or ranked (game_scope.py); older threads have none.
     ("assistant_threads", "game", "TEXT"),
 )
@@ -184,6 +187,7 @@ def message_payload(row: sqlite3.Row, feedback: dict[str, Any] | None = None) ->
     raw_suggestions = row["suggestions_json"] if "suggestions_json" in keys else None
     raw_charts = row["charts_json"] if "charts_json" in keys else None
     raw_sets = row["sets_json"] if "sets_json" in keys else None
+    raw_verdicts = row["verdicts_json"] if "verdicts_json" in keys else None
     raw_flags = row["flags_json"] if "flags_json" in keys else None
     raw_choice = row["choice_json"] if role == "assistant" and "choice_json" in keys else None
     try:
@@ -211,6 +215,8 @@ def message_payload(row: sqlite3.Row, feedback: dict[str, Any] | None = None) ->
         "sets": _charts(raw_sets) if role == "assistant" else [],
         # Tiles are tap-to-pick printings for an add/update (choice.py); older apps ignore it.
         "choice": choice if isinstance(choice, dict) else None,
+        # Deal / trade / grading cards under the reply; older apps ignore them.
+        "verdicts": _charts(raw_verdicts) if role == "assistant" else [],
         # Review-only quality flags (flags.py); the app doesn't render them.
         "flags": _suggestions(raw_flags) if role == "assistant" else [],
         "created_at": row["created_at"],
@@ -438,8 +444,8 @@ class AssistantStore:
                                                 status, client_message_id, input_tokens, output_tokens, cost_usd,
                                                 tools_used, created_at, suggestions_json, tool_calls_json, charts_json,
                                                 flags_json, cards_label, cards_view_all_json, cache_read_tokens,
-                                                cache_write_tokens, sets_json, choice_json)
-                VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                                cache_write_tokens, sets_json, choice_json, verdicts_json)
+                VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     reply_id,
@@ -465,6 +471,7 @@ class AssistantStore:
                     reply.get("cache_write_tokens"),
                     json.dumps(reply.get("sets") or []),
                     json.dumps(reply["choice"]) if reply.get("choice") else None,
+                    json.dumps(reply["verdicts"]) if reply.get("verdicts") else None,
                 ),
             )
             conn.execute(

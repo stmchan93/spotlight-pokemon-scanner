@@ -2387,6 +2387,23 @@ export type PortfolioEntryDeleteResponsePayload = {
   cardID: string;
 };
 
+/** POST /api/v1/deck/entries/move: some or all copies into another collection. */
+export type MovePortfolioEntryRequestPayload = {
+  deckEntryID: string;
+  collectionID: string;
+  /** Copies to move; null/omitted = all. */
+  quantity?: number | null;
+};
+
+export type MovePortfolioEntryResponsePayload = {
+  /** The holding now in the target collection (a merge or a split may change the id). */
+  deckEntryID: string;
+  sourceDeckEntryID: string;
+  cardID: string;
+  collectionID: string;
+  movedQuantity: number;
+};
+
 export type PortfolioEntryBulkDeleteRequestPayload = {
   deckEntryIDs: string[];
 };
@@ -2913,6 +2930,11 @@ export type AssistantContext = {
   /** Scanner tray card ids (≤20); omitted from Home. */
   cardIds?: string[];
   /**
+   * Cards the user attached to THIS message (≤5), e.g. a chat photo the
+   * scanner identified. Allowed on any turn; never the image itself.
+   */
+  attachedCardIds?: string[];
+  /**
    * The game of the screen the chat was opened from (Home's market picker, the
    * scanner's "Scanning for" lane). The server scopes market-wide rankings to it
    * unless the question or the thread names another; omitted = server falls back
@@ -2997,7 +3019,13 @@ export type AssistantCardsViewAll = {
 };
 
 export type AssistantConditionCode = 'NM' | 'LP' | 'MP' | 'HP' | 'DMG';
-export type AssistantActionType = 'add_to_collection' | 'update_holding' | 'watch_card';
+export type AssistantActionType =
+  | 'add_to_collection'
+  | 'update_holding'
+  | 'watch_card'
+  | 'remove_holding'
+  | 'move_holding'
+  | 'create_collection';
 /** `done` / `undone`: an add the server already made (direct add); the rest are proposals. */
 export type AssistantActionState = 'proposed' | 'confirmed' | 'dismissed' | 'done' | 'undone';
 
@@ -3033,6 +3061,32 @@ export type AssistantWatchCardParams = {
   targetPriceUsd: number | null;
 };
 
+export type AssistantRemoveHoldingParams = {
+  holdingId: string;
+  cardId: string | null;
+  /** Copies to remove (≥1). */
+  quantity: number;
+  /** Every copy goes: delete the holding. */
+  removeAll: boolean;
+  /** Copies left after a partial remove. */
+  remainingQuantity: number;
+};
+
+export type AssistantMoveHoldingParams = {
+  holdingId: string;
+  cardId: string | null;
+  collectionId: string;
+  collectionName: string | null;
+  /** Copies to move; null = all. */
+  quantity: number | null;
+};
+
+export type AssistantCreateCollectionParams = {
+  name: string;
+  /** Whole holdings to move into it once created. */
+  holdingIds: string[];
+};
+
 type AssistantProposedActionBase = {
   id: string;
   /** Server-built, shown on the confirm card. */
@@ -3044,7 +3098,116 @@ type AssistantProposedActionBase = {
 export type AssistantProposedAction =
   | (AssistantProposedActionBase & { type: 'add_to_collection'; params: AssistantAddToCollectionParams })
   | (AssistantProposedActionBase & { type: 'update_holding'; params: AssistantUpdateHoldingParams })
-  | (AssistantProposedActionBase & { type: 'watch_card'; params: AssistantWatchCardParams });
+  | (AssistantProposedActionBase & { type: 'watch_card'; params: AssistantWatchCardParams })
+  | (AssistantProposedActionBase & { type: 'remove_holding'; params: AssistantRemoveHoldingParams })
+  | (AssistantProposedActionBase & { type: 'move_holding'; params: AssistantMoveHoldingParams })
+  | (AssistantProposedActionBase & { type: 'create_collection'; params: AssistantCreateCollectionParams });
+
+/** One card in a deal or trade verdict card. All prices USD. */
+export type AssistantVerdictItem = {
+  cardId: string;
+  name: string;
+  setName: string;
+  number: string;
+  imageSmallUrl: string | null;
+  variant: string | null;
+  condition: AssistantConditionCode | null;
+  /** NM was assumed, not stated. */
+  conditionAssumed: boolean;
+  grader: string | null;
+  grade: string | null;
+  quantity: number;
+  /** One copy; null = no current USD price. */
+  priceUsd: number | null;
+  marketTotalUsd: number | null;
+  askingUsd: number | null;
+  pctOfMarket: number | null;
+  change30dPct: number | null;
+  priceAsOf: string | null;
+  /** Cached graded sold comps (slabs only). */
+  solds: { count: number; averageUsd: number | null; latestSoldAt: string | null } | null;
+};
+
+export type AssistantDealVerdictCode =
+  | 'good_buy'
+  | 'fair'
+  | 'above_market'
+  | 'strong_offer'
+  | 'typical_offer'
+  | 'low_offer'
+  | 'unknown';
+
+/** "Is this a good deal?" (check_deal). */
+export type AssistantDealVerdict = {
+  kind: 'deal';
+  verdict: AssistantDealVerdictCode;
+  label: string;
+  side: 'buying' | 'selling';
+  askingUsd: number | null;
+  marketUsd: number | null;
+  pctOfMarket: number | null;
+  diffUsd: number | null;
+  items: AssistantVerdictItem[];
+  unpricedCount: number;
+};
+
+export type AssistantTradeSide = {
+  label: string;
+  totalUsd: number | null;
+  unpricedCount: number;
+  items: AssistantVerdictItem[];
+};
+
+/** Trade checker (compare_trade). sideA = the user gives, sideB = the user gets. */
+export type AssistantTradeVerdict = {
+  kind: 'trade';
+  verdict: 'fair' | 'slightly_uneven' | 'uneven' | 'unknown';
+  label: string;
+  sideA: AssistantTradeSide;
+  sideB: AssistantTradeSide;
+  gapUsd: number | null;
+  gapPct: number | null;
+  /** 'you' = the user gets more; 'them' = the user gives more. */
+  favors: 'you' | 'them' | null;
+  balance: { whoAdds: 'you' | 'them'; cashUsd: number } | null;
+};
+
+export type AssistantGradingScenario = {
+  grader: string;
+  grade: string;
+  compPriceUsd: number | null;
+  feeUsd: number | null;
+  shippingUsd: number | null;
+  /** comp - raw - fee - shipping; null = no comp. */
+  netUsd: number | null;
+};
+
+export type AssistantGradingRecommendation =
+  | 'worth_grading'
+  | 'grade_if_confident_10'
+  | 'not_worth_it'
+  | 'no_comps'
+  | 'no_raw_price';
+
+/** "Should I grade this?" (grading_upside scenarios). */
+export type AssistantGradingVerdict = {
+  kind: 'grading';
+  cards: {
+    cardId: string;
+    name: string;
+    setName: string;
+    number: string;
+    imageSmallUrl: string | null;
+    rawPriceUsd: number | null;
+    recommendation: AssistantGradingRecommendation | null;
+    /** grader -> lowest grade that still profits (null = none). */
+    breakEven: Record<string, string | null>;
+    scenarios: AssistantGradingScenario[];
+  }[];
+  fees: { asOf: string | null; placeholder: boolean; shippingUsd: number | null };
+};
+
+export type AssistantVerdict = AssistantDealVerdict | AssistantTradeVerdict | AssistantGradingVerdict;
 
 export type AssistantPrintingChoice = {
   kind: 'pick_printing';
@@ -3094,6 +3257,8 @@ export type AssistantMessage = {
   choice?: AssistantPrintingChoice | null;
   /** The user's 👍/👎 on an assistant reply; null/absent = not rated (or an older server). */
   feedback?: AssistantFeedback | null;
+  /** Deal / trade / grading cards under the reply. Optional: older servers and rows don't send it. */
+  verdicts?: AssistantVerdict[];
 };
 
 export type AssistantFeedbackRating = 'up' | 'down';

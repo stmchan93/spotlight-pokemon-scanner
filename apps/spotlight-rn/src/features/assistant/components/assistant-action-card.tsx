@@ -36,7 +36,18 @@ function doneCopy(action: AssistantProposedAction): string {
       return 'Collection updated';
     case 'watch_card':
       return action.params.targetPriceUsd != null ? 'On your Watchlist with an alert' : 'Added to your Watchlist';
+    case 'remove_holding':
+      return 'Removed from your collection';
+    case 'move_holding':
+      return action.params.collectionName ? `Moved to ${action.params.collectionName}` : 'Moved';
+    case 'create_collection':
+      return 'Collection created';
   }
+}
+
+/** Removes are destructive: red card and a red Remove button. */
+export function isDestructiveAction(action: AssistantProposedAction): boolean {
+  return action.type === 'remove_holding';
 }
 
 function undoAvailable(action: AssistantProposedAction, now = Date.now()): boolean {
@@ -107,10 +118,16 @@ export function AssistantActionCard({ action, state, onConfirm, onDismiss, onUnd
   }
 
   const showButtons = state.status === 'proposed' || state.status === 'running' || state.status === 'failed';
+  const destructive = isDestructiveAction(action);
 
   return (
     <View
-      style={[styles.card, { backgroundColor: theme.colors.purple50, borderColor: theme.colors.purple200 }]}
+      style={[
+        styles.card,
+        destructive
+          ? { backgroundColor: theme.colors.red50, borderColor: theme.colors.red100 }
+          : { backgroundColor: theme.colors.purple50, borderColor: theme.colors.purple200 },
+      ]}
       testID={testID}
     >
       <Text style={theme.typography.bodyStrong}>{action.summary}</Text>
@@ -123,13 +140,13 @@ export function AssistantActionCard({ action, state, onConfirm, onDismiss, onUnd
         <View style={styles.buttons}>
           <Button
             disabled={state.status === 'running'}
-            label={state.status === 'running' ? 'Working…' : 'Confirm'}
+            label={state.status === 'running' ? 'Working…' : destructive ? 'Remove' : 'Confirm'}
             labelStyleVariant="control"
             onPress={() => onConfirm(action)}
             size="sm"
             style={styles.button}
             testID={`${testID}-confirm`}
-            variant="dark"
+            variant={destructive ? 'destructive' : 'dark'}
           />
           <Button
             disabled={state.status === 'running'}

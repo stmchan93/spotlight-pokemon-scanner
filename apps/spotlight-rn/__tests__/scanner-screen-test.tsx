@@ -18,6 +18,7 @@ import {
 import { __resetScannerTargetConfigForTests } from '@/features/scanner/use-scanner-target-config';
 
 import { createTestSpotlightRepository, renderWithProviders } from './test-utils';
+import { resetVendorSettingsCache } from '@/features/vendor/use-vendor-settings';
 
 // Tray row testIDs carry the capture id, not the position; these resolve the
 // nth row ON SCREEN (newest first) to its id-based testIDs. The tray is a
@@ -1055,6 +1056,89 @@ describe('ScannerScreen', () => {
     expect(input.props.placeholder).toBe('80');
     // Lighter than the body text it sits in, or it reads as a value.
     expect(input.props.placeholderTextColor).toBe('#BEBEBE');
+  });
+
+  // Vendor price tag: each row shows market → the vendor's own price, the
+  // TOTAL becomes the offer, BUY/SELL flips both, and BOUGHT records the buy at
+  // the offer (default tiers: $50+ at 70%, sell at 100%).
+  it('prices rows at the vendor buy/sell rate and records BOUGHT at the offer', async () => {
+    resetVendorSettingsCache();
+    const purchases: any[] = [];
+    const spotlightRepository = createTestSpotlightRepository({
+      recordVendorPurchase: async (input: any) => {
+        purchases.push(input);
+        return { recordedLineIndexes: input.lines.map((_: unknown, index: number) => index), alreadyRecordedLineIndexes: [] };
+      },
+      matchScannerCapture: async () => ({
+        scanID: 'scan-vendor',
+        candidates: [{
+          id: 'vendor-candidate',
+          cardId: 'sv3pt5-6',
+          name: 'Charizard ex',
+          cardNumber: '006/165',
+          setName: '151',
+          imageUrl: 'https://cdn.spotlight.test/charizard.png',
+          marketPrice: 60,
+          currencyCode: 'USD',
+        }],
+      }),
+      getRawPricingMatrix: async () => ({
+        cardID: 'sv3pt5-6',
+        currencyCode: 'USD',
+        variants: [{
+          variant: 'Holofoil',
+          variantKey: 'holofoil',
+          conditions: [{ code: 'NM', label: 'Near Mint', market: 60, low: null, mid: null, high: null }],
+        }],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    expect(await screen.findByText('Charizard ex')).toBeTruthy();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByTestId(trayTestId('offer', 0))).toBeNull();
+
+    fireEvent.press(screen.getByTestId('scanner-tray-discount-trigger'));
+    fireEvent.press(await screen.findByTestId('discount-menu-vendor-buy'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId(trayTestId('offer', 0)).props.children).toBe('→ OFFER $42.00');
+    });
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('OFFER: $42.00');
+    expect(screen.getByText('BOUGHT ALL')).toBeTruthy();
+
+    // The toggle flips every row and the total to the sell price.
+    fireEvent.press(screen.getByTestId('scanner-tray-vendor-toggle'));
+    await waitFor(() => {
+      expect(screen.getByTestId(trayTestId('offer', 0)).props.children).toBe('→ SELL $60.00');
+    });
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('SELL: $60.00');
+    expect(screen.queryByTestId(trayTestId('bought', 0))).toBeNull();
+    expect(screen.getByTestId(trayTestId('add', 0))).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('scanner-tray-vendor-toggle'));
+    fireEvent.press(await findTrayElement('bought', 0));
+
+    await waitFor(() => {
+      expect(purchases).toHaveLength(1);
+    });
+    expect(purchases[0].batchId).toEqual(expect.any(String));
+    expect(purchases[0].lines).toEqual([expect.objectContaining({
+      cardId: 'sv3pt5-6',
+      condition: 'near_mint',
+      marketUsd: 60,
+      offerUsd: 42,
+      quantity: 1,
+      tier: 'over50',
+      variantName: 'Holofoil',
+    })]);
+    await waitFor(() => {
+      expect(queryTrayRow(0)).not.toBeOnTheScreen();
+    });
   });
 
   // The tray used to write a holding with NO printing while the row named one,

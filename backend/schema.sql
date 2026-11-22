@@ -1061,7 +1061,8 @@ CREATE TABLE IF NOT EXISTS assistant_messages (
     cache_write_tokens INTEGER,
     cached INTEGER,
     sets_json TEXT,
-    choice_json TEXT
+    choice_json TEXT,
+    verdicts_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_messages_client

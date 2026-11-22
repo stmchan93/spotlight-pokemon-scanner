@@ -47,7 +47,8 @@ TOOLS = frozenset(
     {"search_cards", "get_my_collection", "find_missing", "list_facets", "get_card", "get_my_watchlist",
      "get_portfolio_summary", "get_price_history", "find_price_lows", "find_new_highs", "find_movers", "get_market_trends",
      "find_top_graded", "grading_upside", "propose_add_to_collection", "propose_update_holding", "propose_watch_card", "show_cards",
-     "add_to_collection_now"}
+     "add_to_collection_now", "check_deal", "compare_trade", "list_my_collections", "propose_remove_holding",
+     "propose_move_holding", "propose_create_collection"}
 )
 
 DEFAULTS = {
@@ -1143,16 +1144,24 @@ class FixtureTests(unittest.TestCase):
 
         data = load_case_file(DEFAULT_CASES_PATH)
         needing = [case["id"] for case in data["cases"] if case_needs_db_copy(case)]
-        self.assertEqual(set(needing), {"complete_151_cost", "worth_grading", "why_charizard_moved_no_history", "add_quantity_2"})
-        schema = {
-            "deck_entries": {"owner_user_id", "card_id"},
-            "slab_recent_sales": {"id", "card_id", "grader", "grade", "source", "source_sale_id", "rank", "title", "sold_at",
-                                  "price", "currency_code", "created_at"},
-            "slab_recent_sales_cache": {"card_id", "grader", "grade", "source", "status", "result_count", "fetched_at",
-                                        "created_at", "updated_at"},
-            "card_price_history_daily": {"card_id"},
-            "card_price_history_cell": {"card_id"},
-        }
+        self.assertEqual(set(needing), {
+            "complete_151_cost", "worth_grading", "why_charizard_moved_no_history", "add_quantity_2",
+            "grade_this_scenarios", "deal_no_price", "collection_move_holding", "collection_remove_one",
+            "collection_worth_vs_paid",
+        })
+        # Columns from the real schema, so a fixture can't name one that doesn't exist.
+        from catalog_tools import apply_schema, connect
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        conn = connect(Path(tmp.name) / "schema.sqlite")
+        apply_schema(conn, Path(__file__).resolve().parents[1] / "schema.sql")
+        tables = {spec["table"] for case in data["cases"] for kind in ("delete", "insert")
+                  for spec in (case.get("fixtures") or {}).get(kind) or []}
+        schema = {table: {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})")} for table in tables}
+        conn.close()
+        # Created by a server.py migration, not schema.sql.
+        schema["card_price_history_cell"] = schema.get("card_price_history_cell") or {"card_id"}
         for case in data["cases"]:
             for spec in (case.get("fixtures") or {}).get("delete") or []:
                 self.assertLessEqual(set(spec["where"]), schema[spec["table"]], case["id"])

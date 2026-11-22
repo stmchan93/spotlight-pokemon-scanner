@@ -217,6 +217,53 @@ async function runWatchCard(
   capturePostHogEvent(AnalyticsEvent.watchTargetSet, { source: 'assistant', cleared: false });
 }
 
+async function runRemoveHolding(
+  action: Extract<AssistantProposedAction, { type: 'remove_holding' }>,
+  deps: AssistantActionDeps,
+) {
+  const { params } = action;
+  const entry = await findHolding(deps, params.holdingId);
+  if (!entry) {
+    throw new AssistantActionError("That card isn't in your collection anymore.");
+  }
+  const remaining = entry.quantity - params.quantity;
+  // Same calls as the Collection ⋯ menu: delete the holding, or lower its quantity.
+  if (params.removeAll || remaining <= 0) {
+    await deps.repository.deletePortfolioEntry({ deckEntryID: entry.id });
+    deps.removeOptimisticInventoryEntries([entry.id]);
+  } else {
+    await deps.repository.setPortfolioEntryQuantity({ deckEntryID: entry.id, quantity: remaining });
+  }
+  invalidateCardDetailCache(entry.cardId);
+  deps.refreshData();
+}
+
+async function moveHolding(deps: AssistantActionDeps, holdingId: string, collectionID: string, quantity: number | null) {
+  const result = await deps.repository.movePortfolioEntry({ deckEntryID: holdingId, collectionID, quantity });
+  invalidateCardDetailCache(result.cardID);
+  return result;
+}
+
+async function runMoveHolding(
+  action: Extract<AssistantProposedAction, { type: 'move_holding' }>,
+  deps: AssistantActionDeps,
+) {
+  const { params } = action;
+  await moveHolding(deps, params.holdingId, params.collectionId, params.quantity);
+  deps.refreshData();
+}
+
+async function runCreateCollection(
+  action: Extract<AssistantProposedAction, { type: 'create_collection' }>,
+  deps: AssistantActionDeps,
+) {
+  const collection = await deps.repository.createCollection(action.params.name);
+  for (const holdingId of action.params.holdingIds) {
+    await moveHolding(deps, holdingId, collection.id, null);
+  }
+  deps.refreshData();
+}
+
 /** Runs the real write for one action. Never throws. */
 export async function runAssistantAction(
   action: AssistantProposedAction,
@@ -232,6 +279,15 @@ export async function runAssistantAction(
         break;
       case 'watch_card':
         await runWatchCard(action, deps);
+        break;
+      case 'remove_holding':
+        await runRemoveHolding(action, deps);
+        break;
+      case 'move_holding':
+        await runMoveHolding(action, deps);
+        break;
+      case 'create_collection':
+        await runCreateCollection(action, deps);
         break;
     }
     return { status: 'done' };

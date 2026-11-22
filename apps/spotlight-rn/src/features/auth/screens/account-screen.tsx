@@ -501,6 +501,39 @@ export function AccountScreen() {
           <View style={styles.collectionDataCard}>
             <View style={styles.showModeCopy}>
               <Text style={sectionTitle}>
+                VENDOR
+              </Text>
+              <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
+                Your buy and sell prices for the scanner, and the cards you&apos;ve bought.
+              </Text>
+            </View>
+            <View style={styles.collectionDataButtons}>
+              <Button
+                label="Vendor pricing"
+                onPress={() => {
+                  router.push('/account/vendor' as never);
+                }}
+                size="lg"
+                testID="account-vendor-pricing"
+                variant="outline"
+              />
+              <Button
+                label="Bought"
+                onPress={() => {
+                  router.push('/account/bought' as never);
+                }}
+                size="lg"
+                testID="account-vendor-bought"
+                variant="outline"
+              />
+            </View>
+          </View>
+        </SurfaceCard>
+
+        <SurfaceCard padding={20} radius={28}>
+          <View style={styles.collectionDataCard}>
+            <View style={styles.showModeCopy}>
+              <Text style={sectionTitle}>
                 USE WITH AI
               </Text>
               <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>

@@ -239,6 +239,9 @@ class WriteToolExposureTests(unittest.TestCase):
         tools = self.tool_names("user")
         for name in WRITE_TOOLS:
             self.assertIn(name, tools)
+            if name == "list_collections":  # gated with the writes, but a read
+                self.assertTrue(tools[name].annotations.read_only_hint)
+                continue
             self.assertFalse(tools[name].annotations.read_only_hint)
             self.assertFalse(tools[name].annotations.destructive_hint)
             self.assertFalse(tools[name].annotations.idempotent_hint)

@@ -1138,3 +1138,271 @@ cases:
         rubric:
           - "Does the answer say prices are USD market prices from daily data, not live?"
           - "Does it explain what a market price means in plain English?"
+
+  # --- marketable features (docs/assistant-marketable-features-plan-2026-11-21.md) --------
+  # Extreme asking prices keep verdicts stable as markets move; amounts_match_tool checks every
+  # $ and % against the tool's numbers (±1%), so no price can be invented.
+  - id: grade_this_scenarios
+    category: grading
+    fixtures:
+      delete:
+        - {table: slab_recent_sales, where: {card_id: bw5-104, grader: PSA}}
+        - {table: slab_recent_sales_cache, where: {card_id: bw5-104, grader: PSA}}
+      insert:
+        - table: slab_recent_sales_cache
+          rows:
+            - {card_id: bw5-104, grader: PSA, grade: "10", source: ebay, status: available, result_count: 1, fetched_at: $NOW, created_at: $NOW, updated_at: $NOW}
+            - {card_id: bw5-104, grader: PSA, grade: "9", source: ebay, status: available, result_count: 1, fetched_at: $NOW, created_at: $NOW, updated_at: $NOW}
+        - table: slab_recent_sales
+          rows:
+            - {id: eval-fixture-grade-10, card_id: bw5-104, grader: PSA, grade: "10", source: ebay, source_sale_id: eval-fixture-grade-10, rank: 1, title: "EVAL FIXTURE Kyogre-EX Dark Explorers 104/108 PSA 10", sold_at: $TODAY, price: 1450.0, currency_code: USD, created_at: $NOW}
+            - {id: eval-fixture-grade-9, card_id: bw5-104, grader: PSA, grade: "9", source: ebay, source_sale_id: eval-fixture-grade-9, rank: 1, title: "EVAL FIXTURE Kyogre-EX Dark Explorers 104/108 PSA 9", sold_at: $TODAY, price: 620.0, currency_code: USD, created_at: $NOW}
+    turns:
+      - ask: "Should I grade this?"
+        card_ids: [bw5-104]
+        expect:
+          tools_all: [grading_upside]
+          tool_result_where:
+            - tool: grading_upside
+              where: {cards.card_id: bw5-104, cards.scenarios.grade: "10"}
+          amounts_match_tool: {tool: grading_upside, tolerance_pct: 1}
+          tiles_exact: [bw5-104]
+          must_not_contain: ['\|']
+          max_words: 90
+        reference: "**Only if you expect a 10.** This scanned Kyogre-EX is $504 raw. A PSA 10 nets about **+$865** after the $59.99 fee and $19.99 shipping; a PSA 9 nets about **+$36**, and a PSA 8 has no recent sale."
+        rubric:
+          - "Does the first sentence give a grading recommendation?"
+          - "Is every net figure it states one of the tool's net_usd values (comp - raw - fee - shipping)?"
+          - "Does it mention the grading fee or shipping rather than only the gross premium?"
+      - ask: "What if it gets a 9?"
+        expect:
+          tools_any: [grading_upside]
+          amounts_match_tool: {tool: grading_upside, tolerance_pct: 1}
+          max_words: 60
+        rubric:
+          - "Does the answer give the PSA 9 net from the tool results for the same Kyogre-EX?"
+
+  - id: grade_this_bgs_no_comp
+    category: grading
+    turns:
+      - ask: "Is it worth grading this in BGS?"
+        card_ids: [sv3pt5-199]
+        expect:
+          tools_all: [grading_upside]
+          tool_args: [{tool: grading_upside, where: {graders: {contains: BGS}}}]
+          amounts_match_tool: {tool: grading_upside, tolerance_pct: 1}
+          max_words: 90
+        rubric:
+          - "If the tool results have no BGS row, does the answer say there's no recent BGS sale rather than inventing one?"
+
+  - id: grade_these_tray
+    category: grading
+    holdout: true
+    turns:
+      - ask: "Which of these should I grade?"
+        card_ids: [sv3pt5-199, xy5-54, bw5-104]
+        expect:
+          tools_all: [grading_upside]
+          amounts_match_tool: {tool: grading_upside, tolerance_pct: 1}
+          tiles_within: [sv3pt5-199, xy5-54, bw5-104]
+          must_not_contain: ['\|']
+          max_words: 120
+        rubric:
+          - "Is there one bullet (or short line) per card rather than a table?"
+          - "Are the recommendations consistent with each card's net figures in the tool results?"
+
+  - id: deal_good_buy_extreme
+    category: deal
+    turns:
+      - ask: "They want $1 for this, good deal?"
+        card_ids: [sv3pt5-199]
+        expect:
+          tools_all: [check_deal]
+          tool_result_where:
+            - tool: check_deal
+              where: {verdict: good_buy, items.card_id: sv3pt5-199}
+          amounts_match_tool: {tool: check_deal, tolerance_pct: 1}
+          tiles_exact: [sv3pt5-199]
+          must_contain_any: ["good buy"]
+          max_words: 80
+        reference: "**Good buy.** $1 is under 1% of market ($287.93) for this scanned Charizard ex (151 #199)."
+        rubric:
+          - "Does the first sentence give the verdict?"
+          - "Are the market figures the tool's numbers, in USD?"
+
+  - id: deal_above_market_lot
+    category: deal
+    turns:
+      - ask: "They want $100,000 for these, good deal?"
+        card_ids: [sv3pt5-199, xy5-54]
+        expect:
+          tools_all: [check_deal]
+          tool_args: [{tool: check_deal, where: {asking_total_usd: 100000}}]
+          tool_result_where:
+            - tool: check_deal
+              where: {verdict: above_market}
+          amounts_match_tool: {tool: check_deal, tolerance_pct: 1}
+          tiles_within: [sv3pt5-199, xy5-54]
+          must_contain_any: ["above market", "Above market"]
+          must_not_contain: ['\brip-?off\b', '\bscam\b']
+        reference: "**Above market.** $100,000 is far above the $307 market for the 2 cards in your scan tray."
+        rubric:
+          - "Is the lot's market total the tool's market_usd (not a sum the answer made up)?"
+
+  - id: deal_ambiguous_name
+    category: deal
+    turns:
+      - ask: "$250 for a Charizard ex, worth it?"
+        expect:
+          tools_any: [check_deal, search_cards]
+          must_contain_any: ["which", "Which"]
+          must_not_contain: ['(?i)\bgood buy\b', '(?i)\babove market\b', '(?i)\bfair price\b']
+        rubric:
+          - "Does the answer ask which Charizard ex printing instead of giving a verdict?"
+
+  - id: deal_no_price
+    category: deal
+    fixtures:
+      delete:
+        - {table: card_price_snapshots, where: {card_id: base1-58}}
+        - {table: card_price_history_cell, where: {card_id: base1-58}}
+    turns:
+      - ask: "Is $50 good for this?"
+        card_ids: [base1-58]
+        expect:
+          tools_all: [check_deal]
+          tool_result_where:
+            - tool: check_deal
+              where: {verdict: unknown}
+          amounts_match_tool: {tool: check_deal, tolerance_pct: 1}
+          must_contain_any: ["no price", "don't have a price", "no current price", "isn't priced", "no market price"]
+          max_words: 50
+        rubric:
+          - "Does it say there's no price for this card and refuse to give a verdict or estimate?"
+
+  - id: deal_selling_offer
+    category: deal
+    holdout: true
+    turns:
+      - ask: "A vendor offered me $1 for this. Is that a good offer?"
+        card_ids: [xy5-54]
+        expect:
+          tools_all: [check_deal]
+          tool_args: [{tool: check_deal, where: {side: selling}}]
+          tool_result_where:
+            - tool: check_deal
+              where: {verdict: low_offer}
+          amounts_match_tool: {tool: check_deal, tolerance_pct: 1}
+        rubric:
+          - "Does it say the offer is low compared with the card's market price?"
+
+  - id: trade_check_two_sides
+    category: trade
+    turns:
+      - ask: "Trade check: my Charizard ex 151 #199 for their Kyogre-EX Dark Explorers 104 and Kyogre-EX Primal Clash 54"
+        expect:
+          tools_all: [compare_trade]
+          tool_result_where:
+            - tool: compare_trade
+              where: {side_a.items.card_id: sv3pt5-199, side_b.items.card_id: bw5-104}
+          amounts_match_tool: {tool: compare_trade, tolerance_pct: 1}
+          tiles_within: [sv3pt5-199, bw5-104, xy5-54]
+          must_not_contain: ['(?i)\bbad trade\b', '(?i)\brip-?off\b']
+        rubric:
+          - "Does the answer give the verdict and the gap in dollars and percent from the tool?"
+          - "Are both side totals the tool's totals?"
+
+  - id: trade_tray_is_mine
+    category: trade
+    turns:
+      - ask: "Is this trade fair? Mine: these. Theirs: Base Set Pikachu"
+        card_ids: [sv3pt5-199, xy5-54]
+        expect:
+          tools_all: [compare_trade]
+          tool_result_where:
+            - tool: compare_trade
+              where: {side_a.items.card_id: sv3pt5-199, side_b.items.card_id: base1-58}
+          amounts_match_tool: {tool: compare_trade, tolerance_pct: 1}
+          scan_tray_named: false
+        rubric:
+          - "Does the answer treat the scanned cards as the user's side and Base Set Pikachu as theirs?"
+
+  - id: trade_ambiguous
+    category: trade
+    holdout: true
+    turns:
+      - ask: "My Charizard for their Kyogre, fair?"
+        expect:
+          tools_any: [compare_trade, search_cards]
+          must_contain_any: ["which", "Which"]
+          must_not_contain: ['(?i)\bfair trade\b', '(?i)\buneven\b']
+        rubric:
+          - "Does it ask which printings rather than inventing totals?"
+
+  - id: collection_move_holding
+    category: collection_actions
+    fixtures:
+      delete:
+        - {table: deck_entries, where: {owner_user_id: $USER, card_id: bw5-104}}
+      insert:
+        - table: collections
+          rows:
+            - {id: eval-col-grading, owner_user_id: $USER, name: Grading pile, sort_order: 90, created_at: $NOW, hidden: 0}
+        - table: deck_entries
+          rows:
+            - {id: eval-holding-kyogre, owner_user_id: $USER, identity_key: "raw|bw5-104", item_kind: raw, card_id: bw5-104, condition: near_mint, quantity: 1, cost_basis_total: 350.0, cost_basis_currency_code: USD, added_at: $NOW, updated_at: $NOW}
+    turns:
+      - ask: "Move my Kyogre-EX Dark Explorers to my Grading pile collection"
+        expect:
+          tools_all: [propose_move_holding]
+          expect_action: {type: move_holding, params: {holding_id: eval-holding-kyogre, collection_id: eval-col-grading}}
+          expect_no_write: true
+        rubric:
+          - "Does the answer say the move is ready to confirm rather than done?"
+
+  - id: collection_remove_one
+    category: collection_actions
+    fixtures:
+      delete:
+        - {table: deck_entries, where: {owner_user_id: $USER, card_id: base1-58}}
+      insert:
+        - table: deck_entries
+          rows:
+            - {id: eval-holding-pikachu, owner_user_id: $USER, identity_key: "raw|base1-58", item_kind: raw, card_id: base1-58, condition: near_mint, quantity: 2, cost_basis_total: 0, cost_basis_currency_code: USD, added_at: $NOW, updated_at: $NOW}
+    turns:
+      - ask: "Remove one Base Set Pikachu from my collection"
+        expect:
+          tools_all: [propose_remove_holding]
+          expect_action: {type: remove_holding, params: {holding_id: eval-holding-pikachu, quantity: 1}}
+          expect_no_write: true
+        rubric:
+          - "Does it say the removal is ready to confirm (not done) and name the card's printing or condition?"
+
+  - id: collection_create
+    category: collection_actions
+    turns:
+      - ask: "Make a collection called Show stock"
+        expect:
+          tools_all: [propose_create_collection]
+          expect_action: {type: create_collection, params: {name: Show stock}}
+          expect_no_write: true
+        rubric:
+          - "Does it say the new collection is ready to confirm?"
+
+  - id: collection_worth_vs_paid
+    category: collection_actions
+    fixtures:
+      delete:
+        - {table: deck_entries, where: {owner_user_id: $USER, card_id: bw5-104}}
+      insert:
+        - table: deck_entries
+          rows:
+            - {id: eval-holding-kyogre-paid, owner_user_id: $USER, identity_key: "raw|bw5-104", item_kind: raw, card_id: bw5-104, condition: near_mint, quantity: 1, cost_basis_total: 350.0, cost_basis_currency_code: USD, added_at: $NOW, updated_at: $NOW}
+    turns:
+      - ask: "What's my Kyogre-EX Dark Explorers worth now vs what I paid?"
+        expect:
+          tools_any: [get_card, get_my_collection]
+          must_contain_any: ["paid", "$350"]
+          max_words: 60
+        rubric:
+          - "Is the gain equal to the current value minus the $350 cost basis (within 1%)?"

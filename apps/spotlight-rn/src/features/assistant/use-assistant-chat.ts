@@ -12,6 +12,8 @@ import {
   type SpotlightRepository,
 } from '@spotlight/api-client';
 
+import type { AssistantPhotoAttachment } from '@/features/assistant/assistant-photo-scan';
+
 /** The question in flight (or the one that failed and can be retried). */
 export type AssistantPendingQuestion = {
   clientMessageId: string;
@@ -20,11 +22,15 @@ export type AssistantPendingQuestion = {
   errorCode: AssistantErrorCode | null;
   /** Cards this question is about (a tapped printing choice); kept for Retry. */
   cardIds?: string[];
+  /** A chat photo the scanner identified; its card goes as context.attachedCardIds. Kept for Retry. */
+  attachment?: AssistantPhotoAttachment;
 };
 
 export type AssistantSendOptions = {
   /** Sent as context.card_ids with this one question (e.g. the printing the user tapped). */
   cardIds?: string[];
+  /** A confirmed chat photo: sent as context.attachedCardIds on THIS turn (any turn). */
+  attachment?: AssistantPhotoAttachment;
 };
 
 export type AssistantSendOutcome = 'sent' | 'failed' | 'limit' | 'ignored';
@@ -75,6 +81,9 @@ export function useAssistantChat({
   // The reply that just arrived live (animates in, gets scrolled to). Never set
   // for a loaded history.
   const [lastReplyId, setLastReplyId] = useState<string | null>(null);
+  // Chat photos by the user message they rode with. Local only (the photo is
+  // never uploaded to the assistant), so a reopened thread shows none.
+  const [attachments, setAttachments] = useState<Record<string, AssistantPhotoAttachment>>({});
   // Tray context goes with the FIRST question of a thread only; follow-ups ride
   // the thread's own history. Source and game go every time (the server keeps
   // the thread's own game first, so the screen's game only fills a gap).
@@ -102,6 +111,7 @@ export function useAssistantChat({
     setPending(null);
     setThreadError(false);
     setLastReplyId(null);
+    setAttachments({});
     contextSentRef.current = nextThreadId != null;
     if (!nextThreadId) {
       setIsLoadingThread(false);
@@ -140,15 +150,19 @@ export function useAssistantChat({
       return 'failed';
     }
     try {
+      const turnContext: AssistantContext = question.cardIds?.length
+        ? { source: context.source, cardIds: question.cardIds, ...(context.game ? { game: context.game } : {}) }
+        : contextSentRef.current
+          ? { source: context.source, ...(context.game ? { game: context.game } : {}) }
+          : context;
       const result = await repository.sendAssistantMessage({
         threadId,
         clientMessageId: question.clientMessageId,
         text: question.text,
-        context: question.cardIds?.length
-          ? { source: context.source, cardIds: question.cardIds, ...(context.game ? { game: context.game } : {}) }
-          : contextSentRef.current
-            ? { source: context.source, ...(context.game ? { game: context.game } : {}) }
-            : context,
+        // A photo's card rides beside (never instead of) the tray context.
+        context: question.attachment
+          ? { ...turnContext, attachedCardIds: [question.attachment.cardId] }
+          : turnContext,
       });
       if (generation !== loadGenerationRef.current) {
         return 'ignored';
@@ -156,6 +170,10 @@ export function useAssistantChat({
       contextSentRef.current = true;
       setThreadId(result.threadId);
       setMessages((current) => [...current, result.userMessage, result.message]);
+      const { attachment } = question;
+      if (attachment) {
+        setAttachments((current) => ({ ...current, [result.userMessage.id]: attachment }));
+      }
       setLastReplyId(result.message.id);
       setPending(null);
       setUsage(result.usage);
@@ -190,6 +208,7 @@ export function useAssistantChat({
       status: 'sending',
       errorCode: null,
       ...(options?.cardIds?.length ? { cardIds: options.cardIds } : {}),
+      ...(options?.attachment ? { attachment: options.attachment } : {}),
     });
   }, [pending, submit]);
 
@@ -260,6 +279,7 @@ export function useAssistantChat({
     isLoadingThread,
     threadError,
     lastReplyId,
+    attachments,
     send,
     retry,
     openThread,

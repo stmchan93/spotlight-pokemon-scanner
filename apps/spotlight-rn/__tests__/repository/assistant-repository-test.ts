@@ -109,6 +109,18 @@ describe('assistant wire normalization', () => {
     });
   });
 
+  it('sends attached (photo) card ids as attached_card_ids, deduped and capped at 5, beside the tray', () => {
+    const body = buildAssistantSendBody({
+      threadId: 'thr_1', clientMessageId: 'cid', text: 'worth grading?',
+      context: { source: 'scanner', cardIds: ['tray-1'], attachedCardIds: ['a', 'a', 'b', 'c', 'd', 'e', 'f'] },
+    });
+    expect(body.context).toEqual({ source: 'scanner', card_ids: ['tray-1'], attached_card_ids: ['a', 'b', 'c', 'd', 'e'] });
+    const none = buildAssistantSendBody({
+      threadId: null, clientMessageId: 'cid', text: 'hi', context: { source: 'home', attachedCardIds: [] },
+    });
+    expect(none.context).toEqual({ source: 'home' });
+  });
+
   it('sends context.game only for a known game', () => {
     const home = buildAssistantSendBody({
       threadId: 'thr_1', clientMessageId: 'cid', text: 'rising?', context: { source: 'home', game: 'lorcana' },

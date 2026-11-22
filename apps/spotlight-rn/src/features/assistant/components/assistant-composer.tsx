@@ -1,8 +1,11 @@
-import { ArrowUp } from 'iconoir-react-native';
-import { forwardRef, useState } from 'react';
+import { ArrowUp, Plus } from 'iconoir-react-native';
+import { forwardRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { MAX_FONT_SIZE_MULTIPLIER, radii, spacing, textStyles, useSpotlightTheme } from '@spotlight/design-system';
+
+import type { AssistantPhotoSource } from '@/features/assistant/assistant-photo-scan';
+import { AssistantPhotoMenu } from '@/features/assistant/components/assistant-photo-attachment';
 
 /*
   Figma 6502:16506 (empty), 6502:16582 (text), 6502:16429 (3 lines).
@@ -11,6 +14,8 @@ import { MAX_FONT_SIZE_MULTIPLIER, radii, spacing, textStyles, useSpotlightTheme
   once the text WRAPS does it become the text-on-top layout with the send
   button on its own bottom row (user, 2026-11-21: "it should go to 1 line,
   then expand"). Row inset 10pt, 2pt vertical padding, 16pt text-to-row gap.
+  The "+" (photo in chat) sits left of the field in the row, and left of the
+  send button in the stacked layout; an attached photo forces the stacked one.
 */
 const EMPTY_SEND_SIZE = 32;
 const FILLED_SEND_SIZE = 28;
@@ -31,6 +36,13 @@ type AssistantComposerProps = {
   isSending: boolean;
   maxLength: number;
   onFocus?: () => void;
+  /** Shows the "+" (Take photo / Choose photo). Omitted = no attach button. */
+  onAttachPhoto?: (source: AssistantPhotoSource) => void;
+  /** The attached photo's chip, drawn above the text. */
+  attachment?: ReactNode;
+  /** Text alone can't send yet (e.g. the photo is still being identified). */
+  sendBlocked?: boolean;
+  placeholder?: string;
 };
 
 /**
@@ -39,20 +51,61 @@ type AssistantComposerProps = {
  * or drops the keyboard.
  */
 export const AssistantComposer = forwardRef<TextInput, AssistantComposerProps>(function AssistantComposer(
-  { value, onChangeText, onSend, isSending, maxLength, onFocus },
+  {
+    value, onChangeText, onSend, isSending, maxLength, onFocus, onAttachPhoto, attachment, sendBlocked = false,
+    placeholder = 'Chat with Ekalight',
+  },
   ref,
 ) {
   const theme = useSpotlightTheme();
   const hasText = value.length > 0;
   // Grows to the stacked layout only when the text wraps past one line.
   const [wraps, setWraps] = useState(false);
-  const expanded = hasText && wraps;
-  const canSend = value.trim().length > 0 && !isSending;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const hasAttachment = attachment != null && attachment !== false;
+  const expanded = (hasText && wraps) || hasAttachment;
+  const canSend = value.trim().length > 0 && !isSending && !sendBlocked;
   const sendSize = hasText ? FILLED_SEND_SIZE : EMPTY_SEND_SIZE;
   const glyphSize = hasText ? FILLED_GLYPH_SIZE : EMPTY_GLYPH_SIZE;
   const isDark = canSend || isSending;
 
+  const attachButton = onAttachPhoto ? (
+    <Pressable
+      accessibilityLabel="Add a photo"
+      accessibilityRole="button"
+      accessibilityState={{ expanded: menuOpen }}
+      hitSlop={spacing.xxs}
+      onPress={() => setMenuOpen((open) => !open)}
+      style={({ pressed }) => [
+        styles.send,
+        {
+          backgroundColor: menuOpen ? theme.colors.gray900 : theme.colors.gray200,
+          height: sendSize,
+          opacity: pressed ? 0.8 : 1,
+          width: sendSize,
+        },
+      ]}
+      testID="assistant-attach"
+    >
+      <Plus
+        color={menuOpen ? theme.colors.gray0 : theme.colors.gray900}
+        height={glyphSize}
+        strokeWidth={GLYPH_STROKE}
+        width={glyphSize}
+      />
+    </Pressable>
+  ) : null;
+
   return (
+    <View>
+    {menuOpen && onAttachPhoto ? (
+      <AssistantPhotoMenu
+        onSelect={(source) => {
+          setMenuOpen(false);
+          onAttachPhoto(source);
+        }}
+      />
+    ) : null}
     <View
       style={[
         styles.shell,
@@ -62,6 +115,8 @@ export const AssistantComposer = forwardRef<TextInput, AssistantComposerProps>(f
       ]}
       testID="assistant-composer"
     >
+      {hasAttachment ? attachment : null}
+      {!expanded ? attachButton : null}
       <TextInput
         accessibilityLabel="Ask Ekalight"
         maxFontSizeMultiplier={MAX_FONT_SIZE_MULTIPLIER}
@@ -73,7 +128,7 @@ export const AssistantComposer = forwardRef<TextInput, AssistantComposerProps>(f
         }}
         onFocus={onFocus}
         // Figma 6607:11726 (owner, 2026-11-21).
-        placeholder="Chat with Ekalight"
+        placeholder={placeholder}
         placeholderTextColor={theme.colors.gray600}
         ref={ref}
         style={[
@@ -85,7 +140,8 @@ export const AssistantComposer = forwardRef<TextInput, AssistantComposerProps>(f
         testID="assistant-input"
         value={value}
       />
-      <View style={expanded ? styles.sendRow : null}>
+      <View style={expanded ? [styles.sendRow, attachButton ? styles.sendRowSplit : null] : null}>
+        {expanded ? attachButton : null}
         <Pressable
           accessibilityLabel={isSending ? 'Waiting for the answer' : 'Send question'}
           accessibilityRole="button"
@@ -116,6 +172,7 @@ export const AssistantComposer = forwardRef<TextInput, AssistantComposerProps>(f
           )}
         </Pressable>
       </View>
+    </View>
     </View>
   );
 });
@@ -160,6 +217,11 @@ const styles = StyleSheet.create({
   sendRow: {
     alignItems: 'flex-end',
     paddingVertical: FILLED_ROW_PADDING_VERTICAL,
+  },
+  sendRowSplit: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
   send: {
     alignItems: 'center',

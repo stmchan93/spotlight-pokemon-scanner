@@ -6,3 +6,4 @@ export * from './spotlight/meta-feed-wire';
 export * from './spotlight/spotlight-events';
 export * from './spotlight/assistant-wire';
 export * from './spotlight/assistant-mock-data';
+export * from './spotlight/vendor-wire';
