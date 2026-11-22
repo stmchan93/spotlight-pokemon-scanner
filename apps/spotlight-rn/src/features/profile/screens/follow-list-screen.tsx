@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { FlatList, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CheckCircle } from 'iconoir-react-native';
-
 import {
-  Avatar,
   PageTabs,
   type PageTab,
   StateCard,
@@ -21,10 +18,8 @@ import {
   fetchFollowing,
   fetchProfileById,
 } from '@/features/profile/profile-service';
-import {
-  getProfileDisplayName,
-  getProfileInitials,
-} from '@/features/profile/screens/public-profile-screen';
+import { ProfileListRow } from '@/features/profile/components/profile-list-row';
+import { getProfileDisplayName } from '@/features/profile/screens/public-profile-screen';
 
 /** Has the list loaded yet, and did it come back empty? */
 type ListStatus = 'loading' | 'ready' | 'empty';
@@ -146,53 +141,10 @@ export function FollowListScreen({
   ];
 
   const renderItem = useCallback(
-    ({ item }: { item: UserProfile }) => {
-      const displayName = getProfileDisplayName(item);
-      const handle = item.handle?.trim();
-      return (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => handlePressRow(item)}
-          style={({ pressed }) => [
-            styles.row,
-            { backgroundColor: theme.colors.gray0, paddingHorizontal: theme.layout.pageGutter },
-            pressed ? styles.rowPressed : null,
-          ]}
-          testID={`${testID}-row-${item.userID}`}
-        >
-          <Avatar
-            initials={getProfileInitials(item.displayName)}
-            size={40}
-            testID={`${testID}-row-${item.userID}-avatar`}
-            uri={item.avatarURL}
-          />
-          <View style={styles.rowCopy}>
-            <View style={styles.nameRow}>
-              <Text numberOfLines={1} style={[theme.typography.bodyMedium, styles.nameText]}>
-                {displayName}
-              </Text>
-              {item.isVerified ? (
-                <CheckCircle
-                  color={theme.colors.purple500}
-                  height={16}
-                  testID={`${testID}-row-${item.userID}-verified`}
-                  width={16}
-                />
-              ) : null}
-            </View>
-            {handle ? (
-              <Text
-                numberOfLines={1}
-                style={[theme.typography.overline, { color: theme.colors.gray600 }]}
-              >
-                {`@${handle}`.toUpperCase()}
-              </Text>
-            ) : null}
-          </View>
-        </Pressable>
-      );
-    },
-    [handlePressRow, testID, theme],
+    ({ item }: { item: UserProfile }) => (
+      <ProfileListRow onPress={handlePressRow} profile={item} testID={`${testID}-row-${item.userID}`} />
+    ),
+    [handlePressRow, testID],
   );
 
   const listEmpty = (
@@ -268,30 +220,8 @@ const styles = StyleSheet.create({
   header: {
     marginBottom: 4,
   },
-  nameRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 4,
-  },
-  nameText: {
-    flexShrink: 1,
-  },
-  row: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-    paddingVertical: 10,
-  },
-  rowCopy: {
-    flex: 1,
-    gap: 4,
-    minWidth: 0,
-  },
   rowGap: {
     height: 4,
-  },
-  rowPressed: {
-    opacity: 0.6,
   },
   safeArea: {
     flex: 1,

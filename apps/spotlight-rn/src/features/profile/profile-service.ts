@@ -301,25 +301,56 @@ async function fetchFollowList(
     const ids = edges
       .map((row) => (row as Record<string, string>)[matchColumn])
       .filter((id): id is string => Boolean(id));
-    if (ids.length === 0) {
+    return await hydrateProfilesInOrder(ids);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Public profiles for `ids`, in the order given, through the moderation-filtered
+ * view (blocked/suspended users drop out). The `in` read comes back unordered.
+ */
+async function hydrateProfilesInOrder(ids: string[]): Promise<UserProfile[]> {
+  if (!supabase || ids.length === 0) {
+    return [];
+  }
+  const { data: rows, error } = await supabase
+    .from(PUBLIC_PROFILES_VIEW)
+    .select(publicProfileSelect)
+    .in('user_id', ids);
+  if (error || !rows) {
+    return [];
+  }
+  const byId = new Map(rows.map((row) => [(row as PublicProfileRow).user_id, row as PublicProfileRow]));
+  return ids
+    .map((id) => byId.get(id))
+    .filter((row): row is PublicProfileRow => Boolean(row))
+    .map(mapPublicProfile);
+}
+
+/** People who liked `postId`, most recent first ("Liked by"). [] on any failure. */
+export async function fetchPostLikers(postId: string, limit = 200): Promise<UserProfile[]> {
+  if (__DEV__ && devProfileOverrides) {
+    return devProfileOverrides.followers.slice(0, limit);
+  }
+  if (!supabase || !postId) {
+    return [];
+  }
+  try {
+    const { data, error } = await supabase
+      .from('post_likes')
+      .select('user_id')
+      .eq('post_id', postId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error || !data) {
       return [];
     }
-
-    const { data: rows, error: profileError } = await supabase
-      .from(PUBLIC_PROFILES_VIEW)
-      .select(publicProfileSelect)
-      .in('user_id', ids);
-    if (profileError || !rows) {
-      return [];
-    }
-
-    // Preserve the follow order (most-recent first); the `in` read comes back
-    // unordered.
-    const byId = new Map(rows.map((row) => [(row as PublicProfileRow).user_id, row as PublicProfileRow]));
-    return ids
-      .map((id) => byId.get(id))
-      .filter((row): row is PublicProfileRow => Boolean(row))
-      .map(mapPublicProfile);
+    const ids = (data as { user_id: string | null }[])
+      .map((row) => row.user_id)
+      .filter((id): id is string => Boolean(id));
+    return await hydrateProfilesInOrder(ids);
   } catch {
     return [];
   }
