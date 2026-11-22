@@ -4,7 +4,10 @@ import { InventoryCardTile, cardGrid } from '@spotlight/design-system';
 import type { InventoryCardEntry } from '@spotlight/api-client';
 
 import { getCardImageUrl } from '@/lib/card-images';
-import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import {
+  PRICE_UNAVAILABLE_CAPTION,
+  formatOptionalCurrency,
+} from '@/features/portfolio/components/portfolio-formatting';
 import {
   COLLECTION_TREND_ACCESS,
   SINCE_ADDED_SUFFIX,
@@ -225,6 +228,8 @@ function CollectionTileSlot({
       quantity={entry.quantity}
       showQuantity={showQuantity}
       priceLabel={entry.hasMarketPrice ? formatOptionalCurrency(entry.marketPrice, entry.currencyCode) : null}
+      // A withheld (stale / untrusted) price: the tile shows "—" and says why.
+      footnote={entry.priceStatus ? PRICE_UNAVAILABLE_CAPTION : null}
       // Numeric price feeds the tile's penny guard (sub-$1 → no trend line).
       marketPrice={entry.hasMarketPrice ? entry.marketPrice : null}
       // Arrow + "since added" percent under the price; no sparkline in card view.

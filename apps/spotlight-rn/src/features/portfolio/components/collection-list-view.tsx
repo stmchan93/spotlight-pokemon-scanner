@@ -2,6 +2,7 @@ import { CardListRow } from '@spotlight/design-system';
 import type { InventoryCardEntry } from '@spotlight/api-client';
 
 import { getCardImageUrl } from '@/lib/card-images';
+import { PRICE_UNAVAILABLE_CAPTION } from '@/features/portfolio/components/portfolio-formatting';
 import {
   COLLECTION_TREND_ACCESS,
   SINCE_ADDED_SUFFIX,
@@ -59,6 +60,8 @@ export function CollectionListRow({
       currencyCode={entry.currencyCode ?? 'USD'}
       delayLongPress={delayLongPress}
       firstInSection={firstInSection}
+      // A withheld (stale / untrusted) price: the row shows "—" and says why.
+      footnote={entry.priceStatus ? PRICE_UNAVAILABLE_CAPTION : null}
       gradeLabel={gradeLabelFor(entry)}
       // Slab-case frame on the thumbnail (Figma 2609:6812) — keyed by THIS
       // entry's grader; the text line above stays plain "PSA 10".

@@ -179,6 +179,7 @@ from market_movers import (
     market_movers_version_token,
 )
 import price_lows
+import price_quality
 from ebay_comps import (
     DEFAULT_RESULT_LIMIT as DEFAULT_EBAY_LISTING_LIMIT,
     MAX_RESULT_LIMIT as MAX_EBAY_LISTING_LIMIT,
@@ -2230,6 +2231,14 @@ PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS_ENV = "PORTFOLIO_DASHBOARD_PREWARM_MAX_OW
 # price sync paid a full cold compute anyway (~20s, user 2026-09-11), with the
 # prewarm's own "warmed 5 of 5" line reporting success the whole time.
 CLIENT_INVENTORY_PAGE_SIZE = 1000
+# Folded into the dashboard/deck-entries cache version token: bump when cached
+# payloads change meaning with no input change (1 = stale/untrusted withheld).
+PRICE_QUALITY_PAYLOAD_EPOCH = 1
+
+
+def _price_quality_cutoff() -> str:
+    """price_quality's stale cutoff on THIS module's clock (tests freeze it)."""
+    return price_quality.stale_cutoff(datetime.now(timezone.utc).date())
 # card_favorites_request `source` -> deck_entries_request-style `outcome`.
 _CARD_FAVORITES_SOURCE_OUTCOMES = {"memory": "hit", "disk": "restored", "computed": "miss"}
 PORTFOLIO_DASHBOARD_PREWARM_DELAY_ENV = "PORTFOLIO_DASHBOARD_PREWARM_DELAY_SECONDS"
@@ -6352,6 +6361,32 @@ class SpotlightScanService:
         if backend_timings:
             response["performance"]["backendTimings"] = backend_timings
 
+    def _price_quality_facts(self, card_ids: Iterable[Any]) -> dict[str, dict[str, Any]]:
+        """Batched price-quality facts (price_quality.load_price_quality) for a
+        list page: one statement per chunk of ids. Best-effort — a failed read
+        withholds nothing rather than failing the page."""
+        try:
+            return price_quality.load_price_quality(self.connection, list(card_ids))
+        except sqlite3.Error:
+            traceback.print_exc()
+            return {}
+
+    @staticmethod
+    def _quality_checked_pricing(
+        pricing: dict[str, Any] | None,
+        facts: dict[str, Any] | None,
+        *,
+        graded: bool,
+        cutoff: str | None = None,
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """(pricing to serve, withheld status): a stale or untrusted price comes
+        back with its price fields nulled and ``priceStatus``/``priceAsOf`` set,
+        so totals skip it like any unpriced holding."""
+        served, verdict = price_quality.apply_price_quality(
+            pricing, facts, graded=graded, cutoff=cutoff or _price_quality_cutoff()
+        )
+        return served, (verdict or {}).get("status")
+
     def _display_pricing_summary_for_card(
         self,
         card_id: str,
@@ -7281,6 +7316,82 @@ class SpotlightScanService:
             if isinstance(value, (int, float)):
                 return float(value)
         return None
+
+    def _portfolio_withheld_holdings(self, snapshots: Iterable[dict[str, Any]]) -> dict[str, str]:
+        """deck_entry_id -> "stale" | "untrusted" for HELD entries whose current
+        price the Collection row withholds (price_quality). Resolved exactly as
+        `_compute_deck_entries_for_owner` prices its rows, batched: snapshot rows,
+        latest-day cells, printing cells and quality facts are one read each.
+
+        The chart leaves these holdings out of EVERY day, not just the days after
+        the price went bad: the headline is the newest point, so dropping a card
+        only from some date on draws a cliff (and a range delta) for a change in
+        what we can price, not in what the card is worth. Untrusted prices are bad
+        data on every day anyway. Best-effort: a failure withholds nothing."""
+        held = [
+            snapshot
+            for snapshot in snapshots
+            if max(0, int(snapshot.get("quantity") or 0)) > 0
+            and str(snapshot.get("cardID") or "").strip()
+            and str(snapshot.get("deckEntryID") or "").strip()
+        ]
+        if not held:
+            return {}
+        try:
+            card_ids = list(dict.fromkeys(str(snapshot["cardID"]).strip() for snapshot in held))
+            facts = self._price_quality_facts(card_ids)
+            snapshot_rows = self._price_snapshot_rows_by_card_id(card_ids)
+            day_cells = self._latest_day_cells_by_card_id(card_ids)
+            printing_cells = self._printing_cells_for_copies(
+                [
+                    (snapshot["cardID"], snapshot.get("variantName"))
+                    for snapshot in held
+                    if not (snapshot.get("grader") or snapshot.get("grade"))
+                ],
+                snapshot_rows,
+            )
+            cutoff = _price_quality_cutoff()
+            withheld: dict[str, str] = {}
+            for snapshot in held:
+                card_id = str(snapshot["cardID"]).strip()
+                is_graded = bool(snapshot.get("grader") or snapshot.get("grade"))
+                pricing_context = (
+                    self._slab_pricing_context(
+                        grader=snapshot.get("grader"),
+                        grade=snapshot.get("grade"),
+                        cert_number=snapshot.get("certNumber"),
+                        preferred_variant=snapshot.get("variantName"),
+                    )
+                    if is_graded
+                    else self._raw_pricing_context(
+                        preferred_variant=snapshot.get("variantName"),
+                        preferred_condition=self._normalized_deck_card_condition(snapshot.get("condition")),
+                    )
+                )
+                pricing = self._display_pricing_summary_for_context(
+                    card_id,
+                    pricing_context=pricing_context,
+                    snapshot_row=snapshot_rows.get(card_id),
+                    day_cells=day_cells.get(card_id),
+                    printing_cells=printing_cells,
+                )
+                _, status = self._quality_checked_pricing(
+                    pricing, facts.get(card_id), graded=is_graded, cutoff=cutoff
+                )
+                if status is not None:
+                    withheld[str(snapshot["deckEntryID"]).strip()] = status
+            return withheld
+        except Exception:  # noqa: BLE001 - the chart must not fail on a quality read
+            traceback.print_exc()
+            return {}
+
+    @staticmethod
+    def _withheld_coverage_counts(withheld: dict[str, str]) -> dict[str, int]:
+        statuses = list(withheld.values())
+        return {
+            "stalePriceCount": statuses.count(price_quality.STATUS_STALE),
+            "untrustedPriceCount": statuses.count(price_quality.STATUS_UNTRUSTED),
+        }
 
     @staticmethod
     def _portfolio_condition_code(condition: str | None) -> str | None:
@@ -9730,6 +9841,7 @@ class SpotlightScanService:
                 "coverage": {
                     "pricedCardCount": 0,
                     "excludedCardCount": 0,
+                    **self._withheld_coverage_counts({}),
                 },
                 "points": [],
                 "isFresh": self._scrydex_full_catalog_sync_is_fresh(),
@@ -9942,10 +10054,15 @@ class SpotlightScanService:
         # price is the known far end of its gap, so an earlier price bridges
         # the gap; with no earlier price it backfills up to the cap.
         newest_index = len(day_dates) - 1
+        # Held entries whose current price is stale/untrusted sit out of every
+        # day (see _portfolio_withheld_holdings), and are never priced live.
+        withheld_entries = self._portfolio_withheld_holdings(snapshot_by_id.values())
         live_attempted: set[tuple[str, str, str, str, str, str]] = set()
         live_by_context: dict[tuple[str, str, str, str, str, str], float] = {}
         for snapshot in snapshot_by_id.values():
             if newest_index < 0 or max(0, int(snapshot.get("quantity") or 0)) <= 0:
+                continue
+            if snapshot.get("deckEntryID") in withheld_entries:
                 continue
             context_key = self._portfolio_history_context_key(
                 snapshot,
@@ -10059,6 +10176,8 @@ class SpotlightScanService:
                 if quantity <= 0:
                     continue
                 day_cost_basis_total += float(state.get("cost_basis_total") or 0.0)
+                if deck_entry_id in withheld_entries:
+                    continue
                 snapshot = state.get("snapshot") or {}
                 condition_code = self._portfolio_condition_code(state.get("condition"))
                 context_entry = {
@@ -10178,6 +10297,8 @@ class SpotlightScanService:
             "coverage": {
                 "pricedCardCount": last_day_priced,
                 "excludedCardCount": last_day_unpriced,
+                # Held cards left out of every point: stale / untrusted price.
+                **self._withheld_coverage_counts(withheld_entries),
             },
             "points": points,
             "isFresh": self._scrydex_full_catalog_sync_is_fresh(),
@@ -18640,6 +18761,14 @@ class SpotlightScanService:
             snapshot_row=snapshot_row,
             day_cells=day_cells,
         )
+        # Same withholding as the Collection rows: the PDP never headlines a
+        # stale or untrusted price (priceStatus tells the page why).
+        if pricing is not None:
+            pricing, _ = self._quality_checked_pricing(
+                pricing,
+                self._price_quality_facts([card_id]).get(card_id),
+                graded=pricing_context.is_graded,
+            )
         favorite_rows = self._favorite_rows_for_card(card_id, owner_user_id=owner_user_id)
         favorite_row = favorite_rows[0] if favorite_rows else None
         watched_keys = [str(row["variant_key"] or "") for row in favorite_rows]
@@ -21522,6 +21651,8 @@ class SpotlightScanService:
             if inventory_card_ids
             else {}
         )
+        quality_facts = self._price_quality_facts(inventory_card_ids) if inventory_card_ids else {}
+        quality_cutoff = _price_quality_cutoff()
 
         for row in inventory_rows:
             quantity = max(0, int(row["quantity"] or 0))
@@ -21532,12 +21663,20 @@ class SpotlightScanService:
             # Resolve a per-unit market price (cents) from the snapshot row.
             snapshot = price_snapshot_rows.get(card_id) if card_id else None
             market_price_dollars: float | None = None
+            # The served lane, for the price-quality check below.
+            served_pricing: dict[str, Any] | None = None
             if snapshot is not None:
                 # Main lane first (flag + freshness checked inside), matching the
                 # headline the rest of the app serves for the default raw read.
                 main_summary = resolve_main_raw_summary_from_row(snapshot)
                 if main_summary is not None and main_summary["market"] > 0:
                     market_price_dollars = main_summary["market"]
+                    served_pricing = {
+                        "market": market_price_dollars,
+                        "variant": main_summary.get("variant"),
+                        "mainPriceSource": RAW_MAIN_PRICE_SOURCE_TCGCSV,
+                        "refreshedAt": _cell_field(snapshot, "main_raw_updated_at"),
+                    }
             if snapshot is not None and market_price_dollars is None:
                 for key in (
                     "default_raw_market_price",
@@ -21551,7 +21690,21 @@ class SpotlightScanService:
                         value = None
                     if isinstance(value, (int, float)) and value > 0:
                         market_price_dollars = float(value)
+                        served_pricing = {
+                            "market": market_price_dollars,
+                            "variant": _cell_field(snapshot, "default_raw_variant"),
+                            "refreshedAt": _cell_field(snapshot, "updated_at"),
+                        }
                         break
+            # A stale / untrusted price adds no unrealized gain (price_quality).
+            if served_pricing is not None and price_quality.assess_price(
+                served_pricing,
+                market_price_dollars,
+                quality_facts.get(card_id),
+                graded=False,
+                cutoff=quality_cutoff,
+            ):
+                market_price_dollars = None
 
             cost_basis_per_unit_cents: int | None = None
             if has_columns and row["cost_basis_cents"] is not None:
@@ -22640,6 +22793,10 @@ class SpotlightScanService:
         except sqlite3.Error:
             generation = "0"
         parts.append(f"psg:{generation}")
+        # Payload-shape epoch: bumped when the computed payload changes meaning
+        # without any input moving (pq1 = stale/untrusted prices withheld), so a
+        # disk-mirrored pre-change payload is never served after a deploy.
+        parts.append(f"pq:{PRICE_QUALITY_PAYLOAD_EPOCH}")
         return "|".join(parts)
 
     def _dashboard_cache_lock_for(self, cache_key: tuple[str, str, str]) -> "threading.Lock":
@@ -24171,6 +24328,10 @@ class SpotlightScanService:
             deck_card_ids,
             owner_user_id=owner_user_id,
         )
+        # Stale / untrusted prices are withheld (price_quality): one batched read.
+        quality_facts = self._price_quality_facts(deck_card_ids)
+        quality_cutoff = _price_quality_cutoff()
+        withheld_counts = {price_quality.STATUS_STALE: 0, price_quality.STATUS_UNTRUSTED: 0}
         # Day change is filled after the loop in bulk (yesterday's rows + only
         # the cells the main lane can't price), never a per-row cell query.
         # Skipped entirely when the caller only needs the summary.
@@ -24221,6 +24382,14 @@ class SpotlightScanService:
                 day_cells=latest_day_cells_by_card_id.get(card_id),
                 printing_cells=printing_cells,
             )
+            pricing, price_status = self._quality_checked_pricing(
+                pricing,
+                quality_facts.get(card_id),
+                graded=bool(grader or grade),
+                cutoff=quality_cutoff,
+            )
+            if price_status is not None and quantity > 0:
+                withheld_counts[price_status] += 1
             entry_printing_points = (
                 printing_points.get((card_id, variant_name))
                 if variant_name and not (grader or grade)
@@ -24278,7 +24447,12 @@ class SpotlightScanService:
                 )
             )
 
-            if include_series and len(spark_requests) < SINCE_ADDED_SPARK_MAX_CONTEXTS:
+            # A withheld price draws no trend line either.
+            if (
+                include_series
+                and price_status is None
+                and len(spark_requests) < SINCE_ADDED_SPARK_MAX_CONTEXTS
+            ):
                 is_graded_entry = bool(grader or grade)
                 # Same variant carry-forward as day-change: price the history
                 # window for the printing today's price resolved to.
@@ -24394,6 +24568,11 @@ class SpotlightScanService:
                 "slabCount": slab_count,
                 "totalValue": round(total_value, 2),
                 "totalCostBasis": round(total_cost_basis, 2),
+                # Holdings left out of totalValue because their price is stale
+                # (no observation in price_quality.PRICE_STALE_DAYS) or untrusted
+                # (raw above the card's own PSA 10). Counted apart from unpriced.
+                "stalePriceCount": withheld_counts[price_quality.STATUS_STALE],
+                "untrustedPriceCount": withheld_counts[price_quality.STATUS_UNTRUSTED],
             },
             "limit": safe_limit,
             "offset": safe_offset,
@@ -25010,6 +25189,9 @@ class SpotlightScanService:
             if printing_cells
             else {}
         )
+        # Stale / untrusted prices are withheld, as on the Collection rows.
+        quality_facts = self._price_quality_facts(card_ids)
+        quality_cutoff = _price_quality_cutoff()
 
         provider = pricing_provider()
         result_rows: list[dict[str, Any]] = []
@@ -25100,6 +25282,12 @@ class SpotlightScanService:
                 day_cells=latest_day_cells_by_card_id.get(card_id),
                 printing_cells=printing_cells,
             )
+            pricing, price_status = self._quality_checked_pricing(
+                pricing,
+                quality_facts.get(card_id),
+                graded=is_graded,
+                cutoff=quality_cutoff,
+            )
             current_price = self._primary_price_value(pricing)
             if isinstance(pricing, dict):
                 currency_code = str(pricing.get("currencyCode") or currency_code)
@@ -25152,7 +25340,7 @@ class SpotlightScanService:
                     continue
                 year_series.append(float(value))
 
-            if year_series:
+            if year_series and price_status is None:
                 jan1_price = round(year_series[0], 2)
                 sparkline = self._downsample_sparkline(year_series)
             else:
@@ -25242,6 +25430,9 @@ class SpotlightScanService:
                     "monthGainPercent": month_gain_percent,
                     "isFavorite": card_id in favorite_card_ids,
                     "sparkline": sparkline,
+                    # "stale" | "untrusted" when currentPrice is withheld.
+                    "priceStatus": price_status,
+                    "priceAsOf": (pricing or {}).get("priceAsOf") if price_status else None,
                 }
             )
 
@@ -25462,6 +25653,9 @@ class SpotlightScanService:
         printing_images_by_key = printing_images.printing_images_for(
             self.connection, [(row["card_id"], _art_variant(row)) for row in rows]
         )
+        # Stale / untrusted prices are withheld (price_quality): one batched read.
+        quality_facts = self._price_quality_facts(card_ids_in_order)
+        quality_cutoff = _price_quality_cutoff()
 
         entries: list[dict[str, Any]] = []
         # Day change is resolved after the loop, in bulk: (entry, kwargs) pairs.
@@ -25531,6 +25725,16 @@ class SpotlightScanService:
                 pricing, preferred_variant=variant_name, preferred_condition=None
             ):
                 pricing = None  # never another printing's price
+            price_status: str | None = None
+            if printing_cell is None:
+                # Same withholding as the Collection row (a printing watch's own
+                # TCGplayer cell is judged by its own day, not here).
+                pricing, price_status = self._quality_checked_pricing(
+                    pricing,
+                    quality_facts.get(card_id),
+                    graded=pricing_context.is_graded,
+                    cutoff=quality_cutoff,
+                )
             card_payload = self._candidate_base_payload(card, card)
             if pricing is not None:
                 card_payload["pricing"] = pricing
@@ -25588,7 +25792,7 @@ class SpotlightScanService:
 
             if printing_points:
                 printing_series[entry_key] = printing_points
-            elif len(spark_requests) < SINCE_ADDED_SPARK_MAX_CONTEXTS:
+            elif price_status is None and len(spark_requests) < SINCE_ADDED_SPARK_MAX_CONTEXTS:
                 is_graded_entry = bool(grader or grade)
                 today_variant = (
                     str(pricing.get("variant") or "").strip() or None

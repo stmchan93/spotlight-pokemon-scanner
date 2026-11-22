@@ -25,6 +25,7 @@ if str(TESTS_ROOT) not in sys.path:
     sys.path.insert(0, str(TESTS_ROOT))
 
 from catalog_tools import upsert_deck_entry  # noqa: E402
+import price_quality  # noqa: E402
 import server  # noqa: E402
 from test_card_favorites_read_shape import HISTORY_TABLES, _Base, _day  # noqa: E402
 
@@ -76,6 +77,8 @@ class DeckEntriesReadShapeTests(_Base):
         for sql in large:
             # No single-card history lookups (the old per-row day-change reads).
             self.assertNotRegex(sql, r"\bcard_id = '", sql)
+            if price_quality.QUERY_MARKER in sql:
+                continue  # the batched price-quality facts read: newest day per lane, not a series
             # Multi-day cell reads (the history series) are on the lane each row
             # resolves on, never all lanes. The one-day current-price prefetch
             # is not a series read.

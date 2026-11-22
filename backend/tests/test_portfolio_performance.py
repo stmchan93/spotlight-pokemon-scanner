@@ -60,6 +60,13 @@ class PortfolioPerformanceTests(unittest.TestCase):
             high_price=131.0,
             payload={"provider": "scrydex", "variantKey": "holofoil"},
         )
+        # Today's row: the raw lane is still being observed, so its price is
+        # current (a raw price last observed at `mid` would be withheld as stale).
+        # Dated on the UTC day the tracker calls "today", so it is never
+        # "yesterday's" point.
+        utc_today = datetime.now(timezone.utc).date()
+        if self.mid < utc_today:
+            self._seed_raw_history("base1-4", utc_today, 130.0)
         self._seed_raw_history("base1-4", self.mid, 110.0)
         # jan1 written LAST so it wins if mid==jan1 (run-on-Jan-1 safety).
         self._seed_raw_history("base1-4", self.jan1, 100.0)
