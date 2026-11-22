@@ -1,5 +1,5 @@
 import { ArrowUp, Plus } from 'iconoir-react-native';
-import { forwardRef, useState, type ReactNode } from 'react';
+import { forwardRef, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { MAX_FONT_SIZE_MULTIPLIER, radii, spacing, textStyles, useSpotlightTheme } from '@spotlight/design-system';
@@ -59,10 +59,20 @@ export const AssistantComposer = forwardRef<TextInput, AssistantComposerProps>(f
 ) {
   const theme = useSpotlightTheme();
   const hasText = value.length > 0;
-  // Grows to the stacked layout only when the text wraps past one line.
-  const [wraps, setWraps] = useState(false);
+  // Text length at which the one-row layout was seen wrapping. Wrapping is only
+  // measured in the row (the stacked field is wider, so its content height
+  // can't say whether the row would wrap); the stacked layout then holds until
+  // the text gets shorter than that. Re-measuring in the stacked layout made a
+  // text that wraps narrow but fits wide flip row<->stacked every frame
+  // (owner, 2026-11-22: pasting flickers the screen).
+  const [wrapLength, setWrapLength] = useState<number | null>(null);
+  const latestText = useRef(value);
+  latestText.current = value;
   const [menuOpen, setMenuOpen] = useState(false);
   const hasAttachment = attachment != null && attachment !== false;
+  // A line break always wraps: a pasted multi-paragraph text goes straight to
+  // the stacked layout in the same render, with no tall one-row frame first.
+  const wraps = value.includes('\n') || (wrapLength !== null && value.length >= wrapLength);
   const expanded = (hasText && wraps) || hasAttachment;
   const canSend = value.trim().length > 0 && !isSending && !sendBlocked;
   const sendSize = hasText ? FILLED_SEND_SIZE : EMPTY_SEND_SIZE;
@@ -122,9 +132,16 @@ export const AssistantComposer = forwardRef<TextInput, AssistantComposerProps>(f
         maxFontSizeMultiplier={MAX_FONT_SIZE_MULTIPLIER}
         maxLength={maxLength}
         multiline
-        onChangeText={onChangeText}
+        onChangeText={(text) => {
+          latestText.current = text;
+          onChangeText(text);
+        }}
         onContentSizeChange={(event) => {
-          setWraps(event.nativeEvent.contentSize.height > LINE_HEIGHT * 1.5);
+          if (expanded) {
+            return;
+          }
+          const rowWraps = event.nativeEvent.contentSize.height > LINE_HEIGHT * 1.5;
+          setWrapLength(rowWraps ? latestText.current.length : null);
         }}
         onFocus={onFocus}
         // Figma 6607:11726 (owner, 2026-11-21).
@@ -206,6 +223,8 @@ const styles = StyleSheet.create({
   },
   inputEmpty: {
     flex: 1,
+    // One line only: text that wraps moves to the stacked layout instead.
+    maxHeight: LINE_HEIGHT,
     // Android RN 0.8x can collapse an empty multiline input to zero height.
     minHeight: LINE_HEIGHT,
   },
