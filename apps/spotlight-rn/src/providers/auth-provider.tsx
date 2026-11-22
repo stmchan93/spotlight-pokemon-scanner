@@ -33,6 +33,7 @@ import {
   linkOAuthIdentityToCurrentUser,
   resendSignupCode,
   resolveAppUserFromSession,
+  resolveEmailAuthMethod,
   restoreSessionFromUrl,
   sendPasswordReset,
   signInAnonymously,
@@ -47,8 +48,10 @@ import {
   verifyAnonymousEmailConversion,
   verifyRecoveryCode,
   verifySignupCode,
+  type EmailAuthMethod,
 } from '@/features/auth/auth-service';
 import {
+  APPLE_SIGN_IN_NOT_SET_UP_MESSAGE,
   PENDING_GUEST_USER_ID,
   applyProfileToAppUser,
   getResolvedDisplayName,
@@ -66,6 +69,12 @@ import { supabase } from '@/lib/supabase';
 
 type EmailAuthActions = {
   checkEmail: (email: string) => Promise<boolean>;
+  /**
+   * Email-first routing: how this address signs in. Resolves null (never
+   * throws, never sets errorMessage) when the lookup fails, so the caller can
+   * fall back to the password step.
+   */
+  resolveEmailMethod: (email: string) => Promise<EmailAuthMethod | null>;
   signUpEmail: (input: { email: string; password: string; fullName: string }) => Promise<{ needsCode: boolean }>;
   signInEmail: (input: { email: string; password: string }) => Promise<void>;
   /**
@@ -160,7 +169,7 @@ type AuthContextValue = EmailAuthActions & {
   updateProfile: (patch: ProfileUpdate) => Promise<void>;
 };
 
-export type { EmailAuthActions };
+export type { EmailAuthActions, EmailAuthMethod };
 
 const testUser: AppUser = {
   adminEnabled: false,
@@ -288,6 +297,12 @@ function isTransportError(error: Error): boolean {
 // Apple's native sheet failed on-device (no request ever reached Supabase in
 // the Oct 2026 failures), so retrying Apple rarely helps — point at the others.
 const APPLE_SIGN_IN_FAILED_MESSAGE = "Apple sign-in didn't work on this device. Try Google or email instead.";
+
+function appleSignInFailureMessage(error: unknown) {
+  return authErrorCode(error) === 'ERR_REQUEST_UNKNOWN'
+    ? APPLE_SIGN_IN_NOT_SET_UP_MESSAGE
+    : APPLE_SIGN_IN_FAILED_MESSAGE;
+}
 
 function errorMessageFromUnknown(error: unknown) {
   if (error instanceof AuthCanceledError || isAuthCanceledError(error)) {
@@ -1001,6 +1016,20 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setProfileDraftName,
     clearError,
     checkEmail: (email: string) => runWithBusy(() => checkEmailExists(email)),
+    resolveEmailMethod: async (email: string) => {
+      setIsBusy(true);
+      setErrorMessage(null);
+      let method: EmailAuthMethod | null = null;
+      try {
+        method = await resolveEmailAuthMethod(email);
+      } catch {
+        method = null;
+      } finally {
+        setIsBusy(false);
+      }
+      capturePostHogEvent('auth_email_method_resolved', { method: method ?? 'unavailable' });
+      return method;
+    },
     signUpEmail: ({ email, password, fullName }) => runWithBusy(async () => {
       // A guest who signs up must KEEP the uuid they already own: the backend's
       // `owner_user_id` IS this uuid, so `signUp()` here would strand every scan
@@ -1097,7 +1126,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
           if (error instanceof AuthCanceledError || isAuthCanceledError(error) || (error instanceof Error && isTransportError(error))) {
             throw error;
           }
-          throw new Error(APPLE_SIGN_IN_FAILED_MESSAGE);
+          throw new Error(appleSignInFailureMessage(error));
         }
         if (session) {
           await updateFromSession(session);

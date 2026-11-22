@@ -964,6 +964,30 @@ export async function checkEmailExists(email: string): Promise<boolean> {
   return data === true;
 }
 
+export type EmailAuthMethod = 'none' | 'password' | 'google' | 'apple' | 'oauth';
+
+const EMAIL_AUTH_METHODS: readonly EmailAuthMethod[] = ['none', 'password', 'google', 'apple', 'oauth'];
+
+/**
+ * How an address signs in, from the `email_auth_method` RPC. Throws on RPC
+ * failure or an unrecognized value; the caller falls back to the password step.
+ */
+export async function resolveEmailAuthMethod(email: string): Promise<EmailAuthMethod> {
+  if (!supabase) {
+    throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
+  }
+
+  const { data, error } = await supabase.rpc('email_auth_method', { p_email: email.trim() });
+  if (error) {
+    throw error;
+  }
+  if (typeof data !== 'string' || !EMAIL_AUTH_METHODS.includes(data as EmailAuthMethod)) {
+    throw new Error(`Unexpected email_auth_method result: ${String(data)}`);
+  }
+
+  return data as EmailAuthMethod;
+}
+
 /**
  * Creates a BRAND NEW auth user. Correct for a signed-out visitor.
  *
@@ -1009,6 +1033,8 @@ export async function signUpWithEmail({
   };
 }
 
+export const INCORRECT_CREDENTIALS_MESSAGE = 'Email or password is incorrect.';
+
 // Supabase returns ONE generic "invalid credentials" error for a non-existent
 // email, a deleted account (we hard-delete the auth user on account deletion —
 // see backend `_delete_supabase_auth_user`), AND a wrong password; it doesn't
@@ -1046,17 +1072,14 @@ export async function signInWithEmailPassword({
   });
 
   if (error) {
-    // Supabase can't tell "no such account" from "wrong password". When it
-    // rejects the credentials, ask the `email_exists` RPC whether the account is
-    // actually there — only claim it's missing when it truly is, so a mistyped
-    // password on a real account still shows the generic credentials error. If
-    // the existence check itself fails, assume the account exists (never falsely
-    // tell a real user their account is gone).
+    // The email-first step already routed the address here, so a rejection is
+    // almost always the password. Keep name/code so analytics stay comparable.
     if (isInvalidCredentialsError(error)) {
-      const accountExists = await checkEmailExists(email).catch(() => true);
-      if (!accountExists) {
-        throw new Error('This account does not exist.');
-      }
+      throw Object.assign(new Error(INCORRECT_CREDENTIALS_MESSAGE), {
+        name: error.name,
+        code: (error as { code?: unknown }).code,
+        status: (error as { status?: unknown }).status,
+      });
     }
     throw error;
   }

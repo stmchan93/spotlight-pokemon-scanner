@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SpotlightThemeProvider } from '@spotlight/design-system';
 
+import { APPLE_SIGN_IN_NOT_SET_UP_MESSAGE } from '@/features/auth/auth-models';
 import { LoginScreen } from '@/features/auth/components/login-screen';
 
 const safeAreaMetrics = {
@@ -20,12 +21,8 @@ function renderScreen(overrides: Partial<React.ComponentProps<typeof LoginScreen
     isBusy: false,
     onApple: jest.fn(),
     onChangeEmail: jest.fn(),
-    onChangePassword: jest.fn(),
     onContinue: jest.fn(),
-    onForgotPassword: jest.fn(),
     onGoogle: jest.fn(),
-    onSignUp: jest.fn(),
-    password: '',
     ...overrides,
   };
 
@@ -40,51 +37,44 @@ function renderScreen(overrides: Partial<React.ComponentProps<typeof LoginScreen
   return props;
 }
 
-describe('LoginScreen (Figma 2161:6847)', () => {
-  it('renders the EKALIGHT header, fields, social actions, and the Sign Up cross-link', () => {
+describe('LoginScreen (email-first root)', () => {
+  it('renders the heading, email field, and social actions with no Log In / Sign Up split', () => {
     renderScreen();
 
     expect(screen.getByTestId('auth-login-screen')).toBeTruthy();
     expect(screen.getByTestId('auth-header-wordmark')).toBeTruthy();
-    expect(screen.getByText('LOG IN')).toBeTruthy();
+    expect(screen.getByText('Welcome to Ekalight')).toBeTruthy();
+    expect(screen.getByText('Log in or create an account')).toBeTruthy();
     expect(screen.getByTestId('auth-email-input')).toBeTruthy();
-    expect(screen.getByTestId('auth-password-input')).toBeTruthy();
-    expect(screen.getByText('Forgot password?')).toBeTruthy();
+    expect(screen.queryByTestId('auth-password-input')).toBeNull();
+    expect(screen.queryByText('Sign Up')).toBeNull();
     expect(screen.getByText('OR')).toBeTruthy();
     expect(screen.getByText('Continue with Google')).toBeTruthy();
     expect(screen.getByText('Continue with Apple')).toBeTruthy();
-    expect(screen.getByText('NEW ACCOUNT')).toBeTruthy();
-    expect(screen.getByText('Sign Up')).toBeTruthy();
-    // Terms footer per design.
     expect(screen.getByText(/Terms of Use/)).toBeTruthy();
   });
 
-  it('keeps Continue disabled until email is valid AND a password is entered', () => {
-    let props = renderScreen({ email: 'not-an-email', password: 'secret123' });
-    fireEvent.press(screen.getByTestId('auth-login-continue'));
-    expect(props.onContinue).not.toHaveBeenCalled();
-
-    props = renderScreen({ email: 'collector@example.com', password: '' });
-    fireEvent.press(screen.getByTestId('auth-login-continue'));
-    expect(props.onContinue).not.toHaveBeenCalled();
-
-    props = renderScreen({ email: 'collector@example.com', password: 'secret123', isBusy: true });
-    fireEvent.press(screen.getByTestId('auth-login-continue'));
-    expect(props.onContinue).not.toHaveBeenCalled();
+  it('marks the email field as the username for iOS password autofill', () => {
+    renderScreen();
+    expect(screen.getByTestId('auth-email-input').props.textContentType).toBe('username');
   });
 
-  it('calls onContinue with a valid email + password', () => {
-    const props = renderScreen({ email: 'collector@example.com', password: 'secret123' });
+  it('keeps Continue disabled until the email looks valid and the flow is idle', () => {
+    let props = renderScreen({ email: 'not-an-email' });
+    fireEvent.press(screen.getByTestId('auth-login-continue'));
+    expect(props.onContinue).not.toHaveBeenCalled();
+
+    props = renderScreen({ email: 'collector@example.com', isBusy: true });
+    fireEvent.press(screen.getByTestId('auth-login-continue'));
+    expect(props.onContinue).not.toHaveBeenCalled();
+
+    props = renderScreen({ email: 'collector@example.com' });
     fireEvent.press(screen.getByTestId('auth-login-continue'));
     expect(props.onContinue).toHaveBeenCalledTimes(1);
   });
 
-  it('routes Forgot password?, Sign Up, and the social buttons', () => {
+  it('routes the social buttons', () => {
     const props = renderScreen();
-    fireEvent.press(screen.getByTestId('auth-forgot-password'));
-    expect(props.onForgotPassword).toHaveBeenCalledTimes(1);
-    fireEvent.press(screen.getByTestId('auth-login-signup'));
-    expect(props.onSignUp).toHaveBeenCalledTimes(1);
     fireEvent.press(screen.getByTestId('auth-google-button'));
     expect(props.onGoogle).toHaveBeenCalledTimes(1);
     fireEvent.press(screen.getByTestId('auth-apple-button'));
@@ -103,17 +93,17 @@ describe('LoginScreen (Figma 2161:6847)', () => {
     }
   });
 
-  it('forwards typing to onChangeEmail and onChangePassword', () => {
-    const props = renderScreen();
-    fireEvent.changeText(screen.getByTestId('auth-email-input'), 'a@b.com');
-    expect(props.onChangeEmail).toHaveBeenCalledWith('a@b.com');
-    fireEvent.changeText(screen.getByTestId('auth-password-input'), 'hunter2!');
-    expect(props.onChangePassword).toHaveBeenCalledWith('hunter2!');
-  });
-
   it('shows the configuration issue and error lines when provided', () => {
     renderScreen({ configurationIssue: 'Auth not configured', errorMessage: 'Network down' });
     expect(screen.getByText('Auth not configured')).toBeTruthy();
     expect(screen.getByText('Network down')).toBeTruthy();
+    expect(screen.queryByTestId('auth-apple-recovery-google')).toBeNull();
+  });
+
+  it('promotes Continue with Google right under the Apple-not-set-up error', () => {
+    const props = renderScreen({ errorMessage: APPLE_SIGN_IN_NOT_SET_UP_MESSAGE });
+    expect(screen.getByText(APPLE_SIGN_IN_NOT_SET_UP_MESSAGE)).toBeTruthy();
+    fireEvent.press(screen.getByTestId('auth-apple-recovery-google'));
+    expect(props.onGoogle).toHaveBeenCalledTimes(1);
   });
 });

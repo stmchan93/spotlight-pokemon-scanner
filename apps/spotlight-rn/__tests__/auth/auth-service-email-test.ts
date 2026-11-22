@@ -231,55 +231,61 @@ describe('auth-service signInWithEmailPassword', () => {
     })).rejects.toThrow('Sign-in did not create a session.');
   });
 
-  it('maps invalid credentials to "This account does not exist" when the email has no account', async () => {
+  it('maps invalid credentials to "Email or password is incorrect." and keeps the code', async () => {
     const supabase = makeSupabaseMock();
     supabase.auth.signInWithPassword.mockResolvedValue({
       data: { session: null },
-      error: Object.assign(new Error('Invalid login credentials'), { code: 'invalid_credentials' }),
+      error: Object.assign(new Error('Invalid login credentials'), { code: 'invalid_credentials', status: 400 }),
     });
-    // email_exists RPC → false (deleted / never existed).
-    supabase.rpc.mockResolvedValue({ data: false, error: null });
 
     const { service } = await loadAuthService({ supabase });
 
-    await expect(service.signInWithEmailPassword({
-      email: 'ghost@example.com',
-      password: 'whatever12',
-    })).rejects.toThrow('This account does not exist.');
-    expect(supabase.rpc).toHaveBeenCalledWith('email_exists', { p_email: 'ghost@example.com' });
+    const failure = service.signInWithEmailPassword({
+      email: 'collector@example.com',
+      password: 'wrong',
+    });
+    await expect(failure).rejects.toThrow('Email or password is incorrect.');
+    await expect(failure).rejects.toMatchObject({ code: 'invalid_credentials', status: 400 });
+    // The email-first step already routed here; no second existence lookup.
+    expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
-  it('keeps the generic credentials error when the account exists (wrong password)', async () => {
+  it('passes other sign-in errors through unchanged', async () => {
     const supabase = makeSupabaseMock();
     supabase.auth.signInWithPassword.mockResolvedValue({
       data: { session: null },
-      error: Object.assign(new Error('Invalid login credentials'), { code: 'invalid_credentials' }),
+      error: Object.assign(new Error('Email not confirmed'), { code: 'email_not_confirmed' }),
     });
-    // email_exists RPC → true, so it's a real account with a bad password.
-    supabase.rpc.mockResolvedValue({ data: true, error: null });
 
     const { service } = await loadAuthService({ supabase });
 
     await expect(service.signInWithEmailPassword({
       email: 'collector@example.com',
-      password: 'wrong',
-    })).rejects.toThrow('Invalid login credentials');
+      password: 'hunter2hunter2',
+    })).rejects.toThrow('Email not confirmed');
   });
+});
 
-  it('falls back to the generic error if the existence check itself fails', async () => {
+describe('auth-service resolveEmailAuthMethod', () => {
+  it.each(['none', 'password', 'google', 'apple', 'oauth'])('returns %s from the RPC for the trimmed email', async (method) => {
     const supabase = makeSupabaseMock();
-    supabase.auth.signInWithPassword.mockResolvedValue({
-      data: { session: null },
-      error: Object.assign(new Error('Invalid login credentials'), { code: 'invalid_credentials' }),
-    });
-    supabase.rpc.mockResolvedValue({ data: null, error: new Error('rpc down') });
+    supabase.rpc.mockResolvedValue({ data: method, error: null });
 
     const { service } = await loadAuthService({ supabase });
 
-    await expect(service.signInWithEmailPassword({
-      email: 'collector@example.com',
-      password: 'wrong',
-    })).rejects.toThrow('Invalid login credentials');
+    await expect(service.resolveEmailAuthMethod('  ash@example.com ')).resolves.toBe(method);
+    expect(supabase.rpc).toHaveBeenCalledWith('email_auth_method', { p_email: 'ash@example.com' });
+  });
+
+  it('throws on an RPC error or an unknown value', async () => {
+    const supabase = makeSupabaseMock();
+    supabase.rpc.mockResolvedValueOnce({ data: null, error: new Error('function does not exist') });
+    supabase.rpc.mockResolvedValueOnce({ data: 'saml', error: null });
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.resolveEmailAuthMethod('ash@example.com')).rejects.toThrow('function does not exist');
+    await expect(service.resolveEmailAuthMethod('ash@example.com')).rejects.toThrow('Unexpected email_auth_method result');
   });
 });
 

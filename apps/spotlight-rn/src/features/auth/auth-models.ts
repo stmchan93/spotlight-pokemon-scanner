@@ -233,3 +233,11 @@ export function getUserInitials(user: AppUser) {
 
   return letters.join('');
 }
+
+/**
+ * Apple's sheet failed with ERR_REQUEST_UNKNOWN: the device's Apple ID setup is
+ * the problem (never reaches Supabase). Auth screens match on this exact string
+ * to promote Continue with Google right under the error.
+ */
+export const APPLE_SIGN_IN_NOT_SET_UP_MESSAGE =
+  "Apple sign-in isn't set up on this iPhone. Check Settings › your name, or continue with Google.";

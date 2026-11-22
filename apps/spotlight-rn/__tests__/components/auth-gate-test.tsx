@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -15,6 +15,7 @@ const safeAreaMetrics = {
 function buildEmailAuth() {
   return {
     checkEmail: jest.fn().mockResolvedValue(false),
+    resolveEmailMethod: jest.fn().mockResolvedValue('none'),
     signUpEmail: jest.fn().mockResolvedValue({ needsCode: true }),
     signInEmail: jest.fn().mockResolvedValue(undefined),
     verifyCode: jest.fn().mockResolvedValue(undefined),
@@ -71,24 +72,26 @@ describe('AuthGate', () => {
     jest.restoreAllMocks();
   });
 
-  it('starts the signed-out flow on the Log In screen with social + email auth', () => {
+  it('starts the signed-out flow on the email-first root with social + email auth', () => {
     const { onGoogleSignIn } = renderAuthGate();
 
-    // The root is the light-theme Log In screen (Figma 2161:6847) — email +
-    // password fields plus the social actions, no separate landing step.
+    // Email only on the root; the password lives on step 2.
     expect(screen.getByTestId('auth-login-screen')).toBeTruthy();
     expect(screen.getByTestId('auth-email-input')).toBeTruthy();
-    expect(screen.getByTestId('auth-password-input')).toBeTruthy();
+    expect(screen.queryByTestId('auth-password-input')).toBeNull();
 
     // Google is wired straight through to the provider action.
     fireEvent.press(screen.getByTestId('auth-google-button'));
     expect(onGoogleSignIn).toHaveBeenCalledTimes(1);
   });
 
-  it('opens the dedicated Sign Up screen from the NEW ACCOUNT button', () => {
+  it('routes a new email to the Sign Up step', async () => {
     renderAuthGate();
-    fireEvent.press(screen.getByTestId('auth-login-signup'));
-    expect(screen.getByTestId('auth-signup-screen')).toBeTruthy();
+    fireEvent.changeText(screen.getByTestId('auth-email-input'), 'new@example.com');
+    fireEvent.press(screen.getByTestId('auth-login-continue'));
+    await waitFor(() => {
+      expect(screen.getByTestId('auth-signup-screen')).toBeTruthy();
+    });
     expect(screen.getByTestId('auth-firstname-input')).toBeTruthy();
   });
 

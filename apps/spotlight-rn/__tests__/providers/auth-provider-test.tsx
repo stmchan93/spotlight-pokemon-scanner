@@ -97,6 +97,7 @@ describe('AuthProvider', () => {
         labelerEnabled: true,
         providers: ['google'],
       })),
+      resolveEmailAuthMethod: jest.fn(async (): Promise<string> => 'password'),
       restoreSessionFromUrl: jest.fn(async () => null),
       signInWithApple: jest.fn(async () => null),
       signInWithGoogle: jest.fn(async () => null),
@@ -158,6 +159,7 @@ describe('AuthProvider', () => {
 
       function Probe() {
         const auth = useAuth();
+        const [emailMethod, setEmailMethod] = React.useState('unset');
 
         return React.createElement(
           View,
@@ -204,6 +206,13 @@ describe('AuthProvider', () => {
             onPress: () => {
               void auth.ensureGuestSession();
               void auth.ensureGuestSession();
+            },
+          }),
+          React.createElement(Text, { testID: 'email-method' }, `method:${emailMethod}`),
+          React.createElement(Pressable, {
+            testID: 'resolve-email-method',
+            onPress: () => {
+              void auth.resolveEmailMethod('ash@example.com').then((method) => setEmailMethod(String(method)));
             },
           }),
           React.createElement(Pressable, { testID: 'sign-in-apple', onPress: () => { void auth.signInWithApple(); } }),
@@ -516,10 +525,40 @@ describe('AuthProvider', () => {
     expect(capturePostHogEvent).not.toHaveBeenCalledWith('auth_sign_in_failed', expect.anything());
   });
 
-  it('logs the Apple error code and points the user at another sign-in method', async () => {
+  it('ERR_REQUEST_UNKNOWN: says Apple is not set up on this iPhone and logs the code', async () => {
     // Apple's native sheet fails on-device with a coded error (never reaches Supabase).
-    const appleError = Object.assign(new Error('The operation couldn’t be completed. (AuthorizationError error 1000.)'), {
+    const appleError = Object.assign(new Error('The authorization attempt failed for an unknown reason'), {
       code: 'ERR_REQUEST_UNKNOWN',
+    });
+    const { capturePostHogEvent, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      nodeEnv: 'development',
+      authServiceOverrides: {
+        signInWithApple: jest.fn(async () => {
+          throw appleError;
+        }),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedOut')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('sign-in-apple'));
+
+    await waitFor(() => {
+      expect(getByText("error:Apple sign-in isn't set up on this iPhone. Check Settings › your name, or continue with Google.")).toBeTruthy();
+    });
+    expect(capturePostHogEvent).toHaveBeenCalledWith('auth_sign_in_failed', {
+      provider: 'apple',
+      reason_class: 'Error',
+      error_code: 'ERR_REQUEST_UNKNOWN',
+      error_message: 'The authorization attempt failed for an unknown reason',
+    });
+  });
+
+  it('other Apple failures keep the generic try-another-method message', async () => {
+    const appleError = Object.assign(new Error('The operation couldn’t be completed. (AuthorizationError error 1004.)'), {
+      code: 'ERR_REQUEST_FAILED',
     });
     const { capturePostHogEvent, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
       nodeEnv: 'development',
@@ -539,12 +578,87 @@ describe('AuthProvider', () => {
     await waitFor(() => {
       expect(getByText("error:Apple sign-in didn't work on this device. Try Google or email instead.")).toBeTruthy();
     });
-    expect(capturePostHogEvent).toHaveBeenCalledWith('auth_sign_in_failed', {
+    expect(capturePostHogEvent).toHaveBeenCalledWith('auth_sign_in_failed', expect.objectContaining({
       provider: 'apple',
-      reason_class: 'Error',
-      error_code: 'ERR_REQUEST_UNKNOWN',
-      error_message: 'The operation couldn’t be completed. (AuthorizationError error 1000.)',
+      error_code: 'ERR_REQUEST_FAILED',
+    }));
+  });
+
+  it('GUEST: ERR_REQUEST_UNKNOWN from the Apple link path shows the not-set-up message', async () => {
+    const guestSession = {
+      access_token: 'anon-token',
+      user: { id: 'guest-1', is_anonymous: true },
+    } as any;
+    const { authService, capturePostHogEvent, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => guestSession),
+        getNeedsProfile: jest.fn(() => false),
+        linkAppleIdentityToCurrentUser: jest.fn(async () => {
+          throw Object.assign(new Error('The authorization attempt failed for an unknown reason'), {
+            code: 'ERR_REQUEST_UNKNOWN',
+          });
+        }),
+      },
     });
+
+    await waitFor(() => {
+      expect(getByText('guest:true')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('sign-in-apple'));
+
+    await waitFor(() => {
+      expect(getByText("error:Apple sign-in isn't set up on this iPhone. Check Settings › your name, or continue with Google.")).toBeTruthy();
+    });
+    expect(authService.signInWithApple).not.toHaveBeenCalled();
+    expect(capturePostHogEvent).toHaveBeenCalledWith('auth_sign_in_failed', expect.objectContaining({
+      provider: 'apple',
+      error_code: 'ERR_REQUEST_UNKNOWN',
+    }));
+  });
+
+  it('resolveEmailMethod returns the RPC method and records it without the email', async () => {
+    const { authService, capturePostHogEvent, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      nodeEnv: 'development',
+      authServiceOverrides: {
+        resolveEmailAuthMethod: jest.fn(async () => 'google'),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedOut')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('resolve-email-method'));
+
+    await waitFor(() => {
+      expect(getByText('method:google')).toBeTruthy();
+    });
+    expect(authService.resolveEmailAuthMethod).toHaveBeenCalledWith('ash@example.com');
+    expect(capturePostHogEvent).toHaveBeenCalledWith('auth_email_method_resolved', { method: 'google' });
+  });
+
+  it('resolveEmailMethod resolves null (no error shown) when the RPC fails', async () => {
+    const { capturePostHogEvent, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      nodeEnv: 'development',
+      authServiceOverrides: {
+        resolveEmailAuthMethod: jest.fn(async () => {
+          throw new Error('Could not find the function public.email_auth_method');
+        }),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedOut')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('resolve-email-method'));
+
+    await waitFor(() => {
+      expect(getByText('method:null')).toBeTruthy();
+    });
+    expect(getByText('error:none')).toBeTruthy();
+    expect(capturePostHogEvent).toHaveBeenCalledWith('auth_email_method_resolved', { method: 'unavailable' });
   });
 
   it('surfaces restore-session callback failures from the incoming auth URL', async () => {

@@ -1,24 +1,19 @@
-import { useState } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
-import { Mail } from 'iconoir-react-native';
 
-import { useSpotlightTheme } from '@spotlight/design-system';
+import { Text, spacing, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import { AuthScreenLayout } from './auth-screen-layout';
-import { AppleLogo, GoogleLogo } from './social-icons';
 import {
+  AuthEmailBackChip,
+  AuthErrorBlock,
   AuthErrorLine,
-  AuthGroupLabel,
-  AuthSectionTitle,
-  OrDivider,
+  AuthHeading,
   PasswordField,
   PasswordRules,
   PrimaryButton,
-  SecondaryActionButton,
   SecondaryField,
   TermsFooter,
   buildPasswordRules,
-  isValidLookingEmail,
 } from './auth-controls';
 
 type SignUpScreenProps = {
@@ -33,21 +28,18 @@ type SignUpScreenProps = {
   notice?: string | null;
   onApple: () => void;
   onBack: () => void;
-  onChangeEmail: (value: string) => void;
   onChangeFirstName: (value: string) => void;
   onChangeLastName: (value: string) => void;
   onChangePassword: (value: string) => void;
   onContinue: () => void;
   onGoogle: () => void;
-  onLogIn: () => void;
   password: string;
 };
 
 /**
- * Sign Up (Figma 2161:6847, right column): one dedicated screen collecting
- * first/last name, email, and password (with the strength checklist), plus the
- * OR divider with Google/Apple and a "LOG IN" → Continue with Email cross-link
- * back to the login screen. A deliberate, separate path from logging in.
+ * Email-first step 2 for a new address: the email is fixed from step 1 (the
+ * chip goes back to change it); collects first/last name and a password with
+ * the strength checklist, then continues to code verification.
  */
 export function SignUpScreen({
   appleSignInAvailable = false,
@@ -60,13 +52,11 @@ export function SignUpScreen({
   notice,
   onApple,
   onBack,
-  onChangeEmail,
   onChangeFirstName,
   onChangeLastName,
   onChangePassword,
   onContinue,
   onGoogle,
-  onLogIn,
   password,
 }: SignUpScreenProps) {
   const theme = useSpotlightTheme();
@@ -74,11 +64,8 @@ export function SignUpScreen({
   const canContinue =
     firstName.trim().length > 0 &&
     lastName.trim().length > 0 &&
-    isValidLookingEmail(email) &&
     rules.every((rule) => rule.satisfied) &&
     !isBusy;
-  const [emailTouched, setEmailTouched] = useState(false);
-  const showEmailError = emailTouched && email.trim().length > 0 && !isValidLookingEmail(email);
   const showApple = Platform.OS === 'ios' || appleSignInAvailable;
 
   return (
@@ -88,45 +75,41 @@ export function SignUpScreen({
       onBack={onBack}
       testID="auth-signup-screen"
     >
-      <AuthSectionTitle>SIGN UP</AuthSectionTitle>
+      <View style={styles.header}>
+        <AuthEmailBackChip email={email} onPress={onBack} testID="auth-email-chip" />
+        <AuthHeading title="Create your account" />
+      </View>
 
       <View style={styles.fields}>
         <SecondaryField
           autoCapitalize="words"
+          autoComplete="given-name"
           autoCorrect={false}
           label="First Name"
           onChangeText={onChangeFirstName}
           placeholder="First Name"
           testID="auth-firstname-input"
+          textContentType="givenName"
           value={firstName}
         />
         <SecondaryField
           autoCapitalize="words"
+          autoComplete="family-name"
           autoCorrect={false}
           label="Last Name"
           onChangeText={onChangeLastName}
           placeholder="Last Name"
           testID="auth-lastname-input"
+          textContentType="familyName"
           value={lastName}
         />
-        <SecondaryField
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="email-address"
-          label="Email"
-          onBlur={() => setEmailTouched(true)}
-          onChangeText={onChangeEmail}
-          placeholder="Email"
-          testID="auth-signup-email-input"
-          value={email}
-        />
-
-        {showEmailError ? <AuthErrorLine message="Enter a valid email address." /> : null}
 
         <PasswordField
+          autoComplete="new-password"
           label="Password"
           onChangeText={onChangePassword}
           testID="auth-signup-password-input"
+          textContentType="newPassword"
           toggleTestID="auth-signup-password-toggle"
           value={password}
         />
@@ -138,7 +121,7 @@ export function SignUpScreen({
 
       {configurationIssue ? <AuthErrorLine message={configurationIssue} /> : null}
       {notice ? <AuthErrorLine message={notice} /> : null}
-      {errorMessage ? <AuthErrorLine message={errorMessage} /> : null}
+      <AuthErrorBlock isBusy={isBusy} message={errorMessage} onGoogle={onGoogle} />
 
       <PrimaryButton
         disabled={!canContinue}
@@ -147,51 +130,41 @@ export function SignUpScreen({
         testID="auth-signup-continue"
       />
 
-      <OrDivider />
-
-      <View style={styles.actions}>
-        <SecondaryActionButton
-          disabled={isBusy}
-          label="Continue with Google"
-          leadingIcon={<GoogleLogo size={16} />}
-          onPress={onGoogle}
-          testID="auth-google-button"
-        />
-        {showApple ? (
-          <SecondaryActionButton
+      {/* Apple Hide-My-Email accounts have a relay address, so the typed email
+          looks new even though the person already has an account. */}
+      {showApple ? (
+        <Text style={[styles.appleHint, { color: theme.colors.gray600 }]}>
+          Signed up with Apple before?{' '}
+          <Text
+            accessibilityRole="link"
             disabled={isBusy}
-            label="Continue with Apple"
-            leadingIcon={<AppleLogo size={16} />}
             onPress={onApple}
-            testID="auth-apple-button"
-          />
-        ) : null}
-      </View>
-
-      <View style={styles.crossFlow}>
-        <AuthGroupLabel>LOG IN</AuthGroupLabel>
-        <SecondaryActionButton
-          disabled={isBusy}
-          label="Continue with Email"
-          leadingIcon={<Mail color={theme.colors.gray900} height={20} width={20} />}
-          onPress={onLogIn}
-          testID="auth-signup-login"
-        />
-      </View>
+            style={[styles.appleHintLink, { color: theme.colors.gray900 }]}
+            suppressHighlighting
+            testID="auth-signup-apple-link"
+          >
+            Continue with Apple
+          </Text>
+        </Text>
+      ) : null}
     </AuthScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  actions: {
-    gap: 12,
+  appleHint: {
+    ...textStyles.caption,
+    textAlign: 'center',
   },
-  crossFlow: {
-    gap: 16,
-    marginTop: 16,
+  appleHintLink: {
+    ...textStyles.captionMedium,
+    textDecorationLine: 'underline',
   },
   fields: {
-    gap: 16,
+    gap: spacing.sm,
+  },
+  header: {
+    gap: spacing.sm,
   },
 });
 

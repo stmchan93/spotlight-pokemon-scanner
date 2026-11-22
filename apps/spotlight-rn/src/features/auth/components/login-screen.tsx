@@ -1,19 +1,18 @@
 import { useState } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 
+import { spacing } from '@spotlight/design-system';
+
 import { AuthScreenLayout } from './auth-screen-layout';
-import { AppleLogo, GoogleLogo } from './social-icons';
 import {
+  AuthErrorBlock,
   AuthErrorLine,
-  AuthGroupLabel,
-  AuthSectionTitle,
+  AuthHeading,
   OrDivider,
-  PasswordField,
   PrimaryButton,
-  SecondaryActionButton,
   SecondaryField,
+  SocialAuthButtons,
   TermsFooter,
-  TertiaryButton,
   isValidLookingEmail,
 } from './auth-controls';
 
@@ -26,20 +25,14 @@ type LoginScreenProps = {
   onApple: () => void;
   onBack?: () => void;
   onChangeEmail: (value: string) => void;
-  onChangePassword: (value: string) => void;
   onContinue: () => void;
-  onForgotPassword: () => void;
   onGoogle: () => void;
-  onSignUp: () => void;
-  password: string;
 };
 
 /**
- * Log In (Figma 2161:6847): the signed-out root. White screen under the
- * EKALIGHT header — "LOG IN", email + password underline fields, Continue
- * (black when valid), "Forgot password?", an OR divider with Google/Apple, and
- * a "NEW ACCOUNT" → Sign Up cross-link. Logging in and signing up are separate,
- * deliberate paths — no auto-detect.
+ * Email-first root: one email field + Continue, then Google/Apple. Continue
+ * looks up how the address signs in and the flow routes to the right step 2
+ * (password, social, or create account) — no Log In vs Sign Up choice here.
  */
 export function LoginScreen({
   appleSignInAvailable = false,
@@ -50,21 +43,15 @@ export function LoginScreen({
   onApple,
   onBack,
   onChangeEmail,
-  onChangePassword,
   onContinue,
-  onForgotPassword,
   onGoogle,
-  onSignUp,
-  password,
 }: LoginScreenProps) {
-  const canContinue = isValidLookingEmail(email) && password.length > 0 && !isBusy;
-  // Surface WHY Continue is disabled once they've left the field with a malformed
-  // address (don't nag mid-typing). Blank field shows nothing.
+  const canContinue = isValidLookingEmail(email) && !isBusy;
+  // Explain a disabled Continue only after they leave a malformed field.
   const [emailTouched, setEmailTouched] = useState(false);
   const showEmailError = emailTouched && email.trim().length > 0 && !isValidLookingEmail(email);
-  // Apple Sign In is required alongside Google on iOS (App Store guideline 4.8),
-  // so always offer it on iOS; on Android fall back to the runtime availability
-  // flag (effectively hidden, since Apple auth isn't native there).
+  // Apple Sign In is required alongside Google on iOS (App Store guideline 4.8);
+  // Android falls back to the runtime availability flag.
   const showApple = Platform.OS === 'ios' || appleSignInAvailable;
 
   return (
@@ -74,95 +61,49 @@ export function LoginScreen({
       onBack={onBack}
       testID="auth-login-screen"
     >
-      <AuthSectionTitle>LOG IN</AuthSectionTitle>
+      <AuthHeading subtitle="Log in or create an account" title="Welcome to Ekalight" />
 
       <View style={styles.fields}>
+        {/* `username` lets iOS pair this with the password step for autofill. */}
         <SecondaryField
           autoCapitalize="none"
+          autoComplete="email"
           autoCorrect={false}
           keyboardType="email-address"
           label="Email"
           onBlur={() => setEmailTouched(true)}
           onChangeText={onChangeEmail}
+          onSubmitEditing={canContinue ? onContinue : undefined}
           placeholder="Email"
           returnKeyType="next"
           testID="auth-email-input"
+          textContentType="username"
           value={email}
         />
 
         {showEmailError ? <AuthErrorLine message="Enter a valid email address." /> : null}
-
-        <PasswordField
-          label="Password"
-          onChangeText={onChangePassword}
-          onSubmitEditing={canContinue ? onContinue : undefined}
-          testID="auth-password-input"
-          toggleTestID="auth-password-toggle"
-          value={password}
-        />
       </View>
 
       {configurationIssue ? <AuthErrorLine message={configurationIssue} /> : null}
-      {errorMessage ? <AuthErrorLine message={errorMessage} /> : null}
+      <AuthErrorBlock isBusy={isBusy} message={errorMessage} onGoogle={onGoogle} />
 
-      <View style={styles.actions}>
-        <PrimaryButton
-          disabled={!canContinue}
-          label="Continue"
-          onPress={onContinue}
-          testID="auth-login-continue"
-        />
-        <TertiaryButton
-          label="Forgot password?"
-          onPress={onForgotPassword}
-          testID="auth-forgot-password"
-        />
-      </View>
+      <PrimaryButton
+        disabled={!canContinue}
+        label="Continue"
+        onPress={onContinue}
+        testID="auth-login-continue"
+      />
 
       <OrDivider />
 
-      <View style={styles.actions}>
-        <SecondaryActionButton
-          disabled={isBusy}
-          label="Continue with Google"
-          leadingIcon={<GoogleLogo size={16} />}
-          onPress={onGoogle}
-          testID="auth-google-button"
-        />
-        {showApple ? (
-          <SecondaryActionButton
-            disabled={isBusy}
-            label="Continue with Apple"
-            leadingIcon={<AppleLogo size={16} />}
-            onPress={onApple}
-            testID="auth-apple-button"
-          />
-        ) : null}
-      </View>
-
-      <View style={styles.crossFlow}>
-        <AuthGroupLabel>NEW ACCOUNT</AuthGroupLabel>
-        <SecondaryActionButton
-          disabled={isBusy}
-          label="Sign Up"
-          onPress={onSignUp}
-          testID="auth-login-signup"
-        />
-      </View>
+      <SocialAuthButtons isBusy={isBusy} onApple={onApple} onGoogle={onGoogle} showApple={showApple} />
     </AuthScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  actions: {
-    gap: 12,
-  },
-  crossFlow: {
-    gap: 16,
-    marginTop: 16,
-  },
   fields: {
-    gap: 16,
+    gap: spacing.sm,
   },
 });
 

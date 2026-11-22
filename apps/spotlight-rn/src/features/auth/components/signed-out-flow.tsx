@@ -1,23 +1,27 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import type { EmailAuthActions } from '@/providers/auth-provider';
+import type { EmailAuthActions, EmailAuthMethod } from '@/providers/auth-provider';
 
 import { ForgotPasswordScreen } from './forgot-password-screen';
 import { LoginScreen } from './login-screen';
+import { PasswordScreen } from './password-screen';
 import { SetNewPasswordScreen } from './set-new-password-screen';
 import { SignUpScreen } from './sign-up-screen';
+import { SocialAccountScreen, type SocialAccountMethod } from './social-account-screen';
 import { VerifyCodeScreen } from './verify-code-screen';
 
-// The signed-out flow is a self-contained stepper over the light-theme Figma
-// screens (2161:6847 "Log In" / 2170:7283 "Password Reset"). It owns the
-// email/name/password/code drafts and routes between steps; every Supabase call
-// is delegated to `emailAuth` (the auth provider), which owns busy/error state
-// and the session transition to signedIn.
+// The signed-out flow is a self-contained stepper. It owns the email/name/
+// password/code drafts and routes between steps; every Supabase call is
+// delegated to `emailAuth` (the auth provider), which owns busy/error state and
+// the session transition to signedIn.
 //
-// Log In is the root and Sign Up is a SEPARATE, deliberate path (no
-// auto-detect): each screen carries a cross-link to the other.
+// Email-first: the root asks only for an email, then `resolveEmailMethod`
+// picks step 2 — password, the Google/Apple account screen, or sign-up. A
+// failed lookup falls back to the password step so nobody is blocked.
 type Step =
-  | 'login'
+  | 'email'
+  | 'password'
+  | 'social'
   | 'signup'
   | 'verify'
   | 'forgot'
@@ -33,9 +37,9 @@ type SignedOutFlowProps = {
   onAppleSignIn: () => void;
   onGoogleSignIn: () => void;
   /**
-   * When present, the Log In root shows a back/close affordance that calls this
+   * When present, the email root shows a back/close affordance that calls this
    * (e.g. the guest login MODAL dismisses back to the scanner). Omitted for the
-   * full-screen signed-out flow, which has no back on the login root.
+   * full-screen signed-out flow, which has no back on the root.
    */
   onClose?: () => void;
 };
@@ -50,43 +54,61 @@ export function SignedOutFlow({
   onGoogleSignIn,
   onClose,
 }: SignedOutFlowProps) {
-  const [step, setStep] = useState<Step>('login');
+  const [step, setStep] = useState<Step>('email');
   // The auth error is shared across every step. Clear it whenever the step
-  // changes so one screen's failure (e.g. a failed password reset) can't follow
-  // the user onto the next screen (Log In / Sign Up). `clearError` is stable, so
-  // this fires only on a real step change — an error stays visible on the screen
-  // where it happened (that step doesn't change).
+  // changes so one screen's failure can't follow the user onto the next.
+  // `clearError` is stable, so this fires only on a real step change.
   const { clearError } = emailAuth;
   useEffect(() => {
     clearError();
   }, [step, clearError]);
   const [email, setEmail] = useState('');
+  // null = the lookup failed (password step shows a create-account escape).
+  const [method, setMethod] = useState<EmailAuthMethod | null>(null);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   // The auth service / profile stores a single display name; combine first + last.
   const fullName = [firstName, lastName].map((value) => value.trim()).filter(Boolean).join(' ');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
-  // Signup guard notice ("an account already exists"). Local, not a provider
-  // error — it points the user to Log In rather than silently signing them in.
+  // Signup guard notice ("an account already exists"). Local, not a provider error.
   const [signupNotice, setSignupNotice] = useState<string | null>(null);
 
-  // Switching intent carries the typed email but drops any password so one
-  // flow's draft can't leak into the other.
+  // Back to the email root keeps the typed email but drops any password.
+  const goToEmail = useCallback(() => {
+    setPassword('');
+    setSignupNotice(null);
+    setStep('email');
+  }, []);
   const goToSignup = useCallback(() => {
     setPassword('');
     setSignupNotice(null);
     setStep('signup');
   }, []);
-  const goToLogin = useCallback(() => {
+
+  const handleContinueEmail = useCallback(async () => {
+    // Normalize once so every later step (chip, sign-in, sign-up) uses the same address.
+    const trimmedEmail = email.trim();
+    setEmail(trimmedEmail);
+    const resolved = await emailAuth.resolveEmailMethod(trimmedEmail);
+    setMethod(resolved);
     setPassword('');
     setSignupNotice(null);
-    setStep('login');
-  }, []);
+    switch (resolved) {
+      case 'none':
+        setStep('signup');
+        return;
+      case 'google':
+      case 'apple':
+      case 'oauth':
+        setStep('social');
+        return;
+      case 'password':
+      default:
+        setStep('password');
+    }
+  }, [email, emailAuth]);
 
-  // LOG IN: sign the existing account in directly. A wrong password / missing
-  // account surfaces the provider's errorMessage and keeps the user here — it
-  // does NOT auto-route to sign-up (the Sign Up button is a deliberate choice).
   const handleLogin = useCallback(async () => {
     try {
       await emailAuth.signInEmail({ email, password });
@@ -95,16 +117,17 @@ export function SignedOutFlow({
     }
   }, [email, emailAuth, password]);
 
-  // SIGN UP: guard against an address that already has an account — show a
-  // notice pointing to Log In instead of silently signing in — then create the
-  // account and advance to code verification when confirmation is on.
+  // SIGN UP: when the lookup already said 'none' the address is known to be
+  // new; otherwise (lookup failed) keep the existing-account guard.
   const handleSignUp = useCallback(async () => {
     setSignupNotice(null);
     try {
-      const exists = await emailAuth.checkEmail(email);
-      if (exists) {
-        setSignupNotice('An account with this email already exists.');
-        return;
+      if (method !== 'none') {
+        const exists = await emailAuth.checkEmail(email);
+        if (exists) {
+          setSignupNotice('An account with this email already exists.');
+          return;
+        }
       }
       const { needsCode } = await emailAuth.signUpEmail({ email, password, fullName });
       // When email confirmation is off the provider already signed us in.
@@ -114,7 +137,7 @@ export function SignedOutFlow({
     } catch {
       /* stay on the sign-up step */
     }
-  }, [email, emailAuth, fullName, password]);
+  }, [email, emailAuth, fullName, method, password]);
 
   const handleVerifySignup = useCallback(async () => {
     try {
@@ -160,6 +183,35 @@ export function SignedOutFlow({
   }, [emailAuth, password]);
 
   switch (step) {
+    case 'password':
+      return (
+        <PasswordScreen
+          configurationIssue={configurationIssue}
+          email={email}
+          errorMessage={errorMessage}
+          isBusy={isBusy}
+          onBack={goToEmail}
+          onChangePassword={setPassword}
+          onContinue={() => void handleLogin()}
+          onCreateAccount={method === null ? goToSignup : undefined}
+          onForgotPassword={() => setStep('forgot')}
+          onGoogle={onGoogleSignIn}
+          password={password}
+        />
+      );
+    case 'social':
+      return (
+        <SocialAccountScreen
+          configurationIssue={configurationIssue}
+          email={email}
+          errorMessage={errorMessage}
+          isBusy={isBusy}
+          method={(method ?? 'oauth') as SocialAccountMethod}
+          onApple={onAppleSignIn}
+          onBack={goToEmail}
+          onGoogle={onGoogleSignIn}
+        />
+      );
     case 'signup':
       return (
         <SignUpScreen
@@ -172,14 +224,12 @@ export function SignedOutFlow({
           lastName={lastName}
           notice={signupNotice}
           onApple={onAppleSignIn}
-          onBack={goToLogin}
-          onChangeEmail={setEmail}
+          onBack={goToEmail}
           onChangeFirstName={setFirstName}
           onChangeLastName={setLastName}
           onChangePassword={setPassword}
           onContinue={() => void handleSignUp()}
           onGoogle={onGoogleSignIn}
-          onLogIn={goToLogin}
           password={password}
         />
       );
@@ -202,7 +252,7 @@ export function SignedOutFlow({
           email={email}
           errorMessage={errorMessage}
           isBusy={isBusy}
-          onBack={goToLogin}
+          onBack={() => setStep('password')}
           onChangeEmail={setEmail}
           onContinue={() => void handleSendReset()}
         />
@@ -231,7 +281,7 @@ export function SignedOutFlow({
           password={password}
         />
       );
-    case 'login':
+    case 'email':
     default:
       return (
         <LoginScreen
@@ -243,12 +293,8 @@ export function SignedOutFlow({
           onApple={onAppleSignIn}
           onBack={onClose}
           onChangeEmail={setEmail}
-          onChangePassword={setPassword}
-          onContinue={() => void handleLogin()}
-          onForgotPassword={() => setStep('forgot')}
+          onContinue={() => void handleContinueEmail()}
           onGoogle={onGoogleSignIn}
-          onSignUp={goToSignup}
-          password={password}
         />
       );
   }

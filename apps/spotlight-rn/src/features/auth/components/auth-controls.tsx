@@ -6,10 +6,13 @@ import {
   View,
   type TextInputProps,
 } from 'react-native';
-import { CheckCircle, CheckCircleSolid, Eye, EyeClosed } from 'iconoir-react-native';
+import { CheckCircle, CheckCircleSolid, Eye, EyeClosed, NavArrowLeft } from 'iconoir-react-native';
 
-import { Text, textStyles, usePlaceholderTypography, useSpotlightTheme } from '@spotlight/design-system';
+import { Text, spacing, textStyles, usePlaceholderTypography, useSpotlightTheme } from '@spotlight/design-system';
 
+import { APPLE_SIGN_IN_NOT_SET_UP_MESSAGE } from '@/features/auth/auth-models';
+
+import { AppleLogo, GoogleLogo } from './social-icons';
 import {
   PRIVACY_POLICY_URL,
   TERMS_OF_USE_URL,
@@ -223,14 +226,6 @@ export function AuthSectionTitle({ children }: { children: string }) {
   );
 }
 
-/** Small group label above a cross-flow action, e.g. "NEW ACCOUNT" / "LOG IN". */
-export function AuthGroupLabel({ children }: { children: string }) {
-  const theme = useSpotlightTheme();
-  return (
-    <Text style={[styles.groupLabel, { color: theme.colors.gray900 }]}>{children}</Text>
-  );
-}
-
 /** "──── OR ────" divider between email auth and the social buttons. */
 export function OrDivider() {
   const theme = useSpotlightTheme();
@@ -310,6 +305,120 @@ export function PasswordRules({ rules, testID }: { rules: PasswordRule[]; testID
   );
 }
 
+/** Sentence-case step heading with an optional gray subtitle (email-first flow). */
+export function AuthHeading({ subtitle, title }: { subtitle?: string; title: string }) {
+  const theme = useSpotlightTheme();
+  return (
+    <View style={styles.heading}>
+      <Text accessibilityRole="header" style={[styles.headingTitle, { color: theme.colors.gray900 }]}>
+        {title}
+      </Text>
+      {subtitle ? (
+        <Text style={[styles.headingSubtitle, { color: theme.colors.gray600 }]}>{subtitle}</Text>
+      ) : null}
+    </View>
+  );
+}
+
+/** "← ash@gmail.com": the typed email on step 2, tapping returns to step 1. */
+export function AuthEmailBackChip({
+  email,
+  onPress,
+  testID,
+}: {
+  email: string;
+  onPress: () => void;
+  testID?: string;
+}) {
+  const theme = useSpotlightTheme();
+  return (
+    <Pressable
+      accessibilityLabel={`Change email, ${email}`}
+      accessibilityRole="button"
+      hitSlop={8}
+      onPress={onPress}
+      style={({ pressed }) => [styles.emailChip, { opacity: pressed ? 0.7 : 1 }]}
+      testID={testID}
+    >
+      <NavArrowLeft color={theme.colors.gray900} height={16} width={16} />
+      <Text numberOfLines={1} style={[styles.emailChipLabel, { color: theme.colors.gray900 }]}>
+        {email}
+      </Text>
+    </Pressable>
+  );
+}
+
+type SocialAuthButtonsProps = {
+  isBusy: boolean;
+  onApple: () => void;
+  onGoogle: () => void;
+  showApple: boolean;
+  showGoogle?: boolean;
+};
+
+export function SocialAuthButtons({
+  isBusy,
+  onApple,
+  onGoogle,
+  showApple,
+  showGoogle = true,
+}: SocialAuthButtonsProps) {
+  return (
+    <View style={styles.socialButtons}>
+      {showGoogle ? (
+        <SecondaryActionButton
+          disabled={isBusy}
+          label="Continue with Google"
+          leadingIcon={<GoogleLogo size={16} />}
+          onPress={onGoogle}
+          testID="auth-google-button"
+        />
+      ) : null}
+      {showApple ? (
+        <SecondaryActionButton
+          disabled={isBusy}
+          label="Continue with Apple"
+          leadingIcon={<AppleLogo size={16} />}
+          onPress={onApple}
+          testID="auth-apple-button"
+        />
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * The shared auth error line. When Apple isn't set up on the device, Google is
+ * the next step, so it's promoted to a filled button right under the error.
+ */
+export function AuthErrorBlock({
+  isBusy,
+  message,
+  onGoogle,
+}: {
+  isBusy: boolean;
+  message: string | null | undefined;
+  onGoogle: () => void;
+}) {
+  if (!message) {
+    return null;
+  }
+  return (
+    <View style={styles.errorBlock}>
+      <AuthErrorLine message={message} />
+      {message === APPLE_SIGN_IN_NOT_SET_UP_MESSAGE ? (
+        <PrimaryButton
+          disabled={isBusy}
+          label="Continue with Google"
+          leadingIcon={<GoogleLogo size={16} />}
+          onPress={onGoogle}
+          testID="auth-apple-recovery-google"
+        />
+      ) : null}
+    </View>
+  );
+}
+
 export function AuthErrorLine({ message }: { message: string }) {
   const theme = useSpotlightTheme();
 
@@ -358,6 +467,20 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 1,
   },
+  emailChip: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    gap: spacing.xxxs,
+    maxWidth: '100%',
+  },
+  emailChipLabel: {
+    ...textStyles.bodyMedium,
+    flexShrink: 1,
+  },
+  errorBlock: {
+    gap: spacing.xs,
+  },
   errorLine: {
     ...textStyles.captionMedium,
   },
@@ -377,9 +500,14 @@ const styles = StyleSheet.create({
     height: 48,
     paddingRight: 4,
   },
-  // "NEW ACCOUNT" / "LOG IN" group labels — Label 14 gray-900.
-  groupLabel: {
-    ...textStyles.label,
+  heading: {
+    gap: spacing.xxxs,
+  },
+  headingSubtitle: {
+    ...textStyles.body,
+  },
+  headingTitle: {
+    ...textStyles.titleMedium,
   },
   // Body per the Figma input spec (2161:1636) MINUS its lineHeight: on iOS a
   // lineHeight near the fontSize clips the custom font's descenders inside
@@ -404,6 +532,9 @@ const styles = StyleSheet.create({
   // "LOG IN" / "SIGN UP" / "PASSWORD RESET" — Body-large (the only Body-large in the file).
   sectionTitle: {
     ...textStyles.bodyLarge,
+  },
+  socialButtons: {
+    gap: spacing.xs,
   },
   // Terms / Privacy footer — Overline 12 Regular.
   terms: {

@@ -21,7 +21,7 @@ function renderScreen(overrides: Partial<React.ComponentProps<typeof SignUpScree
   const props: React.ComponentProps<typeof SignUpScreen> = {
     appleSignInAvailable: true,
     configurationIssue: null,
-    email: '',
+    email: 'new@example.com',
     errorMessage: null,
     firstName: '',
     isBusy: false,
@@ -29,13 +29,11 @@ function renderScreen(overrides: Partial<React.ComponentProps<typeof SignUpScree
     notice: null,
     onApple: jest.fn(),
     onBack: jest.fn(),
-    onChangeEmail: jest.fn(),
     onChangeFirstName: jest.fn(),
     onChangeLastName: jest.fn(),
     onChangePassword: jest.fn(),
     onContinue: jest.fn(),
     onGoogle: jest.fn(),
-    onLogIn: jest.fn(),
     password: '',
     ...overrides,
   };
@@ -51,21 +49,19 @@ function renderScreen(overrides: Partial<React.ComponentProps<typeof SignUpScree
   return props;
 }
 
-describe('SignUpScreen (Figma 2161:6847)', () => {
-  it('renders the full sign-up form with social actions and the LOG IN cross-link', () => {
+describe('SignUpScreen (email-first step 2, new address)', () => {
+  it('renders the create-account form with the typed email as a back chip', () => {
     renderScreen();
 
     expect(screen.getByTestId('auth-signup-screen')).toBeTruthy();
-    expect(screen.getByText('SIGN UP')).toBeTruthy();
+    expect(screen.getByText('Create your account')).toBeTruthy();
+    expect(screen.getByTestId('auth-email-chip')).toBeTruthy();
+    expect(screen.getByText('new@example.com')).toBeTruthy();
     expect(screen.getByTestId('auth-firstname-input')).toBeTruthy();
     expect(screen.getByTestId('auth-lastname-input')).toBeTruthy();
-    expect(screen.getByTestId('auth-signup-email-input')).toBeTruthy();
     expect(screen.getByTestId('auth-signup-password-input')).toBeTruthy();
-    expect(screen.getByText('OR')).toBeTruthy();
-    expect(screen.getByText('Continue with Google')).toBeTruthy();
-    expect(screen.getByText('Continue with Apple')).toBeTruthy();
-    expect(screen.getByText('LOG IN')).toBeTruthy();
-    expect(screen.getByText('Continue with Email')).toBeTruthy();
+    expect(screen.getByTestId('auth-signup-password-input').props.textContentType).toBe('newPassword');
+    expect(screen.getByText(/Signed up with Apple before\?/)).toBeTruthy();
     expect(screen.getByText(/Terms of Use/)).toBeTruthy();
   });
 
@@ -78,12 +74,8 @@ describe('SignUpScreen (Figma 2161:6847)', () => {
     expect(screen.getByText('Contains 8 characters')).toBeTruthy();
   });
 
-  it('keeps Continue disabled until name, email, and password rules are all satisfied', () => {
+  it('keeps Continue disabled until name and password rules are satisfied', () => {
     let props = renderScreen({ ...validProps, firstName: '' });
-    fireEvent.press(screen.getByTestId('auth-signup-continue'));
-    expect(props.onContinue).not.toHaveBeenCalled();
-
-    props = renderScreen({ ...validProps, email: 'nope' });
     fireEvent.press(screen.getByTestId('auth-signup-continue'));
     expect(props.onContinue).not.toHaveBeenCalled();
 
@@ -103,13 +95,11 @@ describe('SignUpScreen (Figma 2161:6847)', () => {
     expect(screen.getByText('An account with this email already exists.')).toBeTruthy();
   });
 
-  it('routes the LOG IN cross-link and social buttons', () => {
+  it('routes the email chip back and the Apple Hide-My-Email link to Apple', () => {
     const props = renderScreen();
-    fireEvent.press(screen.getByTestId('auth-signup-login'));
-    expect(props.onLogIn).toHaveBeenCalledTimes(1);
-    fireEvent.press(screen.getByTestId('auth-google-button'));
-    expect(props.onGoogle).toHaveBeenCalledTimes(1);
-    fireEvent.press(screen.getByTestId('auth-apple-button'));
+    fireEvent.press(screen.getByTestId('auth-email-chip'));
+    expect(props.onBack).toHaveBeenCalledTimes(1);
+    fireEvent.press(screen.getByTestId('auth-signup-apple-link'));
     expect(props.onApple).toHaveBeenCalledTimes(1);
   });
 });
