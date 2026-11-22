@@ -21,8 +21,6 @@ export type PostMetricsRowProps = {
   reposted: boolean;
   repostCount: number;
   onToggleLike: () => void;
-  /** Tapping the like count opens "Liked by"; omitted = the count toggles the like too. */
-  onOpenLikes?: () => void;
   onOpenComments: () => void;
   onToggleRepost: () => void;
   onShare: () => void;
@@ -44,7 +42,6 @@ export function PostMetricsRow({
   reposted,
   repostCount,
   onToggleLike,
-  onOpenLikes,
   onOpenComments,
   onToggleRepost,
   onShare,
@@ -63,66 +60,32 @@ export function PostMetricsRow({
   return (
     <View style={[styles.row, style]} testID={`${testID}-metrics`}>
       <View style={styles.left}>
-        {onOpenLikes ? (
-          // Icon likes, count opens "Liked by" — the comment pair's split.
-          <View style={styles.item}>
-            <Pressable
-              accessibilityLabel={liked ? 'Unlike post' : 'Like post'}
-              accessibilityRole="button"
-              accessibilityState={{ selected: liked }}
-              hitSlop={COMMENT_ICON_HIT_SLOP}
-              onPress={onToggleLike}
-              testID={`${testID}-like-button`}
-            >
-              <ThumbsUp
-                color={likeColor}
-                fill={liked ? theme.colors.purple500 : 'none'}
-                height={ICON_SIZE}
-                strokeWidth={ICON_STROKE}
-                testID={`${testID}-like-icon`}
-                width={ICON_SIZE}
-              />
-            </Pressable>
-            <Pressable
-              accessibilityLabel="See who liked this"
-              accessibilityRole="button"
-              hitSlop={COMMENT_COUNT_HIT_SLOP}
-              onPress={onOpenLikes}
-              testID={`${testID}-like-count-button`}
-            >
-              <Text style={[theme.typography.labelStrong, { color: likeColor }]} testID={`${testID}-like-count`}>
-                {likeCount}
-              </Text>
-            </Pressable>
-          </View>
-        ) : (
-          <Pressable
-            accessibilityLabel={liked ? 'Unlike post' : 'Like post'}
-            accessibilityRole="button"
-            accessibilityState={{ selected: liked }}
-            hitSlop={8}
-            onPress={onToggleLike}
-            style={styles.item}
-            testID={`${testID}-like-button`}
+        <Pressable
+          accessibilityLabel={liked ? 'Unlike post' : 'Like post'}
+          accessibilityRole="button"
+          accessibilityState={{ selected: liked }}
+          hitSlop={8}
+          onPress={onToggleLike}
+          style={styles.item}
+          testID={`${testID}-like-button`}
+        >
+          <ThumbsUp
+            color={likeColor}
+            // The glyph's outline is a closed path, so filling it with the same
+            // color reads as a single solid shape.
+            fill={liked ? theme.colors.purple500 : 'none'}
+            height={ICON_SIZE}
+            strokeWidth={ICON_STROKE}
+            testID={`${testID}-like-icon`}
+            width={ICON_SIZE}
+          />
+          <Text
+            style={[theme.typography.labelStrong, { color: likeColor }]}
+            testID={`${testID}-like-count`}
           >
-            <ThumbsUp
-              color={likeColor}
-              // The glyph's outline is a closed path, so filling it with the same
-              // color reads as a single solid shape.
-              fill={liked ? theme.colors.purple500 : 'none'}
-              height={ICON_SIZE}
-              strokeWidth={ICON_STROKE}
-              testID={`${testID}-like-icon`}
-              width={ICON_SIZE}
-            />
-            <Text
-              style={[theme.typography.labelStrong, { color: likeColor }]}
-              testID={`${testID}-like-count`}
-            >
-              {likeCount}
-            </Text>
-          </Pressable>
-        )}
+            {likeCount}
+          </Text>
+        </Pressable>
         <View style={styles.item}>
           <Pressable
             accessibilityLabel="Add a comment"

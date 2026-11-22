@@ -24,6 +24,8 @@ import {
   PostMediaViewer,
   POST_VIEWER_IMAGE_ASPECT_RATIO,
 } from '@/features/social/components/post-media-viewer';
+import type { UserProfile } from '@/features/auth/auth-models';
+import { LikesSheet } from '@/features/social/components/likes-sheet';
 import { PostMetricsRow } from '@/features/social/components/post-metrics-row';
 import { SharePostSheet } from '@/features/social/components/share-post-sheet';
 import { isBoothIntent, postIntentLabel, type PostIntent } from '@/features/social/post-intent';
@@ -450,15 +452,16 @@ export function PostCard({
     `prompt` is RETAINED after `promptOpen` goes false so the sheet keeps its
     copy while it slides away — nulling it would blank the words mid-dismissal.
   */
-  const [prompt, setPrompt] = useState<{ kind: 'options' | 'block' | 'share' } | null>(null);
+  const [prompt, setPrompt] = useState<{ kind: 'options' | 'block' | 'share' | 'likes' } | null>(null);
   const [promptOpen, setPromptOpen] = useState(false);
   // Holds the host modal up while the share sheet slides away (it reports when
   // it is gone); without it the modal vanished on close and the sheet with it.
   const [shareExiting, setShareExiting] = useState(false);
-  const openPrompt = useCallback((kind: 'options' | 'block' | 'share') => {
+  const openPrompt = useCallback((kind: 'options' | 'block' | 'share' | 'likes') => {
     setPrompt({ kind });
     setPromptOpen(true);
-    setShareExiting(kind === 'share');
+    // Share and Likes slide away and report when gone; hold the modal up till then.
+    setShareExiting(kind === 'share' || kind === 'likes');
   }, []);
   const closePrompt = useCallback(() => setPromptOpen(false), []);
 
@@ -544,9 +547,17 @@ export function PostCard({
     })();
   }, [liked, likePending, post.id]);
 
-  const openLikes = useCallback(() => {
-    router.push({ pathname: '/post/[postId]/likes', params: { postId: post.id } });
-  }, [post.id, router]);
+  const openLikerProfile = useCallback(
+    (liker: UserProfile) => {
+      closePrompt();
+      const handle = liker.handle?.trim();
+      router.push({
+        pathname: '/u/[handle]',
+        params: { handle: handle && handle.length > 0 ? handle : liker.userID, userId: liker.userID },
+      });
+    },
+    [closePrompt, router],
+  );
 
   // Self-resolve the viewer's reposted state, same contract as the liked one:
   // without it a scrolled-back feed shows every card un-reposted, so something
@@ -849,13 +860,13 @@ export function PostCard({
     ) : null;
 
   const renderMetrics = (prefix: string, onDark: boolean) => (
+    <>
     <PostMetricsRow
       commentCount={commentCount}
       likeCount={likeCount}
       liked={liked}
       onDark={onDark}
       onOpenComments={gate(() => setCommentsVisible(true))}
-      onOpenLikes={likeCount > 0 ? gate(openLikes) : undefined}
       onShare={gate(() => openPrompt('share'))}
       onToggleLike={gate(handleToggleLike)}
       onToggleRepost={gate(handleToggleRepost)}
@@ -864,6 +875,22 @@ export function PostCard({
       style={onDark ? null : styles.metricsRowOnCard}
       testID={prefix}
     />
+    {likeCount > 0 ? (
+      // Instagram's "12 likes" line: tap to see who liked it.
+      <Pressable
+        accessibilityLabel={`See who liked this, ${likeCount} ${likeCount === 1 ? 'like' : 'likes'}`}
+        accessibilityRole="button"
+        hitSlop={6}
+        onPress={gate(() => openPrompt('likes'))}
+        style={styles.likedByLine}
+        testID={`${prefix}-liked-by`}
+      >
+        <Text style={[theme.typography.labelStrong, { color: onDark ? theme.colors.gray0 : theme.colors.gray900 }]}>
+          {`${likeCount.toLocaleString('en-US')} ${likeCount === 1 ? 'like' : 'likes'}`}
+        </Text>
+      </Pressable>
+    ) : null}
+    </>
   );
 
   const viewerTestID = `${testID}-viewer`;
@@ -897,7 +924,16 @@ export function PostCard({
           visible={promptOpen || shareExiting}
         >
           <View style={styles.promptHost}>
-            {prompt.kind === 'share' ? (
+            {prompt.kind === 'likes' ? (
+              <LikesSheet
+                onClose={closePrompt}
+                onExited={() => setShareExiting(false)}
+                onOpenProfile={openLikerProfile}
+                postId={post.id}
+                testID={`${testID}-likes-sheet`}
+                visible={promptOpen}
+              />
+            ) : prompt.kind === 'share' ? (
               <SharePostSheet
                 // NOT closed on send: the sheet's own "Sent" row is the
                 // confirmation, and sharing is usually plural. See the sheet.
@@ -1183,6 +1219,11 @@ const styles = StyleSheet.create({
   },
   // 10 under the image where the rest of the stack runs on 8. NO `paddingBottom`:
   // `cardContent.paddingBottom` already supplies the gap to the band.
+  likedByLine: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
   metricsRowOnCard: {
     marginTop: 2,
   },
