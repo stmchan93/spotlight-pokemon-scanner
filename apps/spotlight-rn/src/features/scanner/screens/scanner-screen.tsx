@@ -176,7 +176,7 @@ import { usePagerTouchGuardGesture, useTabPagerHideBar, useTabPagerLock } from '
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { prefetchImageUrls } from '@/lib/card-images';
 import { useAuth } from '@/providers/auth-provider';
-import { maybeRequestReview, noteScanTrouble, recordGoodScan } from '@/features/review-prompt/review-prompt';
+import { maybeRequestReviewForScan, noteScanTrouble, recordGoodScan } from '@/features/review-prompt/review-prompt';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { resolveRuntimeBoolean, resolveStagingSmokeModeEnabled } from '@/lib/runtime-config';
 import { useAppServices } from '@/providers/app-providers';
@@ -1818,7 +1818,6 @@ export function ScannerScreen({
       // Blurred (a route covers the scanner): stop the session so returning
       // produces a clean isActive false→true transition.
       setIsScreenFocused(false);
-      maybeRequestReview('scanner_blur');
       setIsCameraReady(false);
       setIsCapturing(false);
     };
@@ -1843,7 +1842,6 @@ export function ScannerScreen({
       // Leaving scanner for portfolio — stop capture state.
       setIsCameraReady(false);
       setIsCapturing(false);
-      maybeRequestReview('scanner_blur');
     }
   }, [isActiveTab]);
 
@@ -2211,6 +2209,8 @@ export function ScannerScreen({
       persistLiveTray();
     })();
     recordGoodScan();
+    // Counted first, so a 5th good scan worth $20+ can itself be the ask.
+    maybeRequestReviewForScan(matchResult.candidates[0]?.marketPrice, matchResult.candidates[0]?.currencyCode);
     capturePostHogEvent('scan_match_succeeded', buildScanMatchSuccessProperties({
       game,
       candidateCount: matchResult.candidates.length,
@@ -3796,7 +3796,6 @@ export function ScannerScreen({
         grader: target.mode === 'slabs' ? target.slabContext?.grader ?? null : null,
       });
       didSucceed = true;
-      maybeRequestReview('collection_add');
       // Surface the new card at the top of the Collection instantly. Reuse the
       // REAL entry id from the create response so the background refetch
       // reconciles (dedupes) by id instead of duplicating the optimistic row.
@@ -4107,9 +4106,6 @@ export function ScannerScreen({
         succeeded,
         failed: rows.length - succeeded,
       });
-      if (succeeded > 0) {
-        maybeRequestReview('collection_add_all');
-      }
       refreshData();
     })();
   }, [

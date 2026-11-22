@@ -5,10 +5,10 @@ import { AppState, Linking, Platform } from 'react-native';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 
-// App Store review prompt. Users become eligible after a few good scans and
-// are asked at the next pause (leaving the scanner, adding to the collection) —
-// never mid-scan and never in a session where a scan failed or needed a
-// correction. The OS draws the prompt and may silently skip it; Apple caps it
+// App Store review prompt. Users become eligible after a few good scans and are
+// asked right after a scan shows a card worth $20+ (owner, 2026-11-22: leaving
+// the scanner was a weak moment) — never in a session where a scan failed or
+// needed a correction. The OS draws the prompt and may silently skip it; Apple caps it
 // at 3 per 365 days, and Guideline 5.6.1 / Play policy forbid asking "enjoying
 // it?" first, so there is deliberately no sentiment gate.
 
@@ -20,6 +20,8 @@ export const REPEAT_PROMPT_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
 export const MAX_PROMPTS_PER_YEAR = 3;
 const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 const PROMPT_DELAY_MS = 2000;
+/** A scan result worth at least this (USD) is the moment to ask. */
+export const HIGH_VALUE_SCAN_USD = 20;
 
 // Reviews always go to the public listing, whichever build is installed.
 const IOS_APP_STORE_ID = '6778252784';
@@ -31,7 +33,7 @@ export type ReviewPromptState = {
   promptedAt: number[];
 };
 
-export type ReviewPromptTrigger = 'scanner_blur' | 'collection_add' | 'collection_add_all';
+export type ReviewPromptTrigger = 'high_value_scan';
 
 const EMPTY_STATE: ReviewPromptState = { goodScans: 0, goodScansAtLastPrompt: 0, promptedAt: [] };
 
@@ -142,7 +144,7 @@ export function noteScanTrouble() {
 }
 
 /** Call at a natural pause. Asks the OS for the review prompt if the user qualifies. */
-export function maybeRequestReview(trigger: ReviewPromptTrigger) {
+export function maybeRequestReview(trigger: ReviewPromptTrigger, valueUsd: number | null = null) {
   if (promptPending) {
     return;
   }
@@ -158,7 +160,11 @@ export function maybeRequestReview(trigger: ReviewPromptTrigger) {
       if (!StoreReview || !(await StoreReview.isAvailableAsync())) {
         return;
       }
-      capturePostHogEvent(AnalyticsEvent.reviewPromptEligible, { trigger, good_scans: state.goodScans });
+      capturePostHogEvent(AnalyticsEvent.reviewPromptEligible, {
+        trigger,
+        good_scans: state.goodScans,
+        value_usd: valueUsd,
+      });
       await new Promise((resolve) => setTimeout(resolve, PROMPT_DELAY_MS));
       // The user may have hit trouble during the delay.
       if (sessionHadTrouble) {
@@ -177,6 +183,7 @@ export function maybeRequestReview(trigger: ReviewPromptTrigger) {
       capturePostHogEvent(AnalyticsEvent.reviewPromptRequested, {
         trigger,
         good_scans: latest.goodScans,
+        value_usd: valueUsd,
         prompt_number: latest.promptedAt.length + 1,
       });
     } catch {
@@ -208,4 +215,12 @@ export function resetReviewPromptForTests() {
   cachedStoreReview = undefined;
   sessionHadTrouble = false;
   promptPending = false;
+}
+
+/** After a scan paints: a $20+ USD top match is the moment to ask. */
+export function maybeRequestReviewForScan(marketPrice: number | null | undefined, currencyCode?: string | null) {
+  const isUsd = (currencyCode ?? 'USD').toUpperCase() === 'USD';
+  if (isUsd && marketPrice != null && marketPrice >= HIGH_VALUE_SCAN_USD) {
+    maybeRequestReview('high_value_scan', marketPrice);
+  }
 }
