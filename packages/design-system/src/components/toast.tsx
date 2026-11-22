@@ -171,7 +171,10 @@ const styles = StyleSheet.create({
   },
   message: {
     ...textStyles.captionMedium,
-    flex: 1,
+    // Grow/shrink, never flex: 1 — its zero basis collapsed the text to nothing in a
+    // content-sized toast (the chat's centered "Copied" showed as an empty black box).
+    flexGrow: 1,
+    flexShrink: 1,
   },
   dismiss: {
     ...textStyles.bodyMedium,
