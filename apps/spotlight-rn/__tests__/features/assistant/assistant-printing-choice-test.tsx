@@ -105,6 +105,31 @@ describe('assistant printing choice', () => {
     ).toBe("Update my Oshawott (McDonald's Collection 2021 21/25) to 3 copies");
   });
 
+  it('parses a pick choice (any intent) and names the tapped card in the follow-up', () => {
+    const parsed = parseAssistantMessage({
+      id: 'm',
+      role: 'assistant',
+      text: 'Which Celebi do you mean?',
+      choice: { kind: 'pick_printing', intent: 'pick', quantity: null, condition: null, grader: null, grade: null,
+        quantity_stated: false, condition_stated: false },
+    });
+    expect(parsed?.choice).toEqual({
+      kind: 'pick_printing',
+      intent: 'pick',
+      quantity: null,
+      condition: null,
+      grader: null,
+      grade: null,
+      quantityStated: false,
+      conditionStated: false,
+    });
+    const pick = parsed!.choice!;
+    expect(assistantPrintingChoiceMessage(pick, celebi)).toBe('I mean Celebi (XY Black Star Promos XY111)');
+    expect(assistantPrintingChoiceMessage(pick, { ...celebi, grader: 'CGC', grade: '10' })).toBe(
+      'I mean the CGC 10 Celebi (XY Black Star Promos XY111)',
+    );
+  });
+
   it('choice tiles pick on tap, open the card on long-press, and show the hint', () => {
     const onPickCard = jest.fn();
     const onOpenCard = jest.fn();

@@ -167,7 +167,23 @@ export function parseAssistantCardsViewAll(value: unknown): AssistantCardsViewAl
 /** Tap-to-pick printing choice; anything unrecognized = ordinary tiles. */
 export function parseAssistantPrintingChoice(value: unknown): AssistantPrintingChoice | null {
   const raw = asRecord(value);
-  if (!raw || raw.kind !== 'pick_printing' || (raw.intent !== 'add' && raw.intent !== 'update')) {
+  if (!raw || raw.kind !== 'pick_printing') {
+    return null;
+  }
+  if (raw.intent === 'pick') {
+    // Any other "which one do you mean?": the tap just names the card (no write details).
+    return {
+      kind: 'pick_printing',
+      intent: 'pick',
+      quantity: null,
+      condition: null,
+      grader: null,
+      grade: null,
+      quantityStated: false,
+      conditionStated: false,
+    };
+  }
+  if (raw.intent !== 'add' && raw.intent !== 'update') {
     return null;
   }
   const quantity = asInt(raw.quantity);

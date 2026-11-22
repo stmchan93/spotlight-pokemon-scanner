@@ -120,8 +120,15 @@ class ChoiceReplyTests(AssistantCase):
         self.assertIsNone(reply["choice"])
         self.assertNotIn(TAP_HINT, reply["text"])
 
-    def test_price_question_is_not_a_choice(self) -> None:
+    def test_price_question_asking_which_is_a_pick_choice(self) -> None:
+        # Owner 2026-11-22: any "which one?" over this turn's candidates is tap-to-pick (intent "pick").
         self.client.queue(self.search_round(), message([text("Which Charizard ex do you mean?")]))
+        reply = self.ask("How much is Charizard ex?").json()["message"]
+        self.assertEqual((reply["choice"]["kind"], reply["choice"]["intent"]), ("pick_printing", "pick"))
+        self.assertTrue(reply["text"].endswith(TAP_HINT))
+
+    def test_price_answer_is_not_a_choice(self) -> None:
+        self.client.queue(self.search_round(), message([text("Charizard ex (Obsidian Flames 228) is $8.00.")]))
         reply = self.ask("How much is Charizard ex?").json()["message"]
         self.assertIsNone(reply["choice"])
 

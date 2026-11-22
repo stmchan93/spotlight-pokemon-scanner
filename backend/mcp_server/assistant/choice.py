@@ -8,6 +8,11 @@ normal propose → Confirm (or direct add → Undo) flow.
 Decided in code, not by the model: a write-intent question + 2+ candidate cards
 from this turn's lookups + no write action in the reply. The reply then carries
 `choice` (older app builds ignore it and show plain tiles) and the tap hint.
+
+Owner 2026-11-22: any other answer that asks the user to pick one of this turn's
+candidates ("Which Lucario do you mean?", "Tap a card below to pick it" in a trade,
+value or compare) is a choice too, with intent "pick": the app sends "I mean <card>"
+with that card_id and the conversation carries on for exactly that card.
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ from mcp_server.assistant.direct_add import condition_stated
 
 TAP_HINT = "Tap a card below to pick the right one."
 KIND = "pick_printing"
+PICK = "pick"  # intent of a choice that isn't an add/update: the tap just names the card
 CONDITION_CODES = ("NM", "LP", "MP", "HP", "DMG")
 
 _ADD = re.compile(r"^\W*(?:(?:please|pls|can you|could you|would you|i want to|i'd like to|help me)\s+)*(?:add|put|log)\b"
@@ -83,14 +89,27 @@ def pick_printing_choice(
     cards: list[dict[str, Any]],
     actions: list[dict[str, Any]],
     turn_card_ids: set[str],
+    asks_to_pick: bool = False,
 ) -> dict[str, Any] | None:
-    """The `choice` field for a reply whose tiles are the candidate printings, else None."""
+    """The `choice` field for a reply whose tiles are the candidate printings, else None.
+    asks_to_pick: the answer asks the user which card they mean (any intent)."""
     intent = write_intent(question)
-    if intent is None or actions:
+    if actions or (intent is None and not asks_to_pick):
         return None
     candidates = {str(card.get("card_id")) for card in cards if str(card.get("card_id")) in turn_card_ids}
     if len(candidates) < 2:
         return None
+    if intent is None:
+        return {
+            "kind": KIND,
+            "intent": PICK,
+            "quantity": None,
+            "condition": None,
+            "grader": None,
+            "grade": None,
+            "quantity_stated": False,
+            "condition_stated": False,
+        }
     slab = _SLAB.search(question or "")
     quantity = stated_quantity(question)
     condition = None if slab else stated_condition(question)

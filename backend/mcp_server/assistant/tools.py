@@ -59,6 +59,17 @@ logger = logging.getLogger("ekalight.assistant")
 
 CONDITIONS = ("NM", "LP", "MP", "HP", "DMG")
 MAX_CARDS = 12
+# Ref bookkeeping that never reaches the app: where an earlier-thread ref came from and the
+# price its old tile showed (engine._history_ref).
+TILE_INTERNAL_KEYS = frozenset({"via", "shown_price_usd"})
+MAX_THREAD_MEMORY_LINES = 12
+THREAD_MEMORY_HEADER = (
+    "Cards from earlier in this conversation (most recent first). When the user refers to one of these "
+    '("that Lucario", "the Torchic", "my card from before"), use its card_id: don\'t search again or ask '
+    "which printing:"
+)
+THREAD_MEMORY_VIA = {"photo": " · photo the user attached", "scan": " · from the user's scan tray",
+                     "picked": " · the user picked it from your choices"}
 MAX_CHARTS = 2
 MAX_CHART_POINTS = 90
 MAX_QUANTITY = 999
@@ -1013,6 +1024,28 @@ def explicit_pins(refs: list[dict[str, Any]], text: str) -> list[dict[str, Any]]
     return [ref for ref in refs if id(ref) in explicit]
 
 
+def _price_in_text(ref: dict[str, Any], text: str) -> bool:
+    price = ref.get("price_usd") if ref.get("price_usd") is not None else ref.get("shown_price_usd")
+    if not isinstance(price, (int, float)) or isinstance(price, bool) or price <= 0:
+        return False
+    forms = {f"{price:,.2f}", f"{price:.2f}"}
+    if float(price).is_integer():
+        forms |= {f"{int(price):,}", str(int(price))}
+    return any(re.search(r"\$\s*" + re.escape(form) + r"(?![\d,]|\.\d)", text) for form in forms)
+
+
+def _unpinned_pick(group: list[dict[str, Any]], text: str) -> dict[str, Any]:
+    """A name the text names without number or set: the printing whose price it quotes
+    ("your Torchic at $39"), else one the user owns, else the first listed (this turn's
+    lookups first, then the most recent earlier tile)."""
+    raw = [ref for ref in group if _slab_mentioned(ref, text)] or group
+    for test in (lambda ref: _price_in_text(ref, text), lambda ref: (ref.get("quantity_owned") or 0) > 0):
+        match = next((ref for ref in raw if test(ref)), None)
+        if match is not None:
+            return match
+    return group[0]
+
+
 def _pins(refs: list[dict[str, Any]], text: str) -> tuple[set[int], set[int]]:
     groups: dict[str, list[dict[str, Any]]] = {}
     for ref in refs:
@@ -1022,14 +1055,17 @@ def _pins(refs: list[dict[str, Any]], text: str) -> tuple[set[int], set[int]]:
     keep: set[int] = set()
     explicit: set[int] = set()
     for group in groups.values():
-        by_number = [ref for ref in group if _number_in_text(ref.get("number"), text)]
+        numbered = [ref for ref in group if _number_in_text(ref.get("number"), text)]
+        # A number pins the copy the text is about: not a slab of it whose grader the text never names
+        # ("the Torchic 005/020 at $39" is the raw copy, not the CGC 10 of the same printing).
+        by_number = [ref for ref in numbered if _slab_mentioned(ref, text)] or numbered
         numbered_sets = {_set_key(ref) for ref in by_number}
         by_set = [
             ref for ref in group
             if _set_key(ref) in named_sets and _set_key(ref) not in numbered_sets and _slab_mentioned(ref, text)
         ]
         explicit.update(id(ref) for ref in by_number + by_set)
-        pins = by_number + by_set or group[:1]
+        pins = by_number + by_set or [_unpinned_pick(group, text)]
         pinned = {str(ref["card_id"]) for ref in pins}
         keep.update(id(ref) for ref in pins)
         keep.update(id(ref) for ref in group if str(ref["card_id"]) in pinned and _slab_mentioned(ref, text))
@@ -1064,6 +1100,19 @@ def asks_to_choose(text: str) -> bool:
     return _CHOICE_QUESTION.search(text) is not None
 
 
+# Asks the user to pick a card without a question mark ("I need to know which one you want. Tap a card below").
+_PICK_PROMPT = re.compile(
+    r"\btap (?:a|the|one|your) card\b|\btap (?:the one|one of)\b"
+    r"|\bwhich (?:one|printing|version|card)\s+(?:do\s+)?you\s+(?:mean|want|have|own|meant)\b",
+    re.IGNORECASE,
+)
+
+
+def asks_to_pick(text: str) -> bool:
+    """The answer asks the user which card they mean (with or without a question mark)."""
+    return asks_to_choose(text or "") or _PICK_PROMPT.search(text or "") is not None
+
+
 def _same_tile(a: dict[str, Any], b: dict[str, Any]) -> bool:
     return a.get("card_id") == b.get("card_id") and _slab(a) == _slab(b)
 
@@ -1073,6 +1122,30 @@ def _append_new(tiles: list[dict[str, Any]], items: list[dict[str, Any]]) -> lis
         if not any(_same_tile(item, tile) for tile in tiles):
             tiles.append(item)
     return tiles
+
+
+def _distinct_ids(tiles: list[dict[str, Any]]) -> int:
+    return len({str(tile["card_id"]) for tile in tiles})
+
+
+def choice_candidates(
+    selection: list[dict[str, Any]] | None,
+    refs: list[dict[str, Any]],
+    text: str,
+    keep_ids: frozenset[str] | set[str] = frozenset(),
+) -> list[dict[str, Any]]:
+    """Tiles for an answer that asks the user to pick: this turn's candidates (and scanned
+    cards), not an earlier answer's card the text mentions in passing ("...against your
+    Torchic"). With fewer than 2 such cards selected, this turn's matches for the names in
+    the text (else all of them) when it found 2+; else the selection as is."""
+    allowed = {str(ref["card_id"]) for ref in refs} | set(keep_ids)
+    selected = [tile for tile in selection or [] if str(tile["card_id"]) in allowed]
+    if _distinct_ids(selected) >= 2:
+        return selected
+    if _distinct_ids(refs) >= 2:
+        named = named_refs(refs, text)
+        return named if _distinct_ids(named) >= 2 else list(refs)
+    return list(selection) if selection else list(refs)
 
 
 def choose_tiles(
@@ -1118,9 +1191,8 @@ def choose_tiles(
         _append_new(tiles, [tile for tile in selection or [] if tile["card_id"] in keep_ids])
         return _append_new(tiles, always), charts
 
-    if asks_to_choose(text):
-        picked = list(selection) if selection else named_refs(refs, text) or list(refs)
-        return picked[:MAX_CHOICE_TILES], charts
+    if asks_to_pick(text):
+        return choice_candidates(selection, refs, text, keep_ids)[:MAX_CHOICE_TILES], charts
     if not named:
         return _append_new(list(selection if selection is not None else refs), always), charts
     if watchlist_ids and all(ref["card_id"] in watchlist_ids for ref in named):
@@ -2299,7 +2371,7 @@ class AssistantToolbox:
             if key in seen:
                 continue
             seen.add(key)
-            unique.append(dict(ref))
+            unique.append({k: v for k, v in ref.items() if k not in TILE_INTERNAL_KEYS})
         groups = art_groups(self.conn, [ref["card_id"] for ref in unique])
         out = collapse_same_art(unique, groups, across_languages=False)[0][:MAX_CARDS]
         missing = [
@@ -2374,7 +2446,7 @@ class AssistantToolbox:
         if on_watchlist:
             tiles = tiles[:MAX_WATCHLIST_TILES]
         keep = {str(tile["card_id"]) for tile in tiles} if fixed else set(always_ids or ())
-        cards = self.finalize_cards(tiles, keep_imageless=keep)
+        cards = self.finalize_cards(self._fresh_owned_counts(owner_user_id, tiles), keep_imageless=keep)
         view_all = None
         if on_watchlist and watchlist_total and watchlist_total > len(cards):
             view_all = {"screen": "watchlist", "total": int(watchlist_total)}
@@ -2388,6 +2460,47 @@ class AssistantToolbox:
                 if line is not None:
                     card["sparkline"] = line
         return cards, label, view_all, charts
+
+    def _fresh_owned_counts(self, owner_user_id: str, tiles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """An earlier answer's holding tile ("2x Torchic") shows today's owned count for that
+        card + slab, not the count stored with the old tile."""
+        out = []
+        for tile in tiles:
+            if tile.get("via") in ("history", "tile") and tile.get("quantity_owned") is not None:
+                grader, grade = _slab(tile)
+                row = self.conn.execute(
+                    "SELECT COALESCE(SUM(quantity), 0) FROM deck_entries WHERE owner_user_id = ? AND card_id = ? "
+                    "AND COALESCE(grader, '') = ? AND COALESCE(grade, '') = ? AND quantity > 0",
+                    (owner_user_id, str(tile["card_id"]), grader or "", grade or ""),
+                ).fetchone()
+                tile = {**tile, "quantity_owned": int(row[0]) if row and row[0] else None}
+            out.append(tile)
+        return out
+
+    def thread_memory_context(self, refs: list[dict[str, Any]], shown_ids: set[str]) -> str | None:
+        """Model note for cards this thread discussed beyond the history the model reads
+        (older answers' tiles, scanned / photo cards), most recent first, so "that Lucario"
+        resolves to the one from earlier instead of a fresh search."""
+        wanted = [ref for ref in refs if str(ref.get("card_id") or "") and str(ref["card_id"]) not in shown_ids]
+        if not wanted:
+            return None
+        summaries = self.tools._summaries(list(dict.fromkeys(str(ref["card_id"]) for ref in wanted)))
+        lines = []
+        for ref in wanted[:MAX_THREAD_MEMORY_LINES]:
+            card_id = str(ref["card_id"])
+            summary = summaries.get(card_id) or {}
+            name = ref.get("name") or summary.get("name")
+            if not name:
+                continue
+            label = f"{name} · {ref.get('set') or summary.get('set') or '?'} · #{ref.get('number') or summary.get('number') or '?'}"
+            grader, grade = _slab(ref)
+            if grader and grade:
+                label += f" · {grader} {grade}"
+            via = THREAD_MEMORY_VIA.get(str(ref.get("origin") or ref.get("via") or ""), "")
+            lines.append(f"- {label}{via} (card_id: {card_id})")
+        if not lines:
+            return None
+        return THREAD_MEMORY_HEADER + "\n" + "\n".join(lines)
 
     def build_set_tiles(
         self,
