@@ -3226,7 +3226,8 @@ export type AssistantVerdict = AssistantDealVerdict | AssistantTradeVerdict | As
 
 export type AssistantPrintingChoice = {
   kind: 'pick_printing';
-  intent: 'add' | 'update';
+  /** pick: any other "which one do you mean?" (trade, value, compare…); the tap just names the card. */
+  intent: 'add' | 'update' | 'pick';
   /** add: defaults 1; update: null = not changing it. */
   quantity: number | null;
   /** add: defaults NM (null for a slab); update: null = not changing it. */

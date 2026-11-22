@@ -262,7 +262,10 @@ class AmbiguityTests(AssistantCase):
         ])
         engine = AssistantEngine(self.config, AssistantToolbox(self.tools), client)
         turn = asyncio.run(engine.run_turn(owner_user_id=USER_A, history=[], question="How much is Charizard?"))
-        self.assertTrue(turn.text.endswith("Which Charizard do you mean: Neo Destiny #107/105 or Base #4/102?"))
+        # Owner 2026-11-22: the candidates are tap-to-pick choices (intent "pick"), so the tap hint follows.
+        self.assertIn("Which Charizard do you mean: Neo Destiny #107/105 or Base #4/102?", turn.text)
+        self.assertTrue(turn.text.endswith("Tap a card below to pick the right one."))
+        self.assertEqual(turn.choice["intent"], "pick")
         self.assertEqual({card["card_id"] for card in turn.cards}, {"neo4-107", "base1-4"})
 
     def test_choice_tiles_are_capped(self) -> None:

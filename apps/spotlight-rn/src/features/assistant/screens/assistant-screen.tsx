@@ -407,7 +407,8 @@ export function AssistantScreen({
     }
   }, [chat, handleRemovePhoto, photo, source]);
 
-  // A tapped candidate printing: ask for the add/update of exactly that card.
+  // A tapped candidate printing: ask for the add/update of exactly that card, or (intent "pick")
+  // name it so the pending question carries on for it.
   const handlePickCard = useCallback(async (card: AssistantCardRef, message: AssistantMessage) => {
     if (!message.choice || chat.pending?.status === 'sending' || chat.isLimitReached) {
       return;

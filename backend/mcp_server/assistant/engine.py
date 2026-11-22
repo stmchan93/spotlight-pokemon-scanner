@@ -33,6 +33,7 @@ from mcp_server.assistant.tools import (
     TOOL_DEFINITIONS,
     AssistantToolbox,
     asks_to_choose,
+    asks_to_pick,
     is_collection_value_question,
     is_movers_question,
     card_refs,
@@ -701,14 +702,63 @@ LIST_TOOLS = frozenset({"search_cards", "find_missing", "get_my_collection", "ge
 MOVER_LIST_TOOLS = frozenset({"find_movers", "get_market_trends", "find_price_lows", "find_new_highs"})
 
 
+HISTORY_REF_KEYS = ("card_id", "name", "set", "number", "language", "variant", "grader", "grade", "quantity_owned")
+
+
+def _history_ref(card: dict[str, Any]) -> dict[str, Any]:
+    ref = {key: card.get(key) for key in HISTORY_REF_KEYS}
+    # The price the earlier tile showed pins "your Torchic at $39" to that printing; the new
+    # tile gets today's price (tools.TILE_INTERNAL_KEYS never reach the app).
+    ref["shown_price_usd"] = card.get("price_usd")
+    ref["via"] = "history"
+    return ref
+
+
 def _history_refs(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Tiles from earlier answers: show_cards may reuse them without a new lookup."""
+    """Tiles from earlier answers, MOST RECENT answer first, so a name the text doesn't pin
+    resolves to the printing the thread showed last: show_cards may reuse them without a
+    new lookup."""
     refs = []
-    for item in history:
+    for item in reversed(history):
         for card in item.get("cards") or []:
             if isinstance(card, dict) and card.get("card_id"):
-                refs.append({key: card.get(key) for key in ("card_id", "name", "set", "number", "language", "grader", "grade")})
+                refs.append(_history_ref(card))
     return refs
+
+
+def thread_memory_refs(thread_refs: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """store.thread_card_refs rows as tile refs: older tiles keep their names; scanned and
+    photo cards are bare ids the toolbox names."""
+    out = []
+    for ref in thread_refs or []:
+        if not ref.get("card_id"):
+            continue
+        out.append(_history_ref(ref) if ref.get("via") == "tile" else {"card_id": ref["card_id"], "via": ref.get("via")})
+    return out
+
+
+def last_choice_card_ids(history: list[dict[str, Any]]) -> set[str]:
+    """Card ids of the previous reply's tap-to-pick tiles (empty when it wasn't a choice)."""
+    last = next((item for item in reversed(history) if item.get("role") == "assistant"), None)
+    if not last or not last.get("choice"):
+        return set()
+    return {str(card["card_id"]) for card in last.get("cards") or [] if isinstance(card, dict) and card.get("card_id")}
+
+
+PICKED_CARDS_HEADER = "The user tapped this card to pick it from the choices in your last reply:"
+PICKED_CARDS_RULE = (
+    "Carry on with what they asked before you asked them to pick, now for exactly this card (use its "
+    "card_id; don't search again or ask which one)."
+)
+
+
+def picked_cards_context(card_lines: str | None) -> str | None:
+    """Replaces the scan-tray note when the question's card_ids are a tap on the last reply's choice tiles."""
+    if not card_lines:
+        return None
+    _, _, lines = card_lines.partition("\n")
+    lines = lines.strip()
+    return f"{PICKED_CARDS_HEADER}\n{lines}\n{PICKED_CARDS_RULE}" if lines else None
 
 
 def _strict_tool(name: str) -> bool:
@@ -1033,6 +1083,7 @@ class AssistantEngine:
         client_message_id: str | None = None,
         game_scope: GameScope | None = None,
         deadline: float | None = None,
+        thread_refs: list[dict[str, Any]] | None = None,
     ) -> TurnResult:
         """`deadline` (time.monotonic) bounds the turn; default turn_deadline_seconds from now."""
         started = time.monotonic()
@@ -1051,7 +1102,11 @@ class AssistantEngine:
         verdicts: list[dict[str, Any]] = []
         set_refs: list[dict[str, Any]] = []
         # Beyond this turn's results, show_cards may use scanned cards and earlier tiles.
-        extra_refs = [{"card_id": card_id} for card_id in context_card_ids or []] + _history_refs(history)
+        # thread_refs: older answers' tiles and earlier scanned / photo cards (store.thread_card_refs).
+        extra_refs = (
+            [{"card_id": card_id} for card_id in context_card_ids or []] + _history_refs(history)
+            + thread_memory_refs(thread_refs)
+        )
         selection: list[dict[str, Any]] | None = None
         cards_label: str | None = None
         watchlist_ids: set[str] = set()
@@ -1318,12 +1373,16 @@ class AssistantEngine:
                 )
                 if result.sets and not result.cards:
                     result.cards_label, result.cards_view_all = None, None
-            # An ambiguous add/update: the candidate tiles become tap-to-pick choices.
+            # An ambiguous add/update, or any answer asking the user to pick one of this turn's
+            # candidates: the candidate tiles become tap-to-pick choices.
+            turn_card_ids = {str(ref["card_id"]) for ref in primary_refs + other_refs}
             result.choice = pick_choice.pick_printing_choice(
-                question, cards=result.cards, actions=result.actions,
-                turn_card_ids={str(ref["card_id"]) for ref in primary_refs + other_refs},
+                question, cards=result.cards, actions=result.actions, turn_card_ids=turn_card_ids,
+                asks_to_pick=bool(ask_which) or asks_to_pick(result.text),
             )
             if result.choice is not None:
+                # Every tile of a choice is a candidate: a tap on an earlier card would "pick" it.
+                result.cards = [card for card in result.cards if str(card.get("card_id")) in turn_card_ids]
                 result.text = pick_choice.with_tap_hint(pick_choice.strip_detail_asks(result.text, result.choice))
             elif result.cards and not result.sets and not result.actions:
                 # Owner hand labels 2026-11-21: the text names every card it shows (short replies)

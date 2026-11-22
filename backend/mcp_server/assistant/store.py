@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS assistant_messages (
     created_at TEXT NOT NULL, suggestions_json TEXT, tool_calls_json TEXT, charts_json TEXT,
     flags_json TEXT, cards_label TEXT, cards_view_all_json TEXT,
     cache_read_tokens INTEGER, cache_write_tokens INTEGER, cached INTEGER, sets_json TEXT, choice_json TEXT,
-    verdicts_json TEXT
+    verdicts_json TEXT, context_cards_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_assistant_messages_client
@@ -63,6 +63,10 @@ FEEDBACK_NOTE_CHARS = 500
 # so a retried request finds both halves of the turn.
 REPLY_SUFFIX = ":reply"
 HISTORY_MESSAGES = 10
+# Cards from the whole thread (older tiles, scanned / photo cards) that later turns may refer to.
+MAX_THREAD_CARD_REFS = 30
+HISTORY_CARD_KEYS = ("card_id", "name", "set", "number", "language", "variant", "grader", "grade", "quantity_owned",
+                     "price_usd")
 TITLE_CHARS = 60
 PREVIEW_CHARS = 120
 
@@ -85,6 +89,8 @@ COLUMN_PATCHES = (
     ("assistant_messages", "choice_json", "TEXT"),
     # Deal / trade / grading verdict cards (verdicts.py); older rows have none.
     ("assistant_messages", "verdicts_json", "TEXT"),
+    # User rows: the scanned / photo card ids that rode with the question (thread card memory).
+    ("assistant_messages", "context_cards_json", "TEXT"),
     # The game this thread last named or ranked (game_scope.py); older threads have none.
     ("assistant_threads", "game", "TEXT"),
 )
@@ -162,6 +168,16 @@ def _json_list(raw: Any) -> list[Any]:
     except (TypeError, ValueError):
         return []
     return value if isinstance(value, list) else []
+
+
+def _json_dict(raw: Any) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def _charts(raw: Any) -> list[dict[str, Any]]:
@@ -281,7 +297,7 @@ class AssistantStore:
         for assistant rows, the tool calls and tiles behind the answer."""
         rows = self.conn.execute(
             """
-            SELECT role, text, tools_used, tool_calls_json, cards_json FROM assistant_messages
+            SELECT role, text, tools_used, tool_calls_json, cards_json, choice_json FROM assistant_messages
             WHERE thread_id = ? AND owner_user_id = ?
             ORDER BY created_at DESC, rowid DESC
             LIMIT ?
@@ -296,12 +312,54 @@ class AssistantStore:
                 calls = _json_list(row["tool_calls_json"]) or _json_list(row["tools_used"])
                 item["tool_calls"] = [str(call) for call in calls if isinstance(call, str)]
                 item["cards"] = [
-                    {key: card.get(key) for key in ("card_id", "name", "set", "number", "grader", "grade")}
+                    {key: card.get(key) for key in HISTORY_CARD_KEYS}
                     for card in _json_list(row["cards_json"])
                     if isinstance(card, dict) and card.get("card_id")
                 ]
+                choice = _json_dict(row["choice_json"])
+                if choice:
+                    item["choice"] = choice
             history.append(item)
         return history
+
+    def thread_card_refs(self, owner_user_id: str, thread_id: str) -> list[dict[str, Any]]:
+        """Cards this thread discussed that `history` doesn't carry, most recent first: tiles of
+        answers older than the history window, and the scanned / photo cards that rode with any
+        question (`via`: tile | picked | photo | scan; a tile of a card that also rode with a question
+        keeps that as `origin`). "Trade for that Lucario" 20 messages after the photo still finds it."""
+        rows = self.conn.execute(
+            """
+            SELECT role, cards_json, context_cards_json FROM assistant_messages
+            WHERE thread_id = ? AND owner_user_id = ?
+            ORDER BY created_at DESC, rowid DESC
+            """,
+            (thread_id, owner_user_id),
+        ).fetchall()
+        refs: list[dict[str, Any]] = []
+        seen: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+        def add(ref: dict[str, Any]) -> None:
+            key = (str(ref["card_id"]), str(ref.get("grader") or ""), str(ref.get("grade") or ""))
+            earlier = seen.get(key)
+            if earlier is not None:
+                if earlier.get("via") == "tile" and ref.get("via") != "tile":
+                    earlier.setdefault("origin", ref.get("via"))
+            elif len(refs) < MAX_THREAD_CARD_REFS:
+                seen[key] = ref
+                refs.append(ref)
+
+        for index, row in enumerate(rows):
+            if str(row["role"]) == "user":
+                context = _json_dict(row["context_cards_json"])
+                for via, key in (("picked", "picked"), ("photo", "attached"), ("scan", "scanned")):
+                    for card_id in context.get(key) or []:
+                        if isinstance(card_id, str) and card_id:
+                            add({"card_id": card_id, "via": via})
+            elif index >= HISTORY_MESSAGES:
+                for card in _json_list(row["cards_json"]):
+                    if isinstance(card, dict) and card.get("card_id"):
+                        add({**{key: card.get(key) for key in HISTORY_CARD_KEYS}, "via": "tile"})
+        return refs
 
     def list_threads(self, owner_user_id: str, *, limit: int, cursor: str | None) -> dict[str, Any]:
         position = _decode_cursor(cursor)
@@ -414,9 +472,11 @@ class AssistantStore:
         counted: bool,
         day: str,
         game: str | None = None,
+        context_cards: dict[str, list[str]] | None = None,
     ) -> tuple[str, dict[str, Any], dict[str, Any]]:
         """Thread (created if new) + both messages + usage, one transaction. `game` (when
-        given) becomes the thread's remembered game."""
+        given) becomes the thread's remembered game; `context_cards` ({attached, scanned} card
+        ids) stays on the question row for thread card memory."""
         conn = self.conn
         created = now_iso()
         try:
@@ -430,10 +490,11 @@ class AssistantStore:
             conn.execute(
                 """
                 INSERT INTO assistant_messages (id, thread_id, owner_user_id, role, text, status,
-                                                client_message_id, created_at)
-                VALUES (?, ?, ?, 'user', ?, 'ok', ?, ?)
+                                                client_message_id, created_at, context_cards_json)
+                VALUES (?, ?, ?, 'user', ?, 'ok', ?, ?, ?)
                 """,
-                (user_id, thread_id, owner_user_id, question, client_message_id, created),
+                (user_id, thread_id, owner_user_id, question, client_message_id, created,
+                 json.dumps(context_cards) if context_cards and any(context_cards.values()) else None),
             )
             # Same-timestamp ties fall back to rowid order in every read.
             reply_created = max(now_iso(), created)

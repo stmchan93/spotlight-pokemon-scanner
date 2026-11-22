@@ -21,6 +21,11 @@ function printingLabel(card: AssistantCardRef): string {
  */
 export function assistantPrintingChoiceMessage(choice: AssistantPrintingChoice, card: AssistantCardRef): string {
   const label = printingLabel(card);
+  if (choice.intent === 'pick') {
+    // The server carries the pending question on for this exact card (sent as its card_id too).
+    const slab = card.grader ? [card.grader, card.grade].filter(Boolean).join(' ') : null;
+    return `I mean ${slab ? `the ${slab} ` : ''}${label}`;
+  }
   const condition = choice.conditionStated && choice.condition ? CONDITION_NAMES[choice.condition] : null;
   if (choice.intent === 'update') {
     const changes = [

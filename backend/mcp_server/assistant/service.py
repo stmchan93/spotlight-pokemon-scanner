@@ -22,6 +22,8 @@ from mcp_server.assistant.engine import (
     TurnResult,
     attached_cards_context,
     cache_hit_ratio,
+    last_choice_card_ids,
+    picked_cards_context,
 )
 from mcp_server.assistant.flags import flag_turn
 from mcp_server.assistant import game_scope
@@ -257,16 +259,30 @@ class AssistantService:
             return 503, {"error": "assistant_busy"}
 
         history = await asyncio.to_thread(self.store.history, user_id, thread_id) if thread_id else []
+        thread_refs = await asyncio.to_thread(self.store.thread_card_refs, user_id, thread_id) if thread_id else []
+        # card_ids that are a tap on the last reply's choice tiles are a pick, not the scan tray.
+        choice_ids = last_choice_card_ids(history)
+        picked = bool(request["card_ids"]) and set(request["card_ids"]) <= choice_ids
         tray = (
             await asyncio.to_thread(self.toolbox.scanner_context, request["card_ids"]) if request["card_ids"] else None
         )
+        if picked:
+            tray = picked_cards_context(tray)
         attached_ids = request.get("attached_card_ids") or []
         attached = (
             attached_cards_context(await asyncio.to_thread(self.toolbox.scanner_context, attached_ids))
             if attached_ids else None
         )
-        context = "\n\n".join(part for part in (game_scope.scope_note(scope), tray, attached) if part)
+        shown_ids = {str(card["card_id"]) for item in history for card in item.get("cards") or []}
+        memory = (
+            await asyncio.to_thread(self.toolbox.thread_memory_context, thread_refs, shown_ids) if thread_refs else None
+        )
+        context = "\n\n".join(part for part in (game_scope.scope_note(scope), memory, tray, attached) if part)
         context_card_ids = list(dict.fromkeys([*request["card_ids"], *attached_ids]))
+        context_cards = {
+            "picked" if picked else "scanned": list(request["card_ids"]),
+            "attached": list(attached_ids),
+        }
         assert self.engine is not None
         if deadline is None:
             deadline = time.monotonic() + self.config.turn_deadline_seconds
@@ -278,6 +294,7 @@ class AssistantService:
                     client_message_id=request["client_message_id"] if request["direct_add"] else None,
                     game_scope=scope,
                     deadline=deadline,
+                    thread_refs=thread_refs,
                 ),
                 timeout=max(1.0, deadline + TURN_HARD_GRACE_SECONDS - time.monotonic()),
             )
@@ -353,6 +370,7 @@ class AssistantService:
             counted=turn.status == "ok",
             day=day,
             game=scope.remembered or turn.scoped_game,
+            context_cards=context_cards,
         )
         logger.info(
             "assistant_turn user=%s source=%s game=%s game_from=%s status=%s stop=%s rounds=%d tools=%s in=%d "
