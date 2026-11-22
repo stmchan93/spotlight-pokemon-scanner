@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import type {
+  AssistantCardRef,
   AssistantFeedbackInput,
   AssistantMessage,
   AssistantProposedAction,
@@ -23,6 +24,7 @@ import { AssistantPriceChartCard } from '@/features/assistant/components/assista
 import { AssistantSetTile } from '@/features/assistant/components/assistant-set-tile';
 
 const ENTER_MS = 220;
+export const ASSISTANT_PICK_HINT = 'Tap to pick';
 const PRESSED_OPACITY = 0.7;
 
 /**
@@ -60,6 +62,11 @@ type AssistantMessageBubbleProps = {
   onOpenWatchlist?: () => void;
   onConfirmAction: (action: AssistantProposedAction, message: AssistantMessage) => void;
   onDismissAction: (action: AssistantProposedAction) => void;
+  /**
+   * A tap-to-pick reply (message.choice): tapping a tile picks that printing.
+   * Omitted (e.g. an older reply) = tiles open the card page as usual.
+   */
+  onPickCard?: (card: AssistantCardRef, message: AssistantMessage) => void;
   /** Undo on a server-executed add. */
   onUndoAction?: (action: AssistantProposedAction) => void;
   onCopy?: (text: string) => void;
@@ -80,6 +87,7 @@ export function AssistantMessageBubble({
   onConfirmAction,
   onDismissAction,
   onUndoAction,
+  onPickCard,
   onCopy,
   onFeedback,
   animateEntrance = false,
@@ -94,13 +102,16 @@ export function AssistantMessageBubble({
   const allCharts = message.charts ?? [];
   // A price answer about 2+ cards: every card is a compact row with its own sparkline,
   // never one big chart beside plain tiles. Single-card answers keep the big chart.
-  const asRows = isAssistantPriceList(message);
+  const picking = message.choice != null && onPickCard != null;
+  // Choice tiles stay a tile rail: each one is a tap target, not a price row.
+  const asRows = !picking && isAssistantPriceList(message);
   const rowIds = new Set(asRows ? message.cards.map((card) => card.cardId) : []);
   const charts = allCharts.filter((chart) => !rowIds.has(chart.cardId));
   // A chart answer about exactly the charted card(s): the chart card carries the art,
   // so a lone tile underneath would only repeat it.
   const chartIds = new Set(charts.map((chart) => chart.cardId));
   const tilesRepeatCharts =
+    !picking &&
     charts.length > 0 && message.cards.length > 0 && message.cards.every((card) => chartIds.has(card.cardId));
   const tileCards = tilesRepeatCharts ? [] : message.cards;
 
@@ -180,7 +191,9 @@ export function AssistantMessageBubble({
             <AssistantCardTile
               card={card}
               key={`${card.cardId}-${index}`}
-              onPress={onOpenCard}
+              onLongPress={picking ? onOpenCard : undefined}
+              onPress={picking ? () => onPickCard?.(card, message) : onOpenCard}
+              pickHint={picking ? ASSISTANT_PICK_HINT : undefined}
               testID={`assistant-card-${card.cardId}`}
             />
           ))}

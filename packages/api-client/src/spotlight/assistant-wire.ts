@@ -17,6 +17,7 @@ import type {
   AssistantFeedbackReason,
   AssistantMessage,
   AssistantPriceChart,
+  AssistantPrintingChoice,
   AssistantProposedAction,
   AssistantSendPayload,
   AssistantSendResult,
@@ -155,6 +156,26 @@ export function parseAssistantCardsViewAll(value: unknown): AssistantCardsViewAl
   const raw = asRecord(value);
   const total = raw ? asInt(raw.total) : null;
   return raw && raw.screen === 'watchlist' && total != null && total > 0 ? { screen: 'watchlist', total } : null;
+}
+
+/** Tap-to-pick printing choice; anything unrecognized = ordinary tiles. */
+export function parseAssistantPrintingChoice(value: unknown): AssistantPrintingChoice | null {
+  const raw = asRecord(value);
+  if (!raw || raw.kind !== 'pick_printing' || (raw.intent !== 'add' && raw.intent !== 'update')) {
+    return null;
+  }
+  const quantity = asInt(raw.quantity);
+  const grader = asString(raw.grader);
+  return {
+    kind: 'pick_printing',
+    intent: raw.intent,
+    quantity: quantity != null && quantity >= 1 ? quantity : raw.intent === 'add' ? 1 : null,
+    condition: grader ? null : asCondition(raw.condition) ?? (raw.intent === 'add' ? 'NM' : null),
+    grader,
+    grade: grader ? asString(raw.grade) : null,
+    quantityStated: raw.quantity_stated === true,
+    conditionStated: raw.condition_stated === true,
+  };
 }
 
 export function parseAssistantAction(value: unknown): AssistantProposedAction | null {
@@ -342,6 +363,7 @@ export function parseAssistantMessage(value: unknown): AssistantMessage | null {
     suggestions: role === 'assistant' ? parseAssistantSuggestions(raw.suggestions) : [],
     charts: role === 'assistant' ? parseList(raw.charts, parseAssistantPriceChart).slice(0, ASSISTANT_MAX_CHARTS) : [],
     sets: role === 'assistant' ? parseList(raw.sets, parseAssistantSetRef).slice(0, ASSISTANT_MAX_SETS) : [],
+    choice: role === 'assistant' ? parseAssistantPrintingChoice(raw.choice) : null,
     feedback: role === 'assistant' ? parseAssistantFeedback(raw.feedback) : null,
   };
 }

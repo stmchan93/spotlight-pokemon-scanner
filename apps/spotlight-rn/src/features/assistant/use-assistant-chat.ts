@@ -18,6 +18,13 @@ export type AssistantPendingQuestion = {
   text: string;
   status: 'sending' | 'failed';
   errorCode: AssistantErrorCode | null;
+  /** Cards this question is about (a tapped printing choice); kept for Retry. */
+  cardIds?: string[];
+};
+
+export type AssistantSendOptions = {
+  /** Sent as context.card_ids with this one question (e.g. the printing the user tapped). */
+  cardIds?: string[];
 };
 
 export type AssistantSendOutcome = 'sent' | 'failed' | 'limit' | 'ignored';
@@ -137,9 +144,11 @@ export function useAssistantChat({
         threadId,
         clientMessageId: question.clientMessageId,
         text: question.text,
-        context: contextSentRef.current
-          ? { source: context.source, ...(context.game ? { game: context.game } : {}) }
-          : context,
+        context: question.cardIds?.length
+          ? { source: context.source, cardIds: question.cardIds, ...(context.game ? { game: context.game } : {}) }
+          : contextSentRef.current
+            ? { source: context.source, ...(context.game ? { game: context.game } : {}) }
+            : context,
       });
       if (generation !== loadGenerationRef.current) {
         return 'ignored';
@@ -170,7 +179,7 @@ export function useAssistantChat({
     }
   }, [context, ensureIdentity, repository, threadId]);
 
-  const send = useCallback((text: string) => {
+  const send = useCallback((text: string, options?: AssistantSendOptions) => {
     const trimmed = text.trim();
     if (!trimmed || pending?.status === 'sending') {
       return Promise.resolve<AssistantSendOutcome>('ignored');
@@ -180,6 +189,7 @@ export function useAssistantChat({
       text: trimmed,
       status: 'sending',
       errorCode: null,
+      ...(options?.cardIds?.length ? { cardIds: options.cardIds } : {}),
     });
   }, [pending, submit]);
 

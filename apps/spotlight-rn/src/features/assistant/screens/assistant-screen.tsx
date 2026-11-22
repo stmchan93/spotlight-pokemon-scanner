@@ -17,6 +17,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { PullDownToDismiss, usePullDownToDismiss } from '@/components/pull-down-to-dismiss';
 import type {
+  AssistantCardRef,
   AssistantContextSource,
   AssistantFeedbackInput,
   AssistantMessage,
@@ -52,6 +53,7 @@ import {
   assistantRemainingCaption,
   assistantStarterPrompts,
 } from '@/features/assistant/assistant-prompts';
+import { assistantPrintingChoiceMessage } from '@/features/assistant/assistant-printing-choice';
 import type { AssistantActionUiState } from '@/features/assistant/components/assistant-action-card';
 import { AssistantComposer } from '@/features/assistant/components/assistant-composer';
 import {
@@ -288,6 +290,18 @@ export function AssistantScreen({
     }
   }, [chat, source]);
 
+  // A tapped candidate printing: ask for the add/update of exactly that card.
+  const handlePickCard = useCallback(async (card: AssistantCardRef, message: AssistantMessage) => {
+    if (!message.choice || chat.pending?.status === 'sending' || chat.isLimitReached) {
+      return;
+    }
+    void Haptics.selectionAsync().catch(() => undefined);
+    capturePostHogEvent(AnalyticsEvent.assistantQuestionSent, { source });
+    await chat.send(assistantPrintingChoiceMessage(message.choice, card).slice(0, MAX_QUESTION_LENGTH), {
+      cardIds: [card.cardId],
+    });
+  }, [chat, source]);
+
   const handleCopy = useCallback((text: string) => {
     void Clipboard.setStringAsync(text)
       .then(() => {
@@ -513,6 +527,7 @@ export function AssistantScreen({
           onCopy={handleCopy}
           onDismissAction={handleDismissAction}
           onUndoAction={handleUndoAction}
+          onPickCard={item.message.id === latestMessage?.id ? (card, message) => void handlePickCard(card, message) : undefined}
           onFeedback={handleFeedback}
           onOpenCard={onOpenCard}
           onOpenSet={onOpenSet}

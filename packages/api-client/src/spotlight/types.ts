@@ -3046,6 +3046,19 @@ export type AssistantProposedAction =
   | (AssistantProposedActionBase & { type: 'update_holding'; params: AssistantUpdateHoldingParams })
   | (AssistantProposedActionBase & { type: 'watch_card'; params: AssistantWatchCardParams });
 
+export type AssistantPrintingChoice = {
+  kind: 'pick_printing';
+  intent: 'add' | 'update';
+  /** add: defaults 1; update: null = not changing it. */
+  quantity: number | null;
+  /** add: defaults NM (null for a slab); update: null = not changing it. */
+  condition: AssistantConditionCode | null;
+  grader: string | null;
+  grade: string | null;
+  quantityStated: boolean;
+  conditionStated: boolean;
+};
+
 export type AssistantMessage = {
   id: string;
   threadId: string;
@@ -3074,6 +3087,11 @@ export type AssistantMessage = {
    * older servers and older rows don't send it.
    */
   sets?: AssistantSetRef[];
+  /**
+   * The tiles are tap-to-pick printings for an ambiguous add/update ("Add
+   * Charizard ex" matched several printings). Null/absent = ordinary tiles.
+   */
+  choice?: AssistantPrintingChoice | null;
   /** The user's 👍/👎 on an assistant reply; null/absent = not rated (or an older server). */
   feedback?: AssistantFeedback | null;
 };

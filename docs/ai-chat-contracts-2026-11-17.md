@@ -79,6 +79,10 @@ Records the user's choice AFTER the app performed (or skipped) the real write. O
 - The reply carries an executed action: same shape as an `add_to_collection` ProposedAction plus `state: "done"` and `undo: {deck_entry_id, quantity_added, expires_at}` (24h); the tiles are just that card with its new `quantity_owned`.
 - Undo (body none) → `{"action": ...state "undone"}`. Takes back exactly `quantity_added` from that holding (holding removed when it reaches 0, via `set_deck_entry_quantity`). Owner-scoped (404), idempotent (already undone → 200), 409 `not_undoable` (not a server-made add), `undo_expired`, `cannot_undo` (holding gone).
 
+### Pick-a-printing choice (added 2026-11-21, owner decision L023)
+- When the question is a single add/update (`mcp_server/assistant/choice.py` `write_intent`: "add/put/log …", "change/update my …"; not how-tos, Watchlist/alerts, or batches like "all/these/tray"), the reply proposed/executed no action, and its tiles hold 2+ cards from THIS turn's lookups, the reply carries `choice: {kind: "pick_printing", intent: "add"|"update", quantity, condition, grader, grade, quantity_stated, condition_stated}` (add defaults: quantity 1, condition NM, null for a stated slab; update: null = not stated) and the text ends with "Tap a card below to pick the right one." (appended in code when the model didn't say it). Stored in `assistant_messages.choice_json`; never put in the shared-answer cache. Older apps ignore it and show plain tiles.
+- App: on the latest reply only, a choice tile's tap sends a follow-up naming that printing ("Add Charizard ex (Obsidian Flames 228) to my collection"; stated quantity/condition/grade repeated, unstated ones left to the proposal's ×1/NM defaults) with `context.card_ids: [card_id]`; the normal propose → Confirm (or direct add → Undo) flow follows. Long-press opens the card page. The tap is a normal question (counts toward the daily limit).
+
 ### `POST /api/v1/assistant/messages/{message_id}/feedback` (added 2026-11-19)
 Body `{"rating": "up"|"down"|null, "reason": null|"wrong"|"not_helpful"|"too_long"|"wrong_cards"|"other", "note": null|str (≤500 chars, trimmed; "" = null)}`. `rating` is required; `null` clears (reason/note ignored). → `{"message_id", "feedback": Feedback|null}`.
 - Owner-scoped: 404 for another user's or an unknown message; 400 `invalid_request` for a user message or bad values.
@@ -108,6 +112,7 @@ AssistantMessage = {
   "actions": [ProposedAction],    # assistant only
   "suggestions": [str],           # assistant only (added 2026-11-18): 0-3 tap-to-ask follow-up prompts, each <=40 chars; [] for user messages, errors, refusals, and older rows. Tapping one = send it as the next question in the same thread.
   "charts": [PriceChart],         # assistant only (added 2026-11-18): 0-2; [] for user messages, errors, refusals, and older rows
+  "choice": PrintingChoice | null,  # assistant only (added 2026-11-21): tiles are tap-to-pick printings, see "Pick-a-printing choice"
   "sets": [SetRef],               # assistant only (added 2026-11-20): ≤6 set tiles for set-level answers; [] otherwise and on older rows. Older apps ignore it.
   "created_at": ISO,
   "status": "ok" | "error",

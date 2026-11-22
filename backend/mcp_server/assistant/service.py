@@ -263,6 +263,7 @@ class AssistantService:
             ),
             "charts": turn.charts,
             "sets": turn.sets,
+            "choice": turn.choice,
             "status": turn.status,
             "input_tokens": turn.input_tokens,
             "output_tokens": turn.output_tokens,
@@ -273,7 +274,9 @@ class AssistantService:
             "tool_calls": turn.tool_calls,
         }
         try:
-            if knowledge_key and shared_answers.knowledge_cacheable(request["text"], turn, flags):
+            if turn.choice is not None:
+                pass  # a pick-a-printing reply belongs to this user's write, never shared
+            elif knowledge_key and shared_answers.knowledge_cacheable(request["text"], turn, flags):
                 await asyncio.to_thread(
                     self.shared.put, knowledge_key, question_norm=question_norm,
                     version=shared_answers.KNOWLEDGE_VERSION, reply=shared_answers.shared_reply(turn),

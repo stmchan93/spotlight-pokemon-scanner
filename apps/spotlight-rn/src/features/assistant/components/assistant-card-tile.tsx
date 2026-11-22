@@ -24,10 +24,14 @@ export function assistantCardMeta(card: AssistantCardRef): string {
 type AssistantCardTileProps = {
   card: AssistantCardRef;
   onPress: (cardId: string) => void;
+  /** Choice tiles: long-press opens the card page (tap picks it). */
+  onLongPress?: (cardId: string) => void;
+  /** Caption under a tap-to-pick tile, e.g. "Tap to pick". */
+  pickHint?: string;
   testID?: string;
 };
 
-export function AssistantCardTile({ card, onPress, testID }: AssistantCardTileProps) {
+export function AssistantCardTile({ card, onPress, onLongPress, pickHint, testID }: AssistantCardTileProps) {
   const theme = useSpotlightTheme();
   const owned = card.quantityOwned ?? 0;
   const [imageFailed, setImageFailed] = useState(false);
@@ -36,7 +40,10 @@ export function AssistantCardTile({ card, onPress, testID }: AssistantCardTilePr
   return (
     <Pressable
       accessibilityLabel={`${card.name}, ${assistantCardMeta(card)}`}
+      accessibilityHint={pickHint ? `${pickHint}. Long press to open the card.` : undefined}
       accessibilityRole="button"
+      delayLongPress={350}
+      onLongPress={onLongPress ? () => onLongPress(card.cardId) : undefined}
       onPress={() => onPress(card.cardId)}
       style={({ pressed }) => [styles.tile, { opacity: pressed ? 0.86 : 1 }]}
       testID={testID}
@@ -92,6 +99,15 @@ export function AssistantCardTile({ card, onPress, testID }: AssistantCardTilePr
           </Text>
         ) : null}
       </View>
+      {pickHint ? (
+        <Text
+          numberOfLines={1}
+          style={[theme.typography.cardMeta, { color: theme.colors.purple500 }]}
+          testID={testID ? `${testID}-pick-hint` : undefined}
+        >
+          {pickHint}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }

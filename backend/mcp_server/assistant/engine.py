@@ -19,6 +19,7 @@ from typing import Any
 
 from mcp_server.assistant.config import AssistantConfig, cost_usd
 from mcp_server.assistant.direct_add import ADD_NOW_TOOL, TurnWrites
+from mcp_server.assistant import choice as pick_choice
 from mcp_server.assistant import length_guard
 from mcp_server.assistant.shared_answers import tool_record
 from mcp_server.assistant.compact import model_payload
@@ -475,6 +476,7 @@ class TurnResult:
     sentence_limit: int | None = None
     length_guard: str | None = None  # None | "rewrite" | "trim" | "drop" (internal-wording sentences dropped)
     scoped_game: str | None = None  # the game market-wide calls were pinned to (game_scope.enforce_game)
+    choice: dict[str, Any] | None = None  # tiles are tap-to-pick printings for a write (choice.py)
 
 
 def _usage_tokens(usage: Any, name: str) -> int:
@@ -948,5 +950,12 @@ class AssistantEngine:
                 )
                 if result.sets and not result.cards:
                     result.cards_label, result.cards_view_all = None, None
+            # An ambiguous add/update: the candidate tiles become tap-to-pick choices.
+            result.choice = pick_choice.pick_printing_choice(
+                question, cards=result.cards, actions=result.actions,
+                turn_card_ids={str(ref["card_id"]) for ref in primary_refs + other_refs},
+            )
+            if result.choice is not None:
+                result.text = pick_choice.with_tap_hint(result.text)
         result.latency_ms = int((time.monotonic() - started) * 1000)
         return result
