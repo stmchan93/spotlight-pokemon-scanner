@@ -2241,7 +2241,7 @@ export function ScannerScreen({
       persistLiveTray();
     })();
     recordGoodScan();
-    // Counted first, so the 5th good scan can itself be the ask.
+    // Counted first, so the 3rd good scan can itself be the ask.
     maybeRequestReviewForScan();
     capturePostHogEvent('scan_match_succeeded', buildScanMatchSuccessProperties({
       game,

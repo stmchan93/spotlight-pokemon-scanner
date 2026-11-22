@@ -5,7 +5,7 @@ import { AppState, Linking, Platform } from 'react-native';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 
-// App Store review prompt. Asked right after the 5th good scan paints (owner,
+// App Store review prompt. Asked right after the 3rd good scan paints (owner,
 // 2026-11-22: leaving the scanner was a weak moment; no price bar) — never in a
 // session where a scan failed or needed a correction. The OS draws the prompt and may silently skip it; Apple caps it
 // at 3 per 365 days, and Guideline 5.6.1 / Play policy forbid asking "enjoying
@@ -13,7 +13,7 @@ import { capturePostHogEvent } from '@/lib/observability/posthog';
 
 const STATE_KEY = '@spotlight/review-prompt/state';
 
-export const FIRST_PROMPT_GOOD_SCANS = 5;
+export const FIRST_PROMPT_GOOD_SCANS = 3;
 export const REPEAT_PROMPT_GOOD_SCANS = 50;
 export const REPEAT_PROMPT_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
 export const MAX_PROMPTS_PER_YEAR = 3;
