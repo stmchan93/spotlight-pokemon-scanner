@@ -580,8 +580,8 @@ describe('AssistantScreen', () => {
     fireEvent.changeText(screen.getByTestId('assistant-input'), 'Is Celebi worth grading?');
     expect(sendButtonColor()).toBe('#1A1A1A');
     expect(screen.getByTestId('assistant-send')).toBeEnabled();
-    // With text the composer stacks: text on top, send on its own row.
-    expect(StyleSheet.flatten(screen.getByTestId('assistant-composer').props.style).flexDirection).toBe('column');
+    // One line of text stays a single row; it only stacks once the text wraps.
+    expect(StyleSheet.flatten(screen.getByTestId('assistant-composer').props.style).flexDirection).toBe('row');
   });
 
   it('long-pressing a reply copies its text without markdown markers', async () => {

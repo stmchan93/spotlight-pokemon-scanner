@@ -1,5 +1,5 @@
 import { ArrowUp } from 'iconoir-react-native';
-import { forwardRef } from 'react';
+import { forwardRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { MAX_FONT_SIZE_MULTIPLIER, radii, spacing, textStyles, useSpotlightTheme } from '@spotlight/design-system';
@@ -7,8 +7,10 @@ import { MAX_FONT_SIZE_MULTIPLIER, radii, spacing, textStyles, useSpotlightTheme
 /*
   Figma 6502:16506 (empty), 6502:16582 (text), 6502:16429 (3 lines).
   Empty: one 56pt row, 12pt padding, placeholder + a 32pt gray send button.
-  With text: the text on top, a bottom row carrying a 28pt black send button
-  (row inset 10pt, 2pt vertical padding), 16pt between text and row.
+  One line of text stays that single row (the send button turns black); only
+  once the text WRAPS does it become the text-on-top layout with the send
+  button on its own bottom row (user, 2026-11-21: "it should go to 1 line,
+  then expand"). Row inset 10pt, 2pt vertical padding, 16pt text-to-row gap.
 */
 const EMPTY_SEND_SIZE = 32;
 const FILLED_SEND_SIZE = 28;
@@ -42,6 +44,9 @@ export const AssistantComposer = forwardRef<TextInput, AssistantComposerProps>(f
 ) {
   const theme = useSpotlightTheme();
   const hasText = value.length > 0;
+  // Grows to the stacked layout only when the text wraps past one line.
+  const [wraps, setWraps] = useState(false);
+  const expanded = hasText && wraps;
   const canSend = value.trim().length > 0 && !isSending;
   const sendSize = hasText ? FILLED_SEND_SIZE : EMPTY_SEND_SIZE;
   const glyphSize = hasText ? FILLED_GLYPH_SIZE : EMPTY_GLYPH_SIZE;
@@ -51,7 +56,7 @@ export const AssistantComposer = forwardRef<TextInput, AssistantComposerProps>(f
     <View
       style={[
         styles.shell,
-        hasText ? styles.shellFilled : styles.shellEmpty,
+        expanded ? styles.shellFilled : styles.shellEmpty,
         // Figma's glass fill (gray-50 @ 70%) over a white page reads as flat gray-50.
         { backgroundColor: theme.colors.gray50 },
       ]}
@@ -63,6 +68,9 @@ export const AssistantComposer = forwardRef<TextInput, AssistantComposerProps>(f
         maxLength={maxLength}
         multiline
         onChangeText={onChangeText}
+        onContentSizeChange={(event) => {
+          setWraps(event.nativeEvent.contentSize.height > LINE_HEIGHT * 1.5);
+        }}
         onFocus={onFocus}
         // Figma 6607:11726 (owner, 2026-11-21).
         placeholder="Chat with Ekalight"
@@ -71,13 +79,13 @@ export const AssistantComposer = forwardRef<TextInput, AssistantComposerProps>(f
         style={[
           theme.typography.chatBody,
           styles.input,
-          hasText ? styles.inputFilled : styles.inputEmpty,
+          expanded ? styles.inputFilled : styles.inputEmpty,
           { color: theme.colors.gray900 },
         ]}
         testID="assistant-input"
         value={value}
       />
-      <View style={hasText ? styles.sendRow : null}>
+      <View style={expanded ? styles.sendRow : null}>
         <Pressable
           accessibilityLabel={isSending ? 'Waiting for the answer' : 'Send question'}
           accessibilityRole="button"
