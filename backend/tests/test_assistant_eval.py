@@ -1238,7 +1238,9 @@ class RunnerEndToEndTests(AssistantCase):
         self.assertIn(kyogre["comp_price_usd"], (1450.0, 1500.0))
         self.assertEqual(kyogre["comp_sale_count"], 2)
         self.assertAlmostEqual(kyogre["gross_premium_usd"], round(kyogre["comp_price_usd"] - 504.48, 2))
-        self.assertEqual((by_id["xy5g_ja-77"]["comp_source"], by_id["xy5g_ja-77"]["comp_price_usd"]), ("ebay_sold", 45.0))
+        # The Teammates sale names no set, so it can't be told from the English prints: no comp.
+        self.assertTrue(by_id["xy5g_ja-77"]["comp_missing"])
+        self.assertIsNone(by_id["xy5g_ja-77"]["comp_price_usd"])
         # The case's own result check passes on this real result.
         expect = case["turns"][0]["expect"]
         record = turn_record(tool_results=[{"name": "grading_upside", "data": result}])

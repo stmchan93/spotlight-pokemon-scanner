@@ -55,6 +55,11 @@ USER_CARD_FIELDS = frozenset(
         "image_small_url",
         "price_usd",
         "price_source",
+        # price_usd withheld: no observation in 14 days / raw above own PSA 10
+        "price_stale",
+        "price_as_of",
+        "price_untrusted",
+        "price_untrusted_reason",
         "app_url",
         "tcgplayer_id",
         # get_card

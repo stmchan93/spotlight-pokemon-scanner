@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote
@@ -26,6 +27,7 @@ from catalog_tools import (
     SEALED_CARD_ID_PREFIX,
     SEALED_SUPERTYPE,
     SUPPORTED_GAMES,
+    _amount_to_usd,
     _graded_contexts_payload,
     _MANUAL_SEARCH_POOL_CEILING,
     _normalized_variant_label,
@@ -35,6 +37,7 @@ from catalog_tools import (
     cards_by_ids,
     main_raw_cell_points_by_variant_date,
     price_snapshot_row,
+    pricing_provider,
     rarity_bucket,
     search_cards as catalog_search_cards,
     slab_recent_sales_cache,
@@ -98,12 +101,21 @@ MAX_TOP_GRADED = 20
 GRADED_OUTLIER_VS_LOWER_GRADE = 25.0
 GRADED_OUTLIER_VS_RAW = 10_000.0
 MAX_GRADING_UPSIDE = 10
+# Price quality (chat/MCP only; app endpoints keep their own rules). A price whose
+# latest observation is older than this is not a current price: price_usd null +
+# price_stale. A raw price above the same card's own PSA 10 (same printing) is
+# untrusted (Scrydex raw-JP anchors): price_usd null + price_untrusted.
+PRICE_STALE_DAYS = 14
+RAW_OVER_PSA10_MARGIN = 1.0
+PRICE_QUALITY_KEYS = frozenset({"price_stale", "price_untrusted", "price_untrusted_reason", "price_as_of"})
 GRADING_UPSIDE_DESCRIPTION = (
     "Is it worth grading: for up to 10 card_ids (usually the user's priciest raw cards from "
     "get_my_collection), each card's raw market price next to a PSA 10 comp from stored data: comp_price_usd "
-    "with comp_source ('ebay_sold' = last verified sale, comp_sale_count sales on file; 'scrydex_market' = "
-    "graded market estimate), comp_as_of, and gross_premium_usd / gross_premium_pct (comp - raw, before "
-    "grading fees and shipping). comp_missing = no usable PSA 10 comp for that card."
+    "with comp_source ('scrydex_market' = the card's own graded market estimate, preferred; 'ebay_sold' = last "
+    "verified sale whose listing names the card's set and number, comp_sale_count such sales on file), "
+    "comp_as_of, and gross_premium_usd / gross_premium_pct (comp - raw, before grading fees and shipping). "
+    "comp_missing = no current, matching PSA 10 comp for that card. raw_price_usd null with price_stale / "
+    "price_untrusted = no current trustworthy raw price: say so, don't estimate one."
 )
 OWNED_MODES = ("any", "owned", "not_owned")
 # find_missing: cheapest first (budgets, shopping lists) or highest value first (chase cards).
@@ -318,6 +330,66 @@ def _set_id_from_group_key(group_key: Any) -> str | None:
     return key[4:].rsplit(":", 1)[0] or None
 
 
+def _quality_excluded(item: dict[str, Any]) -> bool:
+    return bool(item.get("price_stale") or item.get("price_untrusted"))
+
+
+def _quality_exclusion_counts(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Holdings left out of value totals because their price is stale or untrusted
+    (counted separately from unpriced_count)."""
+    stale = sum(1 for item in items if item.get("price_stale"))
+    untrusted = sum(1 for item in items if item.get("price_untrusted"))
+    if not stale and not untrusted:
+        return {}
+    return {
+        "stale_price_count": stale,
+        "untrusted_price_count": untrusted,
+        "excluded_price_note": (
+            f"{stale + untrusted} holding(s) left out of the value: price_stale = no price observation in "
+            f"{PRICE_STALE_DAYS} days; price_untrusted = raw price above the card's own PSA 10. Don't quote a "
+            "price for them."
+        ),
+    }
+
+
+_LISTING_STOPWORDS = frozenset({"the", "and", "of", "pokemon", "tcg"})
+
+
+def _fold_listing_text(value: Any) -> str:
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch)).casefold()
+    return " ".join(re.sub(r"[^\w]+", " ", text).replace("_", " ").split())
+
+
+def _number_key(token: str) -> tuple[str, int] | None:
+    match = re.fullmatch(r"([a-z]*)0*(\d+)", token)
+    return (match.group(1), int(match.group(2))) if match else None
+
+
+def listing_matches_card(title: Any, card: dict[str, Any], *, set_names: list[str] | None = None) -> bool:
+    """True when a sold-listing title names the card's collector number AND its set
+    (set name words, its English translation, or the set code). A comp that can't
+    show both may be another card with the same name (Teammates JP 077/070 vs the
+    English Primal Clash prints)."""
+    text = _fold_listing_text(title)
+    if not text:
+        return False
+    number = str(card.get("number") or "").strip().split("/")[0]
+    wanted = _number_key(_fold_listing_text(number).replace(" ", ""))
+    if wanted is None:
+        return False
+    # The grade ("PSA 10") is not a collector number.
+    cleaned = re.sub(r"\b(psa|cgc|bgs|sgc|tag|ace)\s*\d+(\s*5)?\b", " ", text)
+    tokens = set(cleaned.split())
+    if wanted not in {key for token in tokens if (key := _number_key(token)) is not None}:
+        return False
+    for name in set_names if set_names is not None else [card.get("setName"), card.get("setPtcgoCode")]:
+        words = [word for word in _fold_listing_text(name).split() if word not in _LISTING_STOPWORDS]
+        if words and all(word in tokens for word in words):
+            return True
+    return False
+
+
 def _round_money(value: float | None) -> float | None:
     return None if value is None else round(float(value), 2)
 
@@ -366,12 +438,26 @@ class CollectionTools:
         return f"{self.app_url_scheme}://cards/{quote(str(card_id), safe='')}"
 
     def _card_summary(
-        self, card: dict[str, Any], pricing: dict[str, Any] | None, *, tcgplayer_id: str | None = None
+        self,
+        card: dict[str, Any],
+        pricing: dict[str, Any] | None,
+        *,
+        tcgplayer_id: str | None = None,
+        quality: dict[str, Any] | None = None,
+        graded: bool = False,
     ) -> dict[str, Any]:
         # Full internal shape; policy.ResponsePolicy decides what leaves the server.
         price, source = usd_price(pricing)
+        flags: dict[str, Any] = {}
+        if price is not None:
+            if quality is None:
+                quality = self._price_quality([card["id"]]).get(card["id"], {})
+            flags = self._price_quality_flags(pricing or {}, price, source, quality, graded=graded)
+            if flags:
+                price, source = None, None
         game = card.get("game") or GAME
         return {
+            **flags,
             "card_id": card["id"],
             "name": card.get("name"),
             "set": card.get("setName"),
@@ -386,6 +472,91 @@ class CollectionTools:
             "app_url": self.app_url(card["id"]),
             "tcgplayer_id": tcgplayer_id,
         }
+
+    @staticmethod
+    def _price_stale_cutoff() -> str:
+        return (datetime.now(timezone.utc).date() - timedelta(days=PRICE_STALE_DAYS)).isoformat()
+
+    def _price_quality(self, card_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """card_id -> {raw_date, graded_date, psa10}: the newest Scrydex raw/graded
+        cell day (the provider's last observation of that lane) and the USD PSA 10
+        market per printing (variant match key) on the newest graded day. TCGCSV
+        raw_main cells don't count: that lane carries its own clock."""
+        ids = list(dict.fromkeys(str(card_id) for card_id in card_ids if card_id))
+        out: dict[str, dict[str, Any]] = {card_id: {} for card_id in ids}
+        if not ids or not self._has_table("card_price_history_cell"):
+            return out
+        provider = pricing_provider()
+        # +lane keeps each lookup on the (card_id, provider, price_date) prefix, newest first.
+        latest = (
+            "(SELECT cell.price_date FROM card_price_history_cell cell WHERE cell.card_id = cards.id "
+            "AND cell.provider = ? AND +cell.lane = ? ORDER BY cell.price_date DESC LIMIT 1)"
+        )
+        for chunk in _chunked_sql_values(ids):
+            rows = self.conn.execute(
+                f"SELECT cards.id, {latest}, {latest} FROM cards WHERE cards.id IN ({','.join('?' for _ in chunk)})",
+                (provider, "raw", provider, "graded", *chunk),
+            ).fetchall()
+            for card_id, raw_date, graded_date in rows:
+                out[str(card_id)] = {"raw_date": raw_date, "graded_date": graded_date}
+        graded = {card_id: q["graded_date"] for card_id, q in out.items() if q.get("graded_date")}
+        if not graded:
+            return out
+        dates = sorted(set(graded.values()))
+        for chunk in _chunked_sql_values(list(graded)):
+            rows = self.conn.execute(
+                "SELECT card_id, price_date, variant_key, market, currency_code FROM card_price_history_cell "
+                f"WHERE card_id IN ({','.join('?' for _ in chunk)}) AND price_date IN ({','.join('?' for _ in dates)}) "
+                "AND provider = ? AND +lane = 'graded' AND UPPER(grader) = 'PSA' AND CAST(grade AS REAL) = 10 "
+                "AND COALESCE(is_perfect, 0) = 0 AND COALESCE(is_signed, 0) = 0 AND COALESCE(is_error, 0) = 0 "
+                "AND market > 0",
+                (*chunk, *dates, provider),
+            ).fetchall()
+            for card_id, price_date, variant_key, market, currency in rows:
+                card_id = str(card_id)
+                if price_date != graded.get(card_id):
+                    continue
+                usd = _amount_to_usd(self.conn, market, currency or "USD")
+                if usd is None or usd <= 0:
+                    continue
+                key = _variant_match_key(_normalized_variant_label(variant_key))
+                psa10 = out[card_id].setdefault("psa10", {})
+                psa10[key] = min(usd, psa10.get(key, usd))
+        return out
+
+    def _price_quality_flags(
+        self,
+        pricing: dict[str, Any],
+        price: float,
+        source: str | None,
+        quality: dict[str, Any],
+        *,
+        graded: bool,
+    ) -> dict[str, Any]:
+        """{} for a usable current price, else price_stale / price_untrusted flags.
+        Clocks: a TCGplayer main price uses its own refresh stamp (that lane is only
+        served while fresh); Scrydex raw uses the newest raw cell day (the snapshot
+        clock is also bumped by graded-only writes); graded takes the newer of the
+        graded cell day and the snapshot refresh (staging writes no graded cells)."""
+        refreshed = str(pricing.get("refreshedAt") or "")[:10] or None
+        if source == "tcgplayer":
+            observed = refreshed
+        elif graded:
+            observed = max((d for d in (quality.get("graded_date"), refreshed) if d), default=None)
+        else:
+            observed = quality.get("raw_date") or refreshed
+        if observed and observed < self._price_stale_cutoff():
+            return {"price_stale": True, "price_as_of": observed}
+        if not graded:
+            psa10 = (quality.get("psa10") or {}).get(
+                _variant_match_key(_normalized_variant_label(pricing.get("variant")))
+            )
+            if psa10 is not None and price > psa10 * RAW_OVER_PSA10_MARGIN:
+                return {
+                    "price_untrusted": True,
+                    "price_untrusted_reason": f"raw price above the card's own PSA 10 (${psa10:,.2f})",
+                }
+        return {}
 
     def _tcgplayer_ids(self, card_ids: list[str]) -> dict[str, str]:
         out: dict[str, str] = {}
@@ -443,8 +614,11 @@ class CollectionTools:
         present = [card_id for card_id in ids if card_id in cards]
         pricing = self._raw_pricing_by_id(present)
         tcg_ids = self._tcgplayer_ids(present)
+        quality = self._price_quality(present)
         return {
-            card_id: self._card_summary(cards[card_id], pricing.get(card_id), tcgplayer_id=tcg_ids.get(card_id))
+            card_id: self._card_summary(
+                cards[card_id], pricing.get(card_id), tcgplayer_id=tcg_ids.get(card_id), quality=quality.get(card_id, {})
+            )
             for card_id in present
         }
 
@@ -919,7 +1093,9 @@ class CollectionTools:
         japanese_ok = self._price_ranked_japanese_ok(card_filter)
 
         def ranked_ok(item: dict[str, Any]) -> bool:
-            # Priciest/cheapest lists: no Japanese cards unless asked for.
+            # Priciest/cheapest lists: no Japanese cards unless asked for, no stale/untrusted prices.
+            if _quality_excluded(item):
+                return False
             return japanese_ok or not is_japanese_card(item["card_id"], item.get("language"))
 
         if uses_art_filters(card_filter):
@@ -1090,15 +1266,22 @@ class CollectionTools:
         }
 
     def _holding_summary(
-        self, entry: dict[str, Any], card: dict[str, Any], *, tcgplayer_id: str | None = None
+        self,
+        entry: dict[str, Any],
+        card: dict[str, Any],
+        *,
+        tcgplayer_id: str | None = None,
+        quality: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         # The entry's own pricing: graded holdings carry their slab price.
         pricing = (entry.get("card") or {}).get("pricing")
-        summary = self._card_summary(card, pricing, tcgplayer_id=tcgplayer_id)
-        quantity = int(entry.get("quantity") or 0)
         slab = entry.get("slabContext") or {}
         grader = slab.get("grader")
         grade = slab.get("grade")
+        summary = self._card_summary(
+            card, pricing, tcgplayer_id=tcgplayer_id, quality=quality, graded=bool(grader or grade)
+        )
+        quantity = int(entry.get("quantity") or 0)
         unit = summary["price_usd"]
         value = round(unit * quantity, 2) if unit is not None else None
         cost = self._cost_basis_usd(
@@ -1198,7 +1381,11 @@ class CollectionTools:
         else:
             pairs = [(entry, card) for entry, card in pairs if self._matches_card_meta(card, card_filter)]
 
-        items = [self._holding_summary(entry, card, tcgplayer_id=tcg_ids.get(card["id"])) for entry, card in pairs]
+        quality = self._price_quality([card["id"] for _, card in pairs])
+        items = [
+            self._holding_summary(entry, card, tcgplayer_id=tcg_ids.get(card["id"]), quality=quality.get(card["id"], {}))
+            for entry, card in pairs
+        ]
         items = [item for item in items if self._matches_price(item["price_usd"], card_filter)]
         if holding_type != "any":
             items = [item for item in items if bool(item["grader"] or item["grade"]) == (holding_type == "graded")]
@@ -1229,7 +1416,8 @@ class CollectionTools:
             "top_by_total_value": top("value_usd"),
             "total_value_usd": round(total_value, 2),
             "total_count": len(items),
-            "unpriced_count": sum(1 for item in items if item["value_usd"] is None),
+            "unpriced_count": sum(1 for item in items if item["value_usd"] is None and not _quality_excluded(item)),
+            **_quality_exclusion_counts(items),
             "value_basis": (
                 "price_usd is the price of one copy; value_usd = price_usd x quantity (the holding's total). "
                 "top_by_unit_price is the single most valuable copy; top_by_total_value the largest holding."
@@ -1285,6 +1473,8 @@ class CollectionTools:
                 # A printing watch quotes its own printing, never the main one.
                 item["price_usd"] = round(float(market), 2) if isinstance(market, (int, float)) else None
                 item["price_source"] = "tcgplayer" if item["price_usd"] is not None else None
+                for quality_key in PRICE_QUALITY_KEYS:  # judged the main price, not this printing
+                    item.pop(quality_key, None)
             cents = row["target_price_cents"] if "target_price_cents" in optional else None
             item.update(
                 {
@@ -1314,8 +1504,9 @@ class CollectionTools:
         holdings: list[dict[str, Any]] = []
         requests: list[dict[str, Any]] = []
         sealed_ids: set[str] = set()
+        quality = self._price_quality([card["id"] for _, card in pairs])
         for entry, card in pairs:
-            holding = self._holding_summary(entry, card)
+            holding = self._holding_summary(entry, card, quality=quality.get(card["id"], {}))
             holdings.append(holding)
             if is_sealed_card(card):
                 sealed_ids.add(str(card["id"]))
@@ -1440,7 +1631,10 @@ class CollectionTools:
                 "copy's price at the start and now; change_usd is the holding's total (x quantity)."
             ),
             "holdings_count": len(holdings),
-            "unpriced_count": sum(1 for holding in holdings if holding["value_usd"] is None),
+            "unpriced_count": sum(
+                1 for holding in holdings if holding["value_usd"] is None and not _quality_excluded(holding)
+            ),
+            **_quality_exclusion_counts(holdings),
             # The holdings that make up most of value_usd (price_usd x quantity).
             "top_holdings": [
                 {key: holding.get(key) for key in (
@@ -1931,8 +2125,14 @@ class CollectionTools:
 
         entries = self._graded_cell_entries(game, grader_code, grade_code, japanese_ok=japanese_ok)
         from_cells = entries is not None
+        stale_cards: set[str] = set()
         if entries is None:
             entries = self._graded_snapshot_entries(game, grader_code, grade_code, japanese_ok=japanese_ok)
+            # Snapshot graded prices carry their refresh day; old ones aren't current prices.
+            cutoff = self._price_stale_cutoff()
+            stale_cards = {entry["card_id"] for entry in entries if (entry.get("as_of") or cutoff) < cutoff}
+            entries = [entry for entry in entries if (entry.get("as_of") or cutoff) >= cutoff]
+            stale_cards -= {entry["card_id"] for entry in entries}
         owned_ids = self._owned_card_ids(owner_user_id) if owned != "any" else None
         meta_filter = {k: v for k, v in card_filter.items() if k not in ("price_min_usd", "price_max_usd")}
 
@@ -2016,7 +2216,7 @@ class CollectionTools:
             price = round(float(entry["market"]), 2)
             out.append(
                 {
-                    **summary,
+                    **{key: value for key, value in summary.items() if key not in PRICE_QUALITY_KEYS},
                     # Tiles show price_usd: the slab price here, not the raw one.
                     "price_usd": price,
                     "graded_price_usd": price,
@@ -2034,6 +2234,8 @@ class CollectionTools:
                 }
             )
         result["cards"] = out
+        if stale_cards:
+            result["excluded_stale_count"] = len(stale_cards)
         if not out:
             result["note"] = "Ekalight has no stored graded prices matching this."
         return result
@@ -2070,6 +2272,8 @@ class CollectionTools:
                 # Same raw price the user's collection shows for this holding.
                 summary["price_usd"] = held_prices[card_id]
                 summary["price_source"] = "collection"
+                for key in PRICE_QUALITY_KEYS:
+                    summary.pop(key, None)
             raw = summary.get("price_usd")
             comp = None
             if GAMES[str(card.get("game") or GAME)].has_graded_pricing:
@@ -2100,8 +2304,9 @@ class CollectionTools:
             "grade": grade_code,
             "basis": (
                 "gross_premium = comp price - raw market price (no grading fees or shipping). comp_source "
-                "'ebay_sold' = last verified sale (comp_sale_count recent sales on file); 'scrydex_market' = "
-                "graded market estimate, not a sale. comp_missing = no usable comp: say so for that card."
+                "'scrydex_market' = the card's own graded market estimate, not a sale; 'ebay_sold' = last verified "
+                "sale whose title names the card's set and number (comp_sale_count such sales on file). "
+                "comp_missing = no usable comp: say so for that card."
             ),
         }
         not_found = [card_id for card_id in ids if card_id not in cards]
@@ -2115,10 +2320,13 @@ class CollectionTools:
             return {}
         pairs, tcg_ids, _ = self._owner_holdings(owner_user_id, collection_id=None)
         out: dict[str, float] = {}
+        quality = self._price_quality(list(card_ids))
         for entry, card in pairs:
             if card["id"] not in card_ids:
                 continue
-            item = self._holding_summary(entry, card, tcgplayer_id=tcg_ids.get(card["id"]))
+            item = self._holding_summary(
+                entry, card, tcgplayer_id=tcg_ids.get(card["id"]), quality=quality.get(card["id"], {})
+            )
             price = item.get("price_usd")
             if item.get("grader") or item.get("grade") or price is None:
                 continue
@@ -2128,7 +2336,11 @@ class CollectionTools:
     def _graded_comp(
         self, card: dict[str, Any], grader: str, grade: str, peers: list[dict[str, Any]], raw: float | None
     ) -> dict[str, Any] | None:
-        from server import RECENT_SALES_MAX_LIMIT, _filter_recent_sales_rows  # heavy module; loaded by the service
+        """The card's OWN current graded market first (its newest Scrydex graded cells,
+        else the stored peers), then a verified eBay sale whose listing title names
+        the card's set AND number; else None. Comps older than PRICE_STALE_DAYS are
+        not current and are not used."""
+        from server import RECENT_SALES_MAX_LIMIT, _filter_recent_sales_rows, _recent_sales_average
 
         snapshot = price_snapshot_row(self.conn, card["id"])
         keys = snapshot.keys() if snapshot is not None else ()
@@ -2136,20 +2348,11 @@ class CollectionTools:
             (snapshot[key] for key in ("main_raw_variant", "default_raw_variant") if key in keys and snapshot[key]),
             None,
         )
-        cached = slab_recent_sales_cache(
-            self.conn, card_id=card["id"], grader=grader, grade=grade, source="ebay", limit=RECENT_SALES_MAX_LIMIT,
-        )
-        filtered = _filter_recent_sales_rows(cached, variant_key=quoted, limit=RECENT_SALES_MAX_LIMIT, card=card)
-        last = (filtered or {}).get("recentAverage")
-        if last and isinstance(last.get("amount"), (int, float)) and not self._is_placeholder_price(float(last["amount"])):
-            return {
-                "price": round(float(last["amount"]), 2),
-                "source": "ebay_sold",
-                "sale_count": len((filtered or {}).get("sales") or []),
-                "as_of": str(last.get("latestSoldAt") or "").replace("/", "-") or None,
-                "variant": printing_name(_normalized_variant_label(quoted)) if quoted else None,
-            }
-        same = [peer for peer in peers if peer["grader"] == grader and peer["grade"] == grade]
+        cutoff = self._price_stale_cutoff()
+        own = self._own_graded_entries(card["id"])
+        pool = own if own else peers
+        pool = [peer for peer in pool if (peer.get("as_of") or cutoff) >= cutoff]
+        same = [peer for peer in pool if peer["grader"] == grader and peer["grade"] == grade]
         if quoted:
             want = _variant_match_key(_normalized_variant_label(quoted))
             matching = [
@@ -2157,17 +2360,92 @@ class CollectionTools:
                 if peer.get("variant") and _variant_match_key(_normalized_variant_label(peer["variant"])) == want
             ]
             same = matching or ([] if len(same) > 1 else same)
-        trusted = [peer for peer in same if self._graded_distrust_reason(peer, peers, raw) is None]
-        if not trusted:
+        trusted = [peer for peer in same if self._graded_distrust_reason(peer, pool, raw) is None]
+        if trusted:
+            pick = min(trusted, key=lambda peer: peer["market"])
+            return {
+                "price": round(float(pick["market"]), 2),
+                "source": "scrydex_market",
+                "sale_count": None,
+                "as_of": pick.get("as_of"),
+                "variant": printing_name(_normalized_variant_label(pick["variant"])) if pick.get("variant") else None,
+            }
+
+        cached = slab_recent_sales_cache(
+            self.conn, card_id=card["id"], grader=grader, grade=grade, source="ebay", limit=RECENT_SALES_MAX_LIMIT,
+        )
+        filtered = _filter_recent_sales_rows(cached, variant_key=quoted, limit=RECENT_SALES_MAX_LIMIT, card=card)
+        set_names = self._listing_set_names(card)
+        matched = [
+            sale for sale in (filtered or {}).get("sales") or []
+            if listing_matches_card(sale.get("title"), card, set_names=set_names)
+        ]
+        last = _recent_sales_average(matched)
+        if not last or not isinstance(last.get("amount"), (int, float)) or self._is_placeholder_price(float(last["amount"])):
             return None
-        pick = min(trusted, key=lambda peer: peer["market"])
+        as_of = str(last.get("latestSoldAt") or "").replace("/", "-") or None
+        if as_of and as_of < cutoff:
+            return None
         return {
-            "price": round(float(pick["market"]), 2),
-            "source": "scrydex_market",
-            "sale_count": None,
-            "as_of": pick.get("as_of"),
-            "variant": printing_name(_normalized_variant_label(pick["variant"])) if pick.get("variant") else None,
+            "price": round(float(last["amount"]), 2),
+            "source": "ebay_sold",
+            "sale_count": len(matched),
+            "as_of": as_of,
+            "variant": printing_name(_normalized_variant_label(quoted)) if quoted else None,
         }
+
+    def _own_graded_entries(self, card_id: str) -> list[dict[str, Any]]:
+        """Every plain graded cell (all graders/grades/printings) on the card's newest
+        Scrydex graded day, USD (FX-converted), in the peer-entry shape."""
+        if not self._has_table("card_price_history_cell"):
+            return []
+        provider = pricing_provider()
+        row = self.conn.execute(
+            "SELECT price_date FROM card_price_history_cell WHERE card_id = ? AND provider = ? AND +lane = 'graded' "
+            "ORDER BY price_date DESC LIMIT 1",
+            (card_id, provider),
+        ).fetchone()
+        if row is None:
+            return []
+        price_date = str(row[0])
+        entries = []
+        for grader, grade, variant, market, currency in self.conn.execute(
+            "SELECT grader, grade, variant_key, market, currency_code FROM card_price_history_cell "
+            "WHERE card_id = ? AND price_date = ? AND provider = ? AND +lane = 'graded' AND market > 0 "
+            "AND COALESCE(is_perfect, 0) = 0 AND COALESCE(is_signed, 0) = 0 AND COALESCE(is_error, 0) = 0",
+            (card_id, price_date, provider),
+        ).fetchall():
+            usd = _amount_to_usd(self.conn, market, currency or "USD")
+            if usd is None or usd <= 0:
+                continue
+            entries.append(
+                {
+                    "card_id": card_id,
+                    "grader": str(grader or "").strip().upper(),
+                    "grade": self._history_grade_key(grade),
+                    "variant": str(variant or "").strip() or None,
+                    "market": float(usd),
+                    "source": "scrydex",
+                    "as_of": price_date,
+                }
+            )
+        return entries
+
+    def _listing_set_names(self, card: dict[str, Any]) -> list[str]:
+        """Names a listing may use for the card's set: the catalog set name, Scrydex's
+        English translation (Japanese sets) and the set code."""
+        names = [card.get("setName"), card.get("setPtcgoCode")]
+        row = self.conn.execute("SELECT source_payload_json FROM cards WHERE id = ?", (card["id"],)).fetchone()
+        try:
+            payload = json.loads(row[0]) if row is not None and row[0] else {}
+        except (TypeError, ValueError):
+            payload = {}
+        expansion = payload.get("expansion") if isinstance(payload, dict) else None
+        if isinstance(expansion, dict):
+            names.append(expansion.get("code"))
+            translated = ((expansion.get("translation") or {}).get("en") or {}).get("name")
+            names.append(translated)
+        return [str(name) for name in dict.fromkeys(names) if str(name or "").strip()]
 
     @staticmethod
     def _grade_sql(grade_code: str | None) -> tuple[str, list[Any]]:
