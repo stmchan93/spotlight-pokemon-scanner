@@ -604,6 +604,13 @@ export const textStyles = {
     letterSpacing: 0,
     color: colors.textPrimary,
   } satisfies TextStyle,
+  // QTY stepper label — Medium 11 (Figma 6597:3848).
+  stepperLabel: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 11,
+    lineHeight: 14,
+  } satisfies TextStyle,
   // Delta pills and outlined chips — 11/600, color applied separately
   chipLabel: {
     ...numericFontVariant,

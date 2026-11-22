@@ -146,7 +146,7 @@ export const SetCardTile = memo(function SetCardTile({
           {card.marketPrice != null ? (
             <Text
               numberOfLines={1}
-              style={[styles.centered, theme.typography.priceCaption, { color: theme.colors.gray900 }]}
+              style={[styles.centered, theme.typography.captionStrong, { color: theme.colors.gray900 }]}
               testID={`set-card-${card.cardId}-price`}
             >
               {formatCurrency(card.marketPrice, 'USD')}

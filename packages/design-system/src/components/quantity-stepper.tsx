@@ -67,7 +67,7 @@ export function QuantityStepper({
           <Minus color={iconColor(canDecrement)} height={TILE_ICON_SIZE} width={TILE_ICON_SIZE} />
         </Pressable>
         <Text
-          style={theme.typography.captionTinyMedium}
+          style={[theme.typography.stepperLabel, { color: theme.colors.gray900 }]}
           testID={testID ? `${testID}-value` : undefined}
         >
           {readout}
