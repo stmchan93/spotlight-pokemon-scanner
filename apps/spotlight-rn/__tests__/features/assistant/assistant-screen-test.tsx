@@ -569,7 +569,7 @@ describe('AssistantScreen', () => {
     const sendAssistantMessage = jest.fn(async () => reply(null));
     renderScreen({ sendAssistantMessage });
     await screen.findByTestId('assistant-intro');
-    expect(screen.getByPlaceholderText("What's the most expensive card in my collection?")).toBeTruthy();
+    expect(screen.getByPlaceholderText('Chat with Ekalight')).toBeTruthy();
     expect(sendButtonColor()).toBe('#E8E8E8');
     expect(screen.getByTestId('assistant-send')).toBeDisabled();
     fireEvent.press(screen.getByTestId('assistant-send'));

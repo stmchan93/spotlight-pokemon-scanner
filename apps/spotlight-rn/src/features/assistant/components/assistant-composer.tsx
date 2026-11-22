@@ -64,8 +64,8 @@ export const AssistantComposer = forwardRef<TextInput, AssistantComposerProps>(f
         multiline
         onChangeText={onChangeText}
         onFocus={onFocus}
-        // An open-ended example question (owner, 2026-11-21).
-        placeholder="What's the most expensive card in my collection?"
+        // Figma 6607:11726 (owner, 2026-11-21).
+        placeholder="Chat with Ekalight"
         placeholderTextColor={theme.colors.gray600}
         ref={ref}
         style={[
