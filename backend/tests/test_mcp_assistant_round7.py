@@ -149,9 +149,10 @@ class SplitAnswerEngineTests(Round7EngineCase):
         self.assertEqual(len(client.messages.calls), 2)
 
     def test_empty_final_without_earlier_text_gets_one_tools_off_retry(self) -> None:
-        client = self.two_rounds(None, [], message([text("You need 3 cards; about $45.00 in total.")]))
+        answer = "You need 3 cards, led by Pikachu ex; about $45.00 in total."  # names its tile
+        client = self.two_rounds(None, [], message([text(answer)]))
         turn = self.run_turn(client, "How much would it cost to finish my set?")
-        self.assertEqual((turn.status, turn.text), ("ok", "You need 3 cards; about $45.00 in total."))
+        self.assertEqual((turn.status, turn.text), ("ok", answer))
         retry = client.messages.calls[-1]
         self.assertEqual(retry["tool_choice"], {"type": "none"})
         self.assertEqual(retry["messages"][-1]["content"][-1], {"type": "text", "text": ANSWER_NOW_NOTE})

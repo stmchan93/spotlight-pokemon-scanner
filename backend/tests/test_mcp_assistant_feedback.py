@@ -143,7 +143,8 @@ class FeedbackTests(AssistantCase):
         self.assertEqual(properties["tools"], ["get_portfolio_summary"])
         self.assertGreater(properties["cost_usd"], 0)
         self.assertEqual(properties["question"], "What is my collection worth?")
-        self.assertEqual(properties["answer"], "Your collection is worth $144.")
+        # The holdings tiles get named after the model text (owner 2026-11-21).
+        self.assertTrue(properties["answer"].startswith("Your collection is worth $144."))
         self.assertIsNone(capture.call_args_list[1].args[1]["rating"])
 
         analytics = TurnAnalytics(api_key="phc_test", host="https://ph.example", environment="staging")

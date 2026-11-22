@@ -88,6 +88,8 @@ EXPECT_KEYS = frozenset(
         "tool_result_where",
         # false = skip the automatic scan-tray naming check
         "scan_tray_named",
+        # false = skip the automatic "Here are N" vs tile-count check
+        "shown_count_matches_tiles",
     }
 )
 MATCHER_OPS = frozenset({"not", "in", "not_in", "exists", "contains", "gte", "lte"})
@@ -1042,6 +1044,39 @@ def check_scan_tray_named(record: dict[str, Any], expect: dict[str, Any]) -> Che
     return _fail("scan_tray_named", "a scan-tray answer must say the cards are the scan tray")
 
 
+# Owner hand labels 2026-11-21 (L026: "Here are the first 20 by price" over 12 tiles).
+_COUNT_WORDS = ("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
+                "sixteen seventeen eighteen nineteen twenty").split()
+_SHOWN_COUNT = re.compile(
+    r"\b(?:here(?:'s|\s+is|\s+are)|showing|i'?m\s+showing|below\s+are|these\s+are)\s+"
+    r"(?:(?:the|my|your|some|all)\s+)?"
+    r"(?:(?:first|top|next|last|cheapest|priciest|most\s+valuable|highest[-\s]value|lowest[-\s]priced)\s+)?"
+    r"(?P<n>\d{1,3}|" + "|".join(_COUNT_WORDS[2:]) + r")\b(?!\s*(?:%|percent|days?|weeks?|months?|years?|/|\.\d))",
+    re.IGNORECASE,
+)
+
+
+def stated_shown_counts(answer: str) -> list[int]:
+    """N in 'Here are the first 20 by price', 'Here are the top eight under $50'."""
+    counts = []
+    for match in _SHOWN_COUNT.finditer(str(answer or "")):
+        token = match.group("n").casefold()
+        counts.append(int(token) if token.isdigit() else _COUNT_WORDS.index(token))
+    return [count for count in counts if count >= 2]
+
+
+def check_shown_count_matches_tiles(record: dict[str, Any], expect: dict[str, Any]) -> CheckResult | None:
+    """None when the answer states no shown count, there are no tiles, or the turn opts out."""
+    tiles = _tiles(record)
+    counts = stated_shown_counts(record.get("answer"))
+    if expect.get("shown_count_matches_tiles") is False or not tiles or not counts:
+        return None
+    wrong = [count for count in counts if count != len(tiles)]
+    if wrong:
+        return _fail("shown_count_matches_tiles", f"text says {wrong[0]} shown, {len(tiles)} tiles")
+    return _ok("shown_count_matches_tiles")
+
+
 def check_max_cost(record: dict[str, Any], ceiling: float) -> CheckResult:
     cost = float(record.get("cost_usd") or 0.0)
     return _ok("max_cost_usd") if cost <= ceiling else _fail("max_cost_usd", f"${cost:.4f} > ${ceiling:.4f}")
@@ -1109,6 +1144,9 @@ def grade_turn(
     tray = check_scan_tray_named(record, expect)
     if tray is not None:
         results.append(tray)
+    shown = check_shown_count_matches_tiles(record, expect)
+    if shown is not None:
+        results.append(shown)
     window_claim = check_no_uncovered_window_claim(record)
     if window_claim is not None:
         results.append(window_claim)

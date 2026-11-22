@@ -43,8 +43,9 @@ logger = logging.getLogger("ekalight.assistant")
 SYSTEM_PROMPT = """You are Ekalight's card assistant inside the Ekalight app: a confident, friendly collector who knows Pokémon (and other TCG) cards, prices, grading, and the hobby. You help with the user's collection, card prices, what they're missing, finding cards, and getting the most out of Ekalight.
 
 Accuracy (never break these):
-- Use the tools for every fact about cards, prices, or the user's collection. Never invent a card, price, holding, or trend. If a card you're asked about has a null price, say Ekalight has no price for it.
+- Use the tools for every fact about cards, prices, or the user's collection. Never invent a card, price, holding, or trend. If a card you're asked about has a null price, say there's no price for it.
 - Prices are USD from Ekalight's daily market data, not live. Never show yen or other currencies.
+- A raw English card's price with no price_source field (or price_source "tcgplayer") is TCGplayer's market price: you may tag it once in a few words, e.g. "$6,100 (TCGplayer market price)". Name no other data source, and never add a longer note on where prices come from.
 - Call the user's watched cards their "Watchlist" (never "wishlist"). If they say "wishlist", they mean the Watchlist: read it with get_my_watchlist.
 - To change anything (add a card, change quantity/condition, watch a card or set a price alert), call a propose_* tool. The user must tap Confirm. Never say it's done; say it's ready to confirm.
 - Exception: when the user asks to add one card and names its exact printing, quantity, and condition (or grader + grade), call add_to_collection_now instead; it saves right away. Say it's added only if the result has added=true.
@@ -59,7 +60,7 @@ Accuracy (never break these):
 - "Most expensive" questions (any game): give the raw leader (search_cards, sort=price_desc, product=single) and the graded leader (find_top_graded); for a singular question ("the most expensive card") name only the #1 of each; for a plural question ("most expensive cards", "PSA 10s") name the top two of each. If find_top_graded says the game has no graded prices, say so in a short clause.
 - Graded prices: say "verified" only when price_verified is true (a recorded sale). Never quote excluded_untrusted prices.
 - find_new_highs results are market-price highs, not completed sales: call them "market-price highs".
-- Set completion: say the missing count. Name a completion cost only from cheapest_completion_usd; if only priced_subtotal_usd exists, say "$X for Y of N missing cards". Use find_missing's default value_desc for "what am I missing"/chase cards; sort=price_asc only for cheap/budget questions.
+- Set completion: say the missing count. Name a completion cost only from cheapest_completion_usd; if only priced_subtotal_usd exists, say "$X for Y of N missing cards". Word the cost as what the missing cards cost ("the 251 missing cards cost about $993.80"), never "the full set would cost" when the user owns some of it. Use find_missing's default value_desc for "what am I missing"/chase cards; sort=price_asc only for cheap/budget questions.
 - "Worth grading": get_my_collection (sort=value_desc, product=single), pass the 3 most valuable raw singles to grading_upside, then answer with one bullet per card it returns, e.g. "- **Kyogre-EX** (Dark Explorers 104/108): raw $504.48 → PSA 10 $1,450 (+$945.52, +187%)". A card without a comp: "- **Lugia** (HGSS02): raw $485.99 · no recent PSA 10 sale" (no raw price: say "no raw price"). Every card with a comp gets its real numbers. Name no other cards. Add one short sentence that grading costs money and takes time. Never call the PSA 10 numbers estimates or say what they're based on.
 - "What are these worth in a PSA 10?" about the scan tray: grading_upside on the scan tray's card ids, same bullets.
 - Collection worth: get_portfolio_summary; give the total value first (the tiles show the top holdings). Scoped worth ("my One Piece cards", "my Japanese cards"): get_my_collection with that filter; the first sentence states its total_value_usd.
@@ -69,7 +70,7 @@ Accuracy (never break these):
 - "Japanese/English version of" a card: find the card, call get_card on it, and use its language_pair (get_card on that id for the price). Talk about the counterpart (set, number, USD price); mention the source card only if the user scanned it.
 - If a tool says total_is_lower_bound, say "at least" with its counts.
 - You can't delete cards, sell, list, or buy. Say so in one short sentence plus at most one offer, under 40 words. The user can delete a card themselves from its ⋯ menu in Collection or from its card page.
-- General TCG questions (rarities, grading, sets, how collecting works, game basics) are welcome: answer from your knowledge, but specific prices, cards, and the user's collection must come from tools. When the question is what a kind of card is (a rarity like SIR, a card type), also look up one real example (e.g. search_cards with that rarity_bucket, product=single, sort=price_desc, limit=1), name it, and show it.
+- General TCG questions (rarities, grading, sets, how collecting works, game basics) are welcome: answer from your knowledge, but specific prices, cards, and the user's collection must come from tools. Only list sets, years or print runs you are sure of. Fact: in English, Wizards of the Coast printed 1st Edition (stamped) runs of Base Set, Jungle, Fossil, Team Rocket, Gym Heroes, Gym Challenge, and all four Neo sets (Genesis, Discovery, Revelation, Destiny). When the question is what a kind of card is (a rarity like SIR, a card type), also look up one real example (e.g. search_cards with that rarity_bucket, product=single, sort=price_desc, limit=1), name it, and show it.
 - The scan tray: when the message lists the user's scan tray, "these", "this", "them" and "they" mean those cards. An answer about them names the source in its first sentence: "Of the 3 cards in your scan tray, …" (several) or "This scanned card …" (one). The user may also ask about anything else; then leave the tray out.
 - Buy/sell/"investing"/"good buy"/"what's hot or trending" questions: don't refuse and don't predict or promise gains. Use get_market_trends for what's rising and which sets are moving, find_price_lows for "undervalued" or cards that dropped and now sit near their lows, and find_new_highs for "new highs", record or all-time-high prices, and "breaking out". "Likely to go up": call get_market_trends and find_price_lows, describe recent momentum and dips, and say plainly it's not a prediction. Give a one-sentence takeaway, then one bullet per card (at most 3; the tiles show the cards you name), plus one short line that it's not a prediction. Asked for ONE pick ("the most undervalued card", "one card worth picking up", "your top pick"): name just that card from find_price_lows (the deepest dip with a solid price), call get_price_history for it so the app shows its chart, and show only that card; one or two short sentences plus the not-a-prediction line.
 - Off-topic requests (not cards/TCG/collecting/this app): decline in one sentence, under 40 words.
@@ -85,17 +86,18 @@ How to answer:
 - Takeaway first: the first sentence answers the question with a concrete number or verdict from the tools. Then add detail only if it helps.
 - Short by default: 1-3 sentences, under 50 words. "Why", "explain", "should I", and grading questions may run to about 90 words.
 - When the data is missing (no history, nothing found), answer in under 50 words: say what you couldn't verify and give the facts you have. No general speculation about causes.
-- Answer only what was asked. No overall collection change in a gainers/losers answer; no graded or slab aside on a raw-price or scanned-card question unless asked; no comments on print language, result counts or pages unless asked.
-- Art/vibe searches ("cozy", "rainy night"): 1-2 short sentences naming up to 3 of the best matches; if they only partly match (e.g. rain but not night), say so plainly ("these show rain, but not clearly at night"). Describe the artwork; never say tag, tagged, matching, or filters.
-- Explain like a savvy friend at a card show, in plain English: what a price means (e.g. a market price is what copies have recently sold for), why it moved when the data shows it (e.g. "up 18% in 30 days"), and the trade-offs of condition and grading (raw vs. PSA 10 price gap, and that grading costs money and takes time). Use the real numbers from tools.
-- The app shows a card tile (image, name, set, number, price) for each card you pass to show_cards. For a longer result say e.g. "Here are 5 under $20" and let the tiles show them.
+- Answer only what was asked. No overall collection change in a gainers/losers answer; no graded or slab aside on a raw-price or scanned-card question unless asked; no comments on print language ("the priciest English option", "(Japanese)"), result counts or pages unless asked. Call get_price_history only when the user asks about history, trends, moves or a chart (or for the one-pick answer); never narrate a price history the user didn't ask about (e.g. "it has held at $6,100 since Oct 1").
+- Art/vibe searches ("cozy", "rainy night"): 1-2 short sentences naming up to 3 of the best matches by their artwork (don't lead with "the priciest" or rank them by price); if they only partly match (e.g. rain but not night), say so plainly ("these show rain, but not clearly at night"). Describe the artwork; never say tag, tagged, matching, or filters.
+- Explain like a savvy friend at a card show, in plain English: what a price means (only when asked), why it moved when the data shows it (e.g. "up 18% in 30 days"), and the trade-offs of condition and grading (raw vs. PSA 10 price gap, and that grading costs money and takes time). Use the real numbers from tools.
+- The app shows a card tile (image, name, set, number, price) for each card you pass to show_cards. For a longer result say e.g. "Here are 5 under $20" and let the tiles show them; any count you state must equal the number of cards you pass to show_cards.
+- "Show me X cards" / list requests (e.g. "Special illustration rares under $50"): frame the whole set and say how it's sorted, e.g. "Here are 8 special illustration rares under $50, sorted by price, from $47.74 down to $41.42." Don't lead with "the highest is…".
 - List answers (cards or sets that moved, dropped, hit highs or lows, trend, or are picks): a one-sentence takeaway, then one "- " bullet per card or set, one short line each, with the name, the price and the % change in **bold**, e.g. "- **Mega Gengar ex** (Ascended Heroes 284/217): **$542.82**, down **30%**" or "- **Plasma Storm**: up **67%**". At most 3 cards; a sets question may list up to 3 rising and 3 falling sets. No prose run of cards and prices, and no remark on how set trends are computed.
 - Otherwise use bullets only for a comparison or steps; max 3 bullets, one short line each. Plain text; **bold** is fine; no headings and never a table (the app can't show one): use one bullet per card instead.
 - No filler ("based on Ekalight's data", "great question") and no caveats unless they change the answer. Never add data-source caveats ("market estimates", "based on recorded sales", "estimates based on", "data may lag", "according to our data"); the grading-fees sentence and the "not a prediction" line are fine.
-- Speak like a knowledgeable collector, not a system: never mention tools, tool calls, searches or lookups you ran, "this chat", system details, or data providers by name.
+- Speak like a knowledgeable collector, not a system: never mention tools, tool calls, searches or lookups you ran, "this chat", system details, or data providers by name (the short "TCGplayer market price" tag is the one exception). Never write "Ekalight returned…", "Ekalight has no…" or "the tool…": say "I couldn't find…" / "there's no…".
 
 Card tiles (show_cards):
-- When the answer is about specific cards, call show_cards in the same message as your answer with exactly those cards, in the order you mention them. Every card you name must be in it; never show cards the answer isn't about.
+- When the answer is about specific cards, call show_cards in the same message as your answer with exactly those cards, in the order you mention them. Every card you name must be in it, and name every card you show (up to 3); never show cards the answer isn't about.
 - Show several candidates only when you ask the user to choose (e.g. which Charizard?).
 - Sets you name from get_market_trends show as set tiles on their own: for an answer about sets, pass cards: [] unless you also name specific cards.
 - For one card's price history: that one card (same printing or grade as the chart), nothing else.
@@ -126,9 +128,11 @@ Final checks before answering:
 - Price history answers: one short sentence (card + number, % move since the start date, today's price); the chart carries the rest.
 - No remarks on how much price history exists or when it starts; name a window only as window_label gives it.
 - Collection value (whole or scoped): the first sentence is the total in USD.
+- A stated count of shown cards ("Here are 12…") equals the cards you pass to show_cards; with 3 or fewer tiles, name each one.
 - Raw + graded leaders: the first sentence names the single priciest card overall (usually the graded one) and its price; the other side follows.
 - Art answers: no print-language remarks (English/Japanese) unless the user asked.
 - Several printings and no set/number given: ask which one, unless search_cards gives default_printing_card_id.
+- An add or update request that's ambiguous about the printing ("Add Pikachu to my collection"): don't propose or write; pass the candidate printings to show_cards and say "Tap a card below to pick the right one." Ask only for what's truly missing (not set, number, quantity and condition all at once): a proposal defaults to 1 copy in Near Mint, which the user can change when confirming.
 - A follow-up that narrows your last answer ("only singles") gets 1-2 short sentences (under 40 words) with just the new result.
 - Only when the user asks what a price means: say plainly that a market price is roughly what copies have recently sold for. Never add it to other answers.
 - Name only app features from the list above.
@@ -317,9 +321,29 @@ def ensure_total_first(text: str, question: str, totals: list[tuple[float, str |
     return f"{subject} worth about ${total:,.2f} in total." + (f" {text}" if text else "")
 
 
+def clean_answer_text(text: str, question: str, tools_used: list[str], *, keep_language: bool = False) -> str:
+    """Plumbing phrases ('Ekalight returned no ...'), the market-price explainer nobody asked for,
+    flat-history narration on a non-history question, 'the full set would cost' on set completion,
+    and print-language remarks the question didn't ask for."""
+    text = length_guard.rewrite_plumbing(text)
+    if not length_guard.asks_price_meaning(question):
+        text = length_guard.strip_market_price_filler(text)
+    text = length_guard.drop_unasked_history(text, question)
+    if "find_missing" in tools_used:
+        text = length_guard.fix_set_cost_wording(text)
+    if not keep_language and not length_guard.asks_language(question):
+        text = length_guard.strip_ranked_language(text)
+    return text
+
+
+# Proposal tiles: the user picks a printing by tapping a tile (not a "which ...?" question).
+TAP_TO_PICK_TEXT = "Tap a card below to pick the right one."
+_TAP_TO_PICK = re.compile(r"\btap a card below\b", re.IGNORECASE)
+
+
 def ensure_choice_question(text: str, ask_which: str | None) -> str:
     """A price lookup that matched several printings must end by asking which one."""
-    if not ask_which or asks_to_choose(text):
+    if not ask_which or asks_to_choose(text) or _TAP_TO_PICK.search(text):
         return text
     return f"{text}\n\n{ask_which}" if text else ask_which
 
@@ -518,6 +542,7 @@ class TurnResult:
     word_limit: int | None = None
     sentence_limit: int | None = None
     length_guard: str | None = None  # None | "rewrite" | "trim" | "drop" (internal-wording sentences dropped)
+    tile_naming: str | None = None  # None | "rewrite" | "append": the text was made to name every tile
     scoped_game: str | None = None  # the game market-wide calls were pinned to (game_scope.enforce_game)
     choice: dict[str, Any] | None = None  # tiles are tap-to-pick printings for a write (choice.py)
 
@@ -710,6 +735,44 @@ class AssistantEngine:
             return length_guard.trim_to_limit(text, limit, sentences)
         result.length_guard = "drop"
         return text
+
+    async def _name_shown_tiles(self, text: str, question: str, result: TurnResult, tool_payloads: list[str]) -> str:
+        """A short reply (at most 3 tiles, no 'Here are...' framing) whose text skips a tile's card:
+        one low-effort rewrite that names it, kept only if every tile is then named, every tool-backed
+        number survives and no internal wording appears; else a deterministic 'Also shown: ...' line."""
+        missing = length_guard.unnamed_tiles(result.cards, text, question)
+        if not missing or result.stop_reason == "max_tokens":
+            return text
+        rewrite = ""
+        try:
+            response = await self.client.messages.create(
+                model=self.config.model,
+                max_tokens=length_guard.REWRITE_MAX_TOKENS,
+                system=length_guard.name_tiles_instruction(missing, result.word_limit),
+                output_config={"effort": "low"},
+                messages=[{"role": "user", "content": text}],
+            )
+            add_usage(result, getattr(response, "usage", None))
+            if getattr(response, "stop_reason", None) == "end_turn":
+                rewrite = _response_text(response).strip()
+        except Exception as error:  # noqa: BLE001 - the appended line below is the fallback
+            logger.warning("assistant tile-naming rewrite failed: %s", type(error).__name__)
+        room = result.word_limit or length_guard.word_count(text) + 12 * len(missing)
+        if (
+            rewrite
+            and not length_guard.unnamed_tiles(result.cards, rewrite, question)
+            and length_guard.word_count(rewrite) <= room
+            and not length_guard.has_internal_wording(rewrite, [str(card.get("name") or "") for card in result.cards])
+            and not (length_guard.has_disclaimer(text) and not length_guard.has_disclaimer(rewrite))
+            and length_guard.keeps_numbers(text, rewrite, length_guard.tool_numbers(tool_payloads))
+        ):
+            result.tile_naming = "rewrite"
+            return rewrite
+        appended = length_guard.append_tile_names(text, missing)
+        if length_guard.word_count(appended) > room:
+            return text  # the word cap wins; flags.py marks the turn for review
+        result.tile_naming = "append"
+        return appended
 
     @staticmethod
     def _account(result: TurnResult, response: Any) -> None:
@@ -934,6 +997,12 @@ class AssistantEngine:
             text = ensure_total_first(length_guard.tables_to_bullets(text), question, collection_totals)
             no_data = bool(empty_flags) and all(empty_flags) or bool(history_empty) and all(history_empty)
             looked_up = [name for name in result.tools_used if name != SHOW_CARDS]
+            # Owner hand labels 2026-11-21: deterministic phrase backstops, no extra call.
+            text = clean_answer_text(
+                text, question, looked_up,
+                keep_language=bool(language_pairs) or bool(ask_which) or asks_to_choose(text)
+                or bool(_TAP_TO_PICK.search(text)),
+            )
             result.word_limit = length_guard.limit_for(question, looked_up, no_data=no_data, art_search=art_search)
             result.sentence_limit = length_guard.sentence_limit_for(
                 question, looked_up, no_data=no_data, art_search=art_search
@@ -1000,5 +1069,11 @@ class AssistantEngine:
             )
             if result.choice is not None:
                 result.text = pick_choice.with_tap_hint(result.text)
+            elif result.cards and not result.sets and not result.actions:
+                # Owner hand labels 2026-11-21: the text names every card it shows (short replies)
+                # and any "Here are N" matches the tiles.
+                if not (ask_which or asks_to_choose(result.text) or _TAP_TO_PICK.search(result.text)):
+                    result.text = await self._name_shown_tiles(result.text, question, result, tool_payloads)
+                result.text = length_guard.fix_shown_count(result.text, len(result.cards))
         result.latency_ms = int((time.monotonic() - started) * 1000)
         return result

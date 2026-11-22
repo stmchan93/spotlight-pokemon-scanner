@@ -525,7 +525,8 @@ class ToolLoopTests(AssistantCase):
         self.client.queue(
             message([thinking(), tool_use("get_my_collection", {"sort": "value_desc"}, "tu_9")], "tool_use"),
             # Mentions a card no tool returned: must not become a tile.
-            message([text("Your top holding is **Pikachu ex**. Also Mewtwo GX is cool.")]),
+            # Names every holding tile (owner 2026-11-21), so no tile-naming rewrite call.
+            message([text("Your top holdings are **Pikachu ex** and Charizard ex. Also Mewtwo GX is cool.")]),
         )
         body = self.ask().json()
         reply = body["message"]

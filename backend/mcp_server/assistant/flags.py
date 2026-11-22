@@ -6,6 +6,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from mcp_server.assistant import length_guard
+
 LONG_ANSWER_WORDS = 90
 SLOW_LATENCY_MS = 15_000
 EXPENSIVE_COST_USD = 0.005
@@ -24,6 +26,8 @@ FLAG_CODES = (
     "wrong_naming",
     "self_correction",
     "mentions_internals",
+    "shown_count_mismatch",
+    "unnamed_tiles",
     "long_answer",
     "slow",
     "expensive",
@@ -37,7 +41,12 @@ _NO_RESULTS = re.compile(
 _SELF_CORRECTION = re.compile(
     r"\b(?:correct my last|I (?:didn't|did not) (?:run|pull))\b", re.IGNORECASE
 )
-_INTERNALS = re.compile(r"\b(?:tools?|tool calls?|search I ran|this chat)\b", re.IGNORECASE)
+_INTERNALS = re.compile(
+    r"\b(?:tools?|tool calls?|search I ran|this chat)\b"
+    # Owner 2026-11-21: plumbing phrases ("Ekalight returned no price history").
+    r"|\bEkalight\s+(?:returned|found|gave|has\s+no|had\s+no|doesn'?t\s+have|does\s+not\s+have)\b",
+    re.IGNORECASE,
+)
 _CURRENCY = re.compile(r"[¥￥]|\byen\b|\bJPY\b", re.IGNORECASE)
 _WISHLIST = re.compile(r"\bwish[\s-]?list", re.IGNORECASE)
 _CARD_QUESTION = re.compile(
@@ -136,6 +145,12 @@ def flag_turn(question: str, turn: Any, request: dict[str, Any] | None = None) -
         found.add("self_correction")
     if _INTERNALS.search(text):
         found.add("mentions_internals")
+    # Owner 2026-11-21: "Here are the first 20" over 12 tiles; tiles the text never names.
+    if cards and not _get(turn, "sets") and any(n != len(cards) for n in length_guard.stated_shown_counts(text)):
+        found.add("shown_count_mismatch")
+    if (status == "ok" and not _get(turn, "sets") and not _get(turn, "actions")
+            and length_guard.unnamed_tiles(cards, text, question)):
+        found.add("unnamed_tiles")
     if len(text.split()) > LONG_ANSWER_WORDS:
         found.add("long_answer")
     if int(_get(turn, "latency_ms", 0) or 0) > SLOW_LATENCY_MS:
