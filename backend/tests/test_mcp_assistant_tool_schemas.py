@@ -60,3 +60,15 @@ class ToolSchemaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StrictToolBudgetTests(unittest.TestCase):
+    def test_only_write_tools_are_strict(self) -> None:
+        # Too many strict tools made the API reject every request (compiled grammar too large, 2026-11-22).
+        from mcp_server.assistant.engine import TOOLS_PAYLOAD
+
+        strict = sorted(tool["name"] for tool in TOOLS_PAYLOAD if tool.get("strict"))
+        self.assertTrue(strict)
+        for name in strict:
+            self.assertTrue(name.startswith("propose_") or name == "add_to_collection_now", name)
+        self.assertLessEqual(len(strict), 10)

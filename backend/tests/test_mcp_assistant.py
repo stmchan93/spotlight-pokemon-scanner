@@ -505,7 +505,7 @@ class ToolLoopTests(AssistantCase):
         by_name = {tool["name"]: tool for tool in call["tools"]}
         self.assertIn("good buy", by_name["find_price_lows"]["description"])
         self.assertIn("trending", by_name["get_market_trends"]["description"])
-        self.assertTrue(by_name["get_market_trends"].get("strict"))
+        self.assertFalse(by_name["get_market_trends"].get("strict"))  # reads are never strict (grammar budget)
         self.assertIn("find_price_lows", call["system"][-1]["text"])
         self.assertIn("undervalued", by_name["find_price_lows"]["description"])
         self.assertIn("most recent new high sales", by_name["find_new_highs"]["description"])

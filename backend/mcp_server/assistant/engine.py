@@ -696,8 +696,18 @@ def _history_refs(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return refs
 
 
+def _strict_tool(name: str) -> bool:
+    """Strict schemas only for writes, where a malformed argument would change user data.
+    Every strict tool adds to one compiled grammar, and too many made the API reject
+    every request ("compiled grammar is too large", 2026-11-22); reads are corrected in code."""
+    return name.startswith("propose_") or name == "add_to_collection_now"
+
+
 def _tools_payload() -> list[dict[str, Any]]:
     tools = copy.deepcopy(TOOL_DEFINITIONS)
+    for tool in tools:
+        if not _strict_tool(tool["name"]):
+            tool.pop("strict", None)
     tools[-1]["cache_control"] = {"type": "ephemeral"}
     return tools
 
