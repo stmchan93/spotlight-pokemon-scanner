@@ -866,11 +866,24 @@ install_caddyfile() {
 mcp_restart_failed=0
 restart_mcp_service || mcp_restart_failed=1
 
+# One tiny real chat call with the deployed tool definitions: the API can reject a
+# request shape that every unit test accepts (2026-11-22: "compiled grammar is too large").
+assistant_probe_failed=0
+if [ "$mcp_restart_failed" -eq 0 ] && systemctl cat "$MCP_SERVICE_NAME" >/dev/null 2>&1; then
+  if ! (set -a; . "$ENV_FILE"; . "$SECRETS_FILE"; set +a; cd "$SCRIPT_DIR" && "$VENV_DIR/bin/python" tools/assistant_api_probe.py); then
+    assistant_probe_failed=1
+  fi
+fi
+
 install_caddyfile
 
 if [ "$mcp_restart_failed" -ne 0 ]; then
   # Backend + Caddy are live; fail loudly so the MCP outage isn't missed.
   echo "VM deploy finished, but $MCP_SERVICE_NAME is NOT healthy (see above)." >&2
+  exit 1
+fi
+if [ "$assistant_probe_failed" -ne 0 ]; then
+  echo "VM deploy finished, but the Ask Ekalight API probe FAILED: every chat turn will error (see above)." >&2
   exit 1
 fi
 
