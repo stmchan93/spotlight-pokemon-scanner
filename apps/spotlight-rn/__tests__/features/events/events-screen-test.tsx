@@ -135,6 +135,19 @@ describe('EventsScreen', () => {
     expect(screen.getByTestId('events-title').props.children).toBe('PAST SPOTLIGHT EVENTS');
   });
 
+  it('TICKETS sits between EVENTS and SAVED and is honestly empty (no ticket records exist)', async () => {
+    renderEvents();
+    await screen.findByTestId('event-card-hawaii-2026-10');
+    const tabs = within(screen.getByTestId('events-tabs'))
+      .getAllByTestId(/^events-tabs-tab-/)
+      .map((node) => node.props.testID);
+    expect(tabs).toEqual(['events-tabs-tab-events', 'events-tabs-tab-tickets', 'events-tabs-tab-saved', 'events-tabs-tab-past']);
+    fireEvent.press(screen.getByTestId('events-tabs-tab-tickets'));
+    expect(screen.getByTestId('events-title').props.children).toBe('MY TICKETS');
+    expect(screen.getByTestId('events-tickets-empty')).toBeTruthy();
+    expect(cardIds()).toEqual([]);
+  });
+
   it('PAST EVENTS shows an empty state when nothing is past', async () => {
     renderEvents(async () => ({ items: [upcomingFeatured] }));
     await screen.findByTestId('event-card-hawaii-2026-10');
@@ -232,7 +245,7 @@ describe('EventsScreen', () => {
     expect(await screen.findByTestId('event-card-hawaii-2026-10')).toBeTruthy();
   });
 
-  it('has no drawer menu and puts search in the trailing capsule beside share', async () => {
+  it('has no menu; search sits in the trailing capsule beside share', async () => {
     renderEvents();
     await screen.findByTestId('event-card-hawaii-2026-10');
     expect(screen.queryByTestId('events-menu')).toBeNull();

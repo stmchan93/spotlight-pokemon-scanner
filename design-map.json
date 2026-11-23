@@ -435,8 +435,8 @@
       "mockData": null
     },
     {
-      "figmaNodeId": "5865:9330",
-      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=5865-9330",
+      "figmaNodeId": "6642:5721",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6642-5721",
       "screenName": "Events",
       "componentPaths": [
         "apps/spotlight-rn/src/features/events/screens/events-screen.tsx",
@@ -446,7 +446,7 @@
       ],
       "deepLink": "spotlight://dev/events",
       "mockData": "packages/api-client/src/spotlight/spotlight-events.ts",
-      "notes": "Chip row EVENTS / TICKETS / SAVED / PAST EVENTS over the photo; region tabs (ALL + states derived from city) are PageTabs size=compact scrollable. The toolbar search bubble opens an inline search field (not in the frame). Mock Hawaii/Ontario events point flyerUrl at the staging flyer route so the card image slot is exercised. Synced 2026-10-17: numeric pass clean after uppercasing region tab labels; visual match vs Figma, status bar/tab bar ignored."
+      "notes": "CURRENT 2026-11-22: 6642:5721 (frame mislabeled \"Collection-Portfolio\"; its tab bar is stale) supersedes 5865:9330. Sections: cover photo 6642:5722 + scrim 6642:5724, logo 6642:5725 (174x146, same art as assets/images/events/spotlight-card-show-logo.png), chips 6642:5726, title 6642:5760, region tabs 6642:5761, card 6642:5763. Menu bubble removed (drawer gone app-wide); search + share capsule kept top right (not in the frame). TICKETS chip renders an honest empty state: no ticket/purchase records exist (Buy Tickets only opens the external ticketUrl). Known deliberate deviations: chips use the app-wide PillButton size (wider than Figma 12/27); region tabs gutter-centre when they fit (owner 2026-11-19), Figma left-aligns; sheet top follows profileHeaderSheetTop (~8pt above Figma 304). Earlier: region tabs (ALL + states derived from city) are PageTabs size=compact scrollable. The toolbar search bubble opens an inline search field (not in the frame). Mock Hawaii/Ontario events point flyerUrl at the staging flyer route so the card image slot is exercised. Synced 2026-10-17: numeric pass clean after uppercasing region tab labels; visual match vs Figma, status bar/tab bar ignored."
     },
     {
       "figmaNodeId": "5882:12594",

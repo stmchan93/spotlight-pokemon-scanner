@@ -42,10 +42,11 @@ import { useSavedEvents } from '@/features/events/saved-events-store';
 import { tabBarBottomFadeHeight } from '@/lib/tab-bar-insets';
 import { PageSwipeGuard } from '@/components/page-tab-pager';
 
-export type EventsTab = 'events' | 'saved' | 'past';
+export type EventsTab = 'events' | 'tickets' | 'saved' | 'past';
 
 const TABS: readonly { value: EventsTab; label: string; title: string }[] = [
   { value: 'events', label: 'Events', title: 'Upcoming Spotlight events' },
+  { value: 'tickets', label: 'Tickets', title: 'My tickets' },
   { value: 'saved', label: 'Saved', title: 'Saved events' },
   { value: 'past', label: 'Past events', title: 'Past Spotlight events' },
 ];
@@ -60,12 +61,10 @@ const ALL_REGIONS = 'all';
 const HEADER_IMAGE_BELOW_SHEET = 24;
 const CHIP_ROW_ABOVE_SHEET = 48;
 const SHEET_RADIUS = radii.xl;
-// Figma's 203×170 logo scaled up ~15% (aspect kept), 11 left of center. Its
-// bottom is pinned 20 above the chips, so its top lands ~6 under the status
-// bar; the artwork's empty top corners keep it clear of the toolbar bubbles.
-const LOGO_WIDTH = 234;
-const LOGO_HEIGHT = 196;
-const LOGO_ABOVE_CHIP_ROW = spacing.md;
+// Figma 6642:5725 — 174×146, 11 left of center, its bottom 32 above the chips.
+const LOGO_WIDTH = 174;
+const LOGO_HEIGHT = 146;
+const LOGO_ABOVE_CHIP_ROW = spacing.xxl;
 const LOGO_CENTER_OFFSET = -11;
 const SEARCH_ICON_SIZE = 16;
 /** Room left above the sheet for the floating toolbar when search scrolls it up. */
@@ -210,6 +209,17 @@ export function EventsScreen() {
             <SkeletonBlock key={key} height={143} radius={radii.sm} width="100%" />
           ))}
         </View>
+      );
+    }
+    // Nothing records a purchase yet: "Buy Tickets" opens the show's external
+    // ticket page, so this tab can only be honest about being empty.
+    if (tab === 'tickets') {
+      return (
+        <StateCard
+          message="Tickets you buy from a show's ticket page don't appear in the app yet."
+          testID="events-tickets-empty"
+          title="No tickets yet"
+        />
       );
     }
     if (tab === 'saved') {
@@ -358,46 +368,43 @@ export function EventsScreen() {
         </View>
       </ScrollView>
 
-      {/* Fixed chrome over the photo. Nothing leads: the floating assistant
-          bubble owns the top-left corner (the drawer menu is gone). */}
+      {/* Search + share float top right over the photo. */}
       <View pointerEvents="box-none" style={[styles.toolbar, { paddingHorizontal: gutter, top: insets.top }]}>
         {isGuest ? null : (
-          <>
-            <GlassNavBubbleGroup
-              items={[
-                // Search sits on the right with the other icons (user, 2026-11-18).
-                {
-                  accessibilityLabel: searchOpen ? 'Close search' : 'Search events',
-                  children: (
-                    <Search
-                      color={theme.colors.gray900}
-                      height={glassNavBubbleGlyphSize}
-                      strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                      width={glassNavBubbleGlyphSize}
-                    />
-                  ),
-                  onPress: toggleSearch,
-                  testID: 'events-search',
-                },
-                {
-                  accessibilityLabel: 'Share events',
-                  children: (
-                    <ShareIos
-                      color={theme.colors.gray900}
-                      height={glassNavBubbleGlyphSize}
-                      strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                      width={glassNavBubbleGlyphSize}
-                    />
-                  ),
-                  onPress: handleShare,
-                  testID: 'events-share',
-                },
-              ]}
-              material="frost"
-              size="medium"
-              testID="events-actions"
-            />
-          </>
+          <GlassNavBubbleGroup
+            items={[
+              // Search sits on the right with the other icons (user, 2026-11-18).
+              {
+                accessibilityLabel: searchOpen ? 'Close search' : 'Search events',
+                children: (
+                  <Search
+                    color={theme.colors.gray900}
+                    height={glassNavBubbleGlyphSize}
+                    strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                    width={glassNavBubbleGlyphSize}
+                  />
+                ),
+                onPress: toggleSearch,
+                testID: 'events-search',
+              },
+              {
+                accessibilityLabel: 'Share events',
+                children: (
+                  <ShareIos
+                    color={theme.colors.gray900}
+                    height={glassNavBubbleGlyphSize}
+                    strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                    width={glassNavBubbleGlyphSize}
+                  />
+                ),
+                onPress: handleShare,
+                testID: 'events-share',
+              },
+            ]}
+            material="frost"
+            size="medium"
+            testID="events-actions"
+          />
         )}
       </View>
     </View>
