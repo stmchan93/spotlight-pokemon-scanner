@@ -1099,6 +1099,17 @@ Current API concepts:
 - `scrollable` — wraps the row in a horizontal `ScrollView` for sets that can outgrow the screen
 - `indicator="none"` — no underline and no rail; the active tab is marked by weight and colour
   only (Social hub, Figma 6597:3462). The underline's 2pt box stays, transparent, so height is unchanged
+- `variant="underline"` — the 2026-11 redesign's tab rail (Figma 6642:6010, profile COLLECTION /
+  MASTER SET / WATCHLIST): Caption 13 labels — active `captionMedium` gray-900 with a 2pt gray-900
+  underline spanning the tab box (label + 12 per side), inactive `caption` gray-600 — on a
+  full-width gray-300 hairline (`borderWidths.ruleSnapped`, Figma 0.5pt). Defaults to the
+  left-packed layout (`align="gutter"`: 16 inset, 16 between tab boxes, 8 word-to-underline).
+  Pair with `uppercase` for the Figma capitals. The surrounding top padding (24 in Figma) belongs
+  to the consumer, as with every other variant:
+
+  ```tsx
+  <PageTabs variant="underline" uppercase tabs={TABS} value={tab} onChange={setTab} />
+  ```
 
 ### FloatingBottomNav
 

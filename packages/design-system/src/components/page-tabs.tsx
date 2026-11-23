@@ -2,7 +2,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Text } from './scaled-text';
 import { useSpotlightTheme } from '../theme';
-import { spacing } from '../tokens';
+import { borderWidths, spacing } from '../tokens';
 
 export type PageTab<V extends string> = {
   value: V;
@@ -11,14 +11,26 @@ export type PageTab<V extends string> = {
 
 export type PageTabsSize = 'default' | 'compact';
 
+/**
+ * `underline` = the 2026-11 profile / feed tab rail (Figma 6642:6010): Caption
+ * 13 labels (active Medium gray-900 with a 2pt underline, inactive Regular
+ * gray-600) on a full-width gray-300 0.5pt hairline, left-packed on the 16
+ * gutter with 16 between tabs. One prop for the whole look; `align` and
+ * `labelSize` still override it.
+ */
+export type PageTabsVariant = 'default' | 'underline';
+
 export type PageTabsProps<V extends string> = {
   tabs: ReadonlyArray<PageTab<V>>;
   value: V;
   onChange: (value: V) => void;
+  /** See `PageTabsVariant`. Defaults to `default`. */
+  variant?: PageTabsVariant;
   /**
    * `start` = left-aligned tabs on the page gutter (Figma Events 5476:7154).
    * `gutter` = the same with 16 inset, 16 between tabs and 12 per tab (Figma Social 6322:8030).
    * `gutter-center` = `gutter` spacing with the row centred (Events).
+   * Defaults to `center`, or `gutter` (left-packed, 16 gap) for `variant="underline"`.
    */
   align?: 'center' | 'start' | 'gutter' | 'gutter-center';
   /**
@@ -51,15 +63,19 @@ export function PageTabs<V extends string>({
   tabs,
   value,
   onChange,
-  align = 'center',
+  variant = 'default',
+  align: alignProp,
   size = 'default',
   scrollable = false,
-  labelSize = 'default',
+  labelSize: labelSizeProp,
   uppercase = false,
   indicator = 'underline',
   testID,
 }: PageTabsProps<V>) {
   const theme = useSpotlightTheme();
+  const underlineVariant = variant === 'underline';
+  const align = alignProp ?? (underlineVariant ? 'gutter' : 'center');
+  const labelSize = labelSizeProp ?? (underlineVariant ? 'caption' : 'default');
   const compact = size === 'compact';
   const captionLabels = labelSize === 'caption';
   const gutterSpacing = align === 'gutter' || align === 'gutter-center';
@@ -147,7 +163,9 @@ export function PageTabs<V extends string>({
             styles.rail,
             {
               backgroundColor: compact ? theme.colors.gray100 : theme.colors.gray300,
-              height: theme.borderWidths.containerRule,
+              // The underline variant's rail is Figma's 0.5pt hairline, snapped
+              // to whole pixels so it never renders as a 1.5px smear.
+              height: underlineVariant ? borderWidths.ruleSnapped : theme.borderWidths.containerRule,
             },
           ]}
           testID={testID ? `${testID}-rail` : undefined}

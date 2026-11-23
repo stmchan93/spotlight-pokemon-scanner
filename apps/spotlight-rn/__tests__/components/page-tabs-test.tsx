@@ -185,4 +185,41 @@ describe('PageTabs', () => {
     expect(StyleSheet.flatten(screen.getByTestId('page-tabs-rail').props.style).backgroundColor).toBe(colors.gray100);
     expect(StyleSheet.flatten(screen.getByTestId('page-tabs-tab-favorites').props.style).paddingHorizontal).toBe(12);
   });
+
+  // Figma 6642:6010: Caption 13 labels, 2pt gray-900 underline, gray-300 0.5pt
+  // hairline, left-packed on the 16 gutter with 16 between tab boxes.
+  it('variant="underline" draws the caption rail on a full-width hairline, left-packed', () => {
+    renderWithProviders(
+      <PageTabs<TabValue>
+        onChange={jest.fn()}
+        tabs={TABS}
+        testID="page-tabs"
+        uppercase
+        value="portfolio"
+        variant="underline"
+      />,
+    );
+
+    const rail = StyleSheet.flatten(screen.getByTestId('page-tabs-rail').props.style);
+    expect(rail.backgroundColor).toBe(colors.gray300);
+    expect(rail.height).toBeLessThan(1);
+    expect(rail).toMatchObject({ left: 0, right: 0 });
+
+    const active = StyleSheet.flatten(screen.getByText('PORTFOLIO').props.style);
+    const inactive = StyleSheet.flatten(screen.getByText('FAVORITES').props.style);
+    expect(active.fontSize).toBe(13);
+    expect(inactive.fontSize).toBe(13);
+    expect(active.color).toBe(colors.textPrimary);
+    expect(inactive.color).toBe(colors.gray600);
+    expect(active.fontFamily).not.toBe(inactive.fontFamily);
+
+    const underline = StyleSheet.flatten(screen.getByTestId('page-tabs-tab-portfolio-underline').props.style);
+    expect(underline.height).toBe(2);
+    expect(underline.backgroundColor).toBe(colors.textPrimary);
+
+    // Left-packed: 16 inset, 16 between boxes, 12 per tab.
+    const row = StyleSheet.flatten(screen.getByTestId('page-tabs').children[1].props.style);
+    expect(row).toMatchObject({ gap: 16, justifyContent: 'flex-start', paddingHorizontal: 16 });
+    expect(StyleSheet.flatten(screen.getByTestId('page-tabs-tab-favorites').props.style).paddingHorizontal).toBe(12);
+  });
 });
