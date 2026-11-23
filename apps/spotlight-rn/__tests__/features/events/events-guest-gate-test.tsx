@@ -226,7 +226,7 @@ describe('guest on the Events list', () => {
     expect(mockPush).not.toHaveBeenCalledWith(LOGIN);
   });
 
-  it('shows only the upcoming list: no drawer, search, share, Saved/Past tabs or hearts', async () => {
+  it('shows only the upcoming list: no search, share, Saved/Past tabs or hearts', async () => {
     renderList();
     expect(await screen.findByTestId(`event-card-${upcomingFeatured.id}`)).toBeTruthy();
     expect(screen.getByTestId('events-title').props.children).toBe('UPCOMING SPOTLIGHT EVENTS');
@@ -237,6 +237,7 @@ describe('guest on the Events list', () => {
       'events-share',
       'events-actions',
       'events-tabs',
+      'events-tabs-tab-tickets',
       'events-tabs-tab-saved',
       'events-tabs-tab-past',
     ]) {
@@ -245,7 +246,7 @@ describe('guest on the Events list', () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
-  it('signed in: drawer, search, tabs, the heart and Share events all work', async () => {
+  it('signed in: search, tabs, the heart and Share events all work', async () => {
     mockIsGuest = false;
     const share = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
     renderList();
@@ -253,7 +254,7 @@ describe('guest on the Events list', () => {
     await waitFor(() => expect(AsyncStorage.setItem).toHaveBeenCalled());
     fireEvent.press(screen.getByTestId('events-share'));
     expect(share).toHaveBeenCalled();
-    expect(screen.getByTestId('events-menu')).toBeTruthy();
+    expect(screen.queryByTestId('events-menu')).toBeNull();
     fireEvent.press(screen.getByTestId('events-search'));
     expect(screen.getByTestId('events-search-field')).toBeTruthy();
     fireEvent.press(screen.getByTestId('events-tabs-tab-past'));

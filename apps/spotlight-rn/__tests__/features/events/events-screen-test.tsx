@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fireEvent, screen, within } from '@testing-library/react-native';
-import { Share, Text } from 'react-native';
+import { Share } from 'react-native';
 
 import type { SpotlightEventsFeed } from '@spotlight/api-client';
 import { resetSavedEventsForTests } from '@/features/events/saved-events-store';
@@ -10,7 +10,6 @@ import {
   searchEvents,
 } from '@/features/events/screens/events-screen';
 import { openLinkOut } from '@/features/meta-feed/screens/components/open-link-out';
-import { useAppDrawer } from '@/providers/app-drawer-provider';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../../test-utils';
 import { makeEvent, pastFeatured, upcomingFeatured } from './event-fixtures';
@@ -91,17 +90,9 @@ const FEED: SpotlightEventsFeed = {
   items: [upcomingFeatured, laterTicketed, upcomingNoTickets, pastTicketed],
 };
 
-function DrawerProbe() {
-  const { isOpen } = useAppDrawer();
-  return <Text testID="drawer-probe">{isOpen ? 'open' : 'closed'}</Text>;
-}
-
 function renderEvents(fetchSpotlightEvents: () => Promise<SpotlightEventsFeed | null> = async () => FEED) {
   return renderWithProviders(
-    <>
-      <EventsScreen />
-      <DrawerProbe />
-    </>,
+    <EventsScreen />,
     { spotlightRepository: createTestSpotlightRepository({ fetchSpotlightEvents }) },
   );
 }
@@ -142,6 +133,19 @@ describe('EventsScreen', () => {
     fireEvent.press(screen.getByTestId('events-tabs-tab-past'));
     expect(cardIds()).toEqual(['event-card-ontario-2026-08']);
     expect(screen.getByTestId('events-title').props.children).toBe('PAST SPOTLIGHT EVENTS');
+  });
+
+  it('TICKETS sits between EVENTS and SAVED and is honestly empty (no ticket records exist)', async () => {
+    renderEvents();
+    await screen.findByTestId('event-card-hawaii-2026-10');
+    const tabs = within(screen.getByTestId('events-tabs'))
+      .getAllByTestId(/^events-tabs-tab-/)
+      .map((node) => node.props.testID);
+    expect(tabs).toEqual(['events-tabs-tab-events', 'events-tabs-tab-tickets', 'events-tabs-tab-saved', 'events-tabs-tab-past']);
+    fireEvent.press(screen.getByTestId('events-tabs-tab-tickets'));
+    expect(screen.getByTestId('events-title').props.children).toBe('MY TICKETS');
+    expect(screen.getByTestId('events-tickets-empty')).toBeTruthy();
+    expect(cardIds()).toEqual([]);
   });
 
   it('PAST EVENTS shows an empty state when nothing is past', async () => {
@@ -241,12 +245,10 @@ describe('EventsScreen', () => {
     expect(await screen.findByTestId('event-card-hawaii-2026-10')).toBeTruthy();
   });
 
-  it('leads with the menu and puts search in the trailing capsule beside share', async () => {
+  it('has no menu; search sits in the trailing capsule beside share', async () => {
     renderEvents();
     await screen.findByTestId('event-card-hawaii-2026-10');
-    expect(screen.getByTestId('drawer-probe').props.children).toBe('closed');
-    fireEvent.press(screen.getByTestId('events-menu'));
-    expect(screen.getByTestId('drawer-probe').props.children).toBe('open');
+    expect(screen.queryByTestId('events-menu')).toBeNull();
 
     const actions = screen.getByTestId('events-actions');
     expect(within(actions).getByTestId('events-search')).toBeTruthy();
