@@ -21,7 +21,12 @@ import {
   type SimilarCards,
   type SpotlightRepository,
   type TopMovers,
+  type CardPricePositionQuery,
+  type MarketAnalyticsQuery,
+  type MarketHeatmapSetQuery,
 } from '@spotlight/api-client';
+
+import { buildDevCardPricePosition, buildDevMarketAnalytics, buildDevMarketHeatmapSet } from './dev-market-analytics';
 
 import { devImageUriForUrl } from '@/dev/dev-fixtures';
 
@@ -822,6 +827,18 @@ function withLocalImages(
       // numbers anyway (see devTopMovers).
       if (property === 'getTopMovers') {
         return async () => rewriteImageUrls(devTopMovers);
+      }
+      // The dense dev fixture (26 sets, per-set zooms, thin games) rather than
+      // the stock mock's small one, so the treemap screenshots are realistic.
+      if (property === 'getMarketAnalytics') {
+        return async (query: MarketAnalyticsQuery) => rewriteImageUrls(buildDevMarketAnalytics(query.game, query.window));
+      }
+      if (property === 'getMarketHeatmapSet') {
+        return async (query: MarketHeatmapSetQuery) =>
+          rewriteImageUrls(buildDevMarketHeatmapSet(query.game, query.setId, query.window));
+      }
+      if (property === 'getCardPricePosition') {
+        return async (query: CardPricePositionQuery) => buildDevCardPricePosition(query);
       }
       if (property === 'fetchSimilarCards') {
         return async (cardId: string) => rewriteImageUrls(devSimilarCards(cardId));

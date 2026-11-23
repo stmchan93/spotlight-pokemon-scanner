@@ -1,4 +1,4 @@
-import { type ReactElement, useEffect, useState } from 'react';
+import { type ReactElement, useEffect, useRef, useState } from 'react';
 import { Image, ScrollView, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
@@ -46,6 +46,8 @@ import { MetaGroupScreen } from '@/features/meta-feed/screens/meta-group-screen'
 import { MetaScreen } from '@/features/meta-feed/screens/meta-screen';
 import { NewsScreen } from '@/features/meta-feed/screens/news-screen';
 import { SetSpotlightScreen } from '@/features/meta-feed/screens/set-spotlight-screen';
+import type { CollapsibleScrollTarget } from '@/components/page-tab-pager';
+import { MarketAnalyticsPage } from '@/features/market/screens/market-analytics-page';
 import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
 import { SalesHistoryScreen } from '@/features/portfolio/screens/sales-history-screen';
 import { setDevProfileOverrides } from '@/features/profile/profile-service';
@@ -139,6 +141,15 @@ const devScreens: Record<string, () => ReactElement> = {
   'portfolio-masterset': () => <PortfolioScreen requestedProfileTab="masterset" />,
   'portfolio-watchlist': () => <PortfolioScreen requestedProfileTab="watchlist" />,
   'portfolio-market': () => <PortfolioScreen requestedProfileTab="market" />,
+  // Market Analytics alone, scrolled to each section (the sim has no scroll
+  // input), plus the heatmap zoomed into 151.
+  'market-analytics': () => <DevMarketAnalytics />,
+  'market-analytics-heatmap': () => <DevMarketAnalytics scrollY={560} />,
+  'market-analytics-rails': () => <DevMarketAnalytics scrollY={1150} />,
+  'market-analytics-sets': () => <DevMarketAnalytics scrollY={1850} />,
+  'market-analytics-grading': () => <DevMarketAnalytics scrollY={2450} />,
+  'market-analytics-zoom': () => <DevMarketAnalytics scrollY={560} zoomSetId="sv3pt5" />,
+  'card-detail-price-position': () => <CardDetailScreen cardId="sm7-1" onBack={() => undefined} />,
   // Ask Ekalight on the mock repository: empty chat (Home), the seeded saved
   // thread, and the Scanner entry with two tray cards as context.
   assistant: () => <AssistantScreen onBack={() => undefined} onOpenCard={() => undefined} source="home" />,
@@ -517,6 +528,34 @@ export function DevScreenHost({ screen }: { screen: string }) {
         {renderScreen()}
       </StaticTabsPageProvider>
     </AppProviders>
+  );
+}
+
+const devMarketPage = {
+  contentContainerStyle: { minHeight: 0, paddingTop: 59 },
+  onScroll: () => undefined,
+  progressViewOffset: 59,
+  scrollEventThrottle: 16,
+  scrollToOverflowEnabled: true,
+};
+
+function DevMarketAnalytics({ scrollY, zoomSetId }: { scrollY?: number; zoomSetId?: string }) {
+  const scrollRef = useRef<CollapsibleScrollTarget | null>(null);
+  useEffect(() => {
+    if (!scrollY) {
+      return undefined;
+    }
+    // After the mock read lands and the sections lay out.
+    const timer = setTimeout(() => {
+      (scrollRef.current as unknown as { scrollTo: (o: { y: number; animated: boolean }) => void } | null)
+        ?.scrollTo({ y: scrollY, animated: false });
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [scrollY]);
+  return (
+    <View style={styles.topTrends}>
+      <MarketAnalyticsPage devInitialZoomSetId={zoomSetId} page={devMarketPage} scrollRef={scrollRef} />
+    </View>
   );
 }
 
