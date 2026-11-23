@@ -3,7 +3,8 @@
  * profile tab.
  *
  * Watchlist left the bottom bar for a tab of the Home profile (Figma 6642:5964:
- * COLLECTION · MASTER SET · WATCHLIST). Everything that used to send people to
+ * COLLECTION · MASTER SET · WATCHLIST, plus MARKET ANALYTICS — Social's old
+ * Market Watch, owner 2026-11-22). Everything that used to send people to
  * `/wishlist` — notifications, the assistant, old deep links via the
  * `(tabs)/wishlist` redirect — now lands on `/?tab=watchlist`.
  *
@@ -13,7 +14,7 @@
  */
 export const HOME_PROFILE_TAB_PARAM = 'tab';
 
-export const HOME_PROFILE_TABS = ['collection', 'masterset', 'watchlist'] as const;
+export const HOME_PROFILE_TABS = ['collection', 'masterset', 'watchlist', 'market'] as const;
 
 export type HomeProfileTabParam = (typeof HOME_PROFILE_TABS)[number];
 

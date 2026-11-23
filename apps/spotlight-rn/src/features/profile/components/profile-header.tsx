@@ -21,6 +21,11 @@ import { normalizeSocialLink } from '@/features/profile/social-link';
 type ProfileHeaderProps = {
   displayName: string;
   handle?: string | null;
+  /**
+   * The person's name under the @handle. Home's own hero drops it (Figma
+   * 6642:5964: handle, then the link); default keeps it for other callers.
+   */
+  showDisplayName?: boolean;
   initials: string;
   isVerified?: boolean;
   /**
@@ -118,6 +123,7 @@ const COVER_TRANSITION_MS = 180;
 export function ProfileHeader({
   displayName,
   handle,
+  showDisplayName = true,
   initials,
   isVerified = false,
   actionRow,
@@ -245,7 +251,7 @@ export function ProfileHeader({
               ) : null}
             </View>
 
-            {handle && displayName ? (
+            {showDisplayName && handle && displayName ? (
               <Text
                 style={[theme.typography.body, { color: theme.colors.gray100 }]}
                 testID={`${testID}-display-name`}

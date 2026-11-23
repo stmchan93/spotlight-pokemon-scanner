@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Alert, AppState, Platform, Share, StyleSheet, Text } from 'react-native';
+import { AppState, Platform, Share, StyleSheet, Text } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { MockSpotlightRepository } from '@spotlight/api-client';
@@ -19,7 +19,6 @@ import {
   __resetPortfolioSummaryVisibilityForTests,
 } from '@/features/portfolio/use-portfolio-summary-visibility';
 import { __resetPortfolioViewModeForTests } from '@/features/portfolio/hooks/use-portfolio-view-mode';
-import { deletePost, fetchAuthorActivity } from '@/features/social/social-service';
 
 import * as mockApiClient from '../mock-api-client';
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
@@ -31,13 +30,23 @@ jest.mock('expo-router', () => ({
   useFocusEffect: jest.fn(),
 }));
 
+// The embedded Watchlist tab reads route focus; these renders have no navigator.
+jest.mock('@react-navigation/native', () => ({
+  ...jest.requireActual('@react-navigation/native'),
+  useIsFocused: () => true,
+}));
+jest.mock('@/features/auth/access-gate-provider', () => ({
+  ...jest.requireActual('@/features/auth/access-gate-provider'),
+  useAccessGate: () => ({ refresh: jest.fn(), state: 'allowed', status: null }),
+}));
+
 // Observable stand-in for the provider's profile re-read; the real one is a
 // no-op under the test-bypass user (no session), so it would prove nothing.
 const mockRefreshCurrentUser = jest.fn(async () => {});
 let mockIsGuest = false;
 
-// Only the network-touching reads the Activity tab makes are stubbed; the rest of
-// the social module stays real so nothing else in the tree changes behaviour.
+// Network-touching social reads are stubbed; the rest of the social module
+// stays real so nothing else in the tree changes behaviour.
 jest.mock('@/features/social/social-service', () => ({
   ...jest.requireActual('@/features/social/social-service'),
   deletePost: jest.fn(async () => true),
@@ -101,15 +110,23 @@ function renderPortfolioScreen({
   repository,
   showPortfolio = true,
   onOpenInventoryEntry,
+  requestedProfileTab,
+  onRequestedProfileTabHandled,
 }: {
   repository?: mockApiClient.SpotlightRepository;
   showPortfolio?: boolean;
   onOpenInventoryEntry?: (entry: InventoryCardEntry) => void;
+  requestedProfileTab?: 'collection' | 'masterset' | 'watchlist' | 'market';
+  onRequestedProfileTabHandled?: () => void;
 } = {}) {
   return renderWithProviders(
     <TabsPageContext.Provider value={portfolioTabsContext}>
       {showPortfolio ? (
-        <PortfolioScreen onOpenInventoryEntry={onOpenInventoryEntry} />
+        <PortfolioScreen
+          onOpenInventoryEntry={onOpenInventoryEntry}
+          onRequestedProfileTabHandled={onRequestedProfileTabHandled}
+          requestedProfileTab={requestedProfileTab}
+        />
       ) : (
         <Text testID="portfolio-placeholder">Portfolio hidden</Text>
       )}
@@ -1749,9 +1766,15 @@ describe('PortfolioScreen', () => {
     renderPortfolioScreen();
     await screen.findByTestId('portfolio-header-title');
 
+    // The other tabs mount on first visit; open each once.
+    for (const tab of ['masterset', 'watchlist', 'market']) {
+      await act(async () => {
+        fireEvent.press(screen.getByTestId(`portfolio-profile-tabs-tab-${tab}`));
+      });
+    }
     // For Sale is not among them: the tab is hidden until the feature exists
     // (`FOR_SALE_TAB_ENABLED`), so the pager never renders that page.
-    ['portfolio-scroll-view', 'portfolio-activity-page'].forEach((testID) => {
+    ['portfolio-scroll-view', 'portfolio-masterset-page', 'wishlist-scroll', 'portfolio-market-page'].forEach((testID) => {
       expect(screen.getByTestId(testID).props.contentInsetAdjustmentBehavior).toBe('automatic');
     });
     expect(screen.queryByTestId('portfolio-forsale-page')).toBeNull();
@@ -2283,92 +2306,101 @@ describe('PortfolioScreen', () => {
     expect(screen.queryByTestId('portfolio-list-pagination-view-more')).toBeNull();
   });
 
-  // Activity holds its OWN copy of the owner's posts (the feed holds another), so
-  // the delete path is verified here too rather than assumed from the feed.
-  it('deletes an own post from the Activity tab, and restores it when the write fails', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-    (fetchAuthorActivity as jest.Mock).mockResolvedValue([
-      {
-        // `fetchAuthorActivity` returns `{ post, repostedAt }`; null here means
-        // the owner WROTE this one, which is what makes it deletable.
-        repostedAt: null,
-        post: {
-        id: 'activity-post-1',
-        // The id AuthProvider signs in as under NODE_ENV=test.
-        authorId: '00000000-0000-0000-0000-000000000001',
-        author: { displayName: 'UI Test User', handle: null, avatarUrl: null, isVerified: false },
-        body: 'My activity post',
-        cardId: null,
-        likeCount: 0,
-        commentCount: 0,
-        repostCount: 0,
-        createdAt: '2026-05-01T00:00:00.000Z',
-        media: [],
-        },
-      },
-    ]);
-    (deletePost as jest.Mock).mockResolvedValue(false);
-
+  // Figma 6642:5964 + owner (2026-11-22): Activity moved to Social → YOUR POSTS.
+  it('shows COLLECTION · MASTER SET · WATCHLIST · MARKET ANALYTICS, and no Activity tab', async () => {
     renderPortfolioScreen();
     await screen.findByTestId('portfolio-header-title');
 
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('portfolio-profile-tabs-tab-activity'));
+    ['collection', 'masterset', 'watchlist', 'market'].forEach((tab) => {
+      expect(screen.getByTestId(`portfolio-profile-tabs-tab-${tab}`)).toBeTruthy();
     });
-    await screen.findByText('My activity post');
-
-    // Confirm first — the ⋯ alone must not delete anything.
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('portfolio-activity-post-more-button'));
-    });
-    await screen.findByTestId('portfolio-activity-delete-confirm');
-    expect(deletePost).not.toHaveBeenCalled();
-
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('portfolio-activity-delete-confirm-confirm'));
-    });
-
-    expect(deletePost).toHaveBeenCalledWith('activity-post-1');
-    // The write returned false → the post comes back and the user is told.
-    await waitFor(() => expect(screen.getByText('My activity post')).toBeTruthy());
-    expect(alertSpy).toHaveBeenCalledWith(
-      "Couldn't delete post",
-      expect.stringContaining('still there'),
-    );
-
-    alertSpy.mockRestore();
+    expect(screen.getByText('MARKET ANALYTICS')).toBeTruthy();
+    expect(screen.queryByTestId('portfolio-profile-tabs-tab-activity')).toBeNull();
+    expect(screen.queryByTestId('portfolio-activity-page')).toBeNull();
   });
 
-  /*
-    ACTIVITY IS A RECORD, NOT A COMPOSER.
-
-    The old empty state was a "What's on your mind?" prompt that pushed
-    /new-post — but it only existed as the EMPTY state, so it vanished after
-    your first post ("I can't post again"). Composing now lives in exactly one
-    place, Home's compose row; this tab's empty state is plain text that
-    points there and must not navigate anywhere.
-  */
-  it('shows plain empty-state text on the Activity tab that does not navigate', async () => {
-    // Explicit, because an earlier test in this file leaves `fetchAuthorActivity`
-    // resolving a post — and the text is the EMPTY state.
-    (fetchAuthorActivity as jest.Mock).mockResolvedValue([]);
+  it('drops the display-name line under the handle in the hero', async () => {
     renderPortfolioScreen();
     await screen.findByTestId('portfolio-header-title');
 
-    expect(screen.queryByTestId('portfolio-header-add')).toBeNull();
+    expect(screen.getByTestId('portfolio-header-title-name')).toHaveTextContent('uitester');
+    expect(screen.queryByTestId('portfolio-header-title-display-name')).toBeNull();
+  });
+
+  it('mounts the other tabs only once they are opened', async () => {
+    renderPortfolioScreen();
+    await screen.findByTestId('portfolio-header-title');
+
+    expect(screen.getByTestId('portfolio-watchlist-placeholder')).toBeTruthy();
+    expect(screen.queryByTestId('wishlist-scroll')).toBeNull();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('portfolio-profile-tabs-tab-watchlist'));
+    });
+    expect(await screen.findByTestId('wishlist-scroll')).toBeTruthy();
+  });
+
+  it('opens on the tab the route asked for, then hands the request back', async () => {
+    const handled = jest.fn();
+    renderPortfolioScreen({ onRequestedProfileTabHandled: handled, requestedProfileTab: 'watchlist' });
+    await screen.findByTestId('portfolio-header-title');
+
+    expect(await screen.findByTestId('wishlist-scroll')).toBeTruthy();
+    expect(screen.getByTestId('portfolio-profile-tabs-tab-watchlist').props.accessibilityState).toEqual({ selected: true });
+    expect(handled).toHaveBeenCalledTimes(1);
+  });
+
+  it('embeds the Watchlist without its own top bar, with Edit beside the view toggle', async () => {
+    renderPortfolioScreen({ requestedProfileTab: 'watchlist' });
+    await screen.findByTestId('wishlist-scroll');
+
+    expect(screen.queryByTestId('wishlist-header-done')).toBeNull();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('wishlist-edit-toggle'));
+    });
+    expect(screen.getByTestId('wishlist-edit-bar')).toBeTruthy();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('wishlist-edit-done'));
+    });
+    expect(screen.queryByTestId('wishlist-edit-bar')).toBeNull();
+  });
+
+  it('lists owned sets on MASTER SET, closest to complete first, and opens the set', async () => {
+    const repository = createTestSpotlightRepository({
+      getSetProgress: async (game: string) => ({
+        game,
+        sets: game === 'pokemon'
+          ? [
+              { expansionId: 'big', ownedCount: 50 },
+              { expansionId: 'near', ownedCount: 9 },
+              { expansionId: 'gone', ownedCount: 3 },
+            ]
+          : [],
+      }),
+      listExpansions: async (game?: string) => (game === 'pokemon'
+        ? [
+            { id: 'big', name: 'Big Set', series: null, code: null, releaseDate: '2024-01-01', imageUrl: null, cardCount: 200 },
+            { id: 'near', name: 'Near Set', series: null, code: null, releaseDate: '2023-01-01', imageUrl: null, cardCount: 10 },
+          ]
+        : []),
+    } as never);
+    renderPortfolioScreen({ repository, requestedProfileTab: 'masterset' });
+
+    const near = await screen.findByTestId('portfolio-masterset-page-set-pokemon:near');
+    const big = screen.getByTestId('portfolio-masterset-page-set-pokemon:big');
+    expect(near).toBeTruthy();
+    expect(big).toBeTruthy();
+    // A set the catalog does not list has no name to show.
+    expect(screen.queryByTestId('portfolio-masterset-page-set-pokemon:gone')).toBeNull();
+    const order = screen.getAllByTestId(/^portfolio-masterset-page-set-pokemon:[a-z]+$/).map((node) => node.props.testID);
+    expect(order).toEqual(['portfolio-masterset-page-set-pokemon:near', 'portfolio-masterset-page-set-pokemon:big']);
 
     await act(async () => {
-      fireEvent.press(screen.getByTestId('portfolio-profile-tabs-tab-activity'));
+      fireEvent.press(near);
     });
-
-    const empty = await screen.findByTestId('portfolio-activity-empty');
-    expect(screen.getByText('Create a post to populate your feed!')).toBeTruthy();
-
-    push.mockClear();
-    await act(async () => {
-      fireEvent.press(empty);
+    expect(push).toHaveBeenCalledWith({
+      pathname: '/catalog/expansion/[expansionId]',
+      params: { expansionId: 'near', game: 'pokemon', name: 'Near Set' },
     });
-    expect(push).not.toHaveBeenCalled();
   });
 
   // Collection FLOATS its bar, unlike Home. The pager already owns a pinned

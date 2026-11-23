@@ -48,14 +48,21 @@ describe('mobile app routing', () => {
 
   // Watchlist left the bar for a Home profile tab. `/wishlist` (old links,
   // pushes already sent) redirects to Home with `tab=watchlist`, the param the
-  // profile honours.
+  // profile honours — it selects the tab, then clears the param so a later
+  // visit to Home doesn't snap back to it.
   it('redirects /wishlist to Home on its WATCHLIST profile tab', async () => {
     const app = renderAppRouter('/wishlist');
 
     await waitFor(() => {
       expect(app.getPathname()).toBe('/');
     });
-    expect(app.getSearchParams()).toEqual(expect.objectContaining({ tab: 'watchlist' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('portfolio-profile-tabs-tab-watchlist').props.accessibilityState)
+        .toEqual({ selected: true });
+    });
+    await waitFor(() => {
+      expect(app.getSearchParams().tab).toBeUndefined();
+    });
   });
 
   it('renders the sales-history route directly', async () => {
