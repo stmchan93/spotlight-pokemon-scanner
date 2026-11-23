@@ -9,6 +9,7 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Platform,
   Pressable,
@@ -23,6 +24,8 @@ import { useFocusEffect, useRouter } from 'expo-router';
 
 import { MapPin } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import type { NewsItem } from '@spotlight/api-client';
 
 import {
   Avatar,
@@ -42,11 +45,18 @@ import {
 } from '@/components/page-tab-pager';
 
 import { HOME_HEADER_BAR_HEIGHT, HomeHeader } from '@/components/home-header';
+import { NewsArticleRow } from '@/features/social/components/news-article-row';
 import { PostCard } from '@/features/social/components/post-card';
 import { RepostAttribution } from '@/features/social/components/repost-attribution';
-import { MarketWatchPage } from '@/features/social/screens/market-watch-page';
-import { NewsPage } from '@/features/social/screens/news-page';
+import {
+  type ForYouRow,
+  type MixedFeedSource,
+  type MixedFeedSources,
+  mergeMixedFeed,
+  sourcesToAdvance,
+} from '@/features/social/for-you-feed';
 import { getFeedRefreshVersion } from '@/features/social/screens/new-post-screen';
+import { YourPostsPage } from '@/features/social/screens/your-posts-page';
 import {
   type FeedItem,
   type FeedPost,
@@ -61,26 +71,38 @@ import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useUnreadMessageCount } from '@/features/social/use-unread-message-count';
 import { useUnreadNotificationCount } from '@/features/social/use-unread-notification-count';
+import { useNewsReactions } from '@/features/social/use-news-reactions';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
 import { getUserInitials } from '@/features/auth/auth-models';
-import { fetchFollowing, followUser } from '@/features/profile/profile-service';
-import { resolveRepositoryBaseUrl } from '@/providers/app-providers';
+import { fetchFollowing, followUser, unfollowUser } from '@/features/profile/profile-service';
+import { resolveRepositoryBaseUrl, useAppServices } from '@/providers/app-providers';
 import { useTabLanding, useTabPagerInnerPosition } from '@/components/tab-pager/tab-pager-page-context';
 import { innerPageForLanding } from '@/lib/tab-pager';
 import { useScrollToTop } from '@/components/scroll-to-top-fab';
 import { useAuth } from '@/providers/auth-provider';
 
 const PAGE_SIZE = 20;
+/** Articles per news read; the API caps a page at 50. */
+const NEWS_PAGE_SIZE = 20;
+/**
+ * How many source reads one scroll-to-end may chain while the merged list has
+ * not grown (see `handleLoadMore`). Bounds a run of news pages that all sit
+ * below the posts' horizon, or vice versa.
+ */
+const MAX_ADVANCE_ROUNDS = 4;
 
-type HubTab = 'social' | 'news' | 'market';
+/**
+ * Social's tabs (Figma 6642:11165). Market Watch / Top Trends moved to the Home
+ * profile's MARKET ANALYTICS tab; news joined the posts in FOR YOU.
+ */
+export type SocialTab = 'forYou' | 'yourPosts';
 
-const HUB_TAB_ORDER: readonly HubTab[] = ['social', 'news', 'market'];
-const HUB_TABS: readonly PageTab<HubTab>[] = [
-  { value: 'social', label: 'Social' },
-  { value: 'news', label: 'News' },
-  { value: 'market', label: 'Market Watch' },
+export const SOCIAL_TAB_ORDER: readonly SocialTab[] = ['forYou', 'yourPosts'];
+const SOCIAL_TABS: readonly PageTab<SocialTab>[] = [
+  { value: 'forYou', label: 'For you' },
+  { value: 'yourPosts', label: 'Your posts' },
 ];
-/** Figma 6322:7596: the toolbar's bottom edge to the tab labels. */
+/** Figma 6642:11183 → 6642:11165: the toolbar's bottom edge to the tab labels. */
 const TOOLBAR_TO_TABS_GAP = 24;
 
 /**
@@ -127,6 +149,21 @@ function reposterAttributionName(
  */
 type FeedSource = 'forYou' | 'following' | 'show';
 
+/** Both sources' loaded rows plus where each one's next page starts. */
+type MixedFeedState = MixedFeedSources & {
+  posts: FeedItem[];
+  news: NewsItem[];
+  newsCursor: string | null;
+};
+
+const EMPTY_FEED: MixedFeedState = {
+  posts: [],
+  postsDone: true,
+  news: [],
+  newsDone: true,
+  newsCursor: null,
+};
+
 async function readFeed(source: FeedSource, showId: string | null, before?: string): Promise<FeedItem[]> {
   if (source === 'following') {
     return (await fetchFollowingFeed(PAGE_SIZE, before)).map(feedItemFromPost);
@@ -138,21 +175,16 @@ async function readFeed(source: FeedSource, showId: string | null, before?: stri
 }
 
 /**
- * Social feed (Figma 3505:14426). A pinned top bar — menu, tap-to-search pill,
- * notifications — over a full-bleed list of `PostCard`s, each closed by an
- * edge-to-edge hairline. New post lives in the list itself, as the compose
- * prompt row at the top.
+ * Social (Figma 6642:5420): a floating bar (lockup, messages, bell) over two
+ * tabs.
  *
- * This is the HOME tab (`(tabs)/index`), so the frame's own Home/Scan/Wishlist/
- * You bar is drawn by the real tab bar around it and this screen still renders
- * its body only.
+ * FOR YOU — posts and news articles in ONE timeline by publish time, newest
+ * first. Posts (with reposts) come from `fetchGlobalFeedItems`, news from the
+ * backend's news feed; each pages on its own cursor and `for-you-feed.ts`
+ * merges them without ever splicing a row above one already shown. During a
+ * show, chips swap FOR YOU's posts for the Following or show feed (posts only).
  *
- * ONE FEED, NEWEST FIRST. It used to carry a Following / Global switch, which is
- * not in the frame; Home is specified as "all the posts, time first", so the
- * screen reads `fetchGlobalFeed` (visible posts, `created_at` descending) and
- * nothing else. `fetchFollowingFeed` is still exported by the service and still
- * tested — it simply has no caller now, which is the cheap half of putting a
- * follow filter back if one is wanted.
+ * YOUR POSTS — the viewer's posts and reposts (`YourPostsPage`).
  */
 /**
  * How many of the viewer's followees to read for the feed's follow controls.
@@ -162,7 +194,14 @@ async function readFeed(source: FeedSource, showId: string | null, before?: stri
  */
 const FOLLOW_SET_LIMIT = 500;
 
-export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
+export function FeedScreen({
+  initialTab = 'forYou',
+  testID = 'feed',
+}: {
+  /** The tab to open on; the dev route `feed-your-posts` opens YOUR POSTS. */
+  initialTab?: SocialTab;
+  testID?: string;
+}) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -184,39 +223,106 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   // A show in its window (or one the viewer saved) adds "For you · Following ·
   // <show>" chips. If the show goes away, so does its selection.
   const feedShow = useFeedShow();
-  const [activeTab, setActiveTab] = useState<HubTab>('social');
-  // News and Market Watch read on first visit, so opening Social doesn't fetch them.
-  const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<HubTab>>(() => new Set<HubTab>(['social']));
-  const selectTab = useCallback((next: HubTab) => {
+  const { spotlightRepository } = useAppServices();
+  const [activeTab, setActiveTab] = useState<SocialTab>(initialTab);
+  // Your posts reads on first visit, so opening Social doesn't fetch it.
+  const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<SocialTab>>(
+    () => new Set<SocialTab>(['forYou', initialTab]),
+  );
+  const selectTab = useCallback((next: SocialTab) => {
     setActiveTab(next);
     setVisitedTabs((current) => (current.has(next) ? current : new Set(current).add(next)));
   }, []);
-  // Revealed by a drag forward from Events: show the NEAR edge, the first page,
-  // so the strip reads as one continuous row of pages.
+  // Revealed by a drag forward from Events: show the NEAR edge, FOR YOU, so the
+  // strip reads as one continuous row of pages.
   useTabLanding('social', (edge) => {
-    const page = innerPageForLanding(HUB_TAB_ORDER, edge);
+    const page = innerPageForLanding(SOCIAL_TAB_ORDER, edge);
     if (page) {
       selectTab(page);
     }
   });
-  // The bottom-tab pager reads this to hand a drag back past the first page to
-  // the outer strip (Events); Market's forward drag is the end of the chain.
-  useTabPagerInnerPosition({ count: HUB_TAB_ORDER.length, index: HUB_TAB_ORDER.indexOf(activeTab) });
+  // The bottom-tab pager reads this to hand a drag back past FOR YOU to the
+  // outer strip (Events); YOUR POSTS' forward drag is the end of the chain.
+  useTabPagerInnerPosition({ count: SOCIAL_TAB_ORDER.length, index: SOCIAL_TAB_ORDER.indexOf(activeTab) });
   const [selectedSource, setSelectedSource] = useState<FeedSource>('forYou');
   const source: FeedSource = feedShow ? selectedSource : 'forYou';
   const showId = source === 'show' ? (feedShow?.id ?? null) : null;
+  // News rides along only on FOR YOU proper; the Following / show chips are
+  // people's posts.
+  const includeNews = source === 'forYou';
   // The reads below are stable callbacks; they read the current source here.
-  const readFeedRef = useRef((before?: string) => readFeed(source, showId, before));
-  readFeedRef.current = (before?: string) => readFeed(source, showId, before);
+  const readPostsRef = useRef((before?: string) => readFeed(source, showId, before));
+  readPostsRef.current = (before?: string) => readFeed(source, showId, before);
+  const readNewsRef = useRef((cursor: string | null) =>
+    spotlightRepository.fetchNewsFeed({ limit: NEWS_PAGE_SIZE, cursor }),
+  );
+  readNewsRef.current = (cursor: string | null) =>
+    spotlightRepository.fetchNewsFeed({ limit: NEWS_PAGE_SIZE, cursor });
+  const includeNewsRef = useRef(includeNews);
+  includeNewsRef.current = includeNews;
   const readKey = showId ? `show:${showId}` : source;
 
+  /*
+    FIRST PAGE OF BOTH SOURCES, side by side. One source failing still shows
+    the other (an outage of the news backend must not blank people's posts, and
+    vice versa); only when every source fails is it an error. A source that
+    fails or comes back short is marked done, so paging never retries it until
+    the next full read.
+  */
+  const readFirstPage = useCallback(async (): Promise<MixedFeedState> => {
+    const withNews = includeNewsRef.current;
+    const [postsResult, newsResult] = await Promise.allSettled([
+      readPostsRef.current(),
+      withNews ? readNewsRef.current(null) : Promise.resolve(null),
+    ]);
+    if (postsResult.status === 'rejected' && (!withNews || newsResult.status === 'rejected')) {
+      throw postsResult.reason;
+    }
+    const posts = postsResult.status === 'fulfilled' ? postsResult.value : [];
+    const newsPage = newsResult.status === 'fulfilled' ? newsResult.value : null;
+    const news = withNews ? (newsPage?.items ?? []) : [];
+    return {
+      posts,
+      postsDone: postsResult.status === 'rejected' || posts.length < PAGE_SIZE,
+      news,
+      newsCursor: newsPage?.nextCursor ?? null,
+      newsDone: news.length === 0 || !newsPage?.nextCursor,
+    };
+  }, []);
+
   // Feed rows, not bare posts: a repost is its own row carrying who passed it on.
-  const [items, setItems] = useState<FeedItem[]>([]);
+  const [feed, setFeed] = useState<MixedFeedState>(EMPTY_FEED);
+  // Mirrors `feed` for the paging loop, which must read past its own awaits.
+  const feedRef = useRef(feed);
+  feedRef.current = feed;
+  /** The post rows only; deletion and blocking act on these. */
+  const setItems = useCallback((action: SetStateAction<FeedItem[]>) => {
+    setFeed((current) => ({
+      ...current,
+      posts: typeof action === 'function' ? action(current.posts) : action,
+    }));
+  }, []);
+  const rows = useMemo(() => mergeMixedFeed(feed), [feed]);
   const [status, setStatus] = useState<FeedStatus>('loading');
   const [refreshing, setRefreshing] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
   const loadingMoreRef = useRef(false);
+
+  // Reaction counts for the articles on screen, one batch per new page.
+  const visibleNewsIds = useMemo(
+    () => rows.flatMap((row) => (row.kind === 'news' ? [row.news.id] : [])),
+    [rows],
+  );
+  const newsReactions = useNewsReactions(visibleNewsIds);
+  const resetNewsReactions = newsReactions.reset;
+  const isNewsLiked = (newsId: string) => {
+    const thread = newsReactions.threads.get(newsId);
+    return thread ? newsReactions.likedPostIds.has(thread.postId) : false;
+  };
+  const isNewsReposted = (newsId: string) => {
+    const thread = newsReactions.threads.get(newsId);
+    return thread ? newsReactions.repostedPostIds.has(thread.postId) : false;
+  };
   // Last refresh signal THIS screen acted on. Seeded at mount: a signal raised
   // before the feed existed is already reflected in its first load.
   const seenRefreshVersionRef = useRef(getFeedRefreshVersion());
@@ -231,11 +337,10 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     explicit-`paddingTop` branch instead (that prop is an iOS no-op) and rests
     at 0, so the offset must be 0 there.
   */
-  const scrollRef = useRef<FlatList<FeedItem>>(null);
-  const newsScrollRef = useRef<CollapsibleScrollTarget | null>(null);
-  const marketScrollRef = useRef<CollapsibleScrollTarget | null>(null);
+  const scrollRef = useRef<FlatList<ForYouRow>>(null);
+  const yourPostsScrollRef = useRef<CollapsibleScrollTarget | null>(null);
   const pageRefs = useMemo(
-    () => ({ social: scrollRef, news: newsScrollRef, market: marketScrollRef }),
+    () => ({ forYou: scrollRef, yourPosts: yourPostsScrollRef }),
     [],
   );
   const listTopOffset = Platform.OS === 'ios' ? -insets.top : 0;
@@ -251,8 +356,8 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   // list's rest offset so the mark is fully visible before the first scroll.
   const headerScrollY = useRef(new Animated.Value(listTopOffset)).current;
   const handlePageScroll = useCallback(
-    (page: HubTab, event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      if (page === 'social') {
+    (page: SocialTab, event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (page === 'forYou') {
         trackScrollTopVisibility(event);
       }
     },
@@ -314,7 +419,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       }
       return rebuilt;
     });
-  }, []);
+  }, [setItems]);
 
   // Blocking someone clears EVERY row they are in, not just the card that was
   // tapped: their own posts AND their reposts (which carry someone else's post,
@@ -325,7 +430,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     setItems((current) => current.filter((item) => (
       item.post.authorId !== userId && item.repostedById !== userId
     )));
-  }, []);
+  }, [setItems]);
 
   const { requestDelete, confirmSheet: deleteConfirmSheet } = usePostDeletion(setFeedPosts, {
     testID: `${testID}-delete-confirm`,
@@ -342,18 +447,17 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const loadFeed = useCallback(() => {
     const token = ++loadTokenRef.current;
     setStatus('loading');
-    setItems([]);
-    setHasMore(false);
+    setFeed(EMPTY_FEED);
     loadingMoreRef.current = false;
+    setIsLoadingMore(false);
 
     void (async () => {
       try {
-        const page = await readFeedRef.current();
+        const page = await readFirstPage();
         if (token !== loadTokenRef.current) {
           return;
         }
-        setItems(page);
-        setHasMore(page.length >= PAGE_SIZE);
+        setFeed(page);
         setStatus('ready');
         lastLoadedAtRef.current = Date.now();
       } catch {
@@ -363,7 +467,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         setStatus('error');
       }
     })();
-  }, []);
+  }, [readFirstPage]);
 
   /**
    * Re-read the first page WITHOUT blanking what is on screen — no spinner, no
@@ -381,21 +485,21 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const refetchFeedQuietly = useCallback(() => {
     const token = ++loadTokenRef.current;
     loadingMoreRef.current = false;
+    setIsLoadingMore(false);
     void (async () => {
       try {
-        const page = await readFeedRef.current();
+        const page = await readFirstPage();
         if (token !== loadTokenRef.current) {
           return;
         }
-        setItems(page);
-        setHasMore(page.length >= PAGE_SIZE);
+        setFeed(page);
         setStatus('ready');
         lastLoadedAtRef.current = Date.now();
       } catch {
         // Keep what is on screen. See above.
       }
     })();
-  }, []);
+  }, [readFirstPage]);
 
   // `readKey`: switching chips is a fresh load of a different feed.
   useEffect(() => {
@@ -466,6 +570,39 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   }, [applyFollowingDelta]);
 
   /*
+    Unfollow from the feed (owner, 2026-11-22): FOLLOWING on a post is the way
+    out. Confirmed first — a stray tap on a status-looking box should not
+    silently drop someone — then optimistic, put back if the write fails.
+  */
+  const handleUnfollowAuthor = useCallback((authorId: string, displayName: string) => {
+    if (!authorId) {
+      return;
+    }
+    const unfollow = () => {
+      setFollowedAuthorIds((current) => {
+        if (!current) {
+          return current;
+        }
+        const next = new Set(current);
+        next.delete(authorId);
+        return next;
+      });
+      applyFollowingDelta(-1);
+      void unfollowUser(authorId).then((ok) => {
+        if (ok) {
+          return;
+        }
+        applyFollowingDelta(1);
+        setFollowedAuthorIds((current) => new Set(current ?? []).add(authorId));
+      });
+    };
+    Alert.alert(`Unfollow ${displayName}?`, undefined, [
+      { style: 'cancel', text: 'Cancel' },
+      { onPress: unfollow, style: 'destructive', text: 'Unfollow' },
+    ]);
+  }, [applyFollowingDelta]);
+
+  /*
     Refetch on focus, for two different reasons with two different urgencies.
 
     1. The composer flips a one-shot flag after posting. That reload is
@@ -512,15 +649,18 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     const token = ++loadTokenRef.current;
     setRefreshing(true);
     loadingMoreRef.current = false;
+    setIsLoadingMore(false);
+    // A pull is a request for current numbers on the articles too.
+    resetNewsReactions();
     void (async () => {
       try {
-        const page = await readFeedRef.current();
+        const page = await readFirstPage();
         if (token !== loadTokenRef.current) {
           return;
         }
-        setItems(page);
-        setHasMore(page.length >= PAGE_SIZE);
+        setFeed(page);
         setStatus('ready');
+        lastLoadedAtRef.current = Date.now();
       } catch {
         if (token === loadTokenRef.current) {
           setStatus('error');
@@ -531,17 +671,23 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         }
       }
     })();
-  }, []);
+  }, [readFirstPage, resetNewsReactions]);
 
+  /*
+    PAGING TWO SOURCES AS ONE. The merged list stops at the horizon — the
+    newest "oldest loaded row" of any source that still has more — so the end
+    of the list is always the point where ONE source has run out of loaded
+    rows. Scrolling to it reads that source's next page (`sourcesToAdvance`).
+    If the page lands entirely below the other source's horizon the list does
+    not grow, `onEndReached` would not fire again, and the feed would stall; so
+    the read repeats (bounded) until something new is visible or both sources
+    are exhausted.
+
+    Results are APPENDED to whatever the state is when they land rather than
+    replacing it, so a delete or block made mid-read is not undone.
+  */
   const handleLoadMore = useCallback(() => {
-    if (!hasMore || loadingMoreRef.current || status !== 'ready' || items.length === 0) {
-      return;
-    }
-    // The cursor is the last row's ACTIVITY time, not its post's creation time —
-    // a reposted row sorts on when it was reposted, so paging on `createdAt`
-    // would skip straight past everything between the two.
-    const cursor = items[items.length - 1]?.activityAt;
-    if (!cursor) {
+    if (loadingMoreRef.current || status !== 'ready' || sourcesToAdvance(feedRef.current).length === 0) {
       return;
     }
     const token = loadTokenRef.current;
@@ -549,27 +695,77 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     setIsLoadingMore(true);
 
     void (async () => {
+      let working: MixedFeedState = feedRef.current;
+      const visibleBefore = mergeMixedFeed(working).length;
+      const addedPosts: FeedItem[] = [];
+      const addedNews: NewsItem[] = [];
       try {
-        const page = await readFeedRef.current(cursor);
+        for (let round = 0; round < MAX_ADVANCE_ROUNDS; round += 1) {
+          const advance = sourcesToAdvance(working);
+          if (advance.length === 0) {
+            break;
+          }
+          const next: MixedFeedState = { ...working };
+          await Promise.all(advance.map(async (which: MixedFeedSource) => {
+            if (which === 'posts') {
+              // The cursor is the last row's ACTIVITY time, not its post's
+              // creation time — a reposted row sorts on when it was reposted.
+              const cursor = working.posts[working.posts.length - 1]?.activityAt;
+              try {
+                const page = cursor ? await readPostsRef.current(cursor) : [];
+                next.posts = [...next.posts, ...page];
+                addedPosts.push(...page);
+                next.postsDone = page.length < PAGE_SIZE;
+              } catch {
+                // Keep what's loaded and stop paging this source.
+                next.postsDone = true;
+              }
+              return;
+            }
+            try {
+              const page = working.newsCursor ? await readNewsRef.current(working.newsCursor) : null;
+              const pageItems = page?.items ?? [];
+              next.news = [...next.news, ...pageItems];
+              addedNews.push(...pageItems);
+              next.newsCursor = page?.nextCursor ?? null;
+              next.newsDone = pageItems.length === 0 || !page?.nextCursor;
+            } catch {
+              next.newsDone = true;
+            }
+          }));
+          working = next;
+          if (token !== loadTokenRef.current) {
+            return;
+          }
+          if (mergeMixedFeed(working).length > visibleBefore) {
+            break;
+          }
+        }
         if (token !== loadTokenRef.current) {
           return;
         }
-        setItems((current) => {
-          // The two sources are merged per page, so a row can legitimately be
-          // re-returned by the next page's over-fetch. Key-dedupe on append.
-          const seen = new Set(current.map((item) => item.key));
-          return [...current, ...page.filter((item) => !seen.has(item.key))];
+        const final = working;
+        setFeed((current) => {
+          // Pages can re-return a row (the posts read over-fetches across its two
+          // halves, and a delete can pull the cursor back). Key-dedupe on append.
+          const seenPosts = new Set(current.posts.map((item) => item.key));
+          const seenNews = new Set(current.news.map((item) => item.id));
+          return {
+            posts: [...current.posts, ...addedPosts.filter((item) => !seenPosts.has(item.key))],
+            postsDone: final.postsDone,
+            news: [...current.news, ...addedNews.filter((item) => !seenNews.has(item.id))],
+            newsCursor: final.newsCursor,
+            newsDone: final.newsDone,
+          };
         });
-        setHasMore(page.length >= PAGE_SIZE);
-      } catch {
-        // Keep what's loaded and stop paging rather than blanking the feed.
-        setHasMore(false);
       } finally {
-        loadingMoreRef.current = false;
-        setIsLoadingMore(false);
+        if (token === loadTokenRef.current) {
+          loadingMoreRef.current = false;
+          setIsLoadingMore(false);
+        }
       }
     })();
-  }, [hasMore, items, status]);
+  }, [status]);
 
   const handleOpenCard = useCallback(
     (cardId: string) => {
@@ -613,7 +809,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
           // this band (see renderItem): Android lays cell 0 over the header's
           // bottom edge, and anything drawn from the header's side got shaved by
           // the cell's background.
-          borderBottomWidth: items.length > 0 ? 0 : 4,
+          borderBottomWidth: rows.length > 0 ? 0 : 4,
         },
       ]}
       testID={`${testID}-compose-divider`}
@@ -733,16 +929,12 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
 
   const hubHeaderHeight = insets.top + HOME_HEADER_BAR_HEIGHT + TOOLBAR_TO_TABS_GAP;
 
-  const renderHubPage = (tab: HubTab, page: CollapsiblePageProps) => {
-    if (tab === 'news' || tab === 'market') {
+  const renderHubPage = (tab: SocialTab, page: CollapsiblePageProps) => {
+    if (tab === 'yourPosts') {
       if (!visitedTabs.has(tab)) {
-        return <View style={styles.safeArea} testID={`${testID}-${tab}-placeholder`} />;
+        return <View style={styles.safeArea} testID={`${testID}-your-posts-placeholder`} />;
       }
-      return tab === 'news' ? (
-        <NewsPage page={page} scrollRef={newsScrollRef} testID={`${testID}-news`} />
-      ) : (
-        <MarketWatchPage page={page} scrollRef={marketScrollRef} testID={`${testID}-market`} />
-      );
+      return <YourPostsPage page={page} scrollRef={yourPostsScrollRef} testID={`${testID}-your-posts`} />;
     }
     return (
         <AnimatedFlatList
@@ -776,10 +968,10 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
             // avatar. State cards re-inset themselves below.
             { paddingBottom: insets.bottom + 24 },
           ]}
-          data={items}
+          data={rows}
           // Keyed on the ROW, not the post: the same post can legitimately appear
           // twice — once on its own, once as somebody's repost.
-          keyExtractor={(item: FeedItem) => item.key}
+          keyExtractor={(row: ForYouRow) => row.key}
           ListEmptyComponent={listEmpty}
           ListFooterComponent={listFooter}
           ListHeaderComponent={composePrompt}
@@ -800,7 +992,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
               tintColor={theme.colors.gray400}
             />
           }
-          renderItem={({ item, index }: { item: FeedItem; index: number }) => (
+          renderItem={({ item: row, index }: { item: ForYouRow; index: number }) => (
             <>
               {/*
                 The composer's closing band, drawn BY THE FIRST CELL rather than by
@@ -819,31 +1011,47 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
                   testID={`${testID}-first-cell-rule`}
                 />
               ) : null}
-              {/*
-                The card below carries the ORIGINAL author's name and avatar, so
-                without this line a reposted row reads as though the reposter wrote
-                it. Same component the two Activity tabs use.
-              */}
-              {item.repostedBy ? (
-                <RepostAttribution
-                  name={reposterAttributionName(item.repostedBy, viewerHandle)}
-                  testID={`${testID}-repost-attribution`}
+              {row.kind === 'news' ? (
+                // Figma 6642:10973 / 6642:11002: a story with art gets the large
+                // image; one without is the text row.
+                <NewsArticleRow
+                  item={row.news}
+                  lead={Boolean(row.news.imageUrl)}
+                  liked={isNewsLiked(row.news.id)}
+                  reposted={isNewsReposted(row.news.id)}
+                  testID={`${testID}-news-${row.news.id}`}
+                  thread={newsReactions.threads.get(row.news.id) ?? null}
                 />
-              ) : null}
-              <PostCard
-                accessToken={accessToken}
-                apiBaseUrl={apiBaseUrl}
-                isFollowingAuthor={
-                  followedAuthorIds ? followedAuthorIds.has(item.post.authorId) : null
-                }
-                onAuthorBlocked={handleAuthorBlocked}
-                onFollowAuthor={handleFollowAuthor}
-                onPressCard={handleOpenCard}
-                eventBadgeMode={source === 'show' ? 'booth' : 'show'}
-                onRequestDelete={requestDelete}
-                post={item.post}
-                testID={`${testID}-post`}
-              />
+              ) : (
+                <>
+                  {/*
+                    The card below carries the ORIGINAL author's name and avatar, so
+                    without this line a reposted row reads as though the reposter
+                    wrote it. Same component Your posts uses.
+                  */}
+                  {row.item.repostedBy ? (
+                    <RepostAttribution
+                      name={reposterAttributionName(row.item.repostedBy, viewerHandle)}
+                      testID={`${testID}-repost-attribution`}
+                    />
+                  ) : null}
+                  <PostCard
+                    accessToken={accessToken}
+                    apiBaseUrl={apiBaseUrl}
+                    isFollowingAuthor={
+                      followedAuthorIds ? followedAuthorIds.has(row.item.post.authorId) : null
+                    }
+                    onAuthorBlocked={handleAuthorBlocked}
+                    onFollowAuthor={handleFollowAuthor}
+                    onUnfollowAuthor={handleUnfollowAuthor}
+                    onPressCard={handleOpenCard}
+                    eventBadgeMode={source === 'show' ? 'booth' : 'show'}
+                    onRequestDelete={requestDelete}
+                    post={row.item.post}
+                    testID={`${testID}-post`}
+                  />
+                </>
+              )}
             </>
           )}
           testID={`${testID}-list`}
@@ -872,7 +1080,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         }
         onChange={selectTab}
         onPageScroll={handlePageScroll}
-        order={HUB_TAB_ORDER}
+        order={SOCIAL_TAB_ORDER}
         pageRefs={pageRefs}
         // Same height as the header, so nothing collapses and the tabs stay put.
         pinnedTopInset={hubHeaderHeight}
@@ -881,15 +1089,13 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         tabBar={
           <View style={{ backgroundColor: theme.colors.gray0 }}>
             <PageTabs
-              // Figma 6597:3589: left on the 16 gutter, underline under the
-              // active tab and a hairline rail (owner, 2026-11-21).
-              align="gutter"
-              labelSize="caption"
+              // Figma 6642:11165: FOR YOU · YOUR POSTS on the 2026-11 underline rail.
               onChange={selectTab}
-              tabs={HUB_TABS}
+              tabs={SOCIAL_TABS}
               testID={`${testID}-tabs`}
               uppercase
               value={activeTab}
+              variant="underline"
             />
           </View>
         }
@@ -897,7 +1103,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         value={activeTab}
       />
       {/* The blur/fade under the tab bar is drawn by the pager for every tab
-          page (`TabBarBackdrop`), so it is identical on all four. */}
+          page (`TabBarBackdrop`), so it is identical on both. */}
       {/*
         AFTER the pager so tree order paints it on top, and so UIKit's
         `subviews[0]` walk still reaches the scroller for minimize-on-scroll.

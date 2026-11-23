@@ -88,10 +88,14 @@ type PostCardProps = {
   isFollowingAuthor?: boolean | null;
   /**
    * Follow this post's author. Passing it, together with a `false`
-   * `isFollowingAuthor`, is what turns the control on. There is deliberately no
-   * unfollow counterpart — see `FollowButton`.
+   * `isFollowingAuthor`, is what turns the control on.
    */
   onFollowAuthor?: (authorId: string) => void;
+  /**
+   * Unfollow from the card: makes the FOLLOWING box pressable (Social feed,
+   * Figma 6642:5448). Omitted, FOLLOWING is an inert status — see `FollowButton`.
+   */
+  onUnfollowAuthor?: (authorId: string, displayName: string) => void;
   /**
    * Open the comment thread as soon as the card mounts. Set by the post-detail
    * screen when a notification about a comment opened it, so the tap lands on
@@ -347,6 +351,7 @@ export function PostCard({
   onAuthorBlocked,
   isFollowingAuthor = null,
   onFollowAuthor,
+  onUnfollowAuthor,
   autoOpenComments = false,
   focusCommentId = null,
   eventBadgeMode = 'show',
@@ -795,6 +800,9 @@ export function PostCard({
               <FollowButton
                 following={Boolean(isFollowingAuthor)}
                 onPress={gate(() => onFollowAuthor?.(post.authorId))}
+                onUnfollow={
+                  onUnfollowAuthor ? gate(() => onUnfollowAuthor(post.authorId, displayName)) : undefined
+                }
                 personLabel={displayName}
                 tone={onDark ? 'onDark' : 'default'}
                 testID={`${prefix}-follow-button`}

@@ -975,17 +975,18 @@ File: `src/components/follow-button.tsx`
 Follow control for a person the viewer has come across — a feed author, a search
 result (Figma 5080:6921, 65x30).
 
-ONE-WAY BY DESIGN. `following={false}` is a pressable white button with a
-gray-200 border and a gray-600 "FOLLOW"; `following={true}` is a plain, inert
-`View` — borderless gray-50 fill, gray-900 "FOLLOWING" (Figma 5768:27191). There is deliberately no unfollow here:
-unfollowing belongs on the person's profile, where the consequence is visible.
-The followed state is a `View` rather than a disabled button so it reads as
-settled rather than as broken or greyed out.
+`following={false}` is a pressable white button with a gray-200 border and a
+gray-600 "FOLLOW"; `following={true}` is borderless gray-50 fill, gray-900
+"FOLLOWING" (Figma 5768:27191). ONE-WAY UNLESS `onUnfollow` is passed: without
+it the followed state is a plain, inert `View` (it reads as settled rather than
+as a broken or greyed-out button). The Social feed passes `onUnfollow` (Figma
+6642:5448), making FOLLOWING the way out; the caller owns any confirmation.
 
 | Prop | Type | Notes |
 | --- | --- | --- |
 | `following` | `boolean` | Which of the two states to draw |
 | `onPress` | `() => void` | Fires only from the un-followed state |
+| `onUnfollow` | `() => void` | Makes the followed state pressable; omitted, it is inert |
 | `tone` | `'default' \| 'onDark'` | `onDark` draws the settled state gray-700 with a white label for a black backdrop (Figma 6322:8416) |
 | `personLabel` | `string` | Name for the accessibility label ("Follow Jamie") |
 | `testID` | `string` | |

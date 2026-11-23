@@ -4,7 +4,7 @@ import { FeedScreen } from '@/features/social/screens/feed-screen';
 import { useAuth } from '@/providers/auth-provider';
 
 /**
- * Social — the feed of posts and market trends, and the last tab in the bar.
+ * Social — FOR YOU (posts + news by date) and YOUR POSTS, the last tab in the bar.
  *
  * It briefly WAS the tabs root, under the name Home. The app now opens on your
  * collection instead, so the feed moved here and Collection took `(tabs)/index`

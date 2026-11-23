@@ -7,11 +7,11 @@ import { useSpotlightTheme } from '../theme';
  * Follow control for a person you have come across — a feed author, a search
  * result (Figma 6203:9449, a 28pt-tall button).
  *
- * ONE-WAY BY DESIGN. Following is a control; FOLLOWED is a status. The
- * followed state renders as a plain `View`, not a disabled button: there is no
- * unfollow here, and a pressable that swallows its own press (or greys itself
- * out) reads as broken rather than as settled. Unfollowing lives on the
- * person's profile, where the consequence is visible and deliberate.
+ * ONE-WAY UNLESS ASKED. Following is a control; FOLLOWED is a status. Without
+ * `onUnfollow` the followed state renders as a plain `View`, not a disabled
+ * button — a pressable that swallows its own press reads as broken rather than
+ * as settled. The Social feed (Figma 6642:5448) passes `onUnfollow`, and the
+ * FOLLOWING box becomes the way out; the caller owns any confirmation.
  *
  * Figma 5080:6917/6919 (instance 5768:27191): the invitation is a white box
  * with a gray200 hairline and a gray600 label; the confirmation is a borderless
@@ -28,8 +28,10 @@ const BOX_RADIUS = 6;
 export type FollowButtonProps = {
   /** Whether the viewer already follows this person. */
   following: boolean;
-  /** Fires only from the un-followed state; the followed state is inert. */
+  /** Fires only from the un-followed state. */
   onPress?: () => void;
+  /** Makes the FOLLOWING state pressable. Omitted, that state is inert. */
+  onUnfollow?: () => void;
   /** Whose row this is, for the accessibility label ("Follow Jamie"). */
   personLabel?: string;
   /** `onDark` draws the settled state for a black backdrop (Figma 6322:8416). */
@@ -40,6 +42,7 @@ export type FollowButtonProps = {
 export function FollowButton({
   following,
   onPress,
+  onUnfollow,
   personLabel,
   tone = 'default',
   testID,
@@ -71,7 +74,7 @@ export function FollowButton({
     </Text>
   );
 
-  if (following) {
+  if (following && !onUnfollow) {
     return (
       <View
         accessibilityLabel={personLabel ? `Following ${personLabel}` : 'Following'}
@@ -84,14 +87,16 @@ export function FollowButton({
     );
   }
 
+  const actionLabel = following ? 'Unfollow' : 'Follow';
   return (
     <Pressable
-      accessibilityLabel={personLabel ? `Follow ${personLabel}` : 'Follow'}
+      accessibilityLabel={personLabel ? `${actionLabel} ${personLabel}` : actionLabel}
       accessibilityRole="button"
+      accessibilityState={following ? { selected: true } : undefined}
       // The box is 30 tall, well under a comfortable target, and it sits beside
       // the ⋯ menu in a feed row — the slop is what keeps the two apart.
       hitSlop={8}
-      onPress={onPress}
+      onPress={following ? onUnfollow : onPress}
       style={({ pressed }) => [...box, { opacity: pressed ? 0.88 : 1 }]}
       testID={testID}
     >
