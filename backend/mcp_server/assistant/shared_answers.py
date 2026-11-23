@@ -152,6 +152,7 @@ def request_eligible(request: dict[str, Any]) -> bool:
         request.get("thread_id") is None
         and not request.get("card_ids")
         and not request.get("attached_card_ids")
+        and not request.get("tray_rows")
         and page_shareable(request.get("page"))
         and not personal_question(request.get("text") or "")
     )

@@ -121,6 +121,54 @@ describe('assistant wire normalization', () => {
     expect(none.context).toEqual({ source: 'home' });
   });
 
+  it('sends the scan tray rows as tray_rows: snake_case, one per row ref, graded rows carry no condition', () => {
+    const body = buildAssistantSendBody({
+      threadId: 'thr_1', clientMessageId: 'cid', text: 'add these',
+      context: {
+        source: 'scanner',
+        trayRows: [
+          { rowRef: 'r1', cardId: 'a', condition: 'LP', grader: null, grade: null, quantity: 1, variant: 'Reverse Holofoil' },
+          { rowRef: 'r1', cardId: 'dup', condition: 'NM', grader: null, grade: null, quantity: 1, variant: null },
+          { rowRef: 'r2', cardId: 'b', condition: 'NM', grader: 'PSA', grade: '10', quantity: 1, variant: null },
+        ],
+      },
+    });
+    expect(body.context).toEqual({
+      source: 'scanner',
+      tray_rows: [
+        { row_ref: 'r1', card_id: 'a', condition: 'LP', grader: null, grade: null, quantity: 1, variant: 'Reverse Holofoil' },
+        { row_ref: 'r2', card_id: 'b', condition: null, grader: 'PSA', grade: '10', quantity: 1, variant: null },
+      ],
+    });
+  });
+
+  it('parses the tray actions and drops malformed ones', () => {
+    expect(parseAssistantAction({
+      id: 'act_s', type: 'swap_tray_card', summary: 'Swap', state: 'proposed',
+      params: {
+        row: 1, row_ref: 'r1', from_card_id: 'a', to_card_id: 'b',
+        to_card: { card_id: 'b', name: 'Charizard ex', set: 'Obsidian Flames', number: '223', price_usd: 90 },
+      },
+    })).toEqual(expect.objectContaining({
+      type: 'swap_tray_card',
+      params: expect.objectContaining({
+        row: 1, rowRef: 'r1', fromCardId: 'a', toCardId: 'b',
+        toCard: expect.objectContaining({ cardId: 'b', setName: 'Obsidian Flames', priceUsd: 90 }),
+      }),
+    }));
+    expect(parseAssistantAction({
+      id: 'act_a', type: 'add_tray_to_collection', summary: 'Add', state: 'proposed',
+      params: { rows: [{ row: 2, row_ref: 'r2', card_id: 'b', quantity: 1, condition: null, variant_name: null, grader: 'PSA', grade: '10' }, { row: 3 }] },
+    })?.params).toEqual({
+      rows: [{ row: 2, rowRef: 'r2', cardId: 'b', quantity: 1, condition: null, variantName: null, grader: 'PSA', grade: '10' }],
+    });
+    expect(parseAssistantAction({
+      id: 'act_r', type: 'remove_tray_card', summary: 'Remove', state: 'proposed', params: { row: 1, row_ref: 'r1', card_id: 'a' },
+    })?.params).toEqual({ row: 1, rowRef: 'r1', cardId: 'a' });
+    expect(parseAssistantAction({ id: 'x', type: 'swap_tray_card', params: { row_ref: 'r1' } })).toBeNull();
+    expect(parseAssistantAction({ id: 'y', type: 'add_tray_to_collection', params: { rows: [] } })).toBeNull();
+  });
+
   it('sends context.game only for a known game', () => {
     const home = buildAssistantSendBody({
       threadId: 'thr_1', clientMessageId: 'cid', text: 'rising?', context: { source: 'home', game: 'lorcana' },

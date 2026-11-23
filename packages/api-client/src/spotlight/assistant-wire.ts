@@ -33,6 +33,8 @@ import type {
   AssistantGradingRecommendation,
   AssistantGradingVerdict,
   AssistantTradeSide,
+  AssistantTrayAddRow,
+  AssistantTrayRow,
 } from './types';
 import { CARD_GAMES } from './types';
 
@@ -321,9 +323,64 @@ export function parseAssistantAction(value: unknown): AssistantProposedAction | 
         },
       };
     }
+    case 'add_tray_to_collection': {
+      const rows = Array.isArray(params.rows)
+        ? params.rows.map(parseTrayAddRow).filter((row): row is AssistantTrayAddRow => row != null)
+        : [];
+      if (rows.length === 0) {
+        return null;
+      }
+      return { ...base, type: 'add_tray_to_collection', params: { rows } };
+    }
+    case 'swap_tray_card': {
+      const rowRef = asString(params.row_ref);
+      const fromCardId = asString(params.from_card_id);
+      const toCardId = asString(params.to_card_id);
+      if (!rowRef || !fromCardId || !toCardId) {
+        return null;
+      }
+      return {
+        ...base,
+        type: 'swap_tray_card',
+        params: {
+          row: asInt(params.row) ?? 0,
+          rowRef,
+          fromCardId,
+          toCardId,
+          toCard: parseAssistantCardRef(params.to_card),
+        },
+      };
+    }
+    case 'remove_tray_card': {
+      const rowRef = asString(params.row_ref);
+      const cardId = asString(params.card_id);
+      if (!rowRef || !cardId) {
+        return null;
+      }
+      return { ...base, type: 'remove_tray_card', params: { row: asInt(params.row) ?? 0, rowRef, cardId } };
+    }
     default:
       return null;
   }
+}
+
+function parseTrayAddRow(value: unknown): AssistantTrayAddRow | null {
+  const raw = asRecord(value);
+  const rowRef = raw ? asString(raw.row_ref) : null;
+  const cardId = raw ? asString(raw.card_id) : null;
+  if (!raw || !rowRef || !cardId) {
+    return null;
+  }
+  return {
+    row: asInt(raw.row) ?? 0,
+    rowRef,
+    cardId,
+    quantity: Math.max(1, asInt(raw.quantity) ?? 1),
+    condition: asCondition(raw.condition),
+    variantName: asString(raw.variant_name),
+    grader: asString(raw.grader),
+    grade: asString(raw.grade),
+  };
 }
 
 function parseList<T>(value: unknown, parse: (item: unknown) => T | null): T[] {
@@ -661,6 +718,33 @@ export function buildAssistantPageWire(page: AssistantPageContext): Record<strin
   };
 }
 
+/** Contract cap: ≤20 scan tray rows, one per row ref. */
+export const ASSISTANT_MAX_TRAY_ROWS = 20;
+
+export function buildAssistantTrayRowsWire(rows: readonly AssistantTrayRow[]): Record<string, unknown>[] {
+  const seen = new Set<string>();
+  const wire: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    if (!row.rowRef || !row.cardId || seen.has(row.rowRef)) {
+      continue;
+    }
+    seen.add(row.rowRef);
+    wire.push({
+      row_ref: row.rowRef,
+      card_id: row.cardId,
+      condition: row.grader ? null : row.condition,
+      grader: row.grader,
+      grade: row.grader ? row.grade : null,
+      quantity: Math.max(1, Math.round(row.quantity) || 1),
+      variant: row.variant,
+    });
+    if (wire.length >= ASSISTANT_MAX_TRAY_ROWS) {
+      break;
+    }
+  }
+  return wire;
+}
+
 /** App payload → wire body for POST /api/v1/assistant/messages. */
 export function buildAssistantSendBody(payload: AssistantSendPayload): Record<string, unknown> {
   const body: Record<string, unknown> = {
@@ -682,6 +766,7 @@ export function buildAssistantSendBody(payload: AssistantSendPayload): Record<st
       ...(attachedCardIds.length > 0 ? { attached_card_ids: Array.from(new Set(attachedCardIds)).slice(0, 5) } : {}),
       ...(context.game && CARD_GAMES.includes(context.game) ? { game: context.game } : {}),
       ...(context.page ? { page: buildAssistantPageWire(context.page) } : {}),
+      ...(context.trayRows?.length ? { tray_rows: buildAssistantTrayRowsWire(context.trayRows) } : {}),
     };
   }
   return body;

@@ -16,6 +16,7 @@ import {
   getScanCandidateReviewSession,
 } from '@/features/scanner/scan-candidate-review-session';
 import { __resetScannerTargetConfigForTests } from '@/features/scanner/use-scanner-target-config';
+import { getScanTrayAssistantBridge } from '@/features/scanner/scan-tray-assistant-bridge';
 
 import { createTestSpotlightRepository, renderWithProviders } from './test-utils';
 import { resetVendorSettingsCache } from '@/features/vendor/use-vendor-settings';
@@ -2927,6 +2928,99 @@ describe('ScannerScreen', () => {
     expect(await screen.findByText('Gastly')).toBeTruthy();
     expect(screen.getByTestId(trayTestId('price', 0))).toHaveTextContent('¥4,000.00');
     expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.00');
+  });
+
+  describe('Ask Ekalight on the scan tray', () => {
+    const charizards = [
+      {
+        id: 'cand-151', cardId: 'sv3pt5-199', name: 'Charizard ex', cardNumber: '199/165', setName: '151',
+        imageUrl: 'https://cdn.spotlight.test/c151.png', marketPrice: 300, currencyCode: 'USD',
+      },
+      {
+        id: 'cand-obf', cardId: 'sv3-223', name: 'Charizard ex', cardNumber: '223/197', setName: 'Obsidian Flames',
+        imageUrl: 'https://cdn.spotlight.test/obf.png', marketPrice: 90, currencyCode: 'USD',
+      },
+    ];
+
+    const scanCharizard = async (overrides: Parameters<typeof createTestSpotlightRepository>[0] = {}) => {
+      const spotlightRepository = createTestSpotlightRepository({
+        matchScannerCapture: async () => ({ scanID: 'scan-zard', candidates: charizards }),
+        ...overrides,
+      });
+      renderScannerScreen({ spotlightRepository });
+      // Empty tray: the floating bubble covers it, so no header chip.
+      expect(screen.queryByTestId('scanner-tray-ask-ekalight')).toBeNull();
+      await waitForScannerReady();
+      fireEvent.press(screen.getByTestId('scanner-preview'));
+      expect((await screen.findAllByText('Charizard ex')).length).toBeGreaterThan(0);
+    };
+
+    it('opens the chat about the tray with the scan-tray page', async () => {
+      await scanCharizard();
+      fireEvent.press(await screen.findByTestId('scanner-tray-ask-ekalight'));
+      const pushed = mockPush.mock.calls.at(-1)?.[0] as { pathname: string; params: Record<string, string> };
+      expect(pushed.pathname).toBe('/assistant');
+      expect(pushed.params.source).toBe('scanner');
+      expect(pushed.params.cardIds).toBe('sv3pt5-199');
+      expect(JSON.parse(pushed.params.page)).toEqual({
+        kind: 'scanner', label: 'Your scan tray', params: { view: 'scan_tray', game: 'pokemon' },
+      });
+    });
+
+    it('applies chat tray actions through the tray\'s own paths', async () => {
+      const bulkCalls: any[][] = [];
+      await scanCharizard({
+        createInventoryEntriesBulk: async (entries: any[]) => {
+          bulkCalls.push(entries);
+          return {
+            results: entries.map((_entry, index) => ({ index, deckEntryID: `e-${index}`, addedAt: 'now' })),
+            createdCount: entries.length,
+            failedCount: 0,
+          };
+        },
+      });
+      const bridge = getScanTrayAssistantBridge();
+      expect(bridge).not.toBeNull();
+      const [row] = bridge!.rows();
+      expect(row).toEqual(expect.objectContaining({ cardId: 'sv3pt5-199', condition: 'NM', grader: null, quantity: 1 }));
+
+      // A stale row ref is refused honestly.
+      expect(bridge!.swapCard({ rowRef: 'gone', fromCardId: 'sv3pt5-199', toCardId: 'sv3-223', toCard: null }))
+        .toEqual({ status: 'failed', message: "That card isn't in your scan tray anymore." });
+
+      // Swap to an existing candidate: the row's change-match, candidates kept.
+      act(() => {
+        expect(bridge!.swapCard({ rowRef: row.rowRef, fromCardId: 'sv3pt5-199', toCardId: 'sv3-223', toCard: null }))
+          .toEqual({ status: 'done' });
+      });
+      await waitFor(() => expect(bridge!.rows()[0].cardId).toBe('sv3-223'));
+
+      // Swap to a card the matcher never returned: appended, then picked.
+      act(() => {
+        bridge!.swapCard({
+          rowRef: row.rowRef, fromCardId: 'sv3-223', toCardId: 'sv4pt5-54',
+          toCard: {
+            cardId: 'sv4pt5-54', name: 'Charizard ex', setName: 'Paldean Fates', number: '54/91', language: 'English',
+            imageSmallUrl: null, priceUsd: 20, variant: null, grader: null, grade: null, quantityOwned: null, appUrl: null,
+          },
+        });
+      });
+      await waitFor(() => expect(bridge!.rows()[0].cardId).toBe('sv4pt5-54'));
+      // The from-card must match the live row: the old id is refused now.
+      expect(bridge!.removeRow({ rowRef: row.rowRef, cardId: 'sv3pt5-199' }).status).toBe('failed');
+
+      // Add: the scanner's own bulk add, with the scan id (confirmation), and the row leaves.
+      let outcome: unknown;
+      await act(async () => {
+        outcome = await bridge!.addRows([{ row: 1, rowRef: row.rowRef, cardId: 'sv4pt5-54', quantity: 1, condition: 'NM', variantName: null, grader: null, grade: null }]);
+      });
+      expect(outcome).toEqual({ status: 'done' });
+      expect(bulkCalls).toHaveLength(1);
+      expect(bulkCalls[0][0]).toEqual(expect.objectContaining({
+        cardID: 'sv4pt5-54', sourceScanID: 'scan-zard', condition: 'near_mint', selectionSource: 'alternate', selectedRank: 3,
+      }));
+      await waitFor(() => expect(bridge!.rows()).toEqual([]));
+    });
   });
 
 });
