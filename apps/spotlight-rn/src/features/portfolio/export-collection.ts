@@ -46,7 +46,8 @@ export async function exportCollectionCsv(repository: SpotlightRepository): Prom
       return;
     }
 
-    const fileUri = `${cacheDirectory}spotlight-collection.csv`;
+    const today = new Date().toISOString().slice(0, 10);
+    const fileUri = `${cacheDirectory}ekalight-collection-${today}.csv`;
     await writeAsStringAsync(fileUri, csv, { encoding: 'utf8' });
 
     // Prefer expo-sharing (the only path that shares a real FILE on Android).

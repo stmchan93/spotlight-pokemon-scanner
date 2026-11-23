@@ -29,6 +29,7 @@ from env_loader import load_backend_env_file as _load_backend_env_file
 
 _load_backend_env_file(Path(__file__).resolve().parent / ".env")
 
+from collection_export import collection_export_csv
 from catalog_tools import (
     _coerce_price_summary_from_entry,
     _graded_contexts_payload,
@@ -94,7 +95,6 @@ from catalog_tools import (
     suppressed_raw_variant_labels,
     filter_suppressed_raw_variants,
     cards_by_ids,
-    deck_entries_export_csv,
     append_deck_entry_event,
     connect,
     contextual_pricing_summary_for_card,
@@ -23917,21 +23917,39 @@ class SpotlightScanService:
         }
 
     def deck_entries_export_csv(self) -> str:
-        """Owner-scoped holdings-snapshot CSV export. Reuses the same
-        ``deck_entries`` assembly the Collection view uses (so the owner scope,
-        pricing, and cost-basis all match exactly), then renders it via the pure
-        ``deck_entries_export_csv`` formatter. Pages up to the deck_entries cap so
-        every currently-owned entry is included in one CSV."""
-        payload = self.deck_entries(
-            limit=1000,
-            offset=0,
-            include_inactive=False,
-            favorites_only=False,
-            compute_day_change=False,
-            include_series=False,
+        """Owner-scoped collection spreadsheet (Account → Export collection).
+        Reuses the Collection view's ``deck_entries`` assembly (owner scope,
+        per-grade slab pricing, cost basis all match the app), every collection,
+        paged so no holding is cut off; ``collection_export`` merges SKUs."""
+        entries: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            payload = self.deck_entries(
+                limit=1000,
+                offset=offset,
+                include_inactive=False,
+                favorites_only=False,
+                compute_day_change=False,
+                include_series=False,
+            )
+            page = payload.get("entries", []) if isinstance(payload, dict) else []
+            entries.extend(page)
+            if len(page) < 1000:
+                break
+            offset += len(page)
+        product_ids = self._main_tcgplayer_product_ids(
+            [str((entry.get("card") or {}).get("id") or "") for entry in entries]
         )
-        entries = payload.get("entries", []) if isinstance(payload, dict) else []
-        return deck_entries_export_csv(entries)
+        # Copies: the entries may be the cached Collection payload.
+        linked: list[dict[str, Any]] = []
+        for entry in entries:
+            card = entry.get("card")
+            if isinstance(card, dict) and not card.get("tcgplayerProductId"):
+                product_id = product_ids.get(str(card.get("id") or ""))
+                if product_id:
+                    entry = {**entry, "card": {**card, "tcgplayerProductId": product_id}}
+            linked.append(entry)
+        return collection_export_csv(linked)
 
     def collection_headline_value_for_owner(
         self, owner_user_id: str, *, time_zone_name: str | None = None
@@ -28148,7 +28166,11 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 return
             finally:
                 _heavy_read_semaphore.release()
-            self._write_csv(HTTPStatus.OK, csv_text, filename="holdings.csv")
+            self._write_csv(
+                HTTPStatus.OK,
+                csv_text,
+                filename=f"ekalight-collection-{datetime.now(timezone.utc):%Y-%m-%d}.csv",
+            )
             return
 
         if parsed.path == "/api/v1/deck/entries":

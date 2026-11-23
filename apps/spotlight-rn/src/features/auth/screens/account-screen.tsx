@@ -392,13 +392,13 @@ export function AccountScreen() {
                 COLLECTION DATA
               </Text>
               <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
-                Export your collection
+                A spreadsheet of every card in all your collections, with prices, cost and links.
               </Text>
             </View>
             <View style={styles.collectionDataButtons}>
               <Button
                 disabled={collectionDataBusy}
-                label={collectionDataBusy ? 'Exporting…' : 'Export portfolio (CSV)'}
+                label={collectionDataBusy ? 'Exporting…' : 'Export collection'}
                 onPress={() => {
                   void handleExportCollection();
                 }}
