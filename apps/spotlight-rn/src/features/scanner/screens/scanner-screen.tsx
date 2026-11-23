@@ -5154,14 +5154,14 @@ export function ScannerScreen({
           style={[
             styles.topChromeRow,
             {
-              left: 16,
-              right: 16,
+              left: captureSurfaceLayout.reticle.x,
               top: captureSurfaceLayout.backButtonTop,
+              width: captureSurfaceLayout.reticle.width,
             },
           ]}
         >
-          {/* A compact pill sized to its content, centred over the frame in
-              line with the centred "Tap to scan" prompt (owner, 2026-11-22). */}
+          {/* The pill spans exactly the purple reticle's width, edge to edge with
+              the frame below it (owner, 2026-11-22). */}
           <View style={styles.topChromeCenter}>
             <ScanTargetPill
               flag={scanTargetFlag(scanLane)}
@@ -5830,7 +5830,7 @@ const styles = StyleSheet.create({
   topChromeRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    // Just the content-sized target pill, centred.
+    // The target pill, as wide as the reticle.
     justifyContent: 'center',
     position: 'absolute',
     zIndex: 5,
@@ -5848,8 +5848,8 @@ const styles = StyleSheet.create({
     zIndex: 4,
   },
   topChromeCenter: {
-    alignItems: 'center',
-    flexShrink: 1,
+    alignItems: 'stretch',
+    flex: 1,
   },
   // POC chrome (dev builds only) — the UX pass owns the real treatment.
   binderPageHeader: {

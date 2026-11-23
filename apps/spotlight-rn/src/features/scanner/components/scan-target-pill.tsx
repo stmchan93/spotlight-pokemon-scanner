@@ -73,9 +73,9 @@ const styles = StyleSheet.create({
     ...textStyles.label,
     color: colors.gray900,
   },
-  // Sized to its content (label + flag + chevron + padding), never stretched.
+  // Fills its slot: the scanner gives it exactly the reticle's width.
   pressable: {
-    alignSelf: 'center',
+    alignSelf: 'stretch',
     borderCurve: 'continuous',
     borderRadius: 999,
   },
