@@ -1,13 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fireEvent, screen, within } from '@testing-library/react-native';
-import { Share } from 'react-native';
 
 import type { SpotlightEventsFeed } from '@spotlight/api-client';
 import { resetSavedEventsForTests } from '@/features/events/saved-events-store';
 import {
   EventsScreen,
-  buildEventsShareMessage,
-  searchEvents,
 } from '@/features/events/screens/events-screen';
 import { openLinkOut } from '@/features/meta-feed/screens/components/open-link-out';
 
@@ -176,21 +173,6 @@ describe('EventsScreen', () => {
     expect(cardIds()).toHaveLength(3);
   });
 
-  it('the toolbar search opens a field that filters by show, venue or city', async () => {
-    renderEvents();
-    await screen.findByTestId('event-card-hawaii-2026-10');
-    expect(screen.queryByTestId('events-search-field')).toBeNull();
-
-    fireEvent.press(screen.getByTestId('events-search'));
-    fireEvent.changeText(screen.getByTestId('events-search-field'), 'pomona');
-    expect(cardIds()).toEqual(['event-card-pomona-2026-12']);
-
-    // Closing clears the query.
-    fireEvent.press(screen.getByTestId('events-search'));
-    expect(screen.queryByTestId('events-search-field')).toBeNull();
-    expect(cardIds()).toHaveLength(3);
-  });
-
   it('pushes the detail route when a card is pressed', async () => {
     renderEvents();
     fireEvent.press(await screen.findByTestId('event-card-pomona-2026-12'));
@@ -245,41 +227,12 @@ describe('EventsScreen', () => {
     expect(await screen.findByTestId('event-card-hawaii-2026-10')).toBeTruthy();
   });
 
-  it('has no menu; search sits in the trailing capsule beside share', async () => {
+  it('has no menu, search or share (owner, 2026-11-23)', async () => {
     renderEvents();
     await screen.findByTestId('event-card-hawaii-2026-10');
     expect(screen.queryByTestId('events-menu')).toBeNull();
-
-    const actions = screen.getByTestId('events-actions');
-    expect(within(actions).getByTestId('events-search')).toBeTruthy();
-    expect(within(actions).getByTestId('events-share')).toBeTruthy();
-  });
-
-  it('shares the upcoming lineup', async () => {
-    const share = jest.spyOn(Share, 'share').mockResolvedValue({ action: Share.sharedAction });
-    renderEvents();
-    await screen.findByTestId('event-card-hawaii-2026-10');
-    fireEvent.press(screen.getByTestId('events-share'));
-    expect(share).toHaveBeenCalledWith({ message: buildEventsShareMessage(FEED.items) });
+    expect(screen.queryByTestId('events-search')).toBeNull();
+    expect(screen.queryByTestId('events-share')).toBeNull();
   });
 });
 
-describe('events-screen selectors', () => {
-  it('searchEvents matches title, venue and city, case-insensitively', () => {
-    expect(searchEvents(FEED.items, 'FAIRPLEX').map((event) => event.id)).toEqual(['pomona-2026-12']);
-    expect(searchEvents(FEED.items, 'oahu').map((event) => event.id)).toEqual(['hawaii-2026-10']);
-    expect(searchEvents(FEED.items, '  ')).toBe(FEED.items);
-  });
-
-  it('buildEventsShareMessage lists only upcoming events', () => {
-    expect(buildEventsShareMessage(FEED.items)).toBe(
-      [
-        'Spotlight Card Show — upcoming events',
-        'Spotlight Hawaii · Oct. 24–25 · Oahu, HI',
-        'Spotlight Pomona · Dec. 5–6 · Pomona, CA',
-        'Spotlight Irvine · Jan. 9 · Irvine, CA',
-      ].join('\n'),
-    );
-    expect(buildEventsShareMessage([pastFeatured])).toBe('Spotlight Card Show — upcoming events');
-  });
-});

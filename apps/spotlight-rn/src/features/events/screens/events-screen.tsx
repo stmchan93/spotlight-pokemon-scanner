@@ -1,31 +1,23 @@
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Image,
   Platform,
-  Pressable,
   RefreshControl,
   ScrollView,
-  Share,
   StyleSheet,
   View,
   useWindowDimensions,
-  type TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { Search, ShareIos, Xmark } from 'iconoir-react-native';
 
 import type { SpotlightEvent } from '@spotlight/api-client';
 import {
-  GlassNavBubbleGroup,
   PageTabs,
   PillButton,
-  SearchField,
   SkeletonBlock,
   StateCard,
-  glassNavBubbleGlyphSize,
-  glassNavBubbleGlyphStrokeWidth,
   layout,
   radii,
   spacing,
@@ -36,7 +28,7 @@ import {
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { EventListCard } from '@/features/events/components/event-list-card';
 import { profileHeaderSheetTop } from '@/features/profile/components/profile-header';
-import { eventRegion, eventRegions, formatEventDateRange } from '@/features/events/event-format';
+import { eventRegion, eventRegions } from '@/features/events/event-format';
 import { useSpotlightEvents } from '@/features/events/hooks/use-spotlight-events';
 import { useSavedEvents } from '@/features/events/saved-events-store';
 import { tabBarBottomFadeHeight } from '@/lib/tab-bar-insets';
@@ -66,29 +58,9 @@ const LOGO_WIDTH = 174;
 const LOGO_HEIGHT = 146;
 const LOGO_ABOVE_CHIP_ROW = spacing.xxl;
 const LOGO_CENTER_OFFSET = -11;
-const SEARCH_ICON_SIZE = 16;
-/** Room left above the sheet for the floating toolbar when search scrolls it up. */
-const SEARCH_SCROLL_CLEARANCE = 64;
 
 const headerImage = require('../../../../assets/images/events/events-header.jpg');
 const showLogo = require('../../../../assets/images/events/spotlight-card-show-logo.png');
-
-export function buildEventsShareMessage(events: SpotlightEvent[]): string {
-  const upcoming = events.filter((event) => event.status !== 'past');
-  const lines = upcoming.map((event) => `${event.shortTitle} · ${formatEventDateRange(event)} · ${event.city}`);
-  return ['Spotlight Card Show — upcoming events', ...lines].join('\n');
-}
-
-/** Case-insensitive match on the title, venue or city. */
-export function searchEvents(events: SpotlightEvent[], query: string): SpotlightEvent[] {
-  const needle = query.trim().toLowerCase();
-  if (!needle) {
-    return events;
-  }
-  return events.filter((event) =>
-    [event.title, event.shortTitle, event.venue, event.city].some((text) => text.toLowerCase().includes(needle)),
-  );
-}
 
 export function EventsScreen() {
   const theme = useSpotlightTheme();
@@ -101,14 +73,11 @@ export function EventsScreen() {
   const { events, failed, refresh } = useSpotlightEvents();
   const { isSaved, savedIds, toggle } = useSavedEvents();
   // Guests see only the upcoming list and open shows (owner, 2026-11-21): no
-  // search, share, Saved/Past tabs or save hearts.
+  // Saved/Past tabs or save hearts.
   const { isGuest } = useGuestGate();
   const [selectedTab, setTab] = useState<EventsTab>('events');
   const tab: EventsTab = isGuest ? 'events' : selectedTab;
   const [region, setRegion] = useState<string>(ALL_REGIONS);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const scrollRef = useRef<ScrollView>(null);
-  const [query, setQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
   const upcoming = useMemo(() => events.filter((event) => event.status !== 'past'), [events]);
@@ -137,45 +106,6 @@ export function EventsScreen() {
     setRefreshing(false);
   }, [refresh]);
 
-  const handleShare = useCallback(() => {
-    void Share.share({ message: buildEventsShareMessage(events) }).catch(() => undefined);
-  }, [events]);
-
-  // Focused imperatively, once per open — never `autoFocus`: the tab pager
-  // freezes far pages, and unfreezing rebuilds the native input, which re-fires
-  // autoFocus and pops the keyboard over another tab (user, 2026-11-16).
-  const searchInputRef = useRef<TextInput>(null);
-  const focusSearchOnOpen = useRef(false);
-  useEffect(() => {
-    if (searchOpen && focusSearchOnOpen.current) {
-      focusSearchOnOpen.current = false;
-      searchInputRef.current?.focus();
-    }
-  }, [searchOpen]);
-  // Leaving Events closes its search, so nothing sits open off-screen.
-  useFocusEffect(
-    useCallback(
-      () => () => {
-        setSearchOpen(false);
-        setQuery('');
-      },
-      [],
-    ),
-  );
-
-  const toggleSearch = useCallback(() => {
-    setSearchOpen((open) => {
-      if (open) {
-        setQuery('');
-      } else {
-        // Bring the field up under the toolbar so the keyboard opens below it, not over it.
-        scrollRef.current?.scrollTo({ y: Math.max(0, sheetTop - insets.top - SEARCH_SCROLL_CLEARANCE), animated: true });
-        focusSearchOnOpen.current = true;
-      }
-      return !open;
-    });
-  }, [insets.top, sheetTop]);
-
   const renderCard = (event: SpotlightEvent, onPress: () => void = () => openEvent(event)) => (
     <EventListCard
       key={event.id}
@@ -188,7 +118,7 @@ export function EventsScreen() {
 
   const inRegion = (list: SpotlightEvent[]) =>
     region === ALL_REGIONS ? list : list.filter((event) => eventRegion(event)?.value === region);
-  const visible = (list: SpotlightEvent[]) => searchEvents(inRegion(list), query);
+  const visible = inRegion;
 
   const renderList = () => {
     if (events.length === 0) {
@@ -257,7 +187,6 @@ export function EventsScreen() {
         contentContainerStyle={{ paddingBottom: tabBarBottomFadeHeight + (Platform.OS === 'ios' ? insets.bottom : 0) }}
         contentInsetAdjustmentBehavior="never"
         keyboardShouldPersistTaps="handled"
-        ref={scrollRef}
         refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={refreshing} tintColor={theme.colors.gray0} />}
         showsVerticalScrollIndicator={false}
         testID="events-scroll"
@@ -325,29 +254,6 @@ export function EventsScreen() {
           >
             {title.toUpperCase()}
           </Text>
-          {searchOpen ? (
-            <View style={{ paddingHorizontal: gutter }}>
-              <SearchField
-                accessibilityLabel="Search events"
-                autoCapitalize="none"
-                autoCorrect={false}
-                leading={<Search color={theme.colors.gray500} height={SEARCH_ICON_SIZE} width={SEARCH_ICON_SIZE} />}
-                onChangeText={setQuery}
-                placeholder="SEARCH BY SHOW, VENUE OR CITY"
-                ref={searchInputRef}
-                returnKeyType="search"
-                size="collection"
-                surface="muted"
-                testID="events-search-field"
-                trailing={
-                  <Pressable accessibilityLabel="Close search" hitSlop={spacing.xxs} onPress={toggleSearch}>
-                    <Xmark color={theme.colors.gray500} height={SEARCH_ICON_SIZE} width={SEARCH_ICON_SIZE} />
-                  </Pressable>
-                }
-                value={query}
-              />
-            </View>
-          ) : null}
           <PageSwipeGuard>
                         <PageTabs
               // Tight and centred like Social's tabs: the default 40pt gap is for
@@ -368,45 +274,6 @@ export function EventsScreen() {
         </View>
       </ScrollView>
 
-      {/* Search + share float top right over the photo. */}
-      <View pointerEvents="box-none" style={[styles.toolbar, { paddingHorizontal: gutter, top: insets.top }]}>
-        {isGuest ? null : (
-          <GlassNavBubbleGroup
-            items={[
-              // Search sits on the right with the other icons (user, 2026-11-18).
-              {
-                accessibilityLabel: searchOpen ? 'Close search' : 'Search events',
-                children: (
-                  <Search
-                    color={theme.colors.gray900}
-                    height={glassNavBubbleGlyphSize}
-                    strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                    width={glassNavBubbleGlyphSize}
-                  />
-                ),
-                onPress: toggleSearch,
-                testID: 'events-search',
-              },
-              {
-                accessibilityLabel: 'Share events',
-                children: (
-                  <ShareIos
-                    color={theme.colors.gray900}
-                    height={glassNavBubbleGlyphSize}
-                    strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                    width={glassNavBubbleGlyphSize}
-                  />
-                ),
-                onPress: handleShare,
-                testID: 'events-share',
-              },
-            ]}
-            material="frost"
-            size="medium"
-            testID="events-actions"
-          />
-        )}
-      </View>
     </View>
   );
 }
@@ -451,12 +318,5 @@ const styles = StyleSheet.create({
   },
   list: {
     gap: spacing.xs,
-  },
-  toolbar: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    left: 0,
-    position: 'absolute',
-    right: 0,
   },
 });

@@ -246,17 +246,12 @@ describe('guest on the Events list', () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
-  it('signed in: search, tabs, the heart and Share events all work', async () => {
+  it('signed in: tabs and the heart work', async () => {
     mockIsGuest = false;
-    const share = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
     renderList();
     fireEvent.press(await screen.findByTestId(`event-card-${upcomingFeatured.id}-save`));
     await waitFor(() => expect(AsyncStorage.setItem).toHaveBeenCalled());
-    fireEvent.press(screen.getByTestId('events-share'));
-    expect(share).toHaveBeenCalled();
     expect(screen.queryByTestId('events-menu')).toBeNull();
-    fireEvent.press(screen.getByTestId('events-search'));
-    expect(screen.getByTestId('events-search-field')).toBeTruthy();
     fireEvent.press(screen.getByTestId('events-tabs-tab-past'));
     expect(screen.getByTestId('events-title').props.children).toBe('PAST SPOTLIGHT EVENTS');
     fireEvent.press(screen.getByTestId('events-tabs-tab-saved'));
