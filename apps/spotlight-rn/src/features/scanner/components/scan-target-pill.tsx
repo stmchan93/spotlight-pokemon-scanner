@@ -1,13 +1,13 @@
-import { IconChevronDown } from '@tabler/icons-react-native';
 import { Pressable, StyleSheet } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 
 import { GlassSurface, Text, colors, textStyles } from '@spotlight/design-system';
 
 import { RoundFlag } from './round-flag';
 
 /**
- * The "Pokémon EN/JP" scan-target control, centered in the scanner's top
- * toolbar: dark-pinned clear glass with white content — the SCAN/TOTAL pill
+ * The "Pokémon EN/JP" scan-target control, spanning the scanner's top
+ * toolbar (Figma Scan-1 6642:5410): dark-pinned clear glass with white content — the SCAN/TOTAL pill
  * recipe. Light glass borrows brightness from the backdrop and vanished over
  * night scenes; dark glass + white text reads over any camera content.
  */
@@ -42,10 +42,27 @@ export function ScanTargetPill({
         testID={testID ? `${testID}-surface` : undefined}
       >
         <Text style={styles.label}>{label.toUpperCase()}</Text>
-        {flag ? <RoundFlag language={flag} size={14} /> : null}
-        <IconChevronDown color={colors.gray900} size={20} strokeWidth={2} />
+        {flag ? <RoundFlag language={flag} size={18} /> : null}
+        <PillChevron />
       </GlassSurface>
     </Pressable>
+  );
+}
+
+// SF chevron.down at the Figma glyph box (14×8); a 24-box icon set can't hit
+// that box without padding the row's 6pt gaps.
+function PillChevron() {
+  return (
+    <Svg height={8} testID="scan-target-pill-chevron" viewBox="0 0 14 8" width={14}>
+      <Path
+        d="M1 1L7 7L13 1"
+        fill="none"
+        stroke={colors.gray900}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+      />
+    </Svg>
   );
 }
 
