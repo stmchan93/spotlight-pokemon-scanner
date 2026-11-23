@@ -2104,6 +2104,18 @@ export type ProfilePortfolioSummary = {
 };
 
 /**
+ * One collector's MOST VALUABLE holdings (`GET /api/v1/profiles/top-holdings`),
+ * for Search's PEOPLE cards. Entries are priced in USD, best first; withheld
+ * (stale / untrusted) prices never appear. `available: false` = the backend
+ * could not read this collector right now — distinct from "owns nothing priced".
+ */
+export type ProfileTopHoldings = {
+  userId: string;
+  entries: InventoryCardEntry[];
+  available: boolean;
+};
+
+/**
  * Result of uploading the caller's own profile avatar
  * (`POST /api/v1/profile/avatar`). The backend stores the JPEG in the public
  * avatar bucket and returns the public object URL. The caller adds its own

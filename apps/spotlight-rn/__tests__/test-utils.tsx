@@ -106,6 +106,10 @@ export function createTestSpotlightRepository(
       return overrides.getProfilePortfolioSummary?.(...args)
         ?? baseRepository.getProfilePortfolioSummary(...args);
     },
+    getProfilesTopHoldings: (...args) => {
+      return overrides.getProfilesTopHoldings?.(...args)
+        ?? baseRepository.getProfilesTopHoldings(...args);
+    },
     uploadProfileAvatar: (...args) => {
       return overrides.uploadProfileAvatar?.(...args)
         ?? baseRepository.uploadProfileAvatar(...args);
