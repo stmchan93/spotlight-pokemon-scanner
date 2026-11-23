@@ -79,6 +79,10 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import {
+  useAssistantBubbleScannerAnchor,
+  useAssistantPageContext,
+} from '@/features/assistant/page-context/assistant-page-context';
 import { useTabsPage } from '@/contexts/tabs-page-context';
 import {
   createTrayStore,
@@ -136,6 +140,7 @@ import {
 } from '@/features/scanner/scanner-normalized-target';
 import {
   getRawScannerCollapsedTrayReservedHeight,
+  getRawScannerEmptyTrayVisualHeight,
   makeRawScannerCaptureLayout,
   type RawScannerCameraHandle,
   RawScannerCaptureSurface,
@@ -1548,6 +1553,23 @@ export function ScannerScreen({
   // The purple frame the zoom/layout column sits inside — same rect the
   // capture surface strokes (the page grid in binder mode).
   const controlsFrameRect = isBinderPageMode ? captureSurfaceLayout.captureCropRect : captureSurfaceLayout.reticle;
+  // Floating Ekalight bubble: it may only float between the frame and the
+  // visible tray top (an empty tray's handle; a tray with cards leaves no room,
+  // so it hides), and opens with the tray (read at tap time) + lane as context.
+  useAssistantBubbleScannerAnchor({
+    frameBottom: controlsFrameRect.y + controlsFrameRect.height,
+    trayTop:
+      scannerContainerHeight -
+      (trayCount === 0 ? getRawScannerEmptyTrayVisualHeight({ bottomInset: trayBottomInset }) : footerReservedHeight),
+    trayExpanded: isTrayExpanded,
+  });
+  useAssistantPageContext(() => ({
+    cardIds: recentCapturesRef.current.flatMap((capture) => {
+      const candidate = capture.isLoadingCandidates ? null : activeCandidateForCapture(capture);
+      return candidate ? [candidate.cardId] : [];
+    }),
+    game: scanLane.game,
+  }));
   // Card-shaped crop (not the squatter visible frame) so the normalized target
   // keeps the true card aspect with no stretch.
   reticleSnapshotRef.current = {

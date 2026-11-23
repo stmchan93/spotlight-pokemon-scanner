@@ -63,6 +63,7 @@ import { useSetProgress } from '@/features/catalog/hooks/use-set-progress';
 import { resultsCountLabel, singlesSourceSets, totalCardCount } from '@/features/catalog/search-landing';
 import { groupSetsByEra, setCompletion, type SetListRow } from '@/features/catalog/set-progress';
 import { PeopleSearchResults } from '@/features/profile/components/people-search-results';
+import { useAssistantPageContext } from '@/features/assistant/page-context/assistant-page-context';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -185,6 +186,17 @@ export function GameSetsScreen({
   const { byGame, error, failedGames, games, hasLoaded, isLoading, reload } = useGameExpansions();
   const { ownedByExpansion } = useSetProgress(game);
   const search = useCatalogCardSearch({ scope: game, ...filterParams });
+  // Floating Ekalight bubble: the game chip, typed query, and CARDS|PEOPLE tab (read at tap time).
+  useAssistantPageContext(() => ({
+    kind: 'search',
+    game,
+    params: {
+      query: search.query,
+      tab: isSearch ? searchTab : 'cards',
+      filter: filterParams.rarityBucket ?? (filterParams.sealed ? 'sealed' : null),
+    },
+    label: search.query.trim() ? `Search: ${search.query.trim()}` : null,
+  }));
   const sealedSearch = useSealedSearchPreview({
     // A filter replaces the sealed footer: Sealed IS the results, a rarity has no sealed.
     enabled: filter.activeFilter == null || !isSearch,

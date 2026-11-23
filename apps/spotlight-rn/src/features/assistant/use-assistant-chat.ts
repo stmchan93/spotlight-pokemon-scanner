@@ -150,10 +150,16 @@ export function useAssistantChat({
       return 'failed';
     }
     try {
+      // The page (floating bubble) rides every turn: the thread was opened about it.
+      const shared: AssistantContext = {
+        source: context.source,
+        ...(context.game ? { game: context.game } : {}),
+        ...(context.page ? { page: context.page } : {}),
+      };
       const turnContext: AssistantContext = question.cardIds?.length
-        ? { source: context.source, cardIds: question.cardIds, ...(context.game ? { game: context.game } : {}) }
+        ? { ...shared, cardIds: question.cardIds }
         : contextSentRef.current
-          ? { source: context.source, ...(context.game ? { game: context.game } : {}) }
+          ? shared
           : context;
       const result = await repository.sendAssistantMessage({
         threadId,

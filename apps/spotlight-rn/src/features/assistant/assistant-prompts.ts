@@ -1,4 +1,4 @@
-import type { AssistantUsage } from '@spotlight/api-client';
+import type { AssistantPageContext, AssistantUsage } from '@spotlight/api-client';
 
 // Owner-picked (2026-11-20): every entry point without specific cards gets exactly these.
 export const ASSISTANT_MARKET_PROMPTS = [
@@ -41,6 +41,37 @@ export function assistantStarterPrompts(trayCardCount: number, source: 'home' | 
     ];
   }
   return [...ASSISTANT_MARKET_PROMPTS];
+}
+
+/**
+ * Starter chips for a chat opened from the floating bubble: about the page the
+ * user is on. Pages with thin context (Home, Social, an unknown page) keep the
+ * owner's three market prompts, and so does the scanner (owner, 2026-11-20: the
+ * scanner opens with the same chips as everywhere else; the tray rides along).
+ */
+export function assistantPagePrompts(page: AssistantPageContext | null | undefined): string[] {
+  switch (page?.kind) {
+    case 'card':
+      return ['Is this a good buy?', 'Show its price history', 'Is it worth grading?'];
+    case 'set':
+      return ["What are this set's chase cards?", 'Which cards in this set are rising?', 'Is this set worth collecting?'];
+    case 'search':
+      return page.params.query
+        ? ['Find cards like these', 'Which of these is the best value?', "What's trending in the market right now?"]
+        : ['Find cards like these', "What's trending in the market right now?", 'Undervalued cards'];
+    case 'collection':
+    case 'insights':
+      return ["What's my collection worth?", 'Biggest movers in my collection', 'Which of my cards should I grade?'];
+    case 'watchlist':
+      return ['Any of my watched cards near a low?', 'Which watched card moved the most?', 'Should I buy any of these now?'];
+    case 'events':
+    case 'event':
+      return ['Which events are near me?', 'What should I bring to a card show?', 'How do I negotiate at a show?'];
+    case 'profile':
+      return ["What's trending in the market right now?", 'How do I start a trade?', "What's my collection worth?"];
+    default:
+      return [...ASSISTANT_MARKET_PROMPTS];
+  }
 }
 
 /** "Hi, Stephen" from the profile's display name; guests and nameless users get "Hi there". */

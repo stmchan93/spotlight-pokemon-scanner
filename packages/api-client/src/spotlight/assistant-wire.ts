@@ -11,6 +11,7 @@ import type {
   AssistantChartRange,
   AssistantConditionCode,
   AssistantContext,
+  AssistantPageContext,
   AssistantErrorCode,
   AssistantFeedback,
   AssistantFeedbackInput,
@@ -642,6 +643,24 @@ export function parseAssistantThreadsPage(value: unknown): AssistantThreadsPage 
   };
 }
 
+const ASSISTANT_PAGE_LABEL_MAX = 80;
+const ASSISTANT_PAGE_PARAM_MAX = 120;
+
+/** Contract caps (the server re-validates): label ≤80, string params ≤120, empty values dropped. */
+export function buildAssistantPageWire(page: AssistantPageContext): Record<string, unknown> {
+  const params: Record<string, string> = {};
+  for (const [key, value] of Object.entries(page.params ?? {})) {
+    if (typeof value === 'string' && value.trim()) {
+      params[key] = value.trim().slice(0, ASSISTANT_PAGE_PARAM_MAX);
+    }
+  }
+  return {
+    kind: page.kind,
+    label: page.label ? page.label.slice(0, ASSISTANT_PAGE_LABEL_MAX) : null,
+    params,
+  };
+}
+
 /** App payload → wire body for POST /api/v1/assistant/messages. */
 export function buildAssistantSendBody(payload: AssistantSendPayload): Record<string, unknown> {
   const body: Record<string, unknown> = {
@@ -662,6 +681,7 @@ export function buildAssistantSendBody(payload: AssistantSendPayload): Record<st
       // Contract cap: ≤5 attached card ids per message, deduped.
       ...(attachedCardIds.length > 0 ? { attached_card_ids: Array.from(new Set(attachedCardIds)).slice(0, 5) } : {}),
       ...(context.game && CARD_GAMES.includes(context.game) ? { game: context.game } : {}),
+      ...(context.page ? { page: buildAssistantPageWire(context.page) } : {}),
     };
   }
   return body;

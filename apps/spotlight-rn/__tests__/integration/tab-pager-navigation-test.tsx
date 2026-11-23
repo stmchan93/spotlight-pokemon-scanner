@@ -8,6 +8,12 @@ import { useTabsPage } from '@/contexts/tabs-page-context';
 
 import { renderAppRouter } from '../test-utils';
 
+// The root's floating Ekalight bubble animates with Reanimated too; these tests
+// assert on the PAGER's withTiming calls, so the bubble stays out of them.
+jest.mock('@/features/assistant/components/floating-assistant-bubble', () => ({
+  FloatingAssistantBubble: () => null,
+}));
+
 /** A tab stub that reports what the pager tells it: navigation focus + activePage. */
 function makeStub(name: string) {
   return function TabStub() {

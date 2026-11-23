@@ -11,6 +11,7 @@ describe('assistant route game param', () => {
       cardIds: ['a', 'b'],
       threadId: null,
       game: 'onepiece',
+      page: null,
     });
   });
 

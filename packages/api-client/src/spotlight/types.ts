@@ -2952,6 +2952,36 @@ export type RawEbayListingsQuery = {
 */
 export type AssistantContextSource = 'home' | 'scanner';
 
+/** The screen the floating Ekalight bubble opened the chat from (contract: `context.page`). */
+export type AssistantPageKind =
+  | 'home'
+  | 'collection'
+  | 'watchlist'
+  | 'search'
+  | 'card'
+  | 'set'
+  | 'scanner'
+  | 'events'
+  | 'event'
+  | 'social'
+  | 'post'
+  | 'profile'
+  | 'news'
+  | 'insights'
+  | 'other';
+
+export type AssistantPageContext = {
+  kind: AssistantPageKind;
+  /** Short human label ("Charizard ex · 151"); shown in the chat's context chip. */
+  label: string | null;
+  /**
+   * snake_case keys the server knows: card_id, set_id, game, query, tab, handle,
+   * collection, filter, condition, grader, grade, variant, event_id, post_id, sort, view.
+   * Others are dropped server-side. Values ≤120 chars.
+   */
+  params: Record<string, string>;
+};
+
 export type AssistantContext = {
   source: AssistantContextSource;
   /** Scanner tray card ids (≤20); omitted from Home. */
@@ -2968,6 +2998,8 @@ export type AssistantContext = {
    * to the collection's main game.
    */
   game?: CardGame;
+  /** The page the chat was opened from (floating bubble). Sent on every turn of that thread. */
+  page?: AssistantPageContext;
 };
 
 export type AssistantUsage = {

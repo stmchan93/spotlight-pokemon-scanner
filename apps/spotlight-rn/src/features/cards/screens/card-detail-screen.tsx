@@ -120,6 +120,7 @@ import {
 } from '@/features/scanner/scan-candidate-review-session';
 import { PRICE_UNAVAILABLE_CAPTION, formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { keyboardClearance } from '@/lib/keyboard-insets';
+import { useAssistantPageContext } from '@/features/assistant/page-context/assistant-page-context';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
@@ -427,6 +428,23 @@ export function CardDetailScreen({
     return inventoryEntry ? cardDetailPreviewFromInventoryEntry(inventoryEntry) : null;
   }, [cardId, entryId, inventoryEntriesCache, portfolioDashboardCache]);
   const detailPreview = scanDetailPreview ?? savedDetailPreview ?? dashboardDetailPreview;
+  // Floating Ekalight bubble: which card (the printing on screen) and how it is
+  // being viewed, read at tap time.
+  useAssistantPageContext(() => {
+    const name = detail?.name ?? detailPreview?.name ?? '';
+    const setName = detail?.setName ?? detailPreview?.setName ?? '';
+    const slab = selectedGrader && selectedGrader !== 'Raw';
+    return {
+      label: [name, setName].filter(Boolean).join(' · ') || null,
+      params: {
+        card_id: activeCardId,
+        variant: selectedVariant,
+        grader: slab ? selectedGrader : null,
+        grade: slab ? selectedGrade : null,
+        condition: slab ? null : selectedCondition,
+      },
+    };
+  });
   // Which TCG this card is from. Declared up here because the marketplace-link
   // and comps callbacks below close over it AND list it as a dependency — a
   // dependency array is evaluated during render, so a later `const` would be a
