@@ -227,6 +227,21 @@ const devScreens: Record<string, () => ReactElement> = {
   'expansion-browser': () => (
     <ExpansionBrowserScreen onClose={noop} onOpenAssistant={noop} onOpenCard={noop} onSelectExpansion={noop} />
   ),
+  // Search as the bottom-bar TAB (Figma 6642:12483 CARDS / 6642:14400 PEOPLE):
+  // no close / Ask button, CARDS | PEOPLE tabs, filter button. PEOPLE reads the
+  // dev profile fixtures and the mock's top holdings.
+  'search-cards': () => (
+    <ExpansionBrowserScreen mode="tab" onClose={noop} onOpenCard={noop} onSelectExpansion={noop} />
+  ),
+  'search-people': () => (
+    <ExpansionBrowserScreen
+      initialSearchTab="people"
+      mode="tab"
+      onClose={noop}
+      onOpenCard={noop}
+      onSelectExpansion={noop}
+    />
+  ),
   // Set page (Figma 6425:3296): faded unowned tiles, rarity chips, and Grovyle
   // (#003) held raw + PSA 10, so its − opens the "which copy?" sheet.
   'expansion-detail': () => (
@@ -317,6 +332,7 @@ function DevScanReviewScreen() {
 // repository. Their overrides are installed during render (see DevScreenHost).
 const socialOverrideScreens = new Set([
   'public-profile',
+  'search-people',
   'follow-list',
   'post-detail',
   'notifications',

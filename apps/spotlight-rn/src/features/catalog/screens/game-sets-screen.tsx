@@ -1,4 +1,4 @@
-import { NavArrowLeft, Xmark } from 'iconoir-react-native';
+import { FilterList, NavArrowLeft, Xmark } from 'iconoir-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
@@ -22,9 +22,12 @@ import {
   type CardGame,
   type CatalogSearchResult,
   type ExpansionRecord,
+  type InventoryCardEntry,
 } from '@spotlight/api-client';
 import {
   GlassNavBubble,
+  IconButton,
+  PageTabs,
   PillButton,
   SearchField,
   SectionHeader,
@@ -34,11 +37,20 @@ import {
   glassNavBubbleSizes,
   glassNavBubbleGlyphStrokeWidth,
   layout,
+  radii,
+  searchFieldCollectionHeight,
   spacing,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import type { UserProfile } from '@/features/auth/auth-models';
+import {
+  catalogSearchFilterLabel,
+  catalogSearchFilterParams,
+  useCatalogSearchFilter,
+} from '@/features/catalog/catalog-search-filter';
 import { CatalogResultsGrid } from '@/features/catalog/components/catalog-results-grid';
+import { CatalogSearchFilterSheet } from '@/features/catalog/components/catalog-search-filter-sheet';
 import { SealedResultsSection } from '@/features/catalog/components/sealed-results-section';
 import { SearchRailTile } from '@/features/catalog/components/search-rail-tile';
 import { SearchSectionHeader } from '@/features/catalog/components/search-section-header';
@@ -50,7 +62,9 @@ import { useSealedRail, useSinglesRail } from '@/features/catalog/hooks/use-sear
 import { useSetProgress } from '@/features/catalog/hooks/use-set-progress';
 import { resultsCountLabel, singlesSourceSets, totalCardCount } from '@/features/catalog/search-landing';
 import { groupSetsByEra, setCompletion, type SetListRow } from '@/features/catalog/set-progress';
+import { PeopleSearchResults } from '@/features/profile/components/people-search-results';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
+import { useAuth } from '@/providers/auth-provider';
 
 type GameSetsScreenProps = {
   /** The game the chips start on. The chips switch games in place. */
@@ -73,9 +87,30 @@ type GameSetsScreenProps = {
   view?: GameSetsView;
   /** VIEW ALL on SETS / SEALED. Absent hides those two links. */
   onViewAll?: (section: 'sets' | 'sealed', game: CardGame) => void;
+  /**
+   * Present = this is SEARCH (Figma 6642:12483 / 6642:14400): CARDS | PEOPLE
+   * tabs on the banner, a filter button beside the field, the game chips under
+   * the tabs. `tab` = the bottom-bar Search tab: no close and no Ask button.
+   * `sheet` = the /catalog/search sheet: keeps its close (X).
+   */
+  searchMode?: SearchMode;
+  /** PEOPLE: a person's header or bio was tapped. */
+  onOpenProfile?: (profile: UserProfile) => void;
+  /** PEOPLE: one of a person's most valuable cards was tapped. */
+  onOpenHolding?: (profile: UserProfile, entry: InventoryCardEntry) => void;
+  /** Search tab to open on (dev screens / deep links); CARDS by default. */
+  initialSearchTab?: SearchTab;
 };
 
 export type GameSetsView = 'landing' | 'sets' | 'sealed';
+export type SearchMode = 'tab' | 'sheet';
+export type SearchTab = 'cards' | 'people';
+const SEARCH_TABS = [
+  { label: 'Cards', value: 'cards' },
+  { label: 'People', value: 'people' },
+] as const;
+/** Figma 6642:12511. */
+const SEARCH_PLACEHOLDER = 'Search cards, people, sets';
 
 /** Sealed matches under the card results: a section, not another paged list. */
 const SEALED_RESULTS_LIMIT = 20;
@@ -124,17 +159,35 @@ export function GameSetsScreen({
   dismissStyle = 'back',
   view = 'landing',
   onViewAll,
+  searchMode,
+  onOpenProfile,
+  onOpenHolding,
+  initialSearchTab = 'cards',
 }: GameSetsScreenProps) {
   const theme = useSpotlightTheme();
+  const isSearch = searchMode != null && view === 'landing';
+  const isTabMode = isSearch && searchMode === 'tab';
+  const viewerId = useAuth().currentUser?.id ?? null;
+  const [searchTab, setSearchTab] = useState<SearchTab>(initialSearchTab);
+  const onPeopleTab = isSearch && searchTab === 'people';
+  // The PEOPLE list (and its suggestions read) mounts on first visit, then stays.
+  const [peopleVisited, setPeopleVisited] = useState(initialSearchTab === 'people');
+  const [peopleQuery, setPeopleQuery] = useState('');
+  // Rarity / Sealed, from the filter sheet (Search only).
+  const filter = useCatalogSearchFilter();
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const filterParams = catalogSearchFilterParams(isSearch ? filter.activeFilter : null);
+  const activeFilterLabel = isSearch ? catalogSearchFilterLabel(filter.activeFilter) : null;
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const washHeight = Math.round((windowWidth * WASH_FIGMA_HEIGHT) / FIGMA_FRAME_WIDTH);
   const [game, setGame] = useState<CardGame>(initialGame);
   const { byGame, error, failedGames, games, hasLoaded, isLoading, reload } = useGameExpansions();
   const { ownedByExpansion } = useSetProgress(game);
-  const search = useCatalogCardSearch({ scope: game });
+  const search = useCatalogCardSearch({ scope: game, ...filterParams });
   const sealedSearch = useSealedSearchPreview({
-    enabled: true,
+    // A filter replaces the sealed footer: Sealed IS the results, a rarity has no sealed.
+    enabled: filter.activeFilter == null || !isSearch,
     limit: SEALED_RESULTS_LIMIT,
     query: search.query,
     scope: game,
@@ -176,13 +229,13 @@ export function GameSetsScreen({
   // Switching lists mounts a fresh one at the top.
   useEffect(() => {
     resetScroll();
-  }, [resetScroll, showsResults, view]);
+  }, [resetScroll, searchTab, showsResults, view]);
 
   const openResult = useCallback(
     (result: CatalogSearchResult) => {
       const isSealed = result.productKind === 'sealed';
       capturePostHogEvent('catalog_search_result_opened', {
-        has_rarity_filter: false,
+        has_rarity_filter: filterParams.rarityBucket != null,
         is_sealed: isSealed,
         result_count: isSealed ? sealedResults.length : search.results.length,
         scope: game,
@@ -192,7 +245,7 @@ export function GameSetsScreen({
       setOpeningResultId(result.id);
       onOpenCard(result);
     },
-    [game, onOpenCard, sealedResults.length, search.results.length],
+    [filterParams.rarityBucket, game, onOpenCard, sealedResults.length, search.results.length],
   );
 
   const renderSetsState = () => {
@@ -290,6 +343,40 @@ export function GameSetsScreen({
   };
 
   const body = () => {
+    if (!isSearch || !peopleVisited) {
+      return cardsBody();
+    }
+    // PEOPLE stays mounted once visited (hidden on CARDS), so its list and the
+    // holdings it read survive a tab flip.
+    return (
+      <>
+        <View style={[styles.body, onPeopleTab ? null : styles.hidden]}>
+          <GestureDetector gesture={pullDown.scrollGesture}>
+            <PeopleSearchResults
+              enabled
+              onOpenHolding={(profile, entry) => {
+                searchFieldRef.current?.blur();
+                Keyboard.dismiss();
+                onOpenHolding?.(profile, entry);
+              }}
+              onOpenProfile={(profile) => {
+                searchFieldRef.current?.blur();
+                Keyboard.dismiss();
+                onOpenProfile?.(profile);
+              }}
+              query={peopleQuery}
+              scrollProps={pullDown.scrollProps}
+              testID="search-people"
+              viewerId={viewerId}
+            />
+          </GestureDetector>
+        </View>
+        {onPeopleTab ? null : cardsBody()}
+      </>
+    );
+  };
+
+  const cardsBody = () => {
     if (search.hasActiveQuery) {
       if (search.errorMessage || (search.results.length === 0 && sealedResults.length === 0)) {
         return null;
@@ -305,6 +392,8 @@ export function GameSetsScreen({
               testID="game-sets-sealed"
             />
           )}
+          // The Sealed filter's results are product shots, not cards.
+          artAspect={filterParams.sealed ? 'square' : undefined}
           isLoadingMore={search.isLoadingMore}
           onEndReached={search.loadMore}
           onOpenResult={openResult}
@@ -435,6 +524,31 @@ export function GameSetsScreen({
     </ScrollView>
   );
 
+  const renderGameChips = () => (
+    <ScrollView
+      contentContainerStyle={styles.chips}
+      horizontal
+      keyboardShouldPersistTaps="handled"
+      showsHorizontalScrollIndicator={false}
+      style={styles.chipScroller}
+      testID="game-sets-game-chips"
+    >
+      {chipGames.map((chipGame) => (
+        <PillButton
+          key={chipGame}
+          label={gameDisplayName(chipGame)}
+          labelRole="caption"
+          onPress={() => setGame(chipGame)}
+          selected={chipGame === game}
+          testID={`game-sets-game-${chipGame}`}
+          // Figma's "Secondary" chip, the same one News / Market Watch use.
+          tone="secondary"
+          uppercase
+        />
+      ))}
+    </ScrollView>
+  );
+
   const renderLanding = () => {
     const landingSets = orderedSets.slice(0, LANDING_SET_COUNT);
     const singlesSet = singles.set;
@@ -442,7 +556,12 @@ export function GameSetsScreen({
       <GestureDetector gesture={pullDown.scrollGesture}>
         <ScrollView
           {...pullDown.scrollProps}
-          contentContainerStyle={[styles.landingContent, { paddingBottom: insets.bottom + spacing.lg }]}
+          contentContainerStyle={[
+            styles.landingContent,
+            // Search: the chips above already pay 16 of it (Figma 6642:12697 → 12517).
+            isSearch ? styles.searchLandingContent : null,
+            { paddingBottom: insets.bottom + spacing.lg },
+          ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           style={styles.body}
@@ -510,87 +629,165 @@ export function GameSetsScreen({
         <Rect fill="url(#gameSetsWash)" height={washHeight} width={windowWidth} x="0" y="0" />
       </Svg>
 
-      <View style={[styles.header, { paddingTop: insets.top }]}>
-        <View style={styles.toolbar}>
-          <GlassNavBubble
-            accessibilityLabel={dismissStyle === 'close' ? 'Close' : 'Back'}
-            material="frost"
-            onPress={onClose}
-            size="medium"
-            testID="game-sets-back"
-          >
-            {dismissStyle === 'close' ? (
-              <Xmark
-                color={theme.colors.gray900}
-                height={glassNavBubbleGlyphSize}
-                strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                width={glassNavBubbleGlyphSize}
-              />
-            ) : (
-              <NavArrowLeft
-                color={theme.colors.gray900}
-                height={glassNavBubbleGlyphSize}
-                strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                width={glassNavBubbleGlyphSize}
-              />
-            )}
-          </GlassNavBubble>
-          {onOpenAssistant ? (
+      <View style={[styles.header, isSearch ? styles.searchHeader : null, { paddingTop: insets.top }]}>
+        {isTabMode ? (
+          // The Search TAB has no close and no Ask button; the empty bar keeps
+          // the banner's composition (Figma 6642:12487).
+          <View style={styles.toolbarSpacer} testID="game-sets-toolbar-spacer" />
+        ) : (
+          <View style={styles.toolbar}>
             <GlassNavBubble
-              accessibilityLabel="Ask Ekalight"
+              accessibilityLabel={dismissStyle === 'close' ? 'Close' : 'Back'}
               material="frost"
-              onPress={onOpenAssistant}
+              onPress={onClose}
               size="medium"
-              testID="game-sets-assistant"
+              testID="game-sets-back"
             >
-              {/* Same gradient flare + ring as the Social header (Figma 6597:5672). */}
-              <EkalightAiFlare />
-              <EkalightAiRing size={glassNavBubbleSizes.medium} />
+              {dismissStyle === 'close' ? (
+                <Xmark
+                  color={theme.colors.gray900}
+                  height={glassNavBubbleGlyphSize}
+                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                  width={glassNavBubbleGlyphSize}
+                />
+              ) : (
+                <NavArrowLeft
+                  color={theme.colors.gray900}
+                  height={glassNavBubbleGlyphSize}
+                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                  width={glassNavBubbleGlyphSize}
+                />
+              )}
             </GlassNavBubble>
-          ) : null}
-        </View>
+            {onOpenAssistant ? (
+              <GlassNavBubble
+                accessibilityLabel="Ask Ekalight"
+                material="frost"
+                onPress={onOpenAssistant}
+                size="medium"
+                testID="game-sets-assistant"
+              >
+                {/* Same gradient flare + ring as the Social header (Figma 6597:5672). */}
+                <EkalightAiFlare />
+                <EkalightAiRing size={glassNavBubbleSizes.medium} />
+              </GlassNavBubble>
+            ) : null}
+          </View>
+        )}
         <View style={styles.controls}>
           <Text style={[theme.typography.titleLarge, { color: theme.colors.gray0 }]}>
             {gameDisplayName(game)}
           </Text>
-          <SearchField
-            ref={searchFieldRef}
-            autoCapitalize="none"
-            autoCorrect={false}
-            containerStyle={{ backgroundColor: theme.colors.gray0 }}
-            onChangeText={search.setQuery}
-            placeholder="Search card"
-            returnKeyType="search"
-            testID="game-sets-search"
-            uppercasePlaceholder
-            value={search.query}
-          />
-          <ScrollView
-            contentContainerStyle={styles.chips}
-            horizontal
-            keyboardShouldPersistTaps="handled"
-            showsHorizontalScrollIndicator={false}
-            style={styles.chipScroller}
-            testID="game-sets-game-chips"
-          >
-            {chipGames.map((chipGame) => (
-              <PillButton
-                key={chipGame}
-                label={gameDisplayName(chipGame)}
-                labelRole="caption"
-                onPress={() => setGame(chipGame)}
-                selected={chipGame === game}
-                testID={`game-sets-game-${chipGame}`}
-                // Figma's "Secondary" chip, the same one News / Market Watch use.
-                tone="secondary"
-                uppercase
-              />
-            ))}
-          </ScrollView>
+          {isSearch ? (
+            // Figma 6642:12675: a 40pt field and a 40pt filter button, 8 apart.
+            <View style={styles.searchRow}>
+              <View style={styles.searchFieldSlot}>
+                <SearchField
+                  ref={searchFieldRef}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  containerStyle={[styles.searchFieldBox, { backgroundColor: theme.colors.gray0 }]}
+                  onChangeText={onPeopleTab ? setPeopleQuery : search.setQuery}
+                  placeholder={SEARCH_PLACEHOLDER}
+                  returnKeyType="search"
+                  size="collection"
+                  testID="game-sets-search"
+                  uppercasePlaceholder
+                  value={onPeopleTab ? peopleQuery : search.query}
+                />
+              </View>
+              {onPeopleTab ? null : (
+                <IconButton
+                  accessibilityLabel={activeFilterLabel ? `Filters, ${activeFilterLabel}` : 'Filters'}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setFilterSheetOpen(true);
+                  }}
+                  selected={activeFilterLabel != null}
+                  shape="rounded"
+                  size={searchFieldCollectionHeight}
+                  style={[styles.filterButton, { backgroundColor: theme.colors.gray0 }]}
+                  testID="game-sets-filter"
+                  variant="outlined"
+                >
+                  <FilterList
+                    color={activeFilterLabel ? theme.colors.purple500 : theme.colors.gray900}
+                    height={20}
+                    width={20}
+                  />
+                  {activeFilterLabel ? (
+                    <View
+                      style={[styles.filterDot, { backgroundColor: theme.colors.purple500 }]}
+                      testID="game-sets-filter-active"
+                    />
+                  ) : null}
+                </IconButton>
+              )}
+            </View>
+          ) : (
+            <SearchField
+              ref={searchFieldRef}
+              autoCapitalize="none"
+              autoCorrect={false}
+              containerStyle={{ backgroundColor: theme.colors.gray0 }}
+              onChangeText={search.setQuery}
+              placeholder="Search card"
+              returnKeyType="search"
+              testID="game-sets-search"
+              uppercasePlaceholder
+              value={search.query}
+            />
+          )}
+          {isSearch ? null : renderGameChips()}
         </View>
-        {search.hasActiveQuery ? renderSearchState() : renderSetsState()}
+        {isSearch ? (
+          // TODO(search-tab): switch to the Foundation agent's underline+hairline PageTabs variant once merged.
+          <View style={styles.searchTabs}>
+            <PageTabs
+              align="start"
+              labelSize="caption"
+              onChange={(next) => {
+                if (next === searchTab) {
+                  return;
+                }
+                // The text follows you across: "gengar" on CARDS is "gengar" on PEOPLE.
+                if (next === 'people') {
+                  setPeopleQuery(search.query);
+                  setPeopleVisited(true);
+                } else {
+                  search.setQuery(peopleQuery);
+                }
+                setSearchTab(next);
+              }}
+              tabs={SEARCH_TABS}
+              testID="search-tabs"
+              uppercase
+              value={searchTab}
+            />
+          </View>
+        ) : null}
+        {isSearch ? null : search.hasActiveQuery ? renderSearchState() : renderSetsState()}
       </View>
+      {isSearch && !onPeopleTab ? (
+        // CARDS only searches cards: the game chips sit under the tabs (Figma 6642:12697).
+        <View style={styles.searchBodyHeader}>
+          {renderGameChips()}
+          {search.hasActiveQuery ? renderSearchState() : renderSetsState()}
+        </View>
+      ) : null}
       {body()}
+      {isSearch ? (
+        <CatalogSearchFilterSheet
+          activeFilter={filter.activeFilter}
+          onApply={(next) => {
+            filter.setActiveFilter(next);
+            setFilterSheetOpen(false);
+          }}
+          onClose={() => setFilterSheetOpen(false)}
+          testID="search-filter-sheet"
+          visible={filterSheetOpen}
+        />
+      ) : null}
     </View>
     </PullDownToDismiss>
   );
@@ -607,6 +804,51 @@ const styles = StyleSheet.create({
   chips: {
     gap: 10,
     paddingHorizontal: layout.pageGutter,
+  },
+  filterButton: {
+    borderColor: 'transparent',
+  },
+  filterDot: {
+    borderCurve: 'continuous',
+    borderRadius: radii.pill,
+    height: 6,
+    position: 'absolute',
+    right: 6,
+    top: 6,
+    width: 6,
+  },
+  hidden: {
+    display: 'none',
+  },
+  // Figma 6642:12697 / 12517: chips 16 under the tabs, the body 16 under the chips.
+  searchBodyHeader: {
+    paddingHorizontal: layout.pageGutter,
+    paddingTop: spacing.sm,
+  },
+  // Search: the tabs ARE the banner's bottom edge (Figma 6642:12721 at y238 of 264).
+  searchHeader: {
+    paddingBottom: 0,
+  },
+  searchLandingContent: {
+    paddingTop: spacing.sm,
+  },
+  searchFieldBox: {
+    borderWidth: 0,
+  },
+  searchFieldSlot: {
+    flex: 1,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    gap: spacing.xxs,
+  },
+  // 32 from the field to the tab labels (Figma 6642:12675 → 6642:12721); full-bleed hairline.
+  searchTabs: {
+    marginHorizontal: -layout.pageGutter,
+    marginTop: spacing.xxl,
+  },
+  toolbarSpacer: {
+    height: glassNavBubbleSizes.medium,
   },
   // Figma 6597:5677: 24 under the toolbar (its 10 bottom pad + 14), 10 between rows.
   controls: {
