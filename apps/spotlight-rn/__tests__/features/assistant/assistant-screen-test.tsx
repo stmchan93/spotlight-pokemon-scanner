@@ -1,7 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import * as Clipboard from 'expo-clipboard';
-import { State } from 'react-native-gesture-handler';
-import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
 import { Alert, StyleSheet, type AlertButton } from 'react-native';
 
 import {
@@ -148,17 +146,20 @@ describe('AssistantScreen', () => {
     expect(onBack).toHaveBeenCalled();
   });
 
-  it('closes on a pull down from the chat', async () => {
-    const onBack = jest.fn();
-    renderScreen({}, { onBack });
+  it('as a sheet: no status-bar inset, and no JS pull-down fighting the native sheet', async () => {
+    renderScreen({}, { presentation: 'sheet' });
     await screen.findByTestId('assistant-intro');
-    expect(screen.getByTestId('assistant-pull-down')).toBeTruthy();
-    fireGestureHandler(getByGestureTestId('pull-down-to-dismiss'), [
-      { state: State.BEGAN, translationY: 0, velocityY: 0 },
-      { state: State.ACTIVE, translationY: 150, velocityY: 0 },
-      { state: State.END, translationY: 150, velocityY: 0 },
-    ]);
-    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('assistant-root').props.edges).toMatchObject({ top: 'off', left: 'additive', right: 'additive' });
+    // The sheet's own pan (grabber + toolbar band) and the X close it.
+    expect(screen.queryByTestId('assistant-pull-down')).toBeNull();
+    // Android: lets the BottomSheetBehavior sheet take a drag at the list's top.
+    expect(screen.getByTestId('assistant-messages').props.nestedScrollEnabled).toBe(true);
+  });
+
+  it('as a page (dev screens): keeps the top safe-area edge', async () => {
+    renderScreen({});
+    await screen.findByTestId('assistant-intro');
+    expect(screen.getByTestId('assistant-root').props.edges).toMatchObject({ top: 'additive' });
   });
 
   it('a scroll drops the keyboard outright (never interactive, which split the composer from it)', async () => {

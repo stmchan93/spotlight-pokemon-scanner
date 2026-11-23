@@ -880,6 +880,16 @@ File: `src/components/owned-tag.tsx`. 20pt `purple50` pill with a `brandStrong`
 `chipLabel` label — `You own 4` on bar rows, `In your collection` on card rows.
 Props: `label`, `style`, `testID`.
 
+#### Checkbox
+
+File: `src/components/checkbox.tsx`. Display-only square checkbox
+(`accessibilityRole="checkbox"`). Checked = solid `brandStrong` fill (the
+primary-Button purple) with a white check; unchecked = white box, gray-300
+border. `tone="overlay"` adds a 1.5pt white ring + `shadows.halo` so it reads
+on card art (the set page's owned marker).
+Props: `checked`, `size` (default 20), `tone` (`plain` | `overlay`),
+`accessibilityLabel`, `style`, `testID` (derives `-check`).
+
 #### CalendarEventRow
 
 File: `src/components/calendar-event-row.tsx`. One upcoming date ("Coming up"

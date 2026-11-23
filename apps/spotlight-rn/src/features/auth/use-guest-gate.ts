@@ -7,7 +7,7 @@ import { useAuth } from '@/providers/auth-provider';
 // (.expo/types/router.d.ts) only regenerates at bundle time, so `/login` isn't
 // in the Href union yet during a bare `tsc`. Cast until the next typegen (the
 // OTA export) picks it up. The route exists and resolves at runtime.
-const LOGIN_HREF = '/login' as Href;
+export const LOGIN_HREF = '/login' as Href;
 
 /**
  * Guest gating for the first-launch scanner experience.

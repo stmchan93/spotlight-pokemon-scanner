@@ -60,7 +60,11 @@ import {
 } from '@/providers/auth-provider';
 // Side-effect import: stamps the app start time at launch (see app-start-time).
 import '@/lib/app-start-time';
-import { SLIDE_UP_DURATION_MS, SLIDE_UP_SCREEN_OPTIONS, slideUpStackGroupOptions } from '@/lib/navigation-presentation';
+import {
+  ASSISTANT_SHEET_OPTIONS,
+  SLIDE_UP_DURATION_MS,
+  SLIDE_UP_SCREEN_OPTIONS,
+} from '@/lib/navigation-presentation';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -208,7 +212,14 @@ function AuthenticatedRoot() {
                 sideways slide (owner, 2026-11-16).
               */}
               <Stack.Screen name="(tabs)" options={{ animation: 'none' }} />
-              <Stack.Screen name="(stack)" options={slideUpStackGroupOptions} />
+              <Stack.Screen name="(stack)" />
+              {/*
+                Ask Ekalight: a native form sheet at 90% over the page it was
+                opened from (see ASSISTANT_SHEET_OPTIONS). At the ROOT for the
+                same reason as new-post below — as a group's first screen its
+                presentation would be ignored.
+              */}
+              <Stack.Screen name="assistant" options={ASSISTANT_SHEET_OPTIONS} />
               {/*
                 Catalog search (and the expansion browser beside it) comes UP
                 from the bottom as a full-screen surface rather than pushing in

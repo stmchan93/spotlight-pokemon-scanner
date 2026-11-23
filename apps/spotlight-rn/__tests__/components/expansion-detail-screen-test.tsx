@@ -8,7 +8,6 @@ import {
   type InventoryCardEntry,
   type InventoryEntryCreateResponsePayload,
 } from '@spotlight/api-client';
-import { ownedBadgeLabel } from '@/features/catalog/components/set-card-tile';
 import { pickSetPageAccent } from '@/features/catalog/hooks/use-set-page-accent';
 import { ExpansionDetailScreen } from '@/features/catalog/screens/expansion-detail-screen';
 
@@ -174,7 +173,7 @@ describe('ExpansionDetailScreen (set page)', () => {
     expect(screen.queryByTestId('set-card-mew-price')).toBeNull();
   });
 
-  it('draws unowned cards in full colour and marks owned ones ✓ / ×N on the art', async () => {
+  it('draws unowned cards in full colour and marks owned ones with a purple checkbox on the art', async () => {
     mockSet();
     await renderSet();
 
@@ -182,16 +181,22 @@ describe('ExpansionDetailScreen (set page)', () => {
     expect(opacityOf('mew')).toBe(1);
     expect(opacityOf('gengar')).toBe(1);
     expect(screen.queryByText(/missing/i)).toBeNull();
-    // Unowned: no marker. One copy: a check. Two: "×2".
-    expect(screen.queryByTestId('set-card-mew-owned-badge')).toBeNull();
+    // Unowned: no marker. Any owned count: the same checked box (the stepper says how many).
+    expect(screen.queryByTestId('set-card-mew-owned')).toBeNull();
     expect(screen.getByTestId('set-card-gengar-owned-check')).toBeTruthy();
-    const lugiaBadge = screen.getByTestId('set-card-lugia-owned-badge');
-    expect(within(lugiaBadge).getByText('×2')).toBeTruthy();
-    expect(within(lugiaBadge).queryByTestId('set-card-lugia-owned-check')).toBeNull();
-    // The marker sits on the art, not over the name.
-    const gengarBadge = screen.getByTestId('set-card-gengar-owned-badge');
+    const lugiaBadge = screen.getByTestId('set-card-lugia-owned');
+    expect(within(lugiaBadge).getByTestId('set-card-lugia-owned-check')).toBeTruthy();
+    expect(lugiaBadge.props.accessibilityLabel).toBe('Owned 2');
+    // The marker sits on the art, not over the name: primary purple, white ring.
+    const gengarBadge = screen.getByTestId('set-card-gengar-owned');
     expect(within(gengarBadge).queryByText('Gengar')).toBeNull();
-    expect(StyleSheet.flatten(gengarBadge.props.style)).toMatchObject({ position: 'absolute', borderCurve: 'continuous' });
+    expect(gengarBadge.props.accessibilityState).toMatchObject({ checked: true });
+    expect(StyleSheet.flatten(gengarBadge.props.style)).toMatchObject({
+      backgroundColor: '#7000FF',
+      borderColor: '#FFFFFF',
+      borderCurve: 'continuous',
+      position: 'absolute',
+    });
     // Unowned reads "QTY: 0": − is off at zero; + is always on.
     expect(qty('mew')).toBe('QTY: 0');
     expect(screen.getByTestId('set-card-mew-stepper-decrement').props.accessibilityState).toMatchObject({ disabled: true });
@@ -387,14 +392,6 @@ describe('ExpansionDetailScreen (set page)', () => {
     await waitFor(() => expect(remove).toHaveBeenCalledWith({ deckEntryID: 'e-lugia-psa' }));
     expect(setQuantity).not.toHaveBeenCalled();
     expect(qty('lugia')).toBe('QTY: 1');
-  });
-});
-
-describe('ownedBadgeLabel', () => {
-  it('is a check for one copy and ×N for more, nothing when unowned', () => {
-    expect(ownedBadgeLabel(0)).toBeNull();
-    expect(ownedBadgeLabel(1)).toBe('✓');
-    expect(ownedBadgeLabel(3)).toBe('×3');
   });
 });
 

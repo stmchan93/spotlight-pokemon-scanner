@@ -1,3 +1,5 @@
+import { colors, radii } from '@spotlight/design-system';
+
 /**
  * Presentation options shared by full-screen routes that open bottom-up (like
  * Search). The native swipe down is taken only from this top zone; the rest of
@@ -17,16 +19,26 @@ export const SLIDE_UP_SCREEN_OPTIONS = {
   gestureResponseDistance: { top: SLIDE_UP_DISMISS_ZONE },
 } as const;
 
-/**
- * `(stack)` routes that open bottom-up (owner, 2026-11-16): Ask Ekalight. Edit
- * profile went back to a side push (2026-11-20): it's a step deeper, with back. Entering `(stack)` from the tabs presents the
- * GROUP, so the group's options decide the animation; they read which inner
- * route the push opens with.
- */
-export const SLIDE_UP_STACK_ROUTES: ReadonlySet<string> = new Set(['assistant']);
+/** Ask Ekalight's sheet height, as a fraction of the screen (owner, 2026-11-22: "80–90%"). */
+export const ASSISTANT_SHEET_DETENT = 0.9;
 
-/** Root-stack options for the `(stack)` group: slide up when it opens on one of those routes. */
-export function slideUpStackGroupOptions({ route }: { route: { params?: object } }) {
-  const screen = (route.params as { screen?: unknown } | undefined)?.screen;
-  return typeof screen === 'string' && SLIDE_UP_STACK_ROUTES.has(screen) ? SLIDE_UP_SCREEN_OPTIONS : {};
-}
+/**
+ * Ask Ekalight opens as a native form sheet (owner, 2026-11-22): it rises to
+ * 90% and the page it was opened from stays visible, dimmed, above it — you
+ * are still on that page. iOS: UISheetPresentationController (grabber, swipe
+ * down on the top band to close). Android: react-native-screens'
+ * BottomSheetBehavior sheet.
+ *
+ * The route lives at the ROOT stack: react-native-screens ignores a
+ * presentation on a stack's bottom-most screen, which is what it would be as
+ * the first screen of a group.
+ */
+export const ASSISTANT_SHEET_OPTIONS = {
+  presentation: 'formSheet' as const,
+  sheetAllowedDetents: [ASSISTANT_SHEET_DETENT],
+  sheetCornerRadius: radii.sheet,
+  sheetGrabberVisible: true,
+  // One detent: nothing to expand to.
+  sheetExpandsWhenScrolledToEdge: false,
+  contentStyle: { backgroundColor: colors.gray0 },
+};
