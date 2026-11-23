@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
+  Easing,
   cancelAnimation,
   runOnJS,
   useAnimatedStyle,
@@ -51,8 +52,11 @@ import { useKeyboardVisible } from '@/lib/use-keyboard-visible';
 const MARK_WIDTH = 26;
 const MARK_HEIGHT = 24;
 const SPARKLE_SIZE = 14;
-const BOB_DISTANCE = 3;
-const BOB_HALF_PERIOD_MS = 1800;
+const BOB_DISTANCE = 5;
+// Peak squash as the bob lands: 3% wider, 3% shorter, over its last 1.5pt.
+const BOB_SQUASH = 0.03;
+const BOB_SQUASH_BAND = 1.5;
+const BOB_HALF_PERIOD_MS = 1500;
 const FADE_MS = 180;
 const MOVE_MS = 260;
 
@@ -135,6 +139,7 @@ export function FloatingAssistantBubble() {
   const startY = useSharedValue(0);
   const visible = useSharedValue(0);
   const bob = useSharedValue(0);
+  const bobbing = useSharedValue(0);
   const dragging = useSharedValue(0);
   const placedRef = useRef(false);
 
@@ -158,22 +163,28 @@ export function FloatingAssistantBubble() {
     visible.value = reduceMotion ? (hidden ? 0 : 1) : withTiming(hidden ? 0 : 1, { duration: FADE_MS });
   }, [hidden, reduceMotion, visible]);
 
-  // Idle bob: a slow 3pt float, off under Reduce Motion and while hidden.
+  // Idle bob: a slow 5pt float with a soft overshoot and a tiny squash on
+  // landing; off under Reduce Motion and while hidden.
   useEffect(() => {
     if (hidden || reduceMotion) {
       cancelAnimation(bob);
       bob.value = 0;
+      bobbing.value = 0;
       return;
     }
+    bobbing.value = 1;
+    // Up eases out with a soft back-overshoot (the float); down accelerates
+    // into the landing so it reads as a gentle bounce. The squash in
+    // `containerStyle` keys off the same value.
     bob.value = withRepeat(
       withSequence(
-        withTiming(-BOB_DISTANCE, { duration: BOB_HALF_PERIOD_MS }),
-        withTiming(0, { duration: BOB_HALF_PERIOD_MS }),
+        withTiming(-BOB_DISTANCE, { duration: BOB_HALF_PERIOD_MS, easing: Easing.out(Easing.back(1.4)) }),
+        withTiming(0, { duration: BOB_HALF_PERIOD_MS, easing: Easing.in(Easing.quad) }),
       ),
       -1,
     );
     return () => cancelAnimation(bob);
-  }, [bob, hidden, reduceMotion]);
+  }, [bob, bobbing, hidden, reduceMotion]);
 
   const savePosition = useCallback(
     (nextSide: 'left' | 'right', nextY: number) => {
@@ -230,14 +241,22 @@ export function FloatingAssistantBubble() {
     return Gesture.Exclusive(pan, tap);
   }, [dragging, maxY, minY, open, savePosition, startX, startY, width, x, y]);
 
-  const containerStyle = useAnimatedStyle(() => ({
-    opacity: visible.value,
-    transform: [
-      { translateX: x.value },
-      { translateY: y.value + bob.value * (1 - dragging.value) },
-      { scale: (0.85 + 0.15 * visible.value) * (1 + 0.08 * dragging.value) },
-    ],
-  }));
+  const containerStyle = useAnimatedStyle(() => {
+    const idle = 1 - dragging.value;
+    // 0 in the air, 1 at the bottom of the bob; never while still or dragged.
+    const landing = bobbing.value * idle * Math.max(0, 1 - Math.abs(bob.value) / BOB_SQUASH_BAND);
+    const scale = (0.85 + 0.15 * visible.value) * (1 + 0.08 * dragging.value);
+    return {
+      opacity: visible.value,
+      transform: [
+        { translateX: x.value },
+        // Squash about the bottom edge, so it reads as landing, not shrinking.
+        { translateY: y.value + bob.value * idle + (ASSISTANT_BUBBLE_SIZE * BOB_SQUASH * landing) / 2 },
+        { scaleX: scale * (1 + BOB_SQUASH * landing) },
+        { scaleY: scale * (1 - BOB_SQUASH * landing) },
+      ],
+    };
+  });
 
   const hasGlass = isLiquidGlassAvailable();
   const radius = ASSISTANT_BUBBLE_SIZE / 2;

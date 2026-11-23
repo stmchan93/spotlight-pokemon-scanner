@@ -90,7 +90,7 @@ describe('HomeHeader', () => {
   });
 
   describe('the trailing control', () => {
-    it('Social (Figma 6642:5420): centred lockup, messages then the bell on the right, nothing leading', () => {
+    it('Social (Figma 6642:5420): centred lockup, messages top-left, the bell top-right', () => {
       const onOpenMessages = jest.fn();
       const onOpenNotifications = jest.fn();
       renderHeader({
@@ -99,19 +99,22 @@ describe('HomeHeader', () => {
       });
 
       const row = screen.getByTestId('home-header-row');
-      expect(StyleSheet.flatten(row.props.style).justifyContent).toBe('flex-end');
+      expect(StyleSheet.flatten(row.props.style).justifyContent).toBe('space-between');
       expect(screen.getByTestId('home-header-home-mark')).toBeTruthy();
       // The drawer menu and Ask Ekalight are gone from every variant.
       expect(screen.queryByTestId('home-header-menu')).toBeNull();
       expect(screen.queryByTestId('home-header-assistant')).toBeNull();
       expect(screen.queryByTestId('home-header-settings')).toBeNull();
 
-      const utilities = screen.getByTestId('home-header-utilities');
-      expect(StyleSheet.flatten(utilities.props.style).gap).toBe(10);
-      const messages = within(utilities).getByTestId('home-header-messages');
-      const bell = within(utilities).getByTestId('home-header-notifications');
+      const messages = screen.getByTestId('home-header-messages');
+      const bell = screen.getByTestId('home-header-notifications');
       expect(messages.props.accessibilityLabel).toBe('Messages');
       expect(bell.props.accessibilityLabel).toBe('Notifications');
+      // Row order: messages leads (left edge), the bell trails (right edge).
+      const order = within(row)
+        .getAllByRole('button')
+        .map((node) => node.props.testID);
+      expect(order).toEqual(['home-header-messages', 'home-header-notifications']);
 
       fireEvent.press(messages);
       expect(onOpenMessages).toHaveBeenCalledTimes(1);

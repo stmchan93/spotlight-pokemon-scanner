@@ -17,16 +17,17 @@ import {
  * WHAT THE BAR'S TRAILING CONTROL IS — the ONE thing that differs between the
  * two variants this bar draws (2026-11-22 redesign):
  *
- * - `social` (Figma 6642:5420): the ekalight lockup centred, and on the right
- *   the DM inbox bubble then the bell, each its own 44pt frost bubble with its
- *   own unread badge.
+ * - `social` (Figma 6642:5420): the ekalight lockup centred, the DM inbox
+ *   bubble in the top-left corner and the bell on the right, each its own
+ *   44pt frost bubble with its own unread badge.
  * - `profile` (Home, Figma 6642:5964): a single gear bubble on the right that
  *   opens Settings. No search, no edit capsule.
  *
- * NOTHING LEADS on either. The hamburger menu (and the drawer behind it) is
- * gone — Settings replaced it — and Ask Ekalight is no longer a per-page
- * button: a floating, page-aware assistant bubble owns the top-left corner on
- * every page, so the bar leaves that slot empty.
+ * The hamburger menu (and the drawer behind it) is gone — Settings replaced
+ * it — and Ask Ekalight is no longer a per-page button: a floating, page-aware
+ * assistant bubble floats BELOW this bar (its zone starts under the top bar,
+ * see `assistantBubbleZone`), so Social's messages bubble can own the
+ * top-left corner without the two colliding.
  *
  * A DISCRIMINATED UNION so the two legal shapes are the only shapes: a bar with
  * a gear AND a bell, or with neither, is unrepresentable, and each unread count
@@ -190,10 +191,9 @@ export const HOME_HEADER_ROW_HEIGHT = BAR_PADDING_TOP + CONTROL_ROW_HEIGHT;
  */
 export const HEADER_BACKDROP_FADE_DISTANCE = 56;
 /**
- * The shared top bar: nothing leading (the floating assistant bubble owns that
- * corner) and the variant's trailing bubbles — messages + bell on Social
- * (Figma 6642:5420, lockup centred), the settings gear on Home (Figma
- * 6642:5964); see `HomeHeaderTrailing`.
+ * The shared top bar: messages top-left + bell top-right on Social (Figma
+ * 6642:5420, lockup centred), the settings gear alone on the right on Home
+ * (Figma 6642:5964); see `HomeHeaderTrailing`.
  *
  * THE ONE TOP BAR. Home (the feed) and Collection both draw this. The feed
  * briefly had its own `FeedHeader` — same controls, but solid `IconButton`s in a
@@ -292,50 +292,52 @@ export function HomeHeader({
   const chromeSurface = 'onLight' as const;
   const glyphColor = theme.colors.gray900;
 
-  // Social (Figma 6642:5420): messages and the bell are each their own 44pt
-  // frost bubble. A badge is a SIBLING of its bubble, not a child — the
-  // bubble's glass clips its children to the circle.
+  // Social (Figma 6642:5420, owner tweak 2026-11-22): messages LEADS in the
+  // top-left corner, the bell trails on the right. Each is its own 44pt frost
+  // bubble; a badge is a SIBLING of its bubble, not a child — the bubble's glass
+  // clips its children to the circle.
+  const leadingControl =
+    trailing.kind === 'social' ? (
+      <BadgedBubble
+        accessibilityLabel={
+          trailing.unreadMessageCount
+            ? `Messages, ${trailing.unreadMessageCount} unread`
+            : 'Messages'
+        }
+        // The inbox's own purple: unread mail is not a warning (red is danger).
+        badgeColor={theme.colors.purple500}
+        count={trailing.unreadMessageCount ?? 0}
+        onPress={trailing.onOpenMessages}
+        testID={`${testID}-messages`}
+      >
+        <ChatBubbleEmpty
+          color={glyphColor}
+          strokeWidth={glassNavBubbleGlyphStrokeWidth}
+          height={BUTTON_ICON_SIZE}
+          width={BUTTON_ICON_SIZE}
+        />
+      </BadgedBubble>
+    ) : null;
   const trailingControl =
     trailing.kind === 'social' ? (
-      <View style={styles.trailingGroup} testID={`${testID}-utilities`}>
-        <BadgedBubble
-          accessibilityLabel={
-            trailing.unreadMessageCount
-              ? `Messages, ${trailing.unreadMessageCount} unread`
-              : 'Messages'
-          }
-          // The inbox's own purple: unread mail is not a warning (red is danger).
-          badgeColor={theme.colors.purple500}
-          count={trailing.unreadMessageCount ?? 0}
-          onPress={trailing.onOpenMessages}
-          testID={`${testID}-messages`}
-        >
-          <ChatBubbleEmpty
-            color={glyphColor}
-            strokeWidth={glassNavBubbleGlyphStrokeWidth}
-            height={BUTTON_ICON_SIZE}
-            width={BUTTON_ICON_SIZE}
-          />
-        </BadgedBubble>
-        <BadgedBubble
-          accessibilityLabel={
-            trailing.unreadCount > 0
-              ? `Notifications, ${trailing.unreadCount} unread`
-              : 'Notifications'
-          }
-          badgeColor={theme.colors.dangerStrong}
-          count={trailing.unreadCount}
-          onPress={trailing.onOpenNotifications}
-          testID={`${testID}-notifications`}
-        >
-          <Bell
-            color={glyphColor}
-            strokeWidth={glassNavBubbleGlyphStrokeWidth}
-            height={BUTTON_ICON_SIZE}
-            width={BUTTON_ICON_SIZE}
-          />
-        </BadgedBubble>
-      </View>
+      <BadgedBubble
+        accessibilityLabel={
+          trailing.unreadCount > 0
+            ? `Notifications, ${trailing.unreadCount} unread`
+            : 'Notifications'
+        }
+        badgeColor={theme.colors.dangerStrong}
+        count={trailing.unreadCount}
+        onPress={trailing.onOpenNotifications}
+        testID={`${testID}-notifications`}
+      >
+        <Bell
+          color={glyphColor}
+          strokeWidth={glassNavBubbleGlyphStrokeWidth}
+          height={BUTTON_ICON_SIZE}
+          width={BUTTON_ICON_SIZE}
+        />
+      </BadgedBubble>
     ) : (
       // Figma 6642:6202: one gear bubble, alone on the right.
       <GlassNavBubble
@@ -381,6 +383,7 @@ export function HomeHeader({
       <View
         style={[
           styles.row,
+          { justifyContent: trailing.kind === 'social' ? 'space-between' : 'flex-end' },
           {
             paddingBottom: BAR_PADDING_BOTTOM,
             paddingHorizontal: theme.layout.pageGutter,
@@ -391,8 +394,8 @@ export function HomeHeader({
       >
         {trailing.kind === 'social' ? (
           /*
-            Figma 6642:5420: the black lockup CENTRED on the screen, with the
-            messages + bell bubbles on the right. Permanent chrome: no entrance
+            Figma 6642:5420: the black lockup CENTRED on the screen, between
+            the messages (left) and bell (right) bubbles. Permanent chrome: no entrance
             or scroll animation (2026-09-09).
           */
           <View pointerEvents="none" style={styles.centerMark}>
@@ -400,8 +403,9 @@ export function HomeHeader({
           </View>
         ) : null}
 
-        {/* Trailing only: `flex-end` keeps the left free for the floating
-            assistant bubble. */}
+        {/* Social: messages left, bell right (space-between). Home: the gear
+            alone on the right (flex-end). */}
+        {leadingControl}
         {trailingControl}
       </View>
     </View>
@@ -422,8 +426,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 8,
-    // Nothing leads: the trailing bubbles sit on the right edge.
-    justifyContent: 'flex-end',
   },
   // Fills the row and centres the lockup on the SCREEN, not between the side
   // controls (whose widths differ).
@@ -435,12 +437,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 0,
     top: 0,
-  },
-  // Figma 6597:3462 spaced the Social bubbles 10 apart.
-  trailingGroup: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 10,
   },
   badgedBubble: {
     overflow: 'visible',

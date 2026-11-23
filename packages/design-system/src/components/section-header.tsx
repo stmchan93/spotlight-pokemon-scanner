@@ -73,7 +73,7 @@ export function SectionHeader({
   const actionText = uppercase && actionLabel ? actionLabel.toUpperCase() : actionLabel;
 
   const titleBlock = (
-    <View style={[styles.copy, { gap: headerCopyGap }]}>
+    <View style={[styles.copy, { gap: headerCopyGap }]} testID={testID ? `${testID}-copy` : undefined}>
       <View
         style={[styles.titleRow, compact ? styles.titleRowCompact : null]}
         testID={testID ? `${testID}-title-row` : undefined}
@@ -190,8 +190,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 16,
   },
+  // NOT `flex: 1`: in this column that is a 0 height basis, and wherever the
+  // header's height is content-sized (e.g. a bottom sheet) the title collapsed
+  // to 0pt and the next row drew over it. Width already stretches.
   copy: {
-    flex: 1,
+    flexGrow: 1,
   },
   countText: {
     marginTop: 1,

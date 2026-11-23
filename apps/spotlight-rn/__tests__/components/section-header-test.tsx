@@ -6,6 +6,17 @@ import { SectionHeader, colors, textStyles } from '@spotlight/design-system';
 import { renderWithProviders } from '../test-utils';
 
 describe('SectionHeader', () => {
+  // `flex: 1` on the copy column is a 0pt height basis: in a content-sized
+  // parent (Search's filter sheet) the title collapsed and the chips below
+  // drew over "PRODUCT" / "RARITY".
+  it('never gives the title column a zero height basis', () => {
+    renderWithProviders(<SectionHeader size="compact" testID="filter-group" title="PRODUCT" uppercase />);
+
+    const copy = StyleSheet.flatten(screen.getByTestId('filter-group-copy').props.style);
+    expect(copy.flex).toBeUndefined();
+    expect(copy.flexBasis).toBeUndefined();
+  });
+
   it('keeps the chevron slot dimensions fixed across expanded states', () => {
     const { rerender } = renderWithProviders(
       <SectionHeader

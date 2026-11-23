@@ -158,6 +158,16 @@ describe('bubble zones', () => {
     expect(clampToZone(-5, stack!)).toBe(stack!.minY);
   });
 
+  it('every bottom tab, Search included, shares the tab band so the bubble holds its height across tabs', () => {
+    const home = assistantBubbleZone('/', metrics);
+    for (const path of ['/search', '/events', '/social']) {
+      expect(assistantBubbleZone(path, metrics)).toEqual(home);
+    }
+    // The band starts below the 44pt top bar, so it never reaches Social's
+    // top-left messages bubble.
+    expect(home!.minY).toBeGreaterThanOrEqual(metrics.insetTop + 44);
+  });
+
   it('the scanner allows only the band between the frame and the tray, else nothing', () => {
     expect(assistantBubbleZone('/scan', metrics)).toBeNull();
     expect(assistantBubbleZone('/scan', { ...metrics, scanner: { frameBottom: 582, trayTop: 681, trayExpanded: false } }))

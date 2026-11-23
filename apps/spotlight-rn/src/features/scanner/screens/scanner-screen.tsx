@@ -5160,8 +5160,8 @@ export function ScannerScreen({
             },
           ]}
         >
-          {/* The pill alone spans the gutters (owner, 2026-11-22): Search is a
-              bottom tab and Ask Ekalight is the app-wide floating bubble. */}
+          {/* A compact pill sized to its content, centred over the frame in
+              line with the centred "Tap to scan" prompt (owner, 2026-11-22). */}
           <View style={styles.topChromeCenter}>
             <ScanTargetPill
               flag={scanTargetFlag(scanLane)}
@@ -5830,8 +5830,8 @@ const styles = StyleSheet.create({
   topChromeRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    // Just the full-width target pill now; the row stays a row so the
-    // pill's slot can flex.
+    // Just the content-sized target pill, centred.
+    justifyContent: 'center',
     position: 'absolute',
     zIndex: 5,
   },
@@ -5848,7 +5848,8 @@ const styles = StyleSheet.create({
     zIndex: 4,
   },
   topChromeCenter: {
-    flex: 1,
+    alignItems: 'center',
+    flexShrink: 1,
   },
   // POC chrome (dev builds only) — the UX pass owns the real treatment.
   binderPageHeader: {

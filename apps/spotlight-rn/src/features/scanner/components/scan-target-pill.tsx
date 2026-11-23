@@ -6,8 +6,8 @@ import { GlassSurface, Text, colors, textStyles } from '@spotlight/design-system
 import { RoundFlag } from './round-flag';
 
 /**
- * The "Pokémon EN/JP" scan-target control, spanning the scanner's top
- * toolbar (Figma Scan-1 6642:5410): dark-pinned clear glass with white content — the SCAN/TOTAL pill
+ * The "Pokémon EN/JP" scan-target control: a content-sized pill centred over
+ * the scanner's frame (Figma Scan-1 6642:5410): dark-pinned clear glass with white content — the SCAN/TOTAL pill
  * recipe. Light glass borrows brightness from the backdrop and vanished over
  * night scenes; dark glass + white text reads over any camera content.
  */
@@ -73,8 +73,9 @@ const styles = StyleSheet.create({
     ...textStyles.label,
     color: colors.gray900,
   },
+  // Sized to its content (label + flag + chevron + padding), never stretched.
   pressable: {
-    alignSelf: 'stretch',
+    alignSelf: 'center',
     borderCurve: 'continuous',
     borderRadius: 999,
   },

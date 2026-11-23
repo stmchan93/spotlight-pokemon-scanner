@@ -18,6 +18,7 @@ import { clearCardDetailCache } from '@/features/cards/card-detail-prefetch';
 import { CardSimilarSection } from '@/features/cards/components/card-similar-section';
 import { CardDetailScreen } from '@/features/cards/screens/card-detail-screen';
 import { ScanCandidateReviewScreen } from '@/features/cards/screens/scan-candidate-review-screen';
+import { CatalogSearchFilterSheet } from '@/features/catalog/components/catalog-search-filter-sheet';
 import { CatalogSearchScreen } from '@/features/catalog/screens/catalog-search-screen';
 import { ExpansionBrowserScreen } from '@/features/catalog/screens/expansion-browser-screen';
 import { ExpansionDetailScreen } from '@/features/catalog/screens/expansion-detail-screen';
@@ -243,6 +244,8 @@ const devScreens: Record<string, () => ReactElement> = {
   'search-cards': () => (
     <ExpansionBrowserScreen mode="tab" onClose={noop} onOpenCard={noop} onSelectExpansion={noop} />
   ),
+  // Search's filter sheet open over the CARDS tab (PRODUCT / RARITY groups).
+  'search-filter-sheet': () => <DevSearchFilterSheetScreen />,
   'search-people': () => (
     <ExpansionBrowserScreen
       initialSearchTab="people"
@@ -356,6 +359,16 @@ function setSocialOverridesInstalled(installed: boolean) {
   setDevSocialOverrides(installed ? devSocialOverrides : null);
   setDevProfileOverrides(installed ? devProfileOverrides : null);
   setDevDmOverrides(installed ? devDmOverrides : null);
+}
+
+function DevSearchFilterSheetScreen() {
+  const [filter, setFilter] = useState<Parameters<typeof CatalogSearchFilterSheet>[0]['activeFilter']>(null);
+  return (
+    <>
+      <ExpansionBrowserScreen mode="tab" onClose={noop} onOpenCard={noop} onSelectExpansion={noop} />
+      <CatalogSearchFilterSheet activeFilter={filter} onApply={setFilter} onClose={noop} visible />
+    </>
+  );
 }
 
 function DevTargetSheetScreen({ mode }: { mode: 'afterWatch' | 'edit' }) {

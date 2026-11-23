@@ -19,7 +19,8 @@ const HIDDEN_PREFIXES = [
   '/whos-that-pokemon',
 ] as const;
 
-const TAB_ROUTES = new Set(['/', '/wishlist', '/scan', '/events', '/social', '/portfolio', '/you']);
+// Every bottom tab (HOME · SEARCH · SCAN · EVENTS · SOCIAL) plus the profile tabs.
+const TAB_ROUTES = new Set(['/', '/search', '/wishlist', '/scan', '/events', '/social', '/portfolio', '/you']);
 
 /** The dev scanner screenshot routes lay out exactly like `/scan`. */
 export function bubbleRoutePath(pathname: string): string {

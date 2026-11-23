@@ -707,10 +707,14 @@ export function GameSetsScreen({
                   testID="game-sets-filter"
                   variant="outlined"
                 >
+                  {/* Figma 6642:12671 is iconoir `filter-list`; drawn at the shared
+                      glyph size/weight — at 20 / 1.5 it shrank to thin lines and a dot. */}
                   <FilterList
                     color={activeFilterLabel ? theme.colors.purple500 : theme.colors.gray900}
-                    height={20}
-                    width={20}
+                    height={glassNavBubbleGlyphSize}
+                    strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                    testID="game-sets-filter-glyph"
+                    width={glassNavBubbleGlyphSize}
                   />
                   {activeFilterLabel ? (
                     <View
