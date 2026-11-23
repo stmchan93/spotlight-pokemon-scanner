@@ -56,12 +56,7 @@ function renderHeader(props: Partial<React.ComponentProps<typeof PortfolioBalanc
 }
 
 describe('PortfolioBalanceHeader', () => {
-  it('shows the not-counted note only when holdings were left out', () => {
-    renderHeader({ excludedNote: '2 cards not counted — no recent price' });
-    expect(screen.getByTestId('portfolio-summary-excluded-note')).toHaveTextContent(
-      '2 cards not counted — no recent price',
-    );
-    screen.unmount();
+  it('never shows a not-counted note under the total', () => {
     renderHeader();
     expect(screen.queryByTestId('portfolio-summary-excluded-note')).toBeNull();
   });

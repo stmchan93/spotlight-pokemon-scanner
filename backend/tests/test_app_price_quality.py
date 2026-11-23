@@ -47,13 +47,14 @@ class AppPriceQualityTests(PriceQualityCase):
 
     def test_collection_rows_and_total(self) -> None:
         payload = self.service.deck_entries_for_owner(USER_A)
-        self.assertEqual(payload["summary"]["totalValue"], 100.0)
-        self.assertEqual(payload["summary"]["stalePriceCount"], 1)
+        # A stale price is still the last known value: shown and counted.
+        self.assertEqual(payload["summary"]["totalValue"], 561.96)
+        self.assertEqual(payload["summary"]["stalePriceCount"], 0)
         self.assertEqual(payload["summary"]["untrustedPriceCount"], 1)
         rows = self.entries_by_id(payload)
         stale = rows["h-stale"]["card"]["pricing"]
-        self.assertIsNone(stale["market"])
-        self.assertEqual((stale["priceStatus"], stale["priceAsOf"]), ("stale", _days_ago(125)))
+        self.assertEqual(stale["market"], 461.96)
+        self.assertNotIn("priceStatus", stale)
         phantom = rows["h-phantom"]["card"]["pricing"]
         self.assertIsNone(phantom["market"])
         self.assertEqual((phantom["priceStatus"], phantom["ownPsa10Price"]), ("untrusted", 351.94))
@@ -63,16 +64,15 @@ class AppPriceQualityTests(PriceQualityCase):
         self.assertEqual(fresh["market"], 50.0)
         self.assertNotIn("priceStatus", fresh)
 
-    def test_chart_leaves_withheld_holdings_out_of_every_point(self) -> None:
+    def test_chart_leaves_untrusted_holdings_out_of_every_point(self) -> None:
         with self.as_user():
             history = self.service.deck_history(range_label="30D", time_zone_name="UTC")
         values = {point["totalValue"] for point in history["points"]}
-        # No cliff: the stale and untrusted holdings are out of every day, not
-        # just the days after their price went bad.
-        self.assertEqual(values, {100.0})
-        self.assertEqual(history["summary"]["currentValue"], 100.0)
+        # No cliff: the untrusted holding is out of every day; the stale one counts.
+        self.assertEqual(values, {561.96})
+        self.assertEqual(history["summary"]["currentValue"], 561.96)
         self.assertEqual(history["summary"]["deltaValue"], 0.0)
-        self.assertEqual(history["coverage"]["stalePriceCount"], 1)
+        self.assertEqual(history["coverage"]["stalePriceCount"], 0)
         self.assertEqual(history["coverage"]["untrustedPriceCount"], 1)
 
     def test_chart_keeps_a_card_whose_price_is_current_again(self) -> None:
@@ -91,17 +91,14 @@ class AppPriceQualityTests(PriceQualityCase):
         )
         self.conn.commit()
         entry = self.service._compute_card_favorites_for_owner("user-b")["entries"][0]
-        self.assertIsNone(entry["marketPrice"])
-        self.assertEqual(entry["card"]["pricing"]["priceStatus"], "stale")
-        self.assertIsNone(entry["sparkPoints"])
+        self.assertEqual(entry["marketPrice"], 461.96)
+        self.assertNotIn("priceStatus", entry["card"]["pricing"])
 
     def test_insights_tracker_row(self) -> None:
         with self.as_user():
             rows = {row["entryId"]: row for row in self.service._compute_portfolio_performance()["rows"]}
-        self.assertIsNone(rows["h-stale"]["currentPrice"])
-        self.assertEqual(rows["h-stale"]["priceStatus"], "stale")
-        self.assertEqual(rows["h-stale"]["priceAsOf"], _days_ago(125))
-        self.assertEqual(rows["h-stale"]["sparkline"], [])
+        self.assertEqual(rows["h-stale"]["currentPrice"], 461.96)
+        self.assertIsNone(rows["h-stale"]["priceStatus"])
         self.assertEqual(rows["h-phantom"]["priceStatus"], "untrusted")
         self.assertEqual(rows["h-fresh"]["currentPrice"], 50.0)
         self.assertIsNone(rows["h-fresh"]["priceStatus"])
@@ -109,8 +106,8 @@ class AppPriceQualityTests(PriceQualityCase):
     def test_card_detail(self) -> None:
         context = self.service._raw_pricing_context()
         detail = self.service._card_detail_for_context("stale", pricing_context=context)
-        self.assertIsNone(detail["card"]["pricing"]["market"])
-        self.assertEqual(detail["card"]["pricing"]["priceStatus"], "stale")
+        self.assertEqual(detail["card"]["pricing"]["market"], 461.96)
+        self.assertNotIn("priceStatus", detail["card"]["pricing"])
         fresh = self.service._card_detail_for_context("fresh", pricing_context=context)
         self.assertEqual(fresh["card"]["pricing"]["market"], 50.0)
 
@@ -152,11 +149,18 @@ class AssessPriceTests(unittest.TestCase):
         self.assertIsNone(self.assess({"market": 351.94, "variant": "Holofoil"}, facts))
         self.assertIsNone(self.assess(pricing, facts, graded=True))
 
-    def test_withheld_pricing_does_not_mutate(self) -> None:
+    def test_app_serves_stale_prices(self) -> None:
         pricing = {"market": 10.0, "low": 9.0, "variant": "Holofoil"}
         served, verdict = price_quality.apply_price_quality(
             pricing, {"raw_date": "2026-01-01"}, graded=False, cutoff=self.CUTOFF
         )
+        self.assertIs(served, pricing)
+        self.assertIsNone(verdict)
+
+    def test_withheld_pricing_does_not_mutate(self) -> None:
+        pricing = {"market": 10.0, "low": 9.0, "variant": "Holofoil"}
+        verdict = {"status": "stale", "as_of": "2026-01-01"}
+        served = price_quality.withheld_pricing(pricing, verdict)
         self.assertEqual(pricing["market"], 10.0)
         self.assertEqual((served["market"], served["low"], served["priceStatus"]), (None, None, "stale"))
         self.assertEqual(price_quality.verdict_from_pricing(served), verdict)

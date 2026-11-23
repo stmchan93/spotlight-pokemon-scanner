@@ -210,8 +210,11 @@ def apply_price_quality(
     graded: bool,
     cutoff: str | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """(pricing to serve, verdict): the app's one-call form of ``assess_price``."""
+    """(pricing to serve, verdict): the app's one-call form of ``assess_price``.
+    Only an untrusted price is withheld. A stale one is still the card's last
+    known value, so the app shows and counts it (owner, 2026-11-23: dropping
+    23 cards from a collection total over a two-week-old price was wrong)."""
     verdict = assess_price(pricing, served_price(pricing), facts, graded=graded, cutoff=cutoff)
-    if verdict is None or pricing is None:
+    if verdict is None or pricing is None or verdict.get("status") == STATUS_STALE:
         return pricing, None
     return withheld_pricing(pricing, verdict), verdict
