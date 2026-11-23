@@ -110,6 +110,7 @@ import {
 } from '@/components/page-tab-pager';
 import { FocusedStatusBar } from '@/components/focused-status-bar';
 import { assistantHref } from '@/features/assistant/assistant-route';
+import { useAssistantPageContext } from '@/features/assistant/page-context/assistant-page-context';
 import { EkalightMark } from '@/components/ekalight-mark';
 import { ScanTabIcon } from '@/components/nav-tab-icons';
 import {
@@ -703,6 +704,12 @@ export function PortfolioScreen({
     const match = collections.find((collection) => collection.id === activeCollectionID);
     return match?.name ?? 'Main Collection';
   }, [activeCollectionID, collectionsSnapshot]);
+  // Floating Ekalight bubble: which collection is on screen (read at tap time).
+  useAssistantPageContext(() => ({
+    label: `Your collection · ${activeCollectionName}`,
+    params: { collection: activeCollectionName },
+    game: insightsGame,
+  }));
 
   // Values inside the picker honour the balance-visibility toggle, for the same
   // reason the summary line does — otherwise hiding the balance leaks it here.

@@ -26,7 +26,7 @@ from mcp_server.assistant.engine import (
     picked_cards_context,
 )
 from mcp_server.assistant.flags import flag_turn
-from mcp_server.assistant import game_scope
+from mcp_server.assistant import game_scope, page_context
 from mcp_server.assistant.store import (
     FEEDBACK_NOTE_CHARS,
     FEEDBACK_RATINGS,
@@ -158,6 +158,10 @@ class AssistantService:
         game = context.get("game")
         if game is not None and not isinstance(game, str):
             return None, _bad("context.game must be a string")
+        # The page the floating bubble opened the chat from (additive; older apps omit it).
+        page, page_error = page_context.parse_page(context.get("page"))
+        if page_error:
+            return None, _bad(page_error)
         return {
             "thread_id": thread_id.strip() if thread_id else None,
             "client_message_id": client_message_id.strip(),
@@ -167,7 +171,8 @@ class AssistantService:
             "attached_card_ids": attached_card_ids,
             # The screen's game (Home market picker / scanner lane). A game this server doesn't
             # know (newer app) is ignored, not rejected: resolution falls through to the collection.
-            "game": game_scope.supported_game(game),
+            "game": game_scope.supported_game(game) or game_scope.supported_game(page_context.page_game(page)),
+            "page": page,
             # Older app builds render any action as a Confirm card; a direct add
             # there would be added twice on Confirm, so they only get proposals.
             "direct_add": isinstance(capabilities := body.get("capabilities"), list)
@@ -269,6 +274,11 @@ class AssistantService:
         if picked:
             tray = picked_cards_context(tray)
         attached_ids = request.get("attached_card_ids") or []
+        page = request.get("page")
+        page_ids = [card_id for card_id in page_context.page_card_ids(page) if card_id not in request["card_ids"]]
+        page_note = page_context.page_note(
+            page, await asyncio.to_thread(self.toolbox.scanner_context, page_ids) if page_ids else None
+        )
         attached = (
             attached_cards_context(await asyncio.to_thread(self.toolbox.scanner_context, attached_ids))
             if attached_ids else None
@@ -277,11 +287,14 @@ class AssistantService:
         memory = (
             await asyncio.to_thread(self.toolbox.thread_memory_context, thread_refs, shown_ids) if thread_refs else None
         )
-        context = "\n\n".join(part for part in (game_scope.scope_note(scope), memory, tray, attached) if part)
-        context_card_ids = list(dict.fromkeys([*request["card_ids"], *attached_ids]))
+        context = "\n\n".join(
+            part for part in (game_scope.scope_note(scope), memory, page_note, tray, attached) if part
+        )
+        context_card_ids = list(dict.fromkeys([*request["card_ids"], *page_ids, *attached_ids]))
         context_cards = {
             "picked" if picked else "scanned": list(request["card_ids"]),
             "attached": list(attached_ids),
+            "page": page_ids,
         }
         assert self.engine is not None
         if deadline is None:
@@ -406,6 +419,7 @@ class AssistantService:
                 "tools": list(turn.tools_used),
                 "latency_ms": turn.latency_ms,
                 "source": request["source"],
+                "page_kind": (page or {}).get("kind"),
                 "game": turn.scoped_game,
                 "game_source": scope.source,
                 "is_guest": caller.is_guest,

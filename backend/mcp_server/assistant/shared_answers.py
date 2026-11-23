@@ -143,11 +143,16 @@ def market_wide_call(record: dict[str, Any]) -> bool:
 
 
 def request_eligible(request: dict[str, Any]) -> bool:
-    """First message of a new thread, no scanned cards, not about the asker's own things."""
+    """First message of a new thread, no scanned cards, not about the asker's own things,
+    and not opened from a page that makes the answer personal (a card, set, search, their
+    collection/Watchlist…: the page note changes the answer)."""
+    from mcp_server.assistant.page_context import page_shareable
+
     return (
         request.get("thread_id") is None
         and not request.get("card_ids")
         and not request.get("attached_card_ids")
+        and page_shareable(request.get("page"))
         and not personal_question(request.get("text") or "")
     )
 

@@ -39,6 +39,7 @@ import { SealedResultsRow } from '@/features/catalog/components/sealed-results-r
 import { useCatalogCardSearch } from '@/features/catalog/hooks/use-catalog-card-search';
 import { useSealedSearchPreview } from '@/features/catalog/hooks/use-sealed-search-preview';
 import { useGameExpansions } from '@/features/catalog/hooks/use-game-expansions';
+import { useAssistantPageContext } from '@/features/assistant/page-context/assistant-page-context';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 
 /*
@@ -110,6 +111,11 @@ export function CatalogSearchScreen({
     sealed: sealedActive,
   });
   const { query, setQuery, results } = search;
+  // Floating Ekalight bubble: the typed query + chip (read at tap time).
+  useAssistantPageContext(() => ({
+    params: { query, tab: 'cards', filter: activeFilter ? String(activeFilter) : null },
+    label: query.trim() ? `Search: ${query.trim()}` : null,
+  }));
   // With no chip, a typed query also asks for sealed product — shown as its
   // own row, never mixed into the cards. Any chip turns the row off.
   const sealedPreview = useSealedSearchPreview({ enabled: activeFilter == null, query });

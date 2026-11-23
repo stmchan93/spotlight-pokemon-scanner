@@ -351,7 +351,7 @@ class AssistantStore:
         for index, row in enumerate(rows):
             if str(row["role"]) == "user":
                 context = _json_dict(row["context_cards_json"])
-                for via, key in (("picked", "picked"), ("photo", "attached"), ("scan", "scanned")):
+                for via, key in (("picked", "picked"), ("photo", "attached"), ("scan", "scanned"), ("page", "page")):
                     for card_id in context.get(key) or []:
                         if isinstance(card_id, str) and card_id:
                             add({"card_id": card_id, "via": via})

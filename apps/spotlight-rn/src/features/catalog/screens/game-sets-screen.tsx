@@ -50,6 +50,7 @@ import { useSealedRail, useSinglesRail } from '@/features/catalog/hooks/use-sear
 import { useSetProgress } from '@/features/catalog/hooks/use-set-progress';
 import { resultsCountLabel, singlesSourceSets, totalCardCount } from '@/features/catalog/search-landing';
 import { groupSetsByEra, setCompletion, type SetListRow } from '@/features/catalog/set-progress';
+import { useAssistantPageContext } from '@/features/assistant/page-context/assistant-page-context';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 
 type GameSetsScreenProps = {
@@ -133,6 +134,13 @@ export function GameSetsScreen({
   const { byGame, error, failedGames, games, hasLoaded, isLoading, reload } = useGameExpansions();
   const { ownedByExpansion } = useSetProgress(game);
   const search = useCatalogCardSearch({ scope: game });
+  // Floating Ekalight bubble: the game chip + typed query (read at tap time).
+  useAssistantPageContext(() => ({
+    kind: 'search',
+    game,
+    params: { query: search.query, tab: 'cards' },
+    label: search.query.trim() ? `Search: ${search.query.trim()}` : null,
+  }));
   const sealedSearch = useSealedSearchPreview({
     enabled: true,
     limit: SEALED_RESULTS_LIMIT,

@@ -69,7 +69,8 @@ THREAD_MEMORY_HEADER = (
     "which printing:"
 )
 THREAD_MEMORY_VIA = {"photo": " · photo the user attached", "scan": " · from the user's scan tray",
-                     "picked": " · the user picked it from your choices"}
+                     "picked": " · the user picked it from your choices",
+                     "page": " · the card page the user opened this chat from"}
 MAX_CHARTS = 2
 MAX_CHART_POINTS = 90
 MAX_QUANTITY = 999

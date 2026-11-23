@@ -21,6 +21,7 @@ import type {
   AssistantContextSource,
   AssistantFeedbackInput,
   AssistantMessage,
+  AssistantPageContext,
   AssistantProposedAction,
   AssistantSetRef,
   AssistantThreadSummary,
@@ -51,9 +52,16 @@ import {
 import {
   assistantCardContextLine,
   assistantGreeting,
+  assistantPagePrompts,
   assistantRemainingCaption,
   assistantStarterPrompts,
 } from '@/features/assistant/assistant-prompts';
+import { AssistantPageChip } from '@/features/assistant/components/assistant-page-chip';
+import { assistantPageKey } from '@/features/assistant/page-context/assistant-page-context';
+import {
+  readThreadPageKey,
+  rememberThreadPageKey,
+} from '@/features/assistant/page-context/assistant-page-persistence';
 import {
   assistantPhotoCardLabel,
   cropAssistantPhoto,
@@ -113,6 +121,12 @@ export type AssistantScreenProps = {
   onOpenSet?: (set: AssistantSetRef) => void;
   /** "View all N" under a Watchlist preview. */
   onOpenWatchlist?: () => void;
+  /**
+   * The page the floating bubble opened the chat from: rides every turn as
+   * `context.page`, shapes the starter chips and the "Looking at" chip, and
+   * decides whether to continue the latest chat (same page) or start fresh.
+   */
+  page?: AssistantPageContext | null;
 };
 
 type ChatRow =
@@ -145,6 +159,7 @@ export function AssistantScreen({
   onOpenCard,
   onOpenSet,
   onOpenWatchlist,
+  page = null,
 }: AssistantScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
@@ -154,11 +169,21 @@ export function AssistantScreen({
   const { ensureGuestSession, isGuest, openLogin } = useGuestGate();
   const { currentUser, getAccessToken } = useAuth();
 
+  // "Looking at …" can be dismissed: the rest of this chat then goes without the page.
+  const [pageDismissed, setPageDismissed] = useState(false);
+  const activePage = pageDismissed ? null : page;
+  const pageKey = page ? assistantPageKey(page) : null;
+  const pageJson = activePage ? JSON.stringify(activePage) : '';
   const context = useMemo(
-    () => ({ source, ...(cardIds.length > 0 ? { cardIds } : {}), ...(game ? { game } : {}) }),
-    // cardIds is a fresh array per render from the route; key on its contents.
+    () => ({
+      source,
+      ...(cardIds.length > 0 ? { cardIds } : {}),
+      ...(game ? { game } : {}),
+      ...(activePage ? { page: activePage } : {}),
+    }),
+    // cardIds / page are fresh per render from the route; key on their contents.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- content-keyed
-    [source, cardIds.join(','), game],
+    [source, cardIds.join(','), game, pageJson],
   );
   const ensureIdentity = useCallback(async () => {
     // A guest has no user until the first authed action; asking IS that action.
@@ -215,7 +240,11 @@ export function AssistantScreen({
   }, [resetScroll, view]);
 
   useEffect(() => {
-    capturePostHogEvent(AnalyticsEvent.assistantOpened, { source });
+    // The floating bubble logs its own open (with the page kind).
+    if (!page) {
+      capturePostHogEvent(AnalyticsEvent.assistantOpened, { source });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per open
   }, [source]);
 
   const isGuestLimited = chat.isLimitReached && (chat.usage?.isGuest ?? isGuest);
@@ -396,7 +425,14 @@ export function AssistantScreen({
     } else if (photo) {
       handleRemovePhoto();
     }
-    capturePostHogEvent(AnalyticsEvent.assistantQuestionSent, { source, ...(attachment ? { photo: true } : {}) });
+    capturePostHogEvent(AnalyticsEvent.assistantQuestionSent, {
+      source,
+      ...(attachment ? { photo: true } : {}),
+      ...(activePage ? { page_kind: activePage.kind } : {}),
+    });
+    if (chat.threadId == null) {
+      startedBlankRef.current = true;
+    }
     const outcome = await chat.send(question.slice(0, MAX_QUESTION_LENGTH), attachment ? { attachment } : undefined);
     if (outcome === 'limit') {
       // Not answered and not charged: give the words (and the photo) back.
@@ -405,7 +441,7 @@ export function AssistantScreen({
         setPhoto(sentPhoto);
       }
     }
-  }, [chat, handleRemovePhoto, photo, source]);
+  }, [activePage, chat, handleRemovePhoto, photo, source]);
 
   // A tapped candidate printing: ask for the add/update of exactly that card, or (intent "pick")
   // name it so the pending question carries on for it.
@@ -444,6 +480,18 @@ export function AssistantScreen({
   // A scanner open with tray cards is a fresh question about those cards.
   const canReadOnOpen = !isGuest || Boolean(getAccessToken());
   const resumeLatest = !initialThreadId && !(source === 'scanner' && cardIds.length > 0);
+  const ownerKey = currentUser?.id ?? null;
+  // A chat STARTED here (first send from a blank chat) is remembered as this page's.
+  const startedBlankRef = useRef(false);
+  useEffect(() => {
+    if (chat.threadId == null) {
+      return;
+    }
+    if (startedBlankRef.current && pageKey && ownerKey) {
+      void rememberThreadPageKey(ownerKey, chat.threadId, pageKey);
+    }
+    startedBlankRef.current = false;
+  }, [chat.threadId, ownerKey, pageKey]);
   useEffect(() => {
     if (!canReadOnOpen) {
       return;
@@ -452,14 +500,24 @@ export function AssistantScreen({
     void (async () => {
       setThreadsStatus('loading');
       try {
-        const page = await repository.listAssistantThreads({ limit: 50 });
+        const listed = await repository.listAssistantThreads({ limit: 50 });
         if (cancelled) {
           return;
         }
-        setThreads(page.threads);
+        const latest = listed.threads[0];
+        // From the floating bubble: continue the latest chat only if it was
+        // started on this same page; any other page gets a fresh chat.
+        const continueLatest = Boolean(
+          resumeLatest &&
+            latest &&
+            (!pageKey || !ownerKey || (await readThreadPageKey(ownerKey, latest.id)) === pageKey),
+        );
+        if (cancelled) {
+          return;
+        }
+        setThreads(listed.threads);
         setThreadsStatus('ready');
-        const latest = page.threads[0];
-        if (resumeLatest && latest) {
+        if (continueLatest && latest) {
           void chat.openThread(latest.id);
         }
       } catch {
@@ -716,7 +774,10 @@ export function AssistantScreen({
     width: glassNavBubbleGlyphSize,
   };
   const remainingCaption = assistantRemainingCaption(chat.usage);
-  const starterPrompts = assistantStarterPrompts(cardIds.length, source);
+  // Bubble opens: chips about the page (the scan tray still uses the tray set via source).
+  const starterPrompts = page && !pageDismissed && cardIds.length === 0
+    ? assistantPagePrompts(page)
+    : assistantStarterPrompts(cardIds.length, source);
   const greeting = assistantGreeting(currentUser?.displayName, isGuest);
   const cardContextLine = assistantCardContextLine(cardIds.length);
   const isSending = chat.pending?.status === 'sending';
@@ -927,6 +988,13 @@ export function AssistantScreen({
               limitBlock
             ) : (
               <>
+                {activePage?.label ? (
+                  <AssistantPageChip
+                    label={activePage.label}
+                    onDismiss={() => setPageDismissed(true)}
+                    testID="assistant-page-chip"
+                  />
+                ) : null}
                 {remainingCaption ? (
                   <Text
                     style={[theme.typography.caption, styles.remaining, { color: theme.colors.gray600 }]}
