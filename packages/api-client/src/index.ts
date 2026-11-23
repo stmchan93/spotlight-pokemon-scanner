@@ -7,3 +7,5 @@ export * from './spotlight/spotlight-events';
 export * from './spotlight/assistant-wire';
 export * from './spotlight/assistant-mock-data';
 export * from './spotlight/vendor-wire';
+export * from './spotlight/market-analytics-mock-data';
+export * from './spotlight/market-analytics-wire';

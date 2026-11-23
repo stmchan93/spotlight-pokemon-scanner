@@ -231,6 +231,18 @@ export function createTestSpotlightRepository(
       return overrides.getTopMovers?.(...args)
         ?? baseRepository.getTopMovers(...args);
     },
+    getMarketAnalytics: (...args) => {
+      return overrides.getMarketAnalytics?.(...args)
+        ?? baseRepository.getMarketAnalytics(...args);
+    },
+    getMarketHeatmapSet: (...args) => {
+      return overrides.getMarketHeatmapSet?.(...args)
+        ?? baseRepository.getMarketHeatmapSet(...args);
+    },
+    getCardPricePosition: (...args) => {
+      return overrides.getCardPricePosition?.(...args)
+        ?? baseRepository.getCardPricePosition(...args);
+    },
     fetchMetaPulse: (...args) => {
       return overrides.fetchMetaPulse?.(...args)
         ?? baseRepository.fetchMetaPulse(...args);

@@ -3446,3 +3446,154 @@ export type AssistantErrorCode =
   | 'not_found'
   | 'network'
   | 'unknown';
+
+/*
+  Market Analytics tab (docs/market-analytics-2026-11-23.md). All prices USD.
+  `windowLabel` is the honest name of the window ("past 30 days", or
+  "recently" when stored history doesn't cover it): never show how much
+  history exists. No field predicts or recommends a buy.
+*/
+export type MarketWindow = '7d' | '30d' | '90d';
+
+export const MARKET_WINDOWS: readonly MarketWindow[] = ['7d', '30d', '90d'];
+
+export type MarketCardTile = {
+  cardId: string;
+  name: string;
+  setName: string | null;
+  number: string | null;
+  imageUrl: string | null;
+  game: CardGame;
+  /** Printing (e.g. "Holofoil") when the price is printing-specific. */
+  variant?: string | null;
+};
+
+export type MarketSetTile = {
+  setId: string;
+  name: string;
+  logoUrl: string | null;
+  game: CardGame;
+};
+
+export type MarketPoint = {
+  date: string;
+  value: number;
+};
+
+export type MarketBreadth = {
+  up: number;
+  down: number;
+  flat: number;
+  /** null when no card qualified. */
+  upPct: number | null;
+};
+
+export type MarketPulse = {
+  /** Market index change over the window; null when the game has no data. */
+  changePct: number | null;
+  indexValueUsd: number | null;
+  breadth: MarketBreadth;
+  sparkline: MarketPoint[];
+};
+
+export type MarketYou = {
+  /** Market move of the cards you hold (buys/sells excluded); null without history. */
+  changePct: number | null;
+  valueUsd: number;
+  marketChangePct: number | null;
+  beatsMarket: boolean | null;
+};
+
+export type MarketHeatmapTile = MarketSetTile & {
+  totalValueUsd: number;
+  changePct: number | null;
+  cardCount: number;
+};
+
+export type MarketPricePositionRange = {
+  lowUsd: number;
+  highUsd: number;
+  /** 0 = at the range low, 100 = at the range high. */
+  percentile: number;
+};
+
+export type MarketBargain = MarketCardTile & {
+  priceUsd: number;
+  changePct: number | null;
+  position: MarketPricePositionRange;
+};
+
+export type MarketBreakout = MarketCardTile & {
+  priceUsd: number;
+  changePct: number | null;
+  previousHighUsd: number | null;
+  sparkline: MarketPoint[];
+};
+
+export type MarketSetMove = MarketSetTile & {
+  changePct: number;
+};
+
+export type MarketGradingPick = MarketCardTile & {
+  rawUsd: number;
+  psa10Usd: number;
+  feeUsd: number;
+  netGainUsd: number;
+  owned: boolean;
+};
+
+export type MarketAnalytics = {
+  game: CardGame;
+  window: MarketWindow;
+  windowLabel: string;
+  asOf: string | null;
+  pulse: MarketPulse;
+  /** Null for guests and empty collections. */
+  you: MarketYou | null;
+  heatmap: MarketHeatmapTile[];
+  bargains: MarketBargain[];
+  breakingOut: MarketBreakout[];
+  setsRising: MarketSetMove[];
+  setsFalling: MarketSetMove[];
+  grading: MarketGradingPick[];
+};
+
+export type MarketAnalyticsQuery = {
+  game: CardGame;
+  window: MarketWindow;
+};
+
+export type MarketHeatmapSetCard = MarketCardTile & {
+  priceUsd: number;
+  changePct: number | null;
+};
+
+export type MarketHeatmapSet = {
+  setId: string;
+  name: string;
+  window: MarketWindow;
+  windowLabel: string;
+  cards: MarketHeatmapSetCard[];
+};
+
+export type MarketHeatmapSetQuery = {
+  game: CardGame;
+  setId: string;
+  window: MarketWindow;
+};
+
+export type CardPricePosition = {
+  currentUsd: number;
+  lowUsd: number;
+  highUsd: number;
+  percentile: number;
+  windowLabel: string;
+};
+
+export type CardPricePositionQuery = {
+  cardId: string;
+  variant?: string | null;
+  condition?: string | null;
+  grader?: string | null;
+  grade?: string | null;
+};

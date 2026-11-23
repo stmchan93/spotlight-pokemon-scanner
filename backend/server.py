@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import json
 import hmac
@@ -179,6 +180,7 @@ from market_movers import (
     market_movers_version_token,
 )
 import price_lows
+import market_analytics
 import price_quality
 from ebay_comps import (
     DEFAULT_RESULT_LIMIT as DEFAULT_EBAY_LISTING_LIMIT,
@@ -2624,6 +2626,13 @@ class SpotlightScanService:
         self._market_movers_lock = threading.Lock()
         # Daily price-lows job (price_lows.py) runs on the ops prewarm hook only.
         self._price_lows_lock = threading.Lock()
+        # Market Analytics (market_analytics.py): job on the same hook right after
+        # price_lows; requests read the stored payload. (game, window) -> (version,
+        # payload); `you` per (owner, window) on price + dashboard tokens.
+        self._market_analytics_lock = threading.Lock()
+        self._market_analytics_cache: dict[tuple[str, int], tuple[str, dict[str, Any]]] = {}
+        self._market_analytics_you_cache: dict[tuple[str, str], tuple[str, dict[str, Any] | None]] = {}
+        self._market_analytics_kicked_at = 0.0
         # Feed market blocks read small precomputed tables, so no dogpile locks:
         # meta keyed by (game, window, lane) on the job's version token, hot
         # cards by game on the newest run, set spotlight by set id (pick on its
@@ -24933,6 +24942,148 @@ class SpotlightScanService:
         self._emit_structured_log(result)
         return result
 
+    def refresh_market_signals(self, *, source: str = "ops") -> dict[str, Any]:
+        """price_lows first (breakingOut reads its new-highs table), then Market Analytics."""
+        lows = self.refresh_price_lows(source=source)
+        return {"priceLows": lows, "marketAnalytics": self.refresh_market_analytics(source=source)}
+
+    def refresh_market_analytics(self, *, source: str = "ops") -> dict[str, Any]:
+        """Recompute the market_analytics tables when their inputs changed (no-op
+        otherwise). Own connection, never raises, never runs at startup."""
+        started_at = perf_counter()
+        result: dict[str, Any] = {"event": "market_analytics_refresh", "source": source}
+        if not self._market_analytics_lock.acquire(blocking=False):
+            result["outcome"] = "already_running"
+            self._emit_structured_log(result)
+            return result
+        connection = None
+        try:
+            connection = self._new_connection()
+            result.update(market_analytics.refresh_market_analytics(connection))
+            result["outcome"] = "ok"
+        except Exception:  # noqa: BLE001 - best-effort job
+            traceback.print_exc()
+            result["outcome"] = "error"
+        finally:
+            if connection is not None:
+                connection.close()
+            self._market_analytics_lock.release()
+        result["elapsedMs"] = round((perf_counter() - started_at) * 1000.0, 1)
+        self._emit_structured_log(result)
+        return result
+
+    def _kick_market_analytics_refresh(self) -> None:
+        """Stored payload is older than its inputs: recompute in the background
+        (rate-limited); the request keeps serving the stored payload."""
+        now = monotonic()
+        if now - self._market_analytics_kicked_at < market_analytics.STALE_REFRESH_MIN_INTERVAL_S:
+            return
+        self._market_analytics_kicked_at = now
+        threading.Thread(
+            target=self.refresh_market_analytics,
+            kwargs={"source": "stale_read"},
+            name="market-analytics-refresh-stale",
+            daemon=True,
+        ).start()
+
+    def _market_analytics_stored(self, game: str, window_days: int) -> dict[str, Any] | None:
+        run = market_analytics.stored_run(self.connection)
+        try:
+            current = market_analytics.version_token(self.connection)
+        except sqlite3.Error:
+            current = None
+        if current is not None and (run is None or run["version"] != current):
+            self._kick_market_analytics_refresh()
+        if run is None:
+            return None
+        key = (game, window_days)
+        cached = self._market_analytics_cache.get(key)
+        if cached is not None and cached[0] == run["version"]:
+            return cached[1]
+        payload = market_analytics.read_payload(self.connection, game, window_days)
+        if payload is not None:
+            self._market_analytics_cache[key] = (run["version"], payload)
+        return payload
+
+    def market_analytics(self, *, game: str, window: str, owner_user_id: str | None) -> dict[str, Any]:
+        """GET /api/v1/market/analytics: the stored payload + the caller's fields."""
+        window_days = market_analytics.WINDOWS[window]
+        stored = self._market_analytics_stored(game, window_days)
+        payload = copy.deepcopy(stored) if stored is not None else market_analytics.empty_payload(game, window)
+        payload["you"] = None
+        if owner_user_id:
+            owned = self._market_analytics_owned_ids(owner_user_id, [item.get("cardId") for item in payload["grading"]])
+            for item in payload["grading"]:
+                item["owned"] = item.get("cardId") in owned
+            payload["you"] = self._market_analytics_you(
+                owner_user_id, window, market_change=(payload.get("pulse") or {}).get("changePct")
+            )
+        return payload
+
+    def _market_analytics_owned_ids(self, owner_user_id: str, card_ids: list[Any]) -> set[str]:
+        ids = [str(card_id) for card_id in card_ids if card_id]
+        if not ids:
+            return set()
+        rows = self.connection.execute(
+            "SELECT DISTINCT card_id FROM deck_entries WHERE owner_user_id = ? AND quantity > 0 "
+            f"AND card_id IN ({','.join('?' for _ in ids)})",
+            (owner_user_id, *ids),
+        ).fetchall()
+        return {str(row[0]) for row in rows}
+
+    def _market_analytics_you(
+        self, owner_user_id: str, window: str, *, market_change: float | None
+    ) -> dict[str, Any] | None:
+        """The caller's collection move over the window: the assistant's
+        portfolio summary (market move of cards held, from each card's add day;
+        buys/sells excluded), cached on the dashboard + price tokens."""
+        from mcp_server.tools import CollectionTools  # the MCP layer imports server lazily
+
+        try:
+            version = (
+                f"{self._portfolio_dashboard_version_token(owner_user_id, 'America/Los_Angeles')}"
+                f"|{price_lows.price_lows_version_token(self.connection)}"
+            )
+        except Exception:  # noqa: BLE001 - cache bookkeeping must never break the read
+            version = None
+        key = (owner_user_id, window)
+        cached = self._market_analytics_you_cache.get(key)
+        if version is not None and cached is not None and cached[0] == version:
+            summary = cached[1]
+        else:
+            try:
+                summary = CollectionTools(self).get_portfolio_summary(owner_user_id, range_key=window)
+            except Exception:  # noqa: BLE001 - `you` is optional; the market read still serves
+                traceback.print_exc()
+                return None
+            if version is not None:
+                self._market_analytics_you_cache[key] = (version, summary)
+        if not summary or not summary.get("holdings_count") or not summary.get("value_usd"):
+            return None
+        change = summary.get("change_pct")
+        return {
+            "changePct": None if change is None else round(float(change), 2),
+            "valueUsd": round(float(summary["value_usd"]), 2),
+            "marketChangePct": market_change,
+            "beatsMarket": (change > market_change) if change is not None and market_change is not None else None,
+        }
+
+    def market_heatmap_set(self, *, game: str, set_id: str, window: str) -> dict[str, Any] | None:
+        window_days = market_analytics.WINDOWS[window]
+        self._market_analytics_stored(game, window_days)  # stale check / refresh kick
+        payload = market_analytics.read_set_payload(self.connection, game, window_days, set_id)
+        if payload is None:
+            return None
+        return {**payload, "window": window}
+
+    def card_price_position(
+        self, card_id: str, *, variant: str | None, condition: str | None, grader: str | None, grade: str | None
+    ) -> dict[str, Any] | None:
+        """Raises KeyError for an unknown card; None when there is not enough data."""
+        return market_analytics.price_position(
+            self.connection, card_id, variant=variant, condition=condition, grader=grader, grade=grade
+        )
+
     def _log_market_movers_timing(self, started_at: float, *, outcome: str) -> None:
         self._emit_structured_log(
             {
@@ -26437,6 +26588,22 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         elif body_rejected and outcome == "body_rejected":
             record["reason"] = str(getattr(self, "_json_body_error_message", "") or "")[:120]
         print(json.dumps(record, separators=(",", ":")), flush=True)
+
+    def _optional_market_owner(self) -> tuple[str | None, bool]:
+        """(owner user id or None for a guest, ok). Public market reads: no
+        header (or a dev fallback-less server) is a guest, an anonymous (guest)
+        session is a guest, an access-gated user is a guest; a bad token is a 401."""
+        header = self.headers.get("Authorization")
+        try:
+            identity = self.service.authenticator.resolve_identity(header)
+        except RequestAuthError as error:
+            if str(header or "").strip():
+                self._write_json(HTTPStatus.UNAUTHORIZED, {"error": str(error)})
+                return None, False
+            return None, True
+        if identity.is_anonymous or not self.service.access_allowed(identity):
+            return None, True
+        return identity.user_id, True
 
     def _require_request_identity(self) -> RequestIdentity | None:
         try:
@@ -28492,6 +28659,45 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
 
+        # --- Market Analytics tab (docs/market-analytics-2026-11-23.md) ---
+        if parsed.path in ("/api/v1/market/analytics", "/api/v1/market/heatmap/set"):
+            query_params = parse_qs(parsed.query)
+            game = query_params.get("game", ["pokemon"])[0].strip().lower() or "pokemon"
+            window = query_params.get("window", ["30d"])[0].strip().lower() or "30d"
+            if game not in SUPPORTED_GAMES:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": f"unknown game: {game}"})
+                return
+            if window not in market_analytics.WINDOWS:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "window must be 7d, 30d or 90d"})
+                return
+            if parsed.path == "/api/v1/market/heatmap/set":
+                set_id = query_params.get("setId", [""])[0].strip()
+                if not set_id:
+                    self._write_json(HTTPStatus.BAD_REQUEST, {"error": "setId is required"})
+                    return
+                try:
+                    payload = self.service.market_heatmap_set(game=game, set_id=set_id, window=window)
+                except Exception as error:  # noqa: BLE001
+                    traceback.print_exc()
+                    self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Set heatmap failed: {error}"})
+                    return
+                if payload is None:
+                    self._write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+                    return
+                self._write_json(HTTPStatus.OK, payload)
+                return
+            owner_user_id, ok = self._optional_market_owner()
+            if not ok:
+                return
+            try:
+                payload = self.service.market_analytics(game=game, window=window, owner_user_id=owner_user_id)
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Market analytics failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
         if parsed.path == "/api/v1/market/top-movers":
             query_params = parse_qs(parsed.query)
             configured_window = _market_movers_window_days()
@@ -29171,6 +29377,38 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, payload)
             return
 
+        if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith("/price-position"):
+            card_id = unquote(parsed.path.removeprefix("/api/v1/cards/").removesuffix("/price-position").rstrip("/"))
+            if not card_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            query = parse_qs(parsed.query)
+            grader = query.get("grader", [""])[0].strip() or None
+            grade = query.get("grade", [""])[0].strip() or None
+            if bool(grader) != bool(grade):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "grader and grade go together"})
+                return
+            try:
+                payload = self.service.card_price_position(
+                    card_id,
+                    variant=query.get("variant", [""])[0].strip() or None,
+                    condition=query.get("condition", [""])[0].strip() or None,
+                    grader=grader,
+                    grade=grade,
+                )
+            except KeyError:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Card not found"})
+                return
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Price position failed: {error}"})
+                return
+            if payload is None:
+                self._write_no_content()
+                return
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
         if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith("/price-trends"):
             card_id = unquote(parsed.path.removeprefix("/api/v1/cards/").removesuffix("/price-trends").rstrip("/"))
             if not card_id:
@@ -29453,9 +29691,10 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 name="market-movers-prewarm-ops",
                 daemon=True,
             ).start()
-            # Same hook for the assistant's "near their lows" table.
+            # Same hook for the assistant's "near their lows" table, then the
+            # Market Analytics payloads (they read the new-highs table).
             threading.Thread(
-                target=self.service.refresh_price_lows,
+                target=self.service.refresh_market_signals,
                 kwargs={"source": "ops"},
                 name="price-lows-refresh-ops",
                 daemon=True,
@@ -31660,6 +31899,11 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 "[HTTP] Client disconnected before response write completed: "
                 f"path={getattr(self, 'path', '<unknown>')} status={status.value}"
             )
+
+    def _write_no_content(self) -> None:
+        self.send_response(HTTPStatus.NO_CONTENT.value)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _write_csv(self, status: HTTPStatus, text: str, *, filename: str) -> None:
         body = text.encode("utf-8")
