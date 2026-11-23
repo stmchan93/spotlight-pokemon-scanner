@@ -165,27 +165,13 @@ describe('GameSetsScreen', () => {
     expect(await screen.findByText('31 of 154 CARDS')).toBeTruthy();
   });
 
-  it('shows the assistant sparkle only when it can open', async () => {
+  it('has no assistant button of its own (the floating Ekalight bubble replaces it)', async () => {
     mockListExpansions();
-    const onOpenAssistant = jest.fn();
-
-    const { rerender } = renderWithProviders(
+    renderWithProviders(
       <GameSetsScreen game="pokemon" onClose={jest.fn()} onOpenCard={jest.fn()} onSelectExpansion={jest.fn()} />,
     );
     await screen.findByTestId('game-sets-landing');
     expect(screen.queryByTestId('game-sets-assistant')).toBeNull();
-
-    rerender(
-      <GameSetsScreen
-        game="pokemon"
-        onClose={jest.fn()}
-        onOpenAssistant={onOpenAssistant}
-        onOpenCard={jest.fn()}
-        onSelectExpansion={jest.fn()}
-      />,
-    );
-    fireEvent.press(screen.getByTestId('game-sets-assistant'));
-    expect(onOpenAssistant).toHaveBeenCalled();
   });
 
   it('carries the game with the chosen set', async () => {

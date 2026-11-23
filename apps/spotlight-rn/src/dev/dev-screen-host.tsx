@@ -228,7 +228,7 @@ const devScreens: Record<string, () => ReactElement> = {
   ),
   // Search landing (Figma 6597:5654): SINGLES + SEALED rails, the first three sets with progress.
   'expansion-browser': () => (
-    <ExpansionBrowserScreen onClose={noop} onOpenAssistant={noop} onOpenCard={noop} onSelectExpansion={noop} />
+    <ExpansionBrowserScreen onClose={noop} onOpenCard={noop} onSelectExpansion={noop} />
   ),
   // Search as the bottom-bar TAB (Figma 6642:12483 CARDS / 6642:14400 PEOPLE):
   // no close / Ask button, CARDS | PEOPLE tabs, filter button. PEOPLE reads the

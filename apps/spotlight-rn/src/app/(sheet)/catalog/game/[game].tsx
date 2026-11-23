@@ -2,7 +2,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { CARD_GAMES, DEFAULT_CARD_GAME } from '@spotlight/api-client';
 
-import { assistantHref } from '@/features/assistant/assistant-route';
 import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
 import { saveCardDetailPreviewFromCatalogResult } from '@/features/cards/card-detail-preview-session';
 import { GameSetsScreen, type GameSetsView } from '@/features/catalog/screens/game-sets-screen';
@@ -23,7 +22,6 @@ export default function GameSetsRoute() {
       game={game}
       view={view}
       onClose={() => router.back()}
-      onOpenAssistant={() => router.push(assistantHref('home', [], game))}
       onOpenCard={(result) => {
         // Same push the catalog search does — catalog results have no owned
         // context, so warm the default raw lane.

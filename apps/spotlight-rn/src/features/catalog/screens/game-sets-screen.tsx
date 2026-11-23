@@ -74,7 +74,6 @@ type GameSetsScreenProps = {
   onSelectExpansion: (expansion: ExpansionRecord, game: CardGame) => void;
   onOpenCard: (result: CatalogSearchResult) => void;
   /** Ask Ekalight (the sparkle). Absent hides the button rather than leaving it dead. */
-  onOpenAssistant?: () => void;
   /**
    * `close` (X) when this screen opened by sliding UP (Search's landing): a
    * slide-up screen closes with X, a side push goes back with ‹ (owner, 2026-11-20).
@@ -156,7 +155,6 @@ export function GameSetsScreen({
   onClose,
   onOpenCard,
   onSelectExpansion,
-  onOpenAssistant,
   dismissStyle = 'back',
   view = 'landing',
   onViewAll,
@@ -671,19 +669,6 @@ export function GameSetsScreen({
                 />
               )}
             </GlassNavBubble>
-            {onOpenAssistant ? (
-              <GlassNavBubble
-                accessibilityLabel="Ask Ekalight"
-                material="frost"
-                onPress={onOpenAssistant}
-                size="medium"
-                testID="game-sets-assistant"
-              >
-                {/* Same gradient flare + ring as the Social header (Figma 6597:5672). */}
-                <EkalightAiFlare />
-                <EkalightAiRing size={glassNavBubbleSizes.medium} />
-              </GlassNavBubble>
-            ) : null}
           </View>
         )}
         <View style={styles.controls}>

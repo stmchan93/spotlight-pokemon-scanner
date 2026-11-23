@@ -1,6 +1,5 @@
 import { useRouter } from 'expo-router';
 
-import { assistantHref } from '@/features/assistant/assistant-route';
 import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
 import {
   saveCardDetailPreviewFromCatalogResult,
@@ -24,7 +23,6 @@ export function SearchSurface({ mode }: { mode: SearchMode }) {
     <ExpansionBrowserScreen
       mode={mode}
       onClose={() => router.back()}
-      onOpenAssistant={() => router.push(assistantHref('home'))}
       onOpenCard={(result) => {
         prefetchCardDetail(spotlightRepository, result.cardId, undefined, result.imageUrl);
         router.push({

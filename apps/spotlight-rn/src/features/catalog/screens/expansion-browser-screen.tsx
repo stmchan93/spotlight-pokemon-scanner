@@ -21,7 +21,6 @@ type ExpansionBrowserScreenProps = {
   onSelectExpansion: (expansion: ExpansionRecord, game: CardGame) => void;
   onOpenCard: (result: CatalogSearchResult) => void;
   /** Ignored in `tab` mode. */
-  onOpenAssistant?: () => void;
   onViewAll?: (section: 'sets' | 'sealed', game: CardGame) => void;
   onOpenProfile?: (profile: UserProfile) => void;
   onOpenHolding?: (profile: UserProfile, entry: InventoryCardEntry) => void;
@@ -36,7 +35,6 @@ type ExpansionBrowserScreenProps = {
 export function ExpansionBrowserScreen({
   initialGame = DEFAULT_CARD_GAME,
   mode = 'sheet',
-  onOpenAssistant,
   ...props
 }: ExpansionBrowserScreenProps) {
   return (
@@ -44,7 +42,6 @@ export function ExpansionBrowserScreen({
       // The sheet slides UP, so it closes with X (and swipes down to dismiss).
       dismissStyle={mode === 'sheet' ? 'close' : 'back'}
       game={initialGame}
-      onOpenAssistant={mode === 'tab' ? undefined : onOpenAssistant}
       searchMode={mode}
       {...props}
     />
