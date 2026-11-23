@@ -244,14 +244,13 @@ export const cardGrid = {
   tileFill: colors.gray0,
   tileRadius: 4,
   /**
-   * Owned marker on a set-page tile's art (top-right corner): a small white
-   * pill with a ✓ for one copy, "×N" for more. Unowned cards draw at full
-   * colour with no marker (owner decision 2026-11-20; replaced a 0.4 fade).
+   * Owned marker on a set-page tile's art (top-right corner): a checked
+   * `Checkbox` (brandStrong fill, white check, white ring) for any owned count;
+   * the QTY stepper carries the number (owner, 2026-11-22). Unowned cards draw
+   * at full colour with no marker (owner decision 2026-11-20; replaced a 0.4 fade).
    */
-  ownedBadgeHeight: 18,
+  ownedBadgeSize: 20,
   ownedBadgeInset: 4,
-  ownedBadgeFill: colors.gray0,
-  ownedBadgeGlyph: colors.gray900,
 } as const;
 
 export const layout = {

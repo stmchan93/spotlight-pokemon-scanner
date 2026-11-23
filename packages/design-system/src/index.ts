@@ -9,6 +9,7 @@ export * from './components/card-list-row';
 export * from './components/card-rail-tile';
 export * from './components/card-thumbnail';
 export * from './components/carousel-pagination';
+export * from './components/checkbox';
 export * from './components/delta-pill';
 export * from './components/ekalight-wordmark';
 export * from './components/empty-state-prompt';

@@ -11,11 +11,9 @@ import {
   View,
   type LayoutChangeEvent,
 } from 'react-native';
-import { GestureDetector } from 'react-native-gesture-handler';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { PullDownToDismiss, usePullDownToDismiss } from '@/components/pull-down-to-dismiss';
 import type {
   AssistantCardRef,
   AssistantContextSource,
@@ -98,6 +96,7 @@ import { ASSISTANT_TRAY_VIEW, getScanTrayAssistantBridge } from '@/features/scan
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useKeyboardVisible } from '@/lib/use-keyboard-visible';
+import { useSheetKeyboardInset } from '@/lib/use-sheet-keyboard-inset';
 import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -129,6 +128,14 @@ export type AssistantScreenProps = {
    * decides whether to continue the latest chat (same page) or start fresh.
    */
   page?: AssistantPageContext | null;
+  /**
+   * `sheet` (the app's route): a native form sheet — no status bar above it, the
+   * grabber in the top margin, and the sheet's own swipe down closes it.
+   * `page` (dev screenshots, tests): a full-screen page under the status bar.
+   */
+  presentation?: 'sheet' | 'page';
+  /** Sign-in for a guest's gated action; the sheet route closes itself first. */
+  onOpenLogin?: () => void;
 };
 
 type ChatRow =
@@ -162,13 +169,19 @@ export function AssistantScreen({
   onOpenSet,
   onOpenWatchlist,
   page = null,
+  presentation = 'page',
+  onOpenLogin,
 }: AssistantScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const keyboardVisible = useKeyboardVisible();
   const services = useAppServices();
   const { spotlightRepository: repository } = services;
-  const { ensureGuestSession, isGuest, openLogin } = useGuestGate();
+  const { ensureGuestSession, isGuest, openLogin: pushLogin } = useGuestGate();
+  const openLogin = onOpenLogin ?? pushLogin;
+  const isSheet = presentation === 'sheet';
+  const sheetKeyboardManaged = isSheet && Platform.OS === 'ios';
+  const sheetKeyboardInset = useSheetKeyboardInset(sheetKeyboardManaged);
   const { currentUser, getAccessToken } = useAuth();
 
   // "Looking at …" can be dismissed: the rest of this chat then goes without the page.
@@ -241,12 +254,6 @@ export function AssistantScreen({
   const scrollIntentRef = useRef<ScrollIntent>('none');
   const viewportHeightRef = useRef(0);
   const rowOffsetsRef = useRef(new Map<string, { y: number; height: number }>());
-  // Slid up: swipe down anywhere closes it while the chat is scrolled to the top.
-  const pullDown = usePullDownToDismiss({ enabled: view === 'chat', onDismiss: onBack });
-  const { resetScroll } = pullDown;
-  useEffect(() => {
-    resetScroll();
-  }, [resetScroll, view]);
 
   useEffect(() => {
     // The floating bubble logs its own open (with the page kind).
@@ -867,8 +874,17 @@ export function AssistantScreen({
   );
 
   return (
-    <PullDownToDismiss controller={pullDown} testID="assistant-pull-down">
-    <SafeAreaView edges={['top', 'left', 'right']} style={[styles.flex, { backgroundColor: theme.colors.gray0 }]}>
+    <SafeAreaView
+      edges={isSheet ? ['left', 'right'] : ['top', 'left', 'right']}
+      style={[
+        styles.flex,
+        isSheet ? styles.sheetTop : null,
+        // Not on the KeyboardAvoidingView: a disabled KAV still writes its own paddingBottom (0).
+        sheetKeyboardManaged ? { paddingBottom: sheetKeyboardInset } : null,
+        { backgroundColor: theme.colors.gray0 },
+      ]}
+      testID="assistant-root"
+    >
       {view === 'history' ? (
         // Figma 6530:16826: back, centred HISTORY, CLEAR ALL.
         <View style={styles.header} testID="assistant-history-header">
@@ -937,20 +953,21 @@ export function AssistantScreen({
         />
       ) : (
         <KeyboardAvoidingView
-          // Full-screen push, as in the DM thread: iOS needs `padding`, Android
-          // resizes the window, which `height` matches.
+          // iOS needs `padding`; Android resizes, so `height`. The iOS sheet
+          // pads by the keyboard's height itself (useSheetKeyboardInset).
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          enabled={!sheetKeyboardManaged}
           style={styles.flex}
         >
-          <GestureDetector gesture={pullDown.scrollGesture}>
           <ScrollView
-            {...pullDown.scrollProps}
             contentContainerStyle={[styles.listContent, hasConversation ? null : styles.listContentEmpty]}
             // Not `interactive`: KeyboardAvoidingView only hears the keyboard's
             // frame on release, so the composer stayed put while the keyboard
             // followed the finger (a gap opened, then snapped shut).
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
+            // Android: lets the sheet take a downward drag at the list's top.
+            nestedScrollEnabled
             onContentSizeChange={applyScrollIntent}
             onLayout={(event) => {
               viewportHeightRef.current = event.nativeEvent.layout.height;
@@ -967,7 +984,6 @@ export function AssistantScreen({
                 ))
               : emptyState}
           </ScrollView>
-          </GestureDetector>
           <AssistantPhotoMatchSheet
             candidates={photo?.status === 'ready' ? photo.candidates : []}
             onClose={() => setMatchSheetVisible(false)}
@@ -1049,13 +1065,16 @@ export function AssistantScreen({
         </KeyboardAvoidingView>
       )}
     </SafeAreaView>
-    </PullDownToDismiss>
   );
 }
 
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
+  },
+  // Room for the sheet's grabber above the toolbar.
+  sheetTop: {
+    paddingTop: spacing.sm,
   },
   hidden: {
     opacity: 0,

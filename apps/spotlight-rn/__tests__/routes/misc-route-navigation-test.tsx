@@ -3,6 +3,7 @@ import type { CatalogSearchResult, InventoryCardEntry } from '@spotlight/api-cli
 
 import ModalLayout from '@/app/(modal)/_layout';
 import AccountRoute from '@/app/(modal)/account';
+import AssistantRoute from '@/app/assistant';
 import CatalogSearchRoute from '@/app/(sheet)/catalog/search';
 import SheetLayout from '@/app/(sheet)/_layout';
 import BrowseStackLayout from '@/app/(stack)/_layout';
@@ -110,6 +111,25 @@ jest.mock('expo-linking', () => ({
 
 jest.mock('@/providers/auth-provider', () => ({
   useAuth: () => mockUseAuth(),
+}));
+
+jest.mock('@/features/assistant/screens/assistant-screen', () => ({
+  AssistantScreen: (props: {
+    presentation?: string;
+    onBack: () => void;
+    onOpenCard: (cardId: string) => void;
+    onOpenLogin?: () => void;
+  }) => {
+    const { Pressable, Text } = require('react-native');
+    return (
+      <>
+        <Text testID="assistant-presentation">{props.presentation}</Text>
+        <Pressable onPress={props.onBack} testID="assistant-close" />
+        <Pressable onPress={() => props.onOpenCard('card-1')} testID="assistant-open-card" />
+        <Pressable onPress={props.onOpenLogin} testID="assistant-open-login" />
+      </>
+    );
+  },
 }));
 
 jest.mock('@/features/auth/screens/account-screen', () => ({
@@ -380,6 +400,37 @@ describe('misc route wrappers', () => {
     );
   });
 
+  it('presents Ask Ekalight as a ROOT form sheet, and leaves it before opening anything', () => {
+    // Same placement rule as new-post: as a group's first screen the
+    // formSheet presentation would be silently ignored.
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const appDir = path.join(__dirname, '..', '..', 'src', 'app');
+    expect(fs.existsSync(path.join(appDir, 'assistant.tsx'))).toBe(true);
+    expect(fs.existsSync(path.join(appDir, '(stack)', 'assistant.tsx'))).toBe(false);
+    const rootLayout: string = fs.readFileSync(path.join(appDir, '_layout.tsx'), 'utf8');
+    expect(rootLayout).toContain('<Stack.Screen name="assistant" options={ASSISTANT_SHEET_OPTIONS} />');
+
+    mockUseLocalSearchParams.mockReturnValue({ source: 'home' });
+    render(<AssistantRoute />);
+    expect(screen.getByTestId('assistant-presentation').props.children).toBe('sheet');
+
+    fireEvent.press(screen.getByTestId('assistant-close'));
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(mockPush).not.toHaveBeenCalled();
+
+    // A push after a modal would land UNDER the sheet: close it, then push.
+    mockBack.mockReset();
+    fireEvent.press(screen.getByTestId('assistant-open-card'));
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/cards/[cardId]', params: { cardId: 'card-1' } });
+    expect(mockBack.mock.invocationCallOrder[0]).toBeLessThan(mockPush.mock.invocationCallOrder[0]);
+
+    fireEvent.press(screen.getByTestId('assistant-open-login'));
+    expect(mockBack).toHaveBeenCalledTimes(2);
+    expect(mockPush).toHaveBeenLastCalledWith('/login');
+  });
+
   it('slides Search up and back down, with the swipe-down taken from the top only', () => {
     // `gestureDirection: 'vertical'` only implies `slide_from_bottom` when
     // `animation` is undefined, and the root stack's screenOptions set
@@ -396,7 +447,7 @@ describe('misc route wrappers', () => {
     const start = rootLayout.indexOf('name="(sheet)"');
     expect(start).toBeGreaterThan(-1);
     const sheetBlock = rootLayout.slice(start, rootLayout.indexOf('/>', start));
-    // One shared slide-up preset (also Ask Ekalight / Edit profile).
+    // The shared slide-up preset.
     expect(sheetBlock).toContain('options={SLIDE_UP_SCREEN_OPTIONS}');
     const { SLIDE_UP_SCREEN_OPTIONS } = jest.requireActual<typeof import('@/lib/navigation-presentation')>(
       '@/lib/navigation-presentation',

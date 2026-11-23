@@ -1,13 +1,12 @@
-import { Check } from 'iconoir-react-native';
 import { memo, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 
 import type { CatalogSearchResult } from '@spotlight/api-client';
 import {
+  Checkbox,
   QuantityStepper,
   Text,
   cardGrid,
-  radii,
   spacing,
   useSpotlightTheme,
 } from '@spotlight/design-system';
@@ -31,22 +30,13 @@ const ART_WIDTH = 96;
 const ART_ASPECT = 0.716;
 // Sealed art (TCGplayer product shots are square) at the card slot's height.
 const SEALED_ART_SIZE = Math.round(ART_WIDTH / ART_ASPECT);
-const BADGE_CHECK_SIZE = 12;
-const BADGE_CHECK_STROKE = 2.5;
-
-/** "✓" (rendered as a glyph) for one copy, "×N" for more; null when unowned. */
-export function ownedBadgeLabel(quantity: number): string | null {
-  if (quantity <= 0) {
-    return null;
-  }
-  return quantity === 1 ? '✓' : `×${quantity}`;
-}
 
 /**
  * One card in the set page's completion grid (Figma 6425:3339): art, name,
  * "#001/120", its market price (when priced), and a − QTY + stepper. Every
- * card is full colour; one you own carries a small corner marker on its art
- * (✓ for one copy, ×N for more), never over the name.
+ * card is full colour; one you own carries a checked purple checkbox in the
+ * art's top-right corner (any count — the QTY stepper shows how many), never
+ * over the name.
  *
  * A sealed product (the set's SEALED section) uses the same tile: square art,
  * its product type where a card shows its number, same price and stepper.
@@ -62,7 +52,6 @@ export const SetCardTile = memo(function SetCardTile({
   const theme = useSpotlightTheme();
   const [hasImageError, setHasImageError] = useState(false);
   const quantity = card.ownedQuantity ?? 0;
-  const badgeLabel = ownedBadgeLabel(quantity);
   const isSealed = card.productKind === 'sealed';
   const imageUrl = card.smallImageUrl ?? card.imageUrl;
   const subtitle = isSealed ? card.sealedProductType ?? null : setCardNumberLabel(card.cardNumber);
@@ -101,30 +90,15 @@ export const SetCardTile = memo(function SetCardTile({
               style={styles.art}
             />
           ) : null}
-          {badgeLabel ? (
-            <View
+          {quantity > 0 ? (
+            <Checkbox
               accessibilityLabel={quantity === 1 ? 'Owned' : `Owned ${quantity}`}
-              accessible
-              style={[
-                styles.ownedBadge,
-                { backgroundColor: cardGrid.ownedBadgeFill, borderColor: theme.colors.gray200 },
-              ]}
-              testID={`set-card-${card.cardId}-owned-badge`}
-            >
-              {quantity === 1 ? (
-                <Check
-                  color={cardGrid.ownedBadgeGlyph}
-                  height={BADGE_CHECK_SIZE}
-                  strokeWidth={BADGE_CHECK_STROKE}
-                  testID={`set-card-${card.cardId}-owned-check`}
-                  width={BADGE_CHECK_SIZE}
-                />
-              ) : (
-                <Text style={[theme.typography.micro, { color: cardGrid.ownedBadgeGlyph }]}>
-                  {badgeLabel}
-                </Text>
-              )}
-            </View>
+              checked
+              size={cardGrid.ownedBadgeSize}
+              style={styles.ownedBadge}
+              testID={`set-card-${card.cardId}-owned`}
+              tone="overlay"
+            />
           ) : null}
         </View>
         <View style={styles.details}>
@@ -198,14 +172,6 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   ownedBadge: {
-    alignItems: 'center',
-    borderCurve: 'continuous',
-    borderRadius: radii.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-    height: cardGrid.ownedBadgeHeight,
-    justifyContent: 'center',
-    minWidth: cardGrid.ownedBadgeHeight,
-    paddingHorizontal: spacing.xxxs,
     position: 'absolute',
     right: cardGrid.ownedBadgeInset,
     top: cardGrid.ownedBadgeInset,
