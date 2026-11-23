@@ -7,7 +7,6 @@ import { memo, type MutableRefObject, useCallback, useEffect, useLayoutEffect, u
 import {
   IconArrowsExchange,
   IconChevronDown,
-  IconSearch,
   IconX,
 } from '@tabler/icons-react-native';
 import {
@@ -68,9 +67,6 @@ import {
 } from '@spotlight/api-client';
 import {
   Button,
-  GlassNavBubble,
-  glassNavBubbleGlyphSize,
-  glassNavBubbleSizes,
   GlassSurface,
   Text,
   Toast,
@@ -83,8 +79,6 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { EkalightAiFlare, EkalightAiRing } from '@/components/ekalight-ai-glyph';
-import { assistantHref } from '@/features/assistant/assistant-route';
 import { useTabsPage } from '@/contexts/tabs-page-context';
 import {
   createTrayStore,
@@ -4525,21 +4519,6 @@ export function ScannerScreen({
   }, []);
 
 
-  const handleOpenCatalogSearch = useCallback(() => {
-    router.push('/catalog/search');
-  }, [router]);
-
-  // Ask Ekalight with the tray as context. Reads the tray through its ref at
-  // tap time, so the button never re-renders with scan progress.
-  const handleOpenAssistant = useCallback(() => {
-    const cardIds = recentCapturesRef.current.flatMap((capture) => {
-      const candidate = capture.isLoadingCandidates ? null : activeCandidateForCapture(capture);
-      return candidate ? [candidate.cardId] : [];
-    });
-    // The "Scanning for" lane is the game market-wide answers cover.
-    router.push(assistantHref('scanner', cardIds, scanLane.game));
-  }, [router, scanLane.game]);
-
   // The inner scroll list participates in the gesture arena so the tray pan and
   // the list scroll resolve together (swipe down at the top collapses; once
   // scrolled, the same drag scrolls the list instead of collapsing).
@@ -5018,20 +4997,8 @@ export function ScannerScreen({
             },
           ]}
         >
-          {/* Ask Ekalight leads where the back chevron was (owner, 2026-11-20):
-              Scan is a tab, so the tab bar is the way out. Not guest-gated:
-              guests get one question a day server-side. */}
-          <GlassNavBubble
-            accessibilityLabel="Ask Ekalight about these cards"
-            onPress={handleOpenAssistant}
-            size="medium"
-            material="frost"
-            surface="onLight"
-            testID="scanner-assistant-button"
-          >
-            <EkalightAiFlare />
-            <EkalightAiRing size={glassNavBubbleSizes.medium} />
-          </GlassNavBubble>
+          {/* The pill alone spans the gutters (owner, 2026-11-22): Search is a
+              bottom tab and Ask Ekalight is the app-wide floating bubble. */}
           <View style={styles.topChromeCenter}>
             <ScanTargetPill
               flag={scanTargetFlag(scanLane)}
@@ -5040,16 +5007,6 @@ export function ScannerScreen({
               testID="scanner-target-pill"
             />
           </View>
-          <GlassNavBubble
-            accessibilityLabel="Search the card catalog"
-            onPress={gate(handleOpenCatalogSearch)}
-            size="medium"
-            material="frost"
-            surface="onLight"
-            testID="scanner-search-button"
-          >
-            <IconSearch color={colors.gray900} size={glassNavBubbleGlyphSize} strokeWidth={2} />
-          </GlassNavBubble>
         </View>
 
         {scannerSmokeEnabled ? (
@@ -5683,12 +5640,8 @@ const styles = StyleSheet.create({
   topChromeRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    // 16 between the back bubble, the target pill and the search bubble
-    // (Figma 5084:6993). It was 8 here PLUS 16 of horizontal padding on the
-    // centre slot, which read as 24. The pill takes the remaining width, so
-    // `justifyContent` no longer decides anything.
-    gap: 16,
-    justifyContent: 'space-between',
+    // Just the full-width target pill now; the row stays a row so the
+    // pill's slot can flex.
     position: 'absolute',
     zIndex: 5,
   },
@@ -5705,8 +5658,6 @@ const styles = StyleSheet.create({
     zIndex: 4,
   },
   topChromeCenter: {
-    // No padding: the row's 16pt gap IS the spacing on both sides, so the
-    // pill's glass edge sits exactly 16 from each bubble.
     flex: 1,
   },
   // POC chrome (dev builds only) — the UX pass owns the real treatment.

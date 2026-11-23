@@ -231,7 +231,8 @@ describe('ScannerScreen', () => {
     // The frame's own treatment (closed outline, colours, the pocket grid
     // nested inside it) is covered in `scanner-reticle-frame-test.tsx`.
     expect(screen.getByTestId('scanner-reticle')).toBeTruthy();
-    expect(screen.getByTestId('scanner-assistant-button')).toBeTruthy();
+    // Ask Ekalight is the app-wide floating bubble now, not a scanner button.
+    expect(screen.queryByTestId('scanner-assistant-button')).toBeNull();
     expect(screen.queryByTestId('scanner-back-button')).toBeNull();
     expect(screen.queryByTestId('scanner-account-button')).toBeNull();
     expect(screen.queryByTestId('scanner-slab-guide')).toBeNull();
@@ -314,12 +315,10 @@ describe('ScannerScreen', () => {
     expect(onTopLevelSwipeEnabledChange).toHaveBeenLastCalledWith(true);
   });
 
-  it('opens catalog search from the scanner header search button', () => {
+  it('has no catalog search button in the scanner header (Search is a tab)', () => {
     renderScannerScreen();
 
-    fireEvent.press(screen.getByTestId('scanner-search-button'));
-
-    expect(mockPush).toHaveBeenCalledWith('/catalog/search');
+    expect(screen.queryByTestId('scanner-search-button')).toBeNull();
   });
 
   it('renders an empty recent scans tray with no placeholder rows', () => {
@@ -1757,12 +1756,12 @@ describe('ScannerScreen', () => {
   it('keeps the scan-target pill in the top bar and hides only the zoom dock when the tray expands', async () => {
     renderScannerScreen();
 
-    // Pill sits centered in the top bar between back and search (Figma
-    // 4299:93955); the zoom dock has the bottom controls row to itself.
+    // The pill alone spans the top bar (Figma Scan-1 6642:5222, minus the
+    // AI + search bubbles); the zoom dock has the bottom controls row to itself.
     expect(screen.getByTestId('scanner-target-pill')).toBeTruthy();
     expect(screen.getByTestId('scanner-zoom-control')).toBeTruthy();
-    expect(screen.getByTestId('scanner-assistant-button')).toBeTruthy();
-    expect(screen.getByTestId('scanner-search-button')).toBeTruthy();
+    expect(screen.queryByTestId('scanner-assistant-button')).toBeNull();
+    expect(screen.queryByTestId('scanner-search-button')).toBeNull();
 
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
@@ -1836,12 +1835,10 @@ describe('ScannerScreen', () => {
     expect(screen.queryByTestId('scanner-tray-glass')).toBeNull();
   });
 
-  it('renders search as a trailing bubble, not a labelled field', async () => {
+  it('renders no search field or bubble in the top bar', async () => {
     renderScannerScreen();
 
-    // Figma 4299:93955: back bubble | centered scan-target pill | search
-    // bubble — the old full-width "Search Cards" field left with that frame.
-    expect(screen.getByTestId('scanner-search-button')).toBeTruthy();
+    expect(screen.queryByTestId('scanner-search-button')).toBeNull();
     expect(screen.queryByText('Search Cards')).toBeNull();
   });
 
@@ -1854,7 +1851,7 @@ describe('ScannerScreen', () => {
       its own contrast, which is the point of the material.
     */
     await waitForScannerReady();
-    expect(screen.getByTestId('scanner-assistant-button')).toBeTruthy();
+    expect(screen.getByTestId('scanner-target-pill')).toBeTruthy();
     expect(screen.queryByTestId('scanner-top-chrome-backdrop')).toBeNull();
   });
 
