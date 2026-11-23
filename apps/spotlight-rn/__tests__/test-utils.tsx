@@ -9,7 +9,6 @@ import {
 } from './mock-api-client';
 import { SpotlightThemeProvider } from '@spotlight/design-system';
 
-import { AppDrawerProvider } from '@/providers/app-drawer-provider';
 import { AppProviders } from '@/providers/app-providers';
 import { AuthProvider } from '@/providers/auth-provider';
 
@@ -43,9 +42,7 @@ function Providers({
     <SafeAreaProvider initialMetrics={safeAreaMetrics}>
       <SpotlightThemeProvider>
         <AuthWrapper>
-          <AppDrawerProvider>
-            <AppProviders spotlightRepository={spotlightRepository}>{children}</AppProviders>
-          </AppDrawerProvider>
+          <AppProviders spotlightRepository={spotlightRepository}>{children}</AppProviders>
         </AuthWrapper>
       </SpotlightThemeProvider>
     </SafeAreaProvider>
@@ -584,6 +581,25 @@ export function renderAppRouter(
       { key: '(tabs)/portfolio', modulePath: '@/app/(tabs)/portfolio' },
       { key: 'portfolio', modulePath: '@/app/portfolio' },
     ],
+  });
+  // `/wishlist` redirects to `/?tab=watchlist` (Home's WATCHLIST profile tab).
+  registerRoute(routeMap, routeAliases, {
+    candidates: [
+      { key: '(tabs)/wishlist', modulePath: '@/app/(tabs)/wishlist' },
+    ],
+    optional: true,
+  });
+  registerRoute(routeMap, routeAliases, {
+    candidates: [
+      { key: '(tabs)/search', modulePath: '@/app/(tabs)/search' },
+    ],
+    optional: true,
+  });
+  registerRoute(routeMap, routeAliases, {
+    candidates: [
+      { key: '(stack)/settings', modulePath: '@/app/(stack)/settings' },
+    ],
+    optional: true,
   });
   registerRoute(routeMap, routeAliases, {
     candidates: [

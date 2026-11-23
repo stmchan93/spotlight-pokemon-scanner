@@ -57,7 +57,7 @@ import { useAuth } from '@/providers/auth-provider';
 
 export const TAB_BAR_LABELS: Record<PagerTab, string> = {
   index: 'HOME',
-  wishlist: 'WATCHLIST',
+  search: 'SEARCH',
   scan: 'SCAN',
   events: 'EVENTS',
   social: 'SOCIAL',
@@ -108,9 +108,11 @@ const TAB_ICONS: Partial<Record<PagerTab, { outline: ImageSourcePropType; filled
     outline: require('../../../assets/images/tab-icons/home.png'),
     filled: require('../../../assets/images/tab-icons/home-filled.png'),
   },
-  wishlist: {
-    outline: require('../../../assets/images/tab-icons/wishlist.png'),
-    filled: require('../../../assets/images/tab-icons/wishlist-filled.png'),
+  // Figma 6642:16373: iconoir Search; selected = the same glyph, heavier
+  // (`tools/generate_tab_icons.py`).
+  search: {
+    outline: require('../../../assets/images/tab-icons/search.png'),
+    filled: require('../../../assets/images/tab-icons/search-filled.png'),
   },
   events: {
     outline: require('../../../assets/images/tab-icons/events.png'),
@@ -237,7 +239,7 @@ function TabLabel({
   }));
   return (
     <Reanimated.Text
-      // WATCHLIST, the longest label, was ellipsized under larger text sizes
+      // WATCHLIST, then the longest label, was ellipsized under larger text sizes
       // ("watchlist label is blocked", design review 2026-11-16): this raw Text
       // took the device's full font scale into a fixed 1/5-width cell. Tab
       // labels hold their size like UITabBar's, and shrink rather than clip on

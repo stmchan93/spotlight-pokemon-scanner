@@ -4,11 +4,14 @@
  * maths. Everything a gesture worklet calls is marked `'worklet'` so the same
  * function runs on the UI thread in the app and in plain JS under jest.
  *
- *   Home [Collection, Activity] | Watchlist | Scan | Events | Social [Social, News, Market]
+ *   Home [Collection, …] | Search | Scan | Events | Social [Social, News, Market]
+ *
+ * Watchlist left the bar for a tab of the Home profile (Figma 6642:5964);
+ * `/wishlist` survives as a redirect route, not a page.
  */
 
 /** Bottom-tab route names in strip order, left -> right. The one place it is defined. */
-export const TAB_PAGER_ORDER = ['index', 'wishlist', 'scan', 'events', 'social'] as const;
+export const TAB_PAGER_ORDER = ['index', 'search', 'scan', 'events', 'social'] as const;
 
 export type PagerTab = (typeof TAB_PAGER_ORDER)[number];
 
@@ -17,11 +20,12 @@ export const TAB_PAGE_COUNT = TAB_PAGER_ORDER.length;
 export const SCAN_PAGE_INDEX = TAB_PAGER_ORDER.indexOf('scan');
 
 /**
- * The tabs a GUEST can open (owner, 2026-11-20): Scan and Events. Collection,
- * Watchlist and Social need an account — tapping one opens sign-in and stays
- * put. Guests can't swipe the strip at all; they tap.
+ * The tabs a GUEST can open (owner, 2026-11-20): Scan and Events, plus Search —
+ * catalog browsing was already open to guests from the Scanner. Home and Social
+ * need an account — tapping one opens sign-in and stays put. Guests can't swipe
+ * the strip at all; they tap.
  */
-export const GUEST_OPEN_TABS: ReadonlySet<PagerTab> = new Set<PagerTab>(['scan', 'events']);
+export const GUEST_OPEN_TABS: ReadonlySet<PagerTab> = new Set<PagerTab>(['search', 'scan', 'events']);
 
 /** Per page, whether a guest is kept off it. Plain array so a worklet can read it. */
 export function guestBlockedPages(isGuest: boolean): boolean[] {
@@ -37,7 +41,7 @@ export type LandingEdge = 'first' | 'last';
 /** Where a page's own inner pager is. `null` for pages without one. */
 export type InnerPagePosition = { count: number; index: number };
 
-/** Strip index of a route, or -1 for routes that are not pages (`/you`, `/portfolio` redirects). */
+/** Strip index of a route, or -1 for routes that are not pages (`/you`, `/portfolio`, `/wishlist` redirects). */
 export function pageIndexForRoute(routeName: string | undefined): number {
   return TAB_PAGER_ORDER.indexOf(routeName as PagerTab);
 }

@@ -5,6 +5,7 @@ import type { AssistantSetRef } from '@spotlight/api-client';
 
 import { parseAssistantRouteParams } from '@/features/assistant/assistant-route';
 import { AssistantScreen } from '@/features/assistant/screens/assistant-screen';
+import { HOME_WATCHLIST_HREF } from '@/lib/home-profile-tab';
 
 /** `/assistant?source=home|scanner&cardIds=a,b&threadId=…&game=…` — Ask Ekalight, pushed from Home and the Scanner. */
 export default function AssistantRoute() {
@@ -24,8 +25,8 @@ export default function AssistantRoute() {
       }),
     [router],
   );
-  // Same push the deal-alert notification tap uses to reach the Watchlist tab.
-  const openWatchlist = useCallback(() => router.push('/wishlist'), [router]);
+  // Home on its WATCHLIST profile tab — the same place a deal-alert tap lands.
+  const openWatchlist = useCallback(() => router.push(HOME_WATCHLIST_HREF as never), [router]);
 
   return (
     <AssistantScreen

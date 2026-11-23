@@ -323,7 +323,7 @@ describe('PortfolioScreen', () => {
     expect(await screen.findByTestId('portfolio-header-title')).toBeTruthy();
     // The header is now the profile block; its name sub-element carries the display name.
     expect(screen.getByTestId('portfolio-header-title-name')).toBeTruthy();
-    expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
+    expect(screen.getByTestId('portfolio-header-settings')).toBeTruthy();
 
     // Summary block.
     expect(screen.getByTestId('portfolio-summary-value')).toBeTruthy();
@@ -962,36 +962,42 @@ describe('PortfolioScreen', () => {
   });
 
   /*
-    THE TRAILING PAIR IS EDIT + SHARE (Figma 3670:47454).
-
-    It was the bell and the `+`, inherited wholesale from Home when the two
-    frames were identical. The profile frame has since diverged and spends both
-    slots here, so the assertions that matter are the EXCLUSIONS: notifications
-    and compose are gone from this screen (they stay on Home's bar, which draws
-    the same component with `trailing.kind === 'home'`), and there is exactly ONE
-    edit affordance — the pencil that sat beside the display name is gone with
-    them.
+    THE TOP BAR IS ONE GEAR (Figma 6642:5964). Search, edit, share, the menu
+    and Ask Ekalight all left it: Search is a bottom tab, Settings replaced the
+    drawer, the assistant is an app-wide floating bubble, and Edit profile is
+    the avatar tap. Exclusions matter as much as the gear.
   */
-  it('puts edit (no share) in the top bar, and no pencil beside the name', async () => {
+  it('draws only the settings gear in the top bar, and opens Settings from it', async () => {
     renderPortfolioScreen();
 
-    const edit = await screen.findByTestId('portfolio-header-edit');
-    // Share left Home's top bar (owner, 2026-11-21).
-    expect(screen.queryByTestId('portfolio-header-share')).toBeNull();
-    expect(screen.getByTestId('portfolio-header-search')).toBeTruthy();
-
-    // Home keeps these; this bar no longer has the slots for them.
-    expect(screen.queryByTestId('portfolio-header-notifications')).toBeNull();
-    expect(screen.queryByTestId('portfolio-header-notifications-badge')).toBeNull();
-    expect(screen.queryByTestId('portfolio-header-add')).toBeNull();
-
-    // ONE edit control, in the bar. `ProfileHeader` used to draw a second one
-    // beside the name it edits, back when the bar had no slot for it.
-    expect(screen.queryByTestId('portfolio-header-title-edit')).toBeNull();
-    expect(edit.props.accessibilityLabel).toBe('Edit profile');
+    const gear = await screen.findByTestId('portfolio-header-settings');
+    expect(gear.props.accessibilityLabel).toBe('Settings');
+    for (const testID of [
+      'portfolio-header-menu',
+      'portfolio-header-assistant',
+      'portfolio-header-search',
+      'portfolio-header-edit',
+      'portfolio-header-share',
+      'portfolio-header-notifications',
+      'portfolio-header-add',
+      'portfolio-header-title-edit',
+    ]) {
+      expect(screen.queryByTestId(testID)).toBeNull();
+    }
 
     await act(async () => {
-      fireEvent.press(edit);
+      fireEvent.press(gear);
+    });
+    expect(push).toHaveBeenCalledWith('/settings');
+  });
+
+  it('opens Edit profile from your own avatar', async () => {
+    renderPortfolioScreen();
+
+    const avatar = await screen.findByTestId('portfolio-header-title-avatar-button');
+    expect(avatar.props.accessibilityLabel).toBe('Edit profile');
+    await act(async () => {
+      fireEvent.press(avatar);
     });
     expect(push).toHaveBeenCalledWith('/edit-profile');
   });
@@ -2158,21 +2164,6 @@ describe('PortfolioScreen', () => {
     });
   });
 
-  it('opens the drawer when the hamburger header button is pressed', async () => {
-    renderPortfolioScreen();
-
-    const menuButton = await screen.findByTestId('portfolio-header-menu');
-    expect(menuButton.props.accessibilityLabel).toBe('Open menu');
-
-    // The drawer state lives in AppDrawerProvider (mounted via renderWithProviders).
-    // Verify the button is pressable end-to-end without throwing.
-    await act(async () => {
-      fireEvent.press(menuButton);
-    });
-
-    expect(menuButton).toBeTruthy();
-  });
-
   it('renders the whole list view virtualized, with no View More gate', async () => {
     const inventory = Array.from({ length: 12 }, (_, index) =>
       buildInventoryEntry({
@@ -2292,20 +2283,6 @@ describe('PortfolioScreen', () => {
     expect(screen.queryByTestId('portfolio-list-pagination-view-more')).toBeNull();
   });
 
-  it('navigates to the catalog search route from the top-bar search bubble', async () => {
-    renderPortfolioScreen();
-
-    // The in-row "Search Cards" magnifier is gone, so this bubble is now the
-    // only way into catalog search from the Collection page.
-    const searchBubble = await screen.findByTestId('portfolio-header-search');
-
-    await act(async () => {
-      fireEvent.press(searchBubble);
-    });
-
-    expect(push).toHaveBeenCalledWith('/catalog/search');
-  });
-
   // Activity holds its OWN copy of the owner's posts (the feed holds another), so
   // the delete path is verified here too rather than assumed from the feed.
   it('deletes an own post from the Activity tab, and restores it when the write fails', async () => {
@@ -2394,16 +2371,6 @@ describe('PortfolioScreen', () => {
     expect(push).not.toHaveBeenCalled();
   });
 
-  it('opens the full-screen card search from the top bar pill', async () => {
-    renderPortfolioScreen();
-
-    const pill = await screen.findByTestId('portfolio-header-search');
-    await act(async () => {
-      fireEvent.press(pill);
-    });
-    expect(push).toHaveBeenLastCalledWith('/catalog/search');
-  });
-
   // Collection FLOATS its bar, unlike Home. The pager already owns a pinned
   // chrome layer (profile block + tab bar, absolutely positioned and translated
   // on scroll); a second in-flow bar inside that layer fought the pinning and
@@ -2427,24 +2394,11 @@ describe('PortfolioScreen', () => {
       });
     });
 
-    /*
-      THE PILL STAYS. The header's search pill is static now — it used to slide
-      out of the row and get disarmed, which left the pinned backdrop painting a
-      white strip with nothing in it: a bar that had lost its contents rather
-      than one that was out of the way. Searching your own collection is also
-      something you do MID-scroll, which is exactly when the old fade took the
-      control away.
-    */
+    // The gear is pinned and stays live for the whole scroll.
     push.mockClear();
     await act(async () => {
-      fireEvent.press(screen.getByTestId('portfolio-header-search'));
+      fireEvent.press(screen.getByTestId('portfolio-header-settings'));
     });
-    expect(push).toHaveBeenLastCalledWith('/catalog/search');
-
-    // The bubbles are pinned and stay live for the whole scroll.
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('portfolio-header-edit'));
-    });
-    expect(push).toHaveBeenLastCalledWith('/edit-profile');
+    expect(push).toHaveBeenLastCalledWith('/settings');
   });
 });

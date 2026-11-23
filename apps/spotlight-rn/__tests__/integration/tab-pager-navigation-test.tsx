@@ -23,7 +23,7 @@ function makeStub(name: string) {
 
 const STUBS = {
   '(tabs)/index': makeStub('index'),
-  '(tabs)/wishlist': makeStub('wishlist'),
+  '(tabs)/search': makeStub('search'),
   '(tabs)/scan': makeStub('scan'),
   '(tabs)/events': makeStub('events'),
   '(tabs)/social': makeStub('social'),
@@ -50,7 +50,7 @@ describe('tab pager <-> expo-router', () => {
   it('draws the same blur under the bar on every tab page, and none on Scan', async () => {
     renderAppRouter('/', STUBS);
     await waitFor(() => expect(screen.getByTestId('stub-index')).toBeTruthy());
-    for (const path of ['/wishlist', '/scan', '/events', '/social'] as const) {
+    for (const path of ['/search', '/scan', '/events', '/social'] as const) {
       act(() => {
         router.push(path);
       });
@@ -59,21 +59,21 @@ describe('tab pager <-> expo-router', () => {
     const backdropOn = (page: string) =>
       screen.getByTestId(`tab-pager-page-${page}`, { includeHiddenElements: true })
         .findAll((node: { props: { testID?: string } }) => node.props.testID === 'tab-bar-backdrop-blur').length > 0;
-    expect(['index', 'wishlist', 'events', 'social'].map(backdropOn)).toEqual([true, true, true, true]);
+    expect(['index', 'search', 'events', 'social'].map(backdropOn)).toEqual([true, true, true, true]);
     expect(backdropOn('scan')).toBe(false);
   });
 
   it('drops the blur on a page that asks (an edit bar sits above the tab bar)', async () => {
     const { useTabPagerHideBackdrop } = require('@/components/tab-pager/tab-pager-page-context');
-    function EditingWishlist() {
+    function EditingSearch() {
       useTabPagerHideBackdrop(true);
-      return <Text testID="stub-wishlist">editing</Text>;
+      return <Text testID="stub-search">editing</Text>;
     }
-    renderAppRouter('/wishlist', { ...STUBS, '(tabs)/wishlist': EditingWishlist });
-    await waitFor(() => expect(screen.getByTestId('stub-wishlist')).toBeTruthy());
+    renderAppRouter('/search', { ...STUBS, '(tabs)/search': EditingSearch });
+    await waitFor(() => expect(screen.getByTestId('stub-search')).toBeTruthy());
     await waitFor(() =>
       expect(
-        screen.getByTestId('tab-pager-page-wishlist').findAll((node: { props: { testID?: string } }) => node.props.testID === 'tab-bar-backdrop-blur'),
+        screen.getByTestId('tab-pager-page-search').findAll((node: { props: { testID?: string } }) => node.props.testID === 'tab-bar-backdrop-blur'),
       ).toHaveLength(0),
     );
     expect(screen.getByTestId('app-tab-bar')).toBeTruthy();
@@ -95,13 +95,13 @@ describe('tab pager <-> expo-router', () => {
     await waitFor(() => expect(screen.getByTestId('stub-index')).toBeTruthy());
 
     act(() => {
-      router.push('/wishlist');
+      router.push('/search');
     });
-    await waitFor(() => expect(app.getPathname()).toBe('/wishlist'));
-    expect(stubText('wishlist')).toBe('focused:portfolio');
+    await waitFor(() => expect(app.getPathname()).toBe('/search'));
+    expect(stubText('search')).toBe('focused:portfolio');
     // Visited pages stay mounted, and lose focus.
     expect(stubText('index')).toBe('blurred:scanner');
-    expect(screen.getByTestId('app-tab-wishlist').props.accessibilityState).toEqual({ selected: true });
+    expect(screen.getByTestId('app-tab-search').props.accessibilityState).toEqual({ selected: true });
   });
 
   it('updates the route when a bar item is tapped', async () => {
@@ -120,9 +120,9 @@ describe('tab pager <-> expo-router', () => {
 
     // A redirect / deep link nobody tapped: the strip must not play a swipe.
     act(() => {
-      router.navigate('/wishlist');
+      router.navigate('/search');
     });
-    await waitFor(() => expect(app.getPathname()).toBe('/wishlist'));
+    await waitFor(() => expect(app.getPathname()).toBe('/search'));
     expect(withTiming).not.toHaveBeenCalled();
     withTiming.mockRestore();
   });

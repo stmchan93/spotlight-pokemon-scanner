@@ -21,7 +21,6 @@ import {
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 
-import { assistantHref } from '@/features/assistant/assistant-route';
 import { MapPin } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -60,16 +59,15 @@ import {
 import { useFeedShow } from '@/features/events/hooks/use-active-show';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
+import { useUnreadMessageCount } from '@/features/social/use-unread-message-count';
 import { useUnreadNotificationCount } from '@/features/social/use-unread-notification-count';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
 import { getUserInitials } from '@/features/auth/auth-models';
 import { fetchFollowing, followUser } from '@/features/profile/profile-service';
 import { resolveRepositoryBaseUrl } from '@/providers/app-providers';
-import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
 import { useTabLanding, useTabPagerInnerPosition } from '@/components/tab-pager/tab-pager-page-context';
 import { innerPageForLanding } from '@/lib/tab-pager';
 import { useScrollToTop } from '@/components/scroll-to-top-fab';
-import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAuth } from '@/providers/auth-provider';
 
 const PAGE_SIZE = 20;
@@ -168,7 +166,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { openDrawer } = useAppDrawer();
   const { accessToken, applyFollowingDelta, currentUser } = useAuth();
   const apiBaseUrl = resolveRepositoryBaseUrl();
   // Lets a row you reposted yourself read "You reposted" rather than your name.
@@ -224,6 +221,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   // before the feed existed is already reflected in its first load.
   const seenRefreshVersionRef = useRef(getFeedRefreshVersion());
   const unreadCount = useUnreadNotificationCount();
+  const unreadMessageCount = useUnreadMessageCount();
   /*
     "Back to top", the same FAB Collection / Wishlist / Insights already carry.
 
@@ -687,6 +685,11 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     router.push('/notifications' as never);
   }, [router]);
 
+  // The DM inbox's way in from Social (it used to be the drawer's).
+  const openMessages = useCallback(() => {
+    router.push('/messages' as never);
+  }, [router]);
+
   const listEmpty =
     status === 'error' ? (
       <StateCard
@@ -849,23 +852,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   };
 
   return (
-    /*
-      Left-edge drag opens the hamburger drawer.
-
-      This has now been lost twice to rewrites of this screen, so: it is not
-      decoration. The drawer is the only way to Insights, Messages, Wishlist's
-      siblings and Account, and Home is the landing screen — without this the
-      gesture works on You and nowhere else, which reads as broken rather than
-      absent.
-
-      WRAPPER, not the overlay strip: as an ancestor it sees every touch through
-      the capture phase while the list keeps receiving them normally, and it is
-      the only mode that can cancel the post under your finger once the drag is
-      unambiguously a drawer swipe. Safe above the list — its PanResponder
-      handlers force a real stacking context, so the `subviews[0]` walk that
-      drives tab-bar minimize still reaches the FlatList.
-    */
-    <DrawerEdgeSwipe>
     <SafeAreaView
       // 'top' is consumed HERE, once. The bar is a row of the list below, so if
       // it also added the inset itself the first post sat a whole status bar too
@@ -918,23 +904,21 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       */}
       <HomeHeader
         floating
-        onOpenMenu={openDrawer}
-        // Figma 6597:3462: menu | lockup | Ask Ekalight + bell. No search on Social.
-        onOpenAssistant={() => router.push(assistantHref('home'))}
         scrollRestOffset={listTopOffset}
         scrollY={headerScrollY}
         testID={`${testID}-header`}
-        // Collection draws the same bar with its search/edit/share capsule —
-        // this is the only prop that differs between the two screens.
+        // Figma 6642:5420: lockup centred, messages + bell on the right. Home
+        // draws the same bar with its gear — the only prop that differs.
         trailing={{
-          kind: 'home',
+          kind: 'social',
+          onOpenMessages: openMessages,
           onOpenNotifications: openNotifications,
           unreadCount,
+          unreadMessageCount,
         }}
       />
       {deleteConfirmSheet}
     </SafeAreaView>
-    </DrawerEdgeSwipe>
   );
 }
 

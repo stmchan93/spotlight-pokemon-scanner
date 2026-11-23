@@ -82,8 +82,6 @@ import {
 } from '@/features/wishlist/watchlist-trend-access';
 import { SharePostSheet } from '@/features/social/components/share-post-sheet';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
-import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
-import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAppServices } from '@/providers/app-providers';
 
 // A watch is a (card, printing): one card watched in two printings is two rows,
@@ -223,7 +221,6 @@ export function WishlistScreen() {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { openDrawer } = useAppDrawer();
   const { isGuest } = useGuestGate();
   const isFocused = useIsFocused();
   // Guests never reach this screen: the route renders GuestScannerRedirect.
@@ -914,13 +911,6 @@ export function WishlistScreen() {
   );
 
   return (
-    // Same left-edge drag as Home and You. Wishlist is a tab, so the drawer is
-    // reachable from it by the same gesture as everywhere else rather than only
-    // from the button. `disabled` while editing: the edit UI owns gestures
-    // across the full screen, matching how the Collection pager stands down.
-    // The tab pager's outer strip stands down the same way (`useTabPagerLock`
-    // above); a leftward drag that starts on a row is the row's delete swipe.
-    <DrawerEdgeSwipe disabled={editMode}>
     <SafeAreaView
       edges={['left', 'right']}
       style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
@@ -973,7 +963,6 @@ export function WishlistScreen() {
       <WishlistHeader
         editMode={editMode}
         floating
-        onOpenMenu={openDrawer}
         onOpenSearch={handleOpenCatalogSearch}
         onToggleEditMode={() => (editMode ? handleExitEditMode() : setEditMode(true))}
         // This list is not inset, so it rests at 0 and the title's fade starts
@@ -1078,7 +1067,6 @@ export function WishlistScreen() {
         onSubmit={handleSubmitTarget}
       />
     </SafeAreaView>
-    </DrawerEdgeSwipe>
   );
 }
 

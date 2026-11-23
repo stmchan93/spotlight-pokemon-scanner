@@ -50,6 +50,7 @@ OUT = REPO / "apps" / "spotlight-rn" / "assets" / "images" / "tab-icons"
 ICONS = {
     "home": "HomeSimple",
     "wishlist": "Eye",
+    "search": "Search",
 }
 
 # SELECTED-STATE VARIANTS (Figma 4299:95029): the same glyphs, filled.
@@ -58,6 +59,11 @@ ICONS = {
 # OUT of the alpha rather than painted white as the Figma asset does: a tab
 # icon is template-tinted, only alpha survives, and white ink would simply
 # vanish into the fill.
+
+# Search (Figma 6642:16373) has no iconoir solid variant, and a filled lens
+# reads as a blob at 24pt. Selected = the same magnifier at a heavier stroke,
+# the way iOS bolds its own selected magnifier.
+SEARCH_SELECTED_STROKE_WIDTH = 2.25
 
 # Rendered in a 24pt box for BOTH glyphs. Each glyph's ink fills its own share of
 # iconoir's 24x24 viewBox — rendering both in the same box is what keeps their
@@ -86,9 +92,9 @@ def extract_paths(component: str, variant: str = "regular") -> list[str]:
     return paths
 
 
-def build_svg(paths: list[str]) -> str:
+def build_svg(paths: list[str], stroke_width: float = STROKE_WIDTH) -> str:
     body = "".join(
-        f'<path d="{d}" fill="none" stroke="{STROKE}" stroke-width="{STROKE_WIDTH}"'
+        f'<path d="{d}" fill="none" stroke="{STROKE}" stroke-width="{stroke_width}"'
         ' stroke-linecap="round" stroke-linejoin="round"/>'
         for d in paths
     )
@@ -163,6 +169,11 @@ def main() -> int:
         "wishlist-filled",
         build_solid_svg(extract_paths(ICONS["wishlist"], variant="solid")),
         "solid/Eye",
+    )
+    rasterize(
+        "search-filled",
+        build_svg(extract_paths(ICONS["search"]), SEARCH_SELECTED_STROKE_WIDTH),
+        "regular/Search, heavy stroke",
     )
     return 0
 

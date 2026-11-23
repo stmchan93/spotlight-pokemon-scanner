@@ -55,7 +55,8 @@ import { capturePostHogEvent } from '@/lib/observability/posthog';
 type GameSetsScreenProps = {
   /** The game the chips start on. The chips switch games in place. */
   game: CardGame;
-  onClose: () => void;
+  /** Required unless `dismissStyle="none"`. */
+  onClose?: () => void;
   onSelectExpansion: (expansion: ExpansionRecord, game: CardGame) => void;
   onOpenCard: (result: CatalogSearchResult) => void;
   /** Ask Ekalight (the sparkle). Absent hides the button rather than leaving it dead. */
@@ -63,8 +64,11 @@ type GameSetsScreenProps = {
   /**
    * `close` (X) when this screen opened by sliding UP (Search's landing): a
    * slide-up screen closes with X, a side push goes back with ‹ (owner, 2026-11-20).
+   * `none` = hosted as the Search TAB: nothing to dismiss, so no leading
+   * bubble and no pull-down (the toolbar row keeps its height, so the floating
+   * assistant bubble still has its slot).
    */
-  dismissStyle?: 'back' | 'close';
+  dismissStyle?: 'back' | 'close' | 'none';
   /**
    * `landing` (default): the Search landing (Figma 6597:5654) — SINGLES and
    * SEALED rails and the newest sets, each with VIEW ALL. `sets`: every set,
@@ -76,6 +80,8 @@ type GameSetsScreenProps = {
 };
 
 export type GameSetsView = 'landing' | 'sets' | 'sealed';
+
+const noop = () => undefined;
 
 /** Sealed matches under the card results: a section, not another paged list. */
 const SEALED_RESULTS_LIMIT = 20;
@@ -169,7 +175,10 @@ export function GameSetsScreen({
   const chipGames = games.includes(game) ? games : [game, ...games];
 
   // Slid up (Search's landing): swipe down anywhere closes it once the list is at the top.
-  const pullDown = usePullDownToDismiss({ enabled: dismissStyle === 'close', onDismiss: onClose });
+  const pullDown = usePullDownToDismiss({
+    enabled: dismissStyle === 'close' && onClose != null,
+    onDismiss: onClose ?? noop,
+  });
   const showsResults =
     search.hasActiveQuery && !search.errorMessage && (search.results.length > 0 || sealedResults.length > 0);
   const { resetScroll } = pullDown;
@@ -512,29 +521,31 @@ export function GameSetsScreen({
 
       <View style={[styles.header, { paddingTop: insets.top }]}>
         <View style={styles.toolbar}>
-          <GlassNavBubble
-            accessibilityLabel={dismissStyle === 'close' ? 'Close' : 'Back'}
-            material="frost"
-            onPress={onClose}
-            size="medium"
-            testID="game-sets-back"
-          >
-            {dismissStyle === 'close' ? (
-              <Xmark
-                color={theme.colors.gray900}
-                height={glassNavBubbleGlyphSize}
-                strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                width={glassNavBubbleGlyphSize}
-              />
-            ) : (
-              <NavArrowLeft
-                color={theme.colors.gray900}
-                height={glassNavBubbleGlyphSize}
-                strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                width={glassNavBubbleGlyphSize}
-              />
-            )}
-          </GlassNavBubble>
+          {dismissStyle === 'none' || !onClose ? null : (
+            <GlassNavBubble
+              accessibilityLabel={dismissStyle === 'close' ? 'Close' : 'Back'}
+              material="frost"
+              onPress={onClose}
+              size="medium"
+              testID="game-sets-back"
+            >
+              {dismissStyle === 'close' ? (
+                <Xmark
+                  color={theme.colors.gray900}
+                  height={glassNavBubbleGlyphSize}
+                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                  width={glassNavBubbleGlyphSize}
+                />
+              ) : (
+                <NavArrowLeft
+                  color={theme.colors.gray900}
+                  height={glassNavBubbleGlyphSize}
+                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                  width={glassNavBubbleGlyphSize}
+                />
+              )}
+            </GlassNavBubble>
+          )}
           {onOpenAssistant ? (
             <GlassNavBubble
               accessibilityLabel="Ask Ekalight"
@@ -661,6 +672,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
+    // Holds the row's height when there is no leading bubble (the Search tab).
+    minHeight: glassNavBubbleSizes.medium,
   },
   wash: {
     left: 0,

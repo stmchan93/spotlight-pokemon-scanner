@@ -12,7 +12,7 @@ import { useDeferDataRefreshWhileFocused } from '@/providers/use-defer-data-refr
  * The pager's tab bar turns into the solid black scanner bar on this page
  * (`AppTabBar`, Figma 6322:9081), and `reserveTabBarSpace` makes the scanner lay
  * its viewfinder and tray out above it rather than under it. A horizontal drag on
- * the camera area is the pager's (back to Watchlist, forward to Events); the
+ * the camera area is the pager's (back to Search, forward to Events); the
  * tray, binder review and every sheet stand it down (see `scanner-screen.tsx`).
  *
  * The camera runs only when this page is the SETTLED page and the app is in the

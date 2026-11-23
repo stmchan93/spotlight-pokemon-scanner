@@ -6,7 +6,7 @@ import { rememberActiveTab } from '@/lib/last-active-tab';
 /**
  * The bottom tabs: an Instagram-style horizontal pager with our own tab bar.
  *
- *   Home [Collection, Activity] | Watchlist | Scan | Events | Social [Social, News, Market]
+ *   Home [Collection, …] | Search | Scan | Events | Social [Social, News, Market]
  *
  * WHY A CUSTOM NAVIGATOR. Apple's native tab bar (expo-router NativeTabs) cannot
  * be dragged — UITabBarController has no interactive swipe — so the screens
@@ -14,7 +14,7 @@ import { rememberActiveTab } from '@/lib/last-active-tab';
  * React Navigation navigator (`useNavigationBuilder` + TabRouter, with the same
  * REPLACE override expo-router's `<Tabs>` uses) wrapped by `withLayoutContext`,
  * so EXPO-ROUTER STAYS THE SOURCE OF TRUTH:
- *   - the focused route sets the strip's page: `/`, `/wishlist`, `/scan`,
+ *   - the focused route sets the strip's page: `/`, `/search`, `/scan`,
  *     `/events`, `/social`, deep links, notification routing, `router.push`,
  *     guest redirects and Android back all just change navigator state, and the
  *     strip animates there;
@@ -30,7 +30,7 @@ import { rememberActiveTab } from '@/lib/last-active-tab';
  * with each page's inner pager and every gesture conflict are documented in the
  * navigator file.
  *
- * `index` is Collection; `/you` and `/portfolio` are redirect routes to it and
+ * `index` is Collection; `/you`, `/portfolio` and `/wishlist` (-> `?tab=watchlist`) are redirect routes to it and
  * are not pages.
  */
 export default function TabsLayout() {

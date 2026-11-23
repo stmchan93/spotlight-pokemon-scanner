@@ -25,7 +25,7 @@ import { renderWithProviders } from '../test-utils';
  */
 
 function renderHeader(props: Partial<Parameters<typeof WishlistHeader>[0]> = {}) {
-  return renderWithProviders(<WishlistHeader onOpenMenu={jest.fn()} {...props} />);
+  return renderWithProviders(<WishlistHeader {...props} />);
 }
 
 /** The `Animated.View` wrapping the title — the clip's only child. */
@@ -220,12 +220,10 @@ describe('WishlistHeader', () => {
       ['at rest', 0],
       ['after the title has gone', WISHLIST_TITLE_HIDE_DISTANCE],
     ])('stay put and stay tappable %s', (_label, offset) => {
-      const onOpenMenu = jest.fn();
       const onOpenSearch = jest.fn();
       const onToggleEditMode = jest.fn();
       renderHeader({
         floating: true,
-        onOpenMenu,
         onOpenSearch,
         onToggleEditMode,
         scrollY: new Animated.Value(offset),
@@ -235,7 +233,6 @@ describe('WishlistHeader', () => {
       // None of the controls sit inside the clipped, animated title wrapper.
       const clip = screen.getByTestId('wishlist-header-title-clip');
       for (const testID of [
-        'wishlist-header-menu',
         'wishlist-header-search',
         'wishlist-header-edit',
       ]) {
@@ -252,10 +249,8 @@ describe('WishlistHeader', () => {
         }
       }
 
-      fireEvent.press(screen.getByTestId('wishlist-header-menu'));
       fireEvent.press(screen.getByTestId('wishlist-header-search'));
       fireEvent.press(screen.getByTestId('wishlist-header-edit'));
-      expect(onOpenMenu).toHaveBeenCalledTimes(1);
       expect(onOpenSearch).toHaveBeenCalledTimes(1);
       expect(onToggleEditMode).toHaveBeenCalledTimes(1);
       // Share was removed from the bar (user, 2026-11-18).
@@ -300,9 +295,10 @@ describe('WishlistHeader', () => {
     });
   });
 
-  it('leads with the menu and puts search first in the trailing capsule', () => {
+  it('leaves the leading slot empty (no drawer menu) and puts search first in the trailing capsule', () => {
     renderHeader({ onOpenSearch: jest.fn(), onToggleEditMode: jest.fn() });
-    expect(within(screen.getByTestId('wishlist-header-leading-slot')).getByTestId('wishlist-header-menu')).toBeTruthy();
+    expect(screen.queryByTestId('wishlist-header-menu')).toBeNull();
+    expect(screen.getByTestId('wishlist-header-leading-slot').children).toHaveLength(0);
     const actions = screen.getByTestId('wishlist-header-actions');
     expect(within(actions).getByTestId('wishlist-header-search')).toBeTruthy();
     expect(within(actions).getByTestId('wishlist-header-edit')).toBeTruthy();

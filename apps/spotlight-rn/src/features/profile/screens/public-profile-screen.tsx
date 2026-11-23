@@ -1152,10 +1152,9 @@ export function PublicProfileScreen({
     >
       {/*
         Collapsing profile header, pinned tab bar, drag-following pages beneath —
-        the same shape the owner's Portfolio has. There is no `DrawerEdgeSwipe`
-        on this route, but the left-edge band is still spoken for: this is a
-        PUSHED stack screen, so that band is the interactive back-swipe. The
-        pager ignores it by default.
+        the same shape the owner's Portfolio has. The left-edge band is spoken
+        for: this is a PUSHED stack screen, so that band is the interactive
+        back-swipe. The pager ignores it by default.
       */}
       <CollapsibleTabPager
         header={pagerHeader}

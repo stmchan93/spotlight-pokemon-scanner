@@ -15,7 +15,7 @@ type TabsPageContextValue = {
   /**
    * Set to true by surfaces that need to "own" horizontal gestures
    * (e.g. the portfolio chart while the user is long-press scrubbing
-   * across data points). `DrawerEdgeSwipe` checks this flag in its
+   * across data points). `CollapsibleTabPager` checks this flag in its
    * pan-responder capture callback so it doesn't steal the gesture mid-scrub.
    * Defaults to a stable no-op
    * ref so consumers rendered outside a provider don't crash.
@@ -23,8 +23,8 @@ type TabsPageContextValue = {
   chartScrubLockRef: MutableRefObject<boolean>;
   /**
    * True while a portfolio-adjacent surface (e.g. the Collection screen) is in
-   * an in-place editing mode. `DrawerEdgeSwipe` stands down while this is true
-   * so the edit UI owns gestures across the full screen.
+   * an in-place editing mode. `CollapsibleTabPager` stands down while this is
+   * true so the edit UI owns gestures across the full screen.
    *
    * The tab pager also stands its outer strip down for the page while it is
    * true. Defaults to false / a no-op setter outside a provider.

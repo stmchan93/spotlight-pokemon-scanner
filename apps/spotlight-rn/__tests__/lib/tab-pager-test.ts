@@ -21,18 +21,20 @@ import {
 } from '@/lib/tab-pager';
 
 describe('tab pager order and route <-> page mapping', () => {
-  it('lays the strip out Home | Watchlist | Scan | Events | Social', () => {
-    expect(TAB_PAGER_ORDER).toEqual(['index', 'wishlist', 'scan', 'events', 'social']);
+  it('lays the strip out Home | Search | Scan | Events | Social', () => {
+    expect(TAB_PAGER_ORDER).toEqual(['index', 'search', 'scan', 'events', 'social']);
   });
 
   it('maps each tab route to its strip index and redirect routes to none', () => {
     expect(pageIndexForRoute('index')).toBe(0);
-    expect(pageIndexForRoute('wishlist')).toBe(1);
+    expect(pageIndexForRoute('search')).toBe(1);
     expect(pageIndexForRoute('scan')).toBe(2);
     expect(pageIndexForRoute('events')).toBe(3);
     expect(pageIndexForRoute('social')).toBe(4);
     expect(pageIndexForRoute('you')).toBe(-1);
     expect(pageIndexForRoute('portfolio')).toBe(-1);
+    // Watchlist left the bar for a Home profile tab; `/wishlist` only redirects.
+    expect(pageIndexForRoute('wishlist')).toBe(-1);
     expect(pageIndexForRoute(undefined)).toBe(-1);
   });
 
@@ -181,9 +183,9 @@ describe('isPageLive (camera / data-load gating)', () => {
 });
 
 describe('guest tabs', () => {
-  it('lets guests open Scan and Events only', () => {
+  it('lets guests open Search, Scan and Events only', () => {
     const blocked = guestBlockedPages(true);
-    expect(TAB_PAGER_ORDER.filter((_, page) => !blocked[page])).toEqual(['scan', 'events']);
+    expect(TAB_PAGER_ORDER.filter((_, page) => !blocked[page])).toEqual(['search', 'scan', 'events']);
     expect(guestBlockedPages(false).every((value) => !value)).toBe(true);
   });
 });

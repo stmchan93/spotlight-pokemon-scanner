@@ -50,7 +50,7 @@ export function resolveScreenName(pathname: string) {
     return 'account';
   }
 
-  // The route is still `/wishlist`; users (and these names) call it Watchlist.
+  // `/wishlist` is a redirect to Home's WATCHLIST tab now; it can show for a frame.
   if (isPathOrChild(pathname, '/wishlist')) {
     return 'watchlist';
   }
@@ -88,6 +88,15 @@ export function resolveScreenName(pathname: string) {
 
   if (isPathOrChild(pathname, '/search/people')) {
     return 'people_search';
+  }
+
+  // The Search tab (catalog landing hosted as a page).
+  if (pathname === '/search') {
+    return 'search';
+  }
+
+  if (isPathOrChild(pathname, '/settings')) {
+    return 'settings';
   }
 
   // Includes a profile's followers/following lists.

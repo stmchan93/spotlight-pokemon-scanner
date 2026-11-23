@@ -28,20 +28,32 @@ describe('AppTabBar', () => {
     mockRaster = null;
   });
 
-  it('labels the five tabs in bar order, in capitals — WATCHLIST, never WISHLIST', () => {
+  it('labels the five tabs in bar order, in capitals (Figma 6642:5964)', () => {
     renderBar();
     const labels = screen.UNSAFE_getAllByType(Text).map((node) => node.props.children);
-    expect(labels).toEqual(['HOME', 'WATCHLIST', 'SCAN', 'EVENTS', 'SOCIAL']);
-    expect(Object.values(TAB_BAR_LABELS)).not.toContain('WISHLIST');
+    expect(labels).toEqual(['HOME', 'SEARCH', 'SCAN', 'EVENTS', 'SOCIAL']);
     // Owner rule: never "Wishlist" in any casing — not in a label, not in a spoken label.
+    expect(Object.values(TAB_BAR_LABELS)).not.toContain('WISHLIST');
     expect(screen.queryByText(/wishlist/i)).toBeNull();
-    expect(screen.getByTestId('app-tab-wishlist').props.accessibilityLabel).toBe('watchlist');
+    expect(screen.getByTestId('app-tab-search').props.accessibilityLabel).toBe('search');
+    // Watchlist is a Home profile tab now, not a bar item.
+    expect(screen.queryByTestId('app-tab-wishlist')).toBeNull();
   });
 
-  it('keeps WATCHLIST whole: labels ignore the system text size and shrink before clipping', () => {
+  it('draws the Search tab from its outline + filled magnifier rasters', () => {
     renderBar();
-    const label = screen.getByTestId('app-tab-label-wishlist');
-    expect(label.props.children).toBe('WATCHLIST');
+    const sources = screen
+      .getByTestId('app-tab-search')
+      .findAll((node: { props: { source?: unknown } }) => node.props.source != null)
+      .map((node: { props: { source?: unknown } }) => node.props.source);
+    // Outline + filled, cross-faded by selection.
+    expect(new Set(sources).size).toBeGreaterThanOrEqual(2);
+  });
+
+  it('keeps labels whole: they ignore the system text size and shrink before clipping', () => {
+    renderBar();
+    const label = screen.getByTestId('app-tab-label-search');
+    expect(label.props.children).toBe('SEARCH');
     expect(label.props.maxFontSizeMultiplier).toBe(1);
     expect(label.props.adjustsFontSizeToFit).toBe(true);
     expect(label.props.numberOfLines).toBe(1);
@@ -56,7 +68,7 @@ describe('AppTabBar', () => {
   it('reports taps by page index, including a re-tap of the focused page (scroll-to-top)', () => {
     const onSelectPage = renderBar(1);
     fireEvent.press(screen.getByTestId('app-tab-events'));
-    fireEvent.press(screen.getByTestId('app-tab-wishlist'));
+    fireEvent.press(screen.getByTestId('app-tab-search'));
     expect(onSelectPage.mock.calls).toEqual([[3], [1]]);
   });
 

@@ -14,11 +14,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { Menu, Search, ShareIos, Xmark } from 'iconoir-react-native';
+import { Search, ShareIos, Xmark } from 'iconoir-react-native';
 
 import type { SpotlightEvent } from '@spotlight/api-client';
 import {
-  GlassNavBubble,
   GlassNavBubbleGroup,
   PageTabs,
   PillButton,
@@ -42,7 +41,6 @@ import { useSpotlightEvents } from '@/features/events/hooks/use-spotlight-events
 import { useSavedEvents } from '@/features/events/saved-events-store';
 import { tabBarBottomFadeHeight } from '@/lib/tab-bar-insets';
 import { PageSwipeGuard } from '@/components/page-tab-pager';
-import { useAppDrawer } from '@/providers/app-drawer-provider';
 
 export type EventsTab = 'events' | 'saved' | 'past';
 
@@ -101,10 +99,9 @@ export function EventsScreen() {
   const headerImageHeight = sheetTop + HEADER_IMAGE_BELOW_SHEET;
   const chipRowTop = sheetTop - CHIP_ROW_ABOVE_SHEET;
   const { width: windowWidth } = useWindowDimensions();
-  const { openDrawer } = useAppDrawer();
   const { events, failed, refresh } = useSpotlightEvents();
   const { isSaved, savedIds, toggle } = useSavedEvents();
-  // Guests see only the upcoming list and open shows (owner, 2026-11-21): no drawer,
+  // Guests see only the upcoming list and open shows (owner, 2026-11-21): no
   // search, share, Saved/Past tabs or save hearts.
   const { isGuest } = useGuestGate();
   const [selectedTab, setTab] = useState<EventsTab>('events');
@@ -361,18 +358,11 @@ export function EventsScreen() {
         </View>
       </ScrollView>
 
-      {/* Fixed chrome over the photo, so the drawer stays one tap away. */}
+      {/* Fixed chrome over the photo. Nothing leads: the floating assistant
+          bubble owns the top-left corner (the drawer menu is gone). */}
       <View pointerEvents="box-none" style={[styles.toolbar, { paddingHorizontal: gutter, top: insets.top }]}>
         {isGuest ? null : (
           <>
-            <GlassNavBubble accessibilityLabel="Open menu" material="frost" onPress={openDrawer} size="medium" testID="events-menu">
-              <Menu
-                color={theme.colors.gray900}
-                height={glassNavBubbleGlyphSize}
-                strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                width={glassNavBubbleGlyphSize}
-              />
-            </GlassNavBubble>
             <GlassNavBubbleGroup
               items={[
                 // Search sits on the right with the other icons (user, 2026-11-18).
@@ -457,7 +447,7 @@ const styles = StyleSheet.create({
   },
   toolbar: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     left: 0,
     position: 'absolute',
     right: 0,

@@ -88,7 +88,7 @@ describe('PostHogScreenTracker', () => {
       expect(mockCapturePostHogScreen).toHaveBeenCalledTimes(2);
     });
 
-    mockedPathname = '/settings';
+    mockedPathname = '/some-untracked-route';
     view.rerender(<PostHogScreenTracker />);
     await waitFor(() => {
       expect(mockCapturePostHogScreen).toHaveBeenCalledTimes(2);

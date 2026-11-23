@@ -163,17 +163,14 @@ describe('WishlistScreen', () => {
     expect(screen.queryByTestId('bottom-nav-scan')).toBeNull();
   });
 
-  // Wishlist is one of the four TABS now. It carried a back chevron from when it
-  // was pushed in from the drawer, which by then popped you to whatever you had
-  // visited before — or did nothing. A tab is a root: hamburger, like Home and
-  // You, plus the same left-edge drag.
-  it('leads with the menu, keeps the edge drag, and has no back button', async () => {
+  // No back chevron and, since the drawer was retired, no hamburger either:
+  // the leading corner belongs to the app-wide floating assistant bubble.
+  it('has neither a back button nor a drawer menu', async () => {
     renderWishlistScreen();
     await screen.findByTestId('wishlist-header-title');
 
     expect(screen.queryByTestId('wishlist-header-back')).toBeNull();
-    expect(screen.getByTestId('wishlist-header-menu')).toBeTruthy();
-    expect(screen.getByTestId('drawer-edge-swipe')).toBeTruthy();
+    expect(screen.queryByTestId('wishlist-header-menu')).toBeNull();
   });
 
   it('renders the whole list view virtualized, with no View More gate', async () => {

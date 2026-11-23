@@ -20,17 +20,6 @@ jest.mock('expo-router', () => ({
   useFocusEffect: jest.fn(),
 }));
 
-// The header's hamburger opens the shared app drawer. Keep the real provider
-// (test-utils mounts it) and only swap the hook so the call is observable.
-const mockOpenDrawer = jest.fn();
-jest.mock('@/providers/app-drawer-provider', () => {
-  const actual = jest.requireActual('@/providers/app-drawer-provider');
-  return {
-    ...actual,
-    useAppDrawer: () => ({ ...actual.useAppDrawer(), openDrawer: mockOpenDrawer }),
-  };
-});
-
 jest.mock('@/features/social/social-service', () => {
   // The screen reads `fetchGlobalFeedItems` (posts + reposts as feed rows), but
   // every fixture in this file is a plain post list. Delegating keeps those
@@ -566,31 +555,15 @@ describe('FeedScreen', () => {
     expect(within(screen.getByTestId('feed-list')).queryByTestId('feed-header-rule')).toBeNull();
   });
 
-  it('heads Social with the menu left and Ask Ekalight + bell right, no search (Figma 6597:3462)', async () => {
+  it('heads Social with messages + bell right and no menu, Ask Ekalight or search (Figma 6642:5420)', async () => {
     renderFeed();
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-    expect(screen.getByTestId('feed-header-menu')).toBeTruthy();
-    expect(screen.getByTestId('feed-header-assistant')).toBeTruthy();
+    expect(screen.getByTestId('feed-header-messages')).toBeTruthy();
     expect(screen.getByTestId('feed-header-notifications')).toBeTruthy();
+    expect(screen.queryByTestId('feed-header-menu')).toBeNull();
+    expect(screen.queryByTestId('feed-header-assistant')).toBeNull();
     expect(screen.queryByTestId('feed-header-search')).toBeNull();
-
-    // Same drawer Home's menu bubble opens.
-    fireEvent.press(screen.getByTestId('feed-header-menu'));
-    expect(mockOpenDrawer).toHaveBeenCalled();
-  });
-
-  // This gesture has been dropped TWICE by rewrites of this screen, so it is
-  // pinned here. The drawer is the only route to Insights, Messages and Account,
-  // and Home is the landing screen — losing the drag leaves it working on You
-  // and nowhere else, which reads as broken rather than absent.
-  // `drawer-edge-swipe-test` drives the recogniser's own thresholds; all this
-  // asserts is that the feed is still wrapped in one.
-  it('also opens the drawer by dragging in from the left edge, not only from the button', async () => {
-    renderFeed();
-    await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
-
-    expect(screen.getByTestId('drawer-edge-swipe')).toBeTruthy();
   });
 
   /*

@@ -26,7 +26,6 @@ import {
 } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
 
-import { DRAWER_EDGE_WIDTH } from '@/components/drawer-edge-swipe';
 import { usePagerTouchGuardGesture } from '@/components/tab-pager/tab-pager-page-context';
 import { useTabsPage } from '@/contexts/tabs-page-context';
 
@@ -199,13 +198,18 @@ export function PageSwipeGuard({ children, style, testID }: PageSwipeGuardProps)
   return pagerGuard ? <GestureDetector gesture={pagerGuard}>{view}</GestureDetector> : view;
 }
 
+/**
+ * Left-edge band a pushed stack screen's interactive back-swipe owns (UIKit's
+ * edge pan starts within ~20pt; 24 gives it room).
+ */
+export const EDGE_SWIPE_GUARD_WIDTH = 24;
+
 type CollapsibleTabPagerProps<V extends string> = {
   /** Force the gesture off (e.g. an edit mode the screen owns). */
   disabled?: boolean;
   /**
    * Width of the LEFT-edge band in which touches are ignored outright. Defaults
-   * to `DRAWER_EDGE_WIDTH` so the two numbers can never drift apart — see
-   * "NOT FIGHTING THE EDGE GESTURES" below.
+   * to `EDGE_SWIPE_GUARD_WIDTH` — see "NOT FIGHTING THE EDGE GESTURES" below.
    */
   edgeGuardWidth?: number;
   /** Collapses away above the tab bar as the active page scrolls. */
@@ -342,7 +346,7 @@ type CollapsibleTabPagerProps<V extends string> = {
  * file is core-RN `Animated` + `PanResponder` only: it ships over OTA.
  *
  * WHY PanResponder AND NOT react-native-gesture-handler
- * Same reasoning as `DrawerEdgeSwipe` (and the deleted `ScannerExitSwipe`):
+ * Same reasoning as the retired `DrawerEdgeSwipe` (and `ScannerExitSwipe`):
  * this is gesture NEGOTIATION against a scroll view, which PanResponder states
  * natively (decline with `false`, take over with `true`). The gesture-handler
  * version needs `manualActivation` plus a worklet, and committing a page means
@@ -372,22 +376,18 @@ type CollapsibleTabPagerProps<V extends string> = {
  *
  * NOT FIGHTING THE EDGE GESTURES
  * Touches starting within `edgeGuardWidth` of the LEFT edge are ignored
- * outright, in both directions. That band is spoken for twice over:
- *   - on the owner Portfolio, `DrawerEdgeSwipe` wraps this pager and opens the
- *     hamburger on an inward drag from it;
- *   - the public profile is a PUSHED stack route, so the same band is the
- *     interactive back-swipe.
+ * outright, in both directions. On a PUSHED stack route (the public profile)
+ * that band is the interactive back-swipe. (It also used to be the hamburger
+ * drawer's edge drag on the owner Portfolio; the drawer is gone.)
  * Ignoring the whole band rather than just rightward drags costs a 24pt strip
- * of a 393pt screen and removes the ambiguity entirely. It also means the two
- * recognisers never race: `DrawerEdgeSwipe` only ever acts inside the band and
- * this one only ever acts outside it, so their thresholds stay independent.
+ * of a 393pt screen and removes the ambiguity entirely.
  *
  * NOT FIGHTING THE LIST, THE CHART, OR THE CHIPS
  *   - vertical scrolling: rejected by the 1.35 horizontal-dominance test, which
  *     is measured on CUMULATIVE travel, so a scroll that wanders sideways for a
  *     frame is still a scroll;
  *   - the chart's long-press scrub: `chartScrubLockRef` stands this down, as it
- *     does the drawer. The chart arms that lock on a 6pt horizontally-dominant
+ *     did the drawer. The chart arms that lock on a 6pt horizontally-dominant
  *     move, before this recogniser's 14, so a swipe starting on the chart is
  *     always the chart's;
  *   - Collection edit mode: `collectionEditing` stands this down — the edit UI
@@ -397,7 +397,7 @@ type CollapsibleTabPagerProps<V extends string> = {
 export function CollapsibleTabPager<V extends string>({
   contentInsetTop = 0,
   disabled = false,
-  edgeGuardWidth = DRAWER_EDGE_WIDTH,
+  edgeGuardWidth = EDGE_SWIPE_GUARD_WIDTH,
   header,
   headerFadeDistance,
   onChange,
@@ -771,7 +771,7 @@ export function CollapsibleTabPager<V extends string>({
         verticalDecidedRef.current = true;
         return false;
       }
-      // Left-edge band is spoken for by the drawer / the stack back-swipe.
+      // Left-edge band is spoken for by the stack back-swipe.
       const startX = startXRef.current;
       if (startX == null || startX <= state.edgeGuardWidth) {
         return false;
@@ -798,7 +798,7 @@ export function CollapsibleTabPager<V extends string>({
       claimedRef.current = true;
       // CLAIM. Taking the responder is what turns the pending press on the card
       // under the finger into an `onResponderTerminate`, so it cancels instead
-      // of firing when the finger lifts — the bug `DrawerEdgeSwipe` was fixed
+      // of firing when the finger lifts — the bug the retired `DrawerEdgeSwipe` was fixed
       // for. It is also what stops the page scrolling vertically mid-swipe.
       return true;
     };

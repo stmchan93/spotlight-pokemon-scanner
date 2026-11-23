@@ -32,6 +32,8 @@ type ProfileHeaderProps = {
   bio?: string | null;
   /** Own profile only: with no bio, show the "Add a short bio" prompt that calls this. */
   onAddBioPress?: () => void;
+  /** Own profile only: tapping your avatar opens Edit profile. Absent = not tappable. */
+  onAvatarPress?: () => void;
   socialLink?: string | null;
   avatarUrl?: string | null;
   coverUrl?: string | null;
@@ -121,6 +123,7 @@ export function ProfileHeader({
   actionRow,
   bio,
   onAddBioPress,
+  onAvatarPress,
   socialLink,
   avatarUrl,
   coverUrl,
@@ -212,14 +215,21 @@ export function ProfileHeader({
         <View style={styles.identityRow}>
           {/* No ring: the white border read as a sticker over the cover photo.
               The 1pt inset keeps Figma 6502:7763's 82pt slot. */}
-          <View style={styles.avatarSlot}>
+          <Pressable
+            accessibilityLabel={onAvatarPress ? 'Edit profile' : undefined}
+            accessibilityRole={onAvatarPress ? 'button' : undefined}
+            disabled={!onAvatarPress}
+            onPress={onAvatarPress}
+            style={({ pressed }) => [styles.avatarSlot, pressed ? styles.avatarPressed : null]}
+            testID={`${testID}-avatar-button`}
+          >
             <Avatar
               initials={initials}
               size={AVATAR_SIZE}
               testID={`${testID}-avatar`}
               uri={avatarUrl}
             />
-          </View>
+          </Pressable>
           <View style={styles.identity}>
             <View style={styles.nameRow}>
               <Text
@@ -408,6 +418,9 @@ const styles = StyleSheet.create({
   },
   avatarSlot: {
     padding: 1,
+  },
+  avatarPressed: {
+    opacity: 0.7,
   },
   bio: {
     marginTop: 8,

@@ -245,7 +245,7 @@ describe('guest on the Events list', () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
-  it('signed in: drawer, search, tabs, the heart and Share events all work', async () => {
+  it('signed in: search, tabs, the heart and Share events all work (no drawer menu)', async () => {
     mockIsGuest = false;
     const share = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
     renderList();
@@ -253,7 +253,7 @@ describe('guest on the Events list', () => {
     await waitFor(() => expect(AsyncStorage.setItem).toHaveBeenCalled());
     fireEvent.press(screen.getByTestId('events-share'));
     expect(share).toHaveBeenCalled();
-    expect(screen.getByTestId('events-menu')).toBeTruthy();
+    expect(screen.queryByTestId('events-menu')).toBeNull();
     fireEvent.press(screen.getByTestId('events-search'));
     expect(screen.getByTestId('events-search-field')).toBeTruthy();
     fireEvent.press(screen.getByTestId('events-tabs-tab-past'));

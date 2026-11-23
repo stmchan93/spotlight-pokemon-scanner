@@ -93,7 +93,6 @@ import {
   buildTcgPlayerCardUrl,
   tcgPlayerProductIdFromCardId,
 } from '@/features/cards/marketplace-urls';
-import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
 import {
   useTabLanding,
   useTabPagerHideBackdrop,
@@ -109,7 +108,6 @@ import {
   type CollapsibleScrollTarget,
 } from '@/components/page-tab-pager';
 import { FocusedStatusBar } from '@/components/focused-status-bar';
-import { assistantHref } from '@/features/assistant/assistant-route';
 import { EkalightMark } from '@/components/ekalight-mark';
 import { ScanTabIcon } from '@/components/nav-tab-icons';
 import {
@@ -122,7 +120,6 @@ import { usePortfolioViewMode } from '@/features/portfolio/hooks/use-portfolio-v
 import { usePortfolioSummaryVisibility } from '@/features/portfolio/use-portfolio-summary-visibility';
 import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
 import { useTabsPage } from '@/contexts/tabs-page-context';
-import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { resolveRepositoryBaseUrl, useAppServices } from '@/providers/app-providers';
 import { PostCard } from '@/features/social/components/post-card';
 import { RepostAttribution } from '@/features/social/components/repost-attribution';
@@ -475,8 +472,8 @@ export function PortfolioScreen({
   // NOTE: no guest on-mount redirect here. This screen is mounted *alongside*
   // the scanner in the tabs pager (both pages live at once), so a redirect would
   // fire the instant a guest lands on the scanner and bounce them to login.
-  // Guests are kept out of Collection by the pager lock + the gated Collection
-  // tab/drawer entries instead.
+  // Guests are kept out of Collection by the pager lock + the gated Home tab
+  // instead.
   const {
     spotlightRepository,
     refreshData,
@@ -485,7 +482,6 @@ export function PortfolioScreen({
     setActiveCollectionID,
     isActiveCollectionRestored,
     watchlistStore,
-    insightsGame,
   } = useAppServices();
   const [collectionsSnapshot, setCollectionsSnapshot] = useState<CollectionsSnapshot | null>(null);
   const [isLoadingCollections, setIsLoadingCollections] = useState(false);
@@ -534,7 +530,6 @@ export function PortfolioScreen({
   const [collectionDeleteError, setCollectionDeleteError] = useState<string | null>(null);
   const { isHidden: isSummaryHidden, toggle: toggleSummaryHidden } = usePortfolioSummaryVisibility();
   const { viewMode, toggleViewMode } = usePortfolioViewMode();
-  const { openDrawer } = useAppDrawer();
   const { activePage, setCollectionEditing } = useTabsPage();
   const handleTabBarScroll = useTabBarScrollHandler();
   const [activeChartPoint, setActiveChartPoint] = useState<PortfolioChartActivePoint | null>(null);
@@ -1406,24 +1401,6 @@ export function PortfolioScreen({
     [],
   );
 
-  // The top bar's "Search Cards" pill opens the catalog search, which presents
-  // as a full-screen modal up from the bottom (see the `(sheet)` group in the
-  // root layout). It used to scroll down to the inline collection-filter field,
-  // which reads as the same affordance as the search row already on the page —
-  // the top bar is for finding a card, not for filtering what you own.
-  const handleTopSearchPress = useCallback(() => {
-    // THIS SCREEN IS HOME, so its magnifier finds CARDS. It briefly searched
-    // people, from back when the feed was Home and this was your profile tab —
-    // the tabs swapped and the searches did not follow. People search lives on
-    // the Social tab's bar, where looking for a person is the intent.
-    router.push('/catalog/search' as never);
-  }, [router]);
-
-  const handleOpenAssistant = useCallback(() => {
-    // Home's market game picker (shared with Insights) is the game market-wide answers cover.
-    router.push(assistantHref('home', [], insightsGame));
-  }, [insightsGame, router]);
-
   /*
     NO `+` IN THIS BAR ANY MORE. The profile toolbar (3670:47454) spends both
     trailing slots on edit and share, so the `+` that composed a post from every
@@ -1436,6 +1413,11 @@ export function PortfolioScreen({
 
   const handleEditProfilePress = useCallback(() => {
     router.push('/edit-profile' as never);
+  }, [router]);
+
+  // The gear (Figma 6642:6202): Settings replaced the hamburger drawer.
+  const handleOpenSettings = useCallback(() => {
+    router.push('/settings' as never);
   }, [router]);
 
   // Empty-collection "Scan to add" chip.
@@ -1636,26 +1618,13 @@ export function PortfolioScreen({
   );
 
   /*
-    The profile toolbar (Figma 3670:47454) — menu, the search pill, then EDIT and
-    SHARE. Same `HomeHeader` Home draws, same geometry down to the point; only
-    the trailing pair differs.
+    The profile toolbar (Figma 6642:5964): ONE gear bubble on the right, which
+    opens Settings — the hamburger drawer's replacement. Same `HomeHeader`
+    Social draws, same geometry; only the trailing control differs.
 
-    IT HAD THE BELL AND THE `+`, INHERITED FROM HOME. This screen adopted Home's
-    bar wholesale when the two frames were identical, and the profile frame has
-    since diverged: 3670:47454 spends both trailing slots on edit and share, so
-    notifications and compose are gone FROM THIS SCREEN. Both still live one tab
-    away on Home, which keeps the bell (with its unread badge) and the `+`; the
-    drawer has neither, so Home is the route to them now.
-
-    EDIT CAME BACK UP HERE. It spent a while beside the profile name below,
-    because the older bar (3505:14521) had four slots and none of them were this.
-    The current frame gives it one, so the name-adjacent pencil is gone — there
-    is one edit affordance, and it is here.
-
-    SHARE IS FINALLY WIRED. A Share bubble from Figma 3095:7044 sat in this bar
-    once with `onPress={() => {}}` — present but inert, because sharing was never
-    built. It shares text now (`buildProfileShareMessage`); there is still no
-    profile URL to attach, and that file says why.
+    Search, edit and share left this bar in the 2026-11-22 redesign: Search is
+    a bottom tab, Edit profile is the avatar tap (and a Settings row), and Ask
+    Ekalight is the app-wide floating bubble that owns the top-left corner.
   */
   // Mirrors the header's contrast flip (white-over-cover vs dark-when-pinned)
   // onto the STATUS BAR: Figma 4134:49776 shows white time/battery over the
@@ -1679,12 +1648,9 @@ export function PortfolioScreen({
   const homeHeader = (
     <HomeHeader
       onOverCoverChange={setIsBarOverCover}
-      onOpenMenu={openDrawer}
-      onOpenAssistant={handleOpenAssistant}
       trailing={{
         kind: 'profile',
-        onEditProfile: handleEditProfilePress,
-        onOpenSearch: handleTopSearchPress,
+        onOpenSettings: handleOpenSettings,
       }}
       floating
       /*
@@ -1745,6 +1711,8 @@ export function PortfolioScreen({
         initials={profileInitials}
         isVerified={currentUser?.isVerified}
         onAddBioPress={handleEditProfilePress}
+        // Your own avatar opens Edit profile (the bar's edit pencil is gone).
+        onAvatarPress={handleEditProfilePress}
         onFollowersPress={handleOpenFollowers}
         onFollowingPress={handleOpenFollowing}
         onSocialLinkPress={handleSocialLinkPress}
@@ -1847,8 +1815,8 @@ export function PortfolioScreen({
           ) : null}
 
           {/* The search row is the filter field + the view toggle only. The
-              "Search Cards" magnifier that used to sit here was a duplicate of
-              the top-bar search bubble (both push /catalog/search), and the
+              "Search Cards" magnifier that used to sit here went with the
+              top-bar search bubble (Search is a bottom tab now), and the
               Select / Done edit-mode toggle was removed alongside it. Edit mode
               itself is still wired below — it just has no entry point on this
               row right now. */}
@@ -2200,20 +2168,7 @@ export function PortfolioScreen({
   };
 
   return (
-    /*
-      Left-edge drag opens the hamburger drawer. This lived in TopTabsPager's pan
-      responder and was lost with it — the drawer BUTTON kept working, the drag
-      did not.
-
-      WRAPPER, not an edge overlay. As a sibling strip it depended on touches
-      hit-testing to it, and the collection list swallowed them first, so the
-      gesture never fired. Wrapping means the recogniser sits above everything in
-      the tree and sees every touch through the CAPTURE phase — exactly what the
-      pager did (`onMoveShouldSetPanResponderCapture`) and for exactly this
-      reason. It claims the gesture only once it is unambiguously a drawer swipe,
-      which cancels the card underneath; ordinary scrolls are never claimed.
-    */
-    <DrawerEdgeSwipe>
+    <>
     {/* Overrides the route's static style: white glyphs over the cover, dark
         once the bar pins — mirrors the header's own contrast flip. */}
     {statusBar}
@@ -2223,10 +2178,8 @@ export function PortfolioScreen({
     >
       {/*
         Collapsing profile header, pinned tab bar, drag-following pages beneath.
-        INSIDE `DrawerEdgeSwipe`, so the drawer's capture handler is asked first;
-        the two never actually race because this one ignores the 24pt left-edge
-        band the drawer owns. It is also the FIRST child of the SafeAreaView, so
-        the `subviews[0]` walk still reaches the Collection list.
+        It is the FIRST child of the SafeAreaView, so the `subviews[0]` walk
+        still reaches the Collection list.
       */}
       <CollapsibleTabPager
         // Every page runs `contentInsetAdjustmentBehavior="automatic"`, so UIKit
@@ -2436,7 +2389,7 @@ export function PortfolioScreen({
         visible={wishlistToast !== null}
       />
     </SafeAreaView>
-    </DrawerEdgeSwipe>
+    </>
   );
 }
 

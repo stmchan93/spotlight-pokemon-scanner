@@ -49,9 +49,7 @@ import { AppErrorBoundary } from '@/lib/observability/app-error-boundary';
 import { PostHogAppProvider, identifyPostHogUser } from '@/lib/observability/posthog';
 import { PostHogScreenTracker } from '@/lib/observability/posthog-screen-tracker';
 import { AppProviders } from '@/providers/app-providers';
-import { AppDrawer } from '@/components/app-drawer';
 import { CircularTabAvatarProvider } from '@/components/circular-tab-avatar';
-import { AppDrawerProvider } from '@/providers/app-drawer-provider';
 import { PENDING_GUEST_USER_ID } from '@/features/auth/auth-models';
 import {
   AuthProvider,
@@ -82,7 +80,7 @@ SplashScreen.setOptions({ duration: 220, fade: true });
 // which stacks whole extra copies of the pager (Collection chart + dashboard
 // model + scanner). Without freeze those buried copies keep re-rendering and
 // re-fetching on every data change, and the JS thread backlog surfaces as an
-// app-wide ~200-300ms input lag on swipes/drawer taps. Frozen screens thaw
+// app-wide ~200-300ms input lag on swipes and taps. Frozen screens thaw
 // automatically when navigated back to.
 enableFreeze(true);
 
@@ -396,29 +394,26 @@ function RootLayout() {
                 <ObservabilityAuthSync />
                 <AppErrorBoundary>
                   <AuthenticatedAppProviders>
-                    <AppDrawerProvider>
-                      {/*
-                        Wraps the navigator because the You TAB reads the icon it
-                        publishes, and mounts the off-screen SVG it rasterises
-                        from HERE because `<NativeTabs>` drops any child that is
-                        not a Trigger or a BottomAccessory — see the file.
-                      */}
-                      <CircularTabAvatarProvider>
-                        <View style={{ flex: 1, backgroundColor: navigationTheme.colors.background }}>
-                          <RootNavigator />
-                          {/*
-                            Renderless, and it has to live HERE: inside
-                            `AuthenticatedAppProviders` (it reads the repository
-                            and the session) and beside the navigator (it routes
-                            a tapped notification). It never prompts for
-                            permission — `FirstLaunchPushPrompt` does, once.
-                          */}
-                          <PushNotificationsBridge />
-                          <StagingSmokeDiagnostics />
-                          <AppDrawer />
-                        </View>
-                      </CircularTabAvatarProvider>
-                    </AppDrawerProvider>
+                    {/*
+                      Wraps the navigator because the You TAB reads the icon it
+                      publishes, and mounts the off-screen SVG it rasterises
+                      from HERE because `<NativeTabs>` drops any child that is
+                      not a Trigger or a BottomAccessory — see the file.
+                    */}
+                    <CircularTabAvatarProvider>
+                      <View style={{ flex: 1, backgroundColor: navigationTheme.colors.background }}>
+                        <RootNavigator />
+                        {/*
+                          Renderless, and it has to live HERE: inside
+                          `AuthenticatedAppProviders` (it reads the repository
+                          and the session) and beside the navigator (it routes
+                          a tapped notification). It never prompts for
+                          permission — `FirstLaunchPushPrompt` does, once.
+                        */}
+                        <PushNotificationsBridge />
+                        <StagingSmokeDiagnostics />
+                      </View>
+                    </CircularTabAvatarProvider>
                   </AuthenticatedAppProviders>
                 </AppErrorBoundary>
               </PostHogAppProvider>

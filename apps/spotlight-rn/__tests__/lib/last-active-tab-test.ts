@@ -13,12 +13,14 @@ describe('last active tab', () => {
   it('maps each tab pathname, and treats the root as Home', () => {
     expect(returnableTabFromPathname('/')).toBe('index');
     expect(returnableTabFromPathname('')).toBe('index');
-    expect(returnableTabFromPathname('/wishlist')).toBe('wishlist');
+    expect(returnableTabFromPathname('/search')).toBe('search');
+    // A redirect to Home now, not a tab.
+    expect(returnableTabFromPathname('/wishlist')).toBeNull();
     expect(returnableTabFromPathname('/social')).toBe('social');
     expect(returnableTabFromPathname('/events')).toBe('events');
     // Trailing slashes and query strings are the same tab.
     expect(returnableTabFromPathname('/social/')).toBe('social');
-    expect(returnableTabFromPathname('/wishlist?filter=all')).toBe('wishlist');
+    expect(returnableTabFromPathname('/search?q=pikachu')).toBe('search');
   });
 
   // The load-bearing case. If `/scan` counted as a returnable tab, opening the
@@ -33,12 +35,12 @@ describe('last active tab', () => {
   });
 
   it('ignores pushed routes, so a detour does not become the destination', () => {
-    rememberActiveTab('/wishlist');
-    // Opening a card from the Wishlist should not make the PDP the tab to
-    // return to — it is not a tab at all.
+    rememberActiveTab('/search');
+    // Opening a card from Search should not make the PDP the tab to return to
+    // — it is not a tab at all.
     rememberActiveTab('/cards/base1-4');
     rememberActiveTab('/notifications');
-    expect(getLastActiveTab()).toBe('wishlist');
+    expect(getLastActiveTab()).toBe('search');
   });
 
   it('starts on Home, for a cold launch straight into the Scanner', () => {
@@ -51,8 +53,8 @@ describe('last active tab', () => {
     expect(getLastActiveTab()).toBe('index');
     rememberActiveTab('/social');
     expect(getLastActiveTab()).toBe('social');
-    rememberActiveTab('/wishlist');
-    expect(getLastActiveTab()).toBe('wishlist');
+    rememberActiveTab('/search');
+    expect(getLastActiveTab()).toBe('search');
     rememberActiveTab('/events');
     expect(getLastActiveTab()).toBe('events');
   });

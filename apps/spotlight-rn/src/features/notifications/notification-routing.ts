@@ -2,6 +2,7 @@ import {
   FEED_MARKET_FALLBACK_URL,
   isFeedMarketRoutePath,
 } from '@/features/meta-feed/feed-market-routes';
+import { HOME_WATCHLIST_HREF } from '@/lib/home-profile-tab';
 import { resolveFeedMarketBlocksEnabled } from '@/lib/runtime-config';
 
 /**
@@ -12,8 +13,12 @@ import { resolveFeedMarketBlocksEnabled } from '@/lib/runtime-config';
  * has to think about it.
  */
 
-/** Where an untargeted/unroutable deal push lands. */
-export const DEAL_NOTIFICATION_FALLBACK_URL = '/wishlist';
+/**
+ * Where an untargeted/unroutable deal push lands: Home on its WATCHLIST tab.
+ * (Pushes that still carry `/wishlist` reach the same place through the
+ * `(tabs)/wishlist` redirect.)
+ */
+export const DEAL_NOTIFICATION_FALLBACK_URL: string = HOME_WATCHLIST_HREF;
 
 export type NotificationRoute = {
   /** An in-app absolute path, always safe to hand to the router. */
@@ -54,7 +59,7 @@ export function normalizeNotificationUrl(value: unknown): string | null {
  * Turn a notification's `data` bag into something routable.
  *
  * Returns a route even when the payload is junk — a tap must always go
- * SOMEWHERE, and `/wishlist` is where a deal lives. Returns null only when
+ * SOMEWHERE, and the Watchlist is where a deal lives. Returns null only when
  * there is no data object at all (i.e. nothing was tapped).
  */
 export function parseNotificationRoute(data: unknown): NotificationRoute | null {

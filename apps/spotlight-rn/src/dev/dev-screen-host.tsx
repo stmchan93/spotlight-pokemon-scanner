@@ -49,6 +49,7 @@ import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
 import { SalesHistoryScreen } from '@/features/portfolio/screens/sales-history-screen';
 import { setDevProfileOverrides } from '@/features/profile/profile-service';
 import { EditProfileScreen } from '@/features/profile/screens/edit-profile-screen';
+import { SettingsScreen } from '@/features/settings/screens/settings-screen';
 import { FollowListScreen } from '@/features/profile/screens/follow-list-screen';
 import { PublicProfileScreen } from '@/features/profile/screens/public-profile-screen';
 import { TopTrendsBlock } from '@/features/social/components/top-trends-block';
@@ -201,6 +202,8 @@ const devScreens: Record<string, () => ReactElement> = {
   // Form fields come from the auth provider's test user (EXPO_PUBLIC_DEV_SCREENS=1
   // signs it in), so name is filled and bio/location/link show their placeholders.
   'edit-profile': () => <EditProfileScreen />,
+  // The gear on Home (Figma 6642:6202); replaced the hamburger drawer.
+  settings: () => <SettingsScreen />,
   'public-profile': () => <PublicProfileScreen handle={DEV_PROFILE_HANDLE} onBack={noop} />,
   'follow-list': () => <FollowListScreen mode="followers" onBack={noop} userID={DEV_PROFILE_ID} />,
   'post-detail': () => <PostDetailScreen postId={DEV_POST_ID} />,
@@ -226,6 +229,10 @@ const devScreens: Record<string, () => ReactElement> = {
   // Search landing (Figma 6597:5654): SINGLES + SEALED rails, the first three sets with progress.
   'expansion-browser': () => (
     <ExpansionBrowserScreen onClose={noop} onOpenAssistant={noop} onOpenCard={noop} onSelectExpansion={noop} />
+  ),
+  // The same landing hosted as the Search TAB: no close bubble.
+  'search-tab': () => (
+    <ExpansionBrowserScreen dismissStyle="none" onOpenCard={noop} onSelectExpansion={noop} />
   ),
   // Set page (Figma 6425:3296): faded unowned tiles, rarity chips, and Grovyle
   // (#003) held raw + PSA 10, so its − opens the "which copy?" sheet.

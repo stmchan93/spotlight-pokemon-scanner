@@ -25,9 +25,10 @@ export const AnalyticsEvent = {
   similarCardsShown: 'similar_cards_shown',
   similarCardOpened: 'similar_card_opened',
 
-  // Hamburger drawer. `drawer_item_tapped` carries `item` (the nav key).
-  drawerOpened: 'drawer_opened',
-  drawerItemTapped: 'drawer_item_tapped',
+  // Settings (the gear on Home; replaced the hamburger drawer and its
+  // `drawer_opened` / `drawer_item_tapped`). `settings_item_tapped` carries `item`.
+  settingsOpened: 'settings_opened',
+  settingsItemTapped: 'settings_item_tapped',
 
   // Swipe chain across the bottom tabs. Carries `from_tab`, `to_tab`, `direction` (next | previous).
   tabSwipeNavigated: 'tab_swipe_navigated',

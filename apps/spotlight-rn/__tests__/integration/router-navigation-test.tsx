@@ -8,8 +8,8 @@ function ScanTabStub() {
   return <Text testID="scan-tab-stub">scanner</Text>;
 }
 
-function WishlistTabStub() {
-  return <Text testID="wishlist-stub-screen">wishlist</Text>;
+function SearchTabStub() {
+  return <Text testID="search-tab-stub">search</Text>;
 }
 
 describe('mobile app routing', () => {
@@ -18,7 +18,7 @@ describe('mobile app routing', () => {
     const app = renderAppRouter('/', { '(tabs)/scan': ScanTabStub });
 
     await waitFor(() => {
-      expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
+      expect(screen.getByTestId('portfolio-header-settings')).toBeTruthy();
     });
     expect(app.getPathname()).toBe('/');
     expect(screen.getByTestId('tab-pager')).toBeTruthy();
@@ -37,26 +37,25 @@ describe('mobile app routing', () => {
     expect(screen.getByTestId('scan-tab-stub')).toBeTruthy();
   });
 
-  it('reaches Wishlist as a tab route', async () => {
-    // Wishlist was a PUSHED stack screen and is now a tab, so `/wishlist`
-    // resolves inside (tabs). The three tests that used to live here covered the
-    // custom bar's push/dismiss contract on that pushed screen — a contract that
-    // no longer exists for Wishlist, since the tab navigator owns tab switching.
-    //
-    // That bar (`app-bottom-tab-bar`) has since been deleted outright — it had
-    // no remaining call sites — so its duplicate-push guard is gone with it,
-    // not relocated. This comment used to claim the guard was "still covered by
-    // app-bottom-tab-bar's own tests"; there were never any such tests.
-    const app = renderAppRouter('/wishlist', {
-      // Stubbed for the same reason the pushed version was: this asserts the
-      // ROUTE resolves inside (tabs), not the wishlist content.
-      '(tabs)/wishlist': WishlistTabStub,
-    });
+  it('reaches Search as a tab route', async () => {
+    const app = renderAppRouter('/search', { '(tabs)/search': SearchTabStub });
 
     await waitFor(() => {
-      expect(app.getPathname()).toBe('/wishlist');
+      expect(app.getPathname()).toBe('/search');
     });
-    expect(await screen.findByTestId('wishlist-stub-screen')).toBeTruthy();
+    expect(await screen.findByTestId('search-tab-stub')).toBeTruthy();
+  });
+
+  // Watchlist left the bar for a Home profile tab. `/wishlist` (old links,
+  // pushes already sent) redirects to Home with `tab=watchlist`, the param the
+  // profile honours.
+  it('redirects /wishlist to Home on its WATCHLIST profile tab', async () => {
+    const app = renderAppRouter('/wishlist');
+
+    await waitFor(() => {
+      expect(app.getPathname()).toBe('/');
+    });
+    expect(app.getSearchParams()).toEqual(expect.objectContaining({ tab: 'watchlist' }));
   });
 
   it('renders the sales-history route directly', async () => {
@@ -69,7 +68,7 @@ describe('mobile app routing', () => {
     const app = renderAppRouter('/portfolio');
 
     await waitFor(() => {
-      expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
+      expect(screen.getByTestId('portfolio-header-settings')).toBeTruthy();
     });
     // Selected-tab state is UIKit's now, so the assertion that survives is that
     // the legacy paths still land on Collection — back at `/` since the feed
@@ -81,7 +80,7 @@ describe('mobile app routing', () => {
     const app = renderAppRouter('/you');
 
     await waitFor(() => {
-      expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
+      expect(screen.getByTestId('portfolio-header-settings')).toBeTruthy();
     });
     expect(app.getPathname()).toBe('/');
   });

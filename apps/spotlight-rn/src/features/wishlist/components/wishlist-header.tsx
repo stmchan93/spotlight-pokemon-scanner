@@ -1,11 +1,10 @@
-import { EditPencil, Menu, Search } from 'iconoir-react-native';
+import { EditPencil, Search } from 'iconoir-react-native';
 import { useMemo } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   AppText,
-  GlassNavBubble,
   GlassNavBubbleGroup,
   glassNavBubbleGlyphSize,
   glassNavBubbleGlyphStrokeWidth,
@@ -18,8 +17,6 @@ import {
 import { EditDoneButton } from '@/components/edit-done-button';
 
 type WishlistHeaderProps = {
-  /** Opens the app drawer. Wishlist is a TAB, so there is nothing to go back to. */
-  onOpenMenu: () => void;
   /** Opens the card catalog search. Omitted → the control is not rendered. */
   onOpenSearch?: () => void;
   /** When true the bar shows a "Done" action instead of the edit pencil. */
@@ -156,8 +153,8 @@ export const WISHLIST_TITLE_HIDE_DISTANCE = 56;
 const TITLE_TRAVEL = BAR_PADDING_TOP + CONTROL_ROW_HEIGHT;
 
 /**
- * Width of EACH side slot: the wider of the menu bubble (left) and the
- * search/edit capsule (right). Both slots take this width so the title sits on
+ * Width of EACH side slot: the wider of a bubble (the empty leading slot the
+ * floating assistant sits over) and the search/edit capsule (right). Both slots take this width so the title sits on
  * the bar's true centre and stops short of whichever side is wider. The capsule
  * width is reserved in edit mode too (the Done pill is narrower), so the title
  * never jumps when Done swaps in.
@@ -167,7 +164,6 @@ export function wishlistHeaderSideSlotWidth(actionCount: number): number {
 }
 
 export function WishlistHeader({
-  onOpenMenu,
   onOpenSearch,
   editMode = false,
   floating = false,
@@ -226,16 +222,9 @@ export function WishlistHeader({
       testID={testID}
     >
       <View style={[styles.headerSlot, sideSlot]} testID={`${testID}-leading-slot`}>
-        <GlassNavBubble
-          accessibilityLabel="Open menu"
-          material="frost"
-          onPress={onOpenMenu}
-          size="medium"
-          surface="onLight"
-          testID="wishlist-header-menu"
-        >
-          <Menu color={theme.colors.gray900} height={BUTTON_ICON_SIZE} strokeWidth={BUTTON_ICON_STROKE} width={BUTTON_ICON_SIZE} />
-        </GlassNavBubble>
+        {/* Empty on purpose: the hamburger drawer is gone, and the app-wide
+            floating assistant bubble owns this corner. The slot keeps its
+            width so the title stays on the bar's true centre. */}
       </View>
       {/*
         The clip is on the TITLE'S OWN wrapper. It is what actually removes the

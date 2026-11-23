@@ -5,7 +5,13 @@ import { GameSetsScreen } from '@/features/catalog/screens/game-sets-screen';
 type ExpansionBrowserScreenProps = {
   /** The game the chips start on; Pokémon when absent. */
   initialGame?: CardGame;
-  onClose: () => void;
+  /**
+   * `close` (default) when it slid up as the `/catalog/search` sheet; `none`
+   * when it IS the Search tab, which has nothing to dismiss.
+   */
+  dismissStyle?: 'close' | 'none';
+  /** Required for `dismissStyle="close"`. */
+  onClose?: () => void;
   onSelectExpansion: (expansion: ExpansionRecord, game: CardGame) => void;
   onOpenCard: (result: CatalogSearchResult) => void;
   onOpenAssistant?: () => void;
@@ -19,8 +25,9 @@ type ExpansionBrowserScreenProps = {
  */
 export function ExpansionBrowserScreen({
   initialGame = DEFAULT_CARD_GAME,
+  dismissStyle = 'close',
   ...props
 }: ExpansionBrowserScreenProps) {
-  // Search's landing slides UP, so it closes with X.
-  return <GameSetsScreen dismissStyle="close" game={initialGame} {...props} />;
+  // Search's landing slides UP, so it closes with X — unless it is the tab.
+  return <GameSetsScreen dismissStyle={dismissStyle} game={initialGame} {...props} />;
 }

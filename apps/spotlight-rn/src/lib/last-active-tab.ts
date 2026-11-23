@@ -16,9 +16,9 @@
  */
 
 /** The tab route names that can be returned to. Scan is deliberately not one. */
-export type ReturnableTabName = 'events' | 'index' | 'social' | 'wishlist';
+export type ReturnableTabName = 'events' | 'index' | 'search' | 'social';
 
-const RETURNABLE_TABS: readonly string[] = ['events', 'index', 'social', 'wishlist'];
+const RETURNABLE_TABS: readonly string[] = ['events', 'index', 'search', 'social'];
 
 /**
  * Home, i.e. the collection. Used before anything has been recorded — a cold

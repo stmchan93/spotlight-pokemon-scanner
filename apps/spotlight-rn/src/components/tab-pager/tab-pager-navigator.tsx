@@ -42,7 +42,6 @@ import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area
 
 import { colors } from '@spotlight/design-system';
 
-import { DRAWER_EDGE_WIDTH } from '@/components/drawer-edge-swipe';
 import {
   AppTabBar,
   getAppTabBarHeight,
@@ -88,7 +87,7 @@ import { useAuth } from '@/providers/auth-provider';
   THE GESTURE is a gesture-handler Pan with MANUAL activation. Its worklet makes
   one decision per touch, at 12pt of horizontal travel (or fails at 12pt
   vertical — a scroll is never taken), entirely on the UI thread:
-    1. horizontal-dominant (1.35x), single finger, not in the drawer's left band;
+    1. horizontal-dominant (1.35x), single finger;
     2. not stamped by a guarded view (below), not locked by the page;
     3. `resolveOuterSwipe`: if the page's own inner pager (Home, Social) can
        still move this way, FAIL and leave it to that pager (it claims at 14pt);
@@ -109,8 +108,6 @@ import { useAuth } from '@/providers/auth-provider';
    - Watchlist + Deal Radar swipe-to-delete rows (`Swipeable`, -15pt): the row
      is wrapped in a `next`-only guard — leftward drags are the row's, rightward
      still page back to Home; an OPEN rail guards both ways.
-   - DrawerEdgeSwipe: touches starting in its 24pt left band are never taken on
-     the pages that host the drawer (Home, Watchlist, Social).
    - Portfolio chart scrub: its own RNGH Pan activates at 6pt (and the hold at
      250ms), before this one decides, and RNGH cancels us — composition, no flag.
    - Scanner: the tray carries the guard composed `Simultaneous` with its own
@@ -146,13 +143,6 @@ const GUARD_WINDOW_MS = 50;
 const TAP_SLIDE_MS = 280;
 /** Release spring: near-critically damped, clamped so the strip never overshoots a page. */
 const SETTLE_SPRING = { damping: 30, mass: 1, overshootClamping: true, stiffness: 260 } as const;
-/**
- * Left-edge band left to `DrawerEdgeSwipe` on the pages that host the drawer
- * (Home, Watchlist, Social). Scan and Events have no drawer, so no band.
- */
-const EDGE_GUARD_BY_PAGE = TAB_PAGER_ORDER.map((tab) =>
-  (tab === 'index' || tab === 'wishlist' || tab === 'social' ? DRAWER_EDGE_WIDTH : 0));
-
 type TabPagerEventMap = {
   tabPress: { canPreventDefault: true; data: undefined };
 };
@@ -560,11 +550,6 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
       const page = Math.min(Math.max(Math.round(position.value), 0), pageCount - 1);
       startPage.value = page;
       if (globalLock.value || lockedPages.value[page]) {
-        stateManager.fail();
-        return;
-      }
-      // The drawer's left-edge band.
-      if (touch.absoluteX <= (EDGE_GUARD_BY_PAGE[page] ?? 0)) {
         stateManager.fail();
       }
     })
