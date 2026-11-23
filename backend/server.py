@@ -28668,7 +28668,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": f"unknown game: {game}"})
                 return
             if window not in market_analytics.WINDOWS:
-                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "window must be 7d, 30d or 90d"})
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "window must be 7d, 30d, 90d or 1y"})
                 return
             if parsed.path == "/api/v1/market/heatmap/set":
                 set_id = query_params.get("setId", [""])[0].strip()

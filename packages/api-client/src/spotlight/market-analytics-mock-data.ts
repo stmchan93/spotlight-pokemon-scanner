@@ -50,6 +50,16 @@ export const mockMarketAnalytics: MarketAnalytics = {
     indexValueUsd: 58214.37,
     breadth: { up: 1482, down: 911, flat: 604, upPct: 49.4 },
     sparkline: series(58214.37, 3.84, 30),
+    index: {
+      name: 'Pokémon Market Index',
+      points: series(218.6, 4.1, 30),
+      value: 218.6,
+      changePct: 4.1,
+      rangeLow: 207.9,
+      rangeHigh: 218.6,
+      basketSize: 100,
+      rebalancedOn: '2026-11-01',
+    },
   },
   you: { changePct: 5.12, valueUsd: 4381.55, marketChangePct: 3.84, beatsMarket: true },
   heatmap: [

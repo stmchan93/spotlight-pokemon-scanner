@@ -95,6 +95,7 @@ describe('HttpSpotlightRepository market analytics reads', () => {
       indexValueUsd: null,
       breadth: { up: 0, down: 0, flat: 0, upPct: null },
       sparkline: [],
+      index: null,
     });
     expect(payload.you).toBeNull();
     expect(payload.heatmap).toEqual([
@@ -105,6 +106,45 @@ describe('HttpSpotlightRepository market analytics reads', () => {
     expect(payload.breakingOut).toEqual([]);
     expect(payload.setsRising).toEqual([]);
     expect(payload.grading[0].owned).toBe(false);
+  });
+
+  it('maps the market index and the 1y window; a broken index reads null', async () => {
+    mockFetch(
+      jsonResponse(200, {
+        game: 'pokemon',
+        window: '1y',
+        pulse: {
+          breadth: {},
+          index: {
+            name: 'Pokémon Market Index',
+            points: [{ date: '2025-11-22', value: '108.1' }, { date: 'bad' }, { date: '2026-11-22', value: 218.6 }],
+            value: 218.6,
+            changePct: 102.3,
+            rangeLow: 103.9,
+            rangeHigh: 218.6,
+            basketSize: 100,
+            rebalancedOn: '2026-11-01',
+          },
+        },
+      }),
+      jsonResponse(200, { game: 'pokemon', window: '1y', pulse: { index: { value: 'x', points: [] } } }),
+    );
+    const repository = new HttpSpotlightRepository('http://example.test');
+
+    const payload = await repository.getMarketAnalytics({ game: 'pokemon', window: '1y' });
+    expect(payload.window).toBe('1y');
+    expect(payload.pulse.index).toEqual({
+      name: 'Pokémon Market Index',
+      points: [{ date: '2025-11-22', value: 108.1 }, { date: '2026-11-22', value: 218.6 }],
+      value: 218.6,
+      changePct: 102.3,
+      rangeLow: 103.9,
+      rangeHigh: 218.6,
+      basketSize: 100,
+      rebalancedOn: '2026-11-01',
+    });
+    const broken = await repository.getMarketAnalytics({ game: 'pokemon', window: '1y' });
+    expect(broken.pulse.index).toBeNull();
   });
 
   it('resolves null for 204 / 404 and throws on other failures', async () => {

@@ -1,14 +1,16 @@
-import type {
-  CardGame,
-  CardPricePosition,
-  CardPricePositionQuery,
-  MarketAnalytics,
-  MarketCardTile,
-  MarketHeatmapSet,
-  MarketHeatmapSetCard,
-  MarketHeatmapTile,
-  MarketPoint,
-  MarketWindow,
+import {
+  gameDisplayName,
+  type CardGame,
+  type CardPricePosition,
+  type CardPricePositionQuery,
+  type MarketAnalytics,
+  type MarketCardTile,
+  type MarketHeatmapSet,
+  type MarketHeatmapSetCard,
+  type MarketHeatmapTile,
+  type MarketIndex,
+  type MarketPoint,
+  type MarketWindow,
 } from '@spotlight/api-client';
 
 /**
@@ -22,14 +24,15 @@ import type {
 const cdn = 'https://images.pokemontcg.io';
 const AS_OF = '2026-11-22';
 
-const WINDOW_DAYS: Record<MarketWindow, number> = { '7d': 7, '30d': 30, '90d': 90 };
+const WINDOW_DAYS: Record<MarketWindow, number> = { '7d': 7, '30d': 30, '90d': 90, '1y': 365 };
 // The backend's honest window names (docs/market-analytics-2026-11-23.md).
 const WINDOW_LABELS: Record<MarketWindow, string> = {
   '7d': 'past week',
   '30d': 'past 30 days',
   '90d': 'past 90 days',
+  '1y': 'past year',
 };
-const WINDOW_SCALE: Record<MarketWindow, number> = { '7d': 0.35, '30d': 1, '90d': 1.8 };
+const WINDOW_SCALE: Record<MarketWindow, number> = { '7d': 0.35, '30d': 1, '90d': 1.8, '1y': 3.2 };
 
 /** djb2 → [0, 1). */
 function unit(seed: string): number {
@@ -62,6 +65,44 @@ function series(seed: string, start: number, end: number, days: number): MarketP
       value: round((start + (end - start) * t) * (1 + wobble)),
     };
   });
+}
+
+// Market Index year paths (base-100 levels a year ago -> today); Gundam has none.
+const INDEX_YEAR: Partial<Record<CardGame, readonly [number, number]>> = {
+  pokemon: [108.1, 218.6],
+  onepiece: [100, 142.3],
+  lorcana: [100, 91.4],
+  riftbound: [100, 88.2],
+};
+const INDEX_POINTS = 60;
+
+function indexFor(game: CardGame, window: MarketWindow): MarketIndex | null {
+  const year = INDEX_YEAR[game];
+  if (!year) {
+    return null;
+  }
+  const [from, to] = year;
+  const daily = Array.from({ length: 366 }, (_, index) => {
+    const t = index / 365;
+    const wobble = index === 0 || index === 365 ? 0 : Math.sin(index / 9) * 0.035 + (unit(`${game}:idx:${index}`) - 0.5) * 0.012;
+    return { date: isoDaysBefore(AS_OF, 365 - index), value: round(from * (to / from) ** t * (1 + wobble)) };
+  });
+  const slice = daily.slice(daily.length - 1 - WINDOW_DAYS[window]);
+  const step = Math.max(1, Math.ceil(slice.length / INDEX_POINTS));
+  const points = slice.filter((_, index) => index % step === 0 || index === slice.length - 1);
+  const values = slice.map((point) => point.value);
+  const first = slice[0].value;
+  const last = slice[slice.length - 1].value;
+  return {
+    name: `${gameDisplayName(game)} Market Index`,
+    points,
+    value: last,
+    changePct: round(((last - first) / first) * 100),
+    rangeLow: Math.min(...values),
+    rangeHigh: Math.max(...values),
+    basketSize: 100,
+    rebalancedOn: '2026-11-01',
+  };
 }
 
 type SetSeed = { setId: string; name: string; totalValueUsd: number; changePct: number; cardCount: number };
@@ -237,6 +278,7 @@ export function buildDevMarketAnalytics(
       sparkline: indexValueUsd != null && changePct != null
         ? series(`${game}:index`, indexValueUsd / (1 + changePct / 100), indexValueUsd, days)
         : [],
+      index: indexFor(game, window),
     },
     you: options.includeYou !== false && sets.length > 0
       ? {

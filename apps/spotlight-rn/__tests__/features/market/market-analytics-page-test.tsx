@@ -59,9 +59,12 @@ describe('MarketAnalyticsPage', () => {
     const { getMarketAnalytics } = renderPage();
     expect(screen.getByTestId(`${ID}-loading`)).toBeTruthy();
 
-    expect(await screen.findByTestId(`${ID}-pulse-change`)).toHaveTextContent(/^\+\d+\.\d%$/);
+    expect(await screen.findByTestId(`${ID}-pulse-change`)).toHaveTextContent(/^↑ \+\d+\.\d% · 1M$/);
     expect(getMarketAnalytics).toHaveBeenCalledWith({ game: 'pokemon', window: '30d' });
-    expect(screen.getByTestId(`${ID}-pulse-subline`)).toHaveTextContent(/^Past 30 days · /);
+    expect(screen.getByTestId(`${ID}-pulse-name`)).toHaveTextContent('POKÉMON MARKET INDEX');
+    // An index level with one decimal, never dollars.
+    expect(screen.getByTestId(`${ID}-pulse-value`)).toHaveTextContent(/^\d+\.\d$/);
+    expect(screen.getByTestId(`${ID}-pulse-range`)).toHaveTextContent(/^Range \d+\.\d–\d+\.\d$/);
     expect(screen.getByTestId(`${ID}-pulse-breadth-text`)).toHaveTextContent(/\d+% of cards up · \d+% down/);
     expect(screen.getByTestId(`${ID}-sets-rising-sv10`)).toBeTruthy();
     expect(screen.getByTestId(`${ID}-sets-falling-sv7`)).toBeTruthy();
@@ -72,12 +75,28 @@ describe('MarketAnalyticsPage', () => {
     expect(screen.getByTestId(`${ID}-as-of`)).toHaveTextContent('Prices as of 2026-11-22 · USD');
   });
 
-  it('re-reads on a window change and uses the server window label verbatim', async () => {
+  it('re-reads on a window change, including 1Y', async () => {
     const { getMarketAnalytics } = renderPage();
     await screen.findByTestId(`${ID}-pulse-change`);
     fireEvent.press(screen.getByTestId(`${ID}-window-7d`));
     await waitFor(() => expect(getMarketAnalytics).toHaveBeenLastCalledWith({ game: 'pokemon', window: '7d' }));
-    await waitFor(() => expect(screen.getByTestId(`${ID}-pulse-subline`)).toHaveTextContent(/^Past week · /));
+    await waitFor(() => expect(screen.getByTestId(`${ID}-pulse-change`)).toHaveTextContent(/ · 7D$/));
+    fireEvent.press(screen.getByTestId(`${ID}-window-1y`));
+    await waitFor(() => expect(getMarketAnalytics).toHaveBeenLastCalledWith({ game: 'pokemon', window: '1y' }));
+    const year = buildDevMarketAnalytics('pokemon', '1y').pulse.index!;
+    await waitFor(() => expect(screen.getByTestId(`${ID}-pulse-change`)).toHaveTextContent(
+      `↑ +${year.changePct!.toFixed(1)}% · 1Y`,
+    ));
+    expect(screen.getByTestId(`${ID}-pulse-value`)).toHaveTextContent(year.value.toFixed(1));
+  });
+
+  it('falls back to the dollar basket header when the backend sends no index', async () => {
+    const base = buildDevMarketAnalytics('pokemon', '30d');
+    const getMarketAnalytics = jest.fn(async () => ({ ...base, pulse: { ...base.pulse, index: null } }));
+    renderPage({ getMarketAnalytics });
+    expect(await screen.findByTestId(`${ID}-pulse-change`)).toHaveTextContent(/^\+\d+\.\d%$/);
+    expect(screen.getByTestId(`${ID}-pulse-subline`)).toHaveTextContent(/^Past 30 days · /);
+    expect(screen.queryByTestId(`${ID}-pulse-value`)).toBeNull();
   });
 
   it('switches game from the sheet and shows a thin-game empty state', async () => {
@@ -104,13 +123,19 @@ describe('MarketAnalyticsPage', () => {
     const base = buildDevMarketAnalytics('pokemon', '30d');
     const getMarketAnalytics = jest.fn(async () => ({
       ...base,
-      pulse: { ...base.pulse, changePct: null, indexValueUsd: null, breadth: { ...base.pulse.breadth, upPct: null } },
+      pulse: {
+        ...base.pulse,
+        changePct: null,
+        indexValueUsd: null,
+        breadth: { ...base.pulse.breadth, upPct: null },
+        index: base.pulse.index && { ...base.pulse.index, changePct: null },
+      },
       you: base.you && { ...base.you, changePct: null, beatsMarket: null },
       breakingOut: base.breakingOut.map((item) => ({ ...item, changePct: null, previousHighUsd: null })),
     }));
     renderPage({ getMarketAnalytics });
-    expect(await screen.findByTestId(`${ID}-pulse-change`)).toHaveTextContent('—');
-    expect(screen.getByTestId(`${ID}-pulse-subline`)).toHaveTextContent('Past 30 days');
+    expect(await screen.findByTestId(`${ID}-pulse-change`)).toHaveTextContent('— · 1M');
+    expect(screen.getByTestId(`${ID}-pulse-range`)).toHaveTextContent(/^Range /);
     expect(screen.getByTestId(`${ID}-pulse-breadth-text`)).toHaveTextContent(/\d+% of cards up/);
   });
 

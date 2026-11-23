@@ -12,6 +12,7 @@ import {
   type MarketHeatmapSet,
   type MarketHeatmapSetCard,
   type MarketHeatmapTile,
+  type MarketIndex,
   type MarketPoint,
   type MarketSetMove,
   type MarketSetTile,
@@ -112,6 +113,29 @@ function setMoves(value: unknown, fallbackGame: CardGame): MarketSetMove[] {
   }));
 }
 
+function marketIndex(value: unknown): MarketIndex | null {
+  if (value == null || typeof value !== 'object') {
+    return null;
+  }
+  const raw = asRecord(value);
+  const level = numOrNull(raw.value);
+  const indexPoints = points(raw.points);
+  if (level == null || indexPoints.length < 2) {
+    return null;
+  }
+  const values = indexPoints.map((point) => point.value);
+  return {
+    name: str(raw.name) ?? 'Market Index',
+    points: indexPoints,
+    value: level,
+    changePct: numOrNull(raw.changePct),
+    rangeLow: numOrNull(raw.rangeLow) ?? Math.min(...values),
+    rangeHigh: numOrNull(raw.rangeHigh) ?? Math.max(...values),
+    basketSize: num(raw.basketSize),
+    rebalancedOn: str(raw.rebalancedOn),
+  };
+}
+
 function you(value: unknown): MarketYou | null {
   if (value == null || typeof value !== 'object') {
     return null;
@@ -152,6 +176,7 @@ export function parseMarketAnalyticsPayload(
         upPct: numOrNull(breadth.upPct),
       },
       sparkline: points(pulse.sparkline),
+      index: marketIndex(pulse.index),
     },
     you: you(raw.you),
     heatmap: compact(asArray(raw.heatmap).map((item): MarketHeatmapTile | null => {

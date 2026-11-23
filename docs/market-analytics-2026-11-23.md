@@ -69,6 +69,25 @@ lists, never an error.
 
 ## Definitions
 
+- **Market Index (`pulse.index`, added 2026-11-23)**: `backend/market_index.py`.
+  Per game: the top 100 English raw singles (no sealed, no Japanese,
+  collectible, >= $10) by price as of the selection day, each with no >3x
+  day-to-day step in the 30 days before it. Basket FIXED per calendar month
+  (picked on the 1st, held all month). Equal-weighted: each day = yesterday x
+  mean of every member's price ratio vs yesterday (last price carried forward,
+  single-point glitches dropped). Chain-linked: on the 1st the old basket sets
+  the level, the new one moves it from the 2nd. Base 100 on the first day of
+  stored history within a year (a game whose prices start later begins on its
+  first 1st with >= 20 cards). Tables `market_index_daily`,
+  `market_index_baskets`, `market_index_runs`; refreshed at the top of
+  `refresh_market_analytics` (backfill once, then resume from the latest
+  basket). CLI: `python backend/market_index.py --compute --database-path <db>
+  [--game pokemon] [--force]`. Payload: `{name, points, value, changePct,
+  rangeLow, rangeHigh, basketSize, rebalancedOn}` over the window (<= 60
+  points; change = last vs first point); `null` when there is no index yet.
+  `window` also accepts `1y` (set movers / bargains are empty there: Market
+  Watch stores 7/30/90 only). The legacy dollar basket fields below stay for
+  older app builds.
 - **Market index (`pulse`)**: a value basket of the game's top **200** priced
   collectible singles (by current price, sealed excluded) that have a
   same-source price at the window start and no >3x day-to-day step in the

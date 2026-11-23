@@ -3453,9 +3453,9 @@ export type AssistantErrorCode =
   "recently" when stored history doesn't cover it): never show how much
   history exists. No field predicts or recommends a buy.
 */
-export type MarketWindow = '7d' | '30d' | '90d';
+export type MarketWindow = '7d' | '30d' | '90d' | '1y';
 
-export const MARKET_WINDOWS: readonly MarketWindow[] = ['7d', '30d', '90d'];
+export const MARKET_WINDOWS: readonly MarketWindow[] = ['7d', '30d', '90d', '1y'];
 
 export type MarketCardTile = {
   cardId: string;
@@ -3488,12 +3488,33 @@ export type MarketBreadth = {
   upPct: number | null;
 };
 
+/**
+ * The per-game Market Index (backend/market_index.py): equal-weighted top-100
+ * English raw singles, basket fixed per calendar month, chain-linked, base 100.
+ * `value` and points are index levels, not dollars.
+ */
+export type MarketIndex = {
+  /** "Pokémon Market Index". */
+  name: string;
+  points: MarketPoint[];
+  value: number;
+  /** Last vs first point of the window. */
+  changePct: number | null;
+  rangeLow: number;
+  rangeHigh: number;
+  basketSize: number;
+  /** ISO date the current basket was picked. */
+  rebalancedOn: string | null;
+};
+
 export type MarketPulse = {
-  /** Market index change over the window; null when the game has no data. */
+  /** Legacy dollar basket's change over the window; null when the game has no data. */
   changePct: number | null;
   indexValueUsd: number | null;
   breadth: MarketBreadth;
   sparkline: MarketPoint[];
+  /** Null from older backends or before the index has history. */
+  index: MarketIndex | null;
 };
 
 export type MarketYou = {

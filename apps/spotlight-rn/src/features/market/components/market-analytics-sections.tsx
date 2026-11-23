@@ -36,6 +36,7 @@ export const WINDOW_OPTIONS: readonly { label: string; value: MarketWindow }[] =
   { label: '7D', value: '7d' },
   { label: '1M', value: '30d' },
   { label: '3M', value: '90d' },
+  { label: '1Y', value: '1y' },
 ];
 
 const PULSE_CHART_HEIGHT = 132;
@@ -69,6 +70,23 @@ export function changeColor(theme: ReturnType<typeof useSpotlightTheme>, changeP
     return theme.colors.gray600;
   }
   return changePct > 0 ? theme.colors.green500 : theme.colors.red500;
+}
+
+/** Index move: "↑ +102.3%" / "↓ −4.1%" / "0.0%" (always one decimal). */
+export function formatIndexChange(changePct: number | null | undefined) {
+  if (changePct == null) {
+    return '—';
+  }
+  const rounded = Math.abs(changePct).toFixed(1);
+  if (Number(rounded) === 0) {
+    return '0.0%';
+  }
+  return changePct > 0 ? `↑ +${rounded}%` : `↓ −${rounded}%`;
+}
+
+/** Index level, one decimal ("218.6"); never dollars. */
+export function formatIndexValue(value: number) {
+  return value.toLocaleString('en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 });
 }
 
 /** "+$412" / "−$38" with whole dollars. */
@@ -105,7 +123,7 @@ export function GamePickerButton({ game, onPress, testID }: { game: CardGame; on
   );
 }
 
-/** 7D / 1M / 3M — the Collection chart's range pills (Figma 5938:21789). */
+/** 7D / 1M / 3M / 1Y — the Collection chart's range pills (Figma 5938:21789). */
 export function WindowToggle({
   value,
   onChange,
@@ -230,37 +248,73 @@ export function MarketPulseSection({
 }) {
   const theme = useSpotlightTheme();
   const { pulse } = data;
+  const index = pulse.index;
   const [scrubIndex, setScrubIndex] = useState<number | null>(null);
+  // The Market Index when the backend sends one; older backends: the dollar basket.
+  const series = index ? index.points : pulse.sparkline;
   const points = useMemo<PriceChartPoint[]>(
-    () => pulse.sparkline.map((point) => ({ t: Date.parse(`${point.date}T00:00:00Z`), v: point.value }))
+    () => series.map((point) => ({ t: Date.parse(`${point.date}T00:00:00Z`), v: point.value }))
       .filter((point) => Number.isFinite(point.t)),
-    [pulse.sparkline],
+    [series],
   );
-  const scrubbed = scrubIndex != null ? data.pulse.sparkline[scrubIndex] : null;
+  const scrubbed = scrubIndex != null ? series[scrubIndex] : null;
   const total = pulse.breadth.up + pulse.breadth.down + pulse.breadth.flat;
   const downPct = total > 0 ? Math.round((pulse.breadth.down / total) * 100) : 0;
   const upPct = Math.round(pulse.breadth.upPct ?? (total > 0 ? (pulse.breadth.up / total) * 100 : 0));
+  const windowShort = WINDOW_OPTIONS.find((item) => item.value === data.window)?.label ?? data.window.toUpperCase();
 
   return (
     <View style={styles.pulse} testID={testID}>
-      <View style={styles.gutter}>
-        <Text style={[theme.typography.overline, { color: theme.colors.gray600 }]}>
-          {`${gameDisplayName(data.game).toUpperCase()} MARKET`}
-        </Text>
-        <Text
-          accessibilityLabel={`Market ${changeWords(pulse.changePct)}, ${data.windowLabel}`}
-          style={[theme.typography.display, { color: changeColor(theme, pulse.changePct) }]}
-          testID={`${testID}-change`}
-        >
-          {formatChange(pulse.changePct)}
-        </Text>
-        <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]} testID={`${testID}-subline`}>
-          {scrubbed
-            ? `${scrubbed.date} · ${formatAbbreviatedCurrency(scrubbed.value)} tracked value`
-            : [capitalize(data.windowLabel), pulse.indexValueUsd != null ? `${formatAbbreviatedCurrency(pulse.indexValueUsd)} tracked value` : null]
-              .filter(Boolean).join(' · ')}
-        </Text>
-      </View>
+      {index ? (
+        <View style={styles.gutter}>
+          <Text style={[theme.typography.overline, { color: theme.colors.gray600 }]} testID={`${testID}-name`}>
+            {index.name.toUpperCase()}
+          </Text>
+          <Text
+            accessibilityLabel={`${index.name} ${formatIndexValue(scrubbed?.value ?? index.value)}${scrubbed ? ` on ${scrubbed.date}` : `, ${changeWords(index.changePct)} over ${data.windowLabel}`}`}
+            style={[theme.typography.display, { color: theme.colors.gray900 }]}
+            testID={`${testID}-value`}
+          >
+            {formatIndexValue(scrubbed?.value ?? index.value)}
+          </Text>
+          {scrubbed ? (
+            <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]} testID={`${testID}-subline`}>
+              {scrubbed.date}
+            </Text>
+          ) : (
+            <View style={styles.indexMeta} testID={`${testID}-subline`}>
+              <Text
+                style={[theme.typography.captionMedium, { color: changeColor(theme, index.changePct) }]}
+                testID={`${testID}-change`}
+              >
+                {`${formatIndexChange(index.changePct)} · ${windowShort}`}
+              </Text>
+              <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]} testID={`${testID}-range`}>
+                {`Range ${formatIndexValue(index.rangeLow)}–${formatIndexValue(index.rangeHigh)}`}
+              </Text>
+            </View>
+          )}
+        </View>
+      ) : (
+        <View style={styles.gutter}>
+          <Text style={[theme.typography.overline, { color: theme.colors.gray600 }]}>
+            {`${gameDisplayName(data.game).toUpperCase()} MARKET`}
+          </Text>
+          <Text
+            accessibilityLabel={`Market ${changeWords(pulse.changePct)}, ${data.windowLabel}`}
+            style={[theme.typography.display, { color: changeColor(theme, pulse.changePct) }]}
+            testID={`${testID}-change`}
+          >
+            {formatChange(pulse.changePct)}
+          </Text>
+          <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]} testID={`${testID}-subline`}>
+            {scrubbed
+              ? `${scrubbed.date} · ${formatAbbreviatedCurrency(scrubbed.value)} tracked value`
+              : [capitalize(data.windowLabel), pulse.indexValueUsd != null ? `${formatAbbreviatedCurrency(pulse.indexValueUsd)} tracked value` : null]
+                .filter(Boolean).join(' · ')}
+          </Text>
+        </View>
+      )}
 
       {points.length >= 2 ? (
         <PageSwipeGuard testID={`${testID}-chart-guard`}>
@@ -603,6 +657,12 @@ const styles = StyleSheet.create({
   },
   gutter: {
     paddingHorizontal: spacing.sm,
+  },
+  indexMeta: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
   },
   pulse: {
     gap: spacing.sm,

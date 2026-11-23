@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 from types import SimpleNamespace
 
+import market_index
 import meta_pulse
 import price_lows
 import price_quality
@@ -68,9 +69,9 @@ WINDOW_PHRASES = {7: "past week", 30: "past 30 days", 90: "past 90 days", 365: "
 NEUTRAL_WINDOW = "recently"
 COLLECTIBLE_MIN_PRICE_USD = 10.0
 
-WINDOWS = {"7d": 7, "30d": 30, "90d": 90}
+WINDOWS = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
 # "then" = the newest row within this many days before the window start.
-THEN_TOLERANCE_DAYS = {7: 2, 30: 7, 90: 14}
+THEN_TOLERANCE_DAYS = {7: 2, 30: 7, 90: 14, 365: 30}
 # The store's history must start within this slack of the window start for
 # the window's own name; otherwise the label is "recently".
 COVERED_SLACK_DAYS = {7: 2, 30: 7, 90: 7, 365: 30}
@@ -188,7 +189,11 @@ def version_token(connection: sqlite3.Connection) -> str | None:
         return None
     highs = price_lows.stored_version(connection, BREAKOUT_HIGHS_WINDOW, table="price_highs_runs")
     meta = meta_pulse.meta_pulse_version_token(connection)
-    return f"{prices}|highs:{highs}|meta:{meta}|fee:{grading_fee_usd():g}|q:{price_quality.PRICE_STALE_DAYS}"
+    index = market_index.version_token(connection)
+    return (
+        f"{prices}|highs:{highs}|meta:{meta}|idx:{index}|fee:{grading_fee_usd():g}"
+        f"|q:{price_quality.PRICE_STALE_DAYS}"
+    )
 
 
 def stored_run(connection: sqlite3.Connection) -> dict[str, Any] | None:
@@ -370,6 +375,8 @@ def empty_payload(game: str, window: str, *, window_label_text: str = NEUTRAL_WI
             "indexValueUsd": None,
             "breadth": {"up": 0, "down": 0, "flat": 0, "upPct": None},
             "sparkline": [],
+            # The per-game Market Index (market_index.py); null until computed.
+            "index": None,
         },
         "you": None,
         "heatmap": [],
@@ -446,7 +453,7 @@ def _pulse(
         if not has_outlier_step([value for _, value in series.get(item.card.card_id) or []], max_multiple=MAX_STEP_MULTIPLE)
     ][:INDEX_SIZE]
     if not basket:
-        return {"changePct": None, "indexValueUsd": None, "breadth": breadth, "sparkline": []}
+        return {"changePct": None, "indexValueUsd": None, "breadth": breadth, "sparkline": [], "index": None}
     value_then = sum(item.then[window_days] for item in basket)
     value_now = sum(item.price for item in basket)
     return {
@@ -454,6 +461,7 @@ def _pulse(
         "indexValueUsd": round(value_now, 2),
         "breadth": breadth,
         "sparkline": _series_sum_sparkline(basket, series, window_days=window_days, ref_date=ref_date),
+        "index": None,
     }
 
 
@@ -827,9 +835,11 @@ def compute_market_analytics(
             heatmap, set_payloads = _heatmap_and_sets(singles, window_days=days, expansions=expansions)
             rising, falling = _sets_rising_falling(connection, game, days, expansions)
             payload = empty_payload(game, window, window_label_text=labels[days], as_of=as_of)
+            pulse = _pulse(connection, liquid, window_days=days, ref_date=ref_date)
+            pulse["index"] = market_index.index_payload(connection, game, days)
             payload.update(
                 {
-                    "pulse": _pulse(connection, liquid, window_days=days, ref_date=ref_date),
+                    "pulse": pulse,
                     "heatmap": heatmap,
                     "bargains": _bargains(
                         connection, liquid, range_stats, window_days=days, ref_date=ref_date,
@@ -886,11 +896,17 @@ def write_market_analytics(
 def refresh_market_analytics(
     connection: sqlite3.Connection, *, force: bool = False, today: date | None = None
 ) -> dict[str, Any]:
-    """Recompute when the inputs' version changed; cheap no-op otherwise."""
+    """Recompute when the inputs' version changed; cheap no-op otherwise. The
+    market index tables are brought up to date first (its own no-op check)."""
     ensure_schema(connection)
     connection.commit()
+    try:
+        index_report = market_index.refresh_market_index(connection)
+    except Exception as error:  # noqa: BLE001 - the index must not block the rest of the tab
+        connection.rollback()
+        index_report = {"error": repr(error)}
     version = version_token(connection)
-    report: dict[str, Any] = {"version": version}
+    report: dict[str, Any] = {"version": version, "marketIndex": index_report}
     if version is None:
         return report
     run = stored_run(connection)
@@ -933,17 +949,7 @@ def read_set_payload(connection: sqlite3.Connection, game: str, window_days: int
 def _drop_spikes(points: list[tuple[str, float]]) -> list[tuple[str, float]]:
     """Drop single points more than MAX_STEP_MULTIPLE x off BOTH neighbours (a
     glitch print, not a move)."""
-    if len(points) < 3:
-        return points
-    kept = [points[0]]
-    for i in range(1, len(points) - 1):
-        prev, cur, nxt = points[i - 1][1], points[i][1], points[i + 1][1]
-        up = cur > MAX_STEP_MULTIPLE * prev and cur > MAX_STEP_MULTIPLE * nxt
-        down = cur * MAX_STEP_MULTIPLE < prev and cur * MAX_STEP_MULTIPLE < nxt
-        if not (up or down):
-            kept.append(points[i])
-    kept.append(points[-1])
-    return kept
+    return market_index.drop_spikes(points, MAX_STEP_MULTIPLE)
 
 
 def _raw_main_points(

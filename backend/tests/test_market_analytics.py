@@ -334,7 +334,7 @@ class RefreshAndServiceTests(MarketAnalyticsFixture):
         self._path("x", [(40, 20.0), (0, 25.0)])
         self.connection.commit()
         first = market_analytics.refresh_market_analytics(self.connection, today=TODAY)
-        self.assertEqual(first["payloads"], len(market_analytics.SUPPORTED_GAMES) * 3)
+        self.assertEqual(first["payloads"], len(market_analytics.SUPPORTED_GAMES) * len(market_analytics.WINDOWS))
         self.assertTrue(market_analytics.refresh_market_analytics(self.connection, today=TODAY)["skipped"])
         upsert_runtime_setting(self.connection, key="pricing_sync_generation", value=9)
         self.connection.commit()

@@ -113,6 +113,7 @@ export function MarketAnalyticsPage({
   const loading = data == null && !analytics.failed;
   const thin = data != null
     && data.pulse.sparkline.length === 0
+    && data.pulse.index == null
     && data.setsRising.length === 0
     && data.setsFalling.length === 0;
 
@@ -190,28 +191,31 @@ export function MarketAnalyticsPage({
             <MarketPulseSection data={data} testID={`${testID}-pulse`} />
           </View>
 
-          {/* 2. Sets rising / falling */}
-          <SectionBand />
-          <View style={styles.section}>
-            <MarketSectionTitle caption={capitalize(data.windowLabel)} title="Set movers" />
-            <SetMoverRail
-              direction="up"
-              emptyMessage="No sets rising in this window."
-              items={data.setsRising}
-              onPressSet={openSet}
-              testID={`${testID}-sets-rising`}
-              title="RISING"
-            />
-            <SetMoverRail
-              direction="down"
-              emptyMessage="No sets falling in this window."
-              items={data.setsFalling}
-              onPressSet={openSet}
-              testID={`${testID}-sets-falling`}
-              title="FALLING"
-            />
-          </View>
-
+          {/* 2. Sets rising / falling — 7/30/90-day data only, so hidden on 1Y. */}
+          {window === '1y' ? null : (
+            <>
+              <SectionBand />
+              <View style={styles.section}>
+                <MarketSectionTitle caption={capitalize(data.windowLabel)} title="Set movers" />
+                <SetMoverRail
+                  direction="up"
+                  emptyMessage="No sets rising in this window."
+                  items={data.setsRising}
+                  onPressSet={openSet}
+                  testID={`${testID}-sets-rising`}
+                  title="RISING"
+                />
+                <SetMoverRail
+                  direction="down"
+                  emptyMessage="No sets falling in this window."
+                  items={data.setsFalling}
+                  onPressSet={openSet}
+                  testID={`${testID}-sets-falling`}
+                  title="FALLING"
+                />
+              </View>
+            </>
+          )}
         </>
       ) : null}
 

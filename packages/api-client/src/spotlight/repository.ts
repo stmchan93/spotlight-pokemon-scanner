@@ -4288,7 +4288,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
         game: query.game,
         window: query.window,
         windowLabel: 'recently',
-        pulse: { changePct: null, indexValueUsd: null, breadth: { up: 0, down: 0, flat: 0, upPct: null }, sparkline: [] },
+        pulse: { changePct: null, indexValueUsd: null, breadth: { up: 0, down: 0, flat: 0, upPct: null }, sparkline: [], index: null },
         you: null,
         heatmap: [],
         bargains: [],
@@ -4298,7 +4298,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
         grading: [],
       };
     }
-    const windowLabel = { '7d': 'past week', '30d': 'past 30 days', '90d': 'past 90 days' }[query.window];
+    const windowLabel = { '7d': 'past week', '30d': 'past 30 days', '90d': 'past 90 days', '1y': 'past year' }[query.window];
     return { ...base, window: query.window, windowLabel };
   }
 
