@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import {
   Animated,
@@ -13,7 +13,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
-import { ArrowDown, CheckCircle, Trash } from 'iconoir-react-native';
+import { ArrowDown, CheckCircle, EditPencil, Trash } from 'iconoir-react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -42,7 +42,13 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { AnimatedFlatList, PageSwipeGuard } from '@/components/page-tab-pager';
+import {
+  AnimatedFlatList,
+  PageSwipeGuard,
+  type CollapsiblePageProps,
+  type CollapsibleScrollTarget,
+} from '@/components/page-tab-pager';
+import { EditDoneButton } from '@/components/edit-done-button';
 import { PagerTouchGuard, useTabPagerHideBackdrop, useTabPagerLock } from '@/components/tab-pager/tab-pager-page-context';
 import { useScrollToTop } from '@/components/scroll-to-top-fab';
 import { GridViewIcon, ListViewIcon } from '@/components/view-toggle-icons';
@@ -217,12 +223,42 @@ export function hasWatchTrend(
 
 const EMPTY_FAVORITES: CardFavoriteEntry[] = [];
 
+/**
+ * Embeds the Watchlist as a page of another screen's `CollapsibleTabPager`
+ * (Home → WATCHLIST, Figma 6642:5964) instead of as a screen of its own.
+ */
+export type WatchlistPageEmbedding = {
+  page: CollapsiblePageProps;
+  /** The pager's ref for this page, so it can keep the pages' offsets in step. */
+  scrollRef?: RefObject<CollapsibleScrollTarget | null>;
+  /** This page is the one on screen: gates the on-focus re-reads. */
+  isActive: boolean;
+  /** Edit mode owns every gesture, so the host pager has to stand down too. */
+  onEditModeChange?: (editMode: boolean) => void;
+};
+
+/** The Watchlist as its own screen: floating `WishlistHeader` over the list. */
 export function WishlistScreen() {
+  return <WatchlistView />;
+}
+
+/**
+ * The Watchlist as a page under the Home profile sheet: no top bar of its own
+ * (Home's sheet is the chrome), so Edit moves beside the view toggle, and the
+ * catalog-search bubble goes — Search is a bottom tab.
+ */
+export function WatchlistPage(props: WatchlistPageEmbedding) {
+  return <WatchlistView embedding={props} />;
+}
+
+function WatchlistView({ embedding }: { embedding?: WatchlistPageEmbedding } = {}) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { isGuest } = useGuestGate();
-  const isFocused = useIsFocused();
+  const isRouteFocused = useIsFocused();
+  // Embedded, "in view" means Home is focused AND this is its active tab.
+  const isFocused = isRouteFocused && (embedding?.isActive ?? true);
   // Guests never reach this screen: the route renders GuestScannerRedirect.
   const { spotlightRepository, dataVersion, watchlistStore } = useAppServices();
   // Your own identity, for the `spotlight://` link the share message carries.
@@ -251,6 +287,11 @@ export function WishlistScreen() {
   const [editMode, setEditMode] = useState(false);
   // Edit mode owns every gesture on the screen; the tab pager stands down too.
   useTabPagerLock(editMode);
+  const onEditModeChange = embedding?.onEditModeChange;
+  useEffect(() => {
+    onEditModeChange?.(editMode);
+  }, [editMode, onEditModeChange]);
+  useEffect(() => () => onEditModeChange?.(false), [onEditModeChange]);
   // The edit bar sits above the tab bar; the blur under the bar would reach it.
   useTabPagerHideBackdrop(editMode);
 
@@ -258,7 +299,8 @@ export function WishlistScreen() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const scrollRef = useRef<FlatList<WishlistRow>>(null);
+  const ownScrollRef = useRef<FlatList<WishlistRow>>(null);
+  const scrollRef = (embedding?.scrollRef ?? ownScrollRef) as RefObject<FlatList<WishlistRow> | null>;
 
   // The list is not inset by UIKit (see `LIST_REST_OFFSET`), so it runs under
   // the tab bar: clear the bar, then rest the last card 16pt above it. The
@@ -825,6 +867,23 @@ export function WishlistScreen() {
               <ListViewIcon color={theme.colors.gray900} size={18} />
             )}
           </IconButton>
+          {/* Embedded there is no top bar, so Edit / Done ride here. */}
+          {embedding ? (
+            editMode ? (
+              <EditDoneButton onPress={handleExitEditMode} testID="wishlist-edit-done" />
+            ) : (
+              <IconButton
+                accessibilityLabel="Edit watchlist"
+                onPress={() => setEditMode(true)}
+                shape="rounded"
+                size={40}
+                testID="wishlist-edit-toggle"
+                variant="filled"
+              >
+                <EditPencil color={theme.colors.gray900} height={18} strokeWidth={1.5} width={18} />
+              </IconButton>
+            )
+          ) : null}
         </View>
 
         {/* A drag on the chips scrolls them; it never switches tabs. */}
@@ -910,15 +969,34 @@ export function WishlistScreen() {
     </Text>
   );
 
+  const embeddedPage = embedding?.page;
+  const Container = embedding ? View : SafeAreaView;
   return (
-    <SafeAreaView
-      edges={['left', 'right']}
+    <Container
+      {...(embedding ? {} : { edges: ['left', 'right'] as const })}
       style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
-      <View style={styles.listWrap} testID="wishlist-list">
+      <View
+        // Embedded: keeps the scroller on the `subviews[0]` chain (see the
+        // Collection page's wrapper in portfolio-screen).
+        collapsable={false}
+        style={styles.listWrap}
+        testID="wishlist-list"
+      >
         <AnimatedFlatList
           ref={scrollRef}
-          contentContainerStyle={[
+          {...(embeddedPage
+            ? {
+                // The host pager's chrome padding assumes every page is
+                // UIKit-inset; see `CollapsibleTabPager`'s `contentInsetTop`.
+                contentInsetAdjustmentBehavior: 'automatic' as const,
+                scrollToOverflowEnabled: embeddedPage.scrollToOverflowEnabled,
+              }
+            : {})}
+          contentContainerStyle={embeddedPage ? [
+            embeddedPage.contentContainerStyle,
+            { paddingBottom: listBottomPadding },
+          ] : [
             {
               /*
                 Reserve the FLOATING bar's height. It contributes nothing to
@@ -941,17 +1019,20 @@ export function WishlistScreen() {
           ListEmptyComponent={listEmpty}
           ListHeaderComponent={listHeader}
           onLayout={handleLayout}
-          onScroll={handleScroll}
+          // Embedded, the pager's native-driven event drives the profile
+          // collapse; spread it as-is or it loses the native driver.
+          onScroll={embeddedPage ? embeddedPage.onScroll : handleScroll}
           refreshControl={(
             <RefreshControl
               onRefresh={handleRefresh}
+              progressViewOffset={embeddedPage?.progressViewOffset}
               refreshing={isRefreshing}
               testID="wishlist-refresh-control"
               tintColor={theme.colors.gray400}
             />
           )}
           renderItem={renderItem}
-          scrollEventThrottle={16}
+          scrollEventThrottle={embeddedPage?.scrollEventThrottle ?? 16}
           testID="wishlist-scroll"
         />
       </View>
@@ -960,6 +1041,7 @@ export function WishlistScreen() {
         AFTER the list, so tree order paints the bar on top of it, and so UIKit's
         `subviews[0]` walk still reaches the scroller for minimize-on-scroll.
       */}
+      {embedding ? null : (
       <WishlistHeader
         editMode={editMode}
         floating
@@ -971,6 +1053,7 @@ export function WishlistScreen() {
         scrollY={scrollY}
         titleVisible={!isTitleHidden}
       />
+      )}
 
       {/* No floating catalog-search FAB here either. It was a magnifier circle
           pinned above the tab bar; the same action is a bubble in the top bar
@@ -1066,7 +1149,7 @@ export function WishlistScreen() {
         onClose={() => setTargetEntry(null)}
         onSubmit={handleSubmitTarget}
       />
-    </SafeAreaView>
+    </Container>
   );
 }
 

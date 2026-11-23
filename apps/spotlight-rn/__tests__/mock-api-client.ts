@@ -13,6 +13,7 @@ export * from '../../../packages/api-client/src/spotlight/vendor-wire';
 export {
   MockSpotlightRepository,
   SpotlightRepositoryRequestError,
+  buildWatchKey,
   isSpotlightRepositoryRequestError,
 } from '../../../packages/api-client/src/spotlight/repository';
 export type { SpotlightRepository } from '../../../packages/api-client/src/spotlight/repository';

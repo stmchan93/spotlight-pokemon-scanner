@@ -1,4 +1,5 @@
-import { useRouter } from 'expo-router';
+import { useCallback } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { GuestScannerRedirect } from '@/features/auth/components/guest-scanner-redirect';
 import {
@@ -12,6 +13,7 @@ import {
 import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
 import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
+import { HOME_PROFILE_TAB_PARAM, parseHomeProfileTabParam } from '@/lib/home-profile-tab';
 
 /**
  * Home — your own collection, and the landing surface after login.
@@ -35,6 +37,11 @@ export default function HomeRoute() {
   const router = useRouter();
   const { spotlightRepository } = useAppServices();
   const { isGuest } = useAuth();
+  // `/?tab=watchlist|masterset|market|collection` opens Home on that profile tab.
+  const requestedProfileTab = parseHomeProfileTabParam(useLocalSearchParams()[HOME_PROFILE_TAB_PARAM]);
+  const clearRequestedProfileTab = useCallback(() => {
+    router.setParams({ [HOME_PROFILE_TAB_PARAM]: undefined } as never);
+  }, [router]);
   // Signed in, the app opens on the Scanner; Home is only the route it starts on.
 
   // Collection is gated for guests, so there is nothing to show them here. Send
@@ -45,6 +52,8 @@ export default function HomeRoute() {
 
   return (
     <PortfolioScreen
+      onRequestedProfileTabHandled={clearRequestedProfileTab}
+      requestedProfileTab={requestedProfileTab}
       onOpenInventoryEntry={(entry) => {
         const preview = cardDetailPreviewFromInventoryEntry(entry);
         prefetchCardDetail(

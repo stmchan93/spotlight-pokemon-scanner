@@ -70,8 +70,8 @@
       ]
     },
     {
-      "figmaNodeId": "6502:7657",
-      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6502-7657",
+      "figmaNodeId": "6642:5964",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6642-5964",
       "screenName": "Portfolio",
       "componentPaths": [
         "apps/spotlight-rn/src/features/portfolio/screens/portfolio-screen.tsx",
@@ -82,11 +82,40 @@
         "apps/spotlight-rn/src/features/portfolio/components/portfolio-chart-card.tsx",
         "apps/spotlight-rn/src/features/portfolio/components/collection-search-row.tsx",
         "apps/spotlight-rn/src/features/portfolio/components/collection-filter-chip-row.tsx",
-        "packages/design-system/src/components/inventory-card-tile.tsx"
+        "packages/design-system/src/components/inventory-card-tile.tsx",
+        "packages/design-system/src/components/page-tabs.tsx",
+        "apps/spotlight-rn/src/features/portfolio/components/master-set-page.tsx",
+        "apps/spotlight-rn/src/features/wishlist/screens/wishlist-screen.tsx",
+        "apps/spotlight-rn/src/features/market/screens/market-analytics-page.tsx"
       ],
       "deepLink": "spotlight://dev/portfolio",
       "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts",
-      "notes": "CURRENT frame: 6502:7657 (owner 2026-11-21: 'home screen should look like this now'); synced 2026-11-21. Sections: toolbar 6597:2480, profile 6502:7762/7662, cover 6502:7659, tabs 6542:18158, balance 6502:7697, chart 6502:7715, search/chips 6502:7732, card 6502:7780, tab bar 6502:7910. Dev route renders without the native tab bar and with the default test user (no handle/link/cover) \u2014 crop comparisons to the sheet. Known deliberate deviations: no MASTER SET tab (no feature); share glyph kept in the trailing capsule (only entry to the profile-share sheet); sort arrows read down = highest/newest first (Figma draws PRICE up); search placeholder stays 'Search your portfolio' (Figma's 'vendor or hobby' is Events copy). Superseded iterations: 4067:23632, 4134:48866, 4134:49488, 4134:50566, 4134:50940."
+      "notes": "CURRENT frame: 6642:5964 Collection-Portfolio (2026-11-22 redesign): single gear toolbar 6642:6202, hero without the display-name line (handle + link only), left-packed underline tabs 6642:6010. Owner decisions beyond the frame: tabs are COLLECTION \u00b7 MASTER SET \u00b7 WATCHLIST \u00b7 MARKET ANALYTICS (Figma draws three; the fourth makes the rail scroll, and it keeps the active tab in view); ACTIVITY moved to Social \u2192 YOUR POSTS. MASTER SET = owned sets as Search set cards, completion % desc \u2192 owned count \u2192 name. WATCHLIST = the full Watchlist page (Deal Radar, edit, swipe-delete) with Edit beside the view toggle. MARKET ANALYTICS = Social's Market Watch + Top Trends moved as-is (redesign pending with owner). Dev route renders without the bottom tab bar and with the default test user (no handle/link/cover) \u2014 crop comparisons to the sheet. Known deliberate deviations: sort arrows read down = highest/newest first (Figma draws PRICE up); search placeholder stays 'Search your portfolio'. Superseded: 6502:7657, 4067:23632, 4134:48866, 4134:49488, 4134:50566, 4134:50940.",
+      "states": [
+        {
+          "name": "collection",
+          "figmaNodeId": "6642:5964",
+          "how": "default tab"
+        },
+        {
+          "name": "masterset",
+          "figmaNodeId": "TODO",
+          "deepLink": "spotlight://dev/portfolio-masterset",
+          "how": "MASTER SET tab (no Figma frame yet)"
+        },
+        {
+          "name": "watchlist",
+          "figmaNodeId": "TODO",
+          "deepLink": "spotlight://dev/portfolio-watchlist",
+          "how": "WATCHLIST tab (no Figma frame yet)"
+        },
+        {
+          "name": "market",
+          "figmaNodeId": "TODO",
+          "deepLink": "spotlight://dev/portfolio-market",
+          "how": "MARKET ANALYTICS tab (no Figma frame yet; content moved as-is from Social Market Watch)"
+        }
+      ]
     },
     {
       "figmaNodeId": "TODO",

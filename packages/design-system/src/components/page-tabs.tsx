@@ -1,4 +1,5 @@
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Pressable, ScrollView, StyleSheet, View, type LayoutRectangle } from 'react-native';
 
 import { Text } from './scaled-text';
 import { useSpotlightTheme } from '../theme';
@@ -40,7 +41,11 @@ export type PageTabsProps<V extends string> = {
    * `scrollable` when the set can outgrow the screen.
    */
   size?: PageTabsSize;
-  /** Horizontal scroll instead of squeezing; the rail stays full-bleed. */
+  /**
+   * Horizontal scroll instead of squeezing; the rail stays full-bleed. The
+   * selected tab is scrolled into view whenever `value` changes (a swipe or a
+   * deep link can select one that is off screen).
+   */
   scrollable?: boolean;
   /**
    * `caption` = the Figma profile tab rail (5938:16814): Caption-medium 13 on
@@ -83,6 +88,30 @@ export function PageTabs<V extends string>({
   const inactiveRole = captionLabels ? theme.typography.caption : theme.typography.body;
   const showIndicator = indicator === 'underline';
 
+  // Scrollable only: keep the selected tab inside the viewport.
+  const scrollRef = useRef<ScrollView>(null);
+  const tabFrames = useRef<Partial<Record<string, LayoutRectangle>>>({});
+  const viewport = useRef({ x: 0, width: 0 });
+  const revealSelected = (animated: boolean) => {
+    const frame = tabFrames.current[value];
+    const { x, width } = viewport.current;
+    if (!scrollable || !frame || width === 0) {
+      return;
+    }
+    // Keep one gutter of air beyond the tab so the neighbour still peeks in.
+    const margin = spacing.sm;
+    if (frame.x + frame.width + margin > x + width) {
+      scrollRef.current?.scrollTo({ x: frame.x + frame.width + margin - width, animated });
+    } else if (frame.x - margin < x) {
+      scrollRef.current?.scrollTo({ x: Math.max(0, frame.x - margin), animated });
+    }
+  };
+  const revealRef = useRef(revealSelected);
+  revealRef.current = revealSelected;
+  useEffect(() => {
+    revealRef.current(true);
+  }, [value]);
+
   const row = (
     <View
       style={[
@@ -103,6 +132,12 @@ export function PageTabs<V extends string>({
             key={tab.value}
             accessibilityRole="button"
             accessibilityState={{ selected }}
+            onLayout={scrollable ? (event) => {
+              tabFrames.current[tab.value] = event.nativeEvent.layout;
+              if (tab.value === value) {
+                revealRef.current(false);
+              }
+            } : undefined}
             onPress={() => onChange(tab.value)}
             style={({ pressed }) => [
               compact ? styles.tabCompact : styles.tab,
@@ -178,6 +213,15 @@ export function PageTabs<V extends string>({
           contentContainerStyle={styles.scrollContent}
           horizontal
           keyboardShouldPersistTaps="handled"
+          onLayout={(event) => {
+            viewport.current.width = event.nativeEvent.layout.width;
+            revealRef.current(false);
+          }}
+          onScroll={(event) => {
+            viewport.current.x = event.nativeEvent.contentOffset.x;
+          }}
+          ref={scrollRef}
+          scrollEventThrottle={16}
           showsHorizontalScrollIndicator={false}
           testID={testID ? `${testID}-scroll` : undefined}
         >

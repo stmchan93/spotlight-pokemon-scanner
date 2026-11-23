@@ -52,7 +52,7 @@ import { EditProfileScreen } from '@/features/profile/screens/edit-profile-scree
 import { SettingsScreen } from '@/features/settings/screens/settings-screen';
 import { FollowListScreen } from '@/features/profile/screens/follow-list-screen';
 import { PublicProfileScreen } from '@/features/profile/screens/public-profile-screen';
-import { TopTrendsBlock } from '@/features/social/components/top-trends-block';
+import { TopTrendsBlock } from '@/features/market/components/top-trends-block';
 import { setDevDmOverrides } from '@/features/social/dm-service';
 import { BlockedAccountsScreen } from '@/features/social/screens/blocked-accounts-screen';
 import { DmInboxScreen } from '@/features/social/screens/dm-inbox-screen';
@@ -62,7 +62,7 @@ import { NewPostScreen } from '@/features/social/screens/new-post-screen';
 import { NotificationsScreen } from '@/features/social/screens/notifications-screen';
 import { PostDetailScreen } from '@/features/social/screens/post-detail-screen';
 import { setDevFeedItemsOverride, setDevSocialOverrides } from '@/features/social/social-service';
-import { useTopMovers } from '@/features/social/use-top-movers';
+import { useTopMovers } from '@/features/market/use-top-movers';
 import { TargetPriceSheet } from '@/features/wishlist/components/target-price-sheet';
 import { WishlistScreen } from '@/features/wishlist/screens/wishlist-screen';
 import {
@@ -131,6 +131,11 @@ const devScreens: Record<string, () => ReactElement> = {
   'feed-empty': () => <FeedScreen />,
   insights: () => <InsightsScreen />,
   portfolio: () => <PortfolioScreen />,
+  // Home's other profile tabs (Figma 6642:5964 + owner, 2026-11-22), opened the
+  // way `/?tab=…` opens them.
+  'portfolio-masterset': () => <PortfolioScreen requestedProfileTab="masterset" />,
+  'portfolio-watchlist': () => <PortfolioScreen requestedProfileTab="watchlist" />,
+  'portfolio-market': () => <PortfolioScreen requestedProfileTab="market" />,
   // Ask Ekalight on the mock repository: empty chat (Home), the seeded saved
   // thread, and the Scanner entry with two tray cards as context.
   assistant: () => <AssistantScreen onBack={() => undefined} onOpenCard={() => undefined} source="home" />,

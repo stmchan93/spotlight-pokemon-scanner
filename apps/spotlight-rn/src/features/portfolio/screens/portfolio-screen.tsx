@@ -1,6 +1,4 @@
 import {
-  type Dispatch,
-  type SetStateAction,
   useCallback,
   useEffect,
   useMemo,
@@ -120,17 +118,7 @@ import { usePortfolioViewMode } from '@/features/portfolio/hooks/use-portfolio-v
 import { usePortfolioSummaryVisibility } from '@/features/portfolio/use-portfolio-summary-visibility';
 import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
 import { useTabsPage } from '@/contexts/tabs-page-context';
-import { resolveRepositoryBaseUrl, useAppServices } from '@/providers/app-providers';
-import { PostCard } from '@/features/social/components/post-card';
-import { RepostAttribution } from '@/features/social/components/repost-attribution';
-import {
-  type AuthorActivityItem,
-  type FeedPost,
-  type FeedPostAuthor,
-  fetchAuthorActivity,
-} from '@/features/social/social-service';
-import { usePostDeletion } from '@/features/social/use-post-deletion';
-import { getFeedRefreshVersion } from '@/features/social/screens/new-post-screen';
+import { useAppServices } from '@/providers/app-providers';
 import { AnalyticsEvent, watchlistKindForCardId } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { normalizeSocialLink } from '@/features/profile/social-link';
@@ -138,6 +126,10 @@ import { PROFILE_SHEET_OVERLAP, ProfileHeader } from '@/features/profile/compone
 import { FOR_SALE_TAB_ENABLED } from '@/features/profile/for-sale-tab';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
 import { watchlistCardBasicsFromInventoryEntry } from '@/features/wishlist/watchlist-store';
+import { WatchlistPage } from '@/features/wishlist/screens/wishlist-screen';
+import { MasterSetPage } from '@/features/portfolio/components/master-set-page';
+import { MarketAnalyticsPage } from '@/features/market/screens/market-analytics-page';
+import type { HomeProfileTabParam } from '@/lib/home-profile-tab';
 import { useAuth } from '@/providers/auth-provider';
 
 const GRID_TEST_ID = 'collection-masonry-grid';
@@ -149,14 +141,20 @@ const COLLECTION_EMPTY_MESSAGE = 'Let’s build your collection';
 // Figma nav-glyph size, shared with the bottom tab bar (node 1313:7454).
 const SCAN_GLYPH_SIZE = 22;
 
-// The public "Portfolio" profile tabs. Only Collection is wired for now; For Sale
-// renders a gated "Coming soon" state until its roadmap phase ships; Activity is live (Phase 3a).
-type ProfileTab = 'collection' | 'forsale' | 'activity';
+// Home's profile tabs (Figma 6642:5964 + owner, 2026-11-22). ACTIVITY left for
+// Social → YOUR POSTS; MARKET ANALYTICS is Social's old Market Watch, moved
+// here. For Sale still renders a gated "Coming soon" behind its flag.
+type ProfileTab = 'collection' | 'masterset' | 'watchlist' | 'market' | 'forsale';
 const ALL_PROFILE_TABS: readonly PageTab<ProfileTab>[] = [
   { value: 'collection', label: 'Collection' },
+  { value: 'masterset', label: 'Master Set' },
+  { value: 'watchlist', label: 'Watchlist' },
+  { value: 'market', label: 'Market Analytics' },
   { value: 'forsale', label: 'For Sale' },
-  { value: 'activity', label: 'Activity' },
 ];
+// Tabs that mount on first visit rather than with Home: each one's reads (set
+// catalogs, watchlist, market pulse) are paid only once you open it.
+const LAZY_PROFILE_TABS: ReadonlySet<ProfileTab> = new Set(['masterset', 'watchlist', 'market']);
 // For Sale is hidden until the feature exists — see `FOR_SALE_TAB_ENABLED` for
 // why this is a filter rather than a deleted line. Every For Sale render path
 // below stays live and type-checked.
@@ -238,6 +236,13 @@ const TABS_TO_BALANCE_GAP = 24;
 
 type PortfolioScreenProps = {
   onOpenInventoryEntry?: (entry: InventoryCardEntry) => void;
+  /**
+   * A profile tab the route asked for (`/?tab=watchlist`, see
+   * `home-profile-tab.ts`). Selected when it changes, then handed back through
+   * `onRequestedProfileTabHandled` so the route can clear its param.
+   */
+  requestedProfileTab?: HomeProfileTabParam | null;
+  onRequestedProfileTabHandled?: () => void;
 };
 
 // One virtualized row of the collection list. In list view each entry is its
@@ -255,12 +260,8 @@ type CollectionRow =
     }
   | { kind: 'grid-single'; key: string; entry: InventoryCardEntry }
   /** Heads the cross-collection search results ("In other collections"). */
-  | { kind: 'section-header'; key: string; title: string }
-  /** `repostedAt` set = the owner passed the post on rather than wrote it. */
-  | { kind: 'post'; key: string; post: FeedPost; repostedAt: string | null };
+  | { kind: 'section-header'; key: string; title: string };
 
-/** Has the owner's Activity posts loaded? */
-type ActivityStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 function applyInventorySearch(items: InventoryCardEntry[], query: string) {
   const normalized = query.trim().toLowerCase();
@@ -382,45 +383,46 @@ export function applyCollectionFilter(
 
 export function PortfolioScreen({
   onOpenInventoryEntry = () => {},
+  requestedProfileTab = null,
+  onRequestedProfileTabHandled,
 }: PortfolioScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
   const currentUser = auth.currentUser;
-  // Public profile tab (Collection / For Sale / Activity). Only Collection is
-  // live; the others show a "Coming soon" placeholder until their phases ship.
+  // Home's profile tab (Collection / Master Set / Watchlist / Market Analytics).
   const [activeProfileTab, setActiveProfileTab] = useState<ProfileTab>('collection');
-  // Revealed by a drag back from Watchlist: show the NEAR edge, Activity, so the
-  // strip reads as one continuous row of pages.
+  // Watchlist's own edit mode: like Collection's, it owns every gesture.
+  const [isWatchlistEditing, setIsWatchlistEditing] = useState(false);
+  const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<ProfileTab>>(() => new Set(['collection']));
+  if (!visitedTabs.has(activeProfileTab)) {
+    setVisitedTabs(new Set([...visitedTabs, activeProfileTab]));
+  }
+  // `/?tab=…` from the route: select it, then let the route clear the param so
+  // a later visit to Home doesn't snap back to it.
+  useEffect(() => {
+    if (!requestedProfileTab) {
+      return;
+    }
+    if (PROFILE_TAB_ORDER.includes(requestedProfileTab)) {
+      setActiveProfileTab(requestedProfileTab);
+    }
+    onRequestedProfileTabHandled?.();
+  }, [onRequestedProfileTabHandled, requestedProfileTab]);
+  // Revealed by a drag back from Search: show the NEAR edge, Market Analytics,
+  // so the strip reads as one continuous row of pages.
   useTabLanding('index', (edge) => {
     const page = innerPageForLanding(PROFILE_TAB_ORDER, edge);
     if (page) {
       setActiveProfileTab(page);
     }
   });
-  // The bottom-tab pager reads this to hand a drag past Activity to the outer strip.
+  // The bottom-tab pager reads this to hand a drag past the last tab to the outer strip.
   useTabPagerInnerPosition({
     count: PROFILE_TAB_ORDER.length,
     index: PROFILE_TAB_ORDER.indexOf(activeProfileTab),
   });
-  // Owner Activity tab (Phase 3a): the signed-in user's own posts, plus the
-  // backend proxy base + bearer the post images stream through.
-  const accessToken = auth.accessToken;
-  const apiBaseUrl = resolveRepositoryBaseUrl();
-  const [activityPosts, setActivityPosts] = useState<AuthorActivityItem[]>([]);
-  const [activityStatus, setActivityStatus] = useState<ActivityStatus>('idle');
-  // Bumped to force an Activity re-fetch (e.g. after composing a post).
-  const [activityReloadToken, setActivityReloadToken] = useState(0);
-  // Drives the Activity page's own pull-to-refresh spinner. The Collection's
-  // `model.isRefreshing` covers inventory + dashboard and knows nothing about
-  // posts, so reusing it would spin for a load that never touches this list.
-  const [isActivityRefreshing, setIsActivityRefreshing] = useState(false);
-  // Last refresh signal this screen acted on — see `getFeedRefreshVersion`.
-  const seenRefreshVersionRef = useRef(getFeedRefreshVersion());
-  // Which user's Activity posts have already been requested, so re-selecting the
-  // tab doesn't refetch.
-  const activityLoadedRef = useRef<string | null>(null);
   const profileName = currentUser ? getResolvedDisplayName(currentUser) : 'Portfolio';
   const profileInitials = currentUser ? getUserInitials(currentUser) : 'P';
   const handleSocialLinkPress = useCallback(() => {
@@ -582,14 +584,18 @@ export function PortfolioScreen({
   // the search-focus scroll drive, since it is the only long list.
   const scrollRef = useRef<FlatList<CollectionRow>>(null);
   const forSaleScrollRef = useRef<ScrollView>(null);
-  const activityScrollRef = useRef<FlatList<CollectionRow>>(null);
+  const masterSetScrollRef = useRef<CollapsibleScrollTarget>(null);
+  const watchlistScrollRef = useRef<CollapsibleScrollTarget>(null);
+  const marketScrollRef = useRef<CollapsibleScrollTarget>(null);
   const pageScrollRefs = useMemo<
     Partial<Record<ProfileTab, { readonly current: CollapsibleScrollTarget | null }>>
   >(
     () => ({
       collection: scrollRef,
       forsale: forSaleScrollRef,
-      activity: activityScrollRef,
+      masterset: masterSetScrollRef,
+      watchlist: watchlistScrollRef,
+      market: marketScrollRef,
     }),
     [],
   );
@@ -1003,86 +1009,6 @@ export function PortfolioScreen({
     [crossCollectionMatches],
   );
 
-  // Prefetch the owner's own posts as soon as we know who they are, rather than
-  // waiting for the Activity tab to be tapped — the round trip then overlaps
-  // with the Collection load instead of starting cold on tab switch, so Activity
-  // is usually already populated by the time it's opened.
-  // `activityReloadToken` bumps to force a re-fetch after composing a post.
-  const ownerId = currentUser?.id ?? null;
-  const ownerAuthor = useMemo<FeedPostAuthor | null>(() => (
-    currentUser
-      ? {
-          displayName: getResolvedDisplayName(currentUser),
-          handle: currentUser.handle ?? null,
-          avatarUrl: currentUser.avatarURL ?? null,
-          isVerified: currentUser.isVerified === true,
-        }
-      : null
-  ), [currentUser]);
-  useEffect(() => {
-    if (!ownerId || activityLoadedRef.current === ownerId) {
-      return;
-    }
-    activityLoadedRef.current = ownerId;
-    let cancelled = false;
-    setActivityStatus('loading');
-    void (async () => {
-      // `knownAuthor` skips the `public_profiles` hydration round trip for rows
-      // the owner WROTE. It is deliberately not applied to reposted rows — those
-      // are by someone else, and labelling them with the owner's name is exactly
-      // the bug the attribution line exists to prevent. `fetchAuthorActivity`
-      // keeps the two halves apart.
-      try {
-        const loaded = await fetchAuthorActivity(ownerId, { knownAuthor: ownerAuthor });
-        if (cancelled) {
-          return;
-        }
-        setActivityPosts(loaded);
-        setActivityStatus('ready');
-      } catch {
-        // `fetchAuthorActivity` swallows the repost read but NOT the authored
-        // one, so this really can reject. It used to strand the tab on
-        // 'loading' forever — the 'error' state the empty view already renders
-        // was unreachable. Now it is reached, and (the reason this matters more
-        // than it did) the pull-to-refresh spinner below is released instead of
-        // turning over a request that is never coming back.
-        if (cancelled) {
-          return;
-        }
-        setActivityStatus('error');
-        // Let the next attempt through: the latch is what stops a retry.
-        activityLoadedRef.current = null;
-      } finally {
-        if (!cancelled) {
-          setIsActivityRefreshing(false);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // `ownerAuthor` is display-only here; re-running on every profile edit would
-    // refetch the list for no benefit.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ownerId, activityReloadToken]);
-
-  // Publishing a post or reposting one bumps the shared refresh counter. When
-  // this screen regains focus having missed a bump, force the owner's Activity
-  // to reload — otherwise the lazy-load ref keeps serving the stale list and the
-  // new row never appears ("I posted/reposted but see nothing").
-  //
-  // The counter is compared, not consumed: the feed watches it too, and the old
-  // read-and-clear flag meant whichever screen focused first swallowed it.
-  useFocusEffect(
-    useCallback(() => {
-      if (seenRefreshVersionRef.current !== getFeedRefreshVersion()) {
-        seenRefreshVersionRef.current = getFeedRefreshVersion();
-        activityLoadedRef.current = null;
-        setActivityReloadToken((token) => token + 1);
-      }
-    }, []),
-  );
-
   // The header's counts and cover come from `currentUser`, which is read once at
   // sign-in (under a launch timeout that can lose). Re-read it when this page is
   // actually in front — the tab focused AND the pager on Portfolio — throttled.
@@ -1105,24 +1031,6 @@ export function PortfolioScreen({
     }, [isGuest, isPortfolioPageActive, refreshCurrentUser]),
   );
 
-  /*
-    Pull-to-refresh for the Activity page.
-
-    It had none. The Collection page's `RefreshControl` reloads inventory and
-    the dashboard and never touches posts, and the Activity page carried no
-    refresh control at all — so a stale row here (a post deleted elsewhere, a
-    repost that missed the signal) could not be cleared by the one gesture
-    everybody tries. Clearing the latch is the whole job: the load effect
-    re-runs on the token bump and repopulates from the server.
-  */
-  const handleRefreshActivity = useCallback(() => {
-    if (!ownerId) {
-      return;
-    }
-    setIsActivityRefreshing(true);
-    activityLoadedRef.current = null;
-    setActivityReloadToken((token) => token + 1);
-  }, [ownerId]);
 
   /*
     NO UNREAD COUNT HERE ANY MORE. This screen used to draw the bell, so it read
@@ -1135,8 +1043,8 @@ export function PortfolioScreen({
   // Mirror edit mode into the tabs pager so it hides the bottom tab bar + locks
   // the horizontal swipe, and always release the lock on unmount.
   useEffect(() => {
-    setCollectionEditing(editMode);
-  }, [editMode, setCollectionEditing]);
+    setCollectionEditing(editMode || isWatchlistEditing);
+  }, [editMode, isWatchlistEditing, setCollectionEditing]);
 
   useEffect(() => () => {
     setCollectionEditing(false);
@@ -1401,16 +1309,6 @@ export function PortfolioScreen({
     [],
   );
 
-  /*
-    NO `+` IN THIS BAR ANY MORE. The profile toolbar (3670:47454) spends both
-    trailing slots on edit and share, so the `+` that composed a post from every
-    tab of this screen is gone with the bell. Composing now lives in exactly ONE
-    place: the compose row at the top of Home's feed. The Activity tab's old
-    "What's on your mind?" prompt was removed because it only existed as the
-    empty state — it vanished after your first post, which users reported as
-    "I can't post again". Activity is now a pure record of your posts.
-  */
-
   const handleEditProfilePress = useCallback(() => {
     router.push('/edit-profile' as never);
   }, [router]);
@@ -1485,79 +1383,8 @@ export function PortfolioScreen({
     return rows;
   }, [crossCollectionMatches, shouldShowInitialError, viewMode, visibleInventory]);
 
-  const activityData = useMemo<CollectionRow[]>(
-    () =>
-      activityPosts.map((item) => ({
-        kind: 'post',
-        key: item.post.id,
-        post: item.post,
-        repostedAt: item.repostedAt,
-      })),
-    [activityPosts],
-  );
-
-  const handleOpenPostCard = useCallback(
-    (cardId: string) => {
-      router.push({ pathname: '/cards/[cardId]', params: { cardId } });
-    },
-    [router],
-  );
-
-  /*
-    `usePostDeletion` speaks `FeedPost[]` — it is shared with the feed, which has
-    no notion of reposts. Activity holds `AuthorActivityItem[]`, so this adapts
-    between the two rather than making the hook generic for one caller.
-
-    Rebuilding from the id map is what preserves `repostedAt` across a delete: a
-    failed delete restores the post, and dropping the attribution would silently
-    relabel someone else's post as the owner's. A post the map does not know is
-    one the hook just restored, which can only be one the owner wrote.
-  */
-  const setActivityFeedPosts = useCallback<Dispatch<SetStateAction<FeedPost[]>>>((action) => {
-    setActivityPosts((current) => {
-      const posts = current.map((item) => item.post);
-      const next = typeof action === 'function' ? action(posts) : action;
-      const byId = new Map(current.map((item) => [item.post.id, item]));
-      return next.map((post) => byId.get(post.id) ?? { post, repostedAt: null });
-    });
-  }, []);
-
-  // Activity holds its own copy of the owner's posts (the feed holds another), so
-  // deletion is wired per-list through the shared hook rather than a shared store.
-  const { requestDelete: requestPostDelete, confirmSheet: postDeleteSheet } = usePostDeletion(
-    setActivityFeedPosts,
-    { testID: 'portfolio-activity-delete-confirm' },
-  );
-
   const renderItem = useCallback(
     ({ item }: { item: CollectionRow }) => {
-      if (item.kind === 'post') {
-        // Full-bleed: the post card owns its own 16px inner padding and its image
-        // spans edge-to-edge (Figma 2903-7128), so no page-gutter wrapper here.
-        return (
-          <>
-            {/*
-              A reposted card carries the ORIGINAL author's name and avatar, so
-              without this line your own Activity reads as though you posted
-              someone else's photo.
-            */}
-            {item.repostedAt ? (
-              <RepostAttribution testID="portfolio-activity-repost-attribution" />
-            ) : null}
-            <PostCard
-              accessToken={accessToken}
-              apiBaseUrl={apiBaseUrl}
-              onPressCard={handleOpenPostCard}
-              // Only your OWN post is deletable. Un-reposting is the repost
-              // glyph's job, not the ⋯ menu's, and offering Delete on someone
-              // else's post would promise something RLS refuses.
-              onRequestDelete={item.repostedAt ? undefined : requestPostDelete}
-              post={item.post}
-              testID="portfolio-activity-post"
-            />
-          </>
-        );
-      }
       if (item.kind === 'section-header') {
         return (
           <View style={styles.crossSectionHeader}>
@@ -1606,13 +1433,9 @@ export function PortfolioScreen({
       );
     },
     [
-      accessToken,
-      apiBaseUrl,
       editMode,
       handleLongPressEntry,
-      handleOpenPostCard,
       handlePressEntry,
-      requestPostDelete,
       selectedIds,
     ],
   );
@@ -1705,6 +1528,8 @@ export function PortfolioScreen({
         // profile, but not on your own Portfolio — the one place you look first.
         coverUrl={currentUser?.coverURL}
         displayName={profileName}
+        // Figma 6642:5964: the handle and the link, no name line under them.
+        showDisplayName={false}
         followerCount={currentUser?.followerCount}
         followingCount={currentUser?.followingCount}
         handle={currentUser?.handle}
@@ -1744,14 +1569,19 @@ export function PortfolioScreen({
         paddingTop: spacing.lg,
       }}
     >
-      <PageTabs
-        labelSize="caption"
-        onChange={setActiveProfileTab}
-        tabs={PROFILE_TABS}
-        testID="portfolio-profile-tabs"
-        uppercase
-        value={activeProfileTab}
-      />
+      {/* Four tabs outgrow 393pt, so the rail scrolls (and keeps the active
+          tab in view); a drag on it scrolls the rail, never the pages. */}
+      <PageSwipeGuard>
+        <PageTabs
+          onChange={setActiveProfileTab}
+          scrollable
+          tabs={PROFILE_TABS}
+          testID="portfolio-profile-tabs"
+          uppercase
+          value={activeProfileTab}
+          variant="underline"
+        />
+      </PageSwipeGuard>
     </View>
   );
 
@@ -1851,34 +1681,6 @@ export function PortfolioScreen({
     </View>
   );
 
-  // Empty Activity: once the (empty) posts have actually loaded, show a plain
-  // pointer to Home's compose row — not a composer of its own. This tab is a
-  // pure record of your posts; the compose entry point lives on Home. While the
-  // posts are still loading (or errored) fall back to a state card.
-  const activityEmpty =
-    activityStatus === 'ready' ? (
-      <View style={styles.activityEmptyText} testID="portfolio-activity-empty">
-        <Text
-          style={[theme.typography.body, { color: theme.colors.gray600, textAlign: 'center' }]}
-        >
-          Create a post to populate your feed!
-        </Text>
-      </View>
-    ) : activityStatus === 'error' ? (
-      <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
-        <StateCard
-          message="Please try again in a moment."
-          style={styles.emptyStateCard}
-          testID="portfolio-activity-empty"
-          title="Could not load activity"
-          variant="field"
-        />
-      </View>
-    ) : (
-      // Still fetching: a chromeless spinner, not a bordered card — the card
-      // reads as a permanent result when it's really just a transient wait.
-      <InlineLoader label="Fetching posts" testID="portfolio-activity-empty" />
-    );
 
   // Truly-empty collection (no cards at all) reads differently from an active
   // filter/search that just matched nothing. A filter miss is a RESULT, so it
@@ -1896,8 +1698,7 @@ export function PortfolioScreen({
     "Let's build your collection / Scan to add" prompt. To someone with 300
     cards, being shown the new-user invitation IS the report.
 
-    The Activity tab on this same screen already gets this right (see the
-    `InlineLoader` above); Collection just never did.
+    Hence the `InlineLoader` while the first read is still in flight.
   */
   const isCollectionStillLoading = model.isLoading && !model.hasLoadedInventory;
   const listEmpty = shouldShowInitialError ? null : isCollectionStillLoading ? (
@@ -1947,6 +1748,43 @@ export function PortfolioScreen({
     // Collection page header into an absolute content offset.
     chromePaddingRef.current = page.contentContainerStyle.paddingTop;
 
+    // Not yet opened: an empty page until first visit (see LAZY_PROFILE_TABS).
+    if (LAZY_PROFILE_TABS.has(tab) && !visitedTabs.has(tab)) {
+      return <View style={styles.listWrap} testID={`portfolio-${tab}-placeholder`} />;
+    }
+
+    if (tab === 'masterset') {
+      return (
+        <MasterSetPage
+          bottomPadding={bottomNavClearance}
+          enabled
+          page={page}
+          scrollRef={masterSetScrollRef}
+        />
+      );
+    }
+
+    if (tab === 'watchlist') {
+      return (
+        <WatchlistPage
+          isActive={isPortfolioPageActive && activeProfileTab === 'watchlist'}
+          onEditModeChange={setIsWatchlistEditing}
+          page={page}
+          scrollRef={watchlistScrollRef}
+        />
+      );
+    }
+
+    if (tab === 'market') {
+      return (
+        <MarketAnalyticsPage
+          page={page}
+          scrollRef={marketScrollRef}
+          testID="portfolio-market-page"
+        />
+      );
+    }
+
     if (tab === 'forsale') {
       return (
         <AnimatedScrollView
@@ -1985,45 +1823,6 @@ export function PortfolioScreen({
       );
     }
 
-    if (tab === 'activity') {
-      return (
-        <AnimatedFlatList
-          ref={activityScrollRef}
-          // See the For Sale page: every page in the pager has to be inset the
-          // same way, because the chrome padding is computed once for all three.
-          contentInsetAdjustmentBehavior="automatic"
-          contentContainerStyle={[
-            page.contentContainerStyle,
-            { paddingBottom: bottomNavClearance },
-          ]}
-          data={activityData}
-          keyExtractor={(item) => item.key}
-          ListEmptyComponent={activityEmpty}
-          onScroll={page.onScroll}
-          refreshControl={(
-            <RefreshControl
-              onRefresh={handleRefreshActivity}
-              // Same treatment as the Collection page: drop the spinner below
-              // the pinned profile header + tab bar rather than behind them.
-              progressViewOffset={page.progressViewOffset}
-              refreshing={isActivityRefreshing}
-              testID="portfolio-activity-refresh-control"
-              tintColor={theme.colors.gray400}
-            />
-          )}
-          renderItem={renderItem}
-          scrollEventThrottle={page.scrollEventThrottle}
-          // RN clamps a NEGATIVE scrollTo target to 0 unless this is set
-          // (RCTScrollViewComponentView.mm), and it clamps against
-          // `contentInset` — which is empty here, because
-          // `contentInsetAdjustmentBehavior="automatic"` puts the safe area
-          // in `adjustedContentInset` instead. Without it every "go to the
-          // top" the pager or the FAB performs lands `insets.top` short.
-          scrollToOverflowEnabled={page.scrollToOverflowEnabled}
-          testID="portfolio-activity-page"
-        />
-      );
-    }
 
     return (
       <View
@@ -2187,7 +1986,7 @@ export function PortfolioScreen({
         // padding reserved the same status bar again and opened a second one of
         // white between the tab bar and the Portfolio balance.
         contentInsetTop={Platform.OS === 'ios' ? insets.top : 0}
-        disabled={editMode}
+        disabled={editMode || isWatchlistEditing}
         header={pagerHeader}
         // Fades the profile block across exactly the strip it would park in, so
         // scrolled down you see only the bubbles and the tabs. Same expression as
@@ -2198,7 +1997,7 @@ export function PortfolioScreen({
         order={PROFILE_TAB_ORDER}
         pageRefs={pageScrollRefs}
         // Park the tab bar under the floating bubbles instead of at y=0, where
-        // "Collection / For Sale / Activity" ended up drawn behind the clock.
+        // the profile tabs ended up drawn behind the clock.
         // FLUSH against the toolbar, no +16: the toolbar backdrop only covers
         // its own height, so a parked gap is a see-through strip with cards
         // sliding through it. The designed 16 below the toolbar is the tab-bar
@@ -2318,8 +2117,6 @@ export function PortfolioScreen({
         visible={singleDeleteEntry != null}
       />
 
-      {postDeleteSheet}
-
       <SalePriceEditSheet
         canConfirm={model.canConfirmSalePriceEdit}
         onChangePriceText={model.updateEditingSalePriceText}
@@ -2420,13 +2217,6 @@ const styles = StyleSheet.create({
   // The bar paints above this sibling by tree order.
   pinnedBlock: {
     marginBottom: -PROFILE_SHEET_OVERLAP,
-  },
-  activityEmptyText: {
-    // Empty-Activity message: plain centered text, no card chrome and no press
-    // handler — composing happens from Home's compose row, not here.
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 24,
   },
   emptyPrompt: {
     // Same top offset as the filter-miss StateCard so both empty states sit at
