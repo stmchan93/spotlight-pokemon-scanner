@@ -8,7 +8,6 @@ import {
   DEFAULT_CARD_GAME,
   gameDisplayName,
   type CardGame,
-  type MarketCardTile,
   type MarketWindow,
   type MarketSetMove,
 } from '@spotlight/api-client';
@@ -23,26 +22,20 @@ import {
 import type { AssistantPageExtra } from '@/features/assistant/page-context/assistant-page-context';
 import { InsightsGameSheet } from '@/features/insights/components/insights-game-sheet';
 import {
-  BargainRail,
-  BreakoutRail,
   capitalize,
   GamePickerButton,
-  GradingList,
   MarketAnalyticsSkeleton,
   MarketPulseSection,
   MarketSectionTitle,
   WINDOW_OPTIONS,
   SectionBand,
-  SectionEmpty,
   SetMoverRail,
   WindowToggle,
 } from '@/features/market/components/market-analytics-sections';
-import { MarketHeatmap } from '@/features/market/components/market-heatmap';
 import { UpcomingSetCard } from '@/features/market/screens/market-watch-page';
 import { useMarketAnalytics } from '@/features/market/use-market-analytics';
 import { useCalendar } from '@/features/meta-feed/hooks/use-meta-feed';
 import { useMetaFeedNavigation } from '@/features/meta-feed/hooks/use-meta-feed-navigation';
-import { useAuth } from '@/providers/auth-provider';
 
 type MarketAnalyticsPageProps = {
   page: CollapsiblePageProps;
@@ -53,35 +46,30 @@ type MarketAnalyticsPageProps = {
    */
   assistantContextRef?: MutableRefObject<AssistantPageExtra | null>;
   initialGame?: CardGame;
-  /** Dev screen host only: start zoomed into a set, for deterministic screenshots. */
-  devInitialZoomSetId?: string;
   testID?: string;
 };
 
 /**
- * Home → MARKET ANALYTICS (owner-approved order, 2026-11-23): game + window,
- * market pulse with you-vs-market, set heatmap (zooms into a set's cards),
- * Bargain board, Breaking out, Sets rising/falling, Grading opportunities,
- * then Upcoming sets (kept from Market Watch: release dates stand alone).
+ * Home → MARKET ANALYTICS: game + window, the market index chart, Set movers,
+ * then Upcoming sets. Heatmap, Bargain board, Breaking out, Grading
+ * opportunities and You-vs-market were cut (owner, 2026-11-23); bargains and
+ * breakouts may come back in a new visual.
  */
 export function MarketAnalyticsPage({
   page,
   scrollRef,
   assistantContextRef,
   initialGame = DEFAULT_CARD_GAME,
-  devInitialZoomSetId,
   testID = 'market-analytics-page',
 }: MarketAnalyticsPageProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const navigation = useMetaFeedNavigation();
-  const { isGuest } = useAuth();
   const [game, setGame] = useState<CardGame>(initialGame);
   const [window, setWindow] = useState<MarketWindow>('30d');
   const [gameSheetOpen, setGameSheetOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [zoomedSet, setZoomedSet] = useState<{ id: string; name: string } | null>(null);
 
   const analytics = useMarketAnalytics(game, window);
   const calendar = useCalendar({ game });
@@ -95,11 +83,11 @@ export function MarketAnalyticsPage({
     const windowLabel = WINDOW_OPTIONS.find((item) => item.value === window)?.label ?? window;
     assistantContextRef.current = {
       kind: 'insights',
-      label: `Market analytics · ${gameDisplayName(game)} · ${windowLabel}${zoomedSet ? ` · ${zoomedSet.name}` : ''}`,
+      label: `Market analytics · ${gameDisplayName(game)} · ${windowLabel}`,
       game,
-      params: { tab: 'market', window, set_id: zoomedSet?.id ?? null, collection: null },
+      params: { tab: 'market', window, set_id: null, collection: null },
     };
-  }, [assistantContextRef, game, window, zoomedSet]);
+  }, [assistantContextRef, game, window]);
   useEffect(() => () => {
     if (assistantContextRef) {
       assistantContextRef.current = null;
@@ -111,10 +99,6 @@ export function MarketAnalyticsPage({
     void Promise.all([analytics.refresh(), refreshCalendar()]).finally(() => setRefreshing(false));
   }, [analytics, refreshCalendar]);
 
-  const openCard = useCallback((card: MarketCardTile) => {
-    router.push({ pathname: '/cards/[cardId]', params: { cardId: card.cardId, name: card.name } });
-  }, [router]);
-
   const openSet = useCallback((set: MarketSetMove) => {
     router.push({
       pathname: '/catalog/expansion/[expansionId]',
@@ -123,19 +107,14 @@ export function MarketAnalyticsPage({
     });
   }, [router]);
 
-  const handleZoomChange = useCallback((id: string | null, name: string | null) => {
-    setZoomedSet(id && name ? { id, name } : null);
-  }, []);
-
   const releases = (calendar.data?.items ?? []).filter((event) => event.kind === 'release');
   const gameName = gameDisplayName(game);
   // No data yet (first read pending) counts as loading, not empty.
   const loading = data == null && !analytics.failed;
   const thin = data != null
-    && data.heatmap.length === 0
     && data.pulse.sparkline.length === 0
-    && data.bargains.length === 0
-    && data.breakingOut.length === 0;
+    && data.setsRising.length === 0
+    && data.setsFalling.length === 0;
 
   const upcoming = releases.length > 0 ? (
     <>
@@ -206,55 +185,12 @@ export function MarketAnalyticsPage({
         />
       ) : data ? (
         <>
-          {/* 1. Pulse + you vs market */}
+          {/* 1. Market index */}
           <View style={styles.pulseWrap}>
-            <MarketPulseSection data={data} isGuest={isGuest} testID={`${testID}-pulse`} />
+            <MarketPulseSection data={data} testID={`${testID}-pulse`} />
           </View>
 
-          {/* 2. Heatmap */}
-          <SectionBand />
-          <View style={styles.section}>
-            <MarketSectionTitle caption={`${capitalize(data.windowLabel)} · tile size = total set value`} title="Market heatmap" />
-            {data.heatmap.length > 0 ? (
-              <View style={styles.gutter}>
-                <MarketHeatmap
-                  devInitialZoomSetId={devInitialZoomSetId}
-                  game={game}
-                  onPressCard={openCard}
-                  onZoomChange={handleZoomChange}
-                  sets={data.heatmap}
-                  testID={`${testID}-heatmap`}
-                  window={window}
-                />
-              </View>
-            ) : (
-              <SectionEmpty message={`No ${gameName} sets have enough prices to map yet.`} testID={`${testID}-heatmap-empty`} />
-            )}
-          </View>
-
-          {/* 3. Bargain board */}
-          <SectionBand />
-          <View style={styles.section}>
-            <MarketSectionTitle caption="Cards trading near the bottom of their recent range" title="Bargain board" />
-            {data.bargains.length > 0 ? (
-              <BargainRail items={data.bargains} onPressCard={openCard} testID={`${testID}-bargains`} />
-            ) : (
-              <SectionEmpty message={`No ${gameName} cards near their lows right now.`} testID={`${testID}-bargains-empty`} />
-            )}
-          </View>
-
-          {/* 4. Breaking out */}
-          <SectionBand />
-          <View style={styles.section}>
-            <MarketSectionTitle caption={`New highs · ${data.windowLabel}`} title="Breaking out" />
-            {data.breakingOut.length > 0 ? (
-              <BreakoutRail items={data.breakingOut} onPressCard={openCard} testID={`${testID}-breakouts`} />
-            ) : (
-              <SectionEmpty message={`No ${gameName} cards at new highs right now.`} testID={`${testID}-breakouts-empty`} />
-            )}
-          </View>
-
-          {/* 5. Sets rising / falling */}
+          {/* 2. Sets rising / falling */}
           <SectionBand />
           <View style={styles.section}>
             <MarketSectionTitle caption={capitalize(data.windowLabel)} title="Set movers" />
@@ -276,20 +212,10 @@ export function MarketAnalyticsPage({
             />
           </View>
 
-          {/* 6. Grading opportunities */}
-          <SectionBand />
-          <View style={styles.section}>
-            <MarketSectionTitle caption="Raw price vs PSA 10, after estimated grading fees" title="Grading opportunities" />
-            {data.grading.length > 0 ? (
-              <GradingList items={data.grading} onPressCard={openCard} testID={`${testID}-grading`} />
-            ) : (
-              <SectionEmpty message={`No ${gameName} grading spreads to show yet.`} testID={`${testID}-grading-empty`} />
-            )}
-          </View>
         </>
       ) : null}
 
-      {/* 7. Upcoming sets */}
+      {/* 3. Upcoming sets */}
       {upcoming}
 
       {data?.asOf ? (

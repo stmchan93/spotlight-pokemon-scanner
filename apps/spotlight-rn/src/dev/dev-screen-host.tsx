@@ -148,7 +148,6 @@ const devScreens: Record<string, () => ReactElement> = {
   'market-analytics-rails': () => <DevMarketAnalytics scrollY={1150} />,
   'market-analytics-sets': () => <DevMarketAnalytics scrollY={1850} />,
   'market-analytics-grading': () => <DevMarketAnalytics scrollY={2450} />,
-  'market-analytics-zoom': () => <DevMarketAnalytics scrollY={560} zoomSetId="sv3pt5" />,
   'card-detail-price-position': () => <CardDetailScreen cardId="sm7-1" onBack={() => undefined} />,
   // Ask Ekalight on the mock repository: empty chat (Home), the seeded saved
   // thread, and the Scanner entry with two tray cards as context.
@@ -539,7 +538,7 @@ const devMarketPage = {
   scrollToOverflowEnabled: true,
 };
 
-function DevMarketAnalytics({ scrollY, zoomSetId }: { scrollY?: number; zoomSetId?: string }) {
+function DevMarketAnalytics({ scrollY }: { scrollY?: number }) {
   const scrollRef = useRef<CollapsibleScrollTarget | null>(null);
   useEffect(() => {
     if (!scrollY) {
@@ -554,7 +553,7 @@ function DevMarketAnalytics({ scrollY, zoomSetId }: { scrollY?: number; zoomSetI
   }, [scrollY]);
   return (
     <View style={styles.topTrends}>
-      <MarketAnalyticsPage devInitialZoomSetId={zoomSetId} page={devMarketPage} scrollRef={scrollRef} />
+      <MarketAnalyticsPage page={devMarketPage} scrollRef={scrollRef} />
     </View>
   );
 }

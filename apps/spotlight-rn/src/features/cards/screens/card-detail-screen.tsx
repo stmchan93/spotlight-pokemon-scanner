@@ -121,7 +121,6 @@ import {
 import { PRICE_UNAVAILABLE_CAPTION, formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { keyboardClearance } from '@/lib/keyboard-insets';
 import { useAssistantPageContext } from '@/features/assistant/page-context/assistant-page-context';
-import { CardPricePositionBar } from '@/features/cards/components/card-price-position';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
@@ -2971,16 +2970,6 @@ export function CardDetailScreen({
             mode={displayedPriceTrends?.mode ?? (isRawLane ? 'raw' : 'graded')}
             preferredCondition={selectedCondition}
             preferredGrade={selectedGrade}
-            // "Cheap or pricey" for the charted printing + condition/grade.
-            renderBelowPrice={(row) => (
-              <CardPricePositionBar
-                cardId={activeCardId}
-                mode={displayedPriceTrends?.mode ?? (isRawLane ? 'raw' : 'graded')}
-                repository={spotlightRepository}
-                row={row}
-                variant={selectedVariantLabel}
-              />
-            )}
             repository={spotlightRepository}
             rows={displayedPriceTrends?.rows ?? []}
             rowsLoading={priceTrendsLoading}

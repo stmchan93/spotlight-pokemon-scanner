@@ -223,15 +223,13 @@ function CardArt({ card, height = CARD_ART_HEIGHT, width = CARD_TILE_WIDTH }: { 
 
 export function MarketPulseSection({
   data,
-  isGuest,
   testID,
 }: {
   data: MarketAnalytics;
-  isGuest: boolean;
   testID: string;
 }) {
   const theme = useSpotlightTheme();
-  const { pulse, you } = data;
+  const { pulse } = data;
   const [scrubIndex, setScrubIndex] = useState<number | null>(null);
   const points = useMemo<PriceChartPoint[]>(
     () => pulse.sparkline.map((point) => ({ t: Date.parse(`${point.date}T00:00:00Z`), v: point.value }))
@@ -242,7 +240,6 @@ export function MarketPulseSection({
   const total = pulse.breadth.up + pulse.breadth.down + pulse.breadth.flat;
   const downPct = total > 0 ? Math.round((pulse.breadth.down / total) * 100) : 0;
   const upPct = Math.round(pulse.breadth.upPct ?? (total > 0 ? (pulse.breadth.up / total) * 100 : 0));
-  const showYou = !isGuest && you != null;
 
   return (
     <View style={styles.pulse} testID={testID}>
@@ -296,43 +293,6 @@ export function MarketPulseSection({
         </View>
       ) : null}
 
-      {showYou ? (
-        <View
-          accessibilityLabel={`Your collection ${changeWords(you.changePct)}, market ${changeWords(you.marketChangePct)}.${you.beatsMarket == null ? '' : ` ${you.beatsMarket ? 'Beating' : 'Trailing'} the market.`}`}
-          accessible
-          style={[styles.you, { backgroundColor: theme.colors.gray50 }]}
-          testID={`${testID}-you`}
-        >
-          <View style={styles.youCopy}>
-            <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]}>You vs market</Text>
-            <Text numberOfLines={2} style={[theme.typography.titleXsmall, { color: theme.colors.gray900 }]}>
-              {'Your collection '}
-              <Text style={{ color: changeColor(theme, you.changePct) }}>{formatChange(you.changePct)}</Text>
-              {' · market '}
-              <Text style={{ color: changeColor(theme, you.marketChangePct) }}>{formatChange(you.marketChangePct)}</Text>
-            </Text>
-          </View>
-          {/* No verdict without both numbers (backend sends beatsMarket null). */}
-          {you.beatsMarket == null ? null : (
-          <View
-            style={[
-              styles.verdict,
-              { backgroundColor: you.beatsMarket ? theme.colors.green100 : theme.colors.gray100 },
-            ]}
-            testID={`${testID}-you-verdict`}
-          >
-            {you.beatsMarket ? (
-              <GraphUp color={theme.colors.green500} height={14} strokeWidth={2} width={14} />
-            ) : (
-              <GraphDown color={theme.colors.gray700} height={14} strokeWidth={2} width={14} />
-            )}
-            <Text style={[theme.typography.chipLabel, { color: you.beatsMarket ? theme.colors.green500 : theme.colors.gray700 }]}>
-              {you.beatsMarket ? 'BEATING' : 'TRAILING'}
-            </Text>
-          </View>
-          )}
-        </View>
-      ) : null}
     </View>
   );
 }
