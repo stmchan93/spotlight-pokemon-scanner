@@ -19,6 +19,7 @@ from typing import Any
 
 from mcp_server.assistant.config import AssistantConfig, cost_usd
 from mcp_server.assistant.direct_add import ADD_NOW_TOOL, TurnWrites
+from mcp_server.assistant.tray_actions import TRAY_TOOLS
 from mcp_server.assistant import choice as pick_choice
 from mcp_server.assistant import length_guard
 from mcp_server.assistant.shared_answers import tool_record
@@ -80,6 +81,7 @@ Accuracy (never break these):
 - You can't sell, list, or buy for the user. Say so in one short sentence plus at most one offer, under 40 words.
 - General TCG questions (rarities, grading, sets, how collecting works, game basics) are welcome: answer from your knowledge, but specific prices, cards, and the user's collection must come from tools. Only list sets, years or print runs you are sure of. Fact: in English, Wizards of the Coast printed 1st Edition (stamped) runs of Base Set, Jungle, Fossil, Team Rocket, Gym Heroes, Gym Challenge, and all four Neo sets (Genesis, Discovery, Revelation, Destiny). When the question is what a kind of card is (a rarity like SIR, a card type), also look up one real example (e.g. search_cards with that rarity_bucket, product=single, sort=price_desc, limit=1), name it, and show it.
 - The scan tray: when the message lists the user's scan tray, "these", "this", "them" and "they" mean those cards. An answer about them names the source in its first sentence: "Of the 3 cards in your scan tray, …" (several) or "This scanned card …" (one). The user may also ask about anything else; then leave the tray out.
+- Scan tray changes (only when the message lists numbered scan tray rows): "add these/all/them to my collection" → tray_propose_add (rows = the row numbers meant, [] = every row; never propose_add_to_collection or add_to_collection_now for tray cards). It files each row as the tray shows it, so don't ask for condition, printing or grade. "Swap/change this card", "that's the wrong printing", "it's actually the <set> one" → search_cards for that card name, then tray_propose_swap(row, to_card_id); when several printings fit and the user named none, show them and say "Tap a card below to pick the right one." "Remove X from my scans/tray" → tray_propose_remove. Each is a Confirm card: say it's ready to confirm, never that it's done. With no numbered tray rows, say tray changes work from the Ekalight button on the scan tray.
 - Buy/sell/"investing"/"good buy"/"what's hot or trending" questions without a price for specific cards (a price for specific cards is check_deal): don't refuse and don't predict or promise gains. Use get_market_trends for what's rising and which sets are moving, find_price_lows for "undervalued" or cards that dropped and now sit near their lows, and find_new_highs for "new highs", record or all-time-high prices, and "breaking out". "Likely to go up": call get_market_trends and find_price_lows, describe recent momentum and dips, and say plainly it's not a prediction. Give a one-sentence takeaway, then one bullet per card (at most 3; the tiles show the cards you name), plus one short line that it's not a prediction. Asked for ONE pick ("the most undervalued card", "one card worth picking up", "your top pick"): name just that card from find_price_lows (the deepest dip with a solid price), call get_price_history for it so the app shows its chart, and show only that card; one or two short sentences plus the not-a-prediction line.
 - Off-topic requests (not cards/TCG/collecting/this app): decline in one sentence, under 40 words.
 - Market-wide rankings (rising, falling, new highs, lows, undervalued, trending, sets, most expensive, top graded) cover the one game in the message's "Game scope" note; name that game in the answer and never mix games unless the note says all games.
@@ -295,7 +297,7 @@ def _response_text(response: Any) -> str:
     )
 
 
-_PSEUDO_CALL = re.compile(r"\b(show_cards|get_[a-z_]+|search_cards|find_[a-z_]+|propose_[a-z_]+)\s*\(")
+_PSEUDO_CALL = re.compile(r"\b(show_cards|get_[a-z_]+|search_cards|find_[a-z_]+|propose_[a-z_]+|tray_propose_[a-z_]+)\s*\(")
 
 
 def strip_pseudo_calls(text: str) -> str:
@@ -1084,6 +1086,7 @@ class AssistantEngine:
         game_scope: GameScope | None = None,
         deadline: float | None = None,
         thread_refs: list[dict[str, Any]] | None = None,
+        tray_rows: list[dict[str, Any]] | None = None,
     ) -> TurnResult:
         """`deadline` (time.monotonic) bounds the turn; default turn_deadline_seconds from now."""
         started = time.monotonic()
@@ -1092,7 +1095,8 @@ class AssistantEngine:
         messages = with_history_breakpoint(build_messages(history, question, context))
         result = TurnResult(text="", status="ok")
         writes = TurnWrites(
-            client_message_id=client_message_id, question=question, context_card_ids=tuple(context_card_ids or ())
+            client_message_id=client_message_id, question=question, context_card_ids=tuple(context_card_ids or ()),
+            tray_rows=tuple(tray_rows or ()),
         )
         executed_refs: list[dict[str, Any]] = []
         # Cards from proposals and get_card first (the specific answer), then the rest.
@@ -1194,7 +1198,7 @@ class AssistantEngine:
                 if outcome.verdict is not None and not outcome.is_error:
                     verdicts.append(outcome.verdict)
                 primary = block.name.startswith("propose_") or block.name in (
-                    "get_card", ADD_NOW_TOOL, "check_deal", "compare_trade"
+                    "get_card", ADD_NOW_TOOL, "check_deal", "compare_trade", *TRAY_TOOLS
                 )
                 (primary_refs if primary else other_refs).extend(outcome.cards)
                 if outcome.action is not None:

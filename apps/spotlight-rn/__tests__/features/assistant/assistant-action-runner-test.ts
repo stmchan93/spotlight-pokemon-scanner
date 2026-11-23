@@ -6,6 +6,7 @@ import {
   undoExecutedAdd,
   type AssistantActionDeps,
 } from '@/features/assistant/assistant-action-runner';
+import type { ScanTrayAssistantBridge } from '@/features/scanner/scan-tray-assistant-bridge';
 import { createWatchlistStore } from '@/features/wishlist/watchlist-store';
 
 import { createTestSpotlightRepository } from '../../test-utils';
@@ -67,6 +68,78 @@ describe('runAssistantAction', () => {
       d,
     );
     expect(outcome.status).toBe('failed');
+  });
+});
+
+describe('runAssistantAction — scan tray actions', () => {
+  const swap: AssistantProposedAction = {
+    id: 'act_s',
+    type: 'swap_tray_card',
+    summary: 'Swap Charizard ex (151 199/165) → Charizard ex (Obsidian Flames 223/197)',
+    state: 'proposed',
+    params: { row: 1, rowRef: 'cap-1', fromCardId: 'sv3pt5-199', toCardId: 'sv3-223', toCard: null },
+  };
+  const add: AssistantProposedAction = {
+    id: 'act_a',
+    type: 'add_tray_to_collection',
+    summary: 'Add 2 scanned cards',
+    state: 'proposed',
+    params: {
+      rows: [
+        { row: 1, rowRef: 'cap-1', cardId: 'sv3pt5-199', quantity: 1, condition: 'NM', variantName: null, grader: null, grade: null },
+        { row: 2, rowRef: 'cap-2', cardId: 'xyp-111', quantity: 1, condition: null, variantName: null, grader: 'PSA', grade: '10' },
+      ],
+    },
+  };
+
+  function fakeTray(overrides: Partial<ScanTrayAssistantBridge> = {}): ScanTrayAssistantBridge {
+    return {
+      rows: () => [],
+      addRows: jest.fn(async () => ({ status: 'done' as const })),
+      swapCard: jest.fn(() => ({ status: 'done' as const })),
+      removeRow: jest.fn(() => ({ status: 'done' as const })),
+      ...overrides,
+    };
+  }
+
+  it('applies a swap to the live tray, never touching the collection', async () => {
+    const tray = fakeTray();
+    const d = { ...deps({}), scanTray: tray };
+    await expect(runAssistantAction(swap, d)).resolves.toEqual({ status: 'done' });
+    expect(tray.swapCard).toHaveBeenCalledWith(swap.params);
+    expect(d.refreshData).not.toHaveBeenCalled();
+  });
+
+  it('says so honestly when the scanner (and its tray) is gone', async () => {
+    const d = { ...deps({}), scanTray: null };
+    await expect(runAssistantAction(swap, d)).resolves.toEqual({
+      status: 'failed', message: "That card isn't in your scan tray anymore.",
+    });
+    await expect(runAssistantAction(add, d)).resolves.toEqual({
+      status: 'failed', message: "Those cards aren't in your scan tray anymore.",
+    });
+  });
+
+  it('passes a row that changed through as a failure, and a partial add as a note', async () => {
+    const stale = fakeTray({ swapCard: () => ({ status: 'failed', message: "That card isn't in your scan tray anymore." }) });
+    await expect(runAssistantAction(swap, { ...deps({}), scanTray: stale })).resolves.toEqual({
+      status: 'failed', message: "That card isn't in your scan tray anymore.",
+    });
+    const partial = fakeTray({ addRows: jest.fn(async () => ({ status: 'done' as const, note: 'Added 1 of 2.' })) });
+    await expect(runAssistantAction(add, { ...deps({}), scanTray: partial })).resolves.toEqual({
+      status: 'done', note: 'Added 1 of 2.',
+    });
+    expect(partial.addRows).toHaveBeenCalledWith(add.params.rows);
+  });
+
+  it('removes a row through the tray', async () => {
+    const tray = fakeTray();
+    const remove: AssistantProposedAction = {
+      id: 'act_r', type: 'remove_tray_card', summary: 'Remove', state: 'proposed',
+      params: { row: 1, rowRef: 'cap-1', cardId: 'sv3pt5-199' },
+    };
+    await expect(runAssistantAction(remove, { ...deps({}), scanTray: tray })).resolves.toEqual({ status: 'done' });
+    expect(tray.removeRow).toHaveBeenCalledWith(remove.params);
   });
 });
 

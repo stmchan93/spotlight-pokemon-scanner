@@ -9,7 +9,7 @@ import { isExecutedAssistantAction } from '@/features/assistant/assistant-action
 export type AssistantActionUiState =
   | { status: 'proposed' }
   | { status: 'running' }
-  | { status: 'done' }
+  | { status: 'done'; note?: string }
   | { status: 'dismissed' }
   | { status: 'failed'; message: string }
   | { status: 'undoing' }
@@ -42,12 +42,18 @@ function doneCopy(action: AssistantProposedAction): string {
       return action.params.collectionName ? `Moved to ${action.params.collectionName}` : 'Moved';
     case 'create_collection':
       return 'Collection created';
+    case 'add_tray_to_collection':
+      return 'Added to your collection';
+    case 'swap_tray_card':
+      return 'Changed in your scan tray';
+    case 'remove_tray_card':
+      return 'Removed from your scan tray';
   }
 }
 
 /** Removes are destructive: red card and a red Remove button. */
 export function isDestructiveAction(action: AssistantProposedAction): boolean {
-  return action.type === 'remove_holding';
+  return action.type === 'remove_holding' || action.type === 'remove_tray_card';
 }
 
 function undoAvailable(action: AssistantProposedAction, now = Date.now()): boolean {
@@ -164,11 +170,16 @@ export function AssistantActionCard({ action, state, onConfirm, onDismiss, onUnd
           {state.status === 'done' ? (
             <Check color={theme.colors.green500} height={16} strokeWidth={2} width={16} />
           ) : null}
-          <Text style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}>
+          <Text style={[theme.typography.captionMedium, styles.shrink, { color: theme.colors.gray600 }]}>
             {state.status === 'done' ? doneCopy(action) : 'Dismissed'}
           </Text>
         </View>
       )}
+      {state.status === 'done' && state.note ? (
+        <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]} testID={`${testID}-note`}>
+          {state.note}
+        </Text>
+      ) : null}
     </View>
   );
 }

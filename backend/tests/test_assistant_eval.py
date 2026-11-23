@@ -48,7 +48,8 @@ TOOLS = frozenset(
      "get_portfolio_summary", "get_price_history", "find_price_lows", "find_new_highs", "find_movers", "get_market_trends",
      "find_top_graded", "grading_upside", "propose_add_to_collection", "propose_update_holding", "propose_watch_card", "show_cards",
      "add_to_collection_now", "check_deal", "compare_trade", "list_my_collections", "propose_remove_holding",
-     "propose_move_holding", "propose_create_collection"}
+     "propose_move_holding", "propose_create_collection", "tray_propose_add", "tray_propose_swap",
+     "tray_propose_remove"}
 )
 
 DEFAULTS = {

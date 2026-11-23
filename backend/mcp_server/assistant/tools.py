@@ -35,6 +35,7 @@ from mcp_server.assistant.direct_add import (
     resolve_variant,
 )
 from mcp_server.assistant.store import new_id
+from mcp_server.assistant import tray_actions
 from mcp_server.assistant.verdicts import VerdictTools, deal_card, grading_card, trade_card
 from mcp_server.tools import (
     DECK_CONDITION_CODES,
@@ -476,8 +477,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "itself asks to add it and gives all of: one exact printing (a single card_id you resolved; pass "
             "variant_name when the card has more than one printing), the quantity, and the condition (raw) or "
             "grader + grade (slab). Never infer or default the condition. If anything is missing or ambiguous, "
-            "or the request covers several cards (e.g. 'add the cards in my tray'), use propose_add_to_collection "
-            "(or ask) instead. Ekalight falls back to a proposal when the details aren't exact: say it's added "
+            "or the request covers several cards, use propose_add_to_collection (or ask) instead; cards in "
+            "the user's scan tray go through tray_propose_add. Ekalight falls back to a proposal when the details aren't exact: say it's added "
             "only when the result has added=true, and say it's ready to confirm otherwise."
         ),
         "input_schema": _obj(
@@ -632,6 +633,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         ),
         "strict": True,
     },
+    *tray_actions.TRAY_TOOL_DEFINITIONS,
     {
         "name": "show_cards",
         "description": (
@@ -1848,8 +1850,10 @@ class AssistantToolbox:
                     return self._propose_move(dict(arguments or {}), owner_user_id)
                 if name == "propose_create_collection":
                     return self._propose_create_collection(dict(arguments or {}), owner_user_id)
+                if name in tray_actions.TRAY_TOOLS:
+                    return self._propose_tray(name, dict(arguments or {}), turn)
             return ToolOutcome({"error": f"Unknown tool {name}."}, is_error=True)
-        except ToolInputError as error:
+        except (ToolInputError, tray_actions.TrayInputError) as error:
             return ToolOutcome({"error": str(error)}, is_error=True)
         except Exception:  # noqa: BLE001 - never leak internals to the model
             logger.exception("assistant tool %s failed", name)
@@ -2355,6 +2359,44 @@ class AssistantToolbox:
         )
         tiles = [tile for row in rows for tile in self._card_tile(str(row["card_id"]))]
         return self._proposed(action, tiles)
+
+    # --- scan tray (client-side actions; tray_actions.py) ----------------------
+
+    def _propose_tray(self, name: str, args: dict[str, Any], turn: TurnWrites | None) -> ToolOutcome:
+        rows = list(getattr(turn, "tray_rows", ()) or ())
+        if name == tray_actions.ADD_TRAY_TOOL:
+            picked = tray_actions.resolve_rows(rows, args.get("rows"))
+            cards = {row["card_id"]: self._card(row["card_id"]) for _, row in picked}
+            summary, params = tray_actions.add_action_parts(picked, cards, _card_label)
+            action = self._action("add_tray_to_collection", summary, params)
+            tiles = [tile for card_id in cards for tile in self._card_tile(card_id)]
+            outcome = self._proposed(action, tiles)
+            outcome.content["note"] = (
+                "Shown to the user with a Confirm button; each row is filed as the tray shows it. Nothing has changed yet."
+            )
+            return outcome
+        number, row = tray_actions.resolve_row(rows, args.get("row"))
+        source = self._card(row["card_id"])
+        if name == tray_actions.REMOVE_TRAY_TOOL:
+            summary, params = tray_actions.remove_action_parts(number, row, source, _card_label)
+            return self._proposed(self._action("remove_tray_card", summary, params), self._card_tile(source["id"]))
+        target = self._card(args.get("to_card_id"))
+        if target["id"] == source["id"]:
+            raise tray_actions.TrayInputError(
+                f"Row {number} is already {_card_label(source)}. Pick a different card_id (search_cards by its name)."
+            )
+        tiles = self._card_tile(target["id"])
+        summary, params = tray_actions.swap_action_parts(
+            number, row, source, target, next((tile for tile in tiles if tile["card_id"] == target["id"]), None), _card_label
+        )
+        return self._proposed(self._action("swap_tray_card", summary, params), tiles)
+
+    def tray_rows_context(self, rows: list[dict[str, Any]], *, opened_with_tray: bool) -> str | None:
+        """The numbered scan-tray block for the model (tray_actions.tray_rows_note)."""
+        if not rows:
+            return None
+        summaries = self.tools._summaries([row["card_id"] for row in rows])
+        return tray_actions.tray_rows_note(rows, summaries, opened_with_tray=opened_with_tray)
 
     # --- tiles ---------------------------------------------------------------
 

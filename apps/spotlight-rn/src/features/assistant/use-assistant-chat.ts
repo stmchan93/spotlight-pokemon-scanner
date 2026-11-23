@@ -8,6 +8,7 @@ import {
   type AssistantFeedback,
   type AssistantFeedbackInput,
   type AssistantMessage,
+  type AssistantTrayRow,
   type AssistantUsage,
   type SpotlightRepository,
 } from '@spotlight/api-client';
@@ -46,6 +47,11 @@ type UseAssistantChatOptions = {
   ensureIdentity: () => Promise<boolean>;
   /** False for a not-yet-minted guest: reading usage on open would be wasted. */
   canReadOnOpen: boolean;
+  /**
+   * The live scan tray's rows, read at send time and sent EVERY turn (a chat
+   * opened from the scanner): what tray actions act on. Null/empty = none.
+   */
+  getTrayRows?: () => AssistantTrayRow[] | null;
 };
 
 export function assistantErrorCopy(code: AssistantErrorCode | null): string {
@@ -71,6 +77,7 @@ export function useAssistantChat({
   initialThreadId = null,
   ensureIdentity,
   canReadOnOpen,
+  getTrayRows,
 }: UseAssistantChatOptions) {
   const [threadId, setThreadId] = useState<string | null>(initialThreadId);
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
@@ -156,11 +163,13 @@ export function useAssistantChat({
         ...(context.game ? { game: context.game } : {}),
         ...(context.page ? { page: context.page } : {}),
       };
-      const turnContext: AssistantContext = question.cardIds?.length
+      const baseContext: AssistantContext = question.cardIds?.length
         ? { ...shared, cardIds: question.cardIds }
         : contextSentRef.current
           ? shared
           : context;
+      const trayRows = getTrayRows?.() ?? null;
+      const turnContext: AssistantContext = trayRows?.length ? { ...baseContext, trayRows } : baseContext;
       const result = await repository.sendAssistantMessage({
         threadId,
         clientMessageId: question.clientMessageId,
@@ -201,7 +210,7 @@ export function useAssistantChat({
       setPending({ ...question, status: 'failed', errorCode: code });
       return 'failed';
     }
-  }, [context, ensureIdentity, repository, threadId]);
+  }, [context, ensureIdentity, getTrayRows, repository, threadId]);
 
   const send = useCallback((text: string, options?: AssistantSendOptions) => {
     const trimmed = text.trim();

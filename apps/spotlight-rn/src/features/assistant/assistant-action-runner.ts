@@ -11,6 +11,12 @@ import {
 } from '@spotlight/api-client';
 
 import { invalidateCardDetailCache } from '@/features/cards/card-detail-prefetch';
+import {
+  getScanTrayAssistantBridge,
+  TRAY_GONE_MESSAGE,
+  TRAY_ROW_GONE_MESSAGE,
+  type ScanTrayAssistantBridge,
+} from '@/features/scanner/scan-tray-assistant-bridge';
 import type { WatchlistCardBasics, WatchlistStore } from '@/features/wishlist/watchlist-store';
 import { AnalyticsEvent, watchlistKindForCardId } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
@@ -36,10 +42,13 @@ export type AssistantActionDeps = {
   watchlistStore: WatchlistStore;
   /** Cards shown with the action's message, for optimistic rows. */
   cards: AssistantCardRef[];
+  /** The live scan tray (tray actions); defaults to the mounted scanner's bridge. */
+  scanTray?: ScanTrayAssistantBridge | null;
 };
 
+/** `note`: a partial result worth saying (e.g. some tray rows had already left). */
 export type AssistantActionOutcome =
-  | { status: 'done' }
+  | { status: 'done'; note?: string }
   | { status: 'failed'; message: string };
 
 export class AssistantActionError extends Error {}
@@ -264,6 +273,36 @@ async function runCreateCollection(
   deps.refreshData();
 }
 
+/*
+  Tray actions are CLIENT-side: the scan tray is the scanner's own state. They
+  run through the mounted scanner's bridge, i.e. the tray's own handlers (ADD
+  path, change-match, swipe-delete). No scanner, or a row that no longer shows
+  the card the action names → an honest "not in your scan tray anymore".
+*/
+async function runTrayAction(
+  action: Extract<AssistantProposedAction, { type: 'add_tray_to_collection' | 'swap_tray_card' | 'remove_tray_card' }>,
+  deps: AssistantActionDeps,
+): Promise<AssistantActionOutcome> {
+  const tray = deps.scanTray === undefined ? getScanTrayAssistantBridge() : deps.scanTray;
+  if (!tray) {
+    throw new AssistantActionError(
+      action.type === 'add_tray_to_collection' && action.params.rows.length > 1 ? TRAY_GONE_MESSAGE : TRAY_ROW_GONE_MESSAGE,
+    );
+  }
+  const outcome = action.type === 'add_tray_to_collection'
+    ? await tray.addRows(action.params.rows)
+    : action.type === 'swap_tray_card'
+      ? tray.swapCard(action.params)
+      : tray.removeRow(action.params);
+  if (outcome.status === 'failed') {
+    throw new AssistantActionError(outcome.message);
+  }
+  if (action.type === 'add_tray_to_collection') {
+    action.params.rows.forEach((row) => invalidateCardDetailCache(row.cardId));
+  }
+  return outcome;
+}
+
 /** Runs the real write for one action. Never throws. */
 export async function runAssistantAction(
   action: AssistantProposedAction,
@@ -289,6 +328,10 @@ export async function runAssistantAction(
       case 'create_collection':
         await runCreateCollection(action, deps);
         break;
+      case 'add_tray_to_collection':
+      case 'swap_tray_card':
+      case 'remove_tray_card':
+        return await runTrayAction(action, deps);
     }
     return { status: 'done' };
   } catch (error) {

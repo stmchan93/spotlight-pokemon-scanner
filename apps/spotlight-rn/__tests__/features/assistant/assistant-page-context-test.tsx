@@ -30,6 +30,7 @@ import {
   resetAssistantPagePersistence,
 } from '@/features/assistant/page-context/assistant-page-persistence';
 import { AssistantScreen } from '@/features/assistant/screens/assistant-screen';
+import { registerScanTrayAssistantBridge } from '@/features/scanner/scan-tray-assistant-bridge';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../../test-utils';
 
@@ -270,5 +271,107 @@ describe('AssistantScreen with a page', () => {
     expect(await screen.findByTestId('assistant-intro')).toBeTruthy();
     await act(async () => undefined);
     expect(other).not.toHaveBeenCalled();
+  });
+});
+
+describe('AssistantScreen opened from the scan tray', () => {
+  const TRAY_PAGE: AssistantPageContext = { kind: 'scanner', label: 'Your scan tray', params: { view: 'scan_tray' } };
+  const ROWS = [
+    { rowRef: 'cap-1', cardId: 'sv3pt5-199', condition: 'NM' as const, grader: null, grade: null, quantity: 1, variant: 'Holofoil' },
+    { rowRef: 'cap-2', cardId: 'xyp-111', condition: null, grader: 'PSA', grade: '10', quantity: 1, variant: null },
+  ];
+  let unregister: (() => void) | null = null;
+
+  beforeEach(() => {
+    resetAssistantPagePersistence();
+  });
+  afterEach(() => {
+    unregister?.();
+    unregister = null;
+  });
+
+  function swapReply(): AssistantSendResult {
+    const result = reply('thr_tray');
+    return {
+      ...result,
+      message: {
+        ...result.message,
+        text: 'Swapping it to the Obsidian Flames printing is ready to confirm.',
+        actions: [{
+          id: 'act_swap',
+          type: 'swap_tray_card',
+          summary: 'Swap Charizard ex (151 199/165) → Charizard ex (Obsidian Flames 223/197)',
+          state: 'proposed',
+          params: { row: 1, rowRef: 'cap-1', fromCardId: 'sv3pt5-199', toCardId: 'sv3-223', toCard: null },
+        }],
+      },
+    };
+  }
+
+  it('shows the tray chips, sends the live tray rows every turn, and applies a confirmed swap to the tray', async () => {
+    const tray = {
+      rows: jest.fn(() => ROWS),
+      addRows: jest.fn(async () => ({ status: 'done' as const })),
+      swapCard: jest.fn(() => ({ status: 'done' as const })),
+      removeRow: jest.fn(() => ({ status: 'done' as const })),
+    };
+    unregister = registerScanTrayAssistantBridge(tray);
+    const sendAssistantMessage = jest.fn(async (_payload: AssistantSendPayload) => swapReply());
+    const setAssistantActionState = jest.fn(async () => ({ ...swapReply().message.actions[0], state: 'confirmed' as const }));
+    const repository = createTestSpotlightRepository({
+      listAssistantThreads: async () => ({ threads: [], nextCursor: null }),
+      sendAssistantMessage,
+      setAssistantActionState,
+    });
+    renderWithProviders(
+      <AssistantScreen
+        cardIds={['sv3pt5-199', 'xyp-111']}
+        onBack={jest.fn()}
+        onOpenCard={jest.fn()}
+        page={TRAY_PAGE}
+        source="scanner"
+      />,
+      { spotlightRepository: repository },
+    );
+
+    for (const chip of ['What are my scanned cards worth?', 'Which should I grade?', 'Add these to my collection']) {
+      expect(await screen.findByText(chip)).toBeTruthy();
+    }
+    fireEvent.press(screen.getByText('Swap a card for a different printing'));
+    await waitFor(() => expect(sendAssistantMessage).toHaveBeenCalledTimes(1));
+    expect(sendAssistantMessage.mock.calls[0][0].context).toEqual({
+      source: 'scanner', cardIds: ['sv3pt5-199', 'xyp-111'], page: TRAY_PAGE, trayRows: ROWS,
+    });
+
+    fireEvent.press(await screen.findByTestId('assistant-action-act_swap-confirm'));
+    await waitFor(() => expect(tray.swapCard).toHaveBeenCalledWith(expect.objectContaining({
+      rowRef: 'cap-1', fromCardId: 'sv3pt5-199', toCardId: 'sv3-223',
+    })));
+    expect(await screen.findByText('Changed in your scan tray')).toBeTruthy();
+    await waitFor(() => expect(setAssistantActionState).toHaveBeenCalledWith('act_swap', 'confirmed'));
+
+    // Follow-ups still carry the (re-read) tray rows.
+    fireEvent.changeText(screen.getByTestId('assistant-input'), 'now add them');
+    fireEvent.press(screen.getByTestId('assistant-send'));
+    await waitFor(() => expect(sendAssistantMessage).toHaveBeenCalledTimes(2));
+    expect(sendAssistantMessage.mock.calls[1][0].context?.trayRows).toEqual(ROWS);
+    expect(tray.rows).toHaveBeenCalledTimes(2);
+  });
+
+  it('an action whose tray is gone says so instead of pretending', async () => {
+    const sendAssistantMessage = jest.fn(async (_payload: AssistantSendPayload) => swapReply());
+    renderWithProviders(
+      <AssistantScreen cardIds={['sv3pt5-199']} onBack={jest.fn()} onOpenCard={jest.fn()} page={TRAY_PAGE} source="scanner" />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          listAssistantThreads: async () => ({ threads: [], nextCursor: null }),
+          sendAssistantMessage,
+        }),
+      },
+    );
+    expect(await screen.findByText('Swap it for a different printing')).toBeTruthy();
+    fireEvent.press(screen.getByText('Swap it for a different printing'));
+    fireEvent.press(await screen.findByTestId('assistant-action-act_swap-confirm'));
+    expect(await screen.findByText("That card isn't in your scan tray anymore.")).toBeTruthy();
   });
 });

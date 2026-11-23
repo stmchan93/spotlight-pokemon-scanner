@@ -26,7 +26,7 @@ from mcp_server.assistant.engine import (
     picked_cards_context,
 )
 from mcp_server.assistant.flags import flag_turn
-from mcp_server.assistant import game_scope, page_context
+from mcp_server.assistant import game_scope, page_context, tray_actions
 from mcp_server.assistant.store import (
     FEEDBACK_NOTE_CHARS,
     FEEDBACK_RATINGS,
@@ -162,6 +162,11 @@ class AssistantService:
         page, page_error = page_context.parse_page(context.get("page"))
         if page_error:
             return None, _bad(page_error)
+        # The scan tray's rows (additive 2026-11-22): what tray actions act on, sent every turn of a
+        # chat opened from the scanner. Older apps omit it.
+        tray_rows, tray_error = tray_actions.parse_tray_rows(context.get("tray_rows"))
+        if tray_error:
+            return None, _bad(tray_error)
         return {
             "thread_id": thread_id.strip() if thread_id else None,
             "client_message_id": client_message_id.strip(),
@@ -173,6 +178,7 @@ class AssistantService:
             # know (newer app) is ignored, not rejected: resolution falls through to the collection.
             "game": game_scope.supported_game(game) or game_scope.supported_game(page_context.page_game(page)),
             "page": page,
+            "tray_rows": tray_rows,
             # Older app builds render any action as a Confirm card; a direct add
             # there would be added twice on Confirm, so they only get proposals.
             "direct_add": isinstance(capabilities := body.get("capabilities"), list)
@@ -273,6 +279,15 @@ class AssistantService:
         )
         if picked:
             tray = picked_cards_context(tray)
+        tray_rows = request.get("tray_rows") or []
+        rows_note = (
+            await asyncio.to_thread(
+                self.toolbox.tray_rows_context, tray_rows, opened_with_tray=bool(request["card_ids"]) and not picked
+            )
+            if tray_rows else None
+        )
+        if rows_note and not picked:
+            tray = None  # the numbered rows ARE the scan-tray note
         attached_ids = request.get("attached_card_ids") or []
         page = request.get("page")
         page_ids = [card_id for card_id in page_context.page_card_ids(page) if card_id not in request["card_ids"]]
@@ -288,9 +303,11 @@ class AssistantService:
             await asyncio.to_thread(self.toolbox.thread_memory_context, thread_refs, shown_ids) if thread_refs else None
         )
         context = "\n\n".join(
-            part for part in (game_scope.scope_note(scope), memory, page_note, tray, attached) if part
+            part for part in (game_scope.scope_note(scope), memory, page_note, tray, rows_note, attached) if part
         )
-        context_card_ids = list(dict.fromkeys([*request["card_ids"], *page_ids, *attached_ids]))
+        context_card_ids = list(dict.fromkeys(
+            [*request["card_ids"], *page_ids, *attached_ids, *(row["card_id"] for row in tray_rows)]
+        ))
         context_cards = {
             "picked" if picked else "scanned": list(request["card_ids"]),
             "attached": list(attached_ids),
@@ -308,6 +325,7 @@ class AssistantService:
                     game_scope=scope,
                     deadline=deadline,
                     thread_refs=thread_refs,
+                    tray_rows=tray_rows,
                 ),
                 timeout=max(1.0, deadline + TURN_HARD_GRACE_SECONDS - time.monotonic()),
             )

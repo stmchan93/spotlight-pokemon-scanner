@@ -3000,6 +3000,25 @@ export type AssistantContext = {
   game?: CardGame;
   /** The page the chat was opened from (floating bubble). Sent on every turn of that thread. */
   page?: AssistantPageContext;
+  /**
+   * The live scan tray's rows (≤20), sent every turn of a chat opened from the
+   * scanner: what the tray actions (add / swap / remove) act on, by row.
+   */
+  trayRows?: AssistantTrayRow[];
+};
+
+/** One scan tray row as the chat sees it: the row's matched card, filed as the row's dropdowns say. */
+export type AssistantTrayRow = {
+  /** Opaque client id of the row (the capture id). */
+  rowRef: string;
+  cardId: string;
+  /** Raw condition; null for a graded row. */
+  condition: AssistantConditionCode | null;
+  grader: string | null;
+  grade: string | null;
+  quantity: number;
+  /** The printing the row shows (raw rows). */
+  variant: string | null;
 };
 
 export type AssistantUsage = {
@@ -3084,7 +3103,10 @@ export type AssistantActionType =
   | 'watch_card'
   | 'remove_holding'
   | 'move_holding'
-  | 'create_collection';
+  | 'create_collection'
+  | 'add_tray_to_collection'
+  | 'swap_tray_card'
+  | 'remove_tray_card';
 /** `done` / `undone`: an add the server already made (direct add); the rest are proposals. */
 export type AssistantActionState = 'proposed' | 'confirmed' | 'dismissed' | 'done' | 'undone';
 
@@ -3146,6 +3168,41 @@ export type AssistantCreateCollectionParams = {
   holdingIds: string[];
 };
 
+/** One scan tray row to file, exactly as the tray showed it when proposed. */
+export type AssistantTrayAddRow = {
+  /** 1-based row number the model used. */
+  row: number;
+  rowRef: string;
+  cardId: string;
+  quantity: number;
+  condition: AssistantConditionCode | null;
+  variantName: string | null;
+  grader: string | null;
+  grade: string | null;
+};
+
+/** Client-side: the app files these scan tray rows with the scanner's own add path. */
+export type AssistantTrayAddParams = {
+  rows: AssistantTrayAddRow[];
+};
+
+/** Client-side: change one scan tray row's matched card (candidates are kept). */
+export type AssistantSwapTrayCardParams = {
+  row: number;
+  rowRef: string;
+  fromCardId: string;
+  toCardId: string;
+  /** The target card's tile details, so the row can show it before a refetch. */
+  toCard: AssistantCardRef | null;
+};
+
+/** Client-side: drop one row from the scan tray (not the collection). */
+export type AssistantRemoveTrayCardParams = {
+  row: number;
+  rowRef: string;
+  cardId: string;
+};
+
 type AssistantProposedActionBase = {
   id: string;
   /** Server-built, shown on the confirm card. */
@@ -3160,7 +3217,10 @@ export type AssistantProposedAction =
   | (AssistantProposedActionBase & { type: 'watch_card'; params: AssistantWatchCardParams })
   | (AssistantProposedActionBase & { type: 'remove_holding'; params: AssistantRemoveHoldingParams })
   | (AssistantProposedActionBase & { type: 'move_holding'; params: AssistantMoveHoldingParams })
-  | (AssistantProposedActionBase & { type: 'create_collection'; params: AssistantCreateCollectionParams });
+  | (AssistantProposedActionBase & { type: 'create_collection'; params: AssistantCreateCollectionParams })
+  | (AssistantProposedActionBase & { type: 'add_tray_to_collection'; params: AssistantTrayAddParams })
+  | (AssistantProposedActionBase & { type: 'swap_tray_card'; params: AssistantSwapTrayCardParams })
+  | (AssistantProposedActionBase & { type: 'remove_tray_card'; params: AssistantRemoveTrayCardParams });
 
 /** One card in a deal or trade verdict card. All prices USD. */
 export type AssistantVerdictItem = {

@@ -79,10 +79,23 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import { assistantHref } from '@/features/assistant/assistant-route';
 import {
+  resolveAssistantOpenContext,
   useAssistantBubbleScannerAnchor,
   useAssistantPageContext,
 } from '@/features/assistant/page-context/assistant-page-context';
+import { EkalightMark } from '@/components/ekalight-mark';
+import {
+  ASSISTANT_TRAY_VIEW,
+  assistantTrayRows,
+  catalogResultFromAssistantCard,
+  findTrayRow,
+  registerScanTrayAssistantBridge,
+  TRAY_GONE_MESSAGE,
+  TRAY_ROW_GONE_MESSAGE,
+} from '@/features/scanner/scan-tray-assistant-bridge';
+import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { useTabsPage } from '@/contexts/tabs-page-context';
 import {
   createTrayStore,
@@ -336,6 +349,9 @@ const traySwipeThreshold = 20;
 // Fling velocity that commits an expand/collapse. gesture-handler reports
 // velocity in px/s, so this is the px/s equivalent of the old ~0.22 px/ms.
 const trayFlingVelocity = 220;
+// The Ekalight mark on the tray header chip keeps its 56x52 aspect at the label's height.
+const trayAssistantMarkHeight = 16;
+const trayAssistantMarkWidth = 17;
 const trayHeaderHitSlop = { bottom: 10, left: 12, right: 12, top: 12 } as const;
 // Tray expand/collapse height animation. Driven by Reanimated (NOT classic
 // LayoutAnimation): the tray rows animate with Reanimated (scan-tray-list.tsx),
@@ -4134,9 +4150,109 @@ export function ScannerScreen({
     trackRowResolved,
   ]);
 
+  // A subset of the tray filed to the collection, each row as its own
+  // dropdowns say (same payload as ADD / ADD ALL). Rows leave the tray as they
+  // land, like a row ADD, so the rest of the session stays put. Used by a
+  // binder page's "Add N to collection" and by the assistant's tray add.
+  const addCapturesToCollection = useCallback(async (
+    targets: RecentCapture[],
+    // Taken up front by the caller: rows (and their price picks) leave the tray as they land.
+    selections: TrayPriceSelections,
+  ): Promise<{ attempted: number; succeeded: number }> => {
+    const addedAt = new Date().toISOString();
+    const rows = targets.flatMap((capture) => {
+      const candidate = activeCandidateForCapture(capture);
+      return candidate ? [{ capture, candidate }] : [];
+    });
+    const attempted = rows.length;
+    let succeeded = 0;
+
+    const applyCreated = (
+      capture: RecentCapture,
+      candidate: CatalogSearchResult,
+      deckEntryID: string,
+      createdAddedAt: string,
+    ) => {
+      prependOptimisticInventoryEntry(
+        buildOptimisticInventoryEntry(
+          candidate,
+          createdAddedAt || addedAt,
+          optimisticOptionsFor(capture, selections.get(capture.id), rawVariantLabelFor(capture, candidate)),
+          deckEntryID,
+        ),
+      );
+      removeCaptureAfterAdd(capture.id);
+      succeeded += 1;
+    };
+    const entryArgs = (capture: RecentCapture, candidate: CatalogSearchResult) => {
+      return buildInventoryEntryArgs(
+        capture,
+        candidate,
+        addedAt,
+        scanRowInventoryTarget(capture, selections.get(capture.id)),
+        activeCollectionID,
+        rawVariantLabelFor(capture, candidate),
+      );
+    };
+    // Older-backend fallback: the original per-entry creates, 3 in flight.
+    const runPerEntryFallback = async () => {
+      let nextIndex = 0;
+      const drain = async (): Promise<void> => {
+        const index = nextIndex++;
+        if (index >= rows.length) {
+          return;
+        }
+        const { capture, candidate } = rows[index];
+        try {
+          const createResponse = await spotlightRepository.createInventoryEntry(entryArgs(capture, candidate));
+          applyCreated(capture, candidate, createResponse.deckEntryID, createResponse.addedAt || addedAt);
+        } catch (error) {
+          logScannerDiagnostic(`[SCANNER] tray rows add failed: ${scannerErrorMessage(error)}`, error);
+        }
+        return drain();
+      };
+      await Promise.all(Array.from({ length: Math.min(3, rows.length) }, () => drain()));
+    };
+
+    rows.forEach(({ capture }) => trackRowResolved(capture, 'added'));
+    try {
+      // Nine ~1.5s creates were 13s on the wire; create-bulk lands the whole
+      // page in ONE request/transaction with per-entry results.
+      const response = await spotlightRepository.createInventoryEntriesBulk(
+        rows.map(({ capture, candidate }) => entryArgs(capture, candidate)),
+      );
+      for (const result of response.results) {
+        const row = rows[result.index];
+        if (!row) {
+          continue;
+        }
+        if (result.error || !result.deckEntryID) {
+          logScannerDiagnostic(`[SCANNER] tray rows bulk add entry failed: ${result.error ?? 'missing deckEntryID'}`);
+          continue;
+        }
+        applyCreated(row.capture, row.candidate, result.deckEntryID, result.addedAt ?? addedAt);
+      }
+    } catch (error) {
+      const status = isSpotlightRepositoryRequestError(error) ? error.status : null;
+      if (status === 400 || status === 404 || status === 405) {
+        // Older backend without create-bulk.
+        await runPerEntryFallback();
+      } else {
+        logScannerDiagnostic(`[SCANNER] tray rows bulk add failed: ${scannerErrorMessage(error)}`, error);
+      }
+    }
+    return { attempted, succeeded };
+  }, [
+    rawVariantLabelFor,
+    activeCollectionID,
+    removeCaptureAfterAdd,
+    spotlightRepository,
+    prependOptimisticInventoryEntry,
+    trackRowResolved,
+  ]);
+
   // Page overlay "Add N to collection": the tray's bulk add scoped to one
-  // binder page. Rows leave the tray as they land, like a row ADD, so the
-  // rest of the session (other pages, single scans) stays put.
+  // binder page.
   const handleAddBinderPage = useCallback((pageId: string) => {
     // Taken up front: rows (and their price picks) leave the tray as they land.
     const selections = priceSelectionRef.current;
@@ -4148,88 +4264,7 @@ export function ScannerScreen({
     }
     setIsAddingBinderPage(true);
     void (async () => {
-      const addedAt = new Date().toISOString();
-      const rows = targets.flatMap((capture) => {
-        const candidate = activeCandidateForCapture(capture);
-        return candidate ? [{ capture, candidate }] : [];
-      });
-      const attempted = rows.length;
-      let succeeded = 0;
-
-      const applyCreated = (
-        capture: RecentCapture,
-        candidate: CatalogSearchResult,
-        deckEntryID: string,
-        createdAddedAt: string,
-      ) => {
-        prependOptimisticInventoryEntry(
-          buildOptimisticInventoryEntry(
-            candidate,
-            createdAddedAt || addedAt,
-            optimisticOptionsFor(capture, selections.get(capture.id), rawVariantLabelFor(capture, candidate)),
-            deckEntryID,
-          ),
-        );
-        removeCaptureAfterAdd(capture.id);
-        succeeded += 1;
-      };
-      const entryArgs = (capture: RecentCapture, candidate: CatalogSearchResult) => {
-        return buildInventoryEntryArgs(
-          capture,
-          candidate,
-          addedAt,
-          scanRowInventoryTarget(capture, selections.get(capture.id)),
-          activeCollectionID,
-          rawVariantLabelFor(capture, candidate),
-        );
-      };
-      // Older-backend fallback: the original per-entry creates, 3 in flight.
-      const runPerEntryFallback = async () => {
-        let nextIndex = 0;
-        const drain = async (): Promise<void> => {
-          const index = nextIndex++;
-          if (index >= rows.length) {
-            return;
-          }
-          const { capture, candidate } = rows[index];
-          try {
-            const createResponse = await spotlightRepository.createInventoryEntry(entryArgs(capture, candidate));
-            applyCreated(capture, candidate, createResponse.deckEntryID, createResponse.addedAt || addedAt);
-          } catch (error) {
-            logScannerDiagnostic(`[SCANNER] binder page add failed: ${scannerErrorMessage(error)}`, error);
-          }
-          return drain();
-        };
-        await Promise.all(Array.from({ length: Math.min(3, rows.length) }, () => drain()));
-      };
-
-      rows.forEach(({ capture }) => trackRowResolved(capture, 'added'));
-      try {
-        // Nine ~1.5s creates were 13s on the wire; create-bulk lands the whole
-        // page in ONE request/transaction with per-entry results.
-        const response = await spotlightRepository.createInventoryEntriesBulk(
-          rows.map(({ capture, candidate }) => entryArgs(capture, candidate)),
-        );
-        for (const result of response.results) {
-          const row = rows[result.index];
-          if (!row) {
-            continue;
-          }
-          if (result.error || !result.deckEntryID) {
-            logScannerDiagnostic(`[SCANNER] binder page bulk add entry failed: ${result.error ?? 'missing deckEntryID'}`);
-            continue;
-          }
-          applyCreated(row.capture, row.candidate, result.deckEntryID, result.addedAt ?? addedAt);
-        }
-      } catch (error) {
-        const status = isSpotlightRepositoryRequestError(error) ? error.status : null;
-        if (status === 400 || status === 404 || status === 405) {
-          // Older backend without create-bulk.
-          await runPerEntryFallback();
-        } else {
-          logScannerDiagnostic(`[SCANNER] binder page bulk add failed: ${scannerErrorMessage(error)}`, error);
-        }
-      }
+      const { attempted, succeeded } = await addCapturesToCollection(targets, selections);
       capturePostHogEvent('binder_page_add_all', {
         attempted,
         succeeded,
@@ -4239,16 +4274,122 @@ export function ScannerScreen({
       setActiveBinderPageId(null);
       refreshData();
     })();
-  }, [
+  }, [addCapturesToCollection, isAddingBinderPage, refreshData]);
+
+  // Ask Ekalight → this tray (scan-tray-assistant-bridge.ts). Registered for the
+  // screen's lifetime, not its focus: the chat is pushed over it while open.
+  // Reads go through the store, not the committed-tray refs, because a covered
+  // screen may not commit (or run effects) until it is shown again; the refs
+  // are brought in step before reusing the tray's own handlers.
+  const assistantBridgeHandlersRef = useRef({
+    addCapturesToCollection,
+    deleteRecentCapture,
     rawVariantLabelFor,
-    activeCollectionID,
-    isAddingBinderPage,
     refreshData,
-    removeCaptureAfterAdd,
-    spotlightRepository,
-    prependOptimisticInventoryEntry,
-    trackRowResolved,
-  ]);
+    setActiveCandidate,
+  });
+  assistantBridgeHandlersRef.current = {
+    addCapturesToCollection,
+    deleteRecentCapture,
+    rawVariantLabelFor,
+    refreshData,
+    setActiveCandidate,
+  };
+  useEffect(() => {
+    const syncRefs = () => {
+      const state = trayStore.getState();
+      recentCapturesRef.current = state.items;
+      priceSelectionRef.current = state.priceSelections;
+      return state;
+    };
+    return registerScanTrayAssistantBridge({
+      rows: () => {
+        const state = trayStore.getState();
+        return assistantTrayRows(
+          state.items,
+          state.priceSelections,
+          (capture, candidate) =>
+            state.priceSelections.get(capture.id)?.variantLabel
+            || assistantBridgeHandlersRef.current.rawVariantLabelFor(capture, candidate),
+        );
+      },
+      addRows: async (rows) => {
+        const state = syncRefs();
+        const seen = new Set<string>();
+        const targets = rows.flatMap((row) => {
+          const capture = seen.has(row.rowRef) ? null : findTrayRow(state.items, row.rowRef, row.cardId);
+          seen.add(row.rowRef);
+          return capture ? [capture] : [];
+        });
+        if (targets.length === 0) {
+          return { status: 'failed', message: rows.length === 1 ? TRAY_ROW_GONE_MESSAGE : TRAY_GONE_MESSAGE };
+        }
+        const handlers = assistantBridgeHandlersRef.current;
+        const { attempted, succeeded } = await handlers.addCapturesToCollection(targets, state.priceSelections);
+        capturePostHogEvent('scan_assistant_add', {
+          attempted,
+          succeeded,
+          failed: attempted - succeeded,
+          skipped: rows.length - targets.length,
+        });
+        handlers.refreshData();
+        if (succeeded === 0) {
+          return { status: 'failed', message: "Couldn't add those cards. Try again." };
+        }
+        const missed = rows.length - succeeded;
+        return missed > 0
+          ? {
+              status: 'done',
+              note: `Added ${succeeded} of ${rows.length}. ${missed === 1 ? '1 card' : `${missed} cards`} weren't in your scan tray anymore or didn't save.`,
+            }
+          : { status: 'done' };
+      },
+      swapCard: ({ rowRef, fromCardId, toCardId, toCard }) => {
+        const capture = findTrayRow(trayStore.getState().items, rowRef, fromCardId);
+        if (!capture) {
+          return { status: 'failed', message: TRAY_ROW_GONE_MESSAGE };
+        }
+        let index = capture.candidates.findIndex((candidate) => candidate.cardId === toCardId);
+        if (index < 0) {
+          // A card the matcher didn't return: appended after the existing
+          // candidates (never replacing any), then picked like any alternate.
+          index = capture.candidates.length;
+          trayStore.patchCapture(rowRef, (current) => ({
+            ...current,
+            candidates: [...current.candidates, catalogResultFromAssistantCard(toCardId, toCard)],
+          }));
+        }
+        syncRefs();
+        assistantBridgeHandlersRef.current.setActiveCandidate(rowRef, index);
+        return { status: 'done' };
+      },
+      removeRow: ({ rowRef, cardId }) => {
+        if (!findTrayRow(trayStore.getState().items, rowRef, cardId)) {
+          return { status: 'failed', message: TRAY_ROW_GONE_MESSAGE };
+        }
+        syncRefs();
+        assistantBridgeHandlersRef.current.deleteRecentCapture(rowRef);
+        return { status: 'done' };
+      },
+    });
+  }, [trayStore]);
+
+  // The tray header's Ekalight chip: Ask Ekalight about the scanned cards, with
+  // the tray-specific starter chips (the floating bubble covers the empty tray).
+  const handleOpenTrayAssistant = useCallback(() => {
+    const cardIds = trayStore.getState().items.flatMap((capture) => {
+      const candidate = capture.isLoadingCandidates ? null : activeCandidateForCapture(capture);
+      return candidate ? [candidate.cardId] : [];
+    });
+    const context = resolveAssistantOpenContext('/scan', {}, {
+      cardIds,
+      game: scanLane.game,
+      label: 'Your scan tray',
+      params: { view: ASSISTANT_TRAY_VIEW },
+    });
+    capturePostHogEvent(AnalyticsEvent.assistantOpened, { source: 'scan_tray', page_kind: context.page.kind });
+    router.push(assistantHref(context.source, context.cardIds, context.game, context.page));
+  }, [router, scanLane.game, trayStore]);
 
   // Bulk "Remove": clear the whole scan session (same path as CLEAR ALL).
   const handleBulkRemove = useCallback(() => {
@@ -5263,6 +5404,32 @@ export function ScannerScreen({
                   </Pressable>
                 ) : null}
               </View>
+              <View style={styles.trayInfoRightGroup}>
+              {/* Ask Ekalight about these scans: the purple mark on the same
+                  solid chip, only while the tray has cards (an empty tray
+                  gets the floating bubble instead). */}
+              {trayCount > 0 ? (
+                <Pressable
+                  accessibilityHint="Ask about, add or change the scanned cards"
+                  accessibilityLabel="Ask Ekalight about your scanned cards"
+                  accessibilityRole="button"
+                  hitSlop={8}
+                  onPress={handleOpenTrayAssistant}
+                  style={({ pressed }) => [
+                    styles.trayInfoPill,
+                    styles.trayAssistantChip,
+                    pressed ? styles.trayInfoPillClearPressed : null,
+                  ]}
+                  testID="scanner-tray-ask-ekalight"
+                >
+                  <EkalightMark
+                    color={colors.purple300}
+                    height={trayAssistantMarkHeight}
+                    testID="scanner-tray-ask-ekalight-mark"
+                    width={trayAssistantMarkWidth}
+                  />
+                </Pressable>
+              ) : null}
               {/* Same solid chip as SCAN (Figma 6150:6732). */}
               <View style={styles.trayInfoPill} testID="scanner-value-pill-surface">
                 {vendorMode ? (
@@ -5310,6 +5477,7 @@ export function ScannerScreen({
                   ) : null}
                   <IconChevronDown color={colors.gray0} size={12} strokeWidth={2.4} />
                 </Pressable>
+              </View>
               </View>
             </View>
           </Pressable>
@@ -6044,6 +6212,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     // ADD ALL sits 16 right of the SCAN chip (Figma 6161:7002).
     gap: spacing.sm,
+  },
+  trayInfoRightGroup: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.xxs,
+  },
+  trayAssistantChip: {
+    // Same 23pt-tall chip as SCAN/TOTAL: the mark fills the label's line box.
+    paddingHorizontal: spacing.xxs,
   },
   trayInfoPill: {
     // Row: the SCAN pill carries its clear ✕ beside the count, and the TOTAL

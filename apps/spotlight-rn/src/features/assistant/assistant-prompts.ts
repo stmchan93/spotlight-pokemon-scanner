@@ -44,6 +44,28 @@ export function assistantStarterPrompts(trayCardCount: number, source: 'home' | 
 }
 
 /**
+ * Starter chips for a chat opened from the scan tray header's Ekalight chip:
+ * about the scanned cards, including the tray actions the chat can propose
+ * (add them, swap a row's printing). The owner calls them "scanned cards".
+ */
+export function assistantScanTrayPrompts(trayCardCount: number): string[] {
+  if (trayCardCount === 1) {
+    return [
+      "What's my scanned card worth?",
+      'Should I grade it?',
+      'Add it to my collection',
+      'Swap it for a different printing',
+    ];
+  }
+  return [
+    'What are my scanned cards worth?',
+    'Which should I grade?',
+    'Add these to my collection',
+    'Swap a card for a different printing',
+  ];
+}
+
+/**
  * Starter chips for a chat opened from the floating bubble: about the page the
  * user is on. Pages with thin context (Home, Social, an unknown page) keep the
  * owner's three market prompts, and so does the scanner (owner, 2026-11-20: the

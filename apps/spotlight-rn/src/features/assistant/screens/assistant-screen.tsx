@@ -53,6 +53,7 @@ import {
   assistantCardContextLine,
   assistantGreeting,
   assistantPagePrompts,
+  assistantScanTrayPrompts,
   assistantRemainingCaption,
   assistantStarterPrompts,
 } from '@/features/assistant/assistant-prompts';
@@ -93,6 +94,7 @@ import {
   type AssistantPendingQuestion,
 } from '@/features/assistant/use-assistant-chat';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
+import { ASSISTANT_TRAY_VIEW, getScanTrayAssistantBridge } from '@/features/scanner/scan-tray-assistant-bridge';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useKeyboardVisible } from '@/lib/use-keyboard-visible';
@@ -193,11 +195,18 @@ export function AssistantScreen({
     return true;
   }, [ensureGuestSession, isGuest]);
 
+  // A chat opened from the scanner sends the live tray's rows every turn, so
+  // the assistant can propose tray actions (add / swap / remove) against them.
+  const getTrayRows = useCallback(
+    () => (source === 'scanner' ? getScanTrayAssistantBridge()?.rows() ?? null : null),
+    [source],
+  );
   const chat = useAssistantChat({
     repository,
     context,
     initialThreadId,
     ensureIdentity,
+    getTrayRows,
     // Don't read usage for a not-yet-minted guest: there is no identity yet.
     canReadOnOpen: !isGuest || Boolean(getAccessToken()),
   });
@@ -614,7 +623,7 @@ export function AssistantScreen({
       setActionState(action.id, { status: 'failed', message: outcome.message });
       return;
     }
-    setActionState(action.id, { status: 'done' });
+    setActionState(action.id, { status: 'done', note: outcome.note });
     capturePostHogEvent(AnalyticsEvent.assistantActionConfirmed, { type: action.type });
     // Bookkeeping only — the real write already landed, so a failed record
     // must not read as a failed action.
@@ -775,9 +784,13 @@ export function AssistantScreen({
   };
   const remainingCaption = assistantRemainingCaption(chat.usage);
   // Bubble opens: chips about the page (the scan tray still uses the tray set via source).
-  const starterPrompts = page && !pageDismissed && cardIds.length === 0
-    ? assistantPagePrompts(page)
-    : assistantStarterPrompts(cardIds.length, source);
+  // The tray header's chip: chips about the scanned cards and what the chat can do with them.
+  const fromScanTray = source === 'scanner' && cardIds.length > 0 && page?.params.view === ASSISTANT_TRAY_VIEW;
+  const starterPrompts = fromScanTray
+    ? assistantScanTrayPrompts(cardIds.length)
+    : page && !pageDismissed && cardIds.length === 0
+      ? assistantPagePrompts(page)
+      : assistantStarterPrompts(cardIds.length, source);
   const greeting = assistantGreeting(currentUser?.displayName, isGuest);
   const cardContextLine = assistantCardContextLine(cardIds.length);
   const isSending = chat.pending?.status === 'sending';

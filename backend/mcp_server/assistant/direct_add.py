@@ -47,6 +47,8 @@ class TurnWrites:
     batch: bool = False
     # Cards attached to this message (scan tray / photo): check_deal's default cards.
     context_card_ids: tuple[str, ...] = ()
+    # The scan tray's rows (context.tray_rows): what the tray tools act on, by row number.
+    tray_rows: tuple[dict[str, Any], ...] = ()
 
     def plan_round(self, tool_names: list[str]) -> None:
         # Several adds in one round = a batch ("add the cards in my tray").
