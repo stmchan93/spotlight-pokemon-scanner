@@ -73,6 +73,7 @@ Use these docs for:
 - **Raw main price = TCGCSV/TCGplayer, conditions + graded = Scrydex (current source of truth; flags, storage, rollout, revert)**: [tcgcsv-main-price-migration-spec-2026-08-25.md](/Users/stephenchan/Code/spotlight/docs/tcgcsv-main-price-migration-spec-2026-08-25.md)
 - Prior PPT migration analysis (superseded for the main price; still the reference for PPT graded signals): [ppt-pricing-migration-spec-2026-06-25.md](/Users/stephenchan/Code/spotlight/docs/ppt-pricing-migration-spec-2026-06-25.md)
 - JP raw pricing problem statement that motivated the split: [japanese-raw-pricing-tcgplayer-source-plan-2026-06-24.md](/Users/stephenchan/Code/spotlight/docs/japanese-raw-pricing-tcgplayer-source-plan-2026-06-24.md)
+- Market Analytics tab endpoints (index, breadth, heatmap, bargains, breaking out, grading, card price position): [market-analytics-2026-11-23.md](/Users/stephenchan/Code/spotlight/docs/market-analytics-2026-11-23.md)
 
 Use these docs for:
 

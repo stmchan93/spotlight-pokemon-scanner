@@ -42,6 +42,16 @@ import {
   mockSetSpotlight,
 } from './meta-feed-mock-data';
 import {
+  mockCardPricePosition,
+  mockMarketAnalytics,
+  mockMarketHeatmapSet,
+} from './market-analytics-mock-data';
+import {
+  parseCardPricePositionPayload,
+  parseMarketAnalyticsPayload,
+  parseMarketHeatmapSetPayload,
+} from './market-analytics-wire';
+import {
   mockSpotlightEventMap,
   mockSpotlightEventsFeed,
   parseSpotlightEventMap,
@@ -181,6 +191,12 @@ import type {
   TopMovers,
   TopMoversGame,
   TopMoverItem,
+  CardPricePosition,
+  CardPricePositionQuery,
+  MarketAnalytics,
+  MarketAnalyticsQuery,
+  MarketHeatmapSet,
+  MarketHeatmapSetQuery,
   HotCards,
   HotCardsQuery,
   MetaPulse,
@@ -473,6 +489,18 @@ export interface SpotlightRepository {
    * last-good cache instead of flashing an empty rail.
    */
   getTopMovers(windowDays?: number): Promise<TopMovers>;
+  /*
+    Market Analytics tab (docs/market-analytics-2026-11-23.md).
+    getMarketAnalytics THROWS on transport/HTTP failure (keep a last-good
+    payload, the getTopMovers contract); a game with thin data is a payload
+    with empty lists, never an error. `you` is null for guests.
+    getMarketHeatmapSet resolves null for a set with no stored zoom (404).
+    getCardPricePosition resolves null when there is not enough trustworthy
+    history (204) or the card is unknown (404); throws on other failures.
+  */
+  getMarketAnalytics(query: MarketAnalyticsQuery): Promise<MarketAnalytics>;
+  getMarketHeatmapSet(query: MarketHeatmapSetQuery): Promise<MarketHeatmapSet | null>;
+  getCardPricePosition(query: CardPricePositionQuery): Promise<CardPricePosition | null>;
   /*
     Social feed "meta" blocks (docs/meta-feed-api-contracts-2026-09-23.md).
     Each resolves NULL when the server reports the feature disabled (404) so
@@ -4247,6 +4275,44 @@ export class MockSpotlightRepository implements SpotlightRepository {
       asOfDate: null,
       games: [...games.entries()].map(([game, items]): TopMoversGame => ({ game, items })),
     };
+  }
+
+  // Market Analytics: the fixed Pokémon payload, relabelled for the query.
+  // Other games get the honest thin-data shape (empty lists) so the empty
+  // states are reachable offline.
+  async getMarketAnalytics(query: MarketAnalyticsQuery): Promise<MarketAnalytics> {
+    const base = structuredCloneMarket(mockMarketAnalytics);
+    if (query.game !== 'pokemon') {
+      return {
+        ...base,
+        game: query.game,
+        window: query.window,
+        windowLabel: 'recently',
+        pulse: { changePct: null, indexValueUsd: null, breadth: { up: 0, down: 0, flat: 0, upPct: null }, sparkline: [] },
+        you: null,
+        heatmap: [],
+        bargains: [],
+        breakingOut: [],
+        setsRising: [],
+        setsFalling: [],
+        grading: [],
+      };
+    }
+    const windowLabel = { '7d': 'past week', '30d': 'past 30 days', '90d': 'past 90 days' }[query.window];
+    return { ...base, window: query.window, windowLabel };
+  }
+
+  async getMarketHeatmapSet(query: MarketHeatmapSetQuery): Promise<MarketHeatmapSet | null> {
+    const tile = mockMarketAnalytics.heatmap.find((item) => item.setId === query.setId);
+    if (query.game !== 'pokemon' || !tile) {
+      return null;
+    }
+    const base = structuredCloneMarket(mockMarketHeatmapSet);
+    return { ...base, setId: tile.setId, name: tile.name, window: query.window };
+  }
+
+  async getCardPricePosition(query: CardPricePositionQuery): Promise<CardPricePosition | null> {
+    return query.cardId ? { ...mockCardPricePosition } : null;
   }
 
   // Meta feed blocks: fixed payloads shaped like the Social feed mockup,
@@ -9162,6 +9228,57 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     };
   }
 
+  async getMarketAnalytics(query: MarketAnalyticsQuery): Promise<MarketAnalytics> {
+    const params = new URLSearchParams({ game: query.game, window: query.window });
+    const response = await this.requestJsonRead<unknown>(
+      `${this.baseUrl}/api/v1/market/analytics?${params.toString()}`,
+    );
+    if (response.kind !== 'success' || response.data == null) {
+      throw new Error('market analytics read failed');
+    }
+    return parseMarketAnalyticsPayload(response.data, query);
+  }
+
+  async getMarketHeatmapSet(query: MarketHeatmapSetQuery): Promise<MarketHeatmapSet | null> {
+    const params = new URLSearchParams({ game: query.game, setId: query.setId, window: query.window });
+    const response = await this.requestJsonRead<unknown>(
+      `${this.baseUrl}/api/v1/market/heatmap/set?${params.toString()}`,
+      undefined,
+      { allowNotFound: true },
+    );
+    if (response.kind === 'not_found') {
+      return null;
+    }
+    if (response.kind !== 'success' || response.data == null) {
+      throw new Error('market heatmap set read failed');
+    }
+    return parseMarketHeatmapSetPayload(response.data, query);
+  }
+
+  async getCardPricePosition(query: CardPricePositionQuery): Promise<CardPricePosition | null> {
+    const params = new URLSearchParams();
+    for (const key of ['variant', 'condition', 'grader', 'grade'] as const) {
+      const value = query[key];
+      if (value) {
+        params.set(key, value);
+      }
+    }
+    const search = params.toString();
+    const response = await this.requestJsonRead<unknown>(
+      `${this.baseUrl}/api/v1/cards/${encodeURIComponent(query.cardId)}/price-position${search ? `?${search}` : ''}`,
+      undefined,
+      { allowNotFound: true },
+    );
+    if (response.kind === 'not_found') {
+      return null;
+    }
+    if (response.kind !== 'success') {
+      throw new Error('card price position read failed');
+    }
+    // 204 = not enough trustworthy history: an empty body.
+    return parseCardPricePositionPayload(response.data);
+  }
+
   // Meta feed reads. `allowNotFound` turns the flag-off 404 into a `null`
   // (block hidden); anything else throws so the caller keeps its last-good
   // payload, same as getTopMovers. `unauthorizedAsDisabled` does the same for
@@ -9920,4 +10037,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       uploadedAt: normalizeString(response.data?.uploadedAt),
     };
   }
+}
+
+function structuredCloneMarket<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
