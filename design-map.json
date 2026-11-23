@@ -101,29 +101,38 @@
       "notes": "Already deterministic (renders tokens/primitives with inline samples); no dev route needed."
     },
     {
-      "figmaNodeId": "5085:15398",
-      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=5085-15398",
+      "figmaNodeId": "6642:5420",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6642-5420",
       "screenName": "Feed",
       "componentPaths": [
         "apps/spotlight-rn/src/features/social/screens/feed-screen.tsx",
         "apps/spotlight-rn/src/app/(tabs)/social.tsx",
+        "apps/spotlight-rn/src/features/social/for-you-feed.ts",
+        "apps/spotlight-rn/src/features/social/screens/your-posts-page.tsx",
         "apps/spotlight-rn/src/features/social/components/post-card.tsx",
+        "apps/spotlight-rn/src/features/social/components/news-article-row.tsx",
         "apps/spotlight-rn/src/features/social/components/repost-attribution.tsx",
-        "apps/spotlight-rn/src/components/home-header.tsx"
+        "apps/spotlight-rn/src/components/home-header.tsx",
+        "packages/design-system/src/components/follow-button.tsx"
       ],
       "deepLink": "spotlight://dev/feed",
-      "mockData": "apps/spotlight-rn/src/dev/dev-feed-data.ts",
-      "notes": "HEADER CURRENT 2026-11-21: 6597:3462 (Social controls: menu | centred lockup | Ask Ekalight flare + bell as two separate bubbles; NO search) supersedes 6430:11305 for the top bar; its render also shows the SOCIAL/NEWS/MARKET WATCH tabs left-aligned on the 16 gutter (16 gap, 12 per tab, Caption 13) with NO underline and no rail (PageTabs align=gutter indicator=none) \u2014 supersedes the centred/underlined 6322:7621 tab row. People search moved to the drawer's Find people row. CURRENT 2026-09-10: 5085:15398 (Home with Top Trends). Supersedes 4299:95117 for spacing \u2014 the post rhythm changed from a flat 10 to header\u2192body 8 / body\u2192image 8 / image\u2192metrics 10, and the band seams from 12/12 to content-bottom 10 / band 4 / next-content 8. NOT BUILT from this frame: the carousel pagination dots under the rail (5085:15541, replacing our game caption above it) and the per-post Follow button (5085:15452). Frame text line-heights are Auto/intrinsic \u2014 token line heights are NOT mismatches. Post photos are mock content; crop 3:4 image regions and the bottom 95pt (no tab bar in dev route). 4299:94902 = wordmark logo-form alternate; 4037:15535 stale.",
+      "mockData": "apps/spotlight-rn/src/dev/dev-feed-data.ts (devFeedItems + devFeedNews; WabiSabi is in the viewer's follow set)",
+      "notes": "CURRENT 2026-11-22: 6642:5420 'Home' frame = the Social tab redesign (ignore its 4-tab bar; the app has 5). Toolbar 6642:11183 = centred lockup + messages + bell. Tabs 6642:11165 = FOR YOU \u00b7 YOUR POSTS on PageTabs variant=underline (SOCIAL/NEWS/MARKET WATCH retired; Market Watch/Top Trends moved to the Home profile's MARKET ANALYTICS tab). Compose 6642:5421 = 'WHAT'S ON YOUR MIND?' gray-100 pill. FOR YOU mixes posts and news articles by publish time (for-you-feed.ts horizon merge): news with an image = lead row 6642:10973, without = text row 6642:11002; user post 6642:5448 draws FOLLOWING (tappable -> confirm -> unfollow) on authors the viewer follows. Show-window chips still sit under the compose pill. YOUR POSTS = the viewer's posts + reposts (fetchAuthorActivity). Post/news photos are mock content (dev fixture is a solid lilac PNG) - crop image regions. Older references: 5085:15398 post rhythm (header->body 8 / body->image 8 / image->metrics 10; band seams 10/4/8) still applies to PostCard.",
       "states": [
         {
-          "name": "resting",
-          "figmaNodeId": "4299:95117",
-          "how": "spotlight://dev/feed"
+          "name": "for-you",
+          "figmaNodeId": "6642:5420",
+          "how": "spotlight://dev/feed (news lead on top, then a FOLLOWING post)"
         },
         {
           "name": "header",
-          "figmaNodeId": "6597:3462",
+          "figmaNodeId": "6642:11183",
           "how": "spotlight://dev/feed (top bar only)"
+        },
+        {
+          "name": "your-posts",
+          "figmaNodeId": null,
+          "how": "spotlight://dev/feed-your-posts (no Figma frame exists)"
         },
         {
           "name": "empty",
@@ -507,11 +516,10 @@
       "screenName": "News",
       "componentPaths": [
         "apps/spotlight-rn/src/features/social/screens/feed-screen.tsx",
-        "apps/spotlight-rn/src/features/social/components/game-filter-chips.tsx",
-        "apps/spotlight-rn/src/features/social/screens/news-page.tsx"
+        "apps/spotlight-rn/src/features/social/components/news-article-row.tsx"
       ],
       "deepLink": "spotlight://dev/feed",
-      "notes": "News tab of the Social hub; tab rail is Figma 6322:8030. Open spotlight://dev/feed, then tap NEWS."
+      "notes": "2026-11-22: the News tab is gone; articles run inline in Social's FOR YOU (see Feed, 6642:10973 / 6642:11002). This frame is kept only as the NewsArticleRow row reference."
     },
     {
       "figmaNodeId": "6322:7827",

@@ -4,7 +4,7 @@
  * maths. Everything a gesture worklet calls is marked `'worklet'` so the same
  * function runs on the UI thread in the app and in plain JS under jest.
  *
- *   Home [Collection, …] | Search | Scan | Events | Social [Social, News, Market]
+ *   Home [Collection, …] | Search | Scan | Events | Social [For you, Your posts]
  *
  * Watchlist left the bar for a tab of the Home profile (Figma 6642:5964);
  * `/wishlist` survives as a redirect route, not a page.

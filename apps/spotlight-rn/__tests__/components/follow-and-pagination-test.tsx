@@ -17,10 +17,10 @@ function flatten(node: { props: { style?: unknown } }) {
 }
 
 /**
- * The follow control's ONE-WAY contract, which is the whole point of the
- * component: a followed row must not be able to unfollow by accident. Asserted
- * on the press path rather than on the styling, because "looks different" is
- * not what protects the follow graph.
+ * The follow control's ONE-WAY default: without `onUnfollow`, a followed row
+ * must not be able to unfollow by accident. Asserted on the press path rather
+ * than on the styling, because "looks different" is not what protects the
+ * follow graph. Unfollow is opt-in (the Social feed, which confirms first).
  */
 describe('FollowButton', () => {
   it('follows on press while un-followed', () => {
@@ -48,6 +48,20 @@ describe('FollowButton', () => {
     // a disabled button that could be re-enabled by a later refactor.
     expect(screen.queryByRole('button')).toBeNull();
     expect(screen.getByLabelText('Following')).toBeTruthy();
+  });
+
+  it('makes FOLLOWING the way out only when the caller asks for it', () => {
+    const onPress = jest.fn();
+    const onUnfollow = jest.fn();
+    renderWithTheme(
+      <FollowButton following onPress={onPress} onUnfollow={onUnfollow} personLabel="Jamie" testID="follow" />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Unfollow Jamie' })).toBeTruthy();
+    expect(screen.getByText('FOLLOWING')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('follow'));
+    expect(onUnfollow).toHaveBeenCalledTimes(1);
+    expect(onPress).not.toHaveBeenCalled();
   });
 
   it('outlines the invite and settles the confirmation into a light fill (Figma 5768:27191)', () => {

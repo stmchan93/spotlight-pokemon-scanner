@@ -72,7 +72,7 @@ import {
   DEV_GRADED_CARD_ID,
   DEV_SEALED_CARD_ID,
 } from '@/dev/dev-repository';
-import { devFeedItems } from '@/dev/dev-feed-data';
+import { DEV_FEED_FOLLOWED_AUTHOR_ID, devFeedItems, devFeedNews } from '@/dev/dev-feed-data';
 import { candidateFor, DevScannerScreen, devScannerPricingMatrices } from '@/dev/dev-scanner-screen';
 import { DEV_SCAN_BINDER, DEV_SCAN_SINGLE } from '@/dev/dev-scanner-fixtures';
 import {
@@ -129,6 +129,8 @@ const devScreens: Record<string, () => ReactElement> = {
   // not the mock repository — the feed reads Supabase-direct.
   feed: () => <FeedScreen />,
   'feed-empty': () => <FeedScreen />,
+  // YOUR POSTS: the dev viewer's posts + reposts from the social fixtures.
+  'feed-your-posts': () => <FeedScreen initialTab="yourPosts" />,
   insights: () => <InsightsScreen />,
   portfolio: () => <PortfolioScreen />,
   // Ask Ekalight on the mock repository: empty chat (Home), the seeded saved
@@ -334,6 +336,7 @@ function DevScanReviewScreen() {
 // Screens whose data comes from the Supabase-layer services rather than the
 // repository. Their overrides are installed during render (see DevScreenHost).
 const socialOverrideScreens = new Set([
+  'feed-your-posts',
   'public-profile',
   'search-people',
   'follow-list',
@@ -415,6 +418,18 @@ function DevMetaBlocksScreen() {
   );
 }
 
+/** FOR YOU's news source on the feed routes: `devFeedNews` on `feed`, nothing on `feed-empty`. */
+function withDevFeedNews(repository: SpotlightRepository, screen: string): SpotlightRepository {
+  return new Proxy(repository, {
+    get(target, property, receiver) {
+      if (property === 'fetchNewsFeed') {
+        return async () => ({ items: screen === 'feed' ? devFeedNews : [], nextCursor: null });
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
+
 export function DevScreenHost({ screen }: { screen: string }) {
   const [repository, setRepository] = useState<SpotlightRepository | null>(null);
 
@@ -423,6 +438,12 @@ export function DevScreenHost({ screen }: { screen: string }) {
   // override misses the child's first fetch.
   if (screen === 'feed' || screen === 'feed-empty') {
     setDevFeedItemsOverride(screen === 'feed' ? devFeedItems : []);
+    // FOR YOU's follow controls read the viewer's follow set: WabiSabi is followed.
+    setDevProfileOverrides({
+      profiles: [],
+      followers: [],
+      following: screen === 'feed' ? [{ ...devProfile, userID: DEV_FEED_FOLLOWED_AUTHOR_ID }] : [],
+    });
   }
   if (socialOverrideScreens.has(screen)) {
     setSocialOverridesInstalled(true);
@@ -438,7 +459,7 @@ export function DevScreenHost({ screen }: { screen: string }) {
       seedFavorites: screen !== 'watchlist-empty',
     }).then((repo) => {
       if (!cancelled) {
-        setRepository(repo);
+        setRepository(screen === 'feed' || screen === 'feed-empty' ? withDevFeedNews(repo, screen) : repo);
       }
     });
     return () => {
@@ -446,6 +467,9 @@ export function DevScreenHost({ screen }: { screen: string }) {
       clearCardDetailCache();
       setDevFeedItemsOverride(null);
       setSocialOverridesInstalled(false);
+      if (screen === 'feed' || screen === 'feed-empty') {
+        setDevProfileOverrides(null);
+      }
     };
   }, [screen]);
 

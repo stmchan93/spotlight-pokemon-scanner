@@ -1,3 +1,5 @@
+import type { NewsItem } from '@spotlight/api-client';
+
 import type { FeedItem, FeedPost } from '@/features/social/social-service';
 
 // Deterministic feed rows for spotlight://dev/feed — one row per content shape
@@ -112,4 +114,47 @@ export const devFeedItems: FeedItem[] = [
       createdAt: '2026-07-01T10:00:00.000Z',
     }),
   ),
+];
+
+/** The author the dev viewer already follows, so a row draws FOLLOWING (Figma 6642:5448). */
+export const DEV_FEED_FOLLOWED_AUTHOR_ID = 'dev-author-wabisabi';
+
+function story(overrides: Pick<NewsItem, 'id' | 'title' | 'publishedAt'> & Partial<NewsItem>): NewsItem {
+  return {
+    kind: 'news',
+    source: 'Polygon',
+    url: `https://news.example.test/${overrides.id}`,
+    imageUrl: null,
+    game: 'pokemon',
+    setId: null,
+    cardIds: [],
+    tags: [],
+    video: null,
+    ...overrides,
+  };
+}
+
+/**
+ * News for FOR YOU on spotlight://dev/feed, dated to interleave with the posts
+ * above the way Figma 6642:5420 stacks them: an image lead on top, then text
+ * stories between posts. One page, no cursor.
+ */
+export const devFeedNews: NewsItem[] = [
+  story({
+    id: 'dev-news-lead',
+    title: 'Pokemon Center Trolls fans with worst 30th Anniversay TCG Drop Yet',
+    publishedAt: '2026-07-17T08:00:00.000Z',
+    imageUrl: MOCK_IMAGE,
+  }),
+  story({
+    id: 'dev-news-text-1',
+    title: 'Pokemon Center Trolls fans with worst 30th Anniversay TCG Drop Yet, and the restock is already gone',
+    publishedAt: '2026-07-15T20:00:00.000Z',
+  }),
+  story({
+    id: 'dev-news-text-2',
+    source: 'PokéBeach',
+    title: 'Mega Evolution expansion list leaks ahead of the November reveal',
+    publishedAt: '2026-07-12T12:00:00.000Z',
+  }),
 ];

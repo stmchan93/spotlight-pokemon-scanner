@@ -2,9 +2,14 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-
 import { Alert, StyleSheet } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 
+import type { NewsItem } from '@spotlight/api-client';
+
 import { useFeedShow } from '@/features/events/hooks/use-active-show';
+import { fetchFollowing } from '@/features/profile/profile-service';
+import { fetchNewsThreads } from '@/features/social/news-thread-service';
 import {
   deletePost,
+  fetchAuthorActivity,
   fetchEventPosts,
   fetchFollowingFeed,
   fetchGlobalFeed,
@@ -60,30 +65,49 @@ jest.mock('@/features/social/social-service', () => {
   addComment: jest.fn(async () => ({ ok: false, reason: 'nope' })),
   likeComment: jest.fn(async () => true),
   unlikeComment: jest.fn(async () => true),
+  fetchAuthorActivity: jest.fn(async () => []),
   };
 });
 
-// No show chip unless a test puts one on.
-jest.mock('@/features/social/screens/news-page', () => {
-  const { View } = require('react-native');
-  return { NewsPage: ({ testID }: { testID: string }) => <View testID={testID} /> };
-});
+jest.mock('@/features/social/news-thread-service', () => ({
+  fetchNewsThreads: jest.fn(async () => new Map()),
+}));
 
-jest.mock('@/features/social/screens/market-watch-page', () => {
-  const { View } = require('react-native');
-  return { MarketWatchPage: ({ testID }: { testID: string }) => <View testID={testID} /> };
-});
+jest.mock('@/features/meta-feed/screens/components/open-link-out', () => ({
+  openLinkOut: jest.fn(async () => undefined),
+}));
+
+// No show chip unless a test puts one on.
 
 jest.mock('@/features/events/hooks/use-active-show', () => ({
   useFeedShow: jest.fn(() => null),
 }));
 
 const mockFollowUser = jest.fn(async (_authorId: string) => true);
+const mockUnfollowUser = jest.fn(async (_authorId: string) => true);
 jest.mock('@/features/profile/profile-service', () => ({
   ...jest.requireActual('@/features/profile/profile-service'),
   fetchFollowing: jest.fn(async () => []),
   followUser: (authorId: string) => mockFollowUser(authorId),
+  unfollowUser: (authorId: string) => mockUnfollowUser(authorId),
 }));
+
+function buildArticle(overrides: { id: string } & Partial<NewsItem>): NewsItem {
+  return {
+    kind: 'news',
+    source: 'Polygon',
+    title: `Story ${overrides.id}`,
+    url: `https://news.test/${overrides.id}`,
+    imageUrl: null,
+    publishedAt: '2026-05-01T00:00:00Z',
+    game: 'pokemon',
+    setId: null,
+    cardIds: [],
+    tags: [],
+    video: null,
+    ...overrides,
+  };
+}
 
 /** The id `AuthProvider` signs in as under NODE_ENV=test. */
 const MY_USER_ID = '00000000-0000-0000-0000-000000000001';
@@ -403,64 +427,247 @@ describe('FeedScreen', () => {
     expect(style.borderBottomColor).toBe('#F2F2F2');
   });
 
-  describe('the Social / News / Market Watch tabs', () => {
-    it('renders the three tabs with Social selected', async () => {
+  describe('the FOR YOU / YOUR POSTS tabs (Figma 6642:11165)', () => {
+    it('renders the two tabs with FOR YOU selected', async () => {
       renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-      expect(screen.getByText('SOCIAL')).toBeTruthy();
-      expect(screen.getByText('NEWS')).toBeTruthy();
-      expect(screen.getByText('MARKET WATCH')).toBeTruthy();
-      expect(screen.getByTestId('feed-tabs-tab-social').props.accessibilityState.selected).toBe(true);
+      expect(screen.getByText('FOR YOU')).toBeTruthy();
+      expect(screen.getByText('YOUR POSTS')).toBeTruthy();
+      expect(screen.queryByText('NEWS')).toBeNull();
+      expect(screen.queryByText('MARKET WATCH')).toBeNull();
+      expect(screen.getByTestId('feed-tabs-tab-forYou').props.accessibilityState.selected).toBe(true);
     });
 
-    // Figma 6597:3462: left on the 16 gutter, active tab marked by weight and
-    // colour only — no underline, no rail.
-    it('left-aligns the tab row with an underline under the active tab and a rail (Figma 6597:3589)', async () => {
+    it('draws the underline rail: underline under the active tab only', async () => {
       renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
       expect(screen.getByTestId('feed-tabs-rail')).toBeTruthy();
-      const underline = StyleSheet.flatten(
-        screen.getByTestId('feed-tabs-tab-social-underline').props.style,
-      );
+      const underline = StyleSheet.flatten(screen.getByTestId('feed-tabs-tab-forYou-underline').props.style);
       expect(underline.backgroundColor).not.toBe('transparent');
-      const inactive = StyleSheet.flatten(screen.getByTestId('feed-tabs-tab-news-underline').props.style);
+      const inactive = StyleSheet.flatten(screen.getByTestId('feed-tabs-tab-yourPosts-underline').props.style);
       expect(inactive.backgroundColor).toBe('transparent');
-
-      // Active darker than inactive.
-      const social = StyleSheet.flatten(screen.getByText('SOCIAL').props.style);
-      const news = StyleSheet.flatten(screen.getByText('NEWS').props.style);
-      expect(social.color).not.toBe(news.color);
-      expect(social.fontSize).toBe(13);
+      const active = StyleSheet.flatten(screen.getByText('FOR YOU').props.style);
+      expect(active.fontSize).toBe(13);
     });
 
-    it('mounts News and Market Watch on their first visit, not before', async () => {
+    it("mounts YOUR POSTS on first visit and reads the viewer's posts + reposts", async () => {
+      (fetchAuthorActivity as jest.Mock).mockResolvedValue([
+        { post: buildPost({ id: 'mine', authorId: MY_USER_ID, body: 'My own post' }), repostedAt: null },
+        { post: buildPost({ id: 'theirs', body: 'Passed this on' }), repostedAt: '2026-05-03T00:00:00.000Z' },
+      ]);
       renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
-      expect(screen.queryByTestId('feed-news')).toBeNull();
-      expect(screen.queryByTestId('feed-market')).toBeNull();
+      expect(screen.queryByTestId('feed-your-posts')).toBeNull();
+      expect(fetchAuthorActivity).not.toHaveBeenCalled();
 
-      fireEvent.press(screen.getByTestId('feed-tabs-tab-news'));
-      expect(screen.getByTestId('feed-news')).toBeTruthy();
-      expect(screen.queryByTestId('feed-market')).toBeNull();
+      fireEvent.press(screen.getByTestId('feed-tabs-tab-yourPosts'));
 
-      fireEvent.press(screen.getByTestId('feed-tabs-tab-market'));
-      expect(screen.getByTestId('feed-market')).toBeTruthy();
-      // Visited pages stay mounted so a swipe back keeps their place.
-      expect(screen.getByTestId('feed-news')).toBeTruthy();
+      expect(await screen.findByText('My own post')).toBeTruthy();
+      expect(screen.getByText('Passed this on')).toBeTruthy();
+      expect(fetchAuthorActivity).toHaveBeenCalledWith(MY_USER_ID, expect.anything());
+      expect(screen.getAllByTestId('feed-your-posts-repost-attribution')).toHaveLength(1);
     });
 
-    it('keeps Social to posts: no market blocks, and none of their reads', async () => {
+    it('keeps the market blocks off Social: none of their reads', async () => {
       renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-      for (const block of ['top-trends', 'meta-pulse', 'hot-cards', 'coming-up', 'card-news']) {
+      for (const block of ['top-trends', 'meta-pulse', 'hot-cards', 'coming-up', 'market']) {
         expect(screen.queryByTestId(`feed-${block}`)).toBeNull();
       }
-      for (const read of [getTopMovers, fetchMetaPulse, fetchMetaExposure, fetchHotCards, fetchCalendar, fetchNewsFeed]) {
+      for (const read of [getTopMovers, fetchMetaPulse, fetchMetaExposure, fetchHotCards, fetchCalendar]) {
         expect(read).not.toHaveBeenCalled();
       }
+    });
+  });
+
+  /*
+    FOR YOU MIXES POSTS AND NEWS BY DATE. Two sources, two cursors, one
+    timeline; the merge rules themselves are covered in for-you-feed-test.
+  */
+  describe('news in FOR YOU', () => {
+    function rowOrder(): string[] {
+      return screen
+        .getAllByTestId(/^feed-(post-body|news-[^-]+-title)$/)
+        .map((node) => String(node.props.children));
+    }
+
+    it('interleaves articles with posts by publish time, newest first', async () => {
+      (fetchGlobalFeed as jest.Mock).mockResolvedValue([
+        buildPost({ id: 'new', body: 'Newer post', createdAt: '2026-05-03T00:00:00.000+00:00' }),
+        buildPost({ id: 'old', body: 'Older post', createdAt: '2026-05-01T00:00:00.000+00:00' }),
+      ]);
+      fetchNewsFeed.mockResolvedValue({
+        items: [buildArticle({ id: 'mid', title: 'Middle story', publishedAt: '2026-05-02T00:00:00Z' })],
+        nextCursor: null,
+      });
+      renderFeed();
+
+      await screen.findByText('Middle story');
+      expect(rowOrder()).toEqual(['Newer post', 'Middle story', 'Older post']);
+      expect(fetchNewsFeed).toHaveBeenCalledWith(expect.objectContaining({ cursor: null }));
+    });
+
+    it('reads reactions for the visible articles in one batch', async () => {
+      fetchNewsFeed.mockResolvedValue({
+        items: [buildArticle({ id: 'a1' }), buildArticle({ id: 'a2' })],
+        nextCursor: null,
+      });
+      renderFeed();
+
+      await screen.findByText('Story a1');
+      await waitFor(() => expect(fetchNewsThreads).toHaveBeenCalledWith(['a1', 'a2']));
+      expect(fetchNewsThreads).toHaveBeenCalledTimes(1);
+    });
+
+    it('draws an article with art as the image lead and one without as text', async () => {
+      fetchNewsFeed.mockResolvedValue({
+        items: [
+          buildArticle({ id: 'pic', imageUrl: 'https://img.test/pic.jpg' }),
+          buildArticle({ id: 'txt', imageUrl: null }),
+        ],
+        nextCursor: null,
+      });
+      renderFeed();
+
+      await screen.findByText('Story pic');
+      expect(screen.getByTestId('feed-news-pic-image')).toBeTruthy();
+      expect(screen.queryByTestId('feed-news-txt-image')).toBeNull();
+      expect(screen.queryByTestId('feed-news-txt-thumbnail')).toBeNull();
+    });
+
+    it('shows a reposted article once', async () => {
+      const article = buildArticle({ id: 'dup', title: 'Twice told', publishedAt: '2026-05-01T00:00:00Z' });
+      (fetchGlobalFeedItems as jest.Mock).mockResolvedValueOnce([
+        {
+          key: 'repost:thread-dup:misty',
+          post: buildPost({
+            id: 'thread-dup',
+            authorId: '',
+            author: null,
+            body: 'Twice told',
+            news: { source: 'Polygon', url: article.url, imageUrl: null },
+            createdAt: '2026-04-30T00:00:00.000Z',
+          }),
+          repostedBy: { displayName: 'Misty', handle: 'misty', avatarUrl: null, isVerified: false },
+          repostedById: 'misty',
+          repostedAt: '2026-05-04T00:00:00.000Z',
+          activityAt: '2026-05-04T00:00:00.000Z',
+        },
+      ]);
+      fetchNewsFeed.mockResolvedValue({ items: [article], nextCursor: null });
+      renderFeed();
+
+      await screen.findByText('Misty reposted');
+      // The repost is newer, so it is the one kept.
+      expect(screen.queryByTestId('feed-news-dup-title')).toBeNull();
+    });
+
+    it('still shows posts when the news read fails', async () => {
+      fetchNewsFeed.mockRejectedValue(new Error('news down'));
+      renderFeed();
+
+      expect(await screen.findByText('Feed post')).toBeTruthy();
+      expect(screen.queryByTestId('feed-error')).toBeNull();
+    });
+
+    it('pages the source that ran out first, and only that one', async () => {
+      const page = Array.from({ length: 20 }, (_, index) =>
+        buildPost({
+          id: `p${index}`,
+          body: `Post ${index}`,
+          createdAt: new Date(Date.UTC(2026, 4, 20 - index)).toISOString(),
+        }),
+      );
+      (fetchGlobalFeed as jest.Mock).mockImplementation(async (_limit: number, before?: string) =>
+        before ? [buildPost({ id: 'next', body: 'Next page post', createdAt: '2026-04-29T00:00:00.000Z' })] : page,
+      );
+      fetchNewsFeed.mockResolvedValue({
+        // Older than every post: held back until posts page past it.
+        items: [buildArticle({ id: 'early', title: 'Early story', publishedAt: '2026-04-30T00:00:00Z' })],
+        nextCursor: null,
+      });
+      renderFeed();
+
+      await screen.findByText('Post 0');
+      // The list virtualises past its first screen, so read the rows it was handed.
+      const listKeys = () =>
+        (screen.getByTestId('feed-list').props.data as { key: string }[]).map((row) => row.key);
+      expect(listKeys()).not.toContain('news:early');
+      expect(listKeys()).toHaveLength(20);
+
+      await act(async () => {
+        screen.getByTestId('feed-list').props.onEndReached?.();
+      });
+
+      await waitFor(() => expect(listKeys()).toHaveLength(22));
+      expect(listKeys().slice(-2)).toEqual(['news:early', 'post:next']);
+      expect(fetchGlobalFeed).toHaveBeenLastCalledWith(20, page[19].createdAt);
+      // News had no cursor left: it was read once, on the first page.
+      expect(fetchNewsFeed).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves news out of the Following and show chips', async () => {
+      (useFeedShow as jest.Mock).mockReturnValue({ id: 'show-1', shortTitle: 'Show' });
+      (fetchFollowingFeed as jest.Mock).mockResolvedValue([buildPost({ id: 'f', body: 'Followed post' })]);
+      fetchNewsFeed.mockResolvedValue({ items: [buildArticle({ id: 'n' })], nextCursor: null });
+      try {
+        renderFeed();
+        await screen.findByText('Story n');
+
+        fireEvent.press(screen.getByTestId('feed-source-following'));
+        expect(await screen.findByText('Followed post')).toBeTruthy();
+        expect(screen.queryByText('Story n')).toBeNull();
+      } finally {
+        (useFeedShow as jest.Mock).mockReturnValue(null);
+      }
+    });
+  });
+
+  describe('unfollowing from the feed', () => {
+    it('shows FOLLOWING on a followed author and unfollows after confirming', async () => {
+      (fetchFollowing as jest.Mock).mockResolvedValueOnce([{ userID: 'author-1' }]);
+      const alertSpy = jest.spyOn(Alert, 'alert');
+      renderFeed();
+
+      const button = await screen.findByTestId('feed-post-follow-button');
+      await waitFor(() => expect(within(button).getByText('FOLLOWING')).toBeTruthy());
+
+      fireEvent.press(screen.getByTestId('feed-post-follow-button'));
+      expect(alertSpy).toHaveBeenCalledWith('Unfollow Collector 1?', undefined, expect.any(Array));
+      expect(mockUnfollowUser).not.toHaveBeenCalled();
+
+      const buttons = alertSpy.mock.calls[0][2] as { text: string; onPress?: () => void }[];
+      await act(async () => {
+        buttons.find((option) => option.text === 'Unfollow')?.onPress?.();
+      });
+
+      expect(mockUnfollowUser).toHaveBeenCalledWith('author-1');
+      await waitFor(() =>
+        expect(within(screen.getByTestId('feed-post-follow-button')).getByText('FOLLOW')).toBeTruthy(),
+      );
+    });
+
+    it('puts FOLLOWING back when the unfollow fails', async () => {
+      (fetchFollowing as jest.Mock).mockResolvedValueOnce([{ userID: 'author-1' }]);
+      mockUnfollowUser.mockResolvedValueOnce(false);
+      const alertSpy = jest.spyOn(Alert, 'alert');
+      renderFeed();
+
+      await waitFor(() =>
+        expect(within(screen.getByTestId('feed-post-follow-button')).getByText('FOLLOWING')).toBeTruthy(),
+      );
+      fireEvent.press(screen.getByTestId('feed-post-follow-button'));
+      const buttons = alertSpy.mock.calls[0][2] as { text: string; onPress?: () => void }[];
+      await act(async () => {
+        buttons.find((option) => option.text === 'Unfollow')?.onPress?.();
+      });
+
+      await waitFor(() =>
+        expect(within(screen.getByTestId('feed-post-follow-button')).getByText('FOLLOWING')).toBeTruthy(),
+      );
     });
   });
 

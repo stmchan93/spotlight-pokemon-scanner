@@ -1,11 +1,13 @@
 /**
- * The pages behind the Social tab's News and Market Watch. A push notification
- * into one lands on the fallback while `resolveFeedMarketBlocksEnabled()` is off
+ * The stand-alone market/news pages (meta, news, calendar, set spotlight). News
+ * articles also run inline in Social's FOR YOU, and Market Watch lives on the
+ * Home profile's MARKET ANALYTICS tab. A push notification into one of these
+ * pages lands on the fallback while `resolveFeedMarketBlocksEnabled()` is off
  * (see `notification-routing`).
  */
 const FEED_MARKET_ROUTE_ROOTS = ['/meta', '/news', '/calendar', '/set-spotlight'];
 
-/** Where a hidden market page lands instead: the Social feed tab. */
+/** Where a hidden market page lands instead: Social's FOR YOU, which carries the news. */
 export const FEED_MARKET_FALLBACK_URL = '/social';
 
 /** True for `/meta`, `/meta/group/x`, `/news?kind=video`, `/set-spotlight/sv8`… */

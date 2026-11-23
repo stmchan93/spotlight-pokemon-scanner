@@ -1,12 +1,10 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { Alert, StyleSheet } from 'react-native';
+import { act, fireEvent, screen } from '@testing-library/react-native';
+import { Alert } from 'react-native';
 
 import type { NewsItem } from '@spotlight/api-client';
 
 import { NewsArticleRow } from '@/features/social/components/news-article-row';
-import { fetchNewsThreads } from '@/features/social/news-thread-service';
-import { NewsPage } from '@/features/social/screens/news-page';
-import { fetchLikedPostIds, likePost, repostPost } from '@/features/social/social-service';
+import { likePost, repostPost } from '@/features/social/social-service';
 
 import { MockSpotlightRepository, type SpotlightRepository } from '../../mock-api-client';
 import { renderWithProviders } from '../../test-utils';
@@ -64,14 +62,6 @@ const article = (overrides: Partial<NewsItem> = {}): NewsItem => ({
   video: null,
   ...overrides,
 });
-
-const pageProps = {
-  contentContainerStyle: { minHeight: 800, paddingTop: 100 },
-  onScroll: jest.fn(),
-  progressViewOffset: 100,
-  scrollEventThrottle: 16,
-  scrollToOverflowEnabled: true,
-};
 
 describe('NewsArticleRow', () => {
   beforeEach(() => {
@@ -139,60 +129,5 @@ describe('NewsArticleRow', () => {
 
     expect(screen.getByTestId('video-play')).toBeTruthy();
     expect(screen.queryByTestId('text-image')).toBeNull();
-  });
-});
-
-describe('NewsPage', () => {
-  const feed = { items: [article(), article({ id: 'n2', title: 'Second' })], nextCursor: null };
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-    (fetchNewsThreads as jest.Mock).mockResolvedValue(new Map());
-  });
-
-  it('leads with the first story and filters by game', async () => {
-    const fetchNewsFeed = jest.fn(async () => feed);
-    renderWithProviders(<NewsPage page={pageProps} />, { spotlightRepository: repo({ fetchNewsFeed }) });
-
-    await waitFor(() => expect(screen.getByTestId('news-page-article-n1-title')).toBeTruthy());
-    expect(screen.getByTestId('news-page-article-n2-title')).toBeTruthy();
-    expect(fetchNewsThreads).toHaveBeenCalledWith(['n1', 'n2']);
-
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('news-page-chips-onepiece'));
-    });
-    await waitFor(() =>
-      expect(fetchNewsFeed).toHaveBeenCalledWith(expect.objectContaining({ game: 'onepiece' })),
-    );
-  });
-
-  it('draws a uniform square thumbnail beside a title of up to 5 lines', async () => {
-    renderWithProviders(<NewsPage page={pageProps} />, {
-      spotlightRepository: repo({ fetchNewsFeed: jest.fn(async () => feed) }),
-    });
-
-    const title = await screen.findByTestId('news-page-article-n2-title');
-    expect(title.props.numberOfLines).toBe(5);
-    expect(StyleSheet.flatten(screen.getByTestId('news-page-article-n2-thumbnail').props.style)).toMatchObject({
-      borderRadius: 8,
-      height: 80,
-      width: 80,
-    });
-  });
-
-  it('seeds counts and liked state from one batched read', async () => {
-    (fetchNewsThreads as jest.Mock).mockResolvedValue(
-      new Map([['n1', { postId: 'p1', likeCount: 4, commentCount: 2, repostCount: 1 }]]),
-    );
-    (fetchLikedPostIds as jest.Mock).mockResolvedValue(new Set(['p1']));
-    renderWithProviders(<NewsPage page={pageProps} />, {
-      spotlightRepository: repo({ fetchNewsFeed: jest.fn(async () => feed) }),
-    });
-
-    await waitFor(() =>
-      expect(screen.getByTestId('news-page-article-n1-like-count').props.children).toBe(4),
-    );
-    expect(fetchLikedPostIds).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('news-page-article-n1-like-icon').props.fill).not.toBe('none');
   });
 });
