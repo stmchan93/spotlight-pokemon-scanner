@@ -9,7 +9,7 @@ import { Avatar, SearchField, StateCard, Text, useSpotlightTheme } from '@spotli
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import type { UserProfile } from '@/features/auth/auth-models';
-import { fetchSuggestedUsers, searchUsers } from '@/features/profile/profile-service';
+import { usePeopleSearch } from '@/features/profile/hooks/use-people-search';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAuth } from '@/providers/auth-provider';
@@ -18,7 +18,6 @@ import {
   getProfileInitials,
 } from '@/features/profile/screens/public-profile-screen';
 
-const SEARCH_DEBOUNCE_MS = 250;
 // Longer than any native push (~350ms iOS / Android) on a slow device.
 const AUTOFOCUS_FALLBACK_MS = 1000;
 
@@ -38,10 +37,15 @@ export function PeopleSearchScreen({ testID = 'people-search' }: { testID?: stri
   const viewerId = auth.currentUser?.id ?? null;
 
   const [query, setQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<UserProfile[]>([]);
-  const [results, setResults] = useState<UserProfile[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const searchTokenRef = useRef(0);
+  const {
+    isLoading,
+    isSearching,
+    results,
+    retrySuggestions,
+    suggestions,
+    suggestionsStatus,
+    trimmedQuery,
+  } = usePeopleSearch(query, { viewerId });
 
   /*
     Focus AFTER the push transition, not `autoFocus`: an input focused mid push
@@ -95,50 +99,6 @@ export function PeopleSearchScreen({ testID = 'people-search' }: { testID?: stri
       unsubscribe();
     };
   }, [navigation]);
-
-  const [suggestionsStatus, setSuggestionsStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
-  const [suggestionsAttempt, setSuggestionsAttempt] = useState(0);
-  useEffect(() => {
-    let cancelled = false;
-    setSuggestionsStatus('loading');
-    void fetchSuggestedUsers(viewerId).then(({ failed, profiles }) => {
-      if (!cancelled) {
-        setSuggestions(profiles);
-        setSuggestionsStatus(failed ? 'failed' : 'ready');
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [viewerId, suggestionsAttempt]);
-  const retrySuggestions = useCallback(() => setSuggestionsAttempt((attempt) => attempt + 1), []);
-
-  const trimmedQuery = query.trim();
-  const isSearching = trimmedQuery.length > 0;
-
-  useEffect(() => {
-    if (!isSearching) {
-      setResults([]);
-      setIsLoading(false);
-      return;
-    }
-    const token = ++searchTokenRef.current;
-    setIsLoading(true);
-    const timer = setTimeout(() => {
-      void searchUsers(trimmedQuery).then((rows) => {
-        if (token === searchTokenRef.current) {
-          setResults(rows);
-          setIsLoading(false);
-          // Once per settled query; the text itself never leaves the device.
-          capturePostHogEvent(AnalyticsEvent.peopleSearchPerformed, {
-            query_length: trimmedQuery.length,
-            result_count: rows.length,
-          });
-        }
-      });
-    }, SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [isSearching, trimmedQuery]);
 
   const handlePressRow = useCallback(
     (profile: UserProfile) => {

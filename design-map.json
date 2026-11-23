@@ -331,6 +331,32 @@
       "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts"
     },
     {
+      "figmaNodeId": "6642:12483",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6642-12483",
+      "screenName": "SearchCards",
+      "notes": "Search as the bottom-bar tab, CARDS state. Tab mode deliberately drops Figma's back + AI buttons (owner, 2026-11-22); the empty toolbar row keeps the banner composition. Set cards say TOTAL VALUE, not Figma's MARKET VALUE.",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/catalog/screens/game-sets-screen.tsx",
+        "apps/spotlight-rn/src/features/catalog/components/catalog-search-filter-sheet.tsx",
+        "apps/spotlight-rn/src/features/catalog/search-surface.tsx"
+      ],
+      "deepLink": "spotlight://dev/search-cards",
+      "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts"
+    },
+    {
+      "figmaNodeId": "6642:14400",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6642-14400",
+      "screenName": "SearchPeople",
+      "notes": "Search as the bottom-bar tab, PEOPLE state. People = dev-social-data fixtures; holdings = MockSpotlightRepository.getProfilesTopHoldings (every person shows the same seeded cards).",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/catalog/screens/game-sets-screen.tsx",
+        "apps/spotlight-rn/src/features/profile/components/people-search-results.tsx",
+        "apps/spotlight-rn/src/features/profile/components/person-search-card.tsx"
+      ],
+      "deepLink": "spotlight://dev/search-people",
+      "mockData": "apps/spotlight-rn/src/dev/dev-social-data.ts"
+    },
+    {
       "figmaNodeId": "6607:8860",
       "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6607-8860",
       "screenName": "ProgressBar-6607",

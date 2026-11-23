@@ -12,14 +12,10 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import {
   DEFAULT_CARD_GAME,
-  RARITY_BUCKET_LABELS,
-  RARITY_FILTER_BUCKETS,
   type CardGame,
   type CatalogSearchResult,
-  type RarityFilterBucket,
 } from '@spotlight/api-client';
 import {
-  PillButton,
   ScreenHeader,
   SearchField,
   StateCard,
@@ -30,6 +26,8 @@ import {
 
 import { consumeCardAddedNotice } from '@/features/cards/card-added-notice';
 import { ChromeBackButton } from '@/components/chrome-back-button';
+import { SEALED_FILTER, useCatalogSearchFilter } from '@/features/catalog/catalog-search-filter';
+import { CatalogSearchFilterChips } from '@/features/catalog/components/catalog-search-filter-chips';
 import {
   CatalogResultsGrid,
   resultsSpanMultipleGames,
@@ -54,9 +52,6 @@ import { capturePostHogEvent } from '@/lib/observability/posthog';
   people-search ever comes back it belongs on its own surface, not folded into
   this one.
 */
-
-const SEALED_FILTER = 'sealed';
-type CatalogSearchFilter = RarityFilterBucket | typeof SEALED_FILTER;
 
 type CatalogSearchScreenProps = {
   initialQuery?: string;
@@ -89,11 +84,7 @@ export function CatalogSearchScreen({
 
   // One active chip at a time — Sealed or a rarity; tap again to clear. A chip
   // alone is a valid search (browse with no text).
-  const [activeFilter, setActiveFilter] = useState<CatalogSearchFilter | null>(null);
-  const toggleFilter = (filter: CatalogSearchFilter) =>
-    setActiveFilter((current) => (current === filter ? null : filter));
-  const sealedActive = activeFilter === SEALED_FILTER;
-  const activeRarity = activeFilter && activeFilter !== SEALED_FILTER ? activeFilter : null;
+  const { activeFilter, activeRarity, sealedActive, setActiveFilter, toggleFilter } = useCatalogSearchFilter();
   /*
     EVERY GAME. Typed queries were scoped to the SCANNER's lane, so searching
     "Darkrai" with the lane on One Piece returned "No matching cards" — with
@@ -413,27 +404,7 @@ export function CatalogSearchScreen({
           style={styles.rarityChipScroller}
           testID="catalog-rarity-chip-row"
         >
-          <PillButton
-            label="Sealed"
-            labelRole="caption"
-            onPress={() => toggleFilter(SEALED_FILTER)}
-            selected={sealedActive}
-            testID="catalog-sealed-chip"
-            tone="filter"
-            uppercase
-          />
-          {RARITY_FILTER_BUCKETS.map((key) => (
-            <PillButton
-              key={key}
-              label={RARITY_BUCKET_LABELS[key]}
-              labelRole="caption"
-              onPress={() => toggleFilter(key)}
-              selected={activeRarity === key}
-              testID={`catalog-rarity-chip-${key}`}
-              tone="filter"
-              uppercase
-            />
-          ))}
+          <CatalogSearchFilterChips activeFilter={activeFilter} onToggle={toggleFilter} testIDPrefix="catalog" />
         </ScrollView>
 
       {renderBody()}

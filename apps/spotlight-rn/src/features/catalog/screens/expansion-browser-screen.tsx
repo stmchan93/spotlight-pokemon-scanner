@@ -1,33 +1,52 @@
-import { DEFAULT_CARD_GAME, type CardGame, type CatalogSearchResult, type ExpansionRecord } from '@spotlight/api-client';
+import {
+  DEFAULT_CARD_GAME,
+  type CardGame,
+  type CatalogSearchResult,
+  type ExpansionRecord,
+  type InventoryCardEntry,
+} from '@spotlight/api-client';
 
-import { GameSetsScreen } from '@/features/catalog/screens/game-sets-screen';
+import type { UserProfile } from '@/features/auth/auth-models';
+import { GameSetsScreen, type SearchMode, type SearchTab } from '@/features/catalog/screens/game-sets-screen';
 
 type ExpansionBrowserScreenProps = {
   /** The game the chips start on; Pokémon when absent. */
   initialGame?: CardGame;
   /**
-   * `close` (default) when it slid up as the `/catalog/search` sheet; `none`
-   * when it IS the Search tab, which has nothing to dismiss.
+   * `sheet` (default): the /catalog/search sheet, closed with X.
+   * `tab`: the bottom-bar Search tab — no close, no Ask button.
    */
-  dismissStyle?: 'close' | 'none';
-  /** Required for `dismissStyle="close"`. */
-  onClose?: () => void;
+  mode?: SearchMode;
+  onClose: () => void;
   onSelectExpansion: (expansion: ExpansionRecord, game: CardGame) => void;
   onOpenCard: (result: CatalogSearchResult) => void;
+  /** Ignored in `tab` mode. */
   onOpenAssistant?: () => void;
   onViewAll?: (section: 'sets' | 'sealed', game: CardGame) => void;
+  onOpenProfile?: (profile: UserProfile) => void;
+  onOpenHolding?: (profile: UserProfile, entry: InventoryCardEntry) => void;
+  initialSearchTab?: SearchTab;
 };
 
 /**
- * Search's landing (Figma 6597:5654). The game grid that used to live here is
- * gone: game chips switch games in place, so this is the same screen as a
- * game's page, just entered without a game picked.
+ * Search (Figma 6642:12483 CARDS / 6642:14400 PEOPLE). Game chips switch games
+ * in place, so this is a game's page entered without a game picked, plus the
+ * CARDS | PEOPLE tabs and the filter sheet.
  */
 export function ExpansionBrowserScreen({
   initialGame = DEFAULT_CARD_GAME,
-  dismissStyle = 'close',
+  mode = 'sheet',
+  onOpenAssistant,
   ...props
 }: ExpansionBrowserScreenProps) {
-  // Search's landing slides UP, so it closes with X — unless it is the tab.
-  return <GameSetsScreen dismissStyle={dismissStyle} game={initialGame} {...props} />;
+  return (
+    <GameSetsScreen
+      // The sheet slides UP, so it closes with X (and swipes down to dismiss).
+      dismissStyle={mode === 'sheet' ? 'close' : 'back'}
+      game={initialGame}
+      onOpenAssistant={mode === 'tab' ? undefined : onOpenAssistant}
+      searchMode={mode}
+      {...props}
+    />
+  );
 }

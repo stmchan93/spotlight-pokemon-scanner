@@ -210,6 +210,7 @@ import type {
   PostMediaUploadResult,
   ProfileDeckEntriesQuery,
   ProfilePortfolioSummary,
+  ProfileTopHoldings,
   RawEbayBuyingOption,
   RawEbayListingCandidate,
   RawEbayListingsQuery,
@@ -342,6 +343,15 @@ export interface SpotlightRepository {
    * owner-only dashboard (chart/history/insights) stays off the public path.
    */
   getProfilePortfolioSummary(userID: string): Promise<ProfilePortfolioSummary>;
+  /**
+   * Several collectors' most valuable public holdings in ONE request (Search's
+   * PEOPLE cards). Up to 20 ids; `limit` per collector (backend max 12). Same
+   * explicit-owner, read-only contract as {@link getProfileDeckEntries}.
+   */
+  getProfilesTopHoldings(
+    userIDs: readonly string[],
+    options?: { limit?: number },
+  ): Promise<ProfileTopHoldings[]>;
   /**
    * Upload the caller's own profile avatar (a resized JPEG) to the backend,
    * which stores it in the public avatar bucket and returns the public URL. The
@@ -1017,6 +1027,12 @@ type ProfilePortfolioSummaryDTO = {
   totalValue?: unknown;
   cardCount?: unknown;
   currency?: unknown;
+};
+
+// Response of GET /api/v1/profiles/top-holdings — each collector's priciest
+// public holdings, deck-entry shaped (owner-only fields already stripped).
+type ProfileTopHoldingsResponseDTO = {
+  profiles?: Array<{ userId?: unknown; entries?: DeckEntryDTO[]; available?: unknown }>;
 };
 
 // Response of POST /api/v1/profile/avatar — the public URL of the just-stored
@@ -4387,6 +4403,16 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return entries.slice(offset, offset + limit);
   }
 
+  // Mock: every collector "owns" the seeded holdings, priciest first.
+  async getProfilesTopHoldings(userIDs: readonly string[], options?: { limit?: number }) {
+    const limit = Math.max(1, Math.trunc(options?.limit ?? 6));
+    const ranked = this.inventoryEntriesForQuery()
+      .filter((entry) => entry.hasMarketPrice && !entry.priceStatus && entry.quantity > 0)
+      .sort((a, b) => b.marketPrice - a.marketPrice)
+      .slice(0, limit);
+    return [...new Set(userIDs)].map((userId) => ({ userId, entries: ranked, available: true }));
+  }
+
   async getProfilePortfolioSummary(userID: string): Promise<ProfilePortfolioSummary> {
     const entries = this.inventoryEntriesForQuery();
     const totalValue = entries.reduce(
@@ -6521,6 +6547,34 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return rawEntries
       .map((entry: DeckEntryDTO) => mapDeckEntry(entry, this.baseUrl))
       .filter((entry): entry is InventoryCardEntry => entry !== null);
+  }
+
+  async getProfilesTopHoldings(userIDs: readonly string[], options?: { limit?: number }) {
+    const ids = [...new Set(userIDs.map((id) => id.trim()).filter(Boolean))];
+    if (ids.length === 0) {
+      return [];
+    }
+    const params = new URLSearchParams({ userIds: ids.join(',') });
+    if (options?.limit != null) {
+      params.set('limit', String(Math.max(1, Math.trunc(options.limit))));
+    }
+    const payload = await this.requestJsonOrThrow<ProfileTopHoldingsResponseDTO>(
+      `${this.baseUrl}/api/v1/profiles/top-holdings?${params.toString()}`,
+      { method: 'GET' },
+    );
+    const profiles = Array.isArray(payload?.profiles) ? payload.profiles : [];
+    return profiles.flatMap((profile): ProfileTopHoldings[] => {
+      const userId = normalizeString(profile?.userId);
+      if (!userId) {
+        return [];
+      }
+      const entries = (Array.isArray(profile.entries) ? profile.entries : [])
+        .map((entry: DeckEntryDTO) => mapDeckEntry(entry, this.baseUrl))
+        .filter((entry): entry is InventoryCardEntry => entry !== null)
+        // Never a non-USD or withheld price on this surface, whatever the server sent.
+        .filter((entry) => entry.hasMarketPrice && !entry.priceStatus && (entry.currencyCode ?? 'USD') === 'USD');
+      return [{ userId, entries, available: profile.available !== false }];
+    });
   }
 
   async getProfilePortfolioSummary(userID: string): Promise<ProfilePortfolioSummary> {

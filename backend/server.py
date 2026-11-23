@@ -586,6 +586,11 @@ PUBLIC_PROFILE_PATH_PREFIX = "/api/v1/profiles/"
 PUBLIC_PROFILE_DECK_ENTRIES_SUFFIX = "/deck/entries"
 PUBLIC_PROFILE_WISHLIST_ENTRIES_SUFFIX = "/wishlist/entries"
 PUBLIC_PROFILE_SUMMARY_SUFFIX = "/portfolio/summary"
+# Search's PEOPLE cards: several collectors' most valuable holdings in one read.
+PUBLIC_TOP_HOLDINGS_PATH = "/api/v1/profiles/top-holdings"
+PUBLIC_TOP_HOLDINGS_MAX_USERS = 20
+PUBLIC_TOP_HOLDINGS_DEFAULT_LIMIT = 6
+PUBLIC_TOP_HOLDINGS_MAX_LIMIT = 12
 
 
 def is_plausible_user_id(value: str | None) -> bool:
@@ -24089,6 +24094,112 @@ class SpotlightScanService:
             "currency": "USD",
         }
 
+    def public_top_holdings_for_owners(
+        self, owner_user_ids: Iterable[str], *, limit: int = PUBLIC_TOP_HOLDINGS_DEFAULT_LIMIT
+    ) -> dict[str, Any]:
+        """Each collector's MOST VALUABLE holdings, for Search's PEOPLE cards.
+
+        Public by the same rule as the profile Collection tab (any signed-in
+        visitor past the access gate). Every owner is EXPLICIT and read-only;
+        the ambient identity stays the caller's. Each owner rides the same
+        series-free cached compute the public profile grid and summary share,
+        so a person shown here costs nothing extra on their profile.
+
+        Only holdings with a served USD price rank: stale / untrusted prices are
+        already withheld by price_quality inside that compute, and a slab of a
+        TCGplayer-only card has no graded price at all. Entries carry the
+        card-facing fields only — never cost basis, listings, scan ids or the
+        owner's collection names. One owner failing leaves the rest intact."""
+        safe_limit = max(1, min(int(limit), PUBLIC_TOP_HOLDINGS_MAX_LIMIT))
+        owners: list[str] = []
+        for value in owner_user_ids:
+            owner = str(value or "").strip().lower()
+            if owner and owner not in owners:
+                owners.append(owner)
+        if len(owners) > PUBLIC_TOP_HOLDINGS_MAX_USERS:
+            raise ValueError(f"at most {PUBLIC_TOP_HOLDINGS_MAX_USERS} userIds per request")
+
+        profiles: list[dict[str, Any]] = []
+        for owner in owners:
+            try:
+                payload = self.deck_entries_for_owner(
+                    owner,
+                    limit=CLIENT_INVENTORY_PAGE_SIZE,
+                    offset=0,
+                    include_inactive=False,
+                    favorites_only=False,
+                    compute_day_change=False,
+                    include_series=False,
+                    log_surface="public_profile_top_holdings",
+                )
+            except Exception:  # noqa: BLE001 - one owner must not sink the batch
+                traceback.print_exc()
+                profiles.append({"userId": owner, "entries": [], "available": False})
+                continue
+            ranked: list[tuple[float, dict[str, Any]]] = []
+            for entry in payload.get("entries") or []:
+                price = self._public_top_holding_price(entry)
+                if price is not None:
+                    ranked.append((price, entry))
+            # Stable: equal prices keep the owner's list order.
+            ranked.sort(key=lambda pair: pair[0], reverse=True)
+            profiles.append(
+                {
+                    "userId": owner,
+                    "entries": [
+                        self._public_top_holding_payload(entry) for _, entry in ranked[:safe_limit]
+                    ],
+                    "available": True,
+                }
+            )
+        return {"profiles": profiles, "limit": safe_limit, "currency": "USD"}
+
+    @staticmethod
+    def _public_top_holding_price(entry: dict[str, Any]) -> float | None:
+        """The unit price a holding ranks by, or None when it shows no price."""
+        try:
+            if int(entry.get("quantity") or 0) <= 0:
+                return None
+        except (TypeError, ValueError):
+            return None
+        card = entry.get("card") or {}
+        pricing = card.get("pricing")
+        if not isinstance(pricing, dict) or pricing.get("priceStatus"):
+            return None
+        if str(pricing.get("currencyCode") or "USD").strip().upper() != "USD":
+            return None
+        is_slab = str(entry.get("itemKind") or "").strip().lower() == "slab" or bool(
+            entry.get("slabContext")
+        )
+        if is_slab and catalog_source_for_card_id(card.get("id")) == CATALOG_SOURCE_TCGPLAYER:
+            return None
+        price = pricing.get("market")
+        if not isinstance(price, (int, float)) or isinstance(price, bool) or price <= 0:
+            return None
+        return float(price)
+
+    @staticmethod
+    def _public_top_holding_payload(entry: dict[str, Any]) -> dict[str, Any]:
+        """A deck-entry-shaped row with the owner-only fields left out: the
+        owner's favorite flag on the card and the slab's cert number too."""
+        card = dict(entry.get("card") or {})
+        card.pop("isFavorite", None)
+        slab_context = entry.get("slabContext")
+        if isinstance(slab_context, dict):
+            slab_context = {key: value for key, value in slab_context.items() if key != "certNumber"}
+        return {
+            "id": entry.get("id"),
+            "itemKind": entry.get("itemKind"),
+            "card": card,
+            "variantName": entry.get("variantName"),
+            "printingImageUrl": entry.get("printingImageUrl"),
+            "printingImageSmallUrl": entry.get("printingImageSmallUrl"),
+            "slabContext": slab_context,
+            "condition": entry.get("condition"),
+            "quantity": entry.get("quantity"),
+            "addedAt": entry.get("addedAt"),
+        }
+
     def _deck_entries_version_token(self, owner_user_id: str) -> str:
         """The dashboard version token (deck mutations + events + sales + latest
         price date) plus the owner's wishlist state — deck_entries payloads carry
@@ -27938,6 +28049,58 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 )
             finally:
                 _heavy_read_semaphore.release()
+            return
+
+        # Search's PEOPLE cards: the most valuable holdings of up to
+        # PUBLIC_TOP_HOLDINGS_MAX_USERS collectors in one read. Same public rule
+        # and same explicit-owner discipline as the per-profile reads below.
+        if parsed.path == PUBLIC_TOP_HOLDINGS_PATH:
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_access(identity):
+                return
+            raw_ids = [
+                part.strip()
+                for value in query.get("userIds", [])
+                for part in value.split(",")
+                if part.strip()
+            ]
+            if not raw_ids:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "userIds is required"})
+                return
+            if not all(is_plausible_user_id(value) for value in raw_ids):
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST, {"error": "userIds must be valid user ids"}
+                )
+                return
+            if len({value.lower() for value in raw_ids}) > PUBLIC_TOP_HOLDINGS_MAX_USERS:
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": f"at most {PUBLIC_TOP_HOLDINGS_MAX_USERS} userIds per request"},
+                )
+                return
+            try:
+                limit = int(query.get("limit", [str(PUBLIC_TOP_HOLDINGS_DEFAULT_LIMIT)])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+            # One heavy-read slot for the batch: a cold owner runs their pricing.
+            if not self._acquire_heavy_read_slot():
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    payload = self.service.public_top_holdings_for_owners(raw_ids, limit=limit)
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Public top holdings failed: {error}"},
+                )
+                return
+            finally:
+                _heavy_read_semaphore.release()
+            self._write_json(HTTPStatus.OK, payload)
             return
 
         # --- Public profiles (Phase 2a): READ-ONLY reads of ANOTHER user's

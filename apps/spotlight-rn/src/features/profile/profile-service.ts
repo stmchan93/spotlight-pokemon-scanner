@@ -386,6 +386,15 @@ export async function searchUsers(query: string, limit = 20): Promise<UserProfil
     .replace(/[^\p{L}\p{N}_ ]/gu, '')
     .replace(/\s+/g, ' ')
     .trim();
+  if (__DEV__ && devProfileOverrides && cleaned.length > 0) {
+    const needle = cleaned.toLowerCase();
+    return rankSearchMatches(
+      devProfileOverrides.profiles.filter((profile) =>
+        `${profile.handle ?? ''} ${profile.displayName ?? ''}`.toLowerCase().includes(needle),
+      ),
+      cleaned,
+    ).slice(0, limit);
+  }
   if (!supabase || cleaned.length === 0) {
     return [];
   }
@@ -492,6 +501,9 @@ export async function fetchSuggestedUsers(
 ): Promise<SuggestedUsersResult> {
   const withoutViewer = (rows: UserProfile[]) =>
     rows.filter((profile) => profile.userID !== excludeUserID).slice(0, limit);
+  if (__DEV__ && devProfileOverrides) {
+    return { failed: false, profiles: withoutViewer([...devProfileOverrides.profiles]) };
+  }
 
   const popular = await readSuggestedPage('follower_count', limit + 1);
   const popularProfiles = popular ? withoutViewer(popular) : [];
