@@ -1032,6 +1032,21 @@ Current API concepts:
   - `muted`
   - `field`
 
+### PricePositionBar
+
+File: `src/components/price-position-bar.tsx`
+
+Use for "cheap or pricey": where today's price sits inside its recent low ↔ high
+range (PDP under the price; Market Analytics' Bargain board). Neutral colors on
+purpose — position is context, not a buy/sell signal, and the copy never predicts.
+
+- `percentile` — 0–100 (clamped, NaN → 50 via the exported `clampPercentile`); the purple500 marker (white ring) sits at that fraction of a gray200 pill track, inset by half a dot so it never overhangs the ends
+- `label` — defaults to `pricePositionLabel(percentile)`: thirds → "Cheaper than usual" / "Mid-range" / "Pricier than usual"; pass an override for a surface-specific phrasing ("Near its recent low")
+- `detail` — right of the label (md only), e.g. "Past 3 months range" (the server's window label)
+- `lowLabel` / `highLabel` — preformatted prices under the track ends (md only)
+- `size`: `'md'` (default: captionMedium label, 6pt track, 14pt marker, end prices) | `'sm'` (overline label, 4pt track, 10pt marker — rail tiles)
+- one accessible element; `accessibilityLabel` reads "label. Low …. High …. detail"; test ids `${testID}-label|-detail|-track|-marker|-low|-high`
+
 ### ProgressBar
 
 File: `src/components/progress-bar.tsx`

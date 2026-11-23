@@ -106,7 +106,7 @@ import {
   type CollapsibleScrollTarget,
 } from '@/components/page-tab-pager';
 import { FocusedStatusBar } from '@/components/focused-status-bar';
-import { useAssistantPageContext } from '@/features/assistant/page-context/assistant-page-context';
+import { useAssistantPageContext, type AssistantPageExtra } from '@/features/assistant/page-context/assistant-page-context';
 import { EkalightMark } from '@/components/ekalight-mark';
 import { ScanTabIcon } from '@/components/nav-tab-icons';
 import {
@@ -707,7 +707,9 @@ export function PortfolioScreen({
     return match?.name ?? 'Main Collection';
   }, [activeCollectionID, collectionsSnapshot]);
   // Floating Ekalight bubble: which collection (and game chip) is on screen (read at tap time).
-  useAssistantPageContext(() => ({
+  // MARKET ANALYTICS publishes its own game/window/zoomed set while it is the active tab.
+  const marketAssistantContextRef = useRef<AssistantPageExtra | null>(null);
+  useAssistantPageContext(() => (activeProfileTab === 'market' && marketAssistantContextRef.current ? marketAssistantContextRef.current : {
     label: `Your collection · ${activeCollectionName}`,
     params: { collection: activeCollectionName },
     game: gameFromFilterKey(activeFilter) ?? insightsGame,
@@ -1786,6 +1788,7 @@ export function PortfolioScreen({
     if (tab === 'market') {
       return (
         <MarketAnalyticsPage
+          assistantContextRef={marketAssistantContextRef}
           page={page}
           scrollRef={marketScrollRef}
           testID="portfolio-market-page"

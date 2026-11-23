@@ -30,6 +30,7 @@ import {
   RankBadge,
   RankedCardRow,
   PillButton,
+  PricePositionBar,
   ProgressBar,
   QuantityStepper,
   ScreenHeader,
@@ -235,6 +236,14 @@ export function DesignSystemCatalogScreen({
                 value={fraction}
               />
             ))}
+            <PricePositionBar
+              detail="Past 3 months range"
+              highLabel="$612.00"
+              lowLabel="$388.00"
+              percentile={22}
+              testID="catalog-price-position-bar"
+            />
+            <PricePositionBar label="Near its recent low" percentile={8} size="sm" testID="catalog-price-position-bar-sm" />
             <QuantityStepper
               formatValue={(value) => `QTY: ${value}`}
               onChange={() => undefined}

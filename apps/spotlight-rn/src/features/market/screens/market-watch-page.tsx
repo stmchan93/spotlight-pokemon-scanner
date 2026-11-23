@@ -219,7 +219,7 @@ export function MarketWatchPage({
                 showsHorizontalScrollIndicator={false}
               >
                 {releases.map((event) => (
-                  <SetCard
+                  <UpcomingSetCard
                     event={event}
                     key={event.id}
                     onPress={() => navigation.openCalendarEvent(event)}
@@ -318,7 +318,7 @@ export function MarketWatchPage({
   );
 }
 
-function SetCard({
+export function UpcomingSetCard({
   event,
   onPress,
   testID,

@@ -33,6 +33,7 @@ export * from './components/news-row';
 export * from './components/owned-tag';
 export * from './components/page-tabs';
 export * from './components/pill-button';
+export * from './components/price-position-bar';
 export * from './components/price-sparkline';
 export * from './components/price-text';
 export * from './components/progress-bar';

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Image, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { NavArrowDown } from 'iconoir-react-native';
 
@@ -87,6 +87,8 @@ type CardPriceChartSectionProps = {
   graders?: readonly string[];
   selectedGrader?: string | null;
   onSelectGrader?: (grader: string) => void;
+  /** Drawn under the price/delta for the charted row (the PDP's price-position bar). */
+  renderBelowPrice?: (row: CardPriceTrendRow) => ReactNode;
   testID?: string;
 };
 
@@ -112,6 +114,7 @@ export function CardPriceChartSection({
   graders = [],
   selectedGrader = null,
   onSelectGrader,
+  renderBelowPrice,
   testID = 'card-price-chart',
 }: CardPriceChartSectionProps) {
   const theme = useSpotlightTheme();
@@ -291,6 +294,7 @@ export function CardPriceChartSection({
             </Text>
           ) : null}
         </View>
+        {renderBelowPrice?.(selectedRow)}
         <View style={styles.chipRow}>
           {showGraderChip ? (
             <Pressable
