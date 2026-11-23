@@ -415,16 +415,50 @@ function conversionProvider(providers: readonly string[]): string {
 // before reading the ratio as "the conversion path minted a duplicate".
 function captureGuestConverted(options: {
   existingAccount: boolean;
+  newAccount: boolean;
   hadMintedSession: boolean;
   preservedIdentity: boolean;
   provider: string;
 }) {
   capturePostHogEvent('guest_converted', {
     existing_account: options.existingAccount,
+    // The sign-up funnel's step: a brand-new account, not a returning user
+    // signing in from guest mode (owner, 2026-11-23).
+    new_account: options.newAccount,
     had_minted_session: options.hadMintedSession,
     preserved_identity: options.preservedIdentity,
     provider: options.provider,
   });
+}
+
+/** An account younger than this at sign-in was just created. */
+const NEW_ACCOUNT_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * Did this guest create a NEW account (vs. sign into one they already had)?
+ * A minted guest upgrades in place — the link succeeds only for a new identity,
+ * and a rejected link is `existingAccount`. A never-minted guest gets a fresh
+ * Supabase user only on sign-up, so its creation time says which it was.
+ */
+export function isNewAccountConversion({
+  existingAccount,
+  hadMintedSession,
+  userCreatedAt,
+  now = Date.now(),
+}: {
+  existingAccount: boolean;
+  hadMintedSession: boolean;
+  userCreatedAt: string | null | undefined;
+  now?: number;
+}): boolean {
+  if (existingAccount) {
+    return false;
+  }
+  if (hadMintedSession) {
+    return true;
+  }
+  const createdMs = userCreatedAt ? Date.parse(userCreatedAt) : Number.NaN;
+  return Number.isFinite(createdMs) && now - createdMs < NEW_ACCOUNT_WINDOW_MS;
 }
 
 // Synthetic AppUser for a guest (anonymous) session — no profile fetch, no
@@ -628,6 +662,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
     if (wasPendingGuest || priorGuestUserId != null) {
       captureGuestConverted({
         existingAccount,
+        newAccount: isNewAccountConversion({
+          existingAccount,
+          hadMintedSession: priorGuestUserId != null,
+          userCreatedAt: session.user.created_at,
+        }),
         // False means they converted before ever costing anything — the
         // deferred mint doing exactly its job.
         hadMintedSession: priorGuestUserId != null,

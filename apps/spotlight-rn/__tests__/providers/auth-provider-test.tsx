@@ -1996,3 +1996,16 @@ describe('AuthProvider', () => {
     });
   });
 });
+
+describe('isNewAccountConversion', () => {
+  const now = Date.parse('2026-11-23T12:00:00Z');
+  it('counts a fresh account, not a returning sign-in', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { isNewAccountConversion } = require('@/providers/auth-provider') as typeof import('@/providers/auth-provider');
+    expect(isNewAccountConversion({ existingAccount: false, hadMintedSession: false, userCreatedAt: '2026-11-23T11:58:00Z', now })).toBe(true);
+    expect(isNewAccountConversion({ existingAccount: false, hadMintedSession: false, userCreatedAt: '2026-08-01T00:00:00Z', now })).toBe(false);
+    expect(isNewAccountConversion({ existingAccount: false, hadMintedSession: false, userCreatedAt: undefined, now })).toBe(false);
+    expect(isNewAccountConversion({ existingAccount: false, hadMintedSession: true, userCreatedAt: '2026-08-01T00:00:00Z', now })).toBe(true);
+    expect(isNewAccountConversion({ existingAccount: true, hadMintedSession: true, userCreatedAt: '2026-11-23T11:59:00Z', now })).toBe(false);
+  });
+});
