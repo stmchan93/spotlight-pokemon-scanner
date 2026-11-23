@@ -47,6 +47,7 @@ import {
   getAppTabBarHeight,
   useTabBarBottomInset,
 } from '@/components/tab-pager/app-tab-bar';
+import { publishTabPagerPosition, unpublishTabPagerPosition } from '@/components/tab-pager/tab-pager-motion';
 import {
   TabPagerPageContext,
   type TabPagerPageApi,
@@ -310,6 +311,10 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
 
   /** Strip position in PAGES (0 = Home). The single source every animation reads. */
   const position = useSharedValue(initialPage);
+  useEffect(() => {
+    publishTabPagerPosition(position);
+    return () => unpublishTabPagerPosition(position);
+  }, [position]);
   const widthSV = useSharedValue(width);
   useEffect(() => {
     widthSV.value = width;

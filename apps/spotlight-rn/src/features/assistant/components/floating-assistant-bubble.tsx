@@ -7,8 +7,10 @@ import Animated, {
   Easing,
   cancelAnimation,
   runOnJS,
+  useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withRepeat,
   withSequence,
   withSpring,
@@ -21,7 +23,28 @@ import { GlassSurface, isLiquidGlassAvailable, useSpotlightTheme } from '@spotli
 import { EkalightAiRing, EkalightAiSparkle } from '@/components/ekalight-ai-glyph';
 import { EkalightMark } from '@/components/ekalight-mark';
 import { getAppTabBarHeight, useTabBarBottomInset } from '@/components/tab-pager/app-tab-bar';
+import { useTabPagerPosition } from '@/components/tab-pager/tab-pager-motion';
 import { assistantHref } from '@/features/assistant/assistant-route';
+import {
+  HOP_LAND_SPRING,
+  HOP_MS,
+  HOP_SQUASH,
+  LEASH_OFFSET,
+  LEASH_RELEASE_MS,
+  LEASH_RETURN_SPRING,
+  LEASH_SMOOTHING,
+  LEASH_STRETCH,
+  LEASH_TILT_DEG,
+  LOOK_BACK_MS,
+  LOOK_DELAY_MS,
+  LOOK_HOLD_MS,
+  LOOK_OUT_MS,
+  LOOK_SHIFT,
+  LOOK_TILT_DEG,
+  hopHeight,
+  leashAmount,
+  lookDirection,
+} from '@/features/assistant/components/assistant-bubble-motion';
 import {
   ASSISTANT_BUBBLE_SIZE,
   assistantBubbleHiddenOnRoute,
@@ -74,8 +97,12 @@ const MOVE_MS = 260;
  * while the tray is open). Hidden on the chat itself,
  * auth/forms, full-screen capture routes and while the keyboard is up.
  *
- * Animation is Reanimated on the UI thread (drag, snap, idle bob); Reduce
- * Motion turns the bob off and makes moves instant.
+ * Animation is Reanimated on the UI thread (drag, snap, idle bob). It also
+ * "follows you" between pages (tuning in `assistant-bubble-motion.ts`): it
+ * trails the outer tab swipe on a leash, hops along an arc when the route moves
+ * its spot, and the mark glances back toward the page it came from. Each is its
+ * own shared value composed into one transform. Reduce Motion turns all of
+ * that and the bob off and makes moves instant.
  */
 export function FloatingAssistantBubble() {
   const theme = useSpotlightTheme();
@@ -141,27 +168,112 @@ export function FloatingAssistantBubble() {
   const bob = useSharedValue(0);
   const bobbing = useSharedValue(0);
   const dragging = useSharedValue(0);
+  /** Hop arc offset (pt, negative = up) and landing squash (0…1, springs past 0). */
+  const hop = useSharedValue(0);
+  const land = useSharedValue(0);
+  /** Leash pull -1…1 (see `leashAmount`). */
+  const leash = useSharedValue(0);
+  /** Mark glance -1 (left) … 1 (right). */
+  const look = useSharedValue(0);
   const placedRef = useRef(false);
+  const lastRef = useRef({ hidden: true, pathname });
+  const zoneMinYRef = useRef(zone.minY);
+  zoneMinYRef.current = zone.minY;
 
   // Follow route / rotation / stored-position changes. The first placement is
-  // instant (no fly-in from the corner on launch).
+  // instant (no fly-in from the corner on launch). A route change that moves
+  // the spot while the bubble stays visible hops there; anything else slides.
   useEffect(() => {
     if (position == null) {
       return;
     }
+    const last = lastRef.current;
+    lastRef.current = { hidden, pathname };
     if (!placedRef.current || reduceMotion) {
       placedRef.current = true;
       x.value = targetX;
       y.value = targetY;
       return;
     }
-    x.value = withTiming(targetX, { duration: MOVE_MS });
-    y.value = withTiming(targetY, { duration: MOVE_MS });
-  }, [position, reduceMotion, targetX, targetY, x, y]);
+    if (last.pathname === pathname || last.hidden || hidden) {
+      x.value = withTiming(targetX, { duration: MOVE_MS });
+      y.value = withTiming(targetY, { duration: MOVE_MS });
+      return;
+    }
+    const fromY = y.value;
+    const moved = Math.abs(x.value - targetX) > 1 || Math.abs(fromY - targetY) > 1;
+    if (moved) {
+      const flight = { duration: HOP_MS, easing: Easing.inOut(Easing.quad) };
+      x.value = withTiming(targetX, flight);
+      y.value = withTiming(targetY, flight);
+      const height = hopHeight(fromY, targetY, zoneMinYRef.current);
+      hop.value = withSequence(
+        withTiming(-height, { duration: HOP_MS / 2, easing: Easing.out(Easing.quad) }),
+        withTiming(0, { duration: HOP_MS / 2, easing: Easing.in(Easing.quad) }),
+      );
+      land.value = withDelay(
+        HOP_MS - 30,
+        withSequence(withTiming(1, { duration: 60 }), withSpring(0, HOP_LAND_SPRING)),
+      );
+    }
+    const direction = lookDirection(last.pathname, pathname);
+    if (direction !== 0) {
+      look.value = withDelay(
+        moved ? HOP_MS : LOOK_DELAY_MS,
+        withSequence(
+          withTiming(direction, { duration: LOOK_OUT_MS, easing: Easing.out(Easing.quad) }),
+          withDelay(LOOK_HOLD_MS, withTiming(0, { duration: LOOK_BACK_MS, easing: Easing.inOut(Easing.quad) })),
+        ),
+      );
+    }
+  }, [hidden, hop, land, look, pathname, position, reduceMotion, targetX, targetY, x, y]);
 
   useEffect(() => {
     visible.value = reduceMotion ? (hidden ? 0 : 1) : withTiming(hidden ? 0 : 1, { duration: FADE_MS });
   }, [hidden, reduceMotion, visible]);
+
+  // Leash: trail the outer tab swipe off the pager's strip position, on the UI
+  // thread. Each strip frame retargets the pull from the smoothed velocity and
+  // queues the return spring, which only plays once the frames stop (settled).
+  const pagerPosition = useTabPagerPosition();
+  const noPager = useSharedValue(0);
+  const strip = pagerPosition ?? noPager;
+  const leashOn = useSharedValue(0);
+  const stripAt = useSharedValue(0);
+  const stripVelocity = useSharedValue(0);
+  useEffect(() => {
+    const on = !hidden && !reduceMotion;
+    leashOn.value = on ? 1 : 0;
+    if (!on) {
+      for (const value of [leash, hop, land, look]) {
+        cancelAnimation(value);
+        value.value = 0;
+      }
+    }
+  }, [hidden, hop, land, leash, leashOn, look, reduceMotion]);
+  const pageWidth = window.width;
+  useAnimatedReaction(
+    () => strip.value,
+    (current, previous) => {
+      if (previous == null || leashOn.value === 0) {
+        return;
+      }
+      const now = Date.now();
+      const seconds = (now - stripAt.value) / 1000;
+      stripAt.value = now;
+      if (seconds <= 0 || seconds > 0.1) {
+        // First frame of a new movement: no velocity yet.
+        stripVelocity.value = 0;
+        return;
+      }
+      stripVelocity.value += ((current - previous) / seconds - stripVelocity.value) * LEASH_SMOOTHING;
+      leash.value = withSequence(
+        withTiming(leashAmount(stripVelocity.value, pageWidth), { duration: 32 }),
+        withDelay(LEASH_RELEASE_MS, withSpring(0, LEASH_RETURN_SPRING)),
+      );
+    },
+    [pageWidth, strip],
+  );
 
   // Idle bob: a slow 5pt float with a soft overshoot and a tiny squash on
   // landing; off under Reduce Motion and while hidden.
@@ -244,19 +356,34 @@ export function FloatingAssistantBubble() {
   const containerStyle = useAnimatedStyle(() => {
     const idle = 1 - dragging.value;
     // 0 in the air, 1 at the bottom of the bob; never while still or dragged.
-    const landing = bobbing.value * idle * Math.max(0, 1 - Math.abs(bob.value) / BOB_SQUASH_BAND);
+    const landing = bobbing.value * Math.max(0, 1 - Math.abs(bob.value) / BOB_SQUASH_BAND);
+    // Bob landing + hop landing (the hop's springy rebound dips below 0 = a stretch).
+    const squash = (BOB_SQUASH * landing + HOP_SQUASH * land.value) * idle;
+    const pull = leash.value * idle;
+    const stretch = Math.abs(pull) * LEASH_STRETCH;
     const scale = (0.85 + 0.15 * visible.value) * (1 + 0.08 * dragging.value);
     return {
       opacity: visible.value,
       transform: [
-        { translateX: x.value },
+        // The leash: trails behind the strip's motion…
+        { translateX: x.value + pull * LEASH_OFFSET },
         // Squash about the bottom edge, so it reads as landing, not shrinking.
-        { translateY: y.value + bob.value * idle + (ASSISTANT_BUBBLE_SIZE * BOB_SQUASH * landing) / 2 },
-        { scaleX: scale * (1 + BOB_SQUASH * landing) },
-        { scaleY: scale * (1 - BOB_SQUASH * landing) },
+        { translateY: y.value + (bob.value + hop.value) * idle + (ASSISTANT_BUBBLE_SIZE * squash) / 2 },
+        // …leans toward the direction of travel and stretches along it.
+        { rotate: `${-pull * LEASH_TILT_DEG}deg` },
+        { scaleX: scale * (1 + squash) * (1 + stretch) },
+        { scaleY: scale * (1 - squash) * (1 - stretch / 2) },
       ],
     };
   });
+
+  // The look: the mark (and a little of the sparkle) glance toward the previous page.
+  const lookStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: look.value * LOOK_SHIFT }, { rotate: `${look.value * LOOK_TILT_DEG}deg` }],
+  }));
+  const sparkleLookStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: look.value * LOOK_SHIFT * 0.6 }],
+  }));
 
   const hasGlass = isLiquidGlassAvailable();
   const radius = ASSISTANT_BUBBLE_SIZE / 2;
@@ -285,12 +412,14 @@ export function FloatingAssistantBubble() {
               { borderCurve: 'continuous', borderRadius: radius },
             ]}
           >
-            <EkalightMark color={theme.colors.purple500} height={MARK_HEIGHT} testID="floating-assistant-mark" width={MARK_WIDTH} />
+            <Animated.View style={lookStyle}>
+              <EkalightMark color={theme.colors.purple500} height={MARK_HEIGHT} testID="floating-assistant-mark" width={MARK_WIDTH} />
+            </Animated.View>
           </GlassSurface>
           <EkalightAiRing size={ASSISTANT_BUBBLE_SIZE} />
-          <View pointerEvents="none" style={styles.sparkle}>
+          <Animated.View pointerEvents="none" style={[styles.sparkle, sparkleLookStyle]}>
             <EkalightAiSparkle size={SPARKLE_SIZE} />
-          </View>
+          </Animated.View>
         </Animated.View>
       </GestureDetector>
     </View>
