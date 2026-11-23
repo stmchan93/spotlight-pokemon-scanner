@@ -52,6 +52,14 @@ class ChainMathTests(unittest.TestCase):
         out = chain_segment(members, series, start=date(2026, 1, 1), end=date(2026, 1, 2), start_value=100.0)
         self.assertAlmostEqual(out[0][1], 100.0)
 
+    def test_data_break_step_rebases_instead_of_moving_the_index(self) -> None:
+        # An 82% one-day drop that stays (a source switch) is not a market move.
+        members = [Member("a", "m", None, 100.0), Member("b", "m", None, 100.0)]
+        series = {"a": [("2026-01-02", 18.0), ("2026-01-03", 18.9)], "b": [("2026-01-02", 110.0)]}
+        out = chain_segment(members, series, start=date(2026, 1, 1), end=date(2026, 1, 3), start_value=100.0)
+        self.assertAlmostEqual(out[0][1], 105.0)  # (1.0 rebased + 1.1) / 2
+        self.assertAlmostEqual(out[1][1], 105.0 * (1.05 + 1.0) / 2)  # a moves +5% from its new level
+
     def test_drop_spikes_removes_single_glitch_only(self) -> None:
         points = [("1", 100.0), ("2", 400.0), ("3", 100.0), ("4", 250.0), ("5", 260.0)]
         self.assertEqual(drop_spikes(points), [("1", 100.0), ("3", 100.0), ("4", 250.0), ("5", 260.0)])

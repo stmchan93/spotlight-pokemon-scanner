@@ -56,6 +56,7 @@ from market_movers import (
     has_outlier_step,
 )
 
+MAX_DAILY_RATIO = 3.0  # one card's day-over-day move beyond this is a data break
 BASKET_SIZE = 100
 MIN_BASKET_SIZE = 20  # fewer qualifying cards = no index (too noisy to call a market)
 BASE_VALUE = 100.0
@@ -185,7 +186,11 @@ def chain_segment(
                 current[m.card_id] = points[index][1]
                 index += 1
             cursors[m.card_id] = index
-            ratio_sum += current[m.card_id] / previous
+            ratio = current[m.card_id] / previous if previous > 0 else 1.0
+            # A >3x one-day step is a data break (source/variant switch), not a
+            # move: the card rebases to its new level instead of dragging the
+            # index (One Piece fell 82% in a day on 2026-09-14 otherwise).
+            ratio_sum += ratio if 1 / MAX_DAILY_RATIO <= ratio <= MAX_DAILY_RATIO else 1.0
         value = value * ratio_sum / len(members)
         out.append((day, value))
     return out
