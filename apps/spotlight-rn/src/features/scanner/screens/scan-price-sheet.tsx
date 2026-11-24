@@ -21,7 +21,6 @@ import type {
   SlabContext,
 } from '@spotlight/api-client';
 import {
-  IconButton,
   SheetHeader,
   SurfaceCard,
   Text,
@@ -30,6 +29,8 @@ import {
   textStyles,
   useSpotlightTheme,
 } from '@spotlight/design-system';
+
+import { ChromeBackButton } from '@/components/chrome-back-button';
 
 import { buildTcgPlayerCardUrl, tcgPlayerProductIdFromCardId } from '@/features/cards/marketplace-urls';
 import { useAppServices } from '@/providers/app-providers';
@@ -265,16 +266,12 @@ export function ScanPriceSheet({
               subtitle={cardName ? `${cardName}${subtitle ? `\n${subtitle}` : ''}` : subtitle}
               titleStyleVariant="title"
               rightAccessory={(
-                <IconButton
+                <ChromeBackButton
                   accessibilityLabel="Close pricing details"
+                  glyph="close"
                   onPress={onClose}
-                  size={36}
                   testID={`${testID}-close`}
-                >
-                  <Text style={[theme.typography.headline, { color: theme.colors.textPrimary }]}>
-                    ×
-                  </Text>
-                </IconButton>
+                />
               )}
             />
 

@@ -9,10 +9,11 @@ import {
   type LayoutChangeEvent,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { IconChevronLeft } from '@tabler/icons-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, Text, Toast, colors, spacing, textStyles } from '@spotlight/design-system';
+
+import { ChromeBackButton } from '@/components/chrome-back-button';
 
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 
@@ -269,16 +270,12 @@ export const BinderPageReview = memo(function BinderPageReview({
       <View style={[styles.wash, Platform.OS === 'ios' ? null : styles.washOpaque]} />
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
         <View style={styles.header}>
-          <Pressable
+          <ChromeBackButton
             accessibilityLabel="Back to scanner"
-            accessibilityRole="button"
-            hitSlop={12}
             onPress={onClose}
-            style={styles.backButton}
+            surface="onDark"
             testID={`${testID}-close`}
-          >
-            <IconChevronLeft color={colors.scannerTextPrimary} size={24} strokeWidth={2} />
-          </Pressable>
+          />
           <View style={styles.headerCopy}>
             {/* Caps like every other scanner label; string casing, not
                 textTransform, so iOS measures the capitals (tight rows clip). */}
@@ -573,12 +570,6 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
-  },
-  backButton: {
-    alignItems: 'center',
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
   },
   headerCopy: {
     flex: 1,

@@ -11,7 +11,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { NavArrowLeft, Search as SearchIcon } from 'iconoir-react-native';
+import { Search as SearchIcon } from 'iconoir-react-native';
 import { BlurView } from 'expo-blur';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -21,6 +21,8 @@ import type {
   RawPricingMatrixVariant,
 } from '@spotlight/api-client';
 import { PillButton, Text, colors, textStyles } from '@spotlight/design-system';
+
+import { ChromeBackButton } from '@/components/chrome-back-button';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import {
@@ -316,16 +318,12 @@ export function ChangeCardPicker({
 
         <SafeAreaView edges={['top']} style={styles.topBarSafe}>
           <View style={styles.topBar}>
-            <Pressable
+            <ChromeBackButton
               accessibilityLabel="Close"
-              accessibilityRole="button"
-              hitSlop={8}
               onPress={onClose}
-              style={styles.iconCircle}
+              surface="onDark"
               testID={`${testID}-back`}
-            >
-              <NavArrowLeft color={colors.gray0} height={24} width={24} />
-            </Pressable>
+            />
             <View style={styles.iconCircle}>
               <SearchIcon color={colors.gray0} height={20} width={20} />
             </View>
@@ -560,9 +558,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.35)',
     borderCurve: 'continuous',
     borderRadius: 999,
-    height: 36,
+    height: 44,
     justifyContent: 'center',
-    width: 36,
+    width: 44,
   },
   sheetWrap: {
     position: 'absolute',

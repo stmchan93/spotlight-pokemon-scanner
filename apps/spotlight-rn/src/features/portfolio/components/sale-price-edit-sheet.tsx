@@ -11,7 +11,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RecentSaleRecord } from '@spotlight/api-client';
 import {
   Button,
-  IconButton,
   SheetHeader,
   Text,
   TextField,
@@ -19,6 +18,8 @@ import {
   radii,
   useSpotlightTheme,
 } from '@spotlight/design-system';
+
+import { ChromeBackButton } from '@/components/chrome-back-button';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { getCardImageSource } from '@/lib/card-images';
@@ -97,16 +98,12 @@ export function SalePriceEditSheet({
                 />
               )}
               rightAccessory={(
-                <IconButton
+                <ChromeBackButton
                   accessibilityLabel="Close edit sale price"
+                  glyph="close"
                   onPress={onClose}
-                  size={36}
                   testID="edit-sale-close"
-                >
-                  <Text style={[theme.typography.headline, { color: theme.colors.textPrimary }]}>
-                    ×
-                  </Text>
-                </IconButton>
+                />
               )}
               showHandle
               subtitle={`${sale.name} • ${sale.soldAtLabel}`}

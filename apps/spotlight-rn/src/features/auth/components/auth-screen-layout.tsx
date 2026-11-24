@@ -2,16 +2,16 @@ import type { ReactNode } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { NavArrowLeft } from 'iconoir-react-native';
 
 
-import { glassNavBubbleGlyphSize, glassNavBubbleGlyphStrokeWidth, EkalightWordmark, useSpotlightTheme } from '@spotlight/design-system';
+import { EkalightWordmark, useSpotlightTheme } from '@spotlight/design-system';
+
+import { ChromeBackButton, chromeBackButtonSize } from '@/components/chrome-back-button';
 
 type AuthScreenLayoutProps = {
   /** Content flows top-down inside the scroll area on the white screen. */
@@ -23,7 +23,7 @@ type AuthScreenLayoutProps = {
   testID?: string;
 };
 
-const HEADER_BUTTON_SIZE = 40;
+const HEADER_BUTTON_SIZE = chromeBackButtonSize;
 // Figma 3686:58352 renders the lockup at 32pt tall inside the top toolbar.
 const WORDMARK_HEIGHT = 32;
 
@@ -74,19 +74,7 @@ export function AuthScreenLayout({
         style={[styles.header, { backgroundColor: theme.colors.gray0, paddingTop: insets.top + 16 }]}
       >
         {onBack ? (
-          <Pressable
-            accessibilityLabel="Back"
-            accessibilityRole="button"
-            hitSlop={8}
-            onPress={onBack}
-            style={({ pressed }) => [
-              styles.headerButton,
-              { backgroundColor: theme.colors.gray50, opacity: pressed ? 0.8 : 1 },
-            ]}
-            testID={backTestID}
-          >
-            <NavArrowLeft color={theme.colors.gray900} height={glassNavBubbleGlyphSize} strokeWidth={glassNavBubbleGlyphStrokeWidth} width={glassNavBubbleGlyphSize} />
-          </Pressable>
+          <ChromeBackButton onPress={onBack} testID={backTestID} />
         ) : (
           <View style={styles.headerButton} />
         )}

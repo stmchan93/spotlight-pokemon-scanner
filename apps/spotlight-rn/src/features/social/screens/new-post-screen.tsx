@@ -16,8 +16,9 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { EdgeInsets } from 'react-native-safe-area-context';
 import { initialWindowMetrics, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Camera, MapPin, MediaImage, Xmark } from 'iconoir-react-native';
+import { ChromeBackButton } from '@/components/chrome-back-button';
 
-import { Avatar, Button, IconButton, PillButton, SheetHeader, Text, textStyles, useSpotlightTheme } from '@spotlight/design-system';
+import { Avatar, Button, PillButton, SheetHeader, Text, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
 import { fetchBrowsingNow } from '@/features/events/booth-service';
@@ -686,15 +687,12 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
         <SheetHeader
           align="center"
           leadingAccessory={
-            <IconButton
+            <ChromeBackButton
               accessibilityLabel="Cancel"
+              glyph="close"
               onPress={() => router.back()}
-              size={36}
               testID={`${testID}-cancel`}
-              variant="subtle"
-            >
-              <Xmark color={theme.colors.textPrimary} height={20} width={20} />
-            </IconButton>
+            />
           }
           style={styles.header}
           title="NEW POST"

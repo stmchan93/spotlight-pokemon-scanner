@@ -892,7 +892,7 @@ export function AssistantScreen({
             accessibilityLabel="Back to chat"
             material="frost"
             onPress={() => setView('chat')}
-            size="compact"
+            size="medium"
             testID="assistant-back"
           >
             <NavArrowLeft {...headerGlyph} />
@@ -917,7 +917,7 @@ export function AssistantScreen({
             accessibilityLabel="Close"
             material="frost"
             onPress={onBack}
-            size="compact"
+            size="medium"
             testID="assistant-back"
           >
             <Xmark {...headerGlyph} />
@@ -927,7 +927,7 @@ export function AssistantScreen({
               accessibilityLabel="Chat history"
               material="frost"
               onPress={openHistory}
-              size="compact"
+              size="medium"
               testID="assistant-open-history"
             >
               <ClockRotateRight {...headerGlyph} />
