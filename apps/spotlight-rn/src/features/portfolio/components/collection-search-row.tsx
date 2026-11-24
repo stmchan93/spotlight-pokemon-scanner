@@ -100,7 +100,8 @@ export function CollectionSearchRow({
             containerTestID={`${testID}-input`}
             onChangeText={onChangeQuery}
             onFocus={onFocus}
-            placeholder="Search your portfolio"
+            // Figma 6711:5143 says "vendor or hobby"; items carry neither, so the copy names what matches.
+            placeholder="Search by card, set or grade"
             returnKeyType="search"
             size="collection"
             surface="muted"

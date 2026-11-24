@@ -857,6 +857,12 @@ describe('PortfolioScreen', () => {
       });
     }
 
+    it('names what the search matches in its placeholder', async () => {
+      renderPortfolioScreen({ repository: createSearchRepository({ unscopedCalls: [] }) });
+      await screen.findByTestId('collection-masonry-grid-tile-main-1');
+      expect(screen.getByLabelText('Search your portfolio').props.placeholder).toBe('SEARCH BY CARD, SET OR GRADE');
+    });
+
     it('lists other-folder matches under their folder name, de-duped and fetched once', async () => {
       const unscopedCalls: string[] = [];
       renderPortfolioScreen({ repository: createSearchRepository({ unscopedCalls }) });
