@@ -79,14 +79,8 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { assistantHref } from '@/features/assistant/assistant-route';
+import { useAssistantPageContext } from '@/features/assistant/page-context/assistant-page-context';
 import {
-  resolveAssistantOpenContext,
-  useAssistantPageContext,
-} from '@/features/assistant/page-context/assistant-page-context';
-import { EkalightMark } from '@/components/ekalight-mark';
-import {
-  ASSISTANT_TRAY_VIEW,
   assistantTrayRows,
   catalogResultFromAssistantCard,
   findTrayRow,
@@ -94,7 +88,6 @@ import {
   TRAY_GONE_MESSAGE,
   TRAY_ROW_GONE_MESSAGE,
 } from '@/features/scanner/scan-tray-assistant-bridge';
-import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { useTabsPage } from '@/contexts/tabs-page-context';
 import {
   createTrayStore,
@@ -348,9 +341,6 @@ const traySwipeThreshold = 20;
 // Fling velocity that commits an expand/collapse. gesture-handler reports
 // velocity in px/s, so this is the px/s equivalent of the old ~0.22 px/ms.
 const trayFlingVelocity = 220;
-// The Ekalight mark on the tray header chip keeps its 56x52 aspect at the label's height.
-const trayAssistantMarkHeight = 16;
-const trayAssistantMarkWidth = 17;
 const trayHeaderHitSlop = { bottom: 10, left: 12, right: 12, top: 12 } as const;
 // Tray expand/collapse height animation. Driven by Reanimated (NOT classic
 // LayoutAnimation): the tray rows animate with Reanimated (scan-tray-list.tsx),
@@ -4364,23 +4354,6 @@ export function ScannerScreen({
     });
   }, [trayStore]);
 
-  // The tray header's Ekalight chip: Ask Ekalight about the scanned cards, with
-  // the tray-specific starter chips (the floating bubble covers the empty tray).
-  const handleOpenTrayAssistant = useCallback(() => {
-    const cardIds = trayStore.getState().items.flatMap((capture) => {
-      const candidate = capture.isLoadingCandidates ? null : activeCandidateForCapture(capture);
-      return candidate ? [candidate.cardId] : [];
-    });
-    const context = resolveAssistantOpenContext('/scan', {}, {
-      cardIds,
-      game: scanLane.game,
-      label: 'Your scan tray',
-      params: { view: ASSISTANT_TRAY_VIEW },
-    });
-    capturePostHogEvent(AnalyticsEvent.assistantOpened, { source: 'scan_tray', page_kind: context.page.kind });
-    router.push(assistantHref(context.source, context.cardIds, context.game, context.page));
-  }, [router, scanLane.game, trayStore]);
-
   // Bulk "Remove": clear the whole scan session (same path as CLEAR ALL).
   const handleBulkRemove = useCallback(() => {
     performClearAllCaptures();
@@ -5396,31 +5369,6 @@ export function ScannerScreen({
                 ) : null}
               </View>
               <View style={styles.trayInfoRightGroup}>
-              {/* Ask Ekalight about these scans: the purple mark on the same
-                  solid chip, only while the tray has cards (an empty tray
-                  gets the floating bubble instead). */}
-              {trayCount > 0 ? (
-                <Pressable
-                  accessibilityHint="Ask about, add or change the scanned cards"
-                  accessibilityLabel="Ask Ekalight about your scanned cards"
-                  accessibilityRole="button"
-                  hitSlop={8}
-                  onPress={handleOpenTrayAssistant}
-                  style={({ pressed }) => [
-                    styles.trayInfoPill,
-                    styles.trayAssistantChip,
-                    pressed ? styles.trayInfoPillClearPressed : null,
-                  ]}
-                  testID="scanner-tray-ask-ekalight"
-                >
-                  <EkalightMark
-                    color={colors.purple300}
-                    height={trayAssistantMarkHeight}
-                    testID="scanner-tray-ask-ekalight-mark"
-                    width={trayAssistantMarkWidth}
-                  />
-                </Pressable>
-              ) : null}
               {/* Same solid chip as SCAN (Figma 6150:6732). */}
               <View style={styles.trayInfoPill} testID="scanner-value-pill-surface">
                 {vendorMode ? (
@@ -6209,10 +6157,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.xxs,
-  },
-  trayAssistantChip: {
-    // Same 23pt-tall chip as SCAN/TOTAL: the mark fills the label's line box.
-    paddingHorizontal: spacing.xxs,
   },
   trayInfoPill: {
     // Row: the SCAN pill carries its clear ✕ beside the count, and the TOTAL

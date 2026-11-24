@@ -2955,23 +2955,16 @@ describe('ScannerScreen', () => {
         ...overrides,
       });
       renderScannerScreen({ spotlightRepository });
-      // Empty tray: the floating bubble covers it, so no header chip.
-      expect(screen.queryByTestId('scanner-tray-ask-ekalight')).toBeNull();
       await waitForScannerReady();
       fireEvent.press(screen.getByTestId('scanner-preview'));
       expect((await screen.findAllByText('Charizard ex')).length).toBeGreaterThan(0);
     };
 
-    it('opens the chat about the tray with the scan-tray page', async () => {
+    // The purple Ask Ekalight chip beside TOTAL was removed (owner, 2026-11-24);
+    // the top bar's Chat pill carries the tray as context instead.
+    it('has no Ask Ekalight chip in the tray header once cards are scanned', async () => {
       await scanCharizard();
-      fireEvent.press(await screen.findByTestId('scanner-tray-ask-ekalight'));
-      const pushed = mockPush.mock.calls.at(-1)?.[0] as { pathname: string; params: Record<string, string> };
-      expect(pushed.pathname).toBe('/assistant');
-      expect(pushed.params.source).toBe('scanner');
-      expect(pushed.params.cardIds).toBe('sv3pt5-199');
-      expect(JSON.parse(pushed.params.page)).toEqual({
-        kind: 'scanner', label: 'Your scan tray', params: { view: 'scan_tray', game: 'pokemon' },
-      });
+      expect(screen.queryByTestId('scanner-tray-ask-ekalight')).toBeNull();
     });
 
     it('applies chat tray actions through the tray\'s own paths', async () => {
