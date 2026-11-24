@@ -37,7 +37,6 @@ import {
   glassNavBubbleSizes,
   glassNavBubbleGlyphStrokeWidth,
   layout,
-  radii,
   spacing,
   useSpotlightTheme,
 } from '@spotlight/design-system';
