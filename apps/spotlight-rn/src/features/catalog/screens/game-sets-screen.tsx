@@ -123,8 +123,6 @@ const SEARCH_TABS = [
   { label: 'Cards', value: 'cards' },
   { label: 'People', value: 'people' },
 ] as const;
-/** Figma 6642:12511. */
-const SEARCH_PLACEHOLDER = 'Search cards, people, sets';
 /** Figma 6725:9756. */
 const PEOPLE_SEARCH_PLACEHOLDER = 'Search by name, profile';
 /** Figma 6725:9757: ALL / FOLLOWERS / FOLLOWING, equal widths. */
