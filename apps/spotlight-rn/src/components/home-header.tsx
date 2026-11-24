@@ -1,11 +1,11 @@
-import { Bell, ChatBubbleEmpty, Settings } from 'iconoir-react-native';
+import { Bell, Plus, Settings } from 'iconoir-react-native';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Animated, StyleSheet, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
-  EkalightWordmark,
   GlassNavBubble,
+  GlassSurface,
   Text,
   glassNavBubbleGlyphSize,
   glassNavBubbleGlyphStrokeWidth,
@@ -19,9 +19,8 @@ import { AssistantChatPill } from '@/features/assistant/components/assistant-cha
  * WHAT THE BAR'S TRAILING CONTROL IS — the ONE thing that differs between the
  * two variants this bar draws (2026-11-22 redesign):
  *
- * - `social` (Figma 6642:5420 + 6725:8999): the ekalight lockup centred, the
- *   Ask Ekalight "Chat" pill top-left, the DM inbox and bell bubbles paired on
- *   the right, each bell/inbox its own 44pt frost bubble with its own badge.
+ * - `social` (Figma 6731:14459): a purple "+ POST" pill top-left (it replaces
+ *   the Chat pill on Social) and the bell bubble, with its badge, top-right.
  * - `profile` (Home, Figma 6731:9875): the Chat pill top-left and a Settings
  *   gear bubble top-right (Figma draws a "…"; owner: make it the gear).
  *
@@ -33,10 +32,9 @@ import { AssistantChatPill } from '@/features/assistant/components/assistant-cha
 export type HomeHeaderTrailing =
   | {
       kind: 'social';
-      onOpenMessages: () => void;
+      /** The "+ POST" pill: opens the composer. */
+      onCompose: () => void;
       onOpenNotifications: () => void;
-      /** Unread DMs across every thread. 0 draws no badge. */
-      unreadMessageCount?: number;
       unreadCount: number;
     }
   | {
@@ -137,10 +135,6 @@ type HomeHeaderProps = {
  * measure their (tight-cropped SF-Symbol) glyphs at ~20.
  */
 const BUTTON_ICON_SIZE = glassNavBubbleGlyphSize;
-// Home's leading brand lockup: the mark + "ekalight" wordmark, 36 tall
-// (Figma 5067:2029 — the shared primitive's own 104.726:32 box scaled to it,
-// which lands on the frame's 117.817 exactly). The width follows the artwork.
-const HOME_WORDMARK_HEIGHT = 32;
 /**
  * Height of the control row itself — the bubbles, the trailing capsule, and the
  * profile bar's search pill are all the same 44 (Figma 4299:94902). Taken from
@@ -285,32 +279,8 @@ export function HomeHeader({
   // dark glyphs); the contrast flip drives only the status bar.
   const glyphColor = theme.colors.gray900;
 
-  // Social: the Chat pill leads (Figma 6725:8999, it replaced the floating
-  // bubble); messages + bell pair on the right. Each is its own 44pt frost
-  // bubble; a badge is a SIBLING of its bubble, not a child — the bubble's glass
-  // clips its children to the circle.
-  const messagesControl =
-    trailing.kind === 'social' ? (
-      <BadgedBubble
-        accessibilityLabel={
-          trailing.unreadMessageCount
-            ? `Messages, ${trailing.unreadMessageCount} unread`
-            : 'Messages'
-        }
-        // The inbox's own purple: unread mail is not a warning (red is danger).
-        badgeColor={theme.colors.purple500}
-        count={trailing.unreadMessageCount ?? 0}
-        onPress={trailing.onOpenMessages}
-        testID={`${testID}-messages`}
-      >
-        <ChatBubbleEmpty
-          color={glyphColor}
-          strokeWidth={glassNavBubbleGlyphStrokeWidth}
-          height={BUTTON_ICON_SIZE}
-          width={BUTTON_ICON_SIZE}
-        />
-      </BadgedBubble>
-    ) : null;
+  // Social: "+ POST" leads, the bell trails (Figma 6731:14459). A badge is a
+  // SIBLING of its bubble, not a child: the bubble's glass clips its children.
   const trailingControl =
     trailing.kind === 'social' ? (
       <BadgedBubble
@@ -368,18 +338,12 @@ export function HomeHeader({
         testID={`${testID}-row`}
       >
         {trailing.kind === 'social' ? (
-          /* Figma 6642:5420: the black lockup CENTRED on the screen. Permanent
-             chrome: no entrance or scroll animation (2026-09-09). */
-          <View pointerEvents="none" style={styles.centerMark}>
-            <EkalightWordmark color={theme.colors.gray900} height={HOME_WORDMARK_HEIGHT} testID={`${testID}-home-mark`} />
-          </View>
-        ) : null}
-        <AssistantChatPill testID={`${testID}-chat`} />
+          <PostPill onPress={trailing.onCompose} testID={`${testID}-post`} />
+        ) : (
+          <AssistantChatPill testID={`${testID}-chat`} />
+        )}
         {trailing.kind === 'social' ? (
-          <View style={styles.trailingGroup}>
-            {messagesControl}
-            {trailingControl}
-          </View>
+          trailingControl
         ) : (
           <GlassNavBubble
             accessibilityLabel="Settings"
@@ -412,26 +376,22 @@ const styles = StyleSheet.create({
     // zIndex 2 and would otherwise draw over the bubbles once the bar pins.
     zIndex: 5,
   },
-  trailingGroup: {
-    flexDirection: 'row',
-    gap: 8,
-  },
   row: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 8,
   },
-  // Fills the row and centres the lockup on the SCREEN, not between the side
-  // controls (whose widths differ).
-  centerMark: {
+  postPill: {
     alignItems: 'center',
-    bottom: 0,
-    justifyContent: 'center',
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    top: 0,
+    borderCurve: 'continuous',
+    borderRadius: 22,
+    flexDirection: 'row',
+    gap: 4,
+    height: 44,
+    overflow: 'hidden',
+    paddingLeft: 8,
+    paddingRight: 12,
   },
   badgedBubble: {
     overflow: 'visible',
@@ -451,7 +411,37 @@ const styles = StyleSheet.create({
   },
 });
 
-/** A 44pt frost bubble with an optional unread badge hung off its top-right. */
+/**
+ * Social's "+ POST" (Figma 6731:14459 "Button Group"): a 44pt purple-tinted glass
+ * pill, white plus + SemiBold 13 label. Labelled on purpose: the old bare "+"
+ * glass bubble went unread as "write a post".
+ */
+function PostPill({ onPress, testID }: { onPress: () => void; testID: string }) {
+  const theme = useSpotlightTheme();
+  return (
+    <Pressable
+      accessibilityLabel="Create a post"
+      accessibilityRole="button"
+      hitSlop={8}
+      onPress={onPress}
+      style={({ pressed }) => [theme.shadows.glassPill, { borderRadius: 22, opacity: pressed ? 0.84 : 1 }]}
+      testID={testID}
+    >
+      <GlassSurface
+        fallbackColor={theme.colors.purple500}
+        glassColorScheme="light"
+        glassEffectStyle="regular"
+        glassTintColor={theme.colors.purple500}
+        interactive
+        style={[styles.postPill, { backgroundColor: theme.colors.purple500 }]}
+      >
+        <Plus color={theme.colors.gray0} height={BUTTON_ICON_SIZE} strokeWidth={glassNavBubbleGlyphStrokeWidth} width={BUTTON_ICON_SIZE} />
+        <Text style={[theme.typography.labelStrong, { color: theme.colors.gray0 }]}>POST</Text>
+      </GlassSurface>
+    </Pressable>
+  );
+}
+
 /** A 44pt frost nav bubble with an unread badge hung off its top-right (a sibling: the glass clips its children). */
 export function BadgedBubble({
   accessibilityLabel,

@@ -276,7 +276,7 @@ describe('FeedScreen', () => {
       expect(screen.queryByText('Feed post')).toBeNull();
       expect(fetchEventPosts).toHaveBeenCalledWith(show.id, 20, { before: undefined });
 
-      fireEvent.press(screen.getByTestId('feed-compose-prompt'));
+      fireEvent.press(screen.getByTestId('feed-header-post'));
       expect(push).toHaveBeenCalledWith({ pathname: '/new-post', params: { eventId: show.id } });
     });
 
@@ -360,13 +360,11 @@ describe('FeedScreen', () => {
   });
 
   /*
-    THE COMPOSE PROMPT ROW IS HOW YOU POST NOW. The header's `+` bubble was
-    invisible to users as a way to write — nobody read the glass symbol as
-    "new post" — so a Facebook-style "What's on your mind?" row (avatar + gray
-    placeholder, the same prompt Portfolio's empty Activity draws) sits
-    permanently at the top of the list and pushes the same composer route.
+    Composing lives in the header's "+ POST" (Figma 6731:14459); the old
+    "What's on your mind?" row is gone, so the first post sits right under the
+    tabs and nothing leads the list outside a show's feed.
   */
-  it('renders the compose prompt above the posts and opens the composer from it', async () => {
+  it('composes from the header POST pill, with no compose row in the list', async () => {
     (fetchGlobalFeed as jest.Mock).mockResolvedValue([
       buildPost({ id: '1', body: 'Feed post' }),
       buildPost({ id: '2', body: 'Second post' }),
@@ -375,57 +373,13 @@ describe('FeedScreen', () => {
     renderFeed();
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-    // ABOVE the feed: a `ListHeaderComponent`, so it precedes every post row in
-    // tree order — asserted across prompt and bodies together, in one query.
-    const rows = screen.getAllByTestId(/^feed-(compose-prompt|post-body)$/);
-    expect(rows).toHaveLength(3);
-    expect(rows[0].props.testID).toBe('feed-compose-prompt');
+    expect(screen.queryByTestId('feed-compose-prompt')).toBeNull();
+    expect(screen.queryByText('WHAT’S ON YOUR MIND?')).toBeNull();
+    expect(screen.queryByTestId('feed-compose-divider')).toBeNull();
+    expect(screen.queryByTestId('feed-first-cell-rule')).toBeNull();
 
-    expect(screen.getByText('WHAT’S ON YOUR MIND?')).toBeTruthy();
-
-    fireEvent.press(screen.getByTestId('feed-compose-prompt'));
+    fireEvent.press(screen.getByTestId('feed-header-post'));
     expect(push).toHaveBeenCalledWith('/new-post');
-  });
-
-  /*
-    On Android, cell 0 paints over the header's fractional bottom edge, so
-    EVERY line drawn from the header's side — sibling view, border, even a
-    zIndex'd border — got shaved once posts loaded. The band therefore has two
-    owners: the header's border while the list is empty, and the first cell
-    itself once posts exist. This pins both halves, at the 4pt `gray100` band
-    the Figma (4299:94902) separates sections with.
-  */
-  it('hands the compose band to the first cell once posts load', async () => {
-    renderFeed();
-    await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
-
-    // The header's own border is OFF — a band here would be shaved on Android
-    // (and doubled everywhere else).
-    const section = screen.getByTestId('feed-compose-divider');
-    const style = StyleSheet.flatten(section.props.style);
-    expect(style.borderBottomWidth).toBe(0);
-    expect(style.width).toBe('100%');
-    expect(within(section).getByTestId('feed-compose-prompt')).toBeTruthy();
-
-    // The first cell draws the band itself, in the same View form as the
-    // card's bottom band, so the two rasterize identically. Its 4pt bottom
-    // margin + the card's 12pt top inset is the 16pt under-composer gap.
-    const band = screen.getByTestId('feed-first-cell-rule');
-    const bandStyle = StyleSheet.flatten(band.props.style);
-    expect(bandStyle.height).toBe(4);
-    expect(bandStyle.backgroundColor).toBe('#F2F2F2');
-    expect(bandStyle.marginBottom).toBe(8);
-  });
-
-  it('keeps the compose band as a header border while the feed is empty', async () => {
-    (fetchGlobalFeed as jest.Mock).mockResolvedValue([]);
-    renderFeed();
-    await waitFor(() => expect(screen.getByTestId('feed-compose-divider')).toBeTruthy());
-    await waitFor(() => expect(screen.queryByTestId('feed-first-cell-rule')).not.toBeOnTheScreen());
-
-    const style = StyleSheet.flatten(screen.getByTestId('feed-compose-divider').props.style);
-    expect(style.borderBottomWidth).toBe(4);
-    expect(style.borderBottomColor).toBe('#F2F2F2');
   });
 
   describe('the FOR YOU / YOUR POSTS / EVENTS tabs (Figma 6642:11165)', () => {
@@ -740,11 +694,8 @@ describe('FeedScreen', () => {
       expect(screen.getByTestId('feed-empty')).toBeTruthy();
     });
 
-    // Composing is NOT a header action any more — the bar's `+` was invisible
-    // to users and the compose prompt row replaced it — but it must survive an
-    // empty feed just the same. It does, because a `ListHeaderComponent`
-    // renders above `ListEmptyComponent`, not instead of it.
-    fireEvent.press(screen.getByTestId('feed-compose-prompt'));
+    // "+ POST" is chrome, so composing survives an empty feed.
+    fireEvent.press(screen.getByTestId('feed-header-post'));
     expect(push).toHaveBeenCalledWith('/new-post');
 
     // No search on Social (Figma 6597:3462).
@@ -806,12 +757,14 @@ describe('FeedScreen', () => {
     expect(within(screen.getByTestId('feed-list')).queryByTestId('feed-header-rule')).toBeNull();
   });
 
-  it('heads Social with messages + bell right and no menu, Ask Ekalight or search (Figma 6642:5420)', async () => {
+  it('heads Social with + POST left, the bell right, and no Chat, messages, menu or search (Figma 6731:14459)', async () => {
     renderFeed();
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-    expect(screen.getByTestId('feed-header-messages')).toBeTruthy();
+    expect(screen.getByTestId('feed-header-post')).toBeTruthy();
     expect(screen.getByTestId('feed-header-notifications')).toBeTruthy();
+    expect(screen.queryByTestId('feed-header-chat')).toBeNull();
+    expect(screen.queryByTestId('feed-header-messages')).toBeNull();
     expect(screen.queryByTestId('feed-header-menu')).toBeNull();
     expect(screen.queryByTestId('feed-header-assistant')).toBeNull();
     expect(screen.queryByTestId('feed-header-search')).toBeNull();

@@ -13,7 +13,6 @@ import {
   Alert,
   Animated,
   Platform,
-  Pressable,
   RefreshControl,
   StyleSheet,
   View,
@@ -29,12 +28,10 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { NewsItem } from '@spotlight/api-client';
 
 import {
-  Avatar,
   PageTabs,
   type PageTab,
   PillButton,
   StateCard,
-  Text,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -71,11 +68,9 @@ import {
 import { useFeedShow } from '@/features/events/hooks/use-active-show';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
-import { useUnreadMessageCount } from '@/features/social/use-unread-message-count';
 import { useUnreadNotificationCount } from '@/features/social/use-unread-notification-count';
 import { useNewsReactions } from '@/features/social/use-news-reactions';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
-import { getUserInitials } from '@/features/auth/auth-models';
 import { fetchFollowing, followUser, unfollowUser } from '@/features/profile/profile-service';
 import { resolveRepositoryBaseUrl, useAppServices } from '@/providers/app-providers';
 import { useTabLanding, useTabPagerInnerPosition } from '@/components/tab-pager/tab-pager-page-context';
@@ -328,7 +323,6 @@ export function FeedScreen({
   // before the feed existed is already reflected in its first load.
   const seenRefreshVersionRef = useRef(getFeedRefreshVersion());
   const unreadCount = useUnreadNotificationCount();
-  const unreadMessageCount = useUnreadMessageCount();
   /*
     "Back to top", the same FAB Collection / Wishlist / Insights already carry.
 
@@ -781,27 +775,12 @@ export function FeedScreen({
     router.push((showId ? { pathname: '/new-post', params: { eventId: showId } } : '/new-post') as never);
   }, [router, showId]);
 
-  // Initials fallback for the compose row's avatar — the same derivation
-  // Portfolio uses for its profile block.
-  const profileInitials = currentUser ? getUserInitials(currentUser) : 'P';
-
   /*
-    Facebook-style compose prompt, pinned as the list's FIRST row.
-
-    The `+` bubble in the floating bar was invisible to users — nobody read the
-    glass symbol as "write a post" — so this row replaces it as the way into the
-    composer: your avatar next to a gray placeholder, the same prompt the empty
-    Activity tab on Portfolio draws (Figma 3147:10061), pushing the same
-    `/new-post` route the `+` pushed. A `ListHeaderComponent`, not chrome: it
-    scrolls away with the feed, and it renders above the empty/error/loading
-    states too, so composing stays reachable when there is nothing to read.
-
-    The row closes with the SAME full-bleed 4pt `gray100` band every post card
-    closes with (Figma 4299:94902), so the composer reads as its own section
-    rather than the first post's header. Spacing is 16 / band / 16: the 16 under
-    the band is the first-cell band's 8pt bottom margin plus the PostCard's 8.
+    A show's feed only: the For you / Following / <show> source chips, as the
+    list's first row. Composing moved to the header's "+ POST" (Figma 6731:14459).
+    Closes with the same 4pt `gray100` band every post card closes with.
   */
-  const composePrompt = (
+  const showSourceHeader = (
     <View
       style={[
         styles.composeSection,
@@ -816,26 +795,6 @@ export function FeedScreen({
       ]}
       testID={`${testID}-compose-divider`}
     >
-      <Pressable
-        accessibilityLabel="Create a post"
-        accessibilityRole="button"
-        onPress={openComposer}
-        style={({ pressed }) => [
-          styles.composePrompt,
-          {
-            backgroundColor: theme.colors.gray100,
-            borderCurve: 'continuous',
-            borderRadius: theme.radii.pill,
-            opacity: pressed ? 0.7 : 1,
-          },
-        ]}
-        testID={`${testID}-compose-prompt`}
-      >
-        <Avatar initials={profileInitials} size={24} uri={currentUser?.avatarURL} />
-        <Text style={[theme.typography.caption, { color: theme.colors.gray500 }]}>
-          WHAT&rsquo;S ON YOUR MIND?
-        </Text>
-      </Pressable>
       {feedShow ? (
         <View style={styles.sourceChips} testID={`${testID}-source-chips`}>
           <PillButton
@@ -883,10 +842,6 @@ export function FeedScreen({
     router.push('/notifications' as never);
   }, [router]);
 
-  // The DM inbox's way in from Social (it used to be the drawer's).
-  const openMessages = useCallback(() => {
-    router.push('/messages' as never);
-  }, [router]);
 
   const listEmpty =
     status === 'error' ? (
@@ -982,7 +937,7 @@ export function FeedScreen({
           keyExtractor={(row: ForYouRow) => row.key}
           ListEmptyComponent={listEmpty}
           ListFooterComponent={listFooter}
-          ListHeaderComponent={composePrompt}
+          ListHeaderComponent={feedShow ? showSourceHeader : null}
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.5}
           // Measures the viewport the "Back to top" FAB uses as its threshold —
@@ -1009,7 +964,7 @@ export function FeedScreen({
                 moment posts loaded. The 8pt bottom margin plus the card's own 8pt
                 top inset makes the 16pt under-composer gap (Figma 4299:94902).
               */}
-              {index === 0 ? (
+              {index === 0 && feedShow ? (
                 <View
                   style={{
                     backgroundColor: theme.colors.gray100,
@@ -1082,10 +1037,9 @@ export function FeedScreen({
       testID={testID}
       trailing={{
         kind: 'social',
-        onOpenMessages: openMessages,
+        onCompose: openComposer,
         onOpenNotifications: openNotifications,
         unreadCount,
-        unreadMessageCount,
       }}
     >
       {deleteConfirmSheet}
@@ -1254,10 +1208,9 @@ export function GuestSocialScreen({ testID = 'feed' }: { testID?: string }) {
       testID={testID}
       trailing={{
         kind: 'social',
-        onOpenMessages: openLogin,
+        onCompose: openLogin,
         onOpenNotifications: openLogin,
         unreadCount: 0,
-        unreadMessageCount: 0,
       }}
     />
   );
@@ -1269,15 +1222,6 @@ const styles = StyleSheet.create({
 
   // The filled pill itself (Figma 4299:94902): 8 padding around a 24pt avatar
   // makes the 40pt-tall capsule; fill + radius come from the theme inline.
-  composePrompt: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-    // The feed's 16 page gutter — the list itself is unpadded (posts are
-    // full-bleed), so the pill insets itself, like the state cards below.
-    marginHorizontal: 16,
-    padding: 8,
-  },
   // The band is a BORDER on this row, not a sibling View below it. As a
   // sibling box on the seam between the list header and the first cell, it
   // showed on first paint and vanished when the post below relaid it out

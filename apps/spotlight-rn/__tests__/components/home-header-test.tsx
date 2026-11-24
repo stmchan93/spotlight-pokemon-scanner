@@ -22,19 +22,17 @@ import { renderWithProviders } from '../test-utils';
  *
  * The `trailing` variant is the other thing asserted here: ONE component draws
  * both frames, so the trailing control is the only difference between Social's
- * toolbar (centred lockup, messages + bell) and Home's (a settings gear); both
- * lead with the Chat pill. Each variant has to exclude the other's controls
+ * toolbar ("+ POST" and the bell) and Home's (the Chat pill and a settings gear). Each variant has to exclude the other's controls
  * rather than merely include its own.
  */
 
-/** Social's trailing control: messages, then the bell. */
-function socialTrailing(unreadCount = 0, unreadMessageCount = 0): HomeHeaderTrailing {
+/** Social's controls: "+ POST", then the bell. */
+function socialTrailing(unreadCount = 0): HomeHeaderTrailing {
   return {
     kind: 'social',
-    onOpenMessages: jest.fn(),
+    onCompose: jest.fn(),
     onOpenNotifications: jest.fn(),
     unreadCount,
-    unreadMessageCount,
   };
 }
 
@@ -89,46 +87,43 @@ describe('HomeHeader', () => {
   });
 
   describe('the trailing control', () => {
-    it('Social (Figma 6642:5420 + 6725:8999): centred lockup, the Chat pill top-left, messages + bell on the right', () => {
-      const onOpenMessages = jest.fn();
+    it('Social (Figma 6731:14459): "+ POST" top-left opens the composer, the bell top-right', () => {
+      const onCompose = jest.fn();
       const onOpenNotifications = jest.fn();
       renderHeader({
         floating: true,
-        trailing: { kind: 'social', onOpenMessages, onOpenNotifications, unreadCount: 0 },
+        trailing: { kind: 'social', onCompose, onOpenNotifications, unreadCount: 0 },
       });
 
       const row = screen.getByTestId('home-header-row');
       expect(StyleSheet.flatten(row.props.style).justifyContent).toBe('space-between');
-      expect(screen.getByTestId('home-header-home-mark')).toBeTruthy();
-      // The drawer menu and Ask Ekalight are gone from every variant.
-      expect(screen.queryByTestId('home-header-menu')).toBeNull();
-      expect(screen.queryByTestId('home-header-assistant')).toBeNull();
-      expect(screen.queryByTestId('home-header-settings')).toBeNull();
+      // POST replaces the Chat pill on Social; no lockup, no messages bubble.
+      for (const testID of ['home-header-chat', 'home-header-home-mark', 'home-header-messages', 'home-header-settings']) {
+        expect(screen.queryByTestId(testID)).toBeNull();
+      }
 
-      const messages = screen.getByTestId('home-header-messages');
+      const post = screen.getByTestId('home-header-post');
       const bell = screen.getByTestId('home-header-notifications');
-      expect(messages.props.accessibilityLabel).toBe('Messages');
+      expect(post.props.accessibilityLabel).toBe('Create a post');
+      expect(within(post).getByText('POST')).toBeTruthy();
       expect(bell.props.accessibilityLabel).toBe('Notifications');
-      // Row order: messages leads (left edge), the bell trails (right edge).
       const order = within(row)
         .getAllByRole('button')
         .map((node) => node.props.testID);
-      expect(order).toEqual(['home-header-chat', 'home-header-messages', 'home-header-notifications']);
+      expect(order).toEqual(['home-header-post', 'home-header-notifications']);
 
-      fireEvent.press(messages);
-      expect(onOpenMessages).toHaveBeenCalledTimes(1);
+      fireEvent.press(post);
+      expect(onCompose).toHaveBeenCalledTimes(1);
       fireEvent.press(bell);
       expect(onOpenNotifications).toHaveBeenCalledTimes(1);
     });
 
-    it('draws messages and the bell as their own 44pt bubbles', () => {
+    it('draws the bell as a 44pt bubble', () => {
       renderHeader({ floating: true, trailing: socialTrailing() });
 
-      for (const testID of ['home-header-messages', 'home-header-notifications']) {
-        const bubble = StyleSheet.flatten(screen.getByTestId(testID).props.style);
-        expect(bubble.width).toBe(glassNavBubbleSizes.medium);
-        expect(bubble.height).toBe(glassNavBubbleSizes.medium);
-      }
+      const bubble = StyleSheet.flatten(screen.getByTestId('home-header-notifications').props.style);
+      expect(bubble.width).toBe(glassNavBubbleSizes.medium);
+      expect(bubble.height).toBe(glassNavBubbleSizes.medium);
     });
 
     // The bubble's glass clips its children, so the badge is a sibling over the
@@ -149,18 +144,6 @@ describe('HomeHeader', () => {
       expect(screen.getByTestId('home-header-notifications').props.accessibilityLabel).toBe(
         'Notifications, 3 unread',
       );
-      expect(screen.queryByTestId('home-header-messages-badge')).toBeNull();
-    });
-
-    it('badges the messages bubble with the unread DM count', () => {
-      renderHeader({ floating: true, trailing: socialTrailing(0, 4) });
-
-      expect(screen.getByTestId('home-header-messages-badge')).toBeTruthy();
-      expect(screen.getByText('4')).toBeTruthy();
-      expect(screen.getByTestId('home-header-messages').props.accessibilityLabel).toBe(
-        'Messages, 4 unread',
-      );
-      expect(screen.queryByTestId('home-header-notifications-badge')).toBeNull();
     });
 
     it('caps the badges at 9+', () => {
@@ -190,6 +173,7 @@ describe('HomeHeader', () => {
       renderHeader({ floating: true, trailing: profileTrailing() });
       for (const testID of [
         'home-header-notifications',
+        'home-header-post',
         'home-header-messages',
         'home-header-home-mark',
         'home-header-search',
