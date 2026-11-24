@@ -4,14 +4,17 @@
  * maths. Everything a gesture worklet calls is marked `'worklet'` so the same
  * function runs on the UI thread in the app and in plain JS under jest.
  *
- *   Home [Collection, …] | Search | Scan | Events | Social [For you, Your posts]
+ *   Home [Collection, …] | Scan | Search | Social [For you, …, Events]
  *
- * Watchlist left the bar for a tab of the Home profile (Figma 6642:5964);
- * `/wishlist` survives as a redirect route, not a page.
+ * Order per Figma "Tab Bar - iPhone" (6725:9509). Settings is not a page: it is
+ * the round button beside the bar, pushing the `/settings` stack route.
+ * Watchlist left the bar for a tab of the Home profile (Figma 6642:5964), and
+ * Events for a page of Social; `/wishlist` and `/events` survive as redirect
+ * routes, not pages.
  */
 
 /** Bottom-tab route names in strip order, left -> right. The one place it is defined. */
-export const TAB_PAGER_ORDER = ['index', 'search', 'scan', 'events', 'social'] as const;
+export const TAB_PAGER_ORDER = ['index', 'scan', 'search', 'social'] as const;
 
 export type PagerTab = (typeof TAB_PAGER_ORDER)[number];
 
@@ -20,12 +23,12 @@ export const TAB_PAGE_COUNT = TAB_PAGER_ORDER.length;
 export const SCAN_PAGE_INDEX = TAB_PAGER_ORDER.indexOf('scan');
 
 /**
- * The tabs a GUEST can open (owner, 2026-11-20): Scan and Events, plus Search —
- * catalog browsing was already open to guests from the Scanner. Home and Social
- * need an account — tapping one opens sign-in and stays put. Guests can't swipe
- * the strip at all; they tap.
+ * The tabs a GUEST can open: Scan, Search and Social (it shows a guest its
+ * Events page). Home needs an account — tapping it opens sign-in and stays put.
+ * Guests can't swipe the strip at all; they tap. The Settings button beside the
+ * bar is open to guests too (its gated rows open sign-in).
  */
-export const GUEST_OPEN_TABS: ReadonlySet<PagerTab> = new Set<PagerTab>(['search', 'scan', 'events']);
+export const GUEST_OPEN_TABS: ReadonlySet<PagerTab> = new Set<PagerTab>(['scan', 'search', 'social']);
 
 /** Per page, whether a guest is kept off it. Plain array so a worklet can read it. */
 export function guestBlockedPages(isGuest: boolean): boolean[] {
@@ -41,7 +44,7 @@ export type LandingEdge = 'first' | 'last';
 /** Where a page's own inner pager is. `null` for pages without one. */
 export type InnerPagePosition = { count: number; index: number };
 
-/** Strip index of a route, or -1 for routes that are not pages (`/you`, `/portfolio`, `/wishlist` redirects). */
+/** Strip index of a route, or -1 for routes that are not pages (`/you`, `/portfolio`, `/wishlist`, `/events` redirects). */
 export function pageIndexForRoute(routeName: string | undefined): number {
   return TAB_PAGER_ORDER.indexOf(routeName as PagerTab);
 }

@@ -157,7 +157,7 @@ export function useAssistantChat({
       return 'failed';
     }
     try {
-      // The page (floating bubble) rides every turn: the thread was opened about it.
+      // The page (Chat pill) rides every turn: the thread was opened about it.
       const shared: AssistantContext = {
         source: context.source,
         ...(context.game ? { game: context.game } : {}),

@@ -32,7 +32,7 @@ export function assistantHref(
     params.game = game;
   }
   if (page) {
-    // The floating bubble's page context, as one JSON param (small: kind, a
+    // The Chat pill's page context, as one JSON param (small: kind, a
     // short label, a few ids). Parsed defensively on the way in.
     params.page = JSON.stringify(page);
   }

@@ -62,6 +62,11 @@ type ProfileHeaderProps = {
    * floating nav bubbles. Defaults to the Figma resting position.
    */
   avatarTop?: number;
+  /**
+   * Floor for the block's height below the status bar. A screen that lifts the
+   * avatar (Home, with no nav bubbles above it) lowers this by the same amount.
+   */
+  minContentHeight?: number;
   testID?: string;
 };
 
@@ -78,6 +83,8 @@ type ProfileHeaderProps = {
 // profile still gets a cover worth looking at rather than a letterbox.
 const MIN_CONTENT_HEIGHT = 258;
 const DEFAULT_AVATAR_TOP = 66;
+export const PROFILE_HEADER_MIN_CONTENT_HEIGHT = MIN_CONTENT_HEIGHT;
+export const PROFILE_HEADER_DEFAULT_AVATAR_TOP = DEFAULT_AVATAR_TOP;
 const AVATAR_SIZE = 80;
 /**
  * The lip IS the 16pt gap Figma 4157:74399 draws between the sheet's top edge
@@ -141,6 +148,7 @@ export function ProfileHeader({
   onFollowersPress,
   onFollowingPress,
   avatarTop = DEFAULT_AVATAR_TOP,
+  minContentHeight = MIN_CONTENT_HEIGHT,
   testID = 'profile-header',
 }: ProfileHeaderProps) {
   const theme = useSpotlightTheme();
@@ -161,7 +169,7 @@ export function ProfileHeader({
       style={[
         styles.block,
         {
-          minHeight: MIN_CONTENT_HEIGHT + COVER_TUCK + insets.top,
+          minHeight: minContentHeight + COVER_TUCK + insets.top,
           // Ground under the scrim before the photo decodes, or with no cover
           // (Figma 4134:50938).
           backgroundColor: theme.colors.gray500,

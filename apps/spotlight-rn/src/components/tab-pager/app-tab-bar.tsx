@@ -1,9 +1,11 @@
 import { BlurView } from 'expo-blur';
-import { ProfileCircle } from 'iconoir-react-native';
+import { ProfileCircle, Settings } from 'iconoir-react-native';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Image, Platform, Pressable, StyleSheet, View, type ImageSourcePropType } from 'react-native';
 import Reanimated, {
   interpolateColor,
+  runOnJS,
+  useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
   type SharedValue,
@@ -53,13 +55,16 @@ import { useAuth } from '@/providers/auth-provider';
  * row (16pt side insets) and `max(25, home indicator)` below. Keeping one
  * geometry means nothing jumps when the dark bar fades in, and
  * `getAppTabBarHeight` is the single number pages inset themselves by.
+ *
+ * SETTINGS is not a tab: a round button of the same material sits right of the
+ * capsule (Figma "Tab Bar - iPhone", 6725:9509, where it is a "…"), as tall as
+ * the capsule, and pushes the `/settings` stack route.
  */
 
 export const TAB_BAR_LABELS: Record<PagerTab, string> = {
   index: 'HOME',
   search: 'SEARCH',
   scan: 'SCAN',
-  events: 'EVENTS',
   social: 'SOCIAL',
 };
 
@@ -77,6 +82,9 @@ const TAB_LABEL_MIN_FONT_SCALE = 0.8;
 const GLASS_OUTSET = 4;
 const ROW_SIDE_INSET = spacing.sm;
 const ROW_TOP_INSET = spacing.xxs;
+// The Settings circle: the capsule's full height, `spacing.xxs` clear of it.
+const SETTINGS_BUTTON_SIZE = layout.tabBarRowHeight + GLASS_OUTSET * 2;
+const SETTINGS_BUTTON_GAP = spacing.xxs;
 
 // Unselected tabs on light pages are full-strength ink: gray600 on the light
 // bar read as disabled ("feels greyed out", user 2026-11-16). The selected tab
@@ -113,10 +121,6 @@ const TAB_ICONS: Partial<Record<PagerTab, { outline: ImageSourcePropType; filled
   search: {
     outline: require('../../../assets/images/tab-icons/search.png'),
     filled: require('../../../assets/images/tab-icons/search-filled.png'),
-  },
-  events: {
-    outline: require('../../../assets/images/tab-icons/events.png'),
-    filled: require('../../../assets/images/tab-icons/events-filled.png'),
   },
 };
 
@@ -256,6 +260,39 @@ function TabLabel({
   );
 }
 
+function SettingsCircle({ onOpenSettings, position }: { onOpenSettings?: () => void; position: SharedValue<number> }) {
+  const [onScan, setOnScan] = useState(false);
+  useAnimatedReaction(
+    () => scanProximity(position.value) > 0.5,
+    (next, previous) => {
+      if (next !== previous) {
+        runOnJS(setOnScan)(next);
+      }
+    },
+  );
+  const fade = useAnimatedStyle(() => ({ opacity: 1 - scanProximity(position.value) }));
+  return (
+    <Reanimated.View pointerEvents={onScan ? 'none' : 'auto'} style={[styles.settingsButton, fade]}>
+      <Pressable
+        accessibilityElementsHidden={onScan}
+        accessibilityLabel="settings"
+        accessibilityRole="button"
+        hitSlop={GLASS_OUTSET}
+        onPress={onOpenSettings}
+        style={styles.settingsPress}
+        testID="app-tab-settings-button"
+      >
+        <CrossfadeGlyph
+          darkColor={DARK_UNSELECTED}
+          lightColor={LIGHT_UNSELECTED}
+          position={position}
+          render={(color) => <Settings color={color} height={ICON_SIZE} strokeWidth={1.6} width={ICON_SIZE} />}
+        />
+      </Pressable>
+    </Reanimated.View>
+  );
+}
+
 const GLASS_LIFT_SHADOW_OPACITY = shadows.glassPill.shadowOpacity;
 
 function LightMaterial({ glassEpoch, position }: { glassEpoch: number; position: SharedValue<number> }) {
@@ -278,6 +315,9 @@ function LightMaterial({ glassEpoch, position }: { glassEpoch: number; position:
               the page behind it and read as see-through over content. */}
           {/* Keyed by `glassEpoch`: rebuilt fresh after the pager was frozen or
               covered, since UIKit can bring an effect view back blank. */}
+          <GlassSurface key={glassEpoch} fallbackColor={colors.canvasElevated} glassTintColor={colors.frostTint} style={styles.glassFill} />
+        </Reanimated.View>
+        <Reanimated.View style={[styles.settingsGlass, shadows.glassPill, lift]} testID="app-tab-bar-settings-glass">
           <GlassSurface key={glassEpoch} fallbackColor={colors.canvasElevated} glassTintColor={colors.frostTint} style={styles.glassFill} />
         </Reanimated.View>
       </View>
@@ -311,12 +351,21 @@ export type AppTabBarProps = {
    * view so it is rebuilt rather than left blank. Defaults to 0.
    */
   glassEpoch?: number;
+  /** The Settings circle beside the bar. */
+  onOpenSettings?: () => void;
   onSelectPage: (page: number) => void;
   /** Strip position in pages (0 = Home), shared with the pager. */
   position: SharedValue<number>;
 };
 
-export function AppTabBar({ bottomInset, focusedPage, glassEpoch = 0, onSelectPage, position }: AppTabBarProps) {
+export function AppTabBar({
+  bottomInset,
+  focusedPage,
+  glassEpoch = 0,
+  onOpenSettings,
+  onSelectPage,
+  position,
+}: AppTabBarProps) {
   const dark = useAnimatedStyle(() => ({ opacity: scanProximity(position.value) }));
   const rowWidth = useSharedValue(0);
   const pill = useAnimatedStyle(() => ({
@@ -378,6 +427,8 @@ export function AppTabBar({ bottomInset, focusedPage, glassEpoch = 0, onSelectPa
           );
         })}
       </View>
+      {/* Figma 6711:5942: Scan's bar is the capsule alone, so the circle fades out there. */}
+      <SettingsCircle onOpenSettings={onOpenSettings} position={position} />
     </View>
   );
 }
@@ -386,13 +437,22 @@ export function AppTabBar({ bottomInset, focusedPage, glassEpoch = 0, onSelectPa
  * The bar frozen on one page, for surfaces rendered outside the pager (the
  * scanner dev-screen route used for design screenshots).
  */
-export function StaticAppTabBar({ page, onSelectPage }: { onSelectPage?: (page: number) => void; page: number }) {
+export function StaticAppTabBar({
+  onOpenSettings,
+  onSelectPage,
+  page,
+}: {
+  onOpenSettings?: () => void;
+  onSelectPage?: (page: number) => void;
+  page: number;
+}) {
   const position = useSharedValue(page);
   const bottomInset = useTabBarBottomInset();
   return (
     <AppTabBar
       bottomInset={bottomInset}
       focusedPage={page}
+      onOpenSettings={onOpenSettings}
       onSelectPage={onSelectPage ?? (() => undefined)}
       position={position}
     />
@@ -435,7 +495,7 @@ const styles = StyleSheet.create({
     height: layout.tabBarRowHeight + GLASS_OUTSET * 2,
     left: ROW_SIDE_INSET - GLASS_OUTSET,
     position: 'absolute',
-    right: ROW_SIDE_INSET - GLASS_OUTSET,
+    right: ROW_SIDE_INSET - GLASS_OUTSET + SETTINGS_BUTTON_SIZE + SETTINGS_BUTTON_GAP,
     top: ROW_TOP_INSET - GLASS_OUTSET,
   },
   glassFill: {
@@ -472,6 +532,8 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     height: layout.tabBarRowHeight,
+    // Room for the Settings circle; the capsule and circle are SETTINGS_BUTTON_GAP apart.
+    marginRight: SETTINGS_BUTTON_SIZE + SETTINGS_BUTTON_GAP,
   },
   selection: {
     borderCurve: 'continuous',
@@ -481,6 +543,30 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     width: `${100 / TAB_PAGER_ORDER.length}%`,
+  },
+  settingsButton: {
+    alignItems: 'center',
+    height: SETTINGS_BUTTON_SIZE,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: ROW_SIDE_INSET - GLASS_OUTSET,
+    top: ROW_TOP_INSET - GLASS_OUTSET,
+    width: SETTINGS_BUTTON_SIZE,
+  },
+  settingsPress: {
+    alignItems: 'center',
+    height: SETTINGS_BUTTON_SIZE,
+    justifyContent: 'center',
+    width: SETTINGS_BUTTON_SIZE,
+  },
+  settingsGlass: {
+    borderCurve: 'continuous',
+    borderRadius: radii.pill,
+    height: SETTINGS_BUTTON_SIZE,
+    position: 'absolute',
+    right: ROW_SIDE_INSET - GLASS_OUTSET,
+    top: ROW_TOP_INSET - GLASS_OUTSET,
+    width: SETTINGS_BUTTON_SIZE,
   },
   solid: {
     backgroundColor: colors.canvasElevated,

@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type Dispatch,
+  type ReactNode,
   type SetStateAction,
 } from 'react';
 import {
@@ -44,7 +45,7 @@ import {
   type CollapsibleScrollTarget,
 } from '@/components/page-tab-pager';
 
-import { HOME_HEADER_BAR_HEIGHT, HomeHeader } from '@/components/home-header';
+import { HOME_HEADER_BAR_HEIGHT, HomeHeader, type HomeHeaderTrailing } from '@/components/home-header';
 import { NewsArticleRow } from '@/features/social/components/news-article-row';
 import { PostCard } from '@/features/social/components/post-card';
 import { RepostAttribution } from '@/features/social/components/repost-attribution';
@@ -57,6 +58,7 @@ import {
 } from '@/features/social/for-you-feed';
 import { getFeedRefreshVersion } from '@/features/social/screens/new-post-screen';
 import { YourPostsPage } from '@/features/social/screens/your-posts-page';
+import { EventsPage } from '@/features/events/screens/events-screen';
 import {
   type FeedItem,
   type FeedPost,
@@ -80,6 +82,7 @@ import { useTabLanding, useTabPagerInnerPosition } from '@/components/tab-pager/
 import { innerPageForLanding } from '@/lib/tab-pager';
 import { useScrollToTop } from '@/components/scroll-to-top-fab';
 import { useAuth } from '@/providers/auth-provider';
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 
 const PAGE_SIZE = 20;
 /** Articles per news read; the API caps a page at 50. */
@@ -95,13 +98,23 @@ const MAX_ADVANCE_ROUNDS = 4;
  * Social's tabs (Figma 6642:11165). Market Watch / Top Trends moved to the Home
  * profile's MARKET ANALYTICS tab; news joined the posts in FOR YOU.
  */
-export type SocialTab = 'forYou' | 'yourPosts';
+export type SocialTab = 'forYou' | 'yourPosts' | 'events';
 
-export const SOCIAL_TAB_ORDER: readonly SocialTab[] = ['forYou', 'yourPosts'];
+export const SOCIAL_TAB_ORDER: readonly SocialTab[] = ['forYou', 'yourPosts', 'events'];
 const SOCIAL_TABS: readonly PageTab<SocialTab>[] = [
   { value: 'forYou', label: 'For you' },
   { value: 'yourPosts', label: 'Your posts' },
+  { value: 'events', label: 'Events' },
 ];
+/** Guests get EVENTS only: FOR YOU / YOUR POSTS read RLS-scoped data a guest has none of. */
+export const GUEST_SOCIAL_TAB_ORDER: readonly SocialTab[] = ['events'];
+const GUEST_SOCIAL_TABS = SOCIAL_TABS.filter((tab) => GUEST_SOCIAL_TAB_ORDER.includes(tab.value));
+
+/** Parses the `/social?tab=` deep-link param; unknown values are ignored. */
+export function parseSocialTab(value: unknown): SocialTab | undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return SOCIAL_TAB_ORDER.find((tab) => tab === raw);
+}
 /** Figma 6642:11183 → 6642:11165: the toolbar's bottom edge to the tab labels. */
 const TOOLBAR_TO_TABS_GAP = 24;
 
@@ -196,10 +209,13 @@ const FOLLOW_SET_LIMIT = 500;
 
 export function FeedScreen({
   initialTab = 'forYou',
+  requestedTab,
   testID = 'feed',
 }: {
   /** The tab to open on; the dev route `feed-your-posts` opens YOUR POSTS. */
   initialTab?: SocialTab;
+  /** Deep-link page (`/social?tab=`); a change while mounted switches to it. */
+  requestedTab?: SocialTab;
   testID?: string;
 }) {
   const theme = useSpotlightTheme();
@@ -224,26 +240,11 @@ export function FeedScreen({
   // <show>" chips. If the show goes away, so does its selection.
   const feedShow = useFeedShow();
   const { spotlightRepository } = useAppServices();
-  const [activeTab, setActiveTab] = useState<SocialTab>(initialTab);
-  // Your posts reads on first visit, so opening Social doesn't fetch it.
-  const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<SocialTab>>(
-    () => new Set<SocialTab>(['forYou', initialTab]),
+  const { activeTab, selectTab, visitedTabs } = useSocialHubTabs(
+    SOCIAL_TAB_ORDER,
+    requestedTab ?? initialTab,
+    requestedTab,
   );
-  const selectTab = useCallback((next: SocialTab) => {
-    setActiveTab(next);
-    setVisitedTabs((current) => (current.has(next) ? current : new Set(current).add(next)));
-  }, []);
-  // Revealed by a drag forward from Events: show the NEAR edge, FOR YOU, so the
-  // strip reads as one continuous row of pages.
-  useTabLanding('social', (edge) => {
-    const page = innerPageForLanding(SOCIAL_TAB_ORDER, edge);
-    if (page) {
-      selectTab(page);
-    }
-  });
-  // The bottom-tab pager reads this to hand a drag back past FOR YOU to the
-  // outer strip (Events); YOUR POSTS' forward drag is the end of the chain.
-  useTabPagerInnerPosition({ count: SOCIAL_TAB_ORDER.length, index: SOCIAL_TAB_ORDER.indexOf(activeTab) });
   const [selectedSource, setSelectedSource] = useState<FeedSource>('forYou');
   const source: FeedSource = feedShow ? selectedSource : 'forYou';
   const showId = source === 'show' ? (feedShow?.id ?? null) : null;
@@ -339,8 +340,9 @@ export function FeedScreen({
   */
   const scrollRef = useRef<FlatList<ForYouRow>>(null);
   const yourPostsScrollRef = useRef<CollapsibleScrollTarget | null>(null);
+  const eventsScrollRef = useRef<CollapsibleScrollTarget | null>(null);
   const pageRefs = useMemo(
-    () => ({ forYou: scrollRef, yourPosts: yourPostsScrollRef }),
+    () => ({ forYou: scrollRef, yourPosts: yourPostsScrollRef, events: eventsScrollRef }),
     [],
   );
   const listTopOffset = Platform.OS === 'ios' ? -insets.top : 0;
@@ -936,6 +938,12 @@ export function FeedScreen({
       }
       return <YourPostsPage page={page} scrollRef={yourPostsScrollRef} testID={`${testID}-your-posts`} />;
     }
+    if (tab === 'events') {
+      if (!visitedTabs.has(tab)) {
+        return <View style={styles.safeArea} testID={`${testID}-events-placeholder`} />;
+      }
+      return <EventsPage page={page} scrollRef={eventsScrollRef} testID={`${testID}-events`} />;
+    }
     return (
         <AnimatedFlatList
           ref={scrollRef}
@@ -1060,6 +1068,100 @@ export function FeedScreen({
   };
 
   return (
+    <SocialHubFrame
+      activeTab={activeTab}
+      hubHeaderHeight={hubHeaderHeight}
+      listTopOffset={listTopOffset}
+      onChange={selectTab}
+      onPageScroll={handlePageScroll}
+      order={SOCIAL_TAB_ORDER}
+      pageRefs={pageRefs}
+      renderPage={renderHubPage}
+      scrollY={headerScrollY}
+      tabs={SOCIAL_TABS}
+      testID={testID}
+      trailing={{
+        kind: 'social',
+        onOpenMessages: openMessages,
+        onOpenNotifications: openNotifications,
+        unreadCount,
+        unreadMessageCount,
+      }}
+    >
+      {deleteConfirmSheet}
+    </SocialHubFrame>
+  );
+}
+
+/**
+ * Social's page state: the active page, which pages have mounted (lazy, so
+ * opening Social reads only the page in view), the outer-strip hand-off, and the
+ * `/social?tab=` deep link.
+ */
+function useSocialHubTabs(order: readonly SocialTab[], initialTab: SocialTab, requestedTab?: SocialTab) {
+  const firstTab = order.includes(initialTab) ? initialTab : order[0];
+  const [activeTab, setActiveTab] = useState<SocialTab>(firstTab);
+  const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<SocialTab>>(
+    () => new Set<SocialTab>([order[0], firstTab]),
+  );
+  const selectTab = useCallback((next: SocialTab) => {
+    setActiveTab(next);
+    setVisitedTabs((current) => (current.has(next) ? current : new Set(current).add(next)));
+  }, []);
+  // A param change while Social is mounted (another `/social?tab=` link) switches pages.
+  useEffect(() => {
+    if (requestedTab && order.includes(requestedTab)) {
+      selectTab(requestedTab);
+    }
+  }, [order, requestedTab, selectTab]);
+  // Revealed from the outer strip: land on the NEAR edge (FOR YOU from Scan, EVENTS
+  // coming back from the next tab), so the strip reads as one row of pages.
+  useTabLanding('social', (edge) => {
+    const page = innerPageForLanding(order, edge);
+    if (page) {
+      selectTab(page);
+    }
+  });
+  // Lets the outer pager hand a drag past FOR YOU back to Scan, and past EVENTS on to the next tab.
+  useTabPagerInnerPosition({ count: order.length, index: Math.max(order.indexOf(activeTab), 0) });
+  return { activeTab, selectTab, visitedTabs };
+}
+
+type SocialHubFrameProps = {
+  activeTab: SocialTab;
+  children?: ReactNode;
+  hubHeaderHeight: number;
+  listTopOffset: number;
+  onChange: (next: SocialTab) => void;
+  onPageScroll?: (page: SocialTab, event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  order: readonly SocialTab[];
+  pageRefs: Partial<Record<SocialTab, { readonly current: CollapsibleScrollTarget | null }>>;
+  renderPage: (tab: SocialTab, page: CollapsiblePageProps) => ReactNode;
+  scrollY: Animated.Value;
+  tabs: readonly PageTab<SocialTab>[];
+  testID: string;
+  trailing: HomeHeaderTrailing;
+};
+
+/** Social's chrome: the floating header over the page pager and its underline rail. */
+function SocialHubFrame({
+  activeTab,
+  children,
+  hubHeaderHeight,
+  listTopOffset,
+  onChange,
+  onPageScroll,
+  order,
+  pageRefs,
+  renderPage,
+  scrollY,
+  tabs,
+  testID,
+  trailing,
+}: SocialHubFrameProps) {
+  const theme = useSpotlightTheme();
+  const insets = useSafeAreaInsets();
+  return (
     <SafeAreaView
       // 'top' is consumed HERE, once. The bar is a row of the list below, so if
       // it also added the inset itself the first post sat a whole status bar too
@@ -1078,20 +1180,20 @@ export function FeedScreen({
             testID={`${testID}-hub-header`}
           />
         }
-        onChange={selectTab}
-        onPageScroll={handlePageScroll}
-        order={SOCIAL_TAB_ORDER}
+        onChange={onChange}
+        onPageScroll={onPageScroll}
+        order={order}
         pageRefs={pageRefs}
         // Same height as the header, so nothing collapses and the tabs stay put.
         pinnedTopInset={hubHeaderHeight}
-        renderPage={renderHubPage}
-        scrollY={headerScrollY}
+        renderPage={renderPage}
+        scrollY={scrollY}
         tabBar={
           <View style={{ backgroundColor: theme.colors.gray0 }}>
             <PageTabs
-              // Figma 6642:11165: FOR YOU · YOUR POSTS on the 2026-11 underline rail.
-              onChange={selectTab}
-              tabs={SOCIAL_TABS}
+              // Figma 6642:11165: the 2026-11 underline rail.
+              onChange={onChange}
+              tabs={tabs}
               testID={`${testID}-tabs`}
               uppercase
               value={activeTab}
@@ -1103,7 +1205,7 @@ export function FeedScreen({
         value={activeTab}
       />
       {/* The blur/fade under the tab bar is drawn by the pager for every tab
-          page (`TabBarBackdrop`), so it is identical on both. */}
+          page (`TabBarBackdrop`), so it is identical on all of them. */}
       {/*
         AFTER the pager so tree order paints it on top, and so UIKit's
         `subviews[0]` walk still reaches the scroller for minimize-on-scroll.
@@ -1111,20 +1213,53 @@ export function FeedScreen({
       <HomeHeader
         floating
         scrollRestOffset={listTopOffset}
-        scrollY={headerScrollY}
+        scrollY={scrollY}
         testID={`${testID}-header`}
-        // Figma 6642:5420: lockup centred, messages + bell on the right. Home
-        // draws the same bar with its gear — the only prop that differs.
-        trailing={{
-          kind: 'social',
-          onOpenMessages: openMessages,
-          onOpenNotifications: openNotifications,
-          unreadCount,
-          unreadMessageCount,
-        }}
+        // Figma 6642:5420: lockup centred, messages + bell on the right.
+        trailing={trailing}
       />
-      {deleteConfirmSheet}
+      {children}
     </SafeAreaView>
+  );
+}
+
+/**
+ * Social for a guest: EVENTS only, with the same header and rail. The feed pages
+ * are left out rather than shown as sign-in walls, so a swipe never lands on a
+ * dead page; messages and the bell open sign-in.
+ */
+export function GuestSocialScreen({ testID = 'feed' }: { testID?: string }) {
+  const insets = useSafeAreaInsets();
+  const { openLogin } = useGuestGate();
+  const { activeTab, selectTab } = useSocialHubTabs(GUEST_SOCIAL_TAB_ORDER, 'events');
+  const eventsScrollRef = useRef<CollapsibleScrollTarget | null>(null);
+  const pageRefs = useMemo(() => ({ events: eventsScrollRef }), []);
+  const listTopOffset = Platform.OS === 'ios' ? -insets.top : 0;
+  const headerScrollY = useRef(new Animated.Value(listTopOffset)).current;
+  const hubHeaderHeight = insets.top + HOME_HEADER_BAR_HEIGHT + TOOLBAR_TO_TABS_GAP;
+
+  return (
+    <SocialHubFrame
+      activeTab={activeTab}
+      hubHeaderHeight={hubHeaderHeight}
+      listTopOffset={listTopOffset}
+      onChange={selectTab}
+      order={GUEST_SOCIAL_TAB_ORDER}
+      pageRefs={pageRefs}
+      renderPage={(_tab, page) => (
+        <EventsPage page={page} scrollRef={eventsScrollRef} testID={`${testID}-events`} />
+      )}
+      scrollY={headerScrollY}
+      tabs={GUEST_SOCIAL_TABS}
+      testID={testID}
+      trailing={{
+        kind: 'social',
+        onOpenMessages: openLogin,
+        onOpenNotifications: openLogin,
+        unreadCount: 0,
+        unreadMessageCount: 0,
+      }}
+    />
   );
 }
 

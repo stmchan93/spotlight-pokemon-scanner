@@ -1,5 +1,5 @@
 import { NavigationContext } from '@react-navigation/native';
-import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef } from 'react';
 
 import {
   CARD_GAMES,
@@ -10,13 +10,8 @@ import {
   gameDisplayName,
 } from '@spotlight/api-client';
 
-import {
-  setAssistantBubbleScannerAnchor,
-  type AssistantBubbleScannerAnchor,
-} from '@/features/assistant/page-context/assistant-bubble-zones';
-
 /**
- * PAGE CONTEXT for the floating Ekalight bubble.
+ * PAGE CONTEXT for the Ask Ekalight Chat pill.
  *
  * The route alone carries most of it (`resolveAssistantPage(pathname, params)`):
  * the card id on a card page, the set id on a set page, the handle on a profile.
@@ -93,6 +88,8 @@ export function resolveAssistantRoutePage(pathname: string, params: RouteParams 
     case 'calendar':
       return page('events', 'Event calendar');
     case 'social':
+      // Events is a page of Social (`/social?tab=events`).
+      return first(params.tab) === 'events' ? page('events', 'Events') : page('social', 'Social feed');
     case 'feed':
       return page('social', 'Social feed');
     case 'post':
@@ -262,28 +259,4 @@ export function useAssistantPageContext(extra: ExtraSource): void {
       };
     }, []),
   );
-}
-
-/**
- * The scanner publishes where the bubble may float (between the frame and the
- * visible tray top) while it is focused; cleared on blur/unmount so a stale
- * geometry never positions the bubble elsewhere.
- */
-export function useAssistantBubbleScannerAnchor(anchor: AssistantBubbleScannerAnchor): void {
-  const { frameBottom, trayTop, trayExpanded } = anchor;
-  const [focused, setFocused] = useState(false);
-  useWhileFocused(
-    useCallback(() => {
-      setFocused(true);
-      return () => {
-        setFocused(false);
-        setAssistantBubbleScannerAnchor(null);
-      };
-    }, []),
-  );
-  useEffect(() => {
-    if (focused) {
-      setAssistantBubbleScannerAnchor({ frameBottom, trayTop, trayExpanded });
-    }
-  }, [focused, frameBottom, trayExpanded, trayTop]);
 }

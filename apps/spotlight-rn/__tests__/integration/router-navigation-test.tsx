@@ -18,7 +18,7 @@ describe('mobile app routing', () => {
     const app = renderAppRouter('/', { '(tabs)/scan': ScanTabStub });
 
     await waitFor(() => {
-      expect(screen.getByTestId('portfolio-header-settings')).toBeTruthy();
+      expect(screen.getByTestId('portfolio-header-title')).toBeTruthy();
     });
     expect(app.getPathname()).toBe('/');
     expect(screen.getByTestId('tab-pager')).toBeTruthy();
@@ -75,7 +75,7 @@ describe('mobile app routing', () => {
     const app = renderAppRouter('/portfolio');
 
     await waitFor(() => {
-      expect(screen.getByTestId('portfolio-header-settings')).toBeTruthy();
+      expect(screen.getByTestId('portfolio-header-title')).toBeTruthy();
     });
     // Selected-tab state is UIKit's now, so the assertion that survives is that
     // the legacy paths still land on Collection — back at `/` since the feed
@@ -87,7 +87,7 @@ describe('mobile app routing', () => {
     const app = renderAppRouter('/you');
 
     await waitFor(() => {
-      expect(screen.getByTestId('portfolio-header-settings')).toBeTruthy();
+      expect(screen.getByTestId('portfolio-header-title')).toBeTruthy();
     });
     expect(app.getPathname()).toBe('/');
   });

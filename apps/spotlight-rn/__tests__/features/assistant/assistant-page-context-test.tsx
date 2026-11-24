@@ -12,12 +12,7 @@ import {
 import { ASSISTANT_MARKET_PROMPTS, assistantPagePrompts } from '@/features/assistant/assistant-prompts';
 import { assistantHref, parseAssistantRouteParams } from '@/features/assistant/assistant-route';
 import {
-  ASSISTANT_BUBBLE_SIZE,
-  assistantBubbleHiddenOnRoute,
-  assistantBubbleZone,
   bubbleRoutePath,
-  clampToZone,
-  snapSide,
 } from '@/features/assistant/page-context/assistant-bubble-zones';
 import {
   assistantPageKey,
@@ -100,6 +95,10 @@ describe('route → page context', () => {
     expect(page.params).toEqual(params);
   });
 
+  it("Social's Events page (`/social?tab=events`) reads as events", () => {
+    expect(resolveAssistantRoutePage('/social', { tab: 'events' }).kind).toBe('events');
+  });
+
   it('a set page carries its set id, game and name from the route', () => {
     const page = resolveAssistantRoutePage('/catalog/expansion/sv3pt5', { game: 'pokemon', name: '151' });
     expect(page).toEqual({ kind: 'set', label: '151', params: { set_id: 'sv3pt5', game: 'pokemon' } });
@@ -137,53 +136,10 @@ describe('route → page context', () => {
   });
 });
 
-describe('bubble zones', () => {
-  const metrics = { windowHeight: 874, insetTop: 62, insetBottom: 34, tabBarHeight: 96 };
-
-  it('hides on the chat, auth, forms and capture routes', () => {
-    for (const path of ['/assistant', '/login', '/account/ai', '/new-post', '/messages/abc', '/labeling/session', '/cards/x/scan-review']) {
-      expect(assistantBubbleHiddenOnRoute(path)).toBe(true);
-    }
-    for (const path of ['/', '/wishlist', '/scan', '/cards/x', '/catalog/search']) {
-      expect(assistantBubbleHiddenOnRoute(path)).toBe(false);
-    }
-  });
-
-  it('tabs sit above the tab bar; pushed pages keep clear of a bottom action bar', () => {
-    const tab = assistantBubbleZone('/wishlist', metrics);
-    expect(tab?.maxY).toBe(874 - 96 - ASSISTANT_BUBBLE_SIZE - 12);
-    const stack = assistantBubbleZone('/cards/x', metrics);
-    expect(stack!.maxY).toBeLessThan(tab!.maxY);
-    expect(clampToZone(10_000, stack!)).toBe(stack!.maxY);
-    expect(clampToZone(-5, stack!)).toBe(stack!.minY);
-  });
-
-  it('every bottom tab, Search included, shares the tab band so the bubble holds its height across tabs', () => {
-    const home = assistantBubbleZone('/', metrics);
-    for (const path of ['/search', '/events', '/social']) {
-      expect(assistantBubbleZone(path, metrics)).toEqual(home);
-    }
-    // The band starts below the 44pt top bar, so it never reaches Social's
-    // top-left messages bubble.
-    expect(home!.minY).toBeGreaterThanOrEqual(metrics.insetTop + 44);
-  });
-
-  it('the scanner allows only the band between the frame and the tray, else nothing', () => {
-    expect(assistantBubbleZone('/scan', metrics)).toBeNull();
-    expect(assistantBubbleZone('/scan', { ...metrics, scanner: { frameBottom: 582, trayTop: 681, trayExpanded: false } }))
-      .toEqual({ minY: 594, maxY: 617 });
-    // A tray with cards (no room) or an open tray: hidden.
-    expect(assistantBubbleZone('/scan', { ...metrics, scanner: { frameBottom: 582, trayTop: 610, trayExpanded: false } }))
-      .toBeNull();
-    expect(assistantBubbleZone('/scan', { ...metrics, scanner: { frameBottom: 582, trayTop: 681, trayExpanded: true } }))
-      .toBeNull();
+describe('route path', () => {
+  it('maps the dev scanner routes onto /scan', () => {
     expect(bubbleRoutePath('/dev/scanner')).toBe('/scan');
-  });
-
-  it('snaps to the nearer edge, flings included', () => {
-    expect(snapSide(10, 0, 400)).toBe('left');
-    expect(snapSide(300, 0, 400)).toBe('right');
-    expect(snapSide(150, 1500, 400)).toBe('right');
+    expect(bubbleRoutePath('/cards/x')).toBe('/cards/x');
   });
 });
 

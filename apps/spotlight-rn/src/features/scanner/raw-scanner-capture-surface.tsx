@@ -797,7 +797,7 @@ export function RawScannerCaptureSurface({
       <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
         {isTrayExpanded || !prompt ? null : (
           <Text style={[styles.scanPrompt, { top: layout.promptTop }]} testID={`${testIDPrefix}-prompt`}>
-            {prompt.toUpperCase()}
+            {prompt}
           </Text>
         )}
 
@@ -979,9 +979,9 @@ const styles = StyleSheet.create({
   outsideBlurStrip: {
     position: 'absolute',
   },
-  // Small caps hint (design review 2026-11-16: "TAP TO SCAN", smaller).
+  // "Tap to scan", Label (Medium 14) white (Figma 6711:6012).
   scanPrompt: {
-    ...textStyles.captionMedium,
+    ...textStyles.label,
     alignSelf: 'center',
     color: colors.scannerTextPrimary,
     position: 'absolute',

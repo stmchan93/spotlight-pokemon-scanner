@@ -7,6 +7,7 @@ import { StateCard, layout, spacing } from '@spotlight/design-system';
 
 import type { UserProfile } from '@/features/auth/auth-models';
 import { PersonSearchCard } from '@/features/profile/components/person-search-card';
+import { useFollowPeople, type PeopleRelation } from '@/features/profile/hooks/use-follow-people';
 import { usePeopleSearch } from '@/features/profile/hooks/use-people-search';
 import { useProfilesTopHoldings } from '@/features/profile/hooks/use-profiles-top-holdings';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
@@ -17,6 +18,12 @@ type PeopleSearchResultsProps = {
   viewerId: string | null;
   /** False until the PEOPLE tab is first shown: no suggestions read before then. */
   enabled: boolean;
+  /**
+   * The ALL / FOLLOWERS / FOLLOWING chip (Figma 6725:9757). `all` (default) is
+   * the people search; the others list the viewer's own follow lists, narrowed
+   * by the query on device.
+   */
+  relation?: PeopleRelation;
   onOpenProfile: (profile: UserProfile) => void;
   onOpenHolding: (profile: UserProfile, entry: InventoryCardEntry) => void;
   /** Extra FlatList props (the screen's pull-down-to-dismiss scroll handlers). */
@@ -35,6 +42,7 @@ export function PeopleSearchResults({
   query,
   viewerId,
   enabled,
+  relation = 'all',
   onOpenProfile,
   onOpenHolding,
   scrollProps,
@@ -42,11 +50,13 @@ export function PeopleSearchResults({
   testID = 'search-people',
 }: PeopleSearchResultsProps) {
   const insets = useSafeAreaInsets();
-  const people = usePeopleSearch(query, { enabled, viewerId });
-  const list = people.isSearching ? people.results : people.suggestions;
+  const isAll = relation === 'all';
+  const people = usePeopleSearch(query, { enabled: enabled && isAll, viewerId });
+  const follows = useFollowPeople(relation, query, { enabled, viewerId });
+  const list = isAll ? (people.isSearching ? people.results : people.suggestions) : follows.profiles;
   const userIds = useMemo(() => list.map((profile) => profile.userID), [list]);
   const holdings = useProfilesTopHoldings(enabled ? userIds : []);
-  const source = people.isSearching ? 'search' : 'suggested';
+  const source = isAll ? (people.isSearching ? 'search' : 'suggested') : relation;
 
   const openProfile = useCallback(
     (profile: UserProfile) => {
@@ -70,6 +80,27 @@ export function PeopleSearchResults({
   );
 
   const emptyState = () => {
+    if (!isAll) {
+      const noun = relation === 'followers' ? 'followers' : 'people you follow';
+      return (
+        <StateCard
+          loading={follows.isLoading}
+          message={
+            follows.isLoading
+              ? 'Loading collectors.'
+              : follows.trimmedQuery
+                ? `None of your ${noun} match “${follows.trimmedQuery}”.`
+                : relation === 'followers'
+                  ? 'No one follows you yet.'
+                  : 'You are not following anyone yet.'
+          }
+          style={styles.stateCard}
+          testID={follows.isLoading ? `${testID}-${relation}-loading` : `${testID}-${relation}-empty`}
+          title={follows.isLoading ? 'Loading' : follows.trimmedQuery ? 'No matches' : 'Nobody here yet'}
+          variant="field"
+        />
+      );
+    }
     if (people.isSearching) {
       return (
         <StateCard
@@ -123,7 +154,8 @@ export function PeopleSearchResults({
   return (
     <FlatList
       {...scrollProps}
-      contentContainerStyle={{ paddingBottom: (bottomInset ?? insets.bottom) + spacing.lg }}
+      // Figma 6725:9509: the first person sits 4 under the white search header.
+      contentContainerStyle={{ paddingBottom: (bottomInset ?? insets.bottom) + spacing.lg, paddingTop: spacing.xxxs }}
       data={list}
       ItemSeparatorComponent={Separator}
       keyboardShouldPersistTaps="handled"

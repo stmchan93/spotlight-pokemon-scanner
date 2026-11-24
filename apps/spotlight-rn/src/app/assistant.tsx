@@ -10,7 +10,7 @@ import { HOME_WATCHLIST_HREF } from '@/lib/home-profile-tab';
 
 /**
  * `/assistant?source=home|scanner&cardIds=a,b&threadId=…&game=…&page=<json>` — Ask Ekalight, opened by the
- * floating bubble (page = where from). A form sheet on the ROOT stack (ASSISTANT_SHEET_OPTIONS).
+ * Chat pill (page = where from). A form sheet on the ROOT stack (ASSISTANT_SHEET_OPTIONS).
  */
 export default function AssistantRoute() {
   const router = useRouter();

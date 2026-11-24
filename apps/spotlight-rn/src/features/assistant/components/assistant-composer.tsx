@@ -197,7 +197,7 @@ export const AssistantComposer = forwardRef<TextInput, AssistantComposerProps>(f
 const styles = StyleSheet.create({
   shell: {
     borderCurve: 'continuous',
-    borderRadius: radii.lg,
+    borderRadius: radii.xl,
   },
   shellEmpty: {
     alignItems: 'center',

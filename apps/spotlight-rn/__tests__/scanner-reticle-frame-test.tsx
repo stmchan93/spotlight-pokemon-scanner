@@ -183,12 +183,12 @@ describe('design review 2026-11-16', () => {
     expect(screen.queryByTestId('frame-outside-blur')).toBeNull();
   });
 
-  it('shows the hint as small caps, uppercased in JS', () => {
+  it('shows the hint in sentence case at Label size (Figma 6711:6012)', () => {
     renderCardSurface({});
     const prompt = screen.getByTestId('frame-prompt');
-    expect(prompt).toHaveTextContent('TAP TO SCAN');
+    expect(prompt).toHaveTextContent('Tap to scan');
     const style = StyleSheet.flatten(prompt.props.style);
-    expect(style.fontSize).toBe(13);
+    expect(style.fontSize).toBe(14);
     expect(style.textTransform).toBeUndefined();
   });
 

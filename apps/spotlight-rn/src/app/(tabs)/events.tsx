@@ -1,15 +1,9 @@
-import { FocusedStatusBar } from '@/components/focused-status-bar';
-import { EventsScreen } from '@/features/events/screens/events-screen';
+import { Redirect } from 'expo-router';
 
 /**
- * Events — upcoming card shows, the fourth tab in the bar.
+ * Events is a page of Social now, not a bottom tab. This route stays so old
+ * `/events` links and pushes land there; like `/wishlist`, it is not a pager page.
  */
-export default function EventsRoute() {
-  return (
-    <>
-      {/* Light: the screen opens on a dark photo header. */}
-      <FocusedStatusBar style="light" />
-      <EventsScreen />
-    </>
-  );
+export default function EventsRedirect() {
+  return <Redirect href={'/social?tab=events' as never} />;
 }

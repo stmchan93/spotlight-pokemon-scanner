@@ -21,16 +21,19 @@ import {
 } from '@/lib/tab-pager';
 
 describe('tab pager order and route <-> page mapping', () => {
-  it('lays the strip out Home | Search | Scan | Events | Social', () => {
-    expect(TAB_PAGER_ORDER).toEqual(['index', 'search', 'scan', 'events', 'social']);
+  it('lays the strip out Home | Scan | Search | Social (Figma 6725:9509)', () => {
+    expect(TAB_PAGER_ORDER).toEqual(['index', 'scan', 'search', 'social']);
   });
 
   it('maps each tab route to its strip index and redirect routes to none', () => {
     expect(pageIndexForRoute('index')).toBe(0);
-    expect(pageIndexForRoute('search')).toBe(1);
-    expect(pageIndexForRoute('scan')).toBe(2);
-    expect(pageIndexForRoute('events')).toBe(3);
-    expect(pageIndexForRoute('social')).toBe(4);
+    expect(pageIndexForRoute('scan')).toBe(1);
+    expect(pageIndexForRoute('search')).toBe(2);
+    expect(pageIndexForRoute('social')).toBe(3);
+    // Settings is a pushed screen behind the button beside the bar.
+    expect(pageIndexForRoute('settings')).toBe(-1);
+    // Events is a page of Social; `/events` only redirects.
+    expect(pageIndexForRoute('events')).toBe(-1);
     expect(pageIndexForRoute('you')).toBe(-1);
     expect(pageIndexForRoute('portfolio')).toBe(-1);
     // Watchlist left the bar for a Home profile tab; `/wishlist` only redirects.
@@ -40,16 +43,16 @@ describe('tab pager order and route <-> page mapping', () => {
 
   it('reads the focused page off navigator state, whatever order the routes are in', () => {
     const routes = [{ name: 'you' }, { name: 'social' }, { name: 'index' }, { name: 'scan' }];
-    expect(pageIndexForState({ index: 1, routes })).toBe(4);
-    expect(pageIndexForState({ index: 3, routes })).toBe(2);
+    expect(pageIndexForState({ index: 1, routes })).toBe(3);
+    expect(pageIndexForState({ index: 3, routes })).toBe(1);
     expect(pageIndexForState({ index: 0, routes })).toBe(-1);
   });
 });
 
 describe('resolveOuterSwipe (inner -> outer hand-off)', () => {
   const HOME = 0;
-  const WATCHLIST = 1;
-  const SOCIAL = 4;
+  const SCAN = 1;
+  const SOCIAL = 3;
 
   it('leaves a swipe the inner pager can still take to the inner pager', () => {
     // Collection -> Activity.
@@ -61,9 +64,9 @@ describe('resolveOuterSwipe (inner -> outer hand-off)', () => {
 
   it('hands a swipe past the inner edge to the outer strip', () => {
     // Activity -> Watchlist.
-    expect(resolveOuterSwipe(HOME, 'next', { count: 2, index: 1 })).toEqual({ owner: 'outer', target: WATCHLIST });
-    // Social's first page -> Events.
-    expect(resolveOuterSwipe(SOCIAL, 'previous', { count: 3, index: 0 })).toEqual({ owner: 'outer', target: 3 });
+    expect(resolveOuterSwipe(HOME, 'next', { count: 2, index: 1 })).toEqual({ owner: 'outer', target: SCAN });
+    // Social's first page -> Search.
+    expect(resolveOuterSwipe(SOCIAL, 'previous', { count: 3, index: 0 })).toEqual({ owner: 'outer', target: 2 });
   });
 
   it('takes the drag at the ends of the chain too, as a rubber-band with no target', () => {
@@ -72,13 +75,13 @@ describe('resolveOuterSwipe (inner -> outer hand-off)', () => {
   });
 
   it('treats pages without inner pages (or a single one) as plain pages', () => {
-    expect(resolveOuterSwipe(WATCHLIST, 'next', null)).toEqual({ owner: 'outer', target: 2 });
-    expect(resolveOuterSwipe(WATCHLIST, 'previous', undefined)).toEqual({ owner: 'outer', target: 0 });
+    expect(resolveOuterSwipe(SCAN, 'next', null)).toEqual({ owner: 'outer', target: 2 });
+    expect(resolveOuterSwipe(SCAN, 'previous', undefined)).toEqual({ owner: 'outer', target: 0 });
     expect(resolveOuterSwipe(2, 'next', { count: 1, index: 0 })).toEqual({ owner: 'outer', target: 3 });
   });
 
   it('clamps an out-of-range inner index instead of trusting it', () => {
-    expect(resolveOuterSwipe(HOME, 'next', { count: 2, index: 9 })).toEqual({ owner: 'outer', target: WATCHLIST });
+    expect(resolveOuterSwipe(HOME, 'next', { count: 2, index: 9 })).toEqual({ owner: 'outer', target: SCAN });
   });
 
   it('reads the direction off the finger: right-to-left is next', () => {
@@ -131,15 +134,15 @@ describe('resolveSettlePage', () => {
   it('never moves more than one page, nor past either end', () => {
     expect(resolveSettlePage({ position: 2.9, startPage: 1, velocityX: -5000 })).toBe(2);
     expect(resolveSettlePage({ position: -0.3, startPage: 0, velocityX: 5000 })).toBe(0);
-    expect(resolveSettlePage({ position: 4.3, startPage: 4, velocityX: -5000 })).toBe(4);
+    expect(resolveSettlePage({ position: 3.3, startPage: 3, velocityX: -5000 })).toBe(3);
   });
 });
 
 describe('rubber band and bar blend', () => {
   it('passes positions inside the strip through untouched', () => {
     expect(clampWithRubberBand(0)).toBe(0);
-    expect(clampWithRubberBand(2.4)).toBe(2.4);
-    expect(clampWithRubberBand(4)).toBe(4);
+    expect(clampWithRubberBand(1.4)).toBe(1.4);
+    expect(clampWithRubberBand(3)).toBe(3);
   });
 
   it('resists past either end, lightly and never more than 0.4 of a page', () => {
@@ -149,13 +152,13 @@ describe('rubber band and bar blend', () => {
     expect(small).toBeLessThan(0.2);
     expect(rubberBand(100)).toBeLessThan(0.4);
     expect(clampWithRubberBand(-0.2)).toBeCloseTo(-small);
-    expect(clampWithRubberBand(4.2)).toBeCloseTo(4 + small);
+    expect(clampWithRubberBand(3.2)).toBeCloseTo(3 + small);
   });
 
   it('blends the bar to the scanner look in step with the drag', () => {
-    expect(scanProximity(2)).toBe(1);
+    expect(scanProximity(1)).toBe(1);
     expect(scanProximity(1.5)).toBe(0.5);
-    expect(scanProximity(1)).toBe(0);
+    expect(scanProximity(2)).toBe(0);
     expect(scanProximity(0)).toBe(0);
     expect(pageSelectedness(3.25, 3)).toBe(0.75);
     expect(pageSelectedness(1, 3)).toBe(0);
@@ -183,9 +186,9 @@ describe('isPageLive (camera / data-load gating)', () => {
 });
 
 describe('guest tabs', () => {
-  it('lets guests open Search, Scan and Events only', () => {
+  it('keeps guests off Home only', () => {
     const blocked = guestBlockedPages(true);
-    expect(TAB_PAGER_ORDER.filter((_, page) => !blocked[page])).toEqual(['search', 'scan', 'events']);
+    expect(TAB_PAGER_ORDER.filter((_, page) => !blocked[page])).toEqual(['scan', 'search', 'social']);
     expect(guestBlockedPages(false).every((value) => !value)).toBe(true);
   });
 });

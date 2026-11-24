@@ -38,6 +38,7 @@ import {
 } from '@spotlight/design-system';
 
 import { StagingSmokeDiagnostics } from '@/components/staging-smoke-diagnostics';
+import { AssistantRouteTracker } from '@/features/assistant/page-context/assistant-route-tracker';
 import { AccessGate } from '@/features/auth/components/access-gate';
 import { AuthGate } from '@/features/auth/components/auth-gate';
 import { HandleClaimGate } from '@/features/auth/components/handle-claim-gate';
@@ -49,7 +50,6 @@ import { AppErrorBoundary } from '@/lib/observability/app-error-boundary';
 import { PostHogAppProvider, identifyPostHogUser } from '@/lib/observability/posthog';
 import { PostHogScreenTracker } from '@/lib/observability/posthog-screen-tracker';
 import { AppProviders } from '@/providers/app-providers';
-import { FloatingAssistantBubble } from '@/features/assistant/components/floating-assistant-bubble';
 import { CircularTabAvatarProvider } from '@/components/circular-tab-avatar';
 import { PENDING_GUEST_USER_ID } from '@/features/auth/auth-models';
 import {
@@ -325,13 +325,7 @@ function AuthenticatedRoot() {
                 }}
               />
             </Stack>
-            {/*
-              The floating Ekalight bubble: ONE instance over every page. A
-              sibling AFTER the navigator, so it draws above the tabs and pushed
-              screens; native modals present above it. It hides itself on routes
-              where it must not float (see assistant-bubble-zones).
-            */}
-            <FloatingAssistantBubble />
+            <AssistantRouteTracker />
           </View>
           </HandleClaimGate>
         </AccessGate>

@@ -40,7 +40,7 @@ export function useTabPagerPosition(): SharedValue<number> | null {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
-/** The pager page a tab pathname shows (`/` = 0 … `/social` = 4); -1 off the strip. */
+/** The pager page a tab pathname shows (`/` = 0 … `/social` = 3); -1 off the strip. */
 export function pagerPageForPath(pathname: string): number {
-  return ['/', '/search', '/scan', '/events', '/social'].indexOf(pathname);
+  return ['/', '/scan', '/search', '/social'].indexOf(pathname);
 }

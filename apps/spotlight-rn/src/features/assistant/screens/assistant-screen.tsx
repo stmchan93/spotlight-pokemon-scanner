@@ -123,7 +123,7 @@ export type AssistantScreenProps = {
   /** "View all N" under a Watchlist preview. */
   onOpenWatchlist?: () => void;
   /**
-   * The page the floating bubble opened the chat from: rides every turn as
+   * The page the Chat pill opened the chat from: rides every turn as
    * `context.page`, shapes the starter chips and the "Looking at" chip, and
    * decides whether to continue the latest chat (same page) or start fresh.
    */
@@ -256,7 +256,7 @@ export function AssistantScreen({
   const rowOffsetsRef = useRef(new Map<string, { y: number; height: number }>());
 
   useEffect(() => {
-    // The floating bubble logs its own open (with the page kind).
+    // The Chat pill logs its own open (with the page kind).
     if (!page) {
       capturePostHogEvent(AnalyticsEvent.assistantOpened, { source });
     }
@@ -521,7 +521,7 @@ export function AssistantScreen({
           return;
         }
         const latest = listed.threads[0];
-        // From the floating bubble: continue the latest chat only if it was
+        // From the Chat pill: continue the latest chat only if it was
         // started on this same page; any other page gets a fresh chat.
         const continueLatest = Boolean(
           resumeLatest &&

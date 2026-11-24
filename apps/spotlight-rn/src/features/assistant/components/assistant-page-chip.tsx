@@ -9,7 +9,7 @@ const SPARKLE_SIZE = 14;
 const CLOSE_GLYPH_SIZE = 14;
 
 /**
- * "Looking at: Charizard ex · 151" over the composer when the floating bubble
+ * "Looking at: Charizard ex · 151" over the composer when the Chat pill
  * opened the chat from a page. The × drops the page from the rest of the chat.
  */
 export function AssistantPageChip({

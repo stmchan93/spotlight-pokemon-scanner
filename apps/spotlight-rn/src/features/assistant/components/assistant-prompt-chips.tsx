@@ -10,7 +10,7 @@ type AssistantPromptChipsProps = {
   onSelect: (prompt: string) => void;
   /** Each chip is `${testIDPrefix}-${index}`. */
   testIDPrefix: string;
-  /** 'stack' = one left-aligned chip per row (starter prompts); 'wrap' = chips flow left to right (follow-ups). */
+  /** 'stack' = one full-width chip per row (starter prompts); 'wrap' = chips flow left to right (follow-ups). */
   layout?: 'stack' | 'wrap';
   testID?: string;
   style?: StyleProp<ViewStyle>;
@@ -19,7 +19,7 @@ type AssistantPromptChipsProps = {
 /**
  * Tappable prompts: gray-50 rounded chips in sentence case, radius 8, Regular 15
  * in gray-800. Follow-ups: 8pt padding, 8pt apart (Figma 6530:17260). Starters:
- * 12x8 padding, 10pt apart (Figma 6607:11784). Tapping sends the chip's exact text.
+ * 12x8 padding, 10pt apart, full width (Figma 6607:11784). Tapping sends the chip's exact text.
  */
 export function AssistantPromptChips({
   prompts,
@@ -55,8 +55,9 @@ export function AssistantPromptChips({
 }
 
 const styles = StyleSheet.create({
+  // Starters fill the width (owner, 2026-11-23); follow-ups stay content-sized.
   stack: {
-    alignItems: 'flex-start',
+    alignItems: 'stretch',
     gap: STACK_GAP,
   },
   wrap: {

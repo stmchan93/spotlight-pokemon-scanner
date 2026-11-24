@@ -617,6 +617,13 @@ export function renderAppRouter(
     ],
     optional: true,
   });
+  // `/events` redirects to `/social?tab=events` (Events is a page of Social).
+  registerRoute(routeMap, routeAliases, {
+    candidates: [
+      { key: '(tabs)/events', modulePath: '@/app/(tabs)/events' },
+    ],
+    optional: true,
+  });
   registerRoute(routeMap, routeAliases, {
     candidates: [
       { key: '(stack)/sales-history', modulePath: '@/app/(stack)/sales-history' },

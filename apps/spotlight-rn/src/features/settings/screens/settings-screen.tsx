@@ -1,8 +1,9 @@
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import {
   ChatBubbleEmpty,
   EditPencil,
   GraphUp,
+  LogIn,
   LogOut,
   MagicWand,
   MessageText,
@@ -10,7 +11,7 @@ import {
   Settings,
   Star,
 } from 'iconoir-react-native';
-import { useCallback, useEffect } from 'react';
+import { useCallback } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -47,28 +48,30 @@ const ROW_ICON_SIZE = 20;
 const PROFILE_AVATAR_SIZE = 48;
 
 /**
- * Settings — what the gear in Home's top bar opens (Figma 6642:6202). It
- * REPLACES the hamburger drawer: every destination the drawer listed is a row
- * here, except "Find people", which the Search tab's PEOPLE results replace.
+ * Settings — the `/settings` stack screen the round button beside the tab bar
+ * pushes. It REPLACES the hamburger drawer: every destination the drawer listed
+ * is a row here, except "Find people", which the Search tab's PEOPLE results
+ * replace. Every row is a plain `router.push`; back-swipe returns to the tabs.
  *
- * A pushed stack screen, so every row is a plain `router.push` and back-swipe
- * returns to Home — none of the drawer's replace-vs-push bookkeeping is needed.
- *
- * Gated rows (signed-in destinations) send a guest to sign-in, as the drawer
- * did. Send Feedback and Rate are open to guests: losing a guest's bug report
- * to a sign-in wall costs more than it protects.
+ * Open to guests: gated rows (signed-in destinations) send them to sign-in, a
+ * SIGN IN row replaces the profile row and Log Out is hidden. Send Feedback and
+ * Rate stay open: losing a guest's bug report to a sign-in wall costs more than
+ * it protects.
  */
 export function SettingsScreen({ testID = 'settings' }: { testID?: string }) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
-  const { gate } = useGuestGate();
+  const { gate, isGuest, openLogin } = useGuestGate();
   const unreadMessageCount = useUnreadMessageCount();
 
-  useEffect(() => {
-    capturePostHogEvent(AnalyticsEvent.settingsOpened, {});
-  }, []);
+  // On focus, not mount: a screen pushed over this one returns to it.
+  useFocusEffect(
+    useCallback(() => {
+      capturePostHogEvent(AnalyticsEvent.settingsOpened, {});
+    }, []),
+  );
 
   // Logged before the guest gate, so a guest's tap on a gated row still counts.
   const tracked = useCallback(
@@ -155,13 +158,17 @@ export function SettingsScreen({ testID = 'settings' }: { testID?: string }) {
         icon: Settings,
         onPress: tracked('account_settings', gate(() => router.push('/account' as never))),
       },
-      {
-        key: 'logout',
-        label: 'Log Out',
-        icon: LogOut,
-        destructive: true,
-        onPress: tracked('logout', gate(confirmLogOut)),
-      },
+      ...(isGuest
+        ? []
+        : [
+            {
+              key: 'logout',
+              label: 'Log Out',
+              icon: LogOut,
+              destructive: true,
+              onPress: tracked('logout', confirmLogOut),
+            },
+          ]),
     ],
   ];
 
@@ -186,7 +193,7 @@ export function SettingsScreen({ testID = 'settings' }: { testID?: string }) {
           title="Settings"
         />
 
-        {user ? (
+        {user && !isGuest ? (
           <Pressable
             accessibilityLabel="Edit profile"
             accessibilityRole="button"
@@ -210,6 +217,15 @@ export function SettingsScreen({ testID = 'settings' }: { testID?: string }) {
             </View>
             <NavArrowRight color={theme.colors.gray600} height={ROW_ICON_SIZE} width={ROW_ICON_SIZE} />
           </Pressable>
+        ) : null}
+
+        {isGuest ? (
+          <View style={[styles.section, { borderTopColor: theme.colors.gray200 }]} testID={`${testID}-section-guest`}>
+            <SettingsRow
+              item={{ key: 'sign-in', label: 'Sign in', icon: LogIn, onPress: tracked('sign_in', openLogin) }}
+              testID={`${testID}-row-sign-in`}
+            />
+          </View>
         ) : null}
 
         {sections.map((items, index) => (

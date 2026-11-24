@@ -15,10 +15,11 @@ import {
   fetchGlobalFeed,
   fetchGlobalFeedItems,
 } from '@/features/social/social-service';
-import { FeedScreen } from '@/features/social/screens/feed-screen';
+import { FeedScreen, parseSocialTab, SOCIAL_TAB_ORDER } from '@/features/social/screens/feed-screen';
 import { getFeedRefreshVersion, signalFeedNeedsRefresh } from '@/features/social/screens/new-post-screen';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
+import { upcomingFeatured } from '../features/events/event-fixtures';
 
 jest.mock('expo-router', () => ({
   useRouter: jest.fn(),
@@ -427,13 +428,15 @@ describe('FeedScreen', () => {
     expect(style.borderBottomColor).toBe('#F2F2F2');
   });
 
-  describe('the FOR YOU / YOUR POSTS tabs (Figma 6642:11165)', () => {
-    it('renders the two tabs with FOR YOU selected', async () => {
+  describe('the FOR YOU / YOUR POSTS / EVENTS tabs (Figma 6642:11165)', () => {
+    it('renders the three tabs in order with FOR YOU selected', async () => {
       renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
+      expect(SOCIAL_TAB_ORDER).toEqual(['forYou', 'yourPosts', 'events']);
       expect(screen.getByText('FOR YOU')).toBeTruthy();
       expect(screen.getByText('YOUR POSTS')).toBeTruthy();
+      expect(screen.getByText('EVENTS')).toBeTruthy();
       expect(screen.queryByText('NEWS')).toBeNull();
       expect(screen.queryByText('MARKET WATCH')).toBeNull();
       expect(screen.getByTestId('feed-tabs-tab-forYou').props.accessibilityState.selected).toBe(true);
@@ -468,6 +471,47 @@ describe('FeedScreen', () => {
       expect(screen.getByText('Passed this on')).toBeTruthy();
       expect(fetchAuthorActivity).toHaveBeenCalledWith(MY_USER_ID, expect.anything());
       expect(screen.getAllByTestId('feed-your-posts-repost-attribution')).toHaveLength(1);
+    });
+
+    it('mounts EVENTS on first visit, without the old photo header', async () => {
+      const fetchSpotlightEvents = jest.fn(async () => ({ items: [upcomingFeatured] }));
+      renderWithProviders(<FeedScreen />, {
+        spotlightRepository: createTestSpotlightRepository({ fetchSpotlightEvents }),
+      });
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+      expect(screen.queryByTestId('feed-events-scroll')).toBeNull();
+      expect(fetchSpotlightEvents).not.toHaveBeenCalled();
+
+      fireEvent.press(screen.getByTestId('feed-tabs-tab-events'));
+
+      expect(await screen.findByTestId(`event-card-${upcomingFeatured.id}`)).toBeTruthy();
+      expect(screen.getByTestId('feed-events-title').props.children).toBe('UPCOMING SPOTLIGHT EVENTS');
+      expect(screen.getByTestId('feed-events-tabs-tab-past')).toBeTruthy();
+      expect(screen.getByTestId('feed-events-regions')).toBeTruthy();
+      expect(screen.queryByLabelText('Spotlight Card Show')).toBeNull();
+    });
+
+    it('opens on, and switches to, the deep-linked page', async () => {
+      const view = renderWithProviders(<FeedScreen requestedTab="events" />, {
+        spotlightRepository: createTestSpotlightRepository({
+          fetchSpotlightEvents: async () => ({ items: [upcomingFeatured] }),
+        }),
+      });
+      expect(await screen.findByTestId(`event-card-${upcomingFeatured.id}`)).toBeTruthy();
+      expect(screen.getByTestId('feed-tabs-tab-events').props.accessibilityState.selected).toBe(true);
+
+      view.rerender(<FeedScreen requestedTab="yourPosts" />);
+      await waitFor(() =>
+        expect(screen.getByTestId('feed-tabs-tab-yourPosts').props.accessibilityState.selected).toBe(true),
+      );
+    });
+
+    it('parses the tab param', () => {
+      expect(parseSocialTab('events')).toBe('events');
+      expect(parseSocialTab(['yourPosts'])).toBe('yourPosts');
+      expect(parseSocialTab('forYou')).toBe('forYou');
+      expect(parseSocialTab('market')).toBeUndefined();
+      expect(parseSocialTab(undefined)).toBeUndefined();
     });
 
     it('keeps the market blocks off Social: none of their reads', async () => {

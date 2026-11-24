@@ -1,16 +1,7 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
-import {
-  Image,
-  Platform,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  View,
-  useWindowDimensions,
-} from 'react-native';
+import { useCallback, useMemo, useState, type RefObject } from 'react';
+import { Platform, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import type { SpotlightEvent } from '@spotlight/api-client';
 import {
@@ -27,12 +18,16 @@ import {
 
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { EventListCard } from '@/features/events/components/event-list-card';
-import { profileHeaderSheetTop } from '@/features/profile/components/profile-header';
 import { eventRegion, eventRegions } from '@/features/events/event-format';
 import { useSpotlightEvents } from '@/features/events/hooks/use-spotlight-events';
 import { useSavedEvents } from '@/features/events/saved-events-store';
 import { tabBarBottomFadeHeight } from '@/lib/tab-bar-insets';
-import { PageSwipeGuard } from '@/components/page-tab-pager';
+import {
+  AnimatedScrollView,
+  PageSwipeGuard,
+  type CollapsiblePageProps,
+  type CollapsibleScrollTarget,
+} from '@/components/page-tab-pager';
 
 export type EventsTab = 'events' | 'tickets' | 'saved' | 'past';
 
@@ -45,35 +40,23 @@ const TABS: readonly { value: EventsTab; label: string; title: string }[] = [
 
 const ALL_REGIONS = 'all';
 
-// Figma 5865:9330. The photo runs 328 tall under a 348 scrim; the chip row sits
-// at 256 and the white sheet laps the photo at 304.
-// Figma measures these on a 59pt status bar; the sheet itself follows the
-// Collection tab's (`profileHeaderSheetTop`), and the photo and chips keep
-// their Figma distances to it.
-const HEADER_IMAGE_BELOW_SHEET = 24;
-const CHIP_ROW_ABOVE_SHEET = 48;
-const SHEET_RADIUS = radii.xl;
-// Figma 6642:5725 — 174×146, 11 left of center, its bottom 32 above the chips.
-const LOGO_WIDTH = 174;
-const LOGO_HEIGHT = 146;
-const LOGO_ABOVE_CHIP_ROW = spacing.xxl;
-const LOGO_CENTER_OFFSET = -11;
+type EventsPageProps = {
+  page: CollapsiblePageProps;
+  scrollRef?: RefObject<CollapsibleScrollTarget | null>;
+  /** Prefix for every testID; the scroller is `${testID}-scroll`. */
+  testID?: string;
+};
 
-const headerImage = require('../../../../assets/images/events/events-header.jpg');
-const showLogo = require('../../../../assets/images/events/spotlight-card-show-logo.png');
-
-export function EventsScreen() {
+/**
+ * EVENTS on Social: the upcoming-shows list as a hub page. The hub draws the
+ * header and the FOR YOU · YOUR POSTS · EVENTS rail, so this page starts at the
+ * status chips. Guests get only the upcoming list (owner, 2026-11-21).
+ */
+export function EventsPage({ page, scrollRef, testID = 'events' }: EventsPageProps) {
   const theme = useSpotlightTheme();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
-  const sheetTop = profileHeaderSheetTop(insets.top);
-  const headerImageHeight = sheetTop + HEADER_IMAGE_BELOW_SHEET;
-  const chipRowTop = sheetTop - CHIP_ROW_ABOVE_SHEET;
-  const { width: windowWidth } = useWindowDimensions();
   const { events, failed, refresh } = useSpotlightEvents();
   const { isSaved, savedIds, toggle } = useSavedEvents();
-  // Guests see only the upcoming list and open shows (owner, 2026-11-21): no
-  // Saved/Past tabs or save hearts.
   const { isGuest } = useGuestGate();
   const [selectedTab, setTab] = useState<EventsTab>('events');
   const tab: EventsTab = isGuest ? 'events' : selectedTab;
@@ -106,19 +89,18 @@ export function EventsScreen() {
     setRefreshing(false);
   }, [refresh]);
 
-  const renderCard = (event: SpotlightEvent, onPress: () => void = () => openEvent(event)) => (
+  const renderCard = (event: SpotlightEvent) => (
     <EventListCard
       key={event.id}
       event={event}
-      onPress={onPress}
+      onPress={() => openEvent(event)}
       onToggleSaved={isGuest ? undefined : () => toggle(event.id)}
       saved={isSaved(event.id)}
     />
   );
 
-  const inRegion = (list: SpotlightEvent[]) =>
+  const visible = (list: SpotlightEvent[]) =>
     region === ALL_REGIONS ? list : list.filter((event) => eventRegion(event)?.value === region);
-  const visible = inRegion;
 
   const renderList = () => {
     if (events.length === 0) {
@@ -128,13 +110,13 @@ export function EventsScreen() {
             actionLabel="Try again"
             message="Check your connection and try again."
             onActionPress={() => void refresh()}
-            testID="events-error"
+            testID={`${testID}-error`}
             title="Couldn't load events"
           />
         );
       }
       return (
-        <View style={styles.list} testID="events-loading">
+        <View style={styles.list} testID={`${testID}-loading`}>
           {[0, 1, 2].map((key) => (
             <SkeletonBlock key={key} height={143} radius={radii.sm} width="100%" />
           ))}
@@ -147,7 +129,7 @@ export function EventsScreen() {
       return (
         <StateCard
           message="Tickets you buy from a show's ticket page don't appear in the app yet."
-          testID="events-tickets-empty"
+          testID={`${testID}-tickets-empty`}
           title="No tickets yet"
         />
       );
@@ -155,125 +137,129 @@ export function EventsScreen() {
     if (tab === 'saved') {
       const rows = visible(saved);
       return rows.length > 0 ? (
-        <View style={styles.list}>{rows.map((event) => renderCard(event))}</View>
+        <View style={styles.list}>{rows.map(renderCard)}</View>
       ) : (
-        <StateCard message="Tap the heart on a show to keep it here." testID="events-saved-empty" title="No saved events" />
+        <StateCard message="Tap the heart on a show to keep it here." testID={`${testID}-saved-empty`} title="No saved events" />
       );
     }
     if (tab === 'past') {
       const rows = visible(past);
       return rows.length > 0 ? (
-        <View style={styles.list}>{rows.map((event) => renderCard(event))}</View>
+        <View style={styles.list}>{rows.map(renderCard)}</View>
       ) : (
-        <StateCard message="Shows that have wrapped will show up here." testID="events-past-empty" title="No past events" />
+        <StateCard message="Shows that have wrapped will show up here." testID={`${testID}-past-empty`} title="No past events" />
       );
     }
     const rows = visible(upcoming);
     return rows.length > 0 ? (
-      <View style={styles.list}>{rows.map((event) => renderCard(event))}</View>
+      <View style={styles.list}>{rows.map(renderCard)}</View>
     ) : (
-      <StateCard message="New shows are announced here first." testID="events-upcoming-empty" title="No upcoming events" />
+      <StateCard message="New shows are announced here first." testID={`${testID}-upcoming-empty`} title="No upcoming events" />
     );
   };
 
   const title = TABS.find((item) => item.value === tab)?.title ?? '';
 
   return (
-    // A horizontal drag here pages the tab strip (back to Scan, forward to
-    // Social); the two chip rows are `PageSwipeGuard`ed so dragging them
-    // scrolls the chips instead.
-    <View style={[styles.root, { backgroundColor: theme.colors.gray50 }]}>
-      <ScrollView
-        contentContainerStyle={{ paddingBottom: tabBarBottomFadeHeight + (Platform.OS === 'ios' ? insets.bottom : 0) }}
-        contentInsetAdjustmentBehavior="never"
-        keyboardShouldPersistTaps="handled"
-        refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={refreshing} tintColor={theme.colors.gray0} />}
-        showsVerticalScrollIndicator={false}
-        testID="events-scroll"
-      >
-        <View style={{ height: sheetTop }}>
-          <Image accessibilityIgnoresInvertColors resizeMode="cover" source={headerImage} style={[styles.headerImage, { height: headerImageHeight }]} />
-          {/* Darkens toward the sheet so the white logo and chips hold up (Figma 5865:9332). */}
-          <Svg height={headerImageHeight} style={styles.scrim} width="100%">
-            <Defs>
-              <LinearGradient id="eventsHeaderScrim" x1="0" x2="0" y1="0" y2="1">
-                <Stop offset="0" stopColor="#666666" stopOpacity="0" />
-                <Stop offset="0.557" stopColor="#414141" stopOpacity="0.25" />
-                <Stop offset="1" stopColor="#000000" stopOpacity="0.5" />
-              </LinearGradient>
-            </Defs>
-            <Rect fill="url(#eventsHeaderScrim)" height={headerImageHeight} width="100%" x="0" y="0" />
-          </Svg>
-          <Image
-            accessibilityLabel="Spotlight Card Show"
-            resizeMode="contain"
-            source={showLogo}
-            style={[
-              styles.logo,
-              {
-                top: chipRowTop - LOGO_ABOVE_CHIP_ROW - LOGO_HEIGHT,
-                left: (windowWidth - LOGO_WIDTH) / 2 + LOGO_CENTER_OFFSET,
-              },
-            ]}
-          />
-          {/* Figma 5865:9334 — the chip row floats on the photo, just above the sheet. */}
-          {isGuest ? null : (
-            <PageSwipeGuard style={[styles.chipRow, { top: chipRowTop }]}>
+    <AnimatedScrollView
+      // `automatic`, like the other hub pages: the pager's top math assumes UIKit's inset.
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={[
+        page.contentContainerStyle,
+        { backgroundColor: theme.colors.gray0, paddingBottom: tabBarBottomFadeHeight },
+      ]}
+      keyboardShouldPersistTaps="handled"
+      onScroll={page.onScroll}
+      ref={scrollRef as unknown as RefObject<ScrollView>}
+      refreshControl={
+        <RefreshControl
+          onRefresh={handleRefresh}
+          progressViewOffset={page.progressViewOffset}
+          refreshing={refreshing}
+          testID={`${testID}-refresh`}
+          tintColor={theme.colors.gray400}
+        />
+      }
+      scrollEventThrottle={page.scrollEventThrottle}
+      scrollToOverflowEnabled={page.scrollToOverflowEnabled}
+      showsVerticalScrollIndicator={false}
+      testID={`${testID}-scroll`}
+    >
+      <View style={styles.head}>
+        {/* Horizontal rows are guarded so dragging them scrolls the row, not the pagers. */}
+        {isGuest ? null : (
+          <PageSwipeGuard>
             <ScrollView
               contentContainerStyle={[styles.chips, { paddingHorizontal: gutter }]}
               horizontal
               keyboardShouldPersistTaps="handled"
               showsHorizontalScrollIndicator={false}
-              testID="events-tabs"
+              testID={`${testID}-tabs`}
             >
-              {TABS.map((item) => {
-                const selected = item.value === tab;
-                return (
-                  <PillButton
-                    key={item.value}
-                    label={item.label.toUpperCase()}
-                    // One chip style app-wide (Figma 5938:13960; user 2026-11-16), so the
-                    // idle chip is gray-100 here too, not the photo's former gray-50.
-                    labelRole="caption"
-                    onPress={() => setTab(item.value)}
-                    selected={selected}
-                    testID={`events-tabs-tab-${item.value}`}
-                    tone="filled"
-                  />
-                );
-              })}
+              {TABS.map((item) => (
+                <PillButton
+                  key={item.value}
+                  label={item.label.toUpperCase()}
+                  labelRole="caption"
+                  onPress={() => setTab(item.value)}
+                  selected={item.value === tab}
+                  testID={`${testID}-tabs-tab-${item.value}`}
+                  tone="filled"
+                />
+              ))}
             </ScrollView>
-            </PageSwipeGuard>
-          )}
-        </View>
-
-        <View style={[styles.sheet, { backgroundColor: theme.colors.gray0 }]}>
-          <Text
-            style={[theme.typography.headline, { color: theme.colors.gray900, paddingHorizontal: gutter }]}
-            testID="events-title"
-          >
-            {title.toUpperCase()}
-          </Text>
-          <PageSwipeGuard>
-                        <PageTabs
-              // Tight and centred like Social's tabs: the default 40pt gap is for
-              // two tabs and spread five-plus regions apart (owner, 2026-11-19).
-              align="gutter-center"
-              labelSize="caption"
-              onChange={setRegion}
-              scrollable
-              tabs={regionTabs}
-              testID="events-regions"
-              uppercase
-              value={region}
-            />
           </PageSwipeGuard>
-        </View>
-        <View style={[styles.listArea, { backgroundColor: theme.colors.gray50, paddingHorizontal: gutter }]}>
-          {renderList()}
-        </View>
-      </ScrollView>
+        )}
+        <Text
+          style={[theme.typography.headline, { color: theme.colors.gray900, paddingHorizontal: gutter }]}
+          testID={`${testID}-title`}
+        >
+          {title.toUpperCase()}
+        </Text>
+        <PageSwipeGuard>
+          <PageTabs
+            // Tight and centred: the default 40pt gap spread five-plus regions apart (owner, 2026-11-19).
+            align="gutter-center"
+            labelSize="caption"
+            onChange={setRegion}
+            scrollable
+            tabs={regionTabs}
+            testID={`${testID}-regions`}
+            uppercase
+            value={region}
+          />
+        </PageSwipeGuard>
+      </View>
+      <View style={[styles.listArea, { backgroundColor: theme.colors.gray50, paddingHorizontal: gutter }]}>
+        {renderList()}
+      </View>
+    </AnimatedScrollView>
+  );
+}
 
+const STANDALONE_SCROLL_THROTTLE = 16;
+
+/**
+ * The Events page on its own, for the dev screen host and the legacy `/events`
+ * tab route until it redirects to `/social?tab=events`.
+ */
+export function EventsScreen() {
+  const theme = useSpotlightTheme();
+  const insets = useSafeAreaInsets();
+  const page = useMemo<CollapsiblePageProps>(
+    () => ({
+      contentContainerStyle: { minHeight: 0, paddingTop: 0 },
+      onScroll: () => undefined,
+      progressViewOffset: 0,
+      scrollEventThrottle: STANDALONE_SCROLL_THROTTLE,
+      scrollToOverflowEnabled: false,
+    }),
+    [],
+  );
+  return (
+    // iOS: the scroller's `automatic` inset already clears the status bar.
+    <View style={[styles.root, { backgroundColor: theme.colors.gray0, paddingTop: Platform.OS === 'ios' ? 0 : insets.top }]}>
+      <EventsPage page={page} />
     </View>
   );
 }
@@ -282,38 +268,16 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  headerImage: {
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    top: 0,
-  },
-  scrim: {
-    left: 0,
-    position: 'absolute',
-    top: 0,
-  },
-  logo: {
-    height: LOGO_HEIGHT,
-    position: 'absolute',
-    width: LOGO_WIDTH,
-  },
-  chipRow: {
-    left: 0,
-    position: 'absolute',
-    right: 0,
+  head: {
+    gap: spacing.lg,
+    paddingBottom: spacing.lg,
+    paddingTop: spacing.md,
   },
   chips: {
     gap: spacing.xxs,
   },
-  sheet: {
-    borderCurve: 'continuous',
-    borderTopLeftRadius: SHEET_RADIUS,
-    borderTopRightRadius: SHEET_RADIUS,
-    gap: spacing.lg,
-    paddingTop: spacing.lg,
-  },
   listArea: {
+    flexGrow: 1,
     paddingTop: spacing.sm,
   },
   list: {

@@ -331,8 +331,8 @@ describe('misc route wrappers', () => {
     ).toBe(false);
 
     const tabRoutes = fs.readdirSync(tabsDir).filter((name: string) => name.endsWith('.tsx'));
-    // Home / Search / Scan / Events / Social, plus the layout and the three
-    // aliases (/portfolio, /you and /wishlist, all redirecting to Home at the tabs root).
+    // Home / Scan / Search / Social, plus the layout and four redirects
+    // (/portfolio, /you, /wishlist -> Home; /events -> Social).
     expect(tabRoutes).toHaveLength(9);
 
     for (const name of tabRoutes.filter((route: string) => route !== '_layout.tsx')) {

@@ -66,7 +66,7 @@ export function assistantScanTrayPrompts(trayCardCount: number): string[] {
 }
 
 /**
- * Starter chips for a chat opened from the floating bubble: about the page the
+ * Starter chips for a chat opened from the Chat pill: about the page the
  * user is on. Pages with thin context (Home, Social, an unknown page) keep the
  * owner's three market prompts, and so does the scanner (owner, 2026-11-20: the
  * scanner opens with the same chips as everywhere else; the tray rides along).

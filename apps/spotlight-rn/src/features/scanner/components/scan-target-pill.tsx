@@ -6,8 +6,8 @@ import { GlassSurface, Text, colors, textStyles } from '@spotlight/design-system
 import { RoundFlag } from './round-flag';
 
 /**
- * The "Pokémon EN/JP" scan-target control: a content-sized pill centred over
- * the scanner's frame (Figma Scan-1 6642:5410): dark-pinned clear glass with white content — the SCAN/TOTAL pill
+ * The "Pokémon EN/JP" scan-target control: a content-sized pill at the top
+ * right of the scanner's frame (Figma Scan-1 6642:5410): dark-pinned clear glass with white content — the SCAN/TOTAL pill
  * recipe. Light glass borrows brightness from the backdrop and vanished over
  * night scenes; dark glass + white text reads over any camera content.
  */
@@ -41,7 +41,7 @@ export function ScanTargetPill({
         style={styles.pill}
         testID={testID ? `${testID}-surface` : undefined}
       >
-        <Text style={styles.label}>{label.toUpperCase()}</Text>
+        <Text numberOfLines={1} style={styles.label}>{label.toUpperCase()}</Text>
         {flag ? <RoundFlag language={flag} size={18} /> : null}
         <PillChevron />
       </GlassSurface>
@@ -72,10 +72,11 @@ const styles = StyleSheet.create({
   label: {
     ...textStyles.label,
     color: colors.gray900,
+    flexShrink: 1,
   },
-  // Fills its slot: the scanner gives it exactly the reticle's width.
+  // Content-sized, right-aligned beside the Chat pill (Figma 6711:5942).
   pressable: {
-    alignSelf: 'stretch',
+    flexShrink: 1,
     borderCurve: 'continuous',
     borderRadius: 999,
   },
@@ -89,6 +90,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
     paddingHorizontal: 16,
+    flexShrink: 1,
   },
   pillPressed: {
     opacity: 0.85,

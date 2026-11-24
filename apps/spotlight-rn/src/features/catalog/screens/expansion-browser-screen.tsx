@@ -14,7 +14,7 @@ type ExpansionBrowserScreenProps = {
   initialGame?: CardGame;
   /**
    * `sheet` (default): the /catalog/search sheet, closed with X.
-   * `tab`: the bottom-bar Search tab — no close, no Ask button.
+   * `tab`: the bottom-bar Search tab — Chat pill + bell, no close.
    */
   mode?: SearchMode;
   onClose: () => void;
@@ -28,7 +28,7 @@ type ExpansionBrowserScreenProps = {
 };
 
 /**
- * Search (Figma 6642:12483 CARDS / 6642:14400 PEOPLE). Game chips switch games
+ * Search (Figma 6725:9509). Game chips switch games
  * in place, so this is a game's page entered without a game picked, plus the
  * CARDS | PEOPLE tabs and the filter sheet.
  */

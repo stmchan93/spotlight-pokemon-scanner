@@ -393,7 +393,7 @@ describe('ScannerScreen', () => {
   it('captures a scan photo when the preview is tapped', async () => {
     renderScannerScreen();
 
-    expect(screen.getByTestId('scanner-prompt')).toHaveTextContent('TAP TO SCAN');
+    expect(screen.getByTestId('scanner-prompt')).toHaveTextContent('Tap to scan');
 
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
@@ -653,6 +653,13 @@ describe('ScannerScreen', () => {
     // One Piece has no per-language catalog, so the user never chose a
     // language and we send no language hint for the backend to filter on.
     expect(payloads[0].cardLanguage).toBeNull();
+  });
+
+  it('puts the Chat pill beside the scan-target pill in the top bar (Figma 6711:5942)', async () => {
+    renderScannerScreen();
+
+    expect(screen.getByTestId('scanner-chat-pill')).toBeTruthy();
+    expect(screen.getByTestId('scanner-target-pill')).toBeTruthy();
   });
 
   it('names the active game in the scan-target pill', async () => {

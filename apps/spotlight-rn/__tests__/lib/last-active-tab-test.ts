@@ -17,7 +17,10 @@ describe('last active tab', () => {
     // A redirect to Home now, not a tab.
     expect(returnableTabFromPathname('/wishlist')).toBeNull();
     expect(returnableTabFromPathname('/social')).toBe('social');
-    expect(returnableTabFromPathname('/events')).toBe('events');
+    // A pushed screen, not a tab.
+    expect(returnableTabFromPathname('/settings')).toBeNull();
+    // A redirect to Social's Events page now, not a tab.
+    expect(returnableTabFromPathname('/events')).toBeNull();
     // Trailing slashes and query strings are the same tab.
     expect(returnableTabFromPathname('/social/')).toBe('social');
     expect(returnableTabFromPathname('/search?q=pikachu')).toBe('search');
@@ -55,7 +58,7 @@ describe('last active tab', () => {
     expect(getLastActiveTab()).toBe('social');
     rememberActiveTab('/search');
     expect(getLastActiveTab()).toBe('search');
-    rememberActiveTab('/events');
-    expect(getLastActiveTab()).toBe('events');
+    rememberActiveTab('/settings');
+    expect(getLastActiveTab()).toBe('search');
   });
 });

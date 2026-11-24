@@ -1,4 +1,4 @@
-import { Bell, ChatBubbleEmpty, Settings } from 'iconoir-react-native';
+import { Bell, ChatBubbleEmpty } from 'iconoir-react-native';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,24 +13,20 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import { AssistantChatPill } from '@/features/assistant/components/assistant-chat-pill';
+
 /**
  * WHAT THE BAR'S TRAILING CONTROL IS — the ONE thing that differs between the
  * two variants this bar draws (2026-11-22 redesign):
  *
- * - `social` (Figma 6642:5420): the ekalight lockup centred, the DM inbox
- *   bubble in the top-left corner and the bell on the right, each its own
- *   44pt frost bubble with its own unread badge.
- * - `profile` (Home, Figma 6642:5964): a single gear bubble on the right that
- *   opens Settings. No search, no edit capsule.
+ * - `social` (Figma 6642:5420 + 6725:8999): the ekalight lockup centred, the
+ *   Ask Ekalight "Chat" pill top-left, the DM inbox and bell bubbles paired on
+ *   the right, each bell/inbox its own 44pt frost bubble with its own badge.
+ * - `profile` (Home): NO control row. Settings, which its gear opened, is the
+ *   circle beside the tab bar now; the bar is only the status-bar strip — its
+ *   pinned backdrop and the over-cover contrast flip.
  *
- * The hamburger menu (and the drawer behind it) is gone — Settings replaced
- * it — and Ask Ekalight is no longer a per-page button: a floating, page-aware
- * assistant bubble floats BELOW this bar (its zone starts under the top bar,
- * see `assistantBubbleZone`), so Social's messages bubble can own the
- * top-left corner without the two colliding.
- *
- * A DISCRIMINATED UNION so the two legal shapes are the only shapes: a bar with
- * a gear AND a bell, or with neither, is unrepresentable, and each unread count
+ * A DISCRIMINATED UNION so the two legal shapes are the only shapes; each unread count
  * travels with the bubble it badges. The badges stay INSIDE this file: they hang
  * off the bubble as SIBLINGS (the glass clips its children to the circle), a
  * contract a caller composing its own children would not know to keep.
@@ -46,7 +42,6 @@ export type HomeHeaderTrailing =
     }
   | {
       kind: 'profile';
-      onOpenSettings: () => void;
     };
 
 type HomeHeaderProps = {
@@ -131,7 +126,7 @@ type HomeHeaderProps = {
    * the real inset. Defaults to the safe-area inset for that case.
    */
   topInset?: number;
-  /** The bar's trailing control — Social's messages + bell, or the profile's gear. See `HomeHeaderTrailing`. */
+  /** Social's messages + bell, or the control-less profile strip. See `HomeHeaderTrailing`. */
   trailing: HomeHeaderTrailing;
   testID?: string;
 };
@@ -166,8 +161,8 @@ const BAR_PADDING_TOP = 0;
  */
 const BAR_PADDING_BOTTOM = 10;
 /**
- * Height of the bar below the safe-area inset — the 44pt control row plus 10
- * below = 54. Exported because a FLOATING bar contributes nothing
+ * Height of Social's bar below the safe-area inset — the 44pt control row plus
+ * 10 below = 54 (the profile strip has no row, so 0). Exported because a FLOATING bar contributes nothing
  * to layout, so the screen under it has to reserve
  * `insets.top + HOME_HEADER_BAR_HEIGHT` itself. Reading it from here keeps the
  * reservation and the bar from drifting apart.
@@ -192,8 +187,8 @@ export const HOME_HEADER_ROW_HEIGHT = BAR_PADDING_TOP + CONTROL_ROW_HEIGHT;
 export const HEADER_BACKDROP_FADE_DISTANCE = 56;
 /**
  * The shared top bar: messages top-left + bell top-right on Social (Figma
- * 6642:5420, lockup centred), the settings gear alone on the right on Home
- * (Figma 6642:5964); see `HomeHeaderTrailing`.
+ * 6642:5420, lockup centred), and on Home just the status-bar strip; see
+ * `HomeHeaderTrailing`.
  *
  * THE ONE TOP BAR. Home (the feed) and Collection both draw this. The feed
  * briefly had its own `FeedHeader` — same controls, but solid `IconButton`s in a
@@ -286,17 +281,15 @@ export function HomeHeader({
   useEffect(() => {
     onOverCoverChange?.(overCover);
   }, [onOverCoverChange, overCover]);
-  // Figma 4134:49509/49518: the bubbles are FROSTED LIGHT even over the cover
-  // (white Liquid Glass, dark glyphs) — the contrast flip now drives only the
-  // status bar via onOverCoverChange, not the chrome material.
-  const chromeSurface = 'onLight' as const;
+  // Figma 4134:49509/49518: the bubbles are FROSTED LIGHT (white Liquid Glass,
+  // dark glyphs); the contrast flip drives only the status bar.
   const glyphColor = theme.colors.gray900;
 
-  // Social (Figma 6642:5420, owner tweak 2026-11-22): messages LEADS in the
-  // top-left corner, the bell trails on the right. Each is its own 44pt frost
+  // Social: the Chat pill leads (Figma 6725:8999, it replaced the floating
+  // bubble); messages + bell pair on the right. Each is its own 44pt frost
   // bubble; a badge is a SIBLING of its bubble, not a child — the bubble's glass
   // clips its children to the circle.
-  const leadingControl =
+  const messagesControl =
     trailing.kind === 'social' ? (
       <BadgedBubble
         accessibilityLabel={
@@ -338,24 +331,7 @@ export function HomeHeader({
           width={BUTTON_ICON_SIZE}
         />
       </BadgedBubble>
-    ) : (
-      // Figma 6642:6202: one gear bubble, alone on the right.
-      <GlassNavBubble
-        accessibilityLabel="Settings"
-        material="frost"
-        onPress={trailing.onOpenSettings}
-        size="medium"
-        surface={chromeSurface}
-        testID={`${testID}-settings`}
-      >
-        <Settings
-          color={glyphColor}
-          strokeWidth={glassNavBubbleGlyphStrokeWidth}
-          height={BUTTON_ICON_SIZE}
-          width={BUTTON_ICON_SIZE}
-        />
-      </GlassNavBubble>
-    );
+    ) : null;
 
   return (
     <View
@@ -380,34 +356,31 @@ export function HomeHeader({
         />
       ) : null}
 
-      <View
-        style={[
-          styles.row,
-          { justifyContent: trailing.kind === 'social' ? 'space-between' : 'flex-end' },
-          {
-            paddingBottom: BAR_PADDING_BOTTOM,
-            paddingHorizontal: theme.layout.pageGutter,
-            paddingTop: BAR_PADDING_TOP,
-          },
-        ]}
-        testID={`${testID}-row`}
-      >
-        {trailing.kind === 'social' ? (
-          /*
-            Figma 6642:5420: the black lockup CENTRED on the screen, between
-            the messages (left) and bell (right) bubbles. Permanent chrome: no entrance
-            or scroll animation (2026-09-09).
-          */
+      {trailing.kind === 'social' ? (
+        <View
+          style={[
+            styles.row,
+            {
+              paddingBottom: BAR_PADDING_BOTTOM,
+              paddingHorizontal: theme.layout.pageGutter,
+              paddingTop: BAR_PADDING_TOP,
+            },
+          ]}
+          testID={`${testID}-row`}
+        >
+          {/* Figma 6642:5420: the black lockup CENTRED on the screen, between the
+              messages (left) and bell (right) bubbles. Permanent chrome: no
+              entrance or scroll animation (2026-09-09). */}
           <View pointerEvents="none" style={styles.centerMark}>
             <EkalightWordmark color={theme.colors.gray900} height={HOME_WORDMARK_HEIGHT} testID={`${testID}-home-mark`} />
           </View>
-        ) : null}
-
-        {/* Social: messages left, bell right (space-between). Home: the gear
-            alone on the right (flex-end). */}
-        {leadingControl}
-        {trailingControl}
-      </View>
+          <AssistantChatPill testID={`${testID}-chat`} />
+          <View style={styles.trailingGroup}>
+            {messagesControl}
+            {trailingControl}
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -422,9 +395,14 @@ const styles = StyleSheet.create({
     // zIndex 2 and would otherwise draw over the bubbles once the bar pins.
     zIndex: 5,
   },
+  trailingGroup: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   row: {
     alignItems: 'center',
     flexDirection: 'row',
+    justifyContent: 'space-between',
     gap: 8,
   },
   // Fills the row and centres the lockup on the SCREEN, not between the side
@@ -457,7 +435,8 @@ const styles = StyleSheet.create({
 });
 
 /** A 44pt frost bubble with an optional unread badge hung off its top-right. */
-function BadgedBubble({
+/** A 44pt frost nav bubble with an unread badge hung off its top-right (a sibling: the glass clips its children). */
+export function BadgedBubble({
   accessibilityLabel,
   badgeColor,
   children,

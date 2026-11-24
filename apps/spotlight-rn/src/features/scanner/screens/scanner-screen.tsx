@@ -82,7 +82,6 @@ import {
 import { assistantHref } from '@/features/assistant/assistant-route';
 import {
   resolveAssistantOpenContext,
-  useAssistantBubbleScannerAnchor,
   useAssistantPageContext,
 } from '@/features/assistant/page-context/assistant-page-context';
 import { EkalightMark } from '@/components/ekalight-mark';
@@ -153,7 +152,6 @@ import {
 } from '@/features/scanner/scanner-normalized-target';
 import {
   getRawScannerCollapsedTrayReservedHeight,
-  getRawScannerEmptyTrayVisualHeight,
   makeRawScannerCaptureLayout,
   type RawScannerCameraHandle,
   RawScannerCaptureSurface,
@@ -196,6 +194,7 @@ import { useAppServices } from '@/providers/app-providers';
 import { AddAllMenu, type AddAllMenuAction } from '@/features/scanner/components/add-all-menu';
 import { ScanBulkConfirmSheet } from '@/features/scanner/components/scan-bulk-confirm-sheet';
 import { ScanTargetPill } from '@/features/scanner/components/scan-target-pill';
+import { AssistantChatPill } from '@/features/assistant/components/assistant-chat-pill';
 import { ScanningForSheet } from '@/features/scanner/components/scanning-for-sheet';
 import {
   scanCardLanguageForLane,
@@ -1569,16 +1568,7 @@ export function ScannerScreen({
   // The purple frame the zoom/layout column sits inside — same rect the
   // capture surface strokes (the page grid in binder mode).
   const controlsFrameRect = isBinderPageMode ? captureSurfaceLayout.captureCropRect : captureSurfaceLayout.reticle;
-  // Floating Ekalight bubble: it may only float between the frame and the
-  // visible tray top (an empty tray's handle; a tray with cards leaves no room,
-  // so it hides), and opens with the tray (read at tap time) + lane as context.
-  useAssistantBubbleScannerAnchor({
-    frameBottom: controlsFrameRect.y + controlsFrameRect.height,
-    trayTop:
-      scannerContainerHeight -
-      (trayCount === 0 ? getRawScannerEmptyTrayVisualHeight({ bottomInset: trayBottomInset }) : footerReservedHeight),
-    trayExpanded: isTrayExpanded,
-  });
+  // Ask Ekalight opens with the tray (read at tap time) + lane as context.
   useAssistantPageContext(() => ({
     cardIds: recentCapturesRef.current.flatMap((capture) => {
       const candidate = capture.isLoadingCandidates ? null : activeCandidateForCapture(capture);
@@ -5160,9 +5150,10 @@ export function ScannerScreen({
             },
           ]}
         >
-          {/* The pill spans exactly the purple reticle's width, edge to edge with
-              the frame below it (owner, 2026-11-22). */}
-          <View style={styles.topChromeCenter}>
+          {/* Figma 6711:5942: Chat pill at the frame's left edge, the
+              content-sized scan-target pill at its right edge. */}
+          <AssistantChatPill testID="scanner-chat-pill" />
+          <View style={styles.topChromeTrailing}>
             <ScanTargetPill
               flag={scanTargetFlag(scanLane)}
               label={scanTargetPillLabel(scanLane)}
@@ -5830,8 +5821,8 @@ const styles = StyleSheet.create({
   topChromeRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    // The target pill, as wide as the reticle.
-    justifyContent: 'center',
+    gap: 12,
+    justifyContent: 'space-between',
     position: 'absolute',
     zIndex: 5,
   },
@@ -5847,9 +5838,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     zIndex: 4,
   },
-  topChromeCenter: {
-    alignItems: 'stretch',
-    flex: 1,
+  topChromeTrailing: {
+    alignItems: 'flex-end',
+    flexShrink: 1,
   },
   // POC chrome (dev builds only) — the UX pass owns the real treatment.
   binderPageHeader: {

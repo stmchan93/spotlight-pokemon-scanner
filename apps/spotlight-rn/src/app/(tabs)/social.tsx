@@ -1,28 +1,33 @@
+import { useLocalSearchParams, useNavigation } from 'expo-router';
+import { useEffect } from 'react';
+
 import { FocusedStatusBar } from '@/components/focused-status-bar';
-import { GuestScannerRedirect } from '@/features/auth/components/guest-scanner-redirect';
-import { FeedScreen } from '@/features/social/screens/feed-screen';
+import { FeedScreen, GuestSocialScreen, parseSocialTab } from '@/features/social/screens/feed-screen';
 import { useAuth } from '@/providers/auth-provider';
 
 /**
- * Social — FOR YOU (posts + news by date) and YOUR POSTS, the last tab in the bar.
- *
- * It briefly WAS the tabs root, under the name Home. The app now opens on your
- * collection instead, so the feed moved here and Collection took `(tabs)/index`
- * back. The screen itself is unchanged by either move.
+ * Social — FOR YOU (posts + news by date), YOUR POSTS and EVENTS (the upcoming
+ * shows list, formerly its own tab). `/social?tab=events|forYou|yourPosts`
+ * opens on that page; `/events` redirects here.
  */
 export default function SocialRoute() {
-  // Guests get a sign-in page in place (no redirect: it fought the swipe pager). The
-  // feed reads are scoped to `auth.uid()` by RLS, so a guest would get an empty
-  // list rather than a first-launch surface worth seeing.
   const { isGuest } = useAuth();
-  if (isGuest) {
-    return <GuestScannerRedirect />;
-  }
+  const params = useLocalSearchParams<{ tab?: string }>();
+  const requestedTab = parseSocialTab(params.tab);
+  const navigation = useNavigation();
+
+  // Consume the param once the page has switched, so the same link again still switches.
+  useEffect(() => {
+    if (params.tab !== undefined) {
+      navigation.setParams({ tab: undefined } as never);
+    }
+  }, [navigation, params.tab]);
 
   return (
     <>
       <FocusedStatusBar style="dark" />
-      <FeedScreen />
+      {/* Guests get EVENTS only; the feed reads are scoped to `auth.uid()` by RLS. */}
+      {isGuest ? <GuestSocialScreen /> : <FeedScreen requestedTab={requestedTab} />}
     </>
   );
 }

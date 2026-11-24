@@ -14,7 +14,7 @@ import {
   type TabNavigationState,
   type TabRouterOptions,
 } from '@react-navigation/native';
-import { withLayoutContext } from 'expo-router';
+import { router, withLayoutContext } from 'expo-router';
 import { tabRouterOverride } from 'expo-router/build/layouts/TabRouter';
 import {
   memo,
@@ -102,7 +102,7 @@ import { useAuth } from '@/providers/auth-provider';
    - Inner pagers (Home Collection/Activity, Social Social/News/Market — JS
      PanResponders): the hand-off rule above, fed by `useTabPagerInnerPosition`.
    - Horizontal chip rows / horizontal lists (`PageSwipeGuard`: Collection
-     filters, Watchlist filters, Events tabs + regions, Social game chips,
+     filters, Watchlist filters, Social game chips + Events regions,
      Market Watch): a never-activating RNGH gesture on the row stamps the
      touch-down on the UI thread (`usePagerTouchGuardGesture`); a stamped touch
      is never taken. Same JS-responder guard as before for the inner pagers.
@@ -523,6 +523,9 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
     }
   }, [openLogin]);
 
+  // Settings is a pushed stack route, open to guests (its gated rows sign in).
+  const openSettings = useCallback(() => router.push('/settings'), []);
+
   // ── The gesture ────────────────────────────────────────────────────────────
   // Imported constants are NOT captured by the worklets plugin; a worklet that
   // reads one throws on the UI thread (the 2026-11-15 swipe crash). Copy them.
@@ -709,6 +712,7 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
           bottomInset={bottomInset}
           focusedPage={focusedPage}
           glassEpoch={coveredEpoch}
+          onOpenSettings={openSettings}
           onSelectPage={handleSelectPage}
           position={position}
         />

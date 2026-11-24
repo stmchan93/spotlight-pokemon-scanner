@@ -39,9 +39,9 @@ function socialTrailing(unreadCount = 0, unreadMessageCount = 0): HomeHeaderTrai
   };
 }
 
-/** Home's trailing control: the gear. */
-function profileTrailing(onOpenSettings: () => void = jest.fn()): HomeHeaderTrailing {
-  return { kind: 'profile', onOpenSettings };
+/** Home: no controls (Settings is a bottom tab). */
+function profileTrailing(): HomeHeaderTrailing {
+  return { kind: 'profile' };
 }
 
 function renderHeader(props: Partial<Parameters<typeof HomeHeader>[0]> = {}) {
@@ -90,7 +90,7 @@ describe('HomeHeader', () => {
   });
 
   describe('the trailing control', () => {
-    it('Social (Figma 6642:5420): centred lockup, messages top-left, the bell top-right', () => {
+    it('Social (Figma 6642:5420 + 6725:8999): centred lockup, the Chat pill top-left, messages + bell on the right', () => {
       const onOpenMessages = jest.fn();
       const onOpenNotifications = jest.fn();
       renderHeader({
@@ -114,7 +114,7 @@ describe('HomeHeader', () => {
       const order = within(row)
         .getAllByRole('button')
         .map((node) => node.props.testID);
-      expect(order).toEqual(['home-header-messages', 'home-header-notifications']);
+      expect(order).toEqual(['home-header-chat', 'home-header-messages', 'home-header-notifications']);
 
       fireEvent.press(messages);
       expect(onOpenMessages).toHaveBeenCalledTimes(1);
@@ -169,24 +169,16 @@ describe('HomeHeader', () => {
       expect(screen.getByText('9+')).toBeTruthy();
     });
 
-    it('Home (Figma 6642:5964): a single gear bubble on the right that opens Settings', () => {
-      const onOpenSettings = jest.fn();
-      renderHeader({ floating: true, trailing: profileTrailing(onOpenSettings) });
+    it('Home draws no control row: Settings is a bottom tab, so the bar is only the status-bar strip', () => {
+      renderHeader({ floating: true, topInset: 59, trailing: profileTrailing() });
 
-      const row = screen.getByTestId('home-header-row');
-      const children = row.children as unknown as { props: { testID?: string } }[];
-      expect(children.map((child) => child.props.testID)).toEqual(['home-header-settings']);
-
-      const gear = screen.getByTestId('home-header-settings');
-      expect(gear.props.accessibilityLabel).toBe('Settings');
-      const style = StyleSheet.flatten(gear.props.style);
-      expect(style.width).toBe(glassNavBubbleSizes.medium);
-      fireEvent.press(gear);
-      expect(onOpenSettings).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('home-header-row')).toBeNull();
+      expect(screen.queryByTestId('home-header-settings')).toBeNull();
+      expect(StyleSheet.flatten(screen.getByTestId('home-header').props.style).paddingTop).toBe(59);
     });
 
     // EXCLUSION, both ways: one component draws both bars.
-    it('keeps Social controls off Home and the gear off Social', () => {
+    it('keeps Social controls off Home, and no gear anywhere', () => {
       renderHeader({ floating: true, trailing: profileTrailing() });
       for (const testID of [
         'home-header-notifications',
@@ -196,6 +188,7 @@ describe('HomeHeader', () => {
         'home-header-edit',
         'home-header-menu',
         'home-header-assistant',
+        'home-header-settings',
       ]) {
         expect(screen.queryByTestId(testID)).toBeNull();
       }

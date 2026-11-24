@@ -8,12 +8,6 @@ import { useTabsPage } from '@/contexts/tabs-page-context';
 
 import { renderAppRouter } from '../test-utils';
 
-// The root's floating Ekalight bubble animates with Reanimated too; these tests
-// assert on the PAGER's withTiming calls, so the bubble stays out of them.
-jest.mock('@/features/assistant/components/floating-assistant-bubble', () => ({
-  FloatingAssistantBubble: () => null,
-}));
-
 /** A tab stub that reports what the pager tells it: navigation focus + activePage. */
 function makeStub(name: string) {
   return function TabStub() {
@@ -31,7 +25,6 @@ const STUBS = {
   '(tabs)/index': makeStub('index'),
   '(tabs)/search': makeStub('search'),
   '(tabs)/scan': makeStub('scan'),
-  '(tabs)/events': makeStub('events'),
   '(tabs)/social': makeStub('social'),
 };
 
@@ -56,7 +49,7 @@ describe('tab pager <-> expo-router', () => {
   it('draws the same blur under the bar on every tab page, and none on Scan', async () => {
     renderAppRouter('/', STUBS);
     await waitFor(() => expect(screen.getByTestId('stub-index')).toBeTruthy());
-    for (const path of ['/search', '/scan', '/events', '/social'] as const) {
+    for (const path of ['/scan', '/search', '/social'] as const) {
       act(() => {
         router.push(path);
       });
@@ -65,7 +58,7 @@ describe('tab pager <-> expo-router', () => {
     const backdropOn = (page: string) =>
       screen.getByTestId(`tab-pager-page-${page}`, { includeHiddenElements: true })
         .findAll((node: { props: { testID?: string } }) => node.props.testID === 'tab-bar-backdrop-blur').length > 0;
-    expect(['index', 'search', 'events', 'social'].map(backdropOn)).toEqual([true, true, true, true]);
+    expect(['index', 'search', 'social'].map(backdropOn)).toEqual([true, true, true]);
     expect(backdropOn('scan')).toBe(false);
   });
 
@@ -86,14 +79,26 @@ describe('tab pager <-> expo-router', () => {
   });
 
   it('opens on the route the URL names, mounting only that page', async () => {
-    const app = renderAppRouter('/events', STUBS);
-    await waitFor(() => expect(app.getPathname()).toBe('/events'));
-    expect(stubText('events')).toBe('focused:portfolio');
+    const app = renderAppRouter('/social', STUBS);
+    await waitFor(() => expect(app.getPathname()).toBe('/social'));
+    expect(stubText('social')).toBe('focused:portfolio');
     // Lazy: nothing else has been visited.
     expect(screen.queryByTestId('stub-index')).toBeNull();
     expect(screen.queryByTestId('stub-scan')).toBeNull();
     // The bar is ours and says which page is selected.
-    expect(screen.getByTestId('app-tab-events').props.accessibilityState).toEqual({ selected: true });
+    expect(screen.getByTestId('app-tab-social').props.accessibilityState).toEqual({ selected: true });
+  });
+
+  it('pushes the Settings screen from the round button beside the bar', async () => {
+    const SettingsStub = () => <Text testID="stub-settings">settings</Text>;
+    const app = renderAppRouter('/', { ...STUBS, '(stack)/settings': SettingsStub });
+    await waitFor(() => expect(screen.getByTestId('stub-index')).toBeTruthy());
+    // Settings is not a tab.
+    expect(screen.queryByTestId('app-tab-settings')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('app-tab-settings-button'));
+    await waitFor(() => expect(app.getPathname()).toBe('/settings'));
+    expect(screen.getByTestId('stub-settings')).toBeTruthy();
   });
 
   it('moves the strip when the route changes (router.push to a tab)', async () => {
@@ -162,6 +167,13 @@ describe('tab pager <-> expo-router', () => {
     // One bar everywhere; the scanner slab is a layer of it.
     expect(screen.getAllByTestId('app-tab-bar')).toHaveLength(1);
     expect(screen.getByTestId('app-tab-bar-dark')).toBeTruthy();
+  });
+
+  it('redirects /events onto Social, opening its Events page', async () => {
+    const app = renderAppRouter('/events', STUBS);
+    await waitFor(() => expect(app.getPathname()).toBe('/social'));
+    expect(app.getSearchParams().tab).toBe('events');
+    expect(stubText('social')).toBe('focused:portfolio');
   });
 
   it('redirects /you onto the Home page', async () => {

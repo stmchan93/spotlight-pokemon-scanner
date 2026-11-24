@@ -133,6 +133,11 @@ describe('SettingsScreen', () => {
     await renderSettings();
 
     expect(screen.queryByTestId('settings-profile')).toBeNull();
+    // Nothing to log out of; a SIGN IN row instead.
+    expect(screen.queryByTestId('settings-row-logout')).toBeNull();
+    fireEvent.press(screen.getByTestId('settings-row-sign-in'));
+    expect(push).toHaveBeenLastCalledWith('/login');
+    push.mockClear();
     fireEvent.press(screen.getByTestId('settings-row-insights'));
     expect(push).not.toHaveBeenCalledWith('/insights');
     expect(push).toHaveBeenCalledTimes(1);

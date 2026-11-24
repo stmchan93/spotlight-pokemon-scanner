@@ -69,7 +69,7 @@ export function resolveScreenName(pathname: string) {
     return 'news';
   }
 
-  // The Events tab is `/events`; an event's own page is `/events/<id>`.
+  // `/events` redirects to Social's Events page; an event's own page is `/events/<id>`.
   if (pathname === '/events') {
     return 'events';
   }

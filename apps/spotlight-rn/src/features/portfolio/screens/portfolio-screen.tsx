@@ -67,7 +67,6 @@ import { CollectionPickerSheet } from '@/features/portfolio/components/collectio
 import { CollectionSearchRow } from '@/features/portfolio/components/collection-search-row';
 import {
   HEADER_BACKDROP_FADE_DISTANCE,
-  HOME_HEADER_BAR_HEIGHT,
   HOME_HEADER_ROW_HEIGHT,
   HomeHeader,
 } from '@/components/home-header';
@@ -123,7 +122,12 @@ import { useAppServices } from '@/providers/app-providers';
 import { AnalyticsEvent, watchlistKindForCardId } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { normalizeSocialLink } from '@/features/profile/social-link';
-import { PROFILE_SHEET_OVERLAP, ProfileHeader } from '@/features/profile/components/profile-header';
+import {
+  PROFILE_HEADER_DEFAULT_AVATAR_TOP,
+  PROFILE_HEADER_MIN_CONTENT_HEIGHT,
+  PROFILE_SHEET_OVERLAP,
+  ProfileHeader,
+} from '@/features/profile/components/profile-header';
 import { FOR_SALE_TAB_ENABLED } from '@/features/profile/for-sale-tab';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
 import { watchlistCardBasicsFromInventoryEntry } from '@/features/wishlist/watchlist-store';
@@ -1323,11 +1327,6 @@ export function PortfolioScreen({
     router.push('/edit-profile' as never);
   }, [router]);
 
-  // The gear (Figma 6642:6202): Settings replaced the hamburger drawer.
-  const handleOpenSettings = useCallback(() => {
-    router.push('/settings' as never);
-  }, [router]);
-
   // Empty-collection "Scan to add" chip.
   //
   // This pushed `{ pathname: '/', params: { page: 'scanner' } }` — the retired
@@ -1451,13 +1450,9 @@ export function PortfolioScreen({
   );
 
   /*
-    The profile toolbar (Figma 6642:5964): ONE gear bubble on the right, which
-    opens Settings — the hamburger drawer's replacement. Same `HomeHeader`
-    Social draws, same geometry; only the trailing control differs.
-
-    Search, edit and share left this bar in the 2026-11-22 redesign: Search is
-    a bottom tab, Edit profile is the avatar tap (and a Settings row), and Ask
-    Ekalight is the app-wide floating bubble that owns the top-left corner.
+    No toolbar controls: Settings (its last control, the gear) is a bottom tab,
+    so `HomeHeader` here is only the status-bar strip — the pinned backdrop and
+    the contrast flip — and the profile block moves up by the 44pt row it freed.
   */
   // Mirrors the header's contrast flip (white-over-cover vs dark-when-pinned)
   // onto the STATUS BAR: Figma 4134:49776 shows white time/battery over the
@@ -1474,17 +1469,14 @@ export function PortfolioScreen({
   const backdropFadeStart = Math.max(
     profileBlockHeight -
       PROFILE_SHEET_OVERLAP -
-      (insets.top + HOME_HEADER_BAR_HEIGHT) -
+      insets.top -
       HEADER_BACKDROP_FADE_DISTANCE,
     0,
   );
   const homeHeader = (
     <HomeHeader
       onOverCoverChange={setIsBarOverCover}
-      trailing={{
-        kind: 'profile',
-        onOpenSettings: handleOpenSettings,
-      }}
+      trailing={{ kind: 'profile' }}
       floating
       /*
         `pinnedBackdrop` IS ON, and this was reversed once — read before
@@ -1497,7 +1489,7 @@ export function PortfolioScreen({
         reported the opposite and much louder: with cards and filter chips
         sliding through the gap, the whole top of the screen reads as broken.
 
-        The bar is transparent from y=0 down to `insets.top` + 48, and the
+        The bar is transparent from y=0 down to `insets.top`, and the
         pinned tab bar starts exactly there — so this backdrop and the tab
         bar's own `gray0` together cover the full strip. It fades in with
         scroll (opacity 0 at rest), so the floating look survives at the top of
@@ -1532,6 +1524,9 @@ export function PortfolioScreen({
       style={[styles.pinnedBlock, { backgroundColor: theme.colors.gray0 }]}
     >
       <ProfileHeader
+        // No toolbar row above the avatar any more: lift it, and the block's
+        // floor with it, by the row's 44pt.
+        avatarTop={PROFILE_HEADER_DEFAULT_AVATAR_TOP - HOME_HEADER_ROW_HEIGHT}
         avatarUrl={currentUser?.avatarURL}
         bio={currentUser?.bio}
         // Without this your cover shows on Edit Profile and on your PUBLIC
@@ -1545,6 +1540,7 @@ export function PortfolioScreen({
         handle={currentUser?.handle}
         initials={profileInitials}
         isVerified={currentUser?.isVerified}
+        minContentHeight={PROFILE_HEADER_MIN_CONTENT_HEIGHT - HOME_HEADER_ROW_HEIGHT}
         onAddBioPress={handleEditProfilePress}
         // Your own avatar opens Edit profile (the bar's edit pencil is gone).
         onAvatarPress={handleEditProfilePress}
@@ -2002,18 +1998,15 @@ export function PortfolioScreen({
         // Fades the profile block across exactly the strip it would park in, so
         // scrolled down you see only the bubbles and the tabs. Same expression as
         // `pinnedTopInset` below by necessity — keep the two together.
-        headerFadeDistance={insets.top + HOME_HEADER_ROW_HEIGHT}
+        headerFadeDistance={insets.top}
         onChange={setActiveProfileTab}
         onPageScroll={handlePageScroll}
         order={PROFILE_TAB_ORDER}
         pageRefs={pageScrollRefs}
-        // Park the tab bar under the floating bubbles instead of at y=0, where
-        // the profile tabs ended up drawn behind the clock.
-        // FLUSH against the toolbar, no +16: the toolbar backdrop only covers
-        // its own height, so a parked gap is a see-through strip with cards
-        // sliding through it. The designed 16 below the toolbar is the tab-bar
-        // wrapper's own OPAQUE paddingTop instead (Figma 4134:51191).
-        pinnedTopInset={insets.top + HOME_HEADER_ROW_HEIGHT}
+        // Park the tab bar under the status bar instead of at y=0, where the
+        // profile tabs ended up drawn behind the clock. FLUSH against the
+        // header's backdrop strip, which covers only `insets.top`.
+        pinnedTopInset={insets.top}
         renderPage={renderProfilePage}
         scrollY={pagerScrollY}
         shouldStandDown={isSearchFieldFocused}

@@ -1,4 +1,5 @@
-import { FilterList, NavArrowLeft, Xmark } from 'iconoir-react-native';
+import { useRouter } from 'expo-router';
+import { Bell, FilterList, NavArrowLeft, Xmark } from 'iconoir-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
@@ -13,7 +14,6 @@ import {
 import { GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { EkalightAiFlare, EkalightAiRing } from '@/components/ekalight-ai-glyph';
 import { PullDownToDismiss, usePullDownToDismiss } from '@/components/pull-down-to-dismiss';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
@@ -53,6 +53,7 @@ import { CatalogResultsGrid } from '@/features/catalog/components/catalog-result
 import { CatalogSearchFilterSheet } from '@/features/catalog/components/catalog-search-filter-sheet';
 import { SealedResultsSection } from '@/features/catalog/components/sealed-results-section';
 import { SearchRailTile } from '@/features/catalog/components/search-rail-tile';
+import { BadgedBubble } from '@/components/home-header';
 import { SearchSectionHeader } from '@/features/catalog/components/search-section-header';
 import { SearchSetCard } from '@/features/catalog/components/search-set-card';
 import { useCatalogCardSearch } from '@/features/catalog/hooks/use-catalog-card-search';
@@ -63,7 +64,11 @@ import { useSetProgress } from '@/features/catalog/hooks/use-set-progress';
 import { resultsCountLabel, singlesSourceSets, totalCardCount } from '@/features/catalog/search-landing';
 import { groupSetsByEra, setCompletion, type SetListRow } from '@/features/catalog/set-progress';
 import { PeopleSearchResults } from '@/features/profile/components/people-search-results';
+import { AssistantChatPill } from '@/features/assistant/components/assistant-chat-pill';
 import { useAssistantPageContext } from '@/features/assistant/page-context/assistant-page-context';
+import { useGuestGate } from '@/features/auth/use-guest-gate';
+import type { PeopleRelation } from '@/features/profile/hooks/use-follow-people';
+import { useUnreadNotificationCount } from '@/features/social/use-unread-notification-count';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -88,10 +93,11 @@ type GameSetsScreenProps = {
   /** VIEW ALL on SETS / SEALED. Absent hides those two links. */
   onViewAll?: (section: 'sets' | 'sealed', game: CardGame) => void;
   /**
-   * Present = this is SEARCH (Figma 6642:12483 / 6642:14400): CARDS | PEOPLE
-   * tabs on the banner, a filter button beside the field, the game chips under
-   * the tabs. `tab` = the bottom-bar Search tab: no close and no Ask button.
-   * `sheet` = the /catalog/search sheet: keeps its close (X).
+   * Present = this is SEARCH (Figma 6725:9509): a white header with CARDS |
+   * PEOPLE tabs, the field (+ filter on CARDS) and a chip row under it — game
+   * chips on CARDS, ALL / FOLLOWERS / FOLLOWING on PEOPLE. No banner or title.
+   * `tab` = the bottom-bar Search tab: the Chat pill and the bell in the toolbar.
+   * `sheet` = the /catalog/search sheet: its close (X) in the Chat pill's slot.
    */
   searchMode?: SearchMode;
   /** PEOPLE: a person's header or bio was tapped. */
@@ -111,6 +117,14 @@ const SEARCH_TABS = [
 ] as const;
 /** Figma 6642:12511. */
 const SEARCH_PLACEHOLDER = 'Search cards, people, sets';
+/** Figma 6725:9756. */
+const PEOPLE_SEARCH_PLACEHOLDER = 'Search by name, profile';
+/** Figma 6725:9757: ALL / FOLLOWERS / FOLLOWING, equal widths. */
+const PEOPLE_RELATIONS: readonly { label: string; value: PeopleRelation }[] = [
+  { label: 'All', value: 'all' },
+  { label: 'Followers', value: 'followers' },
+  { label: 'Following', value: 'following' },
+];
 
 /** Sealed matches under the card results: a section, not another paged list. */
 const SEALED_RESULTS_LIMIT = 20;
@@ -166,7 +180,12 @@ export function GameSetsScreen({
   const theme = useSpotlightTheme();
   const isSearch = searchMode != null && view === 'landing';
   const isTabMode = isSearch && searchMode === 'tab';
-  const viewerId = useAuth().currentUser?.id ?? null;
+  const auth = useAuth();
+  const viewerId = auth.currentUser?.id ?? null;
+  // FOLLOWERS / FOLLOWING are the viewer's own lists: a guest has none.
+  const showsPeopleRelations = viewerId != null && !auth.isGuest;
+  const [peopleRelationChoice, setPeopleRelation] = useState<PeopleRelation>('all');
+  const peopleRelation = showsPeopleRelations ? peopleRelationChoice : 'all';
   const [searchTab, setSearchTab] = useState<SearchTab>(initialSearchTab);
   const onPeopleTab = isSearch && searchTab === 'people';
   // The PEOPLE list (and its suggestions read) mounts on first visit, then stays.
@@ -375,6 +394,7 @@ export function GameSetsScreen({
                 onOpenProfile?.(profile);
               }}
               query={peopleQuery}
+              relation={peopleRelation}
               scrollProps={pullDown.scrollProps}
               testID="search-people"
               viewerId={viewerId}
@@ -551,8 +571,10 @@ export function GameSetsScreen({
           onPress={() => setGame(chipGame)}
           selected={chipGame === game}
           testID={`game-sets-game-${chipGame}`}
-          // Figma's "Secondary" chip, the same one News / Market Watch use.
-          tone="secondary"
+          // Figma's "Secondary" chip, the same one News / Market Watch use. On
+          // Search's white header the gray-50 resting fill vanishes, so it takes
+          // the gray-100 one (the PEOPLE chips' fill, Figma 6725:9760).
+          tone={isSearch ? 'filled' : 'secondary'}
           uppercase
         />
       ))}
@@ -614,6 +636,163 @@ export function GameSetsScreen({
     );
   };
 
+  const closeBubble = (
+    <GlassNavBubble
+      accessibilityLabel={dismissStyle === 'close' ? 'Close' : 'Back'}
+      material="frost"
+      onPress={onClose}
+      size="medium"
+      testID="game-sets-back"
+    >
+      {dismissStyle === 'close' ? (
+        <Xmark
+          color={theme.colors.gray900}
+          height={glassNavBubbleGlyphSize}
+          strokeWidth={glassNavBubbleGlyphStrokeWidth}
+          width={glassNavBubbleGlyphSize}
+        />
+      ) : (
+        <NavArrowLeft
+          color={theme.colors.gray900}
+          height={glassNavBubbleGlyphSize}
+          strokeWidth={glassNavBubbleGlyphStrokeWidth}
+          width={glassNavBubbleGlyphSize}
+        />
+      )}
+    </GlassNavBubble>
+  );
+
+  const renderPeopleRelations = () => (
+    <View style={styles.peopleRelations} testID="search-people-relations">
+      {PEOPLE_RELATIONS.map((option) => (
+        <PillButton
+          key={option.value}
+          label={option.label}
+          labelRole="caption"
+          onPress={() => setPeopleRelation(option.value)}
+          selected={peopleRelation === option.value}
+          style={styles.peopleRelation}
+          testID={`search-people-relation-${option.value}`}
+          tone="filled"
+          uppercase
+        />
+      ))}
+    </View>
+  );
+
+  // Search (Figma 6725:9509): a white header — toolbar, CARDS | PEOPLE, the
+  // field and its chip row — over the gray-50 page. The field keeps one place
+  // in this tree whatever the tab, so it never remounts mid-word.
+  const renderSearchHeader = () => (
+    <View
+      style={[styles.searchHeader, { backgroundColor: theme.colors.gray0, paddingTop: insets.top }]}
+      testID="game-sets-search-header"
+    >
+      <View style={styles.searchToolbar}>
+        {isTabMode ? <AssistantChatPill testID="game-sets-chat-pill" /> : closeBubble}
+        {isTabMode ? <SearchNotificationsBell testID="game-sets-notifications" /> : null}
+      </View>
+      <PageTabs
+        onChange={(next) => {
+          if (next === searchTab) {
+            return;
+          }
+          // The text follows you across: "gengar" on CARDS is "gengar" on PEOPLE.
+          if (next === 'people') {
+            setPeopleQuery(search.query);
+            setPeopleVisited(true);
+          } else {
+            search.setQuery(peopleQuery);
+          }
+          setSearchTab(next);
+        }}
+        tabs={SEARCH_TABS}
+        testID="search-tabs"
+        uppercase
+        value={searchTab}
+        variant="underline"
+      />
+      <View style={styles.searchControls}>
+        {/* Figma 6725:9753: a 40pt gray-100 field; CARDS adds the filter button 8 to its right. */}
+        <View style={styles.searchRow}>
+          <View style={styles.searchFieldSlot}>
+            <SearchField
+              ref={searchFieldRef}
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChangeText={onPeopleTab ? setPeopleQuery : search.setQuery}
+              placeholder={onPeopleTab ? PEOPLE_SEARCH_PLACEHOLDER : SEARCH_PLACEHOLDER}
+              returnKeyType="search"
+              size="collection"
+              surface="muted"
+              testID="game-sets-search"
+              uppercasePlaceholder
+              value={onPeopleTab ? peopleQuery : search.query}
+            />
+          </View>
+          {onPeopleTab ? null : (
+            <IconButton
+              accessibilityLabel={activeFilterLabel ? `Filters, ${activeFilterLabel}` : 'Filters'}
+              onPress={() => {
+                Keyboard.dismiss();
+                setFilterSheetOpen(true);
+              }}
+              selected={activeFilterLabel != null}
+              shape="rounded"
+              size={searchFieldCollectionHeight}
+              testID="game-sets-filter"
+              variant="filled"
+            >
+              {/* Figma 6642:12671 is iconoir `filter-list`; drawn at the shared
+                  glyph size/weight — at 20 / 1.5 it shrank to thin lines and a dot. */}
+              <FilterList
+                color={activeFilterLabel ? theme.colors.purple500 : theme.colors.gray900}
+                height={glassNavBubbleGlyphSize}
+                strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                testID="game-sets-filter-glyph"
+                width={glassNavBubbleGlyphSize}
+              />
+              {activeFilterLabel ? (
+                <View
+                  style={[styles.filterDot, { backgroundColor: theme.colors.purple500 }]}
+                  testID="game-sets-filter-active"
+                />
+              ) : null}
+            </IconButton>
+          )}
+        </View>
+        {/* CARDS only searches cards: its game chips sit under the field. */}
+        {onPeopleTab ? (showsPeopleRelations ? renderPeopleRelations() : null) : renderGameChips()}
+      </View>
+    </View>
+  );
+
+  if (isSearch) {
+    return (
+      <PullDownToDismiss controller={pullDown} testID="game-sets-pull-down">
+      <View style={[styles.screen, { backgroundColor: theme.colors.gray50 }]}>
+        {renderSearchHeader()}
+        {onPeopleTab ? null : (
+          <View style={styles.searchBodyHeader}>
+            {search.hasActiveQuery ? renderSearchState() : renderSetsState()}
+          </View>
+        )}
+        {body()}
+        <CatalogSearchFilterSheet
+          activeFilter={filter.activeFilter}
+          onApply={(next) => {
+            filter.setActiveFilter(next);
+            setFilterSheetOpen(false);
+          }}
+          onClose={() => setFilterSheetOpen(false)}
+          testID="search-filter-sheet"
+          visible={filterSheetOpen}
+        />
+      </View>
+      </PullDownToDismiss>
+    );
+  }
+
   return (
     <PullDownToDismiss controller={pullDown} testID="game-sets-pull-down">
     <View style={[styles.screen, { backgroundColor: theme.colors.gray50 }]}>
@@ -639,157 +818,60 @@ export function GameSetsScreen({
         <Rect fill="url(#gameSetsWash)" height={washHeight} width={windowWidth} x="0" y="0" />
       </Svg>
 
-      <View style={[styles.header, isSearch ? styles.searchHeader : null, { paddingTop: insets.top }]}>
-        {isTabMode ? (
-          // The Search TAB has no close and no Ask button; the empty bar keeps
-          // the banner's composition (Figma 6642:12487).
-          <View style={styles.toolbarSpacer} testID="game-sets-toolbar-spacer" />
-        ) : (
-          <View style={styles.toolbar}>
-            <GlassNavBubble
-              accessibilityLabel={dismissStyle === 'close' ? 'Close' : 'Back'}
-              material="frost"
-              onPress={onClose}
-              size="medium"
-              testID="game-sets-back"
-            >
-              {dismissStyle === 'close' ? (
-                <Xmark
-                  color={theme.colors.gray900}
-                  height={glassNavBubbleGlyphSize}
-                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                  width={glassNavBubbleGlyphSize}
-                />
-              ) : (
-                <NavArrowLeft
-                  color={theme.colors.gray900}
-                  height={glassNavBubbleGlyphSize}
-                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                  width={glassNavBubbleGlyphSize}
-                />
-              )}
-            </GlassNavBubble>
-          </View>
-        )}
+      <View style={[styles.header, { paddingTop: insets.top }]}>
+        <View style={styles.toolbar}>{closeBubble}</View>
         <View style={styles.controls}>
           <Text style={[theme.typography.titleLarge, { color: theme.colors.gray0 }]}>
             {gameDisplayName(game)}
           </Text>
-          {isSearch ? (
-            // Figma 6642:12675: a 40pt field and a 40pt filter button, 8 apart.
-            <View style={styles.searchRow}>
-              <View style={styles.searchFieldSlot}>
-                <SearchField
-                  ref={searchFieldRef}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  containerStyle={[styles.searchFieldBox, { backgroundColor: theme.colors.gray0 }]}
-                  onChangeText={onPeopleTab ? setPeopleQuery : search.setQuery}
-                  placeholder={SEARCH_PLACEHOLDER}
-                  returnKeyType="search"
-                  size="collection"
-                  testID="game-sets-search"
-                  uppercasePlaceholder
-                  value={onPeopleTab ? peopleQuery : search.query}
-                />
-              </View>
-              {onPeopleTab ? null : (
-                <IconButton
-                  accessibilityLabel={activeFilterLabel ? `Filters, ${activeFilterLabel}` : 'Filters'}
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    setFilterSheetOpen(true);
-                  }}
-                  selected={activeFilterLabel != null}
-                  shape="rounded"
-                  size={searchFieldCollectionHeight}
-                  style={[styles.filterButton, { backgroundColor: theme.colors.gray0 }]}
-                  testID="game-sets-filter"
-                  variant="outlined"
-                >
-                  {/* Figma 6642:12671 is iconoir `filter-list`; drawn at the shared
-                      glyph size/weight — at 20 / 1.5 it shrank to thin lines and a dot. */}
-                  <FilterList
-                    color={activeFilterLabel ? theme.colors.purple500 : theme.colors.gray900}
-                    height={glassNavBubbleGlyphSize}
-                    strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                    testID="game-sets-filter-glyph"
-                    width={glassNavBubbleGlyphSize}
-                  />
-                  {activeFilterLabel ? (
-                    <View
-                      style={[styles.filterDot, { backgroundColor: theme.colors.purple500 }]}
-                      testID="game-sets-filter-active"
-                    />
-                  ) : null}
-                </IconButton>
-              )}
-            </View>
-          ) : (
-            <SearchField
-              ref={searchFieldRef}
-              autoCapitalize="none"
-              autoCorrect={false}
-              containerStyle={{ backgroundColor: theme.colors.gray0 }}
-              onChangeText={search.setQuery}
-              placeholder="Search card"
-              returnKeyType="search"
-              testID="game-sets-search"
-              uppercasePlaceholder
-              value={search.query}
-            />
-          )}
-          {isSearch ? null : renderGameChips()}
-        </View>
-        {isSearch ? (
-          // Underline + hairline rail, left on the 16 gutter (Figma 6642:12483).
-          <View style={styles.searchTabs}>
-            <PageTabs
-              onChange={(next) => {
-                if (next === searchTab) {
-                  return;
-                }
-                // The text follows you across: "gengar" on CARDS is "gengar" on PEOPLE.
-                if (next === 'people') {
-                  setPeopleQuery(search.query);
-                  setPeopleVisited(true);
-                } else {
-                  search.setQuery(peopleQuery);
-                }
-                setSearchTab(next);
-              }}
-              tabs={SEARCH_TABS}
-              testID="search-tabs"
-              uppercase
-              value={searchTab}
-              variant="underline"
-            />
-          </View>
-        ) : null}
-        {isSearch ? null : search.hasActiveQuery ? renderSearchState() : renderSetsState()}
-      </View>
-      {isSearch && !onPeopleTab ? (
-        // CARDS only searches cards: the game chips sit under the tabs (Figma 6642:12697).
-        <View style={styles.searchBodyHeader}>
+          <SearchField
+            ref={searchFieldRef}
+            autoCapitalize="none"
+            autoCorrect={false}
+            containerStyle={{ backgroundColor: theme.colors.gray0 }}
+            onChangeText={search.setQuery}
+            placeholder="Search card"
+            returnKeyType="search"
+            testID="game-sets-search"
+            uppercasePlaceholder
+            value={search.query}
+          />
           {renderGameChips()}
-          {search.hasActiveQuery ? renderSearchState() : renderSetsState()}
         </View>
-      ) : null}
+        {search.hasActiveQuery ? renderSearchState() : renderSetsState()}
+      </View>
       {body()}
-      {isSearch ? (
-        <CatalogSearchFilterSheet
-          activeFilter={filter.activeFilter}
-          onApply={(next) => {
-            filter.setActiveFilter(next);
-            setFilterSheetOpen(false);
-          }}
-          onClose={() => setFilterSheetOpen(false)}
-          testID="search-filter-sheet"
-          visible={filterSheetOpen}
-        />
-      ) : null}
     </View>
     </PullDownToDismiss>
+  );
+}
+
+/**
+ * The Search tab's bell (Figma 6725:9525): a 44pt frost bubble with the unread
+ * badge Social's header hangs off its bell. A guest has no notifications, so
+ * it opens sign-in instead (as Social's guest header does).
+ */
+function SearchNotificationsBell({ testID }: { testID: string }) {
+  const theme = useSpotlightTheme();
+  const router = useRouter();
+  const { isGuest, openLogin } = useGuestGate();
+  const unread = useUnreadNotificationCount();
+  const count = isGuest ? 0 : unread;
+  return (
+    <BadgedBubble
+      accessibilityLabel={count > 0 ? `Notifications, ${count} unread` : 'Notifications'}
+      badgeColor={theme.colors.dangerStrong}
+      count={count}
+      onPress={isGuest ? openLogin : () => router.push('/notifications' as never)}
+      testID={testID}
+    >
+      <Bell
+        color={theme.colors.gray900}
+        height={glassNavBubbleGlyphSize}
+        strokeWidth={glassNavBubbleGlyphStrokeWidth}
+        width={glassNavBubbleGlyphSize}
+      />
+    </BadgedBubble>
   );
 }
 
@@ -805,9 +887,6 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: layout.pageGutter,
   },
-  filterButton: {
-    borderColor: 'transparent',
-  },
   filterDot: {
     borderCurve: 'continuous',
     borderRadius: radii.pill,
@@ -820,20 +899,30 @@ const styles = StyleSheet.create({
   hidden: {
     display: 'none',
   },
-  // Figma 6642:12697 / 12517: chips 16 under the tabs, the body 16 under the chips.
+  // Figma 6725:9758: three equal 32pt chips, 8 apart.
+  peopleRelation: {
+    flex: 1,
+  },
+  peopleRelations: {
+    flexDirection: 'row',
+    gap: spacing.xxs,
+  },
+  // Loading / error / empty cards for CARDS, on the page under the white header.
   searchBodyHeader: {
+    paddingHorizontal: layout.pageGutter,
+  },
+  // Figma 6725:9752: the field 16 under the tab rail, its chips 8 under it, 16 to the header's edge.
+  searchControls: {
+    gap: spacing.xxs,
+    paddingBottom: spacing.sm,
     paddingHorizontal: layout.pageGutter,
     paddingTop: spacing.sm,
   },
-  // Search: the tabs ARE the banner's bottom edge (Figma 6642:12721 at y238 of 264).
   searchHeader: {
-    paddingBottom: 0,
+    width: '100%',
   },
   searchLandingContent: {
     paddingTop: spacing.sm,
-  },
-  searchFieldBox: {
-    borderWidth: 0,
   },
   searchFieldSlot: {
     flex: 1,
@@ -842,13 +931,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.xxs,
   },
-  // 32 from the field to the tab labels (Figma 6642:12675 → 6642:12721); full-bleed hairline.
-  searchTabs: {
-    marginHorizontal: -layout.pageGutter,
-    marginTop: spacing.xxl,
-  },
-  toolbarSpacer: {
+  // Figma 6725:9521: a 44pt row on the 16 gutter (Chat pill left, bell right);
+  // its 10 bottom pad + 14 put the tab labels 24 under it (6725:9529 at y127).
+  searchToolbar: {
+    alignItems: 'center',
+    flexDirection: 'row',
     height: glassNavBubbleSizes.medium,
+    justifyContent: 'space-between',
+    marginBottom: spacing.lg,
+    paddingHorizontal: layout.pageGutter,
   },
   // Figma 6597:5677: 24 under the toolbar (its 10 bottom pad + 14), 10 between rows.
   controls: {

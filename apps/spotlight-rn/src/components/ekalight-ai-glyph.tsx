@@ -1,5 +1,5 @@
 import { StyleSheet } from 'react-native';
-import Svg, { Circle, Defs, LinearGradient, Path, Stop } from 'react-native-svg';
+import Svg, { Circle, Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 
 /** Figma "Ekalight AI" gradient (6430:11314): yellow -> orange -> pink -> magenta -> purple. */
 const EKALIGHT_AI_STOPS = [
@@ -72,6 +72,30 @@ export function EkalightAiRing({ size }: { size: number }) {
         </LinearGradient>
       </Defs>
       <Circle cx={size / 2} cy={size / 2} fill="none" r={(size - stroke) / 2} stroke="url(#ekalightAiRing)" strokeWidth={stroke} />
+    </Svg>
+  );
+}
+
+/** The 1pt gradient ring around the header's Chat pill (Figma 6725:8999 "Glass Effect" stroke). */
+export function EkalightAiPillRing({ height, width }: { height: number; width: number }) {
+  const stroke = 1;
+  return (
+    <Svg height={height} pointerEvents="none" style={StyleSheet.absoluteFill} testID="ekalight-ai-pill-ring" width={width}>
+      <Defs>
+        <LinearGradient id="ekalightAiPillRing" x1="0" x2="1" y1="0" y2="0.18">
+          {gradientStops()}
+        </LinearGradient>
+      </Defs>
+      <Rect
+        fill="none"
+        height={height - stroke}
+        rx={(height - stroke) / 2}
+        stroke="url(#ekalightAiPillRing)"
+        strokeWidth={stroke}
+        width={width - stroke}
+        x={stroke / 2}
+        y={stroke / 2}
+      />
     </Svg>
   );
 }
