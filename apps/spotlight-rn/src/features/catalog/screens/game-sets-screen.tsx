@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { Bell, FilterList, NavArrowLeft, Xmark } from 'iconoir-react-native';
+import { Bell, NavArrowLeft, Xmark } from 'iconoir-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
@@ -26,7 +26,6 @@ import {
 } from '@spotlight/api-client';
 import {
   GlassNavBubble,
-  IconButton,
   InlineLoader,
   PageTabs,
   PillButton,
@@ -39,36 +38,30 @@ import {
   glassNavBubbleGlyphStrokeWidth,
   layout,
   radii,
-  searchFieldCollectionHeight,
   spacing,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
 import type { UserProfile } from '@/features/auth/auth-models';
-import {
-  catalogSearchFilterLabel,
-  catalogSearchFilterParams,
-  useCatalogSearchFilter,
-} from '@/features/catalog/catalog-search-filter';
 import { AskEkalightRow } from '@/features/catalog/components/ask-ekalight-row';
 import { CatalogResultsGrid } from '@/features/catalog/components/catalog-results-grid';
-import { CatalogSearchFilterSheet } from '@/features/catalog/components/catalog-search-filter-sheet';
 import { SealedResultsSection } from '@/features/catalog/components/sealed-results-section';
 import { SearchRailTile } from '@/features/catalog/components/search-rail-tile';
 import { BadgedBubble } from '@/components/home-header';
 import { SearchSectionHeader } from '@/features/catalog/components/search-section-header';
 import { SearchSetCard } from '@/features/catalog/components/search-set-card';
 import { SmartSearchChips } from '@/features/catalog/components/smart-search-chips';
-import { useCatalogCardSearch } from '@/features/catalog/hooks/use-catalog-card-search';
+import { useCatalogCardSearch, type CatalogSearchScope } from '@/features/catalog/hooks/use-catalog-card-search';
 import { useSmartCatalogSearch } from '@/features/catalog/hooks/use-smart-catalog-search';
 import { useSealedSearchPreview } from '@/features/catalog/hooks/use-sealed-search-preview';
 import { GAME_EXPANSIONS_ERROR, useGameExpansions } from '@/features/catalog/hooks/use-game-expansions';
 import { useSealedRail, useSinglesRail } from '@/features/catalog/hooks/use-search-landing-previews';
 import { useSetProgress } from '@/features/catalog/hooks/use-set-progress';
 import { resultsCountLabel, singlesSourceSets, totalCardCount } from '@/features/catalog/search-landing';
-import { groupSetsByEra, setCompletion, type SetListRow } from '@/features/catalog/set-progress';
-import { pickSmartSearchExample, smartSearchPlaceholder } from '@/features/catalog/smart-search-query';
+import { groupSetsByEra, setCompletion, sortNewestFirst, type SetListRow } from '@/features/catalog/set-progress';
 import { PeopleSearchResults } from '@/features/profile/components/people-search-results';
+import { EventsPage } from '@/features/events/screens/events-screen';
+import type { CollapsiblePageProps } from '@/components/page-tab-pager';
 import { AssistantChatPill } from '@/features/assistant/components/assistant-chat-pill';
 import { useAssistantPageContext } from '@/features/assistant/page-context/assistant-page-context';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
@@ -113,16 +106,20 @@ type GameSetsScreenProps = {
   /** Search tab to open on (dev screens / deep links); CARDS by default. */
   initialSearchTab?: SearchTab;
   /** A question typed into CARDS: open the chat with it sent. Absent hides the Ask row. */
-  onAskAssistant?: (question: string, game: CardGame) => void;
+  onAskAssistant?: (question: string, game: CardGame | null) => void;
 };
 
 export type GameSetsView = 'landing' | 'sets' | 'sealed';
 export type SearchMode = 'tab' | 'sheet';
-export type SearchTab = 'cards' | 'people';
+export type SearchTab = 'cards' | 'people' | 'events';
+/** Figma 6711:4679: CARDS | COLLECTORS | EVENTS (COLLECTORS is the people search). */
 const SEARCH_TABS = [
   { label: 'Cards', value: 'cards' },
-  { label: 'People', value: 'people' },
+  { label: 'Collectors', value: 'people' },
+  { label: 'Events', value: 'events' },
 ] as const;
+/** Figma 6722:8526. */
+const CARDS_SEARCH_PLACEHOLDER = 'Search by cards, sets, people';
 /** Figma 6725:9756. */
 const PEOPLE_SEARCH_PLACEHOLDER = 'Search by name, profile';
 /** Figma 6725:9757: ALL / FOLLOWERS / FOLLOWING, equal widths. */
@@ -195,46 +192,54 @@ export function GameSetsScreen({
   const peopleRelation = showsPeopleRelations ? peopleRelationChoice : 'all';
   const [searchTab, setSearchTab] = useState<SearchTab>(initialSearchTab);
   const onPeopleTab = isSearch && searchTab === 'people';
+  const onEventsTab = isSearch && searchTab === 'events';
+  // EVENTS mounts on first visit, then stays (like PEOPLE).
+  const [eventsVisited, setEventsVisited] = useState(initialSearchTab === 'events');
+  const eventsPage = useMemo<CollapsiblePageProps>(
+    () => ({
+      contentContainerStyle: { minHeight: 0, paddingTop: 0 },
+      onScroll: () => undefined,
+      progressViewOffset: 0,
+      scrollEventThrottle: 16,
+      scrollToOverflowEnabled: false,
+    }),
+    [],
+  );
   // The PEOPLE list (and its suggestions read) mounts on first visit, then stays.
   const [peopleVisited, setPeopleVisited] = useState(initialSearchTab === 'people');
   const [peopleQuery, setPeopleQuery] = useState('');
-  // Rarity / Sealed, from the filter sheet (Search only).
-  const filter = useCatalogSearchFilter();
-  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
-  const filterParams = catalogSearchFilterParams(isSearch ? filter.activeFilter : null);
-  const activeFilterLabel = isSearch ? catalogSearchFilterLabel(filter.activeFilter) : null;
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const washHeight = Math.round((windowWidth * WASH_FIGMA_HEIGHT) / FIGMA_FRAME_WIDTH);
-  const [game, setGame] = useState<CardGame>(initialGame);
+  // Search opens on ALL (Figma 6711:4679): every game at once. A game page keeps its game.
+  const [scope, setScope] = useState<CatalogSearchScope>(isSearch ? 'all' : initialGame);
+  const allGames = scope === 'all';
+  // The game for game-only surfaces (VIEW ALL routes, copy); ALL never reaches them.
+  const game: CardGame = allGames ? initialGame : scope;
   const { byGame, error, failedGames, games, hasLoaded, isLoading, reload } = useGameExpansions();
-  const { ownedByExpansion } = useSetProgress(game);
-  const search = useCatalogCardSearch({ scope: game, ...filterParams });
+  const { ownedByExpansion } = useSetProgress(allGames ? games : game);
+  const search = useCatalogCardSearch({ scope });
   // Sentence-like queries ("eevee alt arts under $50"); a rarity/Sealed filter keeps the plain path.
   const smart = useSmartCatalogSearch({
-    enabled: isSearch && !onPeopleTab && filter.activeFilter == null,
+    enabled: isSearch && !onPeopleTab && !onEventsTab,
     query: search.query,
-    scope: game,
+    scope,
   });
-  // One example per mount, no rotation.
-  const [placeholderExample] = useState(pickSmartSearchExample);
   // Floating Ekalight bubble: the game chip, typed query, and CARDS|PEOPLE tab (read at tap time).
   useAssistantPageContext(() => ({
     kind: 'search',
-    game,
+    game: allGames ? null : game,
     params: {
       query: search.query,
       tab: isSearch ? searchTab : 'cards',
-      filter: filterParams.rarityBucket ?? (filterParams.sealed ? 'sealed' : null),
     },
     label: search.query.trim() ? `Search: ${search.query.trim()}` : null,
   }));
   const sealedSearch = useSealedSearchPreview({
-    // A filter replaces the sealed footer: Sealed IS the results, a rarity has no sealed.
-    enabled: filter.activeFilter == null || !isSearch,
+    enabled: true,
     limit: SEALED_RESULTS_LIMIT,
     query: search.query,
-    scope: game,
+    scope,
   });
   // VIEW ALL on SEALED: every sealed product of the game, paged (the Sealed chip's browse).
   const sealedBrowse = useCatalogCardSearch({ scope: game, sealed: view === 'sealed' });
@@ -250,8 +255,28 @@ export function GameSetsScreen({
 
   // The backend returns `release_date DESC NULLS LAST, name ASC` — newest first;
   // grouping keeps that order inside each era.
-  const expansions = useMemo(() => byGame[game] ?? [], [byGame, game]);
-  const rows = useMemo(() => groupSetsByEra(expansions), [expansions]);
+  // ALL: every game's sets, newest first (eras are per game, so no era headers).
+  const expansions = useMemo(
+    () => (allGames ? sortNewestFirst(games.flatMap((each) => byGame[each] ?? [])) : byGame[game] ?? []),
+    [allGames, byGame, game, games],
+  );
+  const gameBySet = useMemo(() => {
+    const map: Record<string, CardGame> = {};
+    for (const each of games) {
+      for (const expansion of byGame[each] ?? []) {
+        map[expansion.id] = each;
+      }
+    }
+    return map;
+  }, [byGame, games]);
+  const gameOf = (expansion: ExpansionRecord) => gameBySet[expansion.id] ?? game;
+  const rows = useMemo<SetListRow[]>(
+    () =>
+      allGames
+        ? expansions.map((expansion) => ({ kind: 'set', key: expansion.id, expansion }))
+        : groupSetsByEra(expansions),
+    [allGames, expansions],
+  );
   // Sets in list order (era'd: newest era first, promos after its mains).
   const orderedSets = useMemo(
     () => rows.flatMap((row) => (row.kind === 'set' ? [row.expansion] : [])),
@@ -262,8 +287,8 @@ export function GameSetsScreen({
     () => (isLanding ? singlesSourceSets(orderedSets) : []),
     [isLanding, orderedSets],
   );
-  const singles = useSinglesRail(game, singlesSources);
-  const sealedRail = useSealedRail(game, isLanding);
+  const singles = useSinglesRail(game, singlesSources, allGames ? gameBySet : undefined);
+  const sealedRail = useSealedRail(scope, isLanding);
   // The route's game stays a chip even before its sets load, so the row never
   // jumps under the selected chip.
   const chipGames = games.includes(game) ? games : [game, ...games];
@@ -285,17 +310,16 @@ export function GameSetsScreen({
     (result: CatalogSearchResult) => {
       const isSealed = result.productKind === 'sealed';
       capturePostHogEvent('catalog_search_result_opened', {
-        has_rarity_filter: filterParams.rarityBucket != null,
         is_sealed: isSealed,
         result_count: isSealed ? footerSealed.length : cardResults.length,
-        scope: game,
+        scope,
       });
       searchFieldRef.current?.blur();
       Keyboard.dismiss();
       setOpeningResultId(result.id);
       onOpenCard(result);
     },
-    [cardResults.length, filterParams.rarityBucket, footerSealed.length, game, onOpenCard],
+    [cardResults.length, footerSealed.length, onOpenCard, scope],
   );
 
   const askAssistant = useCallback(() => {
@@ -303,11 +327,11 @@ export function GameSetsScreen({
     if (!question || !onAskAssistant) {
       return;
     }
-    capturePostHogEvent(AnalyticsEvent.smartSearchAskTapped, { scope: game });
+    capturePostHogEvent(AnalyticsEvent.smartSearchAskTapped, { scope });
     searchFieldRef.current?.blur();
     Keyboard.dismiss();
-    onAskAssistant(question, game);
-  }, [game, onAskAssistant, search.query]);
+    onAskAssistant(question, allGames ? null : game);
+  }, [allGames, game, onAskAssistant, scope, search.query]);
 
   const renderSetsState = () => {
     if (isLoading && !hasLoaded) {
@@ -322,7 +346,7 @@ export function GameSetsScreen({
       );
     }
     // This game's own read failed even if others answered: never "No sets".
-    const setsError = error || (failedGames.includes(game) && expansions.length === 0 ? GAME_EXPANSIONS_ERROR : '');
+    const setsError = error || ((allGames ? failedGames.length > 0 : failedGames.includes(game)) && expansions.length === 0 ? GAME_EXPANSIONS_ERROR : '');
     if (setsError) {
       return (
         <StateCard
@@ -409,7 +433,7 @@ export function GameSetsScreen({
       return (
         <StateCard
           centered
-          message={`Nothing in ${gameDisplayName(game)} matched. Try a shorter query or just the collector number.`}
+          message={`Nothing${allGames ? '' : ` in ${gameDisplayName(game)}`} matched. Try a shorter query or just the collector number.`}
           style={styles.stateCard}
           title="No matching cards"
         />
@@ -419,13 +443,19 @@ export function GameSetsScreen({
   };
 
   const body = () => {
-    if (!isSearch || !peopleVisited) {
+    if (!isSearch) {
       return cardsBody();
     }
-    // PEOPLE stays mounted once visited (hidden on CARDS), so its list and the
-    // holdings it read survive a tab flip.
+    // COLLECTORS and EVENTS stay mounted once visited (hidden elsewhere), so
+    // their lists and what they read survive a tab flip.
     return (
       <>
+        {eventsVisited ? (
+          <View style={[styles.body, onEventsTab ? null : styles.hidden]} testID="search-events">
+            <EventsPage page={eventsPage} />
+          </View>
+        ) : null}
+        {peopleVisited ? (
         <View style={[styles.body, onPeopleTab ? null : styles.hidden]}>
           <GestureDetector gesture={pullDown.scrollGesture}>
             <PeopleSearchResults
@@ -448,7 +478,8 @@ export function GameSetsScreen({
             />
           </GestureDetector>
         </View>
-        {onPeopleTab ? null : cardsBody()}
+        ) : null}
+        {onPeopleTab || onEventsTab ? null : cardsBody()}
       </>
     );
   };
@@ -469,8 +500,6 @@ export function GameSetsScreen({
               testID="game-sets-sealed"
             />
           )}
-          // The Sealed filter's results are product shots, not cards.
-          artAspect={filterParams.sealed ? 'square' : undefined}
           isLoadingMore={smart.isActive ? smart.isLoadingMore : search.isLoadingMore}
           onEndReached={smart.isActive ? smart.loadMore : search.loadMore}
           onOpenResult={openResult}
@@ -497,7 +526,7 @@ export function GameSetsScreen({
       key={expansion.id}
       logoUrl={expansion.imageUrl}
       name={expansion.name}
-      onPress={() => onSelectExpansion(expansion, game)}
+      onPress={() => onSelectExpansion(expansion, gameOf(expansion))}
       releaseDate={expansion.releaseDate}
       setValue={expansion.setValue ?? null}
       testID={`game-sets-expansion-${expansion.id}`}
@@ -610,13 +639,25 @@ export function GameSetsScreen({
       style={styles.chipScroller}
       testID="game-sets-game-chips"
     >
+      {isSearch ? (
+        // Figma 6722:8531: ALL leads the row on Search.
+        <PillButton
+          label="All"
+          labelRole="caption"
+          onPress={() => setScope('all')}
+          selected={allGames}
+          testID="game-sets-game-all"
+          tone="filled"
+          uppercase
+        />
+      ) : null}
       {chipGames.map((chipGame) => (
         <PillButton
           key={chipGame}
           label={gameDisplayName(chipGame)}
           labelRole="caption"
-          onPress={() => setGame(chipGame)}
-          selected={chipGame === game}
+          onPress={() => setScope(chipGame)}
+          selected={chipGame === scope}
           testID={`game-sets-game-${chipGame}`}
           // Figma's "Secondary" chip, the same one News / Market Watch use. On
           // Search's white header the gray-50 resting fill vanishes, so it takes
@@ -650,7 +691,7 @@ export function GameSetsScreen({
             <View style={styles.section}>
               <SearchSectionHeader
                 countLabel={resultsCountLabel(totalCardCount(expansions))}
-                onViewAll={singlesSet ? () => onSelectExpansion(singlesSet, game) : undefined}
+                onViewAll={singlesSet ? () => onSelectExpansion(singlesSet, gameOf(singlesSet)) : undefined}
                 testID="game-sets-singles-header"
                 title="SINGLES"
               />
@@ -660,7 +701,8 @@ export function GameSetsScreen({
           {sealedRail.results.length > 0 ? (
             <View style={styles.section}>
               <SearchSectionHeader
-                onViewAll={onViewAll ? () => onViewAll('sealed', game) : undefined}
+                // VIEW ALL opens one game's page: ALL has none to open.
+                onViewAll={onViewAll && !allGames ? () => onViewAll('sealed', game) : undefined}
                 testID="game-sets-sealed-header"
                 title="SEALED"
               />
@@ -671,7 +713,7 @@ export function GameSetsScreen({
             <View style={[styles.section, styles.setsSection]}>
               <SearchSectionHeader
                 countLabel={resultsCountLabel(orderedSets.length)}
-                onViewAll={onViewAll ? () => onViewAll('sets', game) : undefined}
+                onViewAll={onViewAll && !allGames ? () => onViewAll('sets', game) : undefined}
                 testID="game-sets-sets-header"
                 title="SETS"
               />
@@ -744,12 +786,17 @@ export function GameSetsScreen({
           if (next === searchTab) {
             return;
           }
-          // The text follows you across: "gengar" on CARDS is "gengar" on PEOPLE.
-          if (next === 'people') {
+          // The text follows you across: "gengar" on CARDS is "gengar" on COLLECTORS.
+          if (next === 'people' && searchTab === 'cards') {
             setPeopleQuery(search.query);
-            setPeopleVisited(true);
-          } else {
+          } else if (next === 'cards' && searchTab === 'people') {
             search.setQuery(peopleQuery);
+          }
+          if (next === 'people') {
+            setPeopleVisited(true);
+          } else if (next === 'events') {
+            Keyboard.dismiss();
+            setEventsVisited(true);
           }
           setSearchTab(next);
         }}
@@ -759,8 +806,9 @@ export function GameSetsScreen({
         value={searchTab}
         variant="underline"
       />
+      {onEventsTab ? null : (
       <View style={styles.searchControls}>
-        {/* Figma 6725:9753: a 40pt gray-100 field; CARDS adds the filter button 8 to its right. */}
+        {/* Figma 6722:8523: a full-width 40pt gray-100 field. */}
         <View style={styles.searchRow}>
           <View style={styles.searchFieldSlot}>
             <SearchField
@@ -769,7 +817,7 @@ export function GameSetsScreen({
               autoCorrect={false}
               onChangeText={onPeopleTab ? setPeopleQuery : search.setQuery}
               onSubmitEditing={onPeopleTab ? undefined : smart.submit}
-              placeholder={onPeopleTab ? PEOPLE_SEARCH_PLACEHOLDER : smartSearchPlaceholder(placeholderExample)}
+              placeholder={onPeopleTab ? PEOPLE_SEARCH_PLACEHOLDER : CARDS_SEARCH_PLACEHOLDER}
               returnKeyType="search"
               size="collection"
               surface="muted"
@@ -778,40 +826,11 @@ export function GameSetsScreen({
               value={onPeopleTab ? peopleQuery : search.query}
             />
           </View>
-          {onPeopleTab ? null : (
-            <IconButton
-              accessibilityLabel={activeFilterLabel ? `Filters, ${activeFilterLabel}` : 'Filters'}
-              onPress={() => {
-                Keyboard.dismiss();
-                setFilterSheetOpen(true);
-              }}
-              selected={activeFilterLabel != null}
-              shape="rounded"
-              size={searchFieldCollectionHeight}
-              testID="game-sets-filter"
-              variant="filled"
-            >
-              {/* Figma 6642:12671 is iconoir `filter-list`; drawn at the shared
-                  glyph size/weight — at 20 / 1.5 it shrank to thin lines and a dot. */}
-              <FilterList
-                color={activeFilterLabel ? theme.colors.purple500 : theme.colors.gray900}
-                height={glassNavBubbleGlyphSize}
-                strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                testID="game-sets-filter-glyph"
-                width={glassNavBubbleGlyphSize}
-              />
-              {activeFilterLabel ? (
-                <View
-                  style={[styles.filterDot, { backgroundColor: theme.colors.purple500 }]}
-                  testID="game-sets-filter-active"
-                />
-              ) : null}
-            </IconButton>
-          )}
         </View>
         {/* CARDS only searches cards: its game chips sit under the field. */}
         {onPeopleTab ? (showsPeopleRelations ? renderPeopleRelations() : null) : renderGameChips()}
       </View>
+      )}
     </View>
   );
 
@@ -820,7 +839,7 @@ export function GameSetsScreen({
       <PullDownToDismiss controller={pullDown} testID="game-sets-pull-down">
       <View style={[styles.screen, { backgroundColor: theme.colors.gray50 }]}>
         {renderSearchHeader()}
-        {onPeopleTab ? null : (
+        {onPeopleTab || onEventsTab ? null : (
           <View style={styles.searchBodyHeader}>
             {smart.isActive ? (
               <SmartSearchChips chips={smart.chips} onRemove={smart.removeChip} testID="game-sets-smart-chips" />
@@ -832,16 +851,6 @@ export function GameSetsScreen({
           </View>
         )}
         {body()}
-        <CatalogSearchFilterSheet
-          activeFilter={filter.activeFilter}
-          onApply={(next) => {
-            filter.setActiveFilter(next);
-            setFilterSheetOpen(false);
-          }}
-          onClose={() => setFilterSheetOpen(false)}
-          testID="search-filter-sheet"
-          visible={filterSheetOpen}
-        />
       </View>
       </PullDownToDismiss>
     );
@@ -940,15 +949,6 @@ const styles = StyleSheet.create({
   chips: {
     gap: 10,
     paddingHorizontal: layout.pageGutter,
-  },
-  filterDot: {
-    borderCurve: 'continuous',
-    borderRadius: radii.pill,
-    height: 6,
-    position: 'absolute',
-    right: 6,
-    top: 6,
-    width: 6,
   },
   hidden: {
     display: 'none',

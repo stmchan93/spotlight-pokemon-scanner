@@ -108,11 +108,11 @@ describe('Smart search', () => {
     mockCapture.mockClear();
   });
 
-  it('shows the example placeholder on CARDS', async () => {
+  it('shows the Figma placeholder on CARDS (6722:8526)', async () => {
     mockCatalog();
     renderSearch();
     const field = await screen.findByTestId('game-sets-search');
-    expect(field.props.placeholder).toMatch(/^SEARCH CARDS, OR TRY "/);
+    expect(field.props.placeholder).toBe('SEARCH BY CARDS, SETS, PEOPLE');
   });
 
   it('a plain query never calls the smart endpoint', async () => {
@@ -121,7 +121,7 @@ describe('Smart search', () => {
     renderSearch();
     fireEvent.changeText(await screen.findByTestId('game-sets-search'), 'charizard 199');
     expect(await screen.findByTestId('catalog-result-char-199')).toBeTruthy();
-    expect(searchPage).toHaveBeenCalledWith('charizard 199', expect.any(Number), 0, expect.objectContaining({ game: 'pokemon' }));
+    expect(searchPage).toHaveBeenCalledWith('charizard 199', expect.any(Number), 0, expect.objectContaining({ game: 'all' }));
     expect(smart).not.toHaveBeenCalled();
     expect(screen.queryByTestId('game-sets-ask-ekalight')).toBeNull();
   });
@@ -140,7 +140,7 @@ describe('Smart search', () => {
     expect(await screen.findByTestId('catalog-result-eevee-sir', {}, WAIT)).toBeTruthy();
     expect(screen.queryByTestId('catalog-result-noise')).toBeNull();
     expect(smart).toHaveBeenCalledTimes(1);
-    expect(smart.mock.calls[0][0]).toEqual({ game: 'pokemon', limit: 30, query: 'eevee alt arts under $50' });
+    expect(smart.mock.calls[0][0]).toEqual({ game: 'all', limit: 30, query: 'eevee alt arts under $50' });
     expect(screen.getByText('Under $50')).toBeTruthy();
     expect(screen.getByLabelText('Remove Alt art')).toBeTruthy();
 
@@ -148,7 +148,7 @@ describe('Smart search', () => {
     expect(await screen.findByTestId('catalog-result-eevee-pricey', {}, WAIT)).toBeTruthy();
     expect(smart).toHaveBeenCalledTimes(2);
     expect(smart.mock.calls[1][0]).toEqual({
-      game: 'pokemon',
+      game: 'all',
       interpretation: { filter: { rarity_bucket: ['sir', 'illustration'], text: 'Eevee' }, owned: 'any', sort: 'relevance' },
       limit: 30,
     });
@@ -185,7 +185,7 @@ describe('Smart search', () => {
     expect(screen.getByLabelText('Ask Ekalight: should I grade my umbreon?')).toBeTruthy();
     expect(await screen.findByTestId('catalog-result-umbreon-vmax')).toBeTruthy();
     fireEvent.press(row);
-    expect(onAskAssistant).toHaveBeenCalledWith('should I grade my umbreon?', 'pokemon');
+    expect(onAskAssistant).toHaveBeenCalledWith('should I grade my umbreon?', null);
     expect(smart).not.toHaveBeenCalled();
   });
 

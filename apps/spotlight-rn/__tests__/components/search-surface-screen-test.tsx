@@ -167,44 +167,46 @@ describe('Search surface (tab / sheet)', () => {
     expect(screen.getByLabelText('Notifications, 3 unread')).toBeTruthy();
   });
 
-  it('CARDS shows the game chips under the tabs and an example search; PEOPLE keeps its placeholder', async () => {
+  it('Figma 6711:4679: CARDS | COLLECTORS | EVENTS, a full-width field, and ALL leading the game chips', async () => {
     mockCatalog();
-    jest.spyOn(Math, 'random').mockReturnValue(0);
     renderSearch('tab');
 
     expect(await screen.findByTestId('game-sets-game-chips')).toBeTruthy();
-    expect(screen.getByPlaceholderText('SEARCH CARDS, OR TRY "EEVEE ALT ARTS UNDER $50"')).toBeTruthy();
-    expect(screen.getByTestId('game-sets-filter')).toBeTruthy();
+    expect(screen.getByPlaceholderText('SEARCH BY CARDS, SETS, PEOPLE')).toBeTruthy();
+    // No filter button beside the field.
+    expect(screen.queryByTestId('game-sets-filter')).toBeNull();
+    // ALL is selected on open, ahead of the games.
+    expect(screen.getByTestId('game-sets-game-all').props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true }),
+    );
+    expect(screen.getByText('COLLECTORS')).toBeTruthy();
+    expect(screen.getByText('EVENTS')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('search-tabs-tab-people'));
     expect(await screen.findByPlaceholderText('SEARCH BY NAME, PROFILE')).toBeTruthy();
   });
 
-  it('the filter sheet applies a rarity to the card search', async () => {
+  it('ALL searches every game; a game chip scopes the search to it', async () => {
     const searchPage = mockCatalog();
     renderSearch('tab');
 
-    fireEvent.press(await screen.findByTestId('game-sets-filter'));
-    fireEvent.press(await screen.findByTestId('search-filter-sheet-rarity-chip-sir'));
-    fireEvent.press(screen.getByTestId('search-filter-sheet-apply'));
-
+    fireEvent.changeText(await screen.findByTestId('game-sets-search'), 'gengar');
     await waitFor(() =>
-      expect(searchPage).toHaveBeenCalledWith('', expect.any(Number), 0, expect.objectContaining({
-        game: 'pokemon',
-        rarityBucket: 'sir',
-      })),
+      expect(searchPage).toHaveBeenCalledWith('gengar', expect.any(Number), 0, expect.objectContaining({ game: 'all' })),
     );
-    expect(screen.getByTestId('game-sets-filter-active')).toBeTruthy();
-    expect(screen.getByLabelText('Filters, SIR')).toBeTruthy();
-
-    // Sealed replaces the rarity (single-select) and asks for sealed product.
-    fireEvent.press(screen.getByTestId('game-sets-filter'));
-    fireEvent.press(await screen.findByTestId('search-filter-sheet-sealed-chip'));
-    fireEvent.press(screen.getByTestId('search-filter-sheet-apply'));
+    fireEvent.press(screen.getByTestId('game-sets-game-pokemon'));
     await waitFor(() =>
-      expect(searchPage).toHaveBeenLastCalledWith('', expect.any(Number), 0, expect.objectContaining({ kind: 'sealed' })),
+      expect(searchPage).toHaveBeenCalledWith('gengar', expect.any(Number), 0, expect.objectContaining({ game: 'pokemon' })),
     );
-    expect(searchPage.mock.calls.at(-1)?.[3]).not.toHaveProperty('rarityBucket');
+  });
+
+  it('EVENTS swaps the field for the events list', async () => {
+    mockCatalog();
+    renderSearch('tab');
+
+    fireEvent.press(await screen.findByTestId('search-tabs-tab-events'));
+    expect(screen.queryByTestId('game-sets-search')).toBeNull();
+    expect(screen.getByTestId('search-events')).toBeTruthy();
   });
 
   it('PEOPLE lists suggested collectors with their most valuable holdings from one batched read', async () => {
@@ -272,7 +274,7 @@ describe('Search surface (tab / sheet)', () => {
     });
     expect(screen.getByTestId('game-sets-search').props.value).toBe('stephen');
     await waitFor(() =>
-      expect(searchPage).toHaveBeenCalledWith('stephen', expect.any(Number), 0, expect.objectContaining({ game: 'pokemon' })),
+      expect(searchPage).toHaveBeenCalledWith('stephen', expect.any(Number), 0, expect.objectContaining({ game: 'all' })),
     );
   });
 

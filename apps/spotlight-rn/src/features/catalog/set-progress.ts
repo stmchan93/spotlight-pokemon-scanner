@@ -144,6 +144,14 @@ function releaseKey(expansion: ExpansionRecord): string {
   return (expansion.releaseDate ?? '').trim().replace(/-/g, '/');
 }
 
+/** Several games' sets as one list (Search's ALL): newest release first, undated last, stable. */
+export function sortNewestFirst(expansions: ExpansionRecord[]): ExpansionRecord[] {
+  return expansions
+    .map((expansion, index) => ({ expansion, index, key: releaseKey(expansion) }))
+    .sort((a, b) => (a.key === b.key ? a.index - b.index : !a.key ? 1 : !b.key ? -1 : a.key > b.key ? -1 : 1))
+    .map((entry) => entry.expansion);
+}
+
 /** Main sets in arrival order, then promos in arrival order. */
 function mainsThenPromos(expansions: ExpansionRecord[]): ExpansionRecord[] {
   return [...expansions.filter((item) => !item.isPromo), ...expansions.filter((item) => item.isPromo)];

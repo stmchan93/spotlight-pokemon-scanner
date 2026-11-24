@@ -66,7 +66,7 @@ describe('ExpansionBrowserScreen', () => {
     jest.restoreAllMocks();
   });
 
-  it('opens on Pokémon\'s sets with a chip per game that has sets', async () => {
+  it('opens on ALL (every game\'s sets) with a chip per game that has sets', async () => {
     const listExpansions = mockListExpansions();
 
     renderWithProviders(
@@ -78,7 +78,8 @@ describe('ExpansionBrowserScreen', () => {
       CARD_GAMES.forEach((game) => expect(listExpansions).toHaveBeenCalledWith(game));
     });
     expect(await screen.findByTestId('game-sets-expansion-sv8')).toBeTruthy();
-    expect(screen.getByTestId('game-sets-game-pokemon').props.accessibilityState).toMatchObject({ selected: true });
+    expect(screen.getByTestId('game-sets-game-all').props.accessibilityState).toMatchObject({ selected: true });
+    expect(screen.getByTestId('game-sets-game-pokemon').props.accessibilityState).toMatchObject({ selected: false });
     expect(screen.getByTestId('game-sets-game-onepiece')).toBeTruthy();
     // Games with no sets get no chip.
     expect(screen.queryByTestId('game-sets-game-lorcana')).toBeNull();

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import type { CardGame, CatalogSearchResult, ExpansionRecord } from '@spotlight/api-client';
 
+import type { CatalogSearchScope } from '@/features/catalog/hooks/use-catalog-card-search';
 import { useAppServices } from '@/providers/app-providers';
 
 /** A rail, not a page: VIEW ALL opens the rest. */
@@ -22,7 +23,12 @@ export type SearchLandingRail = {
  *
  * `set` is the set the cards came from — VIEW ALL opens it.
  */
-export function useSinglesRail(game: CardGame, sourceSets: readonly ExpansionRecord[]) {
+export function useSinglesRail(
+  game: CardGame,
+  sourceSets: readonly ExpansionRecord[],
+  /** ALL: the sets span games, so each is read under its own. */
+  gameBySet?: Readonly<Record<string, CardGame>>,
+) {
   const { spotlightRepository } = useAppServices();
   const sourceKey = sourceSets.map((set) => set.id).join('|');
   const [state, setState] = useState<{
@@ -43,7 +49,7 @@ export function useSinglesRail(game: CardGame, sourceSets: readonly ExpansionRec
     void (async () => {
       for (const set of sourceSets) {
         try {
-          const cards = await spotlightRepository.listCardsInExpansion(set.id, '', SET_CARDS_LIMIT, game);
+          const cards = await spotlightRepository.listCardsInExpansion(set.id, '', SET_CARDS_LIMIT, gameBySet?.[set.id] ?? game);
           if (cancelled) {
             return;
           }
@@ -73,12 +79,12 @@ export function useSinglesRail(game: CardGame, sourceSets: readonly ExpansionRec
 }
 
 /**
- * SEALED on the Search landing: the game's sealed product with no query —
+ * SEALED on the Search landing: the game's (or ALL games') sealed product with no query —
  * the same browse the Sealed chip runs (newest sets first).
  */
-export function useSealedRail(game: CardGame, enabled = true): SearchLandingRail {
+export function useSealedRail(game: CatalogSearchScope, enabled = true): SearchLandingRail {
   const { spotlightRepository } = useAppServices();
-  const [state, setState] = useState<{ game: CardGame | null; results: CatalogSearchResult[]; isLoading: boolean }>(
+  const [state, setState] = useState<{ game: CatalogSearchScope | null; results: CatalogSearchResult[]; isLoading: boolean }>(
     { game: null, results: [], isLoading: false },
   );
 
