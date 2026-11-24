@@ -340,6 +340,7 @@ describe('PortfolioScreen', () => {
     expect(await screen.findByTestId('portfolio-header-title')).toBeTruthy();
     // The header is now the profile block; its name sub-element carries the display name.
     expect(screen.getByTestId('portfolio-header-title-name')).toBeTruthy();
+    expect(screen.getByTestId('portfolio-header-settings')).toBeTruthy();
 
     // Summary block.
     expect(screen.getByTestId('portfolio-summary-value')).toBeTruthy();
@@ -978,17 +979,17 @@ describe('PortfolioScreen', () => {
   });
 
   /*
-    THE TOP BAR HAS NO CONTROLS. Its last one, the Settings gear, left when
-    Settings became a bottom tab; search, edit, share, the menu and Ask
-    Ekalight had already gone. The profile block moves up into the freed row.
+    THE TOP BAR IS ONE GEAR (Figma 6642:5964). Search, edit, share, the menu
+    and Ask Ekalight all left it: Search is a bottom tab, Settings replaced the
+    drawer, the assistant is an app-wide floating bubble, and Edit profile is
+    the avatar tap. Exclusions matter as much as the gear.
   */
-  it('draws no controls in the top bar and lifts the profile block into the freed row', async () => {
+  it('draws only the settings gear in the top bar, and opens Settings from it', async () => {
     renderPortfolioScreen();
 
-    await screen.findByTestId('portfolio-header-title');
-    expect(screen.queryByTestId('portfolio-header-row')).toBeNull();
+    const gear = await screen.findByTestId('portfolio-header-settings');
+    expect(gear.props.accessibilityLabel).toBe('Settings');
     for (const testID of [
-      'portfolio-header-settings',
       'portfolio-header-menu',
       'portfolio-header-assistant',
       'portfolio-header-search',
@@ -1001,9 +1002,10 @@ describe('PortfolioScreen', () => {
       expect(screen.queryByTestId(testID)).toBeNull();
     }
 
-    // Default avatarTop 66 less the 44pt row the gear used.
-    const content = StyleSheet.flatten(screen.getByTestId('portfolio-header-title-content').props.style);
-    expect(content.paddingTop).toBe(59 + 22); // test safe-area top 59
+    await act(async () => {
+      fireEvent.press(gear);
+    });
+    expect(push).toHaveBeenCalledWith('/settings');
   });
 
   it('opens Edit profile from your own avatar', async () => {
@@ -2424,7 +2426,11 @@ describe('PortfolioScreen', () => {
       });
     });
 
-    // Still the floating status-bar strip after a scroll.
-    expect(StyleSheet.flatten(screen.getByTestId('portfolio-header').props.style).position).toBe('absolute');
+    // The gear is pinned and stays live for the whole scroll.
+    push.mockClear();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('portfolio-header-settings'));
+    });
+    expect(push).toHaveBeenLastCalledWith('/settings');
   });
 });

@@ -89,18 +89,6 @@ describe('tab pager <-> expo-router', () => {
     expect(screen.getByTestId('app-tab-social').props.accessibilityState).toEqual({ selected: true });
   });
 
-  it('pushes the Settings screen from the round button beside the bar', async () => {
-    const SettingsStub = () => <Text testID="stub-settings">settings</Text>;
-    const app = renderAppRouter('/', { ...STUBS, '(stack)/settings': SettingsStub });
-    await waitFor(() => expect(screen.getByTestId('stub-index')).toBeTruthy());
-    // Settings is not a tab.
-    expect(screen.queryByTestId('app-tab-settings')).toBeNull();
-
-    fireEvent.press(screen.getByTestId('app-tab-settings-button'));
-    await waitFor(() => expect(app.getPathname()).toBe('/settings'));
-    expect(screen.getByTestId('stub-settings')).toBeTruthy();
-  });
-
   it('moves the strip when the route changes (router.push to a tab)', async () => {
     const app = renderAppRouter('/', STUBS);
     await waitFor(() => expect(screen.getByTestId('stub-index')).toBeTruthy());

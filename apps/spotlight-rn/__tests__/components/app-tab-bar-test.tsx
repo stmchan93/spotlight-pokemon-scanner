@@ -73,25 +73,10 @@ describe('AppTabBar', () => {
     expect(onSelectPage.mock.calls).toEqual([[3], [2]]);
   });
 
-  it('draws Settings as a round button beside the bar, not a tab', () => {
-    const onOpenSettings = jest.fn();
-    const onSelectPage = jest.fn();
-    render(
-      <AppTabBar
-        bottomInset={34}
-        focusedPage={0}
-        onOpenSettings={onOpenSettings}
-        onSelectPage={onSelectPage}
-        position={{ value: 0 } as never}
-      />,
-    );
-    const button = screen.getByTestId('app-tab-settings-button');
-    expect(button.props.accessibilityLabel).toBe('settings');
-    // As tall as the capsule (54 row + 4 + 4) and round.
-    expect(StyleSheet.flatten(button.props.style)).toEqual(expect.objectContaining({ height: 62, width: 62 }));
-    fireEvent.press(button);
-    expect(onOpenSettings).toHaveBeenCalledTimes(1);
-    expect(onSelectPage).not.toHaveBeenCalled();
+  it('has no Settings control: Settings lives on Home (Figma 6731:9875)', () => {
+    renderBar();
+    expect(screen.queryByTestId('app-tab-settings')).toBeNull();
+    expect(screen.queryByTestId('app-tab-settings-button')).toBeNull();
   });
 
   it('draws the account photo on SOCIAL when there is one', () => {

@@ -14,7 +14,7 @@ import {
   type TabNavigationState,
   type TabRouterOptions,
 } from '@react-navigation/native';
-import { router, withLayoutContext } from 'expo-router';
+import { withLayoutContext } from 'expo-router';
 import { tabRouterOverride } from 'expo-router/build/layouts/TabRouter';
 import {
   memo,
@@ -523,9 +523,6 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
     }
   }, [openLogin]);
 
-  // Settings is a pushed stack route, open to guests (its gated rows sign in).
-  const openSettings = useCallback(() => router.push('/settings'), []);
-
   // ── The gesture ────────────────────────────────────────────────────────────
   // Imported constants are NOT captured by the worklets plugin; a worklet that
   // reads one throws on the UI thread (the 2026-11-15 swipe crash). Copy them.
@@ -712,7 +709,6 @@ function TabPagerView({ descriptors, navigation, state }: ViewProps) {
           bottomInset={bottomInset}
           focusedPage={focusedPage}
           glassEpoch={coveredEpoch}
-          onOpenSettings={openSettings}
           onSelectPage={handleSelectPage}
           position={position}
         />

@@ -7,7 +7,7 @@
  *   Home [Collection, …] | Scan | Search | Social [For you, …, Events]
  *
  * Order per Figma "Tab Bar - iPhone" (6725:9509). Settings is not a page: it is
- * the round button beside the bar, pushing the `/settings` stack route.
+ * Home's gear bubble, pushing the `/settings` stack route.
  * Watchlist left the bar for a tab of the Home profile (Figma 6642:5964), and
  * Events for a page of Social; `/wishlist` and `/events` survive as redirect
  * routes, not pages.

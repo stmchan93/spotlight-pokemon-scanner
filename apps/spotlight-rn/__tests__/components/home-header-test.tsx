@@ -22,10 +22,9 @@ import { renderWithProviders } from '../test-utils';
  *
  * The `trailing` variant is the other thing asserted here: ONE component draws
  * both frames, so the trailing control is the only difference between Social's
- * toolbar (centred lockup, messages + bell) and Home's (a lone settings gear),
- * and each variant has to exclude the other's controls rather than merely
- * include its own. Neither has a menu or an Ask Ekalight button any more (the
- * drawer was replaced by Settings; the assistant is an app-wide floating bubble).
+ * toolbar (centred lockup, messages + bell) and Home's (a settings gear); both
+ * lead with the Chat pill. Each variant has to exclude the other's controls
+ * rather than merely include its own.
  */
 
 /** Social's trailing control: messages, then the bell. */
@@ -39,9 +38,9 @@ function socialTrailing(unreadCount = 0, unreadMessageCount = 0): HomeHeaderTrai
   };
 }
 
-/** Home: no controls (Settings is a bottom tab). */
-function profileTrailing(): HomeHeaderTrailing {
-  return { kind: 'profile' };
+/** Home's controls: the Chat pill and the gear. */
+function profileTrailing(onOpenSettings: () => void = jest.fn()): HomeHeaderTrailing {
+  return { kind: 'profile', onOpenSettings };
 }
 
 function renderHeader(props: Partial<Parameters<typeof HomeHeader>[0]> = {}) {
@@ -169,16 +168,25 @@ describe('HomeHeader', () => {
       expect(screen.getByText('9+')).toBeTruthy();
     });
 
-    it('Home draws no control row: Settings is a bottom tab, so the bar is only the status-bar strip', () => {
-      renderHeader({ floating: true, topInset: 59, trailing: profileTrailing() });
+    it('Home (Figma 6731:9875): the Chat pill top-left, a gear bubble top-right that opens Settings', () => {
+      const onOpenSettings = jest.fn();
+      renderHeader({ floating: true, trailing: profileTrailing(onOpenSettings) });
 
-      expect(screen.queryByTestId('home-header-row')).toBeNull();
-      expect(screen.queryByTestId('home-header-settings')).toBeNull();
-      expect(StyleSheet.flatten(screen.getByTestId('home-header').props.style).paddingTop).toBe(59);
+      const row = screen.getByTestId('home-header-row');
+      const order = within(row)
+        .getAllByRole('button')
+        .map((node) => node.props.testID);
+      expect(order).toEqual(['home-header-chat', 'home-header-settings']);
+
+      const gear = screen.getByTestId('home-header-settings');
+      expect(gear.props.accessibilityLabel).toBe('Settings');
+      expect(StyleSheet.flatten(gear.props.style).width).toBe(glassNavBubbleSizes.medium);
+      fireEvent.press(gear);
+      expect(onOpenSettings).toHaveBeenCalledTimes(1);
     });
 
     // EXCLUSION, both ways: one component draws both bars.
-    it('keeps Social controls off Home, and no gear anywhere', () => {
+    it('keeps Social controls off Home and the gear off Social', () => {
       renderHeader({ floating: true, trailing: profileTrailing() });
       for (const testID of [
         'home-header-notifications',
@@ -188,7 +196,6 @@ describe('HomeHeader', () => {
         'home-header-edit',
         'home-header-menu',
         'home-header-assistant',
-        'home-header-settings',
       ]) {
         expect(screen.queryByTestId(testID)).toBeNull();
       }

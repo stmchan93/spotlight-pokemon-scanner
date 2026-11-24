@@ -30,7 +30,7 @@ describe('tab pager order and route <-> page mapping', () => {
     expect(pageIndexForRoute('scan')).toBe(1);
     expect(pageIndexForRoute('search')).toBe(2);
     expect(pageIndexForRoute('social')).toBe(3);
-    // Settings is a pushed screen behind the button beside the bar.
+    // Settings is a pushed screen behind Home's gear.
     expect(pageIndexForRoute('settings')).toBe(-1);
     // Events is a page of Social; `/events` only redirects.
     expect(pageIndexForRoute('events')).toBe(-1);

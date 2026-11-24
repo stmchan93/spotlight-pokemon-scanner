@@ -8,7 +8,7 @@ import { rememberActiveTab } from '@/lib/last-active-tab';
  *
  *   Home [Collection, …] | Scan | Search | Social [Social, News, Market, Events]
  *
- * Settings is not a page: the round button beside the bar pushes `/settings`.
+ * Settings is not a page: Home's gear bubble pushes `/settings`.
  *
  * WHY A CUSTOM NAVIGATOR. Apple's native tab bar (expo-router NativeTabs) cannot
  * be dragged — UITabBarController has no interactive swipe — so the screens

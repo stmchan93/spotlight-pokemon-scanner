@@ -48,7 +48,7 @@ const ROW_ICON_SIZE = 20;
 const PROFILE_AVATAR_SIZE = 48;
 
 /**
- * Settings — the `/settings` stack screen the round button beside the tab bar
+ * Settings — the `/settings` stack screen Home's gear bubble
  * pushes. It REPLACES the hamburger drawer: every destination the drawer listed
  * is a row here, except "Find people", which the Search tab's PEOPLE results
  * replace. Every row is a plain `router.push`; back-swipe returns to the tabs.

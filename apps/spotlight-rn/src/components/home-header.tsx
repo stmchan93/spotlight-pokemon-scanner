@@ -1,4 +1,4 @@
-import { Bell, ChatBubbleEmpty } from 'iconoir-react-native';
+import { Bell, ChatBubbleEmpty, Settings } from 'iconoir-react-native';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,9 +22,8 @@ import { AssistantChatPill } from '@/features/assistant/components/assistant-cha
  * - `social` (Figma 6642:5420 + 6725:8999): the ekalight lockup centred, the
  *   Ask Ekalight "Chat" pill top-left, the DM inbox and bell bubbles paired on
  *   the right, each bell/inbox its own 44pt frost bubble with its own badge.
- * - `profile` (Home): NO control row. Settings, which its gear opened, is the
- *   circle beside the tab bar now; the bar is only the status-bar strip — its
- *   pinned backdrop and the over-cover contrast flip.
+ * - `profile` (Home, Figma 6731:9875): the Chat pill top-left and a Settings
+ *   gear bubble top-right (Figma draws a "…"; owner: make it the gear).
  *
  * A DISCRIMINATED UNION so the two legal shapes are the only shapes; each unread count
  * travels with the bubble it badges. The badges stay INSIDE this file: they hang
@@ -42,6 +41,7 @@ export type HomeHeaderTrailing =
     }
   | {
       kind: 'profile';
+      onOpenSettings: () => void;
     };
 
 type HomeHeaderProps = {
@@ -126,7 +126,7 @@ type HomeHeaderProps = {
    * the real inset. Defaults to the safe-area inset for that case.
    */
   topInset?: number;
-  /** Social's messages + bell, or the control-less profile strip. See `HomeHeaderTrailing`. */
+  /** Social's messages + bell, or Home's Settings gear. See `HomeHeaderTrailing`. */
   trailing: HomeHeaderTrailing;
   testID?: string;
 };
@@ -162,7 +162,7 @@ const BAR_PADDING_TOP = 0;
 const BAR_PADDING_BOTTOM = 10;
 /**
  * Height of Social's bar below the safe-area inset — the 44pt control row plus
- * 10 below = 54 (the profile strip has no row, so 0). Exported because a FLOATING bar contributes nothing
+ * 10 below = 54. Exported because a FLOATING bar contributes nothing
  * to layout, so the screen under it has to reserve
  * `insets.top + HOME_HEADER_BAR_HEIGHT` itself. Reading it from here keeps the
  * reservation and the bar from drifting apart.
@@ -356,31 +356,48 @@ export function HomeHeader({
         />
       ) : null}
 
-      {trailing.kind === 'social' ? (
-        <View
-          style={[
-            styles.row,
-            {
-              paddingBottom: BAR_PADDING_BOTTOM,
-              paddingHorizontal: theme.layout.pageGutter,
-              paddingTop: BAR_PADDING_TOP,
-            },
-          ]}
-          testID={`${testID}-row`}
-        >
-          {/* Figma 6642:5420: the black lockup CENTRED on the screen, between the
-              messages (left) and bell (right) bubbles. Permanent chrome: no
-              entrance or scroll animation (2026-09-09). */}
+      <View
+        style={[
+          styles.row,
+          {
+            paddingBottom: BAR_PADDING_BOTTOM,
+            paddingHorizontal: theme.layout.pageGutter,
+            paddingTop: BAR_PADDING_TOP,
+          },
+        ]}
+        testID={`${testID}-row`}
+      >
+        {trailing.kind === 'social' ? (
+          /* Figma 6642:5420: the black lockup CENTRED on the screen. Permanent
+             chrome: no entrance or scroll animation (2026-09-09). */
           <View pointerEvents="none" style={styles.centerMark}>
             <EkalightWordmark color={theme.colors.gray900} height={HOME_WORDMARK_HEIGHT} testID={`${testID}-home-mark`} />
           </View>
-          <AssistantChatPill testID={`${testID}-chat`} />
+        ) : null}
+        <AssistantChatPill testID={`${testID}-chat`} />
+        {trailing.kind === 'social' ? (
           <View style={styles.trailingGroup}>
             {messagesControl}
             {trailingControl}
           </View>
-        </View>
-      ) : null}
+        ) : (
+          <GlassNavBubble
+            accessibilityLabel="Settings"
+            material="frost"
+            onPress={trailing.onOpenSettings}
+            size="medium"
+            surface="onLight"
+            testID={`${testID}-settings`}
+          >
+            <Settings
+              color={glyphColor}
+              height={BUTTON_ICON_SIZE}
+              strokeWidth={glassNavBubbleGlyphStrokeWidth}
+              width={BUTTON_ICON_SIZE}
+            />
+          </GlassNavBubble>
+        )}
+      </View>
     </View>
   );
 }
