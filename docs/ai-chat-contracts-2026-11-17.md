@@ -28,6 +28,8 @@ Source of truth for the parallel build agents. Plan: `docs/ai-features-master-pl
 | `ASSISTANT_DAILY_SPEND_CAP_USD` | `5` | Server-wide; when exceeded → 503 `assistant_busy` until next UTC day |
 | `ASSISTANT_MAX_TOOL_ROUNDS` | `4` | |
 | `ASSISTANT_SHARED_ANSWERS` | `1` | Shared market-answer cache (below); `0` = kill switch |
+| `ASSISTANT_SEARCH_ENABLED` | `0` | Natural-language search (`POST /api/v1/assistant/search`); off → 404 |
+| `ASSISTANT_SEARCH_DAILY_LIMIT` | `100` | Smart-search model calls/UTC day per user (cache hits free); over → intent `plain` |
 | `ANTHROPIC_API_KEY` | (exists) | Already used by `anthropic_adapter.py` |
 
 One question = one user message that got an assistant answer. Failed or errored turns do NOT count.
@@ -158,6 +160,18 @@ ProposedAction = {
 Backend changes this implies (Agent A):
 - `server.create_deck_entry`: map `selectionSource "assistant"` → confirmation source `add_assistant`.
 - `CollectionTools` holding summaries gain `holding_id` (deck entry id). Add it to `policy.USER_CARD_FIELDS`. The public tier never sees it.
+
+### `POST /api/v1/assistant/search` (natural-language search, added 2026-11-23)
+Same auth as the routes above; guests allowed (their `owned` is dropped). Body either
+`{"query": str<=200, "game": "<game>|all", "limit": 1..30, "cursor"?: str}` (one Haiku call, forced
+`interpret_search` tool, ~4s timeout; interpretations LRU-cached in-process by normalized query + game) or
+`{"interpretation": {...as returned...}, "game", "limit", "cursor"?}` (no model call: chip removal and paging).
+
+Response 200: `{"intent": "search"|"question"|"plain", "interpretation": {"filter": CardFilter, "owned", "sort"}|null,
+"chips": [{"id", "label", "field"}], "results": [card rows shaped like /api/v1/cards/search], "nextCursor": str|null}`.
+Chips are built server-side from the validated filter. Any failure (model error, bad output, spend cap, per-user
+cap, unusable filter) answers `plain`, and the app runs its normal search. Model cost lands in `assistant_usage`
+(`questions` unchanged), so `ASSISTANT_DAILY_SPEND_CAP_USD` covers it. Code: `mcp_server/assistant/smart_search.py`.
 
 ## Assistant tools (what Haiku sees)
 

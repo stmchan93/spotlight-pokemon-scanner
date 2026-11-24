@@ -240,6 +240,22 @@ describe('AssistantScreen', () => {
     expect(screen.queryByTestId('assistant-recent-thr_older')).not.toBeOnTheScreen();
   });
 
+  it('an initial prompt (search\'s Ask row) is sent once in a fresh chat', async () => {
+    const sendAssistantMessage = jest.fn(async (_payload: AssistantSendPayload) => reply(null));
+    const getAssistantThreadMessages = jest.fn(async (_threadId: string) => []);
+    const threads = [{ id: 'thr_latest', title: 'Old', updatedAt: '2026-11-17T17:36:00Z', lastMessagePreview: '' }];
+    renderScreen(
+      { listAssistantThreads: async () => ({ threads, nextCursor: null }), getAssistantThreadMessages, sendAssistantMessage },
+      { initialPrompt: 'should I grade my umbreon?' },
+    );
+    await waitFor(() => expect(sendAssistantMessage).toHaveBeenCalledTimes(1));
+    expect(sendAssistantMessage.mock.calls[0][0].text).toBe('should I grade my umbreon?');
+    expect(sendAssistantMessage.mock.calls[0][0].threadId ?? null).toBeNull();
+    await act(async () => undefined);
+    expect(sendAssistantMessage).toHaveBeenCalledTimes(1);
+    expect(getAssistantThreadMessages).not.toHaveBeenCalled();
+  });
+
   it('a scanner open with tray cards starts a fresh chat', async () => {
     const getAssistantThreadMessages = jest.fn(async (_threadId: string) => []);
     const threads = [{ id: 'thr_latest', title: 'Old', updatedAt: '2026-11-17T17:36:00Z', lastMessagePreview: '' }];

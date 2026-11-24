@@ -15001,6 +15001,17 @@ class SpotlightScanService:
             )
             has_more = len(raw) > limit
             results = raw[:limit]
+        self.hydrate_search_results(results, game=game, kind=kind)
+        payload: dict[str, Any] = {"results": results, "hasMore": has_more}
+        # Typo-corrected retry fired: surface what was actually searched.
+        # Additive field — clients ignore unknown keys.
+        corrected_query = getattr(raw, "corrected_query", None)
+        if corrected_query:
+            payload["correctedQuery"] = corrected_query
+        return payload
+
+    def hydrate_search_results(self, results: list[Any], *, game: str | None, kind: str = "cards") -> None:
+        """In place: the search response's per-card fields (pricing, TCGplayer id, trimmed payload)."""
         # Attach holo-finish options (Normal / Reverse / Poké Ball / Master Ball …)
         # so the review tool can offer a finish picker on a searched card. Additive
         # field — existing consumers ignore it.
@@ -15042,13 +15053,6 @@ class SpotlightScanService:
                     card.get("sourcePayload"),
                     collision_guard(self.connection)["colliding_product_ids"],
                 )
-        payload: dict[str, Any] = {"results": results, "hasMore": has_more}
-        # Typo-corrected retry fired: surface what was actually searched.
-        # Additive field — clients ignore unknown keys.
-        corrected_query = getattr(raw, "corrected_query", None)
-        if corrected_query:
-            payload["correctedQuery"] = corrected_query
-        return payload
 
     # ------------------------------------------------------------------
     # Reviewer-gated "label unlabeled scans" web surface (additive).

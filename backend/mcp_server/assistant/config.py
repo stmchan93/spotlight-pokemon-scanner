@@ -70,6 +70,11 @@ class AssistantConfig:
     api_key: str | None = None
     # Replay market-wide answers across users (shared_answers.py); ASSISTANT_SHARED_ANSWERS=0 kills it.
     shared_answers: bool = True
+    # Natural-language catalog search (smart_search.py): own flag and per-user LLM-call cap.
+    search_enabled: bool = False
+    search_daily_limit: int = 100
+    # The app abandons the request at ~6s; the interpretation call must finish well inside it.
+    search_timeout_seconds: float = 4.0
 
     @classmethod
     def from_env(cls) -> "AssistantConfig":
@@ -89,7 +94,16 @@ class AssistantConfig:
             )),
             api_key=(os.environ.get("ANTHROPIC_API_KEY") or "").strip() or None,
             shared_answers=_env_flag("ASSISTANT_SHARED_ANSWERS", True),
+            search_enabled=_env_flag("ASSISTANT_SEARCH_ENABLED"),
+            search_daily_limit=max(0, _env_int("ASSISTANT_SEARCH_DAILY_LIMIT", 100)),
+            search_timeout_seconds=min(5.0, max(1.0, _env_float("ASSISTANT_SEARCH_TIMEOUT_SECONDS", 4.0))),
         )
+
+    def search_limit_for(self, user_id: str) -> int | None:
+        """Smart-search LLM calls per UTC day; None = unlimited."""
+        if self.unlimited_all or user_id in self.unlimited_user_ids:
+            return None
+        return self.search_daily_limit
 
     def limit_for(self, user_id: str, *, is_guest: bool) -> int | None:
         """Questions per UTC day; None = unlimited."""

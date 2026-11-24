@@ -25,6 +25,7 @@ type ExpansionBrowserScreenProps = {
   onOpenProfile?: (profile: UserProfile) => void;
   onOpenHolding?: (profile: UserProfile, entry: InventoryCardEntry) => void;
   initialSearchTab?: SearchTab;
+  onAskAssistant?: (question: string, game: CardGame) => void;
 };
 
 /**

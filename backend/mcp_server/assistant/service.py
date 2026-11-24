@@ -87,6 +87,8 @@ class AssistantService:
         # client_message_id lookup race-free (single MCP process).
         self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
         self.shared = shared_answers.SharedAnswerStore(lambda: self.store.conn)
+        # Natural-language search (smart_search.py); set by build_assistant_service.
+        self.smart_search: Any | None = None
 
     @property
     def available(self) -> bool:
@@ -98,6 +100,11 @@ class AssistantService:
             lock = asyncio.Lock()
             self._locks[user_id] = lock
         return lock
+
+    async def search(self, caller: Caller, body: Any) -> tuple[int, dict[str, Any]]:
+        if self.smart_search is None:
+            return NOT_FOUND
+        return await self.smart_search.handle(caller, body)
 
     # --- usage ---------------------------------------------------------------
 

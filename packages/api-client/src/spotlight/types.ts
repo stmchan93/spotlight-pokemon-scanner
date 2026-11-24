@@ -3633,3 +3633,40 @@ export type CardPricePositionQuery = {
   grader?: string | null;
   grade?: string | null;
 };
+
+/*
+  Natural-language search (POST /api/v1/assistant/search). `search` = the
+  server turned the text into a filter and ran it; `question` = advice the chat
+  should answer; `plain` = use the normal catalog search.
+*/
+export type SmartSearchIntent = 'search' | 'question' | 'plain';
+export type SmartSearchOwned = 'any' | 'owned' | 'not_owned';
+export type SmartSearchSort = 'relevance' | 'price_asc' | 'price_desc' | 'newest';
+
+/** Opaque to the app except for chip removal: sent back as-is to page or re-run without the model. */
+export type SmartSearchInterpretation = {
+  filter: Record<string, unknown>;
+  owned: SmartSearchOwned;
+  sort: SmartSearchSort;
+};
+
+/** One removable filter chip; `field` is the filter key (or `owned` / `sort`). */
+export type SmartSearchChip = {
+  id: string;
+  label: string;
+  field: string;
+};
+
+export type SmartSearchRequest = {
+  game: CardGame | 'all';
+  limit?: number;
+  cursor?: string | null;
+} & ({ query: string; interpretation?: undefined } | { interpretation: SmartSearchInterpretation; query?: undefined });
+
+export type SmartSearchResult = {
+  intent: SmartSearchIntent;
+  interpretation: SmartSearchInterpretation | null;
+  chips: SmartSearchChip[];
+  results: CatalogSearchResult[];
+  nextCursor: string | null;
+};

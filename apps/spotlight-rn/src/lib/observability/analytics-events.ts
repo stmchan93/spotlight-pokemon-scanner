@@ -72,6 +72,11 @@ export const AnalyticsEvent = {
   assistantFeedbackTapped: 'assistant_feedback_tapped',
   // Composer "+" photo cropped and sent to the scanner (`photo_source`: camera | library).
   assistantPhotoAttached: 'assistant_photo_attached',
+  // Search box natural-language search: intent, chip_count, result_count, latency_ms, fell_back, trigger.
+  // NEVER the query text.
+  smartSearchPerformed: 'smart_search_performed',
+  // The "Ask Ekalight" row under a question typed into search.
+  smartSearchAskTapped: 'smart_search_ask_tapped',
 } as const;
 
 export type AnalyticsEventName = (typeof AnalyticsEvent)[keyof typeof AnalyticsEvent];

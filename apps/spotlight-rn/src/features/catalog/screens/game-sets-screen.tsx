@@ -27,6 +27,7 @@ import {
 import {
   GlassNavBubble,
   IconButton,
+  InlineLoader,
   PageTabs,
   PillButton,
   SearchField,
@@ -49,6 +50,7 @@ import {
   catalogSearchFilterParams,
   useCatalogSearchFilter,
 } from '@/features/catalog/catalog-search-filter';
+import { AskEkalightRow } from '@/features/catalog/components/ask-ekalight-row';
 import { CatalogResultsGrid } from '@/features/catalog/components/catalog-results-grid';
 import { CatalogSearchFilterSheet } from '@/features/catalog/components/catalog-search-filter-sheet';
 import { SealedResultsSection } from '@/features/catalog/components/sealed-results-section';
@@ -56,19 +58,23 @@ import { SearchRailTile } from '@/features/catalog/components/search-rail-tile';
 import { BadgedBubble } from '@/components/home-header';
 import { SearchSectionHeader } from '@/features/catalog/components/search-section-header';
 import { SearchSetCard } from '@/features/catalog/components/search-set-card';
+import { SmartSearchChips } from '@/features/catalog/components/smart-search-chips';
 import { useCatalogCardSearch } from '@/features/catalog/hooks/use-catalog-card-search';
+import { useSmartCatalogSearch } from '@/features/catalog/hooks/use-smart-catalog-search';
 import { useSealedSearchPreview } from '@/features/catalog/hooks/use-sealed-search-preview';
 import { GAME_EXPANSIONS_ERROR, useGameExpansions } from '@/features/catalog/hooks/use-game-expansions';
 import { useSealedRail, useSinglesRail } from '@/features/catalog/hooks/use-search-landing-previews';
 import { useSetProgress } from '@/features/catalog/hooks/use-set-progress';
 import { resultsCountLabel, singlesSourceSets, totalCardCount } from '@/features/catalog/search-landing';
 import { groupSetsByEra, setCompletion, type SetListRow } from '@/features/catalog/set-progress';
+import { pickSmartSearchExample, smartSearchPlaceholder } from '@/features/catalog/smart-search-query';
 import { PeopleSearchResults } from '@/features/profile/components/people-search-results';
 import { AssistantChatPill } from '@/features/assistant/components/assistant-chat-pill';
 import { useAssistantPageContext } from '@/features/assistant/page-context/assistant-page-context';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import type { PeopleRelation } from '@/features/profile/hooks/use-follow-people';
 import { useUnreadNotificationCount } from '@/features/social/use-unread-notification-count';
+import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -106,6 +112,8 @@ type GameSetsScreenProps = {
   onOpenHolding?: (profile: UserProfile, entry: InventoryCardEntry) => void;
   /** Search tab to open on (dev screens / deep links); CARDS by default. */
   initialSearchTab?: SearchTab;
+  /** A question typed into CARDS: open the chat with it sent. Absent hides the Ask row. */
+  onAskAssistant?: (question: string, game: CardGame) => void;
 };
 
 export type GameSetsView = 'landing' | 'sets' | 'sealed';
@@ -176,6 +184,7 @@ export function GameSetsScreen({
   onOpenProfile,
   onOpenHolding,
   initialSearchTab = 'cards',
+  onAskAssistant,
 }: GameSetsScreenProps) {
   const theme = useSpotlightTheme();
   const isSearch = searchMode != null && view === 'landing';
@@ -203,6 +212,14 @@ export function GameSetsScreen({
   const { byGame, error, failedGames, games, hasLoaded, isLoading, reload } = useGameExpansions();
   const { ownedByExpansion } = useSetProgress(game);
   const search = useCatalogCardSearch({ scope: game, ...filterParams });
+  // Sentence-like queries ("eevee alt arts under $50"); a rarity/Sealed filter keeps the plain path.
+  const smart = useSmartCatalogSearch({
+    enabled: isSearch && !onPeopleTab && filter.activeFilter == null,
+    query: search.query,
+    scope: game,
+  });
+  // One example per mount, no rotation.
+  const [placeholderExample] = useState(pickSmartSearchExample);
   // Floating Ekalight bubble: the game chip, typed query, and CARDS|PEOPLE tab (read at tap time).
   useAssistantPageContext(() => ({
     kind: 'search',
@@ -225,6 +242,9 @@ export function GameSetsScreen({
   const sealedBrowse = useCatalogCardSearch({ scope: game, sealed: view === 'sealed' });
   // Bottom of the list = after the LAST card page, so it waits for paging.
   const sealedResults = search.hasMore ? [] : sealedSearch.results;
+  // A smart search's results stand in for the normal ones (no sealed footer: the filter is cards).
+  const cardResults = smart.isActive ? smart.results : search.results;
+  const footerSealed = smart.isActive ? [] : sealedResults;
   // Blurred when a result opens, so no focus survives to be restored when the
   // card page pops back to this screen.
   const searchFieldRef = useRef<TextInput>(null);
@@ -253,7 +273,10 @@ export function GameSetsScreen({
   // Slid up (Search's landing): swipe down anywhere closes it once the list is at the top.
   const pullDown = usePullDownToDismiss({ enabled: dismissStyle === 'close', onDismiss: onClose });
   const showsResults =
-    search.hasActiveQuery && !search.errorMessage && (search.results.length > 0 || sealedResults.length > 0);
+    search.hasActiveQuery
+    && !smart.isLoading
+    && (smart.isActive || !search.errorMessage)
+    && (cardResults.length > 0 || footerSealed.length > 0);
   const { resetScroll } = pullDown;
   // Switching lists mounts a fresh one at the top.
   useEffect(() => {
@@ -266,7 +289,7 @@ export function GameSetsScreen({
       capturePostHogEvent('catalog_search_result_opened', {
         has_rarity_filter: filterParams.rarityBucket != null,
         is_sealed: isSealed,
-        result_count: isSealed ? sealedResults.length : search.results.length,
+        result_count: isSealed ? footerSealed.length : cardResults.length,
         scope: game,
       });
       searchFieldRef.current?.blur();
@@ -274,8 +297,19 @@ export function GameSetsScreen({
       setOpeningResultId(result.id);
       onOpenCard(result);
     },
-    [filterParams.rarityBucket, game, onOpenCard, sealedResults.length, search.results.length],
+    [cardResults.length, filterParams.rarityBucket, footerSealed.length, game, onOpenCard],
   );
+
+  const askAssistant = useCallback(() => {
+    const question = search.query.trim();
+    if (!question || !onAskAssistant) {
+      return;
+    }
+    capturePostHogEvent(AnalyticsEvent.smartSearchAskTapped, { scope: game });
+    searchFieldRef.current?.blur();
+    Keyboard.dismiss();
+    onAskAssistant(question, game);
+  }, [game, onAskAssistant, search.query]);
 
   const renderSetsState = () => {
     if (isLoading && !hasLoaded) {
@@ -319,6 +353,21 @@ export function GameSetsScreen({
   };
 
   const renderSearchState = () => {
+    // Light and inline: the interpretation is usually back in about a second.
+    if (smart.isLoading) {
+      return <InlineLoader style={styles.inlineLoader} testID="game-sets-smart-loading" />;
+    }
+    if (smart.isActive) {
+      return smart.results.length === 0 ? (
+        <StateCard
+          centered
+          message="Nothing matched all of those. Remove a filter to widen the search."
+          style={styles.stateCard}
+          testID="game-sets-smart-empty"
+          title="No matching cards"
+        />
+      ) : null;
+    }
     if (search.isLoading && search.results.length === 0) {
       return (
         <StateCard
@@ -408,7 +457,7 @@ export function GameSetsScreen({
 
   const cardsBody = () => {
     if (search.hasActiveQuery) {
-      if (search.errorMessage || (search.results.length === 0 && sealedResults.length === 0)) {
+      if (!showsResults) {
         return null;
       }
       return (
@@ -418,17 +467,17 @@ export function GameSetsScreen({
             <SealedResultsSection
               onOpenResult={openResult}
               openingResultId={openingResultId}
-              results={sealedResults}
+              results={footerSealed}
               testID="game-sets-sealed"
             />
           )}
           // The Sealed filter's results are product shots, not cards.
           artAspect={filterParams.sealed ? 'square' : undefined}
-          isLoadingMore={search.isLoadingMore}
-          onEndReached={search.loadMore}
+          isLoadingMore={smart.isActive ? smart.isLoadingMore : search.isLoadingMore}
+          onEndReached={smart.isActive ? smart.loadMore : search.loadMore}
           onOpenResult={openResult}
           openingResultId={openingResultId}
-          results={search.results}
+          results={cardResults}
           scrollProps={pullDown.scrollProps}
           testID="game-sets-results"
         />
@@ -721,7 +770,8 @@ export function GameSetsScreen({
               autoCapitalize="none"
               autoCorrect={false}
               onChangeText={onPeopleTab ? setPeopleQuery : search.setQuery}
-              placeholder={onPeopleTab ? PEOPLE_SEARCH_PLACEHOLDER : SEARCH_PLACEHOLDER}
+              onSubmitEditing={onPeopleTab ? undefined : smart.submit}
+              placeholder={onPeopleTab ? PEOPLE_SEARCH_PLACEHOLDER : smartSearchPlaceholder(placeholderExample)}
               returnKeyType="search"
               size="collection"
               surface="muted"
@@ -774,6 +824,12 @@ export function GameSetsScreen({
         {renderSearchHeader()}
         {onPeopleTab ? null : (
           <View style={styles.searchBodyHeader}>
+            {smart.isActive ? (
+              <SmartSearchChips chips={smart.chips} onRemove={smart.removeChip} testID="game-sets-smart-chips" />
+            ) : null}
+            {smart.isQuestion && onAskAssistant ? (
+              <AskEkalightRow onPress={askAssistant} question={search.query.trim()} testID="game-sets-ask-ekalight" />
+            ) : null}
             {search.hasActiveQuery ? renderSearchState() : renderSetsState()}
           </View>
         )}
@@ -908,6 +964,10 @@ const styles = StyleSheet.create({
     gap: spacing.xxs,
   },
   // Loading / error / empty cards for CARDS, on the page under the white header.
+  inlineLoader: {
+    marginTop: spacing.sm,
+  },
+  // Figma 6642:12697 / 12517: chips 16 under the tabs, the body 16 under the chips.
   searchBodyHeader: {
     paddingHorizontal: layout.pageGutter,
   },

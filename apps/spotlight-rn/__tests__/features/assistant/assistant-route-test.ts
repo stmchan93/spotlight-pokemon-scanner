@@ -12,7 +12,17 @@ describe('assistant route game param', () => {
       threadId: null,
       game: 'onepiece',
       page: null,
+      prompt: null,
     });
+  });
+
+  it('carries a prompt to send as the first question', () => {
+    const href = assistantHref('home', [], 'pokemon', null, '  should I grade my umbreon?  ') as unknown as {
+      params: Record<string, string>;
+    };
+    expect(href.params).toEqual({ source: 'home', game: 'pokemon', prompt: 'should I grade my umbreon?' });
+    expect(parseAssistantRouteParams(href.params).prompt).toBe('should I grade my umbreon?');
+    expect(parseAssistantRouteParams({ source: 'home', prompt: '   ' }).prompt).toBeNull();
   });
 
   it('drops a missing or unknown game', () => {

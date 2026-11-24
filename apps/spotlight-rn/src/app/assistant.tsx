@@ -9,13 +9,15 @@ import { LOGIN_HREF } from '@/features/auth/use-guest-gate';
 import { HOME_WATCHLIST_HREF } from '@/lib/home-profile-tab';
 
 /**
- * `/assistant?source=home|scanner&cardIds=a,b&threadId=…&game=…&page=<json>` — Ask Ekalight, opened by the
- * Chat pill (page = where from). A form sheet on the ROOT stack (ASSISTANT_SHEET_OPTIONS).
+ * `/assistant?source=home|scanner&cardIds=a,b&threadId=…&game=…&page=<json>&prompt=…` — Ask Ekalight, opened by
+ * the Chat pill (page = where from) or search's Ask row (prompt = sent as the first question). A form sheet on the ROOT stack (ASSISTANT_SHEET_OPTIONS).
  */
 export default function AssistantRoute() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ source?: string; cardIds?: string; threadId?: string; game?: string; page?: string }>();
-  const { source, cardIds, threadId, game, page } = parseAssistantRouteParams(params);
+  const params = useLocalSearchParams<{
+    source?: string; cardIds?: string; threadId?: string; game?: string; page?: string; prompt?: string;
+  }>();
+  const { source, cardIds, threadId, game, page, prompt } = parseAssistantRouteParams(params);
   // A push after a modal joins the pushed stack UNDER it (react-native-screens),
   // so a card opened from the chat would land behind the sheet: close it first.
   const leaveTo = useCallback(
@@ -46,6 +48,7 @@ export default function AssistantRoute() {
     <AssistantScreen
       cardIds={cardIds}
       game={game}
+      initialPrompt={prompt}
       initialThreadId={threadId}
       onBack={() => router.back()}
       onOpenCard={openCard}

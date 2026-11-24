@@ -10,6 +10,8 @@ import {
 
 /** Contract cap on scanner context. */
 export const ASSISTANT_MAX_CONTEXT_CARDS = 20;
+/** Contract cap on a question's text. */
+export const ASSISTANT_MAX_PROMPT_CHARS = 1000;
 
 /**
  * `/assistant?source=…&cardIds=a,b&game=…`. `game` is the opening screen's game
@@ -22,6 +24,7 @@ export function assistantHref(
   cardIds: string[] = [],
   game?: CardGame | null,
   page?: AssistantPageContext | null,
+  prompt?: string | null,
 ): Href {
   const unique = Array.from(new Set(cardIds.filter(Boolean))).slice(0, ASSISTANT_MAX_CONTEXT_CARDS);
   const params: Record<string, string> = { source };
@@ -36,6 +39,11 @@ export function assistantHref(
     // short label, a few ids). Parsed defensively on the way in.
     params.page = JSON.stringify(page);
   }
+  const question = prompt?.trim().slice(0, ASSISTANT_MAX_PROMPT_CHARS);
+  if (question) {
+    // Sent as the first question of a fresh chat (search's "Ask Ekalight" row).
+    params.prompt = question;
+  }
   return { pathname: '/assistant', params } as unknown as Href;
 }
 
@@ -49,12 +57,14 @@ export function parseAssistantRouteParams(params: {
   threadId?: string | string[];
   game?: string | string[];
   page?: string | string[];
+  prompt?: string | string[];
 }): {
   source: AssistantContextSource;
   cardIds: string[];
   threadId: string | null;
   game: CardGame | null;
   page: AssistantPageContext | null;
+  prompt: string | null;
 } {
   const source = first(params.source) === 'scanner' ? 'scanner' : 'home';
   const cardIds = first(params.cardIds)
@@ -64,7 +74,10 @@ export function parseAssistantRouteParams(params: {
     .slice(0, ASSISTANT_MAX_CONTEXT_CARDS);
   const rawGame = first(params.game);
   const game = CARD_GAMES.find((candidate) => candidate === rawGame) ?? null;
-  return { source, cardIds, threadId: first(params.threadId) || null, game, page: parsePageParam(first(params.page)) };
+  const prompt = first(params.prompt).trim().slice(0, ASSISTANT_MAX_PROMPT_CHARS) || null;
+  return {
+    source, cardIds, threadId: first(params.threadId) || null, game, page: parsePageParam(first(params.page)), prompt,
+  };
 }
 
 const PAGE_KINDS: readonly AssistantPageKind[] = [

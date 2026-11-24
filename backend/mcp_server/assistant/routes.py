@@ -125,8 +125,15 @@ def register_assistant_routes(server: Any, service: AssistantService, auth: Assi
             return 400, {"error": "invalid_request", "detail": "body must be JSON"}
         return await service.set_feedback(caller, request.path_params["message_id"], body)
 
+    async def search(request: Request, caller: Caller):
+        body = await _body(request)
+        if body is _INVALID_JSON:
+            return 400, {"error": "invalid_request", "detail": "body must be JSON"}
+        return await service.search(caller, body)
+
     routes = (
         (f"{PREFIX}/messages", ["POST"], post_message),
+        (f"{PREFIX}/search", ["POST"], search),
         (f"{PREFIX}/usage", ["GET"], get_usage),
         (f"{PREFIX}/threads", ["GET", "DELETE"], threads),
         (f"{PREFIX}/threads/{{thread_id}}", ["DELETE"], thread),

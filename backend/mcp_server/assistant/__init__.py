@@ -10,6 +10,7 @@ from mcp_server.assistant.config import AssistantConfig
 from mcp_server.assistant.engine import AssistantEngine
 from mcp_server.assistant.routes import AssistantAuth, assistant_validator, register_assistant_routes
 from mcp_server.assistant.service import AssistantService
+from mcp_server.assistant.smart_search import SmartSearch
 from mcp_server.assistant.store import AssistantStore, ensure_schema
 from mcp_server.assistant.tools import AssistantToolbox
 
@@ -24,7 +25,7 @@ def build_assistant_service(
     ensure_schema(tools.service.connection)
     toolbox = AssistantToolbox(tools)
     engine = None
-    if client is None and config.enabled:
+    if client is None and (config.enabled or config.search_enabled):
         if config.api_key:
             import anthropic
 
@@ -32,10 +33,13 @@ def build_assistant_service(
                 api_key=config.api_key, timeout=config.request_timeout_seconds, max_retries=2
             )
         else:
-            logger.warning("ASSISTANT_ENABLED is on but ANTHROPIC_API_KEY is unset; assistant stays disabled.")
+            logger.warning("Assistant chat/search is on but ANTHROPIC_API_KEY is unset; assistant stays disabled.")
     if client is not None:
         engine = AssistantEngine(config, toolbox, client)
-    return AssistantService(config, AssistantStore(tools.service), toolbox, engine)
+    store = AssistantStore(tools.service)
+    service = AssistantService(config, store, toolbox, engine)
+    service.smart_search = SmartSearch(config, store, tools, client)
+    return service
 
 
 def install_assistant(server: Any, tools: Any, mcp_config: Any, **kwargs: Any) -> AssistantService:

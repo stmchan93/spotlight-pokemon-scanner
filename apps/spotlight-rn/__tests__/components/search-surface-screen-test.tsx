@@ -167,13 +167,17 @@ describe('Search surface (tab / sheet)', () => {
     expect(screen.getByLabelText('Notifications, 3 unread')).toBeTruthy();
   });
 
-  it('CARDS shows the game chips under the field and the Figma placeholder', async () => {
+  it('CARDS shows the game chips under the tabs and an example search; PEOPLE keeps its placeholder', async () => {
     mockCatalog();
+    jest.spyOn(Math, 'random').mockReturnValue(0);
     renderSearch('tab');
 
     expect(await screen.findByTestId('game-sets-game-chips')).toBeTruthy();
-    expect(screen.getByPlaceholderText('SEARCH CARDS, PEOPLE, SETS')).toBeTruthy();
+    expect(screen.getByPlaceholderText('SEARCH CARDS, OR TRY "EEVEE ALT ARTS UNDER $50"')).toBeTruthy();
     expect(screen.getByTestId('game-sets-filter')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('search-tabs-tab-people'));
+    expect(await screen.findByPlaceholderText('SEARCH BY NAME, PROFILE')).toBeTruthy();
   });
 
   it('the filter sheet applies a rarity to the card search', async () => {

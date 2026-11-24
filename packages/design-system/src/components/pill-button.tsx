@@ -9,6 +9,8 @@ export type PillButtonTone = 'default' | 'filter' | 'filled' | 'secondary' | 'so
 
 type PillButtonProps = {
   label: string;
+  /** Spoken instead of `label` when the chip's action differs from its text (e.g. "Remove Under $50"). */
+  accessibilityLabel?: string;
   /**
    * Optional icon rendered before the label (Figma Insights chips: the Likes
    * heart, the Price sort arrows). The caller owns the icon color so it can
@@ -56,6 +58,7 @@ type PillButtonProps = {
 };
 
 export function PillButton({
+  accessibilityLabel,
   label,
   labelRole = 'label',
   leading,
@@ -126,6 +129,7 @@ export function PillButton({
 
   return (
     <Pressable
+      accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
       accessibilityState={{ selected }}
       onPress={onPress}

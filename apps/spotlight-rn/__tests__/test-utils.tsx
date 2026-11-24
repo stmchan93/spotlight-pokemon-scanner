@@ -199,6 +199,10 @@ export function createTestSpotlightRepository(
       return overrides.setAssistantFeedback?.(...args)
         ?? baseRepository.setAssistantFeedback(...args);
     },
+    smartSearchCatalog: (...args) => {
+      return overrides.smartSearchCatalog?.(...args)
+        ?? baseRepository.smartSearchCatalog(...args);
+    },
     loadCardDetail: (...args) => {
       return overrides.loadCardDetail?.(...args)
         ?? baseRepository.loadCardDetail(...args);

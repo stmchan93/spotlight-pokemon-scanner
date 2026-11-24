@@ -70,6 +70,7 @@ import {
   parseSetSpotlightPayload,
 } from './meta-feed-wire';
 import { parseSimilarCardsPayload } from './similar-cards-wire';
+import { buildSmartSearchBody, parseSmartSearchResponse } from './smart-search-wire';
 import { parseWatchlistSuggestionsPayload } from './watchlist-suggestions-wire';
 import {
   DEFAULT_VENDOR_SETTINGS,
@@ -277,6 +278,8 @@ import type {
   AssistantThreadSummary,
   AssistantThreadsPage,
   AssistantUsage,
+  SmartSearchRequest,
+  SmartSearchResult,
 } from './types';
 
 /** Catalog search load result augmented with the pagination `hasMore` flag. */
@@ -467,6 +470,11 @@ export interface SpotlightRepository {
   undoAssistantAction(actionId: string): Promise<AssistantProposedAction>;
   /** 👍/👎 on an assistant reply; resolves to the stored feedback (null once cleared). */
   setAssistantFeedback(messageId: string, input: AssistantFeedbackInput): Promise<AssistantFeedback | null>;
+  /**
+   * Natural-language catalog search. THROWS an `AssistantRequestError` on any
+   * failure (404 = flag off); callers fall back to `searchCatalogCardsPage`.
+   */
+  smartSearchCatalog(request: SmartSearchRequest): Promise<SmartSearchResult>;
   createLabelingSession(payload: LabelingSessionCreatePayload): Promise<LabelingSessionRecord>;
   uploadLabelingSessionArtifact(payload: LabelingSessionArtifactUploadPayload): Promise<LabelingSessionArtifactRecord>;
   completeLabelingSession(
@@ -816,6 +824,8 @@ const scanArtifactUploadTimeoutMs = 25000;
 const whosThatPokemonRequestTimeoutMs = 30000;
 // One assistant question runs up to 4 LLM tool rounds server-side.
 const assistantMessageRequestTimeoutMs = 60000;
+// Smart search is one short model call; past this the app quietly runs its normal search.
+const smartSearchRequestTimeoutMs = 6000;
 // The consolidated dashboard endpoint computes every section server-side in one
 // request, so it gets a longer budget than a single section. Raised to 30s so a
 // cold-cache first load on the small VM (re-reading price history from disk) has
@@ -4768,6 +4778,53 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return mockAssistantUsage(this.assistantUsedToday);
   }
 
+  /** A tiny stand-in for the model: "under $N" and "cheap" make a search, a "?" a question, the rest is plain. */
+  async smartSearchCatalog(request: SmartSearchRequest): Promise<SmartSearchResult> {
+    let interpretation = request.interpretation ?? null;
+    if (!interpretation) {
+      const text = (request.query ?? '').trim().toLowerCase();
+      if (text.endsWith('?')) {
+        return { chips: [], intent: 'question', interpretation: null, nextCursor: null, results: [] };
+      }
+      const under = /(?:under|below) \$?(\d+(?:\.\d+)?)/.exec(text);
+      const cheap = /\bcheap(?:est)?\b/.test(text);
+      if (!under && !cheap) {
+        return { chips: [], intent: 'plain', interpretation: null, nextCursor: null, results: [] };
+      }
+      const name = text
+        .replace(/(?:under|below) \$?\d+(?:\.\d+)?/, '')
+        .replace(/\b(?:cheap(?:est)?|cards?)\b/g, '')
+        .trim()
+        .split(/\s+/)[0] ?? '';
+      interpretation = {
+        filter: { ...(name ? { text: name } : {}), ...(under ? { price_max_usd: Number(under[1]) } : {}) },
+        owned: 'any',
+        sort: cheap ? 'price_asc' : 'relevance',
+      };
+    }
+    const { filter } = interpretation;
+    const name = typeof filter.text === 'string' ? filter.text.toLowerCase() : '';
+    const maxPrice = typeof filter.price_max_usd === 'number' ? filter.price_max_usd : null;
+    const matched = this.catalogResults.filter((result) => (
+      (!name || result.name.toLowerCase().includes(name))
+      && (maxPrice == null || (result.marketPrice != null && result.marketPrice < maxPrice))
+    ));
+    if (interpretation.sort === 'price_asc') {
+      matched.sort((a, b) => (a.marketPrice ?? Infinity) - (b.marketPrice ?? Infinity));
+    }
+    return {
+      chips: [
+        ...(name ? [{ field: 'text', id: 'text', label: String(filter.text) }] : []),
+        ...(maxPrice != null ? [{ field: 'price_max_usd', id: 'price_max_usd', label: `Under $${maxPrice}` }] : []),
+        ...(interpretation.sort === 'price_asc' ? [{ field: 'sort', id: 'sort', label: 'Cheapest first' }] : []),
+      ],
+      intent: 'search',
+      interpretation,
+      nextCursor: null,
+      results: matched.slice(0, request.limit ?? 30).map((result) => this.annotateCatalogResult(result)),
+    };
+  }
+
   async listAssistantThreads(options?: { limit?: number; cursor?: string | null }): Promise<AssistantThreadsPage> {
     const limit = Math.max(1, options?.limit ?? 20);
     const sorted = Array.from(this.assistantThreads.values())
@@ -7716,6 +7773,29 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       throw new AssistantRequestError('The assistant returned an invalid response.', 'unknown');
     }
     return result;
+  }
+
+  async smartSearchCatalog(request: SmartSearchRequest): Promise<SmartSearchResult> {
+    const [body, inventoryResult] = await Promise.all([
+      this.requestAssistant(
+        '/api/v1/assistant/search',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildSmartSearchBody(request)),
+        },
+        smartSearchRequestTimeoutMs,
+      ),
+      this.loadInventoryEntries(),
+    ]);
+    const wire = parseSmartSearchResponse(body);
+    return {
+      chips: wire.chips,
+      intent: wire.intent,
+      interpretation: wire.interpretation,
+      nextCursor: wire.nextCursor,
+      results: this.catalogResultsFromDTOs(wire.rawResults as CardCandidateDTO[], inventoryResult.data ?? []),
+    };
   }
 
   async getAssistantUsage(): Promise<AssistantUsage> {

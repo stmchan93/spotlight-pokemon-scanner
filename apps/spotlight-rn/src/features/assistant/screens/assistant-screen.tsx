@@ -116,6 +116,8 @@ export type AssistantScreenProps = {
   /** The opening screen's game; the server scopes market-wide rankings to it. */
   game?: CardGame | null;
   initialThreadId?: string | null;
+  /** Sent once as the first question of a fresh chat (search's "Ask Ekalight" row). */
+  initialPrompt?: string | null;
   onBack: () => void;
   onOpenCard: (cardId: string) => void;
   /** A set tile under a set-level answer: that set's page. */
@@ -164,6 +166,7 @@ export function AssistantScreen({
   cardIds = [],
   game = null,
   initialThreadId = null,
+  initialPrompt = null,
   onBack,
   onOpenCard,
   onOpenSet,
@@ -495,7 +498,7 @@ export function AssistantScreen({
   // Reopening the chat continues the latest conversation instead of a blank one.
   // A scanner open with tray cards is a fresh question about those cards.
   const canReadOnOpen = !isGuest || Boolean(getAccessToken());
-  const resumeLatest = !initialThreadId && !(source === 'scanner' && cardIds.length > 0);
+  const resumeLatest = !initialThreadId && !initialPrompt && !(source === 'scanner' && cardIds.length > 0);
   const ownerKey = currentUser?.id ?? null;
   // A chat STARTED here (first send from a blank chat) is remembered as this page's.
   const startedBlankRef = useRef(false);
@@ -548,6 +551,21 @@ export function AssistantScreen({
     // Mount only: later thread switches go through openThread.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A question asked from search: send it once on open (over the limit, it waits in the composer).
+  const promptSentRef = useRef(false);
+  useEffect(() => {
+    const question = initialPrompt?.trim();
+    if (!question || promptSentRef.current || chat.isLoadingThread) {
+      return;
+    }
+    promptSentRef.current = true;
+    if (chat.isLimitReached) {
+      setDraft(question);
+      return;
+    }
+    void handleSend(question);
+  }, [chat.isLimitReached, chat.isLoadingThread, handleSend, initialPrompt]);
 
   const openHistory = useCallback(() => {
     setView('history');

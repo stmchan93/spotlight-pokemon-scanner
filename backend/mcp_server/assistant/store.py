@@ -275,6 +275,10 @@ class AssistantStore:
 
     def record_failed_cost(self, owner_user_id: str, day: str, cost: float) -> None:
         """A failed turn still spent tokens: count them toward the spend cap only."""
+        self.record_spend(owner_user_id, day, cost)
+
+    def record_spend(self, owner_user_id: str, day: str, cost: float) -> None:
+        """Tokens spent outside a counted chat question (failed turns, smart search): spend cap only."""
         if cost <= 0:
             return
         self._add_usage(owner_user_id, day, questions=0, cost=cost)
