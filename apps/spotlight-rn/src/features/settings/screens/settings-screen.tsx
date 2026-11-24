@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import {
   ChatBubbleEmpty,
+  Download,
   EditPencil,
   GraphUp,
   LogOut,
@@ -10,7 +11,7 @@ import {
   Settings,
   Star,
 } from 'iconoir-react-native';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -26,12 +27,16 @@ import {
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
+import { exportCollectionCsv } from '@/features/portfolio/export-collection';
 import { getProfileInitials } from '@/features/profile/screens/public-profile-screen';
 import { openStoreReviewPage } from '@/features/review-prompt/review-prompt';
+import { ExportScopeSheet } from '@/features/settings/components/export-scope-sheet';
 import { useUnreadMessageCount } from '@/features/social/use-unread-message-count';
 import { AnalyticsEvent } from '@/lib/observability/analytics-events';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
+import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
+import type { Collection } from '@spotlight/api-client';
 
 type SettingsItem = {
   key: string;
@@ -45,6 +50,8 @@ type SettingsItem = {
 
 const ROW_ICON_SIZE = 20;
 const PROFILE_AVATAR_SIZE = 48;
+/** Outlasts the export-scope sheet's slide-out before the share sheet opens. */
+const EXPORT_SHEET_DISMISS_MS = 400;
 
 /**
  * Settings — what the gear in Home's top bar opens (Figma 6642:6202). It
@@ -65,6 +72,10 @@ export function SettingsScreen({ testID = 'settings' }: { testID?: string }) {
   const auth = useAuth();
   const { gate } = useGuestGate();
   const unreadMessageCount = useUnreadMessageCount();
+  const { spotlightRepository } = useAppServices();
+  const [exportBusy, setExportBusy] = useState(false);
+  // Non-null while the "All / one collection" sheet is up.
+  const [exportChoices, setExportChoices] = useState<Collection[] | null>(null);
 
   useEffect(() => {
     capturePostHogEvent(AnalyticsEvent.settingsOpened, {});
@@ -78,6 +89,50 @@ export function SettingsScreen({ testID = 'settings' }: { testID?: string }) {
     },
     [],
   );
+
+  const runExport = useCallback(
+    async (collectionId: string | null) => {
+      const props = { scope: collectionId ? 'single' : 'all', source: 'settings' } as const;
+      capturePostHogEvent(AnalyticsEvent.collectionExportTapped, props);
+      setExportBusy(true);
+      try {
+        const outcome = await exportCollectionCsv(spotlightRepository, collectionId);
+        if (outcome === 'failed') {
+          capturePostHogEvent(AnalyticsEvent.collectionExportFailed, props);
+        } else {
+          capturePostHogEvent(AnalyticsEvent.collectionExportSucceeded, {
+            ...props,
+            empty: outcome === 'empty',
+          });
+        }
+      } finally {
+        setExportBusy(false);
+      }
+    },
+    [spotlightRepository],
+  );
+
+  // One collection exports straight away; more than one asks All vs which one.
+  // A failed collections read falls back to exporting everything.
+  const startExport = useCallback(async () => {
+    if (exportBusy) {
+      return;
+    }
+    setExportBusy(true);
+    let collections: Collection[] = [];
+    try {
+      collections = (await spotlightRepository.listCollections()).collections;
+    } catch {
+      collections = [];
+    } finally {
+      setExportBusy(false);
+    }
+    if (collections.length > 1) {
+      setExportChoices(collections);
+      return;
+    }
+    await runExport(null);
+  }, [exportBusy, runExport, spotlightRepository]);
 
   const user = auth.currentUser;
   const displayName = user?.displayName?.trim() || 'You';
@@ -130,6 +185,14 @@ export function SettingsScreen({ testID = 'settings' }: { testID?: string }) {
         icon: MagicWand,
         onPress: tracked('whos_that_pokemon', gate(() => router.push('/whos-that-pokemon' as never))),
       },
+      {
+        key: 'export-collection',
+        label: exportBusy ? 'Exporting…' : 'Export collection',
+        icon: Download,
+        onPress: tracked('export_collection', gate(() => {
+          void startExport();
+        })),
+      },
     ],
     [
       {
@@ -148,7 +211,7 @@ export function SettingsScreen({ testID = 'settings' }: { testID?: string }) {
           router.push({ pathname: '/feedback', params: { from: '/settings' } } as never)),
       },
       {
-        // The Account page carries export, blocked accounts, vendor pricing,
+        // The Account page carries blocked accounts, vendor pricing,
         // AI access, legal, change password, sign-out and delete-account.
         key: 'account-settings',
         label: 'Account Settings',
@@ -224,6 +287,20 @@ export function SettingsScreen({ testID = 'settings' }: { testID?: string }) {
           </View>
         ))}
       </ScrollView>
+      <ExportScopeSheet
+        collections={exportChoices ?? []}
+        onChoose={(collectionId) => {
+          setExportChoices(null);
+          setExportBusy(true);
+          // The share sheet can't present while this modal is still sliding out
+          // (iOS view-controller collision), so start once it's gone.
+          setTimeout(() => {
+            void runExport(collectionId);
+          }, EXPORT_SHEET_DISMISS_MS);
+        }}
+        onClose={() => setExportChoices(null)}
+        visible={exportChoices != null}
+      />
     </SafeAreaView>
   );
 }

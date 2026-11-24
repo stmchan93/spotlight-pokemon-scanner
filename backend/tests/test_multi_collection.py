@@ -216,6 +216,26 @@ class MultiCollectionTests(unittest.TestCase):
         self.assertEqual(victim_entries["summary"]["count"], 0)
         self.assertEqual([entry["card"]["id"] for entry in attacker_entries["entries"]], ["tst-1"])
 
+    def test_export_csv_scopes_to_one_collection_or_all(self) -> None:
+        self._insert_card(card_id="tst-1", name="Pikachu", number="1/1")
+        self._insert_card(card_id="tst-2", name="Gengar", number="2/2")
+        self._add_card(user_id="user-a", card_id="tst-1")
+
+        with self.service.request_identity_context(self._identity("user-a")):
+            grails_id = self.service.create_collection({"name": "Grails"})["collection"]["id"]
+            self._add_card_inline(user_id="user-a", card_id="tst-2", collection_id=grails_id)
+            everything = self.service.deck_entries_export_csv()
+            grails_only = self.service.deck_entries_export_csv(collection_id=grails_id)
+        with self.service.request_identity_context(self._identity("user-b")):
+            borrowed = self.service.deck_entries_export_csv(collection_id=grails_id)
+
+        self.assertIn("Pikachu", everything)
+        self.assertIn("Gengar", everything)
+        self.assertIn("Gengar", grails_only)
+        self.assertNotIn("Pikachu", grails_only)
+        # Another account's collection id never leaks its holdings.
+        self.assertNotIn("Gengar", borrowed)
+
     def test_collections_are_scoped_per_owner(self) -> None:
         with self.service.request_identity_context(self._identity("user-a")):
             self.service.create_collection({"name": "Grails"})

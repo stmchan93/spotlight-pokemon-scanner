@@ -29,6 +29,8 @@ import {
 import { ALL_COLLECTIONS_ID, type Collection } from '@spotlight/api-client';
 
 import { HIDDEN_VALUE_MASK } from '@/features/portfolio/components/portfolio-formatting';
+import { AnalyticsEvent } from '@/lib/observability/analytics-events';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { Text, TextField, colors, radii, textStyles } from '@spotlight/design-system';
 
 /** Figma 3377:3089 — every collection row is 57pt with a 0.5pt rule beneath. */
@@ -174,6 +176,7 @@ export function CollectionPickerSheet({
       setCreating(false);
       setRenameTarget(null);
       dismissNotifiedRef.current = false;
+      capturePostHogEvent(AnalyticsEvent.collectionPickerOpened, {});
     }
   }, [visible]);
 
@@ -289,10 +292,16 @@ export function CollectionPickerSheet({
 
   const handleSelect = useCallback(
     (collectionID: string) => {
+      if (collectionID !== activeCollectionID) {
+        capturePostHogEvent(AnalyticsEvent.collectionSwitched, {
+          collection_count: collections.length,
+          is_default_target: collections.some((c) => c.id === collectionID && c.isDefault),
+        });
+      }
       onSelectCollection(collectionID);
       requestClose();
     },
-    [onSelectCollection, requestClose],
+    [activeCollectionID, collections, onSelectCollection, requestClose],
   );
 
   const trimmedName = draftName.trim();
@@ -316,6 +325,9 @@ export function CollectionPickerSheet({
           Keyboard.dismiss();
         } else {
           await onCreateCollection(trimmedName);
+          capturePostHogEvent(AnalyticsEvent.collectionCreated, {
+            collection_count_after: collections.length + 1,
+          });
           requestClose();
         }
       } catch {
@@ -330,7 +342,7 @@ export function CollectionPickerSheet({
         setCreating(false);
       }
     })();
-  }, [canCreate, onCreateCollection, onRenameCollection, renameTarget, requestClose, trimmedName]);
+  }, [canCreate, collections.length, onCreateCollection, onRenameCollection, renameTarget, requestClose, trimmedName]);
 
   const startRename = useCallback((collection: Collection) => {
     setRenameTarget(collection);

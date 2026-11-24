@@ -69,15 +69,15 @@ describe('AccountScreen', () => {
     });
   });
 
-  it('renders the CSV export action (import buttons removed — low ROI, hard to test)', () => {
+  it('has no export or import actions (export moved to Settings; imports removed)', () => {
     renderWithProviders(<AccountScreen />);
 
     expect(screen.queryByText('Done')).toBeNull();
     expect(screen.queryByText('Signed in with apple')).toBeNull();
-    // Export stays (the differentiator); the Collectr/TCGplayer import entry points
-    // were removed from the account screen — the importer code/backend remain.
-    expect(screen.getByTestId('account-export-csv')).toBeTruthy();
-    expect(screen.getByText('Export collection')).toBeTruthy();
+    // Export lives on the Settings screen now — one place, not two. The
+    // Collectr/TCGplayer import entry points were removed (code/backend remain).
+    expect(screen.queryByTestId('account-export-csv')).toBeNull();
+    expect(screen.queryByText('Export collection')).toBeNull();
     expect(screen.queryByTestId('account-import-tcgplayer')).toBeNull();
     expect(screen.queryByTestId('account-import-collectr')).toBeNull();
     expect(screen.queryByText('Import from TCGplayer')).toBeNull();

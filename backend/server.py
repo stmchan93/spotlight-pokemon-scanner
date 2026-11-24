@@ -23916,11 +23916,12 @@ class SpotlightScanService:
             "deletedEntryCount": deleted_entry_count,
         }
 
-    def deck_entries_export_csv(self) -> str:
-        """Owner-scoped collection spreadsheet (Account → Export collection).
+    def deck_entries_export_csv(self, *, collection_id: str | None = None) -> str:
+        """Owner-scoped collection spreadsheet (Settings → Export collection).
         Reuses the Collection view's ``deck_entries`` assembly (owner scope,
-        per-grade slab pricing, cost basis all match the app), every collection,
-        paged so no holding is cut off; ``collection_export`` merges SKUs."""
+        per-grade slab pricing, cost basis all match the app), every collection
+        or just ``collection_id`` (another account's id reads as empty), paged
+        so no holding is cut off; ``collection_export`` merges SKUs."""
         entries: list[dict[str, Any]] = []
         offset = 0
         while True:
@@ -23930,6 +23931,7 @@ class SpotlightScanService:
                 include_inactive=False,
                 favorites_only=False,
                 compute_day_change=False,
+                collection_id=collection_id,
                 include_series=False,
             )
             page = payload.get("entries", []) if isinstance(payload, dict) else []
@@ -28157,7 +28159,9 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 return
             try:
                 with self.service.request_identity_context(identity):
-                    csv_text = self.service.deck_entries_export_csv()
+                    csv_text = self.service.deck_entries_export_csv(
+                        collection_id=_normalized_collection_query_param(query),
+                    )
             except Exception as error:  # noqa: BLE001
                 self._write_json(
                     HTTPStatus.BAD_GATEWAY,

@@ -1,4 +1,4 @@
-"""Collection spreadsheet export (Account → Export collection).
+"""Collection spreadsheet export (Settings → Export collection).
 
 Pure formatter over the owner-scoped ``entries`` the Collection view serves, so
 prices, owner scope and cost basis match the app exactly. One row per SKU:

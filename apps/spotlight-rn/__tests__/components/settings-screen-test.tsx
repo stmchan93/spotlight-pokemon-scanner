@@ -1,12 +1,42 @@
-import { act, fireEvent, screen } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { useRouter } from 'expo-router';
 import { Alert } from 'react-native';
 
+import type { Collection, SpotlightRepository } from '@spotlight/api-client';
+
+import { exportCollectionCsv } from '@/features/portfolio/export-collection';
 import { SettingsScreen } from '@/features/settings/screens/settings-screen';
 import { openStoreReviewPage } from '@/features/review-prompt/review-prompt';
 import { useAuth } from '@/providers/auth-provider';
 
-import { renderWithProviders } from '../test-utils';
+import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
+
+jest.mock('@/features/portfolio/export-collection', () => ({
+  exportCollectionCsv: jest.fn(async () => 'shared'),
+}));
+
+function collection(id: string, isDefault = false): Collection {
+  return {
+    cardCount: 1,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    hidden: false,
+    id,
+    isDefault,
+    name: `Name ${id}`,
+    sortOrder: 0,
+    totalValue: 1,
+  };
+}
+
+function repositoryWith(collections: Collection[]): SpotlightRepository {
+  return createTestSpotlightRepository({
+    listCollections: async () => ({
+      all: { cardCount: collections.length, totalValue: collections.length },
+      collections,
+      defaultCollectionID: collections[0]?.id ?? '',
+    }),
+  });
+}
 
 jest.mock('expo-router', () => ({
   useFocusEffect: (effect: () => void | (() => void)) => {
@@ -57,8 +87,8 @@ describe('SettingsScreen', () => {
   }
 
   /** Renders and waits for the focus-time unread read to land. */
-  async function renderSettings() {
-    renderWithProviders(<SettingsScreen />);
+  async function renderSettings(spotlightRepository?: SpotlightRepository) {
+    renderWithProviders(<SettingsScreen />, { spotlightRepository });
     await screen.findByTestId('settings-row-messages-badge');
   }
 
@@ -76,6 +106,7 @@ describe('SettingsScreen', () => {
       'INSIGHTS',
       'MESSAGES',
       "WHO'S THAT POKÉMON?",
+      'EXPORT COLLECTION',
       'RATE EKALIGHT',
       'SEND FEEDBACK',
       'ACCOUNT SETTINGS',
@@ -139,5 +170,50 @@ describe('SettingsScreen', () => {
 
     fireEvent.press(screen.getByTestId('settings-row-feedback'));
     expect(push).toHaveBeenLastCalledWith({ pathname: '/feedback', params: { from: '/settings' } });
+  });
+
+  it('exports straight away when there is only one collection', async () => {
+    await renderSettings(repositoryWith([collection('c1', true)]));
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('settings-row-export-collection'));
+    });
+
+    await waitFor(() => expect(exportCollectionCsv).toHaveBeenCalledWith(expect.anything(), null));
+    expect(screen.queryByTestId('export-scope-sheet')).toBeNull();
+    expect(mockCapturePostHogEvent).toHaveBeenCalledWith('settings_item_tapped', { item: 'export_collection' });
+    expect(mockCapturePostHogEvent).toHaveBeenCalledWith('collection_export_tapped', { scope: 'all', source: 'settings' });
+    await waitFor(() => expect(mockCapturePostHogEvent).toHaveBeenCalledWith(
+      'collection_export_succeeded',
+      { empty: false, scope: 'all', source: 'settings' },
+    ));
+  });
+
+  it('asks All vs one collection when there are several, and exports the choice', async () => {
+    (exportCollectionCsv as jest.Mock).mockResolvedValueOnce('failed');
+    await renderSettings(repositoryWith([collection('c1', true), collection('c2')]));
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('settings-row-export-collection'));
+    });
+
+    expect(await screen.findByTestId('export-scope-sheet')).toBeTruthy();
+    expect(screen.getByText('All collections')).toBeTruthy();
+    expect(exportCollectionCsv).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByTestId('export-scope-sheet-collection-c2'));
+
+    // Starts once the sheet has slid out.
+    await waitFor(() => expect(exportCollectionCsv).toHaveBeenCalledWith(expect.anything(), 'c2'));
+    await waitFor(() => expect(mockCapturePostHogEvent).toHaveBeenCalledWith(
+      'collection_export_failed',
+      { scope: 'single', source: 'settings' },
+    ));
+  });
+
+  it('sends a guest to sign-in instead of exporting', async () => {
+    mockUser(true);
+    await renderSettings();
+    fireEvent.press(screen.getByTestId('settings-row-export-collection'));
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(exportCollectionCsv).not.toHaveBeenCalled();
   });
 });

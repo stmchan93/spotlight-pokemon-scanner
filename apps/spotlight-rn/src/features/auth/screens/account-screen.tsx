@@ -27,7 +27,6 @@ import {
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { revokePushToken } from '@/features/notifications';
 import { AlertSettingsSection } from '@/features/notifications/components/alert-settings-section';
-import { exportCollectionCsv } from '@/features/portfolio/export-collection';
 import { useAuth } from '@/providers/auth-provider';
 import { useAppServices } from '@/providers/app-providers';
 
@@ -109,7 +108,6 @@ export function AccountScreen() {
 
 
   const [isDeleting, setIsDeleting] = useState(false);
-  const [collectionDataBusy, setCollectionDataBusy] = useState(false);
   const [supportEmailRevealed, setSupportEmailRevealed] = useState(false);
   const [supportEmailCopied, setSupportEmailCopied] = useState(false);
 
@@ -307,18 +305,6 @@ export function AccountScreen() {
     }
   }, []);
 
-  const handleExportCollection = useCallback(async () => {
-    if (collectionDataBusy) {
-      return;
-    }
-    setCollectionDataBusy(true);
-    try {
-      await exportCollectionCsv(spotlightRepository);
-    } finally {
-      setCollectionDataBusy(false);
-    }
-  }, [collectionDataBusy, spotlightRepository]);
-
   return (
     <SafeAreaView
       edges={['top', 'left', 'right']}
@@ -381,31 +367,6 @@ export function AccountScreen() {
                   {user.email}
                 </Text>
               ) : null}
-            </View>
-          </View>
-        </SurfaceCard>
-
-        <SurfaceCard padding={20} radius={28}>
-          <View style={styles.collectionDataCard}>
-            <View style={styles.showModeCopy}>
-              <Text style={sectionTitle}>
-                COLLECTION DATA
-              </Text>
-              <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
-                A spreadsheet of every card in all your collections, with prices, cost and links.
-              </Text>
-            </View>
-            <View style={styles.collectionDataButtons}>
-              <Button
-                disabled={collectionDataBusy}
-                label={collectionDataBusy ? 'Exporting…' : 'Export collection'}
-                onPress={() => {
-                  void handleExportCollection();
-                }}
-                size="lg"
-                testID="account-export-csv"
-                variant="outline"
-              />
             </View>
           </View>
         </SurfaceCard>

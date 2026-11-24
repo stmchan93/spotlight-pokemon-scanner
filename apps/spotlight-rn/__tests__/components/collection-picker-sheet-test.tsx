@@ -8,6 +8,11 @@ import { SpotlightThemeProvider } from '@spotlight/design-system';
 
 import { CollectionPickerSheet } from '@/features/portfolio/components/collection-picker-sheet';
 
+const mockCapturePostHogEvent = jest.fn();
+jest.mock('@/lib/observability/posthog', () => ({
+  capturePostHogEvent: (...args: unknown[]) => mockCapturePostHogEvent(...args),
+}));
+
 function Wrapper({ children }: PropsWithChildren) {
   return (
     <SafeAreaProvider
@@ -65,6 +70,42 @@ function renderSheet(overrides: Partial<React.ComponentProps<typeof CollectionPi
 }
 
 describe('CollectionPickerSheet', () => {
+  beforeEach(() => {
+    mockCapturePostHogEvent.mockClear();
+  });
+
+  it('tracks open, switch and create without collection names', async () => {
+    const props = renderSheet();
+    expect(mockCapturePostHogEvent).toHaveBeenCalledWith('collection_picker_opened', {});
+
+    // Re-picking the active collection is not a switch.
+    fireEvent.press(screen.getByTestId('collection-picker-sheet-row-collection:main'));
+    expect(mockCapturePostHogEvent).not.toHaveBeenCalledWith('collection_switched', expect.anything());
+
+    fireEvent.press(screen.getByTestId('collection-picker-sheet-row-collection:grails'));
+    expect(mockCapturePostHogEvent).toHaveBeenCalledWith('collection_switched', {
+      collection_count: 2,
+      is_default_target: false,
+    });
+
+    props.rerender({ activeCollectionID: GRAILS.id });
+    fireEvent.press(screen.getByTestId('collection-picker-sheet-row-collection:main'));
+    expect(mockCapturePostHogEvent).toHaveBeenLastCalledWith('collection_switched', {
+      collection_count: 2,
+      is_default_target: true,
+    });
+
+    fireEvent.press(screen.getByTestId('collection-picker-sheet-add'));
+    fireEvent.changeText(screen.getByTestId('collection-picker-sheet-name-input'), 'Grails');
+    fireEvent.press(screen.getByTestId('collection-picker-sheet-create'));
+    await waitFor(() => {
+      expect(mockCapturePostHogEvent).toHaveBeenCalledWith('collection_created', {
+        collection_count_after: 3,
+      });
+    });
+    expect(JSON.stringify(mockCapturePostHogEvent.mock.calls)).not.toMatch(/Grails|Gengar|Main Collection/);
+  });
+
   it('lists the All row and every collection with its value', () => {
     renderSheet();
 
