@@ -1,5 +1,5 @@
 import { fireEvent, screen } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 
 import { PageTabs, colors } from '@spotlight/design-system';
 
@@ -221,5 +221,61 @@ describe('PageTabs', () => {
     const row = StyleSheet.flatten(screen.getByTestId('page-tabs').children[1].props.style);
     expect(row).toMatchObject({ gap: 16, justifyContent: 'flex-start', paddingHorizontal: 16 });
     expect(StyleSheet.flatten(screen.getByTestId('page-tabs-tab-favorites').props.style).paddingHorizontal).toBe(12);
+  });
+});
+
+// Home's profile tabs outgrow the screen. The rail starts on the leftmost TAB
+// BOUNDARY that still shows the selected tab whole: only nudging the selected
+// tab into view left the first tab sliced to "ON" after a visit to the far end.
+describe('PageTabs scrollable rail', () => {
+  const RAIL_WIDTH = 300;
+  // Three 120pt tab boxes, 16 apart inside a 16 gutter: 424 of content in a
+  // 300 rail, so it scrolls 0..124.
+  const FRAMES: Record<TabValue, { x: number; width: number }> = {
+    portfolio: { x: 16, width: 120 },
+    'recent-sales': { x: 152, width: 120 },
+    favorites: { x: 288, width: 120 },
+  };
+
+  const rail = (value: TabValue) => (
+    <PageTabs<TabValue> scrollable tabs={TABS} value={value} onChange={jest.fn()} testID="page-tabs" />
+  );
+
+  function renderRail(value: TabValue) {
+    const scrollTo = jest
+      .spyOn(ScrollView.prototype as unknown as { scrollTo: (options: unknown) => void }, 'scrollTo')
+      .mockImplementation(() => undefined);
+    const view = renderWithProviders(rail(value));
+    (Object.keys(FRAMES) as TabValue[]).forEach((tab) => {
+      fireEvent(screen.getByTestId(`page-tabs-tab-${tab}`), 'layout', {
+        nativeEvent: { layout: { ...FRAMES[tab], y: 0, height: 40 } },
+      });
+    });
+    const scroll = screen.getByTestId('page-tabs-scroll');
+    fireEvent(scroll, 'contentSizeChange', 424, 40);
+    fireEvent(scroll, 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: RAIL_WIDTH, height: 40 } } });
+    return { scrollTo, view };
+  }
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('parks the last tab at the far end', () => {
+    const { scrollTo } = renderRail('favorites');
+    expect(scrollTo).toHaveBeenLastCalledWith({ x: 124, animated: false });
+  });
+
+  // The device bug: back on a middle tab from the far end, the middle tab was
+  // already visible, so nothing moved and the first tab stayed sliced.
+  it('brings the first tab back whole when the selected tab fits from the start', () => {
+    const { scrollTo, view } = renderRail('favorites');
+    fireEvent(screen.getByTestId('page-tabs-scroll'), 'scroll', {
+      nativeEvent: { contentOffset: { x: 124, y: 0 } },
+    });
+
+    view.rerender(rail('recent-sales'));
+
+    expect(scrollTo).toHaveBeenLastCalledWith({ x: 0, animated: true });
   });
 });

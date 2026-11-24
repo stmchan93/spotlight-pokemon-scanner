@@ -394,6 +394,27 @@ type CollapsibleTabPagerProps<V extends string> = {
  *     owns gestures across the full screen;
  *   - the horizontal filter chip row: wrap it in `PageSwipeGuard` (see above).
  */
+/**
+ * Non-animated programmatic scroll of one page, for a `FlatList`
+ * (`scrollToOffset`) or a plain `ScrollView` (`scrollTo`).
+ *
+ * Callers never aim this at a page that has not reported an offset yet when
+ * the target is the page's top. Such a page mounted this commit and already
+ * rests at its top — but UIKit may not have applied its automatic safe-area
+ * inset yet. Scrolling it to `pageTop` (-insets.top) first parks it there via
+ * `scrollToOverflowEnabled`, then UIKit shifts it by the inset AGAIN, to
+ * `pageTop - insets.top`: a status bar of white between the tab bar and the
+ * page under a fully expanded header (seen on the simulator as -62 → -124 on a
+ * lazily mounted tab).
+ */
+function scrollPageTo(node: CollapsibleScrollTarget, offset: number) {
+  if (node.scrollToOffset) {
+    node.scrollToOffset({ offset, animated: false });
+  } else {
+    node.scrollTo?.({ y: offset, animated: false });
+  }
+}
+
 export function CollapsibleTabPager<V extends string>({
   contentInsetTop = 0,
   disabled = false,
@@ -599,23 +620,38 @@ export function CollapsibleTabPager<V extends string>({
         return;
       }
       const node = refs[page]?.current;
-      if (!node || Math.abs((offsetsRef.current[page] ?? top) - target) < 1) {
+      if (!node) {
         return;
       }
-      if (node.scrollToOffset) {
-        node.scrollToOffset({ offset: target, animated: false });
-      } else {
-        node.scrollTo?.({ y: target, animated: false });
+      // NO "already there" skip for a page that has reported: `offsetsRef` is
+      // only as fresh as the last onScroll that got through, and iOS drops
+      // any scroll inside the 16ms throttle with no trailing event. A page
+      // moved by UIKit's own inset adjustment can sit a whole safe-area inset
+      // below its top while its entry still says `pageTop` — and the skip
+      // then left it there for good (the Watchlist gap, 2026-11-23).
+      // A never-reported page is a fresh mount resting at its own top; see
+      // `scrollPageTo` for why it is left alone when the target IS the top.
+      if (offsetsRef.current[page] === undefined && Math.abs(target - top) < 1) {
+        return;
       }
+      scrollPageTo(node, target);
+      offsetsRef.current[page] = target;
     });
   }, []);
 
   /** Undo the pre-claim scroll on the active page (see touchStartOffsetRef). */
   const restoreTouchStartOffset = useCallback(() => {
     const state = latest.current;
-    const start = touchStartOffsetRef.current;
+    const touchStart = touchStartOffsetRef.current;
     const current = offsetsRef.current[state.value];
-    if (start == null || current == null || Math.abs(current - start) < 0.5) {
+    if (touchStart == null || current == null) {
+      return;
+    }
+    // Never restore INTO the pull-down band: a touch that lands mid-bounce
+    // records an offset above the page's top, and with
+    // `scrollToOverflowEnabled` a page parked there never springs back.
+    const start = Math.max(touchStart, pageTopRef.current);
+    if (Math.abs(current - start) < 0.5) {
       return;
     }
     const node = state.pageRefs?.[state.value]?.current;
@@ -623,11 +659,7 @@ export function CollapsibleTabPager<V extends string>({
       return;
     }
     offsetsRef.current[state.value] = start;
-    if (node.scrollToOffset) {
-      node.scrollToOffset({ offset: start, animated: false });
-    } else {
-      node.scrollTo?.({ y: start, animated: false });
-    }
+    scrollPageTo(node, start);
   }, []);
 
   /**
@@ -650,17 +682,16 @@ export function CollapsibleTabPager<V extends string>({
       return false;
     }
     const top = pageTopRef.current;
+    const reported = offsetsRef.current;
     offsetsRef.current = {};
     state.order.forEach((page) => {
       const node = refs[page]?.current;
-      if (!node) {
+      // Never-reported = mounted this commit (a lazy tab opened by this very
+      // tap) and already at its own top. See `scrollPageTo`.
+      if (!node || reported[page] === undefined) {
         return;
       }
-      if (node.scrollToOffset) {
-        node.scrollToOffset({ offset: top, animated: false });
-      } else {
-        node.scrollTo?.({ y: top, animated: false });
-      }
+      scrollPageTo(node, top);
     });
     return true;
   }, []);
