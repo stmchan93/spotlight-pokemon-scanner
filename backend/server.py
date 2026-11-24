@@ -180,6 +180,7 @@ from market_movers import (
     market_movers_version_token,
 )
 import price_lows
+from price_insight import compute_price_insight
 import market_analytics
 import price_quality
 from ebay_comps import (
@@ -8420,7 +8421,6 @@ class SpotlightScanService:
             return trend_list
         card = card_by_id(self.connection, card_id)
         rows: list[Any] = []
-        changed = False
         for row in trend_list["rows"]:
             parts = str(row.get("key") or "").replace("|", " ").split() if isinstance(row, dict) else []
             if len(parts) < 2:
@@ -8437,14 +8437,25 @@ class SpotlightScanService:
             filtered = _filter_recent_sales_rows(
                 cached, variant_key=variant, limit=RECENT_SALES_MAX_LIMIT, card=card
             )
+            # Graded one-liner = cached sales count only; the series may not be
+            # the source the headline shows once comps load.
+            insight = compute_price_insight(
+                None,
+                currency_code="USD",
+                sales=(filtered or {}).get("sales") or [],
+                sales_capped=len((cached or {}).get("sales") or []) >= RECENT_SALES_MAX_LIMIT,
+                prefix=f"{parts[0].upper()} {parts[1].upper()}",
+            )
             average = (filtered or {}).get("recentAverage")
             if not average:
-                rows.append(row)
+                rows.append({**row, "insight": insight})
                 continue
-            rows.append({**row, "currentPrice": average["amount"], "currencyCode": average["currencyCode"]})
-            changed = True
-        if not changed:
-            return trend_list
+            rows.append({
+                **row,
+                "currentPrice": average["amount"],
+                "currencyCode": average["currencyCode"],
+                "insight": insight,
+            })
         return {**trend_list, "rows": rows}
 
     def _apply_main_condition_rules_to_raw_trend_rows(

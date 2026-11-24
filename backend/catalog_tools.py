@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 import unicodedata
 
+from price_insight import compute_price_insight
 # TCGCSV printing (subTypeName) <-> Scrydex variant label, for the main-lane
 # series merge. tcgcsv_adapter is stdlib-only, so no import cycle.
 from tcgcsv_adapter import TCGCSV_PROVIDER, scrydex_variant_label_for_subtype, subtype_for_variant_label
@@ -8291,12 +8292,12 @@ def card_price_trend_list(
         source_cells: dict[str, list[Any]],
         condition_code: str,
         main_by_date: dict[str, dict[str, Any]],
-    ) -> list[float]:
-        points: list[float] = []
+    ) -> list[tuple[str, float]]:
+        points: list[tuple[str, float]] = []
         for price_date in dates:
             main_point = main_by_date.get(price_date)
             if main_point is not None:
-                points.append(main_point["market"])
+                points.append((price_date, main_point["market"]))
                 continue
             row = source_rows_by_date.get(price_date)
             if row is None:
@@ -8316,28 +8317,35 @@ def card_price_trend_list(
                 )
                 market = _price_trend_float(entry.get("market")) if isinstance(entry, dict) else None
             if market is not None:
-                points.append(market)
+                points.append((price_date, market))
         return points
 
     for condition_code in ordered_conditions:
         is_main = condition_code == DEFAULT_RAW_CONDITION
         main_by_date = main_points_by_date if is_main else {}
-        points = _raw_points(nm_dates if is_main else window_dates, rows_by_date, cells_by_date, condition_code, main_by_date)
-        if len(points) < 2:
+        dated_points = _raw_points(nm_dates if is_main else window_dates, rows_by_date, cells_by_date, condition_code, main_by_date)
+        if len(dated_points) < 2:
             older_rows, older_cells = _lookback_history()
-            points = _raw_points(
+            dated_points = _raw_points(
                 [str(r["price_date"]) for r in older_rows],
                 {str(r["price_date"]): r for r in older_rows},
                 older_cells,
                 condition_code,
                 {},
             )[-window:]
+        points = [value for _, value in dated_points]
         snapshot_entry = _raw_context_entry(snapshot_raw, variant=resolved_variant, condition=condition_code)
         current_price = _price_trend_float(snapshot_entry.get("market")) if isinstance(snapshot_entry, dict) else None
         if not points and current_price is None:
             continue
         if isinstance(snapshot_entry, dict) and str(snapshot_entry.get("currencyCode") or "").strip():
             currency_code = str(snapshot_entry.get("currencyCode"))
+        if is_main and main_by_date:
+            # The headline is TCGCSV (USD) here: judge its own days only, never Scrydex fill-ins.
+            insight_series = [(d, v) for d, v in dated_points if d in main_by_date]
+            insight_currency = "USD"
+        else:
+            insight_series, insight_currency = dated_points, currency_code
         row_dict: dict[str, Any] = {
             "label": _RAW_CONDITION_LABELS.get(condition_code, condition_code),
             "key": condition_code,
@@ -8345,11 +8353,13 @@ def card_price_trend_list(
             "currencyCode": currency_code,
             "points": points,
             "trendPct": _trend_pct_from_points(points, snapshot_entry),
+            "insight": compute_price_insight(insight_series, currency_code=insight_currency),
         }
         if raw_is_phantom:
             row_dict["currentPrice"] = None
             row_dict["points"] = []
             row_dict["trendPct"] = None
+            row_dict["insight"] = None
             row_dict["suppressionReason"] = "phantom"
         rows.append(row_dict)
     return {"mode": RAW_PRICING_MODE, "provider": response_provider, "rows": rows}

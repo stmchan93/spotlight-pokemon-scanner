@@ -73,6 +73,7 @@ import { useReduceMotion } from '@/features/scanner/use-reduce-motion';
 import { printingImageFor, printingImagesForEntries } from '@/features/cards/printing-image';
 import { watchlistCardBasicsFromDetail } from '@/features/wishlist/watchlist-store';
 import { CardPriceChartSection } from '@/features/cards/components/card-price-chart-section';
+import { CardPriceInsightLine } from '@/features/cards/components/card-price-insight-line';
 import { CardPriceTrendList } from '@/features/cards/components/card-price-trend-list';
 import { CardPriceTrendSkeleton } from '@/features/cards/components/card-price-trend-skeleton';
 import { CardProductDetails } from '@/features/cards/components/card-product-details';
@@ -2981,6 +2982,10 @@ export function CardDetailScreen({
             onOpenMarketplace={displayedPriceTrends?.mode === 'raw' ? handleTrendRowPress : undefined}
             graders={availableGraders}
             onSelectGrader={handleSelectGrader}
+            // The charted row's own one-liner; none while the headline price is withheld.
+            renderBelowPrice={(row) => (
+              detail?.priceStatus && isRawLane ? null : <CardPriceInsightLine insight={row.insight} />
+            )}
             selectedGrader={selectedGrader}
             salesEnabled={gameHasListingsData(cardGame)}
             style={styles.chartCard}

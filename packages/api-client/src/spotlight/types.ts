@@ -1700,6 +1700,21 @@ export type CardPriceTrendRow = {
   points: number[];
   /** Percent change across the series; drives the up/down tint. */
   trendPct?: number | null;
+  /** Server-built one-liner for this row ("Up 18% in 30 days · near its 90-day high"); null when nothing is notable. */
+  insight?: CardPriceInsight | null;
+};
+
+export type CardPriceInsightFactKind = 'change_30d' | 'high_90d' | 'low_90d' | 'sales_30d';
+
+export type CardPriceInsightFact = {
+  kind: CardPriceInsightFactKind;
+  /** change_30d: signed whole %; high_90d/low_90d: the 90-day USD extreme; sales_30d: sale count. */
+  value: number;
+};
+
+export type CardPriceInsight = {
+  text: string;
+  facts: CardPriceInsightFact[];
 };
 
 export type CardPriceTrendList = {

@@ -94,6 +94,47 @@ describe('CardDetailScreen price chart', () => {
     expect(getCardConditionHistory).toHaveBeenCalledTimes(1);
   });
 
+  it('shows the charted row\'s price one-liner and follows the picked row', async () => {
+    const getCardConditionHistory = jest.fn(async () => rawHistory());
+    const getCardPriceTrendsWithInsight = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
+      rows: trendRows(query.mode).map((row) => (row.key === 'normal|NM'
+        ? {
+          ...row,
+          insight: {
+            text: 'Up 18% in 30 days · near its 90-day high',
+            facts: [{ kind: 'change_30d' as const, value: 18 }, { kind: 'high_90d' as const, value: 12 }],
+          },
+        }
+        : { ...row, insight: null })),
+    }));
+    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+      spotlightRepository: createTestSpotlightRepository({
+        getCardPriceTrends: getCardPriceTrendsWithInsight,
+        getCardConditionHistory,
+      }),
+    });
+
+    const line = await screen.findByTestId('detail-price-insight');
+    expect(line.props.children).toBe('Up 18% in 30 days · near its 90-day high');
+    expect(within(screen.getByTestId('detail-price-chart')).getByTestId('detail-price-insight')).toBeTruthy();
+
+    // LP has nothing notable: the line goes away, leaving no gap.
+    fireEvent.press(screen.getByTestId('detail-price-chart-chip'));
+    fireEvent.press(await screen.findByTestId('detail-price-chart-sheet-option-normal|LP'));
+    await waitFor(() => expect(screen.queryByTestId('detail-price-insight')).not.toBeOnTheScreen());
+  });
+
+  it('renders no one-liner when the rows carry none', async () => {
+    const getCardConditionHistory = jest.fn(async () => rawHistory());
+    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+      spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardConditionHistory }),
+    });
+    expect(await screen.findByTestId('detail-price-chart-chip')).toBeTruthy();
+    expect(screen.queryByTestId('detail-price-insight')).toBeNull();
+  });
+
   it('draws the line with no end dot at rest', async () => {
     const getCardConditionHistory = jest.fn(async () => rawHistory());
     renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {

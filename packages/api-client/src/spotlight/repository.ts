@@ -124,6 +124,8 @@ import type {
   CardConditionHistorySeries,
   CardConditionHistorySource,
   CardMarketInsight,
+  CardPriceInsight,
+  CardPriceInsightFactKind,
   CardPriceTrendList,
   CardPriceTrendMode,
   CardPriceTrendRow,
@@ -1216,6 +1218,10 @@ type CardPriceTrendListDTO = {
     currencyCode?: string | null;
     points?: Array<number | null> | null;
     trendPct?: number | null;
+    insight?: {
+      text?: string | null;
+      facts?: Array<{ kind?: string | null; value?: number | null }> | null;
+    } | null;
   }> | null;
 };
 
@@ -3562,11 +3568,53 @@ function buildCardPriceTrendList(
         currencyCode: normalizeCurrencyCode(row?.currencyCode),
         points,
         trendPct: normalizeNumber(row?.trendPct),
+        insight: buildCardPriceInsight(row?.insight),
       }];
     })
     : [];
 
   return { mode, provider, rows };
+}
+
+// Mock stand-in for the backend one-liner: first→last change of the mock series, USD only.
+function mockPriceInsight(points: number[], currencyCode: string): CardPriceInsight | null {
+  const first = points[0];
+  const last = points[points.length - 1];
+  if (currencyCode !== 'USD' || points.length < 2 || !first || !last || last < 1) {
+    return null;
+  }
+  const change = Math.round(((last - first) / first) * 100);
+  if (Math.abs(change) < 5) {
+    return null;
+  }
+  return {
+    text: `${change > 0 ? 'Up' : 'Down'} ${Math.abs(change)}% in 30 days`,
+    facts: [{ kind: 'change_30d', value: change }],
+  };
+}
+
+const CARD_PRICE_INSIGHT_FACT_KINDS: readonly CardPriceInsightFactKind[] = [
+  'change_30d',
+  'high_90d',
+  'low_90d',
+  'sales_30d',
+];
+
+function buildCardPriceInsight(
+  payload: NonNullable<NonNullable<CardPriceTrendListDTO['rows']>[number]>['insight'],
+): CardPriceInsight | null {
+  const text = normalizeString(payload?.text);
+  if (!text) {
+    return null;
+  }
+  const facts = Array.isArray(payload?.facts)
+    ? payload.facts.flatMap((fact) => {
+      const kind = CARD_PRICE_INSIGHT_FACT_KINDS.find((candidate) => candidate === fact?.kind);
+      const value = normalizeNumber(fact?.value);
+      return kind && value != null ? [{ kind, value }] : [];
+    })
+    : [];
+  return { text, facts };
 }
 
 function normalizeConditionHistorySource(value: unknown): CardConditionHistorySource | null {
@@ -4959,6 +5007,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
           currencyCode,
           points: seriesValue,
           trendPct: null,
+          insight: mockPriceInsight(seriesValue, currencyCode),
         }));
     return { mode, provider, rows };
   }

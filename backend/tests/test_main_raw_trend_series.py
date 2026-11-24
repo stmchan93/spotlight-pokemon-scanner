@@ -363,6 +363,20 @@ class MainRawTrendSeriesTests(unittest.TestCase):
                 )
                 self.assertEqual(self._trend_row(trend_list, "LP")["points"], HOLO_LP)
 
+    def test_nm_insight_judges_tcgcsv_days_only(self):
+        # The chart may mix sources; the one-liner never does.
+        self._add_main()
+        calls = []
+
+        def spy(series, *, currency_code):
+            calls.append((list(series), currency_code))
+            return None
+
+        with self._env("cells", FLAG_ON), patch("catalog_tools.compute_price_insight", side_effect=spy):
+            card_price_trend_list(self.connection, "c1", mode="raw", provider=SCRYDEX_PROVIDER, variant="Holofoil")
+        self.assertEqual(calls[0], ([(d, v) for d, v in MAIN_HOLO.items()], "USD"))
+        self.assertEqual([v for _, v in calls[1][0]], HOLO_LP)
+
     def test_trend_list_window_is_the_newest_days(self):
         # days=3 keeps the LAST 3 history days, not the first 3.
         for source in HISTORY_SOURCES:
