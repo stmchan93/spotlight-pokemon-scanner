@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 
 import { MockSpotlightRepository, type CardGame, type ExpansionRecord } from '@spotlight/api-client';
 
@@ -198,6 +198,45 @@ describe('Search surface (tab / sheet)', () => {
     await waitFor(() =>
       expect(searchPage).toHaveBeenCalledWith('gengar', expect.any(Number), 0, expect.objectContaining({ game: 'pokemon' })),
     );
+  });
+
+  // Owner, 2026-11-24: VIEW ALL on SETS / SEALED works with ALL selected too.
+  it('VIEW ALL on SETS opens every game\'s sets while ALL is selected', async () => {
+    mockCatalog();
+    const onViewAll = jest.fn();
+    renderSearch('tab', { onViewAll });
+
+    fireEvent.press(await screen.findByTestId('game-sets-sets-header-view-all'));
+    expect(onViewAll).toHaveBeenCalledWith('sets', 'all');
+
+    fireEvent.press(screen.getByTestId('game-sets-game-pokemon'));
+    fireEvent.press(await screen.findByTestId('game-sets-sets-header-view-all'));
+    expect(onViewAll).toHaveBeenLastCalledWith('sets', 'pokemon');
+  });
+
+  // Owner, 2026-11-24: a CARDS search also finds collectors and sets, above the cards.
+  it('a CARDS search shows matching COLLECTORS and SETS; COLLECTORS VIEW ALL opens that tab', async () => {
+    mockCatalog();
+    (searchUsers as jest.Mock).mockResolvedValue([person('33333333-3333-4333-8333-333333333333', 'Surge Collector')]);
+    const handlers = renderSearch('tab');
+
+    fireEvent.changeText(await screen.findByTestId('game-sets-search'), 'surging');
+
+    expect(await screen.findByTestId('game-sets-mixed-sets-header')).toBeTruthy();
+    // The mock lists the same set for every game, so ALL shows it once per game.
+    expect(within(screen.getByTestId('game-sets-mixed')).getAllByTestId('game-sets-expansion-sv8').length).toBeGreaterThan(0);
+    const person33 = await screen.findByTestId('game-sets-mixed-person-33333333-3333-4333-8333-333333333333');
+    expect(searchUsers).toHaveBeenCalledWith('surging');
+
+    fireEvent.press(person33);
+    expect(handlers.onOpenProfile).toHaveBeenCalledWith(expect.objectContaining({ displayName: 'Surge Collector' }));
+
+    jest.spyOn(MockSpotlightRepository.prototype, 'getProfilesTopHoldings').mockResolvedValue([]);
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('game-sets-mixed-people-header-view-all'));
+    });
+    expect(screen.getByTestId('game-sets-search').props.value).toBe('surging');
+    expect(await screen.findByTestId('search-people')).toBeTruthy();
   });
 
   it('EVENTS swaps the field for the events list', async () => {

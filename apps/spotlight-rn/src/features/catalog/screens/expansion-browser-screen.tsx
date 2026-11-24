@@ -21,7 +21,7 @@ type ExpansionBrowserScreenProps = {
   onSelectExpansion: (expansion: ExpansionRecord, game: CardGame) => void;
   onOpenCard: (result: CatalogSearchResult) => void;
   /** Ignored in `tab` mode. */
-  onViewAll?: (section: 'sets' | 'sealed', game: CardGame) => void;
+  onViewAll?: (section: 'sets' | 'sealed', game: CardGame | 'all') => void;
   onOpenProfile?: (profile: UserProfile) => void;
   onOpenHolding?: (profile: UserProfile, entry: InventoryCardEntry) => void;
   initialSearchTab?: SearchTab;

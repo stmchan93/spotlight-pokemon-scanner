@@ -47,6 +47,7 @@ import { CatalogResultsGrid } from '@/features/catalog/components/catalog-result
 import { SealedResultsSection } from '@/features/catalog/components/sealed-results-section';
 import { SearchRailTile } from '@/features/catalog/components/search-rail-tile';
 import { BadgedBubble } from '@/components/home-header';
+import { SearchPersonRow } from '@/features/catalog/components/search-person-row';
 import { SearchSectionHeader } from '@/features/catalog/components/search-section-header';
 import { SearchSetCard } from '@/features/catalog/components/search-set-card';
 import { SmartSearchChips } from '@/features/catalog/components/smart-search-chips';
@@ -59,6 +60,7 @@ import { useSetProgress } from '@/features/catalog/hooks/use-set-progress';
 import { resultsCountLabel, singlesSourceSets, totalCardCount } from '@/features/catalog/search-landing';
 import { groupSetsByEra, setCompletion, sortNewestFirst, type SetListRow } from '@/features/catalog/set-progress';
 import { PeopleSearchResults } from '@/features/profile/components/people-search-results';
+import { usePeopleSearch } from '@/features/profile/hooks/use-people-search';
 import { EventsPage } from '@/features/events/screens/events-screen';
 import type { CollapsiblePageProps } from '@/components/page-tab-pager';
 import { AssistantChatPill } from '@/features/assistant/components/assistant-chat-pill';
@@ -88,8 +90,10 @@ type GameSetsScreenProps = {
    * grouped by era. `sealed`: every sealed product of the game, paged.
    */
   view?: GameSetsView;
-  /** VIEW ALL on SETS / SEALED. Absent hides those two links. */
-  onViewAll?: (section: 'sets' | 'sealed', game: CardGame) => void;
+  /** VIEW ALL on SETS / SEALED. Absent hides those two links. `all` = every game (the ALL chip). */
+  onViewAll?: (section: 'sets' | 'sealed', game: CardGame | 'all') => void;
+  /** Open on the ALL scope (every game) — VIEW ALL from Search while ALL is selected. */
+  allGamesScope?: boolean;
   /**
    * Present = this is SEARCH (Figma 6725:9509): a white header with CARDS |
    * PEOPLE tabs, the field (+ filter on CARDS) and a chip row under it — game
@@ -137,6 +141,14 @@ const FIGMA_FRAME_WIDTH = 393;
 const WASH_FIGMA_HEIGHT = 264;
 const BANNER_ASPECT = 786 / 646;
 const SETS_BANNER = require('../../../../assets/images/catalog/sets-banner.jpg');
+/** A typed CARDS search leads with this many collectors and sets; VIEW ALL shows the rest. */
+const MIXED_PREVIEW_COUNT = 3;
+
+/** Case, accents, punctuation and spacing ignored: "obsidian-flames" finds "Obsidian Flames". */
+function normalizeForMatch(value: string): string {
+  return value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
 /** Figma 6597:5711 shows three sets on the landing; VIEW ALL opens the rest. */
 const LANDING_SET_COUNT = 3;
 
@@ -174,6 +186,7 @@ export function GameSetsScreen({
   dismissStyle = 'back',
   view = 'landing',
   onViewAll,
+  allGamesScope = false,
   searchMode,
   onOpenProfile,
   onOpenHolding,
@@ -211,7 +224,9 @@ export function GameSetsScreen({
   const { width: windowWidth } = useWindowDimensions();
   const washHeight = Math.round((windowWidth * WASH_FIGMA_HEIGHT) / FIGMA_FRAME_WIDTH);
   // Search opens on ALL (Figma 6711:4679): every game at once. A game page keeps its game.
-  const [scope, setScope] = useState<CatalogSearchScope>(isSearch ? 'all' : initialGame);
+  const [scope, setScope] = useState<CatalogSearchScope>(isSearch || allGamesScope ? 'all' : initialGame);
+  // The ALL chip leads the game row on Search and on pages opened from it under ALL.
+  const showsAllChip = isSearch || allGamesScope;
   const allGames = scope === 'all';
   // The game for game-only surfaces (VIEW ALL routes, copy); ALL never reaches them.
   const game: CardGame = allGames ? initialGame : scope;
@@ -241,7 +256,7 @@ export function GameSetsScreen({
     scope,
   });
   // VIEW ALL on SEALED: every sealed product of the game, paged (the Sealed chip's browse).
-  const sealedBrowse = useCatalogCardSearch({ scope: game, sealed: view === 'sealed' });
+  const sealedBrowse = useCatalogCardSearch({ scope: allGames ? 'all' : game, sealed: view === 'sealed' });
   // Bottom of the list = after the LAST card page, so it waits for paging.
   const sealedResults = search.hasMore ? [] : sealedSearch.results;
   // A smart search's results stand in for the normal ones (no sealed footer: the filter is cards).
@@ -281,6 +296,21 @@ export function GameSetsScreen({
     () => rows.flatMap((row) => (row.kind === 'set' ? [row.expansion] : [])),
     [rows],
   );
+  // A typed CARDS search also finds COLLECTORS and SETS (owner, 2026-11-24),
+  // shown above the cards. Not for a smart (sentence) search: that is a card filter.
+  const mixedEnabled = isSearch && search.hasActiveQuery && !smart.isActive && !smart.isLoading;
+  const [setsExpanded, setSetsExpanded] = useState(false);
+  useEffect(() => setSetsExpanded(false), [search.query, scope]);
+  const matchingSets = useMemo(() => {
+    const needle = normalizeForMatch(search.query.trim());
+    if (!mixedEnabled || needle.length < 2) {
+      return [];
+    }
+    return orderedSets.filter((expansion) => normalizeForMatch(expansion.name).includes(needle));
+  }, [mixedEnabled, orderedSets, search.query]);
+  const mixedPeople = usePeopleSearch(search.query, { enabled: mixedEnabled, viewerId });
+  const matchingPeople = mixedEnabled ? mixedPeople.results : [];
+  const hasMixedMatches = matchingSets.length > 0 || matchingPeople.length > 0;
   const isLanding = view === 'landing';
   const singlesSources = useMemo(
     () => (isLanding ? singlesSourceSets(orderedSets) : []),
@@ -298,7 +328,7 @@ export function GameSetsScreen({
     search.hasActiveQuery
     && !smart.isLoading
     && (smart.isActive || !search.errorMessage)
-    && (cardResults.length > 0 || footerSealed.length > 0);
+    && (cardResults.length > 0 || footerSealed.length > 0 || hasMixedMatches);
   const { resetScroll } = pullDown;
   // Switching lists mounts a fresh one at the top.
   useEffect(() => {
@@ -414,8 +444,8 @@ export function GameSetsScreen({
       );
     }
     if (search.hasSearched && search.results.length === 0 && !search.errorMessage) {
-      if (sealedResults.length > 0) {
-        // No cards, but sealed matches: the sealed section stands in.
+      if (sealedResults.length > 0 || hasMixedMatches) {
+        // No cards, but sealed / collector / set matches: those stand in.
         return null;
       }
       if (sealedSearch.isLoading) {
@@ -483,6 +513,74 @@ export function GameSetsScreen({
     );
   };
 
+  const selectSearchTab = (next: SearchTab) => {
+    if (next === searchTab) {
+      return;
+    }
+    // The text follows you across: "gengar" on CARDS is "gengar" on COLLECTORS.
+    if (next === 'people' && searchTab === 'cards') {
+      setPeopleQuery(search.query);
+    } else if (next === 'cards' && searchTab === 'people') {
+      search.setQuery(peopleQuery);
+    }
+    if (next === 'people') {
+      setPeopleVisited(true);
+    } else if (next === 'events') {
+      Keyboard.dismiss();
+      setEventsVisited(true);
+    }
+    setSearchTab(next);
+  };
+
+  // COLLECTORS and SETS that match the typed query, above the card grid.
+  const renderMixedSections = () => {
+    if (!hasMixedMatches) {
+      return null;
+    }
+    const shownSets = setsExpanded ? matchingSets : matchingSets.slice(0, MIXED_PREVIEW_COUNT);
+    return (
+      <View style={styles.mixedSections} testID="game-sets-mixed">
+        {matchingPeople.length > 0 ? (
+          <View style={styles.setsSection}>
+            <SearchSectionHeader
+              onViewAll={() => selectSearchTab('people')}
+              testID="game-sets-mixed-people-header"
+              title="COLLECTORS"
+            />
+            {matchingPeople.slice(0, MIXED_PREVIEW_COUNT).map((profile) => (
+              <SearchPersonRow
+                key={profile.userID}
+                onPress={(picked) => {
+                  searchFieldRef.current?.blur();
+                  Keyboard.dismiss();
+                  onOpenProfile?.(picked);
+                }}
+                profile={profile}
+                testID={`game-sets-mixed-person-${profile.userID}`}
+              />
+            ))}
+          </View>
+        ) : null}
+        {matchingSets.length > 0 ? (
+          <View style={styles.setsSection}>
+            <SearchSectionHeader
+              countLabel={resultsCountLabel(matchingSets.length)}
+              onViewAll={
+                matchingSets.length > MIXED_PREVIEW_COUNT && !setsExpanded ? () => setSetsExpanded(true) : undefined
+              }
+              testID="game-sets-mixed-sets-header"
+              title="SETS"
+            />
+            {shownSets.map(renderSetCard)}
+          </View>
+        ) : null}
+        {cardResults.length > 0 ? (
+          <SearchSectionHeader testID="game-sets-mixed-cards-header" title="CARDS" />
+        ) : null}
+      </View>
+    );
+  };
+
   const cardsBody = () => {
     if (search.hasActiveQuery) {
       if (!showsResults) {
@@ -491,6 +589,7 @@ export function GameSetsScreen({
       return (
         <GestureDetector gesture={pullDown.scrollGesture}>
         <CatalogResultsGrid
+          header={renderMixedSections()}
           footer={(
             <SealedResultsSection
               onOpenResult={openResult}
@@ -575,7 +674,7 @@ export function GameSetsScreen({
       return sealedBrowse.hasSearched ? (
         <StateCard
           centered
-          message={`No sealed products for ${gameDisplayName(game)} yet.`}
+          message={allGames ? 'No sealed products yet.' : `No sealed products for ${gameDisplayName(game)} yet.`}
           style={[styles.stateCard, styles.bodyState]}
           title="No sealed products"
         />
@@ -638,7 +737,7 @@ export function GameSetsScreen({
       style={styles.chipScroller}
       testID="game-sets-game-chips"
     >
-      {isSearch ? (
+      {showsAllChip ? (
         // Figma 6722:8531: ALL leads the row on Search.
         <PillButton
           label="All"
@@ -700,8 +799,7 @@ export function GameSetsScreen({
           {sealedRail.results.length > 0 ? (
             <View style={styles.section}>
               <SearchSectionHeader
-                // VIEW ALL opens one game's page: ALL has none to open.
-                onViewAll={onViewAll && !allGames ? () => onViewAll('sealed', game) : undefined}
+                onViewAll={onViewAll ? () => onViewAll('sealed', allGames ? 'all' : game) : undefined}
                 testID="game-sets-sealed-header"
                 title="SEALED"
               />
@@ -712,7 +810,7 @@ export function GameSetsScreen({
             <View style={[styles.section, styles.setsSection]}>
               <SearchSectionHeader
                 countLabel={resultsCountLabel(orderedSets.length)}
-                onViewAll={onViewAll && !allGames ? () => onViewAll('sets', game) : undefined}
+                onViewAll={onViewAll ? () => onViewAll('sets', allGames ? 'all' : game) : undefined}
                 testID="game-sets-sets-header"
                 title="SETS"
               />
@@ -781,24 +879,7 @@ export function GameSetsScreen({
         {isTabMode ? <SearchNotificationsBell testID="game-sets-notifications" /> : null}
       </View>
       <PageTabs
-        onChange={(next) => {
-          if (next === searchTab) {
-            return;
-          }
-          // The text follows you across: "gengar" on CARDS is "gengar" on COLLECTORS.
-          if (next === 'people' && searchTab === 'cards') {
-            setPeopleQuery(search.query);
-          } else if (next === 'cards' && searchTab === 'people') {
-            search.setQuery(peopleQuery);
-          }
-          if (next === 'people') {
-            setPeopleVisited(true);
-          } else if (next === 'events') {
-            Keyboard.dismiss();
-            setEventsVisited(true);
-          }
-          setSearchTab(next);
-        }}
+        onChange={selectSearchTab}
         tabs={SEARCH_TABS}
         testID="search-tabs"
         uppercase
@@ -1034,6 +1115,11 @@ const styles = StyleSheet.create({
   },
   section: {
     gap: spacing.xs,
+  },
+  // Collectors, then sets, then the CARDS heading over the grid.
+  mixedSections: {
+    gap: spacing.lg,
+    paddingTop: spacing.xs,
   },
   // Figma 6597:5712: the set list sits 8 apart, header included.
   setsSection: {

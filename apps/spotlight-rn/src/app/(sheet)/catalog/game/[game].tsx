@@ -13,12 +13,15 @@ export default function GameSetsRoute() {
   const params = useLocalSearchParams<{ game?: string | string[]; view?: string | string[] }>();
   const raw = Array.isArray(params.game) ? params.game[0] : params.game;
   const game = CARD_GAMES.find((candidate) => candidate === raw) ?? DEFAULT_CARD_GAME;
+  // `all`: VIEW ALL from Search while the ALL chip is selected — every game's sets / sealed.
+  const allGamesScope = raw === 'all';
   // VIEW ALL on Search's SETS / SEALED lands here with `view`; absent = the landing.
   const rawView = Array.isArray(params.view) ? params.view[0] : params.view;
   const view: GameSetsView = rawView === 'sets' || rawView === 'sealed' ? rawView : 'landing';
 
   return (
     <GameSetsScreen
+      allGamesScope={allGamesScope}
       game={game}
       view={view}
       onClose={() => router.back()}
