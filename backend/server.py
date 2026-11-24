@@ -194,6 +194,7 @@ from ebay_comps import (
 import ebay_listings
 from sealed_products import is_sealed_card, sealed_set_index, search_sealed_products
 from expansion_eras import classify_expansions, parse_payload as parse_expansion_payload
+from expansion_visibility import filter_browse_expansions
 from expansion_dedupe import EMPTY_PAIRING, ExpansionPairing, build_expansion_pairing
 import calendar_feed
 import expo_push
@@ -15518,7 +15519,9 @@ class SpotlightScanService:
                 remaining = 0
         return {"ok": True, "remaining": remaining}
 
-    def list_expansions(self, game: str = "pokemon", *, refresh: bool = False) -> dict[str, Any]:
+    def list_expansions(
+        self, game: str = "pokemon", *, refresh: bool = False, include_hidden: bool = False
+    ) -> dict[str, Any]:
         # Every read here is scoped to ONE game. The emptiness check especially:
         # a global count is non-zero as soon as Pokémon has synced, so
         # `?game=onepiece` used to skip its own sync and then be served the
@@ -15546,6 +15549,14 @@ class SpotlightScanService:
             set_totals = totals.get(str(expansion.get("id") or ""), {})
             expansion["cardCount"] = int(set_totals.get("cardCount") or 0)
             expansion["setValue"] = set_totals.get("setValue")
+        # Filler sets (energies, Battle Academy, kits, decks) are not browsed;
+        # their cards and set pages are unaffected (expansion_visibility.py).
+        expansions = filter_browse_expansions(
+            expansions,
+            game=normalized_game,
+            card_counts={str(row.get("id") or ""): row["cardCount"] for row in expansions},
+            include_hidden=include_hidden,
+        )
         return {"expansions": expansions}
 
     def _expansion_classification_meta(self, game: str) -> dict[str, dict[str, Any]]:
@@ -29177,7 +29188,11 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             query_params = parse_qs(parsed.query)
             game = query_params.get("game", ["pokemon"])[0]
             refresh_flag = query_params.get("refresh", ["false"])[0].lower() in ("1", "true", "yes")
-            self._write_json(HTTPStatus.OK, self.service.list_expansions(game=game, refresh=refresh_flag))
+            include_hidden = query_params.get("includeHidden", ["false"])[0].lower() in ("1", "true", "yes")
+            self._write_json(
+                HTTPStatus.OK,
+                self.service.list_expansions(game=game, refresh=refresh_flag, include_hidden=include_hidden),
+            )
             return
 
         expansion_cards_match = re.match(r"^/api/v1/expansions/([^/]+)/cards$", parsed.path)

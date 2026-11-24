@@ -173,6 +173,28 @@ describe('ExpansionDetailScreen (set page)', () => {
     expect(screen.queryByTestId('set-card-mew-price')).toBeNull();
   });
 
+  it('shows the logo, or the set name in its place when the set has none', async () => {
+    mockSet();
+    await renderSet();
+    expect(screen.getByTestId('set-page-logo')).toBeTruthy();
+    expect(screen.queryByTestId('set-page-logo-name')).toBeNull();
+  });
+
+  it('reads the set record with hidden filler sets included, so a linked hidden set keeps its logo and value', async () => {
+    mockSet();
+    const listExpansions = jest.spyOn(MockSpotlightRepository.prototype, 'listExpansions');
+    await renderSet();
+    expect(listExpansions).toHaveBeenCalledWith('pokemon', { includeHidden: true });
+  });
+
+  it('a set without a logo (TCGplayer-only) shows its name in the logo slot', async () => {
+    mockSet();
+    jest.spyOn(MockSpotlightRepository.prototype, 'listExpansions').mockResolvedValue([{ ...SET, imageUrl: '' }]);
+    await renderSet();
+    expect(screen.queryByTestId('set-page-logo')).toBeNull();
+    expect(within(screen.getByTestId('set-page-logo-name')).getByText('Delta Reign')).toBeTruthy();
+  });
+
   it('draws unowned cards in full colour and marks owned ones with a purple checkbox on the art', async () => {
     mockSet();
     await renderSet();

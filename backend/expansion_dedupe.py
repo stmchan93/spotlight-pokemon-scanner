@@ -13,6 +13,15 @@ spacing ignored; no prefix stripping). Two Scrydex sets never pair, so
 Japanese sets that legitimately share an official name stay apart, and a
 group whose name matches several Scrydex sets stays unpaired.
 
+TCGplayer often names the same set differently ("SWSH09: Brilliant Stars",
+"ME: Mega Evolution Promo" = Scrydex "Mega Evolution Black Star Promos").
+Rather than fuzzy prefix stripping (which would fold starter decks and
+JP-only products into the main set), those twins are listed by hand in
+GROUP_SET_ALIASES, keyed by TCGplayer group id. An alias applies only when
+its Scrydex target exists in the same game and language and is not itself a
+TCGplayer set; it takes precedence over the name rule. Add a pair only after
+checking release date, set code and that the group's cards belong to the set.
+
 A group card is dropped from the merged set when a canonical card has the
 same normalized collector number AND the same normalized name (Scrydex added
 the card after TCGplayer-only ingest created it); the canonical card wins.
@@ -27,15 +36,54 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
-from catalog_tools import TCGPLAYER_ONLY_SOURCE_PROVIDER, bare_catalog_id, normalize_game
+from catalog_tools import (
+    GAME_POKEMON,
+    TCGPLAYER_ONLY_SOURCE_PROVIDER,
+    bare_catalog_id,
+    game_for_catalog_id,
+    normalize_game,
+)
 from tcgcsv_adapter import normalized_card_number
 from tcgplayer_only_catalog import normalize_name as normalize_card_name
 
 TCGPLAYER_GROUP_SET_PREFIX = "tcgplayer-group-"
 
+# {game: {TCGplayer group id: bare Scrydex set id}}: same set, different name.
+GROUP_SET_ALIASES: dict[str, dict[int, str]] = {
+    GAME_POKEMON: {
+        # English
+        24831: "me6",      # ME06: Delta Reign
+        24451: "mep",      # ME: Mega Evolution Promo
+        2948: "swsh9",     # SWSH09: Brilliant Stars
+        2585: "swsh1",     # SWSH01: Sword & Shield Base Set
+        2377: "sm9",       # SM - Team Up
+        1861: "smp",       # SM Promos
+        1451: "xyp",       # XY Promos
+        24938: "mcd26",    # McDonald's Promos 2026 (code M26, /015)
+        # Japanese
+        24792: "mez_ja",   # MEZ: Starter Set ex Zoroark ex
+        24423: "mp_ja",    # M-P Promotional Cards
+        23838: "s8ag_ja",  # s8a-G: 25th Anniversary Golden Box
+        23847: "s8ap_ja",  # s8a-P: Promo Card Pack 25th Anniversary Edition
+        23695: "sm5p_ja",  # SM5+: Ultra Force
+        23678: "sm2l_ja",  # SM2L: Alolan Moonlight
+        23881: "smp_ja",   # SM-P: Sun & Moon Promos
+        23876: "swshp_ja", # S-P: Sword & Shield Promos (tcgcsv_adapter maps it too)
+        24138: "pcgp_ja",  # PCG-P Promotional cards
+    },
+}
+
 
 def is_tcgplayer_group_set_id(value: Any) -> bool:
     return bare_catalog_id(value).startswith(TCGPLAYER_GROUP_SET_PREFIX)
+
+
+def tcgplayer_group_id(set_id: Any) -> int | None:
+    bare = bare_catalog_id(set_id)
+    if not bare.startswith(TCGPLAYER_GROUP_SET_PREFIX):
+        return None
+    suffix = bare[len(TCGPLAYER_GROUP_SET_PREFIX):]
+    return int(suffix) if suffix.isdigit() else None
 
 
 def normalize_set_name(value: Any) -> str:
@@ -73,20 +121,30 @@ def pair_expansions(rows: list[dict[str, Any]]) -> dict[str, str]:
     """{group set id: canonical set id} from expansion rows of ONE game
     (`id`, `name`, `language`, `source_provider`)."""
     canonical_by_key: dict[tuple[str, str], list[str]] = defaultdict(list)
-    groups: list[tuple[str, tuple[str, str]]] = []
+    # {(game, bare id): (set id, language)} of the sets an alias may target
+    canonical_by_bare_id: dict[tuple[str, str], tuple[str, str]] = {}
+    groups: list[tuple[str, str, tuple[str, str]]] = []
     for row in rows:
         set_id = str(row.get("id") or "").strip()
-        name_key = normalize_set_name(row.get("name"))
-        if not set_id or not name_key:
+        if not set_id:
             continue
-        key = (str(row.get("language") or "").strip().casefold(), name_key)
+        language = str(row.get("language") or "").strip().casefold()
+        key = (language, normalize_set_name(row.get("name")))
         if is_tcgplayer_group_set_id(set_id):
-            groups.append((set_id, key))
+            groups.append((set_id, language, key))
         elif str(row.get("source_provider") or "") != TCGPLAYER_ONLY_SOURCE_PROVIDER:
-            canonical_by_key[key].append(set_id)
+            canonical_by_bare_id[(game_for_catalog_id(set_id), bare_catalog_id(set_id))] = (set_id, language)
+            if key[1]:
+                canonical_by_key[key].append(set_id)
     alias: dict[str, str] = {}
-    for group_id, key in groups:
-        candidates = canonical_by_key.get(key, [])
+    for group_id, language, key in groups:
+        game = game_for_catalog_id(group_id)
+        target = GROUP_SET_ALIASES.get(game, {}).get(tcgplayer_group_id(group_id) or -1)
+        hit = canonical_by_bare_id.get((game, target)) if target else None
+        if hit is not None and hit[1] == language:
+            alias[group_id] = hit[0]
+            continue
+        candidates = canonical_by_key.get(key, []) if key[1] else []
         if len(candidates) == 1:
             alias[group_id] = candidates[0]
     return alias

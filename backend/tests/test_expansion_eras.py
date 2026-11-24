@@ -170,7 +170,11 @@ class ListExpansionsEndpointTests(unittest.TestCase):
         self.tempdir.cleanup()
 
     def test_pokemon_payload_hides_pocket_and_carries_era_and_promo(self) -> None:
-        expansions = self.service.list_expansions(game="pokemon")["expansions"]
+        # The unpaired group is browse-hidden (expansion_visibility.py); its
+        # classification still rides on the include-hidden payload.
+        listed = self.service.list_expansions(game="pokemon")["expansions"]
+        self.assertEqual({row["id"] for row in listed}, {"me1"})
+        expansions = self.service.list_expansions(game="pokemon", include_hidden=True)["expansions"]
         by_id = {row["id"]: row for row in expansions}
         self.assertEqual(set(by_id), {"me1", "tcgplayer-group-24938"})
         self.assertEqual(by_id["me1"]["era"], "Mega Evolution")

@@ -20,6 +20,7 @@ import {
   SearchField,
   SectionHeader,
   StateCard,
+  Text,
   Toast,
   cardGrid,
   glassNavBubbleGlyphSize,
@@ -198,9 +199,10 @@ export function ExpansionDetailScreen({
   const [copiesSheet, setCopiesSheet] = useState<CopiesSheetState>(null);
 
   // The set's own record carries the totals (`cardCount`, `setValue`) and logo.
+  // includeHidden: a filler set hidden from the sets list can still be opened from a card.
   useEffect(() => {
     let cancelled = false;
-    void spotlightRepository.listExpansions(game)
+    void spotlightRepository.listExpansions(game, { includeHidden: true })
       .then((records) => {
         if (!cancelled) {
           setExpansion(records.find((record) => record.id === expansionId) ?? null);
@@ -550,7 +552,14 @@ export function ExpansionDetailScreen({
               style={styles.logo}
               testID="set-page-logo"
             />
-          ) : null}
+          ) : (
+            // No logo (TCGplayer-only sets have none): the name fills the slot, as on the sets list.
+            <View style={styles.logoName} testID="set-page-logo-name">
+              <Text adjustsFontSizeToFit minimumFontScale={0.7} numberOfLines={2} style={[theme.typography.titleMedium, styles.logoNameText, { color: theme.colors.gray900 }]}>
+                {setName}
+              </Text>
+            </View>
+          )}
         </View>
         <SetProgressCard
           completion={completion}
@@ -734,6 +743,14 @@ const styles = StyleSheet.create({
   logoSlot: {
     height: LOGO_HEIGHT,
     width: LOGO_WIDTH,
+  },
+  logoName: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+  },
+  logoNameText: {
+    textAlign: 'center',
   },
   row: {
     alignItems: 'stretch',

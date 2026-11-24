@@ -94,6 +94,52 @@ class PairingRuleTests(unittest.TestCase):
         rows[0]["source_provider"] = "scrydex"
         self.assertEqual(pair_expansions(rows), {"lorcana~tcgplayer-group-17690": "lorcana~D23"})
 
+    def test_alias_map_pairs_differently_named_twins(self) -> None:
+        rows = [
+            _expansion_row("mep", "Mega Evolution Black Star Promos"),
+            _expansion_row("tcgplayer-group-24451", "ME: Mega Evolution Promo", provider="tcgplayer"),
+            _expansion_row("swsh9", "Brilliant Stars"),
+            _expansion_row("tcgplayer-group-2948", "SWSH09: Brilliant Stars", provider="tcgplayer"),
+            _expansion_row("s8ag_ja", "25th Anniversary Golden Box", language="Japanese"),
+            _expansion_row("tcgplayer-group-23838", "s8a-G: 25th Anniversary Golden Box", language="Japanese", provider="tcgplayer"),
+            # Not in the map and no namesake: stays its own set.
+            _expansion_row("tcgplayer-group-2686", "Battle Academy", provider="tcgplayer"),
+        ]
+        self.assertEqual(
+            pair_expansions(rows),
+            {
+                "tcgplayer-group-24451": "mep",
+                "tcgplayer-group-2948": "swsh9",
+                "tcgplayer-group-23838": "s8ag_ja",
+            },
+        )
+
+    def test_alias_with_missing_target_stays_unpaired(self) -> None:
+        rows = [
+            _expansion_row("tcgplayer-group-24831", "ME06: Delta Reign", provider="tcgplayer"),
+            _expansion_row("me5", "Something Else"),
+        ]
+        self.assertEqual(pair_expansions(rows), {})
+
+    def test_alias_requires_same_language_and_a_scrydex_target(self) -> None:
+        rows = [
+            # mep filed as Japanese: language mismatch, no pair.
+            _expansion_row("mep", "Mega Evolution Black Star Promos", language="Japanese"),
+            _expansion_row("tcgplayer-group-24451", "ME: Mega Evolution Promo", provider="tcgplayer"),
+            # Target exists but is itself a TCGplayer-only set.
+            _expansion_row("swsh9", "Brilliant Stars", provider="tcgplayer"),
+            _expansion_row("tcgplayer-group-2948", "SWSH09: Brilliant Stars", provider="tcgplayer"),
+        ]
+        self.assertEqual(pair_expansions(rows), {})
+
+    def test_alias_is_scoped_to_its_game(self) -> None:
+        # Pokémon group 24451 -> mep must not fire for another game's group 24451.
+        rows = [
+            _expansion_row("onepiece~mep", "Mega Evolution Black Star Promos"),
+            _expansion_row("onepiece~tcgplayer-group-24451", "ME: Mega Evolution Promo", provider="tcgplayer"),
+        ]
+        self.assertEqual(pair_expansions(rows), {})
+
     def test_name_normalization(self) -> None:
         self.assertEqual(normalize_set_name("The Azure Sea's Seven"), normalize_set_name("the azure seas seven"))
         self.assertEqual(normalize_set_name("Kalos Starter Set"), normalize_set_name("Kalos  Starter-Set"))

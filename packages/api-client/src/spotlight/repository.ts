@@ -674,7 +674,8 @@ export interface SpotlightRepository {
   voidSale(saleID: string): Promise<SaleLifecycleResponsePayload>;
   getVendorWalletHandles(): Promise<VendorWalletHandles>;
   updateVendorWalletHandles(payload: VendorWalletHandlesUpdate): Promise<VendorWalletHandles>;
-  listExpansions(game?: CardGame): Promise<ExpansionRecord[]>;
+  /** `includeHidden`: also filler sets the sets list hides (a set page opened by link still needs its record). */
+  listExpansions(game?: CardGame, options?: { includeHidden?: boolean }): Promise<ExpansionRecord[]>;
   listCardsInExpansion(
     expansionId: string,
     query?: string,
@@ -5843,7 +5844,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
     };
   }
 
-  async listExpansions(_game?: CardGame): Promise<ExpansionRecord[]> {
+  async listExpansions(_game?: CardGame, _options?: { includeHidden?: boolean }): Promise<ExpansionRecord[]> {
     return [];
   }
 
@@ -8829,8 +8830,14 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     );
   }
 
-  async listExpansions(game: CardGame = DEFAULT_CARD_GAME): Promise<ExpansionRecord[]> {
+  async listExpansions(
+    game: CardGame = DEFAULT_CARD_GAME,
+    options: { includeHidden?: boolean } = {},
+  ): Promise<ExpansionRecord[]> {
     const params = new URLSearchParams({ game });
+    if (options.includeHidden) {
+      params.set('includeHidden', '1');
+    }
     const response = await this.requestJson<{ expansions: ExpansionRecord[] }>(
       `${this.baseUrl}/api/v1/expansions?${params.toString()}`,
     );
