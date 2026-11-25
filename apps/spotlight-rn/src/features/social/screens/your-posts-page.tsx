@@ -42,7 +42,7 @@ type YourPostsPageProps = {
 };
 
 /**
- * YOUR POSTS on Social (Figma 6642:5420 tab rail): what the viewer wrote AND
+ * POST on Social (Figma 6769:6887 tab rail): what the viewer wrote AND
  * what they reposted, newest activity first — the list the Collection profile's
  * old Activity tab held. `fetchAuthorActivity` does the merge; it is one read
  * with no cursor, so this page does not page.
@@ -177,8 +177,6 @@ export function YourPostsPage({ page, scrollRef, testID = 'your-posts' }: YourPo
     <>
       <AnimatedFlatList
         ListEmptyComponent={empty}
-        // With the card's own 8 top inset, the same 16 FOR YOU leaves under the rail.
-        ListHeaderComponent={<View style={styles.listTop} />}
         contentContainerStyle={[
           page.contentContainerStyle,
           { paddingBottom: insets.bottom + theme.spacing.xl },
@@ -225,9 +223,6 @@ export function YourPostsPage({ page, scrollRef, testID = 'your-posts' }: YourPo
 }
 
 const styles = StyleSheet.create({
-  listTop: {
-    height: 8,
-  },
   // Figma 6642:5421: 16 under the tab rail, on the 16 page gutter.
   stateCard: {
     marginHorizontal: 16,

@@ -4,6 +4,7 @@ import { AppState, Platform, Share, StyleSheet, Text } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { MockSpotlightRepository } from '@spotlight/api-client';
+import { cardGrid, colors } from '@spotlight/design-system';
 import type {
   Collection,
   CollectionsSnapshot,
@@ -1773,14 +1774,14 @@ describe('PortfolioScreen', () => {
     await screen.findByTestId('portfolio-header-title');
 
     // The other tabs mount on first visit; open each once.
-    for (const tab of ['masterset', 'watchlist', 'market']) {
+    for (const tab of ['masterset']) {
       await act(async () => {
         fireEvent.press(screen.getByTestId(`portfolio-profile-tabs-tab-${tab}`));
       });
     }
     // For Sale is not among them: the tab is hidden until the feature exists
     // (`FOR_SALE_TAB_ENABLED`), so the pager never renders that page.
-    ['portfolio-scroll-view', 'portfolio-masterset-page', 'wishlist-scroll', 'portfolio-market-page'].forEach((testID) => {
+    ['portfolio-scroll-view', 'portfolio-masterset-page'].forEach((testID) => {
       expect(screen.getByTestId(testID).props.contentInsetAdjustmentBehavior).toBe('automatic');
     });
     expect(screen.queryByTestId('portfolio-forsale-page')).toBeNull();
@@ -2312,16 +2313,22 @@ describe('PortfolioScreen', () => {
     expect(screen.queryByTestId('portfolio-list-pagination-view-more')).toBeNull();
   });
 
-  // Figma 6642:5964 + owner (2026-11-22): Activity moved to Social → YOUR POSTS.
-  it('shows COLLECTION · MASTER SET · WATCHLIST · MARKET ANALYTICS, and no Activity tab', async () => {
+  // Figma 6775:16424: Watchlist and Market Analytics moved to the WATCHLIST bottom tab.
+  it('shows only COLLECTION · MASTERSET', async () => {
     renderPortfolioScreen();
     await screen.findByTestId('portfolio-header-title');
 
-    ['collection', 'masterset', 'watchlist', 'market'].forEach((tab) => {
+    ['collection', 'masterset'].forEach((tab) => {
       expect(screen.getByTestId(`portfolio-profile-tabs-tab-${tab}`)).toBeTruthy();
     });
-    expect(screen.getByText('MARKET ANALYTICS')).toBeTruthy();
-    expect(screen.queryByTestId('portfolio-profile-tabs-tab-activity')).toBeNull();
+    expect(screen.getByText('COLLECTION')).toBeTruthy();
+    expect(screen.getByText('MASTERSET')).toBeTruthy();
+    ['watchlist', 'market', 'activity'].forEach((tab) => {
+      expect(screen.queryByTestId(`portfolio-profile-tabs-tab-${tab}`)).toBeNull();
+    });
+    expect(screen.queryByText('MARKET ANALYTICS')).toBeNull();
+    expect(screen.queryByTestId('wishlist-scroll')).toBeNull();
+    expect(screen.queryByTestId('portfolio-market-page')).toBeNull();
     expect(screen.queryByTestId('portfolio-activity-page')).toBeNull();
   });
 
@@ -2337,40 +2344,68 @@ describe('PortfolioScreen', () => {
     renderPortfolioScreen();
     await screen.findByTestId('portfolio-header-title');
 
-    expect(screen.getByTestId('portfolio-watchlist-placeholder')).toBeTruthy();
-    expect(screen.queryByTestId('wishlist-scroll')).toBeNull();
+    expect(screen.getByTestId('portfolio-masterset-placeholder')).toBeTruthy();
+    expect(screen.queryByTestId('portfolio-masterset-page')).toBeNull();
     await act(async () => {
-      fireEvent.press(screen.getByTestId('portfolio-profile-tabs-tab-watchlist'));
+      fireEvent.press(screen.getByTestId('portfolio-profile-tabs-tab-masterset'));
     });
-    expect(await screen.findByTestId('wishlist-scroll')).toBeTruthy();
+    expect(await screen.findByTestId('portfolio-masterset-page')).toBeTruthy();
   });
 
   it('opens on the tab the route asked for, then hands the request back', async () => {
     const handled = jest.fn();
-    renderPortfolioScreen({ onRequestedProfileTabHandled: handled, requestedProfileTab: 'watchlist' });
+    renderPortfolioScreen({ onRequestedProfileTabHandled: handled, requestedProfileTab: 'masterset' });
     await screen.findByTestId('portfolio-header-title');
 
-    expect(await screen.findByTestId('wishlist-scroll')).toBeTruthy();
-    expect(screen.getByTestId('portfolio-profile-tabs-tab-watchlist').props.accessibilityState).toEqual({ selected: true });
+    expect(await screen.findByTestId('portfolio-masterset-page')).toBeTruthy();
+    expect(screen.getByTestId('portfolio-profile-tabs-tab-masterset').props.accessibilityState).toEqual({ selected: true });
     expect(handled).toHaveBeenCalledTimes(1);
   });
 
-  it('embeds the Watchlist without its own top bar, with Edit beside the view toggle', async () => {
-    renderPortfolioScreen({ requestedProfileTab: 'watchlist' });
-    await screen.findByTestId('wishlist-scroll');
+  it('stays on COLLECTION for a Watchlist / Market request, and still hands it back', async () => {
+    const handled = jest.fn();
+    renderPortfolioScreen({ onRequestedProfileTabHandled: handled, requestedProfileTab: 'market' });
+    await screen.findByTestId('portfolio-header-title');
 
-    expect(screen.queryByTestId('wishlist-header-done')).toBeNull();
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('wishlist-edit-toggle'));
-    });
-    expect(screen.getByTestId('wishlist-edit-bar')).toBeTruthy();
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('wishlist-edit-done'));
-    });
-    expect(screen.queryByTestId('wishlist-edit-bar')).toBeNull();
+    expect(screen.getByTestId('portfolio-profile-tabs-tab-collection').props.accessibilityState).toEqual({ selected: true });
+    expect(screen.queryByTestId('portfolio-market-page')).toBeNull();
+    expect(handled).toHaveBeenCalledTimes(1);
   });
 
-  it('lists owned sets on MASTER SET, closest to complete first, and opens the set', async () => {
+  // Figma 6775:16424: fixed 136pt art slot, flush tiles rounded only toward the centre gap,
+  // and outlined (white, gray-200 stroke) filter chips.
+  it('draws the Home card grid and filter chips per the Figma', async () => {
+    const inventory = [
+      buildInventoryEntry({ id: 'left', cardId: 'left', name: 'Left Card' }),
+      buildInventoryEntry({ id: 'right', cardId: 'right', name: 'Right Card' }),
+    ];
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: inventory, errorMessage: null }),
+      loadPortfolioDashboard: async () => ({
+        state: 'success',
+        data: buildDashboardWithInventory(inventory),
+        errorMessage: null,
+      }),
+    });
+    renderPortfolioScreen({ repository });
+
+    const frame = await screen.findByTestId('collection-masonry-grid-tile-left-image-frame');
+    expect(StyleSheet.flatten(frame.props.style)).toMatchObject({ height: cardGrid.artHeight });
+
+    // The grid cell is the nearest ancestor painting the tile fill.
+    let leftCell = screen.getByTestId('collection-masonry-grid-tile-left').parent;
+    while (leftCell && StyleSheet.flatten(leftCell.props.style)?.backgroundColor !== cardGrid.tileFill) {
+      leftCell = leftCell.parent;
+    }
+    const leftCellStyle = StyleSheet.flatten(leftCell?.props.style);
+    expect(leftCellStyle).toMatchObject({ borderTopRightRadius: cardGrid.tileRadius });
+    expect(leftCellStyle.borderTopLeftRadius).toBeUndefined();
+
+    const likes = StyleSheet.flatten(screen.getByTestId('collection-filter-chip-row-favorites').props.style);
+    expect(likes).toMatchObject({ backgroundColor: colors.gray0, borderColor: colors.gray200 });
+  });
+
+  it('lists owned sets on MASTERSET, closest to complete first, and opens the set', async () => {
     const repository = createTestSpotlightRepository({
       getSetProgress: async (game: string) => ({
         game,

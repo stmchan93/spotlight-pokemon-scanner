@@ -147,7 +147,7 @@ export function CollectionFilterChipRow({
               onPress={() => onFilterChange(key)}
               selected={isActive}
               testID={`${testID}-${key}`}
-              tone="filled"
+              tone="filter"
               trailing={isDirectionalSortKey(key) ? (
                 <SortArrow
                   color={glyphColor}

@@ -152,9 +152,9 @@ export function PortfolioBalanceHeader({
             variant="filled"
           >
             {isSummaryHidden ? (
-              <EyeClosed color={theme.colors.gray600} height={18} width={18} />
+              <EyeClosed color={theme.colors.gray900} height={18} width={18} />
             ) : (
-              <Eye color={theme.colors.gray600} height={18} width={18} />
+              <Eye color={theme.colors.gray900} height={18} width={18} />
             )}
           </IconButton>
         </View>

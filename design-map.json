@@ -13,7 +13,7 @@
       ],
       "deepLink": "spotlight://dev/wishlist",
       "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts",
-      "notes": "2026-11-22: Watchlist is no longer a bottom tab (Search took the slot, Figma 6642:5964); it becomes the WATCHLIST tab of the Home profile, and (tabs)/wishlist.tsx is a redirect to /?tab=watchlist. The dev route still renders WishlistScreen standalone. List view frame. Grid-view alternate: 1874:21732. Toolbar glass (GlassNavBubble/GlassButtonGroup) matches Figma structurally but renders its solid-white fallback on iOS < 26; real Liquid Glass needs an iOS 26 DEVICE \u2014 iOS 26 sims can't run the app until GoogleMLKit pods gain arm64-simulator slices. Crop the toolbar from diffs until then.",
+      "notes": "2026-11-24: WATCHLIST is a bottom tab again (Figma tab bar 6775:16938: HOME \u00b7 SEARCH \u00b7 SCAN \u00b7 WATCHLIST \u00b7 SOCIAL). (tabs)/wishlist.tsx renders WatchlistTabScreen (watchlist-tab-screen.tsx): WATCHLIST \u00b7 MARKET ANALYTICS underline rail; /wishlist?tab=market opens MARKET ANALYTICS. Dev routes: spotlight://dev/watchlist-tab, spotlight://dev/watchlist-tab-market (no Figma frame for the page yet). spotlight://dev/wishlist still renders WishlistScreen standalone. List view frame. Grid-view alternate: 1874:21732. Toolbar glass (GlassNavBubble/GlassButtonGroup) matches Figma structurally but renders its solid-white fallback on iOS < 26; real Liquid Glass needs an iOS 26 DEVICE \u2014 iOS 26 sims can't run the app until GoogleMLKit pods gain arm64-simulator slices. Crop the toolbar from diffs until then.",
       "states": [
         {
           "name": "list",
@@ -130,32 +130,35 @@
       "notes": "Already deterministic (renders tokens/primitives with inline samples); no dev route needed."
     },
     {
-      "figmaNodeId": "6642:5420",
-      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6642-5420",
+      "figmaNodeId": "6769:6687",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=6769-6687",
       "screenName": "Feed",
       "componentPaths": [
         "apps/spotlight-rn/src/features/social/screens/feed-screen.tsx",
         "apps/spotlight-rn/src/app/(tabs)/social.tsx",
         "apps/spotlight-rn/src/features/social/for-you-feed.ts",
         "apps/spotlight-rn/src/features/social/screens/your-posts-page.tsx",
+        "apps/spotlight-rn/src/features/social/screens/news-page.tsx",
         "apps/spotlight-rn/src/features/social/components/post-card.tsx",
         "apps/spotlight-rn/src/features/social/components/news-article-row.tsx",
         "apps/spotlight-rn/src/features/social/components/repost-attribution.tsx",
         "apps/spotlight-rn/src/components/home-header.tsx",
-        "packages/design-system/src/components/follow-button.tsx"
+        "packages/design-system/src/components/follow-button.tsx",
+        "apps/spotlight-rn/src/features/social/components/post-metrics-row.tsx",
+        "packages/design-system/src/components/page-tabs.tsx"
       ],
       "deepLink": "spotlight://dev/feed",
       "mockData": "apps/spotlight-rn/src/dev/dev-feed-data.ts (devFeedItems + devFeedNews; WabiSabi is in the viewer's follow set)",
-      "notes": "CURRENT 2026-11-22: 6642:5420 'Home' frame = the Social tab redesign (ignore its 4-tab bar; the app has 5). Toolbar 6642:11183 = centred lockup + messages + bell. Tabs 6642:11165 = FOR YOU \u00b7 YOUR POSTS on PageTabs variant=underline (SOCIAL/NEWS/MARKET WATCH retired; Market Watch/Top Trends moved to the Home profile's MARKET ANALYTICS tab). Compose 6642:5421 = 'WHAT'S ON YOUR MIND?' gray-100 pill. FOR YOU mixes posts and news articles by publish time (for-you-feed.ts horizon merge): news with an image = lead row 6642:10973, without = text row 6642:11002; user post 6642:5448 draws FOLLOWING (tappable -> confirm -> unfollow) on authors the viewer follows. Show-window chips still sit under the compose pill. YOUR POSTS = the viewer's posts + reposts (fetchAuthorActivity). Post/news photos are mock content (dev fixture is a solid lilac PNG) - crop image regions. Older references: 5085:15398 post rhythm (header->body 8 / body->image 8 / image->metrics 10; band seams 10/4/8) still applies to PostCard.",
+      "notes": "CURRENT 2026-11-24: 6769:6687 'Social' frame (ignore its bottom tab bar; owned elsewhere). Toolbar 6769:7389 = '+' frost bubble (composer) left, Ekalight wordmark (EkalightWordmark, gray-900, 32 tall) centred, bell bubble (unread badge) right; 14 from the toolbar's bottom pad to the tabs. Tabs 6769:6887 = FOR YOU \u00b7 NEWS \u00b7 POST \u00b7 EVENTS on PageTabs variant=underline align=gutter-flush (tab boxes touching, 12 per tab). FOR YOU mixes posts and news by publish time (for-you-feed.ts); NEWS = the news feed alone (news-page.tsx); POST = the viewer's posts + reposts (YourPostsPage, deep-link value yourPosts); EVENTS = EventsPage. Rows sit on a gray-50 4pt band: news lead 6769:6696 (px16 py12, gap 12, image radius 8), news text row 6769:6750 (gap 24), user post 6769:6719 (16 inset, stack 8, image radius 12, FOLLOW/FOLLOWING FollowButton + more 24, gap 16). Post/news photos are mock content (dev fixture is a solid lilac PNG) - crop image regions.",
       "states": [
         {
           "name": "for-you",
-          "figmaNodeId": "6642:5420",
+          "figmaNodeId": "6769:6687",
           "how": "spotlight://dev/feed (news lead on top, then a FOLLOWING post)"
         },
         {
           "name": "header",
-          "figmaNodeId": "6642:11183",
+          "figmaNodeId": "6769:7389",
           "how": "spotlight://dev/feed (top bar only)"
         },
         {

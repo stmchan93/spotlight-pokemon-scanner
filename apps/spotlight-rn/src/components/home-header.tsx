@@ -1,11 +1,11 @@
 import { Bell, Plus, Settings } from 'iconoir-react-native';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Animated, Pressable, StyleSheet, View } from 'react-native';
+import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
+  EkalightWordmark,
   GlassNavBubble,
-  GlassSurface,
   Text,
   glassNavBubbleGlyphSize,
   glassNavBubbleGlyphStrokeWidth,
@@ -19,8 +19,9 @@ import { AssistantChatPill } from '@/features/assistant/components/assistant-cha
  * WHAT THE BAR'S TRAILING CONTROL IS — the ONE thing that differs between the
  * two variants this bar draws (2026-11-22 redesign):
  *
- * - `social` (Figma 6731:14459): a purple "+ POST" pill top-left (it replaces
- *   the Chat pill on Social) and the bell bubble, with its badge, top-right.
+ * - `social` (Figma 6769:7389): a "+" bubble top-left (it replaces the Chat
+ *   pill on Social), the Ekalight wordmark centred, and the bell bubble, with
+ *   its badge, top-right.
  * - `profile` (Home, Figma 6731:9875): the Chat pill top-left and a Settings
  *   gear bubble top-right (Figma draws a "…"; owner: make it the gear).
  *
@@ -32,7 +33,7 @@ import { AssistantChatPill } from '@/features/assistant/components/assistant-cha
 export type HomeHeaderTrailing =
   | {
       kind: 'social';
-      /** The "+ POST" pill: opens the composer. */
+      /** The "+" bubble: opens the composer. */
       onCompose: () => void;
       onOpenNotifications: () => void;
       unreadCount: number;
@@ -124,7 +125,7 @@ type HomeHeaderProps = {
    * the real inset. Defaults to the safe-area inset for that case.
    */
   topInset?: number;
-  /** Social's messages + bell, or Home's Settings gear. See `HomeHeaderTrailing`. */
+  /** Social's "+" + bell, or Home's Settings gear. See `HomeHeaderTrailing`. */
   trailing: HomeHeaderTrailing;
   testID?: string;
 };
@@ -180,8 +181,8 @@ export const HOME_HEADER_ROW_HEIGHT = BAR_PADDING_TOP + CONTROL_ROW_HEIGHT;
  */
 export const HEADER_BACKDROP_FADE_DISTANCE = 56;
 /**
- * The shared top bar: messages top-left + bell top-right on Social (Figma
- * 6642:5420, lockup centred), and on Home just the status-bar strip; see
+ * The shared top bar: "+" top-left, wordmark centred, bell top-right on Social
+ * (Figma 6769:7389), and Chat pill + Settings gear on Home; see
  * `HomeHeaderTrailing`.
  *
  * THE ONE TOP BAR. Home (the feed) and Collection both draw this. The feed
@@ -279,7 +280,7 @@ export function HomeHeader({
   // dark glyphs); the contrast flip drives only the status bar.
   const glyphColor = theme.colors.gray900;
 
-  // Social: "+ POST" leads, the bell trails (Figma 6731:14459). A badge is a
+  // Social: "+" leads, the bell trails (Figma 6769:7389). A badge is a
   // SIBLING of its bubble, not a child: the bubble's glass clips its children.
   const trailingControl =
     trailing.kind === 'social' ? (
@@ -338,7 +339,26 @@ export function HomeHeader({
         testID={`${testID}-row`}
       >
         {trailing.kind === 'social' ? (
-          <PostPill onPress={trailing.onCompose} testID={`${testID}-post`} />
+          <View pointerEvents="none" style={styles.wordmarkSlot} testID={`${testID}-wordmark`}>
+            <EkalightWordmark color={glyphColor} />
+          </View>
+        ) : null}
+        {trailing.kind === 'social' ? (
+          <GlassNavBubble
+            accessibilityLabel="Create a post"
+            material="frost"
+            onPress={trailing.onCompose}
+            size="medium"
+            surface="onLight"
+            testID={`${testID}-post`}
+          >
+            <Plus
+              color={glyphColor}
+              height={BUTTON_ICON_SIZE}
+              strokeWidth={glassNavBubbleGlyphStrokeWidth}
+              width={BUTTON_ICON_SIZE}
+            />
+          </GlassNavBubble>
         ) : (
           <AssistantChatPill testID={`${testID}-chat`} />
         )}
@@ -382,16 +402,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 8,
   },
-  postPill: {
+  // Centred on the whole bar, not between the two bubbles.
+  wordmarkSlot: {
     alignItems: 'center',
-    borderCurve: 'continuous',
-    borderRadius: 22,
-    flexDirection: 'row',
-    gap: 4,
-    height: 44,
-    overflow: 'hidden',
-    paddingLeft: 8,
-    paddingRight: 12,
+    height: CONTROL_ROW_HEIGHT,
+    justifyContent: 'center',
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: BAR_PADDING_TOP,
   },
   badgedBubble: {
     overflow: 'visible',
@@ -410,37 +429,6 @@ const styles = StyleSheet.create({
     top: 2,
   },
 });
-
-/**
- * Social's "+ POST" (Figma 6731:14459 "Button Group"): a 44pt purple-tinted glass
- * pill, white plus + SemiBold 13 label. Labelled on purpose: the old bare "+"
- * glass bubble went unread as "write a post".
- */
-function PostPill({ onPress, testID }: { onPress: () => void; testID: string }) {
-  const theme = useSpotlightTheme();
-  return (
-    <Pressable
-      accessibilityLabel="Create a post"
-      accessibilityRole="button"
-      hitSlop={8}
-      onPress={onPress}
-      style={({ pressed }) => [theme.shadows.glassPill, { borderRadius: 22, opacity: pressed ? 0.84 : 1 }]}
-      testID={testID}
-    >
-      <GlassSurface
-        fallbackColor={theme.colors.purple500}
-        glassColorScheme="light"
-        glassEffectStyle="regular"
-        glassTintColor={theme.colors.purple500}
-        interactive
-        style={[styles.postPill, { backgroundColor: theme.colors.purple500 }]}
-      >
-        <Plus color={theme.colors.gray0} height={BUTTON_ICON_SIZE} strokeWidth={glassNavBubbleGlyphStrokeWidth} width={BUTTON_ICON_SIZE} />
-        <Text style={[theme.typography.labelStrong, { color: theme.colors.gray0 }]}>POST</Text>
-      </GlassSurface>
-    </Pressable>
-  );
-}
 
 /** A 44pt frost nav bubble with an unread badge hung off its top-right (a sibling: the glass clips its children). */
 export function BadgedBubble({

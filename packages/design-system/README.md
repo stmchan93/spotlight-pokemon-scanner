@@ -45,7 +45,7 @@ Defined in `src/tokens.ts`:
 - `radii` — always paired with `borderCurve: 'continuous'` (iOS smooth corners ≈ Figma 60% smoothing; not valid on Image styles — clip via the wrapper View)
   - `radii.sheet` (20) — **rule: every bottom/sliding sheet uses `radii.sheet` on its top corners and square (0) bottom corners** (`border-radius: 20px 20px 0 0`, Figma 5753:18889), with `overflow: 'hidden'`. `SheetSurface` applies it; hand-built sheets set `borderTopLeftRadius`/`borderTopRightRadius: radii.sheet`. Centered dialogs and popover menus are not sheets.
   - `radii.xs` (4) — Figma radius-4, the set page tile's QTY stepper bar
-- `cardGrid` — the card-view grid (gray-50 page, white tiles, 4pt gap/radius); `cardGrid.ownedBadge*` size and colour the set page's owned marker (a ✓ for one copy, "×N" for more, top-right of the art); unowned cards are full colour
+- `cardGrid` — the card-view grid (gray-50 page, white tiles, 4pt gap/radius, 136pt `artHeight` art slot); `cardGrid.ownedBadge*` size and colour the set page's owned marker (a ✓ for one copy, "×N" for more, top-right of the art); unowned cards are full colour
 - `textStyles.captionTinyMedium` — raw Medium 10 (set page stepper "QTY: 1"), flagged non-library like `captionTiny`
 - `layout` — includes `rowThumbnailWidth`/`rowThumbnailHeight` (58x80, the `CardListRow` raw art slot; radius `inventoryArtRadiusRaw`) and `swipeActionWidth` (88, the action behind a swipe-left row); `tabBarRowHeight` / `tabBarMinBottomPadding` / `tabBarIconSlotHeight` (54 / 25 / 28, the Scanner's solid JS tab bar)
 - `shadows`
@@ -611,9 +611,11 @@ Current API concepts:
 
 - `imageUrl` (art fills the column width inside a square frame at the card's
   real aspect ratio; "CARD" placeholder when null)
-- optional `artAspect` (`'square'` default | `'card'`) — `'card'` swaps the
+- optional `artAspect` (`'square'` default | `'card'` | `'grid'`) — `'card'` swaps the
   square art frame for the portrait trading-card ratio (0.716) with the art
-  filling it, shortening the tile for dense grids (catalog search results)
+  filling it, shortening the tile for dense grids (catalog search results);
+  `'grid'` is a full-width slot of fixed `cardGrid.artHeight` (136) with the art
+  letterboxed (Collection card view, Figma 6775:16551)
 - `name`, `setName` + `cardNumber` (joined as `"{cardNumber} · {setName}"`)
 - `kind` (`'raw' | 'slab'`) with `variantName`, and `conditionLabel` (raw) or
   `graderLabel` + `gradeLabel` (slab) building the quality lines;
@@ -1114,6 +1116,7 @@ Current API concepts:
 - centered, content-width tabs with a 40px gap (Figma 3184-17337) — not full-width `flex: 1` tabs
 - `align="gutter"`: left-aligned with a 16 inset, 16 between tabs and 12 per tab (Figma Social 6322:8030)
 - `align="gutter-center"`: `gutter` spacing with the row centred (Events)
+- `align="gutter-flush"`: `gutter` with the tab boxes touching — 24 word to word (Figma Social 6769:6887)
 - active tab: `bodyMedium` / `textPrimary` with a 2px `textPrimary` underline hugging the label
 - inactive tab: `body` / `textSecondary`, no underline
 - a full-bleed `gray200` rail runs edge to edge under all tabs; the active underline shares its

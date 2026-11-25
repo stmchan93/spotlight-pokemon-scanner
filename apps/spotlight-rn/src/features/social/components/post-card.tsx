@@ -1105,11 +1105,12 @@ export function PostCard({
       </View>
 
       {/*
-        Figma 4299:94902 — a 4pt full-bleed #F2F2F2 (gray100) band separates
-        posts. Card-owned rather than list-owned so all PostCard surfaces —
-        the feed, post detail, profile/portfolio Activity — stay in parity.
+        Figma 6769:6695 — a 4pt full-bleed gray50 band separates posts, the same
+        band news rows close with. Card-owned rather than list-owned so all
+        PostCard surfaces — the feed, post detail, profile/portfolio Activity —
+        stay in parity.
       */}
-      <View style={[styles.band, { backgroundColor: theme.colors.gray100 }]} />
+      <View style={[styles.band, { backgroundColor: theme.colors.gray50 }]} />
 
       {/*
         Only one parent at a time: while the viewer is up the sheets move inside its
@@ -1158,14 +1159,12 @@ const styles = StyleSheet.create({
     height: borderWidths.sectionBand,
     width: '100%',
   },
-  // Figma 5085:15398 stacks header→body→image on 8 and image→metrics on 10
-  // (metricsRowOnCard adds the extra 2). 8 above the content and 10 below it are the
-  // gaps to the band; the feed's under-composer seam adds band marginBottom 8
-  // to make 16.
+  // Figma 6769:6719: 16 inset top and bottom; the stack runs on 8 (Figma's 9
+  // to the image rounds to the token) plus metricsRowOnCard's 2.
   cardContent: {
-    gap: 8,
-    paddingBottom: 10,
-    paddingTop: 8,
+    gap: spacing.xxs,
+    paddingBottom: spacing.sm,
+    paddingTop: spacing.sm,
   },
   cardChip: {
     alignItems: 'center',

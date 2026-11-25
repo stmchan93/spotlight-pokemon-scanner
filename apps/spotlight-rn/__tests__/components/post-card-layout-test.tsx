@@ -88,7 +88,7 @@ function flatten(node: { props: { style?: unknown } }) {
  * does.
  */
 describe('PostCard layout', () => {
-  it('stacks the content on an 8pt rhythm, 8 above and 10 below to the band', async () => {
+  it('stacks the content on an 8pt rhythm inside a 16 inset (Figma 6769:6719)', async () => {
     await renderCard();
 
     const content = flatten(screen.getByTestId('post-card-content'));
@@ -96,16 +96,16 @@ describe('PostCard layout', () => {
     // header→body→image run on 8; image→metrics is 10 via metricsRow's
     // marginTop (design-map.json: 5085:15398 supersedes the old flat 10).
     expect(content.gap).toBe(8);
-    // Band seams: 8 above the content, 10 below it (5085:15398).
-    expect(content.paddingTop).toBe(8);
-    expect(content.paddingBottom).toBe(10);
+    // 16 above the content and 16 below it to the band.
+    expect(content.paddingTop).toBe(16);
+    expect(content.paddingBottom).toBe(16);
   });
 
   it('closes the card with the 4pt full-bleed gray band as its last layout child', async () => {
     await renderCard();
 
     // Card-owned so every PostCard surface — feed, post detail, Activity —
-    // carries the same separator (Figma 4299:94902).
+    // carries the same separator (Figma 6769:6695: gray-50, same as news rows).
     const card = screen.getByTestId(`post-card-${post.id}`);
     // Direct children only: the content block, the band, and non-layout
     // machinery (the comments sheet). The band must be the last View.
@@ -116,16 +116,16 @@ describe('PostCard layout', () => {
 
     expect(band.height).toBe(4);
     expect(band.width).toBe('100%');
-    expect(band.backgroundColor).toBe('#F2F2F2');
+    expect(band.backgroundColor).toBe('#F7F7F7');
   });
 
-  it('leaves the action row no padding of its own, so the band sits 10pt below the glyphs', async () => {
+  it('leaves the action row no padding of its own, so the band sits 16pt below the glyphs', async () => {
     await renderCard();
 
     const metricsRow = flatten(screen.getByTestId('post-card-metrics'));
 
     // MUST stay undefined. Any value here is ADDED to `cardContent`'s
-    // `paddingBottom: 10` and pushes the band further from the glyphs than the
+    // `paddingBottom: 16` and pushes the band further from the glyphs than the
     // frame specifies.
     expect(metricsRow.paddingBottom).toBeUndefined();
     // Still the 16pt page gutter — the row's horizontal inset is unrelated.

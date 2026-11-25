@@ -87,7 +87,7 @@ describe('HomeHeader', () => {
   });
 
   describe('the trailing control', () => {
-    it('Social (Figma 6731:14459): "+ POST" top-left opens the composer, the bell top-right', () => {
+    it('Social (Figma 6769:7389): "+" top-left opens the composer, wordmark centred, the bell top-right', () => {
       const onCompose = jest.fn();
       const onOpenNotifications = jest.fn();
       renderHeader({
@@ -97,7 +97,7 @@ describe('HomeHeader', () => {
 
       const row = screen.getByTestId('home-header-row');
       expect(StyleSheet.flatten(row.props.style).justifyContent).toBe('space-between');
-      // POST replaces the Chat pill on Social; no lockup, no messages bubble.
+      // "+" replaces the Chat pill on Social; no messages bubble.
       for (const testID of ['home-header-chat', 'home-header-home-mark', 'home-header-messages', 'home-header-settings']) {
         expect(screen.queryByTestId(testID)).toBeNull();
       }
@@ -105,7 +105,9 @@ describe('HomeHeader', () => {
       const post = screen.getByTestId('home-header-post');
       const bell = screen.getByTestId('home-header-notifications');
       expect(post.props.accessibilityLabel).toBe('Create a post');
-      expect(within(post).getByText('POST')).toBeTruthy();
+      expect(within(post).queryByText('POST')).toBeNull();
+      expect(StyleSheet.flatten(post.props.style).width).toBe(glassNavBubbleSizes.medium);
+      expect(screen.getByTestId('home-header-wordmark')).toBeTruthy();
       expect(bell.props.accessibilityLabel).toBe('Notifications');
       const order = within(row)
         .getAllByRole('button')

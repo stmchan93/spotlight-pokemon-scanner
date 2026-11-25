@@ -1136,7 +1136,7 @@ const styles = StyleSheet.create({
   rangePill: {
     alignItems: 'center',
     borderCurve: 'continuous',
-    borderRadius: 4,
+    borderRadius: radii.xs,
     justifyContent: 'center',
     paddingHorizontal: 12,
     paddingVertical: 4,
@@ -1144,7 +1144,7 @@ const styles = StyleSheet.create({
   rangePillSelected: {
     alignItems: 'center',
     borderCurve: 'continuous',
-    borderRadius: 8,
+    borderRadius: radii.sm,
     justifyContent: 'center',
     paddingHorizontal: 12,
     paddingVertical: 4,

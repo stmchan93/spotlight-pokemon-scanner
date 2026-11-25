@@ -106,7 +106,7 @@ import {
   type CollapsibleScrollTarget,
 } from '@/components/page-tab-pager';
 import { FocusedStatusBar } from '@/components/focused-status-bar';
-import { useAssistantPageContext, type AssistantPageExtra } from '@/features/assistant/page-context/assistant-page-context';
+import { useAssistantPageContext } from '@/features/assistant/page-context/assistant-page-context';
 import { EkalightMark } from '@/components/ekalight-mark';
 import { ScanTabIcon } from '@/components/nav-tab-icons';
 import {
@@ -127,9 +127,7 @@ import { PROFILE_SHEET_OVERLAP, ProfileHeader } from '@/features/profile/compone
 import { FOR_SALE_TAB_ENABLED } from '@/features/profile/for-sale-tab';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
 import { watchlistCardBasicsFromInventoryEntry } from '@/features/wishlist/watchlist-store';
-import { WatchlistPage } from '@/features/wishlist/screens/wishlist-screen';
 import { MasterSetPage } from '@/features/portfolio/components/master-set-page';
-import { MarketAnalyticsPage } from '@/features/market/screens/market-analytics-page';
 import type { HomeProfileTabParam } from '@/lib/home-profile-tab';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -142,20 +140,21 @@ const COLLECTION_EMPTY_MESSAGE = 'Let’s build your collection';
 // Figma nav-glyph size, shared with the bottom tab bar (node 1313:7454).
 const SCAN_GLYPH_SIZE = 22;
 
-// Home's profile tabs (Figma 6642:5964 + owner, 2026-11-22). ACTIVITY left for
-// Social → YOUR POSTS; MARKET ANALYTICS is Social's old Market Watch, moved
-// here. For Sale still renders a gated "Coming soon" behind its flag.
-type ProfileTab = 'collection' | 'masterset' | 'watchlist' | 'market' | 'forsale';
+// Status bar → avatar slot on Home's cover (Figma 6775:16424: slot at y128 under a 59pt bar).
+const HOME_AVATAR_TOP = 69;
+
+// Home's profile tabs (Figma 6775:16424): COLLECTION | MASTERSET. Watchlist and
+// Market Analytics live on the WATCHLIST bottom tab. For Sale still renders a
+// gated "Coming soon" behind its flag.
+type ProfileTab = 'collection' | 'masterset' | 'forsale';
 const ALL_PROFILE_TABS: readonly PageTab<ProfileTab>[] = [
   { value: 'collection', label: 'Collection' },
-  { value: 'masterset', label: 'Master Set' },
-  { value: 'watchlist', label: 'Watchlist' },
-  { value: 'market', label: 'Market Analytics' },
+  { value: 'masterset', label: 'Masterset' },
   { value: 'forsale', label: 'For Sale' },
 ];
-// Tabs that mount on first visit rather than with Home: each one's reads (set
-// catalogs, watchlist, market pulse) are paid only once you open it.
-const LAZY_PROFILE_TABS: ReadonlySet<ProfileTab> = new Set(['masterset', 'watchlist', 'market']);
+// Mounts on first visit rather than with Home, so its set-catalog reads are
+// paid only once you open it.
+const LAZY_PROFILE_TABS: ReadonlySet<ProfileTab> = new Set(['masterset']);
 // For Sale is hidden until the feature exists — see `FOR_SALE_TAB_ENABLED` for
 // why this is a filter rather than a deleted line. Every For Sale render path
 // below stays live and type-checked.
@@ -392,10 +391,8 @@ export function PortfolioScreen({
   const router = useRouter();
   const auth = useAuth();
   const currentUser = auth.currentUser;
-  // Home's profile tab (Collection / Master Set / Watchlist / Market Analytics).
+  // Home's profile tab (Collection / Masterset).
   const [activeProfileTab, setActiveProfileTab] = useState<ProfileTab>('collection');
-  // Watchlist's own edit mode: like Collection's, it owns every gesture.
-  const [isWatchlistEditing, setIsWatchlistEditing] = useState(false);
   const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<ProfileTab>>(() => new Set(['collection']));
   if (!visitedTabs.has(activeProfileTab)) {
     setVisitedTabs(new Set([...visitedTabs, activeProfileTab]));
@@ -406,13 +403,16 @@ export function PortfolioScreen({
     if (!requestedProfileTab) {
       return;
     }
-    if (PROFILE_TAB_ORDER.includes(requestedProfileTab)) {
-      setActiveProfileTab(requestedProfileTab);
+    // Watchlist / Market links belong to the WATCHLIST bottom tab now; Home
+    // ignores them rather than selecting a tab it no longer has.
+    const requested = PROFILE_TAB_ORDER.find((tab) => tab === requestedProfileTab);
+    if (requested) {
+      setActiveProfileTab(requested);
     }
     onRequestedProfileTabHandled?.();
   }, [onRequestedProfileTabHandled, requestedProfileTab]);
-  // Revealed by a drag back from Search: show the NEAR edge, Market Analytics,
-  // so the strip reads as one continuous row of pages.
+  // Revealed by a drag back from the next bottom tab: show the NEAR edge, so the
+  // strip reads as one continuous row of pages.
   useTabLanding('index', (edge) => {
     const page = innerPageForLanding(PROFILE_TAB_ORDER, edge);
     if (page) {
@@ -587,8 +587,6 @@ export function PortfolioScreen({
   const scrollRef = useRef<FlatList<CollectionRow>>(null);
   const forSaleScrollRef = useRef<ScrollView>(null);
   const masterSetScrollRef = useRef<CollapsibleScrollTarget>(null);
-  const watchlistScrollRef = useRef<CollapsibleScrollTarget>(null);
-  const marketScrollRef = useRef<CollapsibleScrollTarget>(null);
   const pageScrollRefs = useMemo<
     Partial<Record<ProfileTab, { readonly current: CollapsibleScrollTarget | null }>>
   >(
@@ -596,8 +594,6 @@ export function PortfolioScreen({
       collection: scrollRef,
       forsale: forSaleScrollRef,
       masterset: masterSetScrollRef,
-      watchlist: watchlistScrollRef,
-      market: marketScrollRef,
     }),
     [],
   );
@@ -706,10 +702,8 @@ export function PortfolioScreen({
     const match = collections.find((collection) => collection.id === activeCollectionID);
     return match?.name ?? 'Main Collection';
   }, [activeCollectionID, collectionsSnapshot]);
-  // Floating Ekalight bubble: which collection (and game chip) is on screen (read at tap time).
-  // MARKET ANALYTICS publishes its own game/window/zoomed set while it is the active tab.
-  const marketAssistantContextRef = useRef<AssistantPageExtra | null>(null);
-  useAssistantPageContext(() => (activeProfileTab === 'market' && marketAssistantContextRef.current ? marketAssistantContextRef.current : {
+  // Chat pill: which collection (and game chip) is on screen (read at tap time).
+  useAssistantPageContext(() => ({
     label: `Your collection · ${activeCollectionName}`,
     params: { collection: activeCollectionName },
     game: gameFromFilterKey(activeFilter) ?? insightsGame,
@@ -1053,8 +1047,8 @@ export function PortfolioScreen({
   // Mirror edit mode into the tabs pager so it hides the bottom tab bar + locks
   // the horizontal swipe, and always release the lock on unmount.
   useEffect(() => {
-    setCollectionEditing(editMode || isWatchlistEditing);
-  }, [editMode, isWatchlistEditing, setCollectionEditing]);
+    setCollectionEditing(editMode);
+  }, [editMode, setCollectionEditing]);
 
   useEffect(() => () => {
     setCollectionEditing(false);
@@ -1528,6 +1522,7 @@ export function PortfolioScreen({
       style={[styles.pinnedBlock, { backgroundColor: theme.colors.gray0 }]}
     >
       <ProfileHeader
+        avatarTop={HOME_AVATAR_TOP}
         avatarUrl={currentUser?.avatarURL}
         bio={currentUser?.bio}
         // Without this your cover shows on Edit Profile and on your PUBLIC
@@ -1569,25 +1564,20 @@ export function PortfolioScreen({
       style={{
         backgroundColor: theme.colors.gray0,
         borderCurve: 'continuous',
-        // Figma 6542:18158: 16pt top corners, labels 24 below the sheet edge.
-        borderTopLeftRadius: radii.lg,
-        borderTopRightRadius: radii.lg,
-        paddingTop: spacing.lg,
+        borderTopLeftRadius: radii.sheet,
+        borderTopRightRadius: radii.sheet,
+        paddingTop: spacing.sm,
       }}
     >
-      {/* Four tabs outgrow 393pt, so the rail scrolls (and keeps the active
-          tab in view); a drag on it scrolls the rail, never the pages. */}
-      <PageSwipeGuard>
-        <PageTabs
-          onChange={setActiveProfileTab}
-          scrollable
-          tabs={PROFILE_TABS}
-          testID="portfolio-profile-tabs"
-          uppercase
-          value={activeProfileTab}
-          variant="underline"
-        />
-      </PageSwipeGuard>
+      <PageTabs
+        align="gutter-flush"
+        onChange={setActiveProfileTab}
+        tabs={PROFILE_TABS}
+        testID="portfolio-profile-tabs"
+        uppercase
+        value={activeProfileTab}
+        variant="underline"
+      />
     </View>
   );
 
@@ -1766,28 +1756,6 @@ export function PortfolioScreen({
           enabled
           page={page}
           scrollRef={masterSetScrollRef}
-        />
-      );
-    }
-
-    if (tab === 'watchlist') {
-      return (
-        <WatchlistPage
-          isActive={isPortfolioPageActive && activeProfileTab === 'watchlist'}
-          onEditModeChange={setIsWatchlistEditing}
-          page={page}
-          scrollRef={watchlistScrollRef}
-        />
-      );
-    }
-
-    if (tab === 'market') {
-      return (
-        <MarketAnalyticsPage
-          assistantContextRef={marketAssistantContextRef}
-          page={page}
-          scrollRef={marketScrollRef}
-          testID="portfolio-market-page"
         />
       );
     }
@@ -1993,7 +1961,7 @@ export function PortfolioScreen({
         // padding reserved the same status bar again and opened a second one of
         // white between the tab bar and the Portfolio balance.
         contentInsetTop={Platform.OS === 'ios' ? insets.top : 0}
-        disabled={editMode || isWatchlistEditing}
+        disabled={editMode}
         header={pagerHeader}
         // Fades the profile block across exactly the strip it would park in, so
         // scrolled down you see only the bubbles and the tabs. Same expression as
@@ -2200,10 +2168,10 @@ export function PortfolioScreen({
 const styles = StyleSheet.create({
 
   chartWrap: {
-    // Figma 6502:7715: 24 from the % change line to the time filter, 18 from
-    // the plot's bottom edge to the collection summary (chrome's gap is 16).
-    marginBottom: 2,
-    marginTop: 12,
+    // 24 from the % change line to the time filter and from the plot's bottom
+    // edge to the collection summary (chrome's gap is 16).
+    marginBottom: spacing.xxs,
+    marginTop: spacing.xxs,
   },
   searchRowWrap: {
     marginBottom: SEARCH_TO_CHIPS_GAP - 16,

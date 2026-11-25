@@ -17,7 +17,7 @@ const DEFAULT_CARD_ASPECT = 245 / 342;
 const CARD_FRAME_ASPECT = 0.716;
 
 import { useSpotlightTheme } from '../theme';
-import { textStyles } from '../tokens';
+import { cardGrid, spacing, textStyles } from '../tokens';
 import { AppText } from './app-text';
 import { SelectionCheckCircle } from './selection-check-circle';
 import { TrendTriangle } from './trend-triangle';
@@ -35,9 +35,11 @@ export type InventoryCardTileProps = {
    * Art frame shape. 'square' (default) keeps the 1:1 frame with the art
    * letterboxed at its own aspect; 'card' renders the frame at the portrait
    * trading-card ratio with the art filling it — a shorter tile for dense
-   * results grids (catalog search).
+   * results grids (catalog search). 'grid' is a full-width slot of fixed
+   * `cardGrid.artHeight` with the art letterboxed like 'square' (Collection
+   * card view, Figma 6775:16551).
    */
-  artAspect?: 'square' | 'card';
+  artAspect?: 'square' | 'card' | 'grid';
   /** Print variant (e.g. "Holofoil"); renders above the condition/grade line. */
   variantName?: string | null;
   conditionLabel?: string | null;
@@ -333,7 +335,11 @@ export function InventoryCardTile({
         <View
           style={[
             styles.imageFrame,
-            artAspect === 'card' ? styles.imageFrameCard : null,
+            artAspect === 'card'
+              ? styles.imageFrameCard
+              : artAspect === 'grid'
+                ? styles.imageFrameGrid
+                : styles.imageFrameSquare,
             { borderCurve: 'continuous', borderRadius: artRadius },
           ]}
           testID={testID ? `${testID}-image-frame` : undefined}
@@ -406,7 +412,7 @@ export function InventoryCardTile({
           )}
         </View>
 
-        <View style={styles.copyStack}>
+        <View style={[styles.copyStack, collectionCopy ? styles.copyStackCollection : null]}>
           <AppText
             color="textPrimary"
             numberOfLines={1}
@@ -415,7 +421,7 @@ export function InventoryCardTile({
             {name}
           </AppText>
 
-          <View style={styles.metaStack}>
+          <View style={[styles.metaStack, collectionCopy ? styles.metaStackCollection : null]}>
             {setLine ? (
               <AppText
                 color="gray600"
@@ -451,7 +457,7 @@ export function InventoryCardTile({
             ) : null}
           </View>
 
-          <View style={styles.priceRow}>
+          <View style={[styles.priceRow, collectionCopy ? styles.priceRowCollection : null]}>
             <View style={styles.priceStack}>
               <AppText
                 color="textPrimary"
@@ -672,14 +678,19 @@ const styles = StyleSheet.create({
   },
   imageFrame: {
     alignItems: 'center',
-    aspectRatio: 1,
     justifyContent: 'center',
     overflow: 'hidden',
     position: 'relative',
     width: '100%',
   },
+  imageFrameSquare: {
+    aspectRatio: 1,
+  },
   imageFrameCard: {
     aspectRatio: CARD_FRAME_ASPECT,
+  },
+  imageFrameGrid: {
+    height: cardGrid.artHeight,
   },
   // Pinned to the PRICE line (the row is top-aligned), matching its 21pt line
   // height, so a trend or day-change line under the price doesn't pull it down.
@@ -698,6 +709,17 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 2,
     width: '100%',
+  },
+  // Collection copy (Figma 6775:16553): 4 between the name and each meta line,
+  // 12 from the last meta line to the price.
+  copyStackCollection: {
+    gap: spacing.xxxs,
+  },
+  metaStackCollection: {
+    gap: spacing.xxxs,
+  },
+  priceRowCollection: {
+    marginTop: spacing.xxs,
   },
   pressable: {
     alignSelf: 'stretch',

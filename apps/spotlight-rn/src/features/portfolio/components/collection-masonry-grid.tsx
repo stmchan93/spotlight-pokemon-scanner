@@ -134,7 +134,12 @@ export function CollectionGridRow({
           <View
             key={entry?.id ?? `row-${rowIndex}-col-${colIndex}`}
             // An empty trailing cell stays background so the gap reads as page.
-            style={[styles.cell, entry ? styles.filledCell : null]}
+            style={[
+              styles.cell,
+              entry ? styles.filledCell : null,
+              entry && colIndex === 0 ? styles.leadingCell : null,
+              entry && colIndex === COLLECTION_GRID_COLUMNS - 1 ? styles.trailingCell : null,
+            ]}
           >
             {entry ? (
               <CollectionTileSlot
@@ -212,6 +217,7 @@ function CollectionTileSlot({
 
   return (
     <InventoryCardTile
+      artAspect="grid"
       bordered={false}
       imageUrl={getCardImageUrl(entry, 'small')}
       name={entry.name}
@@ -270,8 +276,18 @@ const styles = StyleSheet.create({
   },
   filledCell: {
     backgroundColor: cardGrid.tileFill,
-    borderCurve: 'continuous',
-    borderRadius: cardGrid.tileRadius,
     overflow: 'hidden',
+  },
+  // Tiles run flush to the screen edges, so only the corners facing the centre
+  // gap are rounded (Figma 6775:16549 / 6775:16562).
+  leadingCell: {
+    borderBottomRightRadius: cardGrid.tileRadius,
+    borderCurve: 'continuous',
+    borderTopRightRadius: cardGrid.tileRadius,
+  },
+  trailingCell: {
+    borderBottomLeftRadius: cardGrid.tileRadius,
+    borderCurve: 'continuous',
+    borderTopLeftRadius: cardGrid.tileRadius,
   },
 });

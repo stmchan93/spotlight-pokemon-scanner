@@ -28,6 +28,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { NewsItem } from '@spotlight/api-client';
 
 import {
+  borderWidths,
   PageTabs,
   type PageTab,
   PillButton,
@@ -54,6 +55,7 @@ import {
   sourcesToAdvance,
 } from '@/features/social/for-you-feed';
 import { getFeedRefreshVersion } from '@/features/social/screens/new-post-screen';
+import { NewsPage } from '@/features/social/screens/news-page';
 import { YourPostsPage } from '@/features/social/screens/your-posts-page';
 import { EventsPage } from '@/features/events/screens/events-screen';
 import {
@@ -90,18 +92,20 @@ const NEWS_PAGE_SIZE = 20;
 const MAX_ADVANCE_ROUNDS = 4;
 
 /**
- * Social's tabs (Figma 6642:11165). Market Watch / Top Trends moved to the Home
- * profile's MARKET ANALYTICS tab; news joined the posts in FOR YOU.
+ * Social's tabs (Figma 6769:6887): FOR YOU (posts + news), NEWS (news alone),
+ * POST (the viewer's own posts and reposts — the old YOUR POSTS page, so its
+ * `yourPosts` deep-link value stays), EVENTS.
  */
-export type SocialTab = 'forYou' | 'yourPosts' | 'events';
+export type SocialTab = 'forYou' | 'news' | 'yourPosts' | 'events';
 
-export const SOCIAL_TAB_ORDER: readonly SocialTab[] = ['forYou', 'yourPosts', 'events'];
+export const SOCIAL_TAB_ORDER: readonly SocialTab[] = ['forYou', 'news', 'yourPosts', 'events'];
 const SOCIAL_TABS: readonly PageTab<SocialTab>[] = [
   { value: 'forYou', label: 'For you' },
-  { value: 'yourPosts', label: 'Your posts' },
+  { value: 'news', label: 'News' },
+  { value: 'yourPosts', label: 'Post' },
   { value: 'events', label: 'Events' },
 ];
-/** Guests get EVENTS only: FOR YOU / YOUR POSTS read RLS-scoped data a guest has none of. */
+/** Guests get EVENTS only: the other pages read RLS-scoped data (posts, reactions) a guest has none of. */
 export const GUEST_SOCIAL_TAB_ORDER: readonly SocialTab[] = ['events'];
 const GUEST_SOCIAL_TABS = SOCIAL_TABS.filter((tab) => GUEST_SOCIAL_TAB_ORDER.includes(tab.value));
 
@@ -110,8 +114,8 @@ export function parseSocialTab(value: unknown): SocialTab | undefined {
   const raw = Array.isArray(value) ? value[0] : value;
   return SOCIAL_TAB_ORDER.find((tab) => tab === raw);
 }
-/** Figma 6642:11183 → 6642:11165: the toolbar's bottom edge to the tab labels. */
-const TOOLBAR_TO_TABS_GAP = 24;
+/** Figma 6769:7389 → 6769:6887: the toolbar's bottom edge to the tab labels. */
+const TOOLBAR_TO_TABS_GAP = 14;
 
 /**
  * How old the displayed feed may be before returning to the tab refetches it.
@@ -183,7 +187,7 @@ async function readFeed(source: FeedSource, showId: string | null, before?: stri
 }
 
 /**
- * Social (Figma 6642:5420): a floating bar (lockup, messages, bell) over two
+ * Social (Figma 6769:6687): a floating bar ("+", wordmark, bell) over four
  * tabs.
  *
  * FOR YOU — posts and news articles in ONE timeline by publish time, newest
@@ -192,7 +196,11 @@ async function readFeed(source: FeedSource, showId: string | null, before?: stri
  * merges them without ever splicing a row above one already shown. During a
  * show, chips swap FOR YOU's posts for the Following or show feed (posts only).
  *
- * YOUR POSTS — the viewer's posts and reposts (`YourPostsPage`).
+ * NEWS — the news lane alone (`NewsPage`).
+ *
+ * POST — the viewer's posts and reposts (`YourPostsPage`).
+ *
+ * EVENTS — `EventsPage`.
  */
 /**
  * How many of the viewer's followees to read for the feed's follow controls.
@@ -333,10 +341,11 @@ export function FeedScreen({
     at 0, so the offset must be 0 there.
   */
   const scrollRef = useRef<FlatList<ForYouRow>>(null);
+  const newsScrollRef = useRef<CollapsibleScrollTarget | null>(null);
   const yourPostsScrollRef = useRef<CollapsibleScrollTarget | null>(null);
   const eventsScrollRef = useRef<CollapsibleScrollTarget | null>(null);
   const pageRefs = useMemo(
-    () => ({ forYou: scrollRef, yourPosts: yourPostsScrollRef, events: eventsScrollRef }),
+    () => ({ forYou: scrollRef, news: newsScrollRef, yourPosts: yourPostsScrollRef, events: eventsScrollRef }),
     [],
   );
   const listTopOffset = Platform.OS === 'ios' ? -insets.top : 0;
@@ -778,19 +787,19 @@ export function FeedScreen({
   /*
     A show's feed only: the For you / Following / <show> source chips, as the
     list's first row. Composing moved to the header's "+ POST" (Figma 6731:14459).
-    Closes with the same 4pt `gray100` band every post card closes with.
+    Closes with the same 4pt `gray50` band every feed row closes with.
   */
   const showSourceHeader = (
     <View
       style={[
         styles.composeSection,
         {
-          borderBottomColor: theme.colors.gray100,
+          borderBottomColor: theme.colors.gray50,
           // Only while the list is EMPTY. Once posts exist, the FIRST CELL draws
           // this band (see renderItem): Android lays cell 0 over the header's
           // bottom edge, and anything drawn from the header's side got shaved by
           // the cell's background.
-          borderBottomWidth: rows.length > 0 ? 0 : 4,
+          borderBottomWidth: rows.length > 0 ? 0 : borderWidths.sectionBand,
         },
       ]}
       testID={`${testID}-compose-divider`}
@@ -887,6 +896,12 @@ export function FeedScreen({
   const hubHeaderHeight = insets.top + HOME_HEADER_BAR_HEIGHT + TOOLBAR_TO_TABS_GAP;
 
   const renderHubPage = (tab: SocialTab, page: CollapsiblePageProps) => {
+    if (tab === 'news') {
+      if (!visitedTabs.has(tab)) {
+        return <View style={styles.safeArea} testID={`${testID}-news-placeholder`} />;
+      }
+      return <NewsPage page={page} scrollRef={newsScrollRef} testID={`${testID}-news-page`} />;
+    }
     if (tab === 'yourPosts') {
       if (!visitedTabs.has(tab)) {
         return <View style={styles.safeArea} testID={`${testID}-your-posts-placeholder`} />;
@@ -925,10 +940,9 @@ export function FeedScreen({
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={[
             page.contentContainerStyle,
-            // No horizontal padding and no inter-item gap: post cards are
-            // full-bleed and carry their own 8pt top inset, which is exactly the
-            // gap Figma leaves between a card's closing 4pt band and the next
-            // avatar. State cards re-inset themselves below.
+            // No horizontal padding and no inter-item gap: rows are full-bleed,
+            // carry their own top inset and close with their own 4pt band.
+            // State cards re-inset themselves below.
             { paddingBottom: insets.bottom + 24 },
           ]}
           data={rows}
@@ -961,15 +975,13 @@ export function FeedScreen({
                 The composer's closing band, drawn BY THE FIRST CELL rather than by
                 the header above it: cell 0 paints over the header's bottom edge on
                 Android, so anything the header drew on the seam was shaved the
-                moment posts loaded. The 8pt bottom margin plus the card's own 8pt
-                top inset makes the 16pt under-composer gap (Figma 4299:94902).
+                moment posts loaded. The row below supplies its own top inset.
               */}
               {index === 0 && feedShow ? (
                 <View
                   style={{
-                    backgroundColor: theme.colors.gray100,
-                    height: 4,
-                    marginBottom: 8,
+                    backgroundColor: theme.colors.gray50,
+                    height: borderWidths.sectionBand,
                   }}
                   testID={`${testID}-first-cell-rule`}
                 />
@@ -1145,7 +1157,8 @@ function SocialHubFrame({
         tabBar={
           <View style={{ backgroundColor: theme.colors.gray0 }}>
             <PageTabs
-              // Figma 6642:11165: the 2026-11 underline rail.
+              // Figma 6769:6887: the underline rail, tab boxes touching.
+              align="gutter-flush"
               onChange={onChange}
               tabs={tabs}
               testID={`${testID}-tabs`}
@@ -1169,7 +1182,7 @@ function SocialHubFrame({
         scrollRestOffset={listTopOffset}
         scrollY={scrollY}
         testID={`${testID}-header`}
-        // Figma 6642:5420: lockup centred, messages + bell on the right.
+        // Figma 6769:7389: "+" left, wordmark centred, bell right.
         trailing={trailing}
       />
       {children}

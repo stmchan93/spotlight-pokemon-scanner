@@ -360,11 +360,11 @@ describe('FeedScreen', () => {
   });
 
   /*
-    Composing lives in the header's "+ POST" (Figma 6731:14459); the old
+    Composing lives in the header's "+" bubble (Figma 6769:7389); the old
     "What's on your mind?" row is gone, so the first post sits right under the
     tabs and nothing leads the list outside a show's feed.
   */
-  it('composes from the header POST pill, with no compose row in the list', async () => {
+  it('composes from the header + bubble, with no compose row in the list', async () => {
     (fetchGlobalFeed as jest.Mock).mockResolvedValue([
       buildPost({ id: '1', body: 'Feed post' }),
       buildPost({ id: '2', body: 'Second post' }),
@@ -382,18 +382,73 @@ describe('FeedScreen', () => {
     expect(push).toHaveBeenCalledWith('/new-post');
   });
 
-  describe('the FOR YOU / YOUR POSTS / EVENTS tabs (Figma 6642:11165)', () => {
-    it('renders the three tabs in order with FOR YOU selected', async () => {
+  describe('the FOR YOU / NEWS / POST / EVENTS tabs (Figma 6769:6887)', () => {
+    it('renders the four tabs in order with FOR YOU selected', async () => {
       renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-      expect(SOCIAL_TAB_ORDER).toEqual(['forYou', 'yourPosts', 'events']);
+      expect(SOCIAL_TAB_ORDER).toEqual(['forYou', 'news', 'yourPosts', 'events']);
       expect(screen.getByText('FOR YOU')).toBeTruthy();
-      expect(screen.getByText('YOUR POSTS')).toBeTruthy();
+      expect(screen.getByText('NEWS')).toBeTruthy();
+      expect(screen.getByText('POST')).toBeTruthy();
       expect(screen.getByText('EVENTS')).toBeTruthy();
-      expect(screen.queryByText('NEWS')).toBeNull();
+      expect(screen.queryByText('YOUR POSTS')).toBeNull();
       expect(screen.queryByText('MARKET WATCH')).toBeNull();
       expect(screen.getByTestId('feed-tabs-tab-forYou').props.accessibilityState.selected).toBe(true);
+    });
+
+    it('packs the tab boxes flush on the 16 gutter, 12 per tab', async () => {
+      renderFeed();
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+
+      const row = StyleSheet.flatten(screen.getByTestId('feed-tabs-row').props.style);
+      expect(row.gap).toBe(0);
+      expect(row.paddingHorizontal).toBe(16);
+    });
+
+    it('mounts NEWS on first visit and lists the news feed alone', async () => {
+      fetchNewsFeed.mockResolvedValue({
+        items: [
+          buildArticle({ id: 'pic', title: 'Lead story', imageUrl: 'https://img.test/pic.jpg' }),
+          buildArticle({ id: 'txt', title: 'Text story' }),
+        ],
+        nextCursor: null,
+      });
+      renderFeed();
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+      expect(screen.queryByTestId('feed-news-page')).toBeNull();
+
+      fireEvent.press(screen.getByTestId('feed-tabs-tab-news'));
+
+      expect(await screen.findByTestId('feed-news-page-news-pic-image')).toBeTruthy();
+      expect(screen.getByTestId('feed-news-page-news-txt-title')).toBeTruthy();
+      expect(within(screen.getByTestId('feed-news-page')).queryByText('Feed post')).toBeNull();
+    });
+
+    it('pages NEWS on its cursor', async () => {
+      fetchNewsFeed.mockImplementation(async ({ cursor }: { cursor: string | null }) =>
+        cursor === 'c2'
+          ? { items: [buildArticle({ id: 'p2', title: 'Second page story' })], nextCursor: null }
+          : { items: [buildArticle({ id: 'p1', title: 'First page story' })], nextCursor: 'c2' },
+      );
+      renderFeed();
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+      fireEvent.press(screen.getByTestId('feed-tabs-tab-news'));
+      await screen.findByTestId('feed-news-page-news-p1-title');
+
+      await act(async () => {
+        screen.getByTestId('feed-news-page').props.onEndReached?.();
+      });
+
+      expect(await screen.findByTestId('feed-news-page-news-p2-title')).toBeTruthy();
+      expect(fetchNewsFeed).toHaveBeenCalledWith(expect.objectContaining({ cursor: 'c2' }));
+    });
+
+    it('shows the empty state when NEWS has no stories', async () => {
+      renderFeed();
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+      fireEvent.press(screen.getByTestId('feed-tabs-tab-news'));
+      expect(await screen.findByTestId('feed-news-page-empty')).toBeTruthy();
     });
 
     it('draws the underline rail: underline under the active tab only', async () => {
@@ -464,6 +519,7 @@ describe('FeedScreen', () => {
       expect(parseSocialTab('events')).toBe('events');
       expect(parseSocialTab(['yourPosts'])).toBe('yourPosts');
       expect(parseSocialTab('forYou')).toBe('forYou');
+      expect(parseSocialTab('news')).toBe('news');
       expect(parseSocialTab('market')).toBeUndefined();
       expect(parseSocialTab(undefined)).toBeUndefined();
     });
@@ -757,11 +813,14 @@ describe('FeedScreen', () => {
     expect(within(screen.getByTestId('feed-list')).queryByTestId('feed-header-rule')).toBeNull();
   });
 
-  it('heads Social with + POST left, the bell right, and no Chat, messages, menu or search (Figma 6731:14459)', async () => {
+  it('heads Social with + left, the wordmark centred, the bell right, and no Chat, messages, menu or search (Figma 6769:7389)', async () => {
     renderFeed();
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
     expect(screen.getByTestId('feed-header-post')).toBeTruthy();
+    expect(screen.getByLabelText('Create a post')).toBeTruthy();
+    expect(within(screen.getByTestId('feed-header')).queryByText('POST')).toBeNull();
+    expect(screen.getByTestId('feed-header-wordmark')).toBeTruthy();
     expect(screen.getByTestId('feed-header-notifications')).toBeTruthy();
     expect(screen.queryByTestId('feed-header-chat')).toBeNull();
     expect(screen.queryByTestId('feed-header-messages')).toBeNull();

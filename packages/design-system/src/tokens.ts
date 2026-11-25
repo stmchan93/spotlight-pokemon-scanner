@@ -243,6 +243,8 @@ export const cardGrid = {
   gap: 4,
   tileFill: colors.gray0,
   tileRadius: 4,
+  /** Fixed art-slot height on a grid tile (`artAspect="grid"`, Figma 6775:16551). */
+  artHeight: 136,
   /**
    * Owned marker on a set-page tile's art (top-right corner): a checked
    * `Checkbox` (brandStrong fill, white check, white ring) for any owned count;

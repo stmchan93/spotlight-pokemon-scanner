@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { ChatBubbleEmpty, Repeat, ShareIos, ThumbsUp } from 'iconoir-react-native';
 
-import { Text, useSpotlightTheme } from '@spotlight/design-system';
+import { spacing, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 const ICON_SIZE = 20;
 // Figma 4299:94944: the repeat glyph is 24pt wide (the other three are 20) and
@@ -159,13 +159,13 @@ const styles = StyleSheet.create({
   item: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 4,
+    gap: spacing.xxxs,
   },
   left: {
     alignItems: 'center',
     flexDirection: 'row',
     // Figma 4299:94902 — 20 between reaction groups, 4 inside one.
-    gap: 20,
+    gap: spacing.md,
   },
   row: {
     // Figma 3505:14440 baselines the row on its bottom edge, so the share glyph
@@ -173,6 +173,6 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: spacing.sm,
   },
 });

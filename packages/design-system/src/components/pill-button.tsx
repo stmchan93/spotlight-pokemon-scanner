@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'rea
 
 import { Text } from './scaled-text';
 import { useSpotlightTheme } from '../theme';
-import { radii, spacing } from '../tokens';
+import { borderWidths, radii, spacing } from '../tokens';
 
 export type PillButtonTone = 'default' | 'filter' | 'filled' | 'secondary' | 'soft' | 'option';
 
@@ -27,11 +27,11 @@ type PillButtonProps = {
   /**
    * Visual tone. 'default' is the brand-yellow pill used in chart range pills,
    * filter modal etc. 'filter' is the chip used in the Collection / Sales chip
-   * rows: a white pill when inactive and a solid black (gray900) pill with a
-   * white label when selected (Figma — selected chips read black, not purple).
+   * rows: a white pill with a gray-200 stroke when inactive and a solid black
+   * (gray900) pill with a white label when selected (Figma 6775:16516).
    * 'filled' is the borderless 'filter' chip (Figma 5722:21551): gray-100 fill
-   * when inactive, the same black pill when selected. Collection / Insights /
-   * Wishlist chip rows.
+   * when inactive, the same black pill when selected. Insights / Wishlist chip
+   * rows.
    * 'secondary' is the News / Market Watch game chip (Figma 6322:7623): gray-50
    * when inactive, the same black pill when selected.
    * 'soft' is the borderless gray-50 chip used inside empty states (Figma
@@ -108,7 +108,7 @@ export function PillButton({
         : (selected ? theme.colors.brand : theme.colors.field);
 
   const borderColor = tone === 'filter'
-    ? (selected ? theme.colors.gray900 : theme.colors.gray300)
+    ? (selected ? theme.colors.gray900 : theme.colors.gray200)
     : tone === 'filled'
       ? (selected ? theme.colors.gray900 : theme.colors.gray100)
     : tone === 'secondary'
@@ -174,20 +174,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
+  // The stroke sits inside the 8pt padding (Figma "Secondary" 6775:16521:
+  // 1pt gray-200 stroke, 8/16 padding), so stroked and borderless chips match.
   filterContainer: {
     alignItems: 'center',
     borderCurve: 'continuous',
     borderRadius: radii.sm,
-    borderWidth: 1,
+    borderWidth: borderWidths.containerRule,
     flexDirection: 'row',
     gap: spacing.xxxs,
     justifyContent: 'center',
     minHeight: 32,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xxs,
+    paddingHorizontal: spacing.sm - borderWidths.containerRule,
+    paddingVertical: spacing.xxs - borderWidths.containerRule,
   },
   borderless: {
     borderWidth: 0,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xxs,
   },
   label: {
     textAlign: 'center',

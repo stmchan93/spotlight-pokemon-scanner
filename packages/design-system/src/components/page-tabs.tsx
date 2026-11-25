@@ -31,9 +31,10 @@ export type PageTabsProps<V extends string> = {
    * `start` = left-aligned tabs on the page gutter (Figma Events 5476:7154).
    * `gutter` = the same with 16 inset, 16 between tabs and 12 per tab (Figma Social 6322:8030).
    * `gutter-center` = `gutter` spacing with the row centred (Events).
+   * `gutter-flush` = `gutter` with the tab boxes touching, 24 word to word (Figma Social 6769:6887).
    * Defaults to `center`, or `gutter` (left-packed, 16 gap) for `variant="underline"`.
    */
-  align?: 'center' | 'start' | 'gutter' | 'gutter-center';
+  align?: 'center' | 'start' | 'gutter' | 'gutter-center' | 'gutter-flush';
   /**
    * `compact` = the Figma "Collection Tabs" rail (5862:6907): Label 14 (same
    * metrics as Body-medium) boxed by 12pt side padding, 6pt word-to-underline,
@@ -83,7 +84,7 @@ export function PageTabs<V extends string>({
   const labelSize = labelSizeProp ?? (underlineVariant ? 'caption' : 'default');
   const compact = size === 'compact';
   const captionLabels = labelSize === 'caption';
-  const gutterSpacing = align === 'gutter' || align === 'gutter-center';
+  const gutterSpacing = align === 'gutter' || align === 'gutter-center' || align === 'gutter-flush';
   const selectedRole = captionLabels ? theme.typography.captionMedium : theme.typography.bodyMedium;
   const inactiveRole = captionLabels ? theme.typography.caption : theme.typography.body;
   const showIndicator = indicator === 'underline';
@@ -122,8 +123,10 @@ export function PageTabs<V extends string>({
             ? styles.containerStart
             : gutterSpacing && styles.containerGutter,
         !compact && align === 'gutter-center' ? styles.containerGutterCenter : null,
+        !compact && align === 'gutter-flush' ? styles.containerGutterFlush : null,
         scrollable ? styles.scrollContent : null,
       ]}
+      testID={testID ? `${testID}-row` : undefined}
     >
       {tabs.map((tab) => {
         const selected = tab.value === value;
@@ -261,6 +264,9 @@ const styles = StyleSheet.create({
   },
   containerGutterCenter: {
     justifyContent: 'center',
+  },
+  containerGutterFlush: {
+    gap: 0,
   },
   scrollContent: {
     flexGrow: 1,
