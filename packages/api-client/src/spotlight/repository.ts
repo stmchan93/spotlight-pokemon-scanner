@@ -52,6 +52,11 @@ import {
   parseMarketHeatmapSetPayload,
 } from './market-analytics-wire';
 import {
+  mockCardGradingAnalysis,
+  mockCardGradingAnalysisOnlyAt10,
+} from './grading-analysis-mock-data';
+import { parseCardGradingAnalysisPayload } from './grading-analysis-wire';
+import {
   mockSpotlightEventMap,
   mockSpotlightEventsFeed,
   parseSpotlightEventMap,
@@ -196,6 +201,8 @@ import type {
   TopMoverItem,
   CardPricePosition,
   CardPricePositionQuery,
+  CardGradingAnalysis,
+  CardGradingAnalysisQuery,
   MarketAnalytics,
   MarketAnalyticsQuery,
   MarketHeatmapSet,
@@ -511,6 +518,12 @@ export interface SpotlightRepository {
   getMarketAnalytics(query: MarketAnalyticsQuery): Promise<MarketAnalytics>;
   getMarketHeatmapSet(query: MarketHeatmapSetQuery): Promise<MarketHeatmapSet | null>;
   getCardPricePosition(query: CardPricePositionQuery): Promise<CardPricePosition | null>;
+  /*
+    "Worth grading?" (PSA). Resolves null when there are not enough sales
+    (204), the card is unknown (404) or the payload is unusable/non-USD;
+    throws on network/5xx so the sheet can offer a retry.
+  */
+  getCardGradingAnalysis(query: CardGradingAnalysisQuery): Promise<CardGradingAnalysis | null>;
   /*
     Social feed "meta" blocks (docs/meta-feed-api-contracts-2026-09-23.md).
     Each resolves NULL when the server reports the feature disabled (404) so
@@ -4375,6 +4388,23 @@ export class MockSpotlightRepository implements SpotlightRepository {
 
   async getCardPricePosition(query: CardPricePositionQuery): Promise<CardPricePosition | null> {
     return query.cardId ? { ...mockCardPricePosition } : null;
+  }
+
+  // sm7-1 is the "only at a 10" case; every other card is worth grading.
+  async getCardGradingAnalysis(query: CardGradingAnalysisQuery): Promise<CardGradingAnalysis | null> {
+    if (!query.cardId) {
+      return null;
+    }
+    const base = query.cardId === mockCardGradingAnalysisOnlyAt10.cardId
+      ? mockCardGradingAnalysisOnlyAt10
+      : mockCardGradingAnalysis;
+    return {
+      ...base,
+      cardId: query.cardId,
+      variant: query.variant ?? base.variant,
+      tier: { ...base.tier },
+      outcomes: base.outcomes.map((item) => ({ ...item })),
+    };
   }
 
   // Meta feed blocks: fixed payloads shaped like the Social feed mockup,
@@ -9416,6 +9446,28 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     }
     // 204 = not enough trustworthy history: an empty body.
     return parseCardPricePositionPayload(response.data);
+  }
+
+  async getCardGradingAnalysis(query: CardGradingAnalysisQuery): Promise<CardGradingAnalysis | null> {
+    const params = new URLSearchParams();
+    if (query.variant) {
+      params.set('variant', query.variant);
+    }
+    params.set('grader', query.grader);
+    const response = await this.requestJsonRead<unknown>(
+      `${this.baseUrl}/api/v1/cards/${encodeURIComponent(query.cardId)}/grading-analysis?${params.toString()}`,
+      undefined,
+      // The summary is written by a model on a cache miss: allow it time.
+      { allowNotFound: true, timeoutMs: 30000 },
+    );
+    if (response.kind === 'not_found') {
+      return null;
+    }
+    if (response.kind !== 'success') {
+      throw response.error;
+    }
+    // 204 = not enough PSA sales: an empty body.
+    return parseCardGradingAnalysisPayload(response.data);
   }
 
   // Meta feed reads. `allowNotFound` turns the flag-off 404 into a `null`

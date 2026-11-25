@@ -3661,6 +3661,52 @@ export type CardPricePositionQuery = {
 };
 
 /*
+  "Worth grading?" (GET /api/v1/cards/{id}/grading-analysis). USD only; no
+  selling fees. Outcomes arrive best grade first.
+*/
+export type CardGradingVerdict = 'worth_it' | 'only_at_10' | 'not_worth_it';
+
+export type CardGradingTier = {
+  name: string;
+  feeUsd: number;
+  valueCapUsd: number | null;
+  turnaroundText: string | null;
+};
+
+export type CardGradingOutcome = {
+  grade: string;
+  priceUsd: number;
+  netUsd: number;
+  gainVsRawUsd: number;
+  worthIt: boolean;
+};
+
+export type CardGradingAnalysis = {
+  cardId: string;
+  grader: 'PSA';
+  variant: string | null;
+  currencyCode: 'USD';
+  rawPriceUsd: number;
+  tier: CardGradingTier;
+  shippingUsd: number;
+  totalCostUsd: number;
+  outcomes: CardGradingOutcome[];
+  breakEvenGrade: string | null;
+  verdict: CardGradingVerdict;
+  summary: string;
+  summarySource: 'ai' | 'rules';
+  pricesAsOf: string | null;
+  feesAsOf: string | null;
+  feesSourceUrl: string | null;
+};
+
+export type CardGradingAnalysisQuery = {
+  cardId: string;
+  variant?: string | null;
+  grader: 'PSA';
+};
+
+/*
   Natural-language search (POST /api/v1/assistant/search). `search` = the
   server turned the text into a filter and ran it; `question` = advice the chat
   should answer; `plain` = use the normal catalog search.

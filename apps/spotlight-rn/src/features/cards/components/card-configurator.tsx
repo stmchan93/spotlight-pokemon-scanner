@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { SkeletonBlock, Text, useSpotlightTheme, type SpotlightTheme } from '@spotlight/design-system';
@@ -21,6 +22,8 @@ type CardConfiguratorProps = {
   graders: string[];
   selectedGrader: string | null;
   onSelectGrader: (grader: string) => void;
+  /** Right-aligned on the language row (its own row when there is none). */
+  aiAction?: ReactNode;
   testID?: string;
 };
 
@@ -100,6 +103,7 @@ export function CardConfigurator({
   graders,
   selectedGrader,
   onSelectGrader,
+  aiAction,
   testID,
 }: CardConfiguratorProps) {
   const theme = useSpotlightTheme();
@@ -113,18 +117,25 @@ export function CardConfigurator({
       {languages.length > 0 ? (
         <View style={[styles.group, { gap: 8 }]}>
           <GroupTitle theme={theme}>Language</GroupTitle>
-          <View style={[styles.chipRow, { gap: 10 }]}>
-            {languages.map((language) => (
-              <OptionChip
-                key={language}
-                label={language}
-                onPress={() => onSelectLanguage(language)}
-                selected={language === selectedLanguage}
-                testID={testID ? `${testID}-language-${language}` : undefined}
-                theme={theme}
-              />
-            ))}
+          <View style={[styles.actionRow, { gap: 10 }]}>
+            <View style={[styles.chipRow, styles.chipRowFill, { gap: 10 }]}>
+              {languages.map((language) => (
+                <OptionChip
+                  key={language}
+                  label={language}
+                  onPress={() => onSelectLanguage(language)}
+                  selected={language === selectedLanguage}
+                  testID={testID ? `${testID}-language-${language}` : undefined}
+                  theme={theme}
+                />
+              ))}
+            </View>
+            {aiAction}
           </View>
+        </View>
+      ) : aiAction ? (
+        <View style={styles.actionRowEnd} testID={testID ? `${testID}-ai-row` : undefined}>
+          {aiAction}
         </View>
       ) : null}
 
@@ -174,6 +185,15 @@ export function CardConfigurator({
 }
 
 const styles = StyleSheet.create({
+  actionRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+  },
+  actionRowEnd: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
   chip: {
     alignItems: 'center',
     borderWidth: 1,
@@ -185,6 +205,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     flexWrap: 'wrap',
+  },
+  chipRowFill: {
+    flex: 1,
   },
   group: {
     width: '100%',

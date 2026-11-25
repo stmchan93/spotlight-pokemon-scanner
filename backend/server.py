@@ -204,6 +204,7 @@ import market_alerts
 import user_ai_settings
 import vendor_offers
 import watch_printings
+import grading_analysis
 import meta_pulse
 import news_feed
 import printing_images
@@ -2593,6 +2594,8 @@ class SpotlightScanService:
         self._dashboard_cache: dict[tuple[str, str], tuple[str, dict[str, Any]]] = {}
         self._dashboard_cache_locks: dict[tuple[str, str], threading.Lock] = {}
         self._dashboard_cache_locks_guard = threading.Lock()
+        # "Worth grading?" responses, keyed by card/printing/UTC day/price fingerprint.
+        self._grading_analysis_cache = grading_analysis.GradingAnalysisCache()
         # Payloads run up to ~1.3MB of JSON (several MB as Python objects), and a
         # miss reloads from the disk mirror, so keep the in-memory set small.
         self._dashboard_cache_max_entries = _env_int("SPOTLIGHT_DASHBOARD_CACHE_MAX", 64)
@@ -8405,6 +8408,101 @@ class SpotlightScanService:
                 card_id, converted, variant=variant
             )
         return converted
+
+    def card_grading_analysis(self, card_id: str, *, variant: str | None = None) -> dict[str, Any] | None:
+        """PSA "Worth grading?" for a card/printing (docs/grading-analysis-2026-11-24.md).
+
+        Prices come from ``card_price_trends`` (the card page's raw NM row and
+        PSA rows, so the numbers match the app). SQLite only; the one network
+        call is the small-model summary, cached per card/printing/day. Returns
+        None for an unknown card; raises ``grading_analysis.NoGradingData`` (204).
+        """
+        started_at = perf_counter()
+        cache_hit = False
+        summary_source: str | None = None
+        outcome = "ok"
+        try:
+            card = card_by_id(self.connection, card_id)
+            if card is None:
+                outcome = "not_found"
+                return None
+            raw_trends = self.card_price_trends(card_id, mode="raw", variant=variant) or {}
+            graded_trends = self.card_price_trends(
+                card_id, mode=PSA_GRADE_PRICING_MODE, variant=variant, grader="PSA"
+            ) or {}
+            raw_price = self._usd_trend_price(raw_trends, DEFAULT_RAW_CONDITION)
+            grade_prices: dict[str, float] = {}
+            for row in graded_trends.get("rows") or []:
+                parts = str((row or {}).get("key") or "").split()
+                if len(parts) != 2 or parts[0].upper() != "PSA":
+                    continue
+                grade = grading_analysis.normalize_grade(parts[1])
+                price = self._usd_trend_price({"rows": [row]}, row.get("key"))
+                if grade is not None and price is not None:
+                    grade_prices[grade] = price
+            snapshot_row = price_snapshot_row(self.connection, card_id)
+            prices_as_of = str(snapshot_row["updated_at"]) if snapshot_row is not None and snapshot_row["updated_at"] else None
+            try:
+                analysis = grading_analysis.build_analysis(
+                    card_id=card_id,
+                    variant=variant,
+                    raw_price_usd=raw_price,
+                    grade_prices_usd=grade_prices,
+                    prices_as_of=prices_as_of,
+                )
+            except grading_analysis.NoGradingData:
+                outcome = "no_content"
+                raise
+            cache_key = grading_analysis.GradingAnalysisCache.key(
+                analysis, day=datetime.now(timezone.utc).date().isoformat()
+            )
+            cached = self._grading_analysis_cache.get(cache_key)
+            if cached is not None:
+                cache_hit = True
+                summary_source = cached.get("summarySource")
+                return copy.deepcopy(cached)
+            text = grading_analysis.ai_summary(analysis, card)
+            if text:
+                analysis["summary"], analysis["summarySource"] = text, "ai"
+                ttl = None  # the day in the key expires it
+            else:
+                analysis["summary"], analysis["summarySource"] = grading_analysis.rules_summary(analysis), "rules"
+                ttl = grading_analysis.FALLBACK_CACHE_TTL_SECONDS
+            summary_source = analysis["summarySource"]
+            self._grading_analysis_cache.put(cache_key, copy.deepcopy(analysis), ttl_seconds=ttl)
+            return analysis
+        except grading_analysis.NoGradingData:
+            raise
+        except Exception:
+            outcome = "error"
+            raise
+        finally:
+            self._emit_structured_log(
+                {
+                    "severity": "INFO",
+                    "event": "grading_analysis_request",
+                    "outcome": outcome,
+                    "cardId": card_id,
+                    "variant": variant,
+                    "cacheHit": cache_hit,
+                    "summarySource": summary_source,
+                    "elapsedMs": round((perf_counter() - started_at) * 1000.0, 1),
+                }
+            )
+
+    @staticmethod
+    def _usd_trend_price(trend_list: dict[str, Any], key: Any) -> float | None:
+        """A trend row's shown price, only when it is a positive USD amount."""
+        for row in trend_list.get("rows") or []:
+            if not isinstance(row, dict) or row.get("key") != key:
+                continue
+            if str(row.get("currencyCode") or "").upper() != "USD":
+                return None
+            price = row.get("currentPrice")
+            if isinstance(price, bool) or not isinstance(price, (int, float)) or price <= 0:
+                return None
+            return float(price)
+        return None
 
     def _apply_recent_sales_average_to_graded_trend_rows(
         self,
@@ -29465,6 +29563,34 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 return
             if payload is None:
                 self._write_no_content()
+                return
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith("/grading-analysis"):
+            card_id = unquote(
+                parsed.path.removeprefix("/api/v1/cards/").removesuffix("/grading-analysis").rstrip("/")
+            )
+            if not card_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            query = parse_qs(parsed.query)
+            grader = (query.get("grader", ["PSA"])[0] or "PSA").strip().upper()
+            if grader not in grading_analysis.SUPPORTED_GRADERS:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "grader must be 'PSA'"})
+                return
+            variant = query.get("variant", [""])[0].strip() or None
+            try:
+                payload = self.service.card_grading_analysis(card_id, variant=variant)
+            except grading_analysis.NoGradingData:
+                self._write_no_content()
+                return
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Grading analysis failed: {error}"})
+                return
+            if payload is None:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Card not found"})
                 return
             self._write_json(HTTPStatus.OK, payload)
             return

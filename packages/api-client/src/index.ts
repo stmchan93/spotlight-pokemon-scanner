@@ -10,3 +10,5 @@ export * from './spotlight/assistant-mock-data';
 export * from './spotlight/vendor-wire';
 export * from './spotlight/market-analytics-mock-data';
 export * from './spotlight/market-analytics-wire';
+export * from './spotlight/grading-analysis-mock-data';
+export * from './spotlight/grading-analysis-wire';

@@ -247,6 +247,10 @@ export function createTestSpotlightRepository(
       return overrides.getCardPricePosition?.(...args)
         ?? baseRepository.getCardPricePosition(...args);
     },
+    getCardGradingAnalysis: (...args) => {
+      return overrides.getCardGradingAnalysis?.(...args)
+        ?? baseRepository.getCardGradingAnalysis(...args);
+    },
     fetchMetaPulse: (...args) => {
       return overrides.fetchMetaPulse?.(...args)
         ?? baseRepository.fetchMetaPulse(...args);

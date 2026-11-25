@@ -24,6 +24,11 @@ export const AnalyticsEvent = {
   // Card page.
   similarCardsShown: 'similar_cards_shown',
   similarCardOpened: 'similar_card_opened',
+  // "Worth grading?" sheet: opened {cardId (scrubbed), game}; result {verdict,
+  // summarySource}; ask_ekalight = its Ask Ekalight button.
+  gradingAnalysisOpened: 'grading_analysis_opened',
+  gradingAnalysisResult: 'grading_analysis_result',
+  gradingAnalysisAskEkalight: 'grading_analysis_ask_ekalight',
 
   // Settings (the gear on Home; replaced the hamburger drawer and its
   // `drawer_opened` / `drawer_item_tapped`). `settings_item_tapped` carries `item`.

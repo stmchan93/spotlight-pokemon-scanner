@@ -257,6 +257,12 @@ if [ -f "$BACKEND_DIR/data/calendar_events.json" ]; then
   mkdir -p "$BUNDLE_ROOT/data"
   cp "$BACKEND_DIR/data/calendar_events.json" "$BUNDLE_ROOT/data/calendar_events.json"
 fi
+# Hand-maintained grader fee table (grading_analysis.py, mcp_server/grading_fees.py).
+# Without it the Worth-grading analysis answers 204 for every card.
+if [ -f "$BACKEND_DIR/data/grading_fees.json" ]; then
+  mkdir -p "$BUNDLE_ROOT/data"
+  cp "$BACKEND_DIR/data/grading_fees.json" "$BUNDLE_ROOT/data/grading_fees.json"
+fi
 # Spotlight's own shows (spotlight_events.py) + their flyer images; optional at runtime.
 if [ -f "$BACKEND_DIR/data/spotlight_events.json" ]; then
   mkdir -p "$BUNDLE_ROOT/data"

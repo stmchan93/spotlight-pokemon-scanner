@@ -67,6 +67,8 @@ import {
 } from '@/features/cards/components/grade-condition-sheet';
 import { OwnedEntryEditFields } from '@/features/cards/components/owned-entry-edit-fields';
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
+import { GradingAnalysisSheet } from '@/features/cards/components/grading-analysis-sheet';
+import { WorthGradingButton } from '@/features/cards/components/worth-grading-button';
 import { InventoryDropdown, InventoryQtyPill } from '@/features/cards/components/inventory-dropdown';
 import { CardDetailHero } from '@/features/cards/components/card-detail-hero';
 import { useReduceMotion } from '@/features/scanner/use-reduce-motion';
@@ -295,6 +297,7 @@ export function CardDetailScreen({
   // alongside the favorite toggle.
   // The entry handed to the target sheet, or null while it is shut.
   const [targetSheetEntry, setTargetSheetEntry] = useState<CardFavoriteEntry | null>(null);
+  const [gradingSheetOpen, setGradingSheetOpen] = useState(false);
   // Set by a successful watch; opens the optional target prompt once.
   const [promptTargetAfterWatch, setPromptTargetAfterWatch] = useState(false);
   // Configurator local state.
@@ -1776,6 +1779,10 @@ export function CardDetailScreen({
     return priced;
   }, [cardGame, catalogSource, isTcgplayerOnly, ownedSlabGrader]);
   const addSheetGraders = useMemo(() => [...gradersForGame(cardGame)], [cardGame]);
+  // "Worth grading?" needs PSA comps: a non-sealed, non-TCGplayer-only card whose game prices PSA.
+  const showWorthGrading = !isSealed
+    && !isTcgplayerOnly
+    && pricedGradersForCard(cardGame, catalogSource).includes('PSA');
   const displayCardNumber = detail?.cardNumber ?? detailPreview?.cardNumber ?? '';
   const displaySetName = detail?.setName ?? detailPreview?.setName ?? '';
   // Card number + set name share one line, dot-separated ("052 · Scarlet &
@@ -2994,6 +3001,20 @@ export function CardDetailScreen({
           />
         )}
 
+        {showWorthGrading ? (
+          <GradingAnalysisSheet
+            cardId={activeCardId}
+            cardName={displayName}
+            cardNumber={displayNumber(displayCardNumber) ?? ''}
+            game={cardGame}
+            onClose={() => setGradingSheetOpen(false)}
+            setName={displaySetName}
+            testID="detail-grading-sheet"
+            variant={selectedVariantLabel}
+            visible={gradingSheetOpen}
+          />
+        ) : null}
+
         <TargetPriceSheet
           entry={targetSheetEntry}
           mode="afterWatch"
@@ -3032,6 +3053,9 @@ export function CardDetailScreen({
                 testID="detail-configurator"
                 variants={variantOptions}
                 variantsLoading={detail == null && errorMessage == null}
+                aiAction={showWorthGrading ? (
+                  <WorthGradingButton onPress={() => setGradingSheetOpen(true)} testID="detail-worth-grading" />
+                ) : undefined}
               />
 
               {isOwnedEdit ? (

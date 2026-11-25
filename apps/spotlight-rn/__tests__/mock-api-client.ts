@@ -11,6 +11,7 @@ export * from '../../../packages/api-client/src/spotlight/assistant-wire';
 export * from '../../../packages/api-client/src/spotlight/smart-search-wire';
 export * from '../../../packages/api-client/src/spotlight/assistant-mock-data';
 export * from '../../../packages/api-client/src/spotlight/vendor-wire';
+export * from '../../../packages/api-client/src/spotlight/grading-analysis-mock-data';
 export {
   MockSpotlightRepository,
   SpotlightRepositoryRequestError,
