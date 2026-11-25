@@ -281,6 +281,75 @@ class ListsTests(MarketAnalyticsFixture):
         self.assertEqual(market_analytics.version_token(self.connection).split("|fee:")[1][:2], "30")
 
 
+class CardMoversTests(MarketAnalyticsFixture):
+    def test_rising_falling_thresholds_order_jp_rule_and_dedupe(self) -> None:
+        self._card("up-big")
+        self._path("up-big", [(40, 10.0), (30, 10.0), (0, 20.0)])  # +100%
+        self._card("up-small")
+        self._path("up-small", [(40, 50.0), (0, 55.0)])  # +10%
+        self._card("dup", name="Up-Big", set_id="sv1")  # same name+set as up-big: deduped
+        self._path("dup", [(40, 10.0), (0, 19.0)])
+        self._card("down")
+        self._path("down", [(40, 40.0), (30, 40.0), (0, 30.0)])  # -25%
+        self._card("cheap-now")  # ends under $5
+        self._path("cheap-now", [(40, 8.0), (0, 4.0)])
+        self._card("cheap-then")  # starts under $5
+        self._path("cheap-then", [(40, 3.0), (0, 6.0)])  # ~$3.75 at the window start
+        self._card("fresh")  # no window-start price
+        self._path("fresh", [(10, 10.0), (0, 30.0)])
+        self._card("bulk", rarity="Common", supertype="Trainer")  # not collectible
+        self._path("bulk", [(40, 10.0), (0, 15.0)])
+        self._card("sealed-box", supertype="Sealed")
+        self._path("sealed-box", [(40, 100.0), (0, 150.0)])
+        self._card("jp-tcg", language="Japanese")  # JP on TCGplayer: kept
+        self._path("jp-tcg", [(40, 20.0), (0, 30.0)])
+        self._card("jp-anchor", language="Japanese")  # Scrydex JP default lane: never
+        self._path("jp-anchor", [(40, 20.0), (0, 30.0)], lane="default")
+        self._card("flat")
+        self._path("flat", [(40, 20.0), (0, 20.0)])
+        payload = self._payload()
+        rising, falling = payload["cardsRising"], payload["cardsFalling"]
+        self.assertEqual([c["cardId"] for c in rising], ["up-big", "jp-tcg", "up-small"])
+        self.assertEqual([c["cardId"] for c in falling], ["down"])
+        top = rising[0]
+        self.assertEqual(
+            {k: top[k] for k in ("priceUsd", "thenPriceUsd", "changePct", "changeUsd", "variant", "setName")},
+            {"priceUsd": 20.0, "thenPriceUsd": 10.0, "changePct": 100.0, "changeUsd": 10.0, "variant": "Holofoil",
+             "setName": "Set sv1"},
+        )
+        self.assertEqual(falling[0]["changeUsd"], -10.0)
+
+    def test_empty_payload_has_card_mover_keys(self) -> None:
+        payload = market_analytics.empty_payload("pokemon", "30d")
+        self.assertEqual((payload["cardsRising"], payload["cardsFalling"]), ([], []))
+        self.assertEqual(self._payload("onepiece")["cardsRising"], [])
+
+    def test_your_movers_game_filter_sealed_and_null(self) -> None:
+        self._card("pk-up")
+        self._card("pk-down")
+        self._card("op-up", game="onepiece")
+        self._card("pk-box", supertype="Sealed")
+        self.connection.commit()
+        mover = lambda card_id, change: {  # noqa: E731
+            "card_id": card_id, "quantity": 2, "to_usd": 50.0, "change_usd": change, "change_pct": 12.345,
+            "variant": "Holofoil",
+        }
+        summary = {
+            "top_gainers": [mover("op-up", 40.0), mover("pk-box", 30.0), mover("pk-up", 22.0)],
+            "top_losers": [mover("pk-down", -8.0)],
+        }
+        out = market_analytics.your_movers(self.connection, summary, "pokemon")
+        self.assertEqual([m["cardId"] for m in out["gainers"]], ["pk-up"])
+        self.assertEqual(out["gainers"][0]["quantity"], 2)
+        self.assertEqual(out["gainers"][0]["changeUsd"], 22.0)
+        self.assertEqual(out["gainers"][0]["changePct"], 12.35)
+        self.assertEqual(out["gainers"][0]["imageUrl"], "https://img/pk-up_s.png")
+        self.assertEqual([m["cardId"] for m in out["losers"]], ["pk-down"])
+        self.assertEqual([m["cardId"] for m in market_analytics.your_movers(self.connection, summary, "onepiece")["gainers"]], ["op-up"])
+        self.assertIsNone(market_analytics.your_movers(self.connection, summary, "lorcana"))
+        self.assertIsNone(market_analytics.your_movers(self.connection, None, "pokemon"))
+
+
 class PricePositionTests(MarketAnalyticsFixture):
     def test_raw_position_over_the_covered_window(self) -> None:
         self._card("pdp")
@@ -355,8 +424,13 @@ class RefreshAndServiceTests(MarketAnalyticsFixture):
             guest = service.market_analytics(game="pokemon", window="30d", owner_user_id=None)
             kick.assert_not_called()
         self.assertIsNone(guest["you"])
+        self.assertIsNone(guest["yourMovers"])
         self.assertFalse(guest["grading"][0]["owned"])
-        summary = {"holdings_count": 2, "value_usd": 500.0, "change_pct": 4.2}
+        summary = {
+            "holdings_count": 2, "value_usd": 500.0, "change_pct": 4.2,
+            "top_gainers": [{"card_id": "gem", "quantity": 1, "to_usd": 20.0, "change_usd": 3.0, "change_pct": 17.65}],
+            "top_losers": [],
+        }
         with mock.patch("mcp_server.tools.CollectionTools.get_portfolio_summary", return_value=summary):
             with mock.patch.object(service, "_market_analytics_owned_ids", return_value={"gem"}):
                 mine = service.market_analytics(game="pokemon", window="30d", owner_user_id="user-1")
@@ -365,6 +439,12 @@ class RefreshAndServiceTests(MarketAnalyticsFixture):
             "changePct": 4.2, "valueUsd": 500.0, "marketChangePct": mine["pulse"]["changePct"],
             "beatsMarket": 4.2 > (mine["pulse"]["changePct"] or 0),
         })
+        self.assertEqual([m["cardId"] for m in mine["yourMovers"]["gainers"]], ["gem"])
+        self.assertEqual(mine["yourMovers"]["losers"], [])
+        # Other games' movers are filtered out (null when nothing is left).
+        with mock.patch("mcp_server.tools.CollectionTools.get_portfolio_summary", return_value=summary):
+            other = service.market_analytics(game="onepiece", window="30d", owner_user_id="user-1")
+        self.assertIsNone(other["yourMovers"])
         # The shared cached payload is never mutated by a caller's fields.
         self.assertIsNone(service.market_analytics(game="pokemon", window="30d", owner_user_id=None)["you"])
         zoom = service.market_heatmap_set(game="pokemon", set_id="sv1", window="30d")

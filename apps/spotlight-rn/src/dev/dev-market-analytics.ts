@@ -4,6 +4,7 @@ import {
   type CardPricePosition,
   type CardPricePositionQuery,
   type MarketAnalytics,
+  type MarketCardMove,
   type MarketCardTile,
   type MarketHeatmapSet,
   type MarketHeatmapSetCard,
@@ -11,6 +12,7 @@ import {
   type MarketIndex,
   type MarketPoint,
   type MarketWindow,
+  type MarketYourMovers,
 } from '@spotlight/api-client';
 
 /**
@@ -263,6 +265,39 @@ export function buildDevMarketAnalytics(
       }))
     : [];
 
+  // Card movers: 20 each way for Pokémon, a short list for One Piece, none elsewhere.
+  const moverPool: MarketCardTile[] = pokemon
+    ? Array.from({ length: 40 }, (_, index) => {
+        const seed = sets[index % sets.length];
+        return p(seed.setId, String(150 + index), CARD_NAMES[index % CARD_NAMES.length], seed.name);
+      })
+    : game === 'onepiece'
+      ? sets.slice(0, 6).map((seed, index) => card(game, seed.setId, String(100 + index), CARD_NAMES[index], seed.name))
+      : [];
+  const toCardMove = (tile: MarketCardTile, index: number, sign: 1 | -1): MarketCardMove => {
+    const priceUsd = round(12 + unit(`${tile.cardId}:price`) * 900);
+    const changePct = round(sign * (42 - index * 1.9) * Math.min(scale, 1.6), 2);
+    const thenPriceUsd = round(priceUsd / (1 + changePct / 100));
+    return { ...tile, priceUsd, thenPriceUsd, changePct, changeUsd: round(priceUsd - thenPriceUsd) };
+  };
+  const half = Math.ceil(moverPool.length / 2);
+  const cardsRising = moverPool.slice(0, Math.min(half, 20)).map((tile, index) => toCardMove(tile, index, 1));
+  const cardsFalling = moverPool.slice(half, half + 20).map((tile, index) => toCardMove(tile, index, -1));
+
+  const yourMovers: MarketYourMovers | null = options.includeYou !== false && pokemon
+    ? {
+        gainers: [
+          { ...p('sv3pt5', '199', 'Charizard ex', '151'), quantity: 2, priceUsd: 612, changeUsd: round(44 * scale), changePct: round(3.7 * scale) },
+          { ...p('sv8', '238', 'Pikachu ex', 'Surging Sparks'), quantity: 1, priceUsd: 486, changeUsd: round(22 * scale), changePct: round(4.7 * scale) },
+          { ...p('sv3pt5', '205', 'Mew ex', '151'), quantity: 3, priceUsd: 38, changeUsd: round(6 * scale), changePct: round(5.6 * scale) },
+        ],
+        losers: [
+          { ...p('sv8pt5', '156', 'Sylveon ex', 'Prismatic Evolutions'), quantity: 1, priceUsd: 318, changeUsd: round(-8 * scale), changePct: round(-2.5 * scale) },
+          { ...p('sv7', '170', 'Terapagos ex', 'Stellar Crown'), quantity: 2, priceUsd: 64.5, changeUsd: round(-5.5 * scale), changePct: round(-4.1 * scale) },
+        ],
+      }
+    : null;
+
   const indexValueUsd = sets.length ? Math.round(totalValue) : null;
   const yourChange = changePct != null ? round(changePct + (pokemon ? 1.9 : -2.3) * scale, 1) : null;
 
@@ -293,6 +328,9 @@ export function buildDevMarketAnalytics(
     breakingOut,
     setsRising: byChange.filter((tile) => tile.changePct > 0).slice(0, 6).map(toMove),
     setsFalling: [...byChange].reverse().filter((tile) => tile.changePct < 0).slice(0, 6).map(toMove),
+    cardsRising,
+    cardsFalling,
+    yourMovers,
     grading,
   };
 }

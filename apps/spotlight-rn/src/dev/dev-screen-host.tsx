@@ -144,10 +144,7 @@ const devScreens: Record<string, () => ReactElement> = {
   // Market Analytics alone, scrolled to each section (the sim has no scroll
   // input), plus the heatmap zoomed into 151.
   'market-analytics': () => <DevMarketAnalytics />,
-  'market-analytics-heatmap': () => <DevMarketAnalytics scrollY={560} />,
-  'market-analytics-rails': () => <DevMarketAnalytics scrollY={1150} />,
-  'market-analytics-sets': () => <DevMarketAnalytics scrollY={1850} />,
-  'market-analytics-grading': () => <DevMarketAnalytics scrollY={2450} />,
+  'market-analytics-yours': () => <DevMarketAnalytics scrollY={900} />,
   'card-detail-price-position': () => <CardDetailScreen cardId="sm7-1" onBack={() => undefined} />,
   // Ask Ekalight on the mock repository: empty chat (Home), the seeded saved
   // thread, and the Scanner entry with two tray cards as context.

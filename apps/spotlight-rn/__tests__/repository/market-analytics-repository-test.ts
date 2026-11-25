@@ -105,7 +105,44 @@ describe('HttpSpotlightRepository market analytics reads', () => {
     expect(payload.bargains).toEqual([]);
     expect(payload.breakingOut).toEqual([]);
     expect(payload.setsRising).toEqual([]);
+    // Older backends: no card movers, no yourMovers.
+    expect(payload.cardsRising).toEqual([]);
+    expect(payload.cardsFalling).toEqual([]);
+    expect(payload.yourMovers).toBeNull();
     expect(payload.grading[0].owned).toBe(false);
+  });
+
+  it('maps card movers and your movers, dropping rows without a price or change', async () => {
+    mockFetch(jsonResponse(200, {
+      game: 'pokemon',
+      window: '30d',
+      cardsRising: [
+        { cardId: 'up', name: 'Up', priceUsd: '20', thenPriceUsd: 10, changePct: 100, changeUsd: 10 },
+        { cardId: 'no-change', priceUsd: 20 },
+        { name: 'no id', priceUsd: 5, changePct: 5 },
+      ],
+      cardsFalling: [{ cardId: 'down', name: 'Down', priceUsd: 30, changePct: -25 }],
+      yourMovers: {
+        gainers: [{ cardId: 'mine', name: 'Mine', quantity: 2, priceUsd: 50, changeUsd: 22, changePct: 28.2 }],
+        losers: [{ cardId: 'bad' }],
+      },
+    }));
+    const repository = new HttpSpotlightRepository('http://example.test');
+
+    const payload = await repository.getMarketAnalytics({ game: 'pokemon', window: '30d' });
+    expect(payload.cardsRising).toEqual([{
+      cardId: 'up', name: 'Up', setName: null, number: null, imageUrl: null, game: 'pokemon',
+      priceUsd: 20, thenPriceUsd: 10, changePct: 100, changeUsd: 10,
+    }]);
+    // A missing then price is derived from the change.
+    expect(payload.cardsFalling[0]).toMatchObject({ cardId: 'down', thenPriceUsd: 40, changeUsd: -10 });
+    expect(payload.yourMovers).toEqual({
+      gainers: [{
+        cardId: 'mine', name: 'Mine', setName: null, number: null, imageUrl: null, game: 'pokemon',
+        quantity: 2, priceUsd: 50, changeUsd: 22, changePct: 28.2,
+      }],
+      losers: [],
+    });
   });
 
   it('maps the market index and the 1y window; a broken index reads null', async () => {
@@ -180,6 +217,9 @@ describe('MockSpotlightRepository market analytics', () => {
     expect(thin.game).toBe('gundam');
     expect(thin.heatmap).toEqual([]);
     expect(thin.you).toBeNull();
+    expect(thin.cardsRising).toEqual([]);
+    expect(thin.yourMovers).toBeNull();
+    expect(week.cardsRising.length).toBeGreaterThan(10);
 
     const zoom = await repository.getMarketHeatmapSet({ game: 'pokemon', setId: 'base1', window: '30d' });
     expect(zoom?.name).toBe('Base');

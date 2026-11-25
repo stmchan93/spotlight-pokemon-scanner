@@ -11,7 +11,7 @@ Tests: `backend/tests/test_market_analytics.py`,
 
 | Route | Auth | Returns |
 | --- | --- | --- |
-| `GET /api/v1/market/analytics?game=&window=` | public; a signed-in (non-guest) caller also gets `you` and `grading[].owned` | `MarketAnalytics` |
+| `GET /api/v1/market/analytics?game=&window=` | public; a signed-in (non-guest) caller also gets `you`, `yourMovers` and `grading[].owned` | `MarketAnalytics` |
 | `GET /api/v1/market/heatmap/set?game=&setId=&window=` | public | `MarketHeatmapSet`, 404 when the set has no stored zoom |
 | `GET /api/v1/cards/{cardId}/price-position?variant=&condition=&grader=&grade=` | public | `CardPricePosition`, 204 when there is not enough trustworthy data, 404 for an unknown card |
 
@@ -121,6 +121,24 @@ lists, never an error.
 - **Sets rising / falling** (5 each): Market Watch set baskets (meta_pulse
   `set` segment, the same data `get_market_trends` uses): English main sets,
   top-10 basket change with the breadth and one-chase-card gates.
+- **Card movers (`cardsRising` / `cardsFalling`, added 2026-11-24)**: up to
+  **20** each, per game and window (1y included). The game's priced singles
+  (sealed excluded) with a same-source window-start price, collectible, and
+  **>= $5 at both ends** (`MOVERS_MIN_PRICE_USD`, so penny cards can't post
+  +300%); Japanese cards only on the TCGplayer main lane; one card per
+  name+set. Rising = `changePct > 0` desc, falling = `< 0` asc. Each item is a
+  card tile + `priceUsd`, `thenPriceUsd`, `changePct`, `changeUsd` (2dp). These
+  drive the redesigned tab ("Moving in <game>", Rising | Falling, 10 rows +
+  "Show 10 more"); `pulse`/`setsRising`/etc. stay in the payload for older
+  app builds.
+- **Your movers (`yourMovers`, request-time, added 2026-11-24)**: null for
+  guests. Signed in: the same cached portfolio summary as `you`
+  (`get_portfolio_summary` `top_gainers` / `top_losers`, ranked by the
+  holding's `change_usd`), filtered to cards whose `cards.game` is the
+  requested game, sealed excluded, <= 5 each: card tile + `quantity`,
+  `priceUsd` (one copy now), `changeUsd` (whole holding), `changePct`. Null
+  when both lists are empty. The summary keeps only the top 5 across ALL
+  games, so a multi-game collection can show fewer than 5 for a game.
 - **Grading** (≈10): the card's own PSA 10 (same printing as its raw price;
   when the raw price's printing is unknown, only a card with a single PSA 10
   printing compares) minus raw minus a flat fee. PSA 10 = the newest graded

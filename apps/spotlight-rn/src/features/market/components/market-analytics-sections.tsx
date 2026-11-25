@@ -1,36 +1,28 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useState, type ReactNode } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
-import { GraphDown, GraphUp, NavArrowDown, NavArrowRight } from 'iconoir-react-native';
+import { NavArrowDown } from 'iconoir-react-native';
 
 import {
   gameDisplayName,
   type CardGame,
-  type MarketCardTile,
   type MarketAnalytics,
+  type MarketCardTile,
   type MarketWindow,
-  type MarketBargain,
-  type MarketBreakout,
-  type MarketGradingPick,
-  type MarketSetMove,
 } from '@spotlight/api-client';
 import {
   borderWidths,
-  OwnedTag,
-  PricePositionBar,
-  PriceSparkline,
+  ListPaginationFooter,
   radii,
   SkeletonBlock,
   spacing,
   Text,
   textStyles,
+  TrendTriangle,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { PageSwipeGuard } from '@/components/page-tab-pager';
-import { PriceScrubChart, type PriceChartPoint } from '@/features/cards/components/price-scrub-chart';
-import { formatSignedPercent } from '@/features/meta-feed/screens/components/meta-format';
-import { formatAbbreviatedCurrency, formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
 export const WINDOW_OPTIONS: readonly { label: string; value: MarketWindow }[] = [
   { label: '7D', value: '7d' },
@@ -39,24 +31,13 @@ export const WINDOW_OPTIONS: readonly { label: string; value: MarketWindow }[] =
   { label: '1Y', value: '1y' },
 ];
 
-const PULSE_CHART_HEIGHT = 132;
-const CARD_TILE_WIDTH = 128;
-const CARD_ART_HEIGHT = Math.round((CARD_TILE_WIDTH * 342) / 245);
-const SET_TILE_WIDTH = 148;
-const SET_LOGO_HEIGHT = 36;
 const ROW_THUMB_WIDTH = 46;
 const ROW_THUMB_HEIGHT = 64;
-const SPARK_WIDTH = 56;
-const SPARK_HEIGHT = 20;
 const ICON_SIZE = 18;
-const BREADTH_BAR_HEIGHT = 6;
-// The Bargain board's own wording for "bottom of its range".
-const NEAR_LOW_PERCENTILE = 20;
-
-/** "+3.2%" / "−1.4%"; "—" when the backend had no comparable history. */
-export function formatChange(changePct: number | null | undefined) {
-  return changePct == null ? '—' : formatSignedPercent(changePct);
-}
+const TRIANGLE_SIZE = 9;
+const SKELETON_TITLE_HEIGHT = 14;
+const SKELETON_TITLE_WIDTH = 160;
+const SKELETON_TOGGLE_HEIGHT = 34;
 
 function changeWords(changePct: number | null | undefined) {
   if (changePct == null) {
@@ -70,29 +51,6 @@ export function changeColor(theme: ReturnType<typeof useSpotlightTheme>, changeP
     return theme.colors.gray600;
   }
   return changePct > 0 ? theme.colors.green500 : theme.colors.red500;
-}
-
-/** Index move: "↑ +102.3%" / "↓ −4.1%" / "0.0%" (always one decimal). */
-export function formatIndexChange(changePct: number | null | undefined) {
-  if (changePct == null) {
-    return '—';
-  }
-  const rounded = Math.abs(changePct).toFixed(1);
-  if (Number(rounded) === 0) {
-    return '0.0%';
-  }
-  return changePct > 0 ? `↑ +${rounded}%` : `↓ −${rounded}%`;
-}
-
-/** Index level, one decimal ("218.6"); never dollars. */
-export function formatIndexValue(value: number) {
-  return value.toLocaleString('en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 });
-}
-
-/** "+$412" / "−$38" with whole dollars. */
-function formatSignedWholeUsd(value: number) {
-  const whole = formatCurrency(Math.abs(Math.round(value))).replace(/\.00$/, '');
-  return `${value >= 0 ? '+' : '−'}${whole}`;
 }
 
 /** Window labels arrive lowercase ("past 30 days"); sentence-case them where they lead. */
@@ -200,22 +158,7 @@ export function SectionBand({ testID }: { testID?: string }) {
   return <View style={{ backgroundColor: theme.colors.gray50, height: borderWidths.sectionBand }} testID={testID} />;
 }
 
-function Rail({ children, testID }: { children: ReactNode; testID: string }) {
-  return (
-    <PageSwipeGuard>
-      <ScrollView
-        contentContainerStyle={styles.rail}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        testID={testID}
-      >
-        {children}
-      </ScrollView>
-    </PageSwipeGuard>
-  );
-}
-
-function CardArt({ card, height = CARD_ART_HEIGHT, width = CARD_TILE_WIDTH }: { card: MarketCardTile; height?: number; width?: number }) {
+function CardArt({ card, height, width }: { card: MarketCardTile; height: number; width: number }) {
   const theme = useSpotlightTheme();
   return (
     <View
@@ -237,339 +180,203 @@ function CardArt({ card, height = CARD_ART_HEIGHT, width = CARD_TILE_WIDTH }: { 
   );
 }
 
-// --- 1. pulse ----------------------------------------------------------------
+// --- card movers ---------------------------------------------------------------
 
-export function MarketPulseSection({
+export type MoverDirection = 'rising' | 'falling';
+
+const MOVERS_PAGE = 5;
+
+/** "38.4%" (the triangle carries the sign). */
+function formatPctMagnitude(changePct: number) {
+  const magnitude = Math.abs(changePct);
+  return `${magnitude.toFixed(magnitude >= 100 ? 0 : 1)}%`;
+}
+
+/** "+$22" / "−$8"; cents only under a dollar so a $0.40 move isn't "+$0". */
+export function formatSignedUsdShort(value: number) {
+  const sign = value >= 0 ? '+' : '−';
+  const magnitude = Math.abs(value);
+  return magnitude < 1
+    ? `${sign}${formatCurrency(magnitude)}`
+    : `${sign}${formatCurrency(Math.round(magnitude)).replace(/\.00$/, '')}`;
+}
+
+function TrendValue({ value, label, testID }: { value: number; label: string; testID?: string }) {
+  const theme = useSpotlightTheme();
+  const color = changeColor(theme, value);
+  return (
+    <View style={styles.trendValue}>
+      {Math.abs(value) >= 0.05 ? (
+        <TrendTriangle color={color} direction={value > 0 ? 'up' : 'down'} size={TRIANGLE_SIZE} />
+      ) : null}
+      <Text style={[theme.typography.captionMedium, { color }]} testID={testID}>{label}</Text>
+    </View>
+  );
+}
+
+/** One tappable card row: art, name (+ number), a sub line, and a right column. */
+function MoverRow({
+  card,
+  subline,
+  right,
+  accessibilityLabel,
+  divider,
+  onPress,
+  testID,
+}: {
+  card: MarketCardTile;
+  subline: string | null;
+  right: ReactNode;
+  accessibilityLabel: string;
+  divider: boolean;
+  onPress: () => void;
+  testID: string;
+}) {
+  const theme = useSpotlightTheme();
+  return (
+    <View>
+      {divider ? <View style={[styles.divider, { backgroundColor: theme.colors.gray200 }]} /> : null}
+      <Pressable
+        accessibilityLabel={accessibilityLabel}
+        accessibilityRole="button"
+        onPress={onPress}
+        style={({ pressed }) => [styles.moverRow, { opacity: pressed ? 0.8 : 1 }]}
+        testID={testID}
+      >
+        <CardArt card={card} height={ROW_THUMB_HEIGHT} width={ROW_THUMB_WIDTH} />
+        <View style={styles.moverCopy}>
+          <Text numberOfLines={1} style={[theme.typography.titleXsmall, { color: theme.colors.gray900 }]}>
+            {card.name}
+            {card.number ? (
+              <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]}>{` #${card.number}`}</Text>
+            ) : null}
+          </Text>
+          {subline ? (
+            <Text numberOfLines={1} style={[theme.typography.caption, { color: theme.colors.gray600 }]}>{subline}</Text>
+          ) : null}
+        </View>
+        <View style={styles.moverRight}>{right}</View>
+      </Pressable>
+    </View>
+  );
+}
+
+/**
+ * RISING or FALLING: 5 card rows, then "Show N more" for the rest of the 20
+ * the backend stores. Renders nothing when the list is empty.
+ */
+export function CardMoversSection({
   data,
+  direction,
+  onPressCard,
   testID,
 }: {
   data: MarketAnalytics;
-  testID: string;
-}) {
-  const theme = useSpotlightTheme();
-  const { pulse } = data;
-  const index = pulse.index;
-  const [scrubIndex, setScrubIndex] = useState<number | null>(null);
-  // The Market Index when the backend sends one; older backends: the dollar basket.
-  const series = index ? index.points : pulse.sparkline;
-  const points = useMemo<PriceChartPoint[]>(
-    () => series.map((point) => ({ t: Date.parse(`${point.date}T00:00:00Z`), v: point.value }))
-      .filter((point) => Number.isFinite(point.t)),
-    [series],
-  );
-  const scrubbed = scrubIndex != null ? series[scrubIndex] : null;
-  const total = pulse.breadth.up + pulse.breadth.down + pulse.breadth.flat;
-  const downPct = total > 0 ? Math.round((pulse.breadth.down / total) * 100) : 0;
-  const upPct = Math.round(pulse.breadth.upPct ?? (total > 0 ? (pulse.breadth.up / total) * 100 : 0));
-  const windowShort = WINDOW_OPTIONS.find((item) => item.value === data.window)?.label ?? data.window.toUpperCase();
-
-  return (
-    <View style={styles.pulse} testID={testID}>
-      {index ? (
-        <View style={styles.gutter}>
-          <Text style={[theme.typography.overline, { color: theme.colors.gray600 }]} testID={`${testID}-name`}>
-            {index.name.toUpperCase()}
-          </Text>
-          <Text
-            accessibilityLabel={`${index.name} ${formatIndexValue(scrubbed?.value ?? index.value)}${scrubbed ? ` on ${scrubbed.date}` : `, ${changeWords(index.changePct)} over ${data.windowLabel}`}`}
-            style={[theme.typography.display, { color: theme.colors.gray900 }]}
-            testID={`${testID}-value`}
-          >
-            {formatIndexValue(scrubbed?.value ?? index.value)}
-          </Text>
-          {scrubbed ? (
-            <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]} testID={`${testID}-subline`}>
-              {scrubbed.date}
-            </Text>
-          ) : (
-            <View style={styles.indexMeta} testID={`${testID}-subline`}>
-              <Text
-                style={[theme.typography.captionMedium, { color: changeColor(theme, index.changePct) }]}
-                testID={`${testID}-change`}
-              >
-                {`${formatIndexChange(index.changePct)} · ${windowShort}`}
-              </Text>
-              <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]} testID={`${testID}-range`}>
-                {`Range ${formatIndexValue(index.rangeLow)}–${formatIndexValue(index.rangeHigh)}`}
-              </Text>
-            </View>
-          )}
-        </View>
-      ) : (
-        <View style={styles.gutter}>
-          <Text style={[theme.typography.overline, { color: theme.colors.gray600 }]}>
-            {`${gameDisplayName(data.game).toUpperCase()} MARKET`}
-          </Text>
-          <Text
-            accessibilityLabel={`Market ${changeWords(pulse.changePct)}, ${data.windowLabel}`}
-            style={[theme.typography.display, { color: changeColor(theme, pulse.changePct) }]}
-            testID={`${testID}-change`}
-          >
-            {formatChange(pulse.changePct)}
-          </Text>
-          <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]} testID={`${testID}-subline`}>
-            {scrubbed
-              ? `${scrubbed.date} · ${formatAbbreviatedCurrency(scrubbed.value)} tracked value`
-              : [capitalize(data.windowLabel), pulse.indexValueUsd != null ? `${formatAbbreviatedCurrency(pulse.indexValueUsd)} tracked value` : null]
-                .filter(Boolean).join(' · ')}
-          </Text>
-        </View>
-      )}
-
-      {points.length >= 2 ? (
-        <PageSwipeGuard testID={`${testID}-chart-guard`}>
-          <PriceScrubChart
-            areaFill
-            color={theme.colors.purple500}
-            fillGrid={false}
-            height={PULSE_CHART_HEIGHT}
-            onScrub={setScrubIndex}
-            points={points}
-            testID={`${testID}-chart`}
-            variant="line"
-            windowEndMs={points[points.length - 1].t}
-            windowStartMs={points[0].t}
-            yScale="fit"
-          />
-        </PageSwipeGuard>
-      ) : null}
-
-      {total > 0 ? (
-        <View style={[styles.gutter, styles.breadth]} testID={`${testID}-breadth`}>
-          <View style={[styles.breadthBar, { backgroundColor: theme.colors.gray200 }]}>
-            <View style={{ backgroundColor: theme.colors.green400, flex: pulse.breadth.up }} />
-            <View style={{ backgroundColor: theme.colors.gray200, flex: pulse.breadth.flat }} />
-            <View style={{ backgroundColor: theme.colors.red400, flex: pulse.breadth.down }} />
-          </View>
-          <Text style={[theme.typography.captionMedium, { color: theme.colors.gray700 }]} testID={`${testID}-breadth-text`}>
-            {`${upPct}% of cards up · ${downPct}% down`}
-          </Text>
-        </View>
-      ) : null}
-
-    </View>
-  );
-}
-
-// --- 3. bargains ---------------------------------------------------------------
-
-export function BargainRail({
-  items,
-  onPressCard,
-  testID,
-}: {
-  items: readonly MarketBargain[];
+  direction: MoverDirection;
   onPressCard: (card: MarketCardTile) => void;
   testID: string;
 }) {
   const theme = useSpotlightTheme();
+  const [expanded, setExpanded] = useState(false);
+  const items = direction === 'rising' ? data.cardsRising : data.cardsFalling;
+  if (items.length === 0) {
+    return null;
+  }
+  const visible = expanded ? items : items.slice(0, MOVERS_PAGE);
+
   return (
-    <Rail testID={testID}>
-      {items.map((item) => {
-        const near = item.position.percentile <= NEAR_LOW_PERCENTILE;
-        return (
-          <Pressable
-            accessibilityLabel={`${item.name}, ${formatCurrency(item.priceUsd)}. ${near ? 'Near its recent low' : 'Below its recent range midpoint'}. Low ${formatCurrency(item.position.lowUsd)}, high ${formatCurrency(item.position.highUsd)}.`}
-            accessibilityRole="button"
-            key={`${item.cardId}|${item.variant ?? ''}`}
-            onPress={() => onPressCard(item)}
-            style={({ pressed }) => [styles.cardTile, { opacity: pressed ? 0.8 : 1 }]}
-            testID={`${testID}-${item.cardId}`}
-          >
-            <CardArt card={item} />
-            <View style={styles.cardCopy}>
-              <Text numberOfLines={1} style={[theme.typography.titleXsmall, { color: theme.colors.gray900 }]}>{item.name}</Text>
-              <Text numberOfLines={1} style={[theme.typography.overline, { color: theme.colors.gray600 }]}>
-                {[item.setName, item.number].filter(Boolean).join(' · ')}
-              </Text>
-              <Text style={[theme.typography.feedRowTitle, { color: theme.colors.gray900 }]}>{formatCurrency(item.priceUsd)}</Text>
-            </View>
-            <PricePositionBar
-              label={near ? 'Near its recent low' : pricePositionShort(item.position.percentile)}
-              percentile={item.position.percentile}
-              size="sm"
-              testID={`${testID}-${item.cardId}-position`}
-            />
-          </Pressable>
-        );
-      })}
-    </Rail>
-  );
-}
-
-function pricePositionShort(percentile: number) {
-  return percentile < 100 / 3 ? 'Low in its range' : 'Mid-range';
-}
-
-// --- 4. breaking out -----------------------------------------------------------
-
-export function BreakoutRail({
-  items,
-  onPressCard,
-  testID,
-}: {
-  items: readonly MarketBreakout[];
-  onPressCard: (card: MarketCardTile) => void;
-  testID: string;
-}) {
-  const theme = useSpotlightTheme();
-  return (
-    <Rail testID={testID}>
-      {items.map((item) => (
-        <Pressable
-          accessibilityLabel={`${item.name}, ${formatCurrency(item.priceUsd)}, ${changeWords(item.changePct)}. New high${item.previousHighUsd != null ? `, previous high ${formatCurrency(item.previousHighUsd)}` : ''}.`}
-          accessibilityRole="button"
-          key={`${item.cardId}|${item.variant ?? ''}`}
-          onPress={() => onPressCard(item)}
-          style={({ pressed }) => [styles.cardTile, { opacity: pressed ? 0.8 : 1 }]}
-          testID={`${testID}-${item.cardId}`}
-        >
-          <CardArt card={item} />
-          <View style={styles.cardCopy}>
-            <Text numberOfLines={1} style={[theme.typography.titleXsmall, { color: theme.colors.gray900 }]}>{item.name}</Text>
-            <Text numberOfLines={1} style={[theme.typography.overline, { color: theme.colors.gray600 }]}>
-              {[item.setName, item.number].filter(Boolean).join(' · ')}
-            </Text>
-            <Text style={[theme.typography.feedRowTitle, { color: theme.colors.gray900 }]}>{formatCurrency(item.priceUsd)}</Text>
-          </View>
-          <View style={styles.breakoutTrend}>
-            <PriceSparkline
-              height={SPARK_HEIGHT}
-              points={item.sparkline.map((point) => point.value)}
-              trendPct={item.changePct ?? 0}
-              width={SPARK_WIDTH}
-            />
-            <Text
-              style={[theme.typography.labelStrong, { color: changeColor(theme, item.changePct) }]}
-              testID={`${testID}-${item.cardId}-change`}
-            >
-              {formatChange(item.changePct)}
-            </Text>
-          </View>
-          <Text numberOfLines={1} style={[theme.typography.overline, { color: theme.colors.gray600 }]}>
-            {item.previousHighUsd != null ? `Prior high ${formatCurrency(item.previousHighUsd)}` : 'New high'}
-          </Text>
-        </Pressable>
-      ))}
-    </Rail>
-  );
-}
-
-// --- 5. sets rising / falling ------------------------------------------------
-
-export function SetMoverRail({
-  title,
-  direction,
-  items,
-  onPressSet,
-  emptyMessage,
-  testID,
-}: {
-  title: string;
-  direction: 'up' | 'down';
-  items: readonly MarketSetMove[];
-  onPressSet: (set: MarketSetMove) => void;
-  emptyMessage: string;
-  testID: string;
-}) {
-  const theme = useSpotlightTheme();
-  const Icon = direction === 'up' ? GraphUp : GraphDown;
-  return (
-    <View style={styles.setGroup} testID={testID}>
-      <View style={[styles.gutter, styles.sectionTitleRow]}>
-        <Text style={[theme.typography.label, { color: theme.colors.gray900 }]}>{title}</Text>
-        <Icon color={theme.colors.gray900} height={ICON_SIZE} width={ICON_SIZE} />
-      </View>
-      {items.length === 0 ? (
-        <SectionEmpty message={emptyMessage} testID={`${testID}-empty`} />
-      ) : (
-        <Rail testID={`${testID}-rail`}>
-          {items.map((set) => (
-            <Pressable
-              accessibilityLabel={`${set.name}, ${formatSignedPercent(set.changePct)}. Opens the set.`}
-              accessibilityRole="button"
-              key={set.setId}
-              onPress={() => onPressSet(set)}
-              style={({ pressed }) => [
-                styles.setTile,
-                { backgroundColor: theme.colors.gray50, opacity: pressed ? 0.8 : 1 },
-              ]}
-              testID={`${testID}-${set.setId}`}
-            >
-              <View style={styles.setLogoSlot}>
-                {set.logoUrl ? (
-                  <ExpoImage
-                    accessibilityIgnoresInvertColors
-                    cachePolicy="memory-disk"
-                    contentFit="contain"
-                    contentPosition="left"
-                    source={{ uri: set.logoUrl }}
-                    style={StyleSheet.absoluteFill}
+    <>
+      <SectionBand />
+      <View style={styles.moverSection} testID={testID}>
+        <MarketSectionTitle title={direction === 'rising' ? 'Rising' : 'Falling'} />
+        <View style={styles.gutter} testID={`${testID}-list`}>
+          {visible.map((item, index) => (
+            <MoverRow
+              accessibilityLabel={`${item.name}, ${formatCurrency(item.priceUsd)}, ${changeWords(item.changePct)}. Opens the card.`}
+              card={item}
+              divider={index > 0}
+              key={`${item.cardId}|${item.variant ?? ''}`}
+              onPress={() => onPressCard(item)}
+              right={(
+                <>
+                  <Text style={[theme.typography.feedRowTitle, { color: theme.colors.gray900 }]}>
+                    {formatCurrency(item.priceUsd)}
+                  </Text>
+                  <TrendValue
+                    label={formatPctMagnitude(item.changePct)}
+                    testID={`${testID}-${item.cardId}-change`}
+                    value={item.changePct}
                   />
-                ) : null}
-              </View>
-              <Text numberOfLines={2} style={[theme.typography.captionMedium, styles.setName, { color: theme.colors.gray900 }]}>
-                {set.name}
-              </Text>
-              <Text style={[theme.typography.feedRowTitle, { color: changeColor(theme, set.changePct) }]} testID={`${testID}-${set.setId}-change`}>
-                {formatSignedPercent(set.changePct)}
-              </Text>
-            </Pressable>
+                </>
+              )}
+              subline={item.setName}
+              testID={`${testID}-${item.cardId}`}
+            />
           ))}
-        </Rail>
-      )}
-    </View>
+        </View>
+        <ListPaginationFooter
+          canViewMore={!expanded && items.length > MOVERS_PAGE}
+          onViewMore={() => setExpanded(true)}
+          testID={`${testID}-more`}
+          viewMoreLabel={`Show ${items.length - MOVERS_PAGE} more`}
+        />
+      </View>
+    </>
   );
 }
 
-// --- 6. grading --------------------------------------------------------------
-
-export function GradingList({
-  items,
+/**
+ * "YOUR CARDS THAT MOVED": the caller's top gainers then losers in this game,
+ * by the holding's dollar move. Guests get one muted line; a signed-in
+ * collection with no movers renders nothing.
+ */
+export function YourMoversSection({
+  data,
+  isGuest,
   onPressCard,
   testID,
 }: {
-  items: readonly MarketGradingPick[];
+  data: MarketAnalytics;
+  isGuest: boolean;
   onPressCard: (card: MarketCardTile) => void;
   testID: string;
 }) {
-  const theme = useSpotlightTheme();
+  const movers = data.yourMovers;
+  if (!isGuest && movers == null) {
+    return null;
+  }
+  const rows = movers ? [...movers.gainers, ...movers.losers] : [];
   return (
-    <View style={[styles.gutter, styles.gradingList]} testID={testID}>
-      {items.map((item, index) => (
-        <View key={`${item.cardId}|${item.variant ?? ''}`}>
-          {index > 0 ? <View style={[styles.divider, { backgroundColor: theme.colors.gray200 }]} /> : null}
-          <Pressable
-            accessibilityLabel={`${item.name}. Raw ${formatCurrency(item.rawUsd)}, PSA 10 ${formatCurrency(item.psa10Usd)}. About ${formatSignedWholeUsd(item.netGainUsd)} after about ${formatCurrency(item.feeUsd)} in fees.${item.owned ? ' You own this.' : ''}`}
-            accessibilityRole="button"
-            onPress={() => onPressCard(item)}
-            style={({ pressed }) => [styles.gradingRow, { opacity: pressed ? 0.8 : 1 }]}
-            testID={`${testID}-${item.cardId}`}
-          >
-            <CardArt card={item} height={ROW_THUMB_HEIGHT} width={ROW_THUMB_WIDTH} />
-            <View style={styles.gradingCopy}>
-              <View style={styles.gradingTitleRow}>
-                <Text numberOfLines={1} style={[theme.typography.titleXsmall, styles.flexShrink, { color: theme.colors.gray900 }]}>
-                  {item.name}
-                </Text>
-                {item.owned ? <OwnedTag label="You own this" testID={`${testID}-${item.cardId}-owned`} /> : null}
-              </View>
-              <Text numberOfLines={1} style={[theme.typography.caption, { color: theme.colors.gray700 }]}>
-                {`Raw ${formatCurrency(item.rawUsd)} → PSA 10 ${formatCurrency(item.psa10Usd)}`}
-              </Text>
-              <Text
-                numberOfLines={1}
-                style={[theme.typography.captionMedium, { color: item.netGainUsd > 0 ? theme.colors.green500 : theme.colors.gray600 }]}
-                testID={`${testID}-${item.cardId}-net`}
-              >
-                {`≈ ${formatSignedWholeUsd(item.netGainUsd)} after ~${formatCurrency(item.feeUsd).replace(/\.00$/, '')} fees`}
-              </Text>
-            </View>
-            <NavArrowRight color={theme.colors.gray400} height={ICON_SIZE} width={ICON_SIZE} />
-          </Pressable>
-        </View>
-      ))}
-    </View>
+    <>
+      <SectionBand />
+      <View style={styles.moverSection} testID={testID}>
+        <MarketSectionTitle title="Your cards that moved" />
+        {isGuest || rows.length === 0 ? (
+          <SectionEmpty message="Add cards to see what moved in your collection" testID={`${testID}-guest`} />
+        ) : (
+          <View style={styles.gutter}>
+            {rows.map((item, index) => (
+              <MoverRow
+                accessibilityLabel={`${item.name}, you own ${item.quantity}, ${item.changeUsd >= 0 ? 'up' : 'down'} ${formatCurrency(Math.abs(item.changeUsd))}. Opens the card.`}
+                card={item}
+                divider={index > 0}
+                key={`${item.cardId}|${item.variant ?? ''}|${index}`}
+                onPress={() => onPressCard(item)}
+                right={(
+                  <TrendValue
+                    label={formatSignedUsdShort(item.changeUsd)}
+                    testID={`${testID}-${item.cardId}-change`}
+                    value={item.changeUsd}
+                  />
+                )}
+                subline={`You own ${item.quantity}`}
+                testID={`${testID}-${item.cardId}`}
+              />
+            ))}
+          </View>
+        )}
+      </View>
+    </>
   );
 }
 
@@ -579,17 +386,12 @@ export function MarketAnalyticsSkeleton({ testID }: { testID: string }) {
   return (
     <View style={styles.skeleton} testID={testID}>
       <View style={[styles.gutter, styles.skeletonStack]}>
-        <SkeletonBlock height={12} width={110} />
-        <SkeletonBlock height={36} width={120} />
-        <SkeletonBlock height={14} width={200} />
+        <SkeletonBlock height={SKELETON_TITLE_HEIGHT} width={SKELETON_TITLE_WIDTH} />
+        <SkeletonBlock height={SKELETON_TOGGLE_HEIGHT} />
       </View>
-      <SkeletonBlock height={PULSE_CHART_HEIGHT} radius={0} />
-      <View style={styles.gutter}>
-        <SkeletonBlock height={260} />
-      </View>
-      <View style={styles.rail}>
-        {[0, 1, 2].map((key) => (
-          <SkeletonBlock height={CARD_ART_HEIGHT} key={key} width={CARD_TILE_WIDTH} />
+      <View style={[styles.gutter, styles.skeletonStack]}>
+        {[0, 1, 2, 3, 4].map((key) => (
+          <SkeletonBlock height={ROW_THUMB_HEIGHT} key={key} />
         ))}
       </View>
     </View>
@@ -602,78 +404,38 @@ const styles = StyleSheet.create({
     borderRadius: radii.xs,
     overflow: 'hidden',
   },
-  breadth: {
-    gap: spacing.xxs,
-  },
-  breadthBar: {
-    borderCurve: 'continuous',
-    borderRadius: radii.pill,
-    flexDirection: 'row',
-    gap: 2,
-    height: BREADTH_BAR_HEIGHT,
-    overflow: 'hidden',
-  },
-  breakoutTrend: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: spacing.xxs,
-  },
-  cardCopy: {
-    gap: 2,
-  },
-  cardTile: {
-    gap: spacing.xxs,
-    width: CARD_TILE_WIDTH,
-  },
   divider: {
     height: borderWidths.ruleSnapped,
-  },
-  flexShrink: {
-    flexShrink: 1,
   },
   gamePicker: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.xxxs,
   },
-  gradingCopy: {
+  gutter: {
+    paddingHorizontal: spacing.sm,
+  },
+  moverCopy: {
     flex: 1,
-    gap: 2,
+    gap: spacing.xxxs,
     minWidth: 0,
   },
-  gradingList: {
-    gap: 0,
+  moverRight: {
+    alignItems: 'flex-end',
+    gap: spacing.xxxs,
   },
-  gradingRow: {
+  moverRow: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.xs,
     paddingVertical: spacing.xs,
   },
-  gradingTitleRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: spacing.xxs,
-  },
-  gutter: {
-    paddingHorizontal: spacing.sm,
-  },
-  indexMeta: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  moverSection: {
     gap: spacing.xs,
-  },
-  pulse: {
-    gap: spacing.sm,
-  },
-  rail: {
-    flexDirection: 'row',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.lg,
   },
   sectionTitle: {
-    gap: 2,
+    gap: spacing.xxxs,
     paddingHorizontal: spacing.sm,
   },
   sectionTitleRow: {
@@ -681,38 +443,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.xxxs,
   },
-  setGroup: {
-    gap: spacing.xxs,
-  },
-  setLogoSlot: {
-    height: SET_LOGO_HEIGHT,
-    width: '100%',
-  },
-  setName: {
-    minHeight: 34,
-  },
-  setTile: {
-    borderCurve: 'continuous',
-    borderRadius: radii.sm,
-    gap: spacing.xxs,
-    padding: spacing.xs,
-    width: SET_TILE_WIDTH,
-  },
   skeleton: {
     gap: spacing.lg,
     paddingTop: spacing.sm,
   },
   skeletonStack: {
-    gap: spacing.xxs,
+    gap: spacing.xs,
   },
-  verdict: {
+  trendValue: {
     alignItems: 'center',
-    borderCurve: 'continuous',
-    borderRadius: radii.pill,
     flexDirection: 'row',
     gap: spacing.xxxs,
-    paddingHorizontal: spacing.xxs,
-    paddingVertical: spacing.xxxs,
   },
   windowLabel: {
     ...textStyles.label,
@@ -730,20 +471,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.xxs,
-  },
-  you: {
-    alignItems: 'center',
-    borderCurve: 'continuous',
-    borderRadius: radii.md,
-    flexDirection: 'row',
-    gap: spacing.xs,
-    marginHorizontal: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-  },
-  youCopy: {
-    flex: 1,
-    gap: 2,
-    minWidth: 0,
   },
 });

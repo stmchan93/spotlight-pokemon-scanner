@@ -25055,13 +25055,19 @@ class SpotlightScanService:
         stored = self._market_analytics_stored(game, window_days)
         payload = copy.deepcopy(stored) if stored is not None else market_analytics.empty_payload(game, window)
         payload["you"] = None
+        payload["yourMovers"] = None
         if owner_user_id:
             owned = self._market_analytics_owned_ids(owner_user_id, [item.get("cardId") for item in payload["grading"]])
             for item in payload["grading"]:
                 item["owned"] = item.get("cardId") in owned
+            summary = self._market_analytics_summary(owner_user_id, window)
             payload["you"] = self._market_analytics_you(
-                owner_user_id, window, market_change=(payload.get("pulse") or {}).get("changePct")
+                summary, market_change=(payload.get("pulse") or {}).get("changePct")
             )
+            try:
+                payload["yourMovers"] = market_analytics.your_movers(self.connection, summary, game)
+            except Exception:  # noqa: BLE001 - optional section; the market read still serves
+                traceback.print_exc()
         return payload
 
     def _market_analytics_owned_ids(self, owner_user_id: str, card_ids: list[Any]) -> set[str]:
@@ -25075,12 +25081,10 @@ class SpotlightScanService:
         ).fetchall()
         return {str(row[0]) for row in rows}
 
-    def _market_analytics_you(
-        self, owner_user_id: str, window: str, *, market_change: float | None
-    ) -> dict[str, Any] | None:
-        """The caller's collection move over the window: the assistant's
-        portfolio summary (market move of cards held, from each card's add day;
-        buys/sells excluded), cached on the dashboard + price tokens."""
+    def _market_analytics_summary(self, owner_user_id: str, window: str) -> dict[str, Any] | None:
+        """The assistant's portfolio summary for the window (market move of
+        cards held, from each card's add day; buys/sells excluded), cached on
+        the dashboard + price tokens. Feeds both `you` and `yourMovers`."""
         from mcp_server.tools import CollectionTools  # the MCP layer imports server lazily
 
         try:
@@ -25102,6 +25106,10 @@ class SpotlightScanService:
                 return None
             if version is not None:
                 self._market_analytics_you_cache[key] = (version, summary)
+        return summary
+
+    @staticmethod
+    def _market_analytics_you(summary: dict[str, Any] | None, *, market_change: float | None) -> dict[str, Any] | None:
         if not summary or not summary.get("holdings_count") or not summary.get("value_usd"):
             return None
         change = summary.get("change_pct")

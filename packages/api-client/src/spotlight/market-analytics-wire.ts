@@ -7,6 +7,7 @@ import {
   type MarketAnalytics,
   type MarketBargain,
   type MarketBreakout,
+  type MarketCardMove,
   type MarketCardTile,
   type MarketGradingPick,
   type MarketHeatmapSet,
@@ -18,6 +19,8 @@ import {
   type MarketSetTile,
   type MarketWindow,
   type MarketYou,
+  type MarketYourMover,
+  type MarketYourMovers,
 } from './types';
 
 /*
@@ -153,6 +156,51 @@ function you(value: unknown): MarketYou | null {
   };
 }
 
+function cardMoves(value: unknown, fallbackGame: CardGame): MarketCardMove[] {
+  return compact(asArray(value).map((raw): MarketCardMove | null => {
+    const tile = cardTile(raw, fallbackGame);
+    const priceUsd = numOrNull(raw.priceUsd);
+    const changePct = numOrNull(raw.changePct);
+    if (!tile || priceUsd == null || changePct == null) {
+      return null;
+    }
+    const thenPriceUsd = numOrNull(raw.thenPriceUsd) ?? priceUsd / (1 + changePct / 100);
+    return {
+      ...tile,
+      priceUsd,
+      thenPriceUsd,
+      changePct,
+      changeUsd: numOrNull(raw.changeUsd) ?? priceUsd - thenPriceUsd,
+    };
+  }));
+}
+
+function yourMoverList(value: unknown, fallbackGame: CardGame): MarketYourMover[] {
+  return compact(asArray(value).map((raw): MarketYourMover | null => {
+    const tile = cardTile(raw, fallbackGame);
+    const changeUsd = numOrNull(raw.changeUsd);
+    return tile && changeUsd != null
+      ? {
+        ...tile,
+        quantity: Math.max(1, num(raw.quantity, 1)),
+        priceUsd: numOrNull(raw.priceUsd),
+        changeUsd,
+        changePct: numOrNull(raw.changePct),
+      }
+      : null;
+  }));
+}
+
+function yourMovers(value: unknown, fallbackGame: CardGame): MarketYourMovers | null {
+  if (value == null || typeof value !== 'object') {
+    return null;
+  }
+  const raw = asRecord(value);
+  const gainers = yourMoverList(raw.gainers, fallbackGame);
+  const losers = yourMoverList(raw.losers, fallbackGame);
+  return gainers.length || losers.length ? { gainers, losers } : null;
+}
+
 export function parseMarketAnalyticsPayload(
   value: unknown,
   query?: { game?: CardGame; window?: MarketWindow },
@@ -221,6 +269,9 @@ export function parseMarketAnalyticsPayload(
     })),
     setsRising: setMoves(raw.setsRising, fallbackGame),
     setsFalling: setMoves(raw.setsFalling, fallbackGame),
+    cardsRising: cardMoves(raw.cardsRising, fallbackGame),
+    cardsFalling: cardMoves(raw.cardsFalling, fallbackGame),
+    yourMovers: yourMovers(raw.yourMovers, fallbackGame),
     grading: compact(asArray(raw.grading).map((item): MarketGradingPick | null => {
       const tile = cardTile(item, fallbackGame);
       const rawUsd = numOrNull(item.rawUsd);

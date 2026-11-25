@@ -98,11 +98,15 @@ BREAKOUT_COUNT = 10
 BREAKOUT_HIGHS_WINDOW = 90  # price_highs window table read
 
 SETS_EACH = 5
+CARD_MOVERS_EACH = 20  # cardsRising / cardsFalling
+MOVERS_MIN_PRICE_USD = 5.0  # both ends of the window: keeps penny-card % swings out
 GRADING_COUNT = 10
 GRADING_FEE_ENV = "MARKET_GRADING_FEE_USD"
 DEFAULT_GRADING_FEE_USD = 30.0
 
 STALE_REFRESH_MIN_INTERVAL_S = 900.0
+# Bump when the stored payload's shape changes: the next read recomputes.
+PAYLOAD_SCHEMA = 2
 
 # Card-page price position.
 POSITION_WINDOWS = (365, 90, 30)
@@ -192,7 +196,7 @@ def version_token(connection: sqlite3.Connection) -> str | None:
     index = market_index.version_token(connection)
     return (
         f"{prices}|highs:{highs}|meta:{meta}|idx:{index}|fee:{grading_fee_usd():g}"
-        f"|q:{price_quality.PRICE_STALE_DAYS}"
+        f"|q:{price_quality.PRICE_STALE_DAYS}|schema:{PAYLOAD_SCHEMA}"
     )
 
 
@@ -256,13 +260,18 @@ class _Priced:
         return None if then is None else _pct(self.price, then)
 
 
-def _load_cards(connection: sqlite3.Connection) -> dict[str, _Card]:
+def _load_cards(connection: sqlite3.Connection, card_ids: list[str] | None = None) -> dict[str, _Card]:
     game_col = "game" if "game" in _table_columns(connection, "cards") else "'pokemon'"
-    out: dict[str, _Card] = {}
-    for row in connection.execute(
+    sql = (
         f"SELECT id, {game_col}, name, set_id, set_name, number, rarity, supertype, "
         "COALESCE(NULLIF(image_small_url, ''), image_url), language FROM cards"
-    ):
+    )
+    params: list[str] = []
+    if card_ids is not None:
+        sql += f" WHERE id IN ({','.join('?' for _ in card_ids)})"
+        params = list(card_ids)
+    out: dict[str, _Card] = {}
+    for row in connection.execute(sql, params):
         out[str(row[0])] = _Card(
             str(row[0]), str(row[1] or "pokemon"), str(row[2] or ""), row[3], row[4], row[5], row[6], row[7],
             row[8] or None, row[9],
@@ -384,6 +393,8 @@ def empty_payload(game: str, window: str, *, window_label_text: str = NEUTRAL_WI
         "breakingOut": [],
         "setsRising": [],
         "setsFalling": [],
+        "cardsRising": [],
+        "cardsFalling": [],
         "grading": [],
     }
 
@@ -651,6 +662,46 @@ def _breaking_out(
     return out
 
 
+def _card_movers(singles: list[_Priced], *, window_days: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Biggest single-card % moves over the window, CARD_MOVERS_EACH each way."""
+    moves: list[tuple[float, _Priced]] = []
+    for item in singles:
+        then = item.then.get(window_days)
+        if then is None or item.price < MOVERS_MIN_PRICE_USD or then < MOVERS_MIN_PRICE_USD:
+            continue
+        if item.card.japanese and item.source != SOURCE_MAIN_RAW:
+            continue
+        if not item.card.collectible():
+            continue
+        moves.append((_pct(item.price, then), item))
+
+    def pick(ranked: list[tuple[float, _Priced]]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for change, item in ranked:
+            key = _distinct_key(item.card)
+            if key in seen:
+                continue
+            seen.add(key)
+            then = item.then[window_days]
+            out.append(
+                {
+                    **card_tile(item.card, item.variant),
+                    "priceUsd": round(item.price, 2),
+                    "thenPriceUsd": round(then, 2),
+                    "changePct": round(change, 2),
+                    "changeUsd": round(item.price - then, 2),
+                }
+            )
+            if len(out) >= CARD_MOVERS_EACH:
+                break
+        return out
+
+    rising = sorted((m for m in moves if m[0] > 0), key=lambda m: (-m[0], -m[1].price, m[1].card.card_id))
+    falling = sorted((m for m in moves if m[0] < 0), key=lambda m: (m[0], -m[1].price, m[1].card.card_id))
+    return pick(rising), pick(falling)
+
+
 def _sets_rising_falling(
     connection: sqlite3.Connection, game: str, window_days: int, expansions: dict[str, dict[str, Any]]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -752,6 +803,47 @@ def _grading(
     return out
 
 
+YOUR_MOVERS_EACH = 5
+
+
+def your_movers(connection: sqlite3.Connection, summary: dict[str, Any] | None, game: str) -> dict[str, Any] | None:
+    """The caller's biggest holding moves in this game, from the portfolio
+    summary's top_gainers/top_losers (ranked by the holding's change_usd).
+    Sealed is left out; null when nothing in the game moved."""
+    if not summary:
+        return None
+    gainers_in = summary.get("top_gainers") or []
+    losers_in = summary.get("top_losers") or []
+    ids = sorted({str(m["card_id"]) for m in (*gainers_in, *losers_in) if m.get("card_id")})
+    if not ids:
+        return None
+    cards = _load_cards(connection, ids)
+
+    def pick(movers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for mover in movers:
+            card = cards.get(str(mover.get("card_id")))
+            if card is None or card.game != game or card.sealed:
+                continue
+            out.append(
+                {
+                    **card_tile(card, mover.get("variant")),
+                    "quantity": int(mover.get("quantity") or 0),
+                    "priceUsd": _round(mover.get("to_usd")),
+                    "changeUsd": _round(mover.get("change_usd")),
+                    "changePct": _round(mover.get("change_pct")),
+                }
+            )
+            if len(out) >= YOUR_MOVERS_EACH:
+                break
+        return out
+
+    gainers, losers = pick(gainers_in), pick(losers_in)
+    if not gainers and not losers:
+        return None
+    return {"gainers": gainers, "losers": losers}
+
+
 # --- compute -------------------------------------------------------------------
 
 
@@ -834,6 +926,7 @@ def compute_market_analytics(
         for window, days in WINDOWS.items():
             heatmap, set_payloads = _heatmap_and_sets(singles, window_days=days, expansions=expansions)
             rising, falling = _sets_rising_falling(connection, game, days, expansions)
+            cards_rising, cards_falling = _card_movers(singles, window_days=days)
             payload = empty_payload(game, window, window_label_text=labels[days], as_of=as_of)
             pulse = _pulse(connection, liquid, window_days=days, ref_date=ref_date)
             pulse["index"] = market_index.index_payload(connection, game, days)
@@ -848,6 +941,8 @@ def compute_market_analytics(
                     "breakingOut": _breaking_out(connection, game, game_priced, window_days=days, ref_date=ref_date),
                     "setsRising": rising,
                     "setsFalling": falling,
+                    "cardsRising": cards_rising,
+                    "cardsFalling": cards_falling,
                     "grading": grading,
                 }
             )

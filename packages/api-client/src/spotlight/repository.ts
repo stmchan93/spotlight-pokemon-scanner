@@ -4354,6 +4354,9 @@ export class MockSpotlightRepository implements SpotlightRepository {
         breakingOut: [],
         setsRising: [],
         setsFalling: [],
+        cardsRising: [],
+        cardsFalling: [],
+        yourMovers: null,
         grading: [],
       };
     }

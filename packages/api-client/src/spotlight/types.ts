@@ -3578,6 +3578,27 @@ export type MarketGradingPick = MarketCardTile & {
   owned: boolean;
 };
 
+/** One card's move over the window (cardsRising / cardsFalling). */
+export type MarketCardMove = MarketCardTile & {
+  priceUsd: number;
+  thenPriceUsd: number;
+  changePct: number;
+  changeUsd: number;
+};
+
+/** One of the caller's holdings that moved; `changeUsd` is the whole holding (x quantity). */
+export type MarketYourMover = MarketCardTile & {
+  quantity: number;
+  priceUsd: number | null;
+  changeUsd: number;
+  changePct: number | null;
+};
+
+export type MarketYourMovers = {
+  gainers: MarketYourMover[];
+  losers: MarketYourMover[];
+};
+
 export type MarketAnalytics = {
   game: CardGame;
   window: MarketWindow;
@@ -3591,6 +3612,11 @@ export type MarketAnalytics = {
   breakingOut: MarketBreakout[];
   setsRising: MarketSetMove[];
   setsFalling: MarketSetMove[];
+  /** Biggest single-card moves (up to 20 each); [] from older backends. */
+  cardsRising: MarketCardMove[];
+  cardsFalling: MarketCardMove[];
+  /** The caller's biggest moves in this game; null for guests, older backends, or nothing moved. */
+  yourMovers: MarketYourMovers | null;
   grading: MarketGradingPick[];
 };
 
