@@ -239,9 +239,9 @@ describe('PriceScrubChart', () => {
   });
 
   it.each(priceChartRanges)(
-    '%s: partial history starts the line, fill and baseline under the first real point',
+    '%s: a history younger than the range still spans the width from its first real point',
     (range) => {
-      // 20 days of history ending today: covers 1W fully, starts late on 1M/3M/1Y.
+      // 20 days of history ending today: covers 1W, shorter than 1M/3M/1Y.
       const nowMs = Date.UTC(2026, 10, 15, 12);
       const allPoints = Array.from({ length: 20 }, (_, index) => ({
         t: nowMs - (19 - index) * DAY,
@@ -264,22 +264,12 @@ describe('PriceScrubChart', () => {
         nativeEvent: { layout: { width: 300, height: 200, x: 0, y: 0 } },
       });
 
-      const span = model.windowEndMs - model.windowStartMs;
-      const expectedX = ((model.points[0].t - model.windowStartMs) / span) * 300;
-      if (range === '1W') {
-        expect(expectedX).toBe(0);
-      } else {
-        expect(expectedX).toBeGreaterThan(100);
-      }
-      const firstX = expectedX.toFixed(1);
+      // The first point is a real one, and it sits on the left edge.
+      expect(allPoints).toContainEqual(model.points[0]);
+      expect(model.points[0].t).toBe(model.windowStartMs);
       const fill: string = screen.getByTestId('price-scrub-chart-fill').props.d;
-      // Line part starts AT the first point (no segment in from the left edge)…
-      expect(fill.startsWith(`M${firstX} `)).toBe(true);
-      // …and the polygon closes straight down under it, never via (0, bottom).
-      expect(fill.endsWith(`L300.0 200 L${firstX} 200 Z`)).toBe(true);
-      if (range !== '1W') {
-        expect(fill).not.toMatch(/L0(\.0)? /);
-      }
+      expect(fill.startsWith('M0.0 ')).toBe(true);
+      expect(fill.endsWith('L300.0 200 L0.0 200 Z')).toBe(true);
     },
   );
 

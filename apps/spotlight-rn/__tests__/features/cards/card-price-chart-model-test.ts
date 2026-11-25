@@ -268,20 +268,52 @@ describe('chartWindow', () => {
     expect(sliced.endMs - sliced.startMs).toBe(30 * DAY);
     expect(chartWindow(points, '1W', morning).points.map((point) => point.v)).toEqual([6, 0]);
   });
+
+  it('ends every range at the newest point, not at now, so the line reaches the right edge', () => {
+    const points: ChartPoint[] = [20, 6, 2].map((days) => ({ t: daysAgo(days), v: days }));
+    const now = daysAgo(0);
+    for (const range of ['1W', '1M', '3M'] as const) {
+      expect(chartWindow(points, range, now).endMs).toBe(daysAgo(2));
+    }
+  });
+
+  it('carries the last price before a history gap in to the left edge (line charts only)', () => {
+    // Priced 50 and 40 days ago, then nothing until 3 days ago (ex13-103's shape).
+    const points: ChartPoint[] = [50, 40, 3, 0].map((days) => ({ t: daysAgo(days), v: days }));
+    const now = daysAgo(0);
+    const carried = chartWindow(points, '1M', now, true);
+    expect(carried.points[0]).toEqual({ t: carried.startMs, v: 40 });
+    expect(carried.points.map((point) => point.v)).toEqual([40, 3, 0]);
+    // Sales dots are real sales: nothing is invented at the edge.
+    expect(chartWindow(points, '1M', now).points.map((point) => point.v)).toEqual([3, 0]);
+  });
 });
 
 describe('buildPriceChartModel', () => {
-  it('never pads a partial history to the window start', () => {
-    // 20 days of history: the 1M/3M/1Y windows start before it.
+  it('measures the range from the price carried in at its start', () => {
+    const allPoints: ChartPoint[] = [
+      { t: daysAgo(45), v: 100 },
+      { t: daysAgo(3), v: 120 },
+      { t: daysAgo(0), v: 110 },
+    ];
+    const model = buildPriceChartModel({ allPoints, variant: 'line', range: '1M', nowMs: daysAgo(0), currencyCode: 'USD' });
+    expect(model?.points[0].t).toBe(model?.windowStartMs);
+    expect(model?.restDelta?.amount).toBe('$10.00');
+    expect(model?.restDelta?.direction).toBe('up');
+  });
+
+  it('stretches a history younger than the range across the width', () => {
+    // 20 days of history: shorter than 1M/3M/1Y.
     const allPoints = Array.from({ length: 20 }, (_, index) => ({ t: daysAgo(19 - index), v: 100 + index }));
     for (const range of ['1W', '1M', '3M', '1Y'] as const) {
       const model = buildPriceChartModel({ allPoints, variant: 'line', range, nowMs: now, currencyCode: 'USD' })!;
       const first = model.points[0];
-      // The series opens on a real point, never a synthetic one at the window edge.
+      // The series opens on a real point, never a synthetic one.
       expect(allPoints).toContainEqual(first);
       if (range !== '1W') {
         expect(first).toEqual(allPoints[0]);
-        expect(first.t).toBeGreaterThan(model.windowStartMs);
+        // ...and the window starts there, so the line fills the chart.
+        expect(model.windowStartMs).toBe(first.t);
       }
     }
   });

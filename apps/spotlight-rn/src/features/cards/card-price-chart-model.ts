@@ -226,15 +226,45 @@ export function chartWindow(
   points: readonly ChartPoint[],
   range: PriceChartRange,
   nowMs: number,
+  /**
+   * Line charts: start the line AT the window's left edge with the last price
+   * before it. Stored history has gaps (a card unpriced for weeks), and a line
+   * that began at the first in-window point covered only part of 1W/1M while
+   * 3M, reaching back past the gap, filled the width. The carried segment
+   * crosses the gap like any in-window gap does. Sales dots are never carried.
+   */
+  carryIn = false,
 ): { startMs: number; endMs: number; points: ChartPoint[] } {
-  // Today's cell is stamped at local noon, so "now" in the morning would drop it.
-  const endMs = Math.max(nowMs, points[points.length - 1]?.t ?? nowMs);
+  // The window ends at the newest point, not "now": prices land once a day
+  // (sales less often), so ending at now left the line short of the right edge
+  // by the sync lag — a big gap on 1W, invisible on 3M. The as-of caption
+  // carries the date.
+  const endMs = points[points.length - 1]?.t ?? nowMs;
   const startMs = endMs - rangeDays[range] * DAY_MS;
-  return {
-    startMs,
-    endMs,
-    points: points.filter((point) => point.t >= startMs && point.t <= endMs),
-  };
+  const inWindow = points.filter((point) => point.t >= startMs && point.t <= endMs);
+  if (!carryIn) {
+    return { startMs, endMs, points: inWindow };
+  }
+  const before = findLastBefore(points, startMs);
+  if (before && (inWindow.length === 0 || inWindow[0].t > startMs)) {
+    inWindow.unshift({ t: startMs, v: before.v });
+  }
+  // History younger than the range (1Y with months of data, a new card on 1M):
+  // the line still spans the width, starting at its first real price (owner:
+  // the range caption stays as-is).
+  if (!before && inWindow.length > 0) {
+    return { startMs: inWindow[0].t, endMs, points: inWindow };
+  }
+  return { startMs, endMs, points: inWindow };
+}
+
+function findLastBefore(points: readonly ChartPoint[], t: number): ChartPoint | undefined {
+  for (let index = points.length - 1; index >= 0; index -= 1) {
+    if (points[index].t < t) {
+      return points[index];
+    }
+  }
+  return undefined;
 }
 
 export function deltaDirection(amount: number): ChartDirection {
@@ -312,9 +342,9 @@ export function buildPriceChartModel({
   if (!latest || currencyCode.toUpperCase() !== 'USD') {
     return null;
   }
-  const span = chartWindow(allPoints, range, nowMs);
-  const inWindow = span.points;
   const isSales = variant === 'sales';
+  const span = chartWindow(allPoints, range, nowMs, !isSales);
+  const inWindow = span.points;
   const latestDate = formatChartDate(latest.t, nowMs);
   const asOfText = isSales
     ? `Last sale ${latestDate} · eBay · each dot is one sale`
