@@ -75,15 +75,6 @@ import { watchlistCardBasicsFromDetail } from '@/features/wishlist/watchlist-sto
 import { CardPriceChartSection } from '@/features/cards/components/card-price-chart-section';
 import { CardPriceInsightLine } from '@/features/cards/components/card-price-insight-line';
 import { CardPriceTrendList } from '@/features/cards/components/card-price-trend-list';
-import { CardPricesSection, type GraderQuote } from '@/features/cards/components/card-prices-section';
-import {
-  buildGradeLadder,
-  buildRawPriceRows,
-  hasUsdPrice,
-  rawBaselineRow,
-  topGradeQuote,
-  type GradeLadderRung,
-} from '@/features/cards/grade-ladder';
 import { CardPriceTrendSkeleton } from '@/features/cards/components/card-price-trend-skeleton';
 import { CardProductDetails } from '@/features/cards/components/card-product-details';
 import { CardSimilarSection } from '@/features/cards/components/card-similar-section';
@@ -365,7 +356,7 @@ export function CardDetailScreen({
 
   const [priceTrends, setPriceTrends] = useState<CardPriceTrendListRecord | null>(null);
   const [priceTrendsLoading, setPriceTrendsLoading] = useState(false);
-  // Inline comps accordion under a PRICES graded row. Sales are cached
+  // Inline "last solds" accordion under graded trend rows. Sales are cached
   // per row key for this screen's lifetime (the backend's shared 24h cache is
   // the credit gate; this map just avoids re-fetch flicker on re-expand).
   const [expandedTrendRowKey, setExpandedTrendRowKey] = useState<string | null>(null);
@@ -380,19 +371,17 @@ export function CardDetailScreen({
     Record<string, CardEbayListingsRecord | null>
   >({});
   const [lowestListedLoadingKey, setLowestListedLoadingKey] = useState<string | null>(null);
-  // Row keys whose comps were already requested for the active card. A ref, so
-  // the swap reset below is visible to the load effect in the same commit.
-  const compsRequestedRef = useRef(new Set<string>());
 
-  // A language swap / different card invalidates the sales.
+  // A language swap / different card invalidates the sales; a lane change
+  // (raw↔graded) just collapses the accordion.
   useEffect(() => {
     setExpandedTrendRowKey(null);
     setRecentSalesByRowKey({});
     setRecentSalesLoadingKey(null);
-    setLowestListedByRowKey({});
-    setLowestListedLoadingKey(null);
-    compsRequestedRef.current = new Set();
   }, [activeCardId]);
+  useEffect(() => {
+    setExpandedTrendRowKey(null);
+  }, [priceTrends?.mode]);
   // The lane key (mode|variant|grader) of the most recent trend fetch, so the
   // lens-change effect refetches only when the resolved lane actually differs
   // from what the early parallel fetch already loaded (no double fetch for the
@@ -1072,80 +1061,6 @@ export function CardDetailScreen({
     return changed ? { ...priceTrends, rows } : priceTrends;
   }, [detail, isSealed, priceTrends, priceTrendsLoading, recentSalesByRowKey]);
 
-  // Graded comps (Recent Sales + Lowest Listed) for one expanded PRICES row.
-  // Only a row the user opens is ever loaded — never every rung — because the
-  // recent-sales call can spend a Scrydex credit.
-  const loadGradedRowComps = useCallback((rowKey: string) => {
-    // The graded row key format varies by backend version: "PSA 10" (space) on
-    // staging vs "PSA|10|<variant>" (pipe) on newer builds. Normalize pipes to
-    // spaces and take the first two tokens so both shapes yield grader + grade.
-    const [grader, grade] = rowKey.replace(/\|/g, ' ').trim().split(/\s+/);
-    // No listings source for this game (e.g. Lorcana has graded pricing but no
-    // sold comps): there is nothing to show, and refresh:true would spend a
-    // Scrydex credit on an endpoint that cannot answer.
-    if (!grader || !grade || !gameHasListingsData(cardGame)) {
-      return;
-    }
-    // Printing scope for the backend's serve-time comp filter. Pipe keys carry
-    // it as the 3rd segment; space keys (staging) fall back to the selected print.
-    const keyVariant = rowKey.split('|')[2]?.trim();
-    const variantName = keyVariant || selectedVariantLabel || null;
-    setExpandedTrendRowKey(rowKey);
-    const cache = compsRequestedRef.current.has(rowKey) ? 'warm' : 'cold';
-    // Original event name kept: the saved dashboard queries it.
-    capturePostHogEvent('pdp_recent_sales_expanded', {
-      grader,
-      grade,
-      cache,
-      listed_cache: cache,
-      trigger: 'prices_row',
-    });
-    if (cache === 'warm') {
-      return;
-    }
-    compsRequestedRef.current.add(rowKey);
-    const requestCardId = activeCardId;
-    const isCurrentCard = () => activeCardIdRef.current === requestCardId;
-    // Recent sales (Scrydex sold comps). refresh:true is credit-safe: the
-    // backend's shared 24h TTL only hits Scrydex when the cache is stale.
-    setRecentSalesLoadingKey(rowKey);
-    void spotlightRepository
-      .getCardRecentSales({
-        cardId: requestCardId,
-        slabContext: { grader, grade, variantName },
-        source: 'ebay',
-        // 20 rows for the panel's "Show more" — same single cached Scrydex page.
-        limit: 20,
-        refresh: true,
-      })
-      .then((record) => {
-        if (isCurrentCard()) setRecentSalesByRowKey((current) => ({ ...current, [rowKey]: record }));
-      })
-      .catch(() => {
-        if (isCurrentCard()) setRecentSalesByRowKey((current) => ({ ...current, [rowKey]: null }));
-      })
-      .finally(() => {
-        setRecentSalesLoadingKey((current) => (current === rowKey ? null : current));
-      });
-    // Lowest listed (eBay Browse active listings): free app-token call, no credits.
-    setLowestListedLoadingKey(rowKey);
-    void spotlightRepository
-      .getCardEbayListings({
-        cardId: requestCardId,
-        slabContext: { grader, grade, variantName },
-        limit: 20,
-      })
-      .then((record) => {
-        if (isCurrentCard()) setLowestListedByRowKey((current) => ({ ...current, [rowKey]: record }));
-      })
-      .catch(() => {
-        if (isCurrentCard()) setLowestListedByRowKey((current) => ({ ...current, [rowKey]: null }));
-      })
-      .finally(() => {
-        setLowestListedLoadingKey((current) => (current === rowKey ? null : current));
-      });
-  }, [activeCardId, cardGame, selectedVariantLabel, spotlightRepository]);
-
   const handleTrendRowPress = useCallback((row: CardPriceTrendRow) => {
     if (isSealed) {
       if (sealedMarketplaceUrl) {
@@ -1159,6 +1074,94 @@ export function CardDetailScreen({
     }
 
     if (priceTrends.mode === 'graded') {
+      // The graded row key format varies by backend version: "PSA 10" (space) on
+      // staging vs "PSA|10|<variant>" (pipe) on newer builds. Normalize pipes to
+      // spaces and take the first two tokens so both shapes yield grader + grade.
+      const [grader, grade] = row.key.replace(/\|/g, ' ').trim().split(/\s+/);
+      if (!grader || !grade) {
+        return;
+      }
+      // Printing scope for the backend's serve-time comp filter (drops
+      // off-variant rows like a GameStop-stamp promo comp under a Holofoil
+      // row). Pipe keys carry it as the 3rd segment; space keys (staging)
+      // fall back to the configurator's selected print variant.
+      const keyVariant = row.key.split('|')[2]?.trim();
+      const variantName = keyVariant || selectedVariantLabel || null;
+      // No listings source for this game → the row has nothing to expand INTO,
+      // so the tap is a no-op rather than an accordion that opens on emptiness.
+      //
+      // This guard is not redundant with hiding the graded lanes: Lorcana has
+      // real graded pricing and NO sold-comps source, so it reaches here. And
+      // it must sit before the fetches, not just before the render — the
+      // recent-sales call is `refresh: true` and costs a Scrydex credit, which
+      // is not something to spend on an endpoint that cannot answer.
+      if (!gameHasListingsData(cardGame)) {
+        return;
+      }
+      // Accordion: toggle the inline last-solds panel for this row (instead of
+      // kicking straight out to the eBay browser search).
+      if (expandedTrendRowKey === row.key) {
+        setExpandedTrendRowKey(null);
+        return;
+      }
+      setExpandedTrendRowKey(row.key);
+      const recentCached = recentSalesByRowKey[row.key];
+      const listedCached = lowestListedByRowKey[row.key];
+      // Kept under its original name: the saved dashboard queries it, and one
+      // chevron opens BOTH panels, so `listed_cache` rides along rather than
+      // becoming a second expand event.
+      capturePostHogEvent('pdp_recent_sales_expanded', {
+        grader,
+        grade,
+        cache: recentCached !== undefined ? 'warm' : 'cold',
+        listed_cache: listedCached !== undefined ? 'warm' : 'cold',
+      });
+      // Recent sales (Scrydex sold comps). refresh:true is credit-safe: the
+      // backend's shared 24h TTL only hits Scrydex when the cache is stale —
+      // ~one credit per card+grader+grade per day across ALL users; every other
+      // expand is a SQLite read. Guarded by its own per-row cache.
+      if (recentCached === undefined) {
+        setRecentSalesLoadingKey(row.key);
+        void spotlightRepository
+          .getCardRecentSales({
+            cardId: activeCardId,
+            slabContext: { grader, grade, variantName },
+            source: 'ebay',
+            // 20 rows for the panel's "Show more" — same single cached Scrydex
+            // page (fetched at 25) either way, so no extra credit cost.
+            limit: 20,
+            refresh: true,
+          })
+          .then((record) => {
+            setRecentSalesByRowKey((current) => ({ ...current, [row.key]: record }));
+          })
+          .catch(() => {
+            setRecentSalesByRowKey((current) => ({ ...current, [row.key]: null }));
+          })
+          .finally(() => {
+            setRecentSalesLoadingKey((current) => (current === row.key ? null : current));
+          });
+      }
+      // Lowest listed (eBay Browse active listings). Free app-token call — NO
+      // Scrydex credits — fetched in parallel and cached per row for the session.
+      if (listedCached === undefined) {
+        setLowestListedLoadingKey(row.key);
+        void spotlightRepository
+          .getCardEbayListings({
+            cardId: activeCardId,
+            slabContext: { grader, grade, variantName },
+            limit: 20,
+          })
+          .then((record) => {
+            setLowestListedByRowKey((current) => ({ ...current, [row.key]: record }));
+          })
+          .catch(() => {
+            setLowestListedByRowKey((current) => ({ ...current, [row.key]: null }));
+          })
+          .finally(() => {
+            setLowestListedLoadingKey((current) => (current === row.key ? null : current));
+          });
+      }
       return;
     }
 
@@ -1186,48 +1189,25 @@ export function CardDetailScreen({
       void Linking.openURL(url);
     }
   }, [
+    activeCardId,
     cardGame,
     detail,
+    expandedTrendRowKey,
     isSealed,
     priceTrends,
+    lowestListedByRowKey,
+    recentSalesByRowKey,
     sealedMarketplaceUrl,
+    selectedVariantLabel,
     tcgPlayerProductId,
+    spotlightRepository,
   ]);
 
-  // PRICES raw row → TCGplayer for that condition, same link as the old raw
-  // trend row. Never touches the page's (or an owned entry's) condition.
-  const handlePricesRawRowPress = useCallback((row: CardPriceTrendRow) => {
-    if (!detail) {
-      return;
-    }
-    const url = buildTcgPlayerCardUrl({
-      productId: tcgPlayerProductId,
-      name: detail.name,
-      cardNumber: detail.cardNumber,
-      setName: detail.setName,
-      condition: row.key.split('|').filter(Boolean).pop() ?? null,
-      game: cardGame,
-    });
-    if (url) {
-      capturePostHogEvent('pricing_link_opened', { marketplace: 'tcgplayer', lane: 'raw', surface: 'pdp_prices' });
-      void Linking.openURL(url);
-    }
-  }, [cardGame, detail, tcgPlayerProductId]);
-
-  // PRICES graded row → toggles its comps accordion (one open at a time).
-  // View-only: never changes the page's grader/grade.
-  const handleToggleGradedRow = useCallback((rung: GradeLadderRung) => {
-    if (expandedTrendRowKey === rung.key) {
-      setExpandedTrendRowKey(null);
-      return;
-    }
-    loadGradedRowComps(rung.key);
-  }, [expandedTrendRowKey, loadGradedRowComps]);
-
-  // Content for the expanded PRICES graded row, keyed by that row alone (any
-  // grader, either lane), fed from the per-row fetch cache.
+  // Content for the expanded graded row: the last-solds panel, fed from the
+  // per-row fetch cache. The "See all on eBay" link is derived from the REAL
+  // sold titles (far better recall than our guessed keyword query).
   const expandedTrendContent = useMemo(() => {
-    if (!expandedTrendRowKey || !detail) {
+    if (!expandedTrendRowKey || !detail || priceTrends?.mode !== 'graded') {
       return null;
     }
     // Games with no listings data get NO comps block at all — not an empty one.
@@ -1236,11 +1216,15 @@ export function CardDetailScreen({
     // eBay" footer that leads somewhere equally empty. Two skeletons that never
     // fill read as a broken screen, and the honest answer is "this surface does
     // not exist for this game".
+    //
+    // Belt-and-braces with the grading lanes being hidden already (no graded
+    // lane → `mode` is never 'graded' → we return above): that guard is about
+    // GRADED PRICING, this one is about LISTINGS, and they are separate claims
+    // that a future game could split.
     if (!gameHasListingsData(cardGame)) {
       return null;
     }
     const [grader, grade] = expandedTrendRowKey.replace(/\|/g, ' ').trim().split(/\s+/);
-    const rowVariant = expandedTrendRowKey.split('|')[2]?.trim() || selectedVariantLabel;
     const record = recentSalesByRowKey[expandedTrendRowKey] ?? null;
     const listedRecord = lowestListedByRowKey[expandedTrendRowKey] ?? null;
 
@@ -1255,7 +1239,7 @@ export function CardDetailScreen({
       setName: detail.setName,
       grader,
       grade,
-      variant: rowVariant,
+      variant: selectedVariantLabel,
       language: detail.language,
       game: cardGame,
     };
@@ -1324,7 +1308,6 @@ export function CardDetailScreen({
                   )
               : undefined
           }
-          initialVisible={3}
           record={record}
           testID="detail-recent-sales"
         />
@@ -1375,6 +1358,7 @@ export function CardDetailScreen({
     expandedTrendRowKey,
     lowestListedByRowKey,
     lowestListedLoadingKey,
+    priceTrends?.mode,
     recentSalesByRowKey,
     recentSalesLoadingKey,
     selectedVariantLabel,
@@ -1792,123 +1776,6 @@ export function CardDetailScreen({
     return priced;
   }, [cardGame, catalogSource, isTcgplayerOnly, ownedSlabGrader]);
   const addSheetGraders = useMemo(() => [...gradersForGame(cardGame)], [cardGame]);
-
-  // PRICES: raw conditions + one grader's grades; every row charts on tap.
-  const pricesGraders = useMemo(
-    () => (isSealed || isTcgplayerOnly ? [] : availableGraders.filter((grader) => grader !== 'Raw')),
-    [availableGraders, isSealed, isTcgplayerOnly],
-  );
-  // The raw lane + every grader's lane for this printing (free cached DB reads),
-  // read once the main lane has loaded. Keyed so a card/printing change reads
-  // as loading, never stale.
-  const detailCardId = detail?.cardId ?? null;
-  const pricesVariant = selectedVariantLabel ?? null;
-  const pricesLanesKey = `${activeCardId}|${pricesVariant ?? ''}|${pricesGraders.join(',')}`;
-  const pricesLanesReady = !isSealed
-    && detailCardId === activeCardId
-    && selectedGrader != null
-    && !priceTrendsLoading;
-  const [pricesLanes, setPricesLanes] = useState<{
-    key: string;
-    raw: CardPriceTrendRow[];
-    byGrader: Record<string, CardPriceTrendRow[]>;
-  } | null>(null);
-  const pricesRequestTokenRef = useRef(0);
-  const pricesRequestedKeyRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!pricesLanesReady || pricesRequestedKeyRef.current === pricesLanesKey) {
-      return;
-    }
-    pricesRequestedKeyRef.current = pricesLanesKey;
-    const token = ++pricesRequestTokenRef.current;
-    const read = (lane: CardDetailLane) => getCardPriceTrendsCached(spotlightRepository, activeCardId, lane)
-      .then((next) => next?.rows ?? [])
-      .catch((): CardPriceTrendRow[] => []);
-    void Promise.all([
-      read({ mode: 'raw', variant: pricesVariant, grader: null }),
-      ...pricesGraders.map((grader) => read({ mode: 'graded', variant: pricesVariant, grader })),
-    ]).then(([raw, ...graded]) => {
-      if (pricesRequestTokenRef.current !== token) {
-        return;
-      }
-      setPricesLanes({
-        key: pricesLanesKey,
-        raw,
-        byGrader: Object.fromEntries(pricesGraders.map((grader, index) => [grader, graded[index] ?? []])),
-      });
-    });
-  }, [activeCardId, pricesGraders, pricesLanesKey, pricesLanesReady, pricesVariant, spotlightRepository]);
-  const currentPricesLanes = pricesLanes?.key === pricesLanesKey ? pricesLanes : null;
-  const pricesLanesLoading = currentPricesLanes == null;
-
-  const rawPriceRows = useMemo(() => {
-    if (isSealed) {
-      return [];
-    }
-    const rows = isRawLane
-      ? (priceTrends?.mode === 'raw' ? priceTrends.rows : [])
-      : currentPricesLanes?.raw ?? [];
-    return buildRawPriceRows(rows);
-  }, [currentPricesLanes, isRawLane, isSealed, priceTrends]);
-
-  // Graded lane: the page's own rows (they carry the recent-sales average).
-  const gradedRowsFor = useCallback((grader: string): CardPriceTrendRow[] | null => (
-    !isRawLane && grader === selectedGrader && displayedPriceTrends?.mode === 'graded'
-      ? displayedPriceTrends.rows
-      : currentPricesLanes?.byGrader[grader] ?? null
-  ), [currentPricesLanes, displayedPriceTrends, isRawLane, selectedGrader]);
-  // Tabs: graders with a USD price, plus the page's grader in the graded lane.
-  const graderQuotes = useMemo<GraderQuote[]>(() => pricesGraders.flatMap((grader) => {
-    const rows = gradedRowsFor(grader);
-    const isPageGrader = !isRawLane && grader === selectedGrader;
-    if (!isPageGrader && !(rows && hasUsdPrice(rows))) {
-      return [];
-    }
-    return [{ grader, top: rows ? topGradeQuote(rows) : null }];
-  }), [gradedRowsFor, isRawLane, pricesGraders, selectedGrader]);
-  const quotedGraders = graderQuotes.map((quote) => quote.grader);
-
-  // Raw lane, or an owned card (whose grader is its save field): the section's
-  // own view-only grader (null = default). Otherwise the page's grader.
-  const [rawLadderGrader, setRawLadderGrader] = useState<string | null>(null);
-  const pricesViewOnly = isRawLane || selectedEntry != null;
-  const defaultLadderGrader = quotedGraders.includes('PSA')
-    ? 'PSA'
-    : quotedGraders[0]
-      ?? (pricesLanesLoading ? (pricesGraders.includes('PSA') ? 'PSA' : pricesGraders[0] ?? null) : null);
-  const pageLadderGrader = selectedGrader != null && pricesGraders.includes(selectedGrader) ? selectedGrader : null;
-  const ladderGrader = pricesViewOnly
-    ? (rawLadderGrader && quotedGraders.includes(rawLadderGrader)
-      ? rawLadderGrader
-      : isRawLane ? defaultLadderGrader : pageLadderGrader)
-    : pageLadderGrader;
-  const ladderGradedRows = ladderGrader ? gradedRowsFor(ladderGrader) : null;
-  const gradeLadder = useMemo(
-    () => buildGradeLadder(
-      rawBaselineRow(rawPriceRows.map((item) => item.row)),
-      ladderGradedRows ?? [],
-    ),
-    [ladderGradedRows, rawPriceRows],
-  );
-  const ladderLoading = ladderGradedRows == null || (!isRawLane && priceTrendsLoading);
-  // Nothing to list yet while the main lane loads → the skeleton instead.
-  const showPrices = !isSealed && (
-    rawPriceRows.length > 0
-    || gradeLadder.rungs.length > 0
-    || (ladderGrader != null && !priceTrendsLoading)
-  );
-  // Sealed keeps the single "Market Price" list.
-  const showRawTrendList = isSealed
-    && displayedPriceTrends != null
-    && displayedPriceTrends.rows.length > 0;
-  // Tabs always work: on an owned card or the raw lane they only change the view.
-  const handleSelectPricesGrader = useCallback((grader: string) => {
-    if (pricesViewOnly) {
-      setRawLadderGrader(grader);
-    } else {
-      handleSelectGrader(grader);
-    }
-  }, [handleSelectGrader, pricesViewOnly]);
   const displayCardNumber = detail?.cardNumber ?? detailPreview?.cardNumber ?? '';
   const displaySetName = detail?.setName ?? detailPreview?.setName ?? '';
   // Card number + set name share one line, dot-separated ("052 · Scarlet &
@@ -3134,7 +3001,7 @@ export function CardDetailScreen({
           onSubmit={handleSubmitTarget}
         />
 
-        {/* Product options + PRICES share one white section (Figma 6322:8848). */}
+        {/* Product options + Price Trend share one white section (Figma 6322:8848). */}
         <View
           onLayout={(event) => {
             editSectionOffsetRef.current = event.nativeEvent.layout.y;
@@ -3142,7 +3009,7 @@ export function CardDetailScreen({
           style={[
             styles.section,
             styles.optionsSection,
-            showRawTrendList ? styles.optionsSectionFlushBottom : null,
+            displayedPriceTrends && displayedPriceTrends.rows.length > 0 ? styles.optionsSectionFlushBottom : null,
           ]}
         >
           {isSealed ? null : (
@@ -3154,8 +3021,7 @@ export function CardDetailScreen({
               style={styles.optionsGroup}
             >
               <CardConfigurator
-                // Grader chips are an owned entry's edit field only; PRICES switches graders.
-                graders={isOwnedEdit ? availableGraders : []}
+                graders={availableGraders}
                 languages={languageToggleOptions}
                 onSelectGrader={handleSelectGrader}
                 onSelectLanguage={handleSwitchLanguage}
@@ -3219,32 +3085,18 @@ export function CardDetailScreen({
             </View>
           ) : null}
 
-          {showRawTrendList && displayedPriceTrends ? (
+          {displayedPriceTrends && displayedPriceTrends.rows.length > 0 ? (
             <View style={styles.trendBlock}>
               <CardPriceTrendList
+                expandedContent={expandedTrendContent}
+                expandedRowKey={displayedPriceTrends.mode === 'graded' ? expandedTrendRowKey : null}
                 list={displayedPriceTrends}
-                // The TCGplayer logo opens the EXACT product page.
-                onProviderPress={handleProviderPress}
+                // Raw lane only: the TCGplayer logo opens the EXACT product page
+                // (accurate). The graded lane's eBay logo opened a broad eBay
+                // SEARCH (inaccurate), so its logo is now a static image — no link.
+                onProviderPress={displayedPriceTrends.mode === 'graded' ? undefined : handleProviderPress}
                 onRowPress={handleTrendRowPress}
                 testID="detail-price-trends"
-              />
-            </View>
-          ) : showPrices ? (
-            <View style={styles.trendBlock}>
-              <CardPricesSection
-                expandedContent={expandedTrendContent}
-                expandedRowKey={expandedTrendRowKey}
-                graders={graderQuotes}
-                ladder={gradeLadder}
-                ladderLoading={ladderLoading}
-                onPressRawRow={handlePricesRawRowPress}
-                onSelectGrader={handleSelectPricesGrader}
-                // No listings source for this game → nothing to expand.
-                onToggleRung={gameHasListingsData(cardGame) ? handleToggleGradedRow : undefined}
-                rawLoading={isRawLane ? priceTrendsLoading : pricesLanesLoading}
-                rawRows={rawPriceRows}
-                selectedGrader={ladderGrader}
-                testID="detail-prices"
               />
             </View>
           ) : priceTrendsLoading ? (
@@ -3528,7 +3380,6 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
     marginTop: spacing.xs,
   },
-  // Under-chart comps card: same inset card as the chart.
   chartCard: {
     backgroundColor: colors.gray0,
     borderCurve: 'continuous',

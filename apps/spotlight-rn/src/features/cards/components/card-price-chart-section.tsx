@@ -68,10 +68,6 @@ type CardPriceChartSectionProps = {
   /** Seeds the chip: the owned/seeded condition (raw) or grade (graded). */
   preferredCondition: string | null;
   preferredGrade: string | null;
-  /** Bumped on each explicit grade pick, so re-picking the same grade re-applies it. */
-  preferredGradeNonce?: number;
-  /** Bumped on each explicit condition pick (the PDP's PRICES rows). */
-  preferredConditionNonce?: number;
   salesEnabled: boolean;
   /** Comps the page already holds per row key (expanded graded rows). */
   salesByRowKey?: Readonly<Record<string, CardRecentSalesRecord | null>>;
@@ -86,15 +82,13 @@ type CardPriceChartSectionProps = {
   onOpenMarketplace?: (row: CardPriceTrendRow) => void;
   /**
    * Price lanes the card offers (Raw / PSA / CGC…), shown as a chip beside the
-   * row chip. Same state as the page's lane; hidden with < 2 lanes.
+   * row chip. Same state as the page's GRADER chips; hidden with < 2 lanes.
    */
   graders?: readonly string[];
   selectedGrader?: string | null;
   onSelectGrader?: (grader: string) => void;
   /** Drawn under the price/delta for the charted row (the PDP's price-position bar). */
   renderBelowPrice?: (row: CardPriceTrendRow) => ReactNode;
-  /** The charted row changed (chip pick, lane load, preferred grade). */
-  onRowChange?: (row: CardPriceTrendRow | null) => void;
   testID?: string;
 };
 
@@ -112,8 +106,6 @@ export function CardPriceChartSection({
   variantLabel,
   preferredCondition,
   preferredGrade,
-  preferredGradeNonce = 0,
-  preferredConditionNonce = 0,
   salesEnabled,
   salesByRowKey,
   gutter = layout.pageGutter,
@@ -122,7 +114,6 @@ export function CardPriceChartSection({
   graders = [],
   selectedGrader = null,
   onSelectGrader,
-  onRowChange,
   renderBelowPrice,
   testID = 'card-price-chart',
 }: CardPriceChartSectionProps) {
@@ -148,20 +139,6 @@ export function CardPriceChartSection({
     return resolveDefaultRowKey(rows, mode, { condition: preferredCondition, grade: preferredGrade });
   }, [mode, pickedRowKey, preferredCondition, preferredGrade, rows]);
   const selectedRow = rows.find((row) => row.key === rowKey) ?? null;
-
-  // A new preferred grade/condition (the PDP's PRICES rows) wins over an earlier chip pick.
-  useEffect(() => {
-    setPickedRowKey(null);
-  }, [preferredGrade, preferredGradeNonce, preferredCondition, preferredConditionNonce]);
-
-  const onRowChangeRef = useRef(onRowChange);
-  onRowChangeRef.current = onRowChange;
-  const selectedRowKey = selectedRow?.key ?? null;
-  useEffect(() => {
-    onRowChangeRef.current?.(rows.find((row) => row.key === selectedRowKey) ?? null);
-    // Keyed on the key only: row objects are rebuilt on every price update.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRowKey]);
 
   const chart = useCardPriceChart({
     repository,

@@ -21,7 +21,6 @@ import {
   saveScanCandidateReviewSession,
 } from '@/features/scanner/scan-candidate-review-session';
 
-import { buildTcgPlayerCardUrl } from '@/features/cards/marketplace-urls';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
@@ -103,12 +102,11 @@ describe('CardDetailScreen', () => {
     // Action buttons.
     expect(screen.getByTestId('detail-add-item')).toBeTruthy();
 
-    // Configurator holds language + variant; graders switch from PRICES (the
-    // grader chips only appear while editing an owned entry). Grade + Quantity
-    // live in the Add to Collection sheet (Figma 1664:255).
+    // Configurator now holds only the variant + grader rows; Grade + Quantity
+    // moved into the Add to Collection sheet (Figma 1664:255).
     expect(screen.getByTestId('detail-configurator')).toBeTruthy();
-    expect(screen.queryByTestId('detail-configurator-grader-Raw')).toBeNull();
-    expect(screen.queryByTestId('detail-configurator-grader-PSA')).toBeNull();
+    expect(screen.getByTestId('detail-configurator-grader-Raw')).toBeTruthy();
+    expect(screen.getByTestId('detail-configurator-grader-PSA')).toBeTruthy();
     expect(screen.queryByTestId('detail-configurator-grade-trigger')).toBeNull();
     expect(screen.queryByTestId('detail-configurator-quantity-value')).toBeNull();
 
@@ -119,9 +117,9 @@ describe('CardDetailScreen', () => {
     // Dismiss the sheet so the rest of the page is interactable again.
     fireEvent.press(screen.getByTestId('detail-add-sheet-backdrop'));
 
-    // PRICES (raw lane → per-condition rows).
+    // Price trend rows (raw lane → per-condition).
     await waitFor(() => {
-      expect(screen.getByTestId('detail-prices')).toBeTruthy();
+      expect(screen.getByTestId('detail-price-trends')).toBeTruthy();
     });
 
     // The old chart / recent-sales / tcg link blocks are gone.
@@ -286,9 +284,7 @@ describe('CardDetailScreen', () => {
       expect(screen.getByTestId('detail-name').props.children).toBe('Treecko (JP)');
     });
     // …grader stays Raw, the variant carries over by name (Normal), JP chip is selected…
-    await waitFor(() => {
-      expect(getCardPriceTrends).toHaveBeenCalledWith(expect.objectContaining({ cardId: 'sm7-1-jp', mode: 'raw' }));
-    });
+    expect(screen.getByTestId('detail-configurator-grader-Raw').props.accessibilityState?.selected).toBe(true);
     expect(screen.getByTestId('detail-configurator-variant-normal').props.accessibilityState?.selected).toBe(true);
     expect(screen.getByTestId('detail-configurator-language-JP').props.accessibilityState?.selected).toBe(true);
     // …trends refetched for the JP card (the name swap above already proves the
@@ -857,7 +853,7 @@ describe('CardDetailScreen', () => {
     expect(screen.queryByTestId('detail-grade-sheet-option-near_mint')).toBeNull();
   });
 
-  it('PRICES reads each grader lane once raw loads, and a rung tap keeps the raw lane', async () => {
+  it('refetches price trends when the grader lens changes to graded', async () => {
     const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
       mode: query.mode as 'raw' | 'graded',
       provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
@@ -883,218 +879,24 @@ describe('CardDetailScreen', () => {
       },
     );
 
-    fireEvent.press(await screen.findByTestId('detail-prices-rung-10'));
-
-    for (const grader of ['PSA', 'BGS', 'CGC']) {
+    await waitFor(() => {
       expect(getCardPriceTrends).toHaveBeenCalledWith(expect.objectContaining({
         cardId: 'sm7-1',
+        mode: 'raw',
+      }));
+    });
+
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+
+    await waitFor(() => {
+      expect(getCardPriceTrends).toHaveBeenLastCalledWith(expect.objectContaining({
+        cardId: 'sm7-1',
         mode: 'graded',
-        grader,
-      }));
-    }
-    // PRICES lists raw rows and the rung; the page stays on Raw.
-    expect(await screen.findByTestId('detail-prices-raw-near_mint')).toBeTruthy();
-    expect(screen.getByTestId('detail-prices-rung-10')).toBeTruthy();
-    expect(within(screen.getByTestId('detail-price-chart-grader-chip')).getByText('RAW')).toBeTruthy();
-    expect(screen.queryByTestId('detail-price-trends')).toBeNull();
-  });
-
-  const ladderTrends = (byGrader: Record<string, { grade: string; price: number }[]>) => jest.fn(async (
-    query: { mode: string; grader?: string | null },
-  ) => ({
-    mode: query.mode as 'raw' | 'graded',
-    provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
-    rows: query.mode === 'graded'
-      ? (byGrader[query.grader ?? ''] ?? []).map(({ grade, price }) => ({
-        label: `${query.grader} ${grade}`,
-        key: `${query.grader}|${grade}|normal`,
-        currentPrice: price,
-        currencyCode: 'USD',
-        points: [1, 2],
-        trendPct: 1,
-      }))
-      : [
-        { label: 'Near Mint', key: 'normal|NM', currentPrice: 20, currencyCode: 'USD', points: [1, 2], trendPct: 1 },
-        { label: 'Lightly Played', key: 'normal|LP', currentPrice: 14, currencyCode: 'USD', points: [1, 2], trendPct: 1 },
-        { label: 'Damaged', key: 'normal|DMG', currentPrice: 5, currencyCode: 'USD', points: [1, 2], trendPct: 1 },
-      ],
-  }));
-
-  it('raw lane: PRICES shows conditions vs NM and PSA grades vs raw, spends no sales credit until a rung expands', async () => {
-    const getCardPriceTrends = ladderTrends({ PSA: [{ grade: '10', price: 200 }, { grade: '9', price: 40 }] });
-    const getCardRecentSales = jest.fn(async () => recentSalesRecord);
-
-    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
-      spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardRecentSales }),
-    });
-
-    expect(await screen.findByTestId('detail-prices-rung-9')).toBeTruthy();
-    // Raw: Near Mint alone until the conditions toggle opens the rest (deltas vs NM).
-    expect(screen.getByTestId('detail-prices-raw-NM-delta')).toHaveTextContent('base');
-    expect(screen.queryByTestId('detail-prices-raw-LP')).toBeNull();
-    fireEvent.press(screen.getByTestId('detail-prices-conditions-toggle'));
-    expect(screen.getByTestId('detail-prices-conditions-toggle')).toHaveTextContent('Show less');
-    expect(screen.getByTestId('detail-prices-raw-LP-delta')).toHaveTextContent('−$6.00');
-    expect(screen.getByTestId('detail-prices-raw-DMG-delta')).toHaveTextContent('−$15.00');
-    expect(screen.getByTestId('detail-prices-raw-LP-price')).toHaveTextContent('$14.00');
-    // Graded: one grader priced → no header row (no label, no tabs), no top-grade line.
-    expect(screen.getByTestId('detail-prices-graded')).not.toHaveTextContent(/GRADED/);
-    expect(screen.queryByTestId('detail-prices-grader-PSA')).toBeNull();
-    expect(screen.queryByTestId('detail-prices-top')).toBeNull();
-    expect(screen.getByTestId('detail-prices-rung-10-delta')).toHaveTextContent('+$180');
-    expect(screen.getByTestId('detail-prices-rung-10-multiple')).toHaveTextContent('10×');
-    expect(getCardRecentSales.mock.calls.filter((call) => (call as unknown as [{ refresh?: boolean }])[0]?.refresh === true)).toHaveLength(0);
-
-    // Every row carries a chevron; no bars, no hint.
-    expect(screen.getAllByTestId('detail-prices-raw-NM-chevron').length).toBeGreaterThan(0);
-    expect(screen.getAllByTestId('detail-prices-rung-9-chevron').length).toBeGreaterThan(0);
-    expect(screen.queryByTestId('detail-prices-hint')).toBeNull();
-
-    fireEvent.press(screen.getByTestId('detail-prices-rung-9'));
-
-    await waitFor(() => {
-      expect(getCardRecentSales).toHaveBeenCalledWith(expect.objectContaining({
-        slabContext: { grader: 'PSA', grade: '9', variantName: 'normal' },
-        refresh: true,
+        grader: 'PSA',
       }));
     });
-    expect(screen.getByTestId('detail-prices-rung-9').props.accessibilityState).toMatchObject({ expanded: true });
-    expect(within(screen.getByTestId('detail-prices-rung-9-expanded')).getByTestId('detail-recent-sales')).toBeTruthy();
-    expect(within(screen.getByTestId('detail-prices-rung-9-expanded')).getByTestId('detail-lowest-listed')).toBeTruthy();
-    // Still the raw lane: the chart never re-charted the grade.
-    expect(within(screen.getByTestId('detail-price-chart-grader-chip')).getByText('RAW')).toBeTruthy();
-
-    // One open at a time: PSA 10 replaces PSA 9.
-    fireEvent.press(screen.getByTestId('detail-prices-rung-10'));
-    await waitFor(() => {
-      expect(screen.getByTestId('detail-prices-rung-10-expanded')).toBeTruthy();
-    });
-    expect(screen.queryByTestId('detail-prices-rung-9-expanded')).toBeNull();
-    // Tapping the open row closes it.
-    fireEvent.press(screen.getByTestId('detail-prices-rung-10'));
-    expect(screen.queryByTestId('detail-prices-rung-10-expanded')).toBeNull();
-    // Reopening PSA 9 is served from the per-row cache.
-    fireEvent.press(screen.getByTestId('detail-prices-rung-9'));
-    expect(screen.getByTestId('detail-prices-rung-9-expanded')).toBeTruthy();
-    expect(capturePostHogEvent).toHaveBeenLastCalledWith('pdp_recent_sales_expanded', expect.objectContaining({
-      grader: 'PSA',
-      grade: '9',
-      cache: 'warm',
-      trigger: 'prices_row',
-    }));
-    // One credit-eligible read per expanded row, never per view.
-    const refreshCalls = getCardRecentSales.mock.calls
-      .map((call) => (call as unknown as [{ refresh?: boolean; slabContext: { grade: string } }])[0])
-      .filter((query) => query.refresh === true);
-    expect(refreshCalls.map((query) => query.slabContext.grade)).toEqual(['9', '10']);
-  });
-
-  it('raw lane: a BGS-tab rung expands BGS comps without changing the lane', async () => {
-    const getCardPriceTrends = ladderTrends({
-      PSA: [{ grade: '10', price: 310 }],
-      BGS: [{ grade: '9.5', price: 150 }],
-    });
-    const getCardRecentSales = jest.fn(async () => recentSalesRecord);
-
-    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
-      spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardRecentSales }),
-    });
-
-    fireEvent.press(await screen.findByTestId('detail-prices-grader-BGS'));
-    fireEvent.press(await screen.findByTestId('detail-prices-rung-9.5'));
-
-    await waitFor(() => {
-      expect(within(screen.getByTestId('detail-prices-rung-9.5-expanded')).getByTestId('detail-recent-sales')).toBeTruthy();
-    });
-    expect(getCardRecentSales).toHaveBeenCalledWith(expect.objectContaining({
-      slabContext: { grader: 'BGS', grade: '9.5', variantName: 'normal' },
-      refresh: true,
-    }));
-    expect(capturePostHogEvent).toHaveBeenCalledWith('pdp_recent_sales_expanded', {
-      grader: 'BGS',
-      grade: '9.5',
-      cache: 'cold',
-      listed_cache: 'cold',
-      trigger: 'prices_row',
-    });
-    expect(within(screen.getByTestId('detail-price-chart-grader-chip')).getByText('RAW')).toBeTruthy();
-  });
-
-  it('raw lane: grader tabs switch the rungs without changing the lane', async () => {
-    const getCardPriceTrends = ladderTrends({
-      PSA: [{ grade: '9', price: 88 }, { grade: '10', price: 310 }],
-      BGS: [{ grade: '9.5', price: 150 }, { grade: '10', price: 420 }, { grade: 'Authentic', price: 9999 }],
-      CGC: [],
-    });
-    const getCardRecentSales = jest.fn(async () => recentSalesRecord);
-
-    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
-      spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardRecentSales }),
-    });
-
-    // Tabs only for priced graders (CGC has none), PSA first by default.
-    const psaTab = await screen.findByTestId('detail-prices-grader-PSA');
-    expect(screen.getByTestId('detail-prices-grader-BGS')).toBeTruthy();
-    expect(screen.queryByTestId('detail-prices-grader-CGC')).toBeNull();
-    expect(psaTab.props.accessibilityState).toMatchObject({ selected: true });
-    // No top-grade caption line.
-    expect(screen.queryByTestId('detail-prices-top')).toBeNull();
-    expect(screen.queryByTestId('detail-prices-top-PSA')).toBeNull();
-    expect(screen.getByTestId('detail-prices-rung-9')).toBeTruthy();
-
-    fireEvent.press(screen.getByTestId('detail-prices-grader-BGS'));
-    expect(await screen.findByTestId('detail-prices-rung-9.5')).toBeTruthy();
-    expect(screen.queryByTestId('detail-prices-rung-9')).toBeNull();
-    expect(screen.getByTestId('detail-prices-grader-BGS').props.accessibilityState).toMatchObject({ selected: true });
-    // Still the raw lane: raw rows chart, no comps were read.
-    expect(screen.getByTestId('detail-prices-raw-NM')).toBeTruthy();
-    expect(getCardRecentSales).not.toHaveBeenCalled();
-
-    // Back to PSA via its tab.
-    fireEvent.press(screen.getByTestId('detail-prices-grader-PSA'));
-    expect(await screen.findByTestId('detail-prices-rung-9')).toBeTruthy();
-    expect(screen.queryByTestId('detail-prices-rung-9.5')).toBeNull();
-  });
-
-  it('graded lane: viewing spends no credit; a tab switches the page lane; a rung expands its comps once', async () => {
-    const getCardPriceTrends = ladderTrends({
-      PSA: [{ grade: '10', price: 310 }],
-      BGS: [{ grade: '10', price: 420 }],
-    });
-    const getCardRecentSales = jest.fn(async () => recentSalesRecord);
-
-    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
-      spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardRecentSales }),
-    });
-
-    fireEvent.press(await screen.findByTestId('detail-price-chart-grader-chip'));
-    fireEvent.press(await screen.findByTestId('detail-price-chart-grader-sheet-option-PSA'));
-    await waitFor(() => {
-      expect(within(screen.getByTestId('detail-price-chart-grader-chip')).getByText('PSA')).toBeTruthy();
-    });
-    expect(await screen.findByTestId('detail-prices-rung-10')).toBeTruthy();
-    const refreshCalls = () => getCardRecentSales.mock.calls
-      .map((call) => (call as unknown as [{ refresh?: boolean; slabContext: { grader: string } }])[0])
-      .filter((query) => query.refresh === true)
-      .map((query) => query.slabContext.grader);
-    expect(refreshCalls()).toEqual([]);
-    expect(screen.queryByTestId('detail-chart-comps')).toBeNull();
-
-    // The tab still switches the page lane.
-    fireEvent.press(screen.getByTestId('detail-prices-grader-BGS'));
-    await waitFor(() => {
-      expect(within(screen.getByTestId('detail-price-chart-grader-chip')).getByText('BGS')).toBeTruthy();
-    });
-    expect(refreshCalls()).toEqual([]);
-
-    fireEvent.press(await screen.findByTestId('detail-prices-rung-10'));
-    await waitFor(() => {
-      expect(within(screen.getByTestId('detail-prices-rung-10-expanded')).getByTestId('detail-recent-sales')).toBeTruthy();
-    });
-    fireEvent.press(screen.getByTestId('detail-prices-rung-10'));
-    fireEvent.press(screen.getByTestId('detail-prices-rung-10'));
-    expect(screen.getByTestId('detail-prices-rung-10-expanded')).toBeTruthy();
-    expect(refreshCalls()).toEqual(['BGS']);
+    // …and the graded rows actually RENDER (not just fetched).
+    expect(await screen.findByTestId('detail-price-trends-row-PSA 10')).toBeTruthy();
   });
 
   // The backend emits two row-key shapes depending on version: the staging shape
@@ -1113,46 +915,36 @@ describe('CardDetailScreen', () => {
     },
   ]);
 
-  it('a raw PRICES row opens TCGplayer for its condition and does not re-chart', async () => {
-    const getCardPriceTrends = ladderTrends({ PSA: [{ grade: '10', price: 200 }] });
-    const baseRepository = createTestSpotlightRepository();
+  it('raw price-trend row deep-links to the card on TCGplayer with the condition filter (no printing)', async () => {
+    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
+      rows: trendRows(query.mode),
+    }));
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
 
     renderWithProviders(
       <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
-      {
-        spotlightRepository: createTestSpotlightRepository({
-          getCardDetail: async (query) => {
-            const detail = await baseRepository.getCardDetail(query);
-            return detail ? ({ ...detail, tcgPlayerProductId: '284137', tcgPlayerVariants: [] } satisfies CardDetailRecord) : null;
-          },
-          getCardPriceTrends,
-        }),
-      },
+      { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
     );
 
-    fireEvent.press(await screen.findByTestId('detail-prices-conditions-toggle'));
-    fireEvent.press(screen.getByTestId('detail-prices-raw-LP'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-NM'));
 
-    const expected = buildTcgPlayerCardUrl({
-      productId: '284137',
-      name: 'Treecko',
-      cardNumber: '#001/096',
-      setName: 'Sky Stream',
-      condition: 'LP',
-      game: 'pokemon',
+    await waitFor(() => {
+      expect(openURL).toHaveBeenCalledTimes(1);
     });
-    expect(expected).toContain('/product/284137?Condition=Lightly+Played');
-    expect(openURL).toHaveBeenCalledTimes(1);
-    expect(openURL).toHaveBeenCalledWith(expected);
+    const url = openURL.mock.calls[0][0] as string;
+    expect(url).toContain('tcgplayer.com/search');
+    expect(url.toLowerCase()).toContain('treecko');
+    // Keep the helpful condition filter…
+    expect(url).toContain('Condition=Near+Mint');
+    // …but never the Printing facet (it over-constrains promos → wrong card).
+    expect(url).not.toContain('Printing=');
+    // Tracked for the "checks pricing" funnel.
     expect(capturePostHogEvent).toHaveBeenCalledWith('pricing_link_opened', {
       marketplace: 'tcgplayer',
       lane: 'raw',
-      surface: 'pdp_prices',
     });
-    // The chart stays on Near Mint.
-    expect(within(screen.getByTestId('detail-price-chart-chip')).getByText('NEAR MINT')).toBeTruthy();
-    openURL.mockRestore();
   });
 
   const recentSalesRecord = {
@@ -1201,8 +993,8 @@ describe('CardDetailScreen', () => {
       spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardRecentSales }),
     });
 
-    // Expanding PSA 10 loads its comps under it.
-    fireEvent.press(await screen.findByTestId('detail-prices-rung-10'));
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
 
     expect(await screen.findByText('Avg. last 3 sales · $101.00')).toBeTruthy();
   });
@@ -1229,13 +1021,13 @@ describe('CardDetailScreen', () => {
       spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardRecentSales }),
     });
 
-    // Expanding PSA 10 loads its comps under it.
-    fireEvent.press(await screen.findByTestId('detail-prices-rung-10'));
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
 
     expect(await screen.findByText('Last sale · $100.00')).toBeTruthy();
   });
 
-  it('an expanded grade\'s last solds load inline under its row (no browser exit)', async () => {
+  it('graded price-trend row expands the inline last-solds accordion (no browser exit)', async () => {
     const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
       mode: query.mode as 'raw' | 'graded',
       provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
@@ -1254,9 +1046,10 @@ describe('CardDetailScreen', () => {
       },
     );
 
-    fireEvent.press(await screen.findByTestId('detail-prices-rung-10'));
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
 
-    // The comps render INLINE under the row — no browser exit.
+    // The row expands INLINE — no browser exit on the row tap itself.
     await waitFor(() => {
       expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
     });
@@ -1273,15 +1066,13 @@ describe('CardDetailScreen', () => {
         refresh: true,
       }),
     );
-    // One load fills BOTH panels, so the event carries both cache states.
+    // One chevron opens BOTH panels, so the expand carries both cache states.
     expect(capturePostHogEvent).toHaveBeenCalledWith('pdp_recent_sales_expanded', {
       grader: 'PSA',
       grade: '10',
       cache: 'cold',
       listed_cache: 'cold',
-      trigger: 'prices_row',
     });
-    expect(within(screen.getByTestId('detail-prices-rung-10-expanded')).getByTestId('detail-recent-sales')).toBeTruthy();
 
     // Paywall off: every sale renders clear, with no blur layer and no upsell.
     expect(screen.getByTestId('detail-recent-sales-sale-0')).toBeTruthy();
@@ -1309,10 +1100,18 @@ describe('CardDetailScreen', () => {
     // this link removed the first time.
     expect(screen.getByTestId('detail-recent-sales-see-more')).toBeTruthy();
 
-    // Re-tapping closes; reopening is served from the per-row cache.
-    fireEvent.press(screen.getByTestId('detail-prices-rung-10'));
+    // The accordion chevron points DOWN while open, UP once collapsed. (The
+    // Tabler icon repeats its testID on its SVG children, hence *All.)
+    expect(screen.getAllByTestId('detail-price-trends-row-PSA 10-chevron-open').length).toBeGreaterThan(0);
+
+    // Second tap on the row collapses the accordion.
+    fireEvent.press(screen.getByTestId('detail-price-trends-row-PSA 10'));
     expect(screen.queryByTestId('detail-recent-sales')).toBeNull();
-    fireEvent.press(screen.getByTestId('detail-prices-rung-10'));
+    expect(screen.getAllByTestId('detail-price-trends-row-PSA 10-chevron-closed').length).toBeGreaterThan(0);
+    expect(screen.queryAllByTestId('detail-price-trends-row-PSA 10-chevron-open')).toHaveLength(0);
+
+    // Re-expand: served from the per-row cache — no second fetch.
+    fireEvent.press(screen.getByTestId('detail-price-trends-row-PSA 10'));
     expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
     // The price chart's own read is cache-only (refresh:false, no credit);
     // only the accordion may ask the backend to refresh.
@@ -1355,8 +1154,8 @@ describe('CardDetailScreen', () => {
       }),
     });
 
-    // Expanding PSA 10 loads its comps under it.
-    fireEvent.press(await screen.findByTestId('detail-prices-rung-10'));
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
 
     const soldLink = await screen.findByTestId('detail-recent-sales-see-more');
     fireEvent.press(soldLink);
@@ -1422,8 +1221,8 @@ describe('CardDetailScreen', () => {
       }),
     });
 
-    // Expanding PSA 10 loads its comps under it.
-    fireEvent.press(await screen.findByTestId('detail-prices-rung-10'));
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
 
     // A sold row and a listing row each open one specific eBay page.
     fireEvent.press(await screen.findByTestId('detail-recent-sales-sale-0'));
@@ -1456,7 +1255,7 @@ describe('CardDetailScreen', () => {
     });
   });
 
-  it('3 clear sales under the chart, then "Show more" reveals the rest in place (no extra fetch)', async () => {
+  it('5 clear sales, then "Show more" reveals the rest in place (no extra fetch)', async () => {
     const manySalesRecord = {
       ...recentSalesRecord,
       saleCount: 8,
@@ -1486,15 +1285,15 @@ describe('CardDetailScreen', () => {
       },
     );
 
-    // Expanding PSA 10 loads its comps under it.
-    fireEvent.press(await screen.findByTestId('detail-prices-rung-10'));
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
     await waitFor(() => {
       expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
     });
 
-    // First slice: 3 clear rows, no blur/subscribe, Show-more present.
-    expect(screen.getByTestId('detail-recent-sales-sale-2')).toBeTruthy();
-    expect(screen.queryByTestId('detail-recent-sales-sale-3')).toBeNull();
+    // First slice: 5 clear rows, no blur/subscribe, Show-more present.
+    expect(screen.getByTestId('detail-recent-sales-sale-4')).toBeTruthy();
+    expect(screen.queryByTestId('detail-recent-sales-sale-5')).toBeNull();
     expect(screen.queryByTestId('detail-recent-sales-locked')).toBeNull();
     expect(screen.queryByTestId('detail-recent-sales-subscribe')).toBeNull();
     fireEvent.press(screen.getByTestId('detail-recent-sales-show-more'));
@@ -1539,8 +1338,8 @@ describe('CardDetailScreen', () => {
       },
     );
 
-    // Expanding PSA 10 loads its comps under it.
-    fireEvent.press(await screen.findByTestId('detail-prices-rung-10'));
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
     await waitFor(() => {
       expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
     });
@@ -1577,8 +1376,8 @@ describe('CardDetailScreen', () => {
       },
     );
 
-    // Expanding PSA 10 loads its comps under it.
-    fireEvent.press(await screen.findByTestId('detail-prices-rung-10'));
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
     await waitFor(() => {
       expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
     });
@@ -1611,7 +1410,8 @@ describe('CardDetailScreen', () => {
       },
     );
 
-    fireEvent.press(await screen.findByTestId('detail-prices-rung-10'));
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA|10|holofoil'));
 
     // The pipe key "PSA|10|<variant>" yields grader=PSA, grade=10 AND carries
     // the printing through to the recent-sales fetch (scopes the backend's
@@ -1639,23 +1439,15 @@ describe('CardDetailScreen', () => {
       { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
     );
 
-    fireEvent.press(await screen.findByTestId('detail-price-chart-tcgplayer'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-provider'));
 
     await waitFor(() => {
       expect(openURL).toHaveBeenCalledTimes(1);
     });
     const url = openURL.mock.calls[0][0] as string;
     expect(url).toContain('tcgplayer.com/search');
-    expect(url.toLowerCase()).toContain('treecko');
-    // Keep the helpful condition filter…
     expect(url).toContain('Condition=Near+Mint');
-    // …but never the Printing facet (it over-constrains promos → wrong card).
     expect(url).not.toContain('Printing=');
-    // Tracked for the "checks pricing" funnel.
-    expect(capturePostHogEvent).toHaveBeenCalledWith('pricing_link_opened', {
-      marketplace: 'tcgplayer',
-      lane: 'raw',
-    });
   });
 
   it('does not make the graded-lane eBay logo a link (its search was inaccurate)', async () => {
@@ -1670,13 +1462,12 @@ describe('CardDetailScreen', () => {
       { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
     );
 
-    // Raw lane: the chart's TCGplayer logo IS a link (covered above). The graded
-    // (eBay) lane has no exact link, so the chart drops the logo.
-    expect(await screen.findByTestId('detail-price-chart-tcgplayer')).toBeTruthy();
-    fireEvent.press(await screen.findByTestId('detail-price-chart-grader-chip'));
-    fireEvent.press(await screen.findByTestId('detail-price-chart-grader-sheet-option-PSA'));
+    // Raw lane: the TCGplayer logo IS a pressable link (covered above). Switch to
+    // the graded (eBay) lane — its logo is now a static image, so the pressable
+    // provider button is absent.
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
     await waitFor(() => {
-      expect(screen.queryByTestId('detail-price-chart-tcgplayer')).not.toBeOnTheScreen();
+      expect(screen.queryByTestId('detail-price-trends-provider')).not.toBeOnTheScreen();
     });
   });
 
@@ -1721,33 +1512,25 @@ describe('CardDetailScreen', () => {
         ? [{ label: 'PSA 10', key: 'PSA 10', currentPrice: 1500, currencyCode: 'USD', points: [1, 2, 3], trendPct: 5 }]
         : [],
     }));
-    const getCardRecentSales = jest.fn(async () => recentSalesRecord);
 
     renderWithProviders(
       <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
-      { spotlightRepository: createTestSpotlightRepository({ getCardDetail, getCardPriceTrends, getCardRecentSales }) },
+      { spotlightRepository: createTestSpotlightRepository({ getCardDetail, getCardPriceTrends }) },
     );
 
-    // The correction flips the seeded Raw default to the PSA graded lane, and
-    // the graded price trends are fetched + rendered (not a blank page)…
+    // The correction flips the seeded Raw default to the PSA graded lane…
+    await waitFor(() => {
+      expect(screen.getByTestId('detail-configurator-grader-PSA').props.accessibilityState?.selected).toBe(true);
+    });
+    expect(screen.getByTestId('detail-configurator-grader-Raw').props.accessibilityState?.selected).toBe(false);
+
+    // …and the graded price trends are fetched + rendered (not a blank page).
     await waitFor(() => {
       expect(getCardPriceTrends).toHaveBeenCalledWith(
         expect.objectContaining({ cardId: 'sm7-1', mode: 'graded', grader: 'PSA' }),
       );
     });
-    expect(await screen.findByTestId('detail-prices-rung-10')).toBeTruthy();
-    await waitFor(() => {
-      expect(within(screen.getByTestId('detail-price-chart-grader-chip')).getByText('PSA')).toBeTruthy();
-    });
-    // …without spending a credit until a row is expanded.
-    expect(getCardRecentSales).not.toHaveBeenCalledWith(expect.objectContaining({ refresh: true }));
-    fireEvent.press(screen.getByTestId('detail-prices-rung-10'));
-    await waitFor(() => {
-      expect(getCardRecentSales).toHaveBeenCalledWith(expect.objectContaining({
-        slabContext: expect.objectContaining({ grader: 'PSA', grade: '10' }),
-        refresh: true,
-      }));
-    });
+    expect(await screen.findByTestId('detail-price-trends-row-PSA 10')).toBeTruthy();
   });
 
   it('a card WITH raw pricing keeps the Raw lane default (no graded auto-switch)', async () => {
@@ -1755,21 +1538,19 @@ describe('CardDetailScreen', () => {
     // pricing.
     const baseRepository = createTestSpotlightRepository();
     const getCardDetail = jest.fn(async (query: { cardId: string }) => baseRepository.getCardDetail(query));
-    const getCardRecentSales = jest.fn(async () => recentSalesRecord);
 
     renderWithProviders(
       <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
-      { spotlightRepository: createTestSpotlightRepository({ getCardDetail, getCardRecentSales }) },
+      { spotlightRepository: createTestSpotlightRepository({ getCardDetail }) },
     );
 
-    // Raw stays selected; the graded auto-switch never fires for a priced card,
-    // so no graded comps are ever read.
+    // Raw stays selected; the graded auto-switch never fires for a priced card.
     await screen.findByTestId('detail-configurator');
     await waitFor(() => {
       expect(screen.getByTestId('detail-configurator-variant-normal').props.accessibilityState?.selected).toBe(true);
     });
-    expect(await screen.findByTestId('detail-prices')).toBeTruthy();
-    expect(getCardRecentSales).not.toHaveBeenCalledWith(expect.objectContaining({ refresh: true }));
+    expect(screen.getByTestId('detail-configurator-grader-Raw').props.accessibilityState?.selected).toBe(true);
+    expect(screen.getByTestId('detail-configurator-grader-PSA').props.accessibilityState?.selected).toBe(false);
   });
 
   it('renders Product Details when the card detail includes cardText', async () => {
@@ -2690,96 +2471,6 @@ describe('CardDetailScreen', () => {
     expect(screen.getByTestId('cache-probe-cost-basis-total')).toHaveTextContent('240');
   });
 
-  it('owned edit: PRICES rows stay view-only (TCGplayer link, comps accordion, tabs) and never touch the save fields', async () => {
-    // A prior test's late trend reads can land in the module cache after afterEach.
-    clearCardDetailCache();
-    const rawEntry: InventoryCardEntry = {
-      addedAt: '2026-04-27T12:00:00.000Z',
-      cardId: 'sm7-1',
-      cardNumber: '#001/096',
-      conditionCode: 'near_mint',
-      conditionLabel: 'Near Mint',
-      conditionShortLabel: 'NM',
-      costBasisPerUnit: null,
-      costBasisTotal: null,
-      currencyCode: 'USD',
-      hasMarketPrice: true,
-      id: 'raw-treecko-normal',
-      imageUrl: 'https://cdn.spotlight.test/sm7/treecko.png',
-      kind: 'raw',
-      marketPrice: 0.31,
-      name: 'Treecko',
-      quantity: 1,
-      setName: 'Sky Stream',
-      slabContext: null,
-      variantName: 'Normal',
-    };
-    const getCardPriceTrends = jest.fn(async (query: { mode: string; grader?: string | null }) => ({
-      mode: query.mode as 'raw' | 'graded',
-      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
-      rows: query.mode === 'graded'
-        ? [{ label: `${query.grader} 10`, key: `${query.grader}|10|normal`, currentPrice: 200, currencyCode: 'USD', points: [1, 2], trendPct: 1 }]
-        : [
-          { label: 'Near Mint', key: 'normal|NM', currentPrice: 20, currencyCode: 'USD', points: [1, 2], trendPct: 1 },
-          { label: 'Lightly Played', key: 'normal|LP', currentPrice: 14, currencyCode: 'USD', points: [1, 2], trendPct: 1 },
-        ],
-    }));
-    const getCardRecentSales = jest.fn(async () => recentSalesRecord);
-    const baseRepository = createTestSpotlightRepository();
-    renderWithProviders(
-      <CardDetailScreen cardId="sm7-1" entryId="raw-treecko-normal" onBack={jest.fn()} />,
-      {
-        spotlightRepository: createTestSpotlightRepository({
-          getCardDetail: async (query) => {
-            const detail = await baseRepository.getCardDetail(query);
-            return detail ? ({ ...detail, ownedEntries: [rawEntry] } satisfies CardDetailRecord) : null;
-          },
-          getCardPriceTrends,
-          getCardRecentSales,
-        }),
-      },
-    );
-
-    // Editing shows the grader chips (the edit field) …
-    const rawChip = await screen.findByTestId('detail-configurator-grader-Raw');
-    expect(rawChip.props.accessibilityState?.selected).toBe(true);
-    // … and PRICES rows stay live, all view-only; no hint.
-    expect(await screen.findByTestId('detail-prices-grader-BGS')).toBeTruthy();
-    fireEvent.press(screen.getByTestId('detail-prices-conditions-toggle'));
-    expect(screen.queryByTestId('detail-prices-hint')).toBeNull();
-    expect(getCardRecentSales).not.toHaveBeenCalledWith(expect.objectContaining({ refresh: true }));
-
-    // Raw row → TCGplayer for that condition.
-    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
-    fireEvent.press(screen.getByTestId('detail-prices-raw-LP'));
-    expect(openURL).toHaveBeenCalledTimes(1);
-    expect(openURL.mock.calls[0]![0]).toContain('Condition=Lightly+Played');
-    expect(capturePostHogEvent).toHaveBeenCalledWith('pricing_link_opened', {
-      marketplace: 'tcgplayer',
-      lane: 'raw',
-      surface: 'pdp_prices',
-    });
-    openURL.mockRestore();
-
-    // The tab switches the section's view only, and a BGS rung expands its comps.
-    fireEvent.press(screen.getByTestId('detail-prices-grader-BGS'));
-    await waitFor(() => {
-      expect(screen.getByTestId('detail-prices-grader-BGS').props.accessibilityState).toMatchObject({ selected: true });
-    });
-    expect(screen.getByTestId('detail-prices-rung-10')).toHaveTextContent(/BGS 10/);
-    fireEvent.press(screen.getByTestId('detail-prices-rung-10'));
-    await waitFor(() => {
-      expect(within(screen.getByTestId('detail-prices-rung-10-expanded')).getByTestId('detail-recent-sales')).toBeTruthy();
-    });
-    expect(getCardRecentSales).toHaveBeenCalledWith(expect.objectContaining({
-      slabContext: { grader: 'BGS', grade: '10', variantName: 'normal' },
-      refresh: true,
-    }));
-    // Never the owned entry's edit fields.
-    expect(screen.getByTestId('detail-configurator-grader-Raw').props.accessibilityState?.selected).toBe(true);
-    expect(screen.getByTestId('detail-owned-edit')).toHaveTextContent(/NEAR MINT/);
-  });
-
   it('Raw→Graded conversion carries the raw print variant onto the slab (per-printing pricing)', async () => {
     // A raw owned entry carries a raw print variant (here "Normal"; in the wild a
     // raw-only stamp like "League Stamp"). When the user switches the grader to
@@ -3071,11 +2762,10 @@ describe('CardDetailScreen', () => {
     });
 
     // Switching to the "Raw" chip refetches trends with the new variant label.
-    // (Not "last": the grade ladder also reads the graded lane.)
     fireEvent.press(screen.getByTestId('detail-configurator-variant-raw'));
 
     await waitFor(() => {
-      expect(getCardPriceTrends).toHaveBeenCalledWith(expect.objectContaining({
+      expect(getCardPriceTrends).toHaveBeenLastCalledWith(expect.objectContaining({
         cardId: 'sm7-1',
         mode: 'raw',
         variant: 'Raw',
@@ -3374,12 +3064,11 @@ describe('CardDetailScreen', () => {
     type TrendList = Awaited<
       ReturnType<ReturnType<typeof createTestSpotlightRepository>['getCardPriceTrends']>
     >;
-    // Per mode: PRICES reads the graded lanes once the raw one lands.
-    const resolvers: Record<string, (value: TrendList) => void> = {};
+    let resolveTrends: ((value: TrendList) => void) | null = null;
     const getCardPriceTrends = jest.fn(
-      (query: { mode: string }) =>
+      () =>
         new Promise<TrendList>((resolve) => {
-          resolvers[query.mode] = resolve;
+          resolveTrends = resolve;
         }),
     );
 
@@ -3388,11 +3077,11 @@ describe('CardDetailScreen', () => {
       { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
     );
 
-    // While the fetch is pending the skeleton stands in for PRICES.
+    // While the fetch is pending the skeleton stands in for the list.
     expect(await screen.findByTestId('detail-price-trends-skeleton')).toBeTruthy();
-    expect(screen.queryByTestId('detail-prices')).toBeNull();
+    expect(screen.queryByTestId('detail-price-trends')).toBeNull();
 
-    const resolve = resolvers.raw;
+    const resolve = resolveTrends as ((value: TrendList) => void) | null;
     await act(async () => {
       resolve?.({
         mode: 'raw',
@@ -3410,9 +3099,9 @@ describe('CardDetailScreen', () => {
       });
     });
 
-    // Once data lands PRICES replaces the skeleton.
+    // Once data lands the list replaces the skeleton.
     await waitFor(() => {
-      expect(screen.getByTestId('detail-prices-raw-near_mint')).toBeTruthy();
+      expect(screen.getByTestId('detail-price-trends')).toBeTruthy();
     });
     expect(screen.queryByTestId('detail-price-trends-skeleton')).toBeNull();
   });
@@ -3446,15 +3135,12 @@ describe('CardDetailScreen', () => {
       { spotlightRepository: repository },
     );
 
-    // The screen reads through the cache → PRICES renders…
+    // The screen reads through the cache → the trend list renders…
     await waitFor(() => {
-      expect(screen.getByTestId('detail-prices-raw-near_mint')).toBeTruthy();
+      expect(screen.getByTestId('detail-price-trends')).toBeTruthy();
     });
-    // …and the default raw/Normal lane was NOT re-requested over the network
-    // (PRICES' graded-lane reads are different lanes).
-    const rawCalls = (getCardPriceTrends.mock.calls as unknown as [{ mode: string }][])
-      .filter(([query]) => query.mode === 'raw');
-    expect(rawCalls).toHaveLength(callsAfterPrefetch);
+    // …and the default raw/Normal lane was NOT re-requested over the network.
+    expect(getCardPriceTrends).toHaveBeenCalledTimes(callsAfterPrefetch);
   });
 
   /*
@@ -3587,8 +3273,7 @@ describe('CardDetailScreen', () => {
       const frameStyle = StyleSheet.flatten(screen.getByTestId('detail-hero-card-frame').props.style);
       expect(frameStyle.aspectRatio).toBe(1);
 
-      // Card-only surfaces are gone (no PRICES card: sealed keeps its one row).
-      expect(screen.queryByTestId('detail-prices')).toBeNull();
+      // Card-only surfaces are gone.
       expect(screen.queryByTestId('detail-configurator')).toBeNull();
       expect(screen.queryByTestId('detail-configurator-grader-PSA')).toBeNull();
       expect(screen.queryByTestId('detail-owned-edit')).toBeNull();

@@ -27,24 +27,4 @@ describe('CardConfigurator variant chips', () => {
     const label = within(screen.getByTestId('configurator-variant-third')).getByText('THIRD ANNIVERSARY');
     expect(label.props.numberOfLines).toBe(1);
   });
-
-  it('hides the Grader row when given no graders (the PDP outside owned edit)', () => {
-    renderWithProviders(
-      <CardConfigurator
-        graders={[]}
-        languages={[]}
-        onSelectGrader={jest.fn()}
-        onSelectLanguage={jest.fn()}
-        onSelectVariant={jest.fn()}
-        selectedGrader="Raw"
-        selectedLanguage="EN"
-        selectedVariant={null}
-        testID="configurator"
-        variants={[]}
-      />,
-    );
-
-    expect(screen.queryByText('GRADER')).toBeNull();
-    expect(screen.queryByTestId('configurator-grader-Raw')).toBeNull();
-  });
 });

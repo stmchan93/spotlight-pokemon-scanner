@@ -240,8 +240,7 @@ describe('CardDetailScreen price chart', () => {
       spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardRecentSales }),
     });
 
-    fireEvent.press(await screen.findByTestId('detail-price-chart-grader-chip'));
-    fireEvent.press(await screen.findByTestId('detail-price-chart-grader-sheet-option-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
 
     expect(await screen.findByTestId('detail-price-chart-empty')).toBeTruthy();
     expect(getCardRecentSales).toHaveBeenCalledWith({
@@ -256,49 +255,5 @@ describe('CardDetailScreen price chart', () => {
     expect(screen.queryByTestId('detail-price-chart-delta-suffix')).toBeNull();
     // Graded comps have no exact TCGplayer page: no logo link.
     expect(screen.queryByTestId('detail-price-chart-tcgplayer')).toBeNull();
-    // Viewing the graded lane spends nothing: only the cache-only read ran.
-    const calls = getCardRecentSales.mock.calls as unknown as [{ refresh?: boolean }][];
-    expect(calls.filter(([query]) => query.refresh === true)).toHaveLength(0);
-  });
-
-  it('a PRICES raw row opens TCGplayer and leaves the chart on its condition', async () => {
-    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
-    const getCardConditionHistory = jest.fn(async () => rawHistory());
-    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
-      spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardConditionHistory }),
-    });
-
-    expect(within(await screen.findByTestId('detail-price-chart-chip')).getByText('NEAR MINT')).toBeTruthy();
-    fireEvent.press(await screen.findByTestId('detail-prices-conditions-toggle'));
-    fireEvent.press(screen.getByTestId('detail-prices-raw-LP'));
-
-    expect(openURL).toHaveBeenCalledTimes(1);
-    expect(openURL.mock.calls[0]![0]).toContain('Condition=Lightly+Played');
-    expect(within(screen.getByTestId('detail-price-chart-chip')).getByText('NEAR MINT')).toBeTruthy();
-    // Raw rows no longer collapse the toggle away.
-    expect(screen.getByTestId('detail-prices-conditions-toggle')).toHaveTextContent('Show less');
-    openURL.mockRestore();
-  });
-
-  it('a raw row tapped from the graded lane opens TCGplayer and keeps the graded chart', async () => {
-    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
-    const getCardConditionHistory = jest.fn(async () => rawHistory());
-    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
-      spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardConditionHistory }),
-    });
-
-    fireEvent.press(await screen.findByTestId('detail-price-chart-grader-chip'));
-    fireEvent.press(await screen.findByTestId('detail-price-chart-grader-sheet-option-PSA'));
-    await waitFor(() => {
-      expect(within(screen.getByTestId('detail-price-chart-grader-chip')).getByText('PSA')).toBeTruthy();
-    });
-    // Raw rows stay listed in the graded lane (read from the raw lane).
-    fireEvent.press(await screen.findByTestId('detail-prices-conditions-toggle'));
-    fireEvent.press(await screen.findByTestId('detail-prices-raw-LP'));
-
-    expect(openURL).toHaveBeenCalledTimes(1);
-    expect(openURL.mock.calls[0]![0]).toContain('Condition=Lightly+Played');
-    expect(within(screen.getByTestId('detail-price-chart-grader-chip')).getByText('PSA')).toBeTruthy();
-    openURL.mockRestore();
   });
 });

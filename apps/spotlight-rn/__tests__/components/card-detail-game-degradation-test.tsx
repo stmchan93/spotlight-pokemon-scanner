@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react-native';
+import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { useRouter } from 'expo-router';
 
 import type { CardDetailRecord } from '@spotlight/api-client';
@@ -70,66 +70,54 @@ describe('card detail degrades by game capability', () => {
   }));
 
   it('offers no grading lane on a One Piece card, but keeps Raw so it is still ownable', async () => {
-    const getCardPriceTrends = priceTrendsFor();
     renderWithProviders(
       <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
       {
         spotlightRepository: createTestSpotlightRepository({
           getCardDetail: detailForGame('onepiece'),
-          getCardPriceTrends,
         }),
       },
     );
 
-    // PRICES shows RAW only, and no graded lane is ever read.
-    expect(await screen.findByTestId('detail-prices-raw-NM')).toBeTruthy();
-    expect(screen.queryByTestId('detail-prices-graded')).toBeNull();
-    // Raw rows still link out; no graded row offers a chevron.
-    expect(screen.getAllByTestId('detail-prices-raw-NM-chevron').length).toBeGreaterThan(0);
-    expect(screen.queryAllByTestId(/^detail-prices-rung-.*-chevron$/)).toHaveLength(0);
-    expect(getCardPriceTrends.mock.calls.some(([query]) => query.mode === 'graded')).toBe(false);
+    await screen.findByTestId('detail-configurator');
+    expect(screen.getByTestId('detail-configurator-grader-Raw')).toBeTruthy();
+    for (const grader of ['PSA', 'BGS', 'CGC']) {
+      expect(screen.queryByTestId(`detail-configurator-grader-${grader}`)).toBeNull();
+    }
   });
 
   it("offers Lorcana its OWN graders, not Pokémon's four", async () => {
     // Lorcana's priced slabs span eight companies; handing it the Pokémon set
     // would hide most of its data and invent lanes it doesn't use.
-    const getCardPriceTrends = priceTrendsFor();
     renderWithProviders(
       <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
       {
         spotlightRepository: createTestSpotlightRepository({
           getCardDetail: detailForGame('lorcana'),
-          getCardPriceTrends,
         }),
       },
     );
 
-    // PRICES reads one lane per grader the game offers.
-    expect(await screen.findByTestId('detail-prices-grader-SGC')).toBeTruthy();
-    expect(screen.getByTestId('detail-prices-grader-TAG')).toBeTruthy();
-    const gradedLanes = getCardPriceTrends.mock.calls
-      .map(([query]) => query as { mode: string; grader?: string | null })
-      .filter((query) => query.mode === 'graded')
-      .map((query) => query.grader);
-    expect(gradedLanes).toEqual(expect.arrayContaining(['SGC', 'TAG']));
+    await screen.findByTestId('detail-configurator');
+    expect(screen.getByTestId('detail-configurator-grader-SGC')).toBeTruthy();
+    expect(screen.getByTestId('detail-configurator-grader-TAG')).toBeTruthy();
   });
 
   it('keeps all four Pokémon lanes when the payload carries no game at all', async () => {
     // A backend predating multi-game sends none. Reading that as "unknown"
     // would strip PSA pricing off every card already in the app.
-    const getCardPriceTrends = priceTrendsFor();
     renderWithProviders(
       <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
       {
         spotlightRepository: createTestSpotlightRepository({
           getCardDetail: detailForGame(undefined),
-          getCardPriceTrends,
         }),
       },
     );
 
-    for (const grader of ['PSA', 'BGS', 'CGC']) {
-      expect(await screen.findByTestId(`detail-prices-grader-${grader}`)).toBeTruthy();
+    await screen.findByTestId('detail-configurator');
+    for (const grader of ['Raw', 'PSA', 'BGS', 'CGC']) {
+      expect(screen.getByTestId(`detail-configurator-grader-${grader}`)).toBeTruthy();
     }
   });
 
@@ -167,13 +155,12 @@ describe('card detail degrades by game capability', () => {
       },
     );
 
-    // Expanding the PSA 10 row loads its comps inline under it.
-    fireEvent.press(await screen.findByTestId('detail-prices-rung-10'));
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
 
     await waitFor(() => {
       expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
     });
-    expect(within(screen.getByTestId('detail-prices-rung-10-expanded')).getByTestId('detail-recent-sales')).toBeTruthy();
     expect(getCardRecentSales).toHaveBeenCalled();
   });
 
@@ -207,13 +194,12 @@ describe('card detail degrades by game capability', () => {
       },
     );
 
-    // Expanding the PSA 10 row loads its comps inline under it.
-    fireEvent.press(await screen.findByTestId('detail-prices-rung-10'));
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
 
     await waitFor(() => {
       expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
     });
-    expect(within(screen.getByTestId('detail-prices-rung-10-expanded')).getByTestId('detail-recent-sales')).toBeTruthy();
     expect(getCardRecentSales).toHaveBeenCalled();
   });
 });

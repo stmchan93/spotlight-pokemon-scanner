@@ -83,8 +83,7 @@ describe('card detail marketplace link', () => {
       },
     );
 
-    // Raw rows chart now; the chart's TCGplayer logo is the link.
-    fireEvent.press(await screen.findByTestId('detail-price-chart-tcgplayer'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-NM'));
     await waitFor(() => {
       expect(openURL).toHaveBeenCalledTimes(1);
     });
