@@ -685,7 +685,8 @@ export interface SpotlightRepository {
    * Export the requesting user's holdings (deck entries) as CSV text. Owner-scoped
    * server-side. Returns the raw CSV body (the response is text/csv, not JSON).
    */
-  exportDeckEntriesCsv(): Promise<string>;
+  /** Owner-scoped CSV; `collectionId` exports just that collection, omitted = all. */
+  exportDeckEntriesCsv(collectionId?: string | null): Promise<string>;
   setPortfolioEntryQuantity(payload: SetPortfolioEntryQuantityRequestPayload): Promise<SetPortfolioEntryQuantityResponsePayload>;
   updateDeckEntryCostBasis(payload: UpdateDeckEntryCostBasisRequestPayload): Promise<UpdateDeckEntryCostBasisResponsePayload>;
   createPortfolioSale(payload: PortfolioSaleRequestPayload): Promise<PortfolioSaleResponsePayload>;
@@ -5769,7 +5770,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return { deleted: true };
   }
 
-  async exportDeckEntriesCsv(): Promise<string> {
+  async exportDeckEntriesCsv(_collectionId?: string | null): Promise<string> {
     return 'name,set,number,quantity\n';
   }
 
@@ -8819,10 +8820,11 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     });
   }
 
-  async exportDeckEntriesCsv(): Promise<string> {
+  async exportDeckEntriesCsv(collectionId?: string | null): Promise<string> {
     // The response is text/csv, not JSON, so it's fetched via requestText and
     // returned verbatim as the raw CSV body. Owner-scoped server-side.
-    return this.requestTextOrThrow(`${this.baseUrl}/api/v1/deck/entries/export`, {
+    const query = collectionId ? `?collectionId=${encodeURIComponent(collectionId)}` : '';
+    return this.requestTextOrThrow(`${this.baseUrl}/api/v1/deck/entries/export${query}`, {
       method: 'GET',
       headers: {
         Accept: 'text/csv',

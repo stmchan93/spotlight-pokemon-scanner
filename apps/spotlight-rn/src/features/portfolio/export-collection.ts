@@ -27,14 +27,21 @@ function loadSharingModule(): SharingModule | null {
   }
 }
 
+export type CollectionExportOutcome = 'shared' | 'empty' | 'failed';
+
 /**
  * Fetch the user's holdings as CSV from the backend, write it to a temp file,
  * and hand it to the OS share sheet (iOS surfaces "Save to Files"; Android
  * shows the system share targets). Owner-scoping is enforced server-side.
+ * `collectionId` exports one collection; omitted = every collection. Errors are
+ * alerted here; the outcome is returned for analytics.
  */
-export async function exportCollectionCsv(repository: SpotlightRepository): Promise<void> {
+export async function exportCollectionCsv(
+  repository: SpotlightRepository,
+  collectionId?: string | null,
+): Promise<CollectionExportOutcome> {
   try {
-    const csv = await repository.exportDeckEntriesCsv();
+    const csv = await repository.exportDeckEntriesCsv(collectionId ?? null);
 
     // Empty body or a header-only CSV (no data rows) means there's nothing to
     // export. Split on newlines and drop blank lines to decide.
@@ -42,8 +49,11 @@ export async function exportCollectionCsv(repository: SpotlightRepository): Prom
       .split(/\r?\n/)
       .filter((line) => line.trim().length > 0);
     if (nonEmptyLines.length <= 1) {
-      Alert.alert('Nothing to export', 'Your collection is empty.');
-      return;
+      Alert.alert(
+        'Nothing to export',
+        collectionId ? 'This collection is empty.' : 'Your collection is empty.',
+      );
+      return 'empty';
     }
 
     const today = new Date().toISOString().slice(0, 10);
@@ -75,8 +85,10 @@ export async function exportCollectionCsv(repository: SpotlightRepository): Prom
     if (!sharedViaModule) {
       await Share.share({ url: fileUri });
     }
+    return 'shared';
   } catch (error) {
     Alert.alert('Export failed', readableErrorMessage(error));
+    return 'failed';
   }
 }
 

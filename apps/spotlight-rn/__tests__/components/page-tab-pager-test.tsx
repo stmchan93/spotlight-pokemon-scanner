@@ -655,16 +655,46 @@ describe('CollapsibleTabPager', () => {
     }
 
     // THE REGRESSION. Collection is active and has never reported an offset;
-    // For Sale is sitting exactly at its own top. Nothing should move it.
-    it('leaves a page that is already at its top alone', () => {
+    // For Sale is sitting exactly at its own top. Nothing may move it AWAY from
+    // there (re-asserting the top it already holds is a native no-op).
+    it('keeps a page that is already at its top at its top', () => {
       const scrollToOffset = renderWithPageRefs({ forsale: -INSET });
 
       swipeLeft();
 
-      expect(scrollToOffset).not.toHaveBeenCalledWith(
-        expect.objectContaining({ offset: 0 }),
-      );
+      scrollToOffset.mock.calls.forEach(([options]) => {
+        expect(options).toEqual({ offset: -INSET, animated: false });
+      });
+    });
+
+    // A page that has never reported mounted this commit and is resting at its
+    // top. Scrolling it to `pageTop` before UIKit applies its safe-area inset
+    // parks it there, and UIKit then adds the inset again: a status bar of
+    // white under the tab bar.
+    it('never sends a never-reported page to the top it already rests at', () => {
+      const scrollToOffset = renderWithPageRefs({});
+
+      swipeLeft();
+
       expect(scrollToOffset).not.toHaveBeenCalled();
+    });
+
+    // A touch that lands while the page is still bouncing past its top records
+    // an offset in the pull-down band; restoring to it with
+    // `scrollToOverflowEnabled` would park the page there for good.
+    it('never restores the active page into the pull-down band above its top', () => {
+      const scrollToOffset = renderWithPageRefs({ collection: -INSET - 40 });
+
+      drag(
+        { x: 400, y: 400 },
+        [{ x: 340, y: 404 }, { x: 240, y: 406 }, { x: 140, y: 408 }],
+        { afterTouchDown: () => reportScroll('collection', -INSET - 20) },
+      );
+
+      expect(scrollToOffset).toHaveBeenCalledWith({ offset: -INSET, animated: false });
+      scrollToOffset.mock.calls.forEach(([options]) => {
+        expect(options.offset).toBeGreaterThanOrEqual(-INSET);
+      });
     });
 
     it('parks the other pages at the active page top, not at zero', () => {
@@ -850,6 +880,10 @@ describe('CollapsibleTabPager', () => {
           return style.transform[0].translateY;
         },
         growInset: () => press('grow-inset'),
+        /** Moves a page with NO scroll event, as a throttle-dropped one is. */
+        moveSilently: (tab: Tab, travelledFromTop: number) => {
+          landedAt.set(tab, -inset + travelledFromTop);
+        },
         /** How far a page is RESTING from its own top, in points. */
         restingTravelFromTop: (tab: Tab) => (landedAt.get(tab) as number) + inset,
         scrollPage: (tab: Tab, travelledFromTop: number) => {
@@ -926,10 +960,8 @@ describe('CollapsibleTabPager', () => {
       pager.tap('collection');
 
       expect(pager.chromeTranslate()).toBe(0);
-      expect(pager.scrollToOffset).toHaveBeenCalledWith('collection', {
-        offset: -INSET,
-        animated: false,
-      });
+      expect(pager.restingTravelFromTop('collection')).toBe(0);
+      expect(pager.restingTravelFromTop('activity')).toBe(0);
     });
 
     // The page you LEFT is reset too, so coming back is a fresh page rather than
@@ -959,10 +991,49 @@ describe('CollapsibleTabPager', () => {
       pager.scrollToOffset.mockClear();
 
       // A swipe now grants against pages that are all at the top, so its sync
-      // has nothing to do. A stale 341 would have dragged them all back down.
+      // keeps them there. A stale 341 would have dragged them all back down.
       swipeLeft();
 
-      expect(pager.scrollToOffset).not.toHaveBeenCalled();
+      pager.scrollToOffset.mock.calls.forEach(([, options]) => {
+        expect(options).toEqual({ offset: -INSET, animated: false });
+      });
+      TABS.forEach((tab) => {
+        expect(pager.restingTravelFromTop(tab)).toBe(0);
+      });
+      expect(pager.chromeTranslate()).toBe(0);
+    });
+
+    /*
+      THE WATCHLIST GAP (2026-11-23). iOS drops any scroll inside the 16ms
+      `scrollEventThrottle` window with no trailing event, so a page can move —
+      UIKit re-applying its safe-area inset, for one — without the pager ever
+      hearing. The sync used to skip a page whose LAST REPORTED offset already
+      matched the target, which left that page a whole inset below its top,
+      under a fully expanded header, through every swipe after.
+    */
+    // The other half: a tap that opens a lazily mounted tab must not scroll
+    // that just-mounted page, whose UIKit inset may not have landed yet.
+    it('does not scroll a page that has never reported when a tap resets', () => {
+      const pager = renderTappablePager();
+
+      pager.tap('activity');
+
+      expect(pager.scrollToOffset).not.toHaveBeenCalledWith('activity', expect.anything());
+      expect(pager.restingTravelFromTop('activity')).toBe(0);
+    });
+
+    it('re-aligns a page whose last reported offset is stale on the next swipe', () => {
+      const pager = renderTappablePager();
+
+      // For Sale reports its top, then is moved an inset further down without
+      // an event reaching the pager.
+      pager.scrollPage('forsale', 0);
+      pager.moveSilently('forsale', -INSET);
+      expect(pager.restingTravelFromTop('forsale')).toBe(-INSET);
+
+      swipeLeft();
+
+      expect(pager.restingTravelFromTop('forsale')).toBe(0);
       expect(pager.chromeTranslate()).toBe(0);
     });
 

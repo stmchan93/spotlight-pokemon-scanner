@@ -51,12 +51,6 @@ type PortfolioBalanceHeaderProps = {
   isValueKnown?: boolean;
   /** Eyebrow over the balance — the active collection's name (Figma 5938:16783). */
   label?: string;
-  /**
-   * One quiet line under the change row when holdings are left out of the
-   * total because their price was withheld ("2 cards not counted — no recent
-   * price"). Null/absent renders nothing.
-   */
-  excludedNote?: string | null;
   onToggleHidden: () => void;
   testIDPrefix?: string;
 };
@@ -82,7 +76,6 @@ export function PortfolioBalanceHeader({
   isSummaryHidden,
   isValueKnown = true,
   label = 'Portfolio',
-  excludedNote = null,
   onToggleHidden,
   testIDPrefix = 'portfolio',
 }: PortfolioBalanceHeaderProps) {
@@ -181,15 +174,6 @@ export function PortfolioBalanceHeader({
           </Text>
         ) : null}
       </View>
-      {excludedNote ? (
-        <Text
-          numberOfLines={1}
-          style={[styles.excludedNote, { color: theme.colors.gray600 }]}
-          testID={`${testIDPrefix}-summary-excluded-note`}
-        >
-          {excludedNote}
-        </Text>
-      ) : null}
     </View>
   );
 }
@@ -270,8 +254,5 @@ const styles = StyleSheet.create({
   // it — kept for scrub UX on the same role as the balance label).
   dateText: {
     ...textStyles.overline,
-  },
-  excludedNote: {
-    ...textStyles.caption,
   },
 });

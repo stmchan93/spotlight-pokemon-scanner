@@ -92,19 +92,34 @@ export function PageTabs<V extends string>({
   // Scrollable only: keep the selected tab inside the viewport.
   const scrollRef = useRef<ScrollView>(null);
   const tabFrames = useRef<Partial<Record<string, LayoutRectangle>>>({});
-  const viewport = useRef({ x: 0, width: 0 });
+  const viewport = useRef({ x: 0, width: 0, contentWidth: 0 });
   const revealSelected = (animated: boolean) => {
     const frame = tabFrames.current[value];
-    const { x, width } = viewport.current;
+    const { x, width, contentWidth } = viewport.current;
     if (!scrollable || !frame || width === 0) {
       return;
     }
-    // Keep one gutter of air beyond the tab so the neighbour still peeks in.
+    // Start the rail on a TAB BOUNDARY — the leftmost one that still shows the
+    // selected tab whole. Only nudging the selected tab into view left the rail
+    // wherever a far tab had pushed it: back on WATCHLIST from MARKET
+    // ANALYTICS, the first tab stayed sliced to "ON" at the left edge. Now the
+    // left edge always shows a whole label and any cut-off falls on the right,
+    // where it reads as "more this way".
     const margin = spacing.sm;
-    if (frame.x + frame.width + margin > x + width) {
-      scrollRef.current?.scrollTo({ x: frame.x + frame.width + margin - width, animated });
-    } else if (frame.x - margin < x) {
-      scrollRef.current?.scrollTo({ x: Math.max(0, frame.x - margin), animated });
+    const maxX = Math.max(0, (contentWidth || frame.x + frame.width) - width);
+    const fits = (left: number) =>
+      frame.x - margin >= left - 0.5 && frame.x + frame.width + margin <= left + width + 0.5;
+    const boundaries = [
+      0,
+      ...Object.values(tabFrames.current)
+        .map((tabFrame) => (tabFrame ? tabFrame.x - margin : 0))
+        .sort((a, b) => a - b),
+    ].map((left) => Math.min(Math.max(0, left), maxX));
+    const target = boundaries.find(fits)
+      // A tab wider than the rail: centre it.
+      ?? Math.min(Math.max(0, frame.x + frame.width / 2 - width / 2), maxX);
+    if (Math.abs(target - x) >= 1) {
+      scrollRef.current?.scrollTo({ x: target, animated });
     }
   };
   const revealRef = useRef(revealSelected);
@@ -216,6 +231,10 @@ export function PageTabs<V extends string>({
           contentContainerStyle={styles.scrollContent}
           horizontal
           keyboardShouldPersistTaps="handled"
+          onContentSizeChange={(contentWidth) => {
+            viewport.current.contentWidth = contentWidth;
+            revealRef.current(false);
+          }}
           onLayout={(event) => {
             viewport.current.width = event.nativeEvent.layout.width;
             revealRef.current(false);

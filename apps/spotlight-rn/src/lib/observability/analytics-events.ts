@@ -35,6 +35,19 @@ export const AnalyticsEvent = {
   settingsOpened: 'settings_opened',
   settingsItemTapped: 'settings_item_tapped',
 
+  // Collection picker (Home's collection switcher). No collection names or ids.
+  // switched carries `is_default_target`, `collection_count`;
+  // created carries `collection_count_after`.
+  collectionPickerOpened: 'collection_picker_opened',
+  collectionSwitched: 'collection_switched',
+  collectionCreated: 'collection_created',
+
+  // Collection CSV export. All carry `scope` (all | single) and `source` (settings);
+  // succeeded also carries `empty` (nothing to export). tapped fires once the scope is chosen.
+  collectionExportTapped: 'collection_export_tapped',
+  collectionExportSucceeded: 'collection_export_succeeded',
+  collectionExportFailed: 'collection_export_failed',
+
   // Swipe chain across the bottom tabs. Carries `from_tab`, `to_tab`, `direction` (next | previous).
   tabSwipeNavigated: 'tab_swipe_navigated',
 
