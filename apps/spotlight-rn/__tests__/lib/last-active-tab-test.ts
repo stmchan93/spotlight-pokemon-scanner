@@ -14,8 +14,9 @@ describe('last active tab', () => {
     expect(returnableTabFromPathname('/')).toBe('index');
     expect(returnableTabFromPathname('')).toBe('index');
     expect(returnableTabFromPathname('/search')).toBe('search');
-    // A redirect to Home now, not a tab.
-    expect(returnableTabFromPathname('/wishlist')).toBeNull();
+    // The WATCHLIST tab (internal route name `wishlist`).
+    expect(returnableTabFromPathname('/wishlist')).toBe('wishlist');
+    expect(returnableTabFromPathname('/wishlist?tab=market')).toBe('wishlist');
     expect(returnableTabFromPathname('/social')).toBe('social');
     // A pushed screen, not a tab.
     expect(returnableTabFromPathname('/settings')).toBeNull();

@@ -6,7 +6,7 @@ import { rememberActiveTab } from '@/lib/last-active-tab';
 /**
  * The bottom tabs: an Instagram-style horizontal pager with our own tab bar.
  *
- *   Home [Collection, …] | Scan | Search | Social [Social, News, Market, Events]
+ *   Home [Collection, …] | Search | Scan | Watchlist [Watchlist, Market Analytics] | Social [For you, Your posts, Events]
  *
  * Settings is not a page: Home's gear bubble pushes `/settings`.
  *
@@ -16,8 +16,8 @@ import { rememberActiveTab } from '@/lib/last-active-tab';
  * React Navigation navigator (`useNavigationBuilder` + TabRouter, with the same
  * REPLACE override expo-router's `<Tabs>` uses) wrapped by `withLayoutContext`,
  * so EXPO-ROUTER STAYS THE SOURCE OF TRUTH:
- *   - the focused route sets the strip's page: `/`, `/scan`, `/search`,
- *     `/social`, deep links, notification routing, `router.push`,
+ *   - the focused route sets the strip's page: `/`, `/search`, `/scan`,
+ *     `/wishlist`, `/social`, deep links, notification routing, `router.push`,
  *     guest redirects and Android back all just change navigator state, and the
  *     strip animates there;
  *   - a settled swipe dispatches JUMP_TO for the page it came to rest on;
@@ -32,7 +32,7 @@ import { rememberActiveTab } from '@/lib/last-active-tab';
  * with each page's inner pager and every gesture conflict are documented in the
  * navigator file.
  *
- * `index` is Collection; `/you`, `/portfolio` and `/wishlist` (-> `?tab=watchlist`) are redirect routes to it, and
+ * `index` is Collection; `/you` and `/portfolio` are redirect routes to it, and
  * `/events` redirects to `/social?tab=events`. None of them are pages.
  */
 export default function TabsLayout() {

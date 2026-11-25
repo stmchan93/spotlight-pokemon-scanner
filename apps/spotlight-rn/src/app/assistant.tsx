@@ -6,7 +6,7 @@ import type { AssistantSetRef } from '@spotlight/api-client';
 import { parseAssistantRouteParams } from '@/features/assistant/assistant-route';
 import { AssistantScreen } from '@/features/assistant/screens/assistant-screen';
 import { LOGIN_HREF } from '@/features/auth/use-guest-gate';
-import { HOME_WATCHLIST_HREF } from '@/lib/home-profile-tab';
+import { WATCHLIST_HREF } from '@/lib/watchlist-tab';
 
 /**
  * `/assistant?source=home|scanner&cardIds=a,b&threadId=…&game=…&page=<json>&prompt=…` — Ask Ekalight, opened by
@@ -40,8 +40,8 @@ export default function AssistantRoute() {
       }),
     [leaveTo],
   );
-  // Home on its WATCHLIST profile tab — the same place a deal-alert tap lands.
-  const openWatchlist = useCallback(() => leaveTo(HOME_WATCHLIST_HREF as Href), [leaveTo]);
+  // The WATCHLIST tab — the same place a deal-alert tap lands.
+  const openWatchlist = useCallback(() => leaveTo(WATCHLIST_HREF as Href), [leaveTo]);
   const openLogin = useCallback(() => leaveTo(LOGIN_HREF), [leaveTo]);
 
   return (

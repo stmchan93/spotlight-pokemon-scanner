@@ -28,17 +28,25 @@ describe('AppTabBar', () => {
     mockRaster = null;
   });
 
-  it('labels the four tabs in bar order, in capitals (Figma 6725:9509)', () => {
+  it('labels the five tabs in bar order, in capitals (Figma 6775:16938)', () => {
     renderBar();
     const labels = screen.UNSAFE_getAllByType(Text).map((node) => node.props.children);
-    expect(labels).toEqual(['HOME', 'SCAN', 'SEARCH', 'SOCIAL']);
+    expect(labels).toEqual(['HOME', 'SEARCH', 'SCAN', 'WATCHLIST', 'SOCIAL']);
     expect(screen.queryByTestId('app-tab-settings')).toBeNull();
     // Owner rule: never "Wishlist" in any casing — not in a label, not in a spoken label.
     expect(Object.values(TAB_BAR_LABELS)).not.toContain('WISHLIST');
     expect(screen.queryByText(/wishlist/i)).toBeNull();
     expect(screen.getByTestId('app-tab-search').props.accessibilityLabel).toBe('search');
-    // Watchlist is a Home profile tab now, not a bar item.
-    expect(screen.queryByTestId('app-tab-wishlist')).toBeNull();
+    expect(screen.getByTestId('app-tab-wishlist').props.accessibilityLabel).toBe('watchlist');
+  });
+
+  it('draws WATCHLIST from the eye rasters, outline + filled', () => {
+    renderBar();
+    const sources = screen
+      .getByTestId('app-tab-wishlist')
+      .findAll((node: { props: { source?: unknown } }) => node.props.source != null)
+      .map((node: { props: { source?: unknown } }) => node.props.source);
+    expect(new Set(sources).size).toBeGreaterThanOrEqual(2);
   });
 
   it('draws the Search tab from its outline + filled magnifier rasters', () => {
@@ -61,16 +69,17 @@ describe('AppTabBar', () => {
   });
 
   it('marks the focused page selected for accessibility', () => {
-    renderBar(1);
+    renderBar(2);
     expect(screen.getByTestId('app-tab-scan').props.accessibilityState).toEqual({ selected: true });
     expect(screen.getByTestId('app-tab-index').props.accessibilityState).toEqual({ selected: false });
   });
 
   it('reports taps by page index, including a re-tap of the focused page (scroll-to-top)', () => {
-    const onSelectPage = renderBar(2);
+    const onSelectPage = renderBar(1);
     fireEvent.press(screen.getByTestId('app-tab-social'));
+    fireEvent.press(screen.getByTestId('app-tab-wishlist'));
     fireEvent.press(screen.getByTestId('app-tab-search'));
-    expect(onSelectPage.mock.calls).toEqual([[3], [2]]);
+    expect(onSelectPage.mock.calls).toEqual([[4], [3], [1]]);
   });
 
   it('has no Settings control: Settings lives on Home (Figma 6731:9875)', () => {
@@ -116,7 +125,7 @@ describe('AppTabBar', () => {
   });
 
   it('never fades the light material: the dark slab covers it on Scan instead', () => {
-    renderBar(1);
+    renderBar(2);
     // An effect view at alpha < 1 can come back see-through after a
     // full-screen presentation ("the footer glass disappears").
     expect(StyleSheet.flatten(screen.getByTestId('app-tab-bar-blur').props.style).opacity).toBeUndefined();

@@ -4,17 +4,16 @@
  * maths. Everything a gesture worklet calls is marked `'worklet'` so the same
  * function runs on the UI thread in the app and in plain JS under jest.
  *
- *   Home [Collection, …] | Scan | Search | Social [For you, …, Events]
+ *   Home [Collection, …] | Search | Scan | Watchlist [Watchlist, Market Analytics] | Social [For you, …, Events]
  *
- * Order per Figma "Tab Bar - iPhone" (6725:9509). Settings is not a page: it is
- * Home's gear bubble, pushing the `/settings` stack route.
- * Watchlist left the bar for a tab of the Home profile (Figma 6642:5964), and
- * Events for a page of Social; `/wishlist` and `/events` survive as redirect
- * routes, not pages.
+ * Order per Figma "Tab Bar - iPhone" (6775:16938). Settings is not a page: it is
+ * Home's gear bubble, pushing the `/settings` stack route. The Watchlist page's
+ * route keeps its internal name, `wishlist`. Events is a page of Social;
+ * `/events` survives as a redirect route, not a page.
  */
 
 /** Bottom-tab route names in strip order, left -> right. The one place it is defined. */
-export const TAB_PAGER_ORDER = ['index', 'scan', 'search', 'social'] as const;
+export const TAB_PAGER_ORDER = ['index', 'search', 'scan', 'wishlist', 'social'] as const;
 
 export type PagerTab = (typeof TAB_PAGER_ORDER)[number];
 
@@ -24,7 +23,7 @@ export const SCAN_PAGE_INDEX = TAB_PAGER_ORDER.indexOf('scan');
 
 /**
  * The tabs a GUEST can open: Scan, Search and Social (it shows a guest its
- * Events page). Home needs an account — tapping it opens sign-in and stays put.
+ * Events page). Home and Watchlist need an account — tapping one opens sign-in and stays put.
  * Guests can't swipe the strip at all; they tap. The Settings button beside the
  * bar is open to guests too (its gated rows open sign-in).
  */
@@ -44,7 +43,7 @@ export type LandingEdge = 'first' | 'last';
 /** Where a page's own inner pager is. `null` for pages without one. */
 export type InnerPagePosition = { count: number; index: number };
 
-/** Strip index of a route, or -1 for routes that are not pages (`/you`, `/portfolio`, `/wishlist`, `/events` redirects). */
+/** Strip index of a route, or -1 for routes that are not pages (`/you`, `/portfolio`, `/events` redirects). */
 export function pageIndexForRoute(routeName: string | undefined): number {
   return TAB_PAGER_ORDER.indexOf(routeName as PagerTab);
 }

@@ -46,23 +46,40 @@ describe('mobile app routing', () => {
     expect(await screen.findByTestId('search-tab-stub')).toBeTruthy();
   });
 
-  // Watchlist left the bar for a Home profile tab. `/wishlist` (old links,
-  // pushes already sent) redirects to Home with `tab=watchlist`, the param the
-  // profile honours — it selects the tab, then clears the param so a later
-  // visit to Home doesn't snap back to it.
-  it('redirects /wishlist to Home on its WATCHLIST profile tab', async () => {
+  // WATCHLIST is a bottom tab again (Figma 6775:16938), at its internal route
+  // name `/wishlist`, so old links and pushes already sent land on it.
+  it('opens /wishlist as the WATCHLIST tab, on its WATCHLIST page', async () => {
     const app = renderAppRouter('/wishlist');
 
     await waitFor(() => {
-      expect(app.getPathname()).toBe('/');
+      expect(app.getPathname()).toBe('/wishlist');
     });
     await waitFor(() => {
-      expect(screen.getByTestId('portfolio-profile-tabs-tab-watchlist').props.accessibilityState)
-        .toEqual({ selected: true });
+      expect(screen.getByTestId('watchlist-tab-tabs-tab-watchlist').props.accessibilityState)
+        .toEqual(expect.objectContaining({ selected: true }));
+    });
+  });
+
+  // `/wishlist?tab=market` selects MARKET ANALYTICS, then clears the param so
+  // the same link works again.
+  it('opens /wishlist?tab=market on MARKET ANALYTICS', async () => {
+    const app = renderAppRouter('/wishlist');
+    await waitFor(() => {
+      expect(screen.getByTestId('watchlist-tab-tabs-tab-watchlist')).toBeTruthy();
+    });
+
+    act(() => {
+      router.push('/wishlist?tab=market');
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('watchlist-tab-tabs-tab-market').props.accessibilityState)
+        .toEqual(expect.objectContaining({ selected: true }));
     });
     await waitFor(() => {
       expect(app.getSearchParams().tab).toBeUndefined();
     });
+    expect(app.getPathname()).toBe('/wishlist');
   });
 
   it('renders the sales-history route directly', async () => {

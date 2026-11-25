@@ -99,7 +99,8 @@ import { useAuth } from '@/providers/auth-provider';
   inner pager under the finger is cancelled, not tapped.
 
   GESTURE CONFLICTS, and how each is resolved
-   - Inner pagers (Home Collection/Activity, Social Social/News/Market — JS
+   - Inner pagers (Home's profile tabs, Watchlist Watchlist/Market Analytics,
+     Social For you/Your posts/Events — JS
      PanResponders): the hand-off rule above, fed by `useTabPagerInnerPosition`.
    - Horizontal chip rows / horizontal lists (`PageSwipeGuard`: Collection
      filters, Watchlist filters, Social game chips + Events regions,
@@ -108,7 +109,7 @@ import { useAuth } from '@/providers/auth-provider';
      is never taken. Same JS-responder guard as before for the inner pagers.
    - Watchlist + Deal Radar swipe-to-delete rows (`Swipeable`, -15pt): the row
      is wrapped in a `next`-only guard — leftward drags are the row's, rightward
-     still page back to Home; an OPEN rail guards both ways.
+     still page back to the previous tab; an OPEN rail guards both ways.
    - Portfolio chart scrub: its own RNGH Pan activates at 6pt (and the hold at
      250ms), before this one decides, and RNGH cancels us — composition, no flag.
    - Scanner: the tray carries the guard composed `Simultaneous` with its own

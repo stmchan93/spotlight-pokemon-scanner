@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { GuestScannerRedirect } from '@/features/auth/components/guest-scanner-redirect';
@@ -14,6 +14,7 @@ import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
 import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 import { HOME_PROFILE_TAB_PARAM, parseHomeProfileTabParam } from '@/lib/home-profile-tab';
+import { MARKET_ANALYTICS_HREF, WATCHLIST_HREF } from '@/lib/watchlist-tab';
 
 /**
  * Home — your own collection, and the landing surface after login.
@@ -42,6 +43,13 @@ export default function HomeRoute() {
   const clearRequestedProfileTab = useCallback(() => {
     router.setParams({ [HOME_PROFILE_TAB_PARAM]: undefined } as never);
   }, [router]);
+  // Watchlist and Market Analytics moved to the WATCHLIST bottom tab; old
+  // `/?tab=watchlist|market` links (pushes, assistant replies) land there.
+  useEffect(() => {
+    if (requestedProfileTab === 'watchlist' || requestedProfileTab === 'market') {
+      router.replace(requestedProfileTab === 'market' ? MARKET_ANALYTICS_HREF : WATCHLIST_HREF);
+    }
+  }, [requestedProfileTab, router]);
   // Signed in, the app opens on the Scanner; Home is only the route it starts on.
 
   // Collection is gated for guests, so there is nothing to show them here. Send

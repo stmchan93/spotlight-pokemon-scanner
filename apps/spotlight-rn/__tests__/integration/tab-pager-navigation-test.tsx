@@ -25,6 +25,7 @@ const STUBS = {
   '(tabs)/index': makeStub('index'),
   '(tabs)/search': makeStub('search'),
   '(tabs)/scan': makeStub('scan'),
+  '(tabs)/wishlist': makeStub('wishlist'),
   '(tabs)/social': makeStub('social'),
 };
 
@@ -49,7 +50,7 @@ describe('tab pager <-> expo-router', () => {
   it('draws the same blur under the bar on every tab page, and none on Scan', async () => {
     renderAppRouter('/', STUBS);
     await waitFor(() => expect(screen.getByTestId('stub-index')).toBeTruthy());
-    for (const path of ['/scan', '/search', '/social'] as const) {
+    for (const path of ['/scan', '/search', '/wishlist', '/social'] as const) {
       act(() => {
         router.push(path);
       });
@@ -58,7 +59,7 @@ describe('tab pager <-> expo-router', () => {
     const backdropOn = (page: string) =>
       screen.getByTestId(`tab-pager-page-${page}`, { includeHiddenElements: true })
         .findAll((node: { props: { testID?: string } }) => node.props.testID === 'tab-bar-backdrop-blur').length > 0;
-    expect(['index', 'search', 'social'].map(backdropOn)).toEqual([true, true, true]);
+    expect(['index', 'search', 'wishlist', 'social'].map(backdropOn)).toEqual([true, true, true, true]);
     expect(backdropOn('scan')).toBe(false);
   });
 
@@ -155,6 +156,16 @@ describe('tab pager <-> expo-router', () => {
     // One bar everywhere; the scanner slab is a layer of it.
     expect(screen.getAllByTestId('app-tab-bar')).toHaveLength(1);
     expect(screen.getByTestId('app-tab-bar-dark')).toBeTruthy();
+  });
+
+  it('opens /wishlist as the WATCHLIST page of the strip', async () => {
+    const app = renderAppRouter('/wishlist', STUBS);
+    await waitFor(() => expect(screen.getByTestId('stub-wishlist')).toBeTruthy());
+    expect(app.getPathname()).toBe('/wishlist');
+    expect(stubText('wishlist')).toBe('focused:portfolio');
+    expect(screen.getByTestId('app-tab-wishlist').props.accessibilityState).toEqual({ selected: true });
+    fireEvent.press(screen.getByTestId('app-tab-social'));
+    await waitFor(() => expect(app.getPathname()).toBe('/social'));
   });
 
   it('redirects /events onto Social, opening its Events page', async () => {

@@ -59,6 +59,7 @@ export const TAB_BAR_LABELS: Record<PagerTab, string> = {
   index: 'HOME',
   search: 'SEARCH',
   scan: 'SCAN',
+  wishlist: 'WATCHLIST',
   social: 'SOCIAL',
 };
 
@@ -112,6 +113,11 @@ const TAB_ICONS: Partial<Record<PagerTab, { outline: ImageSourcePropType; filled
   search: {
     outline: require('../../../assets/images/tab-icons/search.png'),
     filled: require('../../../assets/images/tab-icons/search-filled.png'),
+  },
+  // Figma 6775:16938: iconoir Eye; selected = iconoir solid Eye.
+  wishlist: {
+    outline: require('../../../assets/images/tab-icons/wishlist.png'),
+    filled: require('../../../assets/images/tab-icons/wishlist-filled.png'),
   },
 };
 

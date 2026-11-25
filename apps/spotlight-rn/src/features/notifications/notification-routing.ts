@@ -2,7 +2,7 @@ import {
   FEED_MARKET_FALLBACK_URL,
   isFeedMarketRoutePath,
 } from '@/features/meta-feed/feed-market-routes';
-import { HOME_WATCHLIST_HREF } from '@/lib/home-profile-tab';
+import { WATCHLIST_HREF } from '@/lib/watchlist-tab';
 import { resolveFeedMarketBlocksEnabled } from '@/lib/runtime-config';
 
 /**
@@ -14,11 +14,9 @@ import { resolveFeedMarketBlocksEnabled } from '@/lib/runtime-config';
  */
 
 /**
- * Where an untargeted/unroutable deal push lands: Home on its WATCHLIST tab.
- * (Pushes that still carry `/wishlist` reach the same place through the
- * `(tabs)/wishlist` redirect.)
+ * Where an untargeted/unroutable deal push lands: the WATCHLIST tab (`/wishlist`).
  */
-export const DEAL_NOTIFICATION_FALLBACK_URL: string = HOME_WATCHLIST_HREF;
+export const DEAL_NOTIFICATION_FALLBACK_URL: string = WATCHLIST_HREF;
 
 export type NotificationRoute = {
   /** An in-app absolute path, always safe to hand to the router. */

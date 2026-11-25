@@ -50,7 +50,7 @@ export function resolveScreenName(pathname: string) {
     return 'account';
   }
 
-  // `/wishlist` is a redirect to Home's WATCHLIST tab now; it can show for a frame.
+  // `/wishlist` is the WATCHLIST tab (its MARKET ANALYTICS page included).
   if (isPathOrChild(pathname, '/wishlist')) {
     return 'watchlist';
   }

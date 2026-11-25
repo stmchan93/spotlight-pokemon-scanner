@@ -68,6 +68,7 @@ import { setDevFeedItemsOverride, setDevSocialOverrides } from '@/features/socia
 import { useTopMovers } from '@/features/market/use-top-movers';
 import { TargetPriceSheet } from '@/features/wishlist/components/target-price-sheet';
 import { WishlistScreen } from '@/features/wishlist/screens/wishlist-screen';
+import { WatchlistTabScreen } from '@/features/wishlist/screens/watchlist-tab-screen';
 import {
   createDevRepository,
   DEV_EXPANSION_ID,
@@ -141,6 +142,9 @@ const devScreens: Record<string, () => ReactElement> = {
   'portfolio-masterset': () => <PortfolioScreen requestedProfileTab="masterset" />,
   'portfolio-watchlist': () => <PortfolioScreen requestedProfileTab="watchlist" />,
   'portfolio-market': () => <PortfolioScreen requestedProfileTab="market" />,
+  // The WATCHLIST bottom tab's two pages (Figma 6775:16938).
+  'watchlist-tab': () => <WatchlistTabScreen />,
+  'watchlist-tab-market': () => <WatchlistTabScreen requestedTab="market" />,
   // Market Analytics alone, scrolled to each section (the sim has no scroll
   // input), plus the heatmap zoomed into 151.
   'market-analytics': () => <DevMarketAnalytics />,
