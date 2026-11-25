@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Bell, NavArrowLeft, Xmark } from 'iconoir-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -266,6 +266,13 @@ export function GameSetsScreen({
   // card page pops back to this screen.
   const searchFieldRef = useRef<TextInput>(null);
   const [openingResultId, setOpeningResultId] = useState<string | null>(null);
+  // Double-tap guard for the push only: cleared when the card page pops back,
+  // or the same result could never be opened again.
+  useFocusEffect(
+    useCallback(() => {
+      setOpeningResultId(null);
+    }, []),
+  );
 
   // The backend returns `release_date DESC NULLS LAST, name ASC` — newest first;
   // grouping keeps that order inside each era.

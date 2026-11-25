@@ -11,6 +11,11 @@ import { type SetListRow } from '@/features/catalog/set-progress';
 
 import { renderWithProviders } from '../test-utils';
 
+jest.mock('expo-router', () => ({
+  ...jest.requireActual('expo-router'),
+  useFocusEffect: (callback: () => void | (() => void)) => require('react').useEffect(callback, [callback]),
+}));
+
 /**
  * Search (Figma 6597:5654). Game CHIPS switch games in place — they replaced
  * the old game grid. The landing has SINGLES and SEALED rails and the first
