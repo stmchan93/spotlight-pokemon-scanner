@@ -34,6 +34,8 @@ type CardRecentSalesPanelProps = {
   onSeeMoreOnEbayPress?: (context: { hasRows: boolean }) => void;
   /** A single sold row was opened on eBay (analytics; the row opens itself). */
   onSalePress?: () => void;
+  /** Rows shown before "Show more" (default 5). */
+  initialVisible?: number;
   testID?: string;
 };
 
@@ -165,6 +167,7 @@ export function CardRecentSalesPanel({
   onShowMorePress,
   onSeeMoreOnEbayPress,
   onSalePress,
+  initialVisible = INITIAL_VISIBLE_SALES,
   testID = 'recent-sales-panel',
 }: CardRecentSalesPanelProps) {
   const theme = useSpotlightTheme();
@@ -218,7 +221,7 @@ export function CardRecentSalesPanel({
   }
 
   // 5 clear rows on expand, then Show more expands to the full fetched page.
-  const visibleSales = showAllSales ? sales : sales.slice(0, INITIAL_VISIBLE_SALES);
+  const visibleSales = showAllSales ? sales : sales.slice(0, initialVisible);
   const hiddenCount = sales.length - visibleSales.length;
 
   return (

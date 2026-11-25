@@ -70,8 +70,9 @@ describe('card detail for a TCGplayer-only card', () => {
       },
     );
 
-    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
-    expect(await screen.findByTestId('detail-price-trends-row-PSA 10')).toBeTruthy();
+    // PRICES carries the PSA grades under RAW, read without switching lanes.
+    expect(await screen.findByTestId('detail-prices-rung-10')).toBeTruthy();
+    expect(screen.getByTestId('detail-prices-raw-NM')).toBeTruthy();
   });
 
   it('hides graded lanes for a TCGplayer-only Pokémon card, keeping Raw', async () => {
@@ -85,13 +86,11 @@ describe('card detail for a TCGplayer-only card', () => {
       },
     );
 
-    await screen.findByTestId('detail-configurator');
-    expect(screen.getByTestId('detail-configurator-grader-Raw')).toBeTruthy();
-    for (const grader of ['PSA', 'BGS', 'CGC']) {
-      expect(screen.queryByTestId(`detail-configurator-grader-${grader}`)).toBeNull();
-    }
-    // Raw price still shows.
-    expect(await screen.findByTestId('detail-price-trends')).toBeTruthy();
+    // PRICES is RAW only: no graded group, and the page asks for no graded lane.
+    expect(await screen.findByTestId('detail-prices-raw-NM')).toHaveTextContent(/\$100\.00/);
+    expect(screen.queryByTestId('detail-prices-graded')).toBeNull();
+    expect(screen.queryByTestId('detail-configurator-grader-PSA')).toBeNull();
+    expect(priceTrends.mock.calls.some(([query]) => query.mode === 'graded')).toBe(false);
   });
 
   it('hides an empty card number instead of showing "--"', async () => {

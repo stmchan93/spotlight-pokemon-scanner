@@ -18,6 +18,7 @@ type CardConfiguratorProps = {
   variantsLoading?: boolean;
   selectedVariant: string | null;
   onSelectVariant: (id: string) => void;
+  /** Empty hides the Grader row (the PDP shows it only while editing an owned entry). */
   graders: string[];
   selectedGrader: string | null;
   onSelectGrader: (grader: string) => void;
@@ -154,21 +155,23 @@ export function CardConfigurator({
         </View>
       ) : null}
 
-      <View style={[styles.group, { gap: 8 }]}>
-        <GroupTitle theme={theme}>Grader</GroupTitle>
-        <View style={[styles.chipRow, { gap: 10 }]}>
-          {graders.map((grader) => (
-            <OptionChip
-              key={grader}
-              label={grader}
-              onPress={() => onSelectGrader(grader)}
-              selected={grader === selectedGrader}
-              testID={testID ? `${testID}-grader-${grader}` : undefined}
-              theme={theme}
-            />
-          ))}
+      {graders.length > 0 ? (
+        <View style={[styles.group, { gap: 8 }]}>
+          <GroupTitle theme={theme}>Grader</GroupTitle>
+          <View style={[styles.chipRow, { gap: 10 }]}>
+            {graders.map((grader) => (
+              <OptionChip
+                key={grader}
+                label={grader}
+                onPress={() => onSelectGrader(grader)}
+                selected={grader === selectedGrader}
+                testID={testID ? `${testID}-grader-${grader}` : undefined}
+                theme={theme}
+              />
+            ))}
+          </View>
         </View>
-      </View>
+      ) : null}
     </View>
   );
 }
